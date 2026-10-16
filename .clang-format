@@ -1,0 +1,27 @@
+---
+Language: Cpp
+BasedOnStyle: LLVM
+
+# --- Core Indentation and Bracing ---
+IndentWidth: 4
+UseTab: Never
+AccessModifierOffset: -4
+BraceWrapping:
+  AfterFunction:   true
+ContinuationIndentWidth: 4
+BreakBeforeBraces: Attach
+AllowShortIfStatementsOnASingleLine: Never
+PointerAlignment: Left
+
+# --- Line Breaking and Wrapping ---
+ColumnLimit: 100
+BinPackArguments: true
+BinPackParameters: true
+BreakBeforeBinaryOperators: All
+BreakBeforeTernaryOperators: true
+AlignOperands: Align
+AllowShortFunctionsOnASingleLine: All
+
+# --- Other Important Deviations ---
+SpaceBeforeParens: ControlStatements
+...

@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+#
+# pre-push: the FULL tier — the gate, on the tree you are about to publish.
+#
+# from AI-DEV-STARTER (plunk-in kit) — if you edit this file, say why in INCIDENTS.md.
+# Install as .githooks/pre-push and arm it once per clone:
+#
+#     git config core.hooksPath .githooks
+#
+# For C++ it also requires a clean worktree and proves the COMMITTED tree is complete
+# by building and testing a pristine checkout of HEAD. For deno/python the same script
+# is already the whole gate and already includes its own clean-checkout story.
+#
+# Deliberate bypass when you need one:  git push --no-verify
+#
+set -uo pipefail
+
+root=$(git rev-parse --show-toplevel) || exit 1
+
+if [ -x "$root/tools/ci.sh" ]; then
+    # kitprobes is in this list on purpose: a fix that must propagate ships a probe, and the
+    # push is the last moment a repo can notice it is behind one (it runs in under a second
+    # and needs no kit checkout). Docs: KIT-REVISION-CONVENTION.md.
+    # This hook names the tier rather than repeating the stages: the list is ci.sh's
+    # CI_FULL_STAGES, which is deliberately NOT CI_DEFAULT_STAGES — a repo that extends the
+    # default list must not silently change what a push runs. A stage that exists but never
+    # runs is a decoration, and the tier that decides that is in one place, checked by
+    # probes/hook-tiers-agree.sh.
+    exec "$root/tools/ci.sh" --require-clean full
+fi
+
+if [ -x "$root/scripts/gate.sh" ]; then
+    exec "$root/scripts/gate.sh"
+fi
+
+printf 'pre-push: no gate found. Expected %s/tools/ci.sh (C++) or %s/scripts/gate.sh (deno/python).\n' \
+    "$root" "$root" >&2
+exit 1

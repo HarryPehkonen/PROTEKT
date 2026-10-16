@@ -1,0 +1,21 @@
+# --- the gate's own footprint -------------------------------------------------
+# tools/ci.sh's `tree` stage FAILS when any of these would show up as an untracked file,
+# so this block is load-bearing, not tidiness. Keep it in step with .ci.env.example.
+.ci-logs/
+build/
+build-*/
+.ci.env
+
+# NOT ignored on purpose: .ci/ holds the clang-tidy baseline
+# (.ci/tidy-baseline.txt), which is meant to be committed.
+
+# --- editors / OS -------------------------------------------------------------
+.DS_Store
+*.swp
+
+# --- fuzzing ------------------------------------------------------------------
+fuzz/corpus/
+fuzz/crash-*
+fuzz/leak-*
+fuzz/timeout-*
+fuzz/oom-*

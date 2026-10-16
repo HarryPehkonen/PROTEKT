@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+#
+# pre-commit: the FAST tier — the part of the gate that must be seconds, not minutes.
+#
+# from AI-DEV-STARTER (plunk-in kit) — if you edit this file, say why in INCIDENTS.md.
+# Install as .githooks/pre-commit and arm it once per clone:
+#
+#     git config core.hooksPath .githooks
+#
+# Nothing leaves the machine to make this work: no GitHub, no service, no account.
+# It is the same gate a human runs by hand and the nightly clean checkout runs.
+#
+# Deliberate bypass when you need one:  git commit --no-verify
+#
+set -uo pipefail
+
+root=$(git rev-parse --show-toplevel) || exit 1
+
+# C++: a full run is minutes, so commit gets the fast tier — the stages that answer "is the
+# file I am about to commit usable?" in seconds. The list is ci.sh's CI_FAST_STAGES, and this
+# hook names the tier rather than repeating it, so the two cannot drift apart.
+if [ -x "$root/tools/ci.sh" ]; then
+    exec "$root/tools/ci.sh" fast
+fi
+
+# Deno / Python: the whole gate is already seconds. Run all of it here so a broken
+# commit never leaves your machine.
+if [ -x "$root/scripts/gate.sh" ]; then
+    exec "$root/scripts/gate.sh"
+fi
+
+# No gate found is a failure, not a warning: a silently unarmed gate is worse than
+# no gate, because it looks armed.
+printf 'pre-commit: no gate found. Expected %s/tools/ci.sh (C++) or %s/scripts/gate.sh (deno/python).\n' \
+    "$root" "$root" >&2
+exit 1

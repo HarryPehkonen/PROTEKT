@@ -1,0 +1,13 @@
+HeaderFilterRegex: 'include/planet/.*\.hpp$|tests/.*\.cpp$|src/.*\.cpp$'
+# Value-only set, deliberately: real bug patterns and performance. Style lives in
+# clang-format (a style family here fights the codebase's conventions and buries the
+# signal). Same curation as the sibling C++ repos — see CODING_STANDARDS.md rule 4.
+# bugprone-easily-swappable-parameters is off because a sim is made of adjacent ints and
+# floats (x, y, z, tick, id) and the check has no way to tell a bug from a design.
+Checks: '-*,bugprone-*,-bugprone-easily-swappable-parameters,performance-*'
+
+CheckOptions:
+  - key: readability-function-cognitive-complexity.IgnoreMacros
+    value: true
+  - key: readability-function-cognitive-complexity.Threshold
+    value: 30
