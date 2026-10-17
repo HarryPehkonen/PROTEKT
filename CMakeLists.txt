@@ -42,6 +42,8 @@ endfunction()
 # ================================ core ================================
 add_library(protekt_core STATIC
     src/version.cpp
+    src/rng.cpp
+    src/world/world.cpp
 )
 target_include_directories(protekt_core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
@@ -56,9 +58,17 @@ if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
 
     add_executable(protekt_tests
         tests/test_version.cpp
+        tests/test_rng.cpp
+        tests/test_world.cpp
     )
     target_link_libraries(protekt_tests PRIVATE protekt_core GTest::gtest_main)
     protekt_warnings(protekt_tests)
 
     add_test(NAME protekt_tests COMMAND protekt_tests)
+
+    # The map CLI exists so that determinism can be checked ACROSS processes, which no unit
+    # test can do: run it twice with the same seed and the bytes must match.
+    add_executable(protekt-map src/app/map_cli.cpp)
+    target_link_libraries(protekt-map PRIVATE protekt_core)
+    protekt_warnings(protekt-map)
 endif()
