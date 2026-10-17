@@ -1,0 +1,51 @@
+#pragma once
+
+#include <cstdint>
+
+#include "protekt/input/input.hpp"
+
+/// Which keys are down, and what they mean. The first half is here (SDL scancodes in, a set of held
+/// keys out); the second half lives in `game/session.cpp`, because "W means go forward" is a game
+/// rule, not an input rule.
+namespace protekt::input {
+
+/// USB HID usage codes, which is what SDL scancodes are. Named so the game, the tests and the
+/// window agree about a key without any of them including SDL.
+inline constexpr std::int32_t kKeyA = 4;
+inline constexpr std::int32_t kKeyD = 7;
+inline constexpr std::int32_t kKeyS = 22;
+inline constexpr std::int32_t kKeyW = 26;
+
+/// The movement keys, as a state rather than as a stream of events: a tank keeps going while a key
+/// is held, and a missed key-up would otherwise drive it into a wall forever.
+struct HeldKeys {
+    bool forward{};
+    bool back{};
+    bool left{};
+    bool right{};
+
+    [[nodiscard]] bool any() const noexcept { return forward || back || left || right; }
+};
+
+/// Fold one key event into the held state. Keys the game does not use are ignored, and a key-down
+/// for a key that is already down (the window sends those: the OS repeats them) changes nothing.
+inline void apply(HeldKeys& keys, const KeyEvent& event) noexcept {
+    switch (event.scancode) {
+    case kKeyW:
+        keys.forward = event.pressed;
+        break;
+    case kKeyS:
+        keys.back = event.pressed;
+        break;
+    case kKeyA:
+        keys.left = event.pressed;
+        break;
+    case kKeyD:
+        keys.right = event.pressed;
+        break;
+    default:
+        break; // not a movement key: the game does not care
+    }
+}
+
+} // namespace protekt::input

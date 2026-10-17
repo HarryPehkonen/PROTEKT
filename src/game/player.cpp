@@ -19,6 +19,10 @@ const InputState& PlayerCommander::input() const noexcept { return input_; }
 float PlayerCommander::heading() const noexcept { return heading_; }
 sim::UnitId PlayerCommander::unit() const noexcept { return unit_; }
 
+void PlayerCommander::set_heading(float radians) noexcept {
+    heading_ = Camera::wrap_angle(radians);
+}
+
 void PlayerCommander::think(const ai::Observation& observation, std::vector<sim::Order>& out) {
     heading_ = Camera::wrap_angle(heading_ + kTurnRatePerTick * input_.turn);
 

@@ -11,8 +11,10 @@
 #include <vector>
 
 #include "protekt/ai/commander.hpp"
-#include "protekt/game/player.hpp"
 #include "protekt/game/scene.hpp"
+#include "protekt/game/session.hpp"
+#include "protekt/input/bindings.hpp"
+#include "protekt/input/input.hpp"
 #include "protekt/render/renderer.hpp"
 #include "protekt/sim/scenario.hpp"
 #include "protekt/sim/sim.hpp"
@@ -34,6 +36,9 @@ struct Options {
     std::string capture{};
     std::string gpu{};
     bool headless{false};
+    /// Holds W for the whole run. For verifying that the world moves under the hull on a machine
+    /// with no keyboard -- the window itself needs a pair of hands.
+    bool autodrive{false};
 };
 
 template <typename T> bool parse_number(std::string_view text, T& value) {
@@ -58,6 +63,8 @@ int parse_args(std::span<const std::string_view> args, Options& options, std::os
         std::string_view value;
         if (arg == "--headless") {
             options.headless = true;
+        } else if (arg == "--autodrive") {
+            options.autodrive = true;
         } else if (arg == "--seed") {
             if (!next(value)) {
                 return 2;
@@ -206,33 +213,53 @@ int run_game_cli(std::span<const std::string_view> args, std::ostream& out, std:
         return 1;
     }
 
-    game::PlayerCommander player(player_id);
+    // One object for the player's whole side of the frame: the tank he is in and the units he
+    // commands. `app` decides what to present; `game::Session` decides what the input MEANS.
+    game::Session session{player_id};
     ai::ScriptedCommander enemy;
 
     std::vector<std::uint8_t> last_frame;
+    std::string last_message;
     for (std::uint32_t frame = 0; frame < options.frames; ++frame) {
+        input::InputFrame hands{};
 #ifdef PROTEKT_HAVE_WINDOW
-        if (window != nullptr && !window->pump_events()) {
-            out << "protekt-game: window closed after " << frame << " frames\n";
-            break;
+        if (window != nullptr) {
+            if (!window->pump_events()) {
+                out << "protekt-game: window closed after " << frame << " frames\n";
+                break;
+            }
+            hands = window->input();
         }
 #endif
+        if (options.autodrive) {
+            hands.keys.push_back(input::KeyEvent{input::kKeyW, true, false});
+        }
+
+        // What the player can see, as of the end of the last frame. The picking needs the camera,
+        // and one frame of staleness is invisible: the tank does not teleport.
+        game::SceneOptions scene_options;
+        scene_options.seed = options.seed;
+        scene_options.camera = camera_for(sim, player_id, session.heading(), options.seed);
+        scene_options.extent = extent;
+        scene_options.radius_tiles = 24;
+
+        std::vector<sim::Order> orders;
+        session.frame(hands, sim, scene_options, orders);
+        enemy.think(ai::observe(sim, sim::Side::Enemy), orders);
+        for (const sim::Order& order : orders) {
+            sim.enqueue(order);
+        }
+        if (!session.message().empty() && session.message() != last_message) {
+            out << "protekt-game: " << session.message() << '\n';
+            last_message = std::string(session.message());
+        }
         for (std::uint32_t tick = 0; tick < options.ticks_per_frame; ++tick) {
-            std::vector<sim::Order> orders;
-            player.think(ai::observe(sim, sim::Side::Player), orders);
-            enemy.think(ai::observe(sim, sim::Side::Enemy), orders);
-            for (const sim::Order& order : orders) {
-                sim.enqueue(order);
-            }
             sim.step();
         }
 
-        game::SceneOptions scene_options;
-        scene_options.seed = options.seed;
-        scene_options.camera = camera_for(sim, player_id, player.heading(), options.seed);
-        scene_options.extent = extent;
-        scene_options.radius_tiles = 24;
-        const render::Scene scene = game::build_scene(sim, scene_options);
+        scene_options.camera = camera_for(sim, player_id, session.heading(), options.seed);
+        const render::Scene scene
+            = game::build_scene(sim, scene_options, session.selection().units());
 
         render::FrameStats stats{};
         render::FrameRequest request;

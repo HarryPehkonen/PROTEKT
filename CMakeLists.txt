@@ -78,13 +78,16 @@ add_library(protekt_game STATIC
     src/game/scene.cpp
     src/game/player.cpp
     src/game/pick.cpp
+    src/game/interaction.cpp
+    src/game/session.cpp
+    src/game/navigate.cpp
     src/app/game.cpp
 )
 target_include_directories(protekt_game PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_BINARY_DIR}/generated
 )
-target_link_libraries(protekt_game PUBLIC protekt_core)
+target_link_libraries(protekt_game PUBLIC protekt_core protekt_cmd)
 protekt_warnings(protekt_game)
 # ================================ render ================================
 # Vulkan is OPTIONAL at build time: a machine with no loader or no shader compiler still builds
@@ -222,7 +225,9 @@ if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
     target_sources(protekt_tests PRIVATE tests/test_scene.cpp tests/test_player.cpp
                                         tests/test_game_cli.cpp tests/test_selection.cpp
                                         tests/test_command.cpp tests/test_controller.cpp
-                                        tests/test_pick.cpp tests/test_input.cpp)
+                                        tests/test_pick.cpp tests/test_input.cpp
+                                        tests/test_interaction.cpp tests/test_bindings.cpp
+                                        tests/test_session.cpp tests/test_navigate.cpp)
     target_link_libraries(protekt_tests PRIVATE protekt_game protekt_cmd)
     if(PROTEKT_RENDER)
         target_sources(protekt_tests PRIVATE tests/test_render.cpp)

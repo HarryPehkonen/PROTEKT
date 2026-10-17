@@ -1,5 +1,7 @@
 #include "protekt/game/scene.hpp"
 
+#include <algorithm>
+
 #include <cmath>
 #include <cstdlib>
 
@@ -138,8 +140,16 @@ void build_terrain(std::vector<render::SceneVertex>& out, std::uint64_t seed, in
 
 /// A box standing on the ground beneath (x, z): wider and shorter for a tank or turret, taller
 /// for a factory.
+/// A selected unit keeps its side's colour and is mixed towards white, so a glance tells you both
+/// whose it is and that it is yours to move.
+Vec3 highlight(const Vec3& colour) {
+    constexpr float kMix = 0.55F;
+    return Vec3{colour[0] + ((1.0F - colour[0]) * kMix), colour[1] + ((1.0F - colour[1]) * kMix),
+                colour[2] + ((1.0F - colour[2]) * kMix)};
+}
+
 void build_unit_box(std::vector<render::SceneVertex>& out, std::uint64_t seed,
-                    const sim::Unit& unit) {
+                    const sim::Unit& unit, bool selected) {
     const float x
         = static_cast<float>(unit.x.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile;
     const float z
@@ -147,7 +157,7 @@ void build_unit_box(std::vector<render::SceneVertex>& out, std::uint64_t seed,
     const float ground = height_metres(seed, unit.x.floor_int(), unit.y.floor_int());
     const float half_width = kMetresPerTile * 0.3F;
     const float height = unit.kind == sim::UnitKind::Factory ? 4.5F : 1.8F;
-    const Vec3 colour = side_colour(unit.side);
+    const Vec3 colour = selected ? highlight(side_colour(unit.side)) : side_colour(unit.side);
 
     const float x0 = x - half_width;
     const float x1 = x + half_width;
@@ -194,7 +204,8 @@ std::array<float, 16> view_projection(const Camera& camera, float aspect,
     return multiply(proj, view);
 }
 
-render::Scene build_scene(const sim::Sim& sim, const SceneOptions& options) {
+render::Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
+                          std::span<const sim::UnitId> selected) {
     render::Scene scene;
     const float aspect
         = static_cast<float>(options.extent.width) / static_cast<float>(options.extent.height);
@@ -213,7 +224,9 @@ render::Scene build_scene(const sim::Sim& sim, const SceneOptions& options) {
         const int dx = unit.x.floor_int() - centre_x;
         const int dy = unit.y.floor_int() - centre_y;
         if (std::abs(dx) <= options.radius_tiles && std::abs(dy) <= options.radius_tiles) {
-            build_unit_box(scene.vertices, options.seed, unit);
+            const bool is_selected
+                = std::find(selected.begin(), selected.end(), unit.id) != selected.end();
+            build_unit_box(scene.vertices, options.seed, unit, is_selected);
         }
     }
 

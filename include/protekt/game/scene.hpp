@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <span>
 
 #include "protekt/render/renderer.hpp"
 #include "protekt/sim/sim.hpp"
@@ -47,6 +48,10 @@ struct SceneOptions {
 /// Triangles for the terrain mesh (two per tile, coloured by `Terrain`) followed by one box per
 /// living unit (coloured by side, taller for a factory than for a tank). Pure: same options and
 /// same sim state give byte-identical vertices.
-[[nodiscard]] render::Scene build_scene(const sim::Sim& sim, const SceneOptions& options);
+/// `selected` units are drawn brighter than the rest of their side: the player needs to see what he
+/// has hold of, and a tint is the smallest honest version of that before there is any text on
+/// screen.
+[[nodiscard]] render::Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
+                                        std::span<const sim::UnitId> selected = {});
 
 } // namespace protekt::game

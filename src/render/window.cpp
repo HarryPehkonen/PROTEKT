@@ -645,22 +645,23 @@ bool VulkanWindow::pump_events() {
             input_.clicks.push_back(input::Click{
                 static_cast<int>(std::floor(event.button.x * scale_x)),
                 static_cast<int>(std::floor(event.button.y * scale_y)),
-                button_of(event.button.button), event.type == SDL_EVENT_MOUSE_BUTTON_DOWN});
+                button_of(event.button.button), event.type == SDL_EVENT_MOUSE_BUTTON_DOWN,
+                (SDL_GetModState() & SDL_KMOD_SHIFT) != 0});
             break;
         case SDL_EVENT_MOUSE_MOTION:
             input_.mouse_dx += event.motion.xrel * scale_x;
             input_.mouse_dy += event.motion.yrel * scale_y;
             break;
         case SDL_EVENT_KEY_UP:
-            input_.keys.push_back(
-                input::KeyEvent{static_cast<std::int32_t>(event.key.scancode), false});
+            input_.keys.push_back(input::KeyEvent{static_cast<std::int32_t>(event.key.scancode),
+                                                  false, (event.key.mod & SDL_KMOD_SHIFT) != 0});
             break;
         case SDL_EVENT_KEY_DOWN:
             // Escape is reported like any other key and NOT handled here: the window does not know
             // what Escape means to the game (deselect), and a player who pressed it to clear a
             // selection must not lose the battle.
-            input_.keys.push_back(
-                input::KeyEvent{static_cast<std::int32_t>(event.key.scancode), true});
+            input_.keys.push_back(input::KeyEvent{static_cast<std::int32_t>(event.key.scancode),
+                                                  true, (event.key.mod & SDL_KMOD_SHIFT) != 0});
             break;
         case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
         case SDL_EVENT_WINDOW_RESIZED: {

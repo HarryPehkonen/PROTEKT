@@ -185,6 +185,52 @@ TEST(SceneUnits, DrawsABoxPerLivingUnitAndColoursTheSidesApart) {
     EXPECT_GE(colours.size(), 2U) << "the player's units and the enemy's must be told apart";
 }
 
+TEST(SceneUnits, ASelectedUnitIsDrawnBrighterAndNothingElseChanges) {
+    const auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(42));
+
+    // The camera has to be near the unit being highlighted: a scene only meshes the tiles around
+    // the camera, so a unit outside that radius contributes no vertices to differ.
+    std::vector<protekt::sim::UnitId> chosen;
+    for (const auto& unit : sim.units()) {
+        if (unit.side == protekt::sim::Side::Player) {
+            chosen.push_back(unit.id);
+            break;
+        }
+    }
+    ASSERT_FALSE(chosen.empty());
+    const auto* target = sim.find(chosen.front());
+    ASSERT_NE(target, nullptr);
+    SceneOptions o = options_at(0.0F, 0.0F, 42, 20);
+    o.camera.x = static_cast<float>(target->x.raw / 65536.0) * kMetresPerTile;
+    o.camera.z = static_cast<float>(target->y.raw / 65536.0) * kMetresPerTile;
+    const auto plain = protekt::game::build_scene(sim, o);
+    const auto highlighted = protekt::game::build_scene(sim, o, chosen);
+
+    // Same geometry, so the two scenes differ in colour only -- and the terrain must be untouched.
+    ASSERT_EQ(plain.vertices.size(), highlighted.vertices.size());
+    std::size_t different = 0;
+    for (std::size_t i = 0; i < plain.vertices.size(); ++i) {
+        if (plain.vertices.at(i).colour != highlighted.vertices.at(i).colour) {
+            ++different;
+            EXPECT_EQ(plain.vertices.at(i).position, highlighted.vertices.at(i).position)
+                << "a selection must not move anything";
+        }
+    }
+    EXPECT_EQ(different, 12U * 3U) << "exactly one unit box (12 triangles) should change colour";
+
+    // And the highlight is brighter than the side colour it came from.
+    bool brighter = false;
+    for (std::size_t i = 0; i < plain.vertices.size(); ++i) {
+        if (plain.vertices.at(i).colour != highlighted.vertices.at(i).colour) {
+            const auto& before = plain.vertices.at(i).colour;
+            const auto& after = highlighted.vertices.at(i).colour;
+            brighter = after[0] > before[0] && after[1] > before[1] && after[2] > before[2];
+            break;
+        }
+    }
+    EXPECT_TRUE(brighter) << "the selected box should stand out, not blend in";
+}
+
 TEST(SceneUnits, PutsTheUnitBoxWhereTheSimulationSaysItIs) {
     const auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(42));
     // Put the camera on top of the player's first tank so its box is inside the mesh.

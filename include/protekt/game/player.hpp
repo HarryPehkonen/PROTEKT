@@ -27,6 +27,11 @@ public:
     void set_input(const InputState& input) noexcept;
     [[nodiscard]] const InputState& input() const noexcept;
     [[nodiscard]] float heading() const noexcept;
+
+    /// Point the tank somewhere before the player takes the wheel. Used once, at spawn, to choose a
+    /// heading with ground ahead of it: the sim will not drive into a crater, and a player whose
+    /// first keypress does nothing has been told the game is broken.
+    void set_heading(float radians) noexcept;
     [[nodiscard]] sim::UnitId unit() const noexcept;
 
     /// One order per tick, for its own unit and no other: a `MoveTo` to a waypoint ahead of the
