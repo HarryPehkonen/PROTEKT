@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "protekt/game/player.hpp"
+#include "protekt/sim/commander.hpp"
 #include "protekt/sim/scenario.hpp"
 #include "protekt/sim/sim.hpp"
 #include "protekt/world/world.hpp"
@@ -24,7 +25,7 @@ constexpr std::uint64_t kSeed = 42;
 
 std::vector<protekt::sim::Order> orders_for(const protekt::sim::Sim& sim, PlayerCommander& player) {
     std::vector<protekt::sim::Order> out;
-    player.think(protekt::ai::observe(sim, protekt::sim::Side::Player), out);
+    player.think(protekt::sim::observe(sim, protekt::sim::Side::Player), out);
     return out;
 }
 
@@ -172,7 +173,7 @@ TEST(PlayerCommander, DrivingForwardActuallyMovesTheTankThroughTheSimulation) {
         input.turn = 1.0F;
         player.set_input(input);
         std::vector<protekt::sim::Order> ignored;
-        player.think(protekt::ai::observe(sim, protekt::sim::Side::Player), ignored);
+        player.think(protekt::sim::observe(sim, protekt::sim::Side::Player), ignored);
         ++guard;
     }
     ASSERT_LT(guard, 400) << "no clear heading in a full turn: the spawn is boxed in";

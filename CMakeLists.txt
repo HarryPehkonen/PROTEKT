@@ -226,7 +226,8 @@ if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
     target_link_libraries(protekt_tests PRIVATE protekt_core GTest::gtest_main)
     protekt_warnings(protekt_tests)
     target_compile_definitions(protekt_tests
-        PRIVATE PROTEKT_CORPUS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fuzz/corpus/replay")
+        PRIVATE PROTEKT_CORPUS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fuzz/corpus/replay"
+                PROTEKT_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
     target_sources(protekt_tests PRIVATE tests/test_scene.cpp tests/test_player.cpp
                                         tests/test_game_cli.cpp tests/test_selection.cpp
                                         tests/test_command.cpp tests/test_controller.cpp
@@ -235,6 +236,7 @@ if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
                                         tests/test_session.cpp tests/test_navigate.cpp
                                         tests/test_utility.cpp
                                         tests/test_utility_battle.cpp
+                                        tests/test_layering.cpp
                                         tests/test_navigation.cpp)
     target_link_libraries(protekt_tests PRIVATE protekt_game protekt_cmd)
     if(PROTEKT_RENDER)

@@ -8,8 +8,9 @@
 #include <string>
 #include <vector>
 
-#include "protekt/ai/commander.hpp"
+#include "protekt/ai/scripted.hpp"
 #include "protekt/ai/utility.hpp"
+#include "protekt/sim/commander.hpp"
 #include "protekt/sim/observer.hpp"
 #include "protekt/sim/replay.hpp"
 #include "protekt/sim/scenario.hpp"
@@ -98,12 +99,12 @@ std::optional<std::string> parse_args(std::span<const std::string_view> args, Op
 
 /// Passes orders through and notes every one with the tick it was issued on, so a live battle can
 /// be written out as a replay.
-class RecordingCommander final : public ai::ICommander {
+class RecordingCommander final : public sim::ICommander {
 public:
-    RecordingCommander(ai::ICommander& inner, std::vector<sim::Command>& sink)
+    RecordingCommander(sim::ICommander& inner, std::vector<sim::Command>& sink)
         : inner_(&inner), sink_(&sink) {}
 
-    void think(const ai::Observation& observation, std::vector<sim::Order>& out) override {
+    void think(const sim::Observation& observation, std::vector<sim::Order>& out) override {
         const std::size_t first = out.size();
         inner_->think(observation, out);
         for (std::size_t i = first; i < out.size(); ++i) {
@@ -112,7 +113,7 @@ public:
     }
 
 private:
-    ai::ICommander* inner_;
+    sim::ICommander* inner_;
     std::vector<sim::Command>* sink_;
 };
 

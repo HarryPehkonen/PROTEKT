@@ -8,7 +8,8 @@
 #include <variant>
 #include <vector>
 
-#include "protekt/ai/commander.hpp"
+#include "protekt/ai/scripted.hpp"
+#include "protekt/sim/commander.hpp"
 #include "protekt/sim/observer.hpp"
 #include "protekt/sim/scenario.hpp"
 #include "protekt/sim/sim.hpp"

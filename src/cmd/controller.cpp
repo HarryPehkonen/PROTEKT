@@ -10,17 +10,17 @@ namespace {
 
 /// Squared distance in raw Q16.16 units between a tile and a fixed-point point. 64-bit, so it
 /// cannot overflow.
-[[nodiscard]] std::int64_t distance_sq(const ai::UnitView& unit, sim::Fixed x,
+[[nodiscard]] std::int64_t distance_sq(const sim::UnitView& unit, sim::Fixed x,
                                        sim::Fixed y) noexcept {
     const std::int64_t dx = (static_cast<std::int64_t>(unit.x) * sim::Fixed::kOne) - x.raw;
     const std::int64_t dy = (static_cast<std::int64_t>(unit.y) * sim::Fixed::kOne) - y.raw;
     return (dx * dx) + (dy * dy);
 }
 
-[[nodiscard]] const ai::UnitView* find_view(const std::vector<ai::UnitView>& views,
-                                            sim::UnitId id) noexcept {
+[[nodiscard]] const sim::UnitView* find_view(const std::vector<sim::UnitView>& views,
+                                             sim::UnitId id) noexcept {
     const auto at = std::find_if(views.begin(), views.end(),
-                                 [id](const ai::UnitView& view) { return view.id == id; });
+                                 [id](const sim::UnitView& view) { return view.id == id; });
     return at == views.end() ? nullptr : &*at;
 }
 
@@ -52,7 +52,7 @@ bool Controller::due(sim::Tick tick) const noexcept {
     return tick != 0 && tick % policy_.cadence_ticks == 0;
 }
 
-void Controller::think(const ai::Observation& observation, sim::Tick tick,
+void Controller::think(const sim::Observation& observation, sim::Tick tick,
                        std::vector<sim::Order>& out) {
     if (!due(tick)) {
         return;
@@ -76,7 +76,7 @@ void Controller::think(const ai::Observation& observation, sim::Tick tick,
             = static_cast<std::int64_t>(kDenyRadiusTiles) * sim::Fixed::kOne;
         constexpr std::int64_t kRadiusSq = kRadiusRaw * kRadiusRaw;
         for (const sim::UnitId id : living) {
-            const ai::UnitView* view = find_view(observation.own, id);
+            const sim::UnitView* view = find_view(observation.own, id);
             const std::vector<sim::UnitId> one(1, id);
             if (distance_sq(*view, policy_.x, policy_.y) <= kRadiusSq) {
                 append(out,
@@ -88,9 +88,9 @@ void Controller::think(const ai::Observation& observation, sim::Tick tick,
         break;
     }
     case PolicyKind::Focus: {
-        const ai::UnitView* nearest = nullptr;
+        const sim::UnitView* nearest = nullptr;
         std::int64_t nearest_d2 = 0;
-        for (const ai::UnitView& enemy : observation.enemy) {
+        for (const sim::UnitView& enemy : observation.enemy) {
             const std::int64_t d2 = distance_sq(enemy, policy_.x, policy_.y);
             if (nearest == nullptr || d2 < nearest_d2
                 || (d2 == nearest_d2 && enemy.id < nearest->id)) {
@@ -137,7 +137,7 @@ std::optional<std::size_t> ControllerSet::owner_of(sim::UnitId id) const noexcep
     return std::nullopt;
 }
 
-void ControllerSet::think_due(const ai::Observation& observation, sim::Tick tick,
+void ControllerSet::think_due(const sim::Observation& observation, sim::Tick tick,
                               std::vector<sim::Order>& out) {
     for (Controller& controller : controllers_) {
         controller.think(observation, tick, out);

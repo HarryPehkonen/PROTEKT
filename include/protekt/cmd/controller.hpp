@@ -5,7 +5,7 @@
 #include <span>
 #include <vector>
 
-#include "protekt/ai/commander.hpp"
+#include "protekt/sim/commander.hpp"
 #include "protekt/sim/orders.hpp"
 #include "protekt/sim/units.hpp"
 
@@ -72,7 +72,7 @@ public:
     /// A roster is NORMALISED on the way in (by `create` and by every verb): ascending, no
     /// duplicates, and `UnitId{}` dropped. A caller that hands over a sloppy list gets the same
     /// orders as one that hands over a tidy one.
-    void think(const ai::Observation& observation, sim::Tick tick, std::vector<sim::Order>& out);
+    void think(const sim::Observation& observation, sim::Tick tick, std::vector<sim::Order>& out);
 
     [[nodiscard]] const Policy& policy() const noexcept;
     [[nodiscard]] std::span<const sim::UnitId> roster() const noexcept;
@@ -103,7 +103,7 @@ public:
 
     /// Every controller due on this tick, in insertion order (which is the order the player placed
     /// them, and therefore stable across a replay).
-    void think_due(const ai::Observation& observation, sim::Tick tick,
+    void think_due(const sim::Observation& observation, sim::Tick tick,
                    std::vector<sim::Order>& out);
 
 private:

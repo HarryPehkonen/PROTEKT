@@ -2,7 +2,7 @@
 
 #include <vector>
 
-#include "protekt/ai/commander.hpp"
+#include "protekt/sim/commander.hpp"
 #include "protekt/sim/sim.hpp"
 
 /// The player, as a commander.
@@ -20,7 +20,7 @@ struct InputState {
     bool quit{};
 };
 
-class PlayerCommander final : public ai::ICommander {
+class PlayerCommander final : public sim::ICommander {
 public:
     explicit PlayerCommander(sim::UnitId unit);
 
@@ -42,7 +42,7 @@ public:
     /// the unit PURSUE, which would take the steering wheel out of the player's hands; the player's
     /// weapons still fire in range, because that is the sim's job. Attack-on-command is the
     /// commander layer's (M4).
-    void think(const ai::Observation& observation, std::vector<sim::Order>& out) override;
+    void think(const sim::Observation& observation, std::vector<sim::Order>& out) override;
 
 private:
     sim::UnitId unit_;

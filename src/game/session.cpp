@@ -2,8 +2,8 @@
 
 #include <algorithm>
 
-#include "protekt/ai/commander.hpp"
 #include "protekt/game/navigate.hpp"
+#include "protekt/sim/commander.hpp"
 
 namespace protekt::game {
 
@@ -51,7 +51,7 @@ void Session::frame(const input::InputFrame& frame, const sim::Sim& sim,
     // anything else is asked to. Mouse look is deliberately NOT wired yet: keys drive, the mouse
     // selects and orders, and what the mouse should do while driving is a question to answer after
     // playing it rather than before.
-    player_.think(ai::observe(sim, sim::Side::Player), out);
+    player_.think(sim::observe(sim, sim::Side::Player), out);
 
     interaction_.handle(frame, sim, options);
     for (const sim::Order& order : interaction_.take_orders()) {

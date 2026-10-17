@@ -1,4 +1,6 @@
+#include "protekt/ai/scripted.hpp"
 #include "protekt/ai/utility.hpp"
+#include "protekt/sim/commander.hpp"
 #include "protekt/sim/observer.hpp"
 #include "protekt/sim/scenario.hpp"
 
@@ -22,12 +24,12 @@
 /// check: how many units did it kill for how many of its own it lost.
 namespace {
 
-using protekt::ai::ICommander;
 using protekt::ai::ScriptedCommander;
 using protekt::ai::UtilityCommander;
 using protekt::ai::UtilityTuning;
 using protekt::sim::BattleEvent;
 using protekt::sim::EventKind;
+using protekt::sim::ICommander;
 
 enum class Role : std::uint8_t { None = 0, Scripted = 1, Utility = 2 };
 

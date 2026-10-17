@@ -12,12 +12,13 @@
 #include <thread>
 #include <vector>
 
-#include "protekt/ai/commander.hpp"
+#include "protekt/ai/scripted.hpp"
 #include "protekt/game/scene.hpp"
 #include "protekt/game/session.hpp"
 #include "protekt/input/bindings.hpp"
 #include "protekt/input/input.hpp"
 #include "protekt/render/renderer.hpp"
+#include "protekt/sim/commander.hpp"
 #include "protekt/sim/scenario.hpp"
 #include "protekt/sim/sim.hpp"
 #include "protekt/world/world.hpp"
@@ -280,7 +281,7 @@ int run_game_cli(std::span<const std::string_view> args, std::ostream& out, std:
 
         std::vector<sim::Order> orders;
         session.frame(hands, sim, scene_options, orders);
-        enemy.think(ai::observe(sim, sim::Side::Enemy), orders);
+        enemy.think(sim::observe(sim, sim::Side::Enemy), orders);
         for (const sim::Order& order : orders) {
             sim.enqueue(order);
         }

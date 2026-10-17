@@ -78,18 +78,27 @@ the right first milestone rather than a nice-to-have.
 
 ## 4. Layout
 
+Dependencies run one way: `world <- sim <- {ai, cmd, input} <- game <- app`. Nothing below includes
+anything above, and the sim defines the contracts it needs (`ICommander`, `Observation`, `observe` live
+in `sim/commander.hpp`) while every layer above implements them. `tests/test_layering.cpp` reads the
+sources and fails if that slips -- it is what keeps rules 13 and 14 honest.
+
 ```
-include/protekt/    public headers, self-contained
-src/                implementation
-src/world/          worldgen (pure, integer)
-src/sim/            tick, entities, orders, replay
-src/ai/             ICommander implementations (optional, replaceable)
-src/render/         renderer interface + backends (nothing above may include these)
-src/app/            main(), input, glue
+include/protekt/    public headers, self-contained, one directory per layer
+  world/            worldgen (pure, integer)
+  sim/              tick, entities, orders, replay, steering, the commander seam
+  ai/               ICommander implementations (scripted, utility)
+  cmd/              the command layer: policies and controllers
+  input/            key and mouse bindings (header-only)
+  math/             the one floating-point module (the camera convention)
+  render/           renderer interface + backends
+  game/             one game loop, two presenters: scene, pick, session
+  app/              main() and the command-line front ends
+src/                implementation, mirroring the headers
 tests/              unit tests (ctest)
 fuzz/               libFuzzer targets + seed corpus
 tools/ci.sh         the gate (from AI-DEV-STARTER), .githooks/ run it
-docs/               this plan, design notes
+docs/               this plan
 ```
 
 ---

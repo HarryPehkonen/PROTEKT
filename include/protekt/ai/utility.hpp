@@ -3,7 +3,7 @@
 #include <cstdint>
 #include <vector>
 
-#include "protekt/ai/commander.hpp"
+#include "protekt/sim/commander.hpp"
 #include "protekt/sim/units.hpp"
 
 /// A commander that decides from the state of the battlefield rather than from a script.
@@ -67,38 +67,41 @@ struct Decision {
 /// caller keeping the first best, and the observation is ordered by unit id, so ties go to the
 /// lower id. `100 * threat - 5 * distance`, so a tank twelve tiles away beats the factory next to
 /// you.
-[[nodiscard]] std::int32_t score_engage(const UnitView& self, const UnitView& enemy) noexcept;
+[[nodiscard]] std::int32_t score_engage(const sim::UnitView& self,
+                                        const sim::UnitView& enemy) noexcept;
 
 /// Squared Euclidean distance in whole tiles. Squared, because a comparison is all that is needed
 /// and a square root would introduce a rounding the tie-breaks then depend on.
-[[nodiscard]] std::int64_t distance_squared(const UnitView& a, const UnitView& b) noexcept;
+[[nodiscard]] std::int64_t distance_squared(const sim::UnitView& a,
+                                            const sim::UnitView& b) noexcept;
 
 /// The base a side falls back to: its lowest-id living factory, or nullptr if it has none left.
-[[nodiscard]] const UnitView* home_factory(const Observation& observation) noexcept;
+[[nodiscard]] const sim::UnitView* home_factory(const sim::Observation& observation) noexcept;
 
 /// The same question for the other side: its lowest-id living factory, or nullptr. A commander that
 /// cannot name the enemy's base cannot go there, and an opponent that never leaves its own half
 /// never fights -- measured, before this existed: 0 shots in 2400 ticks with a utility commander on
 /// each side, because neither of them ever closed the distance.
-[[nodiscard]] const UnitView* enemy_factory(const Observation& observation) noexcept;
+[[nodiscard]] const sim::UnitView* enemy_factory(const sim::Observation& observation) noexcept;
 
 /// The enemy worth attacking, or nullptr if there is none in range. Posture is decided elsewhere;
 /// this only answers "which one".
-[[nodiscard]] const UnitView* choose_target(const UnitView& self, const Observation& observation,
-                                            const UtilityTuning& tuning) noexcept;
+[[nodiscard]] const sim::UnitView* choose_target(const sim::UnitView& self,
+                                                 const sim::Observation& observation,
+                                                 const UtilityTuning& tuning) noexcept;
 
 /// The whole decision for one unit, in one pure function, so the policy can be read without reading
 /// the loop that applies it.
-[[nodiscard]] Decision decide(const UnitView& self, const Observation& observation,
+[[nodiscard]] Decision decide(const sim::UnitView& self, const sim::Observation& observation,
                               const UtilityTuning& tuning) noexcept;
 
 /// The utility opponent. Deterministic: same observation in, same decisions out, no hidden state
 /// beyond the tuning and the last decisions it reported.
-class UtilityCommander final : public ICommander {
+class UtilityCommander final : public sim::ICommander {
 public:
     explicit UtilityCommander(UtilityTuning tuning = {}) noexcept;
 
-    void think(const Observation& observation, std::vector<sim::Order>& out) override;
+    void think(const sim::Observation& observation, std::vector<sim::Order>& out) override;
 
     /// What it decided last time it thought, whether or not the decision became an order. An AI
     /// that can only be observed through its orders cannot be debugged.

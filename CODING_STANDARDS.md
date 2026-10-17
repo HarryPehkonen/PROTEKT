@@ -9,7 +9,16 @@ error handling — the "no exceptions" jet standards (JSF/MISRA) are rejected de
     needs it, and they need the SAME one or a click lands somewhere other than where the crosshair is
     drawn. Nothing under `sim/` or `world/` may include it. The simulation is Q16.16 and integer so
     that a replay is bit-identical on every machine, and a float that reached the tick loop would make
-    the world depend on the compiler.
+    the world depend on the compiler. Enforced by `tests/test_layering.cpp`.
+
+14. **A lower layer never includes a higher one.** `world <- sim <- {ai, cmd, input} <- game <- app`.
+    The sim defines the contracts it needs -- `ICommander`, `Observation` and `observe` live in
+    `sim/commander.hpp` -- and every layer above implements them. When the sim needs something from
+    above, the thing itself belongs in `sim/`; the include does not. This began as a real inversion:
+    `sim/observer.hpp` included `ai/commander.hpp` to name a parameter, so the commander interface was
+    declared in the AI's namespace and implemented by the sim, and the sim's own `observe()` was
+    defined in the AI's translation unit. Enforced by `tests/test_layering.cpp`, which reads the sources
+    on disk -- a rule nobody can check is a rule that decays.
 
 ## Rules
 

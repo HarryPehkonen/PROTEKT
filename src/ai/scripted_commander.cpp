@@ -1,41 +1,26 @@
-#include "protekt/ai/commander.hpp"
+#include "protekt/ai/scripted.hpp"
+#include "protekt/sim/commander.hpp"
 
 #include <cstddef>
 
-#include "protekt/sim/sim.hpp"
-
 namespace protekt::ai {
-
-Observation observe(const sim::Sim& sim, sim::Side side) {
-    Observation observation{};
-    observation.tick = sim.tick();
-    for (const sim::Unit& unit : sim.units()) {
-        if (!unit.alive) {
-            continue;
-        }
-        const UnitView view{unit.id, unit.kind, unit.side, unit.x.floor_int(), unit.y.floor_int(),
-                            unit.hp};
-        (unit.side == side ? observation.own : observation.enemy).push_back(view);
-    }
-    return observation;
-}
 
 ScriptedCommander::ScriptedCommander(std::uint32_t period_ticks) noexcept
     : period_ticks_(period_ticks) {}
 
-void ScriptedCommander::think(const Observation& observation, std::vector<sim::Order>& out) {
+void ScriptedCommander::think(const sim::Observation& observation, std::vector<sim::Order>& out) {
     // A period of zero means "never": there is no tick it is a multiple of.
     if (period_ticks_ == 0 || observation.tick % period_ticks_ != 0) {
         return;
     }
-    for (const UnitView& unit : observation.own) {
+    for (const sim::UnitView& unit : observation.own) {
         if (unit.kind == sim::UnitKind::Turret) {
             out.push_back(sim::Order{unit.id, sim::orders::GuardAt{sim::Fixed::from_int(unit.x),
                                                                    sim::Fixed::from_int(unit.y)}});
         } else if (unit.kind == sim::UnitKind::Tank) {
-            const UnitView* nearest = nullptr;
+            const sim::UnitView* nearest = nullptr;
             std::int64_t nearest_d2 = 0;
-            for (const UnitView& enemy : observation.enemy) {
+            for (const sim::UnitView& enemy : observation.enemy) {
                 const std::int64_t dx = static_cast<std::int64_t>(enemy.x) - unit.x;
                 const std::int64_t dy = static_cast<std::int64_t>(enemy.y) - unit.y;
                 const std::int64_t d2 = dx * dx + dy * dy;

@@ -13,7 +13,7 @@ namespace {
     return root;
 }
 
-[[nodiscard]] sim::Order order_for(const Decision& decision, const UnitView& self) {
+[[nodiscard]] sim::Order order_for(const Decision& decision, const sim::UnitView& self) {
     switch (decision.intent) {
     case Intent::Engage:
         return sim::Order{decision.unit, sim::orders::Attack{decision.target}};
@@ -43,21 +43,21 @@ int threat_of(sim::UnitKind kind) noexcept {
     return 0;
 }
 
-std::int64_t distance_squared(const UnitView& a, const UnitView& b) noexcept {
+std::int64_t distance_squared(const sim::UnitView& a, const sim::UnitView& b) noexcept {
     const std::int64_t dx = static_cast<std::int64_t>(a.x) - b.x;
     const std::int64_t dy = static_cast<std::int64_t>(a.y) - b.y;
     return dx * dx + dy * dy;
 }
 
-std::int32_t score_engage(const UnitView& self, const UnitView& enemy) noexcept {
+std::int32_t score_engage(const sim::UnitView& self, const sim::UnitView& enemy) noexcept {
     const std::int64_t distance = isqrt(distance_squared(self, enemy));
     const std::int64_t threat = threat_of(enemy.kind);
     return static_cast<std::int32_t>(100 * threat - 5 * distance);
 }
 
-const UnitView* home_factory(const Observation& observation) noexcept {
-    const UnitView* home = nullptr;
-    for (const UnitView& unit : observation.own) {
+const sim::UnitView* home_factory(const sim::Observation& observation) noexcept {
+    const sim::UnitView* home = nullptr;
+    for (const sim::UnitView& unit : observation.own) {
         if (unit.kind == sim::UnitKind::Factory && (home == nullptr || unit.id < home->id)) {
             home = &unit;
         }
@@ -65,9 +65,9 @@ const UnitView* home_factory(const Observation& observation) noexcept {
     return home;
 }
 
-const UnitView* enemy_factory(const Observation& observation) noexcept {
-    const UnitView* base = nullptr;
-    for (const UnitView& unit : observation.enemy) {
+const sim::UnitView* enemy_factory(const sim::Observation& observation) noexcept {
+    const sim::UnitView* base = nullptr;
+    for (const sim::UnitView& unit : observation.enemy) {
         if (unit.kind == sim::UnitKind::Factory && (base == nullptr || unit.id < base->id)) {
             base = &unit;
         }
@@ -75,8 +75,8 @@ const UnitView* enemy_factory(const Observation& observation) noexcept {
     return base;
 }
 
-Decision advance_point(const UnitView& self, const UnitView& home, const UnitView& enemy_home,
-                       const UtilityTuning& tuning) noexcept {
+Decision advance_point(const sim::UnitView& self, const sim::UnitView& home,
+                       const sim::UnitView& enemy_home, const UtilityTuning& tuning) noexcept {
     Decision decision{};
     decision.unit = self.id;
     decision.intent = Intent::Advance;
@@ -85,12 +85,12 @@ Decision advance_point(const UnitView& self, const UnitView& home, const UnitVie
     return decision;
 }
 
-const UnitView* choose_target(const UnitView& self, const Observation& observation,
-                              const UtilityTuning& tuning) noexcept {
+const sim::UnitView* choose_target(const sim::UnitView& self, const sim::Observation& observation,
+                                   const UtilityTuning& tuning) noexcept {
     const std::int64_t range = tuning.engage_range_tiles;
-    const UnitView* best = nullptr;
+    const sim::UnitView* best = nullptr;
     std::int32_t best_score = 0;
-    for (const UnitView& enemy : observation.enemy) {
+    for (const sim::UnitView& enemy : observation.enemy) {
         if (distance_squared(self, enemy) > range * range) {
             continue;
         }
@@ -103,7 +103,7 @@ const UnitView* choose_target(const UnitView& self, const Observation& observati
     return best;
 }
 
-Decision decide(const UnitView& self, const Observation& observation,
+Decision decide(const sim::UnitView& self, const sim::Observation& observation,
                 const UtilityTuning& tuning) noexcept {
     Decision decision{};
     decision.unit = self.id;
@@ -111,14 +111,14 @@ Decision decide(const UnitView& self, const Observation& observation,
     if (self.kind != sim::UnitKind::Tank) {
         return decision;
     }
-    const UnitView* home = home_factory(observation);
+    const sim::UnitView* home = home_factory(observation);
     if (self.hp <= tuning.retreat_hp) {
         decision.intent = Intent::Retreat;
         decision.x = home != nullptr ? home->x : self.x;
         decision.y = home != nullptr ? home->y : self.y;
         return decision;
     }
-    if (const UnitView* target = choose_target(self, observation, tuning)) {
+    if (const sim::UnitView* target = choose_target(self, observation, tuning)) {
         decision.intent = Intent::Engage;
         decision.target = target->id;
         decision.score = score_engage(self, *target);
@@ -129,7 +129,7 @@ Decision decide(const UnitView& self, const Observation& observation,
     // goes to the staging point between them and holds there once it arrives. Re-deciding the same
     // move forever would be harmless to the simulation and a lie in the decision log.
     if (home != nullptr) {
-        if (const UnitView* enemy_home = enemy_factory(observation)) {
+        if (const sim::UnitView* enemy_home = enemy_factory(observation)) {
             const Decision staging = advance_point(self, *home, *enemy_home, tuning);
             const std::int64_t dx = static_cast<std::int64_t>(staging.x) - self.x;
             const std::int64_t dy = static_cast<std::int64_t>(staging.y) - self.y;
@@ -149,13 +149,13 @@ Decision decide(const UnitView& self, const Observation& observation,
 
 UtilityCommander::UtilityCommander(UtilityTuning tuning) noexcept : tuning_(tuning) {}
 
-void UtilityCommander::think(const Observation& observation, std::vector<sim::Order>& out) {
+void UtilityCommander::think(const sim::Observation& observation, std::vector<sim::Order>& out) {
     if (tuning_.cycle_ticks <= 0
         || observation.tick % static_cast<sim::Tick>(tuning_.cycle_ticks) != 0) {
         return;
     }
     decisions_.clear();
-    for (const UnitView& unit : observation.own) {
+    for (const sim::UnitView& unit : observation.own) {
         const Decision decision = decide(unit, observation, tuning_);
         decisions_.push_back(decision);
         // A tank that holds needs no order; a turret holds by being told to guard its post.

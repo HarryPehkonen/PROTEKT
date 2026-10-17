@@ -158,12 +158,12 @@ void record_orders(const Sim& sim, std::size_t& logged, BattleLog& log) {
     }
 }
 
-void command_phase(Sim& sim, ai::ICommander* commander, Side side, std::vector<Order>& orders) {
+void command_phase(Sim& sim, sim::ICommander* commander, Side side, std::vector<Order>& orders) {
     if (commander == nullptr) {
         return;
     }
     orders.clear();
-    commander->think(ai::observe(sim, side), orders);
+    commander->think(sim::observe(sim, side), orders);
     for (const Order& order : orders) {
         sim.enqueue(order);
     }
@@ -291,7 +291,7 @@ std::string BattleLog::to_text(Tick status_period) const {
 }
 
 BattleLog run_battle(const Scenario& scenario, std::span<const Command> script, Tick ticks,
-                     ai::ICommander* player, ai::ICommander* enemy) {
+                     sim::ICommander* player, sim::ICommander* enemy) {
     std::vector<Command> commands(script.begin(), script.end());
     std::stable_sort(commands.begin(), commands.end(),
                      [](const Command& a, const Command& b) { return a.tick < b.tick; });
@@ -382,6 +382,23 @@ const char* to_string(OrderKind kind) noexcept {
         return "stop";
     }
     return "unknown";
+}
+
+/// What a commander is allowed to see. It is the SIM that decides this, which is why it is built
+/// here rather than in a commander's translation unit: a commander gets a snapshot of the living
+/// units it may know about, and nothing else.
+Observation observe(const Sim& sim, Side side) {
+    Observation observation{};
+    observation.tick = sim.tick();
+    for (const Unit& unit : sim.units()) {
+        if (!unit.alive) {
+            continue;
+        }
+        const UnitView view{unit.id, unit.kind, unit.side, unit.x.floor_int(), unit.y.floor_int(),
+                            unit.hp};
+        (unit.side == side ? observation.own : observation.enemy).push_back(view);
+    }
+    return observation;
 }
 
 } // namespace protekt::sim

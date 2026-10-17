@@ -5,7 +5,7 @@
 #include <string>
 #include <vector>
 
-#include "protekt/ai/commander.hpp"
+#include "protekt/sim/commander.hpp"
 #include "protekt/sim/sim.hpp"
 
 namespace protekt::sim {
@@ -33,7 +33,7 @@ struct BattleLog {
 /// Drives a battle and records it. `player`/`enemy` may be null (then that side receives no
 /// orders and simply fights back with whatever is in range).
 [[nodiscard]] BattleLog run_battle(const Scenario& scenario, std::span<const Command> script,
-                                   Tick ticks, ai::ICommander* player, ai::ICommander* enemy);
+                                   Tick ticks, sim::ICommander* player, sim::ICommander* enemy);
 
 /// The frozen line grammar (tests and the CLI both read this):
 ///   tick <t> ordered unit <id> <verb>
@@ -44,7 +44,7 @@ struct BattleLog {
 /// One status line per living unit every `status_period` ticks, and always on tick 0. Positions
 /// print as tiles with ONE decimal digit (e.g. 24.0), computed with integer arithmetic.
 /// Names are lowercase and fixed: kinds tank/turret/factory, sides player/enemy, stances
-/// idle/move/guard/patrol/attack/dead, verbs move/guard/patrol/attack/stop.
+/// idle/move/guard/patrol/attack/dead, verbs move/guard/patrol/attack/stop/focusfire.
 [[nodiscard]] const char* to_string(UnitKind kind) noexcept;
 [[nodiscard]] const char* to_string(Side side) noexcept;
 [[nodiscard]] const char* to_string(Stance stance) noexcept;

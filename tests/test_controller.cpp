@@ -12,8 +12,8 @@
 #include <variant>
 #include <vector>
 
-#include "protekt/ai/commander.hpp"
 #include "protekt/cmd/controller.hpp"
+#include "protekt/sim/commander.hpp"
 #include "protekt/sim/fixed.hpp"
 #include "protekt/sim/scenario.hpp"
 #include "protekt/sim/sim.hpp"
@@ -21,19 +21,19 @@
 
 namespace {
 
-using protekt::ai::Observation;
-using protekt::ai::UnitView;
 using protekt::cmd::Controller;
 using protekt::cmd::ControllerSet;
 using protekt::cmd::kDenyRadiusTiles;
 using protekt::cmd::Policy;
 using protekt::cmd::PolicyKind;
 using protekt::sim::Fixed;
+using protekt::sim::Observation;
 using protekt::sim::Order;
 using protekt::sim::OrderKind;
 using protekt::sim::Side;
 using protekt::sim::UnitId;
 using protekt::sim::UnitKind;
+using protekt::sim::UnitView;
 
 constexpr std::uint64_t kSeed = 42;
 
@@ -328,7 +328,7 @@ TEST(ControllerIntegration, ADenyControllerDrivesARealTankThroughTheSimulation) 
 
     for (protekt::sim::Tick tick = 1; tick <= 150; ++tick) {
         std::vector<Order> orders;
-        controller.think(protekt::ai::observe(sim, Side::Player), tick, orders);
+        controller.think(protekt::sim::observe(sim, Side::Player), tick, orders);
         for (const Order& order : orders) {
             sim.enqueue(order);
         }

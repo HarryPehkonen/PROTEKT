@@ -23,8 +23,8 @@ void PlayerCommander::set_heading(float radians) noexcept {
     heading_ = Camera::wrap_angle(radians);
 }
 
-void PlayerCommander::think(const ai::Observation& observation, std::vector<sim::Order>& out) {
-    const ai::UnitView* self = nullptr;
+void PlayerCommander::think(const sim::Observation& observation, std::vector<sim::Order>& out) {
+    const sim::UnitView* self = nullptr;
     for (const auto& view : observation.own) {
         if (view.id == unit_) {
             self = &view;

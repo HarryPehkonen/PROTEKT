@@ -16,9 +16,9 @@ using sim::Side;
 using sim::UnitId;
 using sim::UnitKind;
 
-[[nodiscard]] UnitView unit(std::uint32_t id, UnitKind kind, Side side, int x, int y,
-                            std::uint16_t hp = 100) {
-    UnitView view{};
+[[nodiscard]] sim::UnitView unit(std::uint32_t id, UnitKind kind, Side side, int x, int y,
+                                 std::uint16_t hp = 100) {
+    sim::UnitView view{};
     view.id = UnitId{id};
     view.kind = kind;
     view.side = side;
@@ -29,9 +29,9 @@ using sim::UnitKind;
 }
 
 /// A side with one of each kind, well spread out, and an enemy to look at.
-[[nodiscard]] Observation field(const std::vector<UnitView>& own,
-                                const std::vector<UnitView>& enemy, sim::Tick tick = 0) {
-    Observation observation{};
+[[nodiscard]] sim::Observation field(const std::vector<sim::UnitView>& own,
+                                     const std::vector<sim::UnitView>& enemy, sim::Tick tick = 0) {
+    sim::Observation observation{};
     observation.tick = tick;
     observation.own = own;
     observation.enemy = enemy;
@@ -84,32 +84,33 @@ TEST(Utility, ATankBeatsAFactoryAtTheSameDistance) {
 }
 
 TEST(Utility, TheCloserOfTwoEqualsIsPreferred) {
-    const UnitView self = unit(kTank, UnitKind::Tank, Side::Enemy, 10, 10);
-    const UnitView near = unit(50, UnitKind::Tank, Side::Player, 12, 10);
-    const UnitView far = unit(51, UnitKind::Tank, Side::Player, 18, 10);
+    const sim::UnitView self = unit(kTank, UnitKind::Tank, Side::Enemy, 10, 10);
+    const sim::UnitView near = unit(50, UnitKind::Tank, Side::Player, 12, 10);
+    const sim::UnitView far = unit(51, UnitKind::Tank, Side::Player, 18, 10);
     EXPECT_GT(score_engage(self, near), score_engage(self, far));
 }
 
 TEST(Utility, AThreatTwelveTilesAwayBeatsAFactoryAdjacentToYou) {
     // The claim the scoring formula exists for: distance alone must not decide it. A factory cannot
     // shoot back, and a tank at the edge of range can.
-    const UnitView self = unit(kTank, UnitKind::Tank, Side::Enemy, 10, 10);
-    const UnitView tank_far = unit(50, UnitKind::Tank, Side::Player, 22, 10);
-    const UnitView factory_next_door = unit(51, UnitKind::Factory, Side::Player, 11, 10);
+    const sim::UnitView self = unit(kTank, UnitKind::Tank, Side::Enemy, 10, 10);
+    const sim::UnitView tank_far = unit(50, UnitKind::Tank, Side::Player, 22, 10);
+    const sim::UnitView factory_next_door = unit(51, UnitKind::Factory, Side::Player, 11, 10);
     EXPECT_GT(score_engage(self, tank_far), score_engage(self, factory_next_door));
 }
 
 TEST(Utility, DistanceIsSquaredAndWholeAndSymmetric) {
-    const UnitView a = unit(1, UnitKind::Tank, Side::Player, 3, 4);
-    const UnitView b = unit(2, UnitKind::Tank, Side::Enemy, 6, 8);
+    const sim::UnitView a = unit(1, UnitKind::Tank, Side::Player, 3, 4);
+    const sim::UnitView b = unit(2, UnitKind::Tank, Side::Enemy, 6, 8);
     EXPECT_EQ(distance_squared(a, b), 25); // 3-4-5
     EXPECT_EQ(distance_squared(b, a), 25);
     EXPECT_EQ(distance_squared(a, a), 0);
 }
 
 TEST(Utility, ChooseTargetIgnoresWhatIsOutOfRange) {
-    const Observation observation = field({}, {unit(50, UnitKind::Tank, Side::Player, 40, 10)});
-    const UnitView self = unit(kTank, UnitKind::Tank, Side::Enemy, 10, 10);
+    const sim::Observation observation
+        = field({}, {unit(50, UnitKind::Tank, Side::Player, 40, 10)});
+    const sim::UnitView self = unit(kTank, UnitKind::Tank, Side::Enemy, 10, 10);
     UtilityTuning tuning{};
     tuning.engage_range_tiles = 14;
     EXPECT_EQ(choose_target(self, observation, tuning), nullptr);
@@ -119,10 +120,10 @@ TEST(Utility, ChooseTargetTakesTheBestAndTiesGoToTheLowerId) {
     // Two identical tanks, exactly equidistant: whichever comes first in the observation wins, and
     // the observation is ordered by unit id. Nothing else may break the tie, or the same battle
     // would resolve differently on a machine that walked the list differently.
-    const Observation observation = field({}, {unit(50, UnitKind::Tank, Side::Player, 12, 10),
-                                               unit(51, UnitKind::Tank, Side::Player, 8, 10)});
-    const UnitView self = unit(kTank, UnitKind::Tank, Side::Enemy, 10, 10);
-    const UnitView* chosen = choose_target(self, observation, UtilityTuning{});
+    const sim::Observation observation = field({}, {unit(50, UnitKind::Tank, Side::Player, 12, 10),
+                                                    unit(51, UnitKind::Tank, Side::Player, 8, 10)});
+    const sim::UnitView self = unit(kTank, UnitKind::Tank, Side::Enemy, 10, 10);
+    const sim::UnitView* chosen = choose_target(self, observation, UtilityTuning{});
     ASSERT_NE(chosen, nullptr);
     EXPECT_EQ(chosen->id, UnitId{50});
 }
@@ -132,7 +133,8 @@ TEST(Utility, ChooseTargetTakesTheBestAndTiesGoToTheLowerId) {
 // ---------------------------------------------------------------------------------------------
 
 TEST(Utility, AHealthyTankWithAnEnemyInRangeEngagesIt) {
-    const Observation observation = field({}, {unit(50, UnitKind::Tank, Side::Player, 16, 10)});
+    const sim::Observation observation
+        = field({}, {unit(50, UnitKind::Tank, Side::Player, 16, 10)});
     const Decision decision
         = decide(unit(kTank, UnitKind::Tank, Side::Enemy, 10, 10), observation, UtilityTuning{});
     EXPECT_EQ(decision.intent, Intent::Engage);
@@ -145,8 +147,9 @@ TEST(Utility, AHurtTankWithdrawsEvenWithAnEnemyRightInFrontOfIt) {
     // engaging, because an enemy at two tiles scores very well.
     UtilityTuning tuning{};
     tuning.retreat_hp = 20;
-    const Observation observation = field({}, {unit(50, UnitKind::Tank, Side::Player, 12, 10)});
-    const UnitView hurt = unit(kTank, UnitKind::Tank, Side::Enemy, 10, 10, 20);
+    const sim::Observation observation
+        = field({}, {unit(50, UnitKind::Tank, Side::Player, 12, 10)});
+    const sim::UnitView hurt = unit(kTank, UnitKind::Tank, Side::Enemy, 10, 10, 20);
     const Decision decision = decide(hurt, observation, tuning);
     EXPECT_EQ(decision.intent, Intent::Retreat);
     EXPECT_NE(decision.target, UnitId{50}) << "withdrawing is not attacking";
@@ -155,9 +158,10 @@ TEST(Utility, AHurtTankWithdrawsEvenWithAnEnemyRightInFrontOfIt) {
 TEST(Utility, AHurtTankHeadsForItsOwnBaseWhenItWithdraws) {
     UtilityTuning tuning{};
     tuning.retreat_hp = 20;
-    const Observation observation = field({unit(kFactory, UnitKind::Factory, Side::Enemy, 60, 70)},
-                                          {unit(50, UnitKind::Tank, Side::Player, 12, 10)});
-    const UnitView hurt = unit(kTank, UnitKind::Tank, Side::Enemy, 10, 10, 5);
+    const sim::Observation observation
+        = field({unit(kFactory, UnitKind::Factory, Side::Enemy, 60, 70)},
+                {unit(50, UnitKind::Tank, Side::Player, 12, 10)});
+    const sim::UnitView hurt = unit(kTank, UnitKind::Tank, Side::Enemy, 10, 10, 5);
     const Decision decision = decide(hurt, observation, tuning);
     ASSERT_EQ(decision.intent, Intent::Retreat);
     EXPECT_EQ(decision.x, 60);
@@ -167,7 +171,8 @@ TEST(Utility, AHurtTankHeadsForItsOwnBaseWhenItWithdraws) {
 TEST(Utility, AHealthyTankIsNotWithdrawn) {
     UtilityTuning tuning{};
     tuning.retreat_hp = 20;
-    const Observation observation = field({}, {unit(50, UnitKind::Tank, Side::Player, 12, 10)});
+    const sim::Observation observation
+        = field({}, {unit(50, UnitKind::Tank, Side::Player, 12, 10)});
     EXPECT_NE(
         decide(unit(kTank, UnitKind::Tank, Side::Enemy, 10, 10, 21), observation, tuning).intent,
         Intent::Retreat);
@@ -176,9 +181,10 @@ TEST(Utility, AHealthyTankIsNotWithdrawn) {
 TEST(Utility, ATankWithNothingToShootGoesBackToTheBaseArea) {
     UtilityTuning tuning{};
     tuning.station_radius_tiles = 8;
-    const UnitView self = unit(kTank, UnitKind::Tank, Side::Enemy, 40, 40);
-    const Observation observation = field({unit(kFactory, UnitKind::Factory, Side::Enemy, 10, 10)},
-                                          {unit(50, UnitKind::Tank, Side::Player, 200, 200)});
+    const sim::UnitView self = unit(kTank, UnitKind::Tank, Side::Enemy, 40, 40);
+    const sim::Observation observation
+        = field({unit(kFactory, UnitKind::Factory, Side::Enemy, 10, 10)},
+                {unit(50, UnitKind::Tank, Side::Player, 200, 200)});
     const Decision decision = decide(self, observation, tuning);
     ASSERT_EQ(decision.intent, Intent::Reposition);
     EXPECT_EQ(decision.x, 10);
@@ -188,8 +194,9 @@ TEST(Utility, ATankWithNothingToShootGoesBackToTheBaseArea) {
 TEST(Utility, ATankAlreadyHomeWithNothingToShootHolds) {
     UtilityTuning tuning{};
     tuning.station_radius_tiles = 8;
-    const Observation observation = field({unit(kFactory, UnitKind::Factory, Side::Enemy, 10, 10)},
-                                          {unit(50, UnitKind::Tank, Side::Player, 200, 200)});
+    const sim::Observation observation
+        = field({unit(kFactory, UnitKind::Factory, Side::Enemy, 10, 10)},
+                {unit(50, UnitKind::Tank, Side::Player, 200, 200)});
     const Decision decision
         = decide(unit(kTank, UnitKind::Tank, Side::Enemy, 12, 11), observation, tuning);
     EXPECT_EQ(decision.intent, Intent::Hold);
@@ -199,14 +206,16 @@ TEST(Utility, ATankWithNoBaseAndNothingToShootHoldsWhereItStands) {
     // Losing every factory must not make a tank wander: with nowhere to go, the honest decision is
     // to stay put, and it is the decision a test has to state or the behaviour gets invented by
     // accident.
-    const Observation observation = field({}, {unit(50, UnitKind::Tank, Side::Player, 200, 200)});
+    const sim::Observation observation
+        = field({}, {unit(50, UnitKind::Tank, Side::Player, 200, 200)});
     EXPECT_EQ(decide(unit(kTank, UnitKind::Tank, Side::Enemy, 40, 40), observation, UtilityTuning{})
                   .intent,
               Intent::Hold);
 }
 
 TEST(Utility, ATurretHoldsItsPostAndNeverGoesHunting) {
-    const Observation observation = field({}, {unit(50, UnitKind::Tank, Side::Player, 12, 12)});
+    const sim::Observation observation
+        = field({}, {unit(50, UnitKind::Tank, Side::Player, 12, 12)});
     const Decision decision = decide(unit(kTurret, UnitKind::Turret, Side::Enemy, 10, 10, 150),
                                      observation, UtilityTuning{});
     EXPECT_EQ(decision.intent, Intent::Hold);
@@ -215,7 +224,8 @@ TEST(Utility, ATurretHoldsItsPostAndNeverGoesHunting) {
 
 TEST(Utility, ATurretIsNotWithdrawnEvenWhenItIsNearlyDead) {
     // A turret that runs away is a turret that leaves the road open, and it cannot outrun a tank.
-    const Observation observation = field({}, {unit(50, UnitKind::Tank, Side::Player, 12, 12)});
+    const sim::Observation observation
+        = field({}, {unit(50, UnitKind::Tank, Side::Player, 12, 12)});
     const Decision decision = decide(unit(kTurret, UnitKind::Turret, Side::Enemy, 10, 10, 3),
                                      observation, UtilityTuning{});
     EXPECT_NE(decision.intent, Intent::Retreat);
@@ -223,17 +233,18 @@ TEST(Utility, ATurretIsNotWithdrawnEvenWhenItIsNearlyDead) {
 }
 
 TEST(Utility, AFactoryHasNothingToDecide) {
-    const Observation observation = field({}, {unit(50, UnitKind::Tank, Side::Player, 12, 12)});
+    const sim::Observation observation
+        = field({}, {unit(50, UnitKind::Tank, Side::Player, 12, 12)});
     const Decision decision = decide(unit(kFactory, UnitKind::Factory, Side::Enemy, 10, 10, 400),
                                      observation, UtilityTuning{});
     EXPECT_EQ(decision.intent, Intent::Hold);
 }
 
 TEST(Utility, HomeFactoryIsTheLowestIdLivingOne) {
-    const Observation observation = field({unit(9, UnitKind::Factory, Side::Enemy, 5, 5),
-                                           unit(4, UnitKind::Factory, Side::Enemy, 7, 7)},
-                                          {});
-    const UnitView* home = home_factory(observation);
+    const sim::Observation observation = field({unit(9, UnitKind::Factory, Side::Enemy, 5, 5),
+                                                unit(4, UnitKind::Factory, Side::Enemy, 7, 7)},
+                                               {});
+    const sim::UnitView* home = home_factory(observation);
     ASSERT_NE(home, nullptr);
     EXPECT_EQ(home->id, UnitId{4});
     EXPECT_EQ(home_factory(field({}, {})), nullptr);
@@ -246,7 +257,7 @@ TEST(Utility, HomeFactoryIsTheLowestIdLivingOne) {
 namespace {
 
 /// Own base at home, an enemy base far away, and nothing within engagement range of anyone.
-[[nodiscard]] Observation two_bases(int home_x, int home_y, int enemy_x, int enemy_y) {
+[[nodiscard]] sim::Observation two_bases(int home_x, int home_y, int enemy_x, int enemy_y) {
     return field({unit(kFactory, UnitKind::Factory, Side::Enemy, home_x, home_y),
                   unit(kTank, UnitKind::Tank, Side::Enemy, home_x, home_y)},
                  {unit(90, UnitKind::Factory, Side::Player, enemy_x, enemy_y)});
@@ -258,7 +269,7 @@ TEST(Utility, ATankWithNothingInRangeAdvancesTowardTheEnemyBase) {
     // The defect this posture exists for: without it, a utility commander never leaves its own
     // half, and two of them never fight -- measured, 0 shots in 2400 ticks on ten seeds.
     UtilityTuning tuning{};
-    const Observation observation = two_bases(10, 10, 110, 10);
+    const sim::Observation observation = two_bases(10, 10, 110, 10);
     const Decision decision
         = decide(unit(kTank, UnitKind::Tank, Side::Enemy, 10, 10), observation, tuning);
     ASSERT_EQ(decision.intent, Intent::Advance);
@@ -302,7 +313,7 @@ TEST(Utility, ATankAlreadyAtTheStagingPointHoldsThere) {
 TEST(Utility, AHurtTankStillWithdrawsRatherThanAdvancing) {
     UtilityTuning tuning{};
     tuning.retreat_hp = 20;
-    const Observation observation = two_bases(10, 10, 110, 10);
+    const sim::Observation observation = two_bases(10, 10, 110, 10);
     const Decision decision
         = decide(unit(kTank, UnitKind::Tank, Side::Enemy, 60, 10, 5), observation, tuning);
     ASSERT_EQ(decision.intent, Intent::Retreat);
@@ -312,7 +323,7 @@ TEST(Utility, AHurtTankStillWithdrawsRatherThanAdvancing) {
 TEST(Utility, AnEnemyInRangeStillBeatsAdvancing) {
     UtilityTuning tuning{};
     EXPECT_EQ(tuning.engage_range_tiles, 14) << "this test's numbers assume the default range";
-    Observation observation = two_bases(10, 10, 110, 10);
+    sim::Observation observation = two_bases(10, 10, 110, 10);
     // Ten tiles away: inside the range. Thirty tiles would be out of it, and advancing past an
     // enemy nobody can shoot is the CORRECT behaviour -- which is what the first version of this
     // test got wrong, asserting Engage for an enemy that was out of range.
@@ -326,8 +337,9 @@ TEST(Utility, AnEnemyInRangeStillBeatsAdvancing) {
 TEST(Utility, WithNoEnemyBaseKnownATankStillGoesHomeInsteadOfWandering) {
     // Advance needs somewhere to go. Without an enemy base it must not invent a direction.
     UtilityTuning tuning{};
-    const Observation observation = field({unit(kFactory, UnitKind::Factory, Side::Enemy, 10, 10)},
-                                          {unit(50, UnitKind::Tank, Side::Player, 200, 200)});
+    const sim::Observation observation
+        = field({unit(kFactory, UnitKind::Factory, Side::Enemy, 10, 10)},
+                {unit(50, UnitKind::Tank, Side::Player, 200, 200)});
     const Decision decision
         = decide(unit(kTank, UnitKind::Tank, Side::Enemy, 40, 40), observation, tuning);
     EXPECT_EQ(decision.intent, Intent::Reposition);
@@ -335,9 +347,10 @@ TEST(Utility, WithNoEnemyBaseKnownATankStillGoesHomeInsteadOfWandering) {
 }
 
 TEST(Utility, TheEnemyBaseIsTheLowestIdLivingEnemyFactory) {
-    const Observation observation = field({}, {unit(9, UnitKind::Factory, Side::Player, 5, 5),
-                                               unit(4, UnitKind::Factory, Side::Player, 7, 7)});
-    const UnitView* base = enemy_factory(observation);
+    const sim::Observation observation
+        = field({}, {unit(9, UnitKind::Factory, Side::Player, 5, 5),
+                     unit(4, UnitKind::Factory, Side::Player, 7, 7)});
+    const sim::UnitView* base = enemy_factory(observation);
     ASSERT_NE(base, nullptr);
     EXPECT_EQ(base->id, UnitId{4});
     EXPECT_EQ(enemy_factory(field({}, {})), nullptr);
@@ -345,7 +358,7 @@ TEST(Utility, TheEnemyBaseIsTheLowestIdLivingEnemyFactory) {
 
 TEST(Utility, AdvancingIsDeterministic) {
     UtilityTuning tuning{};
-    const Observation observation = two_bases(10, 10, 110, 10);
+    const sim::Observation observation = two_bases(10, 10, 110, 10);
     for (int i = 0; i < 20; ++i) {
         const Decision a
             = decide(unit(kTank, UnitKind::Tank, Side::Enemy, 10, 10), observation, tuning);
@@ -365,8 +378,8 @@ TEST(Utility, ItThinksOnItsCycleAndNotInBetween) {
     UtilityTuning tuning{};
     tuning.cycle_ticks = 15;
     UtilityCommander commander{tuning};
-    const Observation observation = field({unit(kTank, UnitKind::Tank, Side::Enemy, 10, 10)},
-                                          {unit(50, UnitKind::Tank, Side::Player, 16, 10)});
+    const sim::Observation observation = field({unit(kTank, UnitKind::Tank, Side::Enemy, 10, 10)},
+                                               {unit(50, UnitKind::Tank, Side::Player, 16, 10)});
     std::vector<sim::Order> orders;
     commander.think(field(observation.own, observation.enemy, 14), orders);
     EXPECT_TRUE(orders.empty()) << "tick 14 is not on a 15-tick cycle";
@@ -378,10 +391,11 @@ TEST(Utility, OneOrderPerUnitPerCycleAtMost) {
     UtilityTuning tuning{};
     tuning.cycle_ticks = 1;
     UtilityCommander commander{tuning};
-    const Observation observation = field({unit(kTank, UnitKind::Tank, Side::Enemy, 10, 10),
-                                           unit(kFactory, UnitKind::Factory, Side::Enemy, 10, 12),
-                                           unit(kTurret, UnitKind::Turret, Side::Enemy, 11, 9)},
-                                          {unit(50, UnitKind::Tank, Side::Player, 16, 10)});
+    const sim::Observation observation
+        = field({unit(kTank, UnitKind::Tank, Side::Enemy, 10, 10),
+                 unit(kFactory, UnitKind::Factory, Side::Enemy, 10, 12),
+                 unit(kTurret, UnitKind::Turret, Side::Enemy, 11, 9)},
+                {unit(50, UnitKind::Tank, Side::Player, 16, 10)});
     std::vector<sim::Order> orders;
     commander.think(observation, orders);
     EXPECT_EQ(orders_for(orders, UnitId{kTank}), 1);
@@ -395,9 +409,9 @@ TEST(Utility, ItNeverOrdersAnEnemyUnitOrItsOwnDead) {
     UtilityTuning tuning{};
     tuning.cycle_ticks = 1;
     UtilityCommander commander{tuning};
-    const Observation observation = field({unit(kTank, UnitKind::Tank, Side::Enemy, 10, 10)},
-                                          {unit(50, UnitKind::Tank, Side::Player, 16, 10),
-                                           unit(51, UnitKind::Turret, Side::Player, 17, 10)});
+    const sim::Observation observation = field({unit(kTank, UnitKind::Tank, Side::Enemy, 10, 10)},
+                                               {unit(50, UnitKind::Tank, Side::Player, 16, 10),
+                                                unit(51, UnitKind::Turret, Side::Player, 17, 10)});
     std::vector<sim::Order> orders;
     commander.think(observation, orders);
     ASSERT_FALSE(orders.empty());
@@ -416,8 +430,8 @@ TEST(Utility, TheDecisionsItReportsAreTheOrdersItIssued) {
     UtilityTuning tuning{};
     tuning.cycle_ticks = 1;
     UtilityCommander commander{tuning};
-    const Observation observation = field({unit(kTank, UnitKind::Tank, Side::Enemy, 10, 10)},
-                                          {unit(50, UnitKind::Tank, Side::Player, 16, 10)});
+    const sim::Observation observation = field({unit(kTank, UnitKind::Tank, Side::Enemy, 10, 10)},
+                                               {unit(50, UnitKind::Tank, Side::Player, 16, 10)});
     std::vector<sim::Order> orders;
     commander.think(observation, orders);
     const std::vector<Decision>& decisions = commander.decisions();
@@ -439,10 +453,11 @@ TEST(Utility, HoldingMeansNoOrderForATankAndAGuardOrderForATurret) {
     UtilityTuning tuning{};
     tuning.cycle_ticks = 1;
     UtilityCommander commander{tuning};
-    const Observation observation = field({unit(kTank, UnitKind::Tank, Side::Enemy, 10, 10),
-                                           unit(kTurret, UnitKind::Turret, Side::Enemy, 12, 9),
-                                           unit(kFactory, UnitKind::Factory, Side::Enemy, 10, 12)},
-                                          {unit(50, UnitKind::Tank, Side::Player, 200, 200)});
+    const sim::Observation observation
+        = field({unit(kTank, UnitKind::Tank, Side::Enemy, 10, 10),
+                 unit(kTurret, UnitKind::Turret, Side::Enemy, 12, 9),
+                 unit(kFactory, UnitKind::Factory, Side::Enemy, 10, 12)},
+                {unit(50, UnitKind::Tank, Side::Player, 200, 200)});
     std::vector<sim::Order> orders;
     commander.think(observation, orders);
 
@@ -467,11 +482,12 @@ TEST(Utility, ThinkingTwiceOnTheSameObservationDecidesTheSameThing) {
     UtilityTuning tuning{};
     tuning.cycle_ticks = 1;
     UtilityCommander commander{tuning};
-    const Observation observation = field({unit(kTank, UnitKind::Tank, Side::Enemy, 10, 10),
-                                           unit(7, UnitKind::Tank, Side::Enemy, 40, 40),
-                                           unit(kTurret, UnitKind::Turret, Side::Enemy, 11, 9)},
-                                          {unit(50, UnitKind::Tank, Side::Player, 16, 10),
-                                           unit(51, UnitKind::Factory, Side::Player, 18, 12)});
+    const sim::Observation observation
+        = field({unit(kTank, UnitKind::Tank, Side::Enemy, 10, 10),
+                 unit(7, UnitKind::Tank, Side::Enemy, 40, 40),
+                 unit(kTurret, UnitKind::Turret, Side::Enemy, 11, 9)},
+                {unit(50, UnitKind::Tank, Side::Player, 16, 10),
+                 unit(51, UnitKind::Factory, Side::Player, 18, 12)});
     std::vector<sim::Order> first;
     commander.think(observation, first);
     std::vector<sim::Order> second;
@@ -488,10 +504,11 @@ TEST(Utility, EveryUnitGetsADecisionEvenWithNoEnemiesAndNoBase) {
     UtilityTuning tuning{};
     tuning.cycle_ticks = 1;
     UtilityCommander commander{tuning};
-    const Observation observation = field({unit(kTank, UnitKind::Tank, Side::Enemy, 10, 10),
-                                           unit(kTurret, UnitKind::Turret, Side::Enemy, 12, 10),
-                                           unit(kFactory, UnitKind::Factory, Side::Enemy, 14, 10)},
-                                          {});
+    const sim::Observation observation
+        = field({unit(kTank, UnitKind::Tank, Side::Enemy, 10, 10),
+                 unit(kTurret, UnitKind::Turret, Side::Enemy, 12, 10),
+                 unit(kFactory, UnitKind::Factory, Side::Enemy, 14, 10)},
+                {});
     std::vector<sim::Order> orders;
     commander.think(observation, orders);
     EXPECT_EQ(commander.decisions().size(), 3U);
@@ -509,9 +526,10 @@ TEST(Utility, AWithdrawalIsAnOrderTheSimulationCanActuallyCarryOut) {
     tuning.cycle_ticks = 1;
     tuning.retreat_hp = 20;
     UtilityCommander commander{tuning};
-    const Observation observation = field({unit(kFactory, UnitKind::Factory, Side::Enemy, 30, 44),
-                                           unit(kTank, UnitKind::Tank, Side::Enemy, 10, 10, 4)},
-                                          {unit(50, UnitKind::Tank, Side::Player, 12, 10)});
+    const sim::Observation observation
+        = field({unit(kFactory, UnitKind::Factory, Side::Enemy, 30, 44),
+                 unit(kTank, UnitKind::Tank, Side::Enemy, 10, 10, 4)},
+                {unit(50, UnitKind::Tank, Side::Player, 12, 10)});
     std::vector<sim::Order> orders;
     commander.think(observation, orders);
     ASSERT_EQ(orders.size(), 1U);
