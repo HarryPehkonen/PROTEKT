@@ -211,6 +211,124 @@ TEST(Utility, HomeFactoryIsTheLowestIdLivingOne) {
 }
 
 // ---------------------------------------------------------------------------------------------
+// Advance to contact: the posture that makes an opponent an opponent
+// ---------------------------------------------------------------------------------------------
+
+namespace {
+
+/// Own base at home, an enemy base far away, and nothing within engagement range of anyone.
+[[nodiscard]] Observation two_bases(int home_x, int home_y, int enemy_x, int enemy_y) {
+    return field({unit(kFactory, UnitKind::Factory, Side::Enemy, home_x, home_y),
+                  unit(kTank, UnitKind::Tank, Side::Enemy, home_x, home_y)},
+                 {unit(90, UnitKind::Factory, Side::Player, enemy_x, enemy_y)});
+}
+
+} // namespace
+
+TEST(Utility, ATankWithNothingInRangeAdvancesTowardTheEnemyBase) {
+    // The defect this posture exists for: without it, a utility commander never leaves its own
+    // half, and two of them never fight -- measured, 0 shots in 2400 ticks on ten seeds.
+    UtilityTuning tuning{};
+    const Observation observation = two_bases(10, 10, 110, 10);
+    const Decision decision
+        = decide(unit(kTank, UnitKind::Tank, Side::Enemy, 10, 10), observation, tuning);
+    ASSERT_EQ(decision.intent, Intent::Advance);
+    EXPECT_GT(decision.x, 10) << "it moved toward the enemy, not away from it";
+    EXPECT_LT(decision.x, 110) << "and it did not walk onto the enemy's doorstep";
+}
+
+TEST(Utility, TheAdvanceStagesOnTheMidpointOfTheTwoBases) {
+    UtilityTuning tuning{};
+    tuning.advance_percent = 50;
+    const Decision decision = decide(unit(kTank, UnitKind::Tank, Side::Enemy, 10, 10),
+                                     two_bases(10, 10, 110, 10), tuning);
+    ASSERT_EQ(decision.intent, Intent::Advance);
+    EXPECT_EQ(decision.x, 60) << "halfway between the bases";
+    EXPECT_EQ(decision.y, 10);
+}
+
+TEST(Utility, TheAdvanceStagesShortOfTheEnemyBaseAtAnyPercentage) {
+    for (const int percent : {10, 25, 50, 75, 90}) {
+        UtilityTuning tuning{};
+        tuning.advance_percent = percent;
+        const Decision decision = decide(unit(kTank, UnitKind::Tank, Side::Enemy, 10, 10),
+                                         two_bases(10, 10, 210, 10), tuning);
+        ASSERT_EQ(decision.intent, Intent::Advance) << "at " << percent << "%";
+        EXPECT_LE(decision.x, 10 + (percent * 200) / 100)
+            << "the staging point must never overshoot the line at " << percent << "%";
+    }
+}
+
+TEST(Utility, ATankAlreadyAtTheStagingPointHoldsThere) {
+    UtilityTuning tuning{};
+    tuning.advance_percent = 50;
+    tuning.station_radius_tiles = 8;
+    // Staging point is (60,10); stand two tiles from it.
+    const Decision decision = decide(unit(kTank, UnitKind::Tank, Side::Enemy, 62, 10),
+                                     two_bases(10, 10, 110, 10), tuning);
+    EXPECT_EQ(decision.intent, Intent::Hold)
+        << "arriving must not become re-deciding the same move forever";
+}
+
+TEST(Utility, AHurtTankStillWithdrawsRatherThanAdvancing) {
+    UtilityTuning tuning{};
+    tuning.retreat_hp = 20;
+    const Observation observation = two_bases(10, 10, 110, 10);
+    const Decision decision
+        = decide(unit(kTank, UnitKind::Tank, Side::Enemy, 60, 10, 5), observation, tuning);
+    ASSERT_EQ(decision.intent, Intent::Retreat);
+    EXPECT_EQ(decision.x, 10) << "away from the enemy, not toward it";
+}
+
+TEST(Utility, AnEnemyInRangeStillBeatsAdvancing) {
+    UtilityTuning tuning{};
+    EXPECT_EQ(tuning.engage_range_tiles, 14) << "this test's numbers assume the default range";
+    Observation observation = two_bases(10, 10, 110, 10);
+    // Ten tiles away: inside the range. Thirty tiles would be out of it, and advancing past an
+    // enemy nobody can shoot is the CORRECT behaviour -- which is what the first version of this
+    // test got wrong, asserting Engage for an enemy that was out of range.
+    observation.enemy.push_back(unit(91, UnitKind::Tank, Side::Player, 20, 10));
+    const Decision decision
+        = decide(unit(kTank, UnitKind::Tank, Side::Enemy, 10, 10), observation, tuning);
+    ASSERT_EQ(decision.intent, Intent::Engage);
+    EXPECT_EQ(decision.target, UnitId{91});
+}
+
+TEST(Utility, WithNoEnemyBaseKnownATankStillGoesHomeInsteadOfWandering) {
+    // Advance needs somewhere to go. Without an enemy base it must not invent a direction.
+    UtilityTuning tuning{};
+    const Observation observation = field({unit(kFactory, UnitKind::Factory, Side::Enemy, 10, 10)},
+                                          {unit(50, UnitKind::Tank, Side::Player, 200, 200)});
+    const Decision decision
+        = decide(unit(kTank, UnitKind::Tank, Side::Enemy, 40, 40), observation, tuning);
+    EXPECT_EQ(decision.intent, Intent::Reposition);
+    EXPECT_EQ(decision.x, 10);
+}
+
+TEST(Utility, TheEnemyBaseIsTheLowestIdLivingEnemyFactory) {
+    const Observation observation = field({}, {unit(9, UnitKind::Factory, Side::Player, 5, 5),
+                                               unit(4, UnitKind::Factory, Side::Player, 7, 7)});
+    const UnitView* base = enemy_factory(observation);
+    ASSERT_NE(base, nullptr);
+    EXPECT_EQ(base->id, UnitId{4});
+    EXPECT_EQ(enemy_factory(field({}, {})), nullptr);
+}
+
+TEST(Utility, AdvancingIsDeterministic) {
+    UtilityTuning tuning{};
+    const Observation observation = two_bases(10, 10, 110, 10);
+    for (int i = 0; i < 20; ++i) {
+        const Decision a
+            = decide(unit(kTank, UnitKind::Tank, Side::Enemy, 10, 10), observation, tuning);
+        const Decision b
+            = decide(unit(kTank, UnitKind::Tank, Side::Enemy, 10, 10), observation, tuning);
+        EXPECT_EQ(a.intent, b.intent);
+        EXPECT_EQ(a.x, b.x);
+        EXPECT_EQ(a.y, b.y);
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
 // The commander: orders, seams, determinism
 // ---------------------------------------------------------------------------------------------
 

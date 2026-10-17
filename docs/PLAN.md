@@ -371,6 +371,35 @@ Also visible in every arm: **no unit ever attacks a factory** -- 400 hp at the e
 The base is currently unattackable in practice, so no match can be won or lost. That is the objective
 and economy milestone's problem, and it is recorded here so it is not mistaken for balance.
 
+**M5b — advance to contact, and the standoff fixed.** The defect M5a measured is now closed: one new
+posture, `Intent::Advance`, plus one tuning number, `advance_percent{50}`. A tank with nothing in
+range, whose side knows both bases, moves to a staging point halfway along the line from its own
+factory to the enemy's -- halfway so that two commanders staging from opposite ends arrive at the same
+tile and meet, and staging rather than attacking so it does not walk into the guns of the base it was
+sent toward. The policy now reads as the sentence it is: **withdraw if hurt, engage what is in range,
+otherwise go where the war is, and if nobody knows where that is, go home.**
+
+Measured before and after, same tool, same ten seeds, 2400 ticks:
+
+| arm | before M5b (P lost / E lost / seeds with contact) | after M5b |
+|---|---|---|
+| utility against utility | 0 / 0 / **0 of 10** | 3 / 5 / **8 of 10** |
+| utility as PLAYER vs scripted | 3 / 18 / 7 of 10 | 7 / 22 / 8 of 10 |
+| utility enemy vs scripted player | 15 / 2 / 7 of 10 | 16 / 12 / 8 of 10 |
+
+Read honestly, that is not a clean improvement at every line. The enemy arm gets worse by the metric
+of units NOT lost (2 -> 12) precisely because it now advances and fights instead of sitting at home;
+what it buys is that it takes 16 of the player's units doing it, on eight seeds instead of seven. The
+trade is deliberate and it is the whole point of the posture: **a commander that never leaves its own
+half is not an opponent.** The aggressor asymmetry survives and grows (22 taken for 7 lost, against
+the scripted opponent's 23 for 20).
+
+The regression test for the standoff is an INTEGRATION test -- `UtilityBattle.TwoUtilityCommanders
+ActuallyFightEachOther` runs a real 2400-tick battle and asserts that both sides fired and both sides
+took losses -- because no unit test could see the defect: every unit was behaving exactly as its unit
+tests said it should. Sabotaging the posture back out (`advance_percent = 0`) fails it, which is the
+proof that the test is the reason it cannot come back.
+
 **Explicitly not in M5a:** an LLM anywhere near the tick loop (latency, cost and nondeterminism all
 forbid it), and any tuning search over the parameters. Those stay offline, against the headless
 harness, and only if the measured gap above says they are worth it.

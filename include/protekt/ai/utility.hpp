@@ -32,8 +32,9 @@ enum class Intent : std::uint8_t {
     Engage = 1,     ///< attack the target it has chosen
     Reposition = 2, ///< nothing to shoot at: go back to the base area
     Retreat = 3,    ///< hurt: withdraw toward the base, whatever is in front of it
+    Advance = 4,    ///< nothing in range and a war to go to: close the distance
 };
-inline constexpr int kIntentCount = 4;
+inline constexpr int kIntentCount = 5;
 
 /// The numbers, in one place, because they are balance rather than logic. Whole tiles and hit
 /// points.
@@ -41,8 +42,11 @@ struct UtilityTuning {
     int engage_range_tiles{14}; ///< what a tank will consider engaging
     int retreat_hp{20};         ///< at or below this, a tank withdraws
     int station_radius_tiles{
-        8};              ///< how far from the base a tank will stray with nothing to shoot at
-    int cycle_ticks{15}; ///< half a second at 30 Hz. Slow is the design, not a limitation.
+        8};                  ///< how far from the base a tank will stray with nothing to shoot at
+    int cycle_ticks{15};     ///< half a second at 30 Hz. Slow is the design, not a limitation.
+    int advance_percent{50}; ///< how far along home->enemy-base a tank with nothing to shoot at
+                             ///< will push. 50 stages both sides on the same midpoint, which is
+                             ///< what makes two of these commanders actually meet.
 };
 
 /// One unit's decision, kept separate from the order it becomes: the interesting claims are about
@@ -71,6 +75,12 @@ struct Decision {
 
 /// The base a side falls back to: its lowest-id living factory, or nullptr if it has none left.
 [[nodiscard]] const UnitView* home_factory(const Observation& observation) noexcept;
+
+/// The same question for the other side: its lowest-id living factory, or nullptr. A commander that
+/// cannot name the enemy's base cannot go there, and an opponent that never leaves its own half
+/// never fights -- measured, before this existed: 0 shots in 2400 ticks with a utility commander on
+/// each side, because neither of them ever closed the distance.
+[[nodiscard]] const UnitView* enemy_factory(const Observation& observation) noexcept;
 
 /// The enemy worth attacking, or nullptr if there is none in range. Posture is decided elsewhere;
 /// this only answers "which one".

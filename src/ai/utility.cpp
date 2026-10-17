@@ -23,6 +23,7 @@ namespace {
         break;
     case Intent::Reposition:
     case Intent::Retreat:
+    case Intent::Advance:
         order.kind = sim::OrderKind::MoveTo;
         order.x = sim::Fixed::from_int(decision.x);
         order.y = sim::Fixed::from_int(decision.y);
@@ -72,6 +73,26 @@ const UnitView* home_factory(const Observation& observation) noexcept {
     return home;
 }
 
+const UnitView* enemy_factory(const Observation& observation) noexcept {
+    const UnitView* base = nullptr;
+    for (const UnitView& unit : observation.enemy) {
+        if (unit.kind == sim::UnitKind::Factory && (base == nullptr || unit.id < base->id)) {
+            base = &unit;
+        }
+    }
+    return base;
+}
+
+Decision advance_point(const UnitView& self, const UnitView& home, const UnitView& enemy_home,
+                       const UtilityTuning& tuning) noexcept {
+    Decision decision{};
+    decision.unit = self.id;
+    decision.intent = Intent::Advance;
+    decision.x = home.x + ((enemy_home.x - home.x) * tuning.advance_percent) / 100;
+    decision.y = home.y + ((enemy_home.y - home.y) * tuning.advance_percent) / 100;
+    return decision;
+}
+
 const UnitView* choose_target(const UnitView& self, const Observation& observation,
                               const UtilityTuning& tuning) noexcept {
     const std::int64_t range = tuning.engage_range_tiles;
@@ -112,10 +133,24 @@ Decision decide(const UnitView& self, const Observation& observation,
         return decision;
     }
     const std::int64_t radius = tuning.station_radius_tiles;
-    if (home != nullptr && distance_squared(self, *home) > radius * radius) {
-        decision.intent = Intent::Reposition;
-        decision.x = home->x;
-        decision.y = home->y;
+    // Nothing in range. If both bases are known, the war is somewhere and this is a soldier: it
+    // goes to the staging point between them and holds there once it arrives. Re-deciding the same
+    // move forever would be harmless to the simulation and a lie in the decision log.
+    if (home != nullptr) {
+        if (const UnitView* enemy_home = enemy_factory(observation)) {
+            const Decision staging = advance_point(self, *home, *enemy_home, tuning);
+            const std::int64_t dx = static_cast<std::int64_t>(staging.x) - self.x;
+            const std::int64_t dy = static_cast<std::int64_t>(staging.y) - self.y;
+            if ((dx * dx) + (dy * dy) > radius * radius) {
+                decision = staging;
+            }
+            return decision; // arrived, or on the way: either way it does not also go home
+        }
+        if (distance_squared(self, *home) > radius * radius) {
+            decision.intent = Intent::Reposition;
+            decision.x = home->x;
+            decision.y = home->y;
+        }
     }
     return decision;
 }
