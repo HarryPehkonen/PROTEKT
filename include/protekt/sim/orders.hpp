@@ -16,8 +16,12 @@ enum class OrderKind : std::uint8_t {
     Patrol = 2,  ///< x, y .. x2, y2
     Attack = 3,  ///< target
     Stop = 4,    ///< no more moving, keep firing if armed
+    /// Shoot THIS unit, and change nothing else. Deliberately does NOT set a stance or a
+    /// destination: a unit the player is driving is steered by the player's keys every tick, so an
+    /// order that also moved it would fight the keyboard. This is the trigger, as an order.
+    FocusFire = 5, ///< target
 };
-inline constexpr int kOrderKindCount = 5;
+inline constexpr int kOrderKindCount = 6;
 
 struct Order {
     OrderKind kind{};

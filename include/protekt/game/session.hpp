@@ -13,9 +13,8 @@ namespace protekt::game {
 /// The player's whole side of one frame: the tank he is sitting in, and the units he is commanding.
 ///
 /// This exists because of a gap that mattered: the window opened, the simulation ran, and the tank
-/// never moved, because nothing ever turned a keystroke into `PlayerCommander::set_input`. The loop
-/// in `app/game.cpp` now pumps events, calls `frame`, and presents -- nothing else -- so the part
-/// that used to be untestable has shrunk to the pumping.
+/// pumped by `app/game.cpp`, which calls `frame` between events and presentation -- so everything
+/// that decides anything is here, under test, and the untestable part is only the pumping.
 ///
 /// One entry point, one ordering rule: the driven tank's own order comes first, then the commanded
 /// units in ascending id order.

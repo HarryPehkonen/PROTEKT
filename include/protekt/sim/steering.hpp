@@ -110,8 +110,8 @@ template <class Ground>
     /// tick, so `lands` above only ever asks about the tile they are already standing in, and an
     /// "escape" of a fifth of a tile into an open tile is accepted forever -- the unit jitters in
     /// place and never leaves. An escape has to be checked at the granularity of tiles.
-    /// It is deliberately NOT applied to rules 1 and 2: a unit that refused to move within a tile
-    /// of any crater could not cross the map, which measured as two commanders never engaging.
+    /// It must NOT be applied to rules 1 and 2: a unit that refuses to move within a tile of any
+    /// crater cannot cross the map, and two commanders then never engage at all.
     const auto clear_way = [&](std::int64_t dx, std::int64_t dy, Step& out) {
         if (dx == 0 && dy == 0) {
             return false;
@@ -157,9 +157,9 @@ template <class Ground>
     }
 
     // 4. A new escape. The wanted step is reduced to a DIRECTION so the choice is about direction,
-    //    not distance. All EIGHT neighbours are candidates, nearest to the wanted direction first:
-    //    an earlier version listed them by hand from the wanted vector and silently left out the
-    //    opposite axes, so a corner whose only way out was due west found no escape at all.
+    //    not distance. All EIGHT neighbours are candidates, nearest to the wanted direction first.
+    //    Enumerating them by hand from the wanted vector is NOT enough: the opposite axes are the
+    //    way out of a concave corner, and a ring written from the wanted vector alone omits them.
     const std::int64_t wx = sign(request.want_dx);
     const std::int64_t wy = sign(request.want_dy);
     std::array<std::array<std::int64_t, 2>, 8> ring{{

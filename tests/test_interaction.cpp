@@ -145,14 +145,24 @@ TEST(Interaction, LeftClickOnTheGroundClearsTheSelection) {
     EXPECT_TRUE(player.selection().empty()) << "the player asked for nothing; give him nothing";
 }
 
-TEST(Interaction, LeftClickOnAHostileIsRefused) {
+TEST(Interaction, LeftClickOnAHostileFiresAtItAndKeepsTheSelection) {
+    // The assertion is about the ORDER, and deliberately not about the message: a test that checks
+    // "something was refused" keeps passing when the click stops being a refusal.
     Rig rig = make_rig();
     Interaction player{rig.tank_a};
     player.handle(with_click(at(rig, rig.tank_b)), rig.sim, rig.options);
     player.handle(with_click(at(rig, rig.enemy)), rig.sim, rig.options);
     EXPECT_EQ(selected(player), (std::vector<sim::UnitId>{rig.tank_b}))
         << "clicking the enemy must not throw away the player's own selection";
-    EXPECT_FALSE(player.message().empty()) << "a refusal has to say why";
+
+    const std::vector<sim::Order> orders = player.take_orders();
+    ASSERT_EQ(orders.size(), 1u) << "the trigger orders one unit and nobody else";
+    EXPECT_EQ(orders.at(0).kind, sim::OrderKind::FocusFire)
+        << "it must not be an Attack: that would set a hunting stance and fight the keyboard";
+    EXPECT_EQ(orders.at(0).unit, rig.tank_a)
+        << "the unit the player is sitting in is the one firing";
+    EXPECT_EQ(orders.at(0).target, rig.enemy);
+    EXPECT_FALSE(player.message().empty()) << "the player has to be told what happened";
 }
 
 TEST(Interaction, TabCyclesThroughOwnUnitsInAscendingOrderAndWraps) {

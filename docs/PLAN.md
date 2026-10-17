@@ -400,81 +400,72 @@ took losses -- because no unit test could see the defect: every unit was behavin
 tests said it should. Sabotaging the posture back out (`advance_percent = 0`) fails it, which is the
 proof that the test is the reason it cannot come back.
 
-### Navigation — the finding that decides the next milestone (measured 2026-10-17)
+### Navigation -- what a unit does when the ground is in the way (measured 2026-10-17)
 
-Chasing "no unit ever attacks a factory" (400 hp at the end of all fifty measured battles) produced a
-cause that is not tactical at all. A tank ordered onto the enemy base from seed 42's player spawn
-crosses 130 tiles of open ground and dies 2 tiles short of its own 12-tile weapon range, under fire
-from the base's turrets -- reasonable. But a second tank, ordered at the same time, **sits at exactly
-(43,68) for 3000 ticks** with its Attack order intact and never moves again.
+A unit steers straight at its goal. When a step is refused it slides along each axis, and when the goal
+direction AND both axes are blocked it takes a short **detour**: a remembered direction, held for up to
+`kDetourTicks`, chosen from the eight neighbouring tiles with the ones nearest the wanted direction
+first. `include/protekt/sim/steering.hpp` holds that decision, and it is the only place a step is
+decided.
 
-The terrain there is the reason, and it is a concave corner: with the goal to the south-east, the
-tiles to the **east**, to the **south** and on the **diagonal** are all craters, while the way out is
-**west**. The simulation steers in a straight line at the current goal and, when a step is refused,
-retries along each axis separately so a unit slides along a rim. Three direction components, all
-blocked, and the unit waits forever. From outside it is indistinguishable from a unit nobody ordered.
+**The seam is built for a route planner.** `plan_step` answers one question -- "which way does this unit
+go this tick?" -- from a ground handed to it as any type with `factor(tile_x, tile_y)`, so a test draws
+a map and the sim hands it the world. A deterministic A* answers the same question from a waypoint list
+and needs nothing else in the tick loop to change.
 
-**Pinned, so it is measured rather than remembered:** `tests/test_navigation.cpp` holds the control
-(a unit on open ground closes 30+ tiles in 600 ticks, proving orders land) and the trap itself, with
-the three blocking tiles asserted rather than described. The stuck test is expected to be **deleted
-and replaced by its opposite** when navigation lands; until then it is a record, not a requirement.
+**What it does, and what it does not do.** A concave crater corner cannot hold a unit: at seed 42 a tank
+ordered onto the enemy base crosses **94 tiles** to (137,158), which is **11.8 tiles** from the base and
+inside its 12-tile weapon range, and stops there to fire. An unarmed base goes **400 -> 0 hp**, first
+damage at tick **965**; with one turret covering the approach the tank still reaches firing range (first
+damage tick 966) and takes the base to **336/400** before dying. What it does NOT do is plan a route: a
+U-shaped crater field can still keep a unit inside the pocket, and there is no notion of a route at all.
 
-This affects the player exactly as much as the AI: "go there" on a unit that has a rim between it and
-the destination means a unit that grinds against the rim and never arrives, with nothing on screen to
-say why.
+Two constraints the code keeps, because the obvious alternatives are wrong:
 
-**Options, and what each is honestly worth.**
+- **Working around an obstacle is STATE, not a decision.** Steering re-aims at the goal every tick, so a
+  one-tick dodge cancels itself out. The `Detour` lives on the unit and inside `state_hash()`, so a
+  replay reproduces the same walk.
+- **The step test is not the "is the way clear" test.** Units move about a fifth of a tile a tick, so
+  "is the tile I would land on enterable" is almost always true -- it is the tile they are already
+  standing in. It decides one step. The escape and the detour lifecycle use the whole-tile version;
+  applying that to ordinary movement stops units crossing the map at all.
 
-| # | option | what it fixes | cost and what it does NOT touch |
-|---|---|---|---|
-| 1 | **Concave-corner escape in `steer`** (~30 lines): when the goal direction and both axis slides are blocked, try rotated candidate headings (±45°, ±90°) and take the first passable step | removes the PERMANENT trap: a stuck unit can always back out and continue | changes movement, so every recorded battle property is re-recorded (first-shot ticks, the M2b figures, the cross-build log). It does NOT plan routes: a U-shaped crater field can still pen a unit inside the pocket, it just cannot hold it forever. No new module, no format change, no interface touched |
-| 2 | **Deterministic A\* on the tile grid, followed as waypoints** (new module, ~300 lines + tests) | units actually reach destinations, including around U-shapes and long rims; makes an advance-to-contact order mean what it says | the world is a pure function of `(seed, x, y)` so the grid is cheap and the search is deterministic, but it puts a waypoint list into the order/replay format, so the format gains state and the replay corpus needs regenerating. Re-records the same properties as option 1 |
-| 3 | **Clear the spawn corridor in the scenario** | nothing real: the player still meets the trap elsewhere | cheapest, and it is a lie -- it hides a gameplay defect behind a favourable map |
+**Next: deterministic A* on the tile grid, followed as waypoints -- its own milestone, after the
+economy.**
 
-**Recommendation: option 1 now, option 2 as its own milestone after the economy.** Option 1 is the
-gameplay bug (a unit that can never be moved anywhere is worse than a unit that takes a detour), it is
-small enough to verify properly, and it makes the order interface trustworthy. Option 2 is the real
-capability, but an economy whose harvesters cannot reliably reach a resource field is not worth
-building first, and an A\* whose results nobody has yet needed is a module that will be tuned against
-nothing.
+| option | what it fixes | cost and what it does NOT touch |
+|---|---|---|
+| **Deterministic A\* on the tile grid, followed as waypoints** (new module, ~300 lines + tests) | units actually reach destinations, including around U-shapes and long rims; makes an advance-to-contact order mean what it says | the world is a pure function of `(seed, x, y)` so the grid is cheap and the search is deterministic, but it puts a waypoint list into the order and replay format, so the format gains state and the replay corpus regenerates. It re-records the battle properties the detour already moved |
 
-**Decided and done: option 1. Option 2 stays the plan, as its own milestone after the economy.**
+An economy whose harvesters cannot reliably reach a resource field is not worth building first, and an
+A* nobody has yet needed is a module tuned against nothing. Clearing the spawn corridor was rejected:
+it hides a gameplay defect behind a favourable map.
 
-Implemented as `include/protekt/sim/steering.hpp`: one function, `plan_step`, answers "which way does
-this unit go this tick?" and is the seam a planned route plugs into -- an A\* answers the same question
-from a waypoint list and needs nothing else in the tick loop to change. The ground is handed over as
-any type with a `factor(tile_x, tile_y)`, so a test draws a map and the sim hands it the world.
+Recorded values, for provenance: the seed-42 1200-tick battle ends with **7 units** and state hash
+`9354737314166346737`; a 300-frame `--autodrive` headless run hashes `8785776222935281865` (the detour
+is part of unit state, so it is inside both numbers).
 
-Two things the implementation taught, both now pinned by tests rather than remembered:
+**A single unescorted tank destroys an undefended factory, and that is the design.** Factories are
+unarmed on purpose; the base was never safe, it was only unreachable.
 
-- **A one-tick dodge cannot work.** Steering re-aims straight at the goal every tick, so a unit that
-  dodges a rim for one tick walks straight back into it and the two moves cancel. Working around an
-  obstacle is therefore STATE: a `Detour` on the unit, inside `state_hash()`, so a replay reproduces
-  the same walk.
-- **The step test is weaker than the question it was being asked.** Tanks move about a fifth of a tile
-  a tick, so "is the tile I would land on enterable" is almost always TRUE -- it is the tile they are
-  already standing in. Using it to decide whether an obstacle was behind them cancelled every escape
-  one tick after it began, which measured as the unit pacing in place. The escape and the detour
-  lifecycle use a whole-tile test; ordinary movement deliberately keeps the weaker one, because a unit
-  that refused to move within a tile of any crater could not cross the map -- that version was built,
-  measured, and it stopped the two commanders engaging at all.
+> **Factories are unarmed, and that is deliberate.** A factory has no defences of its own. Defence is
+> what TURRETS are for: placing them, covering an approach, and deciding what is worth defending is
+> the player's job and the strategic layer's job, not a property of the building. A factory that
+> defends itself would make turrets decoration.
 
-**Measured after the fix** (seed 42, the same scenario that produced the finding): the tank ordered at
-the base crosses **94 tiles** to (137,158), which is **11.8 tiles** from the base and inside its
-12-tile weapon range, and stops there to fire. An unarmed base goes **400 → 0 hp**, first damage at
-tick **965**. With one enemy turret covering the approach the tank still reaches firing range (first
-damage tick 966) and takes the base to **336/400** before dying.
+Two things this parks rather than forgets, at Harri's request (2026-10-17):
 
-Recorded properties that moved with it, re-recorded rather than adjusted: the seed-42 1200-tick battle
-hash `3138344302628900498` → `9354737314166346737` (**and 8 units → 7**: the recorded battle now has a
-casualty in it), and the 300-frame autodrive headless hash `8785776222935281865` → `8785776222935281865`
-(the detour is part of unit state, so every state hash moved).
+- **Shields** -- a future possibility, and an ENERGY concept (something that regenerates, something
+  that has to be knocked down before damage lands). It is not a factory armour tweak, so it does not
+  belong in the balance table next to hp.
+- **Built-in factory defences** -- also a future possibility, and if they ever arrive they are
+  *turrets on the structure* (the existing `UnitKind::Turret` with a mounting rule), not a new kind
+  of building weapon. One mechanism for "shoots at things", always.
 
-**Balance consequence, and it is Harri's call, not mine:** a single unescorted tank now destroys a
-factory. The base was safe for fifty battles because nothing could reach it, not because it was
-defended. Its turrets (16-tile range against the tank's 12) are not enough once arrival is possible.
-Either the factory needs to be worth defending or its hp/armour needs revisiting -- this is the
-ecomomy-and-balance decision, and it is now visible instead of hidden behind the trap.
+Measured for the record, so the design has a number under it: with one turret covering the approach,
+the same single tank still reaches firing range (first damage tick 966) and takes the base to
+**336/400** before dying. So a defended factory already costs an attacker its tank; an undefended one
+is free to take.
 
 ### The world is drawn mirrored (found by playing it)
 

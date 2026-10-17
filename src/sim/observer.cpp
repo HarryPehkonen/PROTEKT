@@ -142,7 +142,9 @@ void record_orders(const Sim& sim, std::size_t& logged, BattleLog& log) {
         const Command& c = commands[logged];
         log.events.push_back(
             BattleEvent{c.tick, EventKind::Ordered, c.order.unit,
-                        c.order.kind == OrderKind::Attack ? c.order.target : UnitId{},
+                        (c.order.kind == OrderKind::Attack || c.order.kind == OrderKind::FocusFire)
+                            ? c.order.target
+                            : UnitId{},
                         static_cast<std::uint16_t>(c.order.kind)});
     }
 }
@@ -365,6 +367,8 @@ const char* to_string(OrderKind kind) noexcept {
         return "patrol";
     case OrderKind::Attack:
         return "attack";
+    case OrderKind::FocusFire:
+        return "focus";
     case OrderKind::Stop:
         return "stop";
     }

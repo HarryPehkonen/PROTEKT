@@ -99,7 +99,7 @@ bool order_is_valid(const std::vector<Unit>& units, const Order& order) noexcept
     if (unit == nullptr || !unit->alive) {
         return false;
     }
-    if (order.kind == OrderKind::Attack) {
+    if (order.kind == OrderKind::Attack || order.kind == OrderKind::FocusFire) {
         const Unit* target = find_const(units, order.target);
         return target != nullptr && target->alive && target->side != unit->side;
     }
@@ -132,8 +132,13 @@ void apply_order(std::vector<Unit>& units, const Order& order) noexcept {
     case OrderKind::Stop:
         unit->stance = Stance::Idle;
         unit->target = UnitId{};
+        unit->focus_target = UnitId{}; // and hold fire
         unit->vx = Fixed::zero();
         unit->vy = Fixed::zero();
+        break;
+    case OrderKind::FocusFire:
+        // Nothing but the target: no stance, no destination, no velocity. Stop is what clears it.
+        unit->focus_target = order.target;
         break;
     }
 }
@@ -355,6 +360,16 @@ void Sim::step() {
         }
         const std::int64_t range = prof.weapon_range.raw;
         Unit* best = nullptr;
+        // What the trigger named outranks everything else. It is the only order that says "shoot
+        // THIS one" without touching stance or movement, which is what lets a player who is driving
+        // a unit choose a target without the sim steering there.
+        if (unit.focus_target.valid()) {
+            Unit* focused = find_mut(units_, unit.focus_target);
+            if (focused != nullptr && focused->alive && focused->side != unit.side
+                && dist2(unit.x, unit.y, focused->x, focused->y) <= range * range) {
+                best = focused;
+            }
+        }
         // An explicit Attack order outranks auto-engagement: while the named target is alive and
         // in range the gun engages it, even when a closer hostile is in range too.
         if (unit.stance == Stance::Attack && unit.target.valid()) {
@@ -424,6 +439,7 @@ std::uint64_t Sim::state_hash() const noexcept {
         h.u64(u.cooldown);
         h.u64(static_cast<std::uint64_t>(u.stance));
         h.u64(u.target.value);
+        h.u64(u.focus_target.value);
         h.i32(u.guard_x.raw);
         h.i32(u.guard_y.raw);
         h.i32(u.patrol_x.raw);

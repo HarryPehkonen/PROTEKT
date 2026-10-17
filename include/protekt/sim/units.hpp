@@ -49,6 +49,9 @@ struct Unit {
     std::uint16_t cooldown{}; ///< ticks until this unit may fire again
     Stance stance{};
     UnitId target{}; ///< Attack: the unit being hunted
+    /// FocusFire: what the trigger named, if anything. Preferred over both the Attack stance and
+    /// auto-engagement while it is alive and in range.
+    UnitId focus_target{};
     /// The obstacle this unit is working around, if any. State, not a decision: a one-tick escape
     /// cancels itself out, because steering re-aims at the goal every tick.
     Detour detour{};

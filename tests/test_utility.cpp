@@ -402,10 +402,10 @@ TEST(Utility, TheDecisionsItReportsAreTheOrdersItIssued) {
 }
 
 TEST(Utility, HoldingMeansNoOrderForATankAndAGuardOrderForATurret) {
-    // The name of this test used to promise "no order at all", which was not true of a turret: a
-    // turret holds by being told to guard the tile it stands on, since it has no stance of its own
-    // to keep. The delegated arm noticed the contradiction and reported it instead of bending the
-    // code; this is the version that says what it means, and checks both halves.
+    // A tank holds by being given no order at all. A turret cannot: it has no stance of its own to
+    // keep, so holding means being told to guard the tile it already stands on. Both halves are
+    // checked, because "holding" that means different things per kind is where a commander quietly
+    // stops working.
     UtilityTuning tuning{};
     tuning.cycle_ticks = 1;
     UtilityCommander commander{tuning};

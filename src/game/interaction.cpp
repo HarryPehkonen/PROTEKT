@@ -50,7 +50,14 @@ void Interaction::handle(const input::InputFrame& frame, const sim::Sim& sim,
                     select_only(hit->id);
                 }
             } else if (hit_is_hostile) {
-                refuse("That is not one of ours.");
+                // THE TRIGGER. A left click on a hostile is not a selection and not a movement
+                // order: it names a target for the unit the player is sitting in, through the same
+                // FocusFire order the AI would use. It is the one order the driven unit accepts,
+                // and it is safe precisely because it sets a target and nothing else -- no stance,
+                // no destination -- so it cannot fight the keyboard.
+                const std::vector<sim::Order> shot = cmd::focus_fire(driven_, hit->id);
+                pending_.insert(pending_.end(), shot.begin(), shot.end());
+                message_ = "engaging the target under the crosshair.";
             } else {
                 selection_.clear();
             }

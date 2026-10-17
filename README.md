@@ -22,10 +22,14 @@ You are one tank. Everything else you command.
 | `Escape` | clear the selection |
 | **right click** the ground | order every selected unit there |
 | **right click** a hostile | order every selected unit to attack it |
+| **left click** a hostile | shoot at it: your own gun is aimed at the unit under the cursor |
 
-The tank you are sitting in is **never** moved by a click. It is driven by `W`/`A`/`D` every tick, so an
-order from the mouse would fight your own hands. Selecting it is fine; ordering it is refused, with a
-reason.
+The tank you are sitting in is **never** moved by a click. It is driven by `W`/`A`/`D` every tick, so
+an order from the mouse would fight your own hands. Selecting it is fine, and firing is the one thing
+a click may tell it to do — that order sets a target and nothing else.
+
+Your gun also fires on its own at any hostile within twelve tiles. Clicking a hostile is how you
+*choose* between them; `Escape` and Stop are how you hold fire.
 
 Selected units are drawn brighter than the rest of their side, so you can see what you have hold of.
 
@@ -45,12 +49,13 @@ change a verification run.
 
 | gap | what it means when you play |
 |---|---|
-| **No pathfinding** | a unit ordered somewhere it cannot reach in a straight line gets stuck against a crater rim and never arrives. A concave corner of a rim holds it **permanently** — measured, not a suspicion: `tests/test_navigation.cpp` pins it. This is the next milestone's subject |
+| **No route planning** | a unit goes straight at its goal, slides along a rim, and takes a short detour around a corner it cannot pass. It does not plan a path: a concave corner cannot hold a unit, but a U-shaped crater field can still keep one inside the pocket. `tests/test_steering.cpp` draws the shapes, `tests/test_navigation.cpp` pins the open-ground and corner cases |
 | **No economy** | no resources, no harvester, no building. A factory is a 400 hp target and nothing more |
-| **No way to win or lose** | no unit ever attacks a base in practice, so no match can end. Bases are not invulnerable — attackers just do not survive the approach |
-| **No HUD** | refusals ("that order would move the tank you are in") are printed to the console, not to the screen. Nothing is drawn but the world |
-| **No mouse look** | the window collects mouse motion; nothing consumes it yet. Keys drive, the mouse selects and orders — deliberately, until it has been played and judged |
-| Text is not drawn at all | there are coloured boxes and a horizon, and no font |
+| **No way to win or lose** | nothing ends a match. An undefended factory can be destroyed by a single tank — factories are unarmed on purpose and defence is what turrets are for — but there is no objective beyond that |
+| **No HUD** | refusals ("that order would move the tank you are in") are printed to the console, not to the screen. Nothing is drawn but the world: no crosshair, no health, no marker on the unit your gun is engaging |
+| **No feedback** | being shot, shooting, and killing all happen silently. There is no sound at all, and no on-screen sign that damage happened |
+| **No mouse look** | the window collects mouse motion; nothing consumes it yet. Keys drive, the mouse selects, fires and orders — deliberately, until it has been played and judged |
+| Text is not drawn at all | there are coloured boxes and a horizon, and no font. Flat colours, no textures, no lighting |
 
 ## Requirements
 

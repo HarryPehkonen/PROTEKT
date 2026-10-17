@@ -384,7 +384,7 @@ TEST_F(RenderCliTest, WritesAPpmWithTheRightHeaderAndSize) {
     const std::string bytes = slurp(path);
     // P6, then width and height, then the maximum value, each on its own line -- so the header is
     // 13 bytes for this image ("P6\n" + "96 64\n" + "255\n"), and the arithmetic is derived here
-    // rather than trusted: an earlier version of this test asserted 15 and was simply wrong.
+    // rather than trusted.
     const std::string header = "P6\n96 64\n255\n";
     ASSERT_GE(bytes.size(), header.size());
     EXPECT_EQ(bytes.compare(0, header.size(), header), 0)

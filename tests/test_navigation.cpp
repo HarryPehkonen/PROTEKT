@@ -14,11 +14,10 @@
 /// route; what it does about a CONCAVE corner -- where the goal direction and both axis components
 /// are blocked at once -- is a short remembered detour, chosen in sim/steering.hpp.
 ///
-/// The failure these tests were written for is silent: the unit keeps its order, keeps its stance,
-/// and does nothing, which from outside looks exactly like a unit that has not been ordered yet. It
-/// was measured at seed 42 on 2026-10-17 -- a tank held at one tile for 3000 ticks while the enemy
-/// base took no damage in any of fifty battles -- and it is now fixed, so the test that recorded
-/// the trap has been replaced by its opposite, as it said it should be.
+/// The failure mode is silent: a unit that cannot get through keeps its order, keeps its stance and
+/// does nothing, which from outside looks exactly like a unit nobody has ordered yet. That is why
+/// the terrain in the corner case is ASSERTED here rather than described -- if the world changes,
+/// this file stops testing what it names.
 namespace protekt::sim {
 namespace {
 

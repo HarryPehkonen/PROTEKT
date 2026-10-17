@@ -211,6 +211,7 @@ if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
         tests/test_world_sample.cpp
         tests/test_fixed.cpp
         tests/test_steering.cpp
+        tests/test_focus_fire.cpp
         tests/test_sim.cpp
         tests/test_scenario.cpp
         tests/test_replay.cpp

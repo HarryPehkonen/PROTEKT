@@ -38,6 +38,15 @@ namespace protekt::cmd {
 [[nodiscard]] std::vector<sim::Order> attack(std::span<const sim::UnitId> roster,
                                              sim::UnitId target);
 
+/// `shooter` shoots `target` and does nothing else: no stance, no destination, no velocity.
+///
+/// This is the TRIGGER, and it is deliberately not `attack`. `attack` gives a unit a hunting
+/// stance, which makes `steer` drive it at the target every tick -- fine for a unit obeying orders,
+/// fatal for the one the player is sitting in and steering on the keyboard. So the trigger is its
+/// own verb, it takes ONE unit rather than a roster, and an invalid target is dropped rather than
+/// repaired.
+[[nodiscard]] std::vector<sim::Order> focus_fire(sim::UnitId shooter, sim::UnitId target);
+
 /// Stop where you are, keep firing if armed.
 [[nodiscard]] std::vector<sim::Order> stop(std::span<const sim::UnitId> roster);
 

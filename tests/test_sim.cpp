@@ -163,10 +163,9 @@ TEST(Sim, GenuinelyInvalidOrdersAreDroppedWithoutEffect) {
 }
 
 TEST(Sim, AnOrderForTheOtherSidesUnitIsAccepted) {
-    // This case used to be asserted the other way round, and that assertion was wrong: it told the
-    // implementation that an order touching the enemy side must be refused. The sim cannot know who
-    // issued an order, so refusing is not its business -- and enforcing it here silently killed the
-    // enemy commander, whose orders arrive through this very channel.
+    // The sim cannot know who ISSUED an order, so ownership is not its business to enforce: the
+    // enemy commander's orders arrive through this same channel, and a check here silently kills
+    // it.
     Sim with_order = Sim::create(two_tanks(42));
     Sim without = Sim::create(two_tanks(42));
     const UnitId theirs = with_order.units()[1].id;
