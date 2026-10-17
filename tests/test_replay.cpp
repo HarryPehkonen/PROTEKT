@@ -3,6 +3,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -153,6 +154,50 @@ TEST(Replay, EveryOrderKindSurvivesARoundTripAndNoneIsDropped) {
         expect_same_order(again.commands.at(i).order, r.commands.at(i).order);
     }
     EXPECT_EQ(to_text(again), text);
+}
+
+TEST(Replay, TheFieldReaderReadsEveryKindTheWayTheFormatWritesIt) {
+    // `fields_of` is the ONE definition of what a payload carries: the writer asks it how many
+    // numbers to write, the state hash asks it for the fixed-shape stream. Pinning the shape per
+    // kind is what stops a kind from quietly borrowing another kind's arity -- which is exactly how
+    // a verb table with a hand-written count went wrong.
+    const OrderFields move = fields_of(orders::MoveTo{Fixed::from_int(3), Fixed::from_int(4)});
+    EXPECT_EQ(move.position_count, 2U);
+    EXPECT_EQ(move.positions.at(0), Fixed::from_int(3));
+    EXPECT_EQ(move.positions.at(1), Fixed::from_int(4));
+    EXPECT_EQ(move.positions.at(2), Fixed::zero()) << "a kind must not invent positions";
+    EXPECT_EQ(move.positions.at(3), Fixed::zero());
+    EXPECT_FALSE(move.has_target);
+
+    const OrderFields guard = fields_of(orders::GuardAt{Fixed::from_int(5), Fixed::from_int(6)});
+    EXPECT_EQ(guard.position_count, 2U);
+    EXPECT_FALSE(guard.has_target);
+
+    const OrderFields patrol = fields_of(orders::Patrol{Fixed::from_int(1), Fixed::from_int(2),
+                                                        Fixed::from_int(7), Fixed::from_int(8)});
+    EXPECT_EQ(patrol.position_count, 4U);
+    EXPECT_EQ(patrol.positions.at(2), Fixed::from_int(7));
+    EXPECT_EQ(patrol.positions.at(3), Fixed::from_int(8));
+    EXPECT_FALSE(patrol.has_target);
+
+    const OrderFields attack = fields_of(orders::Attack{UnitId{9}});
+    EXPECT_EQ(attack.position_count, 0U) << "a shoot-this order carries no destination";
+    EXPECT_TRUE(attack.has_target);
+    EXPECT_EQ(attack.target, UnitId{9});
+
+    const OrderFields focus = fields_of(orders::FocusFire{UnitId{11}});
+    EXPECT_EQ(focus.position_count, 0U);
+    EXPECT_TRUE(focus.has_target);
+    EXPECT_EQ(focus.target, UnitId{11});
+    EXPECT_EQ(focus.positions, attack.positions)
+        << "the hash tells these apart by kind, hashed first";
+
+    const OrderFields stop = fields_of(orders::Stop{});
+    EXPECT_EQ(stop.position_count, 0U);
+    EXPECT_FALSE(stop.has_target);
+    EXPECT_EQ(stop.target, UnitId{});
+    const std::array<Fixed, 4> nothing{};
+    EXPECT_TRUE(stop.positions == nothing) << "a kind that carries nothing carries zeros";
 }
 
 TEST(Replay, AcceptsBothPositionSpellings) {

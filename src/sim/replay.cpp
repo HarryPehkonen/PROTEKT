@@ -17,7 +17,7 @@ constexpr std::string_view kHeader = "# protekt replay v1";
 constexpr std::size_t kMaxTokens = 8;
 
 /// How a verb is spelled. What it WRITES (how many positions, whether a target) is not recorded
-/// here: it is read off the payload by `Fields`, so it cannot disagree with the struct.
+/// here: it is read off the payload by `fields_of`, so it cannot disagree with the struct.
 struct VerbInfo {
     std::string_view name;
     OrderKind kind;
@@ -41,27 +41,7 @@ const VerbInfo* find_verb(OrderKind kind) {
     return nullptr;
 }
 
-/// The values a payload writes: up to four positions, then an optional target. One overload per
-/// payload type and no fallback, so a new kind that is not handled here does not compile.
-struct Fields {
-    std::array<Fixed, 4> positions{};
-    std::size_t position_count = 0;
-    bool has_target = false;
-    UnitId target{};
-
-    static Fields of(const orders::MoveTo& o) { return {{o.x, o.y, {}, {}}, 2, false, {}}; }
-    static Fields of(const orders::GuardAt& o) { return {{o.x, o.y, {}, {}}, 2, false, {}}; }
-    static Fields of(const orders::Patrol& o) { return {{o.x, o.y, o.x2, o.y2}, 4, false, {}}; }
-    static Fields of(const orders::Attack& o) { return {{}, 0, true, o.target}; }
-    static Fields of(const orders::Stop&) { return {}; }
-    static Fields of(const orders::FocusFire& o) { return {{}, 0, true, o.target}; }
-};
-
-Fields fields_of(const OrderPayload& payload) {
-    return std::visit([](const auto& p) { return Fields::of(p); }, payload);
-}
-
-/// An empty payload of the verb's kind, so parsing learns the arity from the same visitor the
+/// An empty payload of the verb's kind, so parsing learns the arity from the same reader the
 /// writer uses.
 OrderPayload blank_payload(OrderKind kind) {
     switch (kind) {
@@ -81,8 +61,8 @@ OrderPayload blank_payload(OrderKind kind) {
     return orders::Stop{};
 }
 
-/// The payload of `kind` built from parsed values; the inverse of `Fields::of`.
-OrderPayload payload_from(OrderKind kind, const Fields& f) {
+/// The payload of `kind` built from parsed values; the inverse of `fields_of`.
+OrderPayload payload_from(OrderKind kind, const OrderFields& f) {
     switch (kind) {
     case OrderKind::MoveTo:
         return orders::MoveTo{f.positions.at(0), f.positions.at(1)};
@@ -201,7 +181,7 @@ bool parse_command_line(const std::array<std::string_view, kMaxTokens>& tok, std
         reason = "unknown verb";
         return false;
     }
-    const Fields shape = fields_of(blank_payload(verb->kind));
+    const OrderFields shape = fields_of(blank_payload(verb->kind));
     const std::size_t expected = 3 + shape.position_count + (shape.has_target ? 1U : 0U);
     if (count != expected) {
         reason = "wrong number of arguments";
@@ -212,7 +192,7 @@ bool parse_command_line(const std::array<std::string_view, kMaxTokens>& tok, std
         reason = "bad unit id";
         return false;
     }
-    Fields parsed{};
+    OrderFields parsed{};
     for (std::size_t i = 0; i < shape.position_count; ++i) {
         if (!parse_position(tok.at(3 + i), parsed.positions.at(i))) {
             reason = "bad position";
@@ -255,7 +235,7 @@ std::string to_text(const Replay& replay) {
         text += verb->name;
         text += ' ';
         text += std::to_string(cmd.order.unit.value);
-        const Fields fields = fields_of(cmd.order.payload);
+        const OrderFields fields = fields_of(cmd.order.payload);
         for (std::size_t i = 0; i < fields.position_count; ++i) {
             text += ' ';
             text += std::to_string(fields.positions.at(i).raw);

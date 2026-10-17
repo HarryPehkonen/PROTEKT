@@ -136,35 +136,47 @@ void apply_order(std::vector<Unit>& units, const Order& order) noexcept {
         return;
     }
     Unit& unit = *find_mut(units, order.unit);
-    struct Apply {
-        Unit& unit;
-        void operator()(const orders::MoveTo& o) const noexcept {
-            apply_posted(unit, Stance::MoveTo, o.x, o.y, Fixed{}, Fixed{});
+    // Dispatch by kind() and read with get_if, rather than std::visit: this function is noexcept
+    // and `std::visit` is not -- bad_variant_access is a terminate this code can never actually
+    // reach, and a terminate is not a failure mode to admit into the tick loop. The switch has NO
+    // default, so a new kind is a -Wswitch error rather than a silently ignored order.
+    switch (order.kind()) {
+    case OrderKind::MoveTo:
+        if (const auto* o = std::get_if<orders::MoveTo>(&order.payload)) {
+            apply_posted(unit, Stance::MoveTo, o->x, o->y, Fixed{}, Fixed{});
         }
-        void operator()(const orders::GuardAt& o) const noexcept {
-            apply_posted(unit, Stance::GuardAt, o.x, o.y, Fixed{}, Fixed{});
+        break;
+    case OrderKind::GuardAt:
+        if (const auto* o = std::get_if<orders::GuardAt>(&order.payload)) {
+            apply_posted(unit, Stance::GuardAt, o->x, o->y, Fixed{}, Fixed{});
         }
-        void operator()(const orders::Patrol& o) const noexcept {
-            apply_posted(unit, Stance::Patrol, o.x, o.y, o.x2, o.y2);
+        break;
+    case OrderKind::Patrol:
+        if (const auto* o = std::get_if<orders::Patrol>(&order.payload)) {
+            apply_posted(unit, Stance::Patrol, o->x, o->y, o->x2, o->y2);
         }
-        void operator()(const orders::Attack& o) const noexcept {
+        break;
+    case OrderKind::Attack:
+        if (const auto* o = std::get_if<orders::Attack>(&order.payload)) {
             unit.stance = Stance::Attack;
-            unit.target = o.target;
+            unit.target = o->target;
         }
-        void operator()(const orders::Stop&) const noexcept {
-            unit.stance = Stance::Idle;
-            unit.target = UnitId{};
-            unit.focus_target = UnitId{}; // and hold fire
-            unit.vx = Fixed::zero();
-            unit.vy = Fixed::zero();
-        }
-        void operator()(const orders::FocusFire& o) const noexcept {
+        break;
+    case OrderKind::Stop:
+        unit.stance = Stance::Idle;
+        unit.target = UnitId{};
+        unit.focus_target = UnitId{}; // and hold fire
+        unit.vx = Fixed::zero();
+        unit.vy = Fixed::zero();
+        break;
+    case OrderKind::FocusFire:
+        if (const auto* o = std::get_if<orders::FocusFire>(&order.payload)) {
             // Nothing but the target: no stance, no destination, no velocity. Stop is what clears
             // it.
-            unit.focus_target = o.target;
+            unit.focus_target = o->target;
         }
-    };
-    std::visit(Apply{unit}, order.payload);
+        break;
+    }
 }
 
 /// The world as the mover sees it: one question, answered from the seed. A designed map answers the
@@ -475,32 +487,14 @@ std::uint64_t Sim::state_hash() const noexcept {
     for (const Order& o : pending_) {
         h.u64(static_cast<std::uint64_t>(o.kind()));
         h.u64(o.unit.value);
-        // The hashed stream keeps its original shape: x, y, x2, y2, target, zero where the kind has
-        // none.
-        std::array<Fixed, 4> pos{};
-        UnitId target{};
-        std::visit(
-            [&](const auto& p) {
-                using P = std::decay_t<decltype(p)>;
-                if constexpr (std::is_same_v<P, orders::MoveTo>
-                              || std::is_same_v<P, orders::GuardAt>) {
-                    pos.at(0) = p.x;
-                    pos.at(1) = p.y;
-                } else if constexpr (std::is_same_v<P, orders::Patrol>) {
-                    pos.at(0) = p.x;
-                    pos.at(1) = p.y;
-                    pos.at(2) = p.x2;
-                    pos.at(3) = p.y2;
-                } else if constexpr (std::is_same_v<P, orders::Attack>
-                                     || std::is_same_v<P, orders::FocusFire>) {
-                    target = p.target;
-                }
-            },
-            o.payload);
-        for (const Fixed f : pos) {
-            h.i32(f.raw);
+        // The hashed stream keeps its original shape -- x, y, x2, y2, target, zero where the kind
+        // has none -- through the same reader the replay writer uses, so there is one definition of
+        // a payload's contents rather than two.
+        const OrderFields f = fields_of(o.payload);
+        for (const Fixed position : f.positions) {
+            h.i32(position.raw);
         }
-        h.u64(target.value);
+        h.u64(f.target.value);
     }
     return h.value();
 }

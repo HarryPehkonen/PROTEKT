@@ -100,6 +100,50 @@ static_assert(std::is_same_v<PayloadOf<OrderKind::FocusFire>, orders::FocusFire>
     return static_cast<OrderKind>(payload.index());
 }
 
+/// What a payload carries, in the canonical order: up to four positions and an optional target,
+/// zero where the kind has none. This is the ONE definition of a payload's contents, and its two
+/// callers need it for different reasons -- the replay writer has to know how many numbers a verb
+/// writes, and the state hash has to feed the same fixed-shape stream it always has (kind, unit, x,
+/// y, x2, y2, target) so that recorded hashes do not move.
+struct OrderFields {
+    std::array<Fixed, 4> positions{};
+    std::size_t position_count = 0;
+    bool has_target = false;
+    UnitId target{};
+};
+
+/// Reads a payload's contents. NON-THROWING on purpose: it is called from `noexcept` functions, and
+/// `std::visit` and `std::get` may throw `bad_variant_access`. That cannot happen here -- no
+/// payload holds a type whose move can throw, so the variant can never be valueless -- but the
+/// compiler cannot know that, and a `std::terminate` is not a failure mode worth admitting into the
+/// tick loop to save an if-chain.
+[[nodiscard]] inline OrderFields fields_of(const OrderPayload& payload) noexcept {
+    OrderFields out{};
+    if (const auto* p = std::get_if<orders::MoveTo>(&payload)) {
+        out.positions.at(0) = p->x;
+        out.positions.at(1) = p->y;
+        out.position_count = 2;
+    } else if (const auto* p = std::get_if<orders::GuardAt>(&payload)) {
+        out.positions.at(0) = p->x;
+        out.positions.at(1) = p->y;
+        out.position_count = 2;
+    } else if (const auto* p = std::get_if<orders::Patrol>(&payload)) {
+        out.positions.at(0) = p->x;
+        out.positions.at(1) = p->y;
+        out.positions.at(2) = p->x2;
+        out.positions.at(3) = p->y2;
+        out.position_count = 4;
+    } else if (const auto* p = std::get_if<orders::Attack>(&payload)) {
+        out.has_target = true;
+        out.target = p->target;
+    } else if (const auto* p = std::get_if<orders::FocusFire>(&payload)) {
+        out.has_target = true;
+        out.target = p->target;
+    }
+    // Stop carries nothing, and neither does anything else that reaches here.
+    return out;
+}
+
 /// An order, addressed to one unit.
 struct Order {
     UnitId unit{}; ///< must exist, be alive, and belong to the side issuing it
