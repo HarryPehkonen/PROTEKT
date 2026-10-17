@@ -1,6 +1,7 @@
 #include "protekt/sim/sim.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cstddef>
 
 namespace protekt::sim {
@@ -231,8 +232,8 @@ void move(std::uint64_t seed, Unit& unit) noexcept {
     if (unit.vx.raw == 0 && unit.vy.raw == 0) {
         return;
     }
-    const std::int64_t candidates[3][2]
-        = {{unit.vx.raw, unit.vy.raw}, {unit.vx.raw, 0}, {0, unit.vy.raw}};
+    const std::array<std::array<std::int64_t, 2>, 3> candidates{
+        {{unit.vx.raw, unit.vy.raw}, {unit.vx.raw, 0}, {0, unit.vy.raw}}};
     for (const auto& candidate : candidates) {
         if (candidate[0] == 0 && candidate[1] == 0) {
             continue;

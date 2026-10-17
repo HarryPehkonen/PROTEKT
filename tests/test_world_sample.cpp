@@ -21,7 +21,7 @@ TEST(WorldSample, AgreesWithGenerateForEveryTileOfSeveralChunks) {
                 for (int ty = 0; ty < kChunkSize; ++ty) {
                     for (int tx = 0; tx < kChunkSize; ++tx) {
                         const Tile expected
-                            = chunk.tiles[static_cast<std::size_t>(ty) * kChunkSize + tx];
+                            = chunk.tiles.at(static_cast<std::size_t>(ty) * kChunkSize + tx);
                         const Tile got = sample(seed, cx * kChunkSize + tx, cy * kChunkSize + ty);
                         ASSERT_EQ(got.height, expected.height)
                             << "seed " << seed << " tile " << tx << "," << ty;

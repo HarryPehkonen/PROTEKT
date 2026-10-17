@@ -2,9 +2,12 @@
 // Prints the world as ASCII plus the region hash. Its purpose is the one thing unit tests
 // cannot check: that the SAME seed gives the SAME bytes in a DIFFERENT process.
 #include <charconv>
+#include <cstddef>
 #include <cstdint>
-#include <cstdio>
 #include <cstdlib>
+#include <format>
+#include <iostream>
+#include <span>
 #include <string_view>
 
 #include "protekt/world/world.hpp"
@@ -24,15 +27,16 @@ int main(int argc, char** argv) {
     int size = 32;
     int chunk_x = 0;
     int chunk_y = 0;
-    for (int i = 1; i < argc; ++i) {
-        const std::string_view arg = argv[i];
-        if (arg == "--seed" && i + 1 < argc) {
-            seed = parse_u64(argv[++i], seed);
-        } else if (arg == "--size" && i + 1 < argc) {
-            size = std::atoi(argv[++i]);
-        } else if (arg == "--chunk" && i + 2 < argc) {
-            chunk_x = std::atoi(argv[++i]);
-            chunk_y = std::atoi(argv[++i]);
+    const std::span<char*> args{argv, static_cast<std::size_t>(argc)};
+    for (std::size_t i = 1; i < args.size(); ++i) {
+        const std::string_view arg = args[i];
+        if (arg == "--seed" && i + 1 < args.size()) {
+            seed = parse_u64(args[++i], seed);
+        } else if (arg == "--size" && i + 1 < args.size()) {
+            size = std::atoi(args[++i]);
+        } else if (arg == "--chunk" && i + 2 < args.size()) {
+            chunk_x = std::atoi(args[++i]);
+            chunk_y = std::atoi(args[++i]);
         }
     }
     if (size < 2) {
@@ -43,23 +47,23 @@ int main(int argc, char** argv) {
     }
 
     const protekt::world::Chunk chunk = protekt::world::generate(seed, chunk_x, chunk_y);
-    std::printf("seed 0x%016llX  chunk (%d,%d)  %dx%d\n", static_cast<unsigned long long>(seed),
-                chunk_x, chunk_y, size, size);
+    std::cout << std::format("seed 0x{:016X}  chunk ({},{})  {}x{}\n", seed, chunk_x, chunk_y, size,
+                             size);
     for (int y = 0; y < size; ++y) {
         for (int x = 0; x < size; ++x) {
             const protekt::world::Tile& tile
-                = chunk.tiles[static_cast<std::size_t>(y) * protekt::world::kChunkSize + x];
+                = chunk.tiles.at(static_cast<std::size_t>(y) * protekt::world::kChunkSize + x);
             const int level = tile.height;
             const char glyph = level < -256  ? '~'
                                : level < -64 ? '-'
                                : level < 64  ? '.'
                                : level < 256 ? '+'
                                              : '^';
-            std::putchar(glyph);
+            std::cout << glyph;
         }
-        std::putchar('\n');
+        std::cout << '\n';
     }
-    std::printf("hash 0x%016llX\n", static_cast<unsigned long long>(protekt::world::region_hash(
-                                        seed, chunk_x + 1, chunk_y + 1)));
+    std::cout << std::format("hash 0x{:016X}\n",
+                             protekt::world::region_hash(seed, chunk_x + 1, chunk_y + 1));
     return 0;
 }

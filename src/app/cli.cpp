@@ -98,19 +98,19 @@ std::optional<std::string> parse_args(std::span<const std::string_view> args, Op
 class RecordingCommander final : public ai::ICommander {
 public:
     RecordingCommander(ai::ICommander& inner, std::vector<sim::Command>& sink)
-        : inner_(inner), sink_(sink) {}
+        : inner_(&inner), sink_(&sink) {}
 
     void think(const ai::Observation& observation, std::vector<sim::Order>& out) override {
         const std::size_t first = out.size();
-        inner_.think(observation, out);
+        inner_->think(observation, out);
         for (std::size_t i = first; i < out.size(); ++i) {
-            sink_.push_back(sim::Command{observation.tick, out[i]});
+            sink_->push_back(sim::Command{observation.tick, out[i]});
         }
     }
 
 private:
-    ai::ICommander& inner_;
-    std::vector<sim::Command>& sink_;
+    ai::ICommander* inner_;
+    std::vector<sim::Command>* sink_;
 };
 
 /// The log without its status lines (what --status-period 0 asks for).
@@ -120,7 +120,7 @@ std::string without_status(const std::string& text) {
     while (pos < text.size()) {
         const std::size_t nl = text.find('\n', pos);
         const std::size_t end = nl == std::string::npos ? text.size() : nl + 1;
-        const std::string_view line(text.data() + pos, end - pos);
+        const std::string_view line = std::string_view{text}.substr(pos, end - pos);
         if (line.find(" status unit ") == std::string_view::npos) {
             out.append(line);
         }

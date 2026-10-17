@@ -2,6 +2,8 @@
 // written in rng.hpp by an independent implementation (Python), not from this C++.
 #include <gtest/gtest.h>
 
+#include <array>
+
 #include "protekt/rng.hpp"
 
 namespace {
@@ -27,7 +29,7 @@ TEST(Rng, KnownAnswersSeedDeadBeef) {
 TEST(Rng, BoundedStaysInRangeAndMatchesSpec) {
     EXPECT_EQ(SplitMix64(0).bounded(1), 0U);
     SplitMix64 rng(0);
-    const std::uint32_t expected[] = {33, 634, 184, 344, 562, 452, 798, 226};
+    const std::array<std::uint32_t, 8> expected{33, 634, 184, 344, 562, 452, 798, 226};
     for (const std::uint32_t want : expected) {
         EXPECT_EQ(rng.bounded(1000), want);
     }

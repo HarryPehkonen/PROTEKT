@@ -154,9 +154,10 @@ bool parse_command_line(const std::array<std::string_view, kMaxTokens>& tok, std
     cmd.tick = static_cast<Tick>(tick);
     cmd.order.kind = verb->kind;
     cmd.order.unit = UnitId{static_cast<std::uint32_t>(unit)};
-    Fixed* slots[4] = {&cmd.order.x, &cmd.order.y, &cmd.order.x2, &cmd.order.y2};
+    const std::array<Fixed*, 4> slots{&cmd.order.x, &cmd.order.y, &cmd.order.x2, &cmd.order.y2};
     for (int i = 0; i < verb->position_args; ++i) {
-        if (!parse_position(tok[3 + static_cast<std::size_t>(i)], *slots[i])) {
+        if (!parse_position(tok.at(3 + static_cast<std::size_t>(i)),
+                            *slots.at(static_cast<std::size_t>(i)))) {
             reason = "bad position";
             return false;
         }
@@ -196,7 +197,7 @@ std::string to_text(const Replay& replay) {
         const std::array<Fixed, 4> positions{cmd.order.x, cmd.order.y, cmd.order.x2, cmd.order.y2};
         for (int i = 0; i < verb->position_args; ++i) {
             text += ' ';
-            text += std::to_string(positions[static_cast<std::size_t>(i)].raw);
+            text += std::to_string(positions.at(static_cast<std::size_t>(i)).raw);
         }
         if (verb->takes_target) {
             text += ' ';
@@ -249,7 +250,7 @@ std::optional<Replay> parse(std::string_view text, std::string* error) {
                 fail(error, line_no, "too many fields");
                 return std::nullopt;
             }
-            tok[count++] = rest.substr(0, len);
+            tok.at(count++) = rest.substr(0, len);
             rest.remove_prefix(len);
         }
 

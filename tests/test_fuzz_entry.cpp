@@ -35,7 +35,8 @@ std::vector<std::filesystem::path> corpus_files() {
 }
 
 int feed(const std::string& text) {
-    return LLVMFuzzerTestOneInput(reinterpret_cast<const std::uint8_t*>(text.data()), text.size());
+    const std::vector<std::uint8_t> bytes(text.begin(), text.end());
+    return LLVMFuzzerTestOneInput(bytes.data(), bytes.size());
 }
 
 std::uint64_t splitmix64(std::uint64_t& state) {

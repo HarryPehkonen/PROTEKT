@@ -1,6 +1,7 @@
 #include "protekt/world/world.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cstddef>
 
 #include "protekt/rng.hpp"
@@ -52,11 +53,12 @@ int value_noise(std::uint64_t seed, int octave, int shift, int wx, int wy) noexc
 
 // Height at WORLD coordinates: octaves of cell width 32, 16, 8 weighted 4:2:1.
 int height_at(std::uint64_t seed, int wx, int wy) noexcept {
-    constexpr int kShifts[kOctaves] = {5, 4, 3};
-    constexpr int kWeights[kOctaves] = {4, 2, 1};
+    constexpr std::array<int, kOctaves> kShifts{5, 4, 3};
+    constexpr std::array<int, kOctaves> kWeights{4, 2, 1};
     int sum = 0;
     for (int o = 0; o < kOctaves; ++o) {
-        sum += kWeights[o] * value_noise(seed, o, kShifts[o], wx, wy);
+        const auto i = static_cast<std::size_t>(o);
+        sum += kWeights.at(i) * value_noise(seed, o, kShifts.at(i), wx, wy);
     }
     return std::clamp(sum / 7, kMinHeight, kMaxHeight);
 }
@@ -100,8 +102,8 @@ Chunk generate(std::uint64_t seed, int chunk_x, int chunk_y) noexcept {
             const int slope = abs_diff(h, height_at(world_seed, wx + 1, wy))
                               + abs_diff(h, height_at(world_seed, wx, wy + 1));
             Tile& tile
-                = chunk.tiles[static_cast<std::size_t>(y) * static_cast<std::size_t>(kChunkSize)
-                              + static_cast<std::size_t>(x)];
+                = chunk.tiles.at(static_cast<std::size_t>(y) * static_cast<std::size_t>(kChunkSize)
+                                 + static_cast<std::size_t>(x));
             tile.height = static_cast<std::int16_t>(h);
             tile.terrain = classify(h, slope);
         }
@@ -134,8 +136,8 @@ bool is_spawnable(const Chunk& chunk, int x, int y) noexcept {
         return false;
     }
     const Tile& tile
-        = chunk.tiles[static_cast<std::size_t>(y) * static_cast<std::size_t>(kChunkSize)
-                      + static_cast<std::size_t>(x)];
+        = chunk.tiles.at(static_cast<std::size_t>(y) * static_cast<std::size_t>(kChunkSize)
+                         + static_cast<std::size_t>(x));
     return tile.terrain == Terrain::Flat && tile.height >= kSpawnMinHeight
            && tile.height <= kSpawnMaxHeight;
 }

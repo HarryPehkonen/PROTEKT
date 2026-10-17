@@ -1,4 +1,6 @@
 #include <algorithm>
+#include <array>
+#include <cstddef>
 
 #include "protekt/rng.hpp"
 #include "protekt/world/world.hpp"
@@ -45,11 +47,12 @@ int value_noise(std::uint64_t seed, int octave, int shift, int wx, int wy) noexc
 }
 
 int height_at(std::uint64_t seed, int wx, int wy) noexcept {
-    constexpr int kShifts[kOctaves] = {5, 4, 3};
-    constexpr int kWeights[kOctaves] = {4, 2, 1};
+    constexpr std::array<int, kOctaves> kShifts{5, 4, 3};
+    constexpr std::array<int, kOctaves> kWeights{4, 2, 1};
     int sum = 0;
     for (int o = 0; o < kOctaves; ++o) {
-        sum += kWeights[o] * value_noise(seed, o, kShifts[o], wx, wy);
+        const auto i = static_cast<std::size_t>(o);
+        sum += kWeights.at(i) * value_noise(seed, o, kShifts.at(i), wx, wy);
     }
     return std::clamp(sum / 7, kMinHeight, kMaxHeight);
 }

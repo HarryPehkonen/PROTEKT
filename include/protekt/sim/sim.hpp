@@ -34,6 +34,15 @@ class OrderSink {
 public:
     virtual ~OrderSink() = default;
     virtual void enqueue(const Order& order) = 0;
+
+protected:
+    // Copying or moving through the interface would slice the derived commander or sim, so only
+    // the derived classes may copy and move it.
+    OrderSink() = default;
+    OrderSink(const OrderSink&) = default;
+    OrderSink& operator=(const OrderSink&) = default;
+    OrderSink(OrderSink&&) = default;
+    OrderSink& operator=(OrderSink&&) = default;
 };
 
 /// The simulation. Deterministic by construction: no floating point, no unseeded randomness,

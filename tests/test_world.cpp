@@ -16,7 +16,8 @@ using namespace protekt::world;
 // indeterminate memory (clang-tidy caught exactly that in the first version of this helper).
 bool same(const Chunk& a, const Chunk& b) {
     for (std::size_t i = 0; i < kChunkTiles; ++i) {
-        if (a.tiles[i].height != b.tiles[i].height || a.tiles[i].terrain != b.tiles[i].terrain) {
+        if (a.tiles.at(i).height != b.tiles.at(i).height
+            || a.tiles.at(i).terrain != b.tiles.at(i).terrain) {
             return false;
         }
     }
@@ -90,9 +91,9 @@ TEST(World, TerrainIsContinuousAcrossChunkBorders) {
     long inside = 0;
     for (int y = 0; y < kChunkSize; ++y) {
         const auto row = static_cast<std::size_t>(y) * kChunkSize;
-        across += std::abs(left.tiles[row + kChunkSize - 1].height - right.tiles[row].height);
-        inside += std::abs(left.tiles[row + kChunkSize - 3].height
-                           - left.tiles[row + kChunkSize - 2].height);
+        across += std::abs(left.tiles.at(row + kChunkSize - 1).height - right.tiles.at(row).height);
+        inside += std::abs(left.tiles.at(row + kChunkSize - 3).height
+                           - left.tiles.at(row + kChunkSize - 2).height);
     }
     EXPECT_LT(across, inside * 4) << "a step at the chunk border suggests a chunk-local field";
 }

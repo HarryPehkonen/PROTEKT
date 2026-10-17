@@ -37,6 +37,15 @@ class ICommander {
 public:
     virtual ~ICommander() = default;
     virtual void think(const Observation& observation, std::vector<sim::Order>& out) = 0;
+
+protected:
+    // Copying or moving through the interface would slice the derived commander, so only the
+    // derived classes may copy and move it.
+    ICommander() = default;
+    ICommander(const ICommander&) = default;
+    ICommander& operator=(const ICommander&) = default;
+    ICommander(ICommander&&) = default;
+    ICommander& operator=(ICommander&&) = default;
 };
 
 /// Living units only, in ascending id order.
