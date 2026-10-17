@@ -59,6 +59,18 @@ target_include_directories(protekt_core PUBLIC
 )
 protekt_warnings(protekt_core)
 
+# ================================ command ================================
+# The human's side of the order interface: the selection, the verbs that turn a click into orders,
+# and the standing controllers. Pure logic -- no window, no GPU, no clock -- so every part of it
+# runs in the gate on a machine with no display.
+add_library(protekt_cmd STATIC
+    src/cmd/selection.cpp
+    src/cmd/command.cpp
+    src/cmd/controller.cpp
+)
+target_link_libraries(protekt_cmd PUBLIC protekt_core)
+protekt_warnings(protekt_cmd)
+
 # ================================ game ================================
 # The game's own logic -- the world as seen, and the player as a commander -- is PURE, has no
 # window and no Vulkan in it, and is therefore tested on the gate box with everything else.
@@ -207,8 +219,9 @@ if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
     target_compile_definitions(protekt_tests
         PRIVATE PROTEKT_CORPUS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fuzz/corpus/replay")
     target_sources(protekt_tests PRIVATE tests/test_scene.cpp tests/test_player.cpp
-                                        tests/test_game_cli.cpp)
-    target_link_libraries(protekt_tests PRIVATE protekt_game)
+                                        tests/test_game_cli.cpp tests/test_selection.cpp
+                                        tests/test_command.cpp tests/test_controller.cpp)
+    target_link_libraries(protekt_tests PRIVATE protekt_game protekt_cmd)
     if(PROTEKT_RENDER)
         target_sources(protekt_tests PRIVATE tests/test_render.cpp)
         target_link_libraries(protekt_tests PRIVATE protekt_render)
