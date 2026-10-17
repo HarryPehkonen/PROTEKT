@@ -541,6 +541,45 @@ harness, and only if the measured gap above says they are worth it.
 
 ---
 
+### Saving a game mid-battle (Harri's call, 2026-10-17: "we should plan for SAVE")
+
+A save is a **snapshot of the sim**, not a replay. The two are different files for different jobs, and only
+one of them can be checked.
+
+- A **replay** is the tape: seed, every order, a tick. A few kilobytes, and it is already the format the
+  recorder writes. It is what makes a battle reproducible and a bug report actionable. It is NOT a save:
+  loading one re-simulates, so a tape written before a rule change replays into a **different battle** --
+  the detour field, the focus target and the payload arity each moved `state_hash()` in one day alone.
+- A **snapshot** is the photograph: the fields `state_hash()` already covers, plus the tick, written out and
+  read back. Loading is exact and instant.
+
+**The completeness test comes free.** `state_hash()` enumerates the state, so a field that is hashed and not
+saved cannot round-trip:
+
+> run N ticks, save, run M more -- and compare against a run that never saved. Same hash, or the save is
+> missing something.
+
+That is the whole verification, and it is the same predicate the determinism work already leans on.
+
+**The version field is the real cost.** Determinism is pinned by hashes; a save *format* is not -- it changes
+whenever the state does. A save therefore carries a format version and the state hash it was written with,
+and loading refuses one it cannot honour rather than silently resuming a different battle.
+
+**Mid-battle saving is safe here for one reason, and it is worth naming**: nothing lives outside the sim. No
+RNG, no wall clock, and the renderer only reads `units()`. The round-trip test above is what would catch that
+changing -- an interpolation clock, or a frame-rate-dependent accumulator moved into the sim, breaks it at
+once.
+
+**When a save is refused** (Harri's caveat -- "there may be scenarios where this should not be allowed"):
+
+- **Mid-tick**: never. The save request is handled in the tick phase, between steps.
+- **A mission that declares itself no-save**: a score attack, or a scenario where tension is the feature.
+  That is a property of the mission, not the engine -- one flag on the mission data, not special-cased code.
+  There are no missions yet, so the flag is designed in when missions get a description of their own.
+
+Not built. The slice is: serialise the hashed state and the pending order queue, a version header, the
+round-trip test above, and `--save` / `--load` on the CLI so it can be exercised headlessly.
+
 ## 6. How the work is split (Claude Code, Haiku, Opus, Hermes)
 
 **Haiku 4.5 is genuinely capable** — roughly 90% of Sonnet 4.5 on agentic coding evaluations
