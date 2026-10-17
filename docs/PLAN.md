@@ -224,6 +224,45 @@ direction"), not a lucky seed. It is deferred to M4b because changing spawn sele
 simulation's state and therefore every golden hash and recorded battle log in the suite; that
 re-recording belongs in the milestone that reworks placement anyway.
 
+**M4a, M4b and M4 done.** The command layer landed in three pieces, each with its own suite:
+
+* `cmd::Selection` -- a bounded, sorted, unique set. Adding is idempotent.
+* `cmd::` verbs -- `move_to` / `guard_at` / `patrol` / `attack` / `stop`. Pure: roster and aim in,
+  orders out, one per unit in ascending id order. An impossible order is DROPPED, not repaired, and
+  the caller gets nothing back so it can say why. A tile exists when it is inside `[0, kMapTiles)`.
+* `game::pick` -- what a click means: the unit under the cursor (a box test, nearest first, ties to
+  the lower id) and the ground tile behind it. Distances are SQUARED EUCLIDEAN, in whole tiles, and
+  that is in the contract rather than in the implementation: a radius is a circle, and Manhattan
+  distance is a diamond that moves where a unit stops on a diagonal.
+* `game::Interaction` -- the player's hands: select, shift-toggle, cycle with Tab, clear with
+  Escape, right click to move or attack. **The tank the player is in is never ordered by a click**;
+  selecting it is allowed and ordering it is refused out loud, because that unit is driven from the
+  keyboard every tick and an order would fight the player's own hands.
+* `game::Session` -- the player's whole side of one frame, and the fix for a hole worth naming.
+
+**The hole.** M3b's "playable" claim was too strong. The window opened, the simulation ran, and the
+tank never moved, because nothing in `app/game.cpp` had ever called `PlayerCommander::set_input`:
+throttle stayed zero, and the camera presented a still world. Measured before fixing -- 300 frames,
+no input, hull tile (32,46) to (32,46). `Session` is now the one entry point from input to orders, so
+the untestable part of the loop shrank to the pumping of the event queue, and everything between a
+keystroke and the simulation is covered headless.
+
+**And the second half of the same bug.** With keys wired, W still did nothing at seed 42: the tank
+spawns facing four crater tiles and the simulation is right to refuse them. That was the spawn issue
+recorded here as "deferred, not fixed"; it turned out to be a playability blocker rather than a bad
+first impression. `game::navigate::clearest_heading` now chooses the spawn heading from the terrain
+(64 directions, longest clear run, ties to the lowest heading). **This moves no golden values**,
+because heading is presentation state, not simulation state -- which is exactly why it could be fixed
+without re-recording a single hash.
+
+**Deliberately not done:** mouse look while driving. Keys drive, the mouse selects and orders, and
+what the mouse should do in motion is a question to answer after playing it, not before.
+
+**Verified end to end:** driving moves the world (frame 30 differs from frame 300), an idle run
+differs from a driving one, and on the laptop's GTX 1060 the windowed capture is byte-identical to
+the headless one *while driving* -- the strongest available form of "what you see is what the suite
+checks". 219 tests, 32 suites, on lavapipe and on the 1060.
+
 ### Strategic controllers (Harri's sketch, 2026-10-17)
 
 The player places **controllers** on the map and gives each a standing intent -- "do not let them
