@@ -42,9 +42,11 @@ public:
 ///   2. units act in ascending unit-id order: a mobile unit with a MoveTo/GuardAt/Patrol
 ///      stance steers towards its goal, then every unit's position moves by its velocity;
 ///      map bounds clamp, and a unit may not enter an impassable tile;
-///   3. units fire in ascending unit-id order: an armed unit whose cooldown has expired fires
-///      at the nearest hostile in range (distance is squared fixed-point; ties go to the
-///      lowest id). Damage is exact -- there is no spread, so the sim needs no RNG;
+///   3. units fire in ascending unit-id order: a unit under an Attack order fires at its named
+///      target while that target is alive and in range -- an explicit order outranks
+///      auto-engagement -- and otherwise at the nearest hostile in range (distance is
+///      squared fixed-point; ties go to the lowest id). Damage is exact: there is no
+///      spread, so the sim needs no RNG;
 ///   4. the tick counter advances.
 class Sim final : public OrderSink {
 public:

@@ -356,15 +356,26 @@ void Sim::step() {
         }
         const std::int64_t range = prof.weapon_range.raw;
         Unit* best = nullptr;
-        std::int64_t best_d2 = range * range + 1;
-        for (Unit& other : units_) {
-            if (!other.alive || other.side == unit.side) {
-                continue;
+        // An explicit Attack order outranks auto-engagement: while the named target is alive and
+        // in range the gun engages it, even when a closer hostile is in range too.
+        if (unit.stance == Stance::Attack && unit.target.valid()) {
+            Unit* named = find_mut(units_, unit.target);
+            if (named != nullptr && named->alive && named->side != unit.side
+                && dist2(unit.x, unit.y, named->x, named->y) <= range * range) {
+                best = named;
             }
-            const std::int64_t d2 = dist2(unit.x, unit.y, other.x, other.y);
-            if (d2 <= range * range && d2 < best_d2) { // strict: ties keep the lowest id
-                best = &other;
-                best_d2 = d2;
+        }
+        if (best == nullptr) {
+            std::int64_t best_d2 = range * range + 1;
+            for (Unit& other : units_) {
+                if (!other.alive || other.side == unit.side) {
+                    continue;
+                }
+                const std::int64_t d2 = dist2(unit.x, unit.y, other.x, other.y);
+                if (d2 <= range * range && d2 < best_d2) { // strict: ties keep the lowest id
+                    best = &other;
+                    best_d2 = d2;
+                }
             }
         }
         if (best == nullptr) {

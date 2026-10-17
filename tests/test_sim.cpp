@@ -376,4 +376,116 @@ TEST(Sim, TimeToKillMatchesTheArithmetic) {
     EXPECT_GT(sim.find(factory)->hp, 0) << "one shot short: the factory should still stand";
 }
 
+TEST(Sim, PatrolWalksBetweenItsTwoEnds) {
+    // Patrol was implemented and completely unverified: nothing in the suite would have noticed
+    // if the two ends never swapped.
+    constexpr std::uint64_t kSeed = 3;
+    int x0 = 0;
+    int y0 = 0;
+    ASSERT_TRUE(find_flat_run(kSeed, 60, &x0, &y0));
+    Scenario s;
+    s.seed = kSeed;
+    s.spawns = {{UnitKind::Tank, Side::Player, x0 + 2, y0}};
+    Sim sim = Sim::create(s);
+    const Fixed left = Fixed::from_int(x0 + 2);
+    const Fixed right = Fixed::from_int(x0 + 50);
+    sim.enqueue(Order{OrderKind::Patrol,
+                      sim.units()[0].id,
+                      left,
+                      Fixed::from_int(y0),
+                      right,
+                      Fixed::from_int(y0),
+                      {}});
+    bool reached_left = false;
+    bool reached_right = false;
+    const Fixed r = Fixed::from_raw(kArriveRadiusRaw);
+    for (int t = 0; t < 2000; ++t) {
+        sim.step();
+        const Fixed x = sim.units()[0].x;
+        reached_left = reached_left || fixed_abs(fixed_sub(x, left)) < r;
+        reached_right = reached_right || fixed_abs(fixed_sub(x, right)) < r;
+        if (reached_left && reached_right) {
+            break;
+        }
+    }
+    EXPECT_TRUE(reached_right) << "a patrol must reach its far end";
+    EXPECT_TRUE(reached_left) << "and must come back -- otherwise the ends never swap";
+    EXPECT_EQ(sim.units()[0].stance, Stance::Patrol);
+}
+
+TEST(Sim, StopHaltsAMovingUnit) {
+    constexpr std::uint64_t kSeed = 3;
+    int x0 = 0;
+    int y0 = 0;
+    ASSERT_TRUE(find_flat_run(kSeed, 60, &x0, &y0));
+    Scenario s;
+    s.seed = kSeed;
+    s.spawns = {{UnitKind::Tank, Side::Player, x0 + 2, y0}};
+    Sim sim = Sim::create(s);
+    const UnitId id = sim.units()[0].id;
+    sim.enqueue(
+        Order{OrderKind::MoveTo, id, Fixed::from_int(x0 + 50), Fixed::from_int(y0), {}, {}, {}});
+    for (int t = 0; t < 60; ++t) {
+        sim.step();
+    }
+    ASSERT_GT(sim.units()[0].x, Fixed::from_int(x0 + 2)) << "the tank should be under way";
+    sim.enqueue(Order{OrderKind::Stop, id, {}, {}, {}, {}, {}});
+    sim.step();
+    const Unit stopped = *sim.find(id);
+    EXPECT_EQ(stopped.stance, Stance::Idle);
+    EXPECT_EQ(stopped.vx, Fixed::zero());
+    EXPECT_EQ(stopped.vy, Fixed::zero());
+    for (int t = 0; t < 300; ++t) {
+        sim.step();
+    }
+    EXPECT_EQ(sim.find(id)->x, stopped.x) << "a stopped unit must not drift";
+}
+
+TEST(Sim, AnAttackOrderEngagesItsNamedTargetNotTheNearest) {
+    // Approved semantics: an explicit target outranks auto-engagement while it lives and is in
+    // range. The nearer factory is inside tank range too, and must be ignored.
+    Scenario s;
+    s.seed = 5;
+    s.spawns = {{UnitKind::Tank, Side::Player, 100, 100},
+                {UnitKind::Factory, Side::Enemy, 105, 100},
+                {UnitKind::Factory, Side::Enemy, 110, 100}};
+    Sim sim = Sim::create(s);
+    const UnitId near_factory = by_side(sim, Side::Enemy, 0)->id;
+    const UnitId far_factory = by_side(sim, Side::Enemy, 1)->id;
+    sim.enqueue(
+        Order{OrderKind::Attack, by_side(sim, Side::Player, 0)->id, {}, {}, {}, {}, far_factory});
+    for (int t = 0; t < kTankCooldownTicks + 2; ++t) {
+        sim.step();
+    }
+    EXPECT_EQ(sim.find(far_factory)->hp, kFactoryHp - kTankDamage) << "the named target was hit";
+    EXPECT_EQ(sim.find(near_factory)->hp, kFactoryHp) << "the nearer factory must be left alone";
+}
+
+TEST(Sim, AnAttackOrderFallsBackToTheNearestWhenItsTargetDies) {
+    Scenario s;
+    s.seed = 5;
+    s.spawns = {{UnitKind::Tank, Side::Player, 100, 100},
+                {UnitKind::Factory, Side::Enemy, 104, 100},
+                {UnitKind::Factory, Side::Enemy, 108, 100}};
+    Sim sim = Sim::create(s);
+    const UnitId near_factory = by_side(sim, Side::Enemy, 0)->id;
+    const UnitId far_factory = by_side(sim, Side::Enemy, 1)->id;
+    sim.enqueue(
+        Order{OrderKind::Attack, by_side(sim, Side::Player, 0)->id, {}, {}, {}, {}, far_factory});
+    // Step to the exact tick the named target dies. Overshooting lets the fallback fire at the
+    // near factory inside the same window, which would make the next assertion wrong.
+    int t = 0;
+    while (sim.find(far_factory)->alive && t < 2000) {
+        sim.step();
+        ++t;
+    }
+    ASSERT_FALSE(sim.find(far_factory)->alive) << "50 shots at one per 15 ticks should kill it";
+    EXPECT_EQ(sim.find(near_factory)->hp, kFactoryHp) << "the nearer one is still queued behind";
+    const std::uint16_t before = sim.find(near_factory)->hp;
+    for (int t = 0; t < 60; ++t) {
+        sim.step();
+    }
+    EXPECT_LT(sim.find(near_factory)->hp, before) << "with the target dead, auto-engage resumes";
+}
+
 } // namespace
