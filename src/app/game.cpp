@@ -2,12 +2,14 @@
 
 #include <algorithm>
 #include <charconv>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <fstream>
 #include <ostream>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <vector>
 
 #include "protekt/ai/commander.hpp"
@@ -29,7 +31,9 @@ namespace {
 
 struct Options {
     std::uint64_t seed{42};
-    std::uint32_t frames{600};
+    /// 0 means `until the window is closed`, which is what playing is. A positive count is a
+    /// SCRIPTED run: exactly that many frames, no pacing, so a capture is reproducible.
+    std::uint32_t frames{0};
     std::uint32_t width{1280};
     std::uint32_t height{720};
     std::uint32_t ticks_per_frame{1};
@@ -218,14 +222,36 @@ int run_game_cli(std::span<const std::string_view> args, std::ostream& out, std:
     game::Session session{player_id};
     ai::ScriptedCommander enemy;
 
+    // 30 Hz is the rate the sim is designed and balanced at: 6 tiles/s at 30 ticks/s is the 12 m/s
+    // hover tank in docs/PLAN.md.
+    // Checked here rather than at parse time so that a SPECIFIC request error -- a device name that
+    // does not exist -- is still the error a caller sees first.
+    if (options.frames == 0) {
+#ifdef PROTEKT_HAVE_WINDOW
+        if (options.headless) {
+            err << "protekt-game: --headless needs --frames N (there is no window to close)\n";
+            return 2;
+        }
+#else
+        err << "protekt-game: --frames N is required: this build has no window\n";
+        return 2;
+#endif
+    }
+
+    constexpr std::chrono::nanoseconds play_tick_period{1'000'000'000LL / 30};
+    constexpr std::chrono::nanoseconds play_max_catch_up{250'000'000LL};
+    auto last_step_time = std::chrono::steady_clock::now();
+    std::chrono::nanoseconds tick_backlog{0};
+
     std::vector<std::uint8_t> last_frame;
     std::string last_message;
-    for (std::uint32_t frame = 0; frame < options.frames; ++frame) {
+    for (std::uint32_t frame = 0; options.frames == 0 || frame < options.frames; ++frame) {
         input::InputFrame hands{};
 #ifdef PROTEKT_HAVE_WINDOW
         if (window != nullptr) {
             if (!window->pump_events()) {
-                out << "protekt-game: window closed after " << frame << " frames\n";
+                out << "protekt-game: window closed after " << frame << " frames, tick "
+                    << sim.tick() << '\n';
                 break;
             }
             // Autodrive is a SCRIPTED run, so a real key or click must not be able to change its
@@ -262,7 +288,26 @@ int run_game_cli(std::span<const std::string_view> args, std::ostream& out, std:
             out << "protekt-game: " << session.message() << '\n';
             last_message = std::string(session.message());
         }
-        for (std::uint32_t tick = 0; tick < options.ticks_per_frame; ++tick) {
+        // PLAY mode advances the sim on the wall clock at 30 Hz, so the tank drives at the speed
+        // the sim is designed for whatever the renderer manages. A scripted run advances exactly
+        // ticks_per_frame times and never reads a clock, so its capture stays reproducible.
+        std::uint32_t steps = options.ticks_per_frame;
+        if (options.frames == 0) {
+            const auto now = std::chrono::steady_clock::now();
+            auto elapsed = now - last_step_time;
+            last_step_time = now;
+            // A stall must not turn into a catch-up burst that teleports the tank.
+            if (elapsed > play_max_catch_up) {
+                elapsed = play_max_catch_up;
+            }
+            tick_backlog += elapsed;
+            steps = 0;
+            while (tick_backlog >= play_tick_period) {
+                tick_backlog -= play_tick_period;
+                ++steps;
+            }
+        }
+        for (std::uint32_t tick = 0; tick < steps; ++tick) {
             sim.step();
         }
 

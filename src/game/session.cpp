@@ -21,6 +21,16 @@ void Session::frame(const input::InputFrame& frame, const sim::Sim& sim,
             headed_ = true;
         }
     }
+    // A destroyed tank explains the one report a player made that looked like a stuck game: the
+    // throttle did nothing and turning still worked. Say it plainly, once.
+    if (!destroyed_ && sim.find(player_.unit()) == nullptr) {
+        destroyed_ = true;
+        destroyed_message_ = "your hover tank was destroyed -- the view is a spectator's now";
+    }
+    if (destroyed_) {
+        return;
+    }
+
     // The keyboard is a STATE, not a stream: a tank keeps moving while W is held, and the window
     // sends a key-down for every OS repeat, which must change nothing.
     for (const input::KeyEvent& key : frame.keys) {
@@ -29,7 +39,12 @@ void Session::frame(const input::InputFrame& frame, const sim::Sim& sim,
 
     InputState input{};
     input.throttle = (keys_.forward ? 1.0F : 0.0F) - (keys_.back ? 1.0F : 0.0F);
-    input.turn = (keys_.right ? 1.0F : 0.0F) - (keys_.left ? 1.0F : 0.0F);
+    // Sign matters, and it is not the obvious one: A must turn the view to the LEFT ON SCREEN.
+    // `look_at` builds its right vector as cross(forward, up), which at yaw 0 (forward = +z, up =
+    // +Y) is -X -- so tile +x is drawn on the left of the screen, and increasing the heading is a
+    // SCREEN-left turn. Pressing A therefore adds to the heading. The real fix is to stop mirroring
+    // the world (see docs/PLAN.md, "The world is drawn mirrored"), which would flip this line back.
+    input.turn = (keys_.left ? 1.0F : 0.0F) - (keys_.right ? 1.0F : 0.0F);
     player_.set_input(input);
 
     // The driven tank's own order goes first, so the tank the player is sitting in has moved before
@@ -50,7 +65,14 @@ float Session::heading() const noexcept { return player_.heading(); }
 
 const cmd::Selection& Session::selection() const noexcept { return interaction_.selection(); }
 
-std::string_view Session::message() const noexcept { return interaction_.message(); }
+std::string_view Session::message() const noexcept {
+    if (!destroyed_message_.empty()) {
+        return destroyed_message_;
+    }
+    return interaction_.message();
+}
+
+bool Session::destroyed() const noexcept { return destroyed_; }
 
 const input::HeldKeys& Session::keys() const noexcept { return keys_; }
 

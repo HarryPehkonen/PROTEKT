@@ -438,6 +438,31 @@ capability, but an economy whose harvesters cannot reliably reach a resource fie
 building first, and an A\* whose results nobody has yet needed is a module that will be tuned against
 nothing.
 
+### The world is drawn mirrored (found by playing it)
+
+Harri's first session produced two reports that are the same bug seen twice: *"A and D seem to be
+reversed -- I would expect A to turn me to the left"*, and *"after a few seconds I could not move
+forwards or backwards, only turn around"*.
+
+The first is a chirality bug in the camera. `look_at` builds its right vector as `cross(f, up)`, which
+the code's own comment records as **-X** at yaw 0 (forward `+z`, up `+Y`). The camera basis is therefore
+left-handed against the tile grid: **tile +x is drawn on the left of the screen**. A heading increase,
+which the sim's arithmetic calls "right" (heading `(sin h, cos h)` swept toward `+x`), appears on screen
+as a left turn. Pressing `A` consequently turned him right.
+
+Fixed for now at the *input* level, with the sign and the reason written at the line: `A` adds to the
+heading, so it turns the view to screen-left, which is what a player means by left. The honest fix is to
+stop mirroring the world -- mapping tile `y` to camera `-z` so `cross(f, up)` becomes `+x` -- which
+flips that line back. It is a presentation-layer change (no golden hash can move) but it touches every
+vertex this renderer emits, so it wants its own slice and its own re-verification of the pixel tests.
+
+The second report is not a rendering issue at all: **the tank had been destroyed**, and the game said
+nothing. Turning still worked because the heading was updated *before* the "is my unit still in the
+world" check, while movement needs a live hull -- a half-dead game state that reads as a frozen one.
+Two rules now hold it: a commander whose unit is gone does not rotate its view, and the session says so
+once, in words, and takes no more input. `tests/test_session.cpp` pins both, the first through the real
+projection (the test asks where a point dead ahead is *drawn*, rather than trusting a sign).
+
 ### Cross-presenter determinism, and a stray event that broke it
 
 The claim "the windowed and headless paths agree" was first observed at M3b from a single pair of runs.

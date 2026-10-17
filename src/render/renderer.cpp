@@ -13,6 +13,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <exception>
 #include <iostream>
@@ -306,6 +307,15 @@ VkInstance make_plain_instance(std::string& error) {
 /// machine whose driver stack is unhappy, which says nothing about this renderer.
 ///
 /// Validation findings carry a "VUID-" message id; loader and ICD diagnostics do not.
+/// Loader and ICD diagnostics are off unless asked for. They are the MACHINE's news, not this
+/// renderer's, and a player met them as four lines that read like a failure before the window even
+/// opened (measured on nobara-pc: a broken `dzn` ICD and Mesa's device_select layer). Set
+/// PROTEKT_VULKAN_VERBOSE=1 to see them.
+[[nodiscard]] bool verbose_diagnostics() {
+    static const bool enabled = std::getenv("PROTEKT_VULKAN_VERBOSE") != nullptr;
+    return enabled;
+}
+
 [[nodiscard]] bool is_validation_finding(const VkDebugUtilsMessengerCallbackDataEXT* data) {
     if (data == nullptr || data->pMessageIdName == nullptr) {
         return false;
@@ -321,11 +331,15 @@ VKAPI_ATTR VkBool32 VKAPI_CALL debug_callback(VkDebugUtilsMessageSeverityFlagBit
          & (VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT
             | VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT))
         != 0U) {
-        if (is_validation_finding(data)) {
+        const bool ours = is_validation_finding(data);
+        if (ours) {
             static_cast<std::atomic<std::uint32_t>*>(user)->fetch_add(1U);
         }
-        // Printed either way: a message this project does not count is still a message its owner
-        // should be able to see.
+        // Ours are always printed -- they are bugs in this renderer. Other people's need the
+        // opt-in.
+        if (!ours && !verbose_diagnostics()) {
+            return VK_FALSE;
+        }
         std::cerr << "[vulkan validation] "
                   << ((severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) != 0U
                           ? "error: "

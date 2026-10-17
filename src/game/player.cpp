@@ -24,8 +24,6 @@ void PlayerCommander::set_heading(float radians) noexcept {
 }
 
 void PlayerCommander::think(const ai::Observation& observation, std::vector<sim::Order>& out) {
-    heading_ = Camera::wrap_angle(heading_ + kTurnRatePerTick * input_.turn);
-
     const ai::UnitView* self = nullptr;
     for (const auto& view : observation.own) {
         if (view.id == unit_) {
@@ -34,8 +32,13 @@ void PlayerCommander::think(const ai::Observation& observation, std::vector<sim:
         }
     }
     if (self == nullptr) {
+        // The tank is gone -- destroyed. Turning the camera here is what made a destroyed player
+        // believe the game had stopped responding to the throttle but not to the wheel: the heading
+        // moved, the hull no longer existed, so nothing else did.
         return;
     }
+
+    heading_ = Camera::wrap_angle(heading_ + kTurnRatePerTick * input_.turn);
 
     // Yaw 0 points at +y in tile space; throttle scales the lookahead distance and flips it for
     // reverse.

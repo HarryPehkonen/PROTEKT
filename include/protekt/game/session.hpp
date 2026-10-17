@@ -1,5 +1,6 @@
 #pragma once
 
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -32,12 +33,16 @@ public:
     /// The interaction's refusal, for a HUD: "you are driving that one", "nothing selected".
     [[nodiscard]] std::string_view message() const noexcept;
     [[nodiscard]] const input::HeldKeys& keys() const noexcept;
+    /// True once the driven tank has been destroyed: the view is a spectator's from then on.
+    [[nodiscard]] bool destroyed() const noexcept;
 
 private:
     PlayerCommander player_;
     Interaction interaction_;
     input::HeldKeys keys_{};
     bool headed_{false}; ///< the spawn heading is chosen once, from the terrain, on the first frame
+    bool destroyed_{false};
+    std::string destroyed_message_{};
 };
 
 } // namespace protekt::game

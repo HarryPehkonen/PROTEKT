@@ -78,6 +78,32 @@ void run_frames(Rig& rig, Session& session, const std::vector<InputFrame>& frame
     }
 }
 
+/// Screen position of a world point, through the SAME matrix the renderer uses. `x < 0.5` means the
+/// left half of the frame. This is how a test can say "to the left" without trusting a sign
+/// convention: it asks the projection.
+struct ScreenPoint {
+    float x{0.0F};
+    float y{0.0F};
+    float depth{0.0F};
+};
+
+[[nodiscard]] ScreenPoint project(const Camera& camera, float extent_width, float extent_height,
+                                  const std::array<float, 3>& world) {
+    const std::array<float, 16> m = view_projection(camera, extent_width / extent_height);
+    const std::array<float, 4> p{world[0], world[1], world[2], 1.0F};
+    const float clip_x = m[0] * p[0] + m[4] * p[1] + m[8] * p[2] + m[12] * p[3];
+    const float clip_y = m[1] * p[0] + m[5] * p[1] + m[9] * p[2] + m[13] * p[3];
+    const float clip_w = m[3] * p[0] + m[7] * p[1] + m[11] * p[2] + m[15] * p[3];
+    ScreenPoint out;
+    if (clip_w == 0.0F) {
+        return out;
+    }
+    out.x = (clip_x / clip_w) * 0.5F + 0.5F;
+    out.y = (clip_y / clip_w) * 0.5F + 0.5F;
+    out.depth = clip_w;
+    return out;
+}
+
 [[nodiscard]] InputFrame holding(std::int32_t scancode) {
     InputFrame frame{};
     frame.keys.push_back(KeyEvent{scancode, true, false});
@@ -283,6 +309,67 @@ TEST(Session, TheCameraFollowsTheTankSoTheWorldMovesUnderIt) {
     }
     run_frames(rig, session, frames);
     EXPECT_GT(rig.options.camera.z, start_z) << "the eye must travel with the hull";
+}
+
+TEST(Session, AKeyTurnsTheViewToScreenLeft) {
+    // The report: "A and D seem to be reversed -- I would expect A to turn me to the left."
+    // Measured through the projection rather than argued about: hold A, and a point that was dead
+    // ahead must end up drawn on the RIGHT half, because the view swung left under it.
+    Rig rig = make_rig();
+    Session session(rig.tank_a);
+    const std::uint32_t start_tick = rig.sim.tick();
+
+    Camera camera{};
+    float ahead_x = 0.0F;
+    float ahead_z = 0.0F;
+    for (const sim::Unit& unit : rig.sim.units()) {
+        if (unit.id == rig.tank_a) {
+            const float metres = static_cast<float>(unit.x.raw) / 65536.0F * kMetresPerTile;
+            const float metres_y = static_cast<float>(unit.y.raw) / 65536.0F * kMetresPerTile;
+            camera.x = metres;
+            camera.z = metres_y;
+            camera.y
+                = height_metres(rig.options.seed, unit.x.floor_int(), unit.y.floor_int()) + 3.0F;
+            // Dead ahead at the START heading (yaw 0 looks down +Z in scene coordinates).
+            ahead_x = metres;
+            ahead_z = metres_y + 8.0F * kMetresPerTile;
+        }
+    }
+
+    const ScreenPoint before = project(camera, 1280.0F, 720.0F, {ahead_x, camera.y, ahead_z});
+    ASSERT_GT(before.depth, 0.0F) << "the reference point must be in front of the camera";
+
+    InputFrame hold_a;
+    hold_a.keys.push_back(KeyEvent{input::kKeyA, true, false});
+    for (int frame = 0; frame < 30; ++frame) {
+        run_frames(rig, session, {hold_a});
+    }
+    ASSERT_GT(rig.sim.tick(), start_tick) << "the frames must have advanced the world";
+
+    camera.yaw = session.heading();
+    const ScreenPoint after = project(camera, 1280.0F, 720.0F, {ahead_x, camera.y, ahead_z});
+    EXPECT_GT(after.x, 0.5F)
+        << "A must turn the view to screen-left, so a point dead ahead swings RIGHT: x=" << after.x
+        << " heading=" << session.heading();
+}
+
+TEST(Session, ADestroyedTankSaysSoAndStopsTakingInput) {
+    // The report: "after a few seconds I could not move forwards or backwards, only turn around."
+    // The hull was gone and the heading kept turning, which reads as a game that has half stopped.
+    Rig rig = make_rig();
+    Session session(rig.tank_a);
+    EXPECT_FALSE(session.destroyed());
+
+    // A unit id that is not in the world stands in for the destroyed hull: the session's rule is
+    // "the unit I drive is not there any more", which is exactly what death leaves behind.
+    Session gone(sim::UnitId{9999});
+    std::vector<Order> orders;
+    InputFrame hold_w;
+    hold_w.keys.push_back(KeyEvent{input::kKeyW, true, false});
+    gone.frame(hold_w, rig.sim, rig.options, orders);
+    EXPECT_TRUE(gone.destroyed());
+    EXPECT_TRUE(orders.empty()) << "a destroyed tank must not be given orders";
+    EXPECT_FALSE(gone.message().empty()) << "and the player must be told, not left guessing";
 }
 
 } // namespace protekt::game
