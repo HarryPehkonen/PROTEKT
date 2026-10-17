@@ -51,6 +51,7 @@ add_library(protekt_core STATIC
     src/sim/replay.cpp
     src/sim/observer.cpp
     src/ai/scripted_commander.cpp
+    src/ai/utility.cpp
     src/app/cli.cpp
 )
 target_include_directories(protekt_core PUBLIC
@@ -227,7 +228,8 @@ if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
                                         tests/test_command.cpp tests/test_controller.cpp
                                         tests/test_pick.cpp tests/test_input.cpp
                                         tests/test_interaction.cpp tests/test_bindings.cpp
-                                        tests/test_session.cpp tests/test_navigate.cpp)
+                                        tests/test_session.cpp tests/test_navigate.cpp
+                                        tests/test_utility.cpp)
     target_link_libraries(protekt_tests PRIVATE protekt_game protekt_cmd)
     if(PROTEKT_RENDER)
         target_sources(protekt_tests PRIVATE tests/test_render.cpp)
@@ -248,6 +250,12 @@ if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
     add_executable(protekt-sim src/app/sim_cli.cpp)
     target_link_libraries(protekt-sim PRIVATE protekt_core)
     protekt_warnings(protekt-sim)
+
+    # The commander measurement: "better than scripted" as a number, reproducible by anyone, with a
+    # placebo arm, because the obvious metric (units lost) is won by a commander that does nothing.
+    add_executable(protekt-measure tools/measure_commanders.cpp)
+    target_link_libraries(protekt-measure PRIVATE protekt_core)
+    protekt_warnings(protekt-measure)
 
     # The game itself: a window if SDL3 is there, an offscreen buffer if not.
     add_executable(protekt-game src/app/game_cli.cpp)

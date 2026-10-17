@@ -301,11 +301,79 @@ Testable claim to measure when this lands: with one `Deny` controller placed on 
 scripted opponent get through? N seeds, headless, win/loss counted -- the same harness discipline as
 everything else here.
 
+### M4 — still owed, named so it is not silently dropped
+**The economy was M4's second half in this plan and is NOT built.** There is no resource field, no
+harvester, no `Build` order and no production; a factory is a 400 hp target and nothing more. It is
+deliberately not being rushed in behind the commander layer: it changes the simulation's state (a
+side's pool, a unit's cargo) and therefore every recorded hash, so it wants its own milestone with
+its own re-recording rather than a pile of re-recorded goldens from an evening's work. The plan's
+sequencing stands, and the item is open rather than done.
+
 ### M5 — AI opponent
 A utility/behaviour-based `ICommander` (perception → decision → orders, on a slower tick than
 the sim). Then, optionally, the *offline* AI enhancement: a tuning loop that searches unit
 parameters and build orders against the headless sim harness. Never an LLM in the tick loop —
 latency, cost and nondeterminism all forbid it.
+
+**M5a — the utility commander.** `ai::UtilityCommander`, and the measurement that makes it worth
+having. The scripted opponent attacks whatever is nearest from any distance at any health, so its
+tanks cross the map one at a time and leave the base empty; the new one decides from what a unit can
+see, how hurt it is, and what it is guarding.
+
+Two rules shape it, and both are in the header as contracts rather than as comments:
+
+* **Decisions are integers.** The AI needs a total order over a handful of options, not physical
+  accuracy, and integer arithmetic makes every tie-break exact — two runs of one battle cannot
+  disagree about which of two equidistant enemies dies first. No floats in a decision, at all.
+* **Posture is a gate, not a tug of war.** A hurt tank withdraws; it does not weigh withdrawing
+  against shooting and lose because an enemy is close. If the two competed on one scale, the retreat
+  threshold in the tuning would not describe the behaviour — and a constant nobody can read off the
+  outcome is a constant nobody can tune.
+
+Utility is then used for what it is good at: choosing WHICH enemy (threat first, then distance, ties
+to the lower id). The four postures — `Hold`, `Engage`, `Reposition`, `Retreat` — are exposed as
+values, not as orders, because "why is that tank going home?" is answerable only if the reason is
+something a person can read. `decisions()` exists for the same reason: a commander observable only
+through its orders cannot be debugged.
+
+**The honest claim to prove, and how.** "Better than scripted" is not a unit test. Before this counts
+as done, the same scenario runs under both commanders across several seeds and the difference is
+reported as a measured number — kills, losses, and how long the base survives — including the seeds
+where the utility commander does NOT do better. A utility function nobody measured is a preference,
+not an improvement.
+
+**M5a — measured, and the number is not the one the milestone hoped for.** `./build/protekt-measure`
+runs the arms below and prints them; 2400 ticks, ten seeds, `skirmish(seed)`.
+
+| arm | player units lost | enemy units lost |
+|---|---|---|
+| placebo enemy (NO orders at all) | 18 | 21 |
+| scripted enemy | 20 | 23 |
+| utility enemy | 15 | 2 |
+| utility as PLAYER vs scripted | 3 | 18 |
+| utility against utility | 0 | 0 |
+
+Three honest readings of that table, including the one that is bad news:
+
+1. **The obvious metric is worthless.** "Loses fewer units" is won by a commander that does nothing at
+   all: the placebo loses 21 and the scripted opponent loses 23. Only the ASYMMETRY survives that
+   check, and by that measure the utility commander is genuinely better -- as the aggressor it takes
+   18 units for 3 of its own, where the scripted opponent trades roughly even (23 for 20).
+2. **The scripted opponent is barely distinguishable from silence.** 23 lost against the placebo's 21:
+   its tanks walk at whatever is nearest from any distance and die arriving.
+3. **Two utility commanders never fight.** Zero shots fired in 2400 ticks on all ten seeds, because
+   each side holds at home and neither ever closes the distance out of its 14-tile engagement range.
+   That is a degenerate equilibrium, not caution, and it means the commander cannot yet play the
+   attacking role a solo game needs. **The missing posture is advance-to-contact**, and it is the next
+   slice of M5 rather than a footnote.
+
+Also visible in every arm: **no unit ever attacks a factory** -- 400 hp at the end of all fifty runs.
+The base is currently unattackable in practice, so no match can be won or lost. That is the objective
+and economy milestone's problem, and it is recorded here so it is not mistaken for balance.
+
+**Explicitly not in M5a:** an LLM anywhere near the tick loop (latency, cost and nondeterminism all
+forbid it), and any tuning search over the parameters. Those stay offline, against the headless
+harness, and only if the measured gap above says they are worth it.
 
 ---
 
