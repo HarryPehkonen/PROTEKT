@@ -39,9 +39,10 @@ Vec3 normalise(const Vec3& v) {
     return {v[0] / len, v[1] / len, v[2] / len};
 }
 
-/// Right-handed look-at, the camera looking down `target - eye`. `s` is the RIGHT vector: with
-/// up = (0,1,0) and forward = (0,0,1) (yaw 0), smaller world x must land left of screen centre,
-/// which is cross(up, forward), not cross(forward, up).
+/// Right-handed look-at, the camera looking down `target - eye`. `s` is the RIGHT vector, and it is
+/// `cross(forward, up)` -- which, with forward = (0,0,1) at yaw 0, is -X. The first version of this
+/// comment claimed the opposite; the code was right and the comment was wrong (found by the agent
+/// that had to match it, which is worth more than a review).
 Mat4 look_at(const Vec3& eye, const Vec3& target, const Vec3& up) {
     const Vec3 f = normalise({target[0] - eye[0], target[1] - eye[1], target[2] - eye[2]});
     // f x up, not up x f: the other order makes u = -Y, and since the projection already flips Y
@@ -99,10 +100,6 @@ Vec3 terrain_colour(world::Terrain terrain) {
 
 Vec3 side_colour(sim::Side side) {
     return side == sim::Side::Player ? Vec3{0.15F, 0.35F, 0.85F} : Vec3{0.85F, 0.15F, 0.15F};
-}
-
-float height_metres(std::uint64_t seed, int tile_x, int tile_y) {
-    return static_cast<float>(world::sample(seed, tile_x, tile_y).height) * kMetresPerHeightUnit;
 }
 
 void emit_triangle(std::vector<render::SceneVertex>& out, const Vec3& a, const Vec3& b,
@@ -175,6 +172,10 @@ void build_unit_box(std::vector<render::SceneVertex>& out, std::uint64_t seed,
 }
 
 } // namespace
+
+float height_metres(std::uint64_t seed, int tile_x, int tile_y) noexcept {
+    return static_cast<float>(world::sample(seed, tile_x, tile_y).height) * kMetresPerHeightUnit;
+}
 
 float Camera::wrap_angle(float radians) noexcept {
     float wrapped = std::fmod(radians + kPi, 2.0F * kPi);

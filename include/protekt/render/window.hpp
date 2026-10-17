@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 
+#include "protekt/input/input.hpp"
 #include "protekt/render/renderer.hpp"
 
 /// The window, and the swapchain behind it.
@@ -39,7 +40,15 @@ public:
                                                         std::string& error);
 
     /// Pump the event queue. Returns false once the user has asked to close the window.
+    ///
+    /// Everything the user did lands in `input()`. The frame is CLEARED as the queue is pumped, so
+    /// a caller sees each event exactly once and does not have to remember what it already handled.
     virtual bool pump_events() = 0;
+
+    /// What the user did since the last pump. Window-free by type: the game loop consumes this and
+    /// the suite constructs the same struct by hand, which is why the picking can be tested with no
+    /// display.
+    [[nodiscard]] virtual const input::InputFrame& input() const noexcept = 0;
 
     [[nodiscard]] virtual Extent extent() const noexcept = 0;
     [[nodiscard]] virtual std::string_view device_name() const noexcept = 0;

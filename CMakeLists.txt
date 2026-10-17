@@ -77,6 +77,7 @@ protekt_warnings(protekt_cmd)
 add_library(protekt_game STATIC
     src/game/scene.cpp
     src/game/player.cpp
+    src/game/pick.cpp
     src/app/game.cpp
 )
 target_include_directories(protekt_game PUBLIC
@@ -220,7 +221,8 @@ if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
         PRIVATE PROTEKT_CORPUS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fuzz/corpus/replay")
     target_sources(protekt_tests PRIVATE tests/test_scene.cpp tests/test_player.cpp
                                         tests/test_game_cli.cpp tests/test_selection.cpp
-                                        tests/test_command.cpp tests/test_controller.cpp)
+                                        tests/test_command.cpp tests/test_controller.cpp
+                                        tests/test_pick.cpp tests/test_input.cpp)
     target_link_libraries(protekt_tests PRIVATE protekt_game protekt_cmd)
     if(PROTEKT_RENDER)
         target_sources(protekt_tests PRIVATE tests/test_render.cpp)

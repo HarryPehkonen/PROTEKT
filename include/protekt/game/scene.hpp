@@ -26,6 +26,11 @@ struct Camera {
     [[nodiscard]] static float wrap_angle(float radians) noexcept;
 };
 
+/// Ground height in metres at a tile -- the ONE conversion from a tile's height units to world
+/// metres. The terrain mesh and the picker both go through it, because if they disagreed about
+/// where the ground is, a click would land somewhere the player cannot see.
+[[nodiscard]] float height_metres(std::uint64_t seed, int tile_x, int tile_y) noexcept;
+
 /// Column-major view-projection for a camera, matching what the vertex shader expects.
 [[nodiscard]] std::array<float, 16> view_projection(const Camera& camera, float aspect,
                                                     float fov_radians = 1.0472F) noexcept; // 60 deg

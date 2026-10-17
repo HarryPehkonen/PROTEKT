@@ -27,6 +27,7 @@
 #include <array>
 #include <atomic>
 #include <cctype>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -179,6 +180,7 @@ public:
 
     bool init(const WindowOptions& options, std::string& error);
     [[nodiscard]] bool pump_events() override;
+    [[nodiscard]] const input::InputFrame& input() const noexcept override { return input_; }
     [[nodiscard]] Extent extent() const noexcept override { return extent_; }
     [[nodiscard]] std::string_view device_name() const noexcept override { return device_name_; }
     void present(const Scene& scene) override;
@@ -225,6 +227,7 @@ private:
     VkDeviceSize staging_size_{0};
     std::unique_ptr<Renderer> offscreen_{};
     std::vector<std::uint8_t> last_frame_{};
+    input::InputFrame input_{}; ///< what the user did this frame, cleared by pump_events
     std::uint64_t frames_presented_{0};
     bool validation_{true};
     bool resize_pending_{false};
@@ -610,15 +613,54 @@ void VulkanWindow::rebuild_offscreen(std::string& error) {
 }
 
 bool VulkanWindow::pump_events() {
+    input_.clear();
+    // SDL reports mouse positions in WINDOW coordinates; the framebuffer is in pixels. On a HiDPI
+    // display the two differ, so scale by pixels-per-window-unit before anything leaves this file.
+    int window_w = 0;
+    int window_h = 0;
+    SDL_GetWindowSize(window_, &window_w, &window_h);
+    const float scale_x
+        = window_w > 0 ? static_cast<float>(extent_.width) / static_cast<float>(window_w) : 1.0F;
+    const float scale_y
+        = window_h > 0 ? static_cast<float>(extent_.height) / static_cast<float>(window_h) : 1.0F;
+    const auto button_of = [](std::uint8_t button) {
+        switch (button) {
+        case SDL_BUTTON_RIGHT:
+            return input::MouseButton::Right;
+        case SDL_BUTTON_MIDDLE:
+            return input::MouseButton::Middle;
+        default:
+            return input::MouseButton::Left;
+        }
+    };
+
     SDL_Event event{};
     while (SDL_PollEvent(&event)) {
         switch (event.type) {
         case SDL_EVENT_QUIT:
+            input_.quit = true;
             return false;
+        case SDL_EVENT_MOUSE_BUTTON_DOWN:
+        case SDL_EVENT_MOUSE_BUTTON_UP:
+            input_.clicks.push_back(input::Click{
+                static_cast<int>(std::floor(event.button.x * scale_x)),
+                static_cast<int>(std::floor(event.button.y * scale_y)),
+                button_of(event.button.button), event.type == SDL_EVENT_MOUSE_BUTTON_DOWN});
+            break;
+        case SDL_EVENT_MOUSE_MOTION:
+            input_.mouse_dx += event.motion.xrel * scale_x;
+            input_.mouse_dy += event.motion.yrel * scale_y;
+            break;
+        case SDL_EVENT_KEY_UP:
+            input_.keys.push_back(
+                input::KeyEvent{static_cast<std::int32_t>(event.key.scancode), false});
+            break;
         case SDL_EVENT_KEY_DOWN:
-            if (event.key.key == SDLK_ESCAPE) {
-                return false;
-            }
+            // Escape is reported like any other key and NOT handled here: the window does not know
+            // what Escape means to the game (deselect), and a player who pressed it to clear a
+            // selection must not lose the battle.
+            input_.keys.push_back(
+                input::KeyEvent{static_cast<std::int32_t>(event.key.scancode), true});
             break;
         case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
         case SDL_EVENT_WINDOW_RESIZED: {
