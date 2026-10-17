@@ -147,9 +147,11 @@ latency, cost and nondeterminism all forbid it.
 
 **Haiku 4.5 is genuinely capable** — roughly 90% of Sonnet 4.5 on agentic coding evaluations
 at a fraction of the cost and twice the speed. What it has less of is headroom on
-long-horizon, multi-file work, which is precisely what a game engine is. So:
+long-horizon, multi-file work, which is precisely what a game engine is.
 
-- **Opus (or Harri) writes:** this plan, the interfaces/headers, the CMake wiring, the tests
+**The ladder (Harri, 2026-10-16): Haiku first; Sonnet when Haiku is too small; Opus or Fable
+only when neither will do — he considers them overkill for this work.** So:
+- **The planner (Opus, or Harri) writes:** this plan, the interfaces/headers, the CMake wiring, the tests
   that pin behaviour, and anything touching the AI architecture.
 - **Haiku implements:** one header + its tests, to green. Mechanical additions (a new unit
   type from a table, another terrain layer, a CLI flag).
