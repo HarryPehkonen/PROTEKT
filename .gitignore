@@ -14,7 +14,10 @@ build-*/
 *.swp
 
 # --- fuzzing ------------------------------------------------------------------
-fuzz/corpus/
+# fuzz/corpus/ IS committed on purpose: the seed corpus is the documented examples plus one
+# deliberately invalid input, and it is what the suite feeds the fuzz entry point on every gate
+# run. libFuzzer's own growing corpus belongs in a build directory (`-artifact_prefix=build/...`),
+# never here -- the pristine stage caught this rule silently hiding the corpus from the repo.
 fuzz/crash-*
 fuzz/leak-*
 fuzz/timeout-*

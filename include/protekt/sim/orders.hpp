@@ -31,7 +31,7 @@ struct Order {
 
 /// An order stamped with the tick it takes effect on. A replay is a seed plus these.
 struct Command {
-    std::uint32_t tick{};
+    Tick tick{};
     Order order{};
 };
 

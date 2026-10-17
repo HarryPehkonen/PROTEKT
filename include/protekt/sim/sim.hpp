@@ -24,8 +24,12 @@ struct Scenario {
     std::vector<Spawn> spawns{};
 };
 
-/// Where a commander's orders are recorded, stamped with the tick they take effect on.
-/// Sim implements this; a commander never touches a Sim member directly.
+/// The channel every commander writes into: the human's input layer, the scripted opponent, an AI,
+/// and a replay being replayed. Orders are stamped with the tick they take effect on.
+///
+/// The sim CANNOT tell who issued an order, so it does not filter by side: it accepts any order
+/// that is valid in itself (a living unit; for Attack, a living hostile target) whatever side that
+/// unit is on. A commander is responsible for ordering only the units it owns.
 class OrderSink {
 public:
     virtual ~OrderSink() = default;

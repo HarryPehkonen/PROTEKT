@@ -306,9 +306,10 @@ Sim Sim::create(const Scenario& scenario) {
 }
 
 void Sim::enqueue(const Order& order) {
-    // OrderSink is the human commander's channel: it commands the Player side only.
-    const Unit* unit = find_const(units_, order.unit);
-    if (!order_is_valid(units_, order) || unit->side != Side::Player) {
+    // The generic command channel: the human's input layer, a replay being replayed, and an AI all
+    // arrive here. The sim has no idea WHO is issuing, so it must not filter by side -- ownership
+    // is the commander's responsibility. Filtering here silently killed the enemy commander.
+    if (!order_is_valid(units_, order)) {
         return;
     }
     pending_.push_back(order);

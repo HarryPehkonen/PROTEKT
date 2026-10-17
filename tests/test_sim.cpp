@@ -143,22 +143,42 @@ TEST(Sim, ACommandIsLoggedWithTheTickItTakesEffectOn) {
     EXPECT_EQ(sim.command_log()[0].order.unit, id);
 }
 
-TEST(Sim, InvalidOrdersAreDroppedWithoutEffect) {
+TEST(Sim, GenuinelyInvalidOrdersAreDroppedWithoutEffect) {
     Sim clean = Sim::create(two_tanks(42));
     Sim polluted = Sim::create(two_tanks(42));
     const UnitId mine = polluted.units()[0].id;
-    const UnitId theirs = polluted.units()[1].id;
+    // No such unit.
     polluted.enqueue(Order{
         OrderKind::MoveTo, UnitId{9999}, Fixed::from_int(60), Fixed::from_int(60), {}, {}, {}});
-    polluted.enqueue(
-        Order{OrderKind::MoveTo, theirs, Fixed::from_int(10), Fixed::from_int(10), {}, {}, {}});
+    // No such target.
     polluted.enqueue(Order{OrderKind::Attack, mine, {}, {}, {}, {}, UnitId{4242}});
+    // Friendly fire: an armed unit may not be ordered to attack its own side.
+    polluted.enqueue(Order{OrderKind::Attack, mine, {}, {}, {}, {}, mine});
     for (int i = 0; i < 100; ++i) {
         clean.step();
         polluted.step();
     }
     EXPECT_EQ(clean.state_hash(), polluted.state_hash()) << "no order should have been accepted";
     EXPECT_TRUE(polluted.command_log().empty()) << "a dropped order is not a command";
+}
+
+TEST(Sim, AnOrderForTheOtherSidesUnitIsAccepted) {
+    // This case used to be asserted the other way round, and that assertion was wrong: it told the
+    // implementation that an order touching the enemy side must be refused. The sim cannot know who
+    // issued an order, so refusing is not its business -- and enforcing it here silently killed the
+    // enemy commander, whose orders arrive through this very channel.
+    Sim with_order = Sim::create(two_tanks(42));
+    Sim without = Sim::create(two_tanks(42));
+    const UnitId theirs = with_order.units()[1].id;
+    ASSERT_EQ(with_order.units()[1].side, Side::Enemy);
+    with_order.enqueue(
+        Order{OrderKind::MoveTo, theirs, Fixed::from_int(100), Fixed::from_int(100), {}, {}, {}});
+    ASSERT_EQ(with_order.command_log().size(), 1U)
+        << "a valid order for an enemy unit is a command";
+    with_order.step();
+    without.step();
+    EXPECT_EQ(with_order.units()[1].stance, Stance::MoveTo) << "the order must have been applied";
+    EXPECT_NE(with_order.state_hash(), without.state_hash());
 }
 
 TEST(Sim, UnitsStayInsideTheMapAndOutOfCraters) {

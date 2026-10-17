@@ -47,6 +47,11 @@ add_library(protekt_core STATIC
     src/world/sample.cpp
     src/sim/fixed.cpp
     src/sim/sim.cpp
+    src/sim/scenario.cpp
+    src/sim/replay.cpp
+    src/sim/observer.cpp
+    src/ai/scripted_commander.cpp
+    src/app/cli.cpp
 )
 target_include_directories(protekt_core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
@@ -66,9 +71,18 @@ if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
         tests/test_world_sample.cpp
         tests/test_fixed.cpp
         tests/test_sim.cpp
+        tests/test_scenario.cpp
+        tests/test_replay.cpp
+        tests/test_observer.cpp
+        tests/test_commander.cpp
+        tests/test_cli.cpp
+        tests/test_fuzz_entry.cpp
+        fuzz/replay_entry.cpp
     )
     target_link_libraries(protekt_tests PRIVATE protekt_core GTest::gtest_main)
     protekt_warnings(protekt_tests)
+    target_compile_definitions(protekt_tests
+        PRIVATE PROTEKT_CORPUS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fuzz/corpus/replay")
 
     add_test(NAME protekt_tests COMMAND protekt_tests)
 
@@ -77,4 +91,24 @@ if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
     add_executable(protekt-map src/app/map_cli.cpp)
     target_link_libraries(protekt-map PRIVATE protekt_core)
     protekt_warnings(protekt-map)
+
+    # The sim CLI: the same battle the tests run, printed for a human.
+    add_executable(protekt-sim src/app/sim_cli.cpp)
+    target_link_libraries(protekt-sim PRIVATE protekt_core)
+    protekt_warnings(protekt-sim)
+
+    # libFuzzer on the replay parser. The suite already feeds the SAME entry point the corpus and
+    # generated inputs on every gate run, so this target is for depth, not for coverage.
+    option(PROTEKT_BUILD_FUZZING "Build the libFuzzer targets" OFF)
+    if(PROTEKT_BUILD_FUZZING)
+        if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+            message(FATAL_ERROR "PROTEKT_BUILD_FUZZING requires clang")
+        endif()
+        add_executable(fuzz_replay fuzz/replay_entry.cpp)
+        target_link_libraries(fuzz_replay PRIVATE protekt_core)
+        protekt_warnings(fuzz_replay)
+        target_compile_options(fuzz_replay PRIVATE -fsanitize=fuzzer,address,undefined
+                                                    -fno-omit-frame-pointer)
+        target_link_options(fuzz_replay PRIVATE -fsanitize=fuzzer,address,undefined)
+    endif()
 endif()

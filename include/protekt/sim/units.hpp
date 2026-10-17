@@ -8,6 +8,9 @@
 namespace protekt::sim {
 
 inline constexpr int kMapTiles = 256; ///< the playable world is [0, kMapTiles) tiles square
+/// A tick counter. Named once so the sim, orders, replays and observers cannot drift apart on it.
+using Tick = std::uint32_t;
+
 inline constexpr int kTicksPerSecond = 30;
 
 enum class UnitKind : std::uint8_t { Tank = 0, Turret = 1, Factory = 2 };
