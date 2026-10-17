@@ -44,6 +44,12 @@ struct Options {
     /// Holds W for the whole run. For verifying that the world moves under the hull on a machine
     /// with no keyboard -- the window itself needs a pair of hands.
     bool autodrive{false};
+    /// A pointer placed on the command line, for a frame that has no mouse: a run that wants to
+    /// show (or capture) a reticle without a pair of hands. Absent is the default, and it is what
+    /// keeps a verification frame identical to what it drew before there was a reticle.
+    int cursor_x{};
+    int cursor_y{};
+    bool cursor_placed{false};
 };
 
 template <typename T> bool parse_number(std::string_view text, T& value) {
@@ -99,6 +105,16 @@ int parse_args(std::span<const std::string_view> args, Options& options, std::os
                 err << "protekt-game: --ticks-per-frame wants a positive number\n";
                 return 2;
             }
+        } else if (arg == "--cursor") {
+            std::string_view x_text;
+            std::string_view y_text;
+            if (!next(x_text) || !next(y_text) || !parse_number(x_text, options.cursor_x)
+                || !parse_number(y_text, options.cursor_y)) {
+                err << "protekt-game: --cursor wants two numbers: pixels from the left and the "
+                       "top\n";
+                return 2;
+            }
+            options.cursor_placed = true;
         } else if (arg == "--capture") {
             if (!next(value)) {
                 return 2;
@@ -181,6 +197,15 @@ int run_game_cli(std::span<const std::string_view> args, std::ostream& out, std:
                 << "protekt-game: no window, no game; try --headless to run without a display\n";
             return 4;
         }
+        // The controls, where the player is actually looking: the terminal the game was started
+        // from. One line and a pointer rather than the whole table, because the table lives in one
+        // place -- README.md, "How to play" -- and a second copy of it here is a second copy to go
+        // stale.
+        out << "protekt-game: W/S throttle, A/D turn | left click a unit to select it, a HOSTILE "
+               "to "
+               "fire at it | right click to order what is selected | Tab cycles, Escape clears\n"
+            << "protekt-game: the full table, and what each control does not do: README.md "
+               "(How to play)\n";
     }
 #endif
     if (headless) {
@@ -270,6 +295,11 @@ int run_game_cli(std::span<const std::string_view> args, std::ostream& out, std:
         if (options.autodrive) {
             hands.keys.push_back(input::KeyEvent{input::kKeyW, true, false});
         }
+        if (options.cursor_placed) {
+            hands.cursor_x = options.cursor_x;
+            hands.cursor_y = options.cursor_y;
+            hands.cursor_known = true;
+        }
 
         // What the player can see, as of the end of the last frame. The picking needs the camera,
         // and one frame of staleness is invisible: the tank does not teleport.
@@ -278,6 +308,10 @@ int run_game_cli(std::span<const std::string_view> args, std::ostream& out, std:
         scene_options.camera = camera_for(sim, player_id, session.heading(), options.seed);
         scene_options.extent = extent;
         scene_options.radius_tiles = 24;
+        if (hands.cursor_known) {
+            scene_options.cursor = game::Cursor{static_cast<float>(hands.cursor_x),
+                                                static_cast<float>(hands.cursor_y)};
+        }
 
         std::vector<sim::Order> orders;
         session.frame(hands, sim, scene_options, orders);

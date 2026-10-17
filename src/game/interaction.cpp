@@ -42,6 +42,9 @@ void Interaction::handle(const input::InputFrame& frame, const sim::Sim& sim,
         const bool hit_is_ours = hit != nullptr && hit->alive && hit->side == sim::Side::Player;
         const bool hit_is_hostile = hit != nullptr && hit->alive && hit->side != sim::Side::Player;
 
+        // The mouse half of the control set: this is the whole of what a left and a right click
+        // mean. The keys are in game/session.cpp (throttle) and input/bindings.hpp (movement), and
+        // the table a player reads is README.md, "How to play".
         if (click.button == input::MouseButton::Left) {
             if (hit_is_ours) {
                 if (click.shift) {

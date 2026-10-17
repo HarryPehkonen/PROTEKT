@@ -108,17 +108,18 @@ docs/               this plan
 **Where it is now.** A deterministic world from a seed; a fixed-tick simulation with units, orders and
 replay; a Vulkan client that draws it, headless or in a window; a command layer where the human and the
 AI issue the same orders through the same interface; a utility AI that advances, engages and withdraws;
-a trigger that chooses a target; and units that go around the ground rather than into it. 278 tests.
+a trigger that chooses a target; and units that go around the ground rather than into it. 301 tests.
 
 **What is next, in order.**
 
-1. **Finish the feel slice: crosshair, hit feedback, sound.** The gun already fires and the trigger
-   already chooses, but none of it is *visible*: nothing is drawn but the world, and nothing makes a
-   sound. The crosshair, a marker on the unit being engaged and an edge flash when damage lands all fit
-   inside the frozen renderer contract as world-space triangles, because the camera's view is the only
-   thing that decides where they appear. Fired/killed events come from the existing observer, which
-   infers them by diffing simulation state between ticks — no new sim machinery. Sound is SDL3's, which
-   is already a dependency, synthesised rather than sampled so there is nothing to license.
+1. **Finish the feel slice: hit feedback, then sound.** The reticle says what a click *would* do; it
+   does not say what one just did. Two things are missing and they share one piece of plumbing: a
+   per-tick "what happened" seam in the presenter, fed by the observer, which already infers `fired`
+   and `killed` by diffing simulation state between ticks — no new sim machinery. Then a flash or a
+   marker when a shot lands, and the same events driving sound. Everything stays world-space triangles
+   (the camera's view is the only thing that decides where they appear), so the renderer contract does
+   not move, and sound is SDL3's, already a dependency, synthesised rather than sampled — nothing to
+   license, and a machine with no sound device stays silent instead of failing.
 2. **Economy and objectives: the unpaid half of M4.** Resources, a harvester, building, and a way for a
    match to end. This is what makes an A\* worth building and what gives turret placement a point.
 3. **Deterministic A\* (navigation option 2)**, as its own milestone, once units have somewhere to go

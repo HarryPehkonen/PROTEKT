@@ -1,6 +1,8 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <span>
 
 #include "protekt/math/math.hpp"
@@ -37,6 +39,16 @@ struct Camera {
 [[nodiscard]] std::array<float, 16> view_projection(const Camera& camera, float aspect,
                                                     float fov_radians = math::kFovRadians) noexcept;
 
+/// Where the pointer is, in framebuffer pixels: from the left, from the TOP. The reticle is placed
+/// by the same ray a click is picked with, so the two cannot disagree about where the pointer is.
+struct Cursor {
+    float x{};
+    float y{};
+};
+
+/// A reticle is four bars, six vertices each, in a triangle list.
+inline constexpr std::size_t kReticleVertexCount = 24;
+
 struct SceneOptions {
     std::uint64_t seed{};
     Camera camera{};
@@ -44,6 +56,13 @@ struct SceneOptions {
     render::Extent extent{1280, 720};
     /// Terrain half-extent in tiles: the mesh is (2*radius+1)^2 tiles centred on the camera.
     int radius_tiles{24};
+    /// The pointer, when there is one. ABSENT means no reticle at all, which is what a headless or
+    /// `--autodrive` frame has: those frames therefore stay byte-identical to what they drew before
+    /// there was anything to draw here.
+    std::optional<Cursor> cursor{};
+    /// Whose eyes this is, which is what colours the reticle: a unit that is not yours turns it
+    /// red, because that is the one click that fires.
+    sim::Side viewer_side{sim::Side::Player};
 };
 
 /// Triangles for the terrain mesh (two per tile, coloured by `Terrain`) followed by one box per
@@ -52,6 +71,12 @@ struct SceneOptions {
 /// `selected` units are drawn brighter than the rest of their side: the player needs to see what he
 /// has hold of, and a tint is the smallest honest version of that before there is any text on
 /// screen.
+///
+/// With `options.cursor` set, the scene ends with a reticle: `kReticleVertexCount` more vertices,
+/// marking what a click at that pixel would hit. White on the ground, red on a hostile (a click
+/// there fires), brighter on one of yours (a click there selects). It is a WORLD-space mark placed
+/// a short distance along the click's own ray, which is why it needs no font and cannot be hidden
+/// by terrain.
 [[nodiscard]] render::Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
                                         std::span<const sim::UnitId> selected = {});
 

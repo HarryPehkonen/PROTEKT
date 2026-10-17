@@ -14,7 +14,7 @@ TEST(InputFrame, StartsEmpty) {
     EXPECT_FALSE(frame.quit);
 }
 
-TEST(InputFrame, ClearEmptiesEveryPartOfIt) {
+TEST(InputFrame, ClearEmptiesTheEvents) {
     // The contract the game loop relies on: pump the queue, handle the frame, and the next pump
     // starts from nothing -- so no click is handled twice and no key repeats forever.
     InputFrame frame{};
@@ -32,6 +32,24 @@ TEST(InputFrame, ClearEmptiesEveryPartOfIt) {
     EXPECT_FLOAT_EQ(frame.mouse_dx, 0.0F);
     EXPECT_FLOAT_EQ(frame.mouse_dy, 0.0F);
     EXPECT_FALSE(frame.quit);
+}
+
+TEST(InputFrame, ClearKeepsThePointerWhereItIs) {
+    // The pointer is a POSITION, not an event: a frame in which the mouse did not move must not
+    // forget where it is, or the reticle would blink off every time the player held still. That is
+    // also why a run with no pointer at all -- headless, or --autodrive -- never claims to have
+    // one.
+    InputFrame frame{};
+    EXPECT_FALSE(frame.cursor_known);
+
+    frame.cursor_x = 640;
+    frame.cursor_y = 360;
+    frame.cursor_known = true;
+    frame.clear();
+
+    EXPECT_TRUE(frame.cursor_known);
+    EXPECT_EQ(frame.cursor_x, 640);
+    EXPECT_EQ(frame.cursor_y, 360);
 }
 
 TEST(InputFrame, AClearFrameCanBeFilledAgain) {

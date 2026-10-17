@@ -10,6 +10,10 @@
 /// tested on a machine with no display at all.
 namespace protekt::input {
 
+/// MouseButton and the key scancodes below are the whole vocabulary of input. What each one DOES is
+/// decided in three places -- `bindings.hpp` folds the movement keys, `game/session.cpp` gives held
+/// keys a throttle, and `game/interaction.cpp` takes the clicks -- and the table a player reads is
+/// README.md, "How to play".
 enum class MouseButton : std::uint8_t { Left, Right, Middle };
 
 /// SDL3 scancodes for the keys the game acts on. Named here so the game layer and its tests agree
@@ -39,6 +43,14 @@ struct InputFrame {
     std::vector<KeyEvent> keys;
     float mouse_dx{}; ///< relative motion this frame, pixels (positive = right)
     float mouse_dy{}; ///< relative motion this frame, pixels (positive = down)
+    /// Where the pointer is, in framebuffer pixels -- from the left, from the TOP -- and whether
+    /// anything has ever said. A POSITION, not an event, so `clear()` leaves it alone: a frame with
+    /// no mouse event must not forget where the pointer is. It is false for a run that has no
+    /// pointer at all, which is how a headless or `--autodrive` frame stays byte-identical to what
+    /// it drew before there was anything to draw here.
+    int cursor_x{};
+    int cursor_y{};
+    bool cursor_known{};
     bool quit{};
 
     void clear() noexcept {

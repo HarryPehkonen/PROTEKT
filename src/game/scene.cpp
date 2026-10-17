@@ -1,5 +1,6 @@
 #include "protekt/game/scene.hpp"
 
+#include "protekt/game/pick.hpp"
 #include "protekt/math/math.hpp"
 
 #include <algorithm>
@@ -117,6 +118,74 @@ void build_unit_box(std::vector<render::SceneVertex>& out, std::uint64_t seed,
     emit_quad(out, p[4], p[5], p[1], p[0], colour); // bottom
 }
 
+/// The reticle's distance from the eye, in metres. This close, nothing can stand between the eye
+/// and the mark: it is a screen mark, and a crater rim must not be able to hide it.
+constexpr float kReticleDistanceMetres = 1.5F;
+/// Its half-size as a fraction of the half-screen at that distance, so it looks the same at any
+/// extent.
+constexpr float kReticleHalfFraction = 0.055F;
+/// How thick each bar is, as a fraction of the half-size.
+constexpr float kReticleBarFraction = 0.22F;
+
+/// The reticle's colour is the ANSWER to "what would a click here do": red fires, green selects,
+/// white is ground. Text is not drawn anywhere in this project yet, so colour is the only channel
+/// there is.
+std::array<float, 3> reticle_colour(const sim::Sim& sim, const Pick& picked, sim::Side viewer) {
+    constexpr std::array<float, 3> kGround{0.92F, 0.92F, 0.92F};
+    constexpr std::array<float, 3> kHostile{1.0F, 0.25F, 0.25F};
+    constexpr std::array<float, 3> kOwn{0.45F, 1.0F, 0.45F};
+    if (!picked.has_unit()) {
+        return kGround;
+    }
+    const sim::Unit* unit = sim.find(picked.unit);
+    if (unit == nullptr) {
+        return kGround;
+    }
+    return unit->side == viewer ? kOwn : kHostile;
+}
+
+/// Four bars forming a square outline, in the plane the camera looks along, centred on the point
+/// the click's own ray reaches. Six vertices per bar: two triangles, and no winding to get wrong,
+/// because the pipeline culls nothing.
+void append_reticle(std::vector<render::SceneVertex>& out, const SceneOptions& options,
+                    const sim::Sim& sim) {
+    if (!options.cursor.has_value()) {
+        return;
+    }
+    const Camera& camera = options.camera;
+    const float screen_x = options.cursor->x;
+    const float screen_y = options.cursor->y;
+    const std::array<float, 3> colour
+        = reticle_colour(sim, pick(sim, options, screen_x, screen_y), options.viewer_side);
+    const RayPoint centre
+        = ray_point(camera, options.extent, screen_x, screen_y, kReticleDistanceMetres);
+    const math::Basis basis = math::basis_from(camera.yaw, camera.pitch);
+    const float half
+        = kReticleDistanceMetres * std::tan(math::kFovRadians * 0.5F) * kReticleHalfFraction;
+    const float bar = half * kReticleBarFraction;
+    const auto corner = [&](float right, float up) {
+        return std::array<float, 3>{centre.x + (right * basis.right.at(0)) + (up * basis.up.at(0)),
+                                    centre.y + (right * basis.right.at(1)) + (up * basis.up.at(1)),
+                                    centre.z + (right * basis.right.at(2)) + (up * basis.up.at(2))};
+    };
+    const auto bar_quad = [&](float r0, float u0, float r1, float u1) {
+        const std::array<float, 3> a = corner(r0, u0);
+        const std::array<float, 3> b = corner(r1, u0);
+        const std::array<float, 3> c = corner(r1, u1);
+        const std::array<float, 3> d = corner(r0, u1);
+        out.push_back(render::SceneVertex{a, colour});
+        out.push_back(render::SceneVertex{b, colour});
+        out.push_back(render::SceneVertex{c, colour});
+        out.push_back(render::SceneVertex{a, colour});
+        out.push_back(render::SceneVertex{c, colour});
+        out.push_back(render::SceneVertex{d, colour});
+    };
+    bar_quad(-half, half - bar, half, half);               // top
+    bar_quad(-half, -half, half, -half + bar);             // bottom
+    bar_quad(-half, -half + bar, -half + bar, half - bar); // left
+    bar_quad(half - bar, -half + bar, half, half - bar);   // right
+}
+
 } // namespace
 
 float height_metres(std::uint64_t seed, int tile_x, int tile_y) noexcept {
@@ -162,6 +231,8 @@ render::Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
             build_unit_box(scene.vertices, options.seed, unit, is_selected);
         }
     }
+
+    append_reticle(scene.vertices, options, sim);
 
     return scene;
 }

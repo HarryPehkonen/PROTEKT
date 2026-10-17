@@ -38,6 +38,8 @@ void Session::frame(const input::InputFrame& frame, const sim::Sim& sim,
     }
 
     InputState input{};
+    // The movement half of the control set, in one line: W/S is the throttle and A/D is the
+    // steering. The clicks are in game/interaction.cpp and the table a player reads is README.md.
     input.throttle = (keys_.forward ? 1.0F : 0.0F) - (keys_.back ? 1.0F : 0.0F);
     // Sign matters, and it is not the obvious one: A must turn the view to the LEFT ON SCREEN.
     // `look_at` builds its right vector as cross(forward, up), which at yaw 0 (forward = +z, up =

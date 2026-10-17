@@ -623,6 +623,11 @@ bool VulkanWindow::pump_events() {
         = window_w > 0 ? static_cast<float>(extent_.width) / static_cast<float>(window_w) : 1.0F;
     const float scale_y
         = window_h > 0 ? static_cast<float>(extent_.height) / static_cast<float>(window_h) : 1.0F;
+    const auto set_cursor = [this](float window_x, float window_y, float sx, float sy) {
+        input_.cursor_x = static_cast<int>(std::floor(window_x * sx));
+        input_.cursor_y = static_cast<int>(std::floor(window_y * sy));
+        input_.cursor_known = true;
+    };
     const auto button_of = [](std::uint8_t button) {
         switch (button) {
         case SDL_BUTTON_RIGHT:
@@ -647,10 +652,15 @@ bool VulkanWindow::pump_events() {
                 static_cast<int>(std::floor(event.button.y * scale_y)),
                 button_of(event.button.button), event.type == SDL_EVENT_MOUSE_BUTTON_DOWN,
                 (SDL_GetModState() & SDL_KMOD_SHIFT) != 0});
+            set_cursor(event.button.x, event.button.y, scale_x, scale_y);
             break;
         case SDL_EVENT_MOUSE_MOTION:
             input_.mouse_dx += event.motion.xrel * scale_x;
             input_.mouse_dy += event.motion.yrel * scale_y;
+            // Absolute, and in the same framebuffer pixels a click uses: the reticle is placed by
+            // the same ray a click is picked with, so the two must agree about where the pointer
+            // is.
+            set_cursor(event.motion.x, event.motion.y, scale_x, scale_y);
             break;
         case SDL_EVENT_KEY_UP:
             input_.keys.push_back(input::KeyEvent{static_cast<std::int32_t>(event.key.scancode),
