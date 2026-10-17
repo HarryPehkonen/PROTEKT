@@ -37,7 +37,9 @@ check is decoration:
 **Works.** Drive the tank over a seed-generated world; select units and give orders; units fight, take
 damage and die; the enemy commander advances, engages and withdraws; the whole simulation is
 deterministic (a seed plus its orders replays byte-for-byte); the window and the headless renderer
-produce byte-identical frames.
+produce byte-identical frames **and the same world state** — for a scripted run, because `--autodrive`
+drops real input: a stray key arriving at a window that has just taken focus must not be able to
+change a verification run.
 
 **Not there yet.**
 

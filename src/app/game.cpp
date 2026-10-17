@@ -228,7 +228,16 @@ int run_game_cli(std::span<const std::string_view> args, std::ostream& out, std:
                 out << "protekt-game: window closed after " << frame << " frames\n";
                 break;
             }
-            hands = window->input();
+            // Autodrive is a SCRIPTED run, so a real key or click must not be able to change its
+            // world: the windowed and headless paths are compared hash for hash, and a stray event
+            // arriving at a window that has just taken focus made one such comparison disagree.
+            // The events are still pumped (the window stays responsive and its internal state stays
+            // coherent) and their input frame is dropped. Measured before this: 1 divergent run in
+            // 8; after: the windowed world is a function of the seed and the flags alone.
+            const input::InputFrame from_hands = window->input();
+            if (!options.autodrive) {
+                hands = from_hands;
+            }
         }
 #endif
         if (options.autodrive) {

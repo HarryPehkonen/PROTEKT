@@ -438,6 +438,27 @@ capability, but an economy whose harvesters cannot reliably reach a resource fie
 building first, and an A\* whose results nobody has yet needed is a module that will be tuned against
 nothing.
 
+### Cross-presenter determinism, and a stray event that broke it
+
+The claim "the windowed and headless paths agree" was first observed at M3b from a single pair of runs.
+Checked properly on the laptop at 120/180/240/300 frames: the two paths agree at every size, and the
+windowed run is stable across repeats. **But one windowed run in eight disagreed** -- same seed, same
+`--autodrive`, same tick, different `state_hash()`.
+
+The mechanism was in the loop, not in the sim: the windowed path takes `hands = window->input()`, so a
+real key or click arriving at a window that has just taken focus enters the world, and the headless path
+has no such channel. The sim was never at fault, and it is not a race: it is the only one of the two
+paths where a human's hands reach the simulation.
+
+The fix is the semantics `--autodrive` should always have had: a scripted run drops the real input frame
+(events are still pumped, so the window stays responsive and its internal state stays coherent). A
+verification run has to be a function of the seed and the flags; anything else makes the comparison a
+coin flip that usually lands on heads.
+
+Cross-machine confirmation fell out of it: `--seed 42 --frames 300 --autodrive` gives state hash
+**42334912212936072** on the MacBook under lavapipe and on the laptop under the GTX 1060 -- two GPUs, two
+driver stacks, one world.
+
 **Explicitly not in M5a:** an LLM anywhere near the tick loop (latency, cost and nondeterminism all
 forbid it), and any tuning search over the parameters. Those stay offline, against the headless
 harness, and only if the measured gap above says they are worth it.
