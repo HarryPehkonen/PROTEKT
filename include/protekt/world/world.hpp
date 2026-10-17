@@ -41,6 +41,11 @@ struct Coord {
 /// Used as the determinism oracle: it must not change between runs or machines.
 [[nodiscard]] std::uint64_t region_hash(std::uint64_t seed, int chunks_x, int chunks_y) noexcept;
 
+/// The tile at a WORLD tile coordinate, for runtimes that need to look up a single spot
+/// (the sim does). Pure, no cache, no global state: it generates the chunk that contains the
+/// coordinate. Must agree with generate() tile for tile.
+[[nodiscard]] Tile sample(std::uint64_t seed, int world_x, int world_y) noexcept;
+
 /// True when a tile can host a spawning unit: its terrain must be passable and its height
 /// within the band the implementation documents. Out-of-range coordinates return false.
 [[nodiscard]] bool is_spawnable(const Chunk& chunk, int x, int y) noexcept;

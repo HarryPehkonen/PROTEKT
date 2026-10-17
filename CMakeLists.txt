@@ -44,6 +44,9 @@ add_library(protekt_core STATIC
     src/version.cpp
     src/rng.cpp
     src/world/world.cpp
+    src/world/sample.cpp
+    src/sim/fixed.cpp
+    src/sim/sim.cpp
 )
 target_include_directories(protekt_core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
@@ -60,6 +63,9 @@ if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
         tests/test_version.cpp
         tests/test_rng.cpp
         tests/test_world.cpp
+        tests/test_world_sample.cpp
+        tests/test_fixed.cpp
+        tests/test_sim.cpp
     )
     target_link_libraries(protekt_tests PRIVATE protekt_core GTest::gtest_main)
     protekt_warnings(protekt_tests)

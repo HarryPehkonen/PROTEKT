@@ -116,12 +116,20 @@ twice, on a different machine or optimisation level. This is the milestone where
 requirement is either true or exposed.
 
 ### M2 — Headless sim: units, orders, replay
-Fixed-step tick; a tank, a turret, a factory, a harvester; an `OrderQueue` carrying
-`MoveTo`, `GuardAt`, `Patrol`, `Attack`, `Build`; steering (no pathfinding yet — a coarse
-nav grid only if the terrain demands it).
-Delivered with: deterministic replay (seed + order log → identical `state_hash`), a textual
-observer that prints a battle, and `ICommander` (an interface with one trivial scripted
-implementation).
+Fixed-step tick; a tank, a turret, a factory; an order queue carrying `MoveTo`, `GuardAt`,
+`Patrol`, `Attack`, `Stop`; steering (no pathfinding yet — a coarse nav grid only if the
+terrain demands it). Split in two because the first is arithmetic and the second is I/O:
+
+- **M2a — the sim core (done).** Q16.16 fixed point, units, orders, the tick loop,
+  terrain-aware movement, combat. No floating point and no randomness anywhere in the sim.
+- **M2b — the commander and the outside world (next).** The replay text format, `ICommander`
+  with one scripted implementation, the `protekt-sim` CLI, and the first byte-level libFuzzer
+  target on the replay parser.
+
+**Deliberate scope cut:** the harvester and the `Build` order moved to M4, where the resource
+loop lives — a build order with no resources to spend cannot be tested in any interesting way.
+M2 is Tank/Turret/Factory with move, guard, patrol, attack and stop: enough for a real
+skirmish, and nothing that needs an economy.
 **You can review:** watch a scripted skirmish play out as text, and see a replay reproduce a
 state hash exactly.
 
