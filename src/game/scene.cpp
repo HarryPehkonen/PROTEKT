@@ -1,5 +1,7 @@
 #include "protekt/game/scene.hpp"
 
+#include "protekt/math/math.hpp"
+
 #include <algorithm>
 
 #include <cmath>
@@ -9,82 +11,16 @@ namespace protekt::game {
 
 namespace {
 
-using Mat4 = std::array<float, 16>;
-using Vec3 = std::array<float, 3>;
-
-constexpr float kPi = 3.14159265358979F;
-
-Mat4 multiply(const Mat4& a, const Mat4& b) {
-    Mat4 r{};
-    for (std::size_t col = 0; col < 4; ++col) {
-        for (std::size_t row = 0; row < 4; ++row) {
-            float sum = 0.0F;
-            for (std::size_t k = 0; k < 4; ++k) {
-                sum += a.at(k * 4 + row) * b.at(col * 4 + k);
-            }
-            r.at(col * 4 + row) = sum;
-        }
-    }
-    return r;
-}
-
-Vec3 cross(const Vec3& a, const Vec3& b) {
-    return {a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]};
-}
-
-float dot(const Vec3& a, const Vec3& b) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
-
-Vec3 add(const Vec3& a, const Vec3& b) { return {a[0] + b[0], a[1] + b[1], a[2] + b[2]}; }
-
-Vec3 normalise(const Vec3& v) {
-    const float len = std::sqrt(dot(v, v));
-    return {v[0] / len, v[1] / len, v[2] / len};
-}
-
-/// Right-handed look-at, the camera looking down `target - eye`. `s` is the RIGHT vector, and it is
-/// `cross(forward, up)` -- which, with forward = (0,0,1) at yaw 0, is -X. The first version of this
-/// comment claimed the opposite; the code was right and the comment was wrong (found by the agent
-/// that had to match it, which is worth more than a review).
-Mat4 look_at(const Vec3& eye, const Vec3& target, const Vec3& up) {
-    const Vec3 f = normalise({target[0] - eye[0], target[1] - eye[1], target[2] - eye[2]});
-    // f x up, not up x f: the other order makes u = -Y, and since the projection already flips Y
-    // for Vulkan's clip space the two cancel into an upside-down frame. Measured, not guessed:
-    // with up x f the sky rendered along the bottom edge.
-    const Vec3 s = normalise(cross(f, up));
-    const Vec3 u = cross(s, f);
-    Mat4 m{};
-    m[0] = s[0];
-    m[4] = s[1];
-    m[8] = s[2];
-    m[1] = u[0];
-    m[5] = u[1];
-    m[9] = u[2];
-    m[2] = -f[0];
-    m[6] = -f[1];
-    m[10] = -f[2];
-    m[12] = -dot(s, eye);
-    m[13] = -dot(u, eye);
-    m[14] = dot(f, eye);
-    m[15] = 1.0F;
-    return m;
-}
-
-/// Vulkan clip space: Z in [0,1], Y pointing down.
-Mat4 perspective(float fovy_radians, float aspect, float near_plane, float far_plane) {
-    const float f = 1.0F / std::tan(fovy_radians * 0.5F);
-    Mat4 m{};
-    m[0] = f / aspect;
-    m[5] = -f;
-    m[10] = far_plane / (near_plane - far_plane);
-    m[11] = -1.0F;
-    m[14] = far_plane * near_plane / (near_plane - far_plane);
-    return m;
-}
-
-Vec3 forward_of(const Camera& camera) {
-    return {std::sin(camera.yaw) * std::cos(camera.pitch), std::sin(camera.pitch),
-            std::cos(camera.yaw) * std::cos(camera.pitch)};
-}
+using math::add;
+using math::cross;
+using math::dot;
+using math::kPi;
+using math::look_at;
+using math::Mat4;
+using math::multiply;
+using math::normalise;
+using math::perspective;
+using math::Vec3;
 
 Vec3 terrain_colour(world::Terrain terrain) {
     switch (terrain) {
@@ -197,11 +133,8 @@ float Camera::wrap_angle(float radians) noexcept {
 
 std::array<float, 16> view_projection(const Camera& camera, float aspect,
                                       float fov_radians) noexcept {
-    const Vec3 eye{camera.x, camera.y, camera.z};
-    const Vec3 target = add(eye, forward_of(camera));
-    const Mat4 view = look_at(eye, target, {0.0F, 1.0F, 0.0F});
-    const Mat4 proj = perspective(fov_radians, aspect, 0.1F, 2000.0F);
-    return multiply(proj, view);
+    return math::view_projection(Vec3{camera.x, camera.y, camera.z}, camera.yaw, camera.pitch,
+                                 aspect, fov_radians);
 }
 
 render::Scene build_scene(const sim::Sim& sim, const SceneOptions& options,

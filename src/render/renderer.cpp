@@ -4,6 +4,8 @@
 // colour image into a host-visible buffer. No window, no surface, no swapchain.
 #include "protekt/render/renderer.hpp"
 
+#include "protekt/math/math.hpp"
+
 #include <vulkan/vulkan.h>
 
 #include <algorithm>
@@ -30,69 +32,18 @@ namespace protekt::render {
 namespace {
 
 // ================================ maths ================================
-// Column-major, m[column * 4 + row], which is what GLSL's mat4 expects in a push constant.
+// The camera convention is NOT here: it lives in protekt/math/math.hpp, because the picker has to
+// agree with the renderer about where the camera looks and two copies only agree by accident.
 
-using Mat4 = std::array<float, 16>;
-using Vec3 = std::array<float, 3>;
-
-Mat4 multiply(const Mat4& a, const Mat4& b) {
-    Mat4 r{};
-    for (std::size_t col = 0; col < 4; ++col) {
-        for (std::size_t row = 0; row < 4; ++row) {
-            float sum = 0.0F;
-            for (std::size_t k = 0; k < 4; ++k) {
-                sum += a.at(k * 4 + row) * b.at(col * 4 + k);
-            }
-            r.at(col * 4 + row) = sum;
-        }
-    }
-    return r;
-}
-
-Vec3 cross(const Vec3& a, const Vec3& b) {
-    return {a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]};
-}
-
-float dot(const Vec3& a, const Vec3& b) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
-
-Vec3 normalise(const Vec3& v) {
-    const float len = std::sqrt(dot(v, v));
-    return {v[0] / len, v[1] / len, v[2] / len};
-}
-
-/// Right-handed look-at: the camera looks down -Z in view space.
-Mat4 look_at(const Vec3& eye, const Vec3& target, const Vec3& up) {
-    const Vec3 f = normalise({target[0] - eye[0], target[1] - eye[1], target[2] - eye[2]});
-    const Vec3 s = normalise(cross(f, up));
-    const Vec3 u = cross(s, f);
-    Mat4 m{};
-    m[0] = s[0];
-    m[4] = s[1];
-    m[8] = s[2];
-    m[1] = u[0];
-    m[5] = u[1];
-    m[9] = u[2];
-    m[2] = -f[0];
-    m[6] = -f[1];
-    m[10] = -f[2];
-    m[12] = -dot(s, eye);
-    m[13] = -dot(u, eye);
-    m[14] = dot(f, eye);
-    m[15] = 1.0F;
-    return m;
-}
-
-/// Vulkan clip space: Z in [0,1], and Y pointing DOWN, hence the negated [1][1].
-Mat4 perspective(float fovy_radians, float aspect, float near_plane, float far_plane) {
-    const float f = 1.0F / std::tan(fovy_radians * 0.5F);
-    Mat4 m{};
-    m[0] = f / aspect;
-    m[5] = -f;
-    m[10] = far_plane / (near_plane - far_plane);
-    m[11] = -1.0F;
-    m[14] = far_plane * near_plane / (near_plane - far_plane);
-    return m;
-}
+using math::add;
+using math::cross;
+using math::dot;
+using math::look_at;
+using math::Mat4;
+using math::multiply;
+using math::normalise;
+using math::perspective;
+using math::Vec3;
 
 // ================================ the scene ================================
 
@@ -179,12 +130,11 @@ std::vector<Vertex> build_scene(std::uint64_t seed) {
 /// Eye at 1.6 m, looking forward and pitched down 10 degrees so that the horizon sits above the
 /// middle of the frame and the unit stands on the ground below it.
 Mat4 view_projection(Extent extent) {
-    constexpr float pi = 3.14159265358979F;
-    const float pitch = 10.0F * pi / 180.0F;
+    const float pitch = 10.0F * math::kPi / 180.0F;
     const Vec3 eye{0.0F, 1.6F, 0.0F};
     const Vec3 target{0.0F, 1.6F - 10.0F * std::sin(pitch), 10.0F * std::cos(pitch)};
     const float aspect = static_cast<float>(extent.width) / static_cast<float>(extent.height);
-    return multiply(perspective(60.0F * pi / 180.0F, aspect, 0.1F, 300.0F),
+    return multiply(perspective(math::kFovRadians, aspect, math::kNearPlane, math::kFarPlane),
                     look_at(eye, target, {0.0F, 1.0F, 0.0F}));
 }
 

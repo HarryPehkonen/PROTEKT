@@ -4,6 +4,13 @@ Binding for every human and every agent that touches this repository. In the spi
 **C++ Core Guidelines** (Type, Bounds and Lifetime profiles). Exceptions are *allowed* for
 error handling — the "no exceptions" jet standards (JSF/MISRA) are rejected deliberately.
 
+13. **Floating point is allowed in exactly one module.** `include/protekt/math/math.hpp` is the camera
+    convention and the only floating-point code in the project: the rasteriser needs it, the picker
+    needs it, and they need the SAME one or a click lands somewhere other than where the crosshair is
+    drawn. Nothing under `sim/` or `world/` may include it. The simulation is Q16.16 and integer so
+    that a replay is bit-identical on every machine, and a float that reached the tick loop would make
+    the world depend on the compiler.
+
 ## Rules
 
 1. **C++20.** No compiler extensions; `-Wall -Wextra -Wpedantic -Werror` on every target.

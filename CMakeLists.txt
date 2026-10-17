@@ -42,6 +42,7 @@ endfunction()
 # ================================ core ================================
 add_library(protekt_core STATIC
     src/version.cpp
+    src/math/math.cpp
     src/rng.cpp
     src/world/world.cpp
     src/world/sample.cpp
@@ -210,6 +211,7 @@ if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
         tests/test_world.cpp
         tests/test_world_sample.cpp
         tests/test_fixed.cpp
+        tests/test_math.cpp
         tests/test_steering.cpp
         tests/test_focus_fire.cpp
         tests/test_sim.cpp

@@ -1,5 +1,7 @@
 #include "protekt/game/pick.hpp"
 
+#include "protekt/math/math.hpp"
+
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -7,27 +9,6 @@
 namespace protekt::game {
 
 namespace {
-
-constexpr float kFovRadians = 1.0472F; // view_projection's default, the one the renderer draws with
-
-struct Basis {
-    std::array<float, 3> forward;
-    std::array<float, 3> right;
-    std::array<float, 3> up;
-};
-
-/// The camera's axes, built exactly as `look_at` builds them: s = f x worldUp, u = s x f.
-Basis basis_of(const Camera& camera) {
-    const float cp = std::cos(camera.pitch);
-    const std::array<float, 3> f{std::sin(camera.yaw) * cp, std::sin(camera.pitch),
-                                 std::cos(camera.yaw) * cp};
-    // f x (0,1,0) = (-f.z, 0, f.x)
-    const float sl = std::sqrt((f[2] * f[2]) + (f[0] * f[0]));
-    const std::array<float, 3> s{-f[2] / sl, 0.0F, f[0] / sl};
-    const std::array<float, 3> u{(s[1] * f[2]) - (s[2] * f[1]), (s[2] * f[0]) - (s[0] * f[2]),
-                                 (s[0] * f[1]) - (s[1] * f[0])};
-    return Basis{f, s, u};
-}
 
 float aspect_of(render::Extent extent) {
     return static_cast<float>(extent.width) / static_cast<float>(extent.height);
@@ -39,8 +20,10 @@ struct Ray {
 };
 
 Ray ray_through(const Camera& camera, render::Extent extent, float screen_x, float screen_y) {
-    const Basis b = basis_of(camera);
-    const float half_tan = std::tan(kFovRadians * 0.5F);
+    // The camera's axes come from the module the renderer builds its view matrix from, so a click
+    // cannot land somewhere other than where the crosshair is drawn.
+    const math::Basis b = math::basis_from(camera.yaw, camera.pitch);
+    const float half_tan = std::tan(math::kFovRadians * 0.5F);
     // Pixel -> NDC. Y is measured from the top, which is the way Vulkan's clip Y already points.
     const float ndc_x = (2.0F * screen_x / static_cast<float>(extent.width)) - 1.0F;
     const float ndc_y = (2.0F * screen_y / static_cast<float>(extent.height)) - 1.0F;
@@ -86,14 +69,11 @@ float hit_box(const Ray& ray, const std::array<float, 3>& lo, const std::array<f
 
 Projected project(const Camera& camera, render::Extent extent, float world_x, float world_y,
                   float world_z) noexcept {
-    const std::array<float, 16> m = view_projection(camera, aspect_of(extent), kFovRadians);
-    const auto row = [&m, world_x, world_y, world_z](std::size_t r) {
-        return (m.at(r) * world_x) + (m.at(4 + r) * world_y) + (m.at(8 + r) * world_z)
-               + m.at(12 + r);
-    };
-    const float cx = row(0);
-    const float cy = row(1);
-    const float cw = row(3); // the distance along the view axis, for a perspective matrix
+    const std::array<float, 16> m = view_projection(camera, aspect_of(extent), math::kFovRadians);
+    const std::array<float, 4> clip = math::transform(m, {world_x, world_y, world_z});
+    const float cx = clip.at(0);
+    const float cy = clip.at(1);
+    const float cw = clip.at(3); // the distance along the view axis, for a perspective matrix
     // Viewport transform: NDC -1..1 -> 0..size. Vulkan's Y already runs top-down.
     const float safe_w = std::abs(cw) < 1e-9F ? 1e-9F : cw;
     return Projected{(((cx / safe_w) * 0.5F) + 0.5F) * static_cast<float>(extent.width),

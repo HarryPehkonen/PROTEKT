@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <span>
 
+#include "protekt/math/math.hpp"
 #include "protekt/render/renderer.hpp"
 #include "protekt/sim/sim.hpp"
 #include "protekt/world/world.hpp"
@@ -34,7 +35,7 @@ struct Camera {
 
 /// Column-major view-projection for a camera, matching what the vertex shader expects.
 [[nodiscard]] std::array<float, 16> view_projection(const Camera& camera, float aspect,
-                                                    float fov_radians = 1.0472F) noexcept; // 60 deg
+                                                    float fov_radians = math::kFovRadians) noexcept;
 
 struct SceneOptions {
     std::uint64_t seed{};
