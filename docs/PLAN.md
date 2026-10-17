@@ -143,10 +143,44 @@ compiled to SPIR-V at build time, readback to RGBA8, and `protekt-render` writin
 and they run on the gate box where the only device is llvmpipe. Vulkan is optional at configure
 time: without a loader the renderer and its tests are absent and configure says so.
 
-**M3b (next) — the window.** SDL3 for window and input only, a swapchain, the cockpit camera,
-terrain from `world::sample()`, units from `sim::units()`, keyboard and mouse. Played on the
-laptop (GTX 1060 Max-Q — note the discrete GPU is not device 0 on an Optimus machine, which is why
-device selection is explicit).
+**M3b (done) — the window.** One game loop, two presenters: a swapchain window on a machine with a
+display, an offscreen buffer on the gate box. The loop, the world view and the player commander are
+all tested headless, so M3b added 24 tests (134 across 21 suites) and every one of them runs in the
+gate. SDL3 for the window and the keyboard, nothing else.
+
+*The player commands through the same interface the AI uses.* `game::PlayerCommander` reads an
+`Observation` and emits `Order`s, exactly like `ScriptedCommander`; the throttle and the steering
+are turned into a waypoint ahead of the tank, and the simulation moves it. Shooting stays the
+simulation's automatic business until M4.
+
+**How the window presents, and why.** The window renders through `render::create()` — the same
+offscreen renderer the suite tests — and copies the result into the swapchain image. That costs a
+readback and a re-upload per frame and buys three things: what is on screen is provably what the
+tests check (a captured window frame and a captured headless frame are the same bytes by
+construction), there is exactly one place in the project that draws geometry, and every failure path
+is on the window's side of the seam. Rendering straight into the swapchain images with their own
+pipeline is a later optimisation, not a correctness fix.
+
+Verified on the play machine (GTX 1060 Max-Q, driver 580.178.04): the window opens, 300 frames
+present at 1280x720, the capture is **byte-identical** to the headless capture of the same seed and
+tick count, the sky is at the top, and SIGTERM closes it cleanly. The gate box has no display, so
+the window itself is verified by hand there and the loop is verified by tests here.
+
+**Two machine facts that cost real time**, both worth knowing before the next Vulkan machine:
+
+1. Fedora and its rebuilds ship the loader as `libvulkan.so.1` with no `libvulkan.so` development
+   symlink and no `vulkan.pc`, so `find_package(Vulkan)` fails on a machine that runs Vulkan
+   perfectly well. CMakeLists now falls back to the versioned loader and says so at configure time.
+2. The loader reports an ICD it cannot load and checks the extension names in a `VkDeviceCreateInfo`
+   it is about to pass on — where an implicit layer (Mesa's `VK_LAYER_MESA_device_select`) may have
+   added an extension this code never asked for. `validation_errors()` therefore counts validation
+   findings (those with a `VUID-` id) and prints the rest: a broken driver stack on somebody's
+   machine must not fail a test that is about this code. Measured on the play machine: 27 messages
+   arrive at the messenger, none of them ours.
+
+**Known gap, again:** ASan needs one suppression, for a leak inside libdrm reached through
+`SDL_Init(SDL_INIT_VIDEO)`. `.ci/lsan.supp` scopes it to the function, not the library, so a leak
+anywhere else still fails the gate.
 
 **Determinism boundary**, stated because it is easy to assume wrongly: the SIMULATION is
 bit-identical everywhere; rasterisation is not. An exact image hash is only meaningful on one
@@ -159,8 +193,74 @@ coverage but no TSan coverage. A suppression keyed to `libvulkan_lvp.so` was rej
 it would hide the same reports while pretending to test.
 
 ### M4 — Commander layer
-Group selection, order issuing with the keyboard/mouse, build menu, the resource loop
-(harvest → build → fight), turret placement and guard postures.
+Split in two: the order interface first, the economy second.
+
+**M4a (contract written, red) — the command layer.** `include/protekt/cmd/`:
+
+* `Selection` — the player's command set. A SET, sorted ascending and unique, because everything
+  downstream reads that order: a replay of human play is only exact if the order the player selected
+  units in cannot reach the simulation. Bounded, so a drag-box cannot select the world, and it drops
+  the dead so a player cannot command ghosts.
+* `command.hpp` — the verbs: `move_to`, `guard_at`, `patrol`, `attack`, `stop`. Each a pure function
+  from (roster, aim) to orders, one order per unit in ascending id order, and an impossible order is
+  DROPPED rather than repaired: `attack` on `UnitId{}` is not a move, and a verb that silently
+  becomes another verb is worse than one that refuses.
+* `controller.hpp` — the standing controllers described below: `Policy` (`Hold`, `Deny`, `Focus`),
+  `Controller` (a roster, a cadence, and orders through the same channel as the player), and
+  `ControllerSet`, which enforces the invariant that matters — no unit is owned by two controllers,
+  or two of them fight over one turret and the last order to arrive wins by accident.
+
+26 new tests, red against stubs, with the 134 existing tests still green as a regression guard.
+
+**M4b (later) — the build menu, the resource loop** (harvest → build → fight), turret placement
+from the player's own hand, and click-to-attack.
+
+**Known issue, measured, deliberately not fixed yet.** `scenario.cpp` places a unit on the first
+passable tile, which guarantees ground to stand on but not a way out of it: at seed 42 the player's
+tank spawns at tile (32,46) with **four crater tiles directly ahead**. The simulation is right to
+refuse them and the tank turns normally, so the player is facing a wall rather than stuck -- but it
+is a bad first impression and it should be a placement rule ("a clear run in at least one
+direction"), not a lucky seed. It is deferred to M4b because changing spawn selection moves the
+simulation's state and therefore every golden hash and recorded battle log in the suite; that
+re-recording belongs in the milestone that reworks placement anyway.
+
+### Strategic controllers (Harri's sketch, 2026-10-17)
+
+The player places **controllers** on the map and gives each a standing intent -- "do not let them
+through here" -- and the controller does the clicking: it posts turrets, and it calls targets
+("concentrate fire on that one... now that one"). It thinks slowly: 0.5-2 Hz is ample, and is still
+thirty times faster than a human.
+
+This fits an interface that already exists. A controller is an `ICommander`: perception in,
+`Order`s out, exactly like the scripted opponent and like `PlayerCommander`. Nothing in the
+simulation changes.
+
+What it needs that does not exist yet:
+
+1. **A roster.** Today an order may name any unit (deliberately: a test of ours once forbade it and
+   silently killed half the game). A controller must own a set of `UnitId`s, or two controllers
+   will fight over the same turret. The player's command layer needs rosters anyway for group
+   selection, so this is M4 work, and controllers inherit it.
+2. **A policy vocabulary.** "Don't let them through" is a policy, not an order. The orders it
+   compiles to already exist: `GuardAt` for posts, `Attack` for a called target -- explicit
+   `Attack` outranks auto-engagement and makes the unit pursue, which is exactly what
+   "concentrate fire" needs. So the vocabulary is small: `Hold{area}`, `Deny{path}`,
+   `ConcentrateFire{priority}`, `Screen{unit}`.
+3. **Terrain analysis for placement.** The interesting part, and the testable part: `world::sample`
+   is a pure function, so "where are the passes through this ridge" is a deterministic, headless,
+   unit-testable computation with no GPU and no tick loop involved.
+4. **Determinism, non-negotiable.** A controller may use only simulation state and the tick number:
+   no wall clock, no `rand()`, no floats in decisions. Otherwise a replay stops reproducing.
+5. **Observability.** A controller that cannot say what it decided is a black box with a gun. Reuse
+   the battle-log format (M2b) for a short controller log.
+
+Deliberately NOT in scope: an LLM anywhere near the tick loop. Latency, cost and nondeterminism all
+forbid it. An LLM may, at most, choose a policy's parameters offline or on demand -- the same
+offline-tuning story as M5, and it must fall back to the rule-based path.
+
+Testable claim to measure when this lands: with one `Deny` controller placed on a corridor, does the
+scripted opponent get through? N seeds, headless, win/loss counted -- the same harness discipline as
+everything else here.
 
 ### M5 — AI opponent
 A utility/behaviour-based `ICommander` (perception → decision → orders, on a slower tick than

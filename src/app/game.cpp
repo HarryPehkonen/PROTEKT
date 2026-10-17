@@ -1,0 +1,277 @@
+#include "protekt/app/game.hpp"
+
+#include <algorithm>
+#include <charconv>
+#include <cstddef>
+#include <cstdint>
+#include <fstream>
+#include <ostream>
+#include <string>
+#include <string_view>
+#include <vector>
+
+#include "protekt/ai/commander.hpp"
+#include "protekt/game/player.hpp"
+#include "protekt/game/scene.hpp"
+#include "protekt/render/renderer.hpp"
+#include "protekt/sim/scenario.hpp"
+#include "protekt/sim/sim.hpp"
+#include "protekt/world/world.hpp"
+#ifdef PROTEKT_HAVE_WINDOW
+#include "protekt/render/window.hpp"
+#endif
+
+namespace protekt::app {
+
+namespace {
+
+struct Options {
+    std::uint64_t seed{42};
+    std::uint32_t frames{600};
+    std::uint32_t width{1280};
+    std::uint32_t height{720};
+    std::uint32_t ticks_per_frame{1};
+    std::string capture{};
+    std::string gpu{};
+    bool headless{false};
+};
+
+template <typename T> bool parse_number(std::string_view text, T& value) {
+    const char* end = text.data() + text.size();
+    // NOLINTNEXTLINE(bugprone-suspicious-stringview-data-usage): from_chars takes a length.
+    const auto [ptr, ec] = std::from_chars(text.data(), end, value);
+    return ec == std::errc{} && ptr == end;
+}
+
+/// Returns 0 on success, or 2 after printing why the command line was refused.
+int parse_args(std::span<const std::string_view> args, Options& options, std::ostream& err) {
+    for (std::size_t i = 0; i < args.size(); ++i) {
+        const std::string_view arg = args[i];
+        const auto next = [&](std::string_view& value) {
+            if (i + 1 >= args.size()) {
+                err << "protekt-game: " << arg << " needs a value\n";
+                return false;
+            }
+            value = args[++i];
+            return true;
+        };
+        std::string_view value;
+        if (arg == "--headless") {
+            options.headless = true;
+        } else if (arg == "--seed") {
+            if (!next(value)) {
+                return 2;
+            }
+            if (!parse_number(value, options.seed)) {
+                err << "protekt-game: --seed wants a number, got '" << value << "'\n";
+                return 2;
+            }
+        } else if (arg == "--frames") {
+            if (!next(value) || !parse_number(value, options.frames)) {
+                err << "protekt-game: --frames wants a number\n";
+                return 2;
+            }
+        } else if (arg == "--width") {
+            if (!next(value) || !parse_number(value, options.width) || options.width == 0) {
+                err << "protekt-game: --width wants a positive number\n";
+                return 2;
+            }
+        } else if (arg == "--height") {
+            if (!next(value) || !parse_number(value, options.height) || options.height == 0) {
+                err << "protekt-game: --height wants a positive number\n";
+                return 2;
+            }
+        } else if (arg == "--ticks-per-frame") {
+            if (!next(value) || !parse_number(value, options.ticks_per_frame)
+                || options.ticks_per_frame == 0) {
+                err << "protekt-game: --ticks-per-frame wants a positive number\n";
+                return 2;
+            }
+        } else if (arg == "--capture") {
+            if (!next(value)) {
+                return 2;
+            }
+            options.capture = std::string(value);
+        } else if (arg == "--gpu") {
+            if (!next(value)) {
+                return 2;
+            }
+            options.gpu = std::string(value);
+        } else {
+            err << "protekt-game: unknown option '" << arg << "'\n";
+            return 2;
+        }
+    }
+    return 0;
+}
+
+int write_ppm(const std::string& path, const std::vector<std::uint8_t>& rgba,
+              const render::Extent& extent) {
+    std::ofstream out(path, std::ios::binary);
+    if (!out) {
+        return 1;
+    }
+    out << "P6\n" << extent.width << ' ' << extent.height << "\n255\n";
+    for (std::size_t i = 0; i + 3 < rgba.size(); i += 4) {
+        out.put(static_cast<char>(rgba[i]));
+        out.put(static_cast<char>(rgba[i + 1]));
+        out.put(static_cast<char>(rgba[i + 2]));
+    }
+    return out ? 0 : 1;
+}
+
+/// The player's eye: kEyeHeight metres above the ground under the tank, looking along its heading.
+/// The height comes from `world::sample`, the same generator the simulation drives on, so the
+/// camera neither floats over a ridge nor sinks into a hollow.
+game::Camera camera_for(const sim::Sim& sim, sim::UnitId id, float yaw, std::uint64_t seed) {
+    constexpr float kEyeHeight = 3.0F;
+    game::Camera camera;
+    for (const sim::Unit& unit : sim.units()) {
+        if (unit.id != id) {
+            continue;
+        }
+        camera.x = static_cast<float>(unit.x.raw) / 65536.0F * game::kMetresPerTile;
+        camera.z = static_cast<float>(unit.y.raw) / 65536.0F * game::kMetresPerTile;
+        const auto tile = world::sample(seed, unit.x.floor_int(), unit.y.floor_int());
+        camera.y = static_cast<float>(tile.height) * game::kMetresPerHeightUnit + kEyeHeight;
+        break;
+    }
+    camera.yaw = yaw;
+    camera.pitch = -0.12F; // a slight downward tilt: the ground ahead beats empty sky
+    return camera;
+}
+
+} // namespace
+
+int run_game_cli(std::span<const std::string_view> args, std::ostream& out, std::ostream& err) {
+    Options options;
+    if (const int code = parse_args(args, options, err); code != 0) {
+        return code;
+    }
+
+    const render::Extent extent{options.width, options.height};
+
+    // The presentation seam: a window if there is one, an offscreen buffer if not.
+    std::string error;
+    std::unique_ptr<render::Renderer> offscreen;
+#ifdef PROTEKT_HAVE_WINDOW
+    std::unique_ptr<render::Window> window;
+#endif
+    bool headless = options.headless;
+#ifdef PROTEKT_HAVE_WINDOW
+    if (!headless) {
+        render::WindowOptions window_options;
+        window_options.extent = extent;
+        window_options.device_name = options.gpu;
+        window = render::Window::create(window_options, error);
+        if (window == nullptr) {
+            err << "protekt-game: " << error << "\n"
+                << "protekt-game: no window, no game; try --headless to run without a display\n";
+            return 4;
+        }
+    }
+#endif
+    if (headless) {
+        render::CreateOptions create_options;
+        create_options.device_name = options.gpu;
+        create_options.validation = true;
+        create_options.extent = extent;
+        offscreen = render::create(create_options, error);
+        if (offscreen == nullptr) {
+            err << "protekt-game: " << error << "\n";
+            return 4;
+        }
+        out << "protekt-game: headless on " << offscreen->device_name() << "\n";
+    }
+
+    if (offscreen == nullptr
+#ifdef PROTEKT_HAVE_WINDOW
+        && window == nullptr
+#endif
+    ) {
+        err << "protekt-game: no presenter was created; refusing to run\n";
+        return 4;
+    }
+
+    sim::Sim sim = sim::Sim::create(sim::skirmish(options.seed));
+    sim::UnitId player_id{};
+    for (const sim::Unit& unit : sim.units()) {
+        if (unit.side == sim::Side::Player && unit.kind == sim::UnitKind::Tank) {
+            player_id = unit.id;
+            break;
+        }
+    }
+    if (!player_id.valid()) {
+        err << "protekt-game: the scenario has no player tank to drive\n";
+        return 1;
+    }
+
+    game::PlayerCommander player(player_id);
+    ai::ScriptedCommander enemy;
+
+    std::vector<std::uint8_t> last_frame;
+    for (std::uint32_t frame = 0; frame < options.frames; ++frame) {
+#ifdef PROTEKT_HAVE_WINDOW
+        if (window != nullptr && !window->pump_events()) {
+            out << "protekt-game: window closed after " << frame << " frames\n";
+            break;
+        }
+#endif
+        for (std::uint32_t tick = 0; tick < options.ticks_per_frame; ++tick) {
+            std::vector<sim::Order> orders;
+            player.think(ai::observe(sim, sim::Side::Player), orders);
+            enemy.think(ai::observe(sim, sim::Side::Enemy), orders);
+            for (const sim::Order& order : orders) {
+                sim.enqueue(order);
+            }
+            sim.step();
+        }
+
+        game::SceneOptions scene_options;
+        scene_options.seed = options.seed;
+        scene_options.camera = camera_for(sim, player_id, player.heading(), options.seed);
+        scene_options.extent = extent;
+        scene_options.radius_tiles = 24;
+        const render::Scene scene = game::build_scene(sim, scene_options);
+
+        render::FrameStats stats{};
+        render::FrameRequest request;
+        request.extent = extent;
+        request.seed = options.seed;
+        request.tick = sim.tick();
+        request.scene = &scene;
+#ifdef PROTEKT_HAVE_WINDOW
+        if (window != nullptr) {
+            window->present(scene);
+            continue;
+        }
+#endif
+        last_frame = offscreen->render(request, stats);
+        if (last_frame.empty()) {
+            err << "protekt-game: frame " << frame << " could not be rendered\n";
+            return 1;
+        }
+    }
+
+#ifdef PROTEKT_HAVE_WINDOW
+    if (window != nullptr) {
+        last_frame = window->capture();
+    }
+#endif
+
+    if (!options.capture.empty()) {
+        if (last_frame.empty()) {
+            err << "protekt-game: nothing was rendered, so there is nothing to capture\n";
+            return 1;
+        }
+        if (const int code = write_ppm(options.capture, last_frame, extent); code != 0) {
+            err << "protekt-game: could not write " << options.capture << "\n";
+            return code;
+        }
+        out << "protekt-game: wrote " << options.capture << " (" << extent.width << 'x'
+            << extent.height << ", tick " << sim.tick() << ", hash " << sim.state_hash() << ")\n";
+    }
+    return 0;
+}
+
+} // namespace protekt::app

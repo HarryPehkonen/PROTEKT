@@ -588,6 +588,15 @@ stage_asan() {
     local saved="$CI_TEST_CMD"
     # shellcheck disable=SC2086
     CI_TEST_CMD="$(printf '%s' "${CI_ASAN_TEST_CMD:-$CI_TEST_CMD}" | sed "s|\$CI_BUILD_DIR|$CI_ASAN_BUILD_DIR|g")"
+    # LSAN_OPTIONS: a suppression file is honoured only when named, and this repo carries exactly
+    # one entry -- a third-party leak inside libdrm reached through SDL video init (see
+    # .ci/lsan.supp, which explains why it is scoped to a function and not to a library).
+    # Exported rather than passed through `env`: run_tests is a shell function, and `env` can only
+    # run programs -- it failed instantly and left the previous run's log in place, which read as a
+    # leak that was not there.
+    if [ -f .ci/lsan.supp ]; then
+        export LSAN_OPTIONS="suppressions=$PWD/.ci/lsan.supp"
+    fi
     if ! UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1 ASAN_OPTIONS=detect_leaks=1 \
         run_tests "$CI_ASAN_BUILD_DIR" "$CI_LOG_DIR/asan-tests.log"; then
         grep -E "ERROR: AddressSanitizer|runtime error|FAILED" "$CI_LOG_DIR/asan-tests.log" | head -20 | sed 's/^/      /'

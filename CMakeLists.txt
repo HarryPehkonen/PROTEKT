@@ -59,17 +59,74 @@ target_include_directories(protekt_core PUBLIC
 )
 protekt_warnings(protekt_core)
 
+# ================================ game ================================
+# The game's own logic -- the world as seen, and the player as a commander -- is PURE, has no
+# window and no Vulkan in it, and is therefore tested on the gate box with everything else.
+add_library(protekt_game STATIC
+    src/game/scene.cpp
+    src/game/player.cpp
+    src/app/game.cpp
+)
+target_include_directories(protekt_game PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_BINARY_DIR}/generated
+)
+target_link_libraries(protekt_game PUBLIC protekt_core)
+protekt_warnings(protekt_game)
 # ================================ render ================================
 # Vulkan is OPTIONAL at build time: a machine with no loader or no shader compiler still builds
 # the whole simulation, its tests, and both text CLIs. The renderer's own tests are then ABSENT
 # rather than silently passing, and configure says so out loud.
 find_package(Vulkan QUIET)
+if(NOT Vulkan_FOUND)
+    # Fedora and its rebuilds ship the loader as libvulkan.so.1 with no `libvulkan.so` development
+    # symlink and no vulkan.pc unless a -devel package is installed, so CMake's own finder gives up
+    # on a machine that runs Vulkan perfectly well (measured on nobara-pc: headers present, loader
+    # present, Vulkan_FOUND false). Look for the versioned loader directly instead of making the
+    # owner of the machine install a package to satisfy a finder.
+    find_path(PROTEKT_VULKAN_INCLUDE_DIR NAMES vulkan/vulkan.h)
+    set(PROTEKT_VULKAN_LOADER "")
+    foreach(candidate /usr/lib64/libvulkan.so.1 /usr/lib/libvulkan.so.1
+                      /usr/lib/x86_64-linux-gnu/libvulkan.so.1)
+        if(PROTEKT_VULKAN_LOADER STREQUAL "" AND EXISTS ${candidate})
+            set(PROTEKT_VULKAN_LOADER ${candidate})
+        endif()
+    endforeach()
+    if(PROTEKT_VULKAN_INCLUDE_DIR AND PROTEKT_VULKAN_LOADER)
+        set(Vulkan_FOUND TRUE)
+        set(Vulkan_INCLUDE_DIRS ${PROTEKT_VULKAN_INCLUDE_DIR})
+        set(Vulkan_LIBRARIES ${PROTEKT_VULKAN_LOADER})
+        if(NOT TARGET Vulkan::Vulkan)
+            add_library(Vulkan::Vulkan UNKNOWN IMPORTED)
+            set_target_properties(Vulkan::Vulkan PROPERTIES
+                IMPORTED_LOCATION ${PROTEKT_VULKAN_LOADER}
+                INTERFACE_INCLUDE_DIRECTORIES ${PROTEKT_VULKAN_INCLUDE_DIR})
+        endif()
+        message(STATUS "PROTEKT: Vulkan found by hand (${PROTEKT_VULKAN_LOADER}) -- the loader has no .so development symlink here")
+    endif()
+endif()
 find_program(GLSLANG_VALIDATOR glslangValidator)
+# SDL3 is for the window and the keyboard, nothing else. No window without it, and the game still
+# builds and runs headless.
+find_package(SDL3 QUIET)
+if(NOT SDL3_FOUND)
+    find_package(PkgConfig QUIET)
+    if(PkgConfig_FOUND)
+        pkg_check_modules(SDL3 IMPORTED_TARGET sdl3)
+    endif()
+endif()
 if(Vulkan_FOUND AND GLSLANG_VALIDATOR)
     set(PROTEKT_RENDER ON)
 else()
     set(PROTEKT_RENDER OFF)
     message(STATUS "PROTEKT: renderer DISABLED (Vulkan_FOUND=${Vulkan_FOUND}, glslangValidator=${GLSLANG_VALIDATOR})")
+endif()
+
+if(PROTEKT_RENDER AND (SDL3_FOUND OR TARGET PkgConfig::SDL3))
+    set(PROTEKT_WINDOW ON)
+else()
+    set(PROTEKT_WINDOW OFF)
+    message(STATUS "PROTEKT: window DISABLED (SDL3 ${SDL3_FOUND}); the game runs --headless only")
 endif()
 
 if(PROTEKT_RENDER)
@@ -88,19 +145,42 @@ if(PROTEKT_RENDER)
     add_custom_target(protekt_shaders
         DEPENDS ${PROTEKT_SHADER_DIR}/scene_vert.h ${PROTEKT_SHADER_DIR}/scene_frag.h)
 
-    add_library(protekt_render STATIC
+    set(PROTEKT_RENDER_SOURCES
         src/render/renderer.cpp
         src/app/render.cpp
     )
+    if(PROTEKT_WINDOW)
+        list(APPEND PROTEKT_RENDER_SOURCES src/render/window.cpp)
+    endif()
+    add_library(protekt_render STATIC ${PROTEKT_RENDER_SOURCES})
     target_include_directories(protekt_render PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/include
         ${CMAKE_BINARY_DIR}/generated
         ${PROTEKT_SHADER_DIR}
     )
     target_link_libraries(protekt_render PUBLIC protekt_core Vulkan::Vulkan)
+    if(PROTEKT_WINDOW)
+        if(SDL3_FOUND)
+            target_link_libraries(protekt_render PUBLIC SDL3::SDL3)
+        else()
+            target_link_libraries(protekt_render PUBLIC PkgConfig::SDL3)
+        endif()
+        target_compile_definitions(protekt_render PUBLIC PROTEKT_HAVE_WINDOW=1)
+    endif()
     protekt_warnings(protekt_render)
     add_dependencies(protekt_render protekt_shaders)
 endif()
+
+# AFTER the render section, because PROTEKT_WINDOW is computed there. Wiring protekt_game's window
+# support before that point made the condition always false and silently built a binary with no
+# window in it -- which is exactly what happened once, and what `nm` showed.
+if(PROTEKT_WINDOW)
+    # game.cpp drives a window when there is one, so it must see the same define in EVERY target
+    # that compiles it -- the suite compiles it too, and disagreed with the binary once.
+    target_link_libraries(protekt_game PUBLIC protekt_render)
+    target_compile_definitions(protekt_game PUBLIC PROTEKT_HAVE_WINDOW=1)
+endif()
+
 
 # ================================ tests ================================
 if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
@@ -126,6 +206,9 @@ if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
     protekt_warnings(protekt_tests)
     target_compile_definitions(protekt_tests
         PRIVATE PROTEKT_CORPUS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fuzz/corpus/replay")
+    target_sources(protekt_tests PRIVATE tests/test_scene.cpp tests/test_player.cpp
+                                        tests/test_game_cli.cpp)
+    target_link_libraries(protekt_tests PRIVATE protekt_game)
     if(PROTEKT_RENDER)
         target_sources(protekt_tests PRIVATE tests/test_render.cpp)
         target_link_libraries(protekt_tests PRIVATE protekt_render)
@@ -145,6 +228,15 @@ if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
     add_executable(protekt-sim src/app/sim_cli.cpp)
     target_link_libraries(protekt-sim PRIVATE protekt_core)
     protekt_warnings(protekt-sim)
+
+    # The game itself: a window if SDL3 is there, an offscreen buffer if not.
+    add_executable(protekt-game src/app/game_cli.cpp)
+    target_link_libraries(protekt-game PRIVATE protekt_game)
+    protekt_warnings(protekt-game)
+    if(PROTEKT_RENDER)
+        target_link_libraries(protekt-game PRIVATE protekt_render)
+        add_dependencies(protekt-game protekt_shaders)
+    endif()
 
     # Renders one frame to a PPM: the headless half of the game's eyes.
     if(PROTEKT_RENDER)

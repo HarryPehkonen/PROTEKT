@@ -293,6 +293,26 @@ VkInstance make_plain_instance(std::string& error) {
     return instance;
 }
 
+/// True for a finding the VALIDATION LAYER raises about our use of the API, which is what this
+/// project counts and asserts on.
+///
+/// Everything else that arrives through this callback is somebody else's news: the loader reports
+/// an ICD it cannot load ("loader_icd_scan", "terminator_CreateInstance ... Skipping this driver")
+/// and checks the extension names in a VkDeviceCreateInfo it is about to pass on -- where an
+/// implicit layer such as Mesa's VK_LAYER_MESA_device_select may have ADDED an extension the
+/// application never asked for (measured on nobara-pc: the loader complained that
+/// VK_KHR_get_physical_device_properties2 is an instance extension, in a vkCreateDevice call this
+/// renderer makes with no device extensions at all). Counting those would make the suite fail on a
+/// machine whose driver stack is unhappy, which says nothing about this renderer.
+///
+/// Validation findings carry a "VUID-" message id; loader and ICD diagnostics do not.
+[[nodiscard]] bool is_validation_finding(const VkDebugUtilsMessengerCallbackDataEXT* data) {
+    if (data == nullptr || data->pMessageIdName == nullptr) {
+        return false;
+    }
+    return std::string_view(data->pMessageIdName).rfind("VUID-", 0) == 0;
+}
+
 VKAPI_ATTR VkBool32 VKAPI_CALL debug_callback(VkDebugUtilsMessageSeverityFlagBitsEXT severity,
                                               VkDebugUtilsMessageTypeFlagsEXT /*types*/,
                                               const VkDebugUtilsMessengerCallbackDataEXT* data,
@@ -301,11 +321,18 @@ VKAPI_ATTR VkBool32 VKAPI_CALL debug_callback(VkDebugUtilsMessageSeverityFlagBit
          & (VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT
             | VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT))
         != 0U) {
-        static_cast<std::atomic<std::uint32_t>*>(user)->fetch_add(1U);
+        if (is_validation_finding(data)) {
+            static_cast<std::atomic<std::uint32_t>*>(user)->fetch_add(1U);
+        }
+        // Printed either way: a message this project does not count is still a message its owner
+        // should be able to see.
         std::cerr << "[vulkan validation] "
                   << ((severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) != 0U
                           ? "error: "
                           : "warning: ")
+                  << (data != nullptr && data->pMessageIdName != nullptr ? data->pMessageIdName
+                                                                         : "(no id)")
+                  << " "
                   << (data != nullptr && data->pMessage != nullptr ? data->pMessage
                                                                    : "(no message)")
                   << '\n';
@@ -827,6 +854,32 @@ private:
             error = "could not allocate the vertex buffer on " + device_name_;
             return false;
         }
+        vertex_capacity_bytes_ = sizeof(Vertex) * kVertexCount;
+        return true;
+    }
+
+    /// Grows the vertex buffer to hold at least `bytes`, if it does not already: a caller-supplied
+    /// Scene has no fixed size, unlike the built-in test scene.
+    bool ensure_vertex_capacity(VkDeviceSize bytes, std::string& error) {
+        if (bytes <= vertex_capacity_bytes_) {
+            return true;
+        }
+        if (vertex_mapped_ != nullptr) {
+            vkUnmapMemory(device_, vertex_memory_);
+            vertex_mapped_ = nullptr;
+        }
+        vkDestroyBuffer(device_, vertex_buffer_, nullptr);
+        vkFreeMemory(device_, vertex_memory_, nullptr);
+        vertex_buffer_ = VK_NULL_HANDLE;
+        vertex_memory_ = VK_NULL_HANDLE;
+        vertex_capacity_bytes_ = 0;
+        if (!make_buffer(bytes, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, vertex_buffer_, vertex_memory_,
+                         vertex_mapped_)) {
+            error = "could not grow the vertex buffer to " + std::to_string(bytes) + " bytes on "
+                    + device_name_;
+            return false;
+        }
+        vertex_capacity_bytes_ = bytes;
         return true;
     }
 
@@ -909,8 +962,29 @@ private:
             }
         }
 
-        const std::vector<Vertex> scene = build_scene(request.seed);
-        std::memcpy(vertex_mapped_, scene.data(), scene.size() * sizeof(Vertex));
+        static_assert(sizeof(Vertex) == sizeof(SceneVertex),
+                      "a caller-supplied Scene's vertices are uploaded byte-for-byte as Vertex");
+
+        std::uint32_t vertex_count = 0;
+        Mat4 mvp{};
+        if (request.scene != nullptr) {
+            vertex_count = static_cast<std::uint32_t>(request.scene->vertices.size());
+            if (vertex_count > 0) {
+                std::string resize_error;
+                if (!ensure_vertex_capacity(sizeof(Vertex) * vertex_count, resize_error)) {
+                    std::cerr << "protekt render: " << resize_error << '\n';
+                    return {};
+                }
+                std::memcpy(vertex_mapped_, request.scene->vertices.data(),
+                            sizeof(Vertex) * vertex_count);
+            }
+            mvp = request.scene->view_projection;
+        } else {
+            const std::vector<Vertex> built_in = build_scene(request.seed);
+            vertex_count = static_cast<std::uint32_t>(built_in.size());
+            std::memcpy(vertex_mapped_, built_in.data(), built_in.size() * sizeof(Vertex));
+            mvp = view_projection(extent);
+        }
 
         vkResetCommandBuffer(cmd_, 0);
         VkCommandBufferBeginInfo begin{};
@@ -936,12 +1010,13 @@ private:
         const VkRect2D scissor{{0, 0}, {extent.width, extent.height}};
         vkCmdSetViewport(cmd_, 0, 1, &viewport);
         vkCmdSetScissor(cmd_, 0, 1, &scissor);
-        const Mat4 mvp = view_projection(extent);
         vkCmdPushConstants(cmd_, pipeline_layout_, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(Mat4),
                            mvp.data());
-        const VkDeviceSize offset = 0;
-        vkCmdBindVertexBuffers(cmd_, 0, 1, &vertex_buffer_, &offset);
-        vkCmdDraw(cmd_, kVertexCount, 1, 0, 0);
+        if (vertex_count > 0) {
+            const VkDeviceSize offset = 0;
+            vkCmdBindVertexBuffers(cmd_, 0, 1, &vertex_buffer_, &offset);
+            vkCmdDraw(cmd_, vertex_count, 1, 0, 0);
+        }
         vkCmdEndRenderPass(cmd_);
 
         // The render pass leaves the colour image in TRANSFER_SRC_OPTIMAL.
@@ -1038,6 +1113,7 @@ private:
     VkBuffer vertex_buffer_{};
     VkDeviceMemory vertex_memory_{};
     void* vertex_mapped_{};
+    VkDeviceSize vertex_capacity_bytes_{}; ///< how much the buffer holds, so it can grow
     Target target_;
 };
 

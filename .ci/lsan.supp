@@ -1,0 +1,12 @@
+# LeakSanitizer suppressions.
+#
+# One entry, and it is not ours. SDL_Init(SDL_INIT_VIDEO) enumerates DRM devices, which makes
+# libdrm allocate a few small blocks in drmModeObjectGetProperties that it never frees. libdrm is
+# not built with LeakSanitizer, so the report has no caller frame above it and there is nothing in
+# this repository to fix.
+#
+# Scoped to the FUNCTION rather than to the library: a leak anywhere else -- including any leak in
+# this project's own code -- still fails the gate. This is a much narrower instrument than a
+# library-wide suppression, which is why it was acceptable here when the same idea was rejected for
+# ThreadSanitizer (a race suppression there would have hidden races between our code and the driver).
+leak:drmModeObjectGetProperties

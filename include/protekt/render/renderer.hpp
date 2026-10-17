@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -33,12 +34,26 @@ struct Extent {
     std::uint32_t height{};
 };
 
-/// What to draw. M3a draws a fixed test scene on a ground plane; the seed varies the ground's
-/// shading, so that "same request, same bytes" is a claim with something behind it.
+/// One vertex of a scene: position in world metres, then a flat colour. The layout is part of the
+/// contract because the vertex buffer is uploaded verbatim.
+struct SceneVertex {
+    std::array<float, 3> position{};
+    std::array<float, 3> colour{};
+};
+
+/// A frame's worth of geometry, already in world space, plus whose camera it is.
+struct Scene {
+    std::vector<SceneVertex> vertices;       ///< triples: three vertices per triangle
+    std::array<float, 16> view_projection{}; ///< column-major, what GLSL's mat4 expects
+};
+
+/// What to draw. With `scene == nullptr` the renderer draws the built-in test scene M3a shipped
+/// (one ground plane and one unit box, coloured from `seed`); with a scene, that scene.
 struct FrameRequest {
     Extent extent{};
     std::uint64_t seed{};
     sim::Tick tick{};
+    const Scene* scene{};
 };
 
 struct FrameStats {
@@ -68,8 +83,15 @@ public:
     /// call, never against a checked-in golden.
     virtual std::vector<std::uint8_t> render(const FrameRequest& request, FrameStats& stats) = 0;
 
-    /// How many messages the validation layer has reported since creation. A test asserts this
-    /// stays zero: it is the cheapest correctness oracle a Vulkan renderer can have.
+    /// How many findings the VALIDATION LAYER has raised about this renderer's use of the API
+    /// since creation -- findings with a "VUID-" id, and only those. A test asserts this stays
+    /// zero: it is the cheapest correctness oracle a Vulkan renderer can have.
+    ///
+    /// Deliberately not a count of everything the debug messenger sees. The loader also reports
+    /// ICDs it cannot load and checks the extension names in a VkDeviceCreateInfo it is about to
+    /// pass on, where an implicit layer may have added an extension this code never requested --
+    /// real news about the machine, and not this renderer's business. Those are printed and not
+    /// counted, so a broken driver stack cannot fail a test that is about this code.
     [[nodiscard]] virtual std::uint32_t validation_errors() const noexcept = 0;
 };
 
