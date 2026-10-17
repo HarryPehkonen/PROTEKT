@@ -230,7 +230,8 @@ if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
                                         tests/test_interaction.cpp tests/test_bindings.cpp
                                         tests/test_session.cpp tests/test_navigate.cpp
                                         tests/test_utility.cpp
-                                        tests/test_utility_battle.cpp)
+                                        tests/test_utility_battle.cpp
+                                        tests/test_navigation.cpp)
     target_link_libraries(protekt_tests PRIVATE protekt_game protekt_cmd)
     if(PROTEKT_RENDER)
         target_sources(protekt_tests PRIVATE tests/test_render.cpp)

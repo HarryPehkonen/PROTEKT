@@ -400,6 +400,44 @@ took losses -- because no unit test could see the defect: every unit was behavin
 tests said it should. Sabotaging the posture back out (`advance_percent = 0`) fails it, which is the
 proof that the test is the reason it cannot come back.
 
+### Navigation — the finding that decides the next milestone (measured 2026-10-17)
+
+Chasing "no unit ever attacks a factory" (400 hp at the end of all fifty measured battles) produced a
+cause that is not tactical at all. A tank ordered onto the enemy base from seed 42's player spawn
+crosses 130 tiles of open ground and dies 2 tiles short of its own 12-tile weapon range, under fire
+from the base's turrets -- reasonable. But a second tank, ordered at the same time, **sits at exactly
+(43,68) for 3000 ticks** with its Attack order intact and never moves again.
+
+The terrain there is the reason, and it is a concave corner: with the goal to the south-east, the
+tiles to the **east**, to the **south** and on the **diagonal** are all craters, while the way out is
+**west**. The simulation steers in a straight line at the current goal and, when a step is refused,
+retries along each axis separately so a unit slides along a rim. Three direction components, all
+blocked, and the unit waits forever. From outside it is indistinguishable from a unit nobody ordered.
+
+**Pinned, so it is measured rather than remembered:** `tests/test_navigation.cpp` holds the control
+(a unit on open ground closes 30+ tiles in 600 ticks, proving orders land) and the trap itself, with
+the three blocking tiles asserted rather than described. The stuck test is expected to be **deleted
+and replaced by its opposite** when navigation lands; until then it is a record, not a requirement.
+
+This affects the player exactly as much as the AI: "go there" on a unit that has a rim between it and
+the destination means a unit that grinds against the rim and never arrives, with nothing on screen to
+say why.
+
+**Options, and what each is honestly worth.**
+
+| # | option | what it fixes | cost and what it does NOT touch |
+|---|---|---|---|
+| 1 | **Concave-corner escape in `steer`** (~30 lines): when the goal direction and both axis slides are blocked, try rotated candidate headings (±45°, ±90°) and take the first passable step | removes the PERMANENT trap: a stuck unit can always back out and continue | changes movement, so every recorded battle property is re-recorded (first-shot ticks, the M2b figures, the cross-build log). It does NOT plan routes: a U-shaped crater field can still pen a unit inside the pocket, it just cannot hold it forever. No new module, no format change, no interface touched |
+| 2 | **Deterministic A\* on the tile grid, followed as waypoints** (new module, ~300 lines + tests) | units actually reach destinations, including around U-shapes and long rims; makes an advance-to-contact order mean what it says | the world is a pure function of `(seed, x, y)` so the grid is cheap and the search is deterministic, but it puts a waypoint list into the order/replay format, so the format gains state and the replay corpus needs regenerating. Re-records the same properties as option 1 |
+| 3 | **Clear the spawn corridor in the scenario** | nothing real: the player still meets the trap elsewhere | cheapest, and it is a lie -- it hides a gameplay defect behind a favourable map |
+
+**Recommendation: option 1 now, option 2 as its own milestone after the economy.** Option 1 is the
+gameplay bug (a unit that can never be moved anywhere is worse than a unit that takes a detour), it is
+small enough to verify properly, and it makes the order interface trustworthy. Option 2 is the real
+capability, but an economy whose harvesters cannot reliably reach a resource field is not worth
+building first, and an A\* whose results nobody has yet needed is a module that will be tuned against
+nothing.
+
 **Explicitly not in M5a:** an LLM anywhere near the tick loop (latency, cost and nondeterminism all
 forbid it), and any tuning search over the parameters. Those stay offline, against the headless
 harness, and only if the measured gap above says they are worth it.
