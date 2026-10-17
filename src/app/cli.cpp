@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "protekt/ai/commander.hpp"
+#include "protekt/ai/utility.hpp"
 #include "protekt/sim/observer.hpp"
 #include "protekt/sim/replay.hpp"
 #include "protekt/sim/scenario.hpp"
@@ -24,6 +25,7 @@ struct Options {
     std::uint32_t ticks = 900;
     std::uint32_t status_period = 60;
     bool scripted = true;
+    bool utility = false;
     std::optional<std::string> replay_in{};
     std::optional<std::string> replay_out{};
 };
@@ -80,10 +82,11 @@ std::optional<std::string> parse_args(std::span<const std::string_view> args, Op
             }
             opt.status_period = static_cast<std::uint32_t>(*n);
         } else if (flag == "--commander") {
-            if (value != "none" && value != "scripted") {
-                return "bad --commander value '" + std::string(value) + "' (none|scripted)";
+            if (value != "none" && value != "scripted" && value != "utility") {
+                return "bad --commander value '" + std::string(value) + "' (none|scripted|utility)";
             }
             opt.scripted = value == "scripted";
+            opt.utility = value == "utility";
         } else if (flag == "--replay") {
             opt.replay_in = std::string(value);
         } else {
@@ -162,11 +165,18 @@ int run_cli(std::span<const std::string_view> args, std::ostream& out, std::ostr
         replay.seed = opt.seed;
         ai::ScriptedCommander scripted_player;
         ai::ScriptedCommander scripted_enemy;
+        // The utility opponent, so the AI this project measures is also the AI a person can WATCH:
+        // without it, the only way to see it fight was to read a test's output.
+        ai::UtilityCommander utility_enemy; // NOLINT(misc-const-correctness): think() is non-const
         // BOTH sides are recorded: a replay missing the enemy's orders replays a different battle
         // -- one side drives while the other stands still.
         RecordingCommander player_recorder(scripted_player, replay.commands);
         RecordingCommander enemy_recorder(scripted_enemy, replay.commands);
-        if (opt.scripted) {
+        RecordingCommander utility_recorder(utility_enemy, replay.commands);
+        if (opt.utility) {
+            log = sim::run_battle(sim::skirmish(opt.seed), {}, opt.ticks, &player_recorder,
+                                  &utility_recorder);
+        } else if (opt.scripted) {
             log = sim::run_battle(sim::skirmish(opt.seed), {}, opt.ticks, &player_recorder,
                                   &enemy_recorder);
         } else {
