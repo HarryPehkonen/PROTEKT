@@ -7,7 +7,9 @@ HeaderFilterRegex: 'include/protekt/.*\.hpp$|tests/.*\.cpp$|src/.*\.cpp$'
 #    tick, id) and the check cannot tell a bug from a design.
 #  - cppcoreguidelines-avoid-magic-numbers: 262 of the 320 findings it produced were balance
 #    constants and test literals. A named constant for every 8 in a test makes the test worse.
-Checks: '-*,bugprone-*,-bugprone-easily-swappable-parameters,performance-*,cppcoreguidelines-*,-cppcoreguidelines-avoid-magic-numbers'
+#  - cppcoreguidelines-non-private-member-variables-in-classes: the only classes in this project
+#    with protected data members are GoogleTest fixtures, where protected IS the convention.
+Checks: '-*,bugprone-*,-bugprone-easily-swappable-parameters,performance-*,cppcoreguidelines-*,-cppcoreguidelines-avoid-magic-numbers,-cppcoreguidelines-non-private-member-variables-in-classes'
 
 CheckOptions:
   - key: readability-function-cognitive-complexity.IgnoreMacros

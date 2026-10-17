@@ -134,10 +134,29 @@ skirmish, and nothing that needs an economy.
 state hash exactly.
 
 ### M3 — First playable frame 🎮
-The renderer. One map, your hover tank, cockpit camera, flat-shaded primitives, a few
-buildings, the commander cursor.
-**Blocked on one decision (see §7): which machine plays it.** Everything else about this
-milestone is decided.
+Split in two, because the GPU plumbing and the fun are different risks.
+
+**M3a (done) — the renderer, headless.** Vulkan behind `render::Renderer`
+(`include/protekt/render/renderer.hpp` contains no Vulkan type at all): instance and device
+selection, an offscreen colour+depth target, validation layers counted and asserted zero, shaders
+compiled to SPIR-V at build time, readback to RGBA8, and `protekt-render` writing a PPM. 19 tests,
+and they run on the gate box where the only device is llvmpipe. Vulkan is optional at configure
+time: without a loader the renderer and its tests are absent and configure says so.
+
+**M3b (next) — the window.** SDL3 for window and input only, a swapchain, the cockpit camera,
+terrain from `world::sample()`, units from `sim::units()`, keyboard and mouse. Played on the
+laptop (GTX 1060 Max-Q — note the discrete GPU is not device 0 on an Optimus machine, which is why
+device selection is explicit).
+
+**Determinism boundary**, stated because it is easy to assume wrongly: the SIMULATION is
+bit-identical everywhere; rasterisation is not. An exact image hash is only meaningful on one
+device and driver, so the suite asserts structure on any device and byte equality only between two
+renders of the same request. There are no checked-in golden images.
+
+**Known gap:** the Vulkan tests are skipped under ThreadSanitizer, because lavapipe races inside
+itself and a driver cannot be instrumented. So the renderer's CPU-side code has ASan and UBSan
+coverage but no TSan coverage. A suppression keyed to `libvulkan_lvp.so` was rejected on purpose:
+it would hide the same reports while pretending to test.
 
 ### M4 — Commander layer
 Group selection, order issuing with the keyboard/mouse, build menu, the resource loop

@@ -59,6 +59,49 @@ target_include_directories(protekt_core PUBLIC
 )
 protekt_warnings(protekt_core)
 
+# ================================ render ================================
+# Vulkan is OPTIONAL at build time: a machine with no loader or no shader compiler still builds
+# the whole simulation, its tests, and both text CLIs. The renderer's own tests are then ABSENT
+# rather than silently passing, and configure says so out loud.
+find_package(Vulkan QUIET)
+find_program(GLSLANG_VALIDATOR glslangValidator)
+if(Vulkan_FOUND AND GLSLANG_VALIDATOR)
+    set(PROTEKT_RENDER ON)
+else()
+    set(PROTEKT_RENDER OFF)
+    message(STATUS "PROTEKT: renderer DISABLED (Vulkan_FOUND=${Vulkan_FOUND}, glslangValidator=${GLSLANG_VALIDATOR})")
+endif()
+
+if(PROTEKT_RENDER)
+    set(PROTEKT_SHADER_DIR ${CMAKE_BINARY_DIR}/generated/shaders)
+    # Shaders are compiled to SPIR-V headers at build time and linked in, so the binary needs no
+    # data files beside it and cannot pick up a stale .spv from somebody's home directory.
+    add_custom_command(
+        OUTPUT ${PROTEKT_SHADER_DIR}/scene_vert.h ${PROTEKT_SHADER_DIR}/scene_frag.h
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${PROTEKT_SHADER_DIR}
+        COMMAND ${GLSLANG_VALIDATOR} -V --target-env vulkan1.3 --vn scene_vert_spv
+                ${CMAKE_CURRENT_SOURCE_DIR}/shaders/scene.vert -o ${PROTEKT_SHADER_DIR}/scene_vert.h
+        COMMAND ${GLSLANG_VALIDATOR} -V --target-env vulkan1.3 --vn scene_frag_spv
+                ${CMAKE_CURRENT_SOURCE_DIR}/shaders/scene.frag -o ${PROTEKT_SHADER_DIR}/scene_frag.h
+        DEPENDS shaders/scene.vert shaders/scene.frag
+        COMMENT "Compiling shaders to SPIR-V")
+    add_custom_target(protekt_shaders
+        DEPENDS ${PROTEKT_SHADER_DIR}/scene_vert.h ${PROTEKT_SHADER_DIR}/scene_frag.h)
+
+    add_library(protekt_render STATIC
+        src/render/renderer.cpp
+        src/app/render.cpp
+    )
+    target_include_directories(protekt_render PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+        ${CMAKE_BINARY_DIR}/generated
+        ${PROTEKT_SHADER_DIR}
+    )
+    target_link_libraries(protekt_render PUBLIC protekt_core Vulkan::Vulkan)
+    protekt_warnings(protekt_render)
+    add_dependencies(protekt_render protekt_shaders)
+endif()
+
 # ================================ tests ================================
 if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
     enable_testing()
@@ -83,6 +126,12 @@ if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
     protekt_warnings(protekt_tests)
     target_compile_definitions(protekt_tests
         PRIVATE PROTEKT_CORPUS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fuzz/corpus/replay")
+    if(PROTEKT_RENDER)
+        target_sources(protekt_tests PRIVATE tests/test_render.cpp)
+        target_link_libraries(protekt_tests PRIVATE protekt_render)
+        target_compile_definitions(protekt_tests PRIVATE PROTEKT_HAVE_VULKAN=1)
+        add_dependencies(protekt_tests protekt_shaders)
+    endif()
 
     add_test(NAME protekt_tests COMMAND protekt_tests)
 
@@ -96,6 +145,13 @@ if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
     add_executable(protekt-sim src/app/sim_cli.cpp)
     target_link_libraries(protekt-sim PRIVATE protekt_core)
     protekt_warnings(protekt-sim)
+
+    # Renders one frame to a PPM: the headless half of the game's eyes.
+    if(PROTEKT_RENDER)
+        add_executable(protekt-render src/app/render_cli.cpp)
+        target_link_libraries(protekt-render PRIVATE protekt_render)
+        protekt_warnings(protekt-render)
+    endif()
 
     # libFuzzer on the replay parser. The suite already feeds the SAME entry point the corpus and
     # generated inputs on every gate run, so this target is for depth, not for coverage.

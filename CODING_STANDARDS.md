@@ -10,6 +10,9 @@ error handling — the "no exceptions" jet standards (JSF/MISRA) are rejected de
    A warning is a build failure, and the gate counts `warning:` lines even in targets
    `-Werror` does not cover.
 2. **No raw owning pointers, no `new`/`delete`, no `reinterpret_cast`, no C-style casts.**
+   One exception, and only one: `vkGetInstanceProcAddr` returns `PFN_vkVoidFunction`, so naming a
+   typed Vulkan entry point is a cast with no portable alternative. Every such cast carries a
+   `NOLINT` naming this rule, and there are currently three.
    `gsl::not_null`, `std::span`, `std::string_view`, `std::unique_ptr` where ownership is real.
 3. **TDD.** A behaviour change starts as a failing test that is watched go red. Bug fixes too.
 4. **Gates before "done":** `./tools/ci.sh fast` while working, the full tier before a push
