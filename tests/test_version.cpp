@@ -4,7 +4,7 @@
 
 #include <string_view>
 
-#include "planet/version.hpp"
+#include "protekt/version.hpp"
 
 namespace {
 
@@ -28,8 +28,8 @@ bool is_semver(std::string_view text) {
 }
 
 TEST(Version, IsGeneratedAndSemver) {
-    EXPECT_FALSE(planet::version().empty());
-    EXPECT_TRUE(is_semver(planet::version())) << "got: " << planet::version();
+    EXPECT_FALSE(protekt::version().empty());
+    EXPECT_TRUE(is_semver(protekt::version())) << "got: " << protekt::version();
 }
 
 } // namespace

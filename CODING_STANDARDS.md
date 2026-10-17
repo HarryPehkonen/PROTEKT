@@ -1,4 +1,4 @@
-# Coding standards — Planet Defense
+# Coding standards — PROTEKT
 
 Binding for every human and every agent that touches this repository. In the spirit of the
 **C++ Core Guidelines** (Type, Bounds and Lifetime profiles). Exceptions are *allowed* for
@@ -29,7 +29,7 @@ A world is `f(seed, chunk_coord)` — a pure function. These rules protect that:
    that gives a different world on a different machine is a bug.
 8. **No `std::random_device`, no `std::uniform_*_distribution`, no `std::hash`.**
    `std::uniform_int_distribution`'s mapping is implementation-defined. Use
-   `planet::rng` (SplitMix64 / PCG), which is specified here and pinned by tests.
+   `protekt::rng` (SplitMix64 / PCG), which is specified here and pinned by tests.
 9. **No unseeded randomness, no wall clock, no locale, no iteration-order dependence.**
    One seeded stream per subsystem (`world`, `sim`, `ai`) so that consumption in one cannot
    shift the values another sees.

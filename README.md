@@ -1,6 +1,6 @@
-# Planet Defense
+# PROTEKT
 
-A single-player, first-person hover-tank game in the spirit of *Battlezone* and
+PROTEKT — a single-player, first-person hover-tank game in the spirit of *Battlezone* and
 *Battlezone II: Combat Commander*: you drive one vehicle, command base units and turrets,
 build from a resource you physically harvest, and fight an opponent on a world that is
 **reproducible from a seed**.
@@ -44,7 +44,7 @@ Per-machine settings go in `.ci.env` (gitignored; see `.ci.env.example`).
 ## Layout
 
 ```
-include/planet/   public headers
+include/protekt/  public headers
 src/              implementation (world/ sim/ ai/ render/ app/)
 tests/            unit tests
 fuzz/             libFuzzer targets

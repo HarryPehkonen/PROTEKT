@@ -1,4 +1,4 @@
-# Planet Defense — implementation plan
+# PROTEKT — implementation plan
 
 > Working document. It is the authority Claude Code / Haiku implement against.
 > Anything not decided here is not decided — ask before inventing.
@@ -20,7 +20,7 @@ reproducible from a seed.
 | D2 | **Same seed → same world, bit-for-bit.** This is the primary engineering requirement, not a feature. |
 | D3 | AI opponents are an *enhancement*, never a dependency: the game must be complete and testable with zero AI modules loaded. |
 | D4 | Keyboard + mouse. No gamepad, no touch. |
-| D5 | Unlicense, on GitHub (`HarryPehkonen/planet-defense`). |
+| D5 | Unlicense, on GitHub (`HarryPehkonen/PROTEKT`). |
 | D6 | MVP first, one reviewable step at a time — Harri reviews and redirects after each milestone. |
 | D7 | C++ (Core Guidelines, `CODING_STANDARDS.md`), self-hosted gate (`tools/ci.sh`), no external CI. |
 | D8 | Claude Code writes most of it. Haiku for implementation, a stronger model for planning/architecture. Cautious rollout, measured (§6). |
@@ -79,7 +79,7 @@ the right first milestone rather than a nice-to-have.
 ## 4. Layout
 
 ```
-include/planet/     public headers, self-contained
+include/protekt/    public headers, self-contained
 src/                implementation
 src/world/          worldgen (pure, integer)
 src/sim/            tick, entities, orders, replay
@@ -104,12 +104,12 @@ Repo, CMake, `tools/ci.sh` green from the first commit, `CODING_STANDARDS.md`, t
 **You can review:** run `./tools/ci.sh`.
 
 ### M1 — Deterministic world, headless
-`planet::world::generate(seed, chunk)` → terrain height, ground type, spawn candidates.
+`protekt::world::generate(seed, chunk)` → terrain height, ground type, spawn candidates.
 Integer hash noise (value noise on a fixed-point lattice). Delivered with:
 - known-answer tests (golden hashes for a handful of seeds);
 - a fuzz target taking an arbitrary `u64` seed — invariant: generation always yields a
   valid world, spawn points are always reachable, no assertions fire;
-- a CLI: `planet-map --seed 42 --size 64` that dumps the world as ASCII.
+- a CLI: `protekt-map --seed 42 --size 64` that dumps the world as ASCII.
 
 **You can review:** look at the ASCII map for a seed, and see the same seed give the same map
 twice, on a different machine or optimisation level. This is the milestone where the seed
@@ -203,6 +203,8 @@ yet, and each is cheap to add when it is asked.
 
 ## 9. Name
 
-"Planet Defense" is heavily used by JavaScript/canvas tutorials (several GitHub repos, a
-Phaser series). Not a legal problem, purely discoverability. `planet-defense` is the repo
-name for now; renaming costs one click and a redirect.
+**PROTEKT** — spelled the way a machine spells it. A Battlezone-era shout of a title with the
+kind of off-by-one letter that only a model makes, which is the joke: the game's opponents are
+AI, the seed *is* the world, and the name is what an AI calls "protect". Repo `PROTEKT`,
+public, Unlicense. (The working title was "Planet Defense"; it collided with a pile of
+JavaScript canvas tutorials.)

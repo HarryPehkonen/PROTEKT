@@ -1,4 +1,4 @@
-HeaderFilterRegex: 'include/planet/.*\.hpp$|tests/.*\.cpp$|src/.*\.cpp$'
+HeaderFilterRegex: 'include/protekt/.*\.hpp$|tests/.*\.cpp$|src/.*\.cpp$'
 # Value-only set, deliberately: real bug patterns and performance. Style lives in
 # clang-format (a style family here fights the codebase's conventions and buries the
 # signal). Same curation as the sibling C++ repos — see CODING_STANDARDS.md rule 4.
