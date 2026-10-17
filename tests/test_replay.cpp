@@ -3,8 +3,11 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <string>
+#include <type_traits>
+#include <variant>
 #include <vector>
 
 #include "protekt/sim/replay.hpp"
@@ -33,6 +36,36 @@ std::string parse_error(std::string_view text) {
     return error;
 }
 
+/// The move a one-command replay holds.
+const orders::MoveTo& move_of(const Replay& r) {
+    return std::get<orders::MoveTo>(r.commands.at(0).order.payload);
+}
+
+/// The same order: same unit, same kind, and every field that kind carries. Fails if either side
+/// holds a different alternative.
+void expect_same_order(const Order& got, const Order& want) {
+    EXPECT_EQ(got.unit, want.unit);
+    ASSERT_EQ(got.kind(), want.kind());
+    std::visit(
+        [&got](const auto& w) {
+            using P = std::decay_t<decltype(w)>;
+            const P& g = std::get<P>(got.payload);
+            if constexpr (std::is_same_v<P, orders::MoveTo> || std::is_same_v<P, orders::GuardAt>) {
+                EXPECT_EQ(g.x, w.x);
+                EXPECT_EQ(g.y, w.y);
+            } else if constexpr (std::is_same_v<P, orders::Patrol>) {
+                EXPECT_EQ(g.x, w.x);
+                EXPECT_EQ(g.y, w.y);
+                EXPECT_EQ(g.x2, w.x2);
+                EXPECT_EQ(g.y2, w.y2);
+            } else if constexpr (std::is_same_v<P, orders::Attack>
+                                 || std::is_same_v<P, orders::FocusFire>) {
+                EXPECT_EQ(g.target, w.target);
+            }
+        },
+        want.payload);
+}
+
 Replay sample_replay() {
     Replay r;
     r.seed = 42;
@@ -40,15 +73,9 @@ Replay sample_replay() {
     // -Wstringop-overflow for a push_back of an aggregate here, and the gate builds Release with
     // -Werror. Fix the code, never the flag.
     r.commands = {
-        Command{0, Order{OrderKind::GuardAt,
-                         UnitId{5},
-                         Fixed::from_int(24),
-                         Fixed::from_int(230),
-                         {},
-                         {},
-                         {}}},
-        Command{30, Order{OrderKind::Attack, UnitId{1}, {}, {}, {}, {}, UnitId{9}}},
-        Command{299, Order{OrderKind::Stop, UnitId{1}, {}, {}, {}, {}, {}}},
+        Command{0, Order{UnitId{5}, orders::GuardAt{Fixed::from_int(24), Fixed::from_int(230)}}},
+        Command{30, Order{UnitId{1}, orders::Attack{UnitId{9}}}},
+        Command{299, Order{UnitId{1}, orders::Stop{}}},
     };
     return r;
 }
@@ -88,27 +115,57 @@ TEST(Replay, CanonicalFormIsStableByteForByte) {
     ASSERT_EQ(again.commands.size(), r.commands.size());
     for (std::size_t i = 0; i < r.commands.size(); ++i) {
         EXPECT_EQ(again.commands[i].tick, r.commands[i].tick);
-        EXPECT_EQ(again.commands[i].order.kind, r.commands[i].order.kind);
-        EXPECT_EQ(again.commands[i].order.unit, r.commands[i].order.unit);
-        EXPECT_EQ(again.commands[i].order.target, r.commands[i].order.target);
-        EXPECT_EQ(again.commands[i].order.x, r.commands[i].order.x);
-        EXPECT_EQ(again.commands[i].order.y, r.commands[i].order.y);
-        EXPECT_EQ(again.commands[i].order.x2, r.commands[i].order.x2);
-        EXPECT_EQ(again.commands[i].order.y2, r.commands[i].order.y2);
+        expect_same_order(again.commands[i].order, r.commands[i].order);
     }
+}
+
+TEST(Replay, EveryOrderKindSurvivesARoundTripAndNoneIsDropped) {
+    // One order of each kind, built from the variant: a kind added to OrderPayload but not given a
+    // spelling shows up here as a line missing from the text, not as a shot that silently never
+    // fires.
+    Replay r;
+    r.seed = 7;
+    r.commands = {
+        Command{1, Order{UnitId{2}, orders::MoveTo{Fixed::from_int(10), Fixed::from_raw(-98304)}}},
+        Command{2, Order{UnitId{3}, orders::GuardAt{Fixed::from_int(20), Fixed::from_int(30)}}},
+        Command{3, Order{UnitId{4}, orders::Patrol{Fixed::from_int(1), Fixed::from_int(2),
+                                                   Fixed::from_int(3), Fixed::from_raw(65537)}}},
+        Command{4, Order{UnitId{5}, orders::Attack{UnitId{9}}}},
+        Command{5, Order{UnitId{6}, orders::Stop{}}},
+        Command{6, Order{UnitId{7}, orders::FocusFire{UnitId{11}}}},
+    };
+    ASSERT_EQ(r.commands.size(), kOrderKindCount) << "this test must cover every kind";
+    for (std::size_t i = 0; i < r.commands.size(); ++i) {
+        EXPECT_EQ(static_cast<std::size_t>(r.commands.at(i).order.kind()), i)
+            << "the commands above must be one per kind, in kind order";
+    }
+
+    const std::string text = to_text(r);
+    EXPECT_EQ(static_cast<std::size_t>(std::count(text.begin(), text.end(), '\n')),
+              2 + r.commands.size())
+        << "header + seed + one line per order: a kind with no spelling is a dropped command";
+    EXPECT_NE(text.find("6 focusfire 7 11\n"), std::string::npos) << text;
+
+    const Replay again = must_parse(text);
+    ASSERT_EQ(again.commands.size(), r.commands.size());
+    for (std::size_t i = 0; i < r.commands.size(); ++i) {
+        EXPECT_EQ(again.commands.at(i).tick, r.commands.at(i).tick);
+        expect_same_order(again.commands.at(i).order, r.commands.at(i).order);
+    }
+    EXPECT_EQ(to_text(again), text);
 }
 
 TEST(Replay, AcceptsBothPositionSpellings) {
     const Replay raw = must_parse("# protekt replay v1\nseed 1\n0 move 1 3932160 1310720\n");
-    EXPECT_EQ(raw.commands.at(0).order.x, Fixed::from_int(60));
-    EXPECT_EQ(raw.commands.at(0).order.y, Fixed::from_raw(1310720));
+    EXPECT_EQ(move_of(raw).x, Fixed::from_int(60));
+    EXPECT_EQ(move_of(raw).y, Fixed::from_raw(1310720));
 
     const Replay decimal = must_parse("# protekt replay v1\nseed 1\n0 move 1 24.5 20.25\n");
-    EXPECT_EQ(decimal.commands.at(0).order.x.raw, 24 * 65536 + 32768);
-    EXPECT_EQ(decimal.commands.at(0).order.y.raw, 20 * 65536 + 16384);
+    EXPECT_EQ(move_of(decimal).x.raw, 24 * 65536 + 32768);
+    EXPECT_EQ(move_of(decimal).y.raw, 20 * 65536 + 16384);
 
     const Replay negative = must_parse("# protekt replay v1\nseed 1\n0 move 1 -1.5 0\n");
-    EXPECT_EQ(negative.commands.at(0).order.x.raw, -(1 * 65536 + 32768));
+    EXPECT_EQ(move_of(negative).x.raw, -(1 * 65536 + 32768));
 }
 
 TEST(Replay, ToleratesCommentsBlanksAndCrlf) {
@@ -116,7 +173,7 @@ TEST(Replay, ToleratesCommentsBlanksAndCrlf) {
                                 "0 stop 1\r\n\n");
     EXPECT_EQ(r.seed, 42U);
     ASSERT_EQ(r.commands.size(), 1U);
-    EXPECT_EQ(r.commands.at(0).order.kind, OrderKind::Stop);
+    EXPECT_EQ(r.commands.at(0).order.kind(), OrderKind::Stop);
 }
 
 TEST(Replay, MalformedInputIsRejectedWithAReason) {
@@ -178,8 +235,8 @@ TEST(Replay, EmittedCommandsAreInNonDecreasingTickOrder) {
     Replay r;
     r.seed = 5;
     r.commands = {
-        Command{90, Order{OrderKind::Stop, UnitId{1}, {}, {}, {}, {}, {}}},
-        Command{10, Order{OrderKind::Stop, UnitId{2}, {}, {}, {}, {}, {}}},
+        Command{90, Order{UnitId{1}, orders::Stop{}}},
+        Command{10, Order{UnitId{2}, orders::Stop{}}},
     };
     const Replay parsed = must_parse(to_text(r));
     for (std::size_t i = 1; i < parsed.commands.size(); ++i) {

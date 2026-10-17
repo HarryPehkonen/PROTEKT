@@ -5,6 +5,7 @@
 #include <limits>
 #include <map>
 #include <string>
+#include <variant>
 
 namespace protekt::sim {
 
@@ -135,17 +136,25 @@ void record_fire(const std::vector<Unit>& before, const Sim& sim, Tick tick, Bat
     }
 }
 
+/// Whom an order shoots at; "no unit" for the kinds that name no victim.
+UnitId ordered_target(const Order& order) {
+    if (const auto* attack = std::get_if<orders::Attack>(&order.payload)) {
+        return attack->target;
+    }
+    if (const auto* fire = std::get_if<orders::FocusFire>(&order.payload)) {
+        return fire->target;
+    }
+    return UnitId{};
+}
+
 /// Appends accepted orders (Sim's command log grew) as Ordered events.
 void record_orders(const Sim& sim, std::size_t& logged, BattleLog& log) {
     const std::vector<Command>& commands = sim.command_log();
     for (; logged < commands.size(); ++logged) {
         const Command& c = commands[logged];
-        log.events.push_back(
-            BattleEvent{c.tick, EventKind::Ordered, c.order.unit,
-                        (c.order.kind == OrderKind::Attack || c.order.kind == OrderKind::FocusFire)
-                            ? c.order.target
-                            : UnitId{},
-                        static_cast<std::uint16_t>(c.order.kind)});
+        log.events.push_back(BattleEvent{c.tick, EventKind::Ordered, c.order.unit,
+                                         ordered_target(c.order),
+                                         static_cast<std::uint16_t>(c.order.kind())});
     }
 }
 

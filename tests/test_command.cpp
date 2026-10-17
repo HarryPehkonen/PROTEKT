@@ -2,6 +2,7 @@
 #include <gtest/gtest.h>
 
 #include <cstdint>
+#include <variant>
 #include <vector>
 
 #include "protekt/cmd/command.hpp"
@@ -36,9 +37,10 @@ TEST(Command, MoveToEmitsOneOrderPerUnitInAscendingIdOrder) {
     const std::vector<std::uint32_t> expected{2, 5, 9, 17};
     EXPECT_EQ(unit_values(orders), expected);
     for (const Order& order : orders) {
-        EXPECT_EQ(order.kind, OrderKind::MoveTo);
-        EXPECT_EQ(order.x.raw, tiles(30).raw);
-        EXPECT_EQ(order.y.raw, tiles(40).raw);
+        EXPECT_EQ(order.kind(), OrderKind::MoveTo);
+        const auto& move = std::get<protekt::sim::orders::MoveTo>(order.payload);
+        EXPECT_EQ(move.x.raw, tiles(30).raw);
+        EXPECT_EQ(move.y.raw, tiles(40).raw);
     }
 }
 
@@ -46,30 +48,31 @@ TEST(Command, GuardAtCarriesThePostAndLeavesTheTargetEmpty) {
     const std::vector<Order> orders
         = protekt::cmd::guard_at(std::vector<UnitId>{id(3)}, tiles(11), tiles(12));
     ASSERT_EQ(orders.size(), 1U);
-    EXPECT_EQ(orders[0].kind, OrderKind::GuardAt);
+    EXPECT_EQ(orders[0].kind(), OrderKind::GuardAt);
     EXPECT_EQ(orders[0].unit.value, 3U);
-    EXPECT_EQ(orders[0].x.raw, tiles(11).raw);
-    EXPECT_EQ(orders[0].y.raw, tiles(12).raw);
-    EXPECT_FALSE(orders[0].target.valid()) << "a guard post is not a target";
+    const auto& guard = std::get<protekt::sim::orders::GuardAt>(orders[0].payload);
+    EXPECT_EQ(guard.x.raw, tiles(11).raw);
+    EXPECT_EQ(guard.y.raw, tiles(12).raw);
 }
 
 TEST(Command, PatrolCarriesBothEnds) {
     const std::vector<Order> orders = protekt::cmd::patrol(std::vector<UnitId>{id(1)}, tiles(4),
                                                            tiles(5), tiles(14), tiles(15));
     ASSERT_EQ(orders.size(), 1U);
-    EXPECT_EQ(orders[0].kind, OrderKind::Patrol);
-    EXPECT_EQ(orders[0].x.raw, tiles(4).raw);
-    EXPECT_EQ(orders[0].y.raw, tiles(5).raw);
-    EXPECT_EQ(orders[0].x2.raw, tiles(14).raw);
-    EXPECT_EQ(orders[0].y2.raw, tiles(15).raw);
+    EXPECT_EQ(orders[0].kind(), OrderKind::Patrol);
+    const auto& route = std::get<protekt::sim::orders::Patrol>(orders[0].payload);
+    EXPECT_EQ(route.x.raw, tiles(4).raw);
+    EXPECT_EQ(route.y.raw, tiles(5).raw);
+    EXPECT_EQ(route.x2.raw, tiles(14).raw);
+    EXPECT_EQ(route.y2.raw, tiles(15).raw);
 }
 
 TEST(Command, AttackCarriesTheTargetForEveryUnit) {
     const std::vector<Order> orders = protekt::cmd::attack(shuffled_roster(), id(42));
     ASSERT_EQ(orders.size(), 4U);
     for (const Order& order : orders) {
-        EXPECT_EQ(order.kind, OrderKind::Attack);
-        EXPECT_EQ(order.target.value, 42U);
+        EXPECT_EQ(order.kind(), OrderKind::Attack);
+        EXPECT_EQ(std::get<protekt::sim::orders::Attack>(order.payload).target.value, 42U);
     }
 }
 
@@ -83,7 +86,7 @@ TEST(Command, StopEmitsStopForEveryUnit) {
     const std::vector<Order> orders = protekt::cmd::stop(shuffled_roster());
     ASSERT_EQ(orders.size(), 4U);
     for (const Order& order : orders) {
-        EXPECT_EQ(order.kind, OrderKind::Stop);
+        EXPECT_EQ(order.kind(), OrderKind::Stop);
     }
 }
 
@@ -104,8 +107,10 @@ TEST(Command, TheSameSelectionAlwaysProducesTheSameOrders) {
     ASSERT_EQ(first.size(), second.size());
     for (std::size_t i = 0; i < first.size(); ++i) {
         EXPECT_EQ(first[i].unit.value, second[i].unit.value);
-        EXPECT_EQ(first[i].x.raw, second[i].x.raw);
-        EXPECT_EQ(first[i].y.raw, second[i].y.raw);
+        EXPECT_EQ(std::get<protekt::sim::orders::MoveTo>(first[i].payload).x.raw,
+                  std::get<protekt::sim::orders::MoveTo>(second[i].payload).x.raw);
+        EXPECT_EQ(std::get<protekt::sim::orders::MoveTo>(first[i].payload).y.raw,
+                  std::get<protekt::sim::orders::MoveTo>(second[i].payload).y.raw);
     }
 }
 

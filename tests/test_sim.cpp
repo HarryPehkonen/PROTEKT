@@ -115,13 +115,8 @@ TEST(Sim, MoveToMovesTheUnitAndChangesTheHash) {
     Sim still = Sim::create(two_tanks(42));
     Sim moving = Sim::create(two_tanks(42));
     const Fixed before = moving.units()[0].x;
-    moving.enqueue(Order{OrderKind::MoveTo,
-                         moving.units()[0].id,
-                         Fixed::from_int(60),
-                         Fixed::from_int(20),
-                         {},
-                         {},
-                         {}});
+    moving.enqueue(
+        Order{moving.units()[0].id, orders::MoveTo{Fixed::from_int(60), Fixed::from_int(20)}});
     EXPECT_NE(still.state_hash(), moving.state_hash()) << "a queued order changes the state";
     for (int i = 0; i < 30; ++i) {
         still.step();
@@ -134,9 +129,9 @@ TEST(Sim, MoveToMovesTheUnitAndChangesTheHash) {
 TEST(Sim, ACommandIsLoggedWithTheTickItTakesEffectOn) {
     Sim sim = Sim::create(two_tanks(42));
     const UnitId id = sim.units()[0].id;
-    sim.enqueue(Order{OrderKind::Stop, id, {}, {}, {}, {}, {}});
+    sim.enqueue(Order{id, orders::Stop{}});
     sim.step();
-    sim.enqueue(Order{OrderKind::Stop, id, {}, {}, {}, {}, {}});
+    sim.enqueue(Order{id, orders::Stop{}});
     ASSERT_EQ(sim.command_log().size(), 2U);
     EXPECT_EQ(sim.command_log()[0].tick, 0U);
     EXPECT_EQ(sim.command_log()[1].tick, 1U);
@@ -148,12 +143,11 @@ TEST(Sim, GenuinelyInvalidOrdersAreDroppedWithoutEffect) {
     Sim polluted = Sim::create(two_tanks(42));
     const UnitId mine = polluted.units()[0].id;
     // No such unit.
-    polluted.enqueue(Order{
-        OrderKind::MoveTo, UnitId{9999}, Fixed::from_int(60), Fixed::from_int(60), {}, {}, {}});
+    polluted.enqueue(Order{UnitId{9999}, orders::MoveTo{Fixed::from_int(60), Fixed::from_int(60)}});
     // No such target.
-    polluted.enqueue(Order{OrderKind::Attack, mine, {}, {}, {}, {}, UnitId{4242}});
+    polluted.enqueue(Order{mine, orders::Attack{UnitId{4242}}});
     // Friendly fire: an armed unit may not be ordered to attack its own side.
-    polluted.enqueue(Order{OrderKind::Attack, mine, {}, {}, {}, {}, mine});
+    polluted.enqueue(Order{mine, orders::Attack{mine}});
     for (int i = 0; i < 100; ++i) {
         clean.step();
         polluted.step();
@@ -170,8 +164,7 @@ TEST(Sim, AnOrderForTheOtherSidesUnitIsAccepted) {
     Sim without = Sim::create(two_tanks(42));
     const UnitId theirs = with_order.units()[1].id;
     ASSERT_EQ(with_order.units()[1].side, Side::Enemy);
-    with_order.enqueue(
-        Order{OrderKind::MoveTo, theirs, Fixed::from_int(100), Fixed::from_int(100), {}, {}, {}});
+    with_order.enqueue(Order{theirs, orders::MoveTo{Fixed::from_int(100), Fixed::from_int(100)}});
     ASSERT_EQ(with_order.command_log().size(), 1U)
         << "a valid order for an enemy unit is a command";
     with_order.step();
@@ -192,12 +185,9 @@ TEST(Sim, UnitsStayInsideTheMapAndOutOfCraters) {
     for (const Unit& u : sim.units()) {
         ids.push_back(u.id);
     }
-    sim.enqueue(
-        Order{OrderKind::MoveTo, ids[0], Fixed::from_int(1000), Fixed::from_int(-40), {}, {}, {}});
-    sim.enqueue(
-        Order{OrderKind::MoveTo, ids[1], Fixed::from_int(-500), Fixed::from_int(900), {}, {}, {}});
-    sim.enqueue(
-        Order{OrderKind::MoveTo, ids[2], Fixed::from_int(255), Fixed::from_int(255), {}, {}, {}});
+    sim.enqueue(Order{ids[0], orders::MoveTo{Fixed::from_int(1000), Fixed::from_int(-40)}});
+    sim.enqueue(Order{ids[1], orders::MoveTo{Fixed::from_int(-500), Fixed::from_int(900)}});
+    sim.enqueue(Order{ids[2], orders::MoveTo{Fixed::from_int(255), Fixed::from_int(255)}});
     for (int t = 0; t < 600; ++t) {
         sim.step();
         if (t % 10 != 0) {
@@ -225,7 +215,7 @@ TEST(Sim, DrivesAcrossFlatGroundAndArrives) {
     s.spawns = {{UnitKind::Tank, Side::Player, x0 + 2, y0}};
     Sim sim = Sim::create(s);
     const Fixed goal = Fixed::from_int(x0 + 32);
-    sim.enqueue(Order{OrderKind::MoveTo, sim.units()[0].id, goal, Fixed::from_int(y0), {}, {}, {}});
+    sim.enqueue(Order{sim.units()[0].id, orders::MoveTo{goal, Fixed::from_int(y0)}});
     for (int t = 0; t < 400; ++t) {
         sim.step();
     }
@@ -245,8 +235,7 @@ TEST(Sim, GuardAtHoldsThePost) {
     s.spawns = {{UnitKind::Tank, Side::Player, x0 + 2, y0}};
     Sim sim = Sim::create(s);
     const Fixed post = Fixed::from_int(x0 + 30);
-    sim.enqueue(
-        Order{OrderKind::GuardAt, sim.units()[0].id, post, Fixed::from_int(y0), {}, {}, {}});
+    sim.enqueue(Order{sim.units()[0].id, orders::GuardAt{post, Fixed::from_int(y0)}});
     for (int t = 0; t < 400; ++t) {
         sim.step();
     }
@@ -362,16 +351,13 @@ TEST(Sim, LongScriptedRunIsReproducible) {
         }
         for (std::uint32_t t = 0; t < 5000; ++t) {
             if (t % 37 == 0) {
-                sim.enqueue(Order{OrderKind::MoveTo,
-                                  ids[t % ids.size()],
-                                  Fixed::from_int(static_cast<int>(t % 250)),
-                                  Fixed::from_int(static_cast<int>((t * 7) % 250)),
-                                  {},
-                                  {},
-                                  {}});
+                sim.enqueue(
+                    Order{ids[t % ids.size()],
+                          orders::MoveTo{Fixed::from_int(static_cast<int>(t % 250)),
+                                         Fixed::from_int(static_cast<int>((t * 7) % 250))}});
             }
             if (t % 101 == 0) {
-                sim.enqueue(Order{OrderKind::Attack, ids[0], {}, {}, {}, {}, ids[3]});
+                sim.enqueue(Order{ids[0], orders::Attack{ids[3]}});
             }
             sim.step();
         }
@@ -408,13 +394,8 @@ TEST(Sim, PatrolWalksBetweenItsTwoEnds) {
     Sim sim = Sim::create(s);
     const Fixed left = Fixed::from_int(x0 + 2);
     const Fixed right = Fixed::from_int(x0 + 50);
-    sim.enqueue(Order{OrderKind::Patrol,
-                      sim.units()[0].id,
-                      left,
-                      Fixed::from_int(y0),
-                      right,
-                      Fixed::from_int(y0),
-                      {}});
+    sim.enqueue(Order{sim.units()[0].id,
+                      orders::Patrol{left, Fixed::from_int(y0), right, Fixed::from_int(y0)}});
     bool reached_left = false;
     bool reached_right = false;
     const Fixed r = Fixed::from_raw(kArriveRadiusRaw);
@@ -442,13 +423,12 @@ TEST(Sim, StopHaltsAMovingUnit) {
     s.spawns = {{UnitKind::Tank, Side::Player, x0 + 2, y0}};
     Sim sim = Sim::create(s);
     const UnitId id = sim.units()[0].id;
-    sim.enqueue(
-        Order{OrderKind::MoveTo, id, Fixed::from_int(x0 + 50), Fixed::from_int(y0), {}, {}, {}});
+    sim.enqueue(Order{id, orders::MoveTo{Fixed::from_int(x0 + 50), Fixed::from_int(y0)}});
     for (int t = 0; t < 60; ++t) {
         sim.step();
     }
     ASSERT_GT(sim.units()[0].x, Fixed::from_int(x0 + 2)) << "the tank should be under way";
-    sim.enqueue(Order{OrderKind::Stop, id, {}, {}, {}, {}, {}});
+    sim.enqueue(Order{id, orders::Stop{}});
     sim.step();
     const Unit stopped = *sim.find(id);
     EXPECT_EQ(stopped.stance, Stance::Idle);
@@ -471,8 +451,7 @@ TEST(Sim, AnAttackOrderEngagesItsNamedTargetNotTheNearest) {
     Sim sim = Sim::create(s);
     const UnitId near_factory = by_side(sim, Side::Enemy, 0)->id;
     const UnitId far_factory = by_side(sim, Side::Enemy, 1)->id;
-    sim.enqueue(
-        Order{OrderKind::Attack, by_side(sim, Side::Player, 0)->id, {}, {}, {}, {}, far_factory});
+    sim.enqueue(Order{by_side(sim, Side::Player, 0)->id, orders::Attack{far_factory}});
     for (int t = 0; t < kTankCooldownTicks + 2; ++t) {
         sim.step();
     }
@@ -489,8 +468,7 @@ TEST(Sim, AnAttackOrderFallsBackToTheNearestWhenItsTargetDies) {
     Sim sim = Sim::create(s);
     const UnitId near_factory = by_side(sim, Side::Enemy, 0)->id;
     const UnitId far_factory = by_side(sim, Side::Enemy, 1)->id;
-    sim.enqueue(
-        Order{OrderKind::Attack, by_side(sim, Side::Player, 0)->id, {}, {}, {}, {}, far_factory});
+    sim.enqueue(Order{by_side(sim, Side::Player, 0)->id, orders::Attack{far_factory}});
     // Step to the exact tick the named target dies. Overshooting lets the fallback fire at the
     // near factory inside the same window, which would make the next assertion wrong.
     int t = 0;

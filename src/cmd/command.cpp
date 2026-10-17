@@ -23,38 +23,30 @@ namespace {
 }
 
 [[nodiscard]] std::vector<sim::Order> make(std::span<const sim::UnitId> roster,
-                                           const sim::Order& proto) {
+                                           const sim::OrderPayload& payload) {
     const std::vector<sim::UnitId> ids = ascending(roster);
     std::vector<sim::Order> orders;
     orders.reserve(ids.size());
     for (const sim::UnitId id : ids) {
-        sim::Order order = proto;
-        order.unit = id;
-        orders.push_back(order);
+        orders.push_back(sim::Order{id, payload});
     }
     return orders;
-}
-
-[[nodiscard]] std::vector<sim::Order> at_point(std::span<const sim::UnitId> roster,
-                                               sim::OrderKind kind, sim::Fixed x, sim::Fixed y) {
-    if (!on_map(x, y)) {
-        return {};
-    }
-    sim::Order proto;
-    proto.kind = kind;
-    proto.x = x;
-    proto.y = y;
-    return make(roster, proto);
 }
 
 } // namespace
 
 std::vector<sim::Order> move_to(std::span<const sim::UnitId> roster, sim::Fixed x, sim::Fixed y) {
-    return at_point(roster, sim::OrderKind::MoveTo, x, y);
+    if (!on_map(x, y)) {
+        return {};
+    }
+    return make(roster, sim::orders::MoveTo{x, y});
 }
 
 std::vector<sim::Order> guard_at(std::span<const sim::UnitId> roster, sim::Fixed x, sim::Fixed y) {
-    return at_point(roster, sim::OrderKind::GuardAt, x, y);
+    if (!on_map(x, y)) {
+        return {};
+    }
+    return make(roster, sim::orders::GuardAt{x, y});
 }
 
 std::vector<sim::Order> patrol(std::span<const sim::UnitId> roster, sim::Fixed x, sim::Fixed y,
@@ -62,40 +54,25 @@ std::vector<sim::Order> patrol(std::span<const sim::UnitId> roster, sim::Fixed x
     if (!on_map(x, y) || !on_map(x2, y2)) {
         return {};
     }
-    sim::Order proto;
-    proto.kind = sim::OrderKind::Patrol;
-    proto.x = x;
-    proto.y = y;
-    proto.x2 = x2;
-    proto.y2 = y2;
-    return make(roster, proto);
+    return make(roster, sim::orders::Patrol{x, y, x2, y2});
 }
 
 std::vector<sim::Order> attack(std::span<const sim::UnitId> roster, sim::UnitId target) {
     if (!target.valid()) {
         return {};
     }
-    sim::Order proto;
-    proto.kind = sim::OrderKind::Attack;
-    proto.target = target;
-    return make(roster, proto);
+    return make(roster, sim::orders::Attack{target});
 }
 
 std::vector<sim::Order> focus_fire(sim::UnitId shooter, sim::UnitId target) {
     if (!shooter.valid() || !target.valid() || shooter == target) {
         return {};
     }
-    sim::Order order{};
-    order.kind = sim::OrderKind::FocusFire;
-    order.unit = shooter;
-    order.target = target;
-    return {order};
+    return {sim::Order{shooter, sim::orders::FocusFire{target}}};
 }
 
 std::vector<sim::Order> stop(std::span<const sim::UnitId> roster) {
-    sim::Order proto;
-    proto.kind = sim::OrderKind::Stop;
-    return make(roster, proto);
+    return make(roster, sim::orders::Stop{});
 }
 
 } // namespace protekt::cmd

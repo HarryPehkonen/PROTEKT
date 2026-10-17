@@ -4,6 +4,7 @@
 
 #include <cmath>
 #include <cstdint>
+#include <variant>
 #include <vector>
 
 #include "protekt/game/pick.hpp"
@@ -157,11 +158,11 @@ TEST(Interaction, LeftClickOnAHostileFiresAtItAndKeepsTheSelection) {
 
     const std::vector<sim::Order> orders = player.take_orders();
     ASSERT_EQ(orders.size(), 1u) << "the trigger orders one unit and nobody else";
-    EXPECT_EQ(orders.at(0).kind, sim::OrderKind::FocusFire)
+    EXPECT_EQ(orders.at(0).kind(), sim::OrderKind::FocusFire)
         << "it must not be an Attack: that would set a hunting stance and fight the keyboard";
     EXPECT_EQ(orders.at(0).unit, rig.tank_a)
         << "the unit the player is sitting in is the one firing";
-    EXPECT_EQ(orders.at(0).target, rig.enemy);
+    EXPECT_EQ(std::get<sim::orders::FocusFire>(orders.at(0).payload).target, rig.enemy);
     EXPECT_FALSE(player.message().empty()) << "the player has to be told what happened";
 }
 
@@ -199,9 +200,10 @@ TEST(Interaction, RightClickOnTheGroundMovesTheSelectionThere) {
 
     const std::vector<Order> orders = player.take_orders();
     ASSERT_EQ(orders.size(), 1U);
-    EXPECT_EQ(orders.front().kind, OrderKind::MoveTo);
+    EXPECT_EQ(orders.front().kind(), OrderKind::MoveTo);
     EXPECT_EQ(orders.front().unit, rig.tank_b);
-    EXPECT_GT(orders.front().y.raw, 0) << "the order carries the tile the click landed on";
+    EXPECT_GT(std::get<sim::orders::MoveTo>(orders.front().payload).y.raw, 0)
+        << "the order carries the tile the click landed on";
 }
 
 TEST(Interaction, TheDrivenTankIsNeverOrderedByAClick) {
@@ -235,9 +237,9 @@ TEST(Interaction, RightClickOnAHostileOrdersAnAttack) {
 
     const std::vector<Order> orders = player.take_orders();
     ASSERT_EQ(orders.size(), 1U);
-    EXPECT_EQ(orders.front().kind, OrderKind::Attack);
+    EXPECT_EQ(orders.front().kind(), OrderKind::Attack);
     EXPECT_EQ(orders.front().unit, rig.tank_b);
-    EXPECT_EQ(orders.front().target, rig.enemy);
+    EXPECT_EQ(std::get<sim::orders::Attack>(orders.front().payload).target, rig.enemy);
 }
 
 TEST(Interaction, RightClickWithNothingSelectedIsRefused) {
@@ -316,9 +318,11 @@ TEST(Interaction, TheSameInputProducesTheSameOrders) {
     ASSERT_EQ(first.size(), 2U) << "both selected units get the order, in ascending id order";
     for (std::size_t i = 0; i < first.size(); ++i) {
         EXPECT_EQ(first.at(i).unit, second.at(i).unit);
-        EXPECT_EQ(first.at(i).kind, second.at(i).kind);
-        EXPECT_EQ(first.at(i).x.raw, second.at(i).x.raw);
-        EXPECT_EQ(first.at(i).y.raw, second.at(i).y.raw);
+        EXPECT_EQ(first.at(i).kind(), second.at(i).kind());
+        EXPECT_EQ(std::get<sim::orders::MoveTo>(first.at(i).payload).x.raw,
+                  std::get<sim::orders::MoveTo>(second.at(i).payload).x.raw);
+        EXPECT_EQ(std::get<sim::orders::MoveTo>(first.at(i).payload).y.raw,
+                  std::get<sim::orders::MoveTo>(second.at(i).payload).y.raw);
     }
 }
 

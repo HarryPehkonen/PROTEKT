@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <variant>
 #include <vector>
 
 #include "protekt/game/player.hpp"
@@ -64,10 +65,11 @@ TEST(PlayerCommander, FullAheadSendsTheTankWhereItIsPointing) {
     const auto orders = orders_for(sim, player);
     ASSERT_FALSE(orders.empty());
     const auto& order = orders.front();
-    EXPECT_EQ(order.kind, protekt::sim::OrderKind::MoveTo);
+    EXPECT_EQ(order.kind(), protekt::sim::OrderKind::MoveTo);
     // Yaw 0 points at +y in tile space; the waypoint must be ahead, not on top of the tank.
     // Raw Q16.16, because the simulation is fixed-point and the test has no reason to float it.
-    EXPECT_GT(order.y.raw, tank.y.raw) << "full ahead pointed backwards";
+    EXPECT_GT(std::get<protekt::sim::orders::MoveTo>(order.payload).y.raw, tank.y.raw)
+        << "full ahead pointed backwards";
 }
 
 TEST(PlayerCommander, ReverseSendsItBackwards) {
@@ -80,7 +82,8 @@ TEST(PlayerCommander, ReverseSendsItBackwards) {
     player.set_input(input);
     const auto orders = orders_for(sim, player);
     ASSERT_FALSE(orders.empty());
-    EXPECT_LT(orders.front().y.raw, tank.y.raw) << "reverse pointed forwards";
+    EXPECT_LT(std::get<protekt::sim::orders::MoveTo>(orders.front().payload).y.raw, tank.y.raw)
+        << "reverse pointed forwards";
 }
 
 TEST(PlayerCommander, TurningMovesTheWaypointOffTheOldHeading) {
@@ -98,7 +101,8 @@ TEST(PlayerCommander, TurningMovesTheWaypointOffTheOldHeading) {
     const auto turned_orders = orders_for(sim, player);
     ASSERT_FALSE(turned_orders.empty());
     const auto turned = turned_orders.front();
-    EXPECT_NE(straight.x.raw, turned.x.raw)
+    EXPECT_NE(std::get<protekt::sim::orders::MoveTo>(straight.payload).x.raw,
+              std::get<protekt::sim::orders::MoveTo>(turned.payload).x.raw)
         << "turning changed nothing: the heading is not reaching the waypoint";
 }
 
@@ -205,7 +209,7 @@ TEST(PlayerCommander, DoesNotHijackTheDrivingToChaseEnemies) {
     player.set_input(input);
     for (int i = 0; i < 3000; ++i) {
         for (const auto& order : orders_for(sim, player)) {
-            EXPECT_EQ(order.kind, protekt::sim::OrderKind::MoveTo)
+            EXPECT_EQ(order.kind(), protekt::sim::OrderKind::MoveTo)
                 << "the player issued an Attack, which outranks auto-engagement and would make "
                    "the tank pursue instead of obey the steering wheel";
             sim.enqueue(order);

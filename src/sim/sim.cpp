@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <array>
 #include <cstddef>
+#include <type_traits>
+#include <variant>
 
 namespace protekt::sim {
 
@@ -94,16 +96,38 @@ const Unit* find_const(const std::vector<Unit>& units, UnitId id) noexcept {
     return unit.id == id ? &unit : nullptr;
 }
 
+/// The unit an order shoots at, if its kind has one that must be a living enemy.
+const UnitId* order_target(const Order& order) noexcept {
+    if (const auto* attack = std::get_if<orders::Attack>(&order.payload)) {
+        return &attack->target;
+    }
+    if (const auto* fire = std::get_if<orders::FocusFire>(&order.payload)) {
+        return &fire->target;
+    }
+    return nullptr;
+}
+
 bool order_is_valid(const std::vector<Unit>& units, const Order& order) noexcept {
     const Unit* unit = find_const(units, order.unit);
     if (unit == nullptr || !unit->alive) {
         return false;
     }
-    if (order.kind == OrderKind::Attack || order.kind == OrderKind::FocusFire) {
-        const Unit* target = find_const(units, order.target);
+    if (const UnitId* id = order_target(order)) {
+        const Unit* target = find_const(units, *id);
         return target != nullptr && target->alive && target->side != unit->side;
     }
-    return static_cast<int>(order.kind) < kOrderKindCount;
+    return true;
+}
+
+/// Where a position-bearing order sends the unit; unused points are the origin, as they always
+/// were.
+void apply_posted(Unit& unit, Stance stance, Fixed x, Fixed y, Fixed x2, Fixed y2) noexcept {
+    unit.stance = stance;
+    unit.guard_x = clamp_pos(x);
+    unit.guard_y = clamp_pos(y);
+    unit.patrol_x = clamp_pos(x2);
+    unit.patrol_y = clamp_pos(y2);
+    unit.target = UnitId{};
 }
 
 void apply_order(std::vector<Unit>& units, const Order& order) noexcept {
@@ -111,36 +135,36 @@ void apply_order(std::vector<Unit>& units, const Order& order) noexcept {
     if (!order_is_valid(units, order)) {
         return;
     }
-    Unit* unit = find_mut(units, order.unit);
-    switch (order.kind) {
-    case OrderKind::MoveTo:
-    case OrderKind::GuardAt:
-    case OrderKind::Patrol:
-        unit->stance = order.kind == OrderKind::MoveTo    ? Stance::MoveTo
-                       : order.kind == OrderKind::GuardAt ? Stance::GuardAt
-                                                          : Stance::Patrol;
-        unit->guard_x = clamp_pos(order.x);
-        unit->guard_y = clamp_pos(order.y);
-        unit->patrol_x = clamp_pos(order.x2);
-        unit->patrol_y = clamp_pos(order.y2);
-        unit->target = UnitId{};
-        break;
-    case OrderKind::Attack:
-        unit->stance = Stance::Attack;
-        unit->target = order.target;
-        break;
-    case OrderKind::Stop:
-        unit->stance = Stance::Idle;
-        unit->target = UnitId{};
-        unit->focus_target = UnitId{}; // and hold fire
-        unit->vx = Fixed::zero();
-        unit->vy = Fixed::zero();
-        break;
-    case OrderKind::FocusFire:
-        // Nothing but the target: no stance, no destination, no velocity. Stop is what clears it.
-        unit->focus_target = order.target;
-        break;
-    }
+    Unit& unit = *find_mut(units, order.unit);
+    struct Apply {
+        Unit& unit;
+        void operator()(const orders::MoveTo& o) const noexcept {
+            apply_posted(unit, Stance::MoveTo, o.x, o.y, Fixed{}, Fixed{});
+        }
+        void operator()(const orders::GuardAt& o) const noexcept {
+            apply_posted(unit, Stance::GuardAt, o.x, o.y, Fixed{}, Fixed{});
+        }
+        void operator()(const orders::Patrol& o) const noexcept {
+            apply_posted(unit, Stance::Patrol, o.x, o.y, o.x2, o.y2);
+        }
+        void operator()(const orders::Attack& o) const noexcept {
+            unit.stance = Stance::Attack;
+            unit.target = o.target;
+        }
+        void operator()(const orders::Stop&) const noexcept {
+            unit.stance = Stance::Idle;
+            unit.target = UnitId{};
+            unit.focus_target = UnitId{}; // and hold fire
+            unit.vx = Fixed::zero();
+            unit.vy = Fixed::zero();
+        }
+        void operator()(const orders::FocusFire& o) const noexcept {
+            // Nothing but the target: no stance, no destination, no velocity. Stop is what clears
+            // it.
+            unit.focus_target = o.target;
+        }
+    };
+    std::visit(Apply{unit}, order.payload);
 }
 
 /// The world as the mover sees it: one question, answered from the seed. A designed map answers the
@@ -449,13 +473,34 @@ std::uint64_t Sim::state_hash() const noexcept {
     // Orders accepted but not yet applied are part of the state: they will change the next tick.
     h.u64(pending_.size());
     for (const Order& o : pending_) {
-        h.u64(static_cast<std::uint64_t>(o.kind));
+        h.u64(static_cast<std::uint64_t>(o.kind()));
         h.u64(o.unit.value);
-        h.i32(o.x.raw);
-        h.i32(o.y.raw);
-        h.i32(o.x2.raw);
-        h.i32(o.y2.raw);
-        h.u64(o.target.value);
+        // The hashed stream keeps its original shape: x, y, x2, y2, target, zero where the kind has
+        // none.
+        std::array<Fixed, 4> pos{};
+        UnitId target{};
+        std::visit(
+            [&](const auto& p) {
+                using P = std::decay_t<decltype(p)>;
+                if constexpr (std::is_same_v<P, orders::MoveTo>
+                              || std::is_same_v<P, orders::GuardAt>) {
+                    pos.at(0) = p.x;
+                    pos.at(1) = p.y;
+                } else if constexpr (std::is_same_v<P, orders::Patrol>) {
+                    pos.at(0) = p.x;
+                    pos.at(1) = p.y;
+                    pos.at(2) = p.x2;
+                    pos.at(3) = p.y2;
+                } else if constexpr (std::is_same_v<P, orders::Attack>
+                                     || std::is_same_v<P, orders::FocusFire>) {
+                    target = p.target;
+                }
+            },
+            o.payload);
+        for (const Fixed f : pos) {
+            h.i32(f.raw);
+        }
+        h.u64(target.value);
     }
     return h.value();
 }

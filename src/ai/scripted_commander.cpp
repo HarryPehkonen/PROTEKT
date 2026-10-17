@@ -30,12 +30,8 @@ void ScriptedCommander::think(const Observation& observation, std::vector<sim::O
     }
     for (const UnitView& unit : observation.own) {
         if (unit.kind == sim::UnitKind::Turret) {
-            sim::Order order{};
-            order.kind = sim::OrderKind::GuardAt;
-            order.unit = unit.id;
-            order.x = sim::Fixed::from_int(unit.x);
-            order.y = sim::Fixed::from_int(unit.y);
-            out.push_back(order);
+            out.push_back(sim::Order{unit.id, sim::orders::GuardAt{sim::Fixed::from_int(unit.x),
+                                                                   sim::Fixed::from_int(unit.y)}});
         } else if (unit.kind == sim::UnitKind::Tank) {
             const UnitView* nearest = nullptr;
             std::int64_t nearest_d2 = 0;
@@ -49,11 +45,7 @@ void ScriptedCommander::think(const Observation& observation, std::vector<sim::O
                 }
             }
             if (nearest != nullptr) {
-                sim::Order order{};
-                order.kind = sim::OrderKind::Attack;
-                order.unit = unit.id;
-                order.target = nearest->id;
-                out.push_back(order);
+                out.push_back(sim::Order{unit.id, sim::orders::Attack{nearest->id}});
             }
         }
     }

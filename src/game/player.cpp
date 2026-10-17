@@ -46,14 +46,11 @@ void PlayerCommander::think(const ai::Observation& observation, std::vector<sim:
     const float target_x = static_cast<float>(self->x) + std::sin(heading_) * distance;
     const float target_y = static_cast<float>(self->y) + std::cos(heading_) * distance;
 
-    sim::Order order;
-    order.kind = sim::OrderKind::MoveTo;
-    order.unit = unit_;
-    order.x
-        = sim::Fixed::from_raw(static_cast<std::int32_t>(std::lround(target_x * sim::Fixed::kOne)));
-    order.y
-        = sim::Fixed::from_raw(static_cast<std::int32_t>(std::lround(target_y * sim::Fixed::kOne)));
-    out.push_back(order);
+    out.push_back(
+        sim::Order{unit_, sim::orders::MoveTo{sim::Fixed::from_raw(static_cast<std::int32_t>(
+                                                  std::lround(target_x * sim::Fixed::kOne))),
+                                              sim::Fixed::from_raw(static_cast<std::int32_t>(
+                                                  std::lround(target_y * sim::Fixed::kOne)))}});
 }
 
 } // namespace protekt::game

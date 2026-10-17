@@ -61,11 +61,7 @@ struct Field {
 }
 
 void focus_fire(Sim& sim, UnitId mine, UnitId target) {
-    Order order{};
-    order.kind = OrderKind::FocusFire;
-    order.unit = mine;
-    order.target = target;
-    sim.enqueue(order);
+    sim.enqueue(Order{mine, orders::FocusFire{target}});
     sim.step();
 }
 
@@ -88,13 +84,11 @@ TEST(FocusFire, TheNamedTargetIsShotAndTheNearerOneIsNot) {
 TEST(FocusFire, ItChangesNeitherStanceNorMovement) {
     // The property that makes this usable as a trigger: this is a unit the player is driving.
     Field f = field();
-    Order move{};
-    move.kind = OrderKind::MoveTo;
-    move.unit = f.mine;
-    move.x = Fixed::from_raw(
-        static_cast<std::int32_t>(static_cast<std::uint32_t>(120) << Fixed::kShift));
-    move.y = Fixed::from_raw(
-        static_cast<std::int32_t>(static_cast<std::uint32_t>(100) << Fixed::kShift));
+    const Order move{f.mine,
+                     orders::MoveTo{Fixed::from_raw(static_cast<std::int32_t>(
+                                        static_cast<std::uint32_t>(120) << Fixed::kShift)),
+                                    Fixed::from_raw(static_cast<std::int32_t>(
+                                        static_cast<std::uint32_t>(100) << Fixed::kShift))}};
     f.sim.enqueue(move);
     f.sim.step();
 
@@ -125,10 +119,7 @@ TEST(FocusFire, StopClearsItAndTheGunGoesBackToTheNearest) {
     EXPECT_LT(f.sim.find(f.far_enemy)->hp, kFactoryHp);
     const std::uint16_t far_reached = f.sim.find(f.far_enemy)->hp;
 
-    Order stop{};
-    stop.kind = OrderKind::Stop;
-    stop.unit = f.mine;
-    f.sim.enqueue(stop);
+    f.sim.enqueue(Order{f.mine, orders::Stop{}});
     f.sim.step();
     run(f.sim, 150);
 
@@ -152,11 +143,7 @@ TEST(FocusFire, AFocusOnAFriendlyUnitIsRefused) {
     // An order naming your own side is not a target. Validated at apply time, exactly as an Attack
     // order is.
     Field f = field();
-    Order order{};
-    order.kind = OrderKind::FocusFire;
-    order.unit = f.mine;
-    order.target = f.mine;
-    f.sim.enqueue(order);
+    f.sim.enqueue(Order{f.mine, orders::FocusFire{f.mine}});
     f.sim.step();
 
     EXPECT_FALSE(f.sim.find(f.mine)->focus_target.valid()) << "it accepted a friendly as a target";

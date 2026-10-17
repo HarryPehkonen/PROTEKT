@@ -14,27 +14,19 @@ namespace {
 }
 
 [[nodiscard]] sim::Order order_for(const Decision& decision, const UnitView& self) {
-    sim::Order order{};
-    order.unit = decision.unit;
     switch (decision.intent) {
     case Intent::Engage:
-        order.kind = sim::OrderKind::Attack;
-        order.target = decision.target;
-        break;
+        return sim::Order{decision.unit, sim::orders::Attack{decision.target}};
     case Intent::Reposition:
     case Intent::Retreat:
     case Intent::Advance:
-        order.kind = sim::OrderKind::MoveTo;
-        order.x = sim::Fixed::from_int(decision.x);
-        order.y = sim::Fixed::from_int(decision.y);
-        break;
+        return sim::Order{decision.unit, sim::orders::MoveTo{sim::Fixed::from_int(decision.x),
+                                                             sim::Fixed::from_int(decision.y)}};
     case Intent::Hold:
-        order.kind = sim::OrderKind::GuardAt;
-        order.x = sim::Fixed::from_int(self.x);
-        order.y = sim::Fixed::from_int(self.y);
-        break;
+        return sim::Order{decision.unit, sim::orders::GuardAt{sim::Fixed::from_int(self.x),
+                                                              sim::Fixed::from_int(self.y)}};
     }
-    return order;
+    return sim::Order{decision.unit, sim::orders::Stop{}};
 }
 
 } // namespace

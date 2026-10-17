@@ -243,7 +243,7 @@ TEST(Session, TheDrivenTankGetsOneOrderPerFrameWhileDriving) {
     session.frame(holding(input::kKeyW), rig.sim, rig.options, orders);
     ASSERT_EQ(orders.size(), 1U);
     EXPECT_EQ(orders.front().unit, rig.tank_a);
-    EXPECT_EQ(orders.front().kind, sim::OrderKind::MoveTo);
+    EXPECT_EQ(orders.front().kind(), sim::OrderKind::MoveTo);
 
     std::vector<Order> idle;
     session.frame(InputFrame{}, rig.sim, rig.options, idle);

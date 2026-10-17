@@ -4,6 +4,7 @@
 #include <array>
 #include <cstddef>
 #include <string_view>
+#include <variant>
 
 #include "protekt/sim/scenario.hpp"
 #include "protekt/sim/sim.hpp"
@@ -15,19 +16,20 @@ namespace {
 constexpr std::string_view kHeader = "# protekt replay v1";
 constexpr std::size_t kMaxTokens = 8;
 
+/// How a verb is spelled. What it WRITES (how many positions, whether a target) is not recorded
+/// here: it is read off the payload by `Fields`, so it cannot disagree with the struct.
 struct VerbInfo {
     std::string_view name;
     OrderKind kind;
-    int position_args; ///< number of position values (x y [x2 y2])
-    bool takes_target;
 };
 
 constexpr std::array<VerbInfo, kOrderKindCount> kVerbs{{
-    {"move", OrderKind::MoveTo, 2, false},
-    {"guard", OrderKind::GuardAt, 2, false},
-    {"patrol", OrderKind::Patrol, 4, false},
-    {"attack", OrderKind::Attack, 0, true},
-    {"stop", OrderKind::Stop, 0, false},
+    {"move", OrderKind::MoveTo},
+    {"guard", OrderKind::GuardAt},
+    {"patrol", OrderKind::Patrol},
+    {"attack", OrderKind::Attack},
+    {"stop", OrderKind::Stop},
+    {"focusfire", OrderKind::FocusFire},
 }};
 
 const VerbInfo* find_verb(OrderKind kind) {
@@ -37,6 +39,66 @@ const VerbInfo* find_verb(OrderKind kind) {
         }
     }
     return nullptr;
+}
+
+/// The values a payload writes: up to four positions, then an optional target. One overload per
+/// payload type and no fallback, so a new kind that is not handled here does not compile.
+struct Fields {
+    std::array<Fixed, 4> positions{};
+    std::size_t position_count = 0;
+    bool has_target = false;
+    UnitId target{};
+
+    static Fields of(const orders::MoveTo& o) { return {{o.x, o.y, {}, {}}, 2, false, {}}; }
+    static Fields of(const orders::GuardAt& o) { return {{o.x, o.y, {}, {}}, 2, false, {}}; }
+    static Fields of(const orders::Patrol& o) { return {{o.x, o.y, o.x2, o.y2}, 4, false, {}}; }
+    static Fields of(const orders::Attack& o) { return {{}, 0, true, o.target}; }
+    static Fields of(const orders::Stop&) { return {}; }
+    static Fields of(const orders::FocusFire& o) { return {{}, 0, true, o.target}; }
+};
+
+Fields fields_of(const OrderPayload& payload) {
+    return std::visit([](const auto& p) { return Fields::of(p); }, payload);
+}
+
+/// An empty payload of the verb's kind, so parsing learns the arity from the same visitor the
+/// writer uses.
+OrderPayload blank_payload(OrderKind kind) {
+    switch (kind) {
+    case OrderKind::MoveTo:
+        return orders::MoveTo{};
+    case OrderKind::GuardAt:
+        return orders::GuardAt{};
+    case OrderKind::Patrol:
+        return orders::Patrol{};
+    case OrderKind::Attack:
+        return orders::Attack{};
+    case OrderKind::Stop:
+        return orders::Stop{};
+    case OrderKind::FocusFire:
+        return orders::FocusFire{};
+    }
+    return orders::Stop{};
+}
+
+/// The payload of `kind` built from parsed values; the inverse of `Fields::of`.
+OrderPayload payload_from(OrderKind kind, const Fields& f) {
+    switch (kind) {
+    case OrderKind::MoveTo:
+        return orders::MoveTo{f.positions.at(0), f.positions.at(1)};
+    case OrderKind::GuardAt:
+        return orders::GuardAt{f.positions.at(0), f.positions.at(1)};
+    case OrderKind::Patrol:
+        return orders::Patrol{f.positions.at(0), f.positions.at(1), f.positions.at(2),
+                              f.positions.at(3)};
+    case OrderKind::Attack:
+        return orders::Attack{f.target};
+    case OrderKind::Stop:
+        return orders::Stop{};
+    case OrderKind::FocusFire:
+        return orders::FocusFire{f.target};
+    }
+    return orders::Stop{};
 }
 
 bool is_blank(char c) { return c == ' ' || c == '\t'; }
@@ -139,8 +201,8 @@ bool parse_command_line(const std::array<std::string_view, kMaxTokens>& tok, std
         reason = "unknown verb";
         return false;
     }
-    const std::size_t expected
-        = 3 + static_cast<std::size_t>(verb->position_args) + (verb->takes_target ? 1U : 0U);
+    const Fields shape = fields_of(blank_payload(verb->kind));
+    const std::size_t expected = 3 + shape.position_count + (shape.has_target ? 1U : 0U);
     if (count != expected) {
         reason = "wrong number of arguments";
         return false;
@@ -150,26 +212,25 @@ bool parse_command_line(const std::array<std::string_view, kMaxTokens>& tok, std
         reason = "bad unit id";
         return false;
     }
-    Command cmd{};
-    cmd.tick = static_cast<Tick>(tick);
-    cmd.order.kind = verb->kind;
-    cmd.order.unit = UnitId{static_cast<std::uint32_t>(unit)};
-    const std::array<Fixed*, 4> slots{&cmd.order.x, &cmd.order.y, &cmd.order.x2, &cmd.order.y2};
-    for (int i = 0; i < verb->position_args; ++i) {
-        if (!parse_position(tok.at(3 + static_cast<std::size_t>(i)),
-                            *slots.at(static_cast<std::size_t>(i)))) {
+    Fields parsed{};
+    for (std::size_t i = 0; i < shape.position_count; ++i) {
+        if (!parse_position(tok.at(3 + i), parsed.positions.at(i))) {
             reason = "bad position";
             return false;
         }
     }
-    if (verb->takes_target) {
+    if (shape.has_target) {
         std::uint64_t target = 0;
-        if (!parse_unsigned(tok[3], 0xFFFFFFFFULL, target) || target == 0) {
+        if (!parse_unsigned(tok.at(3 + shape.position_count), 0xFFFFFFFFULL, target)
+            || target == 0) {
             reason = "bad target id";
             return false;
         }
-        cmd.order.target = UnitId{static_cast<std::uint32_t>(target)};
+        parsed.target = UnitId{static_cast<std::uint32_t>(target)};
     }
+    Command cmd{};
+    cmd.tick = static_cast<Tick>(tick);
+    cmd.order = Order{UnitId{static_cast<std::uint32_t>(unit)}, payload_from(verb->kind, parsed)};
     out = cmd;
     return true;
 }
@@ -185,7 +246,7 @@ std::string to_text(const Replay& replay) {
     text += std::to_string(replay.seed);
     text += '\n';
     for (const Command& cmd : sorted) {
-        const VerbInfo* verb = find_verb(cmd.order.kind);
+        const VerbInfo* verb = find_verb(cmd.order.kind());
         if (verb == nullptr) {
             continue; // not a real order kind: there is no spelling for it
         }
@@ -194,14 +255,14 @@ std::string to_text(const Replay& replay) {
         text += verb->name;
         text += ' ';
         text += std::to_string(cmd.order.unit.value);
-        const std::array<Fixed, 4> positions{cmd.order.x, cmd.order.y, cmd.order.x2, cmd.order.y2};
-        for (int i = 0; i < verb->position_args; ++i) {
+        const Fields fields = fields_of(cmd.order.payload);
+        for (std::size_t i = 0; i < fields.position_count; ++i) {
             text += ' ';
-            text += std::to_string(positions.at(static_cast<std::size_t>(i)).raw);
+            text += std::to_string(fields.positions.at(i).raw);
         }
-        if (verb->takes_target) {
+        if (fields.has_target) {
             text += ' ';
-            text += std::to_string(cmd.order.target.value);
+            text += std::to_string(fields.target.value);
         }
         text += '\n';
     }

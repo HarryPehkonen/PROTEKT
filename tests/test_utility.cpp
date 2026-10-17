@@ -3,7 +3,11 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <array>
 #include <cstddef>
+#include <cstdint>
+#include <type_traits>
+#include <variant>
 
 namespace protekt::ai {
 namespace {
@@ -42,6 +46,31 @@ using sim::UnitKind;
 constexpr std::uint32_t kTank = 1;
 constexpr std::uint32_t kFactory = 2;
 constexpr std::uint32_t kTurret = 3;
+
+/// Every value an order carries, as plain numbers: target, then the two points. Zero where the kind
+/// has none, so two orders are the same order exactly when their contents and kinds match.
+std::array<std::int64_t, 5> contents_of(const sim::Order& order) {
+    std::array<std::int64_t, 5> out{};
+    std::visit(
+        [&out](const auto& p) {
+            using P = std::decay_t<decltype(p)>;
+            if constexpr (std::is_same_v<P, sim::orders::MoveTo>
+                          || std::is_same_v<P, sim::orders::GuardAt>) {
+                out.at(1) = p.x.raw;
+                out.at(2) = p.y.raw;
+            } else if constexpr (std::is_same_v<P, sim::orders::Patrol>) {
+                out.at(1) = p.x.raw;
+                out.at(2) = p.y.raw;
+                out.at(3) = p.x2.raw;
+                out.at(4) = p.y2.raw;
+            } else if constexpr (std::is_same_v<P, sim::orders::Attack>
+                                 || std::is_same_v<P, sim::orders::FocusFire>) {
+                out.at(0) = p.target.value;
+            }
+        },
+        order.payload);
+    return out;
+}
 
 } // namespace
 
@@ -375,9 +404,10 @@ TEST(Utility, ItNeverOrdersAnEnemyUnitOrItsOwnDead) {
     for (const sim::Order& order : orders) {
         EXPECT_EQ(order.unit, UnitId{kTank})
             << "only its own unit may be ordered, id " << order.unit.value;
-        if (order.kind == sim::OrderKind::Attack) {
-            EXPECT_NE(order.target, UnitId{kTank});
-            EXPECT_TRUE(order.target == UnitId{50} || order.target == UnitId{51});
+        if (order.kind() == sim::OrderKind::Attack) {
+            const UnitId target = std::get<protekt::sim::orders::Attack>(order.payload).target;
+            EXPECT_NE(target, UnitId{kTank});
+            EXPECT_TRUE(target == UnitId{50} || target == UnitId{51});
         }
     }
 }
@@ -397,8 +427,8 @@ TEST(Utility, TheDecisionsItReportsAreTheOrdersItIssued) {
     EXPECT_EQ(tank.unit, UnitId{kTank});
     EXPECT_EQ(tank.intent, Intent::Engage);
     ASSERT_EQ(orders.size(), 1U);
-    EXPECT_EQ(orders.front().kind, sim::OrderKind::Attack);
-    EXPECT_EQ(orders.front().target, UnitId{50});
+    EXPECT_EQ(orders.front().kind(), sim::OrderKind::Attack);
+    EXPECT_EQ(std::get<sim::orders::Attack>(orders.front().payload).target, UnitId{50});
 }
 
 TEST(Utility, HoldingMeansNoOrderForATankAndAGuardOrderForATurret) {
@@ -421,13 +451,14 @@ TEST(Utility, HoldingMeansNoOrderForATankAndAGuardOrderForATurret) {
     ASSERT_EQ(orders_for(orders, UnitId{kTurret}), 1);
     for (const sim::Order& order : orders) {
         if (order.unit == UnitId{kTurret}) {
-            EXPECT_EQ(order.kind, sim::OrderKind::GuardAt);
-            EXPECT_EQ(order.x, sim::Fixed::from_int(12));
-            EXPECT_EQ(order.y, sim::Fixed::from_int(9));
+            EXPECT_EQ(order.kind(), sim::OrderKind::GuardAt);
+            const auto& guard = std::get<protekt::sim::orders::GuardAt>(order.payload);
+            EXPECT_EQ(guard.x, sim::Fixed::from_int(12));
+            EXPECT_EQ(guard.y, sim::Fixed::from_int(9));
         }
     }
     for (const sim::Order& order : orders) {
-        EXPECT_NE(order.kind, sim::OrderKind::Stop)
+        EXPECT_NE(order.kind(), sim::OrderKind::Stop)
             << "Stop is a decision the player makes, not one the AI needs";
     }
 }
@@ -448,10 +479,8 @@ TEST(Utility, ThinkingTwiceOnTheSameObservationDecidesTheSameThing) {
     ASSERT_EQ(first.size(), second.size());
     for (std::size_t i = 0; i < first.size(); ++i) {
         EXPECT_EQ(first[i].unit, second[i].unit);
-        EXPECT_EQ(first[i].kind, second[i].kind);
-        EXPECT_EQ(first[i].target, second[i].target);
-        EXPECT_EQ(first[i].x, second[i].x);
-        EXPECT_EQ(first[i].y, second[i].y);
+        EXPECT_EQ(first[i].kind(), second[i].kind());
+        EXPECT_EQ(contents_of(first[i]), contents_of(second[i]));
     }
 }
 
@@ -486,10 +515,10 @@ TEST(Utility, AWithdrawalIsAnOrderTheSimulationCanActuallyCarryOut) {
     std::vector<sim::Order> orders;
     commander.think(observation, orders);
     ASSERT_EQ(orders.size(), 1U);
-    EXPECT_EQ(orders.front().kind, sim::OrderKind::MoveTo);
+    EXPECT_EQ(orders.front().kind(), sim::OrderKind::MoveTo);
     EXPECT_EQ(orders.front().unit, UnitId{kTank});
-    EXPECT_EQ(orders.front().x, sim::Fixed::from_int(30));
-    EXPECT_EQ(orders.front().y, sim::Fixed::from_int(44));
+    EXPECT_EQ(std::get<sim::orders::MoveTo>(orders.front().payload).x, sim::Fixed::from_int(30));
+    EXPECT_EQ(std::get<sim::orders::MoveTo>(orders.front().payload).y, sim::Fixed::from_int(44));
 }
 
 } // namespace protekt::ai

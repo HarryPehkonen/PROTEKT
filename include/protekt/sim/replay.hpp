@@ -34,7 +34,7 @@ struct Replay {
 ///   - verbs and their arguments:
 ///       move <unit> <x> <y>        guard <unit> <x> <y>
 ///       patrol <unit> <x> <y> <x2> <y2>
-///       attack <unit> <target>     stop <unit>
+///       attack <unit> <target>     stop <unit>     focusfire <unit> <target>
 ///   - numbers are decimal. Ticks, units and targets are plain integers. POSITIONS have two
 ///     accepted spellings: a plain integer is a raw Q16.16 value, and a literal containing '.'
 ///     is a tile value with up to 3 fractional digits, parsed with integer arithmetic only

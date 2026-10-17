@@ -62,11 +62,7 @@ struct Advance {
             base = unit.id;
         }
     }
-    Order order{};
-    order.kind = OrderKind::Attack;
-    order.unit = tank;
-    order.target = base;
-    sim.enqueue(order);
+    sim.enqueue(Order{tank, orders::Attack{base}});
 
     Advance result{};
     result.start_x = sim.find(tank)->x.floor_int();
@@ -132,11 +128,7 @@ TEST(Navigation, ATankOrderedOntoAFactoryReachesItAndDamagesIt) {
             base = unit.id;
         }
     }
-    Order order{};
-    order.kind = OrderKind::Attack;
-    order.unit = tank;
-    order.target = base;
-    sim.enqueue(order);
+    sim.enqueue(Order{tank, orders::Attack{base}});
 
     std::uint16_t lowest = sim.find(base)->hp;
     int first_damage = 0;

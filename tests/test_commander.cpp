@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <set>
+#include <variant>
 #include <vector>
 
 #include "protekt/ai/commander.hpp"
@@ -95,13 +96,14 @@ TEST(Commander, IssuesOneOrderPerOwnCombatUnitAndNeverForAFactory) {
     int guards = 0;
     for (const Order& o : orders) {
         EXPECT_EQ(own_ids.count(o.unit.value), 1U) << "only its own units may be ordered";
-        if (o.kind == OrderKind::Attack) {
+        if (o.kind() == OrderKind::Attack) {
             ++attacks;
-            EXPECT_EQ(enemy_ids.count(o.target.value), 1U) << "only a living enemy may be targeted";
-        } else if (o.kind == OrderKind::GuardAt) {
+            EXPECT_EQ(enemy_ids.count(std::get<orders::Attack>(o.payload).target.value), 1U)
+                << "only a living enemy may be targeted";
+        } else if (o.kind() == OrderKind::GuardAt) {
             ++guards;
         } else {
-            FAIL() << "unexpected order kind " << static_cast<int>(o.kind);
+            FAIL() << "unexpected order kind " << static_cast<int>(o.kind());
         }
     }
     EXPECT_EQ(attacks, 3);
@@ -127,8 +129,9 @@ TEST(Commander, AttacksTheNearestEnemyAndBreaksTiesByLowestId) {
     std::vector<Order> orders;
     commander.think(obs, orders);
     ASSERT_EQ(orders.size(), 1U);
-    EXPECT_EQ(orders[0].kind, OrderKind::Attack);
-    EXPECT_EQ(orders[0].target.value, expected) << "the nearest (by tie-break, lowest id) loses";
+    EXPECT_EQ(orders[0].kind(), OrderKind::Attack);
+    EXPECT_EQ(std::get<orders::Attack>(orders[0].payload).target.value, expected)
+        << "the nearest (by tie-break, lowest id) loses";
 }
 
 TEST(Commander, ACommandedBattleIsReproducibleAndDifferentFromAnUncommandedOne) {

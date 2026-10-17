@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <optional>
 #include <span>
+#include <variant>
 #include <vector>
 
 #include "protekt/ai/commander.hpp"
@@ -141,9 +142,10 @@ TEST(Controller, HoldGuardsThePointWithEveryLivingUnit) {
     ASSERT_EQ(orders.size(), 3U);
     EXPECT_EQ(ordered_units(orders), (std::vector<std::uint32_t>{1, 2, 3}));
     for (const Order& order : orders) {
-        EXPECT_EQ(order.kind, OrderKind::GuardAt);
-        EXPECT_EQ(order.x.raw, tiles(20).raw);
-        EXPECT_EQ(order.y.raw, tiles(30).raw);
+        EXPECT_EQ(order.kind(), OrderKind::GuardAt);
+        const auto& guard = std::get<protekt::sim::orders::GuardAt>(order.payload);
+        EXPECT_EQ(guard.x.raw, tiles(20).raw);
+        EXPECT_EQ(guard.y.raw, tiles(30).raw);
     }
 }
 
@@ -157,13 +159,15 @@ TEST(Controller, DenySendsTheFarUnitsToThePointAndHoldsTheNearOnes) {
                      15, orders);
     ASSERT_EQ(orders.size(), 2U);
     EXPECT_EQ(orders[0].unit.value, 1U);
-    EXPECT_EQ(orders[0].kind, OrderKind::MoveTo) << "a unit outside the radius must close the gap";
-    EXPECT_EQ(orders[0].x.raw, tiles(50).raw);
-    EXPECT_EQ(orders[0].y.raw, tiles(50).raw);
+    EXPECT_EQ(orders[0].kind(), OrderKind::MoveTo)
+        << "a unit outside the radius must close the gap";
+    EXPECT_EQ(std::get<protekt::sim::orders::MoveTo>(orders[0].payload).x.raw, tiles(50).raw);
+    EXPECT_EQ(std::get<protekt::sim::orders::MoveTo>(orders[0].payload).y.raw, tiles(50).raw);
     EXPECT_EQ(orders[1].unit.value, 2U);
-    EXPECT_EQ(orders[1].kind, OrderKind::GuardAt) << "a unit on the line holds where it stands";
-    EXPECT_EQ(orders[1].x.raw, tiles(52).raw) << "and holds ITS OWN tile, not the policy point";
-    EXPECT_EQ(orders[1].y.raw, tiles(50).raw);
+    EXPECT_EQ(orders[1].kind(), OrderKind::GuardAt) << "a unit on the line holds where it stands";
+    EXPECT_EQ(std::get<protekt::sim::orders::GuardAt>(orders[1].payload).x.raw, tiles(52).raw)
+        << "and holds ITS OWN tile, not the policy point";
+    EXPECT_EQ(std::get<protekt::sim::orders::GuardAt>(orders[1].payload).y.raw, tiles(50).raw);
 }
 
 TEST(Controller, DenyPutsTheBoundaryExactlyAtTheRadius) {
@@ -175,8 +179,8 @@ TEST(Controller, DenyPutsTheBoundaryExactlyAtTheRadius) {
                                      view(2, Side::Player, 50, 50 + kDenyRadiusTiles + 1)}),
                      15, orders);
     ASSERT_EQ(orders.size(), 2U);
-    EXPECT_EQ(orders[0].kind, OrderKind::GuardAt) << "exactly on the radius is on the line";
-    EXPECT_EQ(orders[1].kind, OrderKind::MoveTo) << "one tile past it is not";
+    EXPECT_EQ(orders[0].kind(), OrderKind::GuardAt) << "exactly on the radius is on the line";
+    EXPECT_EQ(orders[1].kind(), OrderKind::MoveTo) << "one tile past it is not";
 }
 
 TEST(Controller, FocusAttacksTheEnemyNearestThePoint) {
@@ -188,8 +192,9 @@ TEST(Controller, FocusAttacksTheEnemyNearestThePoint) {
                      15, orders);
     ASSERT_EQ(orders.size(), 2U);
     for (const Order& order : orders) {
-        EXPECT_EQ(order.kind, OrderKind::Attack);
-        EXPECT_EQ(order.target.value, 71U) << "the enemy nearest the point is the one to kill";
+        EXPECT_EQ(order.kind(), OrderKind::Attack);
+        EXPECT_EQ(std::get<protekt::sim::orders::Attack>(order.payload).target.value, 71U)
+            << "the enemy nearest the point is the one to kill";
     }
 }
 
@@ -202,7 +207,7 @@ TEST(Controller, FocusBreaksADistanceTieOnTheLowerId) {
                                     {view(80, Side::Enemy, 43, 40), view(79, Side::Enemy, 37, 40)}),
                      15, orders);
     ASSERT_EQ(orders.size(), 1U);
-    EXPECT_EQ(orders[0].target.value, 79U)
+    EXPECT_EQ(std::get<protekt::sim::orders::Attack>(orders[0].payload).target.value, 79U)
         << "ties go to the lowest id, like the scripted opponent";
 }
 
