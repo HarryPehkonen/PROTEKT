@@ -138,10 +138,16 @@ void apply_order(std::vector<Unit>& units, const Order& order) noexcept {
     }
 }
 
-bool impassable(std::uint64_t seed, Fixed x, Fixed y) noexcept {
-    const world::Tile tile = world::sample(seed, x.floor_int(), y.floor_int());
-    return terrain_speed_factor(tile.terrain).raw == 0;
-}
+/// The world as the mover sees it: one question, answered from the seed. A designed map answers the
+/// same question from its own tiles, and a route planner asks it many times, without the sim
+/// caring.
+struct WorldGround {
+    std::uint64_t seed;
+    [[nodiscard]] std::int64_t factor(int tile_x, int tile_y) const noexcept {
+        const world::Tile tile = world::sample(seed, tile_x, tile_y);
+        return terrain_speed_factor(tile.terrain).raw;
+    }
+};
 
 struct Coord {
     int x;
@@ -226,42 +232,32 @@ void steer(std::vector<Unit>& units, Unit& unit, const UnitProfile& prof) noexce
     unit.vy = Fixed::from_raw(static_cast<std::int32_t>(vy));
 }
 
-// Moves a unit by its velocity, scaled by the terrain it is entering. A move into a crater is
-// retried along each axis separately (so a unit slides along a rim); failing that it stays.
-void move(std::uint64_t seed, Unit& unit) noexcept {
+// Moves a unit by the step `plan_step` chose: straight on where it can, along a rim where it must,
+// and around an obstacle it cannot pass. The choice itself lives in sim/steering.hpp, which is the
+// seam a planned route will plug into.
+void move(const WorldGround& ground, const UnitProfile& prof, Unit& unit) noexcept {
     if (unit.vx.raw == 0 && unit.vy.raw == 0) {
         return;
     }
-    const std::array<std::array<std::int64_t, 2>, 3> candidates{
-        {{unit.vx.raw, unit.vy.raw}, {unit.vx.raw, 0}, {0, unit.vy.raw}}};
-    for (const auto& candidate : candidates) {
-        if (candidate[0] == 0 && candidate[1] == 0) {
-            continue;
-        }
-        const Fixed full_x = clamp_pos(Fixed::from_raw(static_cast<std::int32_t>(
-            std::clamp<std::int64_t>(unit.x.raw + candidate[0], 0, kMaxPosRaw))));
-        const Fixed full_y = clamp_pos(Fixed::from_raw(static_cast<std::int32_t>(
-            std::clamp<std::int64_t>(unit.y.raw + candidate[1], 0, kMaxPosRaw))));
-        const world::Tile tile = world::sample(seed, full_x.floor_int(), full_y.floor_int());
-        const std::int64_t factor = terrain_speed_factor(tile.terrain).raw;
-        if (factor == 0) {
-            continue;
-        }
-        const std::int64_t sx = (candidate[0] * factor) >> Fixed::kShift;
-        const std::int64_t sy = (candidate[1] * factor) >> Fixed::kShift;
-        const Fixed nx = Fixed::from_raw(
-            static_cast<std::int32_t>(std::clamp<std::int64_t>(unit.x.raw + sx, 0, kMaxPosRaw)));
-        const Fixed ny = Fixed::from_raw(
-            static_cast<std::int32_t>(std::clamp<std::int64_t>(unit.y.raw + sy, 0, kMaxPosRaw)));
-        if (impassable(seed, nx, ny)) {
-            continue;
-        }
-        unit.x = nx;
-        unit.y = ny;
+    StepRequest request;
+    request.x = unit.x;
+    request.y = unit.y;
+    request.want_dx = unit.vx.raw;
+    request.want_dy = unit.vy.raw;
+    request.speed = prof.max_speed.raw;
+    request.detour = unit.detour;
+
+    const StepPlan plan = plan_step(request, ground);
+    unit.detour = plan.detour;
+    if (!plan.moved) {
+        unit.vx = Fixed::zero();
+        unit.vy = Fixed::zero();
         return;
     }
-    unit.vx = Fixed::zero();
-    unit.vy = Fixed::zero();
+    unit.x = Fixed::from_raw(static_cast<std::int32_t>(
+        std::clamp<std::int64_t>(unit.x.raw + plan.step.dx, 0, kMaxPosRaw)));
+    unit.y = Fixed::from_raw(static_cast<std::int32_t>(
+        std::clamp<std::int64_t>(unit.y.raw + plan.step.dy, 0, kMaxPosRaw)));
 }
 
 // FNV-1a over little-endian bytes: specified here, so the hash is the same on every machine.
@@ -326,6 +322,7 @@ void Sim::step() {
 
     // 2. movement, ascending id (units_ is stored in id order).
     const std::uint64_t seed = scenario_.seed;
+    const WorldGround ground{seed};
     for (Unit& unit : units_) {
         if (!unit.alive) {
             continue;
@@ -337,7 +334,7 @@ void Sim::step() {
             continue;
         }
         steer(units_, unit, prof);
-        move(seed, unit);
+        move(ground, prof, unit);
     }
 
     // 3. fire, ascending id. Damage lands immediately, so a unit killed earlier in this phase
@@ -420,6 +417,9 @@ std::uint64_t Sim::state_hash() const noexcept {
         h.i32(u.y.raw);
         h.i32(u.vx.raw);
         h.i32(u.vy.raw);
+        h.i32(static_cast<std::int32_t>(u.detour.dx));
+        h.i32(static_cast<std::int32_t>(u.detour.dy));
+        h.u64(u.detour.ticks_left);
         h.u64(u.hp);
         h.u64(u.cooldown);
         h.u64(static_cast<std::uint64_t>(u.stance));

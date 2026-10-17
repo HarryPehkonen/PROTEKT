@@ -11,16 +11,14 @@
 ///
 /// The simulation steers in a STRAIGHT LINE at the current goal and, when a step is refused,
 /// retries along each axis separately so a unit slides along a crater rim. It does not plan a
-/// route. That is enough to cross open ground and enough to slide along a straight edge -- and it
-/// is not enough to leave a concave corner, where the goal direction and both axis components are
-/// all blocked at once.
+/// route; what it does about a CONCAVE corner -- where the goal direction and both axis components
+/// are blocked at once -- is a short remembered detour, chosen in sim/steering.hpp.
 ///
-/// These tests exist because that failure is silent: the unit keeps its order, keeps its stance,
-/// and does nothing forever, which from outside looks exactly like a unit that has not been ordered
-/// yet.
-/// **They record measured behaviour, not requirements.** The stuck test is expected to be DELETED
-/// and replaced by its opposite (a unit that gets out) when navigation lands; until then it is here
-/// so the gap is measured rather than remembered.
+/// The failure these tests were written for is silent: the unit keeps its order, keeps its stance,
+/// and does nothing, which from outside looks exactly like a unit that has not been ordered yet. It
+/// was measured at seed 42 on 2026-10-17 -- a tank held at one tile for 3000 ticks while the enemy
+/// base took no damage in any of fifty battles -- and it is now fixed, so the test that recorded
+/// the trap has been replaced by its opposite, as it said it should be.
 namespace protekt::sim {
 namespace {
 
@@ -102,26 +100,61 @@ TEST(Navigation, AUnitOnOpenGroundClosesOnItsTarget) {
                          << moved << " tiles of net progress";
 }
 
-TEST(Navigation, AUnitInAConcaveCraterCornerNeverMoves_DOCUMENTED_GAP) {
-    // Measured 2026-10-17, and the reason "no unit ever attacks a factory" was true in every one of
-    // fifty measured battles. At (43,68) the tiles east, south AND the diagonal are all craters --
-    // the concave corner of a rim with open ground to the north and west only. The steering tries
-    // the straight-line direction and then each axis separately, all three blocked, and the unit
-    // waits there forever with its order intact.
-    const Advance advance = drive(kTrapX, kTrapY, 1200);
-    EXPECT_TRUE(advance.alive)
-        << "nothing here can kill it; if it died, this measures something else";
-    EXPECT_EQ(advance.stance, Stance::Attack) << "the order WAS accepted: the unit is not idle";
-    EXPECT_EQ(advance.end_x, advance.start_x);
-    EXPECT_EQ(advance.end_y, advance.start_y);
-    // The terrain that does it, asserted rather than described, so this test cannot quietly become
-    // a record of different terrain after a world change.
+TEST(Navigation, AUnitInAConcaveCraterCornerFindsItsWayOut) {
+    // The corner that held a tank for 3000 ticks: at (43,68) the tiles east, south and the diagonal
+    // are all crater, with open ground to the north and west. The terrain is asserted rather than
+    // described, so this cannot quietly become a record of different ground after a world change.
     EXPECT_EQ(world::sample(42, kTrapX + 1, kTrapY).terrain, world::Terrain::Crater) << "east";
     EXPECT_EQ(world::sample(42, kTrapX, kTrapY + 1).terrain, world::Terrain::Crater) << "south";
     EXPECT_EQ(world::sample(42, kTrapX + 1, kTrapY + 1).terrain, world::Terrain::Crater)
         << "the diagonal";
     EXPECT_NE(world::sample(42, kTrapX - 1, kTrapY).terrain, world::Terrain::Crater)
-        << "there is a way out to the west, which the steering cannot see";
+        << "there is a way out to the west";
+
+    const Advance advance = drive(kTrapX, kTrapY, 1200);
+    EXPECT_TRUE(advance.alive)
+        << "nothing here can kill it; if it died, this measures something else";
+    EXPECT_EQ(advance.stance, Stance::Attack) << "the order WAS accepted";
+    const int moved = (advance.end_x - advance.start_x) + (advance.end_y - advance.start_y);
+    EXPECT_GT(moved, 30) << "it must leave the pocket: it made " << moved
+                         << " tiles of net progress";
+}
+
+TEST(Navigation, ATankOrderedOntoAFactoryReachesItAndDamagesIt) {
+    // The measurement that started this: in fifty battles no unit ever damaged a base, because no
+    // unit could get there. This is the end-to-end statement of the fix.
+    Sim sim = Sim::create(one_tank_at(kTrapX, kTrapY));
+    UnitId tank{};
+    UnitId base{};
+    for (const Unit& unit : sim.units()) {
+        if (unit.side == Side::Player) {
+            tank = unit.id;
+        } else {
+            base = unit.id;
+        }
+    }
+    Order order{};
+    order.kind = OrderKind::Attack;
+    order.unit = tank;
+    order.target = base;
+    sim.enqueue(order);
+
+    std::uint16_t lowest = sim.find(base)->hp;
+    int first_damage = 0;
+    for (int tick = 1; tick <= 2400; ++tick) {
+        sim.step();
+        const std::uint16_t hp = sim.find(base)->hp;
+        if (hp < lowest) {
+            lowest = hp;
+            if (first_damage == 0) {
+                first_damage = tick;
+            }
+        }
+    }
+    EXPECT_TRUE(sim.find(tank)->alive) << "it died on the way, so this measures something else";
+    EXPECT_LT(lowest, 400) << "the base took no damage at all";
+    EXPECT_EQ(first_damage, 965)
+        << "and it takes about a thousand ticks to get there and open fire";
 }
 
 } // namespace protekt::sim

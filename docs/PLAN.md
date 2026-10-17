@@ -438,6 +438,44 @@ capability, but an economy whose harvesters cannot reliably reach a resource fie
 building first, and an A\* whose results nobody has yet needed is a module that will be tuned against
 nothing.
 
+**Decided and done: option 1. Option 2 stays the plan, as its own milestone after the economy.**
+
+Implemented as `include/protekt/sim/steering.hpp`: one function, `plan_step`, answers "which way does
+this unit go this tick?" and is the seam a planned route plugs into -- an A\* answers the same question
+from a waypoint list and needs nothing else in the tick loop to change. The ground is handed over as
+any type with a `factor(tile_x, tile_y)`, so a test draws a map and the sim hands it the world.
+
+Two things the implementation taught, both now pinned by tests rather than remembered:
+
+- **A one-tick dodge cannot work.** Steering re-aims straight at the goal every tick, so a unit that
+  dodges a rim for one tick walks straight back into it and the two moves cancel. Working around an
+  obstacle is therefore STATE: a `Detour` on the unit, inside `state_hash()`, so a replay reproduces
+  the same walk.
+- **The step test is weaker than the question it was being asked.** Tanks move about a fifth of a tile
+  a tick, so "is the tile I would land on enterable" is almost always TRUE -- it is the tile they are
+  already standing in. Using it to decide whether an obstacle was behind them cancelled every escape
+  one tick after it began, which measured as the unit pacing in place. The escape and the detour
+  lifecycle use a whole-tile test; ordinary movement deliberately keeps the weaker one, because a unit
+  that refused to move within a tile of any crater could not cross the map -- that version was built,
+  measured, and it stopped the two commanders engaging at all.
+
+**Measured after the fix** (seed 42, the same scenario that produced the finding): the tank ordered at
+the base crosses **94 tiles** to (137,158), which is **11.8 tiles** from the base and inside its
+12-tile weapon range, and stops there to fire. An unarmed base goes **400 → 0 hp**, first damage at
+tick **965**. With one enemy turret covering the approach the tank still reaches firing range (first
+damage tick 966) and takes the base to **336/400** before dying.
+
+Recorded properties that moved with it, re-recorded rather than adjusted: the seed-42 1200-tick battle
+hash `3138344302628900498` → `9354737314166346737` (**and 8 units → 7**: the recorded battle now has a
+casualty in it), and the 300-frame autodrive headless hash `8785776222935281865` → `8785776222935281865`
+(the detour is part of unit state, so every state hash moved).
+
+**Balance consequence, and it is Harri's call, not mine:** a single unescorted tank now destroys a
+factory. The base was safe for fifty battles because nothing could reach it, not because it was
+defended. Its turrets (16-tile range against the tank's 12) are not enough once arrival is possible.
+Either the factory needs to be worth defending or its hp/armour needs revisiting -- this is the
+ecomomy-and-balance decision, and it is now visible instead of hidden behind the trap.
+
 ### The world is drawn mirrored (found by playing it)
 
 Harri's first session produced two reports that are the same bug seen twice: *"A and D seem to be
@@ -481,7 +519,7 @@ verification run has to be a function of the seed and the flags; anything else m
 coin flip that usually lands on heads.
 
 Cross-machine confirmation fell out of it: `--seed 42 --frames 300 --autodrive` gives state hash
-**42334912212936072** on the MacBook under lavapipe and on the laptop under the GTX 1060 -- two GPUs, two
+**8785776222935281865** on the MacBook under lavapipe and on the laptop under the GTX 1060 -- two GPUs, two
 driver stacks, one world.
 
 **Explicitly not in M5a:** an LLM anywhere near the tick loop (latency, cost and nondeterminism all

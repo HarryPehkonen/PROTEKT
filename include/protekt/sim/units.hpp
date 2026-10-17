@@ -3,6 +3,7 @@
 #include <cstdint>
 
 #include "protekt/sim/fixed.hpp"
+#include "protekt/sim/steering.hpp"
 #include "protekt/world/world.hpp"
 
 namespace protekt::sim {
@@ -48,6 +49,9 @@ struct Unit {
     std::uint16_t cooldown{}; ///< ticks until this unit may fire again
     Stance stance{};
     UnitId target{}; ///< Attack: the unit being hunted
+    /// The obstacle this unit is working around, if any. State, not a decision: a one-tick escape
+    /// cancels itself out, because steering re-aims at the goal every tick.
+    Detour detour{};
     Fixed guard_x{}; ///< GuardAt: the post to hold
     Fixed guard_y{};
     Fixed patrol_x{}; ///< Patrol: the far end of the beat (the near end is the post)
