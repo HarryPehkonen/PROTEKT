@@ -68,6 +68,30 @@ nothing, which is the entire reason the radius exists.
 Distance on the panel is to scale (half the radius is half the way out); the marks themselves are
 sized to be read rather than to be exact.
 
+## Sound
+
+Synthesised, with **no assets**: every sound is arithmetic (a seeded noise, a decay and a sine), the
+same bytes on every machine, so there is nothing to license and nothing to go missing from a
+checkout. It plays through SDL3 when there is a window and an output device; with neither the game
+says so once at startup and runs silent. `--no-sound` never opens the device.
+
+What you hear:
+
+- **your gun** — a crack over a falling tone, full volume and in the middle. So is a friend's, while
+  they are within earshot.
+- **being hit** — a low thud with a sharp attack and a high ping on top, full volume, in the middle.
+  It is the same whichever way the shot came from, because the thing that is hurting you is not
+  something to locate, only to know.
+- **a hostile's gun that missed** — the same crack, quieter with distance and placed left or right
+  by where it came from. Dead ahead and dead behind sound alike: there is a left and a right and
+  nothing else.
+- **something dying** — a roar. Yours is at full volume; anyone else's is quieter with distance and
+  placed like a gun, and carries 90 tiles where a shot carries 60.
+
+What you do not hear: **anything beyond earshot — not quiet, not there.** It is the radar's promise
+made to the ears: a battle you cannot perceive must not be audible, or the ears become a map of
+where the enemy is.
+
 ## Status
 
 **Playable, incomplete.** What genuinely works, and what does not — because a status line nobody can
@@ -88,7 +112,11 @@ change a verification run.
 | **No economy** | no resources, no harvester, no building. A factory is a 400 hp target and nothing more |
 | **No way to win or lose** | nothing ends a match. An undefended factory can be destroyed by a single tank — factories are unarmed on purpose and defence is what turrets are for — but there is no objective beyond that |
 | **No HUD** | refusals ("that order would move the tank you are in") are printed to the console, not to the screen. There is a mark at the aim point and nothing else: no health, no marker on the unit your gun is engaging, no counters |
-| **No feedback** | being shot, shooting, and killing all happen silently. There is no sound at all, and no on-screen sign that a shot happened — the reticle says what a click *would* do, not what one just did |
+| **No on-screen feedback** | there is sound (see above) and no on-screen sign that a shot happened — the reticle says what a click *would* do, not what one just did |
+| **No positional audio beyond left and right** | a sound is placed on a line between the speakers: no front or back, no height, no echo or occlusion. A shot behind a hill sounds exactly like one in the open |
+| **Sounds are generated, not recorded** | they are made of noise and sine waves and sound like it. A recording would sound better and bring files, licences and a loader; that trade has not been made |
+| **Silence beyond earshot is deliberate** | 60 tiles for a shot, 90 for a death; past it there is no voice at all. It is not a bug to report when a distant fight makes no noise |
+| **Sounds queue, they do not overlap across frames** | the device plays what it is given in order, so a burst of fire within one sound's length waits its turn, and a buffer arriving with more than about three quarters of a second already queued is dropped rather than played late |
 | **The radar is range-based, not line-of-sight** | a hostile behind a hill inside the 40 tiles is still on it. Battlezone's radar worked the same way, and this is the version to play before adding occlusion |
 | **No compass** | the panel turns with the tank and there is no north tick: there is nothing to correlate a bearing with until there is a map |
 | **Two units on one panel pixel** | the depth test decides, so one colour wins. A hostile within about a tile of you hides under your own mark |
@@ -126,6 +154,9 @@ Then any of:
 
 # the radar off, for comparing two frames pixel by pixel (the game always has one)
 ./build/protekt-game --headless --seed 42 --frames 60 --autodrive --no-radar --capture without.ppm
+
+# no sound device opened, whatever the machine has (a window run says so once if it finds none)
+./build/protekt-game --seed 42 --no-sound
 
 # a frame with the mark in it, on a machine with no mouse at all: --cursor places the pointer (the
 # mark stays in the middle horizontally and takes only the height, so the x of --cursor is ignored)

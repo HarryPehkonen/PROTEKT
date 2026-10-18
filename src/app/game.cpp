@@ -6,6 +6,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <fstream>
+#include <memory>
 #include <ostream>
 #include <string>
 #include <string_view>
@@ -13,13 +14,17 @@
 #include <vector>
 
 #include "protekt/ai/scripted.hpp"
+#include "protekt/app/audio.hpp"
+#include "protekt/audio/mixer.hpp"
 #include "protekt/game/aim.hpp"
 #include "protekt/game/scene.hpp"
 #include "protekt/game/session.hpp"
+#include "protekt/game/sounds.hpp"
 #include "protekt/input/bindings.hpp"
 #include "protekt/input/input.hpp"
 #include "protekt/render/renderer.hpp"
 #include "protekt/sim/commander.hpp"
+#include "protekt/sim/observer.hpp"
 #include "protekt/sim/scenario.hpp"
 #include "protekt/sim/sim.hpp"
 #include "protekt/world/world.hpp"
@@ -63,6 +68,10 @@ struct Options {
     bool press_alt{false};
     /// Turn the radar off, for comparing two frames pixel by pixel. The game always has one.
     bool no_radar{false};
+    /// Never open the sound device, for a run that must be silent whatever the machine has: the
+    /// same family as `--no-radar`, a flag for verification. Sound never touches the simulation,
+    /// so it changes nothing but what the speakers do.
+    bool no_sound{false};
 };
 
 template <typename T> bool parse_number(std::string_view text, T& value) {
@@ -89,6 +98,8 @@ int parse_args(std::span<const std::string_view> args, Options& options, std::os
             options.headless = true;
         } else if (arg == "--no-radar") {
             options.no_radar = true;
+        } else if (arg == "--no-sound") {
+            options.no_sound = true;
         } else if (arg == "--press") {
             std::string_view name;
             if (!next(name) || (name != "f11" && name != "ctrl+q" && name != "alt+enter")) {
@@ -181,6 +192,28 @@ int write_ppm(const std::string& path, const std::vector<std::uint8_t>& rgba,
     return out ? 0 : 1;
 }
 
+/// What the player's hit points were before a tick: the living units' `{id, hp}`. Taken from the
+/// snapshot the events are diffed against, so the two cannot describe different moments.
+std::vector<game::Health> health_of(const sim::UnitSnapshot& snapshot) {
+    std::vector<game::Health> health;
+    health.reserve(snapshot.size());
+    for (const sim::Unit& unit : snapshot) {
+        if (unit.alive) {
+            health.push_back(game::Health{unit.id, unit.hp});
+        }
+    }
+    return health;
+}
+
+bool is_alive(const sim::Sim& sim, sim::UnitId id) {
+    for (const sim::Unit& unit : sim.units()) {
+        if (unit.id == id) {
+            return unit.alive;
+        }
+    }
+    return false;
+}
+
 /// The player's eye: kEyeHeight metres above the ground under the tank, looking along its heading.
 /// The height comes from `world::sample`, the same generator the simulation drives on, so the
 /// camera neither floats over a ridge nor sinks into a hollow.
@@ -263,6 +296,20 @@ int run_game_cli(std::span<const std::string_view> args, std::ostream& out, std:
         err << "protekt-game: no presenter was created; refusing to run\n";
         return 4;
     }
+
+    // Sound is the window's: a headless run has no speakers to be wrong about, and a machine with
+    // no device must still play. ONE line says so, because a silent game with no explanation looks
+    // like a bug.
+    std::unique_ptr<AudioOut> audio_out;
+#ifdef PROTEKT_HAVE_WINDOW
+    if (window != nullptr && !options.no_sound) {
+        std::string audio_error;
+        audio_out = AudioOut::open(audio_error);
+        if (audio_out == nullptr) {
+            out << "protekt-game: " << audio_error << "; the game runs silent\n";
+        }
+    }
+#endif
 
     sim::Sim sim = sim::Sim::create(sim::skirmish(options.seed));
     sim::UnitId player_id{};
@@ -393,8 +440,33 @@ int run_game_cli(std::span<const std::string_view> args, std::ostream& out, std:
                 ++steps;
             }
         }
+        // Sound is derived AFTER each step from the states either side of it, the way the replay
+        // log is: the sim is not told, and the copy is only taken when someone is listening. One
+        // mix covers every tick stepped this frame.
+        std::vector<audio::Voice> voices;
+        const game::Listener listener{scene_options.camera.x, scene_options.camera.z,
+                                      scene_options.camera.yaw, sim::Side::Player};
+        // A dead player is listening from nowhere: the camera has no tank to stand at.
+        const bool listening = audio_out != nullptr && audio_out->ok() && is_alive(sim, player_id);
         for (std::uint32_t tick = 0; tick < steps; ++tick) {
+            if (!listening) {
+                sim.step();
+                continue;
+            }
+            const sim::UnitSnapshot before = sim.units();
+            const sim::Tick tick_number = sim.tick();
             sim.step();
+            const std::vector<sim::BattleEvent> events
+                = sim::events_between(before, sim, tick_number);
+            const std::vector<game::Health> health = health_of(before);
+            const std::vector<audio::Voice> heard
+                = game::sounds_for(events, listener, before, health);
+            voices.insert(voices.end(), heard.begin(), heard.end());
+        }
+        if (!voices.empty()) {
+            const std::vector<float> samples
+                = audio::mix(voices, audio::frames_to_play(voices), audio::kSampleRate);
+            audio_out->play(samples, audio::kSampleRate);
         }
 
         scene_options.camera = camera_for(sim, player_id, session.heading(), options.seed);

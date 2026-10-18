@@ -110,23 +110,23 @@ replay; a Vulkan client that draws it, headless or in a window — full screen i
 `Alt`+`Enter`, with `Ctrl`+`Q` to quit from anywhere; a command layer where the human and the AI issue
 the same orders through the same interface; a utility AI that advances, engages and withdraws; a
 trigger that chooses a target; units that go around the ground rather than into it; and a radar in the
-corner of the frame that shows what is within 40 tiles of the tank and nothing beyond it. 345 tests.
+corner of the frame that shows what is within 40 tiles of the tank and nothing beyond it; and sound,
+synthesised from arithmetic with no assets: a pure rule in `game/` turns the observer's `fired` and
+`killed` events into voices, `audio/` makes and mixes the samples, and `app/` plays them, so the
+simulation never learns that sound exists and a shot beyond earshot (60 tiles; 90 for a death) is not
+quiet but absent. A machine with no sound device runs silent. 396 tests.
 
 **What is next, in order.**
 
-1. **Finish the feel slice: hit feedback, then sound.** The reticle says what a click *would* do; it
-   does not say what one just did. Two things are missing and they share one piece of plumbing: a
-   per-tick "what happened" seam in the presenter, fed by the observer, which already infers `fired`
-   and `killed` by diffing simulation state between ticks — no new sim machinery. Then a flash or a
-   marker when a shot lands, and the same events driving sound. Everything stays world-space triangles
-   (the camera's view is the only thing that decides where they appear), so the renderer contract does
-   not move, and sound is SDL3's, already a dependency, synthesised rather than sampled — nothing to
-   license, and a machine with no sound device stays silent instead of failing.
+1. **On-screen hit feedback.** The reticle says what a click *would* do; it does not say what one just
+   did. The events that drive sound (`sim::events_between`, the one place the diff is written) are
+   there for a flash or a marker when a shot lands. Everything stays world-space triangles, so the
+   renderer contract does not move.
 2. **Economy and objectives: the unpaid half of M4.** Resources, a harvester, building, and a way for a
    match to end. This is what makes an A\* worth building and what gives turret placement a point.
 3. **Deterministic A\* (navigation option 2)**, as its own milestone, once units have somewhere to go
    that matters.
-4. **Rendering depth and sound**: textures, lighting, unit shapes. Today the world is flat colours.
+4. **Rendering depth**: textures, lighting, unit shapes. Today the world is flat colours.
 5. **Strategic controllers** (below), the slow layer that decides what to defend.
 
 

@@ -22,6 +22,19 @@ struct BattleEvent {
     std::uint16_t subject_hp{}; ///< after the event, for Fired
 };
 
+/// The units as they stood at one instant. `events_between` diffs one of these against a later
+/// `Sim`; taking it is a copy of the unit table and nothing else, so a caller that wants events
+/// pays for them only on the ticks it asks.
+using UnitSnapshot = std::vector<Unit>;
+
+/// The Fired and Killed events of the step that took `before` to `after`, in ascending shooter id,
+/// stamped `tick`. Empty when the two tables disagree in size (the sim never resizes its table, so
+/// that is a snapshot of some other battle, not a tick with nothing in it). This is the ONE place
+/// the diff is written: the replay log and the game's sound both read it, so they cannot disagree
+/// about who shot whom.
+[[nodiscard]] std::vector<BattleEvent> events_between(const UnitSnapshot& before, const Sim& after,
+                                                      Tick tick);
+
 struct BattleLog {
     Tick ticks{};
     std::uint64_t seed{};

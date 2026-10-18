@@ -21,7 +21,9 @@ namespace fs = std::filesystem;
 /// The layers built ON the sim, not into it. `input` is here and not below because it produces
 /// orders
 /// -- it is a client of the sim the same way the game is.
-constexpr std::array kUpperLayers{"ai", "cmd", "game", "input", "render", "app"};
+/// `audio` is here because the rule it enforces is the one that matters: the sim never learns that
+/// sound exists.
+constexpr std::array kUpperLayers{"ai", "audio", "cmd", "game", "input", "render", "app"};
 
 /// The bottom, where a tick's worth of state lives and nothing from above may leak in.
 constexpr std::array kLowerLayers{"sim", "world"};

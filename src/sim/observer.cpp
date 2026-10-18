@@ -74,68 +74,6 @@ void record_status(const Sim& sim, std::vector<UnitState>& last, std::vector<boo
     }
 }
 
-/// Reconstructs who shot whom during the step that took `before` to `sim`'s current state. A unit
-/// fired this tick exactly when its cooldown went UP (a reload only ever counts down); its victim
-/// is found with the sim's own targeting rule, applied in ascending id order against the hit
-/// points as they stood before the step, so shots that kill are attributed to the right shooter.
-void record_fire(const std::vector<Unit>& before, const Sim& sim, Tick tick, BattleLog& log) {
-    const std::vector<Unit>& after = sim.units();
-    if (before.size() != after.size()) {
-        return;
-    }
-    std::vector<std::uint16_t> hp(before.size());
-    std::vector<bool> alive(before.size());
-    for (std::size_t i = 0; i < before.size(); ++i) {
-        hp[i] = before[i].hp;
-        alive[i] = before[i].alive;
-    }
-    for (std::size_t i = 0; i < after.size(); ++i) {
-        const Unit& shooter = after[i];
-        if (!before[i].alive || shooter.cooldown <= before[i].cooldown) {
-            continue;
-        }
-        const UnitProfile prof = profile(shooter.kind);
-        const std::int64_t range = prof.weapon_range.raw;
-        std::size_t best = after.size();
-        if (shooter.target.valid()) { // only an Attack order leaves a target set
-            for (std::size_t j = 0; j < after.size(); ++j) {
-                if (after[j].id == shooter.target) {
-                    if (alive[j] && after[j].side != shooter.side
-                        && dist2(shooter, after[j]) <= range * range) {
-                        best = j;
-                    }
-                    break;
-                }
-            }
-        }
-        if (best == after.size()) {
-            std::int64_t best_d2 = range * range + 1;
-            for (std::size_t j = 0; j < after.size(); ++j) {
-                if (!alive[j] || after[j].side == shooter.side) {
-                    continue;
-                }
-                const std::int64_t d2 = dist2(shooter, after[j]);
-                if (d2 <= range * range && d2 < best_d2) {
-                    best = j;
-                    best_d2 = d2;
-                }
-            }
-        }
-        if (best == after.size()) {
-            continue;
-        }
-        hp[best] = hp[best] > prof.damage ? static_cast<std::uint16_t>(hp[best] - prof.damage)
-                                          : std::uint16_t{0};
-        log.events.push_back(
-            BattleEvent{tick, EventKind::Fired, shooter.id, after[best].id, hp[best]});
-        if (hp[best] == 0) {
-            alive[best] = false;
-            log.events.push_back(
-                BattleEvent{tick, EventKind::Killed, shooter.id, after[best].id, 0});
-        }
-    }
-}
-
 /// Whom an order shoots at; "no unit" for the kinds that name no victim.
 UnitId ordered_target(const Order& order) {
     if (const auto* attack = std::get_if<orders::Attack>(&order.payload)) {
@@ -210,6 +148,69 @@ void append_status_lines(std::string& out, Tick tick,
 }
 
 } // namespace
+
+std::vector<BattleEvent> events_between(const UnitSnapshot& before, const Sim& sim, Tick tick) {
+    // Reconstructs who shot whom during the step that took `before` to `sim`'s current state. A
+    // unit fired this tick exactly when its cooldown went UP (a reload only ever counts down); its
+    // victim is found with the sim's own targeting rule, applied in ascending id order against the
+    // hit points as they stood before the step, so shots that kill are attributed to the right
+    // shooter.
+    std::vector<BattleEvent> events;
+    const std::vector<Unit>& after = sim.units();
+    if (before.size() != after.size()) {
+        return events;
+    }
+    std::vector<std::uint16_t> hp(before.size());
+    std::vector<bool> alive(before.size());
+    for (std::size_t i = 0; i < before.size(); ++i) {
+        hp[i] = before[i].hp;
+        alive[i] = before[i].alive;
+    }
+    for (std::size_t i = 0; i < after.size(); ++i) {
+        const Unit& shooter = after[i];
+        if (!before[i].alive || shooter.cooldown <= before[i].cooldown) {
+            continue;
+        }
+        const UnitProfile prof = profile(shooter.kind);
+        const std::int64_t range = prof.weapon_range.raw;
+        std::size_t best = after.size();
+        if (shooter.target.valid()) { // only an Attack order leaves a target set
+            for (std::size_t j = 0; j < after.size(); ++j) {
+                if (after[j].id == shooter.target) {
+                    if (alive[j] && after[j].side != shooter.side
+                        && dist2(shooter, after[j]) <= range * range) {
+                        best = j;
+                    }
+                    break;
+                }
+            }
+        }
+        if (best == after.size()) {
+            std::int64_t best_d2 = range * range + 1;
+            for (std::size_t j = 0; j < after.size(); ++j) {
+                if (!alive[j] || after[j].side == shooter.side) {
+                    continue;
+                }
+                const std::int64_t d2 = dist2(shooter, after[j]);
+                if (d2 <= range * range && d2 < best_d2) {
+                    best = j;
+                    best_d2 = d2;
+                }
+            }
+        }
+        if (best == after.size()) {
+            continue;
+        }
+        hp[best] = hp[best] > prof.damage ? static_cast<std::uint16_t>(hp[best] - prof.damage)
+                                          : std::uint16_t{0};
+        events.push_back(BattleEvent{tick, EventKind::Fired, shooter.id, after[best].id, hp[best]});
+        if (hp[best] == 0) {
+            alive[best] = false;
+            events.push_back(BattleEvent{tick, EventKind::Killed, shooter.id, after[best].id, 0});
+        }
+    }
+    return events;
+}
 
 std::string BattleLog::to_text(Tick status_period) const {
     std::string out;
@@ -317,9 +318,11 @@ BattleLog run_battle(const Scenario& scenario, std::span<const Command> script, 
         command_phase(sim, enemy, Side::Enemy, orders);
         record_orders(sim, logged, log);
 
-        const std::vector<Unit> before = sim.units();
+        const UnitSnapshot before = sim.units();
         sim.step();
-        record_fire(before, sim, t, log);
+        for (const BattleEvent& event : events_between(before, sim, t)) {
+            log.events.push_back(event);
+        }
     }
     record_status(sim, last, seen, log);
     log.final_hash = sim.state_hash();

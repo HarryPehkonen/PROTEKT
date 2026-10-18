@@ -73,6 +73,17 @@ add_library(protekt_cmd STATIC
 target_link_libraries(protekt_cmd PUBLIC protekt_core)
 protekt_warnings(protekt_cmd)
 
+# ================================ audio ================================
+# Sound made of arithmetic: synthesis and mixing, pure functions of their arguments. It depends on
+# nothing in the project (the sim does not know it exists, and it does not know the sim), so it
+# is tested on a machine with no sound hardware like everything else.
+add_library(protekt_audio STATIC
+    src/audio/synth.cpp
+    src/audio/mixer.cpp
+)
+target_include_directories(protekt_audio PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+protekt_warnings(protekt_audio)
+
 # ================================ game ================================
 # The game's own logic -- the world as seen, and the player as a commander -- is PURE, has no
 # window and no Vulkan in it, and is therefore tested on the gate box with everything else.
@@ -85,13 +96,15 @@ add_library(protekt_game STATIC
     src/game/session.cpp
     src/game/navigate.cpp
     src/game/radar.cpp
+    src/game/sounds.cpp
+    src/app/audio.cpp
     src/app/game.cpp
 )
 target_include_directories(protekt_game PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_BINARY_DIR}/generated
 )
-target_link_libraries(protekt_game PUBLIC protekt_core protekt_cmd)
+target_link_libraries(protekt_game PUBLIC protekt_core protekt_cmd protekt_audio)
 protekt_warnings(protekt_game)
 # ================================ render ================================
 # Vulkan is OPTIONAL at build time: a machine with no loader or no shader compiler still builds
@@ -134,6 +147,16 @@ if(NOT SDL3_FOUND)
     if(PkgConfig_FOUND)
         pkg_check_modules(SDL3 IMPORTED_TARGET sdl3)
     endif()
+endif()
+# The sound device is SDL3's too, and independent of the window: a build with SDL but no Vulkan can
+# still be heard. Without SDL the device is a stub that says so and the game is silent.
+if(SDL3_FOUND OR TARGET PkgConfig::SDL3)
+    if(SDL3_FOUND)
+        target_link_libraries(protekt_game PUBLIC SDL3::SDL3)
+    else()
+        target_link_libraries(protekt_game PUBLIC PkgConfig::SDL3)
+    endif()
+    target_compile_definitions(protekt_game PUBLIC PROTEKT_HAVE_SDL_AUDIO=1)
 endif()
 if(Vulkan_FOUND AND GLSLANG_VALIDATOR)
     set(PROTEKT_RENDER ON)
@@ -240,7 +263,9 @@ if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
                                         tests/test_utility.cpp
                                         tests/test_utility_battle.cpp
                                         tests/test_layering.cpp
-                                        tests/test_navigation.cpp)
+                                        tests/test_navigation.cpp
+                                        tests/test_synth.cpp tests/test_mixer.cpp
+                                        tests/test_sounds.cpp tests/test_audio_out.cpp)
     target_link_libraries(protekt_tests PRIVATE protekt_game protekt_cmd)
     if(PROTEKT_RENDER)
         target_sources(protekt_tests PRIVATE tests/test_render.cpp)
