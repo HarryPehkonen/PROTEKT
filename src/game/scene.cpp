@@ -1,6 +1,7 @@
 #include "protekt/game/scene.hpp"
 
 #include "protekt/game/pick.hpp"
+#include "protekt/game/radar.hpp"
 #include "protekt/math/math.hpp"
 
 #include <algorithm>
@@ -125,6 +126,8 @@ constexpr float kReticleDistanceMetres = 1.5F;
 /// extent.
 constexpr float kReticleHalfFraction = 0.055F;
 /// How thick each bar is, as a fraction of the half-size.
+constexpr float kTriangleBaseFraction = 0.85F;
+constexpr float kTriangleTurn = 2.35619449F; ///< 135 degrees: where a triangle's base corners sit
 constexpr float kReticleBarFraction = 0.22F;
 
 /// The reticle's colour is the ANSWER to "what would a click here do": red fires, green selects,
@@ -142,6 +145,129 @@ std::array<float, 3> reticle_colour(const sim::Sim& sim, const Pick& picked, sim
         return kGround;
     }
     return unit->side == viewer ? kOwn : kHostile;
+}
+
+/// How far the radar is drawn from the eye, PER LAYER, derived from the frame rather than fixed.
+///
+/// Two measured traps sit behind these numbers, and both were found by looking at frames:
+///
+/// 1. `ray_point` puts a mark `d` metres FORWARD only for the pixel the ray runs straight through.
+///    An off-centre pixel sits further along its own ray, so its forward distance is `d / |dir|`,
+///    and |dir| reaches about 1.55 at a 1280x720 frame corner and grows with the aspect ratio. A
+///    panel at 0.105 m was therefore only 0.07 m in front of the eye -- inside the 0.1 m near
+///    plane, where it is silently clipped and simply is not there. The base distance scales with
+///    the frame's own corner ray, so no resolution can push the panel into the near plane.
+///
+/// 2. The depth test decides between the layers per PIXEL, and depth is `1 - near/forward`, so a
+///    LARGE quad interpolates its depth across its own corners: |dir| varies by about a third
+///    across a corner panel, and a face 3% further out than the marks still reads NEARER than them
+///    in the middle of the panel -- the marks then lose every pixel and the panel is an empty dark
+///    square. The ratios below are therefore 1 : 1.6 : 2.2, wider than that variation, so the layer
+///    that should be on top is on top everywhere.
+///
+/// The panel is still only tens of centimetres from the eye -- nearer than any ground the tank can
+/// be standing on -- so terrain cannot hide it either.
+constexpr float kHudClearance = 1.25F;  ///< how far past the near plane the nearest layer sits
+constexpr float kHudFaceRatio = 1.6F;   ///< the panel's face, relative to the marks
+constexpr float kHudBorderRatio = 2.2F; ///< and its border, relative to the marks
+
+/// The length of the ray the frame's own corner looks along, unnormalised, exactly as `ray_through`
+/// builds it: 1 at the middle of the frame, up to ~1.55 at a corner.
+[[nodiscard]] float corner_ray_length(render::Extent extent) noexcept {
+    const float half_tan = std::tan(math::kFovRadians * 0.5F);
+    const float height = extent.height > 0 ? static_cast<float>(extent.height) : 1.0F;
+    const float rx = (static_cast<float>(extent.width) / height) * half_tan;
+    return std::sqrt(1.0F + (rx * rx) + (half_tan * half_tan));
+}
+constexpr float kRadarOutlineFraction = 0.5F; ///< an outline's bar thickness, of its half-size
+
+std::array<float, 3> radar_colour(RadarTone tone) {
+    switch (tone) {
+    case RadarTone::You:
+        return {0.55F, 1.0F, 0.55F};
+    case RadarTone::Yours:
+        return {0.30F, 0.85F, 0.35F};
+    case RadarTone::Hostile:
+        return {1.0F, 0.30F, 0.25F};
+    }
+    return {1.0F, 1.0F, 1.0F};
+}
+
+/// The radar, drawn in PANEL PIXELS: every corner goes through `ray_point`, the same pixel-to-world
+/// function the picker uses, so the panel is exactly where its pixels are and a mark can never sit
+/// somewhere other than its own place on the panel. Three metres of nothing, a dark face so the
+/// marks read over any terrain, and then the marks: dots for units, an outline for your base, a
+/// triangle for you, an arrow at the rim for a base you cannot see.
+void append_radar(std::vector<render::SceneVertex>& out, const SceneOptions& options,
+                  const sim::Sim& sim) {
+    if (!options.viewer_unit.valid()) {
+        return;
+    }
+    const RadarPanel panel = radar_panel(options.extent);
+    const std::vector<RadarMark> marks
+        = radar_marks(sim.units(), options.viewer_unit, options.camera.yaw, panel);
+    if (marks.empty()) {
+        return; // no such unit, or a dead one: there is nothing for the radar to be centred on
+    }
+    const float marks_at = math::kNearPlane * kHudClearance * corner_ray_length(options.extent);
+    const float face_at = marks_at * kHudFaceRatio;
+    const float border_at = marks_at * kHudBorderRatio;
+    const auto at = [&](float distance, float px, float py) {
+        const RayPoint point = ray_point(options.camera, options.extent, px, py, distance);
+        return Vec3{point.x, point.y, point.z};
+    };
+    const auto rect = [&](float distance, float ax, float ay, float bx, float by,
+                          const std::array<float, 3>& rgb) {
+        emit_quad(out, at(distance, ax, ay), at(distance, bx, ay), at(distance, bx, by),
+                  at(distance, ax, by), rgb);
+    };
+    const float x0 = panel.x - kRadarBorderPixels;
+    const float y0 = panel.y - kRadarBorderPixels;
+    const float x1 = panel.x + panel.size + kRadarBorderPixels;
+    const float y1 = panel.y + panel.size + kRadarBorderPixels;
+    constexpr std::array<float, 3> kBorder{0.80F, 0.82F, 0.85F};
+    constexpr std::array<float, 3> kFace{0.04F, 0.05F, 0.06F};
+    rect(border_at, x0, y0, x1, y1, kBorder);
+    rect(face_at, panel.x, panel.y, panel.x + panel.size, panel.y + panel.size, kFace);
+
+    for (const RadarMark& mark : marks) {
+        const std::array<float, 3> rgb = radar_colour(mark.tone);
+        // The mark's own coordinates are PANEL pixels; the frame is what gets drawn into, so the
+        // panel's corner is added once, here, and nowhere else. Forgetting it puts every unit at
+        // the top-left corner of the screen.
+        const float centre_x = panel.x + mark.px;
+        const float centre_y = panel.y + mark.py;
+        const float left = centre_x - mark.half;
+        const float right = centre_x + mark.half;
+        const float top = centre_y - mark.half;
+        const float bottom = centre_y + mark.half;
+        if (mark.shape == RadarShape::Square) {
+            rect(marks_at, left, top, right, bottom, rgb);
+            continue;
+        }
+        if (mark.shape == RadarShape::Hollow) {
+            const float bar = mark.half * kRadarOutlineFraction;
+            rect(marks_at, left, top, right, top + bar, rgb);
+            rect(marks_at, left, bottom - bar, right, bottom, rgb);
+            rect(marks_at, left, top + bar, left + bar, bottom - bar, rgb);
+            rect(marks_at, right - bar, top + bar, right, bottom - bar, rgb);
+            continue;
+        }
+        // A triangle pointing along its angle: the apex, and two corners 135 degrees either side.
+        const auto corner = [&](float radius, float turn) {
+            const float angle = mark.angle + turn;
+            return std::array<float, 2>{centre_x + (radius * std::sin(angle)),
+                                        centre_y - (radius * std::cos(angle))};
+        };
+        const std::array<float, 2> apex = corner(mark.half, 0.0F);
+        const std::array<float, 2> side_a
+            = corner(mark.half * kTriangleBaseFraction, kTriangleTurn);
+        const std::array<float, 2> side_b
+            = corner(mark.half * kTriangleBaseFraction, -kTriangleTurn);
+        out.push_back(render::SceneVertex{at(marks_at, apex.at(0), apex.at(1)), rgb});
+        out.push_back(render::SceneVertex{at(marks_at, side_a.at(0), side_a.at(1)), rgb});
+        out.push_back(render::SceneVertex{at(marks_at, side_b.at(0), side_b.at(1)), rgb});
+    }
 }
 
 /// Four bars forming a square outline, in the plane the camera looks along, centred on the point
@@ -232,6 +358,7 @@ render::Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
         }
     }
 
+    append_radar(scene.vertices, options, sim);
     append_reticle(scene.vertices, options, sim);
 
     return scene;

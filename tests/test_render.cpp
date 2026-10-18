@@ -21,7 +21,10 @@
 #include <vector>
 
 #include "protekt/app/render.hpp"
+#include "protekt/game/radar.hpp"
+#include "protekt/game/scene.hpp"
 #include "protekt/render/renderer.hpp"
+#include "protekt/sim/scenario.hpp"
 
 namespace {
 
@@ -424,6 +427,115 @@ TEST_F(RenderCliTest, FailsWithAReasonWhenTheNamedGpuDoesNotExist) {
     const int code = protekt::app::run_render_cli(args, out, err);
     EXPECT_EQ(code, 4) << err.str();
     EXPECT_NE(err.str().find("not-a-real-gpu"), std::string::npos) << err.str();
+}
+
+// ---------------------------------------------------------------- the radar panel, as drawn
+
+TEST_F(RenderTest, DrawsTheRadarWithAFaceMarksAndABorderThatSurviveTheDepthTest) {
+    // Why this test renders instead of counting vertices: the panel is three layers of geometry and
+    // the depth test decides between them per PIXEL. Two layers at the same distance do not fight
+    // politely -- the depth test is LESS with writes on, so the later one loses every pixel and the
+    // panel comes out in the colour that went down first (measured: a light border with no face at
+    // all). No assertion over vertices can see that; one over pixels can.
+    using protekt::sim::Spawn;
+    using protekt::sim::UnitKind;
+
+    const auto panel_pixels = [&](int enemy_tile_x) {
+        protekt::sim::Scenario scenario;
+        scenario.seed = 42;
+        scenario.spawns.push_back(Spawn{UnitKind::Tank, protekt::sim::Side::Player, 50, 50});
+        scenario.spawns.push_back(
+            Spawn{UnitKind::Tank, protekt::sim::Side::Enemy, enemy_tile_x, 52});
+        const auto sim = protekt::sim::Sim::create(scenario);
+        protekt::sim::UnitId player{};
+        for (const auto& unit : sim.units()) {
+            if (unit.side == protekt::sim::Side::Player) {
+                player = unit.id;
+            }
+        }
+        protekt::game::SceneOptions options;
+        options.seed = scenario.seed;
+        options.radius_tiles = 8;
+        options.extent = Extent{kWidth, kHeight};
+        options.camera.x = 100.0F;
+        options.camera.y = 8.0F;
+        options.camera.z = 104.0F;
+        options.viewer_unit = player;
+        const protekt::render::Scene scene = protekt::game::build_scene(sim, options);
+
+        Frame frame;
+        frame.extent = Extent{kWidth, kHeight};
+        frame.pixels = renderer_->render(
+            protekt::render::FrameRequest{
+                .extent = frame.extent, .seed = scenario.seed, .tick = 0, .scene = &scene},
+            frame.stats);
+        const protekt::game::RadarPanel panel = protekt::game::radar_panel(Extent{kWidth, kHeight});
+
+        std::size_t face = 0;
+        std::size_t border = 0;
+        std::size_t green = 0;
+        std::size_t red = 0;
+        // The panel's face and its marks are inside the panel; its border is a ring just outside
+        // it, which is why the scan runs over the widened rectangle and sorts the pixels by where
+        // they are.
+        const float slack = protekt::game::kRadarBorderPixels + 1.0F;
+        for (std::uint32_t y = static_cast<std::uint32_t>(panel.y - slack);
+             y < static_cast<std::uint32_t>(panel.y + panel.size + slack); ++y) {
+            for (std::uint32_t x = static_cast<std::uint32_t>(panel.x - slack);
+                 x < static_cast<std::uint32_t>(panel.x + panel.size + slack); ++x) {
+                const std::uint32_t rgb = frame.rgb(x, y);
+                const std::uint32_t r = (rgb >> 16U) & 0xFFU;
+                const std::uint32_t g = (rgb >> 8U) & 0xFFU;
+                const std::uint32_t b = rgb & 0xFFU;
+                const bool inside = static_cast<float>(x) >= panel.x
+                                    && static_cast<float>(x) < (panel.x + panel.size)
+                                    && static_cast<float>(y) >= panel.y
+                                    && static_cast<float>(y) < (panel.y + panel.size);
+                if (inside && r < 40U && g < 40U && b < 40U) {
+                    ++face; // the panel's dark face
+                }
+                if (!inside && r > 150U && g > 150U && b > 150U) {
+                    ++border; // the light ring around it
+                }
+                if (g > (r + 40U) && g > (b + 40U)) {
+                    ++green; // yours, and you
+                }
+                if (r > (g + 40U) && r > (b + 40U)) {
+                    ++red; // a hostile in range
+                }
+            }
+        }
+        // You are always at the middle of the panel: a 3x3 window there must contain your own mark,
+        // which is a structural claim about the radar rather than a claim about a colour value.
+        bool you_are_at_the_middle = false;
+        const std::uint32_t middle_x = static_cast<std::uint32_t>(panel.x + (panel.size * 0.5F));
+        const std::uint32_t middle_y = static_cast<std::uint32_t>(panel.y + (panel.size * 0.5F));
+        for (std::uint32_t y = middle_y - 1U; y <= middle_y + 1U; ++y) {
+            for (std::uint32_t x = middle_x - 1U; x <= middle_x + 1U; ++x) {
+                const std::uint32_t rgb = frame.rgb(x, y);
+                if (((rgb >> 8U) & 0xFFU) > (((rgb >> 16U) & 0xFFU) + 40U)) {
+                    you_are_at_the_middle = true;
+                }
+            }
+        }
+        return std::array<std::size_t, 5>{face, border, green, red,
+                                          you_are_at_the_middle ? 1U : 0U};
+    };
+
+    // An enemy five tiles away: on the radar, and red.
+    const std::array<std::size_t, 5> near_enemy = panel_pixels(55);
+    EXPECT_GT(near_enemy.at(0), 1000U) << "the dark face must survive the layers above it";
+    EXPECT_GT(near_enemy.at(1), 100U) << "the border must be visible";
+    EXPECT_GT(near_enemy.at(2), 5U) << "you are on the panel";
+    EXPECT_EQ(near_enemy.at(4), 1U) << "you are at the middle of it";
+    EXPECT_GT(near_enemy.at(3), 10U) << "a hostile in range is red on the panel";
+
+    // The same frame with the enemy three hundred tiles away: everything else identical, and no red
+    // at all. The radius is the promise, and this is where it is kept in pixels.
+    const std::array<std::size_t, 5> far_enemy = panel_pixels(350);
+    EXPECT_GT(far_enemy.at(0), 1000U);
+    EXPECT_EQ(far_enemy.at(4), 1U);
+    EXPECT_EQ(far_enemy.at(3), 0U) << "a hostile outside the radius must not be on the radar";
 }
 
 } // namespace

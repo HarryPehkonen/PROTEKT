@@ -67,6 +67,9 @@ struct SceneOptions {
     /// Whose eyes this is, which is what colours the reticle: a unit that is not yours turns it
     /// red, because that is the one click that fires.
     sim::Side viewer_side{sim::Side::Player};
+    /// The tank the radar is centred on. ABSENT means no radar, which is what a frame with no
+    /// player unit in it gets: a radar with no centre would be a lie about where the tank is.
+    sim::UnitId viewer_unit{};
 };
 
 /// Triangles for the terrain mesh (two per tile, coloured by `Terrain`) followed by one box per

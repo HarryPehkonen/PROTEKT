@@ -50,6 +50,24 @@ A small square outline, and the only thing drawn close to your eye: if you can s
 your click lands. The pointer does not aim — a click anywhere on the screen does what the mark shows,
 which is why the mark cannot promise something the shot cannot do.
 
+## The radar
+
+Bottom-left corner, and it is a **radar, not a map**. It is centred on the tank you are sitting in
+and reaches **40 tiles** in every direction, and what is inside that radius is all it will ever show
+you. A hostile beyond it is not dimmed, not on the rim and not hinted at: outside the radius you know
+nothing, which is the entire reason the radius exists.
+
+- **green triangle** at the middle — you, always pointing up: **the panel turns with you**, so a
+  mark's direction is a direction to turn, with no mental arithmetic in the middle of a firefight.
+- **green square** — one of your units, in range.
+- **red square** — a hostile, in range. The only way a hostile ever appears.
+- **green outline** — your base, in range: a shape as well as a colour, so it reads at a glance.
+- **green arrow at the rim** — your base, out of range. Your own base is the one thing you are never
+  lost about, so it is always drawn or always pointed at. Enemy assets get no arrow, ever.
+
+Distance on the panel is to scale (half the radius is half the way out); the marks themselves are
+sized to be read rather than to be exact.
+
 ## Status
 
 **Playable, incomplete.** What genuinely works, and what does not — because a status line nobody can
@@ -71,6 +89,9 @@ change a verification run.
 | **No way to win or lose** | nothing ends a match. An undefended factory can be destroyed by a single tank — factories are unarmed on purpose and defence is what turrets are for — but there is no objective beyond that |
 | **No HUD** | refusals ("that order would move the tank you are in") are printed to the console, not to the screen. There is a mark at the aim point and nothing else: no health, no marker on the unit your gun is engaging, no counters |
 | **No feedback** | being shot, shooting, and killing all happen silently. There is no sound at all, and no on-screen sign that a shot happened — the reticle says what a click *would* do, not what one just did |
+| **The radar is range-based, not line-of-sight** | a hostile behind a hill inside the 40 tiles is still on it. Battlezone's radar worked the same way, and this is the version to play before adding occlusion |
+| **No compass** | the panel turns with the tank and there is no north tick: there is nothing to correlate a bearing with until there is a map |
+| **Two units on one panel pixel** | the depth test decides, so one colour wins. A hostile within about a tile of you hides under your own mark |
 | **No mouse look** | the mark is the middle of the screen horizontally and the mouse only moves it up and down; nothing turns the view but `A`/`D` — deliberately, until it has been played and judged |
 | Text is not drawn at all | there are coloured boxes and a horizon, and no font. Flat colours, no textures, no lighting |
 
@@ -102,6 +123,9 @@ Then any of:
 
 # a run nobody is sitting at: press one key on the first frame, so a keypress is reproducible
 ./build/protekt-game --headless --seed 42 --frames 90 --autodrive --press ctrl+q
+
+# the radar off, for comparing two frames pixel by pixel (the game always has one)
+./build/protekt-game --headless --seed 42 --frames 60 --autodrive --no-radar --capture without.ppm
 
 # a frame with the mark in it, on a machine with no mouse at all: --cursor places the pointer (the
 # mark stays in the middle horizontally and takes only the height, so the x of --cursor is ignored)

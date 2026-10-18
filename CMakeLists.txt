@@ -84,6 +84,7 @@ add_library(protekt_game STATIC
     src/game/interaction.cpp
     src/game/session.cpp
     src/game/navigate.cpp
+    src/game/radar.cpp
     src/app/game.cpp
 )
 target_include_directories(protekt_game PUBLIC
@@ -230,7 +231,7 @@ if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
     target_compile_definitions(protekt_tests
         PRIVATE PROTEKT_CORPUS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fuzz/corpus/replay"
                 PROTEKT_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
-    target_sources(protekt_tests PRIVATE tests/test_scene.cpp tests/test_player.cpp
+    target_sources(protekt_tests PRIVATE tests/test_scene.cpp tests/test_radar.cpp tests/test_player.cpp
                                         tests/test_game_cli.cpp tests/test_selection.cpp
                                         tests/test_command.cpp tests/test_controller.cpp
                                         tests/test_pick.cpp tests/test_input.cpp

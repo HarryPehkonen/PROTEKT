@@ -61,6 +61,8 @@ struct Options {
     std::int32_t press_scancode{-1};
     bool press_ctrl{false};
     bool press_alt{false};
+    /// Turn the radar off, for comparing two frames pixel by pixel. The game always has one.
+    bool no_radar{false};
 };
 
 template <typename T> bool parse_number(std::string_view text, T& value) {
@@ -85,6 +87,8 @@ int parse_args(std::span<const std::string_view> args, Options& options, std::os
         std::string_view value;
         if (arg == "--headless") {
             options.headless = true;
+        } else if (arg == "--no-radar") {
+            options.no_radar = true;
         } else if (arg == "--press") {
             std::string_view name;
             if (!next(name) || (name != "f11" && name != "ctrl+q" && name != "alt+enter")) {
@@ -358,6 +362,7 @@ int run_game_cli(std::span<const std::string_view> args, std::ostream& out, std:
         scene_options.extent = extent;
         scene_options.radius_tiles = 24;
         scene_options.aim = game::aim_from(hands, extent);
+        scene_options.viewer_unit = options.no_radar ? sim::UnitId{} : player_id;
 
         std::vector<sim::Order> orders;
         session.frame(hands, sim, scene_options, orders);

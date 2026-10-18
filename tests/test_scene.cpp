@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "protekt/game/pick.hpp"
+#include "protekt/game/radar.hpp"
 #include "protekt/game/scene.hpp"
 #include "protekt/render/renderer.hpp"
 #include "protekt/sim/scenario.hpp"
@@ -474,6 +475,166 @@ TEST(Reticle, IsTheSameEveryTime) {
     for (std::size_t i = 0; i < a.vertices.size(); ++i) {
         EXPECT_EQ(a.vertices.at(i).position, b.vertices.at(i).position);
         EXPECT_EQ(a.vertices.at(i).colour, b.vertices.at(i).colour);
+    }
+}
+
+// ---------------------------------------------------------------- the radar, as drawn
+
+/// The radar's own vertices, found as the block that appears when a viewer unit is named. Colours
+/// are not duplicated here on purpose: what the test needs is the DIFFERENCE between two scenes,
+/// and that difference is exactly the panel.
+std::vector<protekt::render::SceneVertex> radar_vertices(const Scene& with_viewer,
+                                                         const Scene& without) {
+    EXPECT_GT(with_viewer.vertices.size(), without.vertices.size());
+    std::size_t first = 0;
+    while (first < without.vertices.size()
+           && with_viewer.vertices.at(first).colour == without.vertices.at(first).colour
+           && with_viewer.vertices.at(first).position == without.vertices.at(first).position) {
+        ++first;
+    }
+    EXPECT_EQ(first, without.vertices.size()) << "the radar is appended after everything else";
+    return {with_viewer.vertices.begin() + static_cast<std::ptrdiff_t>(first),
+            with_viewer.vertices.end()};
+}
+
+TEST(RadarDraws, ThePanelLandsOnItsPixelsAndInFrontOfTheNearPlane) {
+    // Two mistakes this catches, both made once each: forgetting to add the panel's corner to a
+    // mark's panel-relative pixels (which puts every unit in the frame's top-left corner), and
+    // placing the HUD too close to the eye -- a mark at 10 cm is only 7 cm FORWARD at the frame's
+    // corner, so it is silently clipped by the 10 cm near plane and nothing appears at all.
+    const auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(42));
+    protekt::sim::UnitId player{};
+    for (const auto& unit : sim.units()) {
+        if (unit.side == protekt::sim::Side::Player && unit.kind == protekt::sim::UnitKind::Tank) {
+            player = unit.id;
+            break;
+        }
+    }
+    ASSERT_TRUE(player.valid());
+
+    SceneOptions plain = options_at(60.0F, 60.0F);
+    SceneOptions watched = plain;
+    watched.viewer_unit = player;
+    const std::vector<protekt::render::SceneVertex> radar = radar_vertices(
+        protekt::game::build_scene(sim, watched), protekt::game::build_scene(sim, plain));
+    ASSERT_FALSE(radar.empty());
+
+    const protekt::game::RadarPanel panel = protekt::game::radar_panel(watched.extent);
+    const protekt::math::Basis basis
+        = protekt::math::basis_from(watched.camera.yaw, watched.camera.pitch);
+    for (const auto& v : radar) {
+        const float forward = ((v.position[0] - watched.camera.x) * basis.forward[0])
+                              + ((v.position[1] - watched.camera.y) * basis.forward[1])
+                              + ((v.position[2] - watched.camera.z) * basis.forward[2]);
+        EXPECT_GT(forward, protekt::math::kNearPlane)
+            << "a HUD vertex inside the near plane is clipped and never drawn";
+        const protekt::game::Projected p = protekt::game::project(
+            watched.camera, watched.extent, v.position[0], v.position[1], v.position[2]);
+        // The border sits just outside the panel's face, which is the widest thing drawn.
+        const float slack = protekt::game::kRadarBorderPixels + 1.0F;
+        EXPECT_GE(p.x, panel.x - slack);
+        EXPECT_LE(p.x, panel.x + panel.size + slack);
+        EXPECT_GE(p.y, panel.y - slack);
+        EXPECT_LE(p.y, panel.y + panel.size + slack);
+    }
+}
+
+TEST(RadarDraws, AnInvalidViewerUnitDrawsNoPanelAtAll) {
+    // "No viewer" and "a viewer that is not in the sim" must both mean no radar: a panel with no
+    // centre would be a lie about where the tank is, and an empty panel is not a radar either.
+    const auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(42));
+    const SceneOptions none = options_at(60.0F, 60.0F);
+    SceneOptions stranger = none;
+    stranger.viewer_unit = protekt::sim::UnitId{9999};
+    EXPECT_EQ(protekt::game::build_scene(sim, none).vertices.size(),
+              protekt::game::build_scene(sim, stranger).vertices.size());
+}
+
+TEST(RadarDraws, MarksCountUpTheWayTheRulesSay) {
+    // The panel is 12 vertices (two quads) and each mark is 6, except the viewer's triangle and an
+    // arrow, which are 3.
+    const auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(42));
+    protekt::sim::UnitId player{};
+    for (const auto& unit : sim.units()) {
+        if (unit.side == protekt::sim::Side::Player && unit.kind == protekt::sim::UnitKind::Tank) {
+            player = unit.id;
+            break;
+        }
+    }
+    SceneOptions plain = options_at(60.0F, 60.0F);
+    SceneOptions watched = plain;
+    watched.viewer_unit = player;
+    const auto marks = protekt::game::radar_marks(sim.units(), player, watched.camera.yaw,
+                                                  protekt::game::radar_panel(watched.extent));
+    const std::vector<protekt::render::SceneVertex> radar = radar_vertices(
+        protekt::game::build_scene(sim, watched), protekt::game::build_scene(sim, plain));
+    std::size_t expected = 12; // the panel itself: a border quad and a face quad
+    for (const auto& mark : marks) {
+        switch (mark.shape) {
+        case protekt::game::RadarShape::Square:
+            expected += 6; // one quad
+            break;
+        case protekt::game::RadarShape::Hollow:
+            expected += 24; // four bars, each a quad
+            break;
+        case protekt::game::RadarShape::Triangle:
+        case protekt::game::RadarShape::Arrow:
+            expected += 3; // one triangle
+            break;
+        }
+    }
+    EXPECT_EQ(radar.size(), expected);
+}
+
+TEST(RadarDraws, AHostileInRangeIsDrawnRedAndOneOutOfRangeIsNotDrawnAtAll) {
+    using protekt::sim::Side;
+    using protekt::sim::Spawn;
+    using protekt::sim::UnitKind;
+
+    const auto scene_of = [](int enemy_tile_x) {
+        protekt::sim::Scenario scenario;
+        scenario.seed = 42;
+        scenario.spawns.push_back(Spawn{UnitKind::Tank, Side::Player, 50, 50});
+        scenario.spawns.push_back(Spawn{UnitKind::Tank, Side::Enemy, enemy_tile_x, 52});
+        const auto sim = protekt::sim::Sim::create(scenario);
+        protekt::sim::UnitId player{};
+        for (const auto& unit : sim.units()) {
+            if (unit.side == Side::Player) {
+                player = unit.id;
+            }
+        }
+        SceneOptions plain;
+        plain.seed = scenario.seed;
+        plain.radius_tiles = 8;
+        plain.camera.x = 100.0F;
+        plain.camera.z = 104.0F;
+        plain.camera.y = 8.0F;
+        SceneOptions watched = plain;
+        watched.viewer_unit = player;
+        return radar_vertices(protekt::game::build_scene(sim, watched),
+                              protekt::game::build_scene(sim, plain));
+    };
+    const auto is_red = [](const protekt::render::SceneVertex& v) {
+        return v.colour.at(0) > (v.colour.at(1) + 0.3F) && v.colour.at(0) > (v.colour.at(2) + 0.3F);
+    };
+
+    // Five tiles away: inside the radar's radius, so the enemy is on the panel, and red.
+    const std::vector<protekt::render::SceneVertex> near_enemy = scene_of(55);
+    ASSERT_FALSE(near_enemy.empty());
+    std::size_t reds = 0;
+    for (const auto& v : near_enemy) {
+        if (is_red(v)) {
+            ++reds;
+        }
+    }
+    EXPECT_EQ(reds, 6U) << "one red square per hostile in range";
+
+    // Three hundred tiles away: the same frame, but the enemy is not on the panel and nothing about
+    // him is drawn -- not a dot, not a hint at the rim.
+    const std::vector<protekt::render::SceneVertex> far_enemy = scene_of(350);
+    ASSERT_FALSE(far_enemy.empty());
+    for (const auto& v : far_enemy) {
+        EXPECT_FALSE(is_red(v)) << "a hostile outside the radius must not be visible on the radar";
     }
 }
 

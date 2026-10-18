@@ -106,14 +106,13 @@ docs/               this plan
 ## 5. Milestones — each one is a review gate for Harri
 
 **Where it is now.** A deterministic world from a seed; a fixed-tick simulation with units, orders and
-replay; a Vulkan client that draws it, headless or in a window; a command layer where the human and the
-AI issue the same orders through the same interface; a utility AI that advances, engages and withdraws;
-a trigger that chooses a target; and units that go around the ground rather than into it. 301 tests.
+replay; a Vulkan client that draws it, headless or in a window — full screen included, on `F11` or
+`Alt`+`Enter`, with `Ctrl`+`Q` to quit from anywhere; a command layer where the human and the AI issue
+the same orders through the same interface; a utility AI that advances, engages and withdraws; a
+trigger that chooses a target; units that go around the ground rather than into it; and a radar in the
+corner of the frame that shows what is within 40 tiles of the tank and nothing beyond it. 345 tests.
 
-**What is next, in order.** (Full screen, `F11`/`Alt+Enter` and `Ctrl+Q`, landed with the window
-taking its size from SDL: the renderer draws at the window's own extent, so a full-screen frame is not
-a stretched 1280×720.)
-
+**What is next, in order.**
 
 1. **Finish the feel slice: hit feedback, then sound.** The reticle says what a click *would* do; it
    does not say what one just did. Two things are missing and they share one piece of plumbing: a
