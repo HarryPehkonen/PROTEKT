@@ -51,6 +51,16 @@ struct Options {
     int cursor_x{};
     int cursor_y{};
     bool cursor_placed{false};
+    /// Start in full screen. The window is the authority on its size either way; this only says
+    /// which size to start at.
+    bool fullscreen{false};
+    /// One key pressed on the first frame, for a run nobody is sitting at: `--press f11` exercises
+    /// the full-screen toggle, `--press ctrl+q` the quit, and a bug report can name the key that
+    /// did it. The same family as `--cursor`: a scripted frame of input, so what happened is
+    /// repeatable.
+    std::int32_t press_scancode{-1};
+    bool press_ctrl{false};
+    bool press_alt{false};
 };
 
 template <typename T> bool parse_number(std::string_view text, T& value) {
@@ -75,6 +85,24 @@ int parse_args(std::span<const std::string_view> args, Options& options, std::os
         std::string_view value;
         if (arg == "--headless") {
             options.headless = true;
+        } else if (arg == "--press") {
+            std::string_view name;
+            if (!next(name) || (name != "f11" && name != "ctrl+q" && name != "alt+enter")) {
+                err << "protekt-game: --press wants one of f11, ctrl+q, alt+enter\n";
+                return 2;
+            }
+            options.press_scancode = name == "f11" ? input::kKeyF11 : input::kKeyQ;
+            options.press_ctrl = name == "ctrl+q";
+            options.press_alt = name == "alt+enter";
+            if (options.press_alt) {
+                options.press_scancode = input::kKeyEnter;
+            }
+        } else if (arg == "--fullscreen") {
+            if (options.headless) {
+                err << "protekt-game: --fullscreen needs a window; --headless has none\n";
+                return 2;
+            }
+            options.fullscreen = true;
         } else if (arg == "--autodrive") {
             options.autodrive = true;
         } else if (arg == "--seed") {
@@ -178,7 +206,7 @@ int run_game_cli(std::span<const std::string_view> args, std::ostream& out, std:
         return code;
     }
 
-    const render::Extent extent{options.width, options.height};
+    render::Extent extent{options.width, options.height};
 
     // The presentation seam: a window if there is one, an offscreen buffer if not.
     std::string error;
@@ -192,6 +220,7 @@ int run_game_cli(std::span<const std::string_view> args, std::ostream& out, std:
         render::WindowOptions window_options;
         window_options.extent = extent;
         window_options.device_name = options.gpu;
+        window_options.fullscreen = options.fullscreen;
         window = render::Window::create(window_options, error);
         if (window == nullptr) {
             err << "protekt-game: " << error << "\n"
@@ -296,10 +325,29 @@ int run_game_cli(std::span<const std::string_view> args, std::ostream& out, std:
         if (options.autodrive) {
             hands.keys.push_back(input::KeyEvent{input::kKeyW, true, false});
         }
+        if (options.press_scancode >= 0) {
+            hands.keys.push_back(input::KeyEvent{options.press_scancode, true, false,
+                                                 options.press_ctrl, options.press_alt});
+        }
         if (options.cursor_placed) {
             hands.cursor_x = options.cursor_x;
             hands.cursor_y = options.cursor_y;
             hands.cursor_known = true;
+        }
+
+#ifdef PROTEKT_HAVE_WINDOW
+        if (window != nullptr) {
+            // The window is the authority on its own size. A full-screen switch or a resize changes
+            // the frame the projection has to fill -- and the aim point's middle with it -- so the
+            // game follows the window rather than stretching a fixed 1280x720 over it.
+            extent = input::fullscreen_requested(hands) ? window->toggle_fullscreen()
+                                                        : window->extent();
+        }
+#endif
+        if (input::quit_requested(hands)) {
+            out << "protekt-game: Ctrl+Q, so quitting at frame " << frame << ", tick " << sim.tick()
+                << '\n';
+            break;
         }
 
         // What the player can see, as of the end of the last frame. The picking needs the camera,

@@ -19,8 +19,11 @@ enum class MouseButton : std::uint8_t { Left, Right, Middle };
 /// SDL3 scancodes for the keys the game acts on. Named here so the game layer and its tests agree
 /// about a key without either of them including SDL (these are USB HID usage codes, which is what
 /// SDL scancodes are).
+inline constexpr std::int32_t kKeyQ = 20;
 inline constexpr std::int32_t kKeyEscape = 41;
 inline constexpr std::int32_t kKeyTab = 43;
+inline constexpr std::int32_t kKeyEnter = 40;
+inline constexpr std::int32_t kKeyF11 = 68;
 
 struct Click {
     int x{}; ///< pixels from the left of the framebuffer
@@ -36,6 +39,8 @@ struct KeyEvent {
     std::int32_t scancode{};
     bool pressed{};
     bool shift{}; ///< Shift was held: Shift-Tab cycles the other way
+    bool ctrl{};  ///< Ctrl was held: Ctrl+Q quits, and nothing else uses it yet
+    bool alt{};   ///< Alt was held, for Alt+Enter as a second way to ask for full screen
 };
 
 struct InputFrame {

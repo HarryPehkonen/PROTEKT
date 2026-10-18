@@ -20,6 +20,8 @@ You are one tank. Everything else you command.
 | **left click** + `Shift`, mark on a unit | add it to the selection, or remove it |
 | `Tab` / `Shift`+`Tab` | cycle the selection through your units |
 | `Escape` | clear the selection |
+| `F11` or `Alt`+`Enter` | full screen, and back again |
+| `Ctrl`+`Q` | quit from anywhere |
 | **right click**, mark on the ground | order every selected unit there |
 | **right click**, mark on a hostile | order every selected unit to attack it |
 | **left click**, mark on a hostile | shoot at it: the gun fires at whatever the mark covers |
@@ -70,7 +72,6 @@ change a verification run.
 | **No HUD** | refusals ("that order would move the tank you are in") are printed to the console, not to the screen. There is a mark at the aim point and nothing else: no health, no marker on the unit your gun is engaging, no counters |
 | **No feedback** | being shot, shooting, and killing all happen silently. There is no sound at all, and no on-screen sign that a shot happened — the reticle says what a click *would* do, not what one just did |
 | **No mouse look** | the mark is the middle of the screen horizontally and the mouse only moves it up and down; nothing turns the view but `A`/`D` — deliberately, until it has been played and judged |
-| **No full screen** | the window is 1280×720. The window tracks a resize and rebuilds its swapchain, but the renderer still draws at 1280×720 and the game never asks for a bigger surface |
 | Text is not drawn at all | there are coloured boxes and a horizon, and no font. Flat colours, no textures, no lighting |
 
 ## Requirements
@@ -95,6 +96,12 @@ Then any of:
 
 # the game with a window (needs SDL3 + Vulkan; --gpu picks a device by substring)
 ./build/protekt-game --seed 42
+
+# full screen from the start (F11 and Alt+Enter toggle it while playing; Ctrl+Q quits)
+./build/protekt-game --seed 42 --fullscreen
+
+# a run nobody is sitting at: press one key on the first frame, so a keypress is reproducible
+./build/protekt-game --headless --seed 42 --frames 90 --autodrive --press ctrl+q
 
 # a frame with the mark in it, on a machine with no mouse at all: --cursor places the pointer (the
 # mark stays in the middle horizontally and takes only the height, so the x of --cursor is ignored)

@@ -57,5 +57,57 @@ TEST(HeldKeys, KeysTheGameDoesNotUseAreIgnored) {
     EXPECT_FALSE(keys.any());
 }
 
+// The keys that are commands, not states: press one and something happens once.
+
+TEST(CommandKeys, CtrlQAsksForQuit) {
+    InputFrame frame{};
+    frame.keys.push_back(KeyEvent{kKeyQ, true, false, true, false});
+    EXPECT_TRUE(quit_requested(frame));
+}
+
+TEST(CommandKeys, ABareQDoesNotQuit) {
+    // A slipped hand must not end the game: the modifier is the whole safety of this key.
+    InputFrame frame{};
+    frame.keys.push_back(KeyEvent{kKeyQ, true});
+    EXPECT_FALSE(quit_requested(frame));
+
+    InputFrame shifted{};
+    shifted.keys.push_back(KeyEvent{kKeyQ, true, true, false, false});
+    EXPECT_FALSE(quit_requested(shifted));
+}
+
+TEST(CommandKeys, ReleasingQDoesNotQuit) {
+    InputFrame frame{};
+    frame.keys.push_back(KeyEvent{kKeyQ, false, false, true, false});
+    EXPECT_FALSE(quit_requested(frame));
+}
+
+TEST(CommandKeys, F11AndAltEnterBothAskForFullScreen) {
+    InputFrame f11{};
+    f11.keys.push_back(KeyEvent{kKeyF11, true});
+    EXPECT_TRUE(fullscreen_requested(f11));
+
+    InputFrame alt_enter{};
+    alt_enter.keys.push_back(KeyEvent{kKeyEnter, true, false, false, true});
+    EXPECT_TRUE(fullscreen_requested(alt_enter));
+}
+
+TEST(CommandKeys, EnterAloneIsNotFullScreen) {
+    // Enter is a common key for other things, so it only asks when Alt is held with it.
+    InputFrame frame{};
+    frame.keys.push_back(KeyEvent{kKeyEnter, true});
+    EXPECT_FALSE(fullscreen_requested(frame));
+
+    InputFrame released{};
+    released.keys.push_back(KeyEvent{kKeyF11, false});
+    EXPECT_FALSE(fullscreen_requested(released));
+}
+
+TEST(CommandKeys, NothingPressedAsksForNothing) {
+    const InputFrame empty{};
+    EXPECT_FALSE(quit_requested(empty));
+    EXPECT_FALSE(fullscreen_requested(empty));
+}
+
 } // namespace
 } // namespace protekt::input

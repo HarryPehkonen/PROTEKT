@@ -50,4 +50,33 @@ inline void apply(HeldKeys& keys, const KeyEvent& event) noexcept {
     }
 }
 
+/// The keys that are COMMANDS rather than states: pressing one asks for something once, and holding
+/// it must not ask again. Both are pure predicates over a frame, so the app can be tested without a
+/// window.
+///
+/// Ctrl+Q quits, and it is deliberately a MODIFIED key: a bare `Q` would end the game on a slipped
+/// hand, and the usual escape hatches (a menu, a close button) stop being usable the moment the
+/// pointer is captured for mouse look. F11 and Alt+Enter both ask for full screen.
+[[nodiscard]] inline bool quit_requested(const InputFrame& frame) noexcept {
+    for (const KeyEvent& key : frame.keys) {
+        if (key.pressed && key.ctrl && key.scancode == kKeyQ) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/// F11, or Alt+Enter: two keys, one request, because both are reflexes.
+[[nodiscard]] inline bool fullscreen_requested(const InputFrame& frame) noexcept {
+    for (const KeyEvent& key : frame.keys) {
+        if (!key.pressed) {
+            continue;
+        }
+        if (key.scancode == kKeyF11 || (key.alt && key.scancode == kKeyEnter)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 } // namespace protekt::input

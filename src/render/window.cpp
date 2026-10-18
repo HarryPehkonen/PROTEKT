@@ -184,6 +184,7 @@ public:
     [[nodiscard]] Extent extent() const noexcept override { return extent_; }
     [[nodiscard]] std::string_view device_name() const noexcept override { return device_name_; }
     void present(const Scene& scene) override;
+    [[nodiscard]] Extent toggle_fullscreen() override;
     [[nodiscard]] std::vector<std::uint8_t> capture() const override { return last_frame_; }
     [[nodiscard]] std::uint32_t validation_errors() const noexcept override {
         return validation_counter().load();
@@ -231,6 +232,7 @@ private:
     std::uint64_t frames_presented_{0};
     bool validation_{true};
     bool resize_pending_{false};
+    bool fullscreen_{false};
 };
 
 bool VulkanWindow::init(const WindowOptions& options, std::string& error) {
@@ -251,6 +253,18 @@ bool VulkanWindow::init(const WindowOptions& options, std::string& error) {
     if (window_ == nullptr) {
         error = std::string("SDL_CreateWindow failed: ") + SDL_GetError();
         return false;
+    }
+    if (options.fullscreen) {
+        fullscreen_ = true;
+        SDL_SetWindowFullscreenMode(window_,
+                                    nullptr); // desktop fullscreen: borderless, never exclusive
+        SDL_SetWindowFullscreen(window_, true);
+        int width = 0;
+        int height = 0;
+        if (SDL_GetWindowSizeInPixels(window_, &width, &height) && width > 0 && height > 0) {
+            extent_.width = static_cast<std::uint32_t>(width);
+            extent_.height = static_cast<std::uint32_t>(height);
+        }
     }
     if (!create_instance(options, error) || !create_surface(error) || !create_device(options, error)
         || !create_swapchain(error) || !create_staging(error)) {
@@ -671,7 +685,9 @@ bool VulkanWindow::pump_events() {
             // what Escape means to the game (deselect), and a player who pressed it to clear a
             // selection must not lose the battle.
             input_.keys.push_back(input::KeyEvent{static_cast<std::int32_t>(event.key.scancode),
-                                                  true, (event.key.mod & SDL_KMOD_SHIFT) != 0});
+                                                  true, (event.key.mod & SDL_KMOD_SHIFT) != 0,
+                                                  (event.key.mod & SDL_KMOD_CTRL) != 0,
+                                                  (event.key.mod & SDL_KMOD_ALT) != 0});
             break;
         case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
         case SDL_EVENT_WINDOW_RESIZED: {
@@ -813,6 +829,21 @@ bool VulkanWindow::acquire_and_blit(const std::vector<std::uint8_t>& rgba, std::
     }
     ++frames_presented_;
     return true;
+}
+
+render::Extent VulkanWindow::toggle_fullscreen() {
+    fullscreen_ = !fullscreen_;
+    // Desktop fullscreen: a null fullscreen MODE is SDL3's "borderless, my current display's size".
+    SDL_SetWindowFullscreenMode(window_, nullptr);
+    SDL_SetWindowFullscreen(window_, fullscreen_);
+    int width = 0;
+    int height = 0;
+    if (SDL_GetWindowSizeInPixels(window_, &width, &height) && width > 0 && height > 0) {
+        extent_.width = static_cast<std::uint32_t>(width);
+        extent_.height = static_cast<std::uint32_t>(height);
+        resize_pending_ = true; // the swapchain and the offscreen target follow on the next present
+    }
+    return extent_;
 }
 
 void VulkanWindow::present(const Scene& scene) {
