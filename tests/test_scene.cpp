@@ -284,8 +284,8 @@ TEST(SceneBuild, CarriesTheCameraItWasGiven) {
 /// The reticle tests. A reticle is a mark in WORLD space, placed along the click's own ray, so it
 /// can be built and measured with no display at all -- which is the whole reason the mark is worth
 /// drawing this way rather than with a font this project does not have.
+using protekt::game::Aim;
 using protekt::game::build_scene;
-using protekt::game::Cursor;
 using protekt::game::kReticleVertexCount;
 using protekt::game::pick;
 using protekt::game::Pick;
@@ -303,7 +303,7 @@ std::vector<protekt::render::SceneVertex> reticle_of(const Scene& scene) {
 /// A pixel. `bool` out-parameters rather than `std::optional` returns because every caller then has
 /// to handle the false branch where clang-tidy can see it -- an optional dereferenced after a gtest
 /// assertion reads as unchecked access, since the checker cannot see through the macro.
-struct Aim {
+struct Pixel {
     float x{};
     float y{};
 };
@@ -312,7 +312,7 @@ struct Aim {
 /// middle of the unit's box. False when the unit is not in the frame from there: callers report
 /// that as a failure to aim, never as a wrong colour.
 bool aim_at(const protekt::sim::Sim& state, SceneOptions& options, const protekt::sim::Unit& unit,
-            Aim& out) {
+            Pixel& out) {
     constexpr float kFixedOne = static_cast<float>(protekt::sim::Fixed::kOne);
     const float ux = static_cast<float>(unit.x.raw) / kFixedOne * kMetresPerTile;
     const float uz = static_cast<float>(unit.y.raw) / kFixedOne * kMetresPerTile;
@@ -331,7 +331,7 @@ bool aim_at(const protekt::sim::Sim& state, SceneOptions& options, const protekt
     if (!pick(state, options, p.x, p.y).has_unit()) {
         return false;
     }
-    out = Aim{p.x, p.y};
+    out = Pixel{p.x, p.y};
     return true;
 }
 
@@ -339,7 +339,7 @@ bool aim_at(const protekt::sim::Sim& state, SceneOptions& options, const protekt
 const protekt::sim::Unit* first_aimable(const protekt::sim::Sim& state, SceneOptions& options,
                                         protekt::sim::Side side) {
     for (const protekt::sim::Unit& unit : state.units()) {
-        Aim aim{};
+        Pixel aim{};
         if (unit.alive && unit.side == side && aim_at(state, options, unit, aim)) {
             return &unit;
         }
@@ -349,12 +349,12 @@ const protekt::sim::Unit* first_aimable(const protekt::sim::Sim& state, SceneOpt
 
 /// The first pixel in a small sweep that has terrain under it and no unit: the pointer over open
 /// ground.
-bool pixel_over_ground(const protekt::sim::Sim& state, const SceneOptions& options, Aim& out) {
+bool pixel_over_ground(const protekt::sim::Sim& state, const SceneOptions& options, Pixel& out) {
     for (const float y : {420.0F, 500.0F, 560.0F}) {
         for (const float x : {320.0F, 480.0F, 640.0F, 800.0F, 960.0F}) {
             const Pick picked = pick(state, options, x, y);
             if (picked.has_tile() && !picked.has_unit()) {
-                out = Aim{x, y};
+                out = Pixel{x, y};
                 return true;
             }
         }
@@ -386,15 +386,15 @@ TEST(Reticle, OnlyAPointerDrawsSomethingAtTheEye) {
     };
 
     EXPECT_EQ(near_the_eye(build_scene(sim, options)), 0);
-    options.cursor = Cursor{640.0F, 360.0F};
+    options.aim = Aim{640.0F, 360.0F};
     EXPECT_EQ(near_the_eye(build_scene(sim, options)), static_cast<int>(kReticleVertexCount));
 }
 
-TEST(Reticle, ACursorAddsExactlyTheReticleAndNothingElse) {
+TEST(Reticle, AnAimPointAddsExactlyTheReticleAndNothingElse) {
     const auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(42));
     SceneOptions options = options_at(60.0F, 60.0F);
     const Scene before = build_scene(sim, options);
-    options.cursor = Cursor{640.0F, 360.0F};
+    options.aim = Aim{640.0F, 360.0F};
     const Scene after = build_scene(sim, options);
     ASSERT_EQ(after.vertices.size(), before.vertices.size() + kReticleVertexCount);
     // Every vertex before the tail is untouched: the reticle is added, not woven in.
@@ -411,9 +411,9 @@ TEST(Reticle, TurnsRedOverAHostileAndGreenOverYourOwn) {
 
     const protekt::sim::Unit* enemy = first_aimable(sim, options, protekt::sim::Side::Enemy);
     ASSERT_NE(enemy, nullptr) << "this scenario must have an enemy the camera can be aimed at";
-    Aim at_enemy{};
+    Pixel at_enemy{};
     ASSERT_TRUE(aim_at(sim, options, *enemy, at_enemy)) << "could not aim the camera at the enemy";
-    options.cursor = Cursor{at_enemy.x, at_enemy.y};
+    options.aim = Aim{at_enemy.x, at_enemy.y};
     const std::vector<protekt::render::SceneVertex> red = reticle_of(build_scene(sim, options));
     ASSERT_EQ(red.size(), kReticleVertexCount);
     for (const auto& v : red) {
@@ -423,9 +423,9 @@ TEST(Reticle, TurnsRedOverAHostileAndGreenOverYourOwn) {
 
     const protekt::sim::Unit* own = first_aimable(sim, options, protekt::sim::Side::Player);
     ASSERT_NE(own, nullptr) << "this scenario must have one of your own units to aim at";
-    Aim at_own{};
+    Pixel at_own{};
     ASSERT_TRUE(aim_at(sim, options, *own, at_own)) << "could not aim the camera at your own unit";
-    options.cursor = Cursor{at_own.x, at_own.y};
+    options.aim = Aim{at_own.x, at_own.y};
     const std::vector<protekt::render::SceneVertex> green = reticle_of(build_scene(sim, options));
     ASSERT_EQ(green.size(), kReticleVertexCount);
     for (const auto& v : green) {
@@ -438,10 +438,10 @@ TEST(Reticle, IsWhiteOnTheGroundWhereAClickWouldOnlyOrder) {
     const auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(42));
     SceneOptions options = options_at(200.0F, 200.0F); // away from the base, so the ground is open
     options.camera.pitch = -0.35F;                     // tipped down, so the pointer can see ground
-    Aim over_ground{};
+    Pixel over_ground{};
     ASSERT_TRUE(pixel_over_ground(sim, options, over_ground))
         << "this test needs a pixel with terrain and no unit on it";
-    options.cursor = Cursor{over_ground.x, over_ground.y};
+    options.aim = Aim{over_ground.x, over_ground.y};
     for (const auto& v : reticle_of(build_scene(sim, options))) {
         EXPECT_GT(v.colour[0], 0.8F);
         EXPECT_GT(v.colour[1], 0.8F);
@@ -452,7 +452,7 @@ TEST(Reticle, IsWhiteOnTheGroundWhereAClickWouldOnlyOrder) {
 TEST(Reticle, StaysInFrontOfTheEyeWhereNothingCanHideIt) {
     const auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(42));
     SceneOptions options = options_at(60.0F, 60.0F);
-    options.cursor = Cursor{400.0F, 300.0F};
+    options.aim = Aim{400.0F, 300.0F};
     const Camera& camera = options.camera;
     for (const auto& v : reticle_of(build_scene(sim, options))) {
         const float dx = v.position[0] - camera.x;
@@ -467,7 +467,7 @@ TEST(Reticle, StaysInFrontOfTheEyeWhereNothingCanHideIt) {
 TEST(Reticle, IsTheSameEveryTime) {
     const auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(42));
     SceneOptions options = options_at(60.0F, 60.0F);
-    options.cursor = Cursor{512.0F, 288.0F};
+    options.aim = Aim{512.0F, 288.0F};
     const Scene a = build_scene(sim, options);
     const Scene b = build_scene(sim, options);
     ASSERT_EQ(a.vertices.size(), b.vertices.size());

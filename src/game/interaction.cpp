@@ -36,8 +36,14 @@ void Interaction::handle(const input::InputFrame& frame, const sim::Sim& sim,
         if (!click.pressed) {
             continue;
         }
-        const Pick picked
-            = pick(sim, options, static_cast<float>(click.x), static_cast<float>(click.y));
+        if (!options.aim.has_value()) {
+            // No mark, no click: a click with nothing to point at has nothing it could mean. A
+            // headless or scripted frame has no aim, and no clicks either.
+            continue;
+        }
+        // The AIM POINT, not the click's own pixel: the shot leaves the middle of the screen, so
+        // what the mark covers is what the click acts on. See game/aim.hpp.
+        const Pick picked = pick(sim, options, options.aim->x, options.aim->y);
         const sim::Unit* hit = picked.has_unit() ? sim.find(picked.unit) : nullptr;
         const bool hit_is_ours = hit != nullptr && hit->alive && hit->side == sim::Side::Player;
         const bool hit_is_hostile = hit != nullptr && hit->alive && hit->side != sim::Side::Player;

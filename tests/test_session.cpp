@@ -116,8 +116,8 @@ struct ScreenPoint {
     return frame;
 }
 
-[[nodiscard]] Click click_on(const Rig& rig, sim::UnitId unit, MouseButton button,
-                             bool shift = false) {
+/// A click with the MARK on `unit`: the mark selects, not the click's own pixel (see game/aim.hpp).
+[[nodiscard]] Click click_on(Rig& rig, sim::UnitId unit, MouseButton button, bool shift = false) {
     const sim::Unit* u = rig.sim.find(unit);
     const float x
         = static_cast<float>(u->x.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile;
@@ -125,7 +125,14 @@ struct ScreenPoint {
         = static_cast<float>(u->y.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile;
     const float ground = height_metres(kSeed, u->x.floor_int(), u->y.floor_int());
     const Projected p = project(rig.options.camera, kExtent, x, ground + 0.9F, z);
+    rig.options.aim = Aim{p.x, p.y};
     return Click{static_cast<int>(p.x), static_cast<int>(p.y), button, true, shift};
+}
+
+/// The mark on the ground well below every unit, and a right click there.
+[[nodiscard]] Click ground_click(Rig& rig) {
+    rig.options.aim = Aim{640.0F, 700.0F};
+    return Click{640, 700, MouseButton::Right, true, false};
 }
 
 [[nodiscard]] InputFrame with_click(const Click& click) {
@@ -255,10 +262,11 @@ TEST(Session, TheDrivenTankGetsOneOrderPerFrameWhileDriving) {
 TEST(Session, AClickSelectsAndARightClickOrdersAnotherTank) {
     Rig rig = make_rig();
     Session session{rig.tank_a};
-    std::vector<InputFrame> frames;
-    frames.push_back(with_click(click_on(rig, rig.tank_b, MouseButton::Left)));
-    frames.push_back(with_click(Click{640, 700, MouseButton::Right, true, false}));
-    run_frames(rig, session, frames);
+    // One frame at a time, because the MARK moves between the two clicks and moving it is what
+    // building the click does: building both frames up front would leave both of them aimed at
+    // wherever the mark ended up last.
+    run_frames(rig, session, {with_click(click_on(rig, rig.tank_b, MouseButton::Left))});
+    run_frames(rig, session, {with_click(ground_click(rig))});
 
     EXPECT_EQ(rig.sim.find(rig.tank_b)->stance, Stance::MoveTo)
         << "the commanded tank should be driving to the tile that was clicked";
@@ -273,8 +281,7 @@ TEST(Session, TheDrivenTankIsNeverGivenAClickOrder) {
     session.frame(with_click(click_on(rig, rig.tank_a, MouseButton::Left)), rig.sim, rig.options,
                   orders);
     orders.clear();
-    session.frame(with_click(Click{640, 700, MouseButton::Right, true, false}), rig.sim,
-                  rig.options, orders);
+    session.frame(with_click(ground_click(rig)), rig.sim, rig.options, orders);
 
     int for_driven = 0;
     for (const Order& order : orders) {

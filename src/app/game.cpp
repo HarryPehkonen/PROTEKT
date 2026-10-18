@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "protekt/ai/scripted.hpp"
+#include "protekt/game/aim.hpp"
 #include "protekt/game/scene.hpp"
 #include "protekt/game/session.hpp"
 #include "protekt/input/bindings.hpp"
@@ -308,10 +309,7 @@ int run_game_cli(std::span<const std::string_view> args, std::ostream& out, std:
         scene_options.camera = camera_for(sim, player_id, session.heading(), options.seed);
         scene_options.extent = extent;
         scene_options.radius_tiles = 24;
-        if (hands.cursor_known) {
-            scene_options.cursor = game::Cursor{static_cast<float>(hands.cursor_x),
-                                                static_cast<float>(hands.cursor_y)};
-        }
+        scene_options.aim = game::aim_from(hands, extent);
 
         std::vector<sim::Order> orders;
         session.frame(hands, sim, scene_options, orders);

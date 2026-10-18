@@ -39,9 +39,13 @@ struct Camera {
 [[nodiscard]] std::array<float, 16> view_projection(const Camera& camera, float aspect,
                                                     float fov_radians = math::kFovRadians) noexcept;
 
-/// Where the pointer is, in framebuffer pixels: from the left, from the TOP. The reticle is placed
-/// by the same ray a click is picked with, so the two cannot disagree about where the pointer is.
-struct Cursor {
+/// The aim point, in framebuffer pixels: from the left, from the TOP.
+///
+/// One point, and everything reads it: the reticle marks it, a left click selects the unit under
+/// it, a right click orders the ground under it. It is NOT the pointer -- `game::aim_from` says
+/// where it is and why -- but it is the point the reticle is drawn at, so the mark can never
+/// promise something a click does not do.
+struct Aim {
     float x{};
     float y{};
 };
@@ -56,10 +60,10 @@ struct SceneOptions {
     render::Extent extent{1280, 720};
     /// Terrain half-extent in tiles: the mesh is (2*radius+1)^2 tiles centred on the camera.
     int radius_tiles{24};
-    /// The pointer, when there is one. ABSENT means no reticle at all, which is what a headless or
-    /// `--autodrive` frame has: those frames therefore stay byte-identical to what they drew before
-    /// there was anything to draw here.
-    std::optional<Cursor> cursor{};
+    /// Where the gun is pointed, when there is anything to point it with. ABSENT means no reticle
+    /// and no picking at all, which is what a headless or `--autodrive` frame has: those frames
+    /// therefore stay byte-identical to what they drew before there was anything to draw here.
+    std::optional<Aim> aim{};
     /// Whose eyes this is, which is what colours the reticle: a unit that is not yours turns it
     /// red, because that is the one click that fires.
     sim::Side viewer_side{sim::Side::Player};
@@ -72,7 +76,7 @@ struct SceneOptions {
 /// has hold of, and a tint is the smallest honest version of that before there is any text on
 /// screen.
 ///
-/// With `options.cursor` set, the scene ends with a reticle: `kReticleVertexCount` more vertices,
+/// With `options.aim` set, the scene ends with a reticle: `kReticleVertexCount` more vertices,
 /// marking what a click at that pixel would hit. White on the ground, red on a hostile (a click
 /// there fires), brighter on one of yours (a click there selects). It is a WORLD-space mark placed
 /// a short distance along the click's own ray, which is why it needs no font and cannot be hidden

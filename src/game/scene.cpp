@@ -149,12 +149,12 @@ std::array<float, 3> reticle_colour(const sim::Sim& sim, const Pick& picked, sim
 /// because the pipeline culls nothing.
 void append_reticle(std::vector<render::SceneVertex>& out, const SceneOptions& options,
                     const sim::Sim& sim) {
-    if (!options.cursor.has_value()) {
+    if (!options.aim.has_value()) {
         return;
     }
     const Camera& camera = options.camera;
-    const float screen_x = options.cursor->x;
-    const float screen_y = options.cursor->y;
+    const float screen_x = options.aim->x;
+    const float screen_y = options.aim->y;
     const std::array<float, 3> colour
         = reticle_colour(sim, pick(sim, options, screen_x, screen_y), options.viewer_side);
     const RayPoint centre

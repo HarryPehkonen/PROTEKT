@@ -16,13 +16,13 @@ You are one tank. Everything else you command.
 |---|---|
 | `W` / `S` | throttle forward / back |
 | `A` / `D` | turn left / right |
-| **left click** an own unit | select it |
-| **left click** + `Shift` | add it to the selection, or remove it |
+| **left click** with the mark on an own unit | select it |
+| **left click** + `Shift`, mark on a unit | add it to the selection, or remove it |
 | `Tab` / `Shift`+`Tab` | cycle the selection through your units |
 | `Escape` | clear the selection |
-| **right click** the ground | order every selected unit there |
-| **right click** a hostile | order every selected unit to attack it |
-| **left click** a hostile | shoot at it: your own gun is aimed at the unit under the cursor |
+| **right click**, mark on the ground | order every selected unit there |
+| **right click**, mark on a hostile | order every selected unit to attack it |
+| **left click**, mark on a hostile | shoot at it: the gun fires at whatever the mark covers |
 
 The tank you are sitting in is **never** moved by a click. It is driven by `W`/`A`/`D` every tick, so
 an order from the mouse would fight your own hands. Selecting it is fine, and firing is the one thing
@@ -33,18 +33,20 @@ Your gun also fires on its own at any hostile within twelve tiles. Clicking a ho
 
 Selected units are drawn brighter than the rest of their side, so you can see what you have hold of.
 
-Where the pointer is, there is a reticle, and its colour tells you what a click there would do before
-you make it:
+**The mark is the gun.** It sits in the middle of the screen horizontally, and the mouse moves it up
+and down — the tank's gun is on its centre line, so **turning with `A`/`D` is how you aim sideways**:
+bring what you want under the mark, then click. The mark's colour says what a click would do before you
+make it:
 
-| reticle | what a click there does |
+| mark | what a click does |
 |---|---|
 | **white** | select nothing, or order your selection to that ground — nothing is harmed |
 | **green** | select one of your own units (or, with `Shift`, add it to the selection) |
 | **red** | **fire** at the hostile under it |
 
-It is a small white square outline, drawn where the pointer is, and it is the only thing drawn close to
-your eye — so if you can see it, it is where your click will land. There is no crosshair at the centre
-of the screen: that spot means nothing yet, and a mark there would say that it did.
+A small square outline, and the only thing drawn close to your eye: if you can see it, that is where
+your click lands. The pointer does not aim — a click anywhere on the screen does what the mark shows,
+which is why the mark cannot promise something the shot cannot do.
 
 ## Status
 
@@ -65,9 +67,10 @@ change a verification run.
 | **No route planning** | a unit goes straight at its goal, slides along a rim, and takes a short detour around a corner it cannot pass. It does not plan a path: a concave corner cannot hold a unit, but a U-shaped crater field can still keep one inside the pocket. `tests/test_steering.cpp` draws the shapes, `tests/test_navigation.cpp` pins the open-ground and corner cases |
 | **No economy** | no resources, no harvester, no building. A factory is a 400 hp target and nothing more |
 | **No way to win or lose** | nothing ends a match. An undefended factory can be destroyed by a single tank — factories are unarmed on purpose and defence is what turrets are for — but there is no objective beyond that |
-| **No HUD** | refusals ("that order would move the tank you are in") are printed to the console, not to the screen. There is a reticle under the pointer and nothing else: no health, no marker on the unit your gun is engaging, no counters |
+| **No HUD** | refusals ("that order would move the tank you are in") are printed to the console, not to the screen. There is a mark at the aim point and nothing else: no health, no marker on the unit your gun is engaging, no counters |
 | **No feedback** | being shot, shooting, and killing all happen silently. There is no sound at all, and no on-screen sign that a shot happened — the reticle says what a click *would* do, not what one just did |
-| **No mouse look** | the window collects mouse motion; nothing consumes it yet. Keys drive, the mouse selects, fires and orders — deliberately, until it has been played and judged |
+| **No mouse look** | the mark is the middle of the screen horizontally and the mouse only moves it up and down; nothing turns the view but `A`/`D` — deliberately, until it has been played and judged |
+| **No full screen** | the window is 1280×720. The window tracks a resize and rebuilds its swapchain, but the renderer still draws at 1280×720 and the game never asks for a bigger surface |
 | Text is not drawn at all | there are coloured boxes and a horizon, and no font. Flat colours, no textures, no lighting |
 
 ## Requirements
@@ -93,7 +96,8 @@ Then any of:
 # the game with a window (needs SDL3 + Vulkan; --gpu picks a device by substring)
 ./build/protekt-game --seed 42
 
-# a frame with the reticle in it, on a machine with no mouse at all: --cursor places the pointer
+# a frame with the mark in it, on a machine with no mouse at all: --cursor places the pointer (the
+# mark stays in the middle horizontally and takes only the height, so the x of --cursor is ignored)
 ./build/protekt-game --headless --seed 42 --frames 300 --autodrive --cursor 640 360 --capture /tmp/aim.ppm
 
 # the battle as text: the simulation printed by a human-readable log

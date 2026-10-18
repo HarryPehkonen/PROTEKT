@@ -71,7 +71,13 @@ struct Rig {
     return rig;
 }
 
-[[nodiscard]] Click at(const Rig& rig, sim::UnitId unit, MouseButton button = MouseButton::Left,
+/// A click with the MARK on `unit`.
+///
+/// Under the aim model a click does not aim: the mark aims, and it is the middle of the screen with
+/// the mouse's height. So this moves the mark onto the unit and records a click as well; the claims
+/// the tests below make are unchanged (this click selects that unit), and the aim rule itself has
+/// its own tests in tests/test_aim.cpp.
+[[nodiscard]] Click at(Rig& rig, sim::UnitId unit, MouseButton button = MouseButton::Left,
                        bool shift = false) {
     const sim::Unit* u = rig.sim.find(unit);
     const float x
@@ -80,11 +86,13 @@ struct Rig {
         = static_cast<float>(u->y.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile;
     const float ground = height_metres(kSeed, u->x.floor_int(), u->y.floor_int());
     const Projected p = project(rig.options.camera, kExtent, x, ground + 0.9F, z);
+    rig.options.aim = Aim{p.x, p.y};
     return Click{static_cast<int>(p.x), static_cast<int>(p.y), button, true, shift};
 }
 
-/// A pixel that is definitely ground: low on the screen, well below every unit.
-[[nodiscard]] Click ground_click(bool right = false, bool shift = false) {
+/// The mark on a pixel that is definitely ground: low on the screen, well below every unit.
+[[nodiscard]] Click ground_click(Rig& rig, bool right = false, bool shift = false) {
+    rig.options.aim = Aim{640.0F, 700.0F};
     return Click{640, 700, right ? MouseButton::Right : MouseButton::Left, true, shift};
 }
 
@@ -142,7 +150,7 @@ TEST(Interaction, LeftClickOnTheGroundClearsTheSelection) {
     Interaction player{rig.tank_a};
     player.handle(with_click(at(rig, rig.tank_b)), rig.sim, rig.options);
     ASSERT_FALSE(player.selection().empty());
-    player.handle(with_click(ground_click()), rig.sim, rig.options);
+    player.handle(with_click(ground_click(rig)), rig.sim, rig.options);
     EXPECT_TRUE(player.selection().empty()) << "the player asked for nothing; give him nothing";
 }
 
@@ -196,7 +204,7 @@ TEST(Interaction, RightClickOnTheGroundMovesTheSelectionThere) {
     Rig rig = make_rig();
     Interaction player{rig.tank_a};
     player.handle(with_click(at(rig, rig.tank_b)), rig.sim, rig.options);
-    player.handle(with_click(ground_click(true)), rig.sim, rig.options);
+    player.handle(with_click(ground_click(rig, true)), rig.sim, rig.options);
 
     const std::vector<Order> orders = player.take_orders();
     ASSERT_EQ(orders.size(), 1U);
@@ -213,7 +221,7 @@ TEST(Interaction, TheDrivenTankIsNeverOrderedByAClick) {
     player.handle(with_click(at(rig, rig.tank_a, MouseButton::Left, true)), rig.sim, rig.options);
     ASSERT_EQ(player.selection().size(), 2U);
 
-    player.handle(with_click(ground_click(true)), rig.sim, rig.options);
+    player.handle(with_click(ground_click(rig, true)), rig.sim, rig.options);
     const std::vector<Order> orders = player.take_orders();
     ASSERT_EQ(orders.size(), 1U) << "only the unit the player is not sitting in may be ordered";
     EXPECT_EQ(orders.front().unit, rig.tank_b);
@@ -223,7 +231,7 @@ TEST(Interaction, RightClickWithOnlyTheDrivenTankSelectedIsRefused) {
     Rig rig = make_rig();
     Interaction player{rig.tank_a};
     player.handle(with_click(at(rig, rig.tank_a)), rig.sim, rig.options);
-    player.handle(with_click(ground_click(true)), rig.sim, rig.options);
+    player.handle(with_click(ground_click(rig, true)), rig.sim, rig.options);
     EXPECT_TRUE(player.take_orders().empty());
     EXPECT_FALSE(player.message().empty())
         << "the player must be told that he is driving that one, not left guessing";
@@ -245,7 +253,7 @@ TEST(Interaction, RightClickOnAHostileOrdersAnAttack) {
 TEST(Interaction, RightClickWithNothingSelectedIsRefused) {
     Rig rig = make_rig();
     Interaction player{rig.tank_a};
-    player.handle(with_click(ground_click(true)), rig.sim, rig.options);
+    player.handle(with_click(ground_click(rig, true)), rig.sim, rig.options);
     EXPECT_TRUE(player.take_orders().empty());
     EXPECT_FALSE(player.message().empty());
 }
@@ -254,7 +262,7 @@ TEST(Interaction, OrdersAreDrainedOnce) {
     Rig rig = make_rig();
     Interaction player{rig.tank_a};
     player.handle(with_click(at(rig, rig.tank_b)), rig.sim, rig.options);
-    player.handle(with_click(ground_click(true)), rig.sim, rig.options);
+    player.handle(with_click(ground_click(rig, true)), rig.sim, rig.options);
     EXPECT_EQ(player.take_orders().size(), 1U);
     EXPECT_TRUE(player.take_orders().empty()) << "the same click must not be applied twice";
 }
@@ -289,6 +297,7 @@ TEST(Interaction, ADeadUnitLeavesTheSelection) {
     InputFrame frame{};
     frame.clicks.push_back(
         Click{static_cast<int>(p.x), static_cast<int>(p.y), MouseButton::Left, true, false});
+    options.aim = Aim{p.x, p.y}; // the MARK selects, so the mark goes on the turret
     player.handle(frame, sim, options);
     ASSERT_EQ(selected(player), (std::vector<sim::UnitId>{turret}));
 
@@ -309,7 +318,7 @@ TEST(Interaction, TheSameInputProducesTheSameOrders) {
         player.handle(with_click(at(rig, rig.tank_b)), rig.sim, rig.options);
         player.handle(with_click(at(rig, rig.turret, MouseButton::Left, true)), rig.sim,
                       rig.options);
-        player.handle(with_click(ground_click(true)), rig.sim, rig.options);
+        player.handle(with_click(ground_click(rig, true)), rig.sim, rig.options);
         return player.take_orders();
     };
     const std::vector<Order> first = play();
@@ -324,6 +333,30 @@ TEST(Interaction, TheSameInputProducesTheSameOrders) {
         EXPECT_EQ(std::get<sim::orders::MoveTo>(first.at(i).payload).y.raw,
                   std::get<sim::orders::MoveTo>(second.at(i).payload).y.raw);
     }
+}
+
+TEST(Interaction, AClickAimsWithTheMarkAndNotItsOwnPixel) {
+    // The mark is the gun. A click's own pixel is only where the pointer happened to be: it decides
+    // nothing, or the mark could say one thing while the click did another.
+    Rig rig = make_rig();
+    Interaction player(rig.tank_a);
+    static_cast<void>(at(rig, rig.tank_b)); // puts the MARK on tank b
+    ASSERT_TRUE(rig.options.aim.has_value());
+    const Click elsewhere{5, 700, MouseButton::Left, true, false}; // no unit is behind that pixel
+    player.handle(with_click(elsewhere), rig.sim, rig.options);
+    EXPECT_EQ(selected(player), (std::vector<sim::UnitId>{rig.tank_b}));
+}
+
+TEST(Interaction, AClickWithNoMarkDoesNothing) {
+    // No pointer has ever been seen, so there is no mark and nothing a click could mean. This is
+    // what keeps a headless or scripted frame from selecting anything by accident.
+    Rig rig = make_rig();
+    Interaction player(rig.tank_a);
+    ASSERT_FALSE(rig.options.aim.has_value());
+    const Click click{640, 360, MouseButton::Left, true, false};
+    player.handle(with_click(click), rig.sim, rig.options);
+    EXPECT_TRUE(player.selection().empty());
+    EXPECT_TRUE(player.take_orders().empty());
 }
 
 } // namespace protekt::game

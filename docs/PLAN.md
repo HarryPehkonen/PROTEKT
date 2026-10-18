@@ -120,12 +120,18 @@ a trigger that chooses a target; and units that go around the ground rather than
    (the camera's view is the only thing that decides where they appear), so the renderer contract does
    not move, and sound is SDL3's, already a dependency, synthesised rather than sampled — nothing to
    license, and a machine with no sound device stays silent instead of failing.
-2. **Economy and objectives: the unpaid half of M4.** Resources, a harvester, building, and a way for a
+2. **Full screen.** The window already tracks a resize and rebuilds its swapchain; what is missing is
+   the toggle and the SIZE question: either the offscreen renderer is re-created at the window's pixel
+   size (crisp, every target rebuilt on resize) or it keeps drawing 1280×720 and the existing blit is
+   scaled into the window (nearly free, slightly soft). Crisp is the right default for a game whose
+   whole look is hard pixels, and the resize plumbing is the seam that makes it a change of one
+   parameter rather than a rewrite.
+3. **Economy and objectives: the unpaid half of M4.** Resources, a harvester, building, and a way for a
    match to end. This is what makes an A\* worth building and what gives turret placement a point.
-3. **Deterministic A\* (navigation option 2)**, as its own milestone, once units have somewhere to go
+4. **Deterministic A\* (navigation option 2)**, as its own milestone, once units have somewhere to go
    that matters.
-4. **Rendering depth and sound**: textures, lighting, unit shapes. Today the world is flat colours.
-5. **Strategic controllers** (below), the slow layer that decides what to defend.
+5. **Rendering depth and sound**: textures, lighting, unit shapes. Today the world is flat colours.
+6. **Strategic controllers** (below), the slow layer that decides what to defend.
 
 
 Ranked by *risk reduction per unit of work*, not by visibility. Note that the flashy part

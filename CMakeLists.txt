@@ -77,6 +77,7 @@ protekt_warnings(protekt_cmd)
 # The game's own logic -- the world as seen, and the player as a commander -- is PURE, has no
 # window and no Vulkan in it, and is therefore tested on the gate box with everything else.
 add_library(protekt_game STATIC
+    src/game/aim.cpp
     src/game/scene.cpp
     src/game/player.cpp
     src/game/pick.cpp
@@ -212,6 +213,7 @@ if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
         tests/test_world_sample.cpp
         tests/test_fixed.cpp
         tests/test_math.cpp
+        tests/test_aim.cpp
         tests/test_steering.cpp
         tests/test_focus_fire.cpp
         tests/test_sim.cpp
