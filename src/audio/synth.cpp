@@ -93,23 +93,24 @@ float attack(std::size_t i, int rate) noexcept {
     return std::min(ramp, 1.0F);
 }
 
-/// A crack (short white noise) over a tone that falls from 900 Hz towards 150 Hz: the noise is the
-/// report, the falling tone is the "pew" that tells a shot from a click.
+/// A short crack (white noise) over a low thump: a sine that sags from 120 Hz to 60 Hz. The crack
+/// is the report and dies in about 20 ms; the thump carries the body, and the sag is what gives it
+/// weight rather than a flat buzz. Nothing rises above the thump, so there is no "pew".
 void shot(std::vector<float>& out, int rate, Noise& noise) noexcept {
-    const float crack_decay = decay_factor(0.025F, rate);
-    const float tone_decay = decay_factor(0.07F, rate);
-    const float fall = decay_factor(0.09F, rate);
+    const float crack_decay = decay_factor(0.02F, rate);
+    const float thump_decay = decay_factor(0.09F, rate);
+    const float sag = decay_factor(0.1F, rate);
     float crack = 1.0F;
-    float tone = 1.0F;
-    float hz = 900.0F;
+    float thump = 1.0F;
+    float hz = 120.0F;
     float phase = 0.0F;
     for (std::size_t i = 0; i < out.size(); ++i) {
-        phase = advance(phase, std::max(hz, 150.0F), rate);
-        const float body = 0.6F * tone * sine_turns(phase);
+        phase = advance(phase, std::max(hz, 60.0F), rate);
+        const float body = 1.0F * thump * sine_turns(phase);
         out[i] = attack(i, rate) * ((0.8F * crack * noise.next()) + body);
         crack *= crack_decay;
-        tone *= tone_decay;
-        hz *= fall;
+        thump *= thump_decay;
+        hz *= sag;
     }
 }
 

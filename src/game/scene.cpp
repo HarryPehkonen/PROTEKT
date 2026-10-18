@@ -7,6 +7,7 @@
 #include <algorithm>
 
 #include <cmath>
+#include <cstdint>
 #include <cstdlib>
 
 namespace protekt::game {
@@ -86,16 +87,43 @@ Vec3 highlight(const Vec3& colour) {
                 colour[2] + ((1.0F - colour[2]) * kMix)};
 }
 
+/// The unit under the crosshair is mixed toward a warning colour, so the player can see what a
+/// click there would act on -- the reticle says it in colour, this says it on the unit itself.
+/// Own and hostile are told apart: amber for yours ("do not shoot this"), a hot salmon-red for a
+/// hostile (the reticle's red family, lifted in green and blue because the enemy's base colour is
+/// already a dark red and a plain red mix would barely move it). Neither is a white mix, so neither
+/// can be mistaken for `highlight`; the mix is strong (80%) so each reads apart from the unmarked
+/// side colour at a glance.
+Vec3 aim_tint(const Vec3& colour, bool own) {
+    constexpr float kMix = 0.8F;
+    constexpr Vec3 kOwnWarning{1.0F, 0.70F, 0.10F};
+    constexpr Vec3 kHostileWarning{1.0F, 0.45F, 0.35F};
+    const Vec3& warning = own ? kOwnWarning : kHostileWarning;
+    return Vec3{colour[0] + ((warning[0] - colour[0]) * kMix),
+                colour[1] + ((warning[1] - colour[1]) * kMix),
+                colour[2] + ((warning[2] - colour[2]) * kMix)};
+}
+
+/// How a unit is marked this frame. Precedence: SELECTED wins over AIMED, because selection is the
+/// state the player set on purpose and must never be masked; the aim cue only decorates a unit
+/// that is not selected.
+enum class Mark : std::uint8_t { None, Selected, AimedOwn, AimedHostile };
+
 void build_unit_box(std::vector<render::SceneVertex>& out, std::uint64_t seed,
-                    const sim::Unit& unit, bool selected) {
+                    const sim::Unit& unit, Mark mark, std::optional<float> hull_z) {
     const float x
         = static_cast<float>(unit.x.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile;
     const float z
         = static_cast<float>(unit.y.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile;
-    const float ground = height_metres(seed, unit.x.floor_int(), unit.y.floor_int());
+    const float ground = hull_z.value_or(ground_metres(seed, unit.x, unit.y));
     const float half_width = kMetresPerTile * 0.3F;
     const float height = unit.kind == sim::UnitKind::Factory ? 4.5F : 1.8F;
-    const Vec3 colour = selected ? highlight(side_colour(unit.side)) : side_colour(unit.side);
+    Vec3 colour = side_colour(unit.side);
+    if (mark == Mark::Selected) {
+        colour = highlight(colour);
+    } else if (mark != Mark::None) {
+        colour = aim_tint(colour, mark == Mark::AimedOwn);
+    }
 
     const float x0 = x - half_width;
     const float x1 = x + half_width;
@@ -193,6 +221,23 @@ std::array<float, 3> radar_colour(RadarTone tone) {
     return {1.0F, 1.0F, 1.0F};
 }
 
+constexpr int kRadarSegments = 48;                ///< slices in the disc and the ring
+constexpr float kHealthBarHeightFraction = 0.08F; ///< the bar's height, of the panel's size
+constexpr float kHealthBarMinPixels = 8.0F;
+constexpr float kHealthBarGapPixels = 4.0F; ///< between the bar and the panel's border
+
+/// Green from half health up, amber from a fifth, red below -- in integers, so the thresholds are
+/// exact. Green and red are the radar's own "yours" and "hostile" colours.
+std::array<float, 3> health_colour(std::uint32_t hp, std::uint32_t max_hp) {
+    if (hp * 2 >= max_hp) {
+        return radar_colour(RadarTone::Yours);
+    }
+    if (hp * 5 >= max_hp) {
+        return {1.0F, 0.75F, 0.20F};
+    }
+    return radar_colour(RadarTone::Hostile);
+}
+
 /// The radar, drawn in PANEL PIXELS: every corner goes through `ray_point`, the same pixel-to-world
 /// function the picker uses, so the panel is exactly where its pixels are and a mark can never sit
 /// somewhere other than its own place on the panel. Three metres of nothing, a dark face so the
@@ -224,11 +269,53 @@ void append_radar(std::vector<render::SceneVertex>& out, const SceneOptions& opt
     const float x0 = panel.x - kRadarBorderPixels;
     const float y0 = panel.y - kRadarBorderPixels;
     const float x1 = panel.x + panel.size + kRadarBorderPixels;
-    const float y1 = panel.y + panel.size + kRadarBorderPixels;
     constexpr std::array<float, 3> kBorder{0.80F, 0.82F, 0.85F};
     constexpr std::array<float, 3> kFace{0.04F, 0.05F, 0.06F};
-    rect(border_at, x0, y0, x1, y1, kBorder);
-    rect(face_at, panel.x, panel.y, panel.x + panel.size, panel.y + panel.size, kFace);
+
+    // The panel is ROUND: a disc inscribed in its square, ringed by the border. The corners of the
+    // square are not painted. Both are fans and strips of `kRadarSegments` slices, walked clockwise
+    // on the screen like `rect`, and every point goes through `at` like everything else.
+    const float centre_x = panel.x + (panel.size * 0.5F);
+    const float centre_y = panel.y + (panel.size * 0.5F);
+    const float inner = panel.size * 0.5F;
+    const float outer = inner + kRadarBorderPixels;
+    const auto rim = [&](float radius, int slice) {
+        const float angle = (2.0F * kPi * static_cast<float>(slice)) / kRadarSegments;
+        return std::array<float, 2>{centre_x + (radius * std::cos(angle)),
+                                    centre_y + (radius * std::sin(angle))};
+    };
+    for (int slice = 0; slice < kRadarSegments; ++slice) {
+        const std::array<float, 2> in_a = rim(inner, slice);
+        const std::array<float, 2> in_b = rim(inner, slice + 1);
+        const std::array<float, 2> out_a = rim(outer, slice);
+        const std::array<float, 2> out_b = rim(outer, slice + 1);
+        emit_quad(out, at(border_at, out_a.at(0), out_a.at(1)),
+                  at(border_at, out_b.at(0), out_b.at(1)), at(border_at, in_b.at(0), in_b.at(1)),
+                  at(border_at, in_a.at(0), in_a.at(1)), kBorder);
+    }
+    for (int slice = 0; slice < kRadarSegments; ++slice) {
+        const std::array<float, 2> a = rim(inner, slice);
+        const std::array<float, 2> b = rim(inner, slice + 1);
+        emit_triangle(out, at(face_at, centre_x, centre_y), at(face_at, a.at(0), a.at(1)),
+                      at(face_at, b.at(0), b.at(1)), kFace);
+    }
+
+    // The viewer's hull as a bar directly above the panel: the same width as the panel with its
+    // border, a small gap up. The sim owns the numbers; nothing is added to `Unit` for this.
+    const sim::Unit* viewer = sim.find(options.viewer_unit);
+    if (viewer != nullptr && viewer->alive) {
+        const float height = std::max(kHealthBarMinPixels, panel.size * kHealthBarHeightFraction);
+        const float bottom = y0 - kHealthBarGapPixels;
+        const float top = bottom - height;
+        rect(face_at, x0, top, x1, bottom, kFace);
+        const std::uint32_t max_hp = sim::profile(viewer->kind).hp;
+        const std::uint32_t hp = std::min<std::uint32_t>(viewer->hp, max_hp);
+        if (max_hp > 0 && hp > 0) {
+            const float fill
+                = x0 + ((x1 - x0) * static_cast<float>(hp) / static_cast<float>(max_hp));
+            rect(marks_at, x0, top, fill, bottom, health_colour(hp, max_hp));
+        }
+    }
 
     for (const RadarMark& mark : marks) {
         const std::array<float, 3> rgb = radar_colour(mark.tone);
@@ -274,15 +361,14 @@ void append_radar(std::vector<render::SceneVertex>& out, const SceneOptions& opt
 /// the click's own ray reaches. Six vertices per bar: two triangles, and no winding to get wrong,
 /// because the pipeline culls nothing.
 void append_reticle(std::vector<render::SceneVertex>& out, const SceneOptions& options,
-                    const sim::Sim& sim) {
+                    const sim::Sim& sim, const Pick& picked) {
     if (!options.aim.has_value()) {
         return;
     }
     const Camera& camera = options.camera;
     const float screen_x = options.aim->x;
     const float screen_y = options.aim->y;
-    const std::array<float, 3> colour
-        = reticle_colour(sim, pick(sim, options, screen_x, screen_y), options.viewer_side);
+    const std::array<float, 3> colour = reticle_colour(sim, picked, options.viewer_side);
     const RayPoint centre
         = ray_point(camera, options.extent, screen_x, screen_y, kReticleDistanceMetres);
     const math::Basis basis = math::basis_from(camera.yaw, camera.pitch);
@@ -318,6 +404,62 @@ float height_metres(std::uint64_t seed, int tile_x, int tile_y) noexcept {
     return static_cast<float>(world::sample(seed, tile_x, tile_y).height) * kMetresPerHeightUnit;
 }
 
+namespace {
+
+float blend_corners(std::uint64_t seed, int tx, int ty, float fx, float fy) noexcept {
+    const float h00 = height_metres(seed, tx, ty);
+    const float h10 = height_metres(seed, tx + 1, ty);
+    const float h01 = height_metres(seed, tx, ty + 1);
+    const float h11 = height_metres(seed, tx + 1, ty + 1);
+    const float along_x0 = h00 + ((h10 - h00) * fx);
+    const float along_x1 = h01 + ((h11 - h01) * fx);
+    return along_x0 + ((along_x1 - along_x0) * fy);
+}
+
+} // namespace
+
+float ground_metres(std::uint64_t seed, sim::Fixed x, sim::Fixed y) noexcept {
+    constexpr float kOne = static_cast<float>(sim::Fixed::kOne);
+    const std::int32_t mask = sim::Fixed::kOne - 1;
+    return blend_corners(seed, x.floor_int(), y.floor_int(),
+                         static_cast<float>(x.raw & mask) / kOne,
+                         static_cast<float>(y.raw & mask) / kOne);
+}
+
+float ground_metres(std::uint64_t seed, float tile_x, float tile_y) noexcept {
+    const float fx = std::floor(tile_x);
+    const float fy = std::floor(tile_y);
+    return blend_corners(seed, static_cast<int>(fx), static_cast<int>(fy), tile_x - fx,
+                         tile_y - fy);
+}
+
+Suspension suspend(Suspension state, float target_z, std::uint32_t ticks) noexcept {
+    for (std::uint32_t tick = 0; tick < ticks; ++tick) {
+        state.z_vel += ((target_z - state.z) * kSpringPerTick) - (state.z_vel * kDampPerTick);
+        state.z += state.z_vel;
+    }
+    return state;
+}
+
+void Hover::advance(sim::Tick tick, float ground_metres, bool boost) noexcept {
+    const float rest = ground_metres + kRideHeightMetres;
+    const float target = rest + (boost ? kBoostLiftMetres : 0.0F);
+    if (!clocked_) {
+        // At rest at ride height even if boost is already held: it rises from there, not from
+        // nowhere.
+        state_ = Suspension{rest, 0.0F};
+        clocked_ = true;
+    } else {
+        const sim::Tick elapsed = tick > last_tick_ ? tick - last_tick_ : 0;
+        state_ = suspend(state_, target, static_cast<std::uint32_t>(elapsed));
+    }
+    last_tick_ = tick;
+}
+
+std::optional<float> Hover::z() const noexcept {
+    return clocked_ ? std::optional<float>{state_.z} : std::nullopt;
+}
+
 float Camera::wrap_angle(float radians) noexcept {
     float wrapped = std::fmod(radians + kPi, 2.0F * kPi);
     if (wrapped < 0.0F) {
@@ -343,6 +485,13 @@ render::Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
     const int centre_y = static_cast<int>(std::floor(options.camera.z / kMetresPerTile));
     build_terrain(scene.vertices, options.seed, centre_x, centre_y, options.radius_tiles);
 
+    // The one pick the frame makes: the reticle and the unit tint both read it, so they can never
+    // disagree about what is under the crosshair.
+    Pick aimed;
+    if (options.aim.has_value()) {
+        aimed = pick(sim, options, options.aim->x, options.aim->y);
+    }
+
     for (const sim::Unit& unit : sim.units()) {
         if (!unit.alive) {
             continue;
@@ -354,13 +503,45 @@ render::Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
         if (std::abs(dx) <= options.radius_tiles && std::abs(dy) <= options.radius_tiles) {
             const bool is_selected
                 = std::find(selected.begin(), selected.end(), unit.id) != selected.end();
-            build_unit_box(scene.vertices, options.seed, unit, is_selected);
+            Mark mark = Mark::None;
+            if (is_selected) {
+                mark = Mark::Selected;
+            } else if (aimed.has_unit() && aimed.unit == unit.id) {
+                mark = unit.side == options.viewer_side ? Mark::AimedOwn : Mark::AimedHostile;
+            }
+            const bool hovering = options.hover.has_value() && options.hover->unit == unit.id;
+            build_unit_box(scene.vertices, options.seed, unit, mark,
+                           hovering ? std::optional<float>{options.hover->z} : std::nullopt);
         }
     }
 
     append_radar(scene.vertices, options, sim);
-    append_reticle(scene.vertices, options, sim);
+    append_reticle(scene.vertices, options, sim, aimed);
 
+    return scene;
+}
+
+render::Scene build_calibration_scene(const SceneOptions& options) {
+    render::Scene scene;
+    const float aspect
+        = static_cast<float>(options.extent.width) / static_cast<float>(options.extent.height);
+    scene.view_projection = view_projection(options.camera, aspect);
+
+    const float distance = math::kNearPlane * kHudClearance * corner_ray_length(options.extent);
+    const float width = static_cast<float>(options.extent.width);
+    const float height = static_cast<float>(options.extent.height);
+    const auto at = [&](float px, float py) {
+        const RayPoint point = ray_point(options.camera, options.extent, px, py, distance);
+        return Vec3{point.x, point.y, point.z};
+    };
+    constexpr std::array<std::array<float, 3>, 3> kBars{
+        {{1.0F, 0.0F, 0.0F}, {0.0F, 1.0F, 0.0F}, {0.0F, 0.0F, 1.0F}}};
+    for (std::size_t i = 0; i < kBars.size(); ++i) {
+        const float x0 = width * static_cast<float>(i) / 3.0F;
+        const float x1 = width * static_cast<float>(i + 1) / 3.0F;
+        emit_quad(scene.vertices, at(x0, 0.0F), at(x1, 0.0F), at(x1, height), at(x0, height),
+                  kBars.at(i));
+    }
     return scene;
 }
 

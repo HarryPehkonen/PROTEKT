@@ -5,16 +5,20 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <optional>
 #include <set>
+#include <span>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "protekt/game/pick.hpp"
 #include "protekt/game/radar.hpp"
 #include "protekt/game/scene.hpp"
+#include "protekt/input/bindings.hpp"
 #include "protekt/render/renderer.hpp"
 #include "protekt/sim/scenario.hpp"
 #include "protekt/sim/sim.hpp"
@@ -478,6 +482,102 @@ TEST(Reticle, IsTheSameEveryTime) {
     }
 }
 
+// ---------------------------------------------------------------- the aim cue on the unit
+
+/// The colour of the first vertex of `unit`'s box in `scene`: a box is the only thing at the unit's
+/// own position that is not terrain, found by the vertex sitting at the unit's centre column.
+std::array<float, 3> box_colour(const Scene& scene, const protekt::sim::Unit& unit) {
+    constexpr float kFixedOne = static_cast<float>(protekt::sim::Fixed::kOne);
+    const float ux = static_cast<float>(unit.x.raw) / kFixedOne * kMetresPerTile;
+    const float uz = static_cast<float>(unit.y.raw) / kFixedOne * kMetresPerTile;
+    const float half = kMetresPerTile * 0.3F;
+    for (const auto& v : scene.vertices) {
+        if (std::abs(v.position[0] - (ux - half)) < 1e-3F
+            && std::abs(v.position[2] - (uz - half)) < 1e-3F
+            && v.position[1]
+                   > protekt::game::height_metres(42, unit.x.floor_int(), unit.y.floor_int())
+                         + 1.0F) {
+            return v.colour; // a top corner of the box: terrain is never this high above itself
+        }
+    }
+    return {-1.0F, -1.0F, -1.0F};
+}
+
+/// The aim cue needs the reticle's own pixel, so the camera is put 8 m behind the unit as the
+/// reticle tests do. `aimed` is the scene with the crosshair on the unit; `elsewhere` has the same
+/// camera and the crosshair over the sky.
+struct AimScenes {
+    Scene aimed;
+    Scene elsewhere;
+};
+
+AimScenes scenes_for(const protekt::sim::Sim& state, SceneOptions& options,
+                     const protekt::sim::Unit& unit, std::span<const protekt::sim::UnitId> chosen) {
+    Pixel at{};
+    EXPECT_TRUE(aim_at(state, options, unit, at));
+    AimScenes out;
+    options.aim = Aim{at.x, at.y};
+    out.aimed = build_scene(state, options, chosen);
+    options.aim = Aim{at.x, 2.0F}; // the top edge of the frame: sky, no unit
+    out.elsewhere = build_scene(state, options, chosen);
+    return out;
+}
+
+TEST(AimCue, TheUnitUnderTheCrosshairIsTintedAndTheSameUnitElsewhereIsNot) {
+    const auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(42));
+    for (const auto side : {protekt::sim::Side::Player, protekt::sim::Side::Enemy}) {
+        SceneOptions options = options_at(60.0F, 60.0F);
+        const protekt::sim::Unit* unit = first_aimable(sim, options, side);
+        ASSERT_NE(unit, nullptr);
+        const AimScenes scenes = scenes_for(sim, options, *unit, {});
+        const auto marked = box_colour(scenes.aimed, *unit);
+        const auto plain = box_colour(scenes.elsewhere, *unit);
+        ASSERT_GE(plain[0], 0.0F) << "the unit's box must be in the scene";
+        EXPECT_NE(marked, plain) << "the aimed unit must be marked";
+    }
+}
+
+TEST(AimCue, AnOwnUnitAndAHostileAreMarkedDifferently) {
+    const auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(42));
+    SceneOptions options = options_at(60.0F, 60.0F);
+    const protekt::sim::Unit* own = first_aimable(sim, options, protekt::sim::Side::Player);
+    ASSERT_NE(own, nullptr);
+    const auto own_mark = box_colour(scenes_for(sim, options, *own, {}).aimed, *own);
+    const protekt::sim::Unit* enemy = first_aimable(sim, options, protekt::sim::Side::Enemy);
+    ASSERT_NE(enemy, nullptr);
+    const auto enemy_mark = box_colour(scenes_for(sim, options, *enemy, {}).aimed, *enemy);
+    EXPECT_NE(own_mark, enemy_mark);
+    EXPECT_GT(own_mark[1], own_mark[2] + 0.2F) << "yours is warm amber, not blue";
+    EXPECT_GT(enemy_mark[0], enemy_mark[2] + 0.4F) << "a hostile stays in the red family";
+}
+
+TEST(AimCue, ASelectedUnitUnderTheCrosshairStillReadsAsSelected) {
+    const auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(42));
+    SceneOptions options = options_at(60.0F, 60.0F);
+    const protekt::sim::Unit* own = first_aimable(sim, options, protekt::sim::Side::Player);
+    ASSERT_NE(own, nullptr);
+    const std::vector<protekt::sim::UnitId> chosen{own->id};
+    const AimScenes scenes = scenes_for(sim, options, *own, chosen);
+    EXPECT_EQ(box_colour(scenes.aimed, *own), box_colour(scenes.elsewhere, *own))
+        << "selection takes precedence: aiming at a selected unit must not change its colour";
+    const auto selected = box_colour(scenes.aimed, *own);
+    EXPECT_GT(selected[2], 0.9F) << "still the white-mixed blue of a selection";
+}
+
+TEST(AimCue, SceneIsDeterministicWithAnAimPoint) {
+    const auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(42));
+    SceneOptions options = options_at(60.0F, 60.0F);
+    const protekt::sim::Unit* own = first_aimable(sim, options, protekt::sim::Side::Player);
+    ASSERT_NE(own, nullptr);
+    const AimScenes a = scenes_for(sim, options, *own, {});
+    const AimScenes b = scenes_for(sim, options, *own, {});
+    ASSERT_EQ(a.aimed.vertices.size(), b.aimed.vertices.size());
+    for (std::size_t i = 0; i < a.aimed.vertices.size(); ++i) {
+        EXPECT_EQ(a.aimed.vertices.at(i).position, b.aimed.vertices.at(i).position);
+        EXPECT_EQ(a.aimed.vertices.at(i).colour, b.aimed.vertices.at(i).colour);
+    }
+}
+
 // ---------------------------------------------------------------- the radar, as drawn
 
 /// The radar's own vertices, found as the block that appears when a viewer unit is named. Colours
@@ -534,7 +634,9 @@ TEST(RadarDraws, ThePanelLandsOnItsPixelsAndInFrontOfTheNearPlane) {
         const float slack = protekt::game::kRadarBorderPixels + 1.0F;
         EXPECT_GE(p.x, panel.x - slack);
         EXPECT_LE(p.x, panel.x + panel.size + slack);
-        EXPECT_GE(p.y, panel.y - slack);
+        // The health bar stands above the panel, so the top is allowed that much further.
+        const float bar_room = (std::max(8.0F, panel.size * 0.08F)) + 4.0F;
+        EXPECT_GE(p.y, panel.y - slack - bar_room);
         EXPECT_LE(p.y, panel.y + panel.size + slack);
     }
 }
@@ -551,8 +653,8 @@ TEST(RadarDraws, AnInvalidViewerUnitDrawsNoPanelAtAll) {
 }
 
 TEST(RadarDraws, MarksCountUpTheWayTheRulesSay) {
-    // The panel is 12 vertices (two quads) and each mark is 6, except the viewer's triangle and an
-    // arrow, which are 3.
+    // The panel and its bar are counted below and each mark is 6, except the viewer's triangle and
+    // an arrow, which are 3.
     const auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(42));
     protekt::sim::UnitId player{};
     for (const auto& unit : sim.units()) {
@@ -568,7 +670,9 @@ TEST(RadarDraws, MarksCountUpTheWayTheRulesSay) {
                                                   protekt::game::radar_panel(watched.extent));
     const std::vector<protekt::render::SceneVertex> radar = radar_vertices(
         protekt::game::build_scene(sim, watched), protekt::game::build_scene(sim, plain));
-    std::size_t expected = 12; // the panel itself: a border quad and a face quad
+    // The panel itself: a 48-slice ring (a quad a slice) and a 48-slice disc (a triangle a slice),
+    // and above it the health bar's track and its fill (a quad each, the viewer being unhurt).
+    std::size_t expected = (48 * 6) + (48 * 3) + 6 + 6;
     for (const auto& mark : marks) {
         switch (mark.shape) {
         case protekt::game::RadarShape::Square:
@@ -635,6 +739,886 @@ TEST(RadarDraws, AHostileInRangeIsDrawnRedAndOneOutOfRangeIsNotDrawnAtAll) {
     ASSERT_FALSE(far_enemy.empty());
     for (const auto& v : far_enemy) {
         EXPECT_FALSE(is_red(v)) << "a hostile outside the radius must not be visible on the radar";
+    }
+}
+
+// ---------------------------------------------------------------- the health bar and the round
+// radar
+//
+// Colours are asserted as literals on purpose: a test that compared against the constant the code
+// draws with would pass whatever the constant was.
+
+constexpr std::array<float, 3> kBorderRgb{0.80F, 0.82F, 0.85F};
+constexpr std::array<float, 3> kFaceRgb{0.04F, 0.05F, 0.06F};
+constexpr std::array<float, 3> kGreenRgb{0.30F, 0.85F, 0.35F};
+constexpr std::array<float, 3> kAmberRgb{1.0F, 0.75F, 0.20F};
+constexpr std::array<float, 3> kRedRgb{1.0F, 0.30F, 0.25F};
+constexpr float kPixelEps = 0.1F;
+
+/// The HUD of one frame, sorted by what each vertex is. Sorting is by colour and by WHERE the
+/// vertex lands in pixels, never by position in the list, so it holds however the drawing is built.
+struct Hud {
+    protekt::game::RadarPanel panel{};
+    std::vector<std::array<float, 2>> bar_track;
+    std::vector<std::array<float, 2>> bar_fill;
+    std::vector<std::array<float, 3>> bar_fill_colours;
+    std::vector<std::array<float, 2>> face;
+    std::vector<std::array<float, 2>> border;
+    std::vector<std::array<float, 2>> marks;
+};
+
+Hud hud_of(const protekt::sim::Sim& sim, SceneOptions watched) {
+    SceneOptions plain = watched;
+    plain.viewer_unit = protekt::sim::UnitId{};
+    Hud hud;
+    hud.panel = protekt::game::radar_panel(watched.extent);
+    const float above = hud.panel.y - protekt::game::kRadarBorderPixels - 0.5F;
+    for (const auto& v : radar_vertices(protekt::game::build_scene(sim, watched),
+                                        protekt::game::build_scene(sim, plain))) {
+        const protekt::game::Projected p = protekt::game::project(
+            watched.camera, watched.extent, v.position[0], v.position[1], v.position[2]);
+        const std::array<float, 2> at{p.x, p.y};
+        if (v.colour == kBorderRgb) {
+            hud.border.push_back(at);
+        } else if (p.y < above && v.colour == kFaceRgb) {
+            hud.bar_track.push_back(at);
+        } else if (p.y < above) {
+            hud.bar_fill.push_back(at);
+            hud.bar_fill_colours.push_back(v.colour);
+        } else if (v.colour == kFaceRgb) {
+            hud.face.push_back(at);
+        } else {
+            hud.marks.push_back(at);
+        }
+    }
+    return hud;
+}
+
+float min_x(const std::vector<std::array<float, 2>>& points) {
+    float lowest = points.front().at(0);
+    for (const auto& p : points) {
+        lowest = std::min(lowest, p.at(0));
+    }
+    return lowest;
+}
+float max_x(const std::vector<std::array<float, 2>>& points) {
+    float highest = points.front().at(0);
+    for (const auto& p : points) {
+        highest = std::max(highest, p.at(0));
+    }
+    return highest;
+}
+float min_y(const std::vector<std::array<float, 2>>& points) {
+    float lowest = points.front().at(1);
+    for (const auto& p : points) {
+        lowest = std::min(lowest, p.at(1));
+    }
+    return lowest;
+}
+float max_y(const std::vector<std::array<float, 2>>& points) {
+    float highest = points.front().at(1);
+    for (const auto& p : points) {
+        highest = std::max(highest, p.at(1));
+    }
+    return highest;
+}
+
+SceneOptions battle_options() {
+    SceneOptions plain;
+    plain.seed = 42;
+    plain.radius_tiles = 8;
+    plain.camera.x = 100.0F;
+    plain.camera.z = 104.0F;
+    plain.camera.y = 8.0F;
+    return plain;
+}
+
+/// A factory (400 hp, unarmed) shot at by a tank (8 hp a hit) until the factory is down to exactly
+/// `hp`. The sim has no setter and must not get one, and the damage is exact, so this is the honest
+/// way to get a viewer at a chosen health. `hp == 0` runs it until the factory is dead.
+struct Damaged {
+    protekt::sim::Sim sim;
+    protekt::sim::UnitId viewer;
+};
+Damaged factory_down_to(std::uint16_t hp) {
+    using protekt::sim::Side;
+    using protekt::sim::Spawn;
+    using protekt::sim::UnitKind;
+    protekt::sim::Scenario scenario;
+    scenario.seed = 42;
+    scenario.spawns.push_back(Spawn{UnitKind::Factory, Side::Player, 50, 50});
+    scenario.spawns.push_back(Spawn{UnitKind::Tank, Side::Enemy, 55, 52});
+    auto sim = protekt::sim::Sim::create(scenario);
+    protekt::sim::UnitId factory{};
+    for (const auto& unit : sim.units()) {
+        if (unit.kind == UnitKind::Factory) {
+            factory = unit.id;
+        }
+    }
+    for (int guard = 0; guard < 5000 && sim.find(factory)->hp > hp; ++guard) {
+        sim.step();
+    }
+    return Damaged{std::move(sim), factory};
+}
+
+SceneOptions watching(const Damaged& d) {
+    SceneOptions options = battle_options();
+    options.viewer_unit = d.viewer;
+    return options;
+}
+
+float track_width(const Hud& hud) { return max_x(hud.bar_track) - min_x(hud.bar_track); }
+float fill_width(const Hud& hud) {
+    return hud.bar_fill.empty() ? 0.0F : max_x(hud.bar_fill) - min_x(hud.bar_fill);
+}
+
+TEST(HealthBar, FullHealthFillsTheWholeTrack) {
+    const Damaged d = factory_down_to(400);
+    ASSERT_EQ(d.sim.find(d.viewer)->hp, 400);
+    const Hud hud = hud_of(d.sim, watching(d));
+    ASSERT_FALSE(hud.bar_track.empty());
+    ASSERT_FALSE(hud.bar_fill.empty());
+    EXPECT_NEAR(fill_width(hud), track_width(hud), kPixelEps);
+    EXPECT_NEAR(min_x(hud.bar_fill), min_x(hud.bar_track), kPixelEps);
+}
+
+TEST(HealthBar, HalfHealthFillsHalfTheTrack) {
+    const Damaged d = factory_down_to(200);
+    ASSERT_EQ(d.sim.find(d.viewer)->hp, 200);
+    const Hud hud = hud_of(d.sim, watching(d));
+    ASSERT_FALSE(hud.bar_track.empty());
+    ASSERT_FALSE(hud.bar_fill.empty());
+    EXPECT_NEAR(fill_width(hud), track_width(hud) * 0.5F, 0.25F);
+    EXPECT_NEAR(min_x(hud.bar_fill), min_x(hud.bar_track), kPixelEps) << "drawn from the left";
+}
+
+TEST(HealthBar, NoFillWhenTheHullIsGone) {
+    const Damaged d = factory_down_to(0);
+    ASSERT_FALSE(d.sim.find(d.viewer)->alive);
+    // A dead viewer has no radar to take vertices from, so count the fill colours directly: the
+    // frame with this viewer named must hold no more of them than the frame without.
+    const auto fills = [](const Scene& scene) {
+        return std::count_if(scene.vertices.begin(), scene.vertices.end(), [](const auto& v) {
+            return v.colour == kGreenRgb || v.colour == kAmberRgb || v.colour == kRedRgb;
+        });
+    };
+    EXPECT_EQ(fills(protekt::game::build_scene(d.sim, watching(d))),
+              fills(protekt::game::build_scene(d.sim, battle_options())));
+}
+
+TEST(HealthBar, TheColourChangesAtTheThresholds) {
+    // The sim's damage is exact, so the sides of each threshold are reached exactly: a 400 hp
+    // factory is at 0.50 at 200 hp and 0.20 at 80 hp, and each hit is 8 hp (0.02).
+    struct Case {
+        std::uint16_t hp;
+        std::array<float, 3> colour;
+    };
+    const std::array<Case, 6> cases{{{208, kGreenRgb}, // 0.52
+                                     {200, kGreenRgb}, // 0.50 is the first green
+                                     {192, kAmberRgb}, // 0.48
+                                     {88, kAmberRgb},  // 0.22
+                                     {80, kAmberRgb},  // 0.20 is the last amber
+                                     {72, kRedRgb}}};  // 0.18
+    for (const Case& c : cases) {
+        const Damaged d = factory_down_to(c.hp);
+        ASSERT_EQ(d.sim.find(d.viewer)->hp, c.hp);
+        const Hud hud = hud_of(d.sim, watching(d));
+        ASSERT_FALSE(hud.bar_fill_colours.empty()) << "hp " << c.hp;
+        for (const auto& colour : hud.bar_fill_colours) {
+            EXPECT_EQ(colour, c.colour) << "hp " << c.hp;
+        }
+    }
+}
+
+TEST(HealthBar, SitsAboveTheRadarAndSharesItsWidth) {
+    const Damaged d = factory_down_to(400);
+    const Hud hud = hud_of(d.sim, watching(d));
+    ASSERT_FALSE(hud.bar_track.empty());
+    const float border = protekt::game::kRadarBorderPixels;
+    EXPECT_NEAR(min_x(hud.bar_track), hud.panel.x - border, kPixelEps);
+    EXPECT_NEAR(max_x(hud.bar_track), hud.panel.x + hud.panel.size + border, kPixelEps);
+    EXPECT_LT(max_y(hud.bar_track), hud.panel.y - border) << "above the ring, with a gap";
+    EXPECT_GT(max_y(hud.bar_track), hud.panel.y - border - 16.0F) << "and only a small gap";
+    const float height = max_y(hud.bar_track) - min_y(hud.bar_track);
+    EXPECT_GE(height, 8.0F - kPixelEps);
+    EXPECT_NEAR(height, std::max(8.0F, hud.panel.size * 0.08F), kPixelEps);
+    EXPECT_GE(min_y(hud.bar_track), 0.0F) << "on the screen";
+}
+
+TEST(HealthBar, IsAbsentWithoutALivingViewer) {
+    const Damaged alive = factory_down_to(400);
+    SceneOptions none = battle_options();
+    EXPECT_EQ(protekt::game::build_scene(alive.sim, none).vertices.size(),
+              protekt::game::build_scene(alive.sim, battle_options()).vertices.size());
+    SceneOptions stranger = battle_options();
+    stranger.viewer_unit = protekt::sim::UnitId{9999};
+    EXPECT_EQ(protekt::game::build_scene(alive.sim, stranger).vertices.size(),
+              protekt::game::build_scene(alive.sim, none).vertices.size());
+
+    const Damaged dead = factory_down_to(0);
+    ASSERT_FALSE(dead.sim.find(dead.viewer)->alive);
+    EXPECT_EQ(protekt::game::build_scene(dead.sim, watching(dead)).vertices.size(),
+              protekt::game::build_scene(dead.sim, battle_options()).vertices.size())
+        << "a dead viewer draws no bar and no radar";
+}
+
+// Round radar -------------------------------------------------------------------------------
+
+float from_centre(const Hud& hud, const std::array<float, 2>& p) {
+    const float middle = hud.panel.size * 0.5F;
+    return std::hypot(p.at(0) - (hud.panel.x + middle), p.at(1) - (hud.panel.y + middle));
+}
+
+TEST(Radar, TheFaceIsADiscNotARectangle) {
+    const Damaged d = factory_down_to(400);
+    const Hud hud = hud_of(d.sim, watching(d));
+    ASSERT_FALSE(hud.face.empty());
+    const float radius = hud.panel.size * 0.5F;
+    for (const auto& p : hud.face) {
+        EXPECT_LE(from_centre(hud, p), radius + kPixelEps);
+    }
+    EXPECT_NEAR(min_x(hud.face), hud.panel.x, kPixelEps);
+    EXPECT_NEAR(max_x(hud.face), hud.panel.x + hud.panel.size, kPixelEps);
+    EXPECT_NEAR(min_y(hud.face), hud.panel.y, kPixelEps);
+    EXPECT_NEAR(max_y(hud.face), hud.panel.y + hud.panel.size, kPixelEps);
+}
+
+TEST(Radar, TheBorderIsARing) {
+    const Damaged d = factory_down_to(400);
+    const Hud hud = hud_of(d.sim, watching(d));
+    ASSERT_FALSE(hud.border.empty());
+    const float inner = hud.panel.size * 0.5F;
+    const float outer = inner + protekt::game::kRadarBorderPixels;
+    for (const auto& p : hud.border) {
+        EXPECT_GE(from_centre(hud, p), inner - kPixelEps);
+        EXPECT_LE(from_centre(hud, p), outer + kPixelEps);
+    }
+}
+
+/// A viewer in the middle and one hostile at each offset, in tiles from it.
+protekt::sim::Sim ring_of_units() {
+    using protekt::sim::Side;
+    using protekt::sim::Spawn;
+    using protekt::sim::UnitKind;
+    protekt::sim::Scenario scenario;
+    scenario.seed = 42;
+    scenario.spawns.push_back(Spawn{UnitKind::Tank, Side::Player, 60, 60});
+    const std::array<std::array<int, 2>, 16> offsets{{{40, 0},
+                                                      {-40, 0},
+                                                      {0, 40},
+                                                      {0, -40},
+                                                      {24, 32},
+                                                      {-24, 32},
+                                                      {24, -32},
+                                                      {-24, -32},
+                                                      {32, 24},
+                                                      {-32, 24},
+                                                      {32, -24},
+                                                      {-32, -24},
+                                                      {10, 0},
+                                                      {0, -10},
+                                                      {7, 7},
+                                                      {-20, 20}}};
+    for (const auto& o : offsets) {
+        scenario.spawns.push_back(Spawn{UnitKind::Tank, Side::Enemy, 60 + o.at(0), 60 + o.at(1)});
+    }
+    // Your own base far out of range, so there is an arrow at the rim as well.
+    scenario.spawns.push_back(Spawn{UnitKind::Factory, Side::Player, 60 + 70, 60});
+    return protekt::sim::Sim::create(scenario);
+}
+
+TEST(Radar, EveryMarkLiesWithinTheInscribedRadius) {
+    // The projection is linear in distance, so a mark at the maximum range is exactly
+    // `middle - size * inset` from the centre, and nothing in range is further. (An out-of-range
+    // base's ARROW is drawn at the rim by design and is held to the outer circle below instead.)
+    const auto sim = ring_of_units();
+    protekt::sim::UnitId viewer{};
+    for (const auto& unit : sim.units()) {
+        if (unit.kind == protekt::sim::UnitKind::Tank && unit.side == protekt::sim::Side::Player) {
+            viewer = unit.id;
+        }
+    }
+    ASSERT_TRUE(viewer.valid());
+    const protekt::game::RadarPanel panel = protekt::game::radar_panel({1280, 720});
+    const float middle = panel.size * 0.5F;
+    const float limit = middle - (panel.size * 0.06F);
+    float furthest = 0.0F;
+    for (const float yaw : {0.0F, 0.7F, 2.0F, -1.3F, 3.1F}) {
+        std::size_t in_range = 0;
+        for (const auto& mark : protekt::game::radar_marks(sim.units(), viewer, yaw, panel)) {
+            if (mark.shape == protekt::game::RadarShape::Arrow) {
+                continue;
+            }
+            ++in_range;
+            const float distance = std::hypot(mark.px - middle, mark.py - middle);
+            EXPECT_LE(distance, limit + kPixelEps) << "yaw " << yaw;
+            furthest = std::max(furthest, distance);
+        }
+        EXPECT_EQ(in_range, 17U) << "the viewer and sixteen hostiles, all in range";
+    }
+    EXPECT_NEAR(furthest, limit, kPixelEps) << "the maximum range lands exactly on the limit";
+}
+
+TEST(Radar, NothingIsDrawnOutsideTheOuterCircle) {
+    const auto sim = ring_of_units();
+    protekt::sim::UnitId viewer{};
+    for (const auto& unit : sim.units()) {
+        if (unit.kind == protekt::sim::UnitKind::Tank && unit.side == protekt::sim::Side::Player) {
+            viewer = unit.id;
+        }
+    }
+    for (const float yaw : {0.0F, 0.7F, 2.0F, -1.3F, 3.1F}) {
+        SceneOptions watched = battle_options();
+        watched.viewer_unit = viewer;
+        watched.camera.yaw = yaw;
+        const Hud hud = hud_of(sim, watched);
+        ASSERT_FALSE(hud.marks.empty());
+        const float outer = (hud.panel.size * 0.5F) + protekt::game::kRadarBorderPixels;
+        for (const auto* group : {&hud.face, &hud.border, &hud.marks}) {
+            for (const auto& p : *group) {
+                EXPECT_LE(from_centre(hud, p), outer + kPixelEps) << "yaw " << yaw;
+            }
+        }
+    }
+}
+
+} // namespace
+
+// ---------------------------------------------------------------- smooth elevation
+//
+// Seed 42 is the sloped world used throughout: the tiles (106,95) and (107,95) differ by 1.25 m
+// (the steepest x-step in [10,120)^2), and tiles (32,13),(33,13),(32,14),(33,14) are all the same
+// height -- the one flat cell the generator leaves near the origin.
+
+namespace {
+
+using protekt::game::ground_metres;
+using protekt::game::height_metres;
+using protekt::sim::Fixed;
+
+constexpr std::uint64_t kSlopeSeed = 42;
+constexpr float kSlopeStepMetres = 1.25F; // |h(107,95) - h(106,95)| for seed 42
+
+Fixed tiles(float value) {
+    return Fixed::from_raw(static_cast<std::int32_t>(std::lround(value * 65536.0F)));
+}
+
+} // namespace
+
+TEST(GroundMetres, AtALatticePointItIsThatTilesHeight) {
+    for (int ty = 90; ty < 100; ++ty) {
+        for (int tx = 100; tx < 110; ++tx) {
+            EXPECT_EQ(ground_metres(kSlopeSeed, Fixed::from_int(tx), Fixed::from_int(ty)),
+                      height_metres(kSlopeSeed, tx, ty))
+                << "tile " << tx << "," << ty;
+        }
+    }
+}
+
+TEST(GroundMetres, ApproachingABoundaryFromEitherSideConvergesToTheSameValue) {
+    // x = 107 is the boundary between tiles 106 and 107, on the 1.25 m slope.
+    const Fixed y = Fixed::from_int(95);
+    const float at = ground_metres(kSlopeSeed, Fixed::from_int(107), y);
+    const float below = ground_metres(kSlopeSeed, Fixed::from_raw((107 << 16) - 1), y);
+    const float above = ground_metres(kSlopeSeed, Fixed::from_raw((107 << 16) + 1), y);
+    EXPECT_NEAR(below, at, 1e-3F);
+    EXPECT_NEAR(above, at, 1e-3F);
+    EXPECT_NEAR(below, above, 1e-3F);
+}
+
+TEST(GroundMetres, CrossingABoundaryNeverStepsByMoreThanAFractionOfTheTileDifference) {
+    // Walk x from 105.5 to 108.5 in 1/32-tile steps along y = 95, across the 1.25 m slope.
+    const Fixed y = Fixed::from_int(95);
+    float previous = ground_metres(kSlopeSeed, tiles(105.5F), y);
+    float largest = 0.0F;
+    float total = 0.0F;
+    for (int i = 1; i <= 96; ++i) {
+        const float here
+            = ground_metres(kSlopeSeed, tiles(105.5F + (static_cast<float>(i) / 32.0F)), y);
+        largest = std::max(largest, std::fabs(here - previous));
+        total += std::fabs(here - previous);
+        previous = here;
+    }
+    ASSERT_GT(total, kSlopeStepMetres * 0.9F) << "the walk must actually climb the slope";
+    EXPECT_LT(largest, kSlopeStepMetres / 16.0F) << "a 1/32-tile step is a 1/32 share of a slope";
+}
+
+TEST(GroundMetres, OnFlatGroundItIsConstant) {
+    const float flat = height_metres(kSlopeSeed, 32, 13);
+    for (int i = 0; i <= 8; ++i) {
+        for (int j = 0; j <= 8; ++j) {
+            EXPECT_EQ(ground_metres(kSlopeSeed, tiles(32.0F + (static_cast<float>(i) / 8.0F)),
+                                    tiles(13.0F + (static_cast<float>(j) / 8.0F))),
+                      flat);
+        }
+    }
+}
+
+TEST(GroundMetres, SameInputGivesTheSameOutputAndTheFloatFormAgreesWithTheFixedForm) {
+    const Fixed x = tiles(106.37F);
+    const Fixed y = tiles(95.81F);
+    EXPECT_EQ(ground_metres(kSlopeSeed, x, y), ground_metres(kSlopeSeed, x, y));
+    EXPECT_NEAR(ground_metres(kSlopeSeed, x, y), ground_metres(kSlopeSeed, 106.37F, 95.81F), 1e-3F);
+}
+
+TEST(GroundMetres, ATanksFootingInTheSceneIsContinuousAsItDrivesAcrossATileEdge) {
+    using namespace protekt::sim;
+    Scenario scenario;
+    scenario.seed = kSlopeSeed;
+    scenario.spawns.push_back(Spawn{UnitKind::Tank, Side::Player, 104, 95});
+    Sim sim = Sim::create(scenario);
+    const UnitId tank = sim.units().at(0).id;
+    sim.enqueue(Order{tank, orders::MoveTo{Fixed::from_int(112), Fixed::from_int(95)}});
+
+    SceneOptions options
+        = options_at(106.0F * kMetresPerTile, 95.0F * kMetresPerTile, kSlopeSeed, 4);
+    constexpr std::size_t kBoxVertices = 36;
+    const auto footing = [&] {
+        const std::vector<protekt::render::SceneVertex> v
+            = protekt::game::build_scene(sim, options).vertices;
+        float lowest = 1e9F;
+        for (std::size_t i = v.size() - kBoxVertices; i < v.size(); ++i) {
+            lowest = std::min(lowest, v.at(i).position.at(1));
+        }
+        return lowest;
+    };
+    float previous = footing();
+    float largest = 0.0F;
+    int edges_on_the_slope = 0;
+    int previous_tile = sim.units().at(0).x.floor_int();
+    for (int i = 0; i < 90; ++i) {
+        sim.step();
+        const float here = footing();
+        largest = std::max(largest, std::fabs(here - previous));
+        previous = here;
+        const int tile = sim.units().at(0).x.floor_int();
+        if (tile != previous_tile && tile == 107) {
+            ++edges_on_the_slope; // crossed the 106 -> 107 edge, where the tiles differ by 1.25 m
+        }
+        previous_tile = tile;
+    }
+    EXPECT_EQ(edges_on_the_slope, 1) << "the tank must cross the sloped edge during the drive";
+    // A tank moves 0.2 tile a tick; the old per-tile footing stepped the whole 1.25 m in one.
+    EXPECT_LT(largest, kSlopeStepMetres / 3.0F);
+}
+
+// ---------------------------------------------------------------- the hover
+
+namespace {
+
+using protekt::game::Hover;
+using protekt::game::kDampPerTick;
+using protekt::game::kRideHeightMetres;
+using protekt::game::kSpringPerTick;
+using protekt::game::suspend;
+using protekt::game::Suspension;
+
+constexpr float kStepMetres = 2.0F;
+
+/// Ticks for the spring's envelope, which decays by about exp(-kDampPerTick / 2) a tick, to fall to
+/// 1% of a step -- doubled for margin. Derived from the constants so retuning cannot silently
+/// leave a test waiting for the wrong amount of time.
+std::uint32_t settle_ticks() {
+    return 2U * static_cast<std::uint32_t>(std::ceil(std::log(100.0F) / (kDampPerTick / 2.0F)));
+}
+
+constexpr float settle_band() { return kStepMetres * 0.01F; }
+
+TEST(Hover, AStepInTheGroundOvershootsOnceAndComesBack) {
+    Suspension state{0.0F, 0.0F};
+    float peak = 0.0F;
+    bool passed = false;
+    bool came_back = false;
+    for (std::uint32_t i = 0; i < settle_ticks(); ++i) {
+        state = suspend(state, kStepMetres, 1);
+        peak = std::max(peak, state.z);
+        passed = passed || state.z > kStepMetres + settle_band();
+        came_back = came_back || (passed && state.z < peak - settle_band());
+    }
+    EXPECT_TRUE(passed) << "an underdamped hull must pass the target";
+    EXPECT_TRUE(came_back) << "and then return from the overshoot";
+}
+
+TEST(Hover, SettlesWithinTheBandAndStaysThere) {
+    // The window is derived from the constants, so a degenerate constant collapses it -- and an
+    // empty loop asserts nothing while still reporting PASS. Pin the window before trusting it.
+    const std::uint32_t window = settle_ticks();
+    ASSERT_GT(window, 0U) << "the settle window must be a real number of ticks";
+    ASSERT_LT(window, 100000U) << "and must not have degenerated";
+    Suspension state = suspend({0.0F, 0.0F}, kStepMetres, window);
+    for (std::uint32_t i = 0; i < window; ++i) {
+        EXPECT_LT(std::fabs(state.z - kStepMetres), settle_band());
+        state = suspend(state, kStepMetres, 1);
+    }
+}
+
+TEST(Hover, AHugeStepNeverExceedsABoundedOvershoot) {
+    // Damping ratio d / (2 sqrt k) gives the overshoot fraction exp(-pi z / sqrt(1 - z^2)); allow
+    // double that for the discrete-time error.
+    const float zeta = kDampPerTick / (2.0F * std::sqrt(kSpringPerTick));
+    ASSERT_LT(zeta, 1.0F);
+    const float fraction = std::exp(-3.14159265F * zeta / std::sqrt(1.0F - (zeta * zeta)));
+    constexpr float kBigStep = 16.0F;
+    Suspension state{0.0F, 0.0F};
+    for (std::uint32_t i = 0; i < 4U * settle_ticks(); ++i) {
+        state = suspend(state, kBigStep, 1);
+        ASSERT_LE(state.z, kBigStep * (1.0F + (2.0F * fraction)));
+        ASSERT_GE(state.z, 0.0F);
+    }
+}
+
+TEST(Hover, FromRestOnFlatGroundItFloatsAtRideHeightAndStays) {
+    Hover hover;
+    EXPECT_FALSE(hover.z().has_value());
+    constexpr float kGround = 3.0F;
+    for (protekt::sim::Tick tick = 0; tick < 3U * settle_ticks(); ++tick) {
+        hover.advance(tick, kGround);
+        EXPECT_FLOAT_EQ(*hover.z(), kGround + kRideHeightMetres);
+        // The equality above proves the code READS the constant. It cannot catch a wrong VALUE,
+        // because both sides move together. These literal bounds pin the value itself.
+        EXPECT_GT(*hover.z() - kGround, 0.10F)
+            << "a hover tank must float visibly, not sit on the ground";
+        EXPECT_LT(*hover.z() - kGround, 0.60F) << "and must not look detached from it";
+    }
+}
+
+TEST(Hover, TheSameTicksGiveTheSameHeightEveryTime) {
+    const auto run = [] {
+        Hover hover;
+        for (protekt::sim::Tick tick = 0; tick < 120; ++tick) {
+            hover.advance(tick, tick < 40 ? 0.0F : 1.5F);
+        }
+        return *hover.z();
+    };
+    EXPECT_EQ(run(), run());
+}
+
+TEST(Hover, TwoTicksInOneFrameLandWhereTwoFramesOfOneTickDo) {
+    const Suspension start{1.0F, 0.1F};
+    const Suspension one_by_one = suspend(suspend(start, 3.0F, 1), 3.0F, 1);
+    const Suspension together = suspend(start, 3.0F, 2);
+    EXPECT_EQ(one_by_one.z, together.z);
+    EXPECT_EQ(one_by_one.z_vel, together.z_vel);
+
+    Hover frames;
+    Hover batch;
+    frames.advance(0, 0.0F);
+    batch.advance(0, 0.0F);
+    frames.advance(1, 2.0F);
+    frames.advance(2, 2.0F);
+    batch.advance(2, 2.0F); // the same two ticks, arriving in one frame
+    // The batch frame sees the final ground for both ticks, so only the one-ground case is claimed.
+    Hover steady_frames;
+    Hover steady_batch;
+    steady_frames.advance(0, 2.0F);
+    steady_batch.advance(0, 2.0F);
+    steady_frames.advance(1, 5.0F);
+    steady_frames.advance(2, 5.0F);
+    steady_batch.advance(2, 5.0F);
+    EXPECT_NE(frames.z(), std::nullopt);
+    EXPECT_EQ(steady_frames.z(), steady_batch.z());
+}
+
+TEST(Hover, AFrameWithNoTickMovesNothing) {
+    Hover hover;
+    hover.advance(5, 0.0F);
+    hover.advance(6, 1.0F);
+    const std::optional<float> before = hover.z();
+    hover.advance(6, 1.0F);
+    EXPECT_EQ(hover.z(), before);
+}
+
+TEST(Hover, OnARampTheHullLagsBelowTheRisingGround) {
+    Hover hover;
+    hover.advance(0, 0.0F);
+    constexpr float kRisePerTick = 0.05F;
+    float ground = 0.0F;
+    for (protekt::sim::Tick tick = 1; tick <= 10; ++tick) {
+        ground += kRisePerTick;
+        hover.advance(tick, ground);
+    }
+    // At rest the hull rides kRideHeightMetres above the ground; climbing, it trails that line.
+    EXPECT_LT(*hover.z(), ground + kRideHeightMetres);
+    EXPECT_GT(*hover.z(), kRideHeightMetres) << "but it has started to rise";
+}
+
+TEST(Hover, TheHoveringUnitIsDrawnAtTheHullHeightAndOthersStayOnTheGround) {
+    const auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(42));
+    const protekt::sim::Unit tank = sim.units().at(0);
+    // Centred on the tank: a unit outside the meshed radius is not drawn at all.
+    SceneOptions options
+        = options_at(static_cast<float>(tank.x.raw) / static_cast<float>(protekt::sim::Fixed::kOne)
+                         * kMetresPerTile,
+                     static_cast<float>(tank.y.raw) / static_cast<float>(protekt::sim::Fixed::kOne)
+                         * kMetresPerTile);
+    const auto base = protekt::game::build_scene(sim, options);
+    const float ground = protekt::game::ground_metres(42, tank.x, tank.y);
+    options.hover = SceneOptions::Hovering{tank.id, ground + 5.0F};
+    const auto raised = protekt::game::build_scene(sim, options);
+    ASSERT_EQ(base.vertices.size(), raised.vertices.size());
+    std::size_t moved = 0;
+    for (std::size_t i = 0; i < base.vertices.size(); ++i) {
+        const float dy = raised.vertices.at(i).position.at(1) - base.vertices.at(i).position.at(1);
+        if (dy != 0.0F) {
+            EXPECT_NEAR(dy, 5.0F, kTolerance);
+            ++moved;
+        }
+    }
+    EXPECT_EQ(moved, 36U) << "exactly one box (36 vertices) moves";
+}
+
+} // namespace
+
+// ---------------------------------------------------------------- boost
+
+namespace {
+
+using protekt::game::kBoostLiftMetres;
+
+/// Ticks for a boost lift to settle: the same envelope as `settle_ticks`, over the lift.
+std::uint32_t boost_window() { return settle_ticks(); }
+
+/// A hover at rest on flat ground at height 0, ticked to `tick` so it has a clock.
+Hover resting_hover(protekt::sim::Tick& tick) {
+    Hover hover;
+    hover.advance(0, 0.0F);
+    tick = 0;
+    return hover;
+}
+
+TEST(Boost, RaisesTheHullAndItSettlesAtTheRaisedHeightWhileHeld) {
+    // The lift is pinned by a human-chosen literal band, not by restating the constant: visible
+    // against the 1.8 m hull, not detached from it.
+    EXPECT_GT(kBoostLiftMetres, 0.5F);
+    EXPECT_LT(kBoostLiftMetres, 1.5F);
+    const std::uint32_t window = boost_window();
+    ASSERT_GT(window, 0U);
+    ASSERT_LT(window, 100000U);
+    protekt::sim::Tick tick = 0;
+    Hover hover = resting_hover(tick);
+    for (std::uint32_t i = 0; i < window; ++i) {
+        hover.advance(++tick, 0.0F, true);
+    }
+    EXPECT_GT(*hover.z(), kRideHeightMetres + 0.5F) << "boost must lift visibly above rest";
+    EXPECT_NEAR(*hover.z(), kRideHeightMetres + kBoostLiftMetres, kBoostLiftMetres * 0.01F);
+    for (std::uint32_t i = 0; i < window; ++i) {
+        hover.advance(++tick, 0.0F, true);
+        EXPECT_NEAR(*hover.z(), kRideHeightMetres + kBoostLiftMetres, kBoostLiftMetres * 0.01F)
+            << "and stays there while held";
+    }
+}
+
+TEST(Boost, OvershootsOnceBeforeSettling) {
+    const std::uint32_t window = boost_window();
+    ASSERT_GT(window, 0U);
+    const float top = kRideHeightMetres + kBoostLiftMetres;
+    const float band = kBoostLiftMetres * 0.01F;
+    protekt::sim::Tick tick = 0;
+    Hover hover = resting_hover(tick);
+    float peak = 0.0F;
+    bool passed = false;
+    bool came_back = false;
+    int crossings_up = 0;
+    bool above = false;
+    for (std::uint32_t i = 0; i < window; ++i) {
+        hover.advance(++tick, 0.0F, true);
+        const float z = *hover.z();
+        peak = std::max(peak, z);
+        passed = passed || z > top + band;
+        came_back = came_back || (passed && z < peak - band);
+        const bool now_above = z > top + band;
+        if (now_above && !above) {
+            ++crossings_up;
+        }
+        above = now_above;
+    }
+    EXPECT_TRUE(passed) << "the hull must rise past the raised height";
+    EXPECT_TRUE(came_back) << "and come down a bit lower";
+    EXPECT_EQ(crossings_up, 1) << "once, not a ringing";
+    EXPECT_LT(peak, top + (0.2F * kBoostLiftMetres)) << "and only a little";
+}
+
+TEST(Boost, ReleasingBringsTheHullBackToRestingHeight) {
+    const std::uint32_t window = boost_window();
+    ASSERT_GT(window, 0U);
+    protekt::sim::Tick tick = 0;
+    Hover hover = resting_hover(tick);
+    for (std::uint32_t i = 0; i < window; ++i) {
+        hover.advance(++tick, 0.0F, true);
+    }
+    ASSERT_GT(*hover.z(), kRideHeightMetres + 0.5F);
+    for (std::uint32_t i = 0; i < window; ++i) {
+        hover.advance(++tick, 0.0F, false);
+    }
+    EXPECT_NEAR(*hover.z(), kRideHeightMetres, kBoostLiftMetres * 0.01F);
+}
+
+TEST(Boost, TwoOneTickCallsEqualOneTwoTickCallBitForBit) {
+    Hover frames;
+    Hover batch;
+    frames.advance(0, 1.0F);
+    batch.advance(0, 1.0F);
+    for (const bool boost : {true, false}) {
+        // From a mid-rise state, so the spring has velocity and the equality is not trivial.
+        frames.advance(3, 1.0F, true);
+        batch.advance(3, 1.0F, true);
+        frames.advance(4, 1.0F, boost);
+        frames.advance(5, 1.0F, boost);
+        batch.advance(5, 1.0F, boost); // the same two ticks, arriving in one frame
+        ASSERT_TRUE(frames.z().has_value());
+        EXPECT_EQ(frames.z(), batch.z());
+    }
+    EXPECT_GT(*frames.z(), kRideHeightMetres) << "the comparison was made while moving";
+}
+
+TEST(Boost, AFrameWithNoTickAndBoostHeldChangesNothing) {
+    protekt::sim::Tick tick = 0;
+    Hover hover = resting_hover(tick);
+    hover.advance(5, 0.0F, true);
+    const std::optional<float> before = hover.z();
+    hover.advance(5, 0.0F, true);
+    EXPECT_EQ(hover.z(), before);
+    EXPECT_GT(*before, kRideHeightMetres) << "it had risen, so a no-op is a real claim";
+}
+
+TEST(Boost, AbsentBoostIsBitIdenticalToTheHoverWithoutIt) {
+    Hover plain;
+    Hover explicit_off;
+    for (protekt::sim::Tick tick = 0; tick < 120; ++tick) {
+        const float ground = tick < 40 ? 0.0F : 1.5F;
+        plain.advance(tick, ground);
+        explicit_off.advance(tick, ground, false);
+        ASSERT_EQ(plain.z(), explicit_off.z());
+    }
+    // And the value itself is the old hover's: floating at ground + ride height when undisturbed.
+    Hover flat;
+    for (protekt::sim::Tick tick = 0; tick < 50; ++tick) {
+        flat.advance(tick, 2.0F);
+    }
+    EXPECT_FLOAT_EQ(*flat.z(), 2.25F);
+}
+
+TEST(Boost, HeldKeyIsEHeldNotToggled) {
+    protekt::input::HeldKeys keys{};
+    EXPECT_FALSE(keys.boost);
+    protekt::input::apply(keys, protekt::input::KeyEvent{8, true});
+    EXPECT_TRUE(keys.boost) << "E (HID 8) is boost";
+    protekt::input::apply(keys, protekt::input::KeyEvent{8, true});
+    EXPECT_TRUE(keys.boost) << "an OS repeat changes nothing";
+    protekt::input::apply(keys, protekt::input::KeyEvent{8, false});
+    EXPECT_FALSE(keys.boost) << "release turns it off";
+    EXPECT_FALSE(keys.any()) << "and it is not a movement key";
+}
+
+// ---- the colour calibration view: three bars, red, green, blue, and nothing else ----
+
+using protekt::game::build_calibration_scene;
+
+SceneOptions calibration_options() {
+    SceneOptions o = options_at(100.0F, 100.0F);
+    o.camera.yaw = 0.7F;
+    o.camera.pitch = -0.2F;
+    return o;
+}
+
+/// The colour groups of a scene, in order of first appearance: runs of vertices sharing one colour.
+std::vector<std::vector<protekt::render::SceneVertex>> colour_groups(const Scene& scene) {
+    std::vector<std::vector<protekt::render::SceneVertex>> groups;
+    for (const auto& v : scene.vertices) {
+        if (groups.empty() || groups.back().front().colour != v.colour) {
+            groups.emplace_back();
+        }
+        groups.back().push_back(v);
+    }
+    return groups;
+}
+
+TEST(Calibration, EmitsExactlyThreeUniformColourGroupsRedGreenBlue) {
+    const Scene scene = build_calibration_scene(calibration_options());
+    const auto groups = colour_groups(scene);
+    ASSERT_EQ(groups.size(), 3U);
+    const std::array<std::array<float, 3>, 3> expected{
+        {{1.0F, 0.0F, 0.0F}, {0.0F, 1.0F, 0.0F}, {0.0F, 0.0F, 1.0F}}};
+    for (std::size_t i = 0; i < 3; ++i) {
+        ASSERT_FALSE(groups.at(i).empty());
+        for (const auto& v : groups.at(i)) {
+            EXPECT_EQ(v.colour, expected.at(i)) << "bar " << i;
+        }
+    }
+}
+
+TEST(Calibration, TheBarsSpanTheFullFrameWidthAndEachTheFullHeight) {
+    const SceneOptions options = calibration_options();
+    const Scene scene = build_calibration_scene(options);
+    const auto groups = colour_groups(scene);
+    ASSERT_EQ(groups.size(), 3U);
+    const float width = static_cast<float>(options.extent.width);
+    const float height = static_cast<float>(options.extent.height);
+    float previous_right = 0.0F;
+    for (std::size_t i = 0; i < groups.size(); ++i) {
+        float left = 1e9F;
+        float right = -1e9F;
+        float top = 1e9F;
+        float bottom = -1e9F;
+        for (const auto& v : groups.at(i)) {
+            const auto p = protekt::game::project(options.camera, options.extent, v.position[0],
+                                                  v.position[1], v.position[2]);
+            ASSERT_GT(p.depth, 0.0F);
+            left = std::min(left, p.x);
+            right = std::max(right, p.x);
+            top = std::min(top, p.y);
+            bottom = std::max(bottom, p.y);
+        }
+        EXPECT_NEAR(top, 0.0F, 0.5F) << "bar " << i;
+        EXPECT_NEAR(bottom, height, 0.5F) << "bar " << i;
+        EXPECT_NEAR(left, previous_right, 0.5F) << "bar " << i << " starts where the last ended";
+        EXPECT_GT(right, left);
+        previous_right = right;
+    }
+    EXPECT_NEAR(previous_right, width, 0.5F);
+}
+
+TEST(Calibration, TogglingOnAndOffLeavesTheGameSceneAndTheSimUntouched) {
+    using namespace protekt::sim;
+    Scenario scenario;
+    scenario.seed = 42;
+    scenario.spawns.push_back(Spawn{UnitKind::Tank, Side::Player, 100, 100});
+    Sim sim = Sim::create(scenario);
+    SceneOptions options = calibration_options();
+    options.viewer_unit = sim.units().at(0).id;
+    options.aim = protekt::game::Aim{640.0F, 360.0F};
+
+    const Scene before = build_scene(sim, options);
+    const Tick tick = sim.tick();
+    const std::uint64_t hash = sim.state_hash();
+
+    protekt::input::InputFrame press{};
+    press.keys.push_back(protekt::input::KeyEvent{protekt::input::kKeyC, true});
+    ASSERT_TRUE(protekt::input::calibration_toggled(press));
+    const Scene bars = build_calibration_scene(options); // toggled on
+    EXPECT_FALSE(bars.vertices.empty());
+    ASSERT_TRUE(protekt::input::calibration_toggled(press)); // toggled off
+
+    const Scene after = build_scene(sim, options);
+    EXPECT_EQ(sim.tick(), tick);
+    EXPECT_EQ(sim.state_hash(), hash);
+    ASSERT_EQ(before.vertices.size(), after.vertices.size());
+    EXPECT_EQ(before.view_projection, after.view_projection);
+    for (std::size_t i = 0; i < before.vertices.size(); ++i) {
+        EXPECT_EQ(before.vertices.at(i).position, after.vertices.at(i).position);
+        EXPECT_EQ(before.vertices.at(i).colour, after.vertices.at(i).colour);
+    }
+}
+
+TEST(Calibration, TwoBuildsProduceIdenticalVertexData) {
+    const SceneOptions options = calibration_options();
+    const Scene a = build_calibration_scene(options);
+    const Scene b = build_calibration_scene(options);
+    ASSERT_EQ(a.vertices.size(), b.vertices.size());
+    EXPECT_EQ(a.view_projection, b.view_projection);
+    for (std::size_t i = 0; i < a.vertices.size(); ++i) {
+        EXPECT_EQ(a.vertices.at(i).position, b.vertices.at(i).position);
+        EXPECT_EQ(a.vertices.at(i).colour, b.vertices.at(i).colour);
     }
 }
 

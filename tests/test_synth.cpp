@@ -132,4 +132,119 @@ TEST(Synth, TheSineIsASine) {
     EXPECT_NEAR(protekt::audio::sine_turns(-0.1F), -std::sin(2.0F * 3.14159265F * 0.1F), 0.002F);
 }
 
+// ---- the shot is a thump under a crack, not a pew -----------------------------------------------
+
+const std::vector<float>& shot_samples() {
+    static const std::vector<float> samples = synthesise(SoundKind::YourShot);
+    return samples;
+}
+
+std::size_t frame_at(float seconds) {
+    return static_cast<std::size_t>(seconds * static_cast<float>(kSampleRate));
+}
+
+/// Indices of the rising zero crossings from `first` on.
+std::vector<std::size_t> rising_crossings(const std::vector<float>& s, std::size_t first) {
+    std::vector<std::size_t> at;
+    for (std::size_t i = std::max<std::size_t>(first, 1); i < s.size(); ++i) {
+        if (s[i - 1] < 0.0F && s[i] >= 0.0F) {
+            at.push_back(i);
+        }
+    }
+    return at;
+}
+
+TEST(ShotSound, MostEnergySitsBelowTwoHundredHertz) {
+    const std::vector<float>& s = shot_samples();
+    // A one-pole low-pass at 200 Hz, written out here rather than borrowed from the synth.
+    const double alpha = 1.0 - std::exp(-2.0 * 3.14159265358979 * 200.0 / kSampleRate);
+    double low_energy = 0.0;
+    double high_energy = 0.0;
+    double lp = 0.0;
+    for (const float x : s) {
+        lp += alpha * (static_cast<double>(x) - lp);
+        const double residual = static_cast<double>(x) - lp;
+        low_energy += lp * lp;
+        high_energy += residual * residual;
+    }
+    // A pew has its body at 900 Hz and fails this; the thump passes it by a wide margin.
+    EXPECT_GT(low_energy, 3.0 * high_energy) << "low " << low_energy << " high " << high_energy;
+}
+
+TEST(ShotSound, TheSettledToneHasALowZeroCrossingRate) {
+    const std::vector<float>& s = shot_samples();
+    const std::size_t first = frame_at(0.05F);
+    std::size_t crossings = 0;
+    for (std::size_t i = first + 1; i < s.size(); ++i) {
+        if ((s[i - 1] < 0.0F) != (s[i] < 0.0F)) {
+            ++crossings;
+        }
+    }
+    const double seconds = static_cast<double>(s.size() - first) / kSampleRate;
+    const double rate = static_cast<double>(crossings) / seconds;
+    // A 60-120 Hz thump crosses zero about 120-240 times a second; a 900 Hz body would cross about
+    // 1800 times a second. The bound sits between them, an order of magnitude under the pew.
+    EXPECT_LT(rate, 300.0) << crossings << " crossings in " << seconds << " s";
+}
+
+TEST(ShotSound, ThePitchStaysInTheThumpBand) {
+    const std::vector<float>& s = shot_samples();
+    const std::vector<std::size_t> at = rising_crossings(s, frame_at(0.05F));
+    ASSERT_GE(at.size(), 4U);
+    std::vector<double> hz;
+    for (std::size_t i = 1; i < at.size(); ++i) {
+        hz.push_back(kSampleRate / static_cast<double>(at[i] - at[i - 1]));
+    }
+    std::sort(hz.begin(), hz.end());
+    const double median = hz[hz.size() / 2];
+    EXPECT_GT(median, 50.0);
+    EXPECT_LT(median, 140.0);
+}
+
+TEST(ShotSound, NoToneHangsAboveTheThumpBandAfterTheCrackDies) {
+    // Tests 2 and 3 measure zero crossings, and the low thump dominates those even when a much
+    // quieter tone is mixed in on top. Adding a 900->150 Hz pew alongside the thump leaves the
+    // settled crossing rate under 300/s and the median pitch in band, so neither catches it -- this
+    // measures what they cannot: the energy ABOVE the thump band, after the crack has died. The
+    // thump alone leaves a small residual here; a tone mixed in leaves far more.
+    const std::vector<float>& s = shot_samples();
+    const std::size_t first = frame_at(0.05F);
+    // A one-pole low-pass at 300 Hz, written out here rather than borrowed from the synth.
+    const double alpha = 1.0 - std::exp(-2.0 * 3.14159265358979 * 300.0 / kSampleRate);
+    double low = 0.0;
+    double high = 0.0;
+    double lp = 0.0;
+    for (std::size_t i = first; i < s.size(); ++i) {
+        const double x = static_cast<double>(s[i]);
+        lp += alpha * (x - lp);
+        const double residual = x - lp;
+        low += lp * lp;
+        high += residual * residual;
+    }
+    // Measured: the thump alone leaves 0.052 here, a 900->150 Hz tone mixed in alongside it leaves
+    // 0.141. The bound sits between them. Tests 2 and 3 cannot see the mixed tone -- the thump
+    // dominates zero crossings -- so this is the test that catches it.
+    const double fraction = high / (low + high);
+    EXPECT_LT(fraction, 0.08) << "high " << high << " low " << low << " fraction " << fraction;
+}
+
+TEST(ShotSound, IsDeterministic) {
+    const std::vector<float> a = synthesise(SoundKind::YourShot);
+    const std::vector<float> b = synthesise(SoundKind::YourShot);
+    ASSERT_EQ(a.size(), b.size());
+    EXPECT_EQ(std::memcmp(a.data(), b.data(), a.size() * sizeof(float)), 0);
+}
+
+TEST(ShotSound, KeepsTheExistingLengthAndPeak) {
+    const std::vector<float>& s = shot_samples();
+    EXPECT_EQ(s.size(), 12000U); // 0.25 s at 48 kHz
+    EXPECT_NEAR(peak_of(s), 0.8F, 0.01F);
+    double sum = 0.0;
+    for (const float x : s) {
+        ASSERT_TRUE(std::isfinite(x));
+        sum += x;
+    }
+    EXPECT_LT(std::fabs(sum / static_cast<double>(s.size())), 0.05) << "a large DC offset";
+}
+
 } // namespace

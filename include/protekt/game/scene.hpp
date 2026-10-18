@@ -35,6 +35,63 @@ struct Camera {
 /// where the ground is, a click would land somewhere the player cannot see.
 [[nodiscard]] float height_metres(std::uint64_t seed, int tile_x, int tile_y) noexcept;
 
+/// Ground height in metres at a continuous position given in TILE units (a unit's `x`/`y`), the
+/// bilinear blend of the four tile heights around it. The mesh puts tile (tx, ty)'s height at the
+/// lattice point (tx, ty), so this is exactly the surface the mesh draws along its tile edges:
+/// at an integer position it equals `height_metres` for that tile, and it has no jump anywhere.
+/// For things that MOVE (a unit's footing, the eye, the aim ray). Pure in `(seed, x, y)`.
+[[nodiscard]] float ground_metres(std::uint64_t seed, sim::Fixed x, sim::Fixed y) noexcept;
+[[nodiscard]] float ground_metres(std::uint64_t seed, float tile_x, float tile_y) noexcept;
+
+/// THE HOVER. A hover tank does not weld itself to the ground: its ride height follows the terrain
+/// through a spring and damper, so a rise under it makes the hull lag, overshoot once, and settle.
+/// Presentation only -- the simulation has no z and gains none. All rates are per SIM TICK (30 a
+/// second), never per frame, so the hop does not depend on the display's refresh rate.
+///
+/// A stationary tank floats this far above the ground, in metres.
+inline constexpr float kRideHeightMetres = 0.25F;
+/// BOOST. While the boost key is held the spring's target is this much higher, so the hull rises,
+/// overshoots once and settles at kRideHeightMetres + this; released, it settles back. 0.9 m is
+/// half the 1.8 m hull: the daylight under it grows from 0.25 m to 1.15 m, plainly more than a bump
+/// in the ground could do, yet the hull is still less than a hull-and-a-bit off the ground rather
+/// than flying. Presentation only: the sim has no z, so boost changes no order, no tick and no
+/// hash.
+inline constexpr float kBoostLiftMetres = 0.9F;
+/// Spring stiffness, in (metres/tick^2) per metre of error. Natural frequency sqrt(k) = 0.2
+/// radians per tick, a period of about 31 ticks -- one second -- for the hull to swing once.
+inline constexpr float kSpringPerTick = 0.04F;
+/// Damping, in (metres/tick) per (metre/tick) of velocity. Damping ratio d / (2 sqrt(k)) = 0.625:
+/// UNDERDAMPED, so one overshoot of about 8% of the step, then settled within a second or two.
+inline constexpr float kDampPerTick = 0.25F;
+
+/// The hull's height and vertical speed, in metres and metres per tick.
+struct Suspension {
+    float z{};
+    float z_vel{};
+};
+
+/// `ticks` steps of the damped spring toward `target_z` (held constant across them), one tick at a
+/// time. Pure in its arguments, and two calls of one tick equal one call of two, bit for bit.
+[[nodiscard]] Suspension suspend(Suspension state, float target_z, std::uint32_t ticks) noexcept;
+
+/// The suspension, clocked by the sim's tick counter the way the helm is. `advance` is told the
+/// ground under the tank and the tick the sim is now on; it steps once per tick that has passed
+/// since the last call, so a frame with two ticks lands where two frames of one tick would. The
+/// first call puts the hull at rest at ride height rather than dropping it from nowhere.
+class Hover {
+public:
+    /// `boost` raises the target by kBoostLiftMetres for every tick this call steps. Defaulted off,
+    /// so a caller that never asks for it gets exactly the hover it always had.
+    void advance(sim::Tick tick, float ground_metres, bool boost = false) noexcept;
+    /// The hull's base height in metres, or ABSENT before the first `advance`.
+    [[nodiscard]] std::optional<float> z() const noexcept;
+
+private:
+    Suspension state_{};
+    sim::Tick last_tick_{};
+    bool clocked_{false};
+};
+
 /// Column-major view-projection for a camera, matching what the vertex shader expects.
 [[nodiscard]] std::array<float, 16> view_projection(const Camera& camera, float aspect,
                                                     float fov_radians = math::kFovRadians) noexcept;
@@ -70,6 +127,13 @@ struct SceneOptions {
     /// The tank the radar is centred on. ABSENT means no radar, which is what a frame with no
     /// player unit in it gets: a radar with no centre would be a lie about where the tank is.
     sim::UnitId viewer_unit{};
+    /// A unit whose hull is drawn at `z` metres instead of on the ground: the hovering tank.
+    /// ABSENT draws every unit on the ground, so a frame without one is unchanged.
+    struct Hovering {
+        sim::UnitId unit{};
+        float z{};
+    };
+    std::optional<Hovering> hover{};
 };
 
 /// Triangles for the terrain mesh (two per tile, coloured by `Terrain`) followed by one box per
@@ -86,5 +150,12 @@ struct SceneOptions {
 /// by terrain.
 [[nodiscard]] render::Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
                                         std::span<const sim::UnitId> selected = {});
+
+/// The colour calibration view: three full-height vertical bars, left to right pure red, pure
+/// green, pure blue, spanning the whole frame width and nothing else (no terrain, units, reticle or
+/// radar). Drawn on the same near-plane HUD layer as the radar, through the same vertex format, so
+/// what it shows is what the game frame goes through on its way to the screen. Pure in `options`
+/// (camera and extent); it reads no sim, so showing it cannot disturb one.
+[[nodiscard]] render::Scene build_calibration_scene(const SceneOptions& options);
 
 } // namespace protekt::game

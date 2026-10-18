@@ -18,7 +18,7 @@ inline constexpr int kSampleRate = 48000; ///< frames per second of every buffer
 /// What a sound is, not where it came from: the rule in `game/sounds.hpp` decides which of these a
 /// battle event is worth.
 enum class SoundKind : std::uint8_t {
-    YourShot = 0,  ///< a noisy crack over a falling tone
+    YourShot = 0,  ///< a short noise crack over a low thump that sags from 120 Hz to 60 Hz
     HitTaken = 1,  ///< a low thud with a sharp attack: the "you are being hit" alarm
     Explosion = 2, ///< decaying, filtered noise
 };

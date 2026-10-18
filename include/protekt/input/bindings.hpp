@@ -14,7 +14,9 @@ namespace protekt::input {
 /// USB HID usage codes, which is what SDL scancodes are. Named so the game, the tests and the
 /// window agree about a key without any of them including SDL.
 inline constexpr std::int32_t kKeyA = 4;
+inline constexpr std::int32_t kKeyC = 6;
 inline constexpr std::int32_t kKeyD = 7;
+inline constexpr std::int32_t kKeyE = 8;
 inline constexpr std::int32_t kKeyS = 22;
 inline constexpr std::int32_t kKeyW = 26;
 
@@ -25,6 +27,9 @@ struct HeldKeys {
     bool back{};
     bool left{};
     bool right{};
+    /// E, held: the hover lifts while it is down. Presentation only, so `any()` -- "is the player
+    /// driving" -- does not count it.
+    bool boost{};
 
     [[nodiscard]] bool any() const noexcept { return forward || back || left || right; }
 };
@@ -44,6 +49,9 @@ inline void apply(HeldKeys& keys, const KeyEvent& event) noexcept {
         break;
     case kKeyD:
         keys.right = event.pressed;
+        break;
+    case kKeyE:
+        keys.boost = event.pressed;
         break;
     default:
         break; // not a movement key: the game does not care
@@ -73,6 +81,17 @@ inline void apply(HeldKeys& keys, const KeyEvent& event) noexcept {
             continue;
         }
         if (key.scancode == kKeyF11 || (key.alt && key.scancode == kKeyEnter)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/// C: toggle the colour calibration view. A press asks once; release and OS repeat are ignored by
+/// the caller seeing only `pressed` events, as with the other commands.
+[[nodiscard]] inline bool calibration_toggled(const InputFrame& frame) noexcept {
+    for (const KeyEvent& key : frame.keys) {
+        if (key.pressed && key.scancode == kKeyC) {
             return true;
         }
     }

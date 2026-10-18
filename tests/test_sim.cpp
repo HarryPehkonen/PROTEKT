@@ -146,8 +146,6 @@ TEST(Sim, GenuinelyInvalidOrdersAreDroppedWithoutEffect) {
     polluted.enqueue(Order{UnitId{9999}, orders::MoveTo{Fixed::from_int(60), Fixed::from_int(60)}});
     // No such target.
     polluted.enqueue(Order{mine, orders::Attack{UnitId{4242}}});
-    // Friendly fire: an armed unit may not be ordered to attack its own side.
-    polluted.enqueue(Order{mine, orders::Attack{mine}});
     for (int i = 0; i < 100; ++i) {
         clean.step();
         polluted.step();

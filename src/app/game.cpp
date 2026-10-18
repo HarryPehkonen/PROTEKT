@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <fstream>
 #include <memory>
+#include <optional>
 #include <ostream>
 #include <string>
 #include <string_view>
@@ -215,9 +216,12 @@ bool is_alive(const sim::Sim& sim, sim::UnitId id) {
 }
 
 /// The player's eye: kEyeHeight metres above the ground under the tank, looking along its heading.
-/// The height comes from `world::sample`, the same generator the simulation drives on, so the
-/// camera neither floats over a ridge nor sinks into a hollow.
-game::Camera camera_for(const sim::Sim& sim, sim::UnitId id, float yaw, std::uint64_t seed) {
+/// The height is `game::ground_metres`, the same continuous surface the tank stands on, so the
+/// camera neither floats over a ridge nor sinks into a hollow, and never steps at a tile edge.
+/// The camera rides the hull: once the tank hovers, the eye is kEyeHeight above the HULL, so it
+/// lags, overshoots and settles with the tank. Before the hover has a height the hull is at rest.
+game::Camera camera_for(const sim::Sim& sim, sim::UnitId id, float yaw, std::uint64_t seed,
+                        std::optional<float> hull_z) {
     constexpr float kEyeHeight = 3.0F;
     game::Camera camera;
     for (const sim::Unit& unit : sim.units()) {
@@ -226,8 +230,9 @@ game::Camera camera_for(const sim::Sim& sim, sim::UnitId id, float yaw, std::uin
         }
         camera.x = static_cast<float>(unit.x.raw) / 65536.0F * game::kMetresPerTile;
         camera.z = static_cast<float>(unit.y.raw) / 65536.0F * game::kMetresPerTile;
-        const auto tile = world::sample(seed, unit.x.floor_int(), unit.y.floor_int());
-        camera.y = static_cast<float>(tile.height) * game::kMetresPerHeightUnit + kEyeHeight;
+        camera.y
+            = hull_z.value_or(game::ground_metres(seed, unit.x, unit.y) + game::kRideHeightMetres)
+              + kEyeHeight;
         break;
     }
     camera.yaw = yaw;
@@ -327,6 +332,8 @@ int run_game_cli(std::span<const std::string_view> args, std::ostream& out, std:
     // One object for the player's whole side of the frame: the tank he is in and the units he
     // commands. `app` decides what to present; `game::Session` decides what the input MEANS.
     game::Session session{player_id};
+    game::Hover hover;
+    bool calibration = false; // C toggles the colour calibration view; it never touches the sim
     ai::ScriptedCommander enemy;
 
     // 30 Hz is the rate the sim is designed and balanced at: 6 tiles/s at 30 ticks/s is the 12 m/s
@@ -395,6 +402,9 @@ int run_game_cli(std::span<const std::string_view> args, std::ostream& out, std:
                                                         : window->extent();
         }
 #endif
+        if (input::calibration_toggled(hands)) {
+            calibration = !calibration;
+        }
         if (input::quit_requested(hands)) {
             out << "protekt-game: Ctrl+Q, so quitting at frame " << frame << ", tick " << sim.tick()
                 << '\n';
@@ -405,7 +415,8 @@ int run_game_cli(std::span<const std::string_view> args, std::ostream& out, std:
         // and one frame of staleness is invisible: the tank does not teleport.
         game::SceneOptions scene_options;
         scene_options.seed = options.seed;
-        scene_options.camera = camera_for(sim, player_id, session.heading(), options.seed);
+        scene_options.camera
+            = camera_for(sim, player_id, session.heading(), options.seed, hover.z());
         scene_options.extent = extent;
         scene_options.radius_tiles = 24;
         scene_options.aim = game::aim_from(hands, extent);
@@ -469,9 +480,21 @@ int run_game_cli(std::span<const std::string_view> args, std::ostream& out, std:
             audio_out->play(samples, audio::kSampleRate);
         }
 
-        scene_options.camera = camera_for(sim, player_id, session.heading(), options.seed);
+        // The hover advances once per tick the sim has run, off the sim's own counter, from the
+        // ground under the tank where it now stands. A dead player has no hull to float.
+        for (const sim::Unit& unit : sim.units()) {
+            if (unit.id == player_id) {
+                hover.advance(sim.tick(), game::ground_metres(options.seed, unit.x, unit.y),
+                              session.keys().boost);
+                scene_options.hover = game::SceneOptions::Hovering{player_id, *hover.z()};
+                break;
+            }
+        }
+        scene_options.camera
+            = camera_for(sim, player_id, session.heading(), options.seed, hover.z());
         const render::Scene scene
-            = game::build_scene(sim, scene_options, session.selection().units());
+            = calibration ? game::build_calibration_scene(scene_options)
+                          : game::build_scene(sim, scene_options, session.selection().units());
 
         render::FrameStats stats{};
         render::FrameRequest request;

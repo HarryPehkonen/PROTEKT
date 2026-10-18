@@ -67,9 +67,9 @@ void Interaction::handle(const input::InputFrame& frame, const sim::Sim& sim,
                 const std::vector<sim::Order> shot = cmd::focus_fire(driven_, hit->id);
                 pending_.insert(pending_.end(), shot.begin(), shot.end());
                 message_ = "engaging the target under the crosshair.";
-            } else {
-                selection_.clear();
             }
+            // Anything else -- ground, sky -- does nothing: the selection survives a shot. Only Tab
+            // and Escape clear it.
         } else if (click.button == input::MouseButton::Right) {
             if (selection_.empty()) {
                 refuse("Nothing is selected to give an order to.");
@@ -102,10 +102,53 @@ void Interaction::handle(const input::InputFrame& frame, const sim::Sim& sim,
         if (!key.pressed) {
             continue;
         }
-        if (key.scancode == input::kKeyEscape) {
+        if (key.scancode == input::kKeyEscape || key.scancode == input::kKeyTab) {
+            // Tab clears, as Escape does. Cycling (`cycle`) is unbound: it lost its key to this and
+            // needs a new one.
             selection_.clear();
-        } else if (key.scancode == input::kKeyTab) {
-            cycle(key.shift, sim);
+        } else if (key.scancode == input::kKeySpace || key.scancode == input::kKeyT) {
+            if (!options.aim.has_value()) {
+                continue; // no mark, nothing to point at; see the click loop
+            }
+            // The crosshair is read fresh on every press, so T after a kill retargets for free.
+            const Pick picked = pick(sim, options, options.aim->x, options.aim->y);
+            const sim::Unit* hit = picked.has_unit() ? sim.find(picked.unit) : nullptr;
+            const bool hit_is_ours = hit != nullptr && hit->alive && hit->side == sim::Side::Player;
+            const bool hit_is_hostile
+                = hit != nullptr && hit->alive && hit->side != sim::Side::Player;
+
+            if (key.scancode == input::kKeySpace) {
+                // Space is a left click on an own unit and nothing else: ground, sky and hostiles
+                // are not refused, they are ignored.
+                if (hit_is_ours) {
+                    if (key.shift) {
+                        toggle(hit->id);
+                    } else {
+                        select_only(hit->id);
+                    }
+                }
+                continue;
+            }
+            if (selection_.empty()) {
+                refuse("Nothing is selected to give an order to.");
+                continue;
+            }
+            const std::vector<sim::UnitId> roster = orderable();
+            if (roster.empty()) {
+                refuse("You are driving that one; select another unit to give orders.");
+                continue;
+            }
+            if (!hit_is_hostile) {
+                refuse("Aim at an enemy to attack it.");
+                continue;
+            }
+            const std::vector<sim::Order> orders = cmd::attack(roster, hit->id);
+            if (orders.empty()) {
+                refuse("That order cannot be carried out.");
+                continue;
+            }
+            pending_.insert(pending_.end(), orders.begin(), orders.end());
+            message_ = "attacking the target under the crosshair.";
         }
     }
 }

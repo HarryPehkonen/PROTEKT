@@ -109,5 +109,21 @@ TEST(CommandKeys, NothingPressedAsksForNothing) {
     EXPECT_FALSE(fullscreen_requested(empty));
 }
 
+TEST(CommandKeys, CPressedTogglesCalibrationAndNothingElseDoes) {
+    InputFrame c{};
+    c.keys.push_back(KeyEvent{kKeyC, true});
+    EXPECT_TRUE(calibration_toggled(c));
+    EXPECT_EQ(kKeyC, 6) << "C is HID usage 6";
+
+    InputFrame released{};
+    released.keys.push_back(KeyEvent{kKeyC, false});
+    EXPECT_FALSE(calibration_toggled(released));
+
+    InputFrame other{};
+    other.keys.push_back(KeyEvent{kKeyW, true});
+    EXPECT_FALSE(calibration_toggled(other));
+    EXPECT_FALSE(calibration_toggled(InputFrame{}));
+}
+
 } // namespace
 } // namespace protekt::input

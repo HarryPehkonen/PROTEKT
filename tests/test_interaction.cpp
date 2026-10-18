@@ -35,7 +35,8 @@ struct Rig {
     sim::UnitId tank_a{}; ///< driven: at tile (40,40)
     sim::UnitId tank_b{}; ///< at tile (42,40)
     sim::UnitId turret{}; ///< at tile (40,42)
-    sim::UnitId enemy{};  ///< at tile (40,45)
+    sim::UnitId enemy{};  ///< at tile (38,44)
+    sim::UnitId enemy2{}; ///< at tile (46,44): a second target, clear of every other unit's line
 };
 
 /// A known layout, so a click test knows which pixel belongs to which unit.
@@ -50,7 +51,8 @@ struct Rig {
                                         {{UnitKind::Tank, Side::Player, 40, 40},
                                          {UnitKind::Tank, Side::Player, 44, 41},
                                          {UnitKind::Turret, Side::Player, 36, 41},
-                                         {UnitKind::Tank, Side::Enemy, 38, 44}}});
+                                         {UnitKind::Tank, Side::Enemy, 38, 44},
+                                         {UnitKind::Tank, Side::Enemy, 46, 44}}});
     for (const sim::Unit& unit : rig.sim.units()) {
         if (unit.kind == UnitKind::Tank && unit.side == Side::Player && unit.x.floor_int() == 40) {
             rig.tank_a = unit.id;
@@ -58,8 +60,10 @@ struct Rig {
             rig.tank_b = unit.id;
         } else if (unit.kind == UnitKind::Turret) {
             rig.turret = unit.id;
-        } else {
+        } else if (!rig.enemy.valid()) {
             rig.enemy = unit.id;
+        } else {
+            rig.enemy2 = unit.id;
         }
     }
     // Place the camera from tank A's tile, so the world position is derived the same way the mesh
@@ -145,13 +149,14 @@ TEST(Interaction, ShiftClickAddsAndRemoves) {
         << "shift-click toggles out";
 }
 
-TEST(Interaction, LeftClickOnTheGroundClearsTheSelection) {
+TEST(Interaction, LeftClickOnTheGroundDoesNotClearTheSelection) {
     Rig rig = make_rig();
     Interaction player{rig.tank_a};
     player.handle(with_click(at(rig, rig.tank_b)), rig.sim, rig.options);
     ASSERT_FALSE(player.selection().empty());
     player.handle(with_click(ground_click(rig)), rig.sim, rig.options);
-    EXPECT_TRUE(player.selection().empty()) << "the player asked for nothing; give him nothing";
+    EXPECT_EQ(selected(player), (std::vector<sim::UnitId>{rig.tank_b}))
+        << "shooting at the ground must not throw the selection away";
 }
 
 TEST(Interaction, LeftClickOnAHostileFiresAtItAndKeepsTheSelection) {
@@ -174,19 +179,141 @@ TEST(Interaction, LeftClickOnAHostileFiresAtItAndKeepsTheSelection) {
     EXPECT_FALSE(player.message().empty()) << "the player has to be told what happened";
 }
 
-TEST(Interaction, TabCyclesThroughOwnUnitsInAscendingOrderAndWraps) {
+TEST(Interaction, TabClearsTheSelection) {
     Rig rig = make_rig();
     Interaction player{rig.tank_a};
-    std::vector<sim::UnitId> seen;
-    for (int i = 0; i < 4; ++i) {
-        player.handle(with_key(input::kKeyTab), rig.sim, rig.options);
-        ASSERT_EQ(selected(player).size(), 1U);
-        seen.push_back(selected(player).front());
+    player.handle(with_click(at(rig, rig.tank_b)), rig.sim, rig.options);
+    player.handle(with_click(at(rig, rig.turret, MouseButton::Left, true)), rig.sim, rig.options);
+    ASSERT_EQ(player.selection().size(), 2U);
+    player.handle(with_key(input::kKeyTab), rig.sim, rig.options);
+    EXPECT_TRUE(player.selection().empty());
+}
+
+// ---------------------------------------------------------------- space and T
+
+TEST(Interaction, SpaceSelectsTheUnitUnderTheCrosshairAndShiftSpaceToggles) {
+    Rig rig = make_rig();
+    Interaction player{rig.tank_a};
+    static_cast<void>(at(rig, rig.tank_b));
+    player.handle(with_key(input::kKeySpace), rig.sim, rig.options);
+    EXPECT_EQ(selected(player), (std::vector<sim::UnitId>{rig.tank_b}));
+
+    static_cast<void>(at(rig, rig.turret));
+    player.handle(with_key(input::kKeySpace, true), rig.sim, rig.options);
+    EXPECT_EQ(selected(player), (std::vector<sim::UnitId>{rig.tank_b, rig.turret}));
+
+    player.handle(with_key(input::kKeySpace, true), rig.sim, rig.options);
+    EXPECT_EQ(selected(player), (std::vector<sim::UnitId>{rig.tank_b}))
+        << "shift-space on a selected unit toggles it out";
+
+    static_cast<void>(at(rig, rig.turret));
+    player.handle(with_key(input::kKeySpace), rig.sim, rig.options);
+    EXPECT_EQ(selected(player), (std::vector<sim::UnitId>{rig.turret}))
+        << "plain space replaces the selection, as a plain click does";
+    EXPECT_TRUE(player.message().empty());
+}
+
+TEST(Interaction, SpaceOverGroundHostileOrNothingLeavesTheSelectionAlone) {
+    Rig rig = make_rig();
+    Interaction player{rig.tank_a};
+    player.handle(with_click(at(rig, rig.tank_b)), rig.sim, rig.options);
+    const std::vector<sim::UnitId> before = selected(player);
+    ASSERT_EQ(before.size(), 1U);
+
+    static_cast<void>(ground_click(rig));
+    player.handle(with_key(input::kKeySpace), rig.sim, rig.options);
+    EXPECT_EQ(selected(player), before) << "ground";
+    EXPECT_TRUE(player.message().empty()) << "ignored, not refused";
+
+    static_cast<void>(at(rig, rig.enemy));
+    player.handle(with_key(input::kKeySpace), rig.sim, rig.options);
+    EXPECT_EQ(selected(player), before) << "hostile";
+    EXPECT_TRUE(player.message().empty());
+
+    rig.options.aim.reset();
+    player.handle(with_key(input::kKeySpace), rig.sim, rig.options);
+    EXPECT_EQ(selected(player), before) << "no aim point";
+    EXPECT_TRUE(player.take_orders().empty());
+}
+
+TEST(Interaction, TOrdersAnAttackFromEverySelectedUnitAndKeepsTheSelection) {
+    Rig rig = make_rig();
+    Interaction player{rig.tank_a};
+    player.handle(with_click(at(rig, rig.turret)), rig.sim, rig.options);
+    player.handle(with_click(at(rig, rig.tank_b, MouseButton::Left, true)), rig.sim, rig.options);
+    player.handle(with_click(at(rig, rig.tank_a, MouseButton::Left, true)), rig.sim, rig.options);
+    const std::vector<sim::UnitId> before = selected(player);
+    ASSERT_EQ(before.size(), 3U);
+
+    static_cast<void>(at(rig, rig.enemy));
+    player.handle(with_key(input::kKeyT), rig.sim, rig.options);
+
+    const std::vector<Order> orders = player.take_orders();
+    ASSERT_EQ(orders.size(), 2U) << "the driven tank is not ordered";
+    EXPECT_LT(orders.at(0).unit, orders.at(1).unit) << "ascending id order";
+    for (const Order& order : orders) {
+        EXPECT_EQ(order.kind(), OrderKind::Attack);
+        EXPECT_NE(order.unit, rig.tank_a);
+        EXPECT_EQ(std::get<sim::orders::Attack>(order.payload).target, rig.enemy);
     }
-    EXPECT_EQ(seen.at(0), rig.tank_a) << "cycling starts at the lowest own id";
-    EXPECT_EQ(seen.at(1), rig.tank_b);
-    EXPECT_EQ(seen.at(2), rig.turret);
-    EXPECT_EQ(seen.at(3), rig.tank_a) << "and wraps back to the beginning";
+    EXPECT_EQ(selected(player), before);
+}
+
+TEST(Interaction, TWithNothingSelectedIsRefusedAndSaysWhy) {
+    Rig rig = make_rig();
+    Interaction player{rig.tank_a};
+    static_cast<void>(at(rig, rig.enemy));
+    player.handle(with_key(input::kKeyT), rig.sim, rig.options);
+    EXPECT_TRUE(player.take_orders().empty());
+    EXPECT_EQ(player.message(), "Nothing is selected to give an order to.");
+}
+
+TEST(Interaction, TOffAHostileIsRefused) {
+    Rig rig = make_rig();
+    Interaction player{rig.tank_a};
+    player.handle(with_click(at(rig, rig.tank_b)), rig.sim, rig.options);
+
+    static_cast<void>(ground_click(rig));
+    player.handle(with_key(input::kKeyT), rig.sim, rig.options);
+    EXPECT_TRUE(player.take_orders().empty()) << "ground";
+    EXPECT_FALSE(player.message().empty());
+
+    static_cast<void>(at(rig, rig.turret));
+    player.handle(with_key(input::kKeyT), rig.sim, rig.options);
+    EXPECT_TRUE(player.take_orders().empty()) << "own unit";
+    EXPECT_FALSE(player.message().empty());
+    EXPECT_EQ(selected(player), (std::vector<sim::UnitId>{rig.tank_b}));
+}
+
+TEST(Interaction, TWithOnlyTheDrivenTankSelectedIsRefused) {
+    Rig rig = make_rig();
+    Interaction player{rig.tank_a};
+    player.handle(with_click(at(rig, rig.tank_a)), rig.sim, rig.options);
+    static_cast<void>(at(rig, rig.enemy));
+    player.handle(with_key(input::kKeyT), rig.sim, rig.options);
+    EXPECT_TRUE(player.take_orders().empty());
+    EXPECT_EQ(player.message(), "You are driving that one; select another unit to give orders.");
+}
+
+TEST(Interaction, TRetargetsWithoutReselecting) {
+    Rig rig = make_rig();
+    Interaction player{rig.tank_a};
+    player.handle(with_click(at(rig, rig.tank_b)), rig.sim, rig.options);
+    const std::vector<sim::UnitId> before = selected(player);
+
+    static_cast<void>(at(rig, rig.enemy));
+    player.handle(with_key(input::kKeyT), rig.sim, rig.options);
+    const std::vector<Order> first = player.take_orders();
+    ASSERT_EQ(first.size(), 1U);
+    EXPECT_EQ(std::get<sim::orders::Attack>(first.front().payload).target, rig.enemy);
+
+    static_cast<void>(at(rig, rig.enemy2));
+    player.handle(with_key(input::kKeyT), rig.sim, rig.options);
+    const std::vector<Order> second = player.take_orders();
+    ASSERT_EQ(second.size(), 1U);
+    EXPECT_EQ(second.front().unit, rig.tank_b);
+    EXPECT_EQ(std::get<sim::orders::Attack>(second.front().payload).target, rig.enemy2);
+    EXPECT_EQ(selected(player), before);
 }
 
 TEST(Interaction, EscapeClearsTheSelection) {

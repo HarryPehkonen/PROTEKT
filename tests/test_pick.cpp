@@ -250,6 +250,52 @@ TEST(Pick, AClickOnAUnitAlsoReportsTheGroundBehindIt) {
 
 // ---------------------------------------------------------------- determinism
 
+TEST(Pick, AHoveringHullIsPickedWhereItIsDrawnNotWhereItWouldSit) {
+    // A hovering hull is DRAWN above the ground. A click that meets the hull must find the unit,
+    // and a click that meets only the air under it must not: if the pick box stays on the ground
+    // while the hull floats, a click just below the tank falls through the gap and picks the unit
+    // anyway, and a click on the tank itself lands behind it. The box has to move with the hull.
+    sim::Sim sim = sim::Sim::create(sim::skirmish(kSeed));
+    const sim::Unit& tank = sim.units().front();
+    const WorldPoint hull = centre_of(tank);
+    const float ground = height_metres(kSeed, tank.x.floor_int(), tank.y.floor_int());
+    const float hull_height = 1.8F;
+    const float lift = 1.0F;
+
+    SceneOptions grounded{};
+    grounded.seed = kSeed;
+    grounded.camera = camera_looking_at(hull, 0.0F, 24.0F);
+
+    // On the ground the hull's midpoint is inside the box: the tank is picked.
+    const Projected p_mid = project(grounded.camera, kExtent, hull.x, hull.y, hull.z);
+    const Pick mid_hit = pick(sim, grounded, p_mid.x, p_mid.y);
+    ASSERT_TRUE(mid_hit.has_unit()) << "a click at the hull's midpoint must find the tank";
+    EXPECT_EQ(mid_hit.unit.value, tank.id.value);
+
+    // Now lift the hull a metre, exactly as the scene draws it.
+    SceneOptions hovering = grounded;
+    hovering.hover = SceneOptions::Hovering{tank.id, ground + lift};
+
+    // A click half a metre up meets the AIR under the raised hull. It must NOT find the tank.
+    const float under = ground + 0.5F;
+    const Projected p_under = project(hovering.camera, kExtent, hull.x, under, hull.z);
+    const Pick under_hit = pick(sim, hovering, p_under.x, p_under.y);
+    EXPECT_FALSE(under_hit.has_unit() && under_hit.unit.value == tank.id.value)
+        << "with the hull a metre up, a click half a metre up is under the tank, not on it";
+
+    // And the raised hull's own midpoint is still found, because that is where it is drawn.
+    const float raised_mid = ground + lift + (hull_height * 0.5F);
+    const Projected p_raised = project(hovering.camera, kExtent, hull.x, raised_mid, hull.z);
+    const Pick raised_hit = pick(sim, hovering, p_raised.x, p_raised.y);
+    ASSERT_TRUE(raised_hit.has_unit()) << "the raised hull must still be pickable";
+    EXPECT_EQ(raised_hit.unit.value, tank.id.value);
+
+    // A frame with no hover is unchanged: the same click finds the tank on the ground.
+    const Pick plain = pick(sim, grounded, p_mid.x, p_mid.y);
+    EXPECT_EQ(plain.unit.value, mid_hit.unit.value)
+        << "ABSENT hover must leave picking exactly as it was";
+}
+
 TEST(Pick, PickingIsDeterministic) {
     sim::Sim sim = sim::Sim::create(sim::skirmish(kSeed));
     SceneOptions options{};

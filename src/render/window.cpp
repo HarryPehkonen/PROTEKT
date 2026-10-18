@@ -19,6 +19,8 @@
 // the follow-up (docs/PLAN.md, M3b) -- an optimisation, not a correctness fix.
 #include "protekt/render/window.hpp"
 
+#include "protekt/render/pixels.hpp"
+
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_vulkan.h>
 #include <vulkan/vulkan.h>
@@ -164,6 +166,14 @@ std::vector<PresentDevice> present_devices(VkInstance instance, VkSurfaceKHR sur
                      });
     return found;
 }
+
+/// The swapchain formats the presenter knows how to feed. Anything else fails loudly.
+bool is_supported_present_format(VkFormat format) {
+    return format == VK_FORMAT_B8G8R8A8_UNORM || format == VK_FORMAT_R8G8B8A8_UNORM;
+}
+
+/// The readback is R,G,B,A; only a B8G8R8A8 swapchain needs red and blue exchanged.
+bool needs_red_blue_swap(VkFormat format) { return format == VK_FORMAT_B8G8R8A8_UNORM; }
 
 } // namespace
 
@@ -429,6 +439,12 @@ bool VulkanWindow::create_swapchain(std::string& error) {
         }
     }
     format_ = chosen_format.format;
+    if (!is_supported_present_format(format_)) {
+        error
+            = "the swapchain format (" + std::to_string(format_)
+              + ") is neither B8G8R8A8_UNORM nor R8G8B8A8_UNORM; refusing to present wrong colours";
+        return false;
+    }
 
     // The window's pixel size is the authority when the surface lets us choose; a compositor
     // under Wayland or a HiDPI scale can otherwise disagree with what we asked for.
@@ -734,7 +750,14 @@ bool VulkanWindow::acquire_and_blit(const std::vector<std::uint8_t>& rgba, std::
         return false;
     }
 
-    std::memcpy(staging_mapped_, rgba.data(), static_cast<std::size_t>(staging_size_));
+    // The readback is R,G,B,A and a buffer-to-image copy converts nothing, so a B8G8R8A8
+    // swapchain needs red and blue exchanged on the way in. Here, not in the renderer: screenshots
+    // read the same bytes and must stay R,G,B,A.
+    protekt::render::copy_pixels(
+        std::span<const std::uint8_t>(rgba.data(), rgba.size()),
+        std::span<std::uint8_t>(static_cast<std::uint8_t*>(staging_mapped_),
+                                static_cast<std::size_t>(staging_size_)),
+        needs_red_blue_swap(format_));
 
     if (vkResetCommandBuffer(command_, 0) != VK_SUCCESS) {
         error = "vkResetCommandBuffer failed";

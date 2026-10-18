@@ -103,10 +103,16 @@ Pick pick(const sim::Sim& sim, const SceneOptions& options, float screen_x,
                         * kMetresPerTile;
         const float z = static_cast<float>(unit.y.raw) / static_cast<float>(sim::Fixed::kOne)
                         * kMetresPerTile;
-        const float ground = height_metres(options.seed, unit.x.floor_int(), unit.y.floor_int());
+        const float ground = ground_metres(options.seed, unit.x, unit.y);
+        // A hovering hull is DRAWN above the ground, so its pick box has to be up there too:
+        // otherwise a click just under the tank falls through to the terrain behind it. ABSENT
+        // hover leaves every unit on the ground, which is what a headless frame gets.
+        const bool hovering
+            = options.hover.has_value() && options.hover->unit.value == unit.id.value;
+        const float base = hovering ? options.hover->z : ground;
         const float height = unit.kind == sim::UnitKind::Factory ? 4.5F : 1.8F;
-        const float t = hit_box(ray, {x - radius, ground, z - radius},
-                                {x + radius, ground + height, z + radius});
+        const float t
+            = hit_box(ray, {x - radius, base, z - radius}, {x + radius, base + height, z + radius});
         if (t < 0.0F) {
             continue;
         }
@@ -124,9 +130,7 @@ Pick pick(const sim::Sim& sim, const SceneOptions& options, float screen_x,
         const float px = ray.origin[0] + (ray.dir[0] * t);
         const float py = ray.origin[1] + (ray.dir[1] * t);
         const float pz = ray.origin[2] + (ray.dir[2] * t);
-        const int tx = static_cast<int>(std::floor(px / kMetresPerTile));
-        const int tz = static_cast<int>(std::floor(pz / kMetresPerTile));
-        return py - height_metres(options.seed, tx, tz);
+        return py - ground_metres(options.seed, px / kMetresPerTile, pz / kMetresPerTile);
     };
     float prev_t = 0.0F;
     float prev_h = height_above(0.0F);

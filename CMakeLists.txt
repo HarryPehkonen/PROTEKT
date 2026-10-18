@@ -240,6 +240,7 @@ if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
         tests/test_aim.cpp
         tests/test_steering.cpp
         tests/test_focus_fire.cpp
+        tests/test_friendly_fire.cpp
         tests/test_sim.cpp
         tests/test_scenario.cpp
         tests/test_replay.cpp
@@ -265,7 +266,8 @@ if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
                                         tests/test_layering.cpp
                                         tests/test_navigation.cpp
                                         tests/test_synth.cpp tests/test_mixer.cpp
-                                        tests/test_sounds.cpp tests/test_audio_out.cpp)
+                                        tests/test_sounds.cpp tests/test_audio_out.cpp
+                                        tests/test_pixels.cpp)
     target_link_libraries(protekt_tests PRIVATE protekt_game protekt_cmd)
     if(PROTEKT_RENDER)
         target_sources(protekt_tests PRIVATE tests/test_render.cpp)

@@ -16,10 +16,14 @@ You are one tank. Everything else you command.
 |---|---|
 | `W` / `S` | throttle forward / back |
 | `A` / `D` | turn left / right |
+| `E` (**held**) | boost: lift the hull, and settle back down when you let go |
+| `C` | toggle the colour calibration view: three red/green/blue bars, a check on the display path |
 | **left click** with the mark on an own unit | select it |
 | **left click** + `Shift`, mark on a unit | add it to the selection, or remove it |
-| `Tab` / `Shift`+`Tab` | cycle the selection through your units |
-| `Escape` | clear the selection |
+| `Space`, mark on an own unit | select it -- a click on a keyboard |
+| `Space` + `Shift`, mark on a unit | add it to the selection, or remove it |
+| `T` | order every selected unit to attack the unit under the mark -- a hostile, or one of your own |
+| `Tab` or `Escape` | clear the selection |
 | `F11` or `Alt`+`Enter` | full screen, and back again |
 | `Ctrl`+`Q` | quit from anywhere |
 | **right click**, mark on the ground | order every selected unit there |
@@ -31,7 +35,8 @@ an order from the mouse would fight your own hands. Selecting it is fine, and fi
 a click may tell it to do — that order sets a target and nothing else.
 
 Your gun also fires on its own at any hostile within twelve tiles. Clicking a hostile is how you
-*choose* between them; `Escape` and Stop are how you hold fire.
+*choose* between them; `Escape` and Stop are how you hold fire. It will **not** fire on your own units on
+its own -- only an order crosses that line (see Display/HUD below).
 
 Selected units are drawn brighter than the rest of their side, so you can see what you have hold of.
 
@@ -46,13 +51,21 @@ make it:
 | **green** | select one of your own units (or, with `Shift`, add it to the selection) |
 | **red** | **fire** at the hostile under it |
 
+The unit under the mark is tinted as well, so the warning is on the thing itself and not only on the
+mark: **amber** for one of yours ("do not shoot this"), **salmon** for a hostile.
+
+**Shooting never costs you your selection.** A click on the ground, the sky or a hostile leaves it alone --
+only `Tab` and `Escape` clear it. `T` reads the mark fresh every time it is pressed, so after a kill you can
+put the mark on the next enemy and press `T` again without re-selecting anything.
+
 A small square outline, and the only thing drawn close to your eye: if you can see it, that is where
 your click lands. The pointer does not aim — a click anywhere on the screen does what the mark shows,
 which is why the mark cannot promise something the shot cannot do.
 
 ## The radar
 
-Bottom-left corner, and it is a **radar, not a map**. It is centred on the tank you are sitting in
+Bottom-left corner, and it is a **radar, not a map** -- and **round**, a disc with a ring border, so the
+corners of the square it sits in are not painted. It is centred on the tank you are sitting in
 and reaches **40 tiles** in every direction, and what is inside that radius is all it will ever show
 you. A hostile beyond it is not dimmed, not on the rim and not hinted at: outside the radius you know
 nothing, which is the entire reason the radius exists.
@@ -68,6 +81,44 @@ nothing, which is the entire reason the radius exists.
 Distance on the panel is to scale (half the radius is half the way out); the marks themselves are
 sized to be read rather than to be exact.
 
+## Display/HUD
+
+The panel above is most of the HUD. Three more things are drawn on the screen, and one is not drawn at
+all: **there is no text anywhere in this project yet**, so every element below says what it means in
+colour and length only. That is a limit, not a style: a font is its own piece of work.
+
+### The health bar
+
+Directly above the panel, the same width as it: **the hull you are sitting in, and only yours.** A dark
+track with a fill from the left -- **green** from half health up, **amber** from a fifth, **red** below.
+The length is the proportion and the colour says which band you are in, so it reads at a glance while you
+are being shot at. It takes the hull's hit points against its profile's maximum, the same numbers the sim
+fights with, so it cannot drift from the truth. A hull at zero has no bar at all rather than an empty one,
+because a dead unit is not on the screen to read.
+
+### The colour calibration view
+
+`C` toggles a diagnostic screen: three full-height vertical bars, left to right pure **red**, pure
+**green**, pure **blue**. It exists because the finished frame reaches your screen through a
+channel-order hand-off in the presentation path that **no unit test can see** -- the whole suite passed
+while red and blue were swapped on a real display. The calibration view is the only check that goes all
+the way to the monitor. On a correct build the bars read red, green, blue from the left; if red and blue
+are the wrong way round on your screen, the swap is in the presentation path and not in the palette.
+`C` again returns to the game. It never touches the simulation, so it costs no ticks and cannot change a
+verification run.
+
+### Friendly fire
+
+**Your units will not fire on your own side on their own initiative.** Auto-engagement only ever picks a
+hostile: a unit with nothing but friendlies in range holds fire. An explicit order is the one thing that
+crosses the line -- `T` with the mark on one of your own units orders an attack on it, and so does an
+explicit Attack order on a friendly. That is deliberate: it means you can destroy your own tank or your
+own factory if you mean to, without your units ever turning on each other without being told. A unit may
+never name *itself*, though, so an accidental order cannot make a tank shoot itself.
+
+The mark still warns you: **amber** over one of your own units ("do not shoot this"), **salmon** over a
+hostile. The warning is on the unit itself as well as on the mark.
+
 ## Sound
 
 Synthesised, with **no assets**: every sound is arithmetic (a seeded noise, a decay and a sine), the
@@ -77,8 +128,8 @@ says so once at startup and runs silent. `--no-sound` never opens the device.
 
 What you hear:
 
-- **your gun** — a crack over a falling tone, full volume and in the middle. So is a friend's, while
-  they are within earshot.
+- **your gun** — a short noise crack over a low thump that sags from 120 Hz to 60 Hz, full volume and
+  in the middle. So is a friend's, while they are within earshot.
 - **being hit** — a low thud with a sharp attack and a high ping on top, full volume, in the middle.
   It is the same whichever way the shot came from, because the thing that is hurting you is not
   something to locate, only to know.
@@ -111,7 +162,7 @@ change a verification run.
 | **No route planning** | a unit goes straight at its goal, slides along a rim, and takes a short detour around a corner it cannot pass. It does not plan a path: a concave corner cannot hold a unit, but a U-shaped crater field can still keep one inside the pocket. `tests/test_steering.cpp` draws the shapes, `tests/test_navigation.cpp` pins the open-ground and corner cases |
 | **No economy** | no resources, no harvester, no building. A factory is a 400 hp target and nothing more |
 | **No way to win or lose** | nothing ends a match. An undefended factory can be destroyed by a single tank — factories are unarmed on purpose and defence is what turrets are for — but there is no objective beyond that |
-| **No HUD** | refusals ("that order would move the tank you are in") are printed to the console, not to the screen. There is a mark at the aim point and nothing else: no health, no marker on the unit your gun is engaging, no counters |
+| **No text anywhere** | there is no font in the project, so nothing on screen is written: refusals ("that order would move the tank you are in") go to the console, not the screen. The HUD is colour and length only -- the radar, the health bar above it and the mark. No numbers, no labels, no marker on the unit your gun is engaging |
 | **No on-screen feedback** | there is sound (see above) and no on-screen sign that a shot happened — the reticle says what a click *would* do, not what one just did |
 | **No positional audio beyond left and right** | a sound is placed on a line between the speakers: no front or back, no height, no echo or occlusion. A shot behind a hill sounds exactly like one in the open |
 | **Sounds are generated, not recorded** | they are made of noise and sine waves and sound like it. A recording would sound better and bring files, licences and a loader; that trade has not been made |

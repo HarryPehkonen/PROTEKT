@@ -139,15 +139,5 @@ TEST(FocusFire, WhenTheNamedTargetDiesTheGunFallsBackToTheNearest) {
         << "with the named target gone the gun must go back to engaging what is in range";
 }
 
-TEST(FocusFire, AFocusOnAFriendlyUnitIsRefused) {
-    // An order naming your own side is not a target. Validated at apply time, exactly as an Attack
-    // order is.
-    Field f = field();
-    f.sim.enqueue(Order{f.mine, orders::FocusFire{f.mine}});
-    f.sim.step();
-
-    EXPECT_FALSE(f.sim.find(f.mine)->focus_target.valid()) << "it accepted a friendly as a target";
-}
-
 } // namespace
 } // namespace protekt::sim

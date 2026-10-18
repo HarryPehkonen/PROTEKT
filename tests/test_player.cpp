@@ -19,14 +19,32 @@
 namespace {
 
 using protekt::game::InputState;
+using protekt::game::kLookaheadTiles;
+using protekt::game::kTurnEasePerTick;
+using protekt::game::kTurnRatePerTick;
 using protekt::game::PlayerCommander;
 
 constexpr std::uint64_t kSeed = 42;
+
+/// How long the helm takes to reach full lock, in ticks, TAKEN FROM THE CONSTANT rather than
+/// restated: the ease is a feel value that will be tuned, and a test that hardcodes "12 ticks"
+/// stops testing the thing the moment somebody tunes it.
+constexpr int kTicksToFullLock = static_cast<int>(1.0F / kTurnEasePerTick) + 2;
 
 std::vector<protekt::sim::Order> orders_for(const protekt::sim::Sim& sim, PlayerCommander& player) {
     std::vector<protekt::sim::Order> out;
     player.think(protekt::sim::observe(sim, protekt::sim::Side::Player), out);
     return out;
+}
+
+/// One sim tick with whatever input is set: the commander thinks, its orders are enqueued, the sim
+/// steps. The helm is clocked by the SIM TICK, so a test that never steps the sim is not testing
+/// the steering at all -- which is exactly what this file did before the helm was clocked.
+void tick_once(protekt::sim::Sim& sim, PlayerCommander& player) {
+    for (const auto& order : orders_for(sim, player)) {
+        sim.enqueue(order);
+    }
+    sim.step();
 }
 
 protekt::sim::UnitId player_unit(const protekt::sim::Sim& sim) {
@@ -88,7 +106,7 @@ TEST(PlayerCommander, ReverseSendsItBackwards) {
 }
 
 TEST(PlayerCommander, TurningMovesTheWaypointOffTheOldHeading) {
-    const auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(kSeed));
+    auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(kSeed));
     PlayerCommander player(player_unit(sim));
     InputState input;
     input.throttle = 1.0F;
@@ -99,6 +117,8 @@ TEST(PlayerCommander, TurningMovesTheWaypointOffTheOldHeading) {
 
     input.turn = 1.0F;
     player.set_input(input);
+    // A tick has to run for the helm to move: a turn is a tick's worth of turn, not a call's.
+    tick_once(sim, player);
     const auto turned_orders = orders_for(sim, player);
     ASSERT_FALSE(turned_orders.empty());
     const auto turned = turned_orders.front();
@@ -107,17 +127,144 @@ TEST(PlayerCommander, TurningMovesTheWaypointOffTheOldHeading) {
         << "turning changed nothing: the heading is not reaching the waypoint";
 }
 
-TEST(PlayerCommander, TurnRateIsPerTickAndClamped) {
-    const auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(kSeed));
+TEST(PlayerCommander, TheHelmEasesUpToTheTankRate) {
+    auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(kSeed));
     PlayerCommander player(player_unit(sim));
     InputState input;
     input.turn = 1.0F;
     player.set_input(input);
-    (void)orders_for(sim, player);
-    const float once = player.heading();
-    (void)orders_for(sim, player);
-    EXPECT_NEAR(player.heading(), 2.0F * once, 0.001F) << "turning must be per tick, not per frame";
-    EXPECT_LT(std::abs(once), 0.5F) << "a whole half-radian per tick is not a tank, it is a spin";
+
+    float previous = 0.0F;
+    float last = player.heading();
+    for (int tick = 0; tick < kTicksToFullLock; ++tick) {
+        tick_once(sim, player);
+        const float delta = player.heading() - last;
+        last = player.heading();
+        EXPECT_GE(delta, previous) << "tick " << tick << ": the helm jumped instead of easing in";
+        EXPECT_LE(delta, kTurnRatePerTick + 1e-6F)
+            << "tick " << tick << ": faster than full lock, which easing must not allow";
+        if (tick == 0) {
+            // Half the rate, not "less than the rate": `wrap_angle` loses a few bits folding the
+            // heading into range, so a delta that is a hair under full lock is rounding, not
+            // easing.
+            EXPECT_LT(delta, 0.5F * kTurnRatePerTick)
+                << "the first tick was already near full lock: that is a snap, not an ease";
+        }
+        previous = delta;
+    }
+    EXPECT_NEAR(player.turn_rate(), 1.0F, 1e-5F) << "full lock was never reached";
+    EXPECT_NEAR(previous, kTurnRatePerTick, 1e-5F)
+        << "full lock is still kTurnRatePerTick radians per tick";
+}
+
+TEST(PlayerCommander, TheHelmEasesBackToCentre) {
+    auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(kSeed));
+    PlayerCommander player(player_unit(sim));
+    InputState input;
+    input.turn = 1.0F;
+    player.set_input(input);
+    for (int tick = 0; tick < kTicksToFullLock; ++tick) {
+        tick_once(sim, player);
+    }
+    ASSERT_NEAR(player.turn_rate(), 1.0F, 1e-5F) << "the test needs the helm at full lock first";
+
+    input.turn = 0.0F;
+    player.set_input(input);
+    float previous = kTurnRatePerTick + 1.0F;
+    for (int tick = 0; tick < kTicksToFullLock; ++tick) {
+        const float last = player.heading();
+        tick_once(sim, player);
+        const float delta = player.heading() - last;
+        EXPECT_LE(delta, previous + 1e-6F) << "tick " << tick << ": the helm snapped off the stop";
+        previous = delta;
+    }
+    EXPECT_NEAR(player.turn_rate(), 0.0F, 1e-5F) << "the helm never came off the stop";
+    EXPECT_NEAR(previous, 0.0F, 1e-6F) << "still turning after letting go";
+}
+
+TEST(PlayerCommander, TheThrottleEasesAndTopsOutAtTheLookahead) {
+    auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(kSeed));
+    const auto id = player_unit(sim);
+    PlayerCommander player(id);
+    InputState input;
+    input.throttle = 1.0F;
+    player.set_input(input);
+
+    constexpr float kRaw = 1.0F / 65536.0F;
+    float previous = 0.0F;
+    for (int tick = 0; tick < kTicksToFullLock; ++tick) {
+        const auto* tank = sim.find(id);
+        ASSERT_NE(tank, nullptr);
+        // The commander builds its waypoint from the unit's TILE-floor position, so that is what
+        // the distance is measured against; the sub-tile offset would put a tile of noise in the
+        // number.
+        const float tank_x = static_cast<float>(tank->x.floor_int());
+        const float tank_y = static_cast<float>(tank->y.floor_int());
+
+        std::vector<protekt::sim::Order> orders;
+        player.think(protekt::sim::observe(sim, protekt::sim::Side::Player), orders);
+        ASSERT_EQ(orders.size(), 1U);
+        const auto& move = std::get<protekt::sim::orders::MoveTo>(orders.front().payload);
+        const float dx = (static_cast<float>(move.x.raw) * kRaw) - tank_x;
+        const float dy = (static_cast<float>(move.y.raw) * kRaw) - tank_y;
+        const float distance = std::sqrt((dx * dx) + (dy * dy));
+
+        EXPECT_GE(distance, previous - 1e-3F) << "tick " << tick << ": the throttle dropped";
+        EXPECT_LE(distance, kLookaheadTiles + 1e-3F)
+            << "tick " << tick << ": further ahead than the lookahead, which easing must not allow";
+        if (tick == 0) {
+            EXPECT_LT(distance, 0.5F * kLookaheadTiles)
+                << "the first tick was already near full lookahead: that is a snap, not an ease";
+        }
+        previous = distance;
+
+        for (const auto& order : orders) {
+            sim.enqueue(order);
+        }
+        sim.step();
+    }
+    EXPECT_NEAR(player.throttle_rate(), 1.0F, 1e-5F);
+    EXPECT_NEAR(previous, kLookaheadTiles, 1e-3F) << "full throttle is still kLookaheadTiles";
+}
+
+TEST(PlayerCommander, TheHelmIsClockedByTheSimTickAndNotByTheFrame) {
+    // The bug this test exists for: the heading advanced once per CALL, and the frame loop makes
+    // the same number of calls whether it then steps the sim once or three times -- so at 120
+    // frames per second the tank turned four times as fast as at 30, which is the "aiming is
+    // difficult, the turn happens so quickly" report. A frame worth two ticks must land the tank
+    // EXACTLY where two frames worth one tick each would.
+    auto by_tick = protekt::sim::Sim::create(protekt::sim::skirmish(kSeed));
+    auto by_frame = protekt::sim::Sim::create(protekt::sim::skirmish(kSeed));
+    PlayerCommander ticked(player_unit(by_tick));
+    PlayerCommander framed(player_unit(by_frame));
+    InputState input;
+    input.turn = 1.0F;
+    ticked.set_input(input);
+    framed.set_input(input);
+
+    // A: a think at ticks 0, 1, 2, 3, stepping one tick at a time.
+    for (int frame = 0; frame < 3; ++frame) {
+        tick_once(by_tick, ticked);
+    }
+    std::vector<protekt::sim::Order> ignored;
+    ticked.think(protekt::sim::observe(by_tick, protekt::sim::Side::Player), ignored);
+
+    // B: a think at ticks 0, 1 and 3, with the middle frame stepping TWO ticks.
+    tick_once(by_frame, framed);
+    framed.think(protekt::sim::observe(by_frame, protekt::sim::Side::Player), ignored);
+    by_frame.step();
+    by_frame.step();
+    framed.think(protekt::sim::observe(by_frame, protekt::sim::Side::Player), ignored);
+
+    ASSERT_EQ(by_tick.tick(), by_frame.tick()) << "the two runs must have run the same ticks";
+    EXPECT_FLOAT_EQ(framed.heading(), ticked.heading())
+        << "the frame rate is reaching the helm: two ticks in one frame did not land where two "
+           "single-tick frames did";
+
+    // And a frame in which no tick ran turns nothing at all.
+    const float before = framed.heading();
+    framed.think(protekt::sim::observe(by_frame, protekt::sim::Side::Player), ignored);
+    EXPECT_FLOAT_EQ(framed.heading(), before) << "a frame with no tick in it turned the tank";
 }
 
 TEST(PlayerCommander, IdleDoesNotDriveAnywhere) {
@@ -172,8 +319,14 @@ TEST(PlayerCommander, DrivingForwardActuallyMovesTheTankThroughTheSimulation) {
     while (!clear_run(player.heading()) && guard < 400) {
         input.turn = 1.0F;
         player.set_input(input);
+        // The tick must run as well as the think, or the heading never moves and this loop spins
+        // until the guard trips -- which is how it behaved when the helm was clocked per call.
         std::vector<protekt::sim::Order> ignored;
         player.think(protekt::sim::observe(sim, protekt::sim::Side::Player), ignored);
+        for (const auto& order : ignored) {
+            sim.enqueue(order);
+        }
+        sim.step();
         ++guard;
     }
     ASSERT_LT(guard, 400) << "no clear heading in a full turn: the spawn is boxed in";

@@ -114,7 +114,11 @@ bool order_is_valid(const std::vector<Unit>& units, const Order& order) noexcept
     }
     if (const UnitId* id = order_target(order)) {
         const Unit* target = find_const(units, *id);
-        return target != nullptr && target->alive && target->side != unit->side;
+        // Any live unit is a legal explicit target, the issuer's own side included: the player may
+        // deliberately shoot his own. Only auto-engagement is restricted to hostiles. A unit may
+        // never name ITSELF, though: it sits at distance zero from itself, so the order would be
+        // accepted and the unit would shoot itself dead without the player aiming at anything.
+        return target != nullptr && target->alive && target->id != unit->id;
     }
     return true;
 }
@@ -401,7 +405,7 @@ void Sim::step() {
         // a unit choose a target without the sim steering there.
         if (unit.focus_target.valid()) {
             Unit* focused = find_mut(units_, unit.focus_target);
-            if (focused != nullptr && focused->alive && focused->side != unit.side
+            if (focused != nullptr && focused->alive
                 && dist2(unit.x, unit.y, focused->x, focused->y) <= range * range) {
                 best = focused;
             }
@@ -410,7 +414,7 @@ void Sim::step() {
         // in range the gun engages it, even when a closer hostile is in range too.
         if (unit.stance == Stance::Attack && unit.target.valid()) {
             Unit* named = find_mut(units_, unit.target);
-            if (named != nullptr && named->alive && named->side != unit.side
+            if (named != nullptr && named->alive
                 && dist2(unit.x, unit.y, named->x, named->y) <= range * range) {
                 best = named;
             }
