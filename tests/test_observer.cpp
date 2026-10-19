@@ -331,7 +331,7 @@ TEST(Observer, TheFiredStreamForAScriptedBattleIsUnchanged) {
         std::uint32_t subject;
         std::uint16_t hp;
     };
-    static const Expected kExpected[] = {
+    static const std::vector<Expected> kExpected = {
         {449, 2, 7, 100}, {449, 7, 2, 100}, {464, 2, 7, 100}, {464, 7, 2, 100}, {464, 8, 2, 100},
         {470, 1, 7, 92},  {479, 2, 7, 92},  {479, 7, 2, 92},  {479, 8, 2, 92},  {485, 1, 7, 92},
         {494, 2, 7, 76},  {494, 7, 2, 76},  {494, 8, 2, 76},  {500, 1, 7, 76},  {509, 2, 7, 60},
@@ -354,10 +354,10 @@ TEST(Observer, TheFiredStreamForAScriptedBattleIsUnchanged) {
     }
     ASSERT_EQ(got.size(), std::size(kExpected));
     for (std::size_t i = 0; i < got.size(); ++i) {
-        EXPECT_EQ(got[i].tick, kExpected[i].tick) << "event " << i;
-        EXPECT_EQ(got[i].actor, kExpected[i].actor) << "event " << i;
-        EXPECT_EQ(got[i].subject, kExpected[i].subject) << "event " << i;
-        EXPECT_EQ(got[i].hp, kExpected[i].hp) << "event " << i;
+        EXPECT_EQ(got[i].tick, kExpected.at(i).tick) << "event " << i;
+        EXPECT_EQ(got[i].actor, kExpected.at(i).actor) << "event " << i;
+        EXPECT_EQ(got[i].subject, kExpected.at(i).subject) << "event " << i;
+        EXPECT_EQ(got[i].hp, kExpected.at(i).hp) << "event " << i;
     }
 }
 
