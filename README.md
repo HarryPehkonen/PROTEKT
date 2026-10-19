@@ -55,10 +55,19 @@ says what a click would do before you make it:
 The unit under the mark is tinted as well, so the warning is on the thing itself and not only on the
 mark: **amber** for one of yours ("do not shoot this"), **salmon** for a hostile.
 
-**The left button is the trigger, always.** It never selects: `Space` (and `Shift`+`Space`) does that. A shot
-at the ground or the sky makes your gun's sound and nothing else — there is no projectile yet. The button
-is rate-limited to about four shots a second; your gun's own auto-fire is not. When you are hit the screen
-flashes red and fades over 0.4 seconds.
+**The left button is the trigger, always.** It never selects: `Space` (and `Shift`+`Space`) does that.
+
+**A shot is a real projectile, and it takes time to arrive.** The simulation owns it: it leaves the
+gun as a small bright box, flies in a straight line at **16 tiles a second**, and the damage lands
+when it gets there rather than when you pull the trigger — so a long shot is visibly slower than a
+close one. It **leads its target**, aiming where the target will be by the time it arrives, but it
+does not follow it: a target that turns or stops after the shot is missed. It **inherits your own
+velocity**, so firing sideways while you are driving throws the shot off by roughly your speed over
+the flight, exactly as a real one would. It **keeps flying if its target dies first** and can hit
+whatever else it meets, and it **fizzles after 16 tiles**, having harmed nothing. Your bolts are the
+bright cyan ones and the enemy's are orange-yellow. A shot at the ground or the sky makes the sound and
+nothing else: there is nothing there to hit. The button is rate-limited to about four shots a second;
+your gun's own auto-fire is not. When you are hit the screen flashes red and fades over 0.4 seconds.
 
 **Shooting never costs you your selection.** A click on the ground, the sky, a hostile or your own unit leaves it alone --
 only `Tab` and `Escape` clear it. `T` reads the mark fresh every time it is pressed, so after a kill you can
@@ -154,7 +163,9 @@ where the enemy is.
 check is decoration:
 
 **Works.** Drive the tank over a seed-generated world; select units and give orders; units fight, take
-damage and die; the enemy commander advances, engages and withdraws; the whole simulation is
+damage and die; a shot is a real projectile that takes time to arrive, leads its target, is carried by
+the velocity of the tank that fired it and is drawn in flight; the enemy commander advances, engages
+and withdraws; the whole simulation is
 deterministic (a seed plus its orders replays byte-for-byte); the window and the headless renderer
 produce byte-identical frames **and the same world state** — for a scripted run, because `--autodrive`
 drops real input: a stray key arriving at a window that has just taken focus must not be able to
@@ -168,7 +179,7 @@ change a verification run.
 | **No economy** | no resources, no harvester, no building. A factory is a 400 hp target and nothing more |
 | **No way to win or lose** | nothing ends a match. An undefended factory can be destroyed by a single tank — factories are unarmed on purpose and defence is what turrets are for — but there is no objective beyond that |
 | **No text anywhere** | there is no font in the project, so nothing on screen is written: refusals ("that order would move the tank you are in") go to the console, not the screen. The HUD is colour and length only -- the radar, the health bar above it and the mark. No numbers, no labels, no marker on the unit your gun is engaging |
-| **No on-screen feedback** | there is sound (see above) and no on-screen sign that a shot happened — the reticle says what a click *would* do, not what one just did |
+| **No feedback that YOUR shot happened** | the bolt itself is drawn, so the fight is legible, but nothing tells you that the shot you just fired is yours: no muzzle flash, no recoil, no reticle kick. The reticle says what a click *would* do, not what one just did |
 | **No positional audio beyond left and right** | a sound is placed on a line between the speakers: no front or back, no height, no echo or occlusion. A shot behind a hill sounds exactly like one in the open |
 | **Sounds are generated, not recorded** | they are made of noise and sine waves and sound like it. A recording would sound better and bring files, licences and a loader; that trade has not been made |
 | **Silence beyond earshot is deliberate** | 60 tiles for a shot, 90 for a death; past it there is no voice at all. It is not a bug to report when a distant fight makes no noise |
