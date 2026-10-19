@@ -53,6 +53,19 @@ std::set<int> mesh_heights(const Scene& scene) {
     return heights;
 }
 
+/// The height the hover reports, as a plain float -- or a test failure.
+///
+/// clang-tidy's bugprone-unchecked-optional-access understands `assert`, an `if` guard and
+/// `value_or`, but NOT a GTest assertion: `ASSERT_TRUE(o.has_value()); ... *o ...` is still
+/// reported as unchecked. The guard lives here so every call site reads as the value it is.
+float hover_height(const std::optional<float>& z) {
+    if (!z.has_value()) {
+        ADD_FAILURE() << "the hover reported no height when one was required";
+        return 0.0F;
+    }
+    return *z;
+}
+
 TEST(SceneCamera, WrapAngleKeepsHeadingsInOneTurn) {
     constexpr float pi = 3.14159265F;
     EXPECT_NEAR(Camera::wrap_angle(0.0F), 0.0F, kTolerance);
@@ -1273,12 +1286,12 @@ TEST(Hover, FromRestOnFlatGroundItFloatsAtRideHeightAndStays) {
     constexpr float kGround = 3.0F;
     for (protekt::sim::Tick tick = 0; tick < 3U * settle_ticks(); ++tick) {
         hover.advance(tick, kGround);
-        EXPECT_FLOAT_EQ(*hover.z(), kGround + kRideHeightMetres);
+        EXPECT_FLOAT_EQ(hover_height(hover.z()), kGround + kRideHeightMetres);
         // The equality above proves the code READS the constant. It cannot catch a wrong VALUE,
         // because both sides move together. These literal bounds pin the value itself.
-        EXPECT_GT(*hover.z() - kGround, 0.10F)
+        EXPECT_GT(hover_height(hover.z()) - kGround, 0.10F)
             << "a hover tank must float visibly, not sit on the ground";
-        EXPECT_LT(*hover.z() - kGround, 0.60F) << "and must not look detached from it";
+        EXPECT_LT(hover_height(hover.z()) - kGround, 0.60F) << "and must not look detached from it";
     }
 }
 
@@ -1288,7 +1301,7 @@ TEST(Hover, TheSameTicksGiveTheSameHeightEveryTime) {
         for (protekt::sim::Tick tick = 0; tick < 120; ++tick) {
             hover.advance(tick, tick < 40 ? 0.0F : 1.5F);
         }
-        return *hover.z();
+        return hover_height(hover.z());
     };
     EXPECT_EQ(run(), run());
 }
@@ -1338,8 +1351,8 @@ TEST(Hover, OnARampTheHullLagsBelowTheRisingGround) {
         hover.advance(tick, ground);
     }
     // At rest the hull rides kRideHeightMetres above the ground; climbing, it trails that line.
-    EXPECT_LT(*hover.z(), ground + kRideHeightMetres);
-    EXPECT_GT(*hover.z(), kRideHeightMetres) << "but it has started to rise";
+    EXPECT_LT(hover_height(hover.z()), ground + kRideHeightMetres);
+    EXPECT_GT(hover_height(hover.z()), kRideHeightMetres) << "but it has started to rise";
 }
 
 TEST(Hover, TheHoveringUnitIsDrawnAtTheHullHeightAndOthersStayOnTheGround) {
@@ -1399,11 +1412,14 @@ TEST(Boost, RaisesTheHullAndItSettlesAtTheRaisedHeightWhileHeld) {
     for (std::uint32_t i = 0; i < window; ++i) {
         hover.advance(++tick, 0.0F, true);
     }
-    EXPECT_GT(*hover.z(), kRideHeightMetres + 0.5F) << "boost must lift visibly above rest";
-    EXPECT_NEAR(*hover.z(), kRideHeightMetres + kBoostLiftMetres, kBoostLiftMetres * 0.01F);
+    EXPECT_GT(hover_height(hover.z()), kRideHeightMetres + 0.5F)
+        << "boost must lift visibly above rest";
+    EXPECT_NEAR(hover_height(hover.z()), kRideHeightMetres + kBoostLiftMetres,
+                kBoostLiftMetres * 0.01F);
     for (std::uint32_t i = 0; i < window; ++i) {
         hover.advance(++tick, 0.0F, true);
-        EXPECT_NEAR(*hover.z(), kRideHeightMetres + kBoostLiftMetres, kBoostLiftMetres * 0.01F)
+        EXPECT_NEAR(hover_height(hover.z()), kRideHeightMetres + kBoostLiftMetres,
+                    kBoostLiftMetres * 0.01F)
             << "and stays there while held";
     }
 }
@@ -1422,7 +1438,7 @@ TEST(Boost, OvershootsOnceBeforeSettling) {
     bool above = false;
     for (std::uint32_t i = 0; i < window; ++i) {
         hover.advance(++tick, 0.0F, true);
-        const float z = *hover.z();
+        const float z = hover_height(hover.z());
         peak = std::max(peak, z);
         passed = passed || z > top + band;
         came_back = came_back || (passed && z < peak - band);
@@ -1446,11 +1462,11 @@ TEST(Boost, ReleasingBringsTheHullBackToRestingHeight) {
     for (std::uint32_t i = 0; i < window; ++i) {
         hover.advance(++tick, 0.0F, true);
     }
-    ASSERT_GT(*hover.z(), kRideHeightMetres + 0.5F);
+    ASSERT_GT(hover_height(hover.z()), kRideHeightMetres + 0.5F);
     for (std::uint32_t i = 0; i < window; ++i) {
         hover.advance(++tick, 0.0F, false);
     }
-    EXPECT_NEAR(*hover.z(), kRideHeightMetres, kBoostLiftMetres * 0.01F);
+    EXPECT_NEAR(hover_height(hover.z()), kRideHeightMetres, kBoostLiftMetres * 0.01F);
 }
 
 TEST(Boost, TwoOneTickCallsEqualOneTwoTickCallBitForBit) {
@@ -1468,7 +1484,8 @@ TEST(Boost, TwoOneTickCallsEqualOneTwoTickCallBitForBit) {
         ASSERT_TRUE(frames.z().has_value());
         EXPECT_EQ(frames.z(), batch.z());
     }
-    EXPECT_GT(*frames.z(), kRideHeightMetres) << "the comparison was made while moving";
+    EXPECT_GT(hover_height(frames.z()), kRideHeightMetres)
+        << "the comparison was made while moving";
 }
 
 TEST(Boost, AFrameWithNoTickAndBoostHeldChangesNothing) {
@@ -1478,7 +1495,8 @@ TEST(Boost, AFrameWithNoTickAndBoostHeldChangesNothing) {
     const std::optional<float> before = hover.z();
     hover.advance(5, 0.0F, true);
     EXPECT_EQ(hover.z(), before);
-    EXPECT_GT(*before, kRideHeightMetres) << "it had risen, so a no-op is a real claim";
+    EXPECT_GT(hover_height(before), kRideHeightMetres)
+        << "it had risen, so a no-op is a real claim";
 }
 
 TEST(Boost, AbsentBoostIsBitIdenticalToTheHoverWithoutIt) {
@@ -1495,7 +1513,7 @@ TEST(Boost, AbsentBoostIsBitIdenticalToTheHoverWithoutIt) {
     for (protekt::sim::Tick tick = 0; tick < 50; ++tick) {
         flat.advance(tick, 2.0F);
     }
-    EXPECT_FLOAT_EQ(*flat.z(), 2.25F);
+    EXPECT_FLOAT_EQ(hover_height(flat.z()), 2.25F);
 }
 
 TEST(Boost, HeldKeyIsEHeldNotToggled) {
