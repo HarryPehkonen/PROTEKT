@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <map>
 #include <optional>
 #include <span>
 
@@ -135,6 +136,26 @@ struct Aim {
     float y{};
 };
 
+/// WHICH WAY A TANK FACES. The sim gives a unit no heading, only a velocity, so the presentation
+/// layer works it out and remembers it. CONVENTION: a heading is a yaw in radians, the camera's own
+/// -- 0 is +Y on the map (the world's forward, +Z in metres) and a positive heading turns toward
+/// +X, so a unit moving along `(vx, vy)` faces `atan2(vx, vy)`. A tank that is moving faces its
+/// velocity; a STOPPED tank keeps the heading it last had; a unit never seen moving faces 0.
+/// `observe` is called once per frame with the sim: it records every moving unit's heading and
+/// drops the entries of units that are gone or dead. Keyed by unit id in an ordered map, so the
+/// result is deterministic. Presentation only: nothing here touches the sim.
+class Headings {
+public:
+    /// The heading of a unit's velocity, or ABSENT when it is standing still.
+    [[nodiscard]] static std::optional<float> heading_of(const sim::Unit& unit) noexcept;
+    void observe(const sim::Sim& sim);
+    /// Current velocity heading if moving, else the remembered one, else 0.
+    [[nodiscard]] float of(const sim::Unit& unit) const;
+
+private:
+    std::map<std::uint32_t, float> last_;
+};
+
 /// A reticle is four bars, six vertices each, in a triangle list.
 inline constexpr std::size_t kReticleVertexCount = 24;
 
@@ -172,6 +193,9 @@ struct SceneOptions {
         float turret{};
     };
     std::optional<Facing> facing{};
+    /// Remembered headings, so a stopped tank keeps its facing. ABSENT (null) faces a stopped tank
+    /// along +Y; a moving one still faces its velocity. Not owned.
+    const Headings* headings{nullptr};
     /// The red hit flash, 0 (none) to 1 (just hit): the app owns it and advances it each frame.
     /// 0 draws nothing at all, so a frame that is not flashing is byte-identical to one that never
     /// heard of it.

@@ -238,7 +238,8 @@ TEST(SceneUnits, ASelectedUnitIsDrawnBrighterAndNothingElseChanges) {
                 << "a selection must not move anything";
         }
     }
-    EXPECT_EQ(different, 12U * 3U) << "exactly one unit box (12 triangles) should change colour";
+    EXPECT_EQ(different, 3U * 12U * 3U)
+        << "exactly one tank (hull, turret and barrel: three boxes of 12 triangles) changes colour";
 
     // And the highlight is brighter than the side colour it came from.
     bool brighter = false;
@@ -511,7 +512,7 @@ std::array<float, 3> box_colour(const Scene& scene, const protekt::sim::Unit& un
             && std::abs(v.position[2] - (uz - half)) < 1e-3F
             && v.position[1]
                    > protekt::game::height_metres(42, unit.x.floor_int(), unit.y.floor_int())
-                         + 1.0F) {
+                         + 0.5F) {
             return v.colour; // a top corner of the box: terrain is never this high above itself
         }
     }
@@ -1422,7 +1423,7 @@ TEST(Hover, TheHoveringUnitIsDrawnAtTheHullHeightAndOthersStayOnTheGround) {
             ++moved;
         }
     }
-    EXPECT_EQ(moved, 36U) << "exactly one box (36 vertices) moves";
+    EXPECT_EQ(moved, 108U) << "exactly one tank (hull, turret, barrel: 108 vertices) moves";
 }
 
 } // namespace
@@ -2242,20 +2243,26 @@ TEST(SceneFacing, OnlyTheViewersTankChanges) {
     const SceneOptions plain = facing_options(sim);
     const Scene without = protekt::game::build_scene(sim, plain);
     const Scene with = facing_scene(sim, 0.7F, -0.4F);
-    EXPECT_EQ(with.vertices.size() - without.vertices.size(), kFacingTankVertices - kBoxVertices);
+    // Every tank is a hull, turret and barrel now, so a facing changes where they point, not how
+    // many vertices there are.
+    EXPECT_EQ(with.vertices.size(), without.vertices.size());
     // Everything before the viewer's tank -- the terrain and the factory -- is untouched.
-    const auto shared = static_cast<std::ptrdiff_t>(without.vertices.size() - kBoxVertices);
+    const auto shared = static_cast<std::ptrdiff_t>(without.vertices.size() - kFacingTankVertices);
     EXPECT_TRUE(same_vertices({without.vertices.begin(), without.vertices.begin() + shared},
                               {with.vertices.begin(), with.vertices.begin() + shared}));
-    // A facing that names someone else rotates THAT unit and leaves the viewer a plain box.
+    EXPECT_FALSE(same_vertices({without.vertices.begin() + shared, without.vertices.end()},
+                               {with.vertices.begin() + shared, with.vertices.end()}));
+    // A facing that names someone else rotates THAT unit and leaves the viewer's tank at its
+    // default facing.
     SceneOptions elsewhere = plain;
     elsewhere.facing = SceneOptions::Facing{sim.units().front().id, 0.7F, -0.4F};
     const Scene other = protekt::game::build_scene(sim, elsewhere);
     EXPECT_GT(other.vertices.size(), without.vertices.size());
-    EXPECT_TRUE(same_vertices(
-        {without.vertices.end() - static_cast<std::ptrdiff_t>(kBoxVertices),
-         without.vertices.end()},
-        {other.vertices.end() - static_cast<std::ptrdiff_t>(kBoxVertices), other.vertices.end()}));
+    EXPECT_TRUE(
+        same_vertices({without.vertices.end() - static_cast<std::ptrdiff_t>(kFacingTankVertices),
+                       without.vertices.end()},
+                      {other.vertices.end() - static_cast<std::ptrdiff_t>(kFacingTankVertices),
+                       other.vertices.end()}));
 }
 
 TEST(SceneFacing, AFrameWithoutFacingIsByteIdentical) {
@@ -2266,11 +2273,105 @@ TEST(SceneFacing, AFrameWithoutFacingIsByteIdentical) {
     const Scene a = protekt::game::build_scene(sim, absent);
     const Scene b = protekt::game::build_scene(sim, never_heard);
     EXPECT_TRUE(same_vertices(a.vertices, b.vertices));
-    // The viewer's tank is still one axis-aligned box of the size it always was.
+    // A tank with no facing and no velocity is the default one: its hull is an axis-aligned box of
+    // the size it always was, because heading 0 is the world's +Y.
     const auto& viewer = viewer_of(sim);
     const float ux = static_cast<float>(viewer.x.raw) / 65536.0F * kMetresPerTile;
-    const auto tail = a.vertices.end() - static_cast<std::ptrdiff_t>(kBoxVertices);
-    for (auto v = tail; v != a.vertices.end(); ++v) {
+    const auto tail = a.vertices.end() - static_cast<std::ptrdiff_t>(kFacingTankVertices);
+    for (auto v = tail; v != tail + static_cast<std::ptrdiff_t>(kHullVertices); ++v) {
         EXPECT_NEAR(std::abs(v->position[0] - ux), kMetresPerTile * 0.3F, 1e-4F);
     }
+}
+
+// ---------------------------------------------------------------- which way a tank faces
+
+namespace {
+
+using protekt::game::Headings;
+using protekt::sim::Fixed;
+
+/// A lone player tank, ordered to drive along +X.
+protekt::sim::Sim driving_east() {
+    auto sim = sim_of({{Side::Player, UnitKind::Tank, 100, 100}});
+    sim.enqueue(protekt::sim::Order{
+        sim.units().front().id,
+        protekt::sim::orders::MoveTo{Fixed::from_int(104), Fixed::from_int(100)}});
+    return sim;
+}
+
+bool standing(const protekt::sim::Unit& unit) { return unit.vx.raw == 0 && unit.vy.raw == 0; }
+
+/// How far the tank's forward-most vertex is along +X from its centre.
+float forward_reach_x(const Scene& scene, const protekt::sim::Unit& unit) {
+    const float ux = static_cast<float>(unit.x.raw) / 65536.0F * kMetresPerTile;
+    float reach = -1e9F;
+    for (auto v = scene.vertices.end() - static_cast<std::ptrdiff_t>(kFacingTankVertices);
+         v != scene.vertices.end(); ++v) {
+        reach = std::max(reach, v->position[0] - ux);
+    }
+    return reach;
+}
+
+/// The scene with the tank oriented by `headings`, camera on the tank.
+Scene scene_with(const protekt::sim::Sim& sim, const Headings& headings) {
+    SceneOptions o = options_at(0.0F, 0.0F, 42, 20);
+    const auto& unit = sim.units().front();
+    o.camera.x = static_cast<float>(unit.x.raw) / 65536.0F * kMetresPerTile;
+    o.camera.z = static_cast<float>(unit.y.raw) / 65536.0F * kMetresPerTile;
+    o.headings = &headings;
+    return protekt::game::build_scene(sim, o);
+}
+
+} // namespace
+
+TEST(SceneHeading, AStandingTankNeverSeenMovingFacesPlusY) {
+    const auto sim = sim_of({{Side::Player, UnitKind::Tank, 100, 100}});
+    ASSERT_TRUE(standing(sim.units().front()));
+    EXPECT_FALSE(Headings::heading_of(sim.units().front()).has_value());
+    Headings headings;
+    headings.observe(sim);
+    EXPECT_EQ(headings.of(sim.units().front()), 0.0F);
+    // Barrel along +Y (+Z in metres): no reach worth the name along X.
+    EXPECT_LT(forward_reach_x(scene_with(sim, headings), sim.units().front()),
+              kMetresPerTile * 0.3F + 1e-3F);
+}
+
+TEST(SceneHeading, ATankMovingTowardPlusXPointsItsBarrelAlongPlusX) {
+    auto sim = driving_east();
+    Headings headings;
+    bool moved = false;
+    for (int tick = 0; tick < 200 && !moved; ++tick) {
+        sim.step();
+        moved = !standing(sim.units().front());
+    }
+    ASSERT_TRUE(moved) << "the tank must start driving";
+    headings.observe(sim);
+    EXPECT_NEAR(headings.of(sim.units().front()), protekt::math::kPi * 0.5F, 1e-4F);
+    // The barrel tip is the forward-most vertex, well beyond the hull's own half-width.
+    EXPECT_GT(forward_reach_x(scene_with(sim, headings), sim.units().front()),
+              kMetresPerTile * 0.3F * 1.5F);
+}
+
+TEST(SceneHeading, AStoppedTankKeepsTheFacingItHadWhileMoving) {
+    auto sim = driving_east();
+    Headings headings;
+    bool moved = false;
+    bool stopped_after = false;
+    for (int tick = 0; tick < 2000 && !stopped_after; ++tick) {
+        sim.step();
+        headings.observe(sim);
+        if (!standing(sim.units().front())) {
+            moved = true;
+        } else if (moved) {
+            stopped_after = true;
+        }
+    }
+    ASSERT_TRUE(moved);
+    ASSERT_TRUE(stopped_after) << "the tank must arrive and stop";
+    EXPECT_NEAR(headings.of(sim.units().front()), protekt::math::kPi * 0.5F, 1e-4F)
+        << "stopped, it keeps facing +X";
+    EXPECT_GT(forward_reach_x(scene_with(sim, headings), sim.units().front()),
+              kMetresPerTile * 0.3F * 1.5F);
+    // Without the memory the same stopped tank falls back to +Y: the memory is what holds it.
+    EXPECT_EQ(Headings{}.of(sim.units().front()), 0.0F);
 }

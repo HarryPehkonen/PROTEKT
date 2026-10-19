@@ -305,6 +305,8 @@ public:
         scene_options.facing = game::SceneOptions::Facing{
             player_, session_.heading(),
             game::Camera::wrap_angle(session_.view_yaw() - session_.heading())};
+        headings_.observe(sim_);
+        scene_options.headings = &headings_;
         scene_options.hit_flash = hit_flash_.level(sim_.tick());
         return calibration_ ? game::build_calibration_scene(scene_options)
                             : game::build_scene(sim_, scene_options, session_.selection().units());
@@ -317,6 +319,7 @@ private:
     game::Session session_;
     game::Hover hover_;
     game::HitFlash hit_flash_;
+    game::Headings headings_;
     bool calibration_{false}; // C toggles the colour calibration view; it never touches the sim
     bool player_alive_before_{false};
     ai::ScriptedCommander enemy_;

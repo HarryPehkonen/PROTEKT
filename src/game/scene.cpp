@@ -9,6 +9,8 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
+#include <map>
+#include <utility>
 
 namespace protekt::game {
 
@@ -180,11 +182,11 @@ void emit_turned_box(std::vector<SceneVertex>& out, float x, float z, float angl
     emit_quad(out, p[4], p[5], p[1], p[0], colour); // bottom
 }
 
-/// The viewer's tank: a hull turned by `heading`, a turret on top of it turned by `heading +
+/// A tank: a hull turned by `heading`, a turret on top of it turned by `heading +
 /// turret`, and a barrel running forward from the turret along ITS direction. The 1.8 m of a plain
 /// tank box is split between the hull and the turret, so this is a change of shape and not of size.
 void build_facing_tank(std::vector<SceneVertex>& out, std::uint64_t seed, const sim::Unit& unit,
-                       Mark mark, std::optional<float> hull_z, const SceneOptions::Facing& facing) {
+                       Mark mark, std::optional<float> hull_z, float heading, float turret) {
     const float x
         = static_cast<float>(unit.x.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile;
     const float z
@@ -207,10 +209,10 @@ void build_facing_tank(std::vector<SceneVertex>& out, std::uint64_t seed, const 
         colour = aim_tint(colour, mark == Mark::AimedOwn);
     }
 
-    const float turret_angle = facing.heading + facing.turret;
+    const float turret_angle = heading + turret;
     const float hull_top = ground + kHullHeight;
-    emit_turned_box(out, x, z, facing.heading, half_width, -half_width, half_width, ground,
-                    hull_top, colour);
+    emit_turned_box(out, x, z, heading, half_width, -half_width, half_width, ground, hull_top,
+                    colour);
     const std::array<float, 2> turret_at
         = rotate_offset(x, z, 0.0F, half_width * kTurretForwardFraction, turret_angle);
     const float turret_half = half_width * kTurretHalfFraction;
@@ -616,6 +618,32 @@ bool unit_was_hit(std::span<const sim::BattleEvent> events, sim::UnitId unit) no
     return false;
 }
 
+std::optional<float> Headings::heading_of(const sim::Unit& unit) noexcept {
+    if (unit.vx.raw == 0 && unit.vy.raw == 0) {
+        return std::nullopt;
+    }
+    // Yaw 0 is +Y (the world's forward) and a positive yaw turns toward +X.
+    return std::atan2(static_cast<float>(unit.vx.raw), static_cast<float>(unit.vy.raw));
+}
+
+void Headings::observe(const sim::Sim& sim) {
+    std::map<std::uint32_t, float> kept;
+    for (const sim::Unit& unit : sim.units()) {
+        if (unit.alive) {
+            kept.emplace(unit.id.value, of(unit));
+        }
+    }
+    last_ = std::move(kept);
+}
+
+float Headings::of(const sim::Unit& unit) const {
+    if (const std::optional<float> moving = heading_of(unit); moving.has_value()) {
+        return *moving;
+    }
+    const auto found = last_.find(unit.id.value);
+    return found != last_.end() ? found->second : 0.0F;
+}
+
 float Camera::wrap_angle(float radians) noexcept {
     float wrapped = std::fmod(radians + kPi, 2.0F * kPi);
     if (wrapped < 0.0F) {
@@ -670,7 +698,12 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
                 = hovering ? std::optional<float>{options.hover->z} : std::nullopt;
             if (options.facing.has_value() && options.facing->unit == unit.id) {
                 build_facing_tank(scene.vertices, options.seed, unit, mark, hull_z,
-                                  *options.facing);
+                                  options.facing->heading, options.facing->turret);
+            } else if (unit.kind == sim::UnitKind::Tank) {
+                const float heading = options.headings != nullptr
+                                          ? options.headings->of(unit)
+                                          : Headings::heading_of(unit).value_or(0.0F);
+                build_facing_tank(scene.vertices, options.seed, unit, mark, hull_z, heading, 0.0F);
             } else {
                 build_unit_box(scene.vertices, options.seed, unit, mark, hull_z);
             }
