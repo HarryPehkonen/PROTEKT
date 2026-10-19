@@ -234,16 +234,16 @@ TEST(Session, ReleasingWStopsTheTank) {
     EXPECT_EQ(tank->vy.raw, 0);
 }
 
-TEST(Session, AAndDTurnTheViewOppositeWays) {
+TEST(Session, AAndDTurnTheBodyOppositeWays) {
     Rig left = make_rig();
     Session left_session{left.tank_a};
     run_frames(left, left_session, {holding(input::kKeyA)});
-    const float left_yaw = left_session.view_yaw();
+    const float left_yaw = left_session.heading();
 
     Rig right = make_rig();
     Session right_session{right.tank_a};
     run_frames(right, right_session, {holding(input::kKeyD)});
-    const float right_yaw = right_session.view_yaw();
+    const float right_yaw = right_session.heading();
 
     EXPECT_NE(left_yaw, right_yaw);
     EXPECT_NE(left_yaw, 0.0F);
@@ -296,35 +296,37 @@ TEST(SessionLook, ThePitchClampsAtTheLimitInBothDirections) {
     EXPECT_FLOAT_EQ(session.view_pitch(), kLookPitchLimit);
 }
 
-TEST(SessionLook, TheHullDoesNotMoveWhenStopped) {
+TEST(SessionLook, TheMouseNeverMovesTheHullWhetherStoppedOrDriving) {
     Rig rig = make_rig();
     Session session(rig.tank_a);
     run_frames(rig, session, {mouse_moved(0.0F, 0.0F)});
     const float hull = session.heading();
     const float view = session.view_yaw();
-    run_frames(rig, session, {holding(input::kKeyA), mouse_moved(300.0F, 0.0F)});
     for (int i = 0; i < 60; ++i) {
         run_frames(rig, session, {mouse_moved(10.0F, 0.0F)});
     }
     EXPECT_NE(session.view_yaw(), view) << "the view must turn freely";
     EXPECT_FLOAT_EQ(session.heading(), hull) << "the hull moved with no throttle";
+
+    run_frames(rig, session, {holding(input::kKeyW)});
+    for (int i = 0; i < 60; ++i) {
+        run_frames(rig, session, {mouse_moved(-10.0F, 0.0F)});
+    }
+    EXPECT_FLOAT_EQ(session.heading(), hull) << "looking around while driving turned the hull";
 }
 
-TEST(SessionLook, TheHullFollowsTheViewWhileDriving) {
+TEST(SessionLook, TurningTheBodyCarriesTheViewRound) {
     Rig rig = make_rig();
     Session session(rig.tank_a);
     run_frames(rig, session, {mouse_moved(0.0F, 0.0F)});
-    const auto gap = [&session] {
-        return std::abs(Camera::wrap_angle(session.view_yaw() - session.heading()));
-    };
-    run_frames(rig, session, {mouse_moved(-200.0F, 0.0F)});
-    const float before = gap();
-    ASSERT_GT(before, 0.1F);
-    run_frames(rig, session, {holding(input::kKeyW)});
+    const float hull = session.heading();
+    const float view = session.view_yaw();
     for (int i = 0; i < 30; ++i) {
-        run_frames(rig, session, {InputFrame{}});
+        run_frames(rig, session, {holding(input::kKeyA)});
     }
-    EXPECT_LT(gap(), before) << "the hull did not turn toward the view";
+    const float turned = Camera::wrap_angle(session.heading() - hull);
+    EXPECT_GT(turned, 0.1F);
+    EXPECT_NEAR(Camera::wrap_angle(session.view_yaw() - view), turned, 1e-4F);
 }
 
 TEST(SessionLook, TheViewStillAnswersTheMouseAfterTheTankIsDestroyed) {
@@ -336,7 +338,12 @@ TEST(SessionLook, TheViewStillAnswersTheMouseAfterTheTankIsDestroyed) {
     const float yaw = gone.view_yaw();
     const float pitch = gone.view_pitch();
     const float hull = gone.heading();
-    gone.frame(mouse_moved(50.0F, 30.0F), rig.sim, rig.options, orders);
+    InputFrame look_and_turn = mouse_moved(50.0F, 30.0F);
+    look_and_turn.keys.push_back(KeyEvent{input::kKeyA, true, false});
+    for (int i = 0; i < 30; ++i) {
+        gone.frame(look_and_turn, rig.sim, rig.options, orders);
+        look_and_turn = InputFrame{};
+    }
     EXPECT_LT(gone.view_yaw(), yaw); // right is less yaw: the world is drawn mirrored
     EXPECT_LT(gone.view_pitch(), pitch);
     EXPECT_FLOAT_EQ(gone.heading(), hull);

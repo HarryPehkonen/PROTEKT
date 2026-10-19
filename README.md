@@ -15,8 +15,8 @@ You are one tank. Everything else you command.
 | input | what it does |
 |---|---|
 | `W` / `S` | throttle forward / back |
-| **mouse** | look around: the pointer is captured, and the crosshair is always the centre of the screen |
-| `A` / `D` | aim left / right: they turn the view, not the hull |
+| **mouse** | turn the turret, relative to the body: the pointer is captured, and the crosshair is always the centre of the screen, where the turret points |
+| `A` / `D` | turn the body of the tank left / right, on the spot or while driving; the turret goes round with it |
 | `E` (**held**) | boost: lift the hull, and settle back down when you let go |
 | `C` | toggle the colour calibration view: three red/green/blue bars, a check on the display path |
 | **left click** | **fire**, wherever the mark is (see below) |
@@ -29,9 +29,9 @@ You are one tank. Everything else you command.
 | **right click**, mark on the ground | order every selected unit there |
 | **right click**, mark on a hostile | order every selected unit to attack it |
 
-The tank you are sitting in is **never** moved by a click. It is driven by `W`/`S` and your view
-every tick, so an order from the mouse would fight your own hands: while the throttle is held the hull
-turns toward where you look, and a stopped tank sits still while you look around. Selecting it is
+The tank you are sitting in is **never** moved by a click. It is driven by `W`/`S` and `A`/`D`
+every tick, so an order from the mouse would fight your own hands: the tank always drives the way its
+body points, and looking around with the mouse never changes where it goes. Selecting it is
 fine, and firing is the one thing a click may tell it to do — that order sets a target and nothing
 else. Looking keeps working after the tank is destroyed, and the radar and health bar stay up.
 
@@ -42,7 +42,7 @@ its own -- only an order crosses that line (see Display/HUD below).
 Selected units are drawn brighter than the rest of their side, so you can see what you have hold of.
 
 **The mark is the gun.** It is the crosshair, fixed at the centre of the screen, and you aim by
-**looking**: the mouse swings the view and `A`/`D` do the same from the keyboard. Whatever is under
+**looking**: the mouse swings the turret, and turning the body with `A`/`D` carries the turret round with it. Whatever is under
 the crosshair is what a click fires at, so bring the view round until it is there. The mark's colour
 says what a click would do before you make it:
 
@@ -65,7 +65,7 @@ only `Tab` and `Escape` clear it. `T` reads the mark fresh every time it is pres
 put the mark on the next enemy and press `T` again without re-selecting anything.
 
 The crosshair is the only thing drawn close to your eye. There is no pointer on screen — the mouse
-moves the view — so the crosshair is both where you look and where your click lands.
+turns the turret — so the crosshair is both where you look and where your click lands.
 
 ## The radar
 
@@ -176,7 +176,6 @@ change a verification run.
 | **The radar is range-based, not line-of-sight** | a hostile behind a hill inside the 40 tiles is still on it. Battlezone's radar worked the same way, and this is the version to play before adding occlusion |
 | **No compass** | the panel turns with the tank and there is no north tick: there is nothing to correlate a bearing with until there is a map |
 | **Two units on one panel pixel** | the depth test decides, so one colour wins. A hostile within about a tile of you hides under your own mark |
-| **No mouse look** | the mark is the middle of the screen horizontally and the mouse only moves it up and down; nothing turns the view but `A`/`D` — deliberately, until it has been played and judged |
 | Text is not drawn at all | there are coloured boxes and a horizon, and no font. Flat colours, no textures, no lighting |
 
 ## Requirements

@@ -215,12 +215,12 @@ bool is_alive(const sim::Sim& sim, sim::UnitId id) {
     return false;
 }
 
-/// The player's eye: kEyeHeight metres above the ground under the tank, looking where the player is
-/// looking (the view, not the hull). The height is `game::ground_metres`, the same continuous
-/// surface the tank stands on, so the camera neither floats over a ridge nor sinks into a hollow,
-/// and never steps at a tile edge. The camera rides the hull: once the tank hovers, the eye is
-/// kEyeHeight above the HULL, so it lags, overshoots and settles with the tank. Before the hover
-/// has a height the hull is at rest.
+/// The player's eye: kEyeHeight metres above the ground under the tank, looking where the turret
+/// is pointed (the view, not the hull's heading). The height is `game::ground_metres`,
+/// the same continuous surface the tank stands on, so the camera neither floats over a ridge nor
+/// sinks into a hollow, and never steps at a tile edge. The camera rides the hull: once the tank
+/// hovers, the eye is kEyeHeight above the HULL, so it lags, overshoots and settles with the tank.
+/// Before the hover has a height the hull is at rest.
 game::Camera camera_for(const sim::Sim& sim, sim::UnitId id, float yaw, float pitch,
                         std::uint64_t seed, std::optional<float> hull_z) {
     constexpr float kEyeHeight = 3.0F;

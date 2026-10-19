@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "protekt/game/player.hpp"
+#include "protekt/game/scene.hpp"
 #include "protekt/sim/commander.hpp"
 #include "protekt/sim/scenario.hpp"
 #include "protekt/sim/sim.hpp"
@@ -135,11 +136,11 @@ TEST(PlayerCommander, TheHelmEasesUpToTheTankRate) {
     player.set_input(input);
 
     float previous = 0.0F;
-    float last = player.view_yaw();
+    float last = player.heading();
     for (int tick = 0; tick < kTicksToFullLock; ++tick) {
         tick_once(sim, player);
-        const float delta = player.view_yaw() - last;
-        last = player.view_yaw();
+        const float delta = player.heading() - last;
+        last = player.heading();
         EXPECT_GE(delta, previous) << "tick " << tick << ": the helm jumped instead of easing in";
         EXPECT_LE(delta, kTurnRatePerTick + 1e-6F)
             << "tick " << tick << ": faster than full lock, which easing must not allow";
@@ -172,9 +173,9 @@ TEST(PlayerCommander, TheHelmEasesBackToCentre) {
     player.set_input(input);
     float previous = kTurnRatePerTick + 1.0F;
     for (int tick = 0; tick < kTicksToFullLock; ++tick) {
-        const float last = player.view_yaw();
+        const float last = player.heading();
         tick_once(sim, player);
-        const float delta = player.view_yaw() - last;
+        const float delta = player.heading() - last;
         EXPECT_LE(delta, previous + 1e-6F) << "tick " << tick << ": the helm snapped off the stop";
         previous = delta;
     }
@@ -257,14 +258,14 @@ TEST(PlayerCommander, TheHelmIsClockedByTheSimTickAndNotByTheFrame) {
     framed.think(protekt::sim::observe(by_frame, protekt::sim::Side::Player), ignored);
 
     ASSERT_EQ(by_tick.tick(), by_frame.tick()) << "the two runs must have run the same ticks";
-    EXPECT_FLOAT_EQ(framed.view_yaw(), ticked.view_yaw())
+    EXPECT_FLOAT_EQ(framed.heading(), ticked.heading())
         << "the frame rate is reaching the helm: two ticks in one frame did not land where two "
            "single-tick frames did";
 
     // And a frame in which no tick ran turns nothing at all.
-    const float before = framed.view_yaw();
+    const float before = framed.heading();
     framed.think(protekt::sim::observe(by_frame, protekt::sim::Side::Player), ignored);
-    EXPECT_FLOAT_EQ(framed.view_yaw(), before) << "a frame with no tick in it turned the tank";
+    EXPECT_FLOAT_EQ(framed.heading(), before) << "a frame with no tick in it turned the tank";
 }
 
 TEST(PlayerCommander, IdleDoesNotDriveAnywhere) {
@@ -370,6 +371,170 @@ TEST(PlayerCommander, DoesNotHijackTheDrivingToChaseEnemies) {
         }
         sim.step();
     }
+}
+
+/// The BODY turns on A and D: the hull's heading, at the eased rate, in opposite directions, and
+/// with the throttle at zero -- a tank turns on the spot.
+TEST(PlayerCommanderBody, ATurnsOneWayAndDTheOtherWithNoThrottleAtAll) {
+    auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(kSeed));
+    PlayerCommander left(player_unit(sim));
+    PlayerCommander right(player_unit(sim));
+    InputState input;
+    input.throttle = 0.0F;
+    input.turn = 1.0F;
+    left.set_input(input);
+    input.turn = -1.0F;
+    right.set_input(input);
+    for (int tick = 0; tick < kTicksToFullLock; ++tick) {
+        tick_once(sim, left);
+        std::vector<protekt::sim::Order> ignored;
+        right.think(protekt::sim::observe(sim, protekt::sim::Side::Player), ignored);
+    }
+    EXPECT_GT(left.heading(), 0.1F) << "A did not turn the hull with the throttle at zero";
+    EXPECT_LT(right.heading(), -0.1F) << "D did not turn the hull the other way";
+    EXPECT_NEAR(left.heading(), -right.heading(), 1e-4F) << "A and D are not equal and opposite";
+}
+
+/// The turret is the mouse's: looking around moves the view and leaves the hull exactly where it
+/// was, while the tank is being driven.
+TEST(PlayerCommanderTurret, TheMouseMovesTheViewAndNotTheHull) {
+    auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(kSeed));
+    PlayerCommander player(player_unit(sim));
+    player.set_heading(0.0F);
+    InputState input;
+    input.throttle = 1.0F;
+    player.set_input(input);
+    for (int tick = 0; tick < 5; ++tick) {
+        tick_once(sim, player);
+    }
+    const float hull = player.heading();
+    const float view = player.view_yaw();
+    // A second of looking East: a quarter turn spread over 30 ticks.
+    for (int tick = 0; tick < 30; ++tick) {
+        input.look_yaw = -1.5707964F / 30.0F;
+        player.set_input(input);
+        tick_once(sim, player);
+    }
+    EXPECT_NE(player.view_yaw(), view) << "the mouse did not move the view";
+    EXPECT_EQ(player.heading(), hull) << "looking around turned the hull";
+}
+
+/// The turret is bolted to the body: turning the body carries the view round by the same angle and
+/// leaves the turret's angle relative to the hull alone.
+TEST(PlayerCommanderTurret, TurningTheBodyCarriesTheTurretWithIt) {
+    auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(kSeed));
+    PlayerCommander player(player_unit(sim));
+    InputState input;
+    input.look_yaw = 0.7F;
+    player.set_input(input);
+    tick_once(sim, player);
+    const float turret = player.turret_yaw();
+    ASSERT_NEAR(turret, 0.7F, 1e-5F);
+    const float hull = player.heading();
+    const float view = player.view_yaw();
+
+    input = InputState{};
+    input.turn = 1.0F;
+    player.set_input(input);
+    for (int tick = 0; tick < kTicksToFullLock; ++tick) {
+        tick_once(sim, player);
+    }
+    const float hull_moved = protekt::game::Camera::wrap_angle(player.heading() - hull);
+    ASSERT_GT(hull_moved, 0.1F);
+    EXPECT_NEAR(protekt::game::Camera::wrap_angle(player.view_yaw() - view), hull_moved, 1e-4F)
+        << "the view did not move with the body";
+    EXPECT_FLOAT_EQ(player.turret_yaw(), turret) << "turning the body moved the turret on it";
+}
+
+/// The tank drives where the BODY points: with the throttle held, the mouse does not change the
+/// ordered destination, and A/D do.
+TEST(PlayerCommanderTurret, TheMouseDoesNotChangeWhereTheTankIsOrdered) {
+    auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(kSeed));
+    PlayerCommander player(player_unit(sim));
+    InputState input;
+    input.throttle = 1.0F;
+    player.set_input(input);
+    for (int tick = 0; tick < 40; ++tick) {
+        tick_once(sim, player);
+    }
+    const auto destination = [&] {
+        const auto orders = orders_for(sim, player);
+        EXPECT_FALSE(orders.empty());
+        const auto& move = std::get<protekt::sim::orders::MoveTo>(orders.front().payload);
+        return std::pair{move.x.raw, move.y.raw};
+    };
+    const auto before = destination();
+    input.look_yaw = 1.2F;
+    input.look_pitch = 0.3F;
+    player.set_input(input);
+    EXPECT_EQ(destination(), before) << "the mouse changed where the tank is going";
+
+    input = InputState{};
+    input.throttle = 1.0F;
+    input.turn = 1.0F;
+    player.set_input(input);
+    tick_once(sim, player);
+    EXPECT_NE(destination(), before) << "A did not change where the tank is going";
+}
+
+/// The turret may be turned all the way round, and further: it wraps and never clamps.
+TEST(PlayerCommanderTurret, TheTurretWrapsAndNeverClamps) {
+    auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(kSeed));
+    PlayerCommander player(player_unit(sim));
+    const float quarter = 1.5707964F;
+    InputState input;
+    float last = player.view_yaw();
+    for (int step = 1; step <= 8; ++step) {
+        input.look_yaw = quarter;
+        player.set_input(input);
+        tick_once(sim, player);
+        EXPECT_NEAR(std::abs(protekt::game::Camera::wrap_angle(player.view_yaw() - last)), quarter,
+                    1e-4F)
+            << "step " << step << ": the view stopped turning";
+        last = player.view_yaw();
+        if (step == 2) {
+            EXPECT_NEAR(std::abs(player.turret_yaw()), 3.14159265F, 1e-4F)
+                << "the turret cannot look straight behind";
+        }
+    }
+    EXPECT_NEAR(player.turret_yaw(), 0.0F, 1e-4F) << "two full circles did not come back to centre";
+}
+
+TEST(PlayerCommanderTurret, TheTurretDoesNotDecayBackToCentre) {
+    auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(kSeed));
+    PlayerCommander player(player_unit(sim));
+    InputState input;
+    input.look_yaw = 0.9F;
+    player.set_input(input);
+    tick_once(sim, player);
+    for (int tick = 0; tick < 200; ++tick) {
+        tick_once(sim, player);
+    }
+    EXPECT_NEAR(player.turret_yaw(), 0.9F, 1e-5F);
+}
+
+/// A destroyed tank's body cannot turn; its turret still looks.
+TEST(PlayerCommanderDeath, TheBodyStaysPutAndTheTurretStillLooks) {
+    auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(kSeed));
+    PlayerCommander wreck(protekt::sim::UnitId{9999});
+    wreck.set_heading(0.4F);
+    InputState input;
+    input.turn = 1.0F;
+    input.look_yaw = 0.3F;
+    wreck.set_input(input);
+    const float view = wreck.view_yaw();
+    for (int tick = 0; tick < kTicksToFullLock; ++tick) {
+        std::vector<protekt::sim::Order> out;
+        wreck.think(protekt::sim::observe(sim, protekt::sim::Side::Player), out);
+        EXPECT_TRUE(out.empty());
+        sim.step();
+        input.look_yaw = 0.0F;
+        wreck.set_input(input);
+    }
+    EXPECT_FLOAT_EQ(wreck.heading(), protekt::game::Camera::wrap_angle(0.4F))
+        << "a wreck's body turned";
+    EXPECT_NEAR(protekt::game::Camera::wrap_angle(wreck.view_yaw() - view), 0.3F, 1e-5F)
+        << "the wreck's turret did not look";
 }
 
 } // namespace

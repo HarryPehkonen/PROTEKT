@@ -49,13 +49,16 @@ public:
 
     void set_input(const InputState& input) noexcept;
     [[nodiscard]] const InputState& input() const noexcept;
-    /// The HULL's heading: where the tank points. It follows the view only while the throttle is
-    /// non-zero.
+    /// The HULL's heading: where the tank points and where it drives. Only A/D turn it; the mouse
+    /// never does.
     [[nodiscard]] float heading() const noexcept;
-    /// Where the player is LOOKING, in radians. Free of the hull: A/D and the mouse turn this, and
-    /// it keeps answering after the tank is destroyed.
+    /// Where the player is LOOKING, in radians: the hull's heading plus the turret's angle, so
+    /// turning the body carries the view with it. It keeps answering after the tank is destroyed.
     [[nodiscard]] float view_yaw() const noexcept;
     [[nodiscard]] float view_pitch() const noexcept;
+    /// The turret's angle relative to the hull, in radians, wrapped: the mouse turns this, it is
+    /// not clamped, and it does not decay back to centre.
+    [[nodiscard]] float turret_yaw() const noexcept;
     /// The eased helm state, -1..+1: what the turn and throttle have reached, as against what the
     /// keys are asking for. Exposed so a test can see the ease rather than infer it from a
     /// waypoint.
@@ -90,7 +93,7 @@ private:
     sim::UnitId unit_;
     InputState input_{};
     float heading_{};
-    float view_yaw_{};
+    float turret_yaw_{}; ///< relative to the hull
     float view_pitch_{kLookPitchStart};
     float turn_rate_{};     ///< eased -1..+1, what the helm has reached
     float throttle_rate_{}; ///< eased -1..+1, what the throttle has reached

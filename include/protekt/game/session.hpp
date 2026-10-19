@@ -31,9 +31,11 @@ public:
     [[nodiscard]] bool take_dry_shot() noexcept;
 
     [[nodiscard]] sim::UnitId driven() const noexcept;
-    /// The hull's heading: where the tank points. Presentation state, never read by the sim.
+    /// The hull's heading: where the tank points and drives. Only A/D turn it. Presentation state,
+    /// never read by the sim.
     [[nodiscard]] float heading() const noexcept;
-    /// Where the player is looking, in radians. Free of the hull, and alive after death.
+    /// Where the turret is looking, in radians: the hull's heading plus the mouse's turret angle.
+    /// Alive after death, from the wreck's last heading.
     [[nodiscard]] float view_yaw() const noexcept;
     [[nodiscard]] float view_pitch() const noexcept;
     [[nodiscard]] const cmd::Selection& selection() const noexcept;

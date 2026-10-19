@@ -35,14 +35,15 @@ void Session::frame(const input::InputFrame& frame, const sim::Sim& sim,
 
     InputState input{};
     // The movement half of the control set, in one line: W/S is the throttle and A/D turns the
-    // VIEW. The hull follows the view only while the throttle is held (see PlayerCommander). The
+    // BODY; the mouse turns the turret on it (see PlayerCommander). The
     // clicks are in game/interaction.cpp and the table a player reads is README.md.
     input.throttle = destroyed_ ? 0.0F : (keys_.forward ? 1.0F : 0.0F) - (keys_.back ? 1.0F : 0.0F);
-    // Sign matters, and it is not the obvious one: A must turn the view to the LEFT ON SCREEN.
-    // `look_at` builds its right vector as cross(forward, up), which at yaw 0 (forward = +z, up =
-    // +Y) is -X -- so tile +x is drawn on the left of the screen, and increasing the yaw is a
-    // SCREEN-left turn. Pressing A therefore adds to the yaw. The real fix is to stop mirroring
-    // the world (see docs/PLAN.md, "The world is drawn mirrored"), which would flip this line back.
+    // Sign matters, and it is not the obvious one: A must turn the body, and the view with it, to
+    // the LEFT ON SCREEN. `look_at` builds its right vector as cross(forward, up), which at yaw 0
+    // (forward = +z, up = +Y) is -X -- so tile +x is drawn on the left of the screen, and
+    // increasing the yaw is a SCREEN-left turn. Pressing A therefore adds to the yaw. The real fix
+    // is to stop mirroring the world (see docs/PLAN.md, "The world is drawn mirrored"), which would
+    // flip this line back.
     input.turn = (keys_.left ? 1.0F : 0.0F) - (keys_.right ? 1.0F : 0.0F);
     // The mouse looks. Moving it right looks right, and moving it down looks down.
     // The yaw sign is the same non-obvious one as A/D above: the world is drawn mirrored, so
