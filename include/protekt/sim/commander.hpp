@@ -21,12 +21,18 @@ struct UnitView {
     std::int32_t x{};
     std::int32_t y{}; ///< tile-floor of the unit's fixed-point position
     std::uint16_t hp{};
+    std::int32_t raw_x{}; ///< the same position in Q16.16, for questions the tile cannot answer
+    std::int32_t raw_y{};
 };
 
 struct Observation {
     Tick tick{};
     std::vector<UnitView> own{};
     std::vector<UnitView> enemy{};
+    /// The ground, when the observer knows it: the seed that `sim::can_see` and
+    /// `sim::tile_passable` answer from. Empty for a hand-built observation, and then nothing is
+    /// hidden behind anything.
+    std::optional<std::uint64_t> terrain{};
 };
 
 /// The one interface every commander implements: perception in, orders out. A human's input layer,

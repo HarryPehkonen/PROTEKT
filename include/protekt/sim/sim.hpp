@@ -46,6 +46,10 @@ protected:
     OrderSink& operator=(OrderSink&&) = default;
 };
 
+/// True when a unit may stand on the tile: inside the map and not a crater. The question the mover
+/// asks, answered for a caller that is not the mover.
+[[nodiscard]] bool tile_passable(std::uint64_t seed, int tile_x, int tile_y) noexcept;
+
 /// The simulation. Deterministic by construction: no floating point, no unseeded randomness,
 /// no time, no iteration over unordered storage.
 ///
@@ -62,7 +66,10 @@ protected:
 ///   4. units fire in ascending unit-id order: a unit under an Attack order fires at its named
 ///      target while that target is alive and in range -- an explicit order outranks
 ///      auto-engagement -- and otherwise at the nearest hostile in range (distance is
-///      squared fixed-point; ties go to the lowest id). Firing spawns a projectile aimed at the
+///      squared fixed-point; ties go to the lowest id). A target the gun has no line to (see
+///      `has_line`) is not a target: a gun does not shoot a hill, costs no bolt and is not
+///      reported as having fired -- except the one the trigger named, which is the player's call.
+///      Firing spawns a projectile aimed at the
 ///      target's position NOW plus the gun's learned aim estimate (see `launch`); the damage
 ///      arrives when the projectile does. Damage is exact:
 ///      there is no spread, so the sim needs no RNG;
@@ -75,6 +82,8 @@ public:
     void step();
 
     [[nodiscard]] std::uint32_t tick() const noexcept;
+    /// The seed the ground comes from.
+    [[nodiscard]] std::uint64_t seed() const noexcept;
     [[nodiscard]] const std::vector<Unit>& units() const noexcept;
     [[nodiscard]] const Unit* find(UnitId id) const noexcept;
 

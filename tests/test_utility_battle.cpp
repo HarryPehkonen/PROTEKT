@@ -121,4 +121,22 @@ TEST(UtilityBattle, TheCommandersFightWithTheOrdersTheSimulationAccepts) {
     EXPECT_GT(result.enemy_lost, 0) << "one side lost nothing, which is not a fight";
 }
 
+TEST(UtilityBattle, ABattleWithAHillBetweenTheGunsStillEndsInAKill) {
+    // THE REGRESSION TEST for the occlusion standoff. On these two seeds a rise stands between the
+    // guns, and before a gun without a line moved instead of shooting, the two sides stood in range
+    // of each other and traded no fire that could land: 120 seeds were run before this and after,
+    // and 14 and 16 are the ones that had NO kill and now have one. They resolve because a unit
+    // that cannot see its target steps aside (sideways on both, with a charge on 14 when neither
+    // side gave a line) and fires when it can see.
+    //
+    // Not covered here, on purpose: seeds 42, 99, 1024 and 65535, which also end without a kill.
+    // They are not occlusion -- they fire 45-72 bolts and 90% of them land -- they end with every
+    // tank below the retreat threshold and withdrawing.
+    for (const unsigned seed : {14U, 16U}) {
+        const Fight result = fight(seed, kTicks);
+        EXPECT_GT(result.player_lost + result.enemy_lost, 0)
+            << "seed " << seed << ": the guns still cannot get a line to each other";
+    }
+}
+
 } // namespace protekt::ai

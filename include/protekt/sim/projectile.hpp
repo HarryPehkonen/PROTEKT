@@ -119,6 +119,18 @@ void retarget_aim(Unit& shooter, UnitId target) noexcept;
 [[nodiscard]] Projectile launch(const Unit& shooter, const Unit& target, std::uint16_t damage,
                                 std::uint64_t seed) noexcept;
 
+/// Can a gun at (`from_x`, `from_y`) see some part of a body of `kind` standing at (`at_x`,
+/// `at_y`)? The very test `launch` runs to choose its aim point: a line from the muzzle to the
+/// middle of the body, or failing that a little higher, or higher still, that stays clear of the
+/// ground. No line to any of them means a bolt fired there lands in the hill. Pure in its
+/// arguments; no tank, no range, only the ground.
+[[nodiscard]] bool can_see(std::uint64_t seed, Fixed from_x, Fixed from_y, Fixed at_x, Fixed at_y,
+                           UnitKind kind) noexcept;
+
+/// `can_see` for two real units, at the point `launch` would aim at: the target's position plus the
+/// shooter's aim estimate. A gun that would fire into a hill has no line.
+[[nodiscard]] bool has_line(const Unit& shooter, const Unit& target, std::uint64_t seed) noexcept;
+
 /// The bolt `shooter` fires along (`dir_x`, `dir_y`, `dir_z`) and nowhere else: the direction
 /// normalised, times kProjectileSpeed, PLUS the shooter's own velocity (map plane only) exactly as
 /// `launch` does. `dir_z` is up: it is the vertical component of the same world-space direction

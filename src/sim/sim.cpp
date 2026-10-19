@@ -414,12 +414,13 @@ void Sim::step() {
                 best = focused;
             }
         }
-        // An explicit Attack order outranks auto-engagement: while the named target is alive and
-        // in range the gun engages it, even when a closer hostile is in range too.
+        // An explicit Attack order outranks auto-engagement: while the named target is alive, in
+        // range and in sight the gun engages it, even when a closer hostile is in range too.
         if (unit.stance == Stance::Attack && unit.target.valid()) {
             Unit* named = find_mut(units_, unit.target);
             if (named != nullptr && named->alive
-                && dist2(unit.x, unit.y, named->x, named->y) <= range * range) {
+                && dist2(unit.x, unit.y, named->x, named->y) <= range * range
+                && has_line(unit, *named, seed)) {
                 best = named;
             }
         }
@@ -430,7 +431,10 @@ void Sim::step() {
                     continue;
                 }
                 const std::int64_t d2 = dist2(unit.x, unit.y, other.x, other.y);
-                if (d2 <= range * range && d2 < best_d2) { // strict: ties keep the lowest id
+                // A gun does not shoot a hill: without a line the enemy is not a target, and a
+                // farther one it can see is.
+                if (d2 <= range * range && d2 < best_d2 // strict: ties keep the lowest id
+                    && has_line(unit, other, seed)) {
                     best = &other;
                     best_d2 = d2;
                 }
@@ -456,6 +460,13 @@ void Sim::step() {
 }
 
 std::uint32_t Sim::tick() const noexcept { return tick_; }
+
+std::uint64_t Sim::seed() const noexcept { return scenario_.seed; }
+
+bool tile_passable(std::uint64_t seed, int tile_x, int tile_y) noexcept {
+    return tile_x >= 0 && tile_y >= 0 && tile_x < kMapTiles && tile_y < kMapTiles
+           && terrain_speed_factor(world::sample(seed, tile_x, tile_y).terrain).raw != 0;
+}
 
 const std::vector<Unit>& Sim::units() const noexcept { return units_; }
 

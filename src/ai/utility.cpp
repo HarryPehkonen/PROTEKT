@@ -1,5 +1,10 @@
 #include "protekt/ai/utility.hpp"
 
+#include <optional>
+
+#include "protekt/sim/projectile.hpp"
+#include "protekt/sim/sim.hpp"
+
 namespace protekt::ai {
 
 namespace {
@@ -11,6 +16,53 @@ namespace {
         ++root;
     }
     return root;
+}
+
+[[nodiscard]] bool terrain_hides(const sim::Observation& observation, sim::Fixed from_x,
+                                 sim::Fixed from_y, const sim::UnitView& enemy) noexcept {
+    return observation.terrain.has_value()
+           && !sim::can_see(*observation.terrain, from_x, from_y, sim::Fixed::from_raw(enemy.raw_x),
+                            sim::Fixed::from_raw(enemy.raw_y), enemy.kind);
+}
+
+/// Where to step to get a line to `enemy`: a tile square to the line between the two, as near as it
+/// can be found, trying one side and then the other at each distance. Empty when no tile within
+/// reach has both a floor to stand on and a line to the enemy -- then there is nothing to step to,
+/// and no route is searched for.
+[[nodiscard]] std::optional<Decision> sidestep(const sim::UnitView& self,
+                                               const sim::UnitView& enemy,
+                                               const sim::Observation& observation,
+                                               const UtilityTuning& tuning) noexcept {
+    const std::int64_t dx = static_cast<std::int64_t>(enemy.x) - self.x;
+    const std::int64_t dy = static_cast<std::int64_t>(enemy.y) - self.y;
+    const std::int64_t length = isqrt(dx * dx + dy * dy);
+    if (length == 0 || tuning.sidestep_tiles <= 0) {
+        return std::nullopt;
+    }
+    const std::int64_t range = tuning.engage_range_tiles;
+    for (int reach = 1; reach <= tuning.sidestep_reach; ++reach) {
+        const std::int64_t step = static_cast<std::int64_t>(reach) * tuning.sidestep_tiles;
+        for (const std::int64_t side : {1, -1}) { // left of the line first, then right
+            const int x = static_cast<int>(self.x - side * dy * step / length);
+            const int y = static_cast<int>(self.y + side * dx * step / length);
+            const std::int64_t ex = static_cast<std::int64_t>(enemy.x) - x;
+            const std::int64_t ey = static_cast<std::int64_t>(enemy.y) - y;
+            if (ex * ex + ey * ey > range * range
+                || !sim::tile_passable(observation.terrain.value_or(0), x, y)
+                || terrain_hides(observation, sim::Fixed::from_int(x), sim::Fixed::from_int(y),
+                                 enemy)) {
+                continue;
+            }
+            Decision decision{};
+            decision.unit = self.id;
+            decision.intent = Intent::Reposition;
+            decision.target = enemy.id;
+            decision.x = x;
+            decision.y = y;
+            return decision;
+        }
+    }
+    return std::nullopt;
 }
 
 [[nodiscard]] sim::Order order_for(const Decision& decision, const sim::UnitView& self) {
@@ -119,6 +171,21 @@ Decision decide(const sim::UnitView& self, const sim::Observation& observation,
         return decision;
     }
     if (const sim::UnitView* target = choose_target(self, observation, tuning)) {
+        // A target it cannot see is a hill it would be shooting. It keeps the target and moves:
+        // sideways first, because charging a target behind a rise is how a unit ends up pressed
+        // against the rise, and straight at it only when no step to either side gives a line.
+        if (terrain_hides(observation, sim::Fixed::from_raw(self.raw_x),
+                          sim::Fixed::from_raw(self.raw_y), *target)) {
+            if (const std::optional<Decision> aside
+                = sidestep(self, *target, observation, tuning)) {
+                return *aside;
+            }
+            decision.intent = Intent::Advance;
+            decision.target = target->id;
+            decision.x = target->x;
+            decision.y = target->y;
+            return decision;
+        }
         decision.intent = Intent::Engage;
         decision.target = target->id;
         decision.score = score_engage(self, *target);

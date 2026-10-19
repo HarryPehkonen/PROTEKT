@@ -30,9 +30,11 @@ namespace protekt::ai {
 enum class Intent : std::uint8_t {
     Hold = 0,       ///< nothing to do: keep the post, keep firing
     Engage = 1,     ///< attack the target it has chosen
-    Reposition = 2, ///< nothing to shoot at: go back to the base area
+    Reposition = 2, ///< nothing to shoot at: go back to the base area. Also a step aside to get a
+                    ///< line to a target the terrain hides (`target` is kept).
     Retreat = 3,    ///< hurt: withdraw toward the base, whatever is in front of it
-    Advance = 4,    ///< nothing in range and a war to go to: close the distance
+    Advance = 4,    ///< nothing in range and a war to go to: close the distance. Also a target in
+                    ///< range with no line to it and no step aside that gives one.
 };
 inline constexpr int kIntentCount = 5;
 
@@ -47,6 +49,8 @@ struct UtilityTuning {
     int advance_percent{50}; ///< how far along home->enemy-base a tank with nothing to shoot at
                              ///< will push. 50 stages both sides on the same midpoint, which is
                              ///< what makes two of these commanders actually meet.
+    int sidestep_tiles{3};   ///< how far to step aside, per try, when the target is behind a rise
+    int sidestep_reach{4};   ///< how many such steps, each farther than the last, to try
 };
 
 /// One unit's decision, kept separate from the order it becomes: the interesting claims are about
@@ -56,7 +60,7 @@ struct Decision {
     Intent intent{Intent::Hold};
     int x{}; ///< Reposition / Retreat: the tile it is heading for
     int y{};
-    sim::UnitId target{}; ///< Engage: what it intends to kill
+    sim::UnitId target{}; ///< Engage, and a move made to get a line: what it intends to kill
     std::int32_t score{}; ///< the score that won, for a debug overlay and for the tests
 };
 

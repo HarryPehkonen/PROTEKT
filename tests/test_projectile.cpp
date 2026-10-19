@@ -344,19 +344,22 @@ TEST(Projectile, PassesThroughItsOwnSide) {
 
 TEST(Projectile, TheSameBattleGivesTheSameBoltsAndTheSameHash) {
     const auto run = [] {
+        // Twenty tiles east of where this scenario began: the original ground has a rise between
+        // the two lines of tanks, and a gun does not shoot a hill, so nothing there ever fired.
+        constexpr int kEast = 20;
         std::vector<Place> places;
         for (int i = 0; i < 4; ++i) {
-            places.push_back({Side::Player, UnitKind::Tank, 90 + i, 100 + i});
-            places.push_back({Side::Enemy, UnitKind::Tank, 104 + i, 100 + i});
+            places.push_back({Side::Player, UnitKind::Tank, kEast + 90 + i, 100 + i});
+            places.push_back({Side::Enemy, UnitKind::Tank, kEast + 104 + i, 100 + i});
         }
-        places.push_back({Side::Enemy, UnitKind::Turret, 110, 102});
+        places.push_back({Side::Enemy, UnitKind::Turret, kEast + 110, 102});
         Sim sim = make(places);
         std::vector<std::vector<Projectile>> seen;
         bool bolts_flew = false;
         for (Tick tick = 0; tick < 600; ++tick) {
             if (tick == 10) {
-                sim.enqueue(
-                    Order{UnitId{1}, orders::MoveTo{Fixed::from_int(96), Fixed::from_int(90)}});
+                sim.enqueue(Order{
+                    UnitId{1}, orders::MoveTo{Fixed::from_int(kEast + 96), Fixed::from_int(90)}});
                 sim.enqueue(Order{UnitId{3}, orders::Attack{UnitId{2}}});
             }
             sim.step();

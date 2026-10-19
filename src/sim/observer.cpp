@@ -372,12 +372,13 @@ const char* to_string(OrderKind kind) noexcept {
 Observation observe(const Sim& sim, Side side) {
     Observation observation{};
     observation.tick = sim.tick();
+    observation.terrain = sim.seed();
     for (const Unit& unit : sim.units()) {
         if (!unit.alive) {
             continue;
         }
-        const UnitView view{unit.id, unit.kind, unit.side, unit.x.floor_int(), unit.y.floor_int(),
-                            unit.hp};
+        const UnitView view{unit.id, unit.kind,  unit.side, unit.x.floor_int(), unit.y.floor_int(),
+                            unit.hp, unit.x.raw, unit.y.raw};
         (unit.side == side ? observation.own : observation.enemy).push_back(view);
     }
     return observation;

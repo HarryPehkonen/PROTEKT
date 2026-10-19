@@ -9,6 +9,9 @@
 #include <type_traits>
 #include <variant>
 
+#include "protekt/sim/projectile.hpp"
+#include "protekt/sim/sim.hpp"
+
 namespace protekt::ai {
 namespace {
 
@@ -537,6 +540,168 @@ TEST(Utility, AWithdrawalIsAnOrderTheSimulationCanActuallyCarryOut) {
     EXPECT_EQ(orders.front().unit, UnitId{kTank});
     EXPECT_EQ(std::get<sim::orders::MoveTo>(orders.front().payload).x, sim::Fixed::from_int(30));
     EXPECT_EQ(std::get<sim::orders::MoveTo>(orders.front().payload).y, sim::Fixed::from_int(44));
+}
+
+// ---------------------------------------------------------------------------------------------
+// No line: a gun that cannot see its target moves, it does not shoot the hill
+// ---------------------------------------------------------------------------------------------
+
+namespace {
+
+/// The ground these tests stand on. Seed 42, row 30: a rise between (42,30) and (52,30) blocks
+/// every line from one to the other. The probes in the comments were measured with `sim::can_see`
+/// and are asserted again by each test, so a change to the ground fails loudly rather than
+/// quietly turning a test into a control.
+constexpr std::uint64_t kHillSeed = 42;
+
+/// A unit as `sim::observe` would report it on that ground: tile and Q16.16 position agree.
+[[nodiscard]] sim::UnitView at(std::uint32_t id, Side side, int x, int y) {
+    sim::UnitView view = unit(id, UnitKind::Tank, side, x, y);
+    view.raw_x = sim::Fixed::from_int(x).raw;
+    view.raw_y = sim::Fixed::from_int(y).raw;
+    return view;
+}
+
+[[nodiscard]] sim::Observation on_the_hill(const sim::UnitView& self, const sim::UnitView& enemy) {
+    sim::Observation observation = field({self}, {enemy});
+    observation.terrain = kHillSeed;
+    return observation;
+}
+
+[[nodiscard]] bool sees(int from_x, int from_y, int at_x, int at_y) {
+    return sim::can_see(kHillSeed, sim::Fixed::from_int(from_x), sim::Fixed::from_int(from_y),
+                        sim::Fixed::from_int(at_x), sim::Fixed::from_int(at_y), UnitKind::Tank);
+}
+
+constexpr std::uint32_t kEnemyTank = 50;
+
+} // namespace
+
+TEST(UtilityLine, AUnitWithNoLineChoosesRepositionNotEngage) {
+    // (42,30) -> (52,30): ten tiles, inside engage range, and the hill is in the way.
+    ASSERT_FALSE(sees(42, 30, 52, 30));
+    const Decision decision
+        = decide(at(kTank, Side::Player, 42, 30),
+                 on_the_hill(at(kTank, Side::Player, 42, 30), at(kEnemyTank, Side::Enemy, 52, 30)),
+                 UtilityTuning{});
+    EXPECT_NE(decision.intent, Intent::Engage) << "it would be shooting the hill";
+    EXPECT_TRUE(decision.intent == Intent::Reposition || decision.intent == Intent::Advance)
+        << "a unit that cannot see its target moves";
+}
+
+TEST(UtilityLine, AUnitWithALineStillEngagesAndFires) {
+    // The control: without it, a bug that always repositions would pass the test above.
+    ASSERT_TRUE(sees(100, 100, 110, 100));
+    const sim::UnitView self = at(kTank, Side::Player, 100, 100);
+    const Decision decision
+        = decide(self, on_the_hill(self, at(kEnemyTank, Side::Enemy, 110, 100)), UtilityTuning{});
+    EXPECT_EQ(decision.intent, Intent::Engage);
+    EXPECT_EQ(decision.target, UnitId{kEnemyTank});
+
+    // And the gun fires: the same two tanks in a real sim.
+    sim::Sim world = sim::Sim::create(sim::Scenario{
+        kHillSeed,
+        {{UnitKind::Tank, Side::Player, 100, 100}, {UnitKind::Tank, Side::Enemy, 110, 100}}});
+    std::size_t shots = 0;
+    for (int tick = 0; tick < 120; ++tick) {
+        world.step();
+        shots += world.shots().size();
+    }
+    EXPECT_GT(shots, 0U);
+}
+
+TEST(UtilityLine, TheSidewaysStepIsTriedBeforeCharging) {
+    // From (42,30) the row to (52,30) is blocked, but three tiles to one side there is a line:
+    // (42,27) sees it, (42,33) does not. It steps there, along the side the terrain allows, rather
+    // than walking at the hill.
+    ASSERT_FALSE(sees(42, 30, 52, 30));
+    ASSERT_TRUE(sees(42, 27, 52, 30));
+    ASSERT_FALSE(sees(42, 33, 52, 30));
+    const sim::UnitView self = at(kTank, Side::Player, 42, 30);
+    const Decision decision
+        = decide(self, on_the_hill(self, at(kEnemyTank, Side::Enemy, 52, 30)), UtilityTuning{});
+    EXPECT_EQ(decision.intent, Intent::Reposition);
+    EXPECT_EQ(decision.x, 42) << "sideways: the step is square to the line to the target";
+    EXPECT_EQ(decision.y, 27);
+}
+
+TEST(UtilityLine, WhenNeitherSideHelpsItAdvancesOnTheTarget) {
+    // (45,31) -> (55,31): no line from either side at 3, 6, 9 or 12 tiles. The only thing left is
+    // the existing Advance, towards the target itself. No route is planned.
+    ASSERT_FALSE(sees(45, 31, 55, 31));
+    for (int step = 3; step <= 12; step += 3) {
+        ASSERT_FALSE(sees(45, 31 - step, 55, 31));
+        ASSERT_FALSE(sees(45, 31 + step, 55, 31));
+    }
+    const sim::UnitView self = at(kTank, Side::Player, 45, 31);
+    const Decision decision
+        = decide(self, on_the_hill(self, at(kEnemyTank, Side::Enemy, 55, 31)), UtilityTuning{});
+    EXPECT_EQ(decision.intent, Intent::Advance);
+    EXPECT_EQ(decision.x, 55);
+    EXPECT_EQ(decision.y, 31);
+}
+
+TEST(UtilityLine, RepositioningKeepsItsTarget) {
+    // Both ways of moving keep the target, so the unit fires the moment a line opens.
+    const sim::UnitView self = at(kTank, Side::Player, 42, 30);
+    const Decision sideways
+        = decide(self, on_the_hill(self, at(kEnemyTank, Side::Enemy, 52, 30)), UtilityTuning{});
+    ASSERT_EQ(sideways.intent, Intent::Reposition);
+    EXPECT_EQ(sideways.target, UnitId{kEnemyTank});
+    const sim::UnitView stuck = at(kTank, Side::Player, 45, 31);
+    const Decision charging
+        = decide(stuck, on_the_hill(stuck, at(kEnemyTank, Side::Enemy, 55, 31)), UtilityTuning{});
+    ASSERT_EQ(charging.intent, Intent::Advance);
+    EXPECT_EQ(charging.target, UnitId{kEnemyTank});
+
+    // And once the unit is at the point it stepped to, it engages the same enemy.
+    const sim::UnitView moved = at(kTank, Side::Player, sideways.x, sideways.y);
+    const Decision then
+        = decide(moved, on_the_hill(moved, at(kEnemyTank, Side::Enemy, 52, 30)), UtilityTuning{});
+    EXPECT_EQ(then.intent, Intent::Engage);
+    EXPECT_EQ(then.target, UnitId{kEnemyTank});
+}
+
+TEST(UtilityLine, NoLineMeansNoShot) {
+    // A real sim, two tanks with a hill between them. Neither has a line, so neither fires: no
+    // Shot, no bolt, in far more ticks than a fresh gun needs to reload.
+    ASSERT_FALSE(sees(42, 30, 52, 30));
+    ASSERT_FALSE(sees(52, 30, 42, 30));
+    sim::Sim world = sim::Sim::create(sim::Scenario{
+        kHillSeed,
+        {{UnitKind::Tank, Side::Player, 42, 30}, {UnitKind::Tank, Side::Enemy, 52, 30}}});
+    for (int tick = 0; tick < 300; ++tick) {
+        world.step();
+        EXPECT_TRUE(world.shots().empty()) << "fired into a hill at tick " << tick;
+        EXPECT_TRUE(world.projectiles().empty()) << "a bolt is in the air at tick " << tick;
+    }
+}
+
+TEST(UtilityLine, TheSameWorldGivesTheSameDecisions) {
+    const auto history = [] {
+        UtilityTuning tuning{};
+        tuning.cycle_ticks = 1;
+        UtilityCommander commander{tuning};
+        sim::Sim world = sim::Sim::create(sim::Scenario{
+            kHillSeed,
+            {{UnitKind::Tank, Side::Player, 42, 30}, {UnitKind::Tank, Side::Enemy, 52, 30}}});
+        std::vector<std::int64_t> trail;
+        for (int tick = 0; tick < 200; ++tick) {
+            std::vector<sim::Order> orders;
+            commander.think(sim::observe(world, Side::Player), orders);
+            for (const sim::Order& order : orders) {
+                world.enqueue(order);
+            }
+            for (const Decision& d : commander.decisions()) {
+                trail.push_back(static_cast<std::int64_t>(d.intent) * 1000000
+                                + std::int64_t{d.x} * 1000 + d.y);
+            }
+            world.step();
+        }
+        trail.push_back(static_cast<std::int64_t>(world.state_hash()));
+        return trail;
+    };
+    EXPECT_EQ(history(), history());
 }
 
 } // namespace protekt::ai

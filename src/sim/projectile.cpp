@@ -55,6 +55,34 @@ bool line_clears_ground(std::uint64_t seed, std::int64_t ax, std::int64_t ay, st
     return true;
 }
 
+// Where within a body standing at (point_x, point_y) a gun at (ax, ay) with its muzzle at `az`
+// aims: the lowest point it can see -- the middle, or higher if a rise in the ground would stop a
+// bolt on its way to the middle. `clear` says whether any of them was seen; if none was, `z` is the
+// highest.
+struct AimHeight {
+    std::int64_t z;
+    bool clear;
+};
+
+AimHeight aim_height(std::uint64_t seed, std::int64_t ax, std::int64_t ay, std::int64_t az,
+                     std::int64_t point_x, std::int64_t point_y, UnitKind kind) noexcept {
+    const std::int64_t stands
+        = ground_height(seed, Fixed::from_raw(static_cast<std::int32_t>(point_x)),
+                        Fixed::from_raw(static_cast<std::int32_t>(point_y)))
+              .raw;
+    const std::int64_t low = body_bottom(kind).raw;
+    const std::int64_t height = static_cast<std::int64_t>(body_top(kind).raw) - low;
+    AimHeight aim{0, false};
+    for (const std::int64_t sixteenths : {8, 12, 15}) {
+        aim.z = stands + low + height * sixteenths / 16;
+        if (line_clears_ground(seed, ax, ay, az, point_x, point_y, aim.z)) {
+            aim.clear = true;
+            break; // otherwise the last, highest one stands
+        }
+    }
+    return aim;
+}
+
 void take_damage(Unit& unit, std::uint16_t damage) noexcept {
     unit.hp = unit.hp > damage ? static_cast<std::uint16_t>(unit.hp - damage) : std::uint16_t{0};
     if (unit.hp == 0) {
@@ -218,20 +246,9 @@ Projectile launch(const Unit& shooter, const Unit& target, std::uint16_t damage,
     if (dist > 0) {
         const std::int64_t point_x = static_cast<std::int64_t>(shooter.x.raw) + dx;
         const std::int64_t point_y = static_cast<std::int64_t>(shooter.y.raw) + dy;
-        const std::int64_t stands
-            = ground_height(seed, Fixed::from_raw(static_cast<std::int32_t>(point_x)),
-                            Fixed::from_raw(static_cast<std::int32_t>(point_y)))
-                  .raw;
-        const std::int64_t low = body_bottom(target.kind).raw;
-        const std::int64_t height = static_cast<std::int64_t>(body_top(target.kind).raw) - low;
-        std::int64_t aim_z = 0;
-        for (const std::int64_t sixteenths : {8, 12, 15}) {
-            aim_z = stands + low + height * sixteenths / 16;
-            if (line_clears_ground(seed, shooter.x.raw, shooter.y.raw, bolt.z.raw, point_x, point_y,
-                                   aim_z)) {
-                break; // otherwise the last, highest one stands
-            }
-        }
+        const std::int64_t aim_z = aim_height(seed, shooter.x.raw, shooter.y.raw, bolt.z.raw,
+                                              point_x, point_y, target.kind)
+                                       .z;
         // The rise is spread over the bolt's real closing speed on the aim point -- the gun's own
         // drive adds to it or takes from it -- not over the speed it was aimed at, or a moving
         // gun's bolt would arrive early and low (or late and high).
@@ -250,6 +267,20 @@ Projectile launch(const Unit& shooter, const Unit& target, std::uint16_t damage,
     bolt.damage = damage;
     bolt.learns = true;
     return bolt;
+}
+
+bool can_see(std::uint64_t seed, Fixed from_x, Fixed from_y, Fixed at_x, Fixed at_y,
+             UnitKind kind) noexcept {
+    const std::int64_t muzzle = ground_height(seed, from_x, from_y).raw + kMuzzleHeight.raw;
+    return aim_height(seed, from_x.raw, from_y.raw, muzzle, at_x.raw, at_y.raw, kind).clear;
+}
+
+bool has_line(const Unit& shooter, const Unit& target, std::uint64_t seed) noexcept {
+    // The aim point `launch` uses: where the target is plus what this gun has learned of the lead.
+    const std::int64_t point_x = static_cast<std::int64_t>(target.x.raw) + shooter.aim_x.raw;
+    const std::int64_t point_y = static_cast<std::int64_t>(target.y.raw) + shooter.aim_y.raw;
+    return can_see(seed, shooter.x, shooter.y, Fixed::from_raw(static_cast<std::int32_t>(point_x)),
+                   Fixed::from_raw(static_cast<std::int32_t>(point_y)), target.kind);
 }
 
 Projectile launch_towards(const Unit& shooter, Fixed dir_x, Fixed dir_y, Fixed dir_z,
