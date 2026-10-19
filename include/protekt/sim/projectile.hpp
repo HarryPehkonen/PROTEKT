@@ -51,9 +51,13 @@ struct Impact {
 /// floor(sqrt(n)) for n >= 0, by the bitwise method: no floating point, no loop-count surprises.
 [[nodiscard]] std::int64_t isqrt(std::int64_t n) noexcept;
 
-/// The bolt `shooter` fires at `target` now: the aim direction at the target's present position,
-/// times kProjectileSpeed, PLUS the shooter's own velocity -- so a moving gun sends its shot
-/// sideways as a real one goes. Starts at the shooter's position, age zero.
+/// The bolt `shooter` fires at `target` now: aimed at where the target WILL be, times
+/// kProjectileSpeed, PLUS the shooter's own velocity -- so a moving gun sends its shot sideways as
+/// a real one goes. The prediction is made once: flight time is the present distance over the
+/// bolt's speed (at least one tick, at most one second), and the aim point is the target's position
+/// plus its velocity times that. Only the target's motion is led, never the shooter's. The bolt is
+/// then free-flying: it does not track, so a target that changes course is missed. Starts at the
+/// shooter's position, age zero; `aimed_at` names who it may hurt, not where it points.
 [[nodiscard]] Projectile launch(const Unit& shooter, const Unit& target,
                                 std::uint16_t damage) noexcept;
 

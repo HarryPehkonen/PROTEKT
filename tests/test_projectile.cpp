@@ -53,12 +53,6 @@ constexpr UnitId kSecond{2};
     return events_between(before, sim, tick);
 }
 
-[[nodiscard]] int count_kind(const std::vector<BattleEvent>& events, EventKind kind) {
-    return static_cast<int>(
-        std::count_if(events.begin(), events.end(),
-                      [kind](const BattleEvent& event) { return event.kind == kind; }));
-}
-
 /// Steps until the first bolt is in the air; returns how many steps that took. 0 if none came.
 [[nodiscard]] int step_until_fired(Sim& sim, int limit = 200) {
     for (int step = 1; step <= limit; ++step) {
@@ -198,12 +192,13 @@ TEST(Projectile, KeepsFlyingWhenItsTargetDiesBeforeItArrives) {
 }
 
 TEST(Projectile, ABoltFiredAtNothingFizzlesAtRangeWithNoHitTaken) {
-    // The enemy tank drives off north at right angles to the line of fire: the bolt was aimed at
-    // where it WAS, and the bolt does not follow, so it flies on into empty ground.
+    // The enemy tank stands still when the gun fires, then drives off north at right angles to the
+    // line of fire: the bolt was aimed at where it WAS, and the bolt does not follow, so it flies
+    // on into empty ground. (Driven off BEFORE the shot, the lead would have caught it.)
     Sim sim
         = make({{Side::Player, UnitKind::Tank, 100, 100}, {Side::Enemy, UnitKind::Tank, 108, 100}});
-    sim.enqueue(Order{kSecond, orders::MoveTo{Fixed::from_int(108), Fixed::from_int(20)}});
     ASSERT_GT(step_until_fired(sim), 0);
+    sim.enqueue(Order{kSecond, orders::MoveTo{Fixed::from_int(108), Fixed::from_int(20)}});
     const std::uint16_t full = sim.find(kSecond)->hp;
     const std::int64_t length = isqrt(speed_squared(sim.projectiles().front()));
     ASSERT_GT(length, 0);
@@ -214,8 +209,14 @@ TEST(Projectile, ABoltFiredAtNothingFizzlesAtRangeWithNoHitTaken) {
     bool gone = false;
     for (int step = 0; step < 200 && !gone; ++step) {
         const std::vector<BattleEvent> events = step_events(sim);
-        EXPECT_EQ(count_kind(events, EventKind::HitTaken), 0);
-        EXPECT_TRUE(sim.impacts().empty());
+        // The enemy tank fired back before it was ordered away; only the first gun's bolt is in
+        // question here.
+        for (const BattleEvent& event : events) {
+            EXPECT_FALSE(event.kind == EventKind::HitTaken && event.actor == kFirst);
+        }
+        for (const Impact& impact : sim.impacts()) {
+            EXPECT_NE(impact.shooter, kFirst);
+        }
         gone = sim.projectiles().empty() || sim.projectiles().front().age <= last_age;
         if (!gone) {
             last_age = sim.projectiles().front().age;
@@ -321,6 +322,114 @@ TEST(Projectile, TheBoltsAreInTheStateHash) {
     other.step();
     EXPECT_NE(with_bolt, other.state_hash());
     EXPECT_NE(in_air.state_hash(), copy.state_hash());
+}
+
+namespace {
+
+/// A bare unit for aiming tests: no sim, so the test moves it itself, one tick at a time.
+[[nodiscard]] Unit bare(UnitId id, Side side, int tile_x, int tile_y, std::int32_t vx_raw,
+                        std::int32_t vy_raw) {
+    Unit unit{};
+    unit.id = id;
+    unit.kind = UnitKind::Tank;
+    unit.side = side;
+    unit.x = Fixed::from_int(tile_x);
+    unit.y = Fixed::from_int(tile_y);
+    unit.vx = Fixed::from_raw(vx_raw);
+    unit.vy = Fixed::from_raw(vy_raw);
+    unit.hp = kTankHp;
+    return unit;
+}
+
+constexpr std::int32_t kTenthTile = Fixed::kOne / 10; ///< a slow tank: 0.1 tiles per tick
+constexpr UnitId kGun{1};
+constexpr UnitId kMark{2};
+
+/// Flies one bolt for up to 60 ticks while `mark` drives on at its velocity. `reverse_at` > 0
+/// turns it round that many ticks into the flight. Returns the mark's hit points afterwards.
+[[nodiscard]] std::uint16_t fly(Projectile bolt, Unit mark, int reverse_at = 0) {
+    std::vector<Unit> units{bare(kGun, Side::Player, 0, 0, 0, 0), mark};
+    std::vector<Projectile> bolts{bolt};
+    std::vector<Impact> impacts;
+    for (int tick = 1; tick <= 60 && !bolts.empty(); ++tick) {
+        if (tick == reverse_at) {
+            units[1].vx = Fixed::from_raw(-units[1].vx.raw);
+            units[1].vy = Fixed::from_raw(-units[1].vy.raw);
+        }
+        units[1].x = Fixed::from_raw(units[1].x.raw + units[1].vx.raw);
+        units[1].y = Fixed::from_raw(units[1].y.raw + units[1].vy.raw);
+        advance_projectiles(bolts, units, impacts);
+    }
+    return units[1].hp;
+}
+
+} // namespace
+
+TEST(Projectile, LeadHitsWhatAStraightShotMisses) {
+    // Twelve tiles off, crossing the line of fire at 0.1 tiles per tick: it drifts over two tiles
+    // while the bolt is in the air, against a hit radius of half a tile.
+    const Unit gun = bare(kGun, Side::Player, 100, 100, 0, 0);
+    const Unit mark = bare(kMark, Side::Enemy, 112, 100, 0, kTenthTile);
+
+    Unit still_copy = mark; // what a gun that ignored the drift would have aimed at
+    still_copy.vx = Fixed::zero();
+    still_copy.vy = Fixed::zero();
+    EXPECT_EQ(fly(launch(gun, still_copy, kTankDamage), mark), kTankHp)
+        << "the control is wrong: an unled shot should miss this target";
+
+    EXPECT_LT(fly(launch(gun, mark, kTankDamage), mark), kTankHp)
+        << "the led shot did not damage a crossing target";
+    EXPECT_EQ(fly(launch(gun, mark, kTankDamage), mark), kTankHp - kTankDamage);
+}
+
+TEST(Projectile, AStationaryTargetIsUnaffectedByLead) {
+    const Unit gun = bare(kGun, Side::Player, 100, 100, 0, 0);
+    const Unit mark = bare(kMark, Side::Enemy, 112, 105, 0, 0);
+    const Projectile bolt = launch(gun, mark, kTankDamage);
+
+    // The aim is the plain direction to the target at kProjectileSpeed: the lead term is zero.
+    const std::int64_t dx = static_cast<std::int64_t>(mark.x.raw) - gun.x.raw;
+    const std::int64_t dy = static_cast<std::int64_t>(mark.y.raw) - gun.y.raw;
+    const std::int64_t dist = isqrt(dx * dx + dy * dy);
+    EXPECT_EQ(bolt.vx.raw, dx * kProjectileSpeedRaw / dist);
+    EXPECT_EQ(bolt.vy.raw, dy * kProjectileSpeedRaw / dist);
+    EXPECT_EQ(bolt.aimed_at, kMark);
+    EXPECT_EQ(fly(bolt, mark), kTankHp - kTankDamage);
+}
+
+TEST(Projectile, OwnMotionStillThrowsTheShot) {
+    // A gun driving sideways (north, at 0.2 tiles per tick) at a target dead ahead to the east.
+    const Unit gun = bare(kGun, Side::Player, 100, 100, 0, -Fixed::kOne / 5);
+    const Unit mark = bare(kMark, Side::Enemy, 112, 100, 0, 0);
+    const Projectile bolt = launch(gun, mark, kTankDamage);
+    EXPECT_EQ(bolt.vy.raw, gun.vy.raw) << "the bolt lost the gun's own velocity";
+    EXPECT_GT(bolt.vx.raw, 0);
+    EXPECT_EQ(fly(bolt, mark), kTankHp) << "the shot corrected itself for the gun's motion";
+}
+
+TEST(Projectile, ATargetThatReversesIsMissed) {
+    const Unit gun = bare(kGun, Side::Player, 100, 100, 0, 0);
+    const Unit mark = bare(kMark, Side::Enemy, 112, 100, 0, kTenthTile);
+    const Projectile bolt = launch(gun, mark, kTankDamage);
+    ASSERT_EQ(fly(bolt, mark), kTankHp - kTankDamage) << "the control shot should land";
+    EXPECT_EQ(fly(bolt, mark, 5), kTankHp) << "the bolt followed a target that turned round";
+}
+
+TEST(Projectile, LeadIsCappedAndAPointBlankTargetIsSane) {
+    // Forty tiles off and driving at half a tile per tick: left uncapped the lead would be 37
+    // tiles; capped at one second of flight it is 15.
+    const Unit gun = bare(kGun, Side::Player, 100, 100, 0, 0);
+    const Unit far = bare(kMark, Side::Enemy, 140, 100, 0, Fixed::kOne / 2);
+    const Projectile bolt = launch(gun, far, kTankDamage);
+    const double sideways = static_cast<double>(bolt.vy.raw) * 40.0;
+    const double along = static_cast<double>(bolt.vx.raw) * 15.0;
+    EXPECT_NEAR(sideways, along, along * 0.02) << "the lead is not capped at one second";
+
+    // On top of the gun and moving: the flight time floors at one tick, so there is a direction.
+    const Unit here = bare(kMark, Side::Enemy, 100, 100, kTenthTile, 0);
+    const Projectile close = launch(gun, here, kTankDamage);
+    EXPECT_NEAR(static_cast<double>(isqrt(speed_squared(close))),
+                static_cast<double>(kProjectileSpeedRaw), 4.0);
 }
 
 namespace {

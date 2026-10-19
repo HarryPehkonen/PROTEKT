@@ -7,6 +7,11 @@ namespace protekt::sim {
 
 namespace {
 
+// The longest lead, in ticks. A bolt flies at most kProjectileRange (16 tiles) before it fizzles,
+// which at kProjectileSpeed is one second, so predicting further ahead than that aims at a place
+// the bolt could never reach.
+constexpr std::int64_t kMaxLeadTicks = kTicksPerSecond;
+
 // The last representable position: just inside the map's far edge.
 constexpr std::int64_t kMaxPosRaw = static_cast<std::int64_t>(kMapTiles) * Fixed::kOne - 1;
 
@@ -71,11 +76,19 @@ std::int64_t isqrt(std::int64_t n) noexcept {
 }
 
 Projectile launch(const Unit& shooter, const Unit& target, std::uint16_t damage) noexcept {
-    const std::int64_t dx = static_cast<std::int64_t>(target.x.raw) - shooter.x.raw;
-    const std::int64_t dy = static_cast<std::int64_t>(target.y.raw) - shooter.y.raw;
+    // Predict once: how long the bolt takes to cover the present distance, at least a tick and at
+    // most kMaxLeadTicks, and where the target will be by then if it holds its course.
+    const std::int64_t gap_x = static_cast<std::int64_t>(target.x.raw) - shooter.x.raw;
+    const std::int64_t gap_y = static_cast<std::int64_t>(target.y.raw) - shooter.y.raw;
+    const std::int64_t gap = isqrt(gap_x * gap_x + gap_y * gap_y);
+    const std::int64_t lead_ticks
+        = std::clamp<std::int64_t>(gap / kProjectileSpeedRaw, 1, kMaxLeadTicks);
+    // The shooter's own velocity is deliberately not part of this: only the target's motion is led.
+    const std::int64_t dx = gap_x + target.vx.raw * lead_ticks;
+    const std::int64_t dy = gap_y + target.vy.raw * lead_ticks;
     const std::int64_t dist = isqrt(dx * dx + dy * dy);
-    // A target exactly on the gun has no direction to aim in; due east is as good as any and keeps
-    // the answer defined.
+    // An aim point exactly on the gun has no direction to aim in; due east is as good as any and
+    // keeps the answer defined.
     std::int64_t aim_x = kProjectileSpeedRaw;
     std::int64_t aim_y = 0;
     if (dist > 0) {
