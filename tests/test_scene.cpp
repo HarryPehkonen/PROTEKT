@@ -238,8 +238,8 @@ TEST(SceneUnits, ASelectedUnitIsDrawnBrighterAndNothingElseChanges) {
                 << "a selection must not move anything";
         }
     }
-    EXPECT_EQ(different, 3U * 12U * 3U)
-        << "exactly one tank (hull, turret and barrel: three boxes of 12 triangles) changes colour";
+    EXPECT_EQ(different, 7U * 12U * 3U)
+        << "exactly one tank (seven prisms of 12 triangles) changes colour";
 
     // And the highlight is brighter than the side colour it came from.
     bool brighter = false;
@@ -500,16 +500,20 @@ TEST(Reticle, IsTheSameEveryTime) {
 
 // ---------------------------------------------------------------- the aim cue on the unit
 
-/// The colour of the first vertex of `unit`'s box in `scene`: a box is the only thing at the unit's
-/// own position that is not terrain, found by the vertex sitting at the unit's centre column.
+/// The colour of the first vertex of `unit`'s body in `scene`: it is the only thing at the unit's
+/// own position that is not terrain. A factory is found by a top corner of its box; a tank by the
+/// rear top corner of its hull (side colour, not the dark track tint), where it faces +Y by
+/// default.
 std::array<float, 3> box_colour(const Scene& scene, const protekt::sim::Unit& unit) {
     constexpr float kFixedOne = static_cast<float>(protekt::sim::Fixed::kOne);
     const float ux = static_cast<float>(unit.x.raw) / kFixedOne * kMetresPerTile;
     const float uz = static_cast<float>(unit.y.raw) / kFixedOne * kMetresPerTile;
+    const bool tank = unit.kind == protekt::sim::UnitKind::Tank;
     const float half = kMetresPerTile * 0.3F;
+    const float want_x = tank ? ux - (half * 0.7F) : ux - half;
+    const float want_z = tank ? uz - 1.1F : uz - half;
     for (const auto& v : scene.vertices) {
-        if (std::abs(v.position[0] - (ux - half)) < 1e-3F
-            && std::abs(v.position[2] - (uz - half)) < 1e-3F
+        if (std::abs(v.position[0] - want_x) < 1e-3F && std::abs(v.position[2] - want_z) < 1e-3F
             && v.position[1]
                    > protekt::game::height_metres(42, unit.x.floor_int(), unit.y.floor_int())
                          + 0.5F) {
@@ -1423,7 +1427,7 @@ TEST(Hover, TheHoveringUnitIsDrawnAtTheHullHeightAndOthersStayOnTheGround) {
             ++moved;
         }
     }
-    EXPECT_EQ(moved, 108U) << "exactly one tank (hull, turret, barrel: 108 vertices) moves";
+    EXPECT_EQ(moved, 252U) << "exactly one tank (seven prisms: 252 vertices) moves";
 }
 
 } // namespace
@@ -2118,10 +2122,10 @@ namespace {
 
 using protekt::sim::UnitId;
 
-constexpr std::size_t kHullVertices = 36;
-constexpr std::size_t kTurretVertices = 36;
-constexpr std::size_t kBarrelVertices = 36;
-constexpr std::size_t kFacingTankVertices = kHullVertices + kTurretVertices + kBarrelVertices;
+constexpr std::size_t kPrismVertices = 36;
+constexpr std::size_t kBarrelVertices = kPrismVertices;
+/// Two tracks, hull, turret, bustle, muzzle collar, barrel -- the barrel is the last prism.
+constexpr std::size_t kFacingTankVertices = 7 * kPrismVertices;
 
 /// The enemy factory first and the viewer's tank LAST, so the viewer's boxes are the tail of the
 /// scene: these options have no radar, reticle or bolts after the units.
@@ -2273,14 +2277,16 @@ TEST(SceneFacing, AFrameWithoutFacingIsByteIdentical) {
     const Scene a = protekt::game::build_scene(sim, absent);
     const Scene b = protekt::game::build_scene(sim, never_heard);
     EXPECT_TRUE(same_vertices(a.vertices, b.vertices));
-    // A tank with no facing and no velocity is the default one: its hull is an axis-aligned box of
-    // the size it always was, because heading 0 is the world's +Y.
+    // A tank with no facing and no velocity is the default one: it is axis-aligned and no wider
+    // than it always was (the outer face of a track), because heading 0 is the world's +Y.
     const auto& viewer = viewer_of(sim);
     const float ux = static_cast<float>(viewer.x.raw) / 65536.0F * kMetresPerTile;
     const auto tail = a.vertices.end() - static_cast<std::ptrdiff_t>(kFacingTankVertices);
-    for (auto v = tail; v != tail + static_cast<std::ptrdiff_t>(kHullVertices); ++v) {
-        EXPECT_NEAR(std::abs(v->position[0] - ux), kMetresPerTile * 0.3F, 1e-4F);
+    float widest = 0.0F;
+    for (auto v = tail; v != a.vertices.end(); ++v) {
+        widest = std::max(widest, std::abs(v->position[0] - ux));
     }
+    EXPECT_NEAR(widest, kMetresPerTile * 0.3F, 1e-4F);
 }
 
 // ---------------------------------------------------------------- which way a tank faces

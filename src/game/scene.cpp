@@ -162,20 +162,36 @@ std::array<float, 2> rotate_offset(float x, float z, float dx, float dz, float a
     return {x + (dx * cosine) + (dz * sine), z - (dx * sine) + (dz * cosine)};
 }
 
-/// A box in a frame turned by `angle` about the point (x, z): `across` is its half-width, and it
-/// runs from `back` to `front` along the heading, from `y0` to `y1`. The faces are the same six, in
-/// the same order and winding, as `build_unit_box`; a turn about the vertical axis keeps the
-/// winding.
-void emit_turned_box(std::vector<SceneVertex>& out, float x, float z, float angle, float across,
-                     float back, float front, float y0, float y1, const Vec3& colour) {
+/// A prism in a frame turned by `angle` about the point (x, z): it spans `left` to `right` across,
+/// and its side profile is a quadrilateral -- ground-level ends `back_bottom` and `front_bottom`
+/// along the heading, top ends `back_top` and `front_top`, heights `y0` at the bottom and
+/// `back_y1` / `front_y1` at the top. A box is the case where the top ends equal the bottom ends;
+/// a slanted front plate (a glacis) is `front_top` short of `front_bottom`. The faces are the same
+/// six, in the same order and winding, as `build_unit_box`; a turn about the vertical axis keeps
+/// the winding.
+struct Prism {
+    float left;
+    float right;
+    float back_bottom;
+    float back_top;
+    float front_bottom;
+    float front_top;
+    float y0;
+    float back_y1;
+    float front_y1;
+};
+
+void emit_turned_prism(std::vector<SceneVertex>& out, float x, float z, float angle, const Prism& s,
+                       const Vec3& colour) {
     const auto corner = [&](float dx, float dz, float y) {
         const std::array<float, 2> at = rotate_offset(x, z, dx, dz, angle);
         return Vec3{at.at(0), y, at.at(1)};
     };
-    const std::array<Vec3, 8> p{{corner(-across, back, y0), corner(across, back, y0),
-                                 corner(across, back, y1), corner(-across, back, y1),
-                                 corner(-across, front, y0), corner(across, front, y0),
-                                 corner(across, front, y1), corner(-across, front, y1)}};
+    const std::array<Vec3, 8> p{
+        {corner(s.left, s.back_bottom, s.y0), corner(s.right, s.back_bottom, s.y0),
+         corner(s.right, s.back_top, s.back_y1), corner(s.left, s.back_top, s.back_y1),
+         corner(s.left, s.front_bottom, s.y0), corner(s.right, s.front_bottom, s.y0),
+         corner(s.right, s.front_top, s.front_y1), corner(s.left, s.front_top, s.front_y1)}};
     emit_quad(out, p[0], p[1], p[2], p[3], colour); // near
     emit_quad(out, p[5], p[4], p[7], p[6], colour); // far
     emit_quad(out, p[4], p[0], p[3], p[7], colour); // left
@@ -184,9 +200,20 @@ void emit_turned_box(std::vector<SceneVertex>& out, float x, float z, float angl
     emit_quad(out, p[4], p[5], p[1], p[0], colour); // bottom
 }
 
-/// A tank: a hull turned by `heading`, a turret on top of it turned by `heading +
-/// turret`, and a barrel running forward from the turret along ITS direction. The 1.8 m of a plain
-/// tank box is split between the hull and the turret, so this is a change of shape and not of size.
+/// A box in a frame turned by `angle` about the point (x, z): `across` is its half-width, and it
+/// runs from `back` to `front` along the heading, from `y0` to `y1`.
+void emit_turned_box(std::vector<SceneVertex>& out, float x, float z, float angle, float across,
+                     float back, float front, float y0, float y1, const Vec3& colour) {
+    emit_turned_prism(out, x, z, angle,
+                      Prism{-across, across, back, back, front, front, y0, y1, y1}, colour);
+}
+
+/// A tank, abstracted from a side-on battle tank and built only of flat-shaded prisms: two dark
+/// track skirts running past the hull at both ends, a hull between them with a sloped glacis and a
+/// slightly taller engine deck, a squat turret set back on the hull with a rear bustle, and a long
+/// thin barrel from the turret's front face with a thicker muzzle collar. The hull and tracks are
+/// turned by `heading`, the turret group by `heading + turret`. Lateral extent stays the tank's
+/// 0.3 tile half-width (the outer face of a track), so only the length and the profile are new.
 void build_facing_tank(std::vector<SceneVertex>& out, std::uint64_t seed, const sim::Unit& unit,
                        Mark mark, float lift_z, bool lifted, float heading, float turret) {
     const float x
@@ -194,15 +221,34 @@ void build_facing_tank(std::vector<SceneVertex>& out, std::uint64_t seed, const 
     const float z
         = static_cast<float>(unit.y.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile;
     const float ground = lifted ? lift_z : ground_metres(seed, unit.x, unit.y);
-    const float half_width = kMetresPerTile * 0.3F;
-    constexpr float kHullHeight = 1.0F;
-    constexpr float kTurretHeight = 0.8F;
-    constexpr float kTurretHalfFraction = 0.6F;     ///< of the hull's half-width
-    constexpr float kTurretForwardFraction = 0.15F; ///< the turret sits a little forward of centre
-    constexpr float kBarrelHalfFraction = 0.2F;     ///< wide enough to read in silhouette
-    constexpr float kBarrelLengthFraction = 2.0F;   ///< the tip, from the tank's centre
-    constexpr float kBarrelBottom = 0.25F;          ///< above the turret's base
-    constexpr float kBarrelTop = 0.6F;
+    const float half_width = kMetresPerTile * 0.3F; ///< the outer face of a track
+    constexpr float kTrackInner = 0.7F;             ///< of half_width; the hull fills the rest
+    constexpr float kTrackTint = 0.25F;             ///< near-black version of the side colour
+    constexpr float kTrackHeight = 0.4F;
+    constexpr float kTrackBack = -1.3F; ///< metres along the heading from the centre
+    constexpr float kTrackFront = 1.3F;
+    constexpr float kHullBack = -1.1F;
+    constexpr float kHullFront = 1.2F;
+    constexpr float kGlacisTop = 0.75F; ///< where the slanted front plate meets the deck
+    constexpr float kHullFrontHeight = 0.7F;
+    constexpr float kHullRearHeight = 0.85F; ///< the engine deck, a little above the front
+    constexpr float kTurretBase = 0.8F;      ///< above the ground; the hull's mean top
+    constexpr float kTurretHeight = 0.4F;
+    constexpr float kTurretHalfAcross = 0.36F;
+    constexpr float kTurretCentre = -0.3F; ///< set back from the hull's centre
+    constexpr float kTurretHalfLength = 0.5F;
+    constexpr float kBustleLength = 0.25F;
+    constexpr float kBustleHalfAcross = 0.25F;
+    constexpr float kBustleBottom = 0.05F; ///< above the turret's base
+    constexpr float kBustleTop = 0.3F;
+    constexpr float kBarrelHalfAcross = 0.06F;
+    constexpr float kBarrelBottom = 0.18F; ///< above the turret's base
+    constexpr float kBarrelTop = 0.3F;
+    constexpr float kBarrelTip = 2.0F; ///< from the tank's centre, well past the hull front
+    constexpr float kCollarLength = 0.3F;
+    constexpr float kCollarHalfAcross = 0.1F;
+    constexpr float kCollarBottom = 0.14F;
+    constexpr float kCollarTop = 0.34F;
 
     Vec3 colour = side_colour(unit.side);
     if (mark == Mark::Selected) {
@@ -210,19 +256,40 @@ void build_facing_tank(std::vector<SceneVertex>& out, std::uint64_t seed, const 
     } else if (mark != Mark::None) {
         colour = aim_tint(colour, mark == Mark::AimedOwn);
     }
+    const Vec3 track_colour{colour[0] * kTrackTint, colour[1] * kTrackTint, colour[2] * kTrackTint};
 
+    const float inner = half_width * kTrackInner;
+    for (const float side : {-1.0F, 1.0F}) {
+        const float a = side * inner;
+        const float b = side * half_width;
+        emit_turned_prism(out, x, z, heading,
+                          Prism{std::min(a, b), std::max(a, b), kTrackBack, kTrackBack, kTrackFront,
+                                kTrackFront, ground, ground + kTrackHeight, ground + kTrackHeight},
+                          track_colour);
+    }
+    emit_turned_prism(out, x, z, heading,
+                      Prism{-inner, inner, kHullBack, kHullBack, kHullFront, kGlacisTop, ground,
+                            ground + kHullRearHeight, ground + kHullFrontHeight},
+                      colour);
+
+    // The turret group shares one frame at the turret's centre; the barrel starts at its front
+    // face and is measured from the tank's centre along the same axis, so it points where the
+    // turret looks.
     const float turret_angle = heading + turret;
-    const float hull_top = ground + kHullHeight;
-    emit_turned_box(out, x, z, heading, half_width, -half_width, half_width, ground, hull_top,
+    const float turret_y0 = ground + kTurretBase;
+    const std::array<float, 2> turret_at = rotate_offset(x, z, 0.0F, kTurretCentre, turret_angle);
+    emit_turned_box(out, turret_at.at(0), turret_at.at(1), turret_angle, kTurretHalfAcross,
+                    -kTurretHalfLength, kTurretHalfLength, turret_y0, turret_y0 + kTurretHeight,
                     colour);
-    const std::array<float, 2> turret_at
-        = rotate_offset(x, z, 0.0F, half_width * kTurretForwardFraction, turret_angle);
-    const float turret_half = half_width * kTurretHalfFraction;
-    emit_turned_box(out, turret_at.at(0), turret_at.at(1), turret_angle, turret_half, -turret_half,
-                    turret_half, hull_top, hull_top + kTurretHeight, colour);
-    emit_turned_box(out, x, z, turret_angle, half_width * kBarrelHalfFraction,
-                    half_width * kTurretForwardFraction, half_width * kBarrelLengthFraction,
-                    hull_top + kBarrelBottom, hull_top + kBarrelTop, colour);
+    emit_turned_box(out, turret_at.at(0), turret_at.at(1), turret_angle, kBustleHalfAcross,
+                    -kTurretHalfLength - kBustleLength, -kTurretHalfLength,
+                    turret_y0 + kBustleBottom, turret_y0 + kBustleTop, colour);
+    const float turret_front = kTurretCentre + kTurretHalfLength;
+    emit_turned_box(out, x, z, turret_angle, kCollarHalfAcross, kBarrelTip - kCollarLength,
+                    kBarrelTip, turret_y0 + kCollarBottom, turret_y0 + kCollarTop, colour);
+    emit_turned_box(out, x, z, turret_angle, kBarrelHalfAcross, turret_front,
+                    kBarrelTip - kCollarLength, turret_y0 + kBarrelBottom, turret_y0 + kBarrelTop,
+                    colour);
 }
 
 /// A tracer is brighter than anything it flies over: a unit colour is a thing standing on the
