@@ -87,8 +87,7 @@ TEST(Layering, NothingUnderSimOrWorldIncludesALayerAboveIt) {
 
 /// The build enforces the same rule from the other side: `app/` lives in `protekt_app`, which alone
 /// links the renderer and sees the window. The game's own sources must not name the renderer or
-/// the app, or the link line stops being the thing that says so. (The game HEADERS still include
-/// `render/renderer.hpp` for its plain-data Scene types; that is a known leak, not scanned here.)
+/// the app, or the link line stops being the thing that says so.
 TEST(Layering, NothingUnderSrcGameIncludesTheRendererOrTheApp) {
     int scanned = 0;
     std::string violations;

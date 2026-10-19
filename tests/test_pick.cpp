@@ -53,7 +53,7 @@ sim::Sim two_tanks(std::vector<Spawn> spawns) {
     return sim::Sim::create(Scenario{kSeed, std::move(spawns)});
 }
 
-const render::Extent kExtent{1280, 720};
+const game::Extent kExtent{1280, 720};
 
 } // namespace
 

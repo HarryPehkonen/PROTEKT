@@ -122,7 +122,7 @@ std::vector<Vertex> build_scene(std::uint64_t seed) {
 
 /// Eye at 1.6 m, looking forward and pitched down 10 degrees so that the horizon sits above the
 /// middle of the frame and the unit stands on the ground below it.
-Mat4 view_projection(Extent extent) {
+Mat4 view_projection(game::Extent extent) {
     const float pitch = 10.0F * math::kPi / 180.0F;
     const Vec3 eye{0.0F, 1.6F, 0.0F};
     const Vec3 target{0.0F, 1.6F - 10.0F * std::sin(pitch), 10.0F * std::cos(pitch)};
@@ -361,7 +361,7 @@ public:
                && create_frame_objects(error) && create_target(options.extent, error);
     }
 
-    [[nodiscard]] Extent extent() const noexcept override { return extent_; }
+    [[nodiscard]] game::Extent extent() const noexcept override { return extent_; }
     [[nodiscard]] std::string_view device_name() const noexcept override { return device_name_; }
     [[nodiscard]] std::uint32_t validation_errors() const noexcept override {
         return validation_count_.load();
@@ -382,7 +382,7 @@ public:
 
 private:
     struct Target {
-        Extent extent{};
+        game::Extent extent{};
         VkImage colour{};
         VkDeviceMemory colour_memory{};
         VkImageView colour_view{};
@@ -741,7 +741,7 @@ private:
         return true;
     }
 
-    bool make_image(Extent extent, VkFormat format, VkImageUsageFlags usage,
+    bool make_image(game::Extent extent, VkFormat format, VkImageUsageFlags usage,
                     VkImageAspectFlags aspect, VkImage& image, VkDeviceMemory& memory,
                     VkImageView& view) {
         VkImageCreateInfo info{};
@@ -860,7 +860,7 @@ private:
         target_ = Target{};
     }
 
-    bool create_target(Extent extent, std::string& error) {
+    bool create_target(game::Extent extent, std::string& error) {
         destroy_target();
         target_.extent = extent;
         const bool has_stencil = depth_format_ == VK_FORMAT_D24_UNORM_S8_UINT;
@@ -903,7 +903,7 @@ private:
     // ---- per frame
 
     std::vector<std::uint8_t> render_frame(const FrameRequest& request, FrameStats& stats) {
-        const Extent extent = request.extent;
+        const game::Extent extent = request.extent;
         if (extent.width == 0 || extent.height == 0 || extent.width > max_dimension_
             || extent.height > max_dimension_) {
             std::cerr << "protekt render: unusable extent " << extent.width << "x" << extent.height
@@ -919,7 +919,7 @@ private:
             }
         }
 
-        static_assert(sizeof(Vertex) == sizeof(SceneVertex),
+        static_assert(sizeof(Vertex) == sizeof(game::SceneVertex),
                       "a caller-supplied Scene's vertices are uploaded byte-for-byte as Vertex");
 
         std::uint32_t vertex_count = 0;
@@ -1043,7 +1043,7 @@ private:
         }
     }
 
-    Extent extent_{};
+    game::Extent extent_{};
     std::string device_name_;
     std::atomic<std::uint32_t> validation_count_{0};
 

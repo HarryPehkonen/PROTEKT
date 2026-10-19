@@ -38,8 +38,8 @@ struct Projected {
     float depth{};
 };
 
-[[nodiscard]] Projected project(const Camera& camera, render::Extent extent, float world_x,
-                                float world_y, float world_z) noexcept;
+[[nodiscard]] Projected project(const Camera& camera, Extent extent, float world_x, float world_y,
+                                float world_z) noexcept;
 
 /// The world point a pixel looks at, `distance` metres along the ray. The inverse of `project` for
 /// that distance: `project(ray_point(camera, e, px, py, d)) == (px, py)`.
@@ -48,7 +48,7 @@ struct RayPoint {
     float y{};
     float z{};
 };
-[[nodiscard]] RayPoint ray_point(const Camera& camera, render::Extent extent, float screen_x,
+[[nodiscard]] RayPoint ray_point(const Camera& camera, Extent extent, float screen_x,
                                  float screen_y, float distance_metres) noexcept;
 
 /// What is under the cursor. Units win over ground: a click on a tank is a selection, and the

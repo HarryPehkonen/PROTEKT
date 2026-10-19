@@ -21,7 +21,7 @@ namespace protekt::render {
 
 struct WindowOptions {
     std::string title{"PROTEKT"};
-    Extent extent{1280, 720};
+    game::Extent extent{1280, 720};
     std::string device_name;
     bool validation{true};
     /// Start in desktop fullscreen. A command-line flag rather than only a key, because that is
@@ -53,11 +53,11 @@ public:
     /// display.
     [[nodiscard]] virtual const input::InputFrame& input() const noexcept = 0;
 
-    [[nodiscard]] virtual Extent extent() const noexcept = 0;
+    [[nodiscard]] virtual game::Extent extent() const noexcept = 0;
     [[nodiscard]] virtual std::string_view device_name() const noexcept = 0;
 
     /// Draw one scene and present it. A window whose extent changed is resized here.
-    virtual void present(const Scene& scene) = 0;
+    virtual void present(const game::Scene& scene) = 0;
 
     /// Ask for full screen, or leave it, and report the pixel extent the window has afterwards.
     ///
@@ -66,7 +66,7 @@ public:
     /// manager. The extent is returned rather than left to the resize event because the caller's
     /// projection has to know the new shape in the SAME frame -- a full-screen frame is not
     /// 1280x720.
-    [[nodiscard]] virtual Extent toggle_fullscreen() = 0;
+    [[nodiscard]] virtual game::Extent toggle_fullscreen() = 0;
 
     /// The frame that was last presented: RGBA8, row-major, top-left first. What the game writes
     /// when it is asked to capture, so that what you see is what is proved.

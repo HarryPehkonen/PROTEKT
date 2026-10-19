@@ -43,21 +43,21 @@ Vec3 side_colour(sim::Side side) {
     return side == sim::Side::Player ? Vec3{0.15F, 0.35F, 0.85F} : Vec3{0.85F, 0.15F, 0.15F};
 }
 
-void emit_triangle(std::vector<render::SceneVertex>& out, const Vec3& a, const Vec3& b,
-                   const Vec3& c, const Vec3& colour) {
-    out.push_back(render::SceneVertex{a, colour});
-    out.push_back(render::SceneVertex{b, colour});
-    out.push_back(render::SceneVertex{c, colour});
+void emit_triangle(std::vector<SceneVertex>& out, const Vec3& a, const Vec3& b, const Vec3& c,
+                   const Vec3& colour) {
+    out.push_back(SceneVertex{a, colour});
+    out.push_back(SceneVertex{b, colour});
+    out.push_back(SceneVertex{c, colour});
 }
 
-void emit_quad(std::vector<render::SceneVertex>& out, const Vec3& a, const Vec3& b, const Vec3& c,
+void emit_quad(std::vector<SceneVertex>& out, const Vec3& a, const Vec3& b, const Vec3& c,
                const Vec3& d, const Vec3& colour) {
     emit_triangle(out, a, b, c, colour);
     emit_triangle(out, a, c, d, colour);
 }
 
-void build_terrain(std::vector<render::SceneVertex>& out, std::uint64_t seed, int centre_x,
-                   int centre_y, int radius) {
+void build_terrain(std::vector<SceneVertex>& out, std::uint64_t seed, int centre_x, int centre_y,
+                   int radius) {
     // Each tile's corners are sampled one tile beyond it on the far edge (tx+1, ty+1); widening
     // the low edge by one tile too keeps the sampled HEIGHT field symmetric around the camera,
     // even though the tolerance on the mesh's visual extent absorbs the extra row.
@@ -109,8 +109,8 @@ Vec3 aim_tint(const Vec3& colour, bool own) {
 /// that is not selected.
 enum class Mark : std::uint8_t { None, Selected, AimedOwn, AimedHostile };
 
-void build_unit_box(std::vector<render::SceneVertex>& out, std::uint64_t seed,
-                    const sim::Unit& unit, Mark mark, std::optional<float> hull_z) {
+void build_unit_box(std::vector<SceneVertex>& out, std::uint64_t seed, const sim::Unit& unit,
+                    Mark mark, std::optional<float> hull_z) {
     const float x
         = static_cast<float>(unit.x.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile;
     const float z
@@ -162,9 +162,8 @@ std::array<float, 2> rotate_offset(float x, float z, float dx, float dz, float a
 /// runs from `back` to `front` along the heading, from `y0` to `y1`. The faces are the same six, in
 /// the same order and winding, as `build_unit_box`; a turn about the vertical axis keeps the
 /// winding.
-void emit_turned_box(std::vector<render::SceneVertex>& out, float x, float z, float angle,
-                     float across, float back, float front, float y0, float y1,
-                     const Vec3& colour) {
+void emit_turned_box(std::vector<SceneVertex>& out, float x, float z, float angle, float across,
+                     float back, float front, float y0, float y1, const Vec3& colour) {
     const auto corner = [&](float dx, float dz, float y) {
         const std::array<float, 2> at = rotate_offset(x, z, dx, dz, angle);
         return Vec3{at.at(0), y, at.at(1)};
@@ -184,9 +183,8 @@ void emit_turned_box(std::vector<render::SceneVertex>& out, float x, float z, fl
 /// The viewer's tank: a hull turned by `heading`, a turret on top of it turned by `heading +
 /// turret`, and a barrel running forward from the turret along ITS direction. The 1.8 m of a plain
 /// tank box is split between the hull and the turret, so this is a change of shape and not of size.
-void build_facing_tank(std::vector<render::SceneVertex>& out, std::uint64_t seed,
-                       const sim::Unit& unit, Mark mark, std::optional<float> hull_z,
-                       const SceneOptions::Facing& facing) {
+void build_facing_tank(std::vector<SceneVertex>& out, std::uint64_t seed, const sim::Unit& unit,
+                       Mark mark, std::optional<float> hull_z, const SceneOptions::Facing& facing) {
     const float x
         = static_cast<float>(unit.x.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile;
     const float z
@@ -235,7 +233,7 @@ constexpr float kBoltHalfWidthMetres = 0.12F;
 
 /// One small box per projectile the sim has in the air, built the way `build_unit_box` builds a
 /// unit: the same tile-to-metre conversion, the same six faces, the same winding.
-void append_projectiles(std::vector<render::SceneVertex>& out, const SceneOptions& options,
+void append_projectiles(std::vector<SceneVertex>& out, const SceneOptions& options,
                         const sim::Sim& sim) {
     for (const sim::Projectile& bolt : sim.projectiles()) {
         const float x = static_cast<float>(bolt.x.raw) / static_cast<float>(sim::Fixed::kOne)
@@ -323,7 +321,7 @@ constexpr float kHudBorderRatio = 2.2F; ///< and its border, relative to the mar
 
 /// The length of the ray the frame's own corner looks along, unnormalised, exactly as `ray_through`
 /// builds it: 1 at the middle of the frame, up to ~1.55 at a corner.
-[[nodiscard]] float corner_ray_length(render::Extent extent) noexcept {
+[[nodiscard]] float corner_ray_length(Extent extent) noexcept {
     const float half_tan = std::tan(math::kFovRadians * 0.5F);
     const float height = extent.height > 0 ? static_cast<float>(extent.height) : 1.0F;
     const float rx = (static_cast<float>(extent.width) / height) * half_tan;
@@ -365,8 +363,7 @@ std::array<float, 3> health_colour(std::uint32_t hp, std::uint32_t max_hp) {
 /// somewhere other than its own place on the panel. Three metres of nothing, a dark face so the
 /// marks read over any terrain, and then the marks: dots for units, an outline for your base, a
 /// triangle for you, an arrow at the rim for a base you cannot see.
-void append_radar(std::vector<render::SceneVertex>& out, const SceneOptions& options,
-                  const sim::Sim& sim) {
+void append_radar(std::vector<SceneVertex>& out, const SceneOptions& options, const sim::Sim& sim) {
     if (!options.viewer_unit.valid()) {
         return;
     }
@@ -473,17 +470,17 @@ void append_radar(std::vector<render::SceneVertex>& out, const SceneOptions& opt
             = corner(mark.half * kTriangleBaseFraction, kTriangleTurn);
         const std::array<float, 2> side_b
             = corner(mark.half * kTriangleBaseFraction, -kTriangleTurn);
-        out.push_back(render::SceneVertex{at(marks_at, apex.at(0), apex.at(1)), rgb});
-        out.push_back(render::SceneVertex{at(marks_at, side_a.at(0), side_a.at(1)), rgb});
-        out.push_back(render::SceneVertex{at(marks_at, side_b.at(0), side_b.at(1)), rgb});
+        out.push_back(SceneVertex{at(marks_at, apex.at(0), apex.at(1)), rgb});
+        out.push_back(SceneVertex{at(marks_at, side_a.at(0), side_a.at(1)), rgb});
+        out.push_back(SceneVertex{at(marks_at, side_b.at(0), side_b.at(1)), rgb});
     }
 }
 
 /// Four bars forming a square outline, in the plane the camera looks along, centred on the point
 /// the click's own ray reaches. Six vertices per bar: two triangles, and no winding to get wrong,
 /// because the pipeline culls nothing.
-void append_reticle(std::vector<render::SceneVertex>& out, const SceneOptions& options,
-                    const sim::Sim& sim, const Pick& picked) {
+void append_reticle(std::vector<SceneVertex>& out, const SceneOptions& options, const sim::Sim& sim,
+                    const Pick& picked) {
     if (!options.aim.has_value()) {
         return;
     }
@@ -507,12 +504,12 @@ void append_reticle(std::vector<render::SceneVertex>& out, const SceneOptions& o
         const std::array<float, 3> b = corner(r1, u0);
         const std::array<float, 3> c = corner(r1, u1);
         const std::array<float, 3> d = corner(r0, u1);
-        out.push_back(render::SceneVertex{a, colour});
-        out.push_back(render::SceneVertex{b, colour});
-        out.push_back(render::SceneVertex{c, colour});
-        out.push_back(render::SceneVertex{a, colour});
-        out.push_back(render::SceneVertex{c, colour});
-        out.push_back(render::SceneVertex{d, colour});
+        out.push_back(SceneVertex{a, colour});
+        out.push_back(SceneVertex{b, colour});
+        out.push_back(SceneVertex{c, colour});
+        out.push_back(SceneVertex{a, colour});
+        out.push_back(SceneVertex{c, colour});
+        out.push_back(SceneVertex{d, colour});
     };
     bar_quad(-half, half - bar, half, half);               // top
     bar_quad(-half, -half, half, -half + bar);             // bottom
@@ -633,9 +630,9 @@ std::array<float, 16> view_projection(const Camera& camera, float aspect,
                                  aspect, fov_radians);
 }
 
-render::Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
-                          std::span<const sim::UnitId> selected) {
-    render::Scene scene;
+Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
+                  std::span<const sim::UnitId> selected) {
+    Scene scene;
     const float aspect
         = static_cast<float>(options.extent.width) / static_cast<float>(options.extent.height);
     scene.view_projection = view_projection(options.camera, aspect);
@@ -689,7 +686,7 @@ render::Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
     if (options.hit_flash > 0.0F) {
         const float amount = std::clamp(options.hit_flash, 0.0F, 1.0F) * kHitFlashStrength;
         constexpr std::array<float, 3> kDeepRed{0.55F, 0.0F, 0.0F};
-        for (render::SceneVertex& vertex : scene.vertices) {
+        for (SceneVertex& vertex : scene.vertices) {
             for (std::size_t channel = 0; channel < 3; ++channel) {
                 float& value = vertex.colour.at(channel);
                 value += (kDeepRed.at(channel) - value) * amount;
@@ -700,8 +697,8 @@ render::Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
     return scene;
 }
 
-render::Scene build_calibration_scene(const SceneOptions& options) {
-    render::Scene scene;
+Scene build_calibration_scene(const SceneOptions& options) {
+    Scene scene;
     const float aspect
         = static_cast<float>(options.extent.width) / static_cast<float>(options.extent.height);
     scene.view_projection = view_projection(options.camera, aspect);

@@ -71,7 +71,7 @@ struct RadarPanel {
 
 /// The panel for a frame of this size: bottom-left, with a margin, sized to the frame and clamped
 /// so that a small window still has a usable radar and a large one does not grow it without limit.
-[[nodiscard]] RadarPanel radar_panel(render::Extent extent) noexcept;
+[[nodiscard]] RadarPanel radar_panel(Extent extent) noexcept;
 
 /// The marks for one frame, in panel pixels.
 ///

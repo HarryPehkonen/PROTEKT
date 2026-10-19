@@ -5,9 +5,8 @@
 #include <vector>
 
 /// Plain data the game builds and the renderer consumes. The game owns these definitions so the
-/// layers below the renderer never include it; the namespace stays `render` because that is what
-/// every caller already spells.
-namespace protekt::render {
+/// layers below the renderer never include it.
+namespace protekt::game {
 
 struct Extent {
     std::uint32_t width{};
@@ -27,4 +26,4 @@ struct Scene {
     std::array<float, 16> view_projection{}; ///< column-major, what GLSL's mat4 expects
 };
 
-} // namespace protekt::render
+} // namespace protekt::game

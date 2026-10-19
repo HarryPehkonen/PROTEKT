@@ -18,7 +18,6 @@ namespace protekt::game {
 ///
 /// Nothing when the extent is empty or negative (a headless frame with no framebuffer): a frame
 /// with no mark also has no picks, which is what leaves those frames exactly as they were.
-[[nodiscard]] std::optional<Aim> aim_from(const input::InputFrame& frame,
-                                          render::Extent extent) noexcept;
+[[nodiscard]] std::optional<Aim> aim_from(const input::InputFrame& frame, Extent extent) noexcept;
 
 } // namespace protekt::game

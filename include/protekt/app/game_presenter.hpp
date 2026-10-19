@@ -17,7 +17,7 @@ class Window;
 namespace protekt::app {
 
 struct PresenterOptions {
-    render::Extent extent{};
+    game::Extent extent{};
     std::string gpu{};
     bool headless{false};
     bool fullscreen{false};
@@ -48,12 +48,12 @@ public:
 
     /// The window is the authority on its own size: a full-screen switch or a resize changes the
     /// frame the projection has to fill. Returns the extent this frame is drawn at.
-    [[nodiscard]] render::Extent follow(const input::InputFrame& hands);
+    [[nodiscard]] game::Extent follow(const input::InputFrame& hands);
 
-    [[nodiscard]] render::Extent extent() const noexcept { return extent_; }
+    [[nodiscard]] game::Extent extent() const noexcept { return extent_; }
 
     /// Draws one frame. False when an offscreen frame could not be rendered.
-    [[nodiscard]] bool present(const render::Scene& scene, std::uint64_t seed, sim::Tick tick);
+    [[nodiscard]] bool present(const game::Scene& scene, std::uint64_t seed, sim::Tick tick);
 
     /// The last frame as RGBA, for a capture: the window's own if there is one. Empty if nothing
     /// was presented.
@@ -62,7 +62,7 @@ public:
 private:
     GamePresenter() = default;
 
-    render::Extent extent_{};
+    game::Extent extent_{};
     std::unique_ptr<render::Renderer> offscreen_;
     std::unique_ptr<render::Window> window_;
     std::vector<std::uint8_t> last_frame_;

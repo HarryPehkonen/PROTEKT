@@ -82,7 +82,7 @@ bool GamePresenter::poll(input::InputFrame& hands, bool scripted) {
     return true;
 }
 
-render::Extent GamePresenter::follow(const input::InputFrame& hands) {
+game::Extent GamePresenter::follow(const input::InputFrame& hands) {
 #ifdef PROTEKT_HAVE_WINDOW
     if (window_ != nullptr) {
         // The game follows the window rather than stretching a fixed 1280x720 over it, and the aim
@@ -96,7 +96,7 @@ render::Extent GamePresenter::follow(const input::InputFrame& hands) {
     return extent_;
 }
 
-bool GamePresenter::present(const render::Scene& scene, std::uint64_t seed, sim::Tick tick) {
+bool GamePresenter::present(const game::Scene& scene, std::uint64_t seed, sim::Tick tick) {
 #ifdef PROTEKT_HAVE_WINDOW
     if (window_ != nullptr) {
         window_->present(scene);

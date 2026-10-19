@@ -28,7 +28,7 @@
 
 namespace {
 
-using protekt::render::Extent;
+using protekt::game::Extent;
 
 /// llvmpipe -- the only device on the gate box -- spawns worker threads and races inside itself.
 /// The driver is not built with ThreadSanitizer and cannot be instrumented, so its internal races
@@ -461,7 +461,7 @@ TEST_F(RenderTest, DrawsTheRadarWithAFaceMarksAndABorderThatSurviveTheDepthTest)
         options.camera.y = 8.0F;
         options.camera.z = 104.0F;
         options.viewer_unit = player;
-        const protekt::render::Scene scene = protekt::game::build_scene(sim, options);
+        const protekt::game::Scene scene = protekt::game::build_scene(sim, options);
 
         Frame frame;
         frame.extent = Extent{kWidth, kHeight};

@@ -191,10 +191,10 @@ public:
     bool init(const WindowOptions& options, std::string& error);
     [[nodiscard]] bool pump_events() override;
     [[nodiscard]] const input::InputFrame& input() const noexcept override { return input_; }
-    [[nodiscard]] Extent extent() const noexcept override { return extent_; }
+    [[nodiscard]] game::Extent extent() const noexcept override { return extent_; }
     [[nodiscard]] std::string_view device_name() const noexcept override { return device_name_; }
-    void present(const Scene& scene) override;
-    [[nodiscard]] Extent toggle_fullscreen() override;
+    void present(const game::Scene& scene) override;
+    [[nodiscard]] game::Extent toggle_fullscreen() override;
     [[nodiscard]] std::vector<std::uint8_t> capture() const override { return last_frame_; }
     [[nodiscard]] std::uint32_t validation_errors() const noexcept override {
         return validation_counter().load();
@@ -224,7 +224,7 @@ private:
     std::string device_name_;
     VkSwapchainKHR swapchain_{VK_NULL_HANDLE};
     VkFormat format_{VK_FORMAT_UNDEFINED};
-    Extent extent_{};
+    game::Extent extent_{};
     std::vector<VkImage> images_{};
     std::vector<VkImageView> views_{};
     VkCommandPool command_pool_{VK_NULL_HANDLE};
@@ -858,7 +858,7 @@ bool VulkanWindow::acquire_and_blit(const std::vector<std::uint8_t>& rgba, std::
     return true;
 }
 
-render::Extent VulkanWindow::toggle_fullscreen() {
+game::Extent VulkanWindow::toggle_fullscreen() {
     fullscreen_ = !fullscreen_;
     // Desktop fullscreen: a null fullscreen MODE is SDL3's "borderless, my current display's size".
     SDL_SetWindowFullscreenMode(window_, nullptr);
@@ -873,7 +873,7 @@ render::Extent VulkanWindow::toggle_fullscreen() {
     return extent_;
 }
 
-void VulkanWindow::present(const Scene& scene) {
+void VulkanWindow::present(const game::Scene& scene) {
     if (resize_pending_) {
         vkDeviceWaitIdle(device_);
         destroy_swapchain();

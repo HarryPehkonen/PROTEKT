@@ -21,7 +21,7 @@ constexpr float kArrowInsetFraction = 0.055F;
 
 } // namespace
 
-RadarPanel radar_panel(render::Extent extent) noexcept {
+RadarPanel radar_panel(Extent extent) noexcept {
     const float width = static_cast<float>(extent.width);
     const float height = static_cast<float>(extent.height);
     // Sized from the width, so the panel keeps its place in the layout at any resolution -- but

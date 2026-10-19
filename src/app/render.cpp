@@ -93,7 +93,7 @@ int run_render_cli(std::span<const std::string_view> args, std::ostream& out, st
 
     render::CreateOptions create_options;
     create_options.device_name = opt.gpu;
-    create_options.extent = render::Extent{opt.width, opt.height};
+    create_options.extent = game::Extent{opt.width, opt.height};
     const auto renderer = render::create(create_options, error);
     if (!renderer) {
         err << "protekt-render: cannot create a renderer: " << error << '\n';

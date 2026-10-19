@@ -142,7 +142,7 @@ struct SceneOptions {
     std::uint64_t seed{};
     Camera camera{};
     /// The frame this scene will be drawn into: the projection needs its aspect ratio.
-    render::Extent extent{1280, 720};
+    Extent extent{1280, 720};
     /// Terrain half-extent in tiles: the mesh is (2*radius+1)^2 tiles centred on the camera.
     int radius_tiles{24};
     /// Where the gun is pointed, when there is anything to point it with. ABSENT means no reticle
@@ -190,14 +190,14 @@ struct SceneOptions {
 /// there fires), brighter on one of yours (a click there selects). It is a WORLD-space mark placed
 /// a short distance along the click's own ray, which is why it needs no font and cannot be hidden
 /// by terrain.
-[[nodiscard]] render::Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
-                                        std::span<const sim::UnitId> selected = {});
+[[nodiscard]] Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
+                                std::span<const sim::UnitId> selected = {});
 
 /// The colour calibration view: three full-height vertical bars, left to right pure red, pure
 /// green, pure blue, spanning the whole frame width and nothing else (no terrain, units, reticle or
 /// radar). Drawn on the same near-plane HUD layer as the radar, through the same vertex format, so
 /// what it shows is what the game frame goes through on its way to the screen. Pure in `options`
 /// (camera and extent); it reads no sim, so showing it cannot disturb one.
-[[nodiscard]] render::Scene build_calibration_scene(const SceneOptions& options);
+[[nodiscard]] Scene build_calibration_scene(const SceneOptions& options);
 
 } // namespace protekt::game

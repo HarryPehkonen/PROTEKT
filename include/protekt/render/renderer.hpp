@@ -33,10 +33,10 @@ struct DeviceInfo {
 /// What to draw. With `scene == nullptr` the renderer draws the built-in test scene M3a shipped
 /// (one ground plane and one unit box, coloured from `seed`); with a scene, that scene.
 struct FrameRequest {
-    Extent extent{};
+    game::Extent extent{};
     std::uint64_t seed{};
     sim::Tick tick{};
-    const Scene* scene{};
+    const game::Scene* scene{};
 };
 
 struct FrameStats {
@@ -53,7 +53,7 @@ public:
     Renderer(Renderer&&) = delete;
     Renderer& operator=(Renderer&&) = delete;
 
-    [[nodiscard]] virtual Extent extent() const noexcept = 0;
+    [[nodiscard]] virtual game::Extent extent() const noexcept = 0;
     [[nodiscard]] virtual std::string_view device_name() const noexcept = 0;
 
     /// Renders one frame and returns RGBA8, row-major, with the top-left texel first: exactly
@@ -83,7 +83,7 @@ struct CreateOptions {
     /// On a laptop with NVIDIA Optimus this matters -- the discrete GPU is NOT device 0.
     std::string device_name;
     bool validation{true};
-    Extent extent{320, 200};
+    game::Extent extent{320, 200};
 };
 
 /// Every physical device that can be enumerated. Empty when there is no loader or no driver;

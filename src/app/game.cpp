@@ -171,7 +171,7 @@ int parse_args(std::span<const std::string_view> args, Options& options, std::os
 }
 
 int write_ppm(const std::string& path, const std::vector<std::uint8_t>& rgba,
-              const render::Extent& extent) {
+              const game::Extent& extent) {
     std::ofstream out(path, std::ios::binary);
     if (!out) {
         return 1;
@@ -239,7 +239,7 @@ public:
     /// What the player does with this frame's hands: the orders, the enemy's reply, and the
     /// message to say. Returns the scene options as of the end of the last frame -- the picking
     /// needs the camera, and one frame of staleness is invisible: the tank does not teleport.
-    game::SceneOptions command(const input::InputFrame& hands, const render::Extent& extent,
+    game::SceneOptions command(const input::InputFrame& hands, const game::Extent& extent,
                                std::ostream& out) {
         game::SceneOptions scene_options;
         scene_options.seed = options_.seed;
@@ -285,7 +285,7 @@ public:
     /// The frame, as of now. The hover advances once per tick the sim has run, off the sim's own
     /// counter, from the ground under the tank where it now stands. A dead player has no hull to
     /// float.
-    render::Scene scene(game::SceneOptions scene_options) {
+    game::Scene scene(game::SceneOptions scene_options) {
         for (const sim::Unit& unit : sim_.units()) {
             if (unit.id == player_) {
                 hover_.advance(sim_.tick(), game::ground_metres(options_.seed, unit.x, unit.y),
@@ -363,7 +363,7 @@ int play(Game& game, GamePresenter& presenter, const Options& options, std::ostr
             break;
         }
         script_hands(options, hands);
-        const render::Extent extent = presenter.follow(hands);
+        const game::Extent extent = presenter.follow(hands);
         if (input::calibration_toggled(hands)) {
             game.toggle_calibration();
         }
@@ -391,7 +391,7 @@ int run_game_cli(std::span<const std::string_view> args, std::ostream& out, std:
     }
 
     PresenterOptions presenter_options;
-    presenter_options.extent = render::Extent{options.width, options.height};
+    presenter_options.extent = game::Extent{options.width, options.height};
     presenter_options.gpu = options.gpu;
     presenter_options.headless = options.headless;
     presenter_options.fullscreen = options.fullscreen;
@@ -445,7 +445,7 @@ int run_game_cli(std::span<const std::string_view> args, std::ostream& out, std:
     }
 
     if (!options.capture.empty()) {
-        const render::Extent extent = presenter->extent();
+        const game::Extent extent = presenter->extent();
         const std::vector<std::uint8_t> last_frame = presenter->finish();
         if (last_frame.empty()) {
             err << "protekt-game: nothing was rendered, so there is nothing to capture\n";

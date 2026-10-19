@@ -30,7 +30,7 @@ using sim::Spawn;
 using sim::UnitKind;
 
 constexpr std::uint64_t kSeed = 42;
-constexpr render::Extent kExtent{1280, 720};
+constexpr game::Extent kExtent{1280, 720};
 
 struct Rig {
     sim::Sim sim;

@@ -15,8 +15,8 @@ namespace {
 
 using protekt::game::Aim;
 using protekt::game::aim_from;
+using protekt::game::Extent;
 using protekt::input::InputFrame;
-using protekt::render::Extent;
 
 constexpr Extent kExtent{1280, 720};
 

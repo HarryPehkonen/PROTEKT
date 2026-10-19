@@ -14,7 +14,7 @@ namespace {
 
 using protekt::app::GamePresenter;
 using protekt::app::PresenterOptions;
-using protekt::render::Extent;
+using protekt::game::Extent;
 
 PresenterOptions headless(Extent extent) {
     PresenterOptions options;
@@ -68,7 +68,7 @@ TEST(GamePresenter, PresentKeepsTheLastFrameForCapture) {
         GTEST_SKIP() << "no Vulkan device here";
     }
     EXPECT_TRUE(presenter->finish().empty()) << "nothing has been presented yet";
-    const protekt::render::Scene scene{};
+    const protekt::game::Scene scene{};
     EXPECT_TRUE(presenter->present(scene, 7, 0));
     EXPECT_TRUE(presenter->present(scene, 7, 1));
     EXPECT_EQ(presenter->finish().size(), std::size_t{64} * 48 * 4);

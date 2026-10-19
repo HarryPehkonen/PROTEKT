@@ -30,8 +30,8 @@ namespace {
 using protekt::game::Camera;
 using protekt::game::kMetresPerHeightUnit;
 using protekt::game::kMetresPerTile;
+using protekt::game::Scene;
 using protekt::game::SceneOptions;
-using protekt::render::Scene;
 
 constexpr float kTolerance = 0.01F;
 
@@ -312,7 +312,7 @@ using protekt::game::Pick;
 using protekt::game::project;
 
 /// The reticle is the tail of the vertex list, and this is the tail.
-std::vector<protekt::render::SceneVertex> reticle_of(const Scene& scene) {
+std::vector<protekt::game::SceneVertex> reticle_of(const Scene& scene) {
     if (scene.vertices.size() < kReticleVertexCount) {
         return {};
     }
@@ -434,7 +434,7 @@ TEST(Reticle, TurnsRedOverAHostileAndGreenOverYourOwn) {
     Pixel at_enemy{};
     ASSERT_TRUE(aim_at(sim, options, *enemy, at_enemy)) << "could not aim the camera at the enemy";
     options.aim = Aim{at_enemy.x, at_enemy.y};
-    const std::vector<protekt::render::SceneVertex> red = reticle_of(build_scene(sim, options));
+    const std::vector<protekt::game::SceneVertex> red = reticle_of(build_scene(sim, options));
     ASSERT_EQ(red.size(), kReticleVertexCount);
     for (const auto& v : red) {
         EXPECT_GT(v.colour[0], v.colour[1] + 0.5F)
@@ -446,7 +446,7 @@ TEST(Reticle, TurnsRedOverAHostileAndGreenOverYourOwn) {
     Pixel at_own{};
     ASSERT_TRUE(aim_at(sim, options, *own, at_own)) << "could not aim the camera at your own unit";
     options.aim = Aim{at_own.x, at_own.y};
-    const std::vector<protekt::render::SceneVertex> green = reticle_of(build_scene(sim, options));
+    const std::vector<protekt::game::SceneVertex> green = reticle_of(build_scene(sim, options));
     ASSERT_EQ(green.size(), kReticleVertexCount);
     for (const auto& v : green) {
         EXPECT_GT(v.colour[1], v.colour[0] + 0.4F)
@@ -598,8 +598,8 @@ TEST(AimCue, SceneIsDeterministicWithAnAimPoint) {
 /// The radar's own vertices, found as the block that appears when a viewer unit is named. Colours
 /// are not duplicated here on purpose: what the test needs is the DIFFERENCE between two scenes,
 /// and that difference is exactly the panel.
-std::vector<protekt::render::SceneVertex> radar_vertices(const Scene& with_viewer,
-                                                         const Scene& without) {
+std::vector<protekt::game::SceneVertex> radar_vertices(const Scene& with_viewer,
+                                                       const Scene& without) {
     EXPECT_GT(with_viewer.vertices.size(), without.vertices.size());
     std::size_t first = 0;
     while (first < without.vertices.size()
@@ -630,7 +630,7 @@ TEST(RadarDraws, ThePanelLandsOnItsPixelsAndInFrontOfTheNearPlane) {
     SceneOptions plain = options_at(60.0F, 60.0F);
     SceneOptions watched = plain;
     watched.viewer_unit = player;
-    const std::vector<protekt::render::SceneVertex> radar = radar_vertices(
+    const std::vector<protekt::game::SceneVertex> radar = radar_vertices(
         protekt::game::build_scene(sim, watched), protekt::game::build_scene(sim, plain));
     ASSERT_FALSE(radar.empty());
 
@@ -683,7 +683,7 @@ TEST(RadarDraws, MarksCountUpTheWayTheRulesSay) {
     watched.viewer_unit = player;
     const auto marks = protekt::game::radar_marks(sim.units(), player, watched.camera.yaw,
                                                   protekt::game::radar_panel(watched.extent));
-    const std::vector<protekt::render::SceneVertex> radar = radar_vertices(
+    const std::vector<protekt::game::SceneVertex> radar = radar_vertices(
         protekt::game::build_scene(sim, watched), protekt::game::build_scene(sim, plain));
     // The panel itself: a 48-slice ring (a quad a slice) and a 48-slice disc (a triangle a slice),
     // and above it the health bar's track and its fill (a quad each, the viewer being unhurt).
@@ -733,12 +733,12 @@ TEST(RadarDraws, AHostileInRangeIsDrawnRedAndOneOutOfRangeIsNotDrawnAtAll) {
         return radar_vertices(protekt::game::build_scene(sim, watched),
                               protekt::game::build_scene(sim, plain));
     };
-    const auto is_red = [](const protekt::render::SceneVertex& v) {
+    const auto is_red = [](const protekt::game::SceneVertex& v) {
         return v.colour.at(0) > (v.colour.at(1) + 0.3F) && v.colour.at(0) > (v.colour.at(2) + 0.3F);
     };
 
     // Five tiles away: inside the radar's radius, so the enemy is on the panel, and red.
-    const std::vector<protekt::render::SceneVertex> near_enemy = scene_of(55);
+    const std::vector<protekt::game::SceneVertex> near_enemy = scene_of(55);
     ASSERT_FALSE(near_enemy.empty());
     std::size_t reds = 0;
     for (const auto& v : near_enemy) {
@@ -750,7 +750,7 @@ TEST(RadarDraws, AHostileInRangeIsDrawnRedAndOneOutOfRangeIsNotDrawnAtAll) {
 
     // Three hundred tiles away: the same frame, but the enemy is not on the panel and nothing about
     // him is drawn -- not a dot, not a hint at the rim.
-    const std::vector<protekt::render::SceneVertex> far_enemy = scene_of(350);
+    const std::vector<protekt::game::SceneVertex> far_enemy = scene_of(350);
     ASSERT_FALSE(far_enemy.empty());
     for (const auto& v : far_enemy) {
         EXPECT_FALSE(is_red(v)) << "a hostile outside the radius must not be visible on the radar";
@@ -1239,7 +1239,7 @@ TEST(GroundMetres, ATanksFootingInTheSceneIsContinuousAsItDrivesAcrossATileEdge)
         = options_at(106.0F * kMetresPerTile, 95.0F * kMetresPerTile, kSlopeSeed, 4);
     constexpr std::size_t kBoxVertices = 36;
     const auto footing = [&] {
-        const std::vector<protekt::render::SceneVertex> v
+        const std::vector<protekt::game::SceneVertex> v
             = protekt::game::build_scene(sim, options).vertices;
         float lowest = 1e9F;
         for (std::size_t i = v.size() - kBoxVertices; i < v.size(); ++i) {
@@ -1585,8 +1585,8 @@ SceneOptions calibration_options() {
 }
 
 /// The colour groups of a scene, in order of first appearance: runs of vertices sharing one colour.
-std::vector<std::vector<protekt::render::SceneVertex>> colour_groups(const Scene& scene) {
-    std::vector<std::vector<protekt::render::SceneVertex>> groups;
+std::vector<std::vector<protekt::game::SceneVertex>> colour_groups(const Scene& scene) {
+    std::vector<std::vector<protekt::game::SceneVertex>> groups;
     for (const auto& v : scene.vertices) {
         if (groups.empty() || groups.back().front().colour != v.colour) {
             groups.emplace_back();
@@ -1871,7 +1871,7 @@ SceneOptions bolt_options(const protekt::sim::Sim& sim) {
 
 /// The vertices a scene gained over the same scene with no bolts. Bolts are appended after the
 /// units and there is no radar or reticle in these options, so they are the tail.
-std::vector<protekt::render::SceneVertex> bolt_vertices(const Scene& with, const Scene& without) {
+std::vector<protekt::game::SceneVertex> bolt_vertices(const Scene& with, const Scene& without) {
     if (with.vertices.size() < without.vertices.size()) {
         return {};
     }
@@ -2145,7 +2145,7 @@ Scene facing_scene(const protekt::sim::Sim& sim, float heading, float turret) {
 }
 
 /// The barrel is the last box of the viewer's tank, and the viewer's tank is the end of the scene.
-std::vector<protekt::render::SceneVertex> barrel_of(const Scene& scene) {
+std::vector<protekt::game::SceneVertex> barrel_of(const Scene& scene) {
     const auto first = scene.vertices.end() - static_cast<std::ptrdiff_t>(kBarrelVertices);
     return {first, scene.vertices.end()};
 }
@@ -2179,8 +2179,8 @@ float barrel_reach(const Scene& scene, const protekt::sim::Unit& unit) {
     return reach;
 }
 
-bool same_vertices(const std::vector<protekt::render::SceneVertex>& a,
-                   const std::vector<protekt::render::SceneVertex>& b) {
+bool same_vertices(const std::vector<protekt::game::SceneVertex>& a,
+                   const std::vector<protekt::game::SceneVertex>& b) {
     return a.size() == b.size()
            && std::equal(a.begin(), a.end(), b.begin(), [](const auto& l, const auto& r) {
                   return l.position == r.position && l.colour == r.colour;

@@ -12,6 +12,7 @@
 
 namespace {
 
+using protekt::game::Extent;
 using protekt::game::kRadarRadiusTiles;
 using protekt::game::radar_marks;
 using protekt::game::radar_panel;
@@ -19,7 +20,6 @@ using protekt::game::RadarMark;
 using protekt::game::RadarPanel;
 using protekt::game::RadarShape;
 using protekt::game::RadarTone;
-using protekt::render::Extent;
 using protekt::sim::Fixed;
 using protekt::sim::Side;
 using protekt::sim::Unit;
