@@ -152,8 +152,8 @@ void apply_order(std::vector<Unit>& units, const Order& order) noexcept {
         break;
     case OrderKind::FocusFire:
         if (const auto* o = std::get_if<orders::FocusFire>(&order.payload)) {
-            // Nothing but the target: no stance, no destination, no velocity. Stop is what clears
-            // it.
+            // Nothing but the target: no stance, no destination, no velocity. The shot it names
+            // clears it, and so does Stop.
             unit.focus_target = o->target;
         }
         break;
@@ -418,6 +418,11 @@ void Sim::step() {
         }
         projectiles_.push_back(launch(unit, *best, prof.damage));
         unit.cooldown = prof.cooldown_ticks;
+        // The focus is spent by the shot it names: one click, one bolt. Whoever it was fired at,
+        // the choice of target does not persist; auto-engagement resumes on the next chance.
+        if (unit.focus_target.valid() && best->id == unit.focus_target) {
+            unit.focus_target = UnitId{};
+        }
     }
 
     // 5.

@@ -36,7 +36,9 @@ fine, and firing is the one thing a click may tell it to do — that order sets 
 else. Looking keeps working after the tank is destroyed, and the radar and health bar stay up.
 
 Your gun also fires on its own at any hostile within twelve tiles. Clicking a hostile is how you
-*choose* between them; `Escape` and Stop are how you hold fire. It will **not** fire on your own units on
+*choose* between them: **a click fires one shot**, and keeping the button going keeps firing, but the
+choice of target does not stick -- after that shot the gun is back to the nearest hostile. `Escape`
+and Stop are how you hold fire. It will **not** fire on your own units on
 its own -- only an order crosses that line (see Display/HUD below).
 
 Selected units are drawn brighter than the rest of their side, so you can see what you have hold of.
@@ -49,7 +51,7 @@ says what a click would do before you make it:
 | mark | what a click does |
 |---|---|
 | **white** | a click fires at nothing: you hear the shot, nothing is harmed |
-| **green** | a click fires on **your own** unit. You can destroy your own tank on purpose |
+| **green** | a click fires on **your own** unit. You can destroy your own tank on purpose, though it takes repeated clicks |
 | **red** | a click fires at the hostile under it |
 
 The unit under the mark is tinted as well, so the warning is on the thing itself and not only on the

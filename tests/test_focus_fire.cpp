@@ -72,10 +72,19 @@ void run(Sim& sim, int ticks) {
     }
 }
 
+/// Step until the first bolt has hit the named target, and no further: a second bolt may already be
+/// in the air by then, but it has not landed, so "the first shot" can be spoken of on its own.
+void run_until_first_bolt_lands(Sim& sim, UnitId target) {
+    for (int guard = 0; guard < 300 && sim.find(target)->hp == kFactoryHp; ++guard) {
+        sim.step();
+    }
+    ASSERT_LT(sim.find(target)->hp, kFactoryHp) << "the first bolt never landed on the target";
+}
+
 TEST(FocusFire, TheNamedTargetIsShotAndTheNearerOneIsNot) {
     Field f = field();
     focus_fire(f.sim, f.mine, f.far_enemy);
-    run(f.sim, 90);
+    run_until_first_bolt_lands(f.sim, f.far_enemy);
 
     EXPECT_LT(f.sim.find(f.far_enemy)->hp, kFactoryHp) << "the named target was not shot";
     EXPECT_EQ(f.sim.find(f.near_enemy)->hp, kFactoryHp)
@@ -107,10 +116,12 @@ TEST(FocusFire, AnIdleUnitStillShootsWhatItWasTold) {
     Field f = field();
     EXPECT_EQ(f.sim.find(f.mine)->stance, Stance::Idle);
     focus_fire(f.sim, f.mine, f.far_enemy);
-    run(f.sim, 90);
+    run_until_first_bolt_lands(f.sim, f.far_enemy);
 
     EXPECT_LT(f.sim.find(f.far_enemy)->hp, kFactoryHp);
     EXPECT_EQ(f.sim.find(f.near_enemy)->hp, kFactoryHp);
+    run(f.sim, 90);
+    EXPECT_LT(f.sim.find(f.near_enemy)->hp, kFactoryHp) << "after that shot the gun must fall back";
 }
 
 TEST(FocusFire, StopClearsItAndTheGunGoesBackToTheNearest) {
@@ -132,14 +143,67 @@ TEST(FocusFire, StopClearsItAndTheGunGoesBackToTheNearest) {
         << "with the focus cleared it must go back to engaging the nearest hostile in range";
 }
 
-TEST(FocusFire, WhenTheNamedTargetDiesTheGunFallsBackToTheNearest) {
+TEST(FocusFire, TheFocusIsSpentAndTheGunEngagesTheNearestHostile) {
+    // Formerly "when the named target dies": a single order no longer lives long enough to kill
+    // anything, so the honest premise is that the shot spends the focus.
     Field f = field();
     focus_fire(f.sim, f.mine, f.far_enemy);
-    run(f.sim, 1200);
-
-    EXPECT_FALSE(f.sim.find(f.far_enemy)->alive) << "the named target should have been destroyed";
+    run_until_first_bolt_lands(f.sim, f.far_enemy);
+    EXPECT_FALSE(f.sim.find(f.mine)->focus_target.valid());
+    run(f.sim, 90);
     EXPECT_LT(f.sim.find(f.near_enemy)->hp, kFactoryHp)
-        << "with the named target gone the gun must go back to engaging what is in range";
+        << "with the focus spent the gun must go back to engaging what is in range";
+}
+
+TEST(FocusFire, AClickFiresOneShotAndTheFocusIsSpent) {
+    Field f = field();
+    const std::uint16_t damage = profile(UnitKind::Tank).damage;
+    focus_fire(f.sim, f.mine, f.far_enemy);
+    run(f.sim, 10 * profile(UnitKind::Tank).cooldown_ticks);
+
+    EXPECT_EQ(f.sim.find(f.far_enemy)->hp, kFactoryHp - damage)
+        << "one click must cost the named target exactly one bolt";
+    EXPECT_FALSE(f.sim.find(f.mine)->focus_target.valid()) << "the focus outlived its shot";
+}
+
+TEST(FocusFire, TheGunFallsBackToTheNearestHostileAfterThatShot) {
+    Field f = field();
+    focus_fire(f.sim, f.mine, f.far_enemy);
+    run(f.sim, 4 * profile(UnitKind::Tank).cooldown_ticks);
+
+    EXPECT_LT(f.sim.find(f.near_enemy)->hp, kFactoryHp)
+        << "auto-engagement did not resume on the nearest hostile";
+}
+
+TEST(FocusFire, KeepingOnClickingStillKillsYourOwnUnit) {
+    // Friendly fire survives as a capability; it just takes repeated deliberate clicks.
+    Scenario scenario{};
+    scenario.seed = 42;
+    const auto add = [&](Side side, UnitKind kind, int tile_x) {
+        Spawn spawn{};
+        spawn.side = side;
+        spawn.kind = kind;
+        spawn.tile_x = tile_x;
+        spawn.tile_y = 100;
+        scenario.spawns.push_back(spawn);
+    };
+    add(Side::Player, UnitKind::Tank, 100);
+    add(Side::Player, UnitKind::Factory, 103);
+    Sim sim = Sim::create(scenario);
+    UnitId mine{};
+    UnitId friendly{};
+    for (const Unit& unit : sim.units()) {
+        (unit.kind == UnitKind::Tank ? mine : friendly) = unit.id;
+    }
+
+    const int cooldown = profile(UnitKind::Tank).cooldown_ticks;
+    for (int tick = 0; tick < 3000 && sim.find(friendly)->alive; ++tick) {
+        if (tick % cooldown == 0) {
+            sim.enqueue(Order{mine, orders::FocusFire{friendly}});
+        }
+        sim.step();
+    }
+    EXPECT_FALSE(sim.find(friendly)->alive) << "repeated clicks must still destroy your own unit";
 }
 
 } // namespace

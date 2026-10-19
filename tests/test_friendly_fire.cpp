@@ -98,8 +98,12 @@ TEST(FriendlyFire, ExplicitOrdersOnAHostileStillWork) {
 
 TEST(FriendlyFire, AFriendlyKilledByExplicitFireDies) {
     Field f = field(false);
-    f.sim.enqueue(Order{f.shooter, orders::FocusFire{f.friendly}});
-    run(f.sim, 3000);
+    // One click is one shot now, so destroying a friendly takes a click per shot, as a player's
+    // held button would send them.
+    for (int tick = 0; tick < 3000; ++tick) {
+        f.sim.enqueue(Order{f.shooter, orders::FocusFire{f.friendly}});
+        f.sim.step();
+    }
     const Unit* dead = f.sim.find(f.friendly);
     ASSERT_NE(dead, nullptr);
     EXPECT_FALSE(dead->alive);
