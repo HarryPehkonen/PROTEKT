@@ -478,7 +478,7 @@ int run_game_cli(std::span<const std::string_view> args, std::ostream& out, std:
             sim.step();
             const std::vector<sim::BattleEvent> events
                 = sim::events_between(before, sim, tick_number);
-            if (game::unit_was_hit(events, player_id, before)) {
+            if (game::unit_was_hit(events, player_id)) {
                 hit_flash.hit(sim.tick());
             }
             if (!listening) {

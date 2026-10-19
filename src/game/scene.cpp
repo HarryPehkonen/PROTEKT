@@ -484,19 +484,14 @@ float HitFlash::level(sim::Tick now) const noexcept {
     return 1.0F - (static_cast<float>(elapsed) / static_cast<float>(kHitFlashTicks));
 }
 
-bool unit_was_hit(std::span<const sim::BattleEvent> events, sim::UnitId unit,
-                  std::span<const sim::Unit> before) noexcept {
+bool unit_was_hit(std::span<const sim::BattleEvent> events, sim::UnitId unit) noexcept {
+    // A HitTaken names the victim in `subject`, and there is one only when a bolt LANDED. This used
+    // to infer the hit from a Fired event whose subject had lost hit points -- which stopped being
+    // true the day damage moved to the projectile's arrival, and silently stopped the flash ever
+    // firing. Reading the event that means what we want is the whole fix.
     for (const sim::BattleEvent& event : events) {
-        if (event.kind != sim::EventKind::Fired || event.subject != unit) {
-            continue;
-        }
-        for (const sim::Unit& was : before) {
-            if (was.id == unit) {
-                if (event.subject_hp < was.hp) {
-                    return true;
-                }
-                break;
-            }
+        if (event.kind == sim::EventKind::HitTaken && event.subject == unit) {
+            return true;
         }
     }
     return false;

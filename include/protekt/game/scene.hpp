@@ -115,11 +115,9 @@ private:
     bool armed_{false};
 };
 
-/// True when one of `events` is a shot that took hit points off `unit`. `before` is the unit table
-/// as it stood BEFORE the tick the events describe: an event alone says what the target has left,
-/// not whether the shot cost it anything.
-[[nodiscard]] bool unit_was_hit(std::span<const sim::BattleEvent> events, sim::UnitId unit,
-                                std::span<const sim::Unit> before) noexcept;
+/// True when one of `events` is a `HitTaken` whose victim is `unit` -- a bolt landed on it.
+[[nodiscard]] bool unit_was_hit(std::span<const sim::BattleEvent> events,
+                                sim::UnitId unit) noexcept;
 
 /// Column-major view-projection for a camera, matching what the vertex shader expects.
 [[nodiscard]] std::array<float, 16> view_projection(const Camera& camera, float aspect,

@@ -1724,21 +1724,25 @@ TEST(HitFlash, ASecondHitRearmsItFromTheTop) {
     EXPECT_GT(flash.level(100 + kHitFlashTicks), 0.0F) << "the first hit's end no longer ends it";
 }
 
-TEST(HitFlash, OnlyAShotThatCostHitPointsOnThatUnitCounts) {
+TEST(HitFlash, OnlyALandedBoltOnThatUnitCounts) {
     using protekt::sim::BattleEvent;
     using protekt::sim::EventKind;
-    protekt::sim::Unit unit{};
-    unit.id = protekt::sim::UnitId{1};
-    unit.hp = 100;
-    const std::vector<protekt::sim::Unit> before{unit};
-    const auto fired = [](std::uint32_t subject, std::uint16_t hp) {
-        return BattleEvent{5, EventKind::Fired, protekt::sim::UnitId{9},
-                           protekt::sim::UnitId{subject}, hp};
+    // A HitTaken names the victim; a Fired does NOT mean a hit any more, because the damage now
+    // lands a flight-time later. Reading Fired here is what silently killed the flash once
+    // projectiles arrived, so this test insists on the event that means what we want.
+    const auto hit = [](std::uint32_t victim) {
+        return BattleEvent{5, EventKind::HitTaken, protekt::sim::UnitId{9},
+                           protekt::sim::UnitId{victim}, 90};
     };
-    EXPECT_TRUE(unit_was_hit(std::vector{fired(1, 90)}, unit.id, before));
-    EXPECT_FALSE(unit_was_hit(std::vector{fired(1, 100)}, unit.id, before)) << "cost nothing";
-    EXPECT_FALSE(unit_was_hit(std::vector{fired(2, 10)}, unit.id, before)) << "someone else";
-    EXPECT_FALSE(unit_was_hit(std::vector<BattleEvent>{}, unit.id, before));
+    const auto fired_at = [](std::uint32_t victim) {
+        return BattleEvent{5, EventKind::Fired, protekt::sim::UnitId{9},
+                           protekt::sim::UnitId{victim}, 100};
+    };
+    EXPECT_TRUE(unit_was_hit(std::vector{hit(1)}, protekt::sim::UnitId{1}));
+    EXPECT_FALSE(unit_was_hit(std::vector{hit(2)}, protekt::sim::UnitId{1})) << "someone else";
+    EXPECT_FALSE(unit_was_hit(std::vector{fired_at(1)}, protekt::sim::UnitId{1}))
+        << "a shot LEAVING the gun is not a hit";
+    EXPECT_FALSE(unit_was_hit(std::vector<BattleEvent>{}, protekt::sim::UnitId{1}));
 }
 
 TEST(SceneHitFlash, ZeroDrawsNothingAtAll) {
