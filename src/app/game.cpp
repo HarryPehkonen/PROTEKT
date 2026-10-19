@@ -461,8 +461,8 @@ int run_game_cli(std::span<const std::string_view> args, std::ostream& out, std:
         // frame.
         std::vector<audio::Voice> voices;
         // A trigger pulled at the ground or the sky: no order, so the sim has no event to hear.
-        if (session.take_shot_at_nothing()) {
-            voices.push_back(game::shot_at_nothing_voice());
+        if (session.take_shot_voice()) {
+            voices.push_back(game::shot_voice());
         }
         const game::Listener listener{scene_options.camera.x, scene_options.camera.z,
                                       scene_options.camera.yaw, sim::Side::Player};

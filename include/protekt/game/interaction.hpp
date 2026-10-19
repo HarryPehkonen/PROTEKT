@@ -17,9 +17,10 @@ namespace protekt::game {
 /// already ordered -- is not on this timer.
 inline constexpr sim::Tick kManualShotIntervalTicks = 8;
 
-/// The voice of a shot fired at nothing: the player's own gun, full gain, centred. The same voice
-/// `sounds_for` gives a shot the sim fires from the player's side.
-[[nodiscard]] audio::Voice shot_at_nothing_voice() noexcept;
+/// The voice of a manual shot: the player's own gun, full gain, centred. Every trigger pull makes
+/// this sound, whatever it was aimed at, because the sim reports no `Fired` event for a shot the
+/// player asked for. The same voice `sounds_for` gives a shot the sim fires from the player's side.
+[[nodiscard]] audio::Voice shot_voice() noexcept;
 
 /// The player's hands, as a pure function of input and what he can see.
 ///
@@ -42,7 +43,7 @@ public:
     ///  * left click: THE TRIGGER, whatever is under the mark, at most once per
     ///    `kManualShotIntervalTicks`. It is always one FireTowards from the driven tank, along the
     ///    turret's aim: a unit under the mark is named in `aimed_at` as intent and does not bend
-    ///    the path. The shot is also to be heard (`take_shot_at_nothing`). It never changes the
+    ///    the path. The shot is also to be heard (`take_shot_voice`). It never changes the
     ///    selection.
     ///  * Space / Shift-Space: select the own unit under the mark / toggle it
     ///  * right click on the ground with a selection: MoveTo that tile, for every selected unit
@@ -63,10 +64,10 @@ public:
     [[nodiscard]] std::vector<sim::Order> take_orders() noexcept;
 
     /// Whether the last `handle` pulled the trigger: a bolt is on the order queue for it (a
-    /// FireTowards), and this is the shot to play `shot_at_nothing_voice` for. The sim reports no
+    /// FireTowards), and this is the shot to play `shot_voice` for. The sim reports no
     /// Fired event for a manual shot, so this is the only sound it makes. Drained by reading, like
     /// the orders.
-    [[nodiscard]] bool take_shot_at_nothing() noexcept;
+    [[nodiscard]] bool take_shot_voice() noexcept;
 
     [[nodiscard]] const cmd::Selection& selection() const noexcept;
     [[nodiscard]] sim::UnitId driven() const noexcept;
@@ -89,7 +90,7 @@ private:
     sim::UnitId driven_;
     cmd::Selection selection_;
     std::vector<sim::Order> pending_;
-    bool shot_at_nothing_{false};
+    bool shot_voice_{false};
     bool has_fired_{false};
     sim::Tick last_shot_tick_{};
     std::string_view message_;

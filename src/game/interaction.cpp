@@ -31,9 +31,7 @@ namespace {
 
 } // namespace
 
-audio::Voice shot_at_nothing_voice() noexcept {
-    return audio::Voice{audio::SoundKind::YourShot, 1.0F, 0.0F};
-}
+audio::Voice shot_voice() noexcept { return audio::Voice{audio::SoundKind::YourShot, 1.0F, 0.0F}; }
 
 Interaction::Interaction(sim::UnitId driven) noexcept : driven_(driven) {}
 
@@ -41,7 +39,7 @@ void Interaction::handle(const input::InputFrame& frame, const sim::Sim& sim,
                          const SceneOptions& options) {
     message_ = std::string_view{};
     pending_.clear();
-    shot_at_nothing_ = false;
+    shot_voice_ = false;
 
     selection_.retain(living_own(sim));
 
@@ -89,7 +87,7 @@ void Interaction::handle(const input::InputFrame& frame, const sim::Sim& sim,
                                                   named ? hit->id : sim::UnitId{}}});
             // Every manual shot is one order, one bolt, and the app's own sound: the sim reports
             // no Fired event for it, so this is the only thing the player hears.
-            shot_at_nothing_ = true;
+            shot_voice_ = true;
             if (named) {
                 message_ = hit_is_hostile ? "engaging the target under the crosshair."
                                           : "firing on your own unit.";
@@ -181,7 +179,7 @@ std::vector<sim::Order> Interaction::take_orders() noexcept {
     return std::exchange(pending_, std::vector<sim::Order>{});
 }
 
-bool Interaction::take_shot_at_nothing() noexcept { return std::exchange(shot_at_nothing_, false); }
+bool Interaction::take_shot_voice() noexcept { return std::exchange(shot_voice_, false); }
 
 const cmd::Selection& Interaction::selection() const noexcept { return selection_; }
 

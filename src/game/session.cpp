@@ -67,7 +67,7 @@ void Session::frame(const input::InputFrame& frame, const sim::Sim& sim,
     }
 }
 
-bool Session::take_shot_at_nothing() noexcept { return interaction_.take_shot_at_nothing(); }
+bool Session::take_shot_voice() noexcept { return interaction_.take_shot_voice(); }
 
 sim::UnitId Session::driven() const noexcept { return interaction_.driven(); }
 

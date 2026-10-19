@@ -422,8 +422,8 @@ TEST(Session, ALeftClickOnTheGroundIsAShotToHearAndSeeAndMovesNothing) {
     Click click = ground_click(rig);
     click.button = MouseButton::Left;
     session.frame(with_click(click), rig.sim, rig.options, orders);
-    EXPECT_TRUE(session.take_shot_at_nothing());
-    EXPECT_FALSE(session.take_shot_at_nothing());
+    EXPECT_TRUE(session.take_shot_voice());
+    EXPECT_FALSE(session.take_shot_voice());
     ASSERT_EQ(orders.size(), 2U) << "the throttle's order, and the bolt fired at nothing";
     EXPECT_EQ(orders.front().kind(), sim::OrderKind::MoveTo);
     EXPECT_EQ(orders.back().kind(), sim::OrderKind::FireTowards);
@@ -443,7 +443,7 @@ TEST(Session, ALeftClickOnAnOwnUnitFiresAlongTheAimNamingIt) {
         }
     }
     EXPECT_TRUE(fired_on_b);
-    EXPECT_TRUE(session.take_shot_at_nothing())
+    EXPECT_TRUE(session.take_shot_voice())
         << "a manual shot is the app's to announce: the sim reports no Fired event for it";
     EXPECT_TRUE(session.selection().empty());
 }

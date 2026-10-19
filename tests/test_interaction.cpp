@@ -211,7 +211,7 @@ TEST(Trigger, AClickOnTheGroundFiresABoltOntoTheOrderQueue) {
     player.handle(with_click(ground_click(rig)), rig.sim, rig.options);
 
     // Both halves, and neither may be traded for the other: the bolt is seen AND heard.
-    const bool heard = player.take_shot_at_nothing();
+    const bool heard = player.take_shot_voice();
     const std::vector<Order> orders = player.take_orders();
     ASSERT_EQ(orders.size(), 1U);
     EXPECT_EQ(orders.at(0).kind(), OrderKind::FireTowards);
@@ -250,9 +250,9 @@ TEST(Trigger, TheTriggerStillMakesOneBoltAndOneSoundPerClick) {
         Interaction player{rig.tank_a};
         const Click click = on_unit ? at(rig, rig.enemy) : ground_click(rig);
         player.handle(with_click(click), rig.sim, rig.options);
-        EXPECT_TRUE(player.take_shot_at_nothing())
+        EXPECT_TRUE(player.take_shot_voice())
             << "the app announces every manual shot, on a unit or not";
-        EXPECT_FALSE(player.take_shot_at_nothing()) << "once";
+        EXPECT_FALSE(player.take_shot_voice()) << "once";
         const std::vector<Order> orders = player.take_orders();
         ASSERT_EQ(orders.size(), 1U) << on_unit;
         EXPECT_EQ(orders.at(0).kind(), OrderKind::FireTowards);
@@ -276,7 +276,7 @@ TEST(Trigger, AManualShotAtAHostileInRangeEmitsNoFiredEvent) {
     Rig rig = make_rig();
     Interaction player{rig.tank_a};
     player.handle(with_click(at(rig, rig.enemy)), rig.sim, rig.options);
-    ASSERT_TRUE(player.take_shot_at_nothing()) << "the app's own sound is what the player hears";
+    ASSERT_TRUE(player.take_shot_voice()) << "the app's own sound is what the player hears";
     const std::vector<Order> orders = player.take_orders();
     ASSERT_EQ(orders.size(), 1U);
     ASSERT_EQ(std::get<sim::orders::FireTowards>(orders.at(0).payload).aimed_at, rig.enemy);
@@ -321,7 +321,7 @@ TEST(Trigger, AShotAtAUnitIsTheAppsToAnnounceNotTheSims) {
     Rig rig = make_rig();
     Interaction player{rig.tank_a};
     player.handle(with_click(at(rig, rig.enemy)), rig.sim, rig.options);
-    EXPECT_TRUE(player.take_shot_at_nothing());
+    EXPECT_TRUE(player.take_shot_voice());
 }
 
 TEST(Trigger, AShotAtNothingGoesWhereTheCameraLooks) {
@@ -353,12 +353,12 @@ TEST(Trigger, AShotAtNothingGoesWhereTheCameraLooks) {
 TEST(Trigger, AClickOnGroundOrSkyIsAShotThePlayerCanHear) {
     Rig rig = make_rig();
     Interaction player{rig.tank_a};
-    EXPECT_FALSE(player.take_shot_at_nothing()) << "no click, no shot";
+    EXPECT_FALSE(player.take_shot_voice()) << "no click, no shot";
     player.handle(with_click(ground_click(rig)), rig.sim, rig.options);
-    EXPECT_TRUE(player.take_shot_at_nothing()) << "no order must not mean no sound";
-    EXPECT_FALSE(player.take_shot_at_nothing()) << "drained once";
+    EXPECT_TRUE(player.take_shot_voice()) << "no order must not mean no sound";
+    EXPECT_FALSE(player.take_shot_voice()) << "drained once";
 
-    const audio::Voice voice = shot_at_nothing_voice();
+    const audio::Voice voice = shot_voice();
     EXPECT_EQ(voice.kind, audio::SoundKind::YourShot);
     EXPECT_FLOAT_EQ(voice.gain, 1.0F);
     EXPECT_FLOAT_EQ(voice.pan, 0.0F);
@@ -371,19 +371,18 @@ TEST(Trigger, TwoClicksInsideOneIntervalAreOneShotAndALaterClickIsAnother) {
     two.clicks.push_back(ground_click(rig));
     two.clicks.push_back(ground_click(rig));
     player.handle(two, rig.sim, rig.options);
-    EXPECT_TRUE(player.take_shot_at_nothing());
-    EXPECT_FALSE(player.take_shot_at_nothing())
-        << "the second click in the same frame is swallowed";
+    EXPECT_TRUE(player.take_shot_voice());
+    EXPECT_FALSE(player.take_shot_voice()) << "the second click in the same frame is swallowed";
 
     for (sim::Tick t = 0; t + 1 < kManualShotIntervalTicks; ++t) {
         rig.sim.step();
     }
     player.handle(with_click(ground_click(rig)), rig.sim, rig.options);
-    EXPECT_FALSE(player.take_shot_at_nothing()) << "one tick short of the interval";
+    EXPECT_FALSE(player.take_shot_voice()) << "one tick short of the interval";
 
     rig.sim.step();
     player.handle(with_click(ground_click(rig)), rig.sim, rig.options);
-    EXPECT_TRUE(player.take_shot_at_nothing()) << "a full interval later the gun is ready";
+    EXPECT_TRUE(player.take_shot_voice()) << "a full interval later the gun is ready";
 }
 
 TEST(Trigger, TheTimerLimitsTheButtonForOrdersToo) {
@@ -402,7 +401,7 @@ TEST(Trigger, TheTimerDoesNotTouchOtherInput) {
     Interaction player{rig.tank_a};
     choose(rig, player, rig.tank_b);
     player.handle(with_click(ground_click(rig)), rig.sim, rig.options);
-    static_cast<void>(player.take_shot_at_nothing());
+    static_cast<void>(player.take_shot_voice());
     player.handle(with_click(ground_click(rig, true)), rig.sim, rig.options);
     EXPECT_EQ(player.take_orders().size(), 1U);
 }
@@ -731,7 +730,7 @@ TEST(Interaction, AClickWithNoMarkDoesNothing) {
     player.handle(with_click(click), rig.sim, rig.options);
     EXPECT_TRUE(player.selection().empty());
     EXPECT_TRUE(player.take_orders().empty());
-    EXPECT_FALSE(player.take_shot_at_nothing()) << "and it makes no sound either";
+    EXPECT_FALSE(player.take_shot_voice()) << "and it makes no sound either";
 }
 
 } // namespace protekt::game
