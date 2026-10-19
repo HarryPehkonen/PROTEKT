@@ -17,9 +17,9 @@ namespace protekt::game {
 /// already ordered -- is not on this timer.
 inline constexpr sim::Tick kManualShotIntervalTicks = 8;
 
-/// The voice of a shot that hits nothing: the player's own gun, full gain, centred. The same voice
+/// The voice of a shot fired at nothing: the player's own gun, full gain, centred. The same voice
 /// `sounds_for` gives a shot the sim fires from the player's side.
-[[nodiscard]] audio::Voice dry_shot_voice() noexcept;
+[[nodiscard]] audio::Voice shot_at_nothing_voice() noexcept;
 
 /// The player's hands, as a pure function of input and what he can see.
 ///
@@ -41,8 +41,8 @@ public:
     ///
     ///  * left click: THE TRIGGER, whatever is under the mark, at most once per
     ///    `kManualShotIntervalTicks`. On any unit, hostile or ours, it is a FocusFire from the
-    ///    driven tank; on the ground or the sky it is no order, only a shot to be heard
-    ///    (`take_dry_shot`). It never changes the selection.
+    ///    driven tank; on the ground or the sky it is a FireTowards along the turret's aim, and the
+    ///    shot is also to be heard (`take_shot_at_nothing`). It never changes the selection.
     ///  * Space / Shift-Space: select the own unit under the mark / toggle it
     ///  * right click on the ground with a selection: MoveTo that tile, for every selected unit
     ///  that
@@ -61,9 +61,10 @@ public:
     /// build them that way and the order the player clicked in must not change what the sim sees.
     [[nodiscard]] std::vector<sim::Order> take_orders() noexcept;
 
-    /// Whether the last `handle` pulled the trigger at nothing: a shot to play `dry_shot_voice`
-    /// for. Drained by reading, like the orders.
-    [[nodiscard]] bool take_dry_shot() noexcept;
+    /// Whether the last `handle` pulled the trigger at nothing: a bolt is on the order queue
+    /// for it (a FireTowards), and this is the shot to play `shot_at_nothing_voice` for. Drained by
+    /// reading, like the orders.
+    [[nodiscard]] bool take_shot_at_nothing() noexcept;
 
     [[nodiscard]] const cmd::Selection& selection() const noexcept;
     [[nodiscard]] sim::UnitId driven() const noexcept;
@@ -86,7 +87,7 @@ private:
     sim::UnitId driven_;
     cmd::Selection selection_;
     std::vector<sim::Order> pending_;
-    bool dry_shot_{false};
+    bool shot_at_nothing_{false};
     bool has_fired_{false};
     sim::Tick last_shot_tick_{};
     std::string_view message_;

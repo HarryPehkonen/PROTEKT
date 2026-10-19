@@ -26,9 +26,10 @@ public:
     void frame(const input::InputFrame& frame, const sim::Sim& sim, const SceneOptions& options,
                std::vector<sim::Order>& out);
 
-    /// Whether the last frame pulled the trigger at the ground or the sky: a shot the sim knows
-    /// nothing about, to be heard through `dry_shot_voice`. Drained by reading.
-    [[nodiscard]] bool take_dry_shot() noexcept;
+    /// Whether the last frame pulled the trigger at the ground or the sky: a bolt is queued as a
+    /// FireTowards order, and the shot is heard through `shot_at_nothing_voice`. Drained by
+    /// reading.
+    [[nodiscard]] bool take_shot_at_nothing() noexcept;
 
     [[nodiscard]] sim::UnitId driven() const noexcept;
     /// The hull's heading: where the tank points and drives. Only A/D turn it. Presentation state,

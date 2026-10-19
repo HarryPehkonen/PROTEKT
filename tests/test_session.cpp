@@ -411,7 +411,7 @@ TEST(Session, EscapeClearsTheSelection) {
     EXPECT_TRUE(session.selection().empty());
 }
 
-TEST(Session, ALeftClickOnTheGroundIsAShotToHearAndMovesNothing) {
+TEST(Session, ALeftClickOnTheGroundIsAShotToHearAndSeeAndMovesNothing) {
     Rig rig = make_rig();
     Session session{rig.tank_a};
     run_frames(rig, session, {space_on(rig, rig.tank_b)});
@@ -422,10 +422,11 @@ TEST(Session, ALeftClickOnTheGroundIsAShotToHearAndMovesNothing) {
     Click click = ground_click(rig);
     click.button = MouseButton::Left;
     session.frame(with_click(click), rig.sim, rig.options, orders);
-    EXPECT_TRUE(session.take_dry_shot());
-    EXPECT_FALSE(session.take_dry_shot());
-    ASSERT_EQ(orders.size(), 1U) << "only the throttle's order: the shot issued none";
+    EXPECT_TRUE(session.take_shot_at_nothing());
+    EXPECT_FALSE(session.take_shot_at_nothing());
+    ASSERT_EQ(orders.size(), 2U) << "the throttle's order, and the bolt fired at nothing";
     EXPECT_EQ(orders.front().kind(), sim::OrderKind::MoveTo);
+    EXPECT_EQ(orders.back().kind(), sim::OrderKind::FireTowards);
     EXPECT_EQ(session.selection().size(), 1U) << "and the selection survived the shot";
 }
 
@@ -442,7 +443,7 @@ TEST(Session, ALeftClickOnAnOwnUnitFiresOnItThroughTheSim) {
         }
     }
     EXPECT_TRUE(fired_on_b);
-    EXPECT_FALSE(session.take_dry_shot()) << "the sim makes the sound of a shot it fires";
+    EXPECT_FALSE(session.take_shot_at_nothing()) << "the sim makes the sound of a shot it fires";
     EXPECT_TRUE(session.selection().empty());
 }
 

@@ -111,7 +111,8 @@ void apply_posted(Unit& unit, Stance stance, Fixed x, Fixed y, Fixed x2, Fixed y
     unit.target = UnitId{};
 }
 
-void apply_order(std::vector<Unit>& units, const Order& order) noexcept {
+void apply_order(std::vector<Unit>& units, std::vector<Projectile>& projectiles,
+                 const Order& order) noexcept {
     // Re-validated here: the unit may have died between enqueue and the tick it takes effect.
     if (!order_is_valid(units, order)) {
         return;
@@ -155,6 +156,18 @@ void apply_order(std::vector<Unit>& units, const Order& order) noexcept {
             // Nothing but the target: no stance, no destination, no velocity. The shot it names
             // clears it, and so does Stop.
             unit.focus_target = o->target;
+        }
+        break;
+    case OrderKind::FireTowards:
+        if (const auto* o = std::get_if<orders::FireTowards>(&order.payload)) {
+            // The trigger with nothing under it: the bolt is launched here, where the order is
+            // applied, and the gun reloads as it does after any other shot. A gun still reloading,
+            // or a unit with none, fires nothing. The bolt flies on through this tick's step 3.
+            const UnitProfile prof = profile(unit.kind);
+            if (prof.weapon_range.raw > 0 && prof.damage > 0 && unit.cooldown == 0) {
+                projectiles.push_back(launch_towards(unit, o->dir_x, o->dir_y, prof.damage));
+                unit.cooldown = prof.cooldown_ticks;
+            }
         }
         break;
     }
@@ -338,7 +351,7 @@ void Sim::enqueue(const Order& order) {
 void Sim::step() {
     // 1. orders, in the order enqueued.
     for (const Order& order : pending_) {
-        apply_order(units_, order);
+        apply_order(units_, projectiles_, order);
     }
     pending_.clear();
 

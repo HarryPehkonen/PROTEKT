@@ -67,8 +67,9 @@ does not follow it: a target that turns or stops after the shot is missed. It **
 velocity**, so firing sideways while you are driving throws the shot off by roughly your speed over
 the flight, exactly as a real one would. It **keeps flying if its target dies first** and can hit
 whatever else it meets, and it **fizzles after 16 tiles**, having harmed nothing. Your bolts are the
-bright cyan ones and the enemy's are orange-yellow. A shot at the ground or the sky makes the sound and
-nothing else: there is nothing there to hit. The button is rate-limited to about four shots a second;
+bright cyan ones and the enemy's are orange-yellow. A shot at the ground or the sky is still a shot:
+the bolt flies along the way your turret points, you see it and hear it, it can hit anything in its
+path (your own side excepted) and it fizzles at range. It follows nothing. The button is rate-limited to about four shots a second;
 your gun's own auto-fire is not. When you are hit the screen flashes red and fades over 0.4 seconds.
 
 **Shooting never costs you your selection.** A click on the ground, the sky, a hostile or your own unit leaves it alone --

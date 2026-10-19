@@ -487,4 +487,47 @@ TEST(Sim, AnAttackOrderFallsBackToTheNearestWhenItsTargetDies) {
     EXPECT_LT(sim.find(near_factory)->hp, before) << "with the target dead, auto-engage resumes";
 }
 
+/// A player tank whose gun has finished its opening reload, with no enemy anywhere near.
+Sim reloaded_lone_tank() {
+    Sim sim = Sim::create(two_tanks(7));
+    for (int t = 0; t < profile(UnitKind::Tank).cooldown_ticks; ++t) {
+        sim.step();
+    }
+    return sim;
+}
+
+TEST(Sim, AFireTowardsOrderLaunchesOneBolt) {
+    Sim sim = reloaded_lone_tank();
+    ASSERT_TRUE(sim.projectiles().empty());
+    const UnitId mine = id_of(sim, Side::Player, 0);
+    sim.enqueue(Order{mine, orders::FireTowards{Fixed::zero(), Fixed::from_int(1)}});
+    sim.step();
+    ASSERT_EQ(sim.projectiles().size(), 1U);
+    const Projectile& bolt = sim.projectiles().front();
+    EXPECT_EQ(bolt.shooter, mine);
+    EXPECT_FALSE(bolt.aimed_at.valid());
+    EXPECT_EQ(bolt.damage, profile(UnitKind::Tank).damage);
+    EXPECT_EQ(bolt.vx.raw, 0) << "asked for due south";
+    EXPECT_GT(bolt.vy.raw, 0) << "asked for due south";
+    EXPECT_EQ(sim.find(mine)->stance, Stance::Idle) << "a shot is not a movement order";
+}
+
+TEST(Sim, FireTowardsObeysTheWeaponCooldown) {
+    Sim sim = reloaded_lone_tank();
+    const UnitId mine = id_of(sim, Side::Player, 0);
+    sim.enqueue(Order{mine, orders::FireTowards{Fixed::from_int(1), Fixed::zero()}});
+    sim.enqueue(Order{mine, orders::FireTowards{Fixed::zero(), Fixed::from_int(1)}});
+    sim.step();
+    EXPECT_EQ(sim.projectiles().size(), 1U) << "two orders in one tick, one gun, one bolt";
+
+    // And it reloads like any shot: once the cooldown has run out the gun answers again.
+    for (int t = 0; t < profile(UnitKind::Tank).cooldown_ticks; ++t) {
+        sim.step();
+    }
+    sim.enqueue(Order{mine, orders::FireTowards{Fixed::from_int(1), Fixed::zero()}});
+    const std::size_t before = sim.projectiles().size();
+    sim.step();
+    EXPECT_EQ(sim.projectiles().size(), before + 1);
+}
+
 } // namespace

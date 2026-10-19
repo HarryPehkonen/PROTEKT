@@ -59,6 +59,9 @@ void expect_same_order(const Order& got, const Order& want) {
                 EXPECT_EQ(g.y, w.y);
                 EXPECT_EQ(g.x2, w.x2);
                 EXPECT_EQ(g.y2, w.y2);
+            } else if constexpr (std::is_same_v<P, orders::FireTowards>) {
+                EXPECT_EQ(g.dir_x, w.dir_x);
+                EXPECT_EQ(g.dir_y, w.dir_y);
             } else if constexpr (std::is_same_v<P, orders::Attack>
                                  || std::is_same_v<P, orders::FocusFire>) {
                 EXPECT_EQ(g.target, w.target);
@@ -134,6 +137,8 @@ TEST(Replay, EveryOrderKindSurvivesARoundTripAndNoneIsDropped) {
         Command{4, Order{UnitId{5}, orders::Attack{UnitId{9}}}},
         Command{5, Order{UnitId{6}, orders::Stop{}}},
         Command{6, Order{UnitId{7}, orders::FocusFire{UnitId{11}}}},
+        Command{7, Order{UnitId{8},
+                         orders::FireTowards{Fixed::from_raw(-65536), Fixed::from_raw(46341)}}},
     };
     ASSERT_EQ(r.commands.size(), kOrderKindCount) << "this test must cover every kind";
     for (std::size_t i = 0; i < r.commands.size(); ++i) {
@@ -146,6 +151,7 @@ TEST(Replay, EveryOrderKindSurvivesARoundTripAndNoneIsDropped) {
               2 + r.commands.size())
         << "header + seed + one line per order: a kind with no spelling is a dropped command";
     EXPECT_NE(text.find("6 focusfire 7 11\n"), std::string::npos) << text;
+    EXPECT_NE(text.find("7 firetowards 8 -65536 46341\n"), std::string::npos) << text;
 
     const Replay again = must_parse(text);
     ASSERT_EQ(again.commands.size(), r.commands.size());

@@ -6,6 +6,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <array>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -448,6 +449,124 @@ namespace fs = std::filesystem;
 }
 
 } // namespace
+
+namespace {
+
+/// A lone tank, copied out of a sim so a test can place and move it freely.
+[[nodiscard]] Unit lone_tank() {
+    const Sim sim = make({{Side::Player, UnitKind::Tank, 100, 100}});
+    return *sim.find(kFirst);
+}
+
+/// Flies `bolt` until it is gone or `limit` ticks pass; returns the ticks flown.
+int fly_until_gone(Projectile bolt, std::vector<Unit>& units, std::vector<Impact>& impacts,
+                   int limit = 200) {
+    std::vector<Projectile> air{bolt};
+    int ticks = 0;
+    while (!air.empty() && ticks < limit) {
+        advance_projectiles(air, units, impacts);
+        ++ticks;
+    }
+    return ticks;
+}
+
+} // namespace
+
+TEST(Projectile, ABoltFiredAtNothingFliesTheWayItWasAimed) {
+    // THE SIGN TEST. The map plane is x east, y south (smaller y is north, as the tank test above
+    // drives "north" with vy < 0). Each direction must come out with its own signs and no others.
+    const Unit tank = lone_tank();
+    struct Case {
+        int dx;
+        int dy;
+        int sign_x;
+        int sign_y;
+    };
+    for (const Case c : {Case{1, 0, 1, 0}, Case{-1, 0, -1, 0}, Case{0, -1, 0, -1}, Case{0, 1, 0, 1},
+                         Case{1, 1, 1, 1}, Case{-3, 2, -1, 1}}) {
+        const Projectile bolt
+            = launch_towards(tank, Fixed::from_int(c.dx), Fixed::from_int(c.dy), kTankDamage);
+        const auto sign = [](std::int32_t v) { return (v > 0) - (v < 0); };
+        EXPECT_EQ(sign(bolt.vx.raw), c.sign_x) << c.dx << "," << c.dy;
+        EXPECT_EQ(sign(bolt.vy.raw), c.sign_y) << c.dx << "," << c.dy;
+        EXPECT_NEAR(static_cast<double>(isqrt(speed_squared(bolt))),
+                    static_cast<double>(kProjectileSpeedRaw), 2.0)
+            << "the direction is normalised, whatever its length: " << c.dx << "," << c.dy;
+        // Same heading: the cross product of the request and the velocity vanishes.
+        const double cross
+            = static_cast<double>(c.dx) * bolt.vy.raw - static_cast<double>(c.dy) * bolt.vx.raw;
+        EXPECT_NEAR(cross, 0.0, 4.0 * 3.0) << c.dx << "," << c.dy;
+        EXPECT_EQ(bolt.x, tank.x);
+        EXPECT_EQ(bolt.y, tank.y);
+    }
+}
+
+TEST(Projectile, ABoltFiredAtNothingNamesNoTarget) {
+    const Unit tank = lone_tank();
+    const Projectile bolt = launch_towards(tank, Fixed::from_int(1), Fixed::zero(), kTankDamage);
+    EXPECT_FALSE(bolt.aimed_at.valid());
+    EXPECT_EQ(bolt.shooter, tank.id);
+    EXPECT_EQ(bolt.side, tank.side);
+    EXPECT_EQ(bolt.damage, kTankDamage);
+    EXPECT_EQ(bolt.age, 0U);
+}
+
+TEST(Projectile, ABoltFiredAtNothingKeepsTheShootersOwnVelocity) {
+    // The twin of AMovingTankSendsItsOwnVelocityWithTheBolt, for the path with no target.
+    Unit tank = lone_tank();
+    tank.vx = Fixed::from_raw(300);
+    tank.vy = Fixed::from_raw(-200);
+    const Projectile bolt = launch_towards(tank, Fixed::from_int(1), Fixed::zero(), kTankDamage);
+    EXPECT_EQ(bolt.vx.raw, kProjectileSpeedRaw + 300) << "aim plus the tank's own drive";
+    EXPECT_EQ(bolt.vy.raw, -200) << "nothing sideways in the aim, all of it the tank's";
+}
+
+TEST(Projectile, ABoltFiredAtNothingStillHitsWhatIsInItsPath) {
+    for (const auto& [fx, fy, ex, ey] :
+         {std::array<int, 4>{1, 0, 108, 100}, std::array<int, 4>{0, 1, 100, 108},
+          std::array<int, 4>{-1, 0, 92, 100}, std::array<int, 4>{0, -1, 100, 92}}) {
+        Sim world = make(
+            {{Side::Player, UnitKind::Tank, 100, 100}, {Side::Enemy, UnitKind::Factory, ex, ey}});
+        std::vector<Unit> units = world.units();
+        const std::uint16_t full = units.at(1).hp;
+        std::vector<Impact> impacts;
+        const Projectile bolt
+            = launch_towards(units.at(0), Fixed::from_int(fx), Fixed::from_int(fy), kTankDamage);
+        fly_until_gone(bolt, units, impacts);
+        EXPECT_EQ(units.at(1).hp, full - kTankDamage) << fx << "," << fy;
+        ASSERT_EQ(impacts.size(), 1U) << fx << "," << fy;
+        EXPECT_EQ(impacts.front().victim, kSecond);
+    }
+}
+
+TEST(Projectile, ABoltFiredAtNothingPassesThroughItsOwnSide) {
+    Sim world = make(
+        {{Side::Player, UnitKind::Tank, 100, 100}, {Side::Player, UnitKind::Factory, 106, 100}});
+    std::vector<Unit> units = world.units();
+    const std::uint16_t full = units.at(1).hp;
+    std::vector<Impact> impacts;
+    const Projectile bolt
+        = launch_towards(units.at(0), Fixed::from_int(1), Fixed::zero(), kTankDamage);
+    fly_until_gone(bolt, units, impacts);
+    EXPECT_EQ(units.at(1).hp, full)
+        << "no aimed_at, so nothing excuses it from friendly pass-through";
+    EXPECT_TRUE(impacts.empty());
+}
+
+TEST(Projectile, ABoltFiredAtNothingFizzlesAtRange) {
+    Sim world = make({{Side::Player, UnitKind::Tank, 100, 100},
+                      {Side::Enemy, UnitKind::Factory, 100, 130}}); // well off the line east
+    std::vector<Unit> units = world.units();
+    std::vector<Impact> impacts;
+    const Projectile bolt
+        = launch_towards(units.at(0), Fixed::from_int(1), Fixed::zero(), kTankDamage);
+    const std::int64_t length = isqrt(speed_squared(bolt));
+    const std::int64_t expiry_age = (kProjectileRange.raw + length - 1) / length;
+    const int flown = fly_until_gone(bolt, units, impacts);
+    EXPECT_LT(flown, 200) << "it never expired";
+    EXPECT_EQ(flown, expiry_age) << "it did not fizzle at kProjectileRange";
+    EXPECT_TRUE(impacts.empty()) << "and nothing took a hit";
+}
 
 TEST(Projectile, NothingUnderSimOrWorldGainedAFloat) {
     // Rules 13 and 14: the sim is Q16.16 integer, and neither it nor the world includes math.hpp.

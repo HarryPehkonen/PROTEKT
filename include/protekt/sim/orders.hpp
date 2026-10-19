@@ -60,10 +60,18 @@ struct FocusFire {
     UnitId target{};
 };
 
+/// Fire one bolt along a direction on the map plane, at whatever is in the way. The direction need
+/// not be normalised and carries no target: a shot at the ground or the sky is still a shot. Like
+/// FocusFire it sets no stance and no destination, and the weapon's cooldown applies to it.
+struct FireTowards {
+    Fixed dir_x{};
+    Fixed dir_y{};
+};
+
 } // namespace orders
 
 using OrderPayload = std::variant<orders::MoveTo, orders::GuardAt, orders::Patrol, orders::Attack,
-                                  orders::Stop, orders::FocusFire>;
+                                  orders::Stop, orders::FocusFire, orders::FireTowards>;
 
 /// How each payload alternative is named and reported. This is the payload's index, in the
 /// payload's order, and the assertions below make that true rather than intended.
@@ -74,9 +82,10 @@ enum class OrderKind : std::uint8_t {
     Attack = 3,
     Stop = 4,
     FocusFire = 5,
+    FireTowards = 6,
 };
 
-inline constexpr std::size_t kOrderKindCount = static_cast<std::size_t>(OrderKind::FocusFire) + 1;
+inline constexpr std::size_t kOrderKindCount = static_cast<std::size_t>(OrderKind::FireTowards) + 1;
 
 static_assert(std::variant_size_v<OrderPayload> == kOrderKindCount,
               "every alternative needs a kind, and every kind an alternative");
@@ -93,6 +102,7 @@ static_assert(std::is_same_v<PayloadOf<OrderKind::Patrol>, orders::Patrol>);
 static_assert(std::is_same_v<PayloadOf<OrderKind::Attack>, orders::Attack>);
 static_assert(std::is_same_v<PayloadOf<OrderKind::Stop>, orders::Stop>);
 static_assert(std::is_same_v<PayloadOf<OrderKind::FocusFire>, orders::FocusFire>);
+static_assert(std::is_same_v<PayloadOf<OrderKind::FireTowards>, orders::FireTowards>);
 
 /// The kind is the payload's own index. There is no second field that can disagree with it, which
 /// is precisely what the flat record could not promise.
@@ -139,6 +149,10 @@ struct OrderFields {
     } else if (const auto* p = std::get_if<orders::FocusFire>(&payload)) {
         out.has_target = true;
         out.target = p->target;
+    } else if (const auto* p = std::get_if<orders::FireTowards>(&payload)) {
+        out.positions.at(0) = p->dir_x;
+        out.positions.at(1) = p->dir_y;
+        out.position_count = 2;
     }
     // Stop carries nothing, and neither does anything else that reaches here.
     return out;

@@ -390,6 +390,8 @@ const char* to_string(OrderKind kind) noexcept {
         return "attack";
     case OrderKind::FocusFire:
         return "focus";
+    case OrderKind::FireTowards:
+        return "firetowards";
     case OrderKind::Stop:
         return "stop";
     }

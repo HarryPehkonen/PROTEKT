@@ -1,6 +1,8 @@
 #include "protekt/game/interaction.hpp"
 
 #include <algorithm>
+#include <cmath>
+#include <cstdint>
 #include <span>
 #include <utility>
 
@@ -21,9 +23,15 @@ namespace {
     return ids;
 }
 
+/// A float on the unit circle as the sim's Q16.16.
+[[nodiscard]] sim::Fixed to_fixed(float value) noexcept {
+    return sim::Fixed::from_raw(
+        static_cast<std::int32_t>(std::lround(static_cast<double>(value) * sim::Fixed::kOne)));
+}
+
 } // namespace
 
-audio::Voice dry_shot_voice() noexcept {
+audio::Voice shot_at_nothing_voice() noexcept {
     return audio::Voice{audio::SoundKind::YourShot, 1.0F, 0.0F};
 }
 
@@ -33,7 +41,7 @@ void Interaction::handle(const input::InputFrame& frame, const sim::Sim& sim,
                          const SceneOptions& options) {
     message_ = std::string_view{};
     pending_.clear();
-    dry_shot_ = false;
+    shot_at_nothing_ = false;
 
     selection_.retain(living_own(sim));
 
@@ -77,9 +85,23 @@ void Interaction::handle(const input::InputFrame& frame, const sim::Sim& sim,
                 message_ = hit_is_hostile ? "engaging the target under the crosshair."
                                           : "firing on your own unit.";
             } else {
-                // Ground, sky, or the driven tank itself: nothing to name, so the gun fires for the
-                // sound's sake only. Nothing in the sim changes.
-                dry_shot_ = true;
+                // Ground, sky, or the driven tank itself: nothing to name, so the bolt is fired
+                // along the turret's aim and hits whatever it meets. A shot at nothing is still a
+                // shot: it goes through the order queue like any other, and it is heard as well as
+                // seen.
+                //
+                // THE DIRECTION. The camera's forward is (sin yaw, 0, cos yaw) in world metres
+                // (math::basis_from; yaw 0 looks down +Z), and the map plane is x = world x,
+                // y = world z -- a tile is two metres either way, so only the direction matters.
+                // So the aim on the map is (sin yaw, cos yaw), with no sign flipped: the
+                // mirrored-screen note in session.cpp is about which way the YAW turns, not about
+                // where a given yaw points. tests/test_interaction.cpp checks it against
+                // `math::basis_from` itself.
+                const float yaw = options.camera.yaw;
+                pending_.push_back(
+                    sim::Order{driven_, sim::orders::FireTowards{to_fixed(std::sin(yaw)),
+                                                                 to_fixed(std::cos(yaw))}});
+                shot_at_nothing_ = true;
             }
         } else if (click.button == input::MouseButton::Right) {
             if (selection_.empty()) {
@@ -168,7 +190,7 @@ std::vector<sim::Order> Interaction::take_orders() noexcept {
     return std::exchange(pending_, std::vector<sim::Order>{});
 }
 
-bool Interaction::take_dry_shot() noexcept { return std::exchange(dry_shot_, false); }
+bool Interaction::take_shot_at_nothing() noexcept { return std::exchange(shot_at_nothing_, false); }
 
 const cmd::Selection& Interaction::selection() const noexcept { return selection_; }
 

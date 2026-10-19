@@ -107,6 +107,28 @@ Projectile launch(const Unit& shooter, const Unit& target, std::uint16_t damage)
     return bolt;
 }
 
+Projectile launch_towards(const Unit& shooter, Fixed dir_x, Fixed dir_y,
+                          std::uint16_t damage) noexcept {
+    const std::int64_t dx = dir_x.raw;
+    const std::int64_t dy = dir_y.raw;
+    const std::int64_t length = isqrt(dx * dx + dy * dy);
+    std::int64_t aim_x = kProjectileSpeedRaw;
+    std::int64_t aim_y = 0;
+    if (length > 0) {
+        aim_x = dx * kProjectileSpeedRaw / length;
+        aim_y = dy * kProjectileSpeedRaw / length;
+    }
+    Projectile bolt{};
+    bolt.x = shooter.x;
+    bolt.y = shooter.y;
+    bolt.vx = Fixed::from_raw(static_cast<std::int32_t>(aim_x + shooter.vx.raw));
+    bolt.vy = Fixed::from_raw(static_cast<std::int32_t>(aim_y + shooter.vy.raw));
+    bolt.shooter = shooter.id;
+    bolt.side = shooter.side;
+    bolt.damage = damage; // no aimed_at: a shot at nothing names no one
+    return bolt;
+}
+
 void advance_projectiles(std::vector<Projectile>& projectiles, std::vector<Unit>& units,
                          std::vector<Impact>& impacts) noexcept {
     const std::int64_t radius2
