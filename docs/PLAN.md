@@ -93,7 +93,8 @@ include/protekt/    public headers, self-contained, one directory per layer
   math/             the one floating-point module (the camera convention)
   render/           renderer interface + backends
   game/             one game loop, two presenters: scene, pick, session
-  app/              main() and the command-line front ends
+  app/              main() and the command-line front ends (library `protekt_app`: the only target
+                    that links the renderer or sees `PROTEKT_HAVE_WINDOW`)
 src/                implementation, mirroring the headers
 tests/              unit tests (ctest)
 fuzz/               libFuzzer targets + seed corpus

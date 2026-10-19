@@ -54,7 +54,6 @@ add_library(protekt_core STATIC
     src/sim/observer.cpp
     src/ai/scripted_commander.cpp
     src/ai/utility.cpp
-    src/app/cli.cpp
 )
 target_include_directories(protekt_core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
@@ -98,8 +97,6 @@ add_library(protekt_game STATIC
     src/game/navigate.cpp
     src/game/radar.cpp
     src/game/sounds.cpp
-    src/app/audio.cpp
-    src/app/game.cpp
 )
 target_include_directories(protekt_game PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
@@ -191,7 +188,6 @@ if(PROTEKT_RENDER)
 
     set(PROTEKT_RENDER_SOURCES
         src/render/renderer.cpp
-        src/app/render.cpp
     )
     if(PROTEKT_WINDOW)
         list(APPEND PROTEKT_RENDER_SOURCES src/render/window.cpp)
@@ -215,14 +211,26 @@ if(PROTEKT_RENDER)
     add_dependencies(protekt_render protekt_shaders)
 endif()
 
-# AFTER the render section, because PROTEKT_WINDOW is computed there. Wiring protekt_game's window
-# support before that point made the condition always false and silently built a binary with no
-# window in it -- which is exactly what happened once, and what `nm` showed.
+# ================================ app ================================
+# The top of the graph: the command-line front ends' shared code, the game loop and the audio
+# device. It is the ONLY library that may see the window and the renderer; nothing below it links
+# protekt_render or sees PROTEKT_HAVE_WINDOW. Defined AFTER the render section because
+# PROTEKT_WINDOW is computed there -- wiring it earlier made the condition always false and silently
+# built a binary with no window in it, which `nm` showed.
+set(PROTEKT_APP_SOURCES src/app/cli.cpp src/app/audio.cpp src/app/game.cpp)
+if(PROTEKT_RENDER)
+    list(APPEND PROTEKT_APP_SOURCES src/app/render.cpp)
+endif()
+add_library(protekt_app STATIC ${PROTEKT_APP_SOURCES})
+target_link_libraries(protekt_app PUBLIC protekt_game protekt_cmd protekt_audio)
+protekt_warnings(protekt_app)
+if(PROTEKT_RENDER)
+    target_link_libraries(protekt_app PUBLIC protekt_render)
+endif()
 if(PROTEKT_WINDOW)
-    # game.cpp drives a window when there is one, so it must see the same define in EVERY target
-    # that compiles it -- the suite compiles it too, and disagreed with the binary once.
-    target_link_libraries(protekt_game PUBLIC protekt_render)
-    target_compile_definitions(protekt_game PUBLIC PROTEKT_HAVE_WINDOW=1)
+    # game.cpp drives a window when there is one, so every target that compiles it must see the
+    # same define; they all get it by linking protekt_app.
+    target_compile_definitions(protekt_app PUBLIC PROTEKT_HAVE_WINDOW=1)
 endif()
 
 
@@ -272,7 +280,7 @@ if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
                                         tests/test_synth.cpp tests/test_mixer.cpp
                                         tests/test_sounds.cpp tests/test_audio_out.cpp
                                         tests/test_pixels.cpp)
-    target_link_libraries(protekt_tests PRIVATE protekt_game protekt_cmd)
+    target_link_libraries(protekt_tests PRIVATE protekt_app)
     if(PROTEKT_RENDER)
         target_sources(protekt_tests PRIVATE tests/test_render.cpp)
         target_link_libraries(protekt_tests PRIVATE protekt_render)
@@ -285,12 +293,12 @@ if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
     # The map CLI exists so that determinism can be checked ACROSS processes, which no unit
     # test can do: run it twice with the same seed and the bytes must match.
     add_executable(protekt-map src/app/map_cli.cpp)
-    target_link_libraries(protekt-map PRIVATE protekt_core)
+    target_link_libraries(protekt-map PRIVATE protekt_app)
     protekt_warnings(protekt-map)
 
     # The sim CLI: the same battle the tests run, printed for a human.
     add_executable(protekt-sim src/app/sim_cli.cpp)
-    target_link_libraries(protekt-sim PRIVATE protekt_core)
+    target_link_libraries(protekt-sim PRIVATE protekt_app)
     protekt_warnings(protekt-sim)
 
     # The commander measurement: "better than scripted" as a number, reproducible by anyone, with a
@@ -301,17 +309,16 @@ if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
 
     # The game itself: a window if SDL3 is there, an offscreen buffer if not.
     add_executable(protekt-game src/app/game_cli.cpp)
-    target_link_libraries(protekt-game PRIVATE protekt_game)
+    target_link_libraries(protekt-game PRIVATE protekt_app)
     protekt_warnings(protekt-game)
     if(PROTEKT_RENDER)
-        target_link_libraries(protekt-game PRIVATE protekt_render)
         add_dependencies(protekt-game protekt_shaders)
     endif()
 
     # Renders one frame to a PPM: the headless half of the game's eyes.
     if(PROTEKT_RENDER)
         add_executable(protekt-render src/app/render_cli.cpp)
-        target_link_libraries(protekt-render PRIVATE protekt_render)
+        target_link_libraries(protekt-render PRIVATE protekt_app)
         protekt_warnings(protekt-render)
     endif()
 

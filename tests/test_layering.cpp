@@ -85,6 +85,32 @@ TEST(Layering, NothingUnderSimOrWorldIncludesALayerAboveIt) {
         << violations;
 }
 
+/// The build enforces the same rule from the other side: `app/` lives in `protekt_app`, which alone
+/// links the renderer and sees the window. The game's own sources must not name the renderer or
+/// the app, or the link line stops being the thing that says so. (The game HEADERS still include
+/// `render/renderer.hpp` for its plain-data Scene types; that is a known leak, not scanned here.)
+TEST(Layering, NothingUnderSrcGameIncludesTheRendererOrTheApp) {
+    int scanned = 0;
+    std::string violations;
+    for (const auto& entry :
+         fs::recursive_directory_iterator(fs::path{PROTEKT_SOURCE_DIR} / "src/game")) {
+        if (!entry.is_regular_file()) {
+            continue;
+        }
+        ++scanned;
+        std::istringstream text(slurp(entry.path()));
+        std::string line;
+        while (std::getline(text, line)) {
+            if (line.starts_with("#include \"protekt/render/")
+                || line.starts_with("#include \"protekt/app/")) {
+                violations += entry.path().filename().string() + ": " + line + "\n";
+            }
+        }
+    }
+    EXPECT_GT(scanned, 5) << "the scan found almost no files: it is not reading src/game";
+    EXPECT_TRUE(violations.empty()) << "the game reached up into render/ or app/:\n" << violations;
+}
+
 /// Coding standard 13: the tick loop is Q16.16 integer, and `protekt/math/math.hpp` is the one
 /// module allowed to hold a float. A float in the sim would make the world depend on the compiler,
 /// and a replay would stop being bit-identical from one machine to the next.
