@@ -137,18 +137,18 @@ struct OrderFields {
 [[nodiscard]] inline OrderFields fields_of(const OrderPayload& payload) noexcept {
     OrderFields out{};
     if (const auto* p = std::get_if<orders::MoveTo>(&payload)) {
-        out.positions.at(0) = p->x;
-        out.positions.at(1) = p->y;
+        out.positions[0] = p->x;
+        out.positions[1] = p->y;
         out.position_count = 2;
     } else if (const auto* p = std::get_if<orders::GuardAt>(&payload)) {
-        out.positions.at(0) = p->x;
-        out.positions.at(1) = p->y;
+        out.positions[0] = p->x;
+        out.positions[1] = p->y;
         out.position_count = 2;
     } else if (const auto* p = std::get_if<orders::Patrol>(&payload)) {
-        out.positions.at(0) = p->x;
-        out.positions.at(1) = p->y;
-        out.positions.at(2) = p->x2;
-        out.positions.at(3) = p->y2;
+        out.positions[0] = p->x;
+        out.positions[1] = p->y;
+        out.positions[2] = p->x2;
+        out.positions[3] = p->y2;
         out.position_count = 4;
     } else if (const auto* p = std::get_if<orders::Attack>(&payload)) {
         out.has_target = true;
@@ -157,9 +157,9 @@ struct OrderFields {
         out.has_target = true;
         out.target = p->target;
     } else if (const auto* p = std::get_if<orders::FireTowards>(&payload)) {
-        out.positions.at(0) = p->dir_x;
-        out.positions.at(1) = p->dir_y;
-        out.positions.at(2) = p->dir_z;
+        out.positions[0] = p->dir_x;
+        out.positions[1] = p->dir_y;
+        out.positions[2] = p->dir_z;
         out.position_count = 3;
         out.has_target = true; // the intent: replays and the hash must keep it
         out.target = p->aimed_at;
