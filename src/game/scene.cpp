@@ -112,12 +112,14 @@ Vec3 aim_tint(const Vec3& colour, bool own) {
 enum class Mark : std::uint8_t { None, Selected, AimedOwn, AimedHostile };
 
 void build_unit_box(std::vector<SceneVertex>& out, std::uint64_t seed, const sim::Unit& unit,
-                    Mark mark, std::optional<float> hull_z) {
+                    Mark mark, float lift_z, bool lifted) {
     const float x
         = static_cast<float>(unit.x.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile;
     const float z
         = static_cast<float>(unit.y.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile;
-    const float ground = hull_z.value_or(ground_metres(seed, unit.x, unit.y));
+    // float + bool rather than optional<float>: gcc -O2 wrongly warns may-be-uninitialized on the
+    // optional's storage at the call site (the same false alarm hover_.z() once raised).
+    const float ground = lifted ? lift_z : ground_metres(seed, unit.x, unit.y);
     const float half_width = kMetresPerTile * 0.3F;
     const float height = unit.kind == sim::UnitKind::Factory ? 4.5F : 1.8F;
     Vec3 colour = side_colour(unit.side);
@@ -186,12 +188,12 @@ void emit_turned_box(std::vector<SceneVertex>& out, float x, float z, float angl
 /// turret`, and a barrel running forward from the turret along ITS direction. The 1.8 m of a plain
 /// tank box is split between the hull and the turret, so this is a change of shape and not of size.
 void build_facing_tank(std::vector<SceneVertex>& out, std::uint64_t seed, const sim::Unit& unit,
-                       Mark mark, std::optional<float> hull_z, float heading, float turret) {
+                       Mark mark, float lift_z, bool lifted, float heading, float turret) {
     const float x
         = static_cast<float>(unit.x.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile;
     const float z
         = static_cast<float>(unit.y.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile;
-    const float ground = hull_z.value_or(ground_metres(seed, unit.x, unit.y));
+    const float ground = lifted ? lift_z : ground_metres(seed, unit.x, unit.y);
     const float half_width = kMetresPerTile * 0.3F;
     constexpr float kHullHeight = 1.0F;
     constexpr float kTurretHeight = 0.8F;
@@ -694,18 +696,18 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
                 mark = unit.side == options.viewer_side ? Mark::AimedOwn : Mark::AimedHostile;
             }
             const bool hovering = options.hover.has_value() && options.hover->unit == unit.id;
-            const std::optional<float> hull_z
-                = hovering ? std::optional<float>{options.hover->z} : std::nullopt;
+            const float lift_z = hovering ? options.hover->z : 0.0F;
             if (options.facing.has_value() && options.facing->unit == unit.id) {
-                build_facing_tank(scene.vertices, options.seed, unit, mark, hull_z,
+                build_facing_tank(scene.vertices, options.seed, unit, mark, lift_z, hovering,
                                   options.facing->heading, options.facing->turret);
             } else if (unit.kind == sim::UnitKind::Tank) {
                 const float heading = options.headings != nullptr
                                           ? options.headings->of(unit)
                                           : Headings::heading_of(unit).value_or(0.0F);
-                build_facing_tank(scene.vertices, options.seed, unit, mark, hull_z, heading, 0.0F);
+                build_facing_tank(scene.vertices, options.seed, unit, mark, lift_z, hovering,
+                                  heading, 0.0F);
             } else {
-                build_unit_box(scene.vertices, options.seed, unit, mark, hull_z);
+                build_unit_box(scene.vertices, options.seed, unit, mark, lift_z, hovering);
             }
         }
     }
