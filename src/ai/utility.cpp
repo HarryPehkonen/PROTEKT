@@ -9,15 +9,6 @@ namespace protekt::ai {
 
 namespace {
 
-/// Floor of the square root, by integer search, so a distance in tiles needs no floating point.
-[[nodiscard]] std::int64_t isqrt(std::int64_t value) noexcept {
-    std::int64_t root = 0;
-    while ((root + 1) * (root + 1) <= value) {
-        ++root;
-    }
-    return root;
-}
-
 [[nodiscard]] bool terrain_hides(const sim::Observation& observation, sim::Fixed from_x,
                                  sim::Fixed from_y, const sim::UnitView& enemy) noexcept {
     return observation.terrain.has_value()
@@ -35,7 +26,7 @@ namespace {
                                                const UtilityTuning& tuning) noexcept {
     const std::int64_t dx = static_cast<std::int64_t>(enemy.x) - self.x;
     const std::int64_t dy = static_cast<std::int64_t>(enemy.y) - self.y;
-    const std::int64_t length = isqrt(dx * dx + dy * dy);
+    const std::int64_t length = sim::isqrt(dx * dx + dy * dy);
     if (length == 0 || tuning.sidestep_tiles <= 0) {
         return std::nullopt;
     }
@@ -102,7 +93,7 @@ std::int64_t distance_squared(const sim::UnitView& a, const sim::UnitView& b) no
 }
 
 std::int32_t score_engage(const sim::UnitView& self, const sim::UnitView& enemy) noexcept {
-    const std::int64_t distance = isqrt(distance_squared(self, enemy));
+    const std::int64_t distance = sim::isqrt(distance_squared(self, enemy));
     const std::int64_t threat = threat_of(enemy.kind);
     return static_cast<std::int32_t>(100 * threat - 5 * distance);
 }
