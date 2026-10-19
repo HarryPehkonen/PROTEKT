@@ -17,6 +17,7 @@
 #include "protekt/app/args.hpp"
 #include "protekt/app/audio.hpp"
 #include "protekt/app/audio_pipeline.hpp"
+#include "protekt/app/game_presenter.hpp"
 #include "protekt/app/time_accumulator.hpp"
 #include "protekt/game/aim.hpp"
 #include "protekt/game/scene.hpp"
@@ -30,9 +31,6 @@
 #include "protekt/sim/scenario.hpp"
 #include "protekt/sim/sim.hpp"
 #include "protekt/world/world.hpp"
-#ifdef PROTEKT_HAVE_WINDOW
-#include "protekt/render/window.hpp"
-#endif
 
 namespace protekt::app {
 
@@ -222,6 +220,168 @@ game::Camera camera_for(const sim::Sim& sim, sim::UnitId id, float yaw, float pi
     return camera;
 }
 
+/// The player's side of a frame and the world it plays in, in the order a frame needs them. `app`
+/// decides what to present; `game::Session` decides what the input MEANS.
+class Game {
+public:
+    Game(Options options, sim::Sim sim, sim::UnitId player, const AudioPipeline& pipeline)
+        : options_(std::move(options)), sim_(std::move(sim)), player_(player), session_(player),
+          pipeline_(pipeline),
+          // 30 Hz is the rate the sim is designed and balanced at: 6 tiles/s at 30 ticks/s is the
+          // 12 m/s hover tank in docs/PLAN.md. A stall is capped at 250 ms of catch-up.
+          play_clock_(std::chrono::nanoseconds{1'000'000'000LL / 30},
+                      std::chrono::nanoseconds{250'000'000LL}, TimeAccumulator::Clock::now()) {}
+
+    [[nodiscard]] sim::Tick tick() const { return sim_.tick(); }
+    [[nodiscard]] std::uint64_t state_hash() const { return sim_.state_hash(); }
+    void toggle_calibration() { calibration_ = !calibration_; }
+
+    /// What the player does with this frame's hands: the orders, the enemy's reply, and the
+    /// message to say. Returns the scene options as of the end of the last frame -- the picking
+    /// needs the camera, and one frame of staleness is invisible: the tank does not teleport.
+    game::SceneOptions command(const input::InputFrame& hands, const render::Extent& extent,
+                               std::ostream& out) {
+        game::SceneOptions scene_options;
+        scene_options.seed = options_.seed;
+        scene_options.camera = camera_for(sim_, player_, session_.view_yaw(), session_.view_pitch(),
+                                          options_.seed, hover_.z());
+        scene_options.extent = extent;
+        scene_options.radius_tiles = 24;
+        scene_options.aim = game::aim_from(hands, extent);
+        scene_options.viewer_unit = options_.no_radar ? sim::UnitId{} : player_;
+        player_alive_before_ = is_alive(sim_, player_);
+
+        std::vector<sim::Order> orders;
+        session_.frame(hands, sim_, scene_options, orders);
+        enemy_.think(sim::observe(sim_, sim::Side::Enemy), orders);
+        for (const sim::Order& order : orders) {
+            sim_.enqueue(order);
+        }
+        if (!session_.message().empty() && session_.message() != last_message_) {
+            out << "protekt-game: " << session_.message() << '\n';
+            last_message_ = std::string(session_.message());
+        }
+        return scene_options;
+    }
+
+    /// Steps the sim, and hears it. PLAY mode advances on the wall clock at 30 Hz, so the tank
+    /// drives at the speed the sim is designed for whatever the renderer manages. A scripted run
+    /// advances exactly ticks_per_frame times and never reads a clock, so its capture stays
+    /// reproducible.
+    void advance(const game::SceneOptions& scene_options) {
+        const std::uint32_t steps = options_.frames == 0
+                                        ? play_clock_.steps_at(TimeAccumulator::Clock::now())
+                                        : options_.ticks_per_frame;
+        // A trigger pulled at the ground or the sky has no order, so the sim has no event to hear.
+        const bool shot_fired = session_.take_shot_voice();
+        const game::Listener listener{scene_options.camera.x, scene_options.camera.z,
+                                      scene_options.camera.yaw, sim::Side::Player};
+        pipeline_.advance(
+            sim_, steps,
+            AudioFrame{listener, shot_fired, player_alive_before_, is_alive(sim_, player_)},
+            hit_flash_);
+    }
+
+    /// The frame, as of now. The hover advances once per tick the sim has run, off the sim's own
+    /// counter, from the ground under the tank where it now stands. A dead player has no hull to
+    /// float.
+    render::Scene scene(game::SceneOptions scene_options) {
+        for (const sim::Unit& unit : sim_.units()) {
+            if (unit.id == player_) {
+                hover_.advance(sim_.tick(), game::ground_metres(options_.seed, unit.x, unit.y),
+                               session_.keys().boost);
+                // `advance` has just given the hover a height.
+                if (const std::optional<float> z = hover_.z(); z.has_value()) {
+                    scene_options.hover = game::SceneOptions::Hovering{player_, *z};
+                }
+                break;
+            }
+        }
+        scene_options.camera = camera_for(sim_, player_, session_.view_yaw(), session_.view_pitch(),
+                                          options_.seed, hover_.z());
+        // The turret's angle relative to the hull: `Session` exposes the hull's heading and the
+        // turret's world yaw (`view_yaw`), but not `PlayerCommander::turret_yaw` itself, so it is
+        // their wrapped difference -- the same number, without adding an accessor.
+        scene_options.facing = game::SceneOptions::Facing{
+            player_, session_.heading(),
+            game::Camera::wrap_angle(session_.view_yaw() - session_.heading())};
+        scene_options.hit_flash = hit_flash_.level(sim_.tick());
+        return calibration_ ? game::build_calibration_scene(scene_options)
+                            : game::build_scene(sim_, scene_options, session_.selection().units());
+    }
+
+private:
+    Options options_;
+    sim::Sim sim_;
+    sim::UnitId player_;
+    game::Session session_;
+    game::Hover hover_;
+    game::HitFlash hit_flash_;
+    bool calibration_{false}; // C toggles the colour calibration view; it never touches the sim
+    bool player_alive_before_{false};
+    ai::ScriptedCommander enemy_;
+    AudioPipeline pipeline_;
+    TimeAccumulator play_clock_;
+    std::string last_message_;
+};
+
+/// The keys and pointer a run puts in the player's hands on its own, for a frame nobody is
+/// sitting at.
+void script_hands(const Options& options, input::InputFrame& hands) {
+    if (options.autodrive) {
+        hands.keys.push_back(input::KeyEvent{input::kKeyW, true, false});
+    }
+    if (options.press_scancode >= 0) {
+        hands.keys.push_back(input::KeyEvent{options.press_scancode, true, false,
+                                             options.press_ctrl, options.press_alt});
+    }
+    if (options.cursor_placed) {
+        hands.cursor_x = options.cursor_x;
+        hands.cursor_y = options.cursor_y;
+        hands.cursor_known = true;
+    }
+}
+
+sim::UnitId player_tank(const sim::Sim& sim) {
+    for (const sim::Unit& unit : sim.units()) {
+        if (unit.side == sim::Side::Player && unit.kind == sim::UnitKind::Tank) {
+            return unit.id;
+        }
+    }
+    return {};
+}
+
+/// Plays frames until the count runs out, the window closes or the player quits. Returns 0, or 1
+/// if a frame could not be rendered.
+int play(Game& game, GamePresenter& presenter, const Options& options, std::ostream& out,
+         std::ostream& err) {
+    for (std::uint32_t frame = 0; options.frames == 0 || frame < options.frames; ++frame) {
+        input::InputFrame hands{};
+        if (!presenter.poll(hands, options.autodrive)) {
+            out << "protekt-game: window closed after " << frame << " frames, tick " << game.tick()
+                << '\n';
+            break;
+        }
+        script_hands(options, hands);
+        const render::Extent extent = presenter.follow(hands);
+        if (input::calibration_toggled(hands)) {
+            game.toggle_calibration();
+        }
+        if (input::quit_requested(hands)) {
+            out << "protekt-game: Ctrl+Q, so quitting at frame " << frame << ", tick "
+                << game.tick() << '\n';
+            break;
+        }
+        game::SceneOptions scene_options = game.command(hands, extent, out);
+        game.advance(scene_options);
+        if (!presenter.present(game.scene(scene_options), options.seed, game.tick())) {
+            err << "protekt-game: frame " << frame << " could not be rendered\n";
+            return 1;
+        }
+    }
+    return 0;
+}
+
 } // namespace
 
 int run_game_cli(std::span<const std::string_view> args, std::ostream& out, std::ostream& err) {
@@ -230,58 +390,14 @@ int run_game_cli(std::span<const std::string_view> args, std::ostream& out, std:
         return code;
     }
 
-    render::Extent extent{options.width, options.height};
-
-    // The presentation seam: a window if there is one, an offscreen buffer if not.
-    std::string error;
-    std::unique_ptr<render::Renderer> offscreen;
-#ifdef PROTEKT_HAVE_WINDOW
-    std::unique_ptr<render::Window> window;
-#endif
-    bool headless = options.headless;
-#ifdef PROTEKT_HAVE_WINDOW
-    if (!headless) {
-        render::WindowOptions window_options;
-        window_options.extent = extent;
-        window_options.device_name = options.gpu;
-        window_options.fullscreen = options.fullscreen;
-        window = render::Window::create(window_options, error);
-        if (window == nullptr) {
-            err << "protekt-game: " << error << "\n"
-                << "protekt-game: no window, no game; try --headless to run without a display\n";
-            return 4;
-        }
-        // The controls, where the player is actually looking: the terminal the game was started
-        // from. One line and a pointer rather than the whole table, because the table lives in one
-        // place -- README.md, "How to play" -- and a second copy of it here is a second copy to go
-        // stale.
-        out << "protekt-game: W/S throttle, mouse and A/D look | left click a unit to select it, a "
-               "HOSTILE "
-               "to "
-               "fire at it | right click to order what is selected | Tab cycles, Escape clears\n"
-            << "protekt-game: the full table, and what each control does not do: README.md "
-               "(How to play)\n";
-    }
-#endif
-    if (headless) {
-        render::CreateOptions create_options;
-        create_options.device_name = options.gpu;
-        create_options.validation = true;
-        create_options.extent = extent;
-        offscreen = render::create(create_options, error);
-        if (offscreen == nullptr) {
-            err << "protekt-game: " << error << "\n";
-            return 4;
-        }
-        out << "protekt-game: headless on " << offscreen->device_name() << "\n";
-    }
-
-    if (offscreen == nullptr
-#ifdef PROTEKT_HAVE_WINDOW
-        && window == nullptr
-#endif
-    ) {
-        err << "protekt-game: no presenter was created; refusing to run\n";
+    PresenterOptions presenter_options;
+    presenter_options.extent = render::Extent{options.width, options.height};
+    presenter_options.gpu = options.gpu;
+    presenter_options.headless = options.headless;
+    presenter_options.fullscreen = options.fullscreen;
+    const std::unique_ptr<GamePresenter> presenter
+        = GamePresenter::create(presenter_options, out, err);
+    if (presenter == nullptr) {
         return 4;
     }
 
@@ -289,44 +405,25 @@ int run_game_cli(std::span<const std::string_view> args, std::ostream& out, std:
     // no device must still play. ONE line says so, because a silent game with no explanation looks
     // like a bug.
     std::unique_ptr<AudioOut> audio_out;
-#ifdef PROTEKT_HAVE_WINDOW
-    if (window != nullptr && !options.no_sound) {
+    if (presenter->windowed() && !options.no_sound) {
         std::string audio_error;
         audio_out = AudioOut::open(audio_error);
         if (audio_out == nullptr) {
             out << "protekt-game: " << audio_error << "; the game runs silent\n";
         }
     }
-#endif
+    std::optional<AudioOutSink> audio_sink;
+    if (audio_out != nullptr) {
+        audio_sink.emplace(*audio_out);
+    }
 
     sim::Sim sim = sim::Sim::create(sim::skirmish(options.seed));
-    sim::UnitId player_id{};
-    for (const sim::Unit& unit : sim.units()) {
-        if (unit.side == sim::Side::Player && unit.kind == sim::UnitKind::Tank) {
-            player_id = unit.id;
-            break;
-        }
-    }
+    const sim::UnitId player_id = player_tank(sim);
     if (!player_id.valid()) {
         err << "protekt-game: the scenario has no player tank to drive\n";
         return 1;
     }
 
-    // One object for the player's whole side of the frame: the tank he is in and the units he
-    // commands. `app` decides what to present; `game::Session` decides what the input MEANS.
-    game::Session session{player_id};
-    game::Hover hover;
-    game::HitFlash hit_flash;
-    bool calibration = false; // C toggles the colour calibration view; it never touches the sim
-    ai::ScriptedCommander enemy;
-    std::optional<AudioOutSink> audio_sink;
-    if (audio_out != nullptr) {
-        audio_sink.emplace(*audio_out);
-    }
-    const AudioPipeline pipeline{audio_sink ? &*audio_sink : nullptr, player_id};
-
-    // 30 Hz is the rate the sim is designed and balanced at: 6 tiles/s at 30 ticks/s is the 12 m/s
-    // hover tank in docs/PLAN.md.
     // Checked here rather than at parse time so that a SPECIFIC request error -- a device name that
     // does not exist -- is still the error a caller sees first.
     if (options.frames == 0) {
@@ -341,152 +438,15 @@ int run_game_cli(std::span<const std::string_view> args, std::ostream& out, std:
 #endif
     }
 
-    // 30 Hz is the rate the sim is designed and balanced at, and a stall is capped at 250 ms of
-    // catch-up (see TimeAccumulator).
-    TimeAccumulator play_clock{std::chrono::nanoseconds{1'000'000'000LL / 30},
-                               std::chrono::nanoseconds{250'000'000LL},
-                               TimeAccumulator::Clock::now()};
-
-    std::vector<std::uint8_t> last_frame;
-    std::string last_message;
-    for (std::uint32_t frame = 0; options.frames == 0 || frame < options.frames; ++frame) {
-        input::InputFrame hands{};
-#ifdef PROTEKT_HAVE_WINDOW
-        if (window != nullptr) {
-            if (!window->pump_events()) {
-                out << "protekt-game: window closed after " << frame << " frames, tick "
-                    << sim.tick() << '\n';
-                break;
-            }
-            // Autodrive is a SCRIPTED run, so a real key or click must not be able to change its
-            // world: the windowed and headless paths are compared hash for hash, and a stray event
-            // arriving at a window that has just taken focus made one such comparison disagree.
-            // The events are still pumped (the window stays responsive and its internal state stays
-            // coherent) and their input frame is dropped. Measured before this: 1 divergent run in
-            // 8; after: the windowed world is a function of the seed and the flags alone.
-            const input::InputFrame from_hands = window->input();
-            if (!options.autodrive) {
-                hands = from_hands;
-            }
-        }
-#endif
-        if (options.autodrive) {
-            hands.keys.push_back(input::KeyEvent{input::kKeyW, true, false});
-        }
-        if (options.press_scancode >= 0) {
-            hands.keys.push_back(input::KeyEvent{options.press_scancode, true, false,
-                                                 options.press_ctrl, options.press_alt});
-        }
-        if (options.cursor_placed) {
-            hands.cursor_x = options.cursor_x;
-            hands.cursor_y = options.cursor_y;
-            hands.cursor_known = true;
-        }
-
-#ifdef PROTEKT_HAVE_WINDOW
-        if (window != nullptr) {
-            // The window is the authority on its own size. A full-screen switch or a resize changes
-            // the frame the projection has to fill -- and the aim point's middle with it -- so the
-            // game follows the window rather than stretching a fixed 1280x720 over it.
-            extent = input::fullscreen_requested(hands) ? window->toggle_fullscreen()
-                                                        : window->extent();
-        }
-#endif
-        if (input::calibration_toggled(hands)) {
-            calibration = !calibration;
-        }
-        if (input::quit_requested(hands)) {
-            out << "protekt-game: Ctrl+Q, so quitting at frame " << frame << ", tick " << sim.tick()
-                << '\n';
-            break;
-        }
-
-        // What the player can see, as of the end of the last frame. The picking needs the camera,
-        // and one frame of staleness is invisible: the tank does not teleport.
-        game::SceneOptions scene_options;
-        scene_options.seed = options.seed;
-        scene_options.camera = camera_for(sim, player_id, session.view_yaw(), session.view_pitch(),
-                                          options.seed, hover.z());
-        scene_options.extent = extent;
-        scene_options.radius_tiles = 24;
-        scene_options.aim = game::aim_from(hands, extent);
-        scene_options.viewer_unit = options.no_radar ? sim::UnitId{} : player_id;
-        const bool player_alive = is_alive(sim, player_id);
-
-        std::vector<sim::Order> orders;
-        session.frame(hands, sim, scene_options, orders);
-        enemy.think(sim::observe(sim, sim::Side::Enemy), orders);
-        for (const sim::Order& order : orders) {
-            sim.enqueue(order);
-        }
-        if (!session.message().empty() && session.message() != last_message) {
-            out << "protekt-game: " << session.message() << '\n';
-            last_message = std::string(session.message());
-        }
-        // PLAY mode advances the sim on the wall clock at 30 Hz, so the tank drives at the speed
-        // the sim is designed for whatever the renderer manages. A scripted run advances exactly
-        // ticks_per_frame times and never reads a clock, so its capture stays reproducible.
-        std::uint32_t steps = options.ticks_per_frame;
-        if (options.frames == 0) {
-            steps = play_clock.steps_at(TimeAccumulator::Clock::now());
-        }
-        // A trigger pulled at the ground or the sky has no order, so the sim has no event to hear.
-        const bool shot_fired = session.take_shot_voice();
-        const game::Listener listener{scene_options.camera.x, scene_options.camera.z,
-                                      scene_options.camera.yaw, sim::Side::Player};
-        pipeline.advance(sim, steps,
-                         AudioFrame{listener, shot_fired, player_alive, is_alive(sim, player_id)},
-                         hit_flash);
-
-        // The hover advances once per tick the sim has run, off the sim's own counter, from the
-        // ground under the tank where it now stands. A dead player has no hull to float.
-        for (const sim::Unit& unit : sim.units()) {
-            if (unit.id == player_id) {
-                hover.advance(sim.tick(), game::ground_metres(options.seed, unit.x, unit.y),
-                              session.keys().boost);
-                scene_options.hover = game::SceneOptions::Hovering{player_id, *hover.z()};
-                break;
-            }
-        }
-        scene_options.camera = camera_for(sim, player_id, session.view_yaw(), session.view_pitch(),
-                                          options.seed, hover.z());
-        // The turret's angle relative to the hull: `Session` exposes the hull's heading and the
-        // turret's world yaw (`view_yaw`), but not `PlayerCommander::turret_yaw` itself, so it is
-        // their wrapped difference -- the same number, without adding an accessor.
-        scene_options.facing = game::SceneOptions::Facing{
-            player_id, session.heading(),
-            game::Camera::wrap_angle(session.view_yaw() - session.heading())};
-        scene_options.hit_flash = hit_flash.level(sim.tick());
-        const render::Scene scene
-            = calibration ? game::build_calibration_scene(scene_options)
-                          : game::build_scene(sim, scene_options, session.selection().units());
-
-        render::FrameStats stats{};
-        render::FrameRequest request;
-        request.extent = extent;
-        request.seed = options.seed;
-        request.tick = sim.tick();
-        request.scene = &scene;
-#ifdef PROTEKT_HAVE_WINDOW
-        if (window != nullptr) {
-            window->present(scene);
-            continue;
-        }
-#endif
-        last_frame = offscreen->render(request, stats);
-        if (last_frame.empty()) {
-            err << "protekt-game: frame " << frame << " could not be rendered\n";
-            return 1;
-        }
+    Game game{options, std::move(sim), player_id,
+              AudioPipeline{audio_sink ? &*audio_sink : nullptr, player_id}};
+    if (const int code = play(game, *presenter, options, out, err); code != 0) {
+        return code;
     }
-
-#ifdef PROTEKT_HAVE_WINDOW
-    if (window != nullptr) {
-        last_frame = window->capture();
-    }
-#endif
 
     if (!options.capture.empty()) {
+        const render::Extent extent = presenter->extent();
+        const std::vector<std::uint8_t> last_frame = presenter->finish();
         if (last_frame.empty()) {
             err << "protekt-game: nothing was rendered, so there is nothing to capture\n";
             return 1;
@@ -496,7 +456,7 @@ int run_game_cli(std::span<const std::string_view> args, std::ostream& out, std:
             return code;
         }
         out << "protekt-game: wrote " << options.capture << " (" << extent.width << 'x'
-            << extent.height << ", tick " << sim.tick() << ", hash " << sim.state_hash() << ")\n";
+            << extent.height << ", tick " << game.tick() << ", hash " << game.state_hash() << ")\n";
     }
     return 0;
 }
