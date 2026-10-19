@@ -514,9 +514,11 @@ left-handed against the tile grid: **tile +x is drawn on the left of the screen*
 which the sim's arithmetic calls "right" (heading `(sin h, cos h)` swept toward `+x`), appears on screen
 as a left turn. Pressing `A` consequently turned him right.
 
-Fixed for now at the *input* level, with the sign and the reason written at the line: `A` adds to the
-heading, so it turns the view to screen-left, which is what a player means by left. The honest fix is to
-stop mirroring the world -- mapping tile `y` to camera `-z` so `cross(f, up)` becomes `+x` -- which
+**Resolved (cleanup plan task 9):** the camera basis is now `cross(up, f)`, guarded by the oracle test
+`Math.APointAtPlusXIsRightOfCentreForACameraLookingDownPlusZ`; `A` subtracts from the heading and the
+mouse adds to the yaw, with no compensating flips left. What follows is the original finding. It was
+fixed at the *input* level at first: `A` added to the heading, so it turned the view to screen-left. The
+honest fix was to stop mirroring the world -- mapping tile `y` to camera `-z` so `cross(f, up)` becomes `+x` -- which
 flips that line back. It is a presentation-layer change (no golden hash can move) but it touches every
 vertex this renderer emits, so it wants its own slice and its own re-verification of the pixel tests.
 

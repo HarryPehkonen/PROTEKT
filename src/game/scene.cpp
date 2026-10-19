@@ -150,8 +150,8 @@ void build_unit_box(std::vector<render::SceneVertex>& out, std::uint64_t seed,
 /// A local offset turned by `angle` and added to a world point on the map plane. Local +z is
 /// FORWARD and local +x is across it; the angle is a camera yaw, so forward lands on
 /// `(sin angle, cos angle)` -- exactly the `math::basis_from` forward the view is built from, in
-/// which yaw 0 is +Z and a positive yaw turns toward +X (the screen's LEFT: the world is drawn
-/// mirrored). The sign is pinned by `SceneFacing.TheBarrelPointsWhereTheTurretLooks`.
+/// which yaw 0 is +Z and a positive yaw turns toward +X (the screen's RIGHT). The sign is pinned by
+/// `SceneFacing.TheBarrelPointsWhereTheTurretLooks`.
 std::array<float, 2> rotate_offset(float x, float z, float dx, float dz, float angle) {
     const float sine = std::sin(angle);
     const float cosine = std::cos(angle);

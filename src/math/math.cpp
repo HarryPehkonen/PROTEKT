@@ -35,20 +35,21 @@ Vec3 normalise(const Vec3& v) noexcept {
 Basis basis_from(float yaw, float pitch) noexcept {
     const float cp = std::cos(pitch);
     const Vec3 forward{std::sin(yaw) * cp, std::sin(pitch), std::cos(yaw) * cp};
-    // forward x (0,1,0) = (-forward.z, 0, forward.x), and it is already horizontal.
+    // (0,1,0) x forward = (forward.z, 0, -forward.x), and it is already horizontal.
     const float right_length = std::sqrt((forward[2] * forward[2]) + (forward[0] * forward[0]));
-    const Vec3 right{-forward[2] / right_length, 0.0F, forward[0] / right_length};
-    const Vec3 up{cross(right, forward)};
+    const Vec3 right{forward[2] / right_length, 0.0F, -forward[0] / right_length};
+    const Vec3 up{cross(forward, right)};
     return Basis{forward, right, up};
 }
 
 Mat4 look_at(const Vec3& eye, const Vec3& target, const Vec3& up) noexcept {
-    // The axis order is the whole of it: `forward x up`, NOT `up x forward`. The other order gives
-    // u = -Y, and because the projection already flips Y for Vulkan's clip space the two cancel
-    // into an upside-down frame -- measured, with the sky along the bottom edge.
+    // The axis order is the whole of it: right is `up x forward`, and the camera's up is then
+    // `forward x right` -- the pair together keep +X on the right for a camera looking down +Z
+    // and +Y up. Flipping only one of them gives an upside-down or a left-right reversed frame
+    // (the projection already flips Y for Vulkan's clip space).
     const Vec3 f = normalise({target[0] - eye[0], target[1] - eye[1], target[2] - eye[2]});
-    const Vec3 s = normalise(cross(f, up));
-    const Vec3 u = cross(s, f);
+    const Vec3 s = normalise(cross(up, f));
+    const Vec3 u = cross(f, s);
     Mat4 m{};
     m[0] = s[0];
     m[4] = s[1];

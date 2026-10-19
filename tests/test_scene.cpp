@@ -105,13 +105,14 @@ TEST(SceneCamera, LooksAtWhatIsInFrontAndNotWhatIsBehind) {
     const auto behind = project(10.0F, 2.0F, -40.0F);
     EXPECT_LT(behind[3], 0.0F) << "a point behind the camera must fall outside the frustum";
 
-    // Which side of the screen world +x lands on is a convention (the Y-flip Vulkan needs makes
-    // it easy to get backwards). What must hold either way: the two sides are mirrored, and a
-    // point further off-axis projects further from the centre.
+    // World +x lands on the RIGHT of the screen for a camera looking down +z (the oracle in
+    // test_math), the two sides disagree in sign, and a point further off-axis projects further
+    // from the centre.
     const auto plus_x = project(20.0F, 2.0F, 40.0F);
     const auto minus_x = project(0.0F, 2.0F, 40.0F);
     EXPECT_GT(plus_x[3], 0.0F);
     EXPECT_GT(minus_x[3], 0.0F);
+    EXPECT_GT(plus_x[0], 0.0F) << "+x is right of centre";
     EXPECT_LT(plus_x[0] * minus_x[0], 0.0F) << "the two sides of the frame must disagree in sign";
     const auto further = project(30.0F, 2.0F, 40.0F);
     EXPECT_GT(std::abs(further[0]), std::abs(plus_x[0]))
@@ -2208,11 +2209,11 @@ TEST(SceneFacing, TheTurretFollowsTheFacingNotTheBody) {
 
 // The convention, derived from the camera and not from a belief about it: the camera looks along
 // `math::basis_from(yaw, 0).forward`, which is (sin yaw, 0, cos yaw) -- yaw 0 is +Z, and a POSITIVE
-// yaw turns toward +X, which on the (mirrored) screen is the LEFT. The turret's world yaw is
+// yaw turns toward +X, the RIGHT of the screen. The turret's world yaw is
 // `heading + turret`, the same sum `PlayerCommander::view_yaw` hands the camera, so the barrel must
 // lie along the camera's forward at that yaw. If the rotation sign were flipped the barrel would
 // point along (-sin, cos): the x component changes sign for every non-zero angle, so every case
-// below that has a non-zero yaw fails (and the cases are chosen so none is its own mirror image).
+// below that has a non-zero yaw fails (and the cases are chosen so none is its own reflection).
 TEST(SceneFacing, TheBarrelPointsWhereTheTurretLooks) {
     const auto sim = facing_sim();
     const auto& viewer = viewer_of(sim);

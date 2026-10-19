@@ -164,16 +164,14 @@ TEST(RadarDirections, StraightAheadIsUpOnThePanel) {
 }
 
 TEST(RadarDirections, ToYourRightIsRightOnThePanel) {
-    // At yaw 0 the camera looks down +Z and its right is -X, so the world's +X is on the LEFT. What
-    // matters is that the radar agrees with the FRAME -- and that is asserted against the
-    // projection in test_scene.cpp, where a projected unit's side of the screen is compared with
-    // its side of the panel. Here the rule is only that one of the two directions is right,
-    // deterministically.
+    // At yaw 0 the camera looks down +Z and its right is +X, so the world's +X is on the RIGHT of
+    // the panel -- the same side of the screen the projection draws it on (the oracle in
+    // test_math).
     const std::vector<Unit> units = with_viewer({at_bearing(2, 20.0F, 90.0F, Side::Enemy)});
     const std::vector<RadarMark> marks = radar_marks(units, UnitId{1}, 0.0F, kPanel);
     ASSERT_EQ(marks.size(), 2U);
     EXPECT_NEAR(marks.at(1).py, panel_middle(kPanel), kTolerance);
-    EXPECT_NE(marks.at(1).px, panel_middle(kPanel));
+    EXPECT_GT(marks.at(1).px, panel_middle(kPanel));
 }
 
 TEST(RadarDirections, ThePanelTurnsWithTheTank) {

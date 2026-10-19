@@ -372,8 +372,8 @@ namespace {
 } // namespace
 
 TEST(Trigger, AShotFollowsTheCamerasPitchWithTheCamerasOwnSign) {
-    // THE VERTICAL SIGN. The renderer draws the world mirrored, so a flipped vertical is as
-    // invisible as a flipped yaw would be: the direction is compared with `math::basis_from`
+    // THE VERTICAL SIGN. A flipped vertical is as invisible as a flipped yaw would be
+    // unless the direction is checked against the camera: it is compared with `math::basis_from`
     // itself, over pitches on both sides of level and yaws in every quadrant. forward is
     // (x, up, z) in world metres; the order is (map x, map y, up) = (forward.x, forward.z,
     // forward.y), so the pitch is the order's third number, with its sign.

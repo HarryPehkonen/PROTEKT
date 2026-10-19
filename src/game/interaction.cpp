@@ -67,10 +67,8 @@ void Interaction::handle(const input::InputFrame& frame, const sim::Sim& sim,
             // THE DIRECTION. The camera's forward is (sin yaw, 0, cos yaw) in world metres
             // (math::basis_from; yaw 0 looks down +Z), and the map plane is x = world x,
             // y = world z -- a tile is two metres either way, so only the direction matters.
-            // So the aim on the map is (sin yaw, cos yaw), with no sign flipped: the
-            // mirrored-screen note in session.cpp is about which way the YAW turns, not about
-            // where a given yaw points. tests/test_interaction.cpp checks it against
-            // `math::basis_from` itself.
+            // So the aim on the map is (sin yaw, cos yaw), with no sign flipped.
+            // tests/test_interaction.cpp checks it against `math::basis_from` itself.
             //
             // THE PITCH. The camera's forward is (sin yaw cos pitch, sin pitch, cos yaw cos pitch):
             // the same basis, with the vertical as its second number and positive UP (a pitch of

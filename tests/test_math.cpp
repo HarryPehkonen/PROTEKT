@@ -40,15 +40,14 @@ TEST(Math, LookAtPutsTheTargetDownNegativeZ) {
         << "the view axis is -Z, and depth is its distance";
 }
 
-/// The bug this pins: `up x forward` instead of `forward x up` gives u = -Y, and because the
-/// projection flips Y for Vulkan's clip space the two cancel into an upside-down frame. Both facts
-/// are asserted here, so neither can be changed alone.
-TEST(Math, LookAtBuildsRightAsForwardCrossUp) {
+/// Right is `up x forward` and the view's up is `forward x right`; both facts are asserted here,
+/// so neither can be changed alone (one without the other gives an upside-down frame).
+TEST(Math, LookAtBuildsRightAsUpCrossForward) {
     const Vec3 eye{0.0F, 1.6F, 0.0F};
     const Vec3 forward{0.0F, 0.0F, 1.0F};
     const Mat4 m = look_at(eye, {0.0F, 1.6F, 10.0F}, {0.0F, 1.0F, 0.0F});
-    const Vec3 expected_right = normalise(cross(forward, {0.0F, 1.0F, 0.0F}));
-    EXPECT_NEAR(expected_right[0], -1.0F, kTolerance) << "at yaw 0, forward x up is -X";
+    const Vec3 expected_right = normalise(cross({0.0F, 1.0F, 0.0F}, forward));
+    EXPECT_NEAR(expected_right[0], 1.0F, kTolerance) << "at yaw 0, up x forward is +X";
     EXPECT_NEAR(m.at(0), expected_right[0], kTolerance);
     EXPECT_NEAR(m.at(4), expected_right[1], kTolerance);
     EXPECT_NEAR(m.at(8), expected_right[2], kTolerance);
@@ -103,8 +102,8 @@ TEST(Math, BasisIsOrthonormalAndRightHanded) {
             EXPECT_NEAR(dot(b.forward, b.right), 0.0F, kTolerance);
             EXPECT_NEAR(dot(b.forward, b.up), 0.0F, kTolerance);
             EXPECT_NEAR(dot(b.right, b.up), 0.0F, kTolerance);
-            // right = forward x worldUp, which is what makes it right-handed rather than mirrored.
-            const Vec3 expected_right = normalise(cross(b.forward, {0.0F, 1.0F, 0.0F}));
+            // right = worldUp x forward, so +X is on the right for a camera looking down +Z.
+            const Vec3 expected_right = normalise(cross({0.0F, 1.0F, 0.0F}, b.forward));
             for (std::size_t i = 0; i < 3; ++i) {
                 EXPECT_NEAR(b.right.at(i), expected_right.at(i), kTolerance);
             }

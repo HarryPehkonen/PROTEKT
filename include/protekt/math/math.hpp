@@ -58,7 +58,7 @@ inline constexpr float kFarPlane = 2000.0F;
 /// The camera's three axes, right-handed.
 ///
 /// `forward` is where a camera with this yaw and pitch looks; `right` is
-/// `forward x worldUp`; `up` is `right x forward`. Both the view matrix and the
+/// `worldUp x forward`; `up` is `forward x right`. Both the view matrix and the
 /// picker's ray are built from this, which is the point: there is one answer to
 /// "which way is the camera facing", and no second one to drift away from it.
 struct Basis {

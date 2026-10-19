@@ -258,18 +258,17 @@ TEST(Session, AAndDTurnTheBodyOppositeWays) {
     return frame;
 }
 
-TEST(SessionLook, AMouseMoveToTheRightLooksRightWhichIsLessYaw) {
-    // "Less yaw" and not "more": the world is drawn mirrored, so increasing the yaw turns the view
-    // to the LEFT on screen -- the same reason A adds to the yaw. A rightward mouse move must
-    // therefore subtract. A test that only checked "the yaw changed" would pass with the view
-    // turning the wrong way, which is exactly the bug this pins.
+TEST(SessionLook, AMouseMoveToTheRightLooksRightWhichIsMoreYaw) {
+    // Increasing the yaw turns the view toward +X, the RIGHT on screen, so a rightward mouse move
+    // adds. A test that only checked "the yaw changed" would pass with the view turning the wrong
+    // way, which is exactly the bug this pins.
     Rig rig = make_rig();
     Session session(rig.tank_a);
     run_frames(rig, session, {mouse_moved(0.0F, 0.0F)});
     const float before = session.view_yaw();
     run_frames(rig, session, {mouse_moved(40.0F, 0.0F)});
-    EXPECT_LT(session.view_yaw(), before);
-    EXPECT_NEAR(session.view_yaw() - before, -40.0F * kLookRadiansPerPixel, 1e-4F);
+    EXPECT_GT(session.view_yaw(), before);
+    EXPECT_NEAR(session.view_yaw() - before, 40.0F * kLookRadiansPerPixel, 1e-4F);
 }
 
 TEST(SessionLook, AMouseMoveDownLooksDown) {
@@ -325,7 +324,7 @@ TEST(SessionLook, TurningTheBodyCarriesTheViewRound) {
         run_frames(rig, session, {holding(input::kKeyA)});
     }
     const float turned = Camera::wrap_angle(session.heading() - hull);
-    EXPECT_GT(turned, 0.1F);
+    EXPECT_LT(turned, -0.1F) << "A turns the hull to the left, which is less yaw";
     EXPECT_NEAR(Camera::wrap_angle(session.view_yaw() - view), turned, 1e-4F);
 }
 
@@ -344,7 +343,7 @@ TEST(SessionLook, TheViewStillAnswersTheMouseAfterTheTankIsDestroyed) {
         gone.frame(look_and_turn, rig.sim, rig.options, orders);
         look_and_turn = InputFrame{};
     }
-    EXPECT_LT(gone.view_yaw(), yaw); // right is less yaw: the world is drawn mirrored
+    EXPECT_GT(gone.view_yaw(), yaw); // right is more yaw
     EXPECT_LT(gone.view_pitch(), pitch);
     EXPECT_FLOAT_EQ(gone.heading(), hull);
     EXPECT_TRUE(orders.empty());

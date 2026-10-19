@@ -71,9 +71,9 @@ std::vector<RadarMark> radar_marks(std::span<const sim::Unit> units, sim::UnitId
             continue; // outside the radius the player knows nothing, and this is where that is kept
         }
         // The camera's own frame, from the same yaw the projection is built with: forward at yaw 0
-        // is +Z, and right is (-cos, sin) -- exactly `math::basis_from`'s horizontal part.
+        // is +Z, and right is (cos, -sin) -- exactly `math::basis_from`'s horizontal part.
         const float forward = (dx * sine) + (dz * cosine);
-        const float right = (dx * -cosine) + (dz * sine);
+        const float right = (dx * cosine) - (dz * sine);
         if (in_range) {
             marks.push_back(RadarMark{
                 middle + (right * pixels_per_tile), middle - (forward * pixels_per_tile),
