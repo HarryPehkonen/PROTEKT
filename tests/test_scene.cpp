@@ -1803,3 +1803,177 @@ TEST(SceneHitFlash, AHalfFlashIsHalfAsStrongAsAFullOne) {
 }
 
 } // namespace
+
+// A bolt you can see: every projectile the sim has in the air is one small box in the scene.
+
+namespace {
+
+using protekt::sim::Side;
+using protekt::sim::UnitKind;
+
+constexpr std::size_t kBoxVertices = 36; // six quads, two triangles each, three vertices each
+
+struct BoltPlace {
+    Side side{};
+    UnitKind kind{};
+    int tile_x{};
+    int tile_y{};
+};
+
+protekt::sim::Sim sim_of(const std::vector<BoltPlace>& places) {
+    protekt::sim::Scenario scenario{};
+    scenario.seed = 42;
+    for (const BoltPlace& place : places) {
+        protekt::sim::Spawn spawn{};
+        spawn.side = place.side;
+        spawn.kind = place.kind;
+        spawn.tile_x = place.tile_x;
+        spawn.tile_y = place.tile_y;
+        scenario.spawns.push_back(spawn);
+    }
+    return protekt::sim::Sim::create(scenario);
+}
+
+/// Only the player's tank is armed: after it fires there is exactly one bolt, and it is the
+/// viewer's.
+protekt::sim::Sim one_player_bolt_sim() {
+    return sim_of(
+        {{Side::Player, UnitKind::Tank, 100, 100}, {Side::Enemy, UnitKind::Factory, 106, 100}});
+}
+
+/// Only the enemy's tank is armed: exactly one bolt, and it is not the viewer's.
+protekt::sim::Sim one_enemy_bolt_sim() {
+    return sim_of(
+        {{Side::Player, UnitKind::Factory, 100, 100}, {Side::Enemy, UnitKind::Tank, 106, 100}});
+}
+
+/// Both tanks are armed and in range of each other: after the volley there is one bolt per side.
+protekt::sim::Sim two_bolt_sim() {
+    return sim_of(
+        {{Side::Player, UnitKind::Tank, 100, 100}, {Side::Enemy, UnitKind::Tank, 106, 100}});
+}
+
+/// Steps until a bolt is in the air (the units are stationary, so nothing else moves meanwhile).
+void step_until_bolt(protekt::sim::Sim& sim) {
+    for (int step = 0; step < 200 && sim.projectiles().empty(); ++step) {
+        sim.step();
+    }
+    ASSERT_FALSE(sim.projectiles().empty()) << "no gun fired within 200 ticks";
+}
+
+SceneOptions bolt_options(const protekt::sim::Sim& sim) {
+    SceneOptions o = options_at(0.0F, 0.0F, 42, 20);
+    o.camera.x = static_cast<float>(sim.units().front().x.raw) / 65536.0F * kMetresPerTile;
+    o.camera.z = static_cast<float>(sim.units().front().y.raw) / 65536.0F * kMetresPerTile;
+    return o;
+}
+
+/// The vertices a scene gained over the same scene with no bolts. Bolts are appended after the
+/// units and there is no radar or reticle in these options, so they are the tail.
+std::vector<protekt::render::SceneVertex> bolt_vertices(const Scene& with, const Scene& without) {
+    if (with.vertices.size() < without.vertices.size()) {
+        return {};
+    }
+    return {with.vertices.begin() + static_cast<std::ptrdiff_t>(without.vertices.size()),
+            with.vertices.end()};
+}
+
+} // namespace
+
+TEST(SceneBolts, ABoltDrawsExactlyOneBox) {
+    auto sim = one_player_bolt_sim();
+    const auto none = protekt::game::build_scene(sim, bolt_options(sim));
+    step_until_bolt(sim);
+    ASSERT_EQ(sim.projectiles().size(), 1U);
+    const auto with = protekt::game::build_scene(sim, bolt_options(sim));
+    EXPECT_GT(with.vertices.size(), none.vertices.size());
+    EXPECT_EQ(with.vertices.size() - none.vertices.size(), kBoxVertices);
+}
+
+TEST(SceneBolts, TheBoltIsWhereTheSimulationSaysItIs) {
+    auto sim = one_player_bolt_sim();
+    const auto none = protekt::game::build_scene(sim, bolt_options(sim));
+    step_until_bolt(sim);
+    ASSERT_EQ(sim.projectiles().size(), 1U);
+    const auto& bolt = sim.projectiles().front();
+    const auto drawn = bolt_vertices(protekt::game::build_scene(sim, bolt_options(sim)), none);
+    ASSERT_EQ(drawn.size(), kBoxVertices);
+
+    std::array<float, 3> low{std::numeric_limits<float>::max(), std::numeric_limits<float>::max(),
+                             std::numeric_limits<float>::max()};
+    std::array<float, 3> high{std::numeric_limits<float>::lowest(),
+                              std::numeric_limits<float>::lowest(),
+                              std::numeric_limits<float>::lowest()};
+    for (const auto& v : drawn) {
+        for (std::size_t axis = 0; axis < 3; ++axis) {
+            low.at(axis) = std::min(low.at(axis), v.position.at(axis));
+            high.at(axis) = std::max(high.at(axis), v.position.at(axis));
+        }
+    }
+    const float want_x = static_cast<float>(bolt.x.raw) / 65536.0F * kMetresPerTile;
+    const float want_z = static_cast<float>(bolt.y.raw) / 65536.0F * kMetresPerTile;
+    EXPECT_NEAR((low[0] + high[0]) * 0.5F, want_x, kTolerance);
+    EXPECT_NEAR((low[2] + high[2]) * 0.5F, want_z, kTolerance);
+    // And it rides above the ground at its own position, at barrel height.
+    const float ground = protekt::game::ground_metres(42, bolt.x, bolt.y);
+    EXPECT_NEAR((low[1] + high[1]) * 0.5F, ground + 1.2F, 0.2F);
+}
+
+TEST(SceneBolts, NothingInTheAirAddsNothing) {
+    // A sim with no armed unit never has a bolt, however long it runs: its scene never grows.
+    auto sim = sim_of(
+        {{Side::Player, UnitKind::Factory, 100, 100}, {Side::Enemy, UnitKind::Factory, 106, 100}});
+    const auto before = protekt::game::build_scene(sim, bolt_options(sim));
+    for (int step = 0; step < 30; ++step) {
+        sim.step();
+    }
+    ASSERT_TRUE(sim.projectiles().empty());
+    const auto after = protekt::game::build_scene(sim, bolt_options(sim));
+    EXPECT_EQ(after.vertices.size(), before.vertices.size());
+    EXPECT_EQ(before.vertices.size(),
+              protekt::game::build_scene(sim, bolt_options(sim)).vertices.size());
+}
+
+TEST(SceneBolts, BothSidesAreDrawn) {
+    auto sim = two_bolt_sim();
+    const auto none = protekt::game::build_scene(sim, bolt_options(sim));
+    step_until_bolt(sim);
+    ASSERT_EQ(sim.projectiles().size(), 2U);
+    const auto with = protekt::game::build_scene(sim, bolt_options(sim));
+    EXPECT_EQ(with.vertices.size() - none.vertices.size(), 2U * kBoxVertices);
+}
+
+TEST(SceneBolts, TheColourSaysWhoseBoltItIs) {
+    auto sim = two_bolt_sim();
+    const auto none = protekt::game::build_scene(sim, bolt_options(sim));
+    step_until_bolt(sim);
+    ASSERT_EQ(sim.projectiles().size(), 2U);
+    const auto drawn = bolt_vertices(protekt::game::build_scene(sim, bolt_options(sim)), none);
+    ASSERT_EQ(drawn.size(), 2U * kBoxVertices);
+    // Each box is one flat colour, and the two boxes do not share it.
+    for (std::size_t i = 1; i < kBoxVertices; ++i) {
+        EXPECT_EQ(drawn.at(i).colour, drawn.at(0).colour);
+        EXPECT_EQ(drawn.at(kBoxVertices + i).colour, drawn.at(kBoxVertices).colour);
+    }
+    EXPECT_NE(drawn.at(0).colour, drawn.at(kBoxVertices).colour);
+
+    // Viewer-relative: seen from the other side, the same two bolts swap colours.
+    SceneOptions flipped = bolt_options(sim);
+    flipped.viewer_side = Side::Enemy;
+    SceneOptions plain = bolt_options(sim);
+    const auto mine = protekt::game::build_scene(sim, plain);
+    const auto theirs = protekt::game::build_scene(sim, flipped);
+    ASSERT_EQ(mine.vertices.size(), theirs.vertices.size());
+    const std::size_t first = mine.vertices.size() - 2U * kBoxVertices;
+    EXPECT_EQ(mine.vertices.at(first).colour, theirs.vertices.at(first + kBoxVertices).colour);
+    EXPECT_EQ(mine.vertices.at(first + kBoxVertices).colour, theirs.vertices.at(first).colour);
+}
+
+TEST(SceneBolts, AHostileBoltDrawsToo) {
+    auto sim = one_enemy_bolt_sim();
+    const auto none = protekt::game::build_scene(sim, bolt_options(sim));
+    step_until_bolt(sim);
+    ASSERT_EQ(sim.projectiles().size(), 1U);
+    const auto with = protekt::game::build_scene(sim, bolt_options(sim));
+    EXPECT_EQ(with.vertices.size() - none.vertices.size(), kBoxVertices);
+}

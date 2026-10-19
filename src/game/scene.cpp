@@ -147,6 +147,51 @@ void build_unit_box(std::vector<render::SceneVertex>& out, std::uint64_t seed,
     emit_quad(out, p[4], p[5], p[1], p[0], colour); // bottom
 }
 
+/// A tracer is brighter than anything it flies over: a unit colour is a thing standing on the
+/// ground, but a bolt is a few decimetres wide and must not be lost against grass, rock or a
+/// side's own tanks. Two hues, so incoming fire and outgoing fire read apart at a glance --
+/// a bright cyan for the viewer's side, a bright orange-yellow for the other.
+constexpr Vec3 kOwnBoltColour{0.30F, 1.0F, 1.0F};
+constexpr Vec3 kHostileBoltColour{1.0F, 0.85F, 0.10F};
+/// Barrel height on a 1.8 m tank, and a tracer's half-width (not a tank-sized cube).
+constexpr float kBoltHeightMetres = 1.2F;
+constexpr float kBoltHalfWidthMetres = 0.12F;
+
+/// One small box per projectile the sim has in the air, built the way `build_unit_box` builds a
+/// unit: the same tile-to-metre conversion, the same six faces, the same winding.
+void append_projectiles(std::vector<render::SceneVertex>& out, const SceneOptions& options,
+                        const sim::Sim& sim) {
+    for (const sim::Projectile& bolt : sim.projectiles()) {
+        const float x = static_cast<float>(bolt.x.raw) / static_cast<float>(sim::Fixed::kOne)
+                        * kMetresPerTile;
+        const float z = static_cast<float>(bolt.y.raw) / static_cast<float>(sim::Fixed::kOne)
+                        * kMetresPerTile;
+        const float centre = ground_metres(options.seed, bolt.x, bolt.y) + kBoltHeightMetres;
+        const Vec3 colour = bolt.side == options.viewer_side ? kOwnBoltColour : kHostileBoltColour;
+
+        const float x0 = x - kBoltHalfWidthMetres;
+        const float x1 = x + kBoltHalfWidthMetres;
+        const float z0 = z - kBoltHalfWidthMetres;
+        const float z1 = z + kBoltHalfWidthMetres;
+        const float y0 = centre - kBoltHalfWidthMetres;
+        const float y1 = centre + kBoltHalfWidthMetres;
+        const std::array<Vec3, 8> p{{{x0, y0, z0},
+                                     {x1, y0, z0},
+                                     {x1, y1, z0},
+                                     {x0, y1, z0},
+                                     {x0, y0, z1},
+                                     {x1, y0, z1},
+                                     {x1, y1, z1},
+                                     {x0, y1, z1}}};
+        emit_quad(out, p[0], p[1], p[2], p[3], colour); // near
+        emit_quad(out, p[5], p[4], p[7], p[6], colour); // far
+        emit_quad(out, p[4], p[0], p[3], p[7], colour); // left
+        emit_quad(out, p[1], p[5], p[6], p[2], colour); // right
+        emit_quad(out, p[3], p[2], p[6], p[7], colour); // top
+        emit_quad(out, p[4], p[5], p[1], p[0], colour); // bottom
+    }
+}
+
 /// The reticle's distance from the eye, in metres. This close, nothing can stand between the eye
 /// and the mark: it is a screen mark, and a crater rim must not be able to hide it.
 constexpr float kReticleDistanceMetres = 1.5F;
@@ -552,6 +597,7 @@ render::Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
         }
     }
 
+    append_projectiles(scene.vertices, options, sim);
     append_radar(scene.vertices, options, sim);
     append_reticle(scene.vertices, options, sim, aimed);
 
