@@ -228,6 +228,38 @@ TEST(ShotSound, NoToneHangsAboveTheThumpBandAfterTheCrackDies) {
     EXPECT_LT(fraction, 0.08) << "high " << high << " low " << low << " fraction " << fraction;
 }
 
+TEST(ShotSound, ThePitchSagsFromTheStartToTheEnd) {
+    // The thump falls from about 120 Hz to about 60 Hz. Every other test here passes for a
+    // CONSTANT tone anywhere in the 50-140 Hz band; this is the one that pins the sag itself:
+    // the crossing period early in the settled part must be clearly shorter than late in it.
+    const std::vector<float>& s = shot_samples();
+    const auto median_period = [&](float from_s, float to_s) {
+        const std::size_t a = frame_at(from_s);
+        const std::size_t b = frame_at(to_s);
+        std::vector<std::size_t> at;
+        for (std::size_t i = a + 1; i < b; ++i) {
+            if (s[i - 1] < 0.0F && s[i] >= 0.0F) {
+                at.push_back(i);
+            }
+        }
+        if (at.size() < 3) {
+            return 0.0;
+        }
+        std::vector<double> p;
+        for (std::size_t i = 1; i < at.size(); ++i) {
+            p.push_back(static_cast<double>(at[i] - at[i - 1]));
+        }
+        std::sort(p.begin(), p.end());
+        return p[p.size() / 2];
+    };
+    const double early = median_period(0.06F, 0.12F);
+    const double late = median_period(0.18F, 0.25F);
+    ASSERT_GT(early, 0.0);
+    ASSERT_GT(late, 0.0);
+    EXPECT_LT(early, late * 0.8) << "early period " << early << " samples, late " << late
+                                 << ": a constant tone has no sag";
+}
+
 TEST(ShotSound, IsDeterministic) {
     const std::vector<float> a = synthesise(SoundKind::YourShot);
     const std::vector<float> b = synthesise(SoundKind::YourShot);

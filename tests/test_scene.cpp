@@ -1174,6 +1174,34 @@ TEST(GroundMetres, SameInputGivesTheSameOutputAndTheFloatFormAgreesWithTheFixedF
     EXPECT_NEAR(ground_metres(kSlopeSeed, x, y), ground_metres(kSlopeSeed, 106.37F, 95.81F), 1e-3F);
 }
 
+TEST(GroundMetres, InsideATileItFollowsTheSameTriangleTheMeshDraws) {
+    // The mesh draws each tile as two triangles split along p00-p11, so the ground a point stands
+    // on is the plane of the triangle it falls in. A bilinear blend of the four corners instead
+    // misses that plane by up to a quarter of the tile's twist -- on this tile, at its middle,
+    // by 6.25 cm, which is a quarter of the hull's 0.25 m ride height.
+    const int tx = -36;
+    const int ty = 19;
+    const float h00 = height_metres(kSlopeSeed, tx, ty);
+    const float h10 = height_metres(kSlopeSeed, tx + 1, ty);
+    const float h01 = height_metres(kSlopeSeed, tx, ty + 1);
+    const float h11 = height_metres(kSlopeSeed, tx + 1, ty + 1);
+    const float twist = h00 - h10 - h01 + h11;
+    ASSERT_GT(std::fabs(twist), 0.20F)
+        << "the tile must actually be twisted for this to mean anything";
+
+    // fx == fy == 0.5 sits on the diagonal; either plane gives the same value there.
+    const float middle = ground_metres(kSlopeSeed, tiles(tx + 0.5F), tiles(ty + 0.5F));
+    EXPECT_NEAR(middle, h00 + ((h10 - h00) * 0.5F) + ((h11 - h10) * 0.5F), 1e-4F);
+
+    // fx = 0.75, fy = 0.25: below the diagonal, so the p00,p10,p11 plane.
+    const float high_x = ground_metres(kSlopeSeed, tiles(tx + 0.75F), tiles(ty + 0.25F));
+    EXPECT_NEAR(high_x, h00 + ((h10 - h00) * 0.75F) + ((h11 - h10) * 0.25F), 1e-4F);
+
+    // fx = 0.25, fy = 0.75: above it, so the p00,p01,p11 plane.
+    const float low_x = ground_metres(kSlopeSeed, tiles(tx + 0.25F), tiles(ty + 0.75F));
+    EXPECT_NEAR(low_x, h00 + ((h01 - h00) * 0.75F) + ((h11 - h01) * 0.25F), 1e-4F);
+}
+
 TEST(GroundMetres, ATanksFootingInTheSceneIsContinuousAsItDrivesAcrossATileEdge) {
     using namespace protekt::sim;
     Scenario scenario;
@@ -1313,14 +1341,8 @@ TEST(Hover, TwoTicksInOneFrameLandWhereTwoFramesOfOneTickDo) {
     EXPECT_EQ(one_by_one.z, together.z);
     EXPECT_EQ(one_by_one.z_vel, together.z_vel);
 
-    Hover frames;
-    Hover batch;
-    frames.advance(0, 0.0F);
-    batch.advance(0, 0.0F);
-    frames.advance(1, 2.0F);
-    frames.advance(2, 2.0F);
-    batch.advance(2, 2.0F); // the same two ticks, arriving in one frame
-    // The batch frame sees the final ground for both ticks, so only the one-ground case is claimed.
+    // The batch frame sees the final ground for both ticks, so only the constant-ground case is
+    // claimed below; a changing ground within one frame is not claimed by this test.
     Hover steady_frames;
     Hover steady_batch;
     steady_frames.advance(0, 2.0F);
@@ -1328,7 +1350,6 @@ TEST(Hover, TwoTicksInOneFrameLandWhereTwoFramesOfOneTickDo) {
     steady_frames.advance(1, 5.0F);
     steady_frames.advance(2, 5.0F);
     steady_batch.advance(2, 5.0F);
-    EXPECT_NE(frames.z(), std::nullopt);
     EXPECT_EQ(steady_frames.z(), steady_batch.z());
 }
 
@@ -1596,7 +1617,7 @@ TEST(Calibration, TheBarsSpanTheFullFrameWidthAndEachTheFullHeight) {
     EXPECT_NEAR(previous_right, width, 0.5F);
 }
 
-TEST(Calibration, TogglingOnAndOffLeavesTheGameSceneAndTheSimUntouched) {
+TEST(Calibration, TheSceneIsBitIdenticalBeforeAndAfterTheCalibrationView) {
     using namespace protekt::sim;
     Scenario scenario;
     scenario.seed = 42;

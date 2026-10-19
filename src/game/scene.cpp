@@ -406,14 +406,22 @@ float height_metres(std::uint64_t seed, int tile_x, int tile_y) noexcept {
 
 namespace {
 
+/// The drawn ground under a point inside a tile.
+///
+/// The terrain quad is emitted as two triangles split along the p00-p11 diagonal, so the surface
+/// the player SEES is piecewise planar, not a bilinear blend. A bilinear blend would sit up to a
+/// quarter of the tile's corner twist away from it (measured: up to 6.25 cm on seed 42, against a
+/// 0.25 m ride height) -- enough to sink the hull into a slope or float it off one. This follows
+/// the same two planes the mesh does, so the hull, the pick and the picture agree everywhere.
 float blend_corners(std::uint64_t seed, int tx, int ty, float fx, float fy) noexcept {
     const float h00 = height_metres(seed, tx, ty);
     const float h10 = height_metres(seed, tx + 1, ty);
     const float h01 = height_metres(seed, tx, ty + 1);
     const float h11 = height_metres(seed, tx + 1, ty + 1);
-    const float along_x0 = h00 + ((h10 - h00) * fx);
-    const float along_x1 = h01 + ((h11 - h01) * fx);
-    return along_x0 + ((along_x1 - along_x0) * fy);
+    if (fx >= fy) {
+        return h00 + ((h10 - h00) * fx) + ((h11 - h10) * fy); // the p00, p10, p11 triangle
+    }
+    return h00 + ((h01 - h00) * fy) + ((h11 - h01) * fx); // the p00, p01, p11 triangle
 }
 
 } // namespace
