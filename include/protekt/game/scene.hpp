@@ -46,7 +46,8 @@ struct Camera {
 
 /// THE HOVER. A hover tank does not weld itself to the ground: its ride height follows the terrain
 /// through a spring and damper, so a rise under it makes the hull lag, overshoot once, and settle.
-/// Presentation only -- the simulation has no z and gains none. All rates are per SIM TICK (30 a
+/// Presentation only -- no UNIT has a z and none gains one (a bolt does now, since pitch bends it;
+/// this is about units). All rates are per SIM TICK (30 a
 /// second), never per frame, so the hop does not depend on the display's refresh rate.
 ///
 /// A stationary tank floats this far above the ground, in metres.
@@ -55,7 +56,7 @@ inline constexpr float kRideHeightMetres = 0.25F;
 /// overshoots once and settles at kRideHeightMetres + this; released, it settles back. 0.9 m is
 /// half the 1.8 m hull: the daylight under it grows from 0.25 m to 1.15 m, plainly more than a bump
 /// in the ground could do, yet the hull is still less than a hull-and-a-bit off the ground rather
-/// than flying. Presentation only: the sim has no z, so boost changes no order, no tick and no
+/// than flying. Presentation only: no unit has a z, so boost changes no order, no tick and no
 /// hash.
 inline constexpr float kBoostLiftMetres = 0.9F;
 /// Spring stiffness, in (metres/tick^2) per metre of error. Natural frequency sqrt(k) = 0.2

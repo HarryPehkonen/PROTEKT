@@ -10,6 +10,7 @@
 namespace protekt::sim {
 namespace {
 
+constexpr std::uint64_t kSeed = 42; ///< says where the ground is; see Range
 constexpr UnitId kGun{1};
 constexpr UnitId kMark{2};
 constexpr UnitId kOther{3};
@@ -58,7 +59,7 @@ struct Result {
 /// `teleport_to_y`, when set, jumps the mark there the moment the bolt leaves the gun.
 [[nodiscard]] Result shoot(Range& range, int teleport_to_y = -1) {
     retarget_aim(range.gun(), kMark);
-    std::vector<Projectile> bolts{launch(range.gun(), range.mark(), kTankDamage)};
+    std::vector<Projectile> bolts{launch(range.gun(), range.mark(), kTankDamage, kSeed)};
     if (teleport_to_y >= 0) {
         range.mark().y = Fixed::from_int(teleport_to_y);
     }
@@ -69,7 +70,7 @@ struct Result {
         range.mark().x = Fixed::from_raw(range.mark().x.raw + range.mark().vx.raw);
         range.mark().y = Fixed::from_raw(range.mark().y.raw + range.mark().vy.raw);
         const Projectile before = bolts.front();
-        advance_projectiles(bolts, range.units, impacts);
+        advance_projectiles(bolts, range.units, impacts, kSeed);
         const std::int64_t dx
             = static_cast<std::int64_t>(before.x.raw) + before.vx.raw - range.mark().x.raw;
         const std::int64_t dy
@@ -175,12 +176,12 @@ TEST(AiAim, ALessonAboutAnotherTargetIsDiscarded) {
     // A bolt in the air when the gun changed its mind teaches the new target nothing.
     Range range(kTenthTile);
     retarget_aim(range.gun(), kMark);
-    std::vector<Projectile> bolts{launch(range.gun(), range.mark(), kTankDamage)};
+    std::vector<Projectile> bolts{launch(range.gun(), range.mark(), kTankDamage, kSeed)};
     retarget_aim(range.gun(), kOther);
     std::vector<Impact> impacts;
     for (int tick = 1; tick <= 60 && !bolts.empty(); ++tick) {
         range.mark().y = Fixed::from_raw(range.mark().y.raw + range.mark().vy.raw);
-        advance_projectiles(bolts, range.units, impacts);
+        advance_projectiles(bolts, range.units, impacts, kSeed);
     }
     EXPECT_EQ(range.gun().aim_x.raw, 0);
     EXPECT_EQ(range.gun().aim_y.raw, 0);
@@ -206,15 +207,15 @@ TEST(AiAim, AHitCostsNoCorrection) {
 
 TEST(AiAim, ThePlayersManualShotNeitherLeadsNorLearns) {
     Range range(kTenthTile);
-    Projectile bolt
-        = launch_towards(range.gun(), Fixed::from_int(1), Fixed::zero(), kMark, kTankDamage);
+    Projectile bolt = launch_towards(range.gun(), Fixed::from_int(1), Fixed::zero(), Fixed::zero(),
+                                     kMark, kTankDamage, kSeed);
     EXPECT_EQ(bolt.vy.raw, 0) << "the manual shot was led";
     range.gun().aim_target = kMark;
     std::vector<Projectile> bolts{bolt};
     std::vector<Impact> impacts;
     for (int tick = 1; tick <= 60 && !bolts.empty(); ++tick) {
         range.mark().y = Fixed::from_raw(range.mark().y.raw + range.mark().vy.raw);
-        advance_projectiles(bolts, range.units, impacts);
+        advance_projectiles(bolts, range.units, impacts, kSeed);
     }
     EXPECT_EQ(range.gun().aim_x.raw, 0);
     EXPECT_EQ(range.gun().aim_y.raw, 0) << "a manual shot taught the AI gun";
@@ -275,6 +276,117 @@ TEST(AiAim, TheEstimateHistoryIsDeterministicAndHashed) {
             = ever_learned || first.find(kGun)->aim_x.raw != 0 || first.find(kGun)->aim_y.raw != 0;
     }
     EXPECT_TRUE(ever_learned) << "the battle never moved the estimate: nothing was compared";
+}
+
+// ---------------------------------------------------------------------------------------------
+// The lesson lands when the bolt goes by, not when it fizzles
+// ---------------------------------------------------------------------------------------------
+
+namespace {
+
+/// A mark five tiles from the gun, crossing at a tenth of a tile a tick: a bolt reaches it in about
+/// nine ticks, a tank's gun is ready again in fifteen, and a bolt that missed would not fizzle for
+/// thirty. The window between the first and the last is where the lesson has to arrive.
+[[nodiscard]] Range close_range() {
+    Range range(kTenthTile);
+    range.mark().x = Fixed::from_int(105);
+    return range;
+}
+
+/// One tick of the range: the mark drives on, then every bolt in the air moves.
+void tick_range(Range& range, std::vector<Projectile>& bolts, std::vector<Impact>& impacts) {
+    range.mark().y = Fixed::from_raw(range.mark().y.raw + range.mark().vy.raw);
+    advance_projectiles(bolts, range.units, impacts, kSeed);
+}
+
+constexpr int kReload = kTankCooldownTicks;
+
+} // namespace
+
+TEST(AiAim, ALessonLandsAsSoonAsTheBoltPasses) {
+    Range range = close_range();
+    retarget_aim(range.gun(), kMark);
+    std::vector<Projectile> bolts{launch(range.gun(), range.mark(), kTankDamage, kSeed)};
+    std::vector<Impact> impacts;
+    int lesson_at = 0;
+    for (int tick = 1; tick < kReload; ++tick) {
+        tick_range(range, bolts, impacts);
+        if (lesson_at == 0 && range.gun().aim_y.raw != 0) {
+            lesson_at = tick;
+        }
+    }
+    ASSERT_EQ(range.mark().hp, kTankHp) << "the first shot hit: this is not a lesson about a miss";
+    EXPECT_GT(lesson_at, 0) << "the gun is ready to fire again and has learned nothing";
+    EXPECT_FALSE(bolts.empty()) << "the lesson must come from a bolt still in the air, not from "
+                                   "one that has expired";
+    EXPECT_GT(range.gun().aim_y.raw, 0) << "it learned to lead the way the mark is going";
+
+    // The second shot, fired the moment the gun reloads, uses what the first one saw.
+    bolts.push_back(launch(range.gun(), range.mark(), kTankDamage, kSeed));
+    for (int tick = 0; tick < 60 && !bolts.empty(); ++tick) {
+        tick_range(range, bolts, impacts);
+    }
+    EXPECT_LT(range.mark().hp, kTankHp) << "the second shot missed: the lesson came too late";
+}
+
+TEST(AiAim, ABoltThatPassesItsTargetTeachesOnceAndDoesNotTeachAgainWhenItExpires) {
+    Range range = close_range();
+    retarget_aim(range.gun(), kMark);
+    std::vector<Projectile> bolts{launch(range.gun(), range.mark(), kTankDamage, kSeed)};
+    std::vector<Impact> impacts;
+    Projectile at_the_pass{};
+    bool taught = false;
+    for (int tick = 1; tick <= 60 && !bolts.empty(); ++tick) {
+        tick_range(range, bolts, impacts);
+        if (!taught && range.gun().aim_y.raw != 0) {
+            taught = true;
+            ASSERT_EQ(bolts.size(), 1U);
+            at_the_pass = bolts.front();
+            // Exactly one correction, from a zero estimate: the miss the bolt measured.
+            EXPECT_EQ(range.gun().aim_x.raw, at_the_pass.miss_x.raw);
+            EXPECT_EQ(range.gun().aim_y.raw, at_the_pass.miss_y.raw);
+        }
+    }
+    ASSERT_TRUE(taught);
+    EXPECT_TRUE(bolts.empty()) << "the bolt should have flown its whole range by now";
+    EXPECT_EQ(range.gun().aim_x.raw, at_the_pass.miss_x.raw)
+        << "the lesson was applied again when the bolt expired";
+    EXPECT_EQ(range.gun().aim_y.raw, at_the_pass.miss_y.raw)
+        << "the lesson was applied again when the bolt expired";
+}
+
+TEST(AiAim, ABoltThatHasNotYetPassedItsTargetHasTaughtNothing) {
+    Range range = close_range();
+    retarget_aim(range.gun(), kMark);
+    std::vector<Projectile> bolts{launch(range.gun(), range.mark(), kTankDamage, kSeed)};
+    std::vector<Impact> impacts;
+    for (int tick = 1; tick <= 3; ++tick) { // three ticks of nine: still on its way in
+        tick_range(range, bolts, impacts);
+    }
+    ASSERT_EQ(bolts.size(), 1U);
+    EXPECT_TRUE(bolts.front().learns) << "it has not passed, so its lesson is still to come";
+    EXPECT_LT(bolts.front().closest_d2, INT64_MAX) << "it is watching its target";
+    EXPECT_EQ(range.gun().aim_x.raw, 0);
+    EXPECT_EQ(range.gun().aim_y.raw, 0) << "a bolt still approaching taught the gun something";
+}
+
+TEST(AiAim, ALessonFromABoltThatPassedSurvivesTheTargetLeavingRange) {
+    // The old way, a target that drove off before the bolt fizzled wiped the lesson. A bolt that
+    // has passed has already said what it saw: the target being gone afterwards changes nothing.
+    Range range = close_range();
+    retarget_aim(range.gun(), kMark);
+    std::vector<Projectile> bolts{launch(range.gun(), range.mark(), kTankDamage, kSeed)};
+    std::vector<Impact> impacts;
+    for (int tick = 1; tick <= 14; ++tick) {
+        tick_range(range, bolts, impacts);
+    }
+    ASSERT_NE(range.gun().aim_y.raw, 0);
+    const std::int32_t learned = range.gun().aim_y.raw;
+    range.mark().alive = false; // and it is gone before the bolt has expired
+    for (int tick = 0; tick < 60 && !bolts.empty(); ++tick) {
+        tick_range(range, bolts, impacts);
+    }
+    EXPECT_EQ(range.gun().aim_y.raw, learned);
 }
 
 } // namespace protekt::sim

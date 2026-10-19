@@ -112,7 +112,7 @@ void apply_posted(Unit& unit, Stance stance, Fixed x, Fixed y, Fixed x2, Fixed y
 }
 
 void apply_order(std::vector<Unit>& units, std::vector<Projectile>& projectiles,
-                 std::vector<Sim::Shot>& shots, const Order& order) noexcept {
+                 std::vector<Sim::Shot>& shots, const Order& order, std::uint64_t seed) noexcept {
     // Re-validated here: the unit may have died between enqueue and the tick it takes effect.
     if (!order_is_valid(units, order)) {
         return;
@@ -168,8 +168,8 @@ void apply_order(std::vector<Unit>& units, std::vector<Projectile>& projectiles,
             const UnitProfile prof = profile(unit.kind);
             if (prof.weapon_range.raw > 0 && prof.damage > 0 && unit.cooldown == 0) {
                 const UnitId aimed_at = o->aimed_at == unit.id ? UnitId{} : o->aimed_at;
-                projectiles.push_back(
-                    launch_towards(unit, o->dir_x, o->dir_y, aimed_at, prof.damage));
+                projectiles.push_back(launch_towards(unit, o->dir_x, o->dir_y, o->dir_z, aimed_at,
+                                                     prof.damage, seed));
                 // The rule: the sim reports `Fired` for the shots it decided to make (gun fire); a
                 // player's manual shot is the app's to announce, with its own sound. So the Shot is
                 // recorded with NO target whatever `aimed_at` says -- a valid target here is what
@@ -361,7 +361,7 @@ void Sim::step() {
     // 1. orders, in the order enqueued.
     shots_.clear();
     for (const Order& order : pending_) {
-        apply_order(units_, projectiles_, shots_, order);
+        apply_order(units_, projectiles_, shots_, order, scenario_.seed);
     }
     pending_.clear();
 
@@ -385,7 +385,7 @@ void Sim::step() {
     // 3. the bolts already in the air, in spawn order. Before the guns, so a unit killed here does
     //    not shoot this tick, and a bolt fired this tick has not moved yet.
     impacts_.clear();
-    advance_projectiles(projectiles_, units_, impacts_);
+    advance_projectiles(projectiles_, units_, impacts_, seed);
 
     // 4. fire, ascending id. The shot leaves the gun now; its damage arrives with it.
     for (Unit& unit : units_) {
@@ -441,7 +441,7 @@ void Sim::step() {
             continue;
         }
         retarget_aim(unit, best->id);
-        projectiles_.push_back(launch(unit, *best, prof.damage));
+        projectiles_.push_back(launch(unit, *best, prof.damage, seed));
         shots_.push_back(Shot{unit.id, best->id});
         unit.cooldown = prof.cooldown_ticks;
         // The focus is spent by the shot it names: one click, one bolt. Whoever it was fired at,
@@ -507,8 +507,10 @@ std::uint64_t Sim::state_hash() const noexcept {
         for (const Projectile& p : projectiles_) {
             h.i32(p.x.raw);
             h.i32(p.y.raw);
+            h.i32(p.z.raw);
             h.i32(p.vx.raw);
             h.i32(p.vy.raw);
+            h.i32(p.vz.raw);
             h.u64(p.shooter.value);
             h.u64(static_cast<std::uint64_t>(p.side));
             h.u64(p.aimed_at.value);

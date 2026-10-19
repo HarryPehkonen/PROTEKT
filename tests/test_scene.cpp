@@ -1978,6 +1978,138 @@ TEST(SceneBolts, AHostileBoltDrawsToo) {
     EXPECT_EQ(with.vertices.size() - none.vertices.size(), kBoxVertices);
 }
 
+// A bolt is drawn at ITS height: the sim says how high it is, and the picture does not re-derive
+// it from the ground the bolt happens to be over. Harri's report: shoot across a valley and the
+// bolt "follows the contour of the valley, and starts going UP at the opposite side".
+
+namespace {
+
+struct Valley {
+    int x{};
+    int y{};
+};
+
+int height_at_tile(int x, int y) { return protekt::world::sample(42, x, y).height; }
+
+/// The start of a row that dips into a valley and where a LEVEL shot from the first tile clears
+/// the ground all the way along: nothing along twelve tiles rises more than 30 units above the
+/// start (the muzzle is 36.8 up), and the middle of the row is at least 60 units below it.
+std::optional<Valley> find_valley() {
+    for (int y = 5; y < 250; ++y) {
+        for (int x = 5; x < 235; ++x) {
+            if (protekt::world::sample(42, x, y).terrain == protekt::world::Terrain::Crater) {
+                continue;
+            }
+            const int h0 = height_at_tile(x, y);
+            bool clear = true;
+            for (int i = 0; i <= 12 && clear; ++i) {
+                clear = height_at_tile(x + i, y) <= h0 + 30;
+            }
+            bool deep = true;
+            for (int i = 6; i <= 9 && deep; ++i) {
+                deep = height_at_tile(x + i, y) <= h0 - 60;
+            }
+            if (clear && deep) {
+                return Valley{x, y};
+            }
+        }
+    }
+    return std::nullopt;
+}
+
+/// A lone tank at the valley's rim, a level shot along the row, and the scene at the moment the
+/// bolt is `tiles` along. Everything a test needs to compare the bolt with its picture.
+struct Flight {
+    protekt::sim::Projectile bolt{};
+    float drawn_centre{}; ///< metres, the middle of the bolt's box
+    float ground_under{}; ///< metres, the ground at the bolt's own x, y
+};
+
+std::vector<Flight> fly_over_the_valley(const std::vector<float>& tiles_along) {
+    const std::optional<Valley> valley = find_valley();
+    EXPECT_TRUE(valley.has_value()) << "no valley on seed 42";
+    const Valley at = valley.value_or(Valley{});
+    auto sim = sim_of({{Side::Player, UnitKind::Tank, at.x, at.y}});
+    for (int tick = 0; tick < 15; ++tick) {
+        sim.step(); // a new gun reloads
+    }
+    sim.enqueue(protekt::sim::Order{
+        protekt::sim::UnitId{1}, protekt::sim::orders::FireTowards{protekt::sim::Fixed::from_int(1),
+                                                                   protekt::sim::Fixed::zero()}});
+    const auto none = protekt::game::build_scene(sim, bolt_options(sim));
+    std::vector<Flight> flights;
+    std::size_t next = 0;
+    for (int tick = 0; tick < 60 && next < tiles_along.size(); ++tick) {
+        sim.step();
+        if (sim.projectiles().empty()) {
+            break;
+        }
+        const protekt::sim::Projectile& bolt = sim.projectiles().front();
+        const float along = static_cast<float>(bolt.x.raw) / 65536.0F - static_cast<float>(at.x);
+        if (along < tiles_along.at(next)) {
+            continue;
+        }
+        ++next;
+        const auto drawn = bolt_vertices(protekt::game::build_scene(sim, bolt_options(sim)), none);
+        EXPECT_EQ(drawn.size(), kBoxVertices);
+        float low = std::numeric_limits<float>::max();
+        float high = std::numeric_limits<float>::lowest();
+        for (const auto& v : drawn) {
+            low = std::min(low, v.position[1]);
+            high = std::max(high, v.position[1]);
+        }
+        flights.push_back(
+            Flight{bolt, (low + high) * 0.5F, protekt::game::ground_metres(42, bolt.x, bolt.y)});
+    }
+    return flights;
+}
+
+} // namespace
+
+TEST(SceneBolts, ALevelShotFliesLevelOverAValley) {
+    const std::vector<Flight> flights = fly_over_the_valley({1.0F, 4.0F, 7.0F, 9.0F});
+    ASSERT_EQ(flights.size(), 4U) << "the bolt did not fly across the valley";
+    // In the simulation: a level shot keeps the height it left the gun at, exactly.
+    for (const Flight& flight : flights) {
+        EXPECT_EQ(flight.bolt.z.raw, flights.front().bolt.z.raw);
+        EXPECT_EQ(flight.bolt.vz.raw, 0);
+    }
+    // On the screen: the ground under it fell away, and the bolt was drawn at the same height all
+    // the way across -- it did not dip into the valley and climb the far wall.
+    float lowest_ground = flights.front().ground_under;
+    for (const Flight& flight : flights) {
+        lowest_ground = std::min(lowest_ground, flight.ground_under);
+        EXPECT_NEAR(flight.drawn_centre, flights.front().drawn_centre, kTolerance)
+            << "the drawn bolt followed the ground";
+    }
+    EXPECT_LT(lowest_ground, flights.front().ground_under - 1.5F)
+        << "the valley is not deep enough for this to prove anything";
+}
+
+TEST(SceneBolts, ABoltIsDrawnAtItsOwnHeight) {
+    const std::vector<Flight> flights = fly_over_the_valley({2.0F, 8.0F});
+    ASSERT_EQ(flights.size(), 2U);
+    for (const Flight& flight : flights) {
+        const float want = static_cast<float>(flight.bolt.z.raw) / 65536.0F * kMetresPerHeightUnit;
+        EXPECT_NEAR(flight.drawn_centre, want, 0.05F) << "not at the bolt's own height";
+    }
+    // Over the deep part the old picture put it 1.2 m above the ground; the bolt's real height is
+    // metres above that.
+    EXPECT_GT(flights.at(1).drawn_centre, flights.at(1).ground_under + 1.2F + 1.5F);
+}
+
+TEST(SceneBolts, TheSimsGroundIsTheGroundTheSceneDraws) {
+    // A bolt that meets the ground in the sim has to meet the ground the player sees.
+    for (const auto& [x, y] : {std::pair{20.25F, 60.5F}, std::pair{100.9F, 100.1F},
+                               std::pair{33.5F, 33.5F}, std::pair{47.75F, 90.25F}}) {
+        const auto fx = protekt::sim::Fixed::from_raw(static_cast<std::int32_t>(x * 65536.0F));
+        const auto fy = protekt::sim::Fixed::from_raw(static_cast<std::int32_t>(y * 65536.0F));
+        const float sim_metres = static_cast<float>(protekt::sim::ground_height(42, fx, fy).raw)
+                                 / 65536.0F * kMetresPerHeightUnit;
+        EXPECT_NEAR(sim_metres, protekt::game::ground_metres(42, fx, fy), 0.001F) << x << "," << y;
+    }
+}
+
 // The viewer's tank, drawn with a hull, a turret and a barrel so the steering model can be seen.
 
 namespace {

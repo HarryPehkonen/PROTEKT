@@ -229,8 +229,8 @@ void build_facing_tank(std::vector<render::SceneVertex>& out, std::uint64_t seed
 /// a bright cyan for the viewer's side, a bright orange-yellow for the other.
 constexpr Vec3 kOwnBoltColour{0.30F, 1.0F, 1.0F};
 constexpr Vec3 kHostileBoltColour{1.0F, 0.85F, 0.10F};
-/// Barrel height on a 1.8 m tank, and a tracer's half-width (not a tank-sized cube).
-constexpr float kBoltHeightMetres = 1.2F;
+/// A tracer's half-width (not a tank-sized cube). Its height is the bolt's own: the sim says how
+/// high it is, and it is drawn there, not at some height re-derived from the ground it is over.
 constexpr float kBoltHalfWidthMetres = 0.12F;
 
 /// One small box per projectile the sim has in the air, built the way `build_unit_box` builds a
@@ -242,7 +242,8 @@ void append_projectiles(std::vector<render::SceneVertex>& out, const SceneOption
                         * kMetresPerTile;
         const float z = static_cast<float>(bolt.y.raw) / static_cast<float>(sim::Fixed::kOne)
                         * kMetresPerTile;
-        const float centre = ground_metres(options.seed, bolt.x, bolt.y) + kBoltHeightMetres;
+        const float centre = static_cast<float>(bolt.z.raw) / static_cast<float>(sim::Fixed::kOne)
+                             * kMetresPerHeightUnit;
         const Vec3 colour = bolt.side == options.viewer_side ? kOwnBoltColour : kHostileBoltColour;
 
         const float x0 = x - kBoltHalfWidthMetres;

@@ -81,10 +81,18 @@ void Interaction::handle(const input::InputFrame& frame, const sim::Sim& sim,
             // mirrored-screen note in session.cpp is about which way the YAW turns, not about
             // where a given yaw points. tests/test_interaction.cpp checks it against
             // `math::basis_from` itself.
+            //
+            // THE PITCH. The camera's forward is (sin yaw cos pitch, sin pitch, cos yaw cos pitch):
+            // the same basis, with the vertical as its second number and positive UP (a pitch of
+            // +0.3 looks above the horizon). The shot takes all three, so the horizontal share is
+            // cos(pitch) and the total speed does not depend on where the player looks.
             const float yaw = options.camera.yaw;
+            const float pitch = options.camera.pitch;
             pending_.push_back(sim::Order{
-                driven_, sim::orders::FireTowards{to_fixed(std::sin(yaw)), to_fixed(std::cos(yaw)),
-                                                  named ? hit->id : sim::UnitId{}}});
+                driven_, sim::orders::FireTowards{to_fixed(std::sin(yaw) * std::cos(pitch)),
+                                                  to_fixed(std::cos(yaw) * std::cos(pitch)),
+                                                  named ? hit->id : sim::UnitId{},
+                                                  to_fixed(std::sin(pitch))}});
             // Every manual shot is one order, one bolt, and the app's own sound: the sim reports
             // no Fired event for it, so this is the only thing the player hears.
             shot_voice_ = true;

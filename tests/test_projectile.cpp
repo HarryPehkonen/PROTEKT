@@ -8,8 +8,10 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <optional>
 #include <regex>
 #include <sstream>
 #include <string>
@@ -68,6 +70,59 @@ constexpr UnitId kSecond{2};
 [[nodiscard]] std::int64_t speed_squared(const Projectile& p) {
     return static_cast<std::int64_t>(p.vx.raw) * p.vx.raw
            + static_cast<std::int64_t>(p.vy.raw) * p.vy.raw;
+}
+
+// A bolt now has a height, and the world has hills: a level shot hits the ground of a hill, and a
+// shot at a unit on a different level misses it. The tests below that fly a bolt in a straight line
+// over "open ground" therefore stand where the ground really is level, found by looking for it.
+struct TileAt {
+    int x{};
+    int y{};
+};
+
+[[nodiscard]] int tile_height(int x, int y) { return world::sample(kSeed, x, y).height; }
+
+[[nodiscard]] bool is_crater(int x, int y) {
+    return world::sample(kSeed, x, y).terrain == world::Terrain::Crater;
+}
+
+/// The first tile of a row of `length` + 1 tiles whose heights stay within `tolerance` units of the
+/// first one, none of them a crater: ground a level shot can be fired along and measured against.
+[[nodiscard]] std::optional<TileAt> find_level_row(int length, int tolerance) {
+    for (int y = 5; y < kMapTiles - 5; ++y) {
+        for (int x = 5; x + length < kMapTiles - 5; ++x) {
+            const int h0 = tile_height(x, y);
+            bool level = true;
+            for (int i = 0; i <= length && level; ++i) {
+                level = !is_crater(x + i, y) && std::abs(tile_height(x + i, y) - h0) <= tolerance;
+            }
+            if (level) {
+                return TileAt{x, y};
+            }
+        }
+    }
+    return std::nullopt;
+}
+
+/// The centre of a cross whose four arms, `arm` tiles each, stay within `tolerance` units of the
+/// centre's height, none of it a crater: ground a level shot can be fired along in any of the four
+/// directions and hit what stands there.
+[[nodiscard]] std::optional<TileAt> find_level_cross(int arm, int tolerance) {
+    for (int y = arm + 1; y < kMapTiles - arm - 1; ++y) {
+        for (int x = arm + 1; x < kMapTiles - arm - 1; ++x) {
+            const int h0 = tile_height(x, y);
+            bool level = true;
+            for (int i = -arm; i <= arm && level; ++i) {
+                level = !is_crater(x + i, y) && !is_crater(x, y + i)
+                        && std::abs(tile_height(x + i, y) - h0) <= tolerance
+                        && std::abs(tile_height(x, y + i) - h0) <= tolerance;
+            }
+            if (level) {
+                return TileAt{x, y};
+            }
+        }
+    }
+    return std::nullopt;
 }
 
 } // namespace
@@ -144,10 +199,13 @@ TEST(Projectile, TheFiredEventComesWithTheGunAndHitTakenWithTheBolt) {
 TEST(Projectile, KeepsFlyingWhenItsTargetDiesBeforeItArrives) {
     // Thirteen tanks close to the enemy tank kill it (13 x 8 >= 100) a few ticks after the volley;
     // the watcher, twelve tiles away, fired at the same instant and its bolt is still in the air.
-    std::vector<Place> places{{Side::Player, UnitKind::Tank, 100, 100},
-                              {Side::Enemy, UnitKind::Tank, 112, 100}};
+    const std::optional<TileAt> found = find_level_row(18, 4);
+    ASSERT_TRUE(found.has_value());
+    const TileAt row = found.value_or(TileAt{});
+    std::vector<Place> places{{Side::Player, UnitKind::Tank, row.x, row.y},
+                              {Side::Enemy, UnitKind::Tank, row.x + 12, row.y}};
     for (int i = 0; i < 13; ++i) {
-        places.push_back({Side::Player, UnitKind::Tank, 113 + i % 3, 103 + i / 3});
+        places.push_back({Side::Player, UnitKind::Tank, row.x + 13 + i % 3, row.y + 3 + i / 3});
     }
     Sim sim = make(places);
     const UnitId watcher = kFirst;
@@ -196,10 +254,13 @@ TEST(Projectile, ABoltFiredAtNothingFizzlesAtRangeWithNoHitTaken) {
     // The enemy tank stands still when the gun fires, then drives off north at right angles to the
     // line of fire: the bolt was aimed at where it WAS, and the bolt does not follow, so it flies
     // on into empty ground. (Driven off BEFORE the shot, the lead would have caught it.)
-    Sim sim
-        = make({{Side::Player, UnitKind::Tank, 100, 100}, {Side::Enemy, UnitKind::Tank, 108, 100}});
+    const std::optional<TileAt> found = find_level_row(18, 4); // level: nothing else may stop it
+    ASSERT_TRUE(found.has_value());
+    const TileAt row = found.value_or(TileAt{});
+    Sim sim = make({{Side::Player, UnitKind::Tank, row.x, row.y},
+                    {Side::Enemy, UnitKind::Tank, row.x + 8, row.y}});
     ASSERT_GT(step_until_fired(sim), 0);
-    sim.enqueue(Order{kSecond, orders::MoveTo{Fixed::from_int(108), Fixed::from_int(20)}});
+    sim.enqueue(Order{kSecond, orders::MoveTo{Fixed::from_int(row.x + 8), Fixed::from_int(20)}});
     const std::uint16_t full = sim.find(kSecond)->hp;
     const std::int64_t length = isqrt(speed_squared(sim.projectiles().front()));
     ASSERT_GT(length, 0);
@@ -359,7 +420,7 @@ constexpr UnitId kMark{2};
         }
         units[1].x = Fixed::from_raw(units[1].x.raw + units[1].vx.raw);
         units[1].y = Fixed::from_raw(units[1].y.raw + units[1].vy.raw);
-        advance_projectiles(bolts, units, impacts);
+        advance_projectiles(bolts, units, impacts, kSeed);
     }
     return units[1].hp;
 }
@@ -374,20 +435,20 @@ TEST(Projectile, AnEstimateHitsWhatAStraightShotMisses) {
     Unit gun = bare(kGun, Side::Player, 100, 100, 0, 0);
     const Unit mark = bare(kMark, Side::Enemy, 112, 100, 0, kTenthTile);
 
-    EXPECT_EQ(fly(launch(gun, mark, kTankDamage), mark), kTankHp)
+    EXPECT_EQ(fly(launch(gun, mark, kTankDamage, kSeed), mark), kTankHp)
         << "the control is wrong: a gun with no estimate should miss this target";
 
     gun.aim_target = kMark;
     gun.aim_y = Fixed::from_raw(Fixed::kOne * 9 / 4);
-    EXPECT_LT(fly(launch(gun, mark, kTankDamage), mark), kTankHp)
+    EXPECT_LT(fly(launch(gun, mark, kTankDamage, kSeed), mark), kTankHp)
         << "the shot with the estimate did not damage a crossing target";
-    EXPECT_EQ(fly(launch(gun, mark, kTankDamage), mark), kTankHp - kTankDamage);
+    EXPECT_EQ(fly(launch(gun, mark, kTankDamage, kSeed), mark), kTankHp - kTankDamage);
 }
 
 TEST(Projectile, AStationaryTargetIsUnaffectedByLead) {
     const Unit gun = bare(kGun, Side::Player, 100, 100, 0, 0);
     const Unit mark = bare(kMark, Side::Enemy, 112, 105, 0, 0);
-    const Projectile bolt = launch(gun, mark, kTankDamage);
+    const Projectile bolt = launch(gun, mark, kTankDamage, kSeed);
 
     // The aim is the plain direction to the target at kProjectileSpeed: the lead term is zero.
     const std::int64_t dx = static_cast<std::int64_t>(mark.x.raw) - gun.x.raw;
@@ -403,7 +464,7 @@ TEST(Projectile, OwnMotionStillThrowsTheShot) {
     // A gun driving sideways (north, at 0.2 tiles per tick) at a target dead ahead to the east.
     const Unit gun = bare(kGun, Side::Player, 100, 100, 0, -Fixed::kOne / 5);
     const Unit mark = bare(kMark, Side::Enemy, 112, 100, 0, 0);
-    const Projectile bolt = launch(gun, mark, kTankDamage);
+    const Projectile bolt = launch(gun, mark, kTankDamage, kSeed);
     EXPECT_EQ(bolt.vy.raw, gun.vy.raw) << "the bolt lost the gun's own velocity";
     EXPECT_GT(bolt.vx.raw, 0);
     EXPECT_EQ(fly(bolt, mark), kTankHp) << "the shot corrected itself for the gun's motion";
@@ -416,7 +477,7 @@ TEST(Projectile, ATargetThatReversesIsMissed) {
     const Unit mark = bare(kMark, Side::Enemy, 112, 100, 0, kTenthTile);
     gun.aim_target = kMark;
     gun.aim_y = Fixed::from_raw(Fixed::kOne * 9 / 4);
-    const Projectile bolt = launch(gun, mark, kTankDamage);
+    const Projectile bolt = launch(gun, mark, kTankDamage, kSeed);
     ASSERT_EQ(fly(bolt, mark), kTankHp - kTankDamage) << "the control shot should land";
     EXPECT_EQ(fly(bolt, mark, 5), kTankHp) << "the bolt followed a target that turned round";
 }
@@ -429,7 +490,7 @@ TEST(Projectile, TheAimPointIsTheTargetPlusTheEstimate) {
     const Unit mark = bare(kMark, Side::Enemy, 112, 100, 0, Fixed::kOne / 2);
     gun.aim_target = kMark;
     gun.aim_y = Fixed::from_int(4);
-    const Projectile bolt = launch(gun, mark, kTankDamage);
+    const Projectile bolt = launch(gun, mark, kTankDamage, kSeed);
     // The aim point is (112, 104) from (100, 100): twelve across, four up. The mark's own
     // velocity, half a tile per tick, played no part.
     EXPECT_NEAR(static_cast<double>(bolt.vy.raw) * 12.0, static_cast<double>(bolt.vx.raw) * 4.0,
@@ -437,7 +498,8 @@ TEST(Projectile, TheAimPointIsTheTargetPlusTheEstimate) {
 
     // On top of the gun with no estimate: no direction to aim in, so due east, at full speed.
     const Unit here = bare(kMark, Side::Enemy, 100, 100, kTenthTile, 0);
-    const Projectile close = launch(bare(kGun, Side::Player, 100, 100, 0, 0), here, kTankDamage);
+    const Projectile close
+        = launch(bare(kGun, Side::Player, 100, 100, 0, 0), here, kTankDamage, kSeed);
     EXPECT_EQ(close.vx.raw, kProjectileSpeedRaw);
     EXPECT_EQ(close.vy.raw, 0);
 }
@@ -473,7 +535,7 @@ int fly_until_gone(Projectile bolt, std::vector<Unit>& units, std::vector<Impact
     std::vector<Projectile> air{bolt};
     int ticks = 0;
     while (!air.empty() && ticks < limit) {
-        advance_projectiles(air, units, impacts);
+        advance_projectiles(air, units, impacts, kSeed);
         ++ticks;
     }
     return ticks;
@@ -494,7 +556,7 @@ TEST(Projectile, ABoltFiredAtNothingFliesTheWayItWasAimed) {
     for (const Case c : {Case{1, 0, 1, 0}, Case{-1, 0, -1, 0}, Case{0, -1, 0, -1}, Case{0, 1, 0, 1},
                          Case{1, 1, 1, 1}, Case{-3, 2, -1, 1}}) {
         const Projectile bolt = launch_towards(tank, Fixed::from_int(c.dx), Fixed::from_int(c.dy),
-                                               UnitId{}, kTankDamage);
+                                               Fixed::zero(), UnitId{}, kTankDamage, kSeed);
         const auto sign = [](std::int32_t v) { return (v > 0) - (v < 0); };
         EXPECT_EQ(sign(bolt.vx.raw), c.sign_x) << c.dx << "," << c.dy;
         EXPECT_EQ(sign(bolt.vy.raw), c.sign_y) << c.dx << "," << c.dy;
@@ -512,8 +574,8 @@ TEST(Projectile, ABoltFiredAtNothingFliesTheWayItWasAimed) {
 
 TEST(Projectile, ABoltFiredAtNothingNamesNoTarget) {
     const Unit tank = lone_tank();
-    const Projectile bolt
-        = launch_towards(tank, Fixed::from_int(1), Fixed::zero(), UnitId{}, kTankDamage);
+    const Projectile bolt = launch_towards(tank, Fixed::from_int(1), Fixed::zero(), Fixed::zero(),
+                                           UnitId{}, kTankDamage, kSeed);
     EXPECT_FALSE(bolt.aimed_at.valid());
     EXPECT_EQ(bolt.shooter, tank.id);
     EXPECT_EQ(bolt.side, tank.side);
@@ -526,23 +588,29 @@ TEST(Projectile, ABoltFiredAtNothingKeepsTheShootersOwnVelocity) {
     Unit tank = lone_tank();
     tank.vx = Fixed::from_raw(300);
     tank.vy = Fixed::from_raw(-200);
-    const Projectile bolt
-        = launch_towards(tank, Fixed::from_int(1), Fixed::zero(), UnitId{}, kTankDamage);
+    const Projectile bolt = launch_towards(tank, Fixed::from_int(1), Fixed::zero(), Fixed::zero(),
+                                           UnitId{}, kTankDamage, kSeed);
     EXPECT_EQ(bolt.vx.raw, kProjectileSpeedRaw + 300) << "aim plus the tank's own drive";
     EXPECT_EQ(bolt.vy.raw, -200) << "nothing sideways in the aim, all of it the tank's";
 }
 
 TEST(Projectile, ABoltFiredAtNothingStillHitsWhatIsInItsPath) {
+    const std::optional<TileAt> found = find_level_cross(8, 20);
+    ASSERT_TRUE(found.has_value());
+    const TileAt cross = found.value_or(TileAt{});
+    const int cx = cross.x;
+    const int cy = cross.y;
     for (const auto& [fx, fy, ex, ey] :
-         {std::array<int, 4>{1, 0, 108, 100}, std::array<int, 4>{0, 1, 100, 108},
-          std::array<int, 4>{-1, 0, 92, 100}, std::array<int, 4>{0, -1, 100, 92}}) {
+         {std::array<int, 4>{1, 0, cx + 8, cy}, std::array<int, 4>{0, 1, cx, cy + 8},
+          std::array<int, 4>{-1, 0, cx - 8, cy}, std::array<int, 4>{0, -1, cx, cy - 8}}) {
         Sim world = make(
-            {{Side::Player, UnitKind::Tank, 100, 100}, {Side::Enemy, UnitKind::Factory, ex, ey}});
+            {{Side::Player, UnitKind::Tank, cx, cy}, {Side::Enemy, UnitKind::Factory, ex, ey}});
         std::vector<Unit> units = world.units();
         const std::uint16_t full = units.at(1).hp;
         std::vector<Impact> impacts;
-        const Projectile bolt = launch_towards(units.at(0), Fixed::from_int(fx),
-                                               Fixed::from_int(fy), UnitId{}, kTankDamage);
+        const Projectile bolt
+            = launch_towards(units.at(0), Fixed::from_int(fx), Fixed::from_int(fy), Fixed::zero(),
+                             UnitId{}, kTankDamage, kSeed);
         fly_until_gone(bolt, units, impacts);
         EXPECT_EQ(units.at(1).hp, full - kTankDamage) << fx << "," << fy;
         ASSERT_EQ(impacts.size(), 1U) << fx << "," << fy;
@@ -556,8 +624,8 @@ TEST(Projectile, ABoltFiredAtNothingPassesThroughItsOwnSide) {
     std::vector<Unit> units = world.units();
     const std::uint16_t full = units.at(1).hp;
     std::vector<Impact> impacts;
-    const Projectile bolt
-        = launch_towards(units.at(0), Fixed::from_int(1), Fixed::zero(), UnitId{}, kTankDamage);
+    const Projectile bolt = launch_towards(units.at(0), Fixed::from_int(1), Fixed::zero(),
+                                           Fixed::zero(), UnitId{}, kTankDamage, kSeed);
     fly_until_gone(bolt, units, impacts);
     EXPECT_EQ(units.at(1).hp, full)
         << "no aimed_at, so nothing excuses it from friendly pass-through";
@@ -569,8 +637,8 @@ TEST(Projectile, ABoltFiredAtNothingFizzlesAtRange) {
                       {Side::Enemy, UnitKind::Factory, 100, 130}}); // well off the line east
     std::vector<Unit> units = world.units();
     std::vector<Impact> impacts;
-    const Projectile bolt
-        = launch_towards(units.at(0), Fixed::from_int(1), Fixed::zero(), UnitId{}, kTankDamage);
+    const Projectile bolt = launch_towards(units.at(0), Fixed::from_int(1), Fixed::zero(),
+                                           Fixed::zero(), UnitId{}, kTankDamage, kSeed);
     const std::int64_t length = isqrt(speed_squared(bolt));
     const std::int64_t expiry_age = (kProjectileRange.raw + length - 1) / length;
     const int flown = fly_until_gone(bolt, units, impacts);
@@ -624,8 +692,8 @@ TEST(Projectile, ABoltAimedAtATargetStillFliesAlongTheDirection) {
         world.step();
         ASSERT_EQ(world.projectiles().size(), 1U) << w.dx << "," << w.dy;
         const Projectile& bolt = world.projectiles().front();
-        const Projectile plain
-            = launch_towards(*world.find(kFirst), dir_x, dir_y, UnitId{}, kTankDamage);
+        const Projectile plain = launch_towards(*world.find(kFirst), dir_x, dir_y, Fixed::zero(),
+                                                UnitId{}, kTankDamage, kSeed);
         EXPECT_EQ(bolt.vx, plain.vx) << w.dx << "," << w.dy;
         EXPECT_EQ(bolt.vy.raw, 0) << "due east, whatever the unit's bearing: " << w.dx << ","
                                   << w.dy;
@@ -739,6 +807,265 @@ TEST(Projectile, NothingUnderSimOrWorldGainedAFloat) {
     EXPECT_GT(scanned, 10);
     EXPECT_TRUE(offenders.empty()) << offenders;
     EXPECT_TRUE(fs::exists(fs::path{PROTEKT_SOURCE_DIR} / "src/sim/projectile.cpp"));
+}
+
+// ---------------------------------------------------------------------------------------------
+// A bolt has a height: pitch matters, a bolt does not follow the ground, and it ends on meeting it
+// ---------------------------------------------------------------------------------------------
+
+namespace {
+
+constexpr int kRowLength = 10;
+constexpr int kTargetDistance = 8; ///< tiles from the gun to the target on the level row
+
+/// The bolt's own account of a shot at a tank `kTargetDistance` tiles away along a level row.
+struct Shot {
+    std::uint16_t target_hp{};
+    std::size_t impacts{};
+    int ticks_flown{};
+    Projectile last{}; ///< the bolt as it was on the last tick it existed
+};
+
+/// The player's shot along (1, 0, `dir_z`): the pitch is the whole of the difference between the
+/// cases below. The target is hostile and stands still on the same level row.
+[[nodiscard]] Shot shoot_along_the_row(Fixed dir_z) {
+    const std::optional<TileAt> row = find_level_row(kRowLength, 4);
+    EXPECT_TRUE(row.has_value()) << "no level row of ground on seed " << kSeed;
+    const TileAt at = row.value_or(TileAt{});
+    std::vector<Unit> units{bare(kFirst, Side::Player, at.x, at.y, 0, 0),
+                            bare(kSecond, Side::Enemy, at.x + kTargetDistance, at.y, 0, 0)};
+    std::vector<Projectile> air{launch_towards(units.at(0), Fixed::from_int(1), Fixed::zero(),
+                                               dir_z, UnitId{}, kTankDamage, kSeed)};
+    std::vector<Impact> impacts;
+    Shot shot{};
+    while (!air.empty() && shot.ticks_flown < 200) {
+        shot.last = air.front();
+        advance_projectiles(air, units, impacts, kSeed);
+        ++shot.ticks_flown;
+    }
+    shot.target_hp = units.at(1).hp;
+    shot.impacts = impacts.size();
+    return shot;
+}
+
+constexpr Fixed kTenthSlope = Fixed::from_raw(Fixed::kOne / 10); ///< a tenth up per unit along
+
+} // namespace
+
+TEST(BoltHeight, ABoltCarriesItsOwnHeightAndSpeedAtTheMuzzle) {
+    const std::optional<TileAt> found = find_level_row(kRowLength, 4);
+    ASSERT_TRUE(found.has_value());
+    const TileAt row = found.value_or(TileAt{});
+    const Unit gun = bare(kFirst, Side::Player, row.x, row.y, 0, 0);
+    const Fixed ground = ground_height(kSeed, gun.x, gun.y);
+    const Projectile level = launch_towards(gun, Fixed::from_int(1), Fixed::zero(), Fixed::zero(),
+                                            UnitId{}, kTankDamage, kSeed);
+    EXPECT_EQ(level.z.raw, ground.raw + kMuzzleHeight.raw) << "it leaves the gun at muzzle height";
+    EXPECT_EQ(level.vz.raw, 0);
+    // A tenth up per unit along: a bolt that goes up, and whose total speed is still the speed.
+    const Projectile up = launch_towards(gun, Fixed::from_int(1), Fixed::zero(), kTenthSlope,
+                                         UnitId{}, kTankDamage, kSeed);
+    EXPECT_GT(up.vz.raw, 0);
+    EXPECT_LT(up.vx.raw, level.vx.raw) << "the horizontal share shrinks as it climbs";
+    const std::int64_t vz_tiles = up.vz.raw / kHeightUnitsPerTile;
+    const std::int64_t speed2 = static_cast<std::int64_t>(up.vx.raw) * up.vx.raw
+                                + static_cast<std::int64_t>(up.vy.raw) * up.vy.raw
+                                + vz_tiles * vz_tiles;
+    EXPECT_NEAR(static_cast<double>(isqrt(speed2)), static_cast<double>(kProjectileSpeedRaw), 8.0)
+        << "pitch must not change how fast a bolt flies";
+    const Projectile down
+        = launch_towards(gun, Fixed::from_int(1), Fixed::zero(), Fixed::from_raw(-kTenthSlope.raw),
+                         UnitId{}, kTankDamage, kSeed);
+    EXPECT_EQ(down.vz.raw, -up.vz.raw) << "down is exactly up, mirrored";
+}
+
+TEST(BoltHeight, TheGroundTheSimUsesIsTheTilesHeightAtAWholeTile) {
+    for (const TileAt at : {TileAt{20, 60}, TileAt{100, 100}, TileAt{3, 250}}) {
+        EXPECT_EQ(ground_height(kSeed, Fixed::from_int(at.x), Fixed::from_int(at.y)).raw,
+                  tile_height(at.x, at.y) * Fixed::kOne)
+            << at.x << "," << at.y;
+    }
+    // Halfway along an edge it is halfway between the two corners.
+    const Fixed mid = Fixed::from_raw(Fixed::kOne * 100 + Fixed::kOne / 2);
+    const std::int64_t twice
+        = static_cast<std::int64_t>(ground_height(kSeed, mid, Fixed::from_int(100)).raw) * 2;
+    EXPECT_EQ(twice, static_cast<std::int64_t>(tile_height(100, 100) + tile_height(101, 100))
+                         * Fixed::kOne);
+}
+
+TEST(BoltHeight, AimingLevelHitsTheSameTarget) {
+    // The control for the two tests below: the same gun, the same row, the same target, level.
+    const Shot shot = shoot_along_the_row(Fixed::zero());
+    EXPECT_EQ(shot.target_hp, kTankHp - kTankDamage);
+    EXPECT_EQ(shot.impacts, 1U);
+}
+
+TEST(BoltHeight, AimingUpPassesOverATargetsHead) {
+    const Shot shot = shoot_along_the_row(kTenthSlope);
+    EXPECT_EQ(shot.target_hp, kTankHp) << "a shot aimed over a tank's head hit it";
+    EXPECT_EQ(shot.impacts, 0U);
+    // It went on up and flew its whole range: nothing stopped it, in the air or on the ground.
+    EXPECT_GT(shot.last.z.raw,
+              ground_height(kSeed, shot.last.x, shot.last.y).raw + body_top(UnitKind::Tank).raw)
+        << "the bolt is not above the tank at all";
+    EXPECT_GE(shot.ticks_flown, 25);
+}
+
+TEST(BoltHeight, AimingDownMeetsTheGroundAndStops) {
+    const Shot shot = shoot_along_the_row(Fixed::from_raw(-kTenthSlope.raw));
+    EXPECT_EQ(shot.target_hp, kTankHp) << "a bolt that meets the ground hurt something";
+    EXPECT_EQ(shot.impacts, 0U);
+    // It is gone where it met the ground: a tenth down per unit along, from a muzzle 36.8 units up
+    // on ground that is level to a few units, is about 5.75 tiles on (a little less where the row
+    // rises) -- short of the target eight tiles away, and nowhere near the sixteen it would fly if
+    // it were let go.
+    const std::optional<TileAt> found = find_level_row(kRowLength, 4);
+    ASSERT_TRUE(found.has_value());
+    const TileAt row = found.value_or(TileAt{});
+    const std::int64_t flown = static_cast<std::int64_t>(shot.last.x.raw)
+                               - static_cast<std::int64_t>(row.x) * Fixed::kOne;
+    EXPECT_GT(flown, 4 * Fixed::kOne) << "it stopped in mid air";
+    EXPECT_LT(flown, 7 * Fixed::kOne) << "it flew on past the ground";
+    EXPECT_LT(shot.ticks_flown, 25);
+}
+
+namespace {
+
+struct Duel {
+    TileAt gun;
+    TileAt target;
+};
+
+/// Is a straight line from the gun's muzzle to the middle of the target's body clear of the
+/// ground? A gun cannot shoot through a hill, so a target behind one proves nothing about aim.
+[[nodiscard]] bool line_is_clear(const Duel& duel) {
+    const std::int64_t z0
+        = ground_height(kSeed, Fixed::from_int(duel.gun.x), Fixed::from_int(duel.gun.y)).raw
+          + kMuzzleHeight.raw;
+    const std::int64_t z1
+        = ground_height(kSeed, Fixed::from_int(duel.target.x), Fixed::from_int(duel.target.y)).raw
+          + (body_bottom(UnitKind::Tank).raw + body_top(UnitKind::Tank).raw) / 2;
+    constexpr int kSteps = 80;
+    for (int i = 1; i < kSteps; ++i) {
+        const Fixed x = Fixed::from_raw(duel.gun.x * Fixed::kOne
+                                        + (duel.target.x - duel.gun.x) * Fixed::kOne * i / kSteps);
+        const Fixed y = Fixed::from_raw(duel.gun.y * Fixed::kOne
+                                        + (duel.target.y - duel.gun.y) * Fixed::kOne * i / kSteps);
+        const std::int64_t line = z0 + (z1 - z0) * i / kSteps;
+        if (ground_height(kSeed, x, y).raw + 4 * Fixed::kOne > line) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/// A gun on flat ground and a target on a different level, 6 to 10 tiles off with a clear line of
+/// fire. `want` says whether the target is on a ridge (above, at least 60 units) or at the foot of
+/// a crater (below, at least 60 units, with a crater tile beside it).
+enum class Ground : std::uint8_t { Ridge, Crater };
+
+[[nodiscard]] std::optional<Duel> find_duel(Ground want) {
+    for (int gy = 12; gy < kMapTiles - 12; gy += 2) {
+        for (int gx = 12; gx < kMapTiles - 12; gx += 2) {
+            if (world::sample(kSeed, gx, gy).terrain != world::Terrain::Flat) {
+                continue;
+            }
+            for (int dy = -9; dy <= 9; ++dy) {
+                for (int dx = -9; dx <= 9; ++dx) {
+                    const int d2 = dx * dx + dy * dy;
+                    if (d2 < 36 || d2 > 100) {
+                        continue;
+                    }
+                    const int tx = gx + dx;
+                    const int ty = gy + dy;
+                    const world::Tile tile = world::sample(kSeed, tx, ty);
+                    const int rise = tile.height - tile_height(gx, gy);
+                    bool fits = false;
+                    if (want == Ground::Ridge) {
+                        fits = tile.terrain == world::Terrain::Ridge && rise >= 60;
+                    } else {
+                        fits = tile.terrain != world::Terrain::Crater && rise <= -60
+                               && (is_crater(tx + 1, ty) || is_crater(tx - 1, ty)
+                                   || is_crater(tx, ty + 1) || is_crater(tx, ty - 1));
+                    }
+                    if (fits && line_is_clear(Duel{{gx, gy}, {tx, ty}})) {
+                        return Duel{{gx, gy}, {tx, ty}};
+                    }
+                }
+            }
+        }
+    }
+    return std::nullopt;
+}
+
+/// The target's hit points after `ticks` of a battle between the gun and it, and after the same
+/// aim fired LEVEL from the same gun at the same target. Only the first is the sim's own shot.
+struct DuelResult {
+    std::uint16_t sim_hp{};
+    std::uint16_t level_hp{};
+};
+
+[[nodiscard]] DuelResult fight(const Duel& duel) {
+    Sim world = make({{Side::Player, UnitKind::Tank, duel.gun.x, duel.gun.y},
+                      {Side::Enemy, UnitKind::Tank, duel.target.x, duel.target.y}});
+    DuelResult result{};
+    // The spawns must have stayed where they were put, or this is a different duel.
+    EXPECT_EQ(world.find(kFirst)->x, Fixed::from_int(duel.gun.x));
+    EXPECT_EQ(world.find(kSecond)->x, Fixed::from_int(duel.target.x));
+    EXPECT_EQ(world.find(kSecond)->y, Fixed::from_int(duel.target.y));
+    for (int tick = 0; tick < 90; ++tick) {
+        world.step();
+    }
+    result.sim_hp = world.find(kSecond)->hp;
+
+    std::vector<Unit> units{world.units()};
+    units.at(1).hp = kTankHp;
+    std::vector<Projectile> air{launch_towards(
+        units.at(0), Fixed::from_int(duel.target.x - duel.gun.x),
+        Fixed::from_int(duel.target.y - duel.gun.y), Fixed::zero(), UnitId{}, kTankDamage, kSeed)};
+    std::vector<Impact> impacts;
+    for (int tick = 0; tick < 200 && !air.empty(); ++tick) {
+        advance_projectiles(air, units, impacts, kSeed);
+    }
+    result.level_hp = units.at(1).hp;
+    return result;
+}
+
+} // namespace
+
+TEST(BoltHeight, AGunIsNotFooledByUnevenGround) {
+    // THE GUARD AGAINST A STANDOFF. A gun on level ground must hit a target standing at the foot
+    // of a crater and one on a ridge, because it aims at where the target REALLY is; and the
+    // control is that the very same shot fired LEVEL hits neither -- so this is a test of ground.
+    for (const Ground want : {Ground::Crater, Ground::Ridge}) {
+        const char* name = want == Ground::Crater ? "crater" : "ridge";
+        const std::optional<Duel> duel = find_duel(want);
+        ASSERT_TRUE(duel.has_value()) << "no " << name << " duel on seed " << kSeed;
+        const DuelResult result = fight(duel.value_or(Duel{}));
+        EXPECT_LT(result.sim_hp, kTankHp) << "the sim's gun never hit a target on a " << name;
+        EXPECT_EQ(result.level_hp, kTankHp)
+            << "a level shot hit a target on a " << name << ": the test is not testing ground";
+    }
+}
+
+TEST(BoltHeight, ThePitchAndTheHeightAreHashedAndReplayed) {
+    // A bolt's height is state: two sims that differ only in the pitch of one shot must not hash
+    // alike once the bolt is in the air.
+    const std::optional<TileAt> found = find_level_row(kRowLength, 4);
+    ASSERT_TRUE(found.has_value());
+    const TileAt row = found.value_or(TileAt{});
+    const auto hash_after = [&](Fixed dir_z) {
+        Sim world = make({{Side::Player, UnitKind::Tank, row.x, row.y}});
+        reload(world);
+        world.enqueue(
+            Order{kFirst, orders::FireTowards{Fixed::from_int(1), Fixed::zero(), UnitId{}, dir_z}});
+        run_ticks(world, 3);
+        EXPECT_EQ(world.projectiles().size(), 1U);
+        return world.state_hash();
+    };
+    EXPECT_EQ(hash_after(Fixed::zero()), hash_after(Fixed::zero()));
+    EXPECT_NE(hash_after(Fixed::zero()), hash_after(kTenthSlope));
+    EXPECT_NE(hash_after(kTenthSlope), hash_after(Fixed::from_raw(-kTenthSlope.raw)));
 }
 
 } // namespace protekt::sim

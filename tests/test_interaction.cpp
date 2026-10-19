@@ -338,7 +338,9 @@ TEST(Trigger, AShotAtNothingGoesWhereTheCameraLooks) {
         ASSERT_EQ(orders.size(), 1U) << yaw;
         const auto& fire = std::get<sim::orders::FireTowards>(orders.at(0).payload);
 
-        const auto forward = math::basis_from(yaw, 0.0F).forward;
+        // The rig's camera is pitched (a slight downward tilt), and the horizontal share of the
+        // aim shrinks with it: compared with the camera's own basis at its own pitch.
+        const auto forward = math::basis_from(yaw, rig.options.camera.pitch).forward;
         const float want_x = forward.at(0);
         const float want_y = forward.at(2);
         EXPECT_NEAR(static_cast<float>(fire.dir_x.raw) / static_cast<float>(sim::Fixed::kOne),
@@ -347,6 +349,97 @@ TEST(Trigger, AShotAtNothingGoesWhereTheCameraLooks) {
         EXPECT_NEAR(static_cast<float>(fire.dir_y.raw) / static_cast<float>(sim::Fixed::kOne),
                     want_y, 1e-3F)
             << "yaw " << yaw;
+    }
+}
+
+namespace {
+
+[[nodiscard]] float as_float(sim::Fixed value) {
+    return static_cast<float>(value.raw) / static_cast<float>(sim::Fixed::kOne);
+}
+
+/// The order a click makes with the camera looking along (yaw, pitch).
+[[nodiscard]] sim::orders::FireTowards shot_looking(Rig& rig, float yaw, float pitch) {
+    rig.options.camera.yaw = yaw;
+    rig.options.camera.pitch = pitch;
+    Interaction player{rig.tank_a};
+    player.handle(with_click(ground_click(rig)), rig.sim, rig.options);
+    const std::vector<Order> orders = player.take_orders();
+    EXPECT_EQ(orders.size(), 1U);
+    return std::get<sim::orders::FireTowards>(orders.at(0).payload);
+}
+
+} // namespace
+
+TEST(Trigger, AShotFollowsTheCamerasPitchWithTheCamerasOwnSign) {
+    // THE VERTICAL SIGN. The renderer draws the world mirrored, so a flipped vertical is as
+    // invisible as a flipped yaw would be: the direction is compared with `math::basis_from`
+    // itself, over pitches on both sides of level and yaws in every quadrant. forward is
+    // (x, up, z) in world metres; the order is (map x, map y, up) = (forward.x, forward.z,
+    // forward.y), so the pitch is the order's third number, with its sign.
+    for (const float yaw : {0.0F, 0.7F, 2.4F, -0.7F, -2.4F}) {
+        for (const float pitch : {-0.9F, -0.12F, 0.0F, 0.3F, 0.9F}) {
+            Rig rig = make_rig();
+            const sim::orders::FireTowards fire = shot_looking(rig, yaw, pitch);
+            const auto forward = math::basis_from(yaw, pitch).forward;
+            EXPECT_NEAR(as_float(fire.dir_x), forward.at(0), 1e-3F) << yaw << " " << pitch;
+            EXPECT_NEAR(as_float(fire.dir_y), forward.at(2), 1e-3F) << yaw << " " << pitch;
+            EXPECT_NEAR(as_float(fire.dir_z), forward.at(1), 1e-3F) << yaw << " " << pitch;
+            const float horizontal = std::sqrt(as_float(fire.dir_x) * as_float(fire.dir_x)
+                                               + as_float(fire.dir_y) * as_float(fire.dir_y));
+            EXPECT_NEAR(horizontal, std::cos(pitch), 2e-3F)
+                << "the horizontal share is cos(pitch), so the total speed is the same";
+        }
+    }
+    Rig up = make_rig();
+    EXPECT_GT(shot_looking(up, 0.0F, 0.4F).dir_z.raw, 0) << "looking UP must aim up";
+    Rig down = make_rig();
+    EXPECT_LT(shot_looking(down, 0.0F, -0.4F).dir_z.raw, 0) << "looking DOWN must aim down";
+}
+
+TEST(Trigger, TheBoltFliesWhereTheCameraLooksOnTheScreenItself) {
+    // The same claim end to end and through the renderer's own projection: fire, watch the bolt,
+    // and put a point along its line of flight in front of the camera. It must land on the middle
+    // of the screen -- where the mark is -- for a level, an upward and a downward look. A sign
+    // error anywhere between the camera and the sim puts it above or below the mark by the pitch.
+    // A lone tank, so nothing else fires: the one bolt in the air is the player's.
+    for (const float pitch : {0.0F, 0.35F, -0.35F}) {
+        for (const float yaw : {0.0F, 0.5F, 1.0F}) {
+            Rig rig = make_rig();
+            rig.sim = sim::Sim::create(Scenario{kSeed, {{UnitKind::Tank, Side::Player, 40, 40}}});
+            const sim::UnitId tank{1};
+            Interaction player{tank};
+            reload(rig.sim);
+            rig.options.camera.yaw = yaw;
+            rig.options.camera.pitch = pitch;
+            player.handle(with_click(ground_click(rig)), rig.sim, rig.options);
+            for (const Order& order : player.take_orders()) {
+                rig.sim.enqueue(order);
+            }
+            rig.sim.step();
+            ASSERT_EQ(rig.sim.projectiles().size(), 1U) << yaw << " " << pitch;
+            const sim::Projectile first = rig.sim.projectiles().front();
+            for (int tick = 0; tick < 2; ++tick) { // a downward bolt meets the ground in three
+                rig.sim.step();
+            }
+            ASSERT_EQ(rig.sim.projectiles().size(), 1U) << yaw << " " << pitch;
+            const sim::Projectile later = rig.sim.projectiles().front();
+
+            // The bolt's displacement in world metres: x, up, z.
+            const float dx = (as_float(later.x) - as_float(first.x)) * kMetresPerTile;
+            const float dy = (as_float(later.z) - as_float(first.z)) * kMetresPerHeightUnit;
+            const float dz = (as_float(later.y) - as_float(first.y)) * kMetresPerTile;
+            const float length = std::sqrt(dx * dx + dy * dy + dz * dz);
+            ASSERT_GT(length, 0.0F);
+            const float reach = 20.0F / length;
+            const Camera& eye = rig.options.camera;
+            const Projected p
+                = project(eye, kExtent, eye.x + dx * reach, eye.y + dy * reach, eye.z + dz * reach);
+            EXPECT_NEAR(p.x, static_cast<float>(kExtent.width) / 2.0F, 2.0F)
+                << "yaw " << yaw << " pitch " << pitch;
+            EXPECT_NEAR(p.y, static_cast<float>(kExtent.height) / 2.0F, 2.0F)
+                << "yaw " << yaw << " pitch " << pitch;
+        }
     }
 }
 
