@@ -61,12 +61,15 @@ struct Impact {
 [[nodiscard]] Projectile launch(const Unit& shooter, const Unit& target,
                                 std::uint16_t damage) noexcept;
 
-/// The bolt `shooter` fires along (`dir_x`, `dir_y`) at nothing in particular: the direction
-/// normalised, times kProjectileSpeed, PLUS the shooter's own velocity exactly as `launch` does. A
-/// zero direction has none to normalise and goes due east, as `launch` does. It has no `aimed_at`,
-/// so it passes through its own side and may hurt any unit of the other. It never follows anything.
+/// The bolt `shooter` fires along (`dir_x`, `dir_y`) and nowhere else: the direction normalised,
+/// times kProjectileSpeed, PLUS the shooter's own velocity exactly as `launch` does. A zero
+/// direction has none to normalise and goes due east, as `launch` does. There is no lead and no
+/// centring: `aimed_at` is carried onto the bolt as INTENT -- it lets the bolt hurt that unit even
+/// on the shooter's own side -- and never bends the path, so a bolt aimed at a unit it is not
+/// pointing at misses it. An invalid `aimed_at` passes through its own side. It never follows
+/// anything.
 [[nodiscard]] Projectile launch_towards(const Unit& shooter, Fixed dir_x, Fixed dir_y,
-                                        std::uint16_t damage) noexcept;
+                                        UnitId aimed_at, std::uint16_t damage) noexcept;
 
 /// One tick of flight for every projectile, in index order. Each moves by its velocity; the first
 /// living unit on the other side (or the one it was aimed at) whose centre the path passes within

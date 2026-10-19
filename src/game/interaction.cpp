@@ -64,44 +64,35 @@ void Interaction::handle(const input::InputFrame& frame, const sim::Sim& sim,
         // mean. The keys are in game/session.cpp (throttle) and input/bindings.hpp (movement), and
         // the table a player reads is README.md, "How to play".
         if (click.button == input::MouseButton::Left) {
-            // THE TRIGGER, on whatever the mark covers. It is not a selection (Space is) and not a
-            // movement order: a unit under the mark is named as a target for the unit the player
-            // is sitting in, through the same FocusFire order the AI would use, and that is safe
-            // precisely because it sets a target and nothing else -- no stance, no destination --
-            // so it cannot fight the keyboard. The sim permits it on one of our own too (friendly
-            // fire on purpose). The selection survives a shot; only Tab and Escape clear it.
+            // THE TRIGGER. It is not a selection (Space is) and not a movement order, and it
+            // never aims for the player: the bolt flies along the turret's aim and hits whatever
+            // that path crosses. A unit under the mark is only INTENT -- what the shot is for --
+            // and the sim permits it on one of our own too (friendly fire on purpose). The
+            // selection survives a shot; only Tab and Escape clear it.
             if (has_fired_ && sim.tick() - last_shot_tick_ < kManualShotIntervalTicks) {
                 continue; // the button, not the gun, is what this limits
             }
             has_fired_ = true;
             last_shot_tick_ = sim.tick();
-            const bool targeted = hit != nullptr && hit->alive;
-            std::vector<sim::Order> shot;
-            if (targeted) {
-                shot = cmd::focus_fire(driven_, hit->id);
-            }
-            if (!shot.empty()) {
-                pending_.insert(pending_.end(), shot.begin(), shot.end());
+            // The driven tank itself is nothing to name: it cannot shoot itself.
+            const bool named = hit != nullptr && hit->alive && hit->id != driven_;
+            // THE DIRECTION. The camera's forward is (sin yaw, 0, cos yaw) in world metres
+            // (math::basis_from; yaw 0 looks down +Z), and the map plane is x = world x,
+            // y = world z -- a tile is two metres either way, so only the direction matters.
+            // So the aim on the map is (sin yaw, cos yaw), with no sign flipped: the
+            // mirrored-screen note in session.cpp is about which way the YAW turns, not about
+            // where a given yaw points. tests/test_interaction.cpp checks it against
+            // `math::basis_from` itself.
+            const float yaw = options.camera.yaw;
+            pending_.push_back(sim::Order{
+                driven_, sim::orders::FireTowards{to_fixed(std::sin(yaw)), to_fixed(std::cos(yaw)),
+                                                  named ? hit->id : sim::UnitId{}}});
+            // Every manual shot is one order, one bolt, and the app's own sound: the sim reports
+            // no Fired event for it, so this is the only thing the player hears.
+            shot_at_nothing_ = true;
+            if (named) {
                 message_ = hit_is_hostile ? "engaging the target under the crosshair."
                                           : "firing on your own unit.";
-            } else {
-                // Ground, sky, or the driven tank itself: nothing to name, so the bolt is fired
-                // along the turret's aim and hits whatever it meets. A shot at nothing is still a
-                // shot: it goes through the order queue like any other, and it is heard as well as
-                // seen.
-                //
-                // THE DIRECTION. The camera's forward is (sin yaw, 0, cos yaw) in world metres
-                // (math::basis_from; yaw 0 looks down +Z), and the map plane is x = world x,
-                // y = world z -- a tile is two metres either way, so only the direction matters.
-                // So the aim on the map is (sin yaw, cos yaw), with no sign flipped: the
-                // mirrored-screen note in session.cpp is about which way the YAW turns, not about
-                // where a given yaw points. tests/test_interaction.cpp checks it against
-                // `math::basis_from` itself.
-                const float yaw = options.camera.yaw;
-                pending_.push_back(
-                    sim::Order{driven_, sim::orders::FireTowards{to_fixed(std::sin(yaw)),
-                                                                 to_fixed(std::cos(yaw))}});
-                shot_at_nothing_ = true;
             }
         } else if (click.button == input::MouseButton::Right) {
             if (selection_.empty()) {

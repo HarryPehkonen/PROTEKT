@@ -61,11 +61,16 @@ struct FocusFire {
 };
 
 /// Fire one bolt along a direction on the map plane, at whatever is in the way. The direction need
-/// not be normalised and carries no target: a shot at the ground or the sky is still a shot. Like
-/// FocusFire it sets no stance and no destination, and the weapon's cooldown applies to it.
+/// not be normalised: a shot at the ground or the sky is still a shot. Like FocusFire it sets no
+/// stance and no destination, and the weapon's cooldown applies to it.
+///
+/// `aimed_at` is INTENT, not a path: the bolt flies along `dir_x`/`dir_y` either way. It names who
+/// the shot is for and so who it may hurt on its own side (friendly fire); invalid is a shot at
+/// nothing.
 struct FireTowards {
     Fixed dir_x{};
     Fixed dir_y{};
+    UnitId aimed_at{};
 };
 
 } // namespace orders
@@ -153,6 +158,8 @@ struct OrderFields {
         out.positions.at(0) = p->dir_x;
         out.positions.at(1) = p->dir_y;
         out.position_count = 2;
+        out.has_target = true; // the intent: replays and the hash must keep it
+        out.target = p->aimed_at;
     }
     // Stop carries nothing, and neither does anything else that reaches here.
     return out;

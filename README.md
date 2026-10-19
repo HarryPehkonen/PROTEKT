@@ -32,27 +32,27 @@ You are one tank. Everything else you command.
 The tank you are sitting in is **never** moved by a click. It is driven by `W`/`S` and `A`/`D`
 every tick, so an order from the mouse would fight your own hands: the tank always drives the way its
 body points, and looking around with the mouse never changes where it goes. Selecting it is
-fine, and firing is the one thing a click may tell it to do — that order sets a target and nothing
-else. Looking keeps working after the tank is destroyed, and the radar and health bar stay up.
+fine, and firing is the one thing a click may tell it to do — one bolt, and nothing else. Looking keeps working after the tank is destroyed, and the radar and health bar stay up.
 
-Your gun also fires on its own at any hostile within twelve tiles. Clicking a hostile is how you
-*choose* between them: **a click fires one shot**, and keeping the button going keeps firing, but the
-choice of target does not stick -- after that shot the gun is back to the nearest hostile. `Escape`
+Your gun also fires on its own at any hostile within twelve tiles. **A click fires one shot**, and
+keeping the button going keeps firing; the gun is back to the nearest hostile in between. `Escape`
 and Stop are how you hold fire. It will **not** fire on your own units on
 its own -- only an order crosses that line (see Display/HUD below).
 
 Selected units are drawn brighter than the rest of their side, so you can see what you have hold of.
 
 **The mark is the gun.** It is the crosshair, fixed at the centre of the screen, and you aim by
-**looking**: the mouse swings the turret, and turning the body with `A`/`D` carries the turret round with it. Whatever is under
-the crosshair is what a click fires at, so bring the view round until it is there. The mark's colour
-says what a click would do before you make it:
+**looking**: the mouse swings the turret, and turning the body with `A`/`D` carries the turret round with it. **The shot goes where the
+crosshair points and nothing aims for you.** A click on a unit means "that is what I am shooting at",
+not "fly to it": it decides whom the shot may hurt (your own units included), never where it goes.
+Bring the crosshair onto the target, and lead a moving one yourself. The mark's colour says what is
+under it before you click:
 
 | mark | what a click does |
 |---|---|
-| **white** | a click fires at nothing: you hear the shot, nothing is harmed |
-| **green** | a click fires on **your own** unit. You can destroy your own tank on purpose, though it takes repeated clicks |
-| **red** | a click fires at the hostile under it |
+| **white** | nothing is under it: the shot flies on and harms what it meets |
+| **green** | **your own** unit is under it: you are shooting at it. You can destroy your own tank on purpose, though it takes repeated clicks |
+| **red** | a hostile is under it |
 
 The unit under the mark is tinted as well, so the warning is on the thing itself and not only on the
 mark: **amber** for one of yours ("do not shoot this"), **salmon** for a hostile.
@@ -62,14 +62,14 @@ mark: **amber** for one of yours ("do not shoot this"), **salmon** for a hostile
 **A shot is a real projectile, and it takes time to arrive.** The simulation owns it: it leaves the
 gun as a small bright box, flies in a straight line at **16 tiles a second**, and the damage lands
 when it gets there rather than when you pull the trigger — so a long shot is visibly slower than a
-close one. It **leads its target**, aiming where the target will be by the time it arrives, but it
-does not follow it: a target that turns or stops after the shot is missed. It **inherits your own
+close one. It does **not** lead or follow anything — that is
+the job of the gun's own auto-fire, not yours. It **inherits your own
 velocity**, so firing sideways while you are driving throws the shot off by roughly your speed over
 the flight, exactly as a real one would. It **keeps flying if its target dies first** and can hit
 whatever else it meets, and it **fizzles after 16 tiles**, having harmed nothing. Your bolts are the
 bright cyan ones and the enemy's are orange-yellow. A shot at the ground or the sky is still a shot:
-the bolt flies along the way your turret points, you see it and hear it, it can hit anything in its
-path (your own side excepted) and it fizzles at range. It follows nothing. The button is rate-limited to about four shots a second;
+you see it and hear it, it can hit anything in its path (your own side excepted, unless you named it)
+and it fizzles at range. The button is rate-limited to about four shots a second;
 your gun's own auto-fire is not. When you are hit the screen flashes red and fades over 0.4 seconds.
 
 **Shooting never costs you your selection.** A click on the ground, the sky, a hostile or your own unit leaves it alone --

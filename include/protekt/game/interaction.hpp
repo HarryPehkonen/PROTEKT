@@ -40,9 +40,10 @@ public:
     /// Consume one frame of input against the world as it is now.
     ///
     ///  * left click: THE TRIGGER, whatever is under the mark, at most once per
-    ///    `kManualShotIntervalTicks`. On any unit, hostile or ours, it is a FocusFire from the
-    ///    driven tank; on the ground or the sky it is a FireTowards along the turret's aim, and the
-    ///    shot is also to be heard (`take_shot_at_nothing`). It never changes the selection.
+    ///    `kManualShotIntervalTicks`. It is always one FireTowards from the driven tank, along the
+    ///    turret's aim: a unit under the mark is named in `aimed_at` as intent and does not bend
+    ///    the path. The shot is also to be heard (`take_shot_at_nothing`). It never changes the
+    ///    selection.
     ///  * Space / Shift-Space: select the own unit under the mark / toggle it
     ///  * right click on the ground with a selection: MoveTo that tile, for every selected unit
     ///  that
@@ -61,9 +62,10 @@ public:
     /// build them that way and the order the player clicked in must not change what the sim sees.
     [[nodiscard]] std::vector<sim::Order> take_orders() noexcept;
 
-    /// Whether the last `handle` pulled the trigger at nothing: a bolt is on the order queue
-    /// for it (a FireTowards), and this is the shot to play `shot_at_nothing_voice` for. Drained by
-    /// reading, like the orders.
+    /// Whether the last `handle` pulled the trigger: a bolt is on the order queue for it (a
+    /// FireTowards), and this is the shot to play `shot_at_nothing_voice` for. The sim reports no
+    /// Fired event for a manual shot, so this is the only sound it makes. Drained by reading, like
+    /// the orders.
     [[nodiscard]] bool take_shot_at_nothing() noexcept;
 
     [[nodiscard]] const cmd::Selection& selection() const noexcept;

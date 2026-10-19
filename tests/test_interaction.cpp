@@ -12,6 +12,7 @@
 #include "protekt/game/sounds.hpp"
 #include "protekt/input/input.hpp"
 #include "protekt/math/math.hpp"
+#include "protekt/sim/observer.hpp"
 #include "protekt/sim/sim.hpp"
 
 namespace protekt::game {
@@ -120,6 +121,13 @@ void choose(Rig& rig, Interaction& player, sim::UnitId unit, bool shift = false)
     player.handle(with_key(input::kKeySpace, shift), rig.sim, rig.options);
 }
 
+/// A new gun is still reloading; step until the shot a click orders will actually be made.
+void reload(sim::Sim& sim) {
+    for (int tick = 0; tick < sim::profile(UnitKind::Tank).cooldown_ticks; ++tick) {
+        sim.step();
+    }
+}
+
 [[nodiscard]] std::vector<sim::UnitId> selected(const Interaction& interaction) {
     std::vector<sim::UnitId> ids;
     for (const sim::UnitId id : interaction.selection().units()) {
@@ -146,7 +154,7 @@ TEST(Interaction, SpacePlainReplacesAndShiftSpaceAddsAndRemoves) {
 
 // ---------------------------------------------------------------- the trigger
 
-TEST(Trigger, ALeftClickOnAnOwnUnitFiresAtItAndDoesNotChangeTheSelection) {
+TEST(Trigger, ALeftClickOnAnOwnUnitNamesItAndDoesNotChangeTheSelection) {
     Rig rig = make_rig();
     Interaction player{rig.tank_a};
     choose(rig, player, rig.turret);
@@ -155,9 +163,9 @@ TEST(Trigger, ALeftClickOnAnOwnUnitFiresAtItAndDoesNotChangeTheSelection) {
     player.handle(with_click(at(rig, rig.tank_b)), rig.sim, rig.options);
     const std::vector<Order> orders = player.take_orders();
     ASSERT_EQ(orders.size(), 1U);
-    EXPECT_EQ(orders.at(0).kind(), OrderKind::FocusFire);
+    EXPECT_EQ(orders.at(0).kind(), OrderKind::FireTowards);
     EXPECT_EQ(orders.at(0).unit, rig.tank_a);
-    EXPECT_EQ(std::get<sim::orders::FocusFire>(orders.at(0).payload).target, rig.tank_b);
+    EXPECT_EQ(std::get<sim::orders::FireTowards>(orders.at(0).payload).aimed_at, rig.tank_b);
     EXPECT_EQ(selected(player), before) << "a click is a trigger, not a selection";
 }
 
@@ -211,6 +219,111 @@ TEST(Trigger, AClickOnTheGroundFiresABoltOntoTheOrderQueue) {
     EXPECT_TRUE(heard) << "a shot at nothing is still a shot to hear";
 }
 
+TEST(Trigger, AClickOnAUnitFiresAlongTheAimLikeAClickOnTheGround) {
+    // The crosshair chooses a TRAJECTORY. A unit under it is intent -- what the shot is for -- and
+    // changes neither the direction nor the order: same turret yaw, same direction, and `aimed_at`
+    // is the only difference. The direction is the yaw's, NOT the bearing to the unit.
+    for (const float yaw : {0.0F, 0.1F, -0.1F}) {
+        Rig rig = make_rig();
+        rig.options.camera.yaw = yaw;
+        Interaction on_ground{rig.tank_a};
+        on_ground.handle(with_click(ground_click(rig)), rig.sim, rig.options);
+        const std::vector<Order> ground = on_ground.take_orders();
+        ASSERT_EQ(ground.size(), 1U) << yaw;
+        const auto& along = std::get<sim::orders::FireTowards>(ground.at(0).payload);
+        EXPECT_FALSE(along.aimed_at.valid()) << "a shot at the ground names no one";
+
+        Interaction on_unit{rig.tank_a};
+        on_unit.handle(with_click(at(rig, rig.enemy)), rig.sim, rig.options);
+        const std::vector<Order> unit = on_unit.take_orders();
+        ASSERT_EQ(unit.size(), 1U) << yaw;
+        const auto& at_enemy = std::get<sim::orders::FireTowards>(unit.at(0).payload);
+        EXPECT_EQ(at_enemy.aimed_at, rig.enemy) << yaw;
+        EXPECT_EQ(at_enemy.dir_x, along.dir_x) << yaw;
+        EXPECT_EQ(at_enemy.dir_y, along.dir_y) << yaw;
+    }
+}
+
+TEST(Trigger, TheTriggerStillMakesOneBoltAndOneSoundPerClick) {
+    for (const bool on_unit : {false, true}) {
+        Rig rig = make_rig();
+        Interaction player{rig.tank_a};
+        const Click click = on_unit ? at(rig, rig.enemy) : ground_click(rig);
+        player.handle(with_click(click), rig.sim, rig.options);
+        EXPECT_TRUE(player.take_shot_at_nothing())
+            << "the app announces every manual shot, on a unit or not";
+        EXPECT_FALSE(player.take_shot_at_nothing()) << "once";
+        const std::vector<Order> orders = player.take_orders();
+        ASSERT_EQ(orders.size(), 1U) << on_unit;
+        EXPECT_EQ(orders.at(0).kind(), OrderKind::FireTowards);
+
+        // The order into a sim whose gun is ready and has nothing in range to fire at on its own,
+        // so the only bolt there can be is the one the click ordered.
+        sim::Sim lone = sim::Sim::create(Scenario{kSeed, {{UnitKind::Tank, Side::Player, 20, 60}}});
+        reload(lone);
+        lone.enqueue(Order{lone.units().at(0).id, orders.at(0).payload});
+        lone.step();
+        EXPECT_EQ(lone.projectiles().size(), 1U) << "one click, one bolt";
+    }
+}
+
+TEST(Trigger, AManualShotAtAHostileInRangeEmitsNoFiredEvent) {
+    // THE SOUND REGRESSION. `aimed_at` can now be valid on a manual shot, and a valid sim Shot
+    // target is exactly what the observer turns into a Fired event -- a second voice for a shot the
+    // app already announces. The sim must record the manual shot with NO target, whatever it names.
+    //
+    // The click names the hostile, and the app voices it:
+    Rig rig = make_rig();
+    Interaction player{rig.tank_a};
+    player.handle(with_click(at(rig, rig.enemy)), rig.sim, rig.options);
+    ASSERT_TRUE(player.take_shot_at_nothing()) << "the app's own sound is what the player hears";
+    const std::vector<Order> orders = player.take_orders();
+    ASSERT_EQ(orders.size(), 1U);
+    ASSERT_EQ(std::get<sim::orders::FireTowards>(orders.at(0).payload).aimed_at, rig.enemy);
+
+    // ... and the sim, given a manual shot that names a hostile which really is in range this tick
+    // (a gun that has one fires on its own the moment it reloads, so the tank advances into range
+    // on the same tick), reports no Fired for it. The control: the sim's own gun fire is reported.
+    const auto fired_by_tank = [](bool manual) {
+        sim::Sim field = sim::Sim::create(Scenario{kSeed,
+                                                   {{UnitKind::Tank, Side::Player, 100, 100},
+                                                    {UnitKind::Factory, Side::Enemy, 112, 101}}});
+        const sim::UnitId tank = field.units().at(0).id;
+        const sim::UnitId hostile = field.units().at(1).id;
+        reload(field);
+        const sim::Unit& target = *field.find(hostile);
+        field.enqueue(Order{tank, sim::orders::MoveTo{target.x, target.y}});
+        if (manual) {
+            field.enqueue(Order{tank, sim::orders::FireTowards{sim::Fixed::from_int(1),
+                                                               sim::Fixed::zero(), hostile}});
+        }
+        const sim::UnitSnapshot before = field.units();
+        const sim::Tick tick = field.tick();
+        field.step();
+        if (manual) {
+            EXPECT_EQ(field.shots().size(), 1U) << "the manual shot really was made";
+            EXPECT_FALSE(field.shots().front().target.valid())
+                << "and names no one to the observer";
+        }
+        int fired = 0;
+        for (const sim::BattleEvent& e : sim::events_between(before, field, tick)) {
+            fired += e.kind == sim::EventKind::Fired && e.actor == tank ? 1 : 0;
+        }
+        return fired;
+    };
+    EXPECT_EQ(fired_by_tank(true), 0) << "the player would hear this shot twice";
+    EXPECT_EQ(fired_by_tank(false), 1) << "control: gun fire the sim decided on IS reported";
+}
+
+TEST(Trigger, AShotAtAUnitIsTheAppsToAnnounceNotTheSims) {
+    // The inverse of what this once pinned: the click on a unit used to be a FocusFire that the
+    // sim voiced through Fired. Now it is a manual shot, and the app's own sound is the only one.
+    Rig rig = make_rig();
+    Interaction player{rig.tank_a};
+    player.handle(with_click(at(rig, rig.enemy)), rig.sim, rig.options);
+    EXPECT_TRUE(player.take_shot_at_nothing());
+}
+
 TEST(Trigger, AShotAtNothingGoesWhereTheCameraLooks) {
     // THE SIGN. The camera's forward is whatever `math::basis_from` says it is; the shot must go
     // that way on the map plane (world x -> map x, world z -> map y). Compared with the camera's
@@ -249,15 +362,6 @@ TEST(Trigger, AClickOnGroundOrSkyIsAShotThePlayerCanHear) {
     EXPECT_EQ(voice.kind, audio::SoundKind::YourShot);
     EXPECT_FLOAT_EQ(voice.gain, 1.0F);
     EXPECT_FLOAT_EQ(voice.pan, 0.0F);
-}
-
-TEST(Trigger, AShotAtAUnitIsLeftToTheSimToMakeASoundFor) {
-    // The SIM's Fired event is the voice for a shot at a unit; a second one from the game layer
-    // would be the same shot heard twice.
-    Rig rig = make_rig();
-    Interaction player{rig.tank_a};
-    player.handle(with_click(at(rig, rig.enemy)), rig.sim, rig.options);
-    EXPECT_FALSE(player.take_shot_at_nothing());
 }
 
 TEST(Trigger, TwoClicksInsideOneIntervalAreOneShotAndALaterClickIsAnother) {
@@ -303,7 +407,7 @@ TEST(Trigger, TheTimerDoesNotTouchOtherInput) {
     EXPECT_EQ(player.take_orders().size(), 1U);
 }
 
-TEST(Interaction, LeftClickOnAHostileFiresAtItAndKeepsTheSelection) {
+TEST(Interaction, LeftClickOnAHostileNamesItAndKeepsTheSelection) {
     // The assertion is about the ORDER, and deliberately not about the message: a test that checks
     // "something was refused" keeps passing when the click stops being a refusal.
     Rig rig = make_rig();
@@ -315,11 +419,11 @@ TEST(Interaction, LeftClickOnAHostileFiresAtItAndKeepsTheSelection) {
 
     const std::vector<sim::Order> orders = player.take_orders();
     ASSERT_EQ(orders.size(), 1u) << "the trigger orders one unit and nobody else";
-    EXPECT_EQ(orders.at(0).kind(), sim::OrderKind::FocusFire)
+    EXPECT_EQ(orders.at(0).kind(), sim::OrderKind::FireTowards)
         << "it must not be an Attack: that would set a hunting stance and fight the keyboard";
     EXPECT_EQ(orders.at(0).unit, rig.tank_a)
         << "the unit the player is sitting in is the one firing";
-    EXPECT_EQ(std::get<sim::orders::FocusFire>(orders.at(0).payload).target, rig.enemy);
+    EXPECT_EQ(std::get<sim::orders::FireTowards>(orders.at(0).payload).aimed_at, rig.enemy);
     EXPECT_FALSE(player.message().empty()) << "the player has to be told what happened";
 }
 
@@ -614,7 +718,7 @@ TEST(Interaction, AClickAimsWithTheMarkAndNotItsOwnPixel) {
     player.handle(with_click(elsewhere), rig.sim, rig.options);
     const std::vector<Order> orders = player.take_orders();
     ASSERT_EQ(orders.size(), 1U);
-    EXPECT_EQ(std::get<sim::orders::FocusFire>(orders.at(0).payload).target, rig.enemy);
+    EXPECT_EQ(std::get<sim::orders::FireTowards>(orders.at(0).payload).aimed_at, rig.enemy);
 }
 
 TEST(Interaction, AClickWithNoMarkDoesNothing) {

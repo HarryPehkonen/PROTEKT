@@ -484,8 +484,8 @@ TEST(Projectile, ABoltFiredAtNothingFliesTheWayItWasAimed) {
     };
     for (const Case c : {Case{1, 0, 1, 0}, Case{-1, 0, -1, 0}, Case{0, -1, 0, -1}, Case{0, 1, 0, 1},
                          Case{1, 1, 1, 1}, Case{-3, 2, -1, 1}}) {
-        const Projectile bolt
-            = launch_towards(tank, Fixed::from_int(c.dx), Fixed::from_int(c.dy), kTankDamage);
+        const Projectile bolt = launch_towards(tank, Fixed::from_int(c.dx), Fixed::from_int(c.dy),
+                                               UnitId{}, kTankDamage);
         const auto sign = [](std::int32_t v) { return (v > 0) - (v < 0); };
         EXPECT_EQ(sign(bolt.vx.raw), c.sign_x) << c.dx << "," << c.dy;
         EXPECT_EQ(sign(bolt.vy.raw), c.sign_y) << c.dx << "," << c.dy;
@@ -503,7 +503,8 @@ TEST(Projectile, ABoltFiredAtNothingFliesTheWayItWasAimed) {
 
 TEST(Projectile, ABoltFiredAtNothingNamesNoTarget) {
     const Unit tank = lone_tank();
-    const Projectile bolt = launch_towards(tank, Fixed::from_int(1), Fixed::zero(), kTankDamage);
+    const Projectile bolt
+        = launch_towards(tank, Fixed::from_int(1), Fixed::zero(), UnitId{}, kTankDamage);
     EXPECT_FALSE(bolt.aimed_at.valid());
     EXPECT_EQ(bolt.shooter, tank.id);
     EXPECT_EQ(bolt.side, tank.side);
@@ -516,7 +517,8 @@ TEST(Projectile, ABoltFiredAtNothingKeepsTheShootersOwnVelocity) {
     Unit tank = lone_tank();
     tank.vx = Fixed::from_raw(300);
     tank.vy = Fixed::from_raw(-200);
-    const Projectile bolt = launch_towards(tank, Fixed::from_int(1), Fixed::zero(), kTankDamage);
+    const Projectile bolt
+        = launch_towards(tank, Fixed::from_int(1), Fixed::zero(), UnitId{}, kTankDamage);
     EXPECT_EQ(bolt.vx.raw, kProjectileSpeedRaw + 300) << "aim plus the tank's own drive";
     EXPECT_EQ(bolt.vy.raw, -200) << "nothing sideways in the aim, all of it the tank's";
 }
@@ -530,8 +532,8 @@ TEST(Projectile, ABoltFiredAtNothingStillHitsWhatIsInItsPath) {
         std::vector<Unit> units = world.units();
         const std::uint16_t full = units.at(1).hp;
         std::vector<Impact> impacts;
-        const Projectile bolt
-            = launch_towards(units.at(0), Fixed::from_int(fx), Fixed::from_int(fy), kTankDamage);
+        const Projectile bolt = launch_towards(units.at(0), Fixed::from_int(fx),
+                                               Fixed::from_int(fy), UnitId{}, kTankDamage);
         fly_until_gone(bolt, units, impacts);
         EXPECT_EQ(units.at(1).hp, full - kTankDamage) << fx << "," << fy;
         ASSERT_EQ(impacts.size(), 1U) << fx << "," << fy;
@@ -546,7 +548,7 @@ TEST(Projectile, ABoltFiredAtNothingPassesThroughItsOwnSide) {
     const std::uint16_t full = units.at(1).hp;
     std::vector<Impact> impacts;
     const Projectile bolt
-        = launch_towards(units.at(0), Fixed::from_int(1), Fixed::zero(), kTankDamage);
+        = launch_towards(units.at(0), Fixed::from_int(1), Fixed::zero(), UnitId{}, kTankDamage);
     fly_until_gone(bolt, units, impacts);
     EXPECT_EQ(units.at(1).hp, full)
         << "no aimed_at, so nothing excuses it from friendly pass-through";
@@ -559,13 +561,147 @@ TEST(Projectile, ABoltFiredAtNothingFizzlesAtRange) {
     std::vector<Unit> units = world.units();
     std::vector<Impact> impacts;
     const Projectile bolt
-        = launch_towards(units.at(0), Fixed::from_int(1), Fixed::zero(), kTankDamage);
+        = launch_towards(units.at(0), Fixed::from_int(1), Fixed::zero(), UnitId{}, kTankDamage);
     const std::int64_t length = isqrt(speed_squared(bolt));
     const std::int64_t expiry_age = (kProjectileRange.raw + length - 1) / length;
     const int flown = fly_until_gone(bolt, units, impacts);
     EXPECT_LT(flown, 200) << "it never expired";
     EXPECT_EQ(flown, expiry_age) << "it did not fizzle at kProjectileRange";
     EXPECT_TRUE(impacts.empty()) << "and nothing took a hit";
+}
+
+// ---------------------------------------------------------------------------------------------
+// Origin + path = target: the player's shot flies along the aim and a name is not a path
+// ---------------------------------------------------------------------------------------------
+
+namespace {
+
+/// A patch of ground where every tile below spawns exactly where it is asked to: the tank, and
+/// units fourteen tiles east (out of the tank's twelve-tile reach, inside a bolt's sixteen).
+constexpr int kOx = 20;
+constexpr int kOy = 60;
+
+/// A new tank starts reloading; step it until the gun is ready, so the next order's shot is made.
+void reload(Sim& sim) {
+    for (int tick = 0; tick < profile(UnitKind::Tank).cooldown_ticks; ++tick) {
+        sim.step();
+    }
+}
+
+void run_ticks(Sim& sim, int ticks) {
+    for (int tick = 0; tick < ticks; ++tick) {
+        sim.step();
+    }
+}
+
+} // namespace
+
+TEST(Projectile, ABoltAimedAtATargetStillFliesAlongTheDirection) {
+    // A name changes WHO may be hit, never WHERE the bolt goes. The named unit sits in very
+    // different places -- ahead, beside, far off, and BEHIND the direction asked for -- and the
+    // velocity's heading must be the direction's, every time. Through the sim's own order path, the
+    // way a click takes it; the named units are friendly so that nothing auto-engages them.
+    const Fixed dir_x = Fixed::from_int(1);
+    const Fixed dir_y = Fixed::zero();
+    struct Where {
+        int dx;
+        int dy;
+    };
+    for (const Where w : {Where{4, 0}, Where{0, 4}, Where{-4, 0}, Where{-3, -3}, Where{4, 3}}) {
+        Sim world = make({{Side::Player, UnitKind::Tank, kOx, kOy},
+                          {Side::Player, UnitKind::Factory, kOx + w.dx, kOy + w.dy}});
+        reload(world);
+        world.enqueue(Order{kFirst, orders::FireTowards{dir_x, dir_y, kSecond}});
+        world.step();
+        ASSERT_EQ(world.projectiles().size(), 1U) << w.dx << "," << w.dy;
+        const Projectile& bolt = world.projectiles().front();
+        const Projectile plain
+            = launch_towards(*world.find(kFirst), dir_x, dir_y, UnitId{}, kTankDamage);
+        EXPECT_EQ(bolt.vx, plain.vx) << w.dx << "," << w.dy;
+        EXPECT_EQ(bolt.vy.raw, 0) << "due east, whatever the unit's bearing: " << w.dx << ","
+                                  << w.dy;
+        EXPECT_EQ(bolt.aimed_at, kSecond) << "the name is carried as intent";
+    }
+}
+
+TEST(Projectile, ABoltAimedAtATargetOffsetFromThePathMissesIt) {
+    // Out of the tank's own 12-tile reach (so nothing auto-engages it) but inside the bolt's 16:
+    // the only thing that could hurt it is the ordered shot.
+    const auto damage_taken = [](int tile_y) {
+        Sim world = make({{Side::Player, UnitKind::Tank, kOx, kOy},
+                          {Side::Enemy, UnitKind::Factory, kOx + 14, tile_y}});
+        const std::uint16_t full = world.find(kSecond)->hp;
+        reload(world);
+        world.enqueue(
+            Order{kFirst, orders::FireTowards{Fixed::from_int(1), Fixed::zero(), kSecond}});
+        run_ticks(world, 90);
+        return static_cast<int>(full) - static_cast<int>(world.find(kSecond)->hp);
+    };
+    // One tile off the line is twice kProjectileHitRadius.
+    EXPECT_EQ(damage_taken(kOy + 1), 0) << "the shot named it, but it flew past";
+    EXPECT_EQ(damage_taken(kOy - 1), 0);
+    EXPECT_EQ(damage_taken(kOy), static_cast<int>(kTankDamage)) << "control: ON the line";
+}
+
+TEST(Projectile, ThePlayersShotDoesNotLeadAMovingTarget) {
+    // A hostile tank crosses toward the aim line, walking south. `launch` (the AI's gun) would aim
+    // at where it will be; the player's shot goes where the crosshair pointed, and that is all.
+    Sim world = make({{Side::Player, UnitKind::Tank, kOx, kOy},
+                      {Side::Enemy, UnitKind::Tank, kOx + 14, kOy - 14}});
+    const UnitId hostile = kSecond;
+    const std::uint16_t full = world.find(hostile)->hp;
+    const Fixed start_y = world.find(hostile)->y;
+    world.enqueue(
+        Order{hostile, orders::MoveTo{Fixed::from_int(kOx + 14), Fixed::from_int(kOy + 8)}});
+    reload(world); // the hostile is under way while the gun readies, so it HAS a velocity to lead
+    ASSERT_GT(world.find(hostile)->vy.raw, 0) << "premise: it is moving";
+    world.enqueue(Order{kFirst, orders::FireTowards{Fixed::from_int(1), Fixed::zero(), hostile}});
+    world.step();
+    ASSERT_EQ(world.projectiles().size(), 1U);
+    EXPECT_EQ(world.projectiles().front().vy.raw, 0)
+        << "the bolt left along the aim, not at a prediction";
+    EXPECT_GT(world.projectiles().front().vx.raw, 0);
+
+    int ticks = 0;
+    Fixed hostile_y_at_the_bolts_end = start_y;
+    while (!world.projectiles().empty() && ticks < 200) {
+        for (const Projectile& bolt : world.projectiles()) {
+            EXPECT_EQ(bolt.y, world.find(kFirst)->y) << "never bends toward the target";
+        }
+        hostile_y_at_the_bolts_end = world.find(hostile)->y;
+        world.step();
+        ++ticks;
+    }
+    EXPECT_GT(hostile_y_at_the_bolts_end.raw, start_y.raw)
+        << "premise: it really was walking south";
+    EXPECT_LT(hostile_y_at_the_bolts_end.raw, Fixed::from_int(kOy - 1).raw)
+        << "premise: and had not reached the line while the bolt was in the air";
+    EXPECT_EQ(world.find(hostile)->hp, full) << "a lead would have found it; the aim did not";
+}
+
+TEST(Projectile, ABoltAimedAtAFriendlyHitsIt) {
+    const auto friendly_hp = [](UnitId aimed_at) {
+        Sim world = make({{Side::Player, UnitKind::Tank, kOx, kOy},
+                          {Side::Player, UnitKind::Factory, kOx + 4, kOy}});
+        reload(world);
+        world.enqueue(
+            Order{kFirst, orders::FireTowards{Fixed::from_int(1), Fixed::zero(), aimed_at}});
+        run_ticks(world, 90);
+        return static_cast<int>(world.find(kSecond)->hp);
+    };
+    const int full = profile(UnitKind::Factory).hp;
+    EXPECT_EQ(friendly_hp(kSecond), full - kTankDamage) << "aimed at it, aimed along it: it is hit";
+    EXPECT_EQ(friendly_hp(UnitId{}), full) << "the same shot at nothing passes through";
+}
+
+TEST(Projectile, ATriggerShotNeverMayHitItsOwnShooter) {
+    // A unit naming ITSELF must not shoot itself dead on the first tick, as the order validity
+    // check already guarantees for FocusFire.
+    Sim world = make({{Side::Player, UnitKind::Tank, kOx, kOy}});
+    reload(world);
+    world.enqueue(Order{kFirst, orders::FireTowards{Fixed::from_int(1), Fixed::zero(), kFirst}});
+    run_ticks(world, 30);
+    EXPECT_EQ(world.find(kFirst)->hp, profile(UnitKind::Tank).hp);
 }
 
 TEST(Projectile, NothingUnderSimOrWorldGainedAFloat) {

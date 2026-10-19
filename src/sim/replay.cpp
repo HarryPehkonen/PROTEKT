@@ -81,7 +81,7 @@ OrderPayload payload_from(OrderKind kind, const OrderFields& f) {
     case OrderKind::FocusFire:
         return orders::FocusFire{f.target};
     case OrderKind::FireTowards:
-        return orders::FireTowards{f.positions.at(0), f.positions.at(1)};
+        return orders::FireTowards{f.positions.at(0), f.positions.at(1), f.target};
     }
     return orders::Stop{};
 }

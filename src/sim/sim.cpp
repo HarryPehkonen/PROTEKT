@@ -160,12 +160,20 @@ void apply_order(std::vector<Unit>& units, std::vector<Projectile>& projectiles,
         break;
     case OrderKind::FireTowards:
         if (const auto* o = std::get_if<orders::FireTowards>(&order.payload)) {
-            // The trigger with nothing under it: the bolt is launched here, where the order is
-            // applied, and the gun reloads as it does after any other shot. A gun still reloading,
-            // or a unit with none, fires nothing. The bolt flies on through this tick's step 3.
+            // The player's trigger: the bolt is launched here, where the order is applied, and the
+            // gun reloads as it does after any other shot. A gun still reloading, or a unit with
+            // none, fires nothing. The bolt flies on through this tick's step 3, along the
+            // direction and nowhere else. `aimed_at` only says who it may hurt on its own side.
+            // A unit may not name itself: its own bolt starts on top of it.
             const UnitProfile prof = profile(unit.kind);
             if (prof.weapon_range.raw > 0 && prof.damage > 0 && unit.cooldown == 0) {
-                projectiles.push_back(launch_towards(unit, o->dir_x, o->dir_y, prof.damage));
+                const UnitId aimed_at = o->aimed_at == unit.id ? UnitId{} : o->aimed_at;
+                projectiles.push_back(
+                    launch_towards(unit, o->dir_x, o->dir_y, aimed_at, prof.damage));
+                // The rule: the sim reports `Fired` for the shots it decided to make (gun fire); a
+                // player's manual shot is the app's to announce, with its own sound. So the Shot is
+                // recorded with NO target whatever `aimed_at` says -- a valid target here is what
+                // the observer turns into a Fired event, and the player would hear it twice.
                 shots.push_back(Sim::Shot{unit.id, UnitId{}});
                 unit.cooldown = prof.cooldown_ticks;
             }

@@ -60,10 +60,17 @@ void run(Sim& sim, int ticks) {
 
 std::uint16_t full_hp(const Sim& sim, UnitId id) { return profile(sim.find(id)->kind).hp; }
 
+/// The player's trigger: a bolt along the aim, with the unit under the crosshair named as intent.
+/// The friendly is due east of the shooter in `field`, so east is "the crosshair on it".
+[[nodiscard]] Order aimed_shot(const Field& f, UnitId aimed_at) {
+    return Order{f.shooter, orders::FireTowards{Fixed::from_int(1), Fixed::zero(), aimed_at}};
+}
+
 TEST(FriendlyFire, ATriggerNamedFriendlyTargetTakesDamage) {
     Field f = field(false);
     const std::uint16_t before = f.sim.find(f.friendly)->hp;
-    f.sim.enqueue(Order{f.shooter, orders::FocusFire{f.friendly}});
+    run(f.sim, profile(UnitKind::Tank).cooldown_ticks); // a new gun is still reloading
+    f.sim.enqueue(aimed_shot(f, f.friendly));
     run(f.sim, 90);
     EXPECT_LT(f.sim.find(f.friendly)->hp, before);
 }
@@ -98,10 +105,10 @@ TEST(FriendlyFire, ExplicitOrdersOnAHostileStillWork) {
 
 TEST(FriendlyFire, AFriendlyKilledByExplicitFireDies) {
     Field f = field(false);
-    // One click is one shot now, so destroying a friendly takes a click per shot, as a player's
-    // held button would send them.
+    // One click is one shot, so destroying a friendly takes a click per shot, as a player's held
+    // button would send them -- each one aimed along the crosshair at it, which is what names it.
     for (int tick = 0; tick < 3000; ++tick) {
-        f.sim.enqueue(Order{f.shooter, orders::FocusFire{f.friendly}});
+        f.sim.enqueue(aimed_shot(f, f.friendly));
         f.sim.step();
     }
     const Unit* dead = f.sim.find(f.friendly);

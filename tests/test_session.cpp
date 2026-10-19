@@ -430,7 +430,7 @@ TEST(Session, ALeftClickOnTheGroundIsAShotToHearAndSeeAndMovesNothing) {
     EXPECT_EQ(session.selection().size(), 1U) << "and the selection survived the shot";
 }
 
-TEST(Session, ALeftClickOnAnOwnUnitFiresOnItThroughTheSim) {
+TEST(Session, ALeftClickOnAnOwnUnitFiresAlongTheAimNamingIt) {
     Rig rig = make_rig();
     Session session{rig.tank_a};
     std::vector<Order> orders;
@@ -438,12 +438,13 @@ TEST(Session, ALeftClickOnAnOwnUnitFiresOnItThroughTheSim) {
                   orders);
     bool fired_on_b = false;
     for (const Order& order : orders) {
-        if (order.kind() == sim::OrderKind::FocusFire && order.unit == rig.tank_a) {
-            fired_on_b = std::get<sim::orders::FocusFire>(order.payload).target == rig.tank_b;
+        if (order.kind() == sim::OrderKind::FireTowards && order.unit == rig.tank_a) {
+            fired_on_b = std::get<sim::orders::FireTowards>(order.payload).aimed_at == rig.tank_b;
         }
     }
     EXPECT_TRUE(fired_on_b);
-    EXPECT_FALSE(session.take_shot_at_nothing()) << "the sim makes the sound of a shot it fires";
+    EXPECT_TRUE(session.take_shot_at_nothing())
+        << "a manual shot is the app's to announce: the sim reports no Fired event for it";
     EXPECT_TRUE(session.selection().empty());
 }
 

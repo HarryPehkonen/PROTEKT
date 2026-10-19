@@ -107,7 +107,7 @@ Projectile launch(const Unit& shooter, const Unit& target, std::uint16_t damage)
     return bolt;
 }
 
-Projectile launch_towards(const Unit& shooter, Fixed dir_x, Fixed dir_y,
+Projectile launch_towards(const Unit& shooter, Fixed dir_x, Fixed dir_y, UnitId aimed_at,
                           std::uint16_t damage) noexcept {
     const std::int64_t dx = dir_x.raw;
     const std::int64_t dy = dir_y.raw;
@@ -125,7 +125,8 @@ Projectile launch_towards(const Unit& shooter, Fixed dir_x, Fixed dir_y,
     bolt.vy = Fixed::from_raw(static_cast<std::int32_t>(aim_y + shooter.vy.raw));
     bolt.shooter = shooter.id;
     bolt.side = shooter.side;
-    bolt.damage = damage; // no aimed_at: a shot at nothing names no one
+    bolt.aimed_at = aimed_at; // intent only: the velocity above never looked at it
+    bolt.damage = damage;
     return bolt;
 }
 
