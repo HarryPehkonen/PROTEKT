@@ -66,6 +66,8 @@ void Session::frame(const input::InputFrame& frame, const sim::Sim& sim,
     }
 }
 
+bool Session::take_dry_shot() noexcept { return interaction_.take_dry_shot(); }
+
 sim::UnitId Session::driven() const noexcept { return interaction_.driven(); }
 
 float Session::heading() const noexcept { return player_.heading(); }

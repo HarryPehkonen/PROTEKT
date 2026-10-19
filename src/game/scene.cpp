@@ -468,6 +468,40 @@ std::optional<float> Hover::z() const noexcept {
     return clocked_ ? std::optional<float>{state_.z} : std::nullopt;
 }
 
+void HitFlash::hit(sim::Tick now) noexcept {
+    hit_at_ = now;
+    armed_ = true;
+}
+
+float HitFlash::level(sim::Tick now) const noexcept {
+    if (!armed_ || now < hit_at_) {
+        return 0.0F;
+    }
+    const sim::Tick elapsed = now - hit_at_;
+    if (elapsed >= kHitFlashTicks) {
+        return 0.0F;
+    }
+    return 1.0F - (static_cast<float>(elapsed) / static_cast<float>(kHitFlashTicks));
+}
+
+bool unit_was_hit(std::span<const sim::BattleEvent> events, sim::UnitId unit,
+                  std::span<const sim::Unit> before) noexcept {
+    for (const sim::BattleEvent& event : events) {
+        if (event.kind != sim::EventKind::Fired || event.subject != unit) {
+            continue;
+        }
+        for (const sim::Unit& was : before) {
+            if (was.id == unit) {
+                if (event.subject_hp < was.hp) {
+                    return true;
+                }
+                break;
+            }
+        }
+    }
+    return false;
+}
+
 float Camera::wrap_angle(float radians) noexcept {
     float wrapped = std::fmod(radians + kPi, 2.0F * kPi);
     if (wrapped < 0.0F) {
@@ -525,6 +559,19 @@ render::Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
 
     append_radar(scene.vertices, options, sim);
     append_reticle(scene.vertices, options, sim, aimed);
+
+    // LAST, so it tints everything under it. The vertex format has no alpha, so the wash is each
+    // colour taken a fraction of the way to deep red; zero returns before touching anything.
+    if (options.hit_flash > 0.0F) {
+        const float amount = std::clamp(options.hit_flash, 0.0F, 1.0F) * kHitFlashStrength;
+        constexpr std::array<float, 3> kDeepRed{0.55F, 0.0F, 0.0F};
+        for (render::SceneVertex& vertex : scene.vertices) {
+            for (std::size_t channel = 0; channel < 3; ++channel) {
+                float& value = vertex.colour.at(channel);
+                value += (kDeepRed.at(channel) - value) * amount;
+            }
+        }
+    }
 
     return scene;
 }

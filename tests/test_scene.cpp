@@ -1684,4 +1684,118 @@ TEST(Calibration, TwoBuildsProduceIdenticalVertexData) {
     }
 }
 
+// ---------------------------------------------------------------- the hit flash
+
+using protekt::game::HitFlash;
+using protekt::game::kHitFlashSeconds;
+using protekt::game::kHitFlashTicks;
+using protekt::game::unit_was_hit;
+
+TEST(HitFlash, IsOffUntilTheFirstHit) {
+    const HitFlash flash;
+    EXPECT_FLOAT_EQ(flash.level(0), 0.0F);
+    EXPECT_FLOAT_EQ(flash.level(1000), 0.0F);
+}
+
+TEST(HitFlash, ARealHitSetsItFullThenItDecaysToZeroAndStaysThere) {
+    HitFlash flash;
+    flash.hit(100);
+    EXPECT_FLOAT_EQ(flash.level(100), 1.0F);
+    float previous = 1.0F;
+    for (std::uint32_t t = 101; t < 100 + kHitFlashTicks; ++t) {
+        EXPECT_LT(flash.level(t), previous) << "tick " << t;
+        previous = flash.level(t);
+    }
+    EXPECT_FLOAT_EQ(flash.level(100 + kHitFlashTicks), 0.0F);
+    EXPECT_FLOAT_EQ(flash.level(100 + kHitFlashTicks + 500), 0.0F);
+}
+
+TEST(HitFlash, TheDurationIsTheSecondsPublished) {
+    EXPECT_NEAR(static_cast<float>(kHitFlashTicks) / 30.0F, kHitFlashSeconds, 1.0F / 30.0F);
+}
+
+TEST(HitFlash, ASecondHitRearmsItFromTheTop) {
+    HitFlash flash;
+    flash.hit(100);
+    const std::uint32_t later = 100 + (kHitFlashTicks / 2);
+    ASSERT_LT(flash.level(later), 1.0F);
+    flash.hit(later);
+    EXPECT_FLOAT_EQ(flash.level(later), 1.0F);
+    EXPECT_GT(flash.level(100 + kHitFlashTicks), 0.0F) << "the first hit's end no longer ends it";
+}
+
+TEST(HitFlash, OnlyAShotThatCostHitPointsOnThatUnitCounts) {
+    using protekt::sim::BattleEvent;
+    using protekt::sim::EventKind;
+    protekt::sim::Unit unit{};
+    unit.id = protekt::sim::UnitId{1};
+    unit.hp = 100;
+    const std::vector<protekt::sim::Unit> before{unit};
+    const auto fired = [](std::uint32_t subject, std::uint16_t hp) {
+        return BattleEvent{5, EventKind::Fired, protekt::sim::UnitId{9},
+                           protekt::sim::UnitId{subject}, hp};
+    };
+    EXPECT_TRUE(unit_was_hit(std::vector{fired(1, 90)}, unit.id, before));
+    EXPECT_FALSE(unit_was_hit(std::vector{fired(1, 100)}, unit.id, before)) << "cost nothing";
+    EXPECT_FALSE(unit_was_hit(std::vector{fired(2, 10)}, unit.id, before)) << "someone else";
+    EXPECT_FALSE(unit_was_hit(std::vector<BattleEvent>{}, unit.id, before));
+}
+
+TEST(SceneHitFlash, ZeroDrawsNothingAtAll) {
+    const auto sim = protekt::sim::Sim::create(protekt::sim::Scenario{
+        42, {{protekt::sim::UnitKind::Tank, protekt::sim::Side::Player, 40, 40}}});
+    SceneOptions plain = options_at(80.0F, 80.0F);
+    SceneOptions zero = plain;
+    zero.hit_flash = 0.0F;
+    const Scene a = protekt::game::build_scene(sim, plain);
+    const Scene b = protekt::game::build_scene(sim, zero);
+    ASSERT_EQ(a.vertices.size(), b.vertices.size());
+    for (std::size_t i = 0; i < a.vertices.size(); ++i) {
+        EXPECT_EQ(a.vertices.at(i).colour, b.vertices.at(i).colour);
+        EXPECT_EQ(a.vertices.at(i).position, b.vertices.at(i).position);
+    }
+}
+
+TEST(SceneHitFlash, AFlashIsAWashTowardRedNotAnOpaqueOverlay) {
+    const auto sim = protekt::sim::Sim::create(protekt::sim::Scenario{
+        42, {{protekt::sim::UnitKind::Tank, protekt::sim::Side::Player, 40, 40}}});
+    SceneOptions plain = options_at(80.0F, 80.0F);
+    SceneOptions flashing = plain;
+    flashing.hit_flash = 1.0F;
+    const Scene a = protekt::game::build_scene(sim, plain);
+    const Scene b = protekt::game::build_scene(sim, flashing);
+    ASSERT_EQ(a.vertices.size(), b.vertices.size()) << "a tint, not new geometry";
+
+    std::set<std::array<float, 3>> distinct;
+    for (std::size_t i = 0; i < a.vertices.size(); ++i) {
+        const auto& was = a.vertices.at(i).colour;
+        const auto& now = b.vertices.at(i).colour;
+        EXPECT_EQ(a.vertices.at(i).position, b.vertices.at(i).position);
+        EXPECT_LE(now[1], was[1] + 1e-6F) << "green only falls";
+        EXPECT_LE(now[2], was[2] + 1e-6F) << "blue only falls";
+        EXPECT_LT(now[1] + now[2], was[1] + was[2] + 1e-6F);
+        distinct.insert(now);
+    }
+    EXPECT_GT(distinct.size(), 3U) << "the battle is still readable under the wash";
+    // The wash is red-dominant on average and strictly changes the frame.
+    EXPECT_NE(a.vertices.front().colour, b.vertices.front().colour);
+}
+
+TEST(SceneHitFlash, AHalfFlashIsHalfAsStrongAsAFullOne) {
+    const auto sim = protekt::sim::Sim::create(protekt::sim::Scenario{
+        42, {{protekt::sim::UnitKind::Tank, protekt::sim::Side::Player, 40, 40}}});
+    SceneOptions plain = options_at(80.0F, 80.0F);
+    SceneOptions half = plain;
+    half.hit_flash = 0.5F;
+    SceneOptions full = plain;
+    full.hit_flash = 1.0F;
+    const Scene a = protekt::game::build_scene(sim, plain);
+    const Scene h = protekt::game::build_scene(sim, half);
+    const Scene f = protekt::game::build_scene(sim, full);
+    const float d_half = a.vertices.front().colour[1] - h.vertices.front().colour[1];
+    const float d_full = a.vertices.front().colour[1] - f.vertices.front().colour[1];
+    ASSERT_GT(d_full, 0.0F);
+    EXPECT_NEAR(d_half, d_full * 0.5F, 1e-5F);
+}
+
 } // namespace

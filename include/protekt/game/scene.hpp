@@ -7,6 +7,7 @@
 
 #include "protekt/math/math.hpp"
 #include "protekt/render/renderer.hpp"
+#include "protekt/sim/observer.hpp"
 #include "protekt/sim/sim.hpp"
 #include "protekt/world/world.hpp"
 
@@ -92,16 +93,44 @@ private:
     bool clocked_{false};
 };
 
+/// THE HIT FLASH. How long the red wash takes to fade after the player's tank is hit.
+inline constexpr float kHitFlashSeconds = 0.4F;
+/// The same, in sim ticks: the flash is clocked by the sim's own counter, as the hover is.
+inline constexpr sim::Tick kHitFlashTicks
+    = static_cast<sim::Tick>(kHitFlashSeconds * static_cast<float>(sim::kTicksPerSecond));
+/// How far toward deep red the frame goes at the instant of a hit: a wash, not an overlay, so the
+/// battle stays readable underneath.
+inline constexpr float kHitFlashStrength = 0.55F;
+
+/// The red flash's state, owned by the app. `hit` arms it from the top; `level` is 1 on the tick of
+/// the hit, falls linearly, and is exactly 0 from `kHitFlashTicks` later on. Driven by hit EVENTS,
+/// so two hits in a row flash twice even if hit points never read differently between frames.
+class HitFlash {
+public:
+    void hit(sim::Tick now) noexcept;
+    [[nodiscard]] float level(sim::Tick now) const noexcept;
+
+private:
+    sim::Tick hit_at_{};
+    bool armed_{false};
+};
+
+/// True when one of `events` is a shot that took hit points off `unit`. `before` is the unit table
+/// as it stood BEFORE the tick the events describe: an event alone says what the target has left,
+/// not whether the shot cost it anything.
+[[nodiscard]] bool unit_was_hit(std::span<const sim::BattleEvent> events, sim::UnitId unit,
+                                std::span<const sim::Unit> before) noexcept;
+
 /// Column-major view-projection for a camera, matching what the vertex shader expects.
 [[nodiscard]] std::array<float, 16> view_projection(const Camera& camera, float aspect,
                                                     float fov_radians = math::kFovRadians) noexcept;
 
 /// The aim point, in framebuffer pixels: from the left, from the TOP.
 ///
-/// One point, and everything reads it: the reticle marks it, a left click selects the unit under
-/// it, a right click orders the ground under it. It is NOT the pointer -- `game::aim_from` says
-/// where it is and why -- but it is the point the reticle is drawn at, so the mark can never
-/// promise something a click does not do.
+/// One point, and everything reads it: the reticle marks it, a left click FIRES at whatever is
+/// under it, a right click orders the ground under it, and `Space` selects an own unit there. It
+/// is NOT the pointer -- `game::aim_from` says where it is and why -- but it is the point the
+/// reticle is drawn at, so the mark can never promise something a click does not do.
 struct Aim {
     float x{};
     float y{};
@@ -134,6 +163,10 @@ struct SceneOptions {
         float z{};
     };
     std::optional<Hovering> hover{};
+    /// The red hit flash, 0 (none) to 1 (just hit): the app owns it and advances it each frame.
+    /// 0 draws nothing at all, so a frame that is not flashing is byte-identical to one that never
+    /// heard of it.
+    float hit_flash{0.0F};
 };
 
 /// Triangles for the terrain mesh (two per tile, coloured by `Terrain`) followed by one box per

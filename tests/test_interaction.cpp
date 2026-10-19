@@ -9,6 +9,7 @@
 
 #include "protekt/game/pick.hpp"
 #include "protekt/game/scene.hpp"
+#include "protekt/game/sounds.hpp"
 #include "protekt/input/input.hpp"
 #include "protekt/sim/sim.hpp"
 
@@ -112,6 +113,12 @@ struct Rig {
     return frame;
 }
 
+/// Select with the keyboard, which is the only way to select now: the mark on `unit`, then Space.
+void choose(Rig& rig, Interaction& player, sim::UnitId unit, bool shift = false) {
+    static_cast<void>(at(rig, unit));
+    player.handle(with_key(input::kKeySpace, shift), rig.sim, rig.options);
+}
+
 [[nodiscard]] std::vector<sim::UnitId> selected(const Interaction& interaction) {
     std::vector<sim::UnitId> ids;
     for (const sim::UnitId id : interaction.selection().units()) {
@@ -124,39 +131,126 @@ struct Rig {
 
 // ---------------------------------------------------------------- selection
 
-TEST(Interaction, LeftClickOnAnOwnUnitSelectsExactlyIt) {
+TEST(Interaction, SpacePlainReplacesAndShiftSpaceAddsAndRemoves) {
     Rig rig = make_rig();
     Interaction player{rig.tank_a};
-    player.handle(with_click(at(rig, rig.tank_a)), rig.sim, rig.options);
-    EXPECT_EQ(selected(player), (std::vector<sim::UnitId>{rig.tank_a}));
-
-    player.handle(with_click(at(rig, rig.tank_b)), rig.sim, rig.options);
-    EXPECT_EQ(selected(player), (std::vector<sim::UnitId>{rig.tank_b}))
-        << "a plain click replaces the selection; it does not add to it";
-    EXPECT_TRUE(player.message().empty());
+    choose(rig, player, rig.tank_a);
+    choose(rig, player, rig.tank_b);
+    EXPECT_EQ(selected(player), (std::vector<sim::UnitId>{rig.tank_b}));
+    choose(rig, player, rig.turret, true);
+    EXPECT_EQ(selected(player), (std::vector<sim::UnitId>{rig.tank_b, rig.turret}));
+    choose(rig, player, rig.tank_b, true);
+    EXPECT_EQ(selected(player), (std::vector<sim::UnitId>{rig.turret}));
 }
 
-TEST(Interaction, ShiftClickAddsAndRemoves) {
+// ---------------------------------------------------------------- the trigger
+
+TEST(Trigger, ALeftClickOnAnOwnUnitFiresAtItAndDoesNotChangeTheSelection) {
+    Rig rig = make_rig();
+    Interaction player{rig.tank_a};
+    choose(rig, player, rig.turret);
+    const std::vector<sim::UnitId> before = selected(player);
+
+    player.handle(with_click(at(rig, rig.tank_b)), rig.sim, rig.options);
+    const std::vector<Order> orders = player.take_orders();
+    ASSERT_EQ(orders.size(), 1U);
+    EXPECT_EQ(orders.at(0).kind(), OrderKind::FocusFire);
+    EXPECT_EQ(orders.at(0).unit, rig.tank_a);
+    EXPECT_EQ(std::get<sim::orders::FocusFire>(orders.at(0).payload).target, rig.tank_b);
+    EXPECT_EQ(selected(player), before) << "a click is a trigger, not a selection";
+}
+
+TEST(Trigger, ALeftClickOnAnUnselectedOwnUnitDoesNotSelectIt) {
     Rig rig = make_rig();
     Interaction player{rig.tank_a};
     player.handle(with_click(at(rig, rig.tank_b)), rig.sim, rig.options);
+    EXPECT_TRUE(player.selection().empty());
     player.handle(with_click(at(rig, rig.turret, MouseButton::Left, true)), rig.sim, rig.options);
-    EXPECT_EQ(selected(player), (std::vector<sim::UnitId>{rig.tank_b, rig.turret}))
-        << "the selection is kept in ascending id order, not click order";
-
-    player.handle(with_click(at(rig, rig.tank_b, MouseButton::Left, true)), rig.sim, rig.options);
-    EXPECT_EQ(selected(player), (std::vector<sim::UnitId>{rig.turret}))
-        << "shift-click toggles out";
+    EXPECT_TRUE(player.selection().empty()) << "Shift does not turn the trigger into a selector";
 }
 
-TEST(Interaction, LeftClickOnTheGroundDoesNotClearTheSelection) {
+TEST(Trigger, AClickOnGroundOrSkyIssuesNoOrderAndLeavesTheSelection) {
     Rig rig = make_rig();
     Interaction player{rig.tank_a};
-    player.handle(with_click(at(rig, rig.tank_b)), rig.sim, rig.options);
-    ASSERT_FALSE(player.selection().empty());
+    choose(rig, player, rig.tank_b);
+    const std::vector<sim::UnitId> before = selected(player);
+
     player.handle(with_click(ground_click(rig)), rig.sim, rig.options);
-    EXPECT_EQ(selected(player), (std::vector<sim::UnitId>{rig.tank_b}))
-        << "shooting at the ground must not throw the selection away";
+    EXPECT_TRUE(player.take_orders().empty()) << "ground";
+    EXPECT_EQ(selected(player), before);
+
+    for (sim::Tick t = 0; t < kManualShotIntervalTicks; ++t) {
+        rig.sim.step();
+    }
+    rig.options.aim = Aim{640.0F, 5.0F}; // the top of the frame: sky
+    player.handle(with_click(Click{640, 5, MouseButton::Left, true, false}), rig.sim, rig.options);
+    EXPECT_TRUE(player.take_orders().empty()) << "sky";
+    EXPECT_EQ(selected(player), before);
+}
+
+TEST(Trigger, AClickOnGroundOrSkyIsAShotThePlayerCanHear) {
+    Rig rig = make_rig();
+    Interaction player{rig.tank_a};
+    EXPECT_FALSE(player.take_dry_shot()) << "no click, no shot";
+    player.handle(with_click(ground_click(rig)), rig.sim, rig.options);
+    EXPECT_TRUE(player.take_dry_shot()) << "no order must not mean no sound";
+    EXPECT_FALSE(player.take_dry_shot()) << "drained once";
+
+    const audio::Voice voice = dry_shot_voice();
+    EXPECT_EQ(voice.kind, audio::SoundKind::YourShot);
+    EXPECT_FLOAT_EQ(voice.gain, 1.0F);
+    EXPECT_FLOAT_EQ(voice.pan, 0.0F);
+}
+
+TEST(Trigger, AShotAtAUnitIsLeftToTheSimToMakeASoundFor) {
+    // The SIM's Fired event is the voice for a shot at a unit; a second one from the game layer
+    // would be the same shot heard twice.
+    Rig rig = make_rig();
+    Interaction player{rig.tank_a};
+    player.handle(with_click(at(rig, rig.enemy)), rig.sim, rig.options);
+    EXPECT_FALSE(player.take_dry_shot());
+}
+
+TEST(Trigger, TwoClicksInsideOneIntervalAreOneShotAndALaterClickIsAnother) {
+    Rig rig = make_rig();
+    Interaction player{rig.tank_a};
+    InputFrame two{};
+    two.clicks.push_back(ground_click(rig));
+    two.clicks.push_back(ground_click(rig));
+    player.handle(two, rig.sim, rig.options);
+    EXPECT_TRUE(player.take_dry_shot());
+    EXPECT_FALSE(player.take_dry_shot()) << "the second click in the same frame is swallowed";
+
+    for (sim::Tick t = 0; t + 1 < kManualShotIntervalTicks; ++t) {
+        rig.sim.step();
+    }
+    player.handle(with_click(ground_click(rig)), rig.sim, rig.options);
+    EXPECT_FALSE(player.take_dry_shot()) << "one tick short of the interval";
+
+    rig.sim.step();
+    player.handle(with_click(ground_click(rig)), rig.sim, rig.options);
+    EXPECT_TRUE(player.take_dry_shot()) << "a full interval later the gun is ready";
+}
+
+TEST(Trigger, TheTimerLimitsTheButtonForOrdersToo) {
+    Rig rig = make_rig();
+    Interaction player{rig.tank_a};
+    InputFrame two{};
+    two.clicks.push_back(at(rig, rig.enemy));
+    two.clicks.push_back(at(rig, rig.enemy));
+    player.handle(two, rig.sim, rig.options);
+    EXPECT_EQ(player.take_orders().size(), 1U);
+}
+
+TEST(Trigger, TheTimerDoesNotTouchOtherInput) {
+    // A right click or a key right after a shot is not a shot.
+    Rig rig = make_rig();
+    Interaction player{rig.tank_a};
+    choose(rig, player, rig.tank_b);
+    player.handle(with_click(ground_click(rig)), rig.sim, rig.options);
+    static_cast<void>(player.take_dry_shot());
+    player.handle(with_click(ground_click(rig, true)), rig.sim, rig.options);
+    EXPECT_EQ(player.take_orders().size(), 1U);
 }
 
 TEST(Interaction, LeftClickOnAHostileFiresAtItAndKeepsTheSelection) {
@@ -164,7 +258,7 @@ TEST(Interaction, LeftClickOnAHostileFiresAtItAndKeepsTheSelection) {
     // "something was refused" keeps passing when the click stops being a refusal.
     Rig rig = make_rig();
     Interaction player{rig.tank_a};
-    player.handle(with_click(at(rig, rig.tank_b)), rig.sim, rig.options);
+    choose(rig, player, rig.tank_b);
     player.handle(with_click(at(rig, rig.enemy)), rig.sim, rig.options);
     EXPECT_EQ(selected(player), (std::vector<sim::UnitId>{rig.tank_b}))
         << "clicking the enemy must not throw away the player's own selection";
@@ -182,8 +276,8 @@ TEST(Interaction, LeftClickOnAHostileFiresAtItAndKeepsTheSelection) {
 TEST(Interaction, TabClearsTheSelection) {
     Rig rig = make_rig();
     Interaction player{rig.tank_a};
-    player.handle(with_click(at(rig, rig.tank_b)), rig.sim, rig.options);
-    player.handle(with_click(at(rig, rig.turret, MouseButton::Left, true)), rig.sim, rig.options);
+    choose(rig, player, rig.tank_b);
+    choose(rig, player, rig.turret, true);
     ASSERT_EQ(player.selection().size(), 2U);
     player.handle(with_key(input::kKeyTab), rig.sim, rig.options);
     EXPECT_TRUE(player.selection().empty());
@@ -216,7 +310,7 @@ TEST(Interaction, SpaceSelectsTheUnitUnderTheCrosshairAndShiftSpaceToggles) {
 TEST(Interaction, SpaceOverGroundHostileOrNothingLeavesTheSelectionAlone) {
     Rig rig = make_rig();
     Interaction player{rig.tank_a};
-    player.handle(with_click(at(rig, rig.tank_b)), rig.sim, rig.options);
+    choose(rig, player, rig.tank_b);
     const std::vector<sim::UnitId> before = selected(player);
     ASSERT_EQ(before.size(), 1U);
 
@@ -239,9 +333,9 @@ TEST(Interaction, SpaceOverGroundHostileOrNothingLeavesTheSelectionAlone) {
 TEST(Interaction, TOrdersAnAttackFromEverySelectedUnitAndKeepsTheSelection) {
     Rig rig = make_rig();
     Interaction player{rig.tank_a};
-    player.handle(with_click(at(rig, rig.turret)), rig.sim, rig.options);
-    player.handle(with_click(at(rig, rig.tank_b, MouseButton::Left, true)), rig.sim, rig.options);
-    player.handle(with_click(at(rig, rig.tank_a, MouseButton::Left, true)), rig.sim, rig.options);
+    choose(rig, player, rig.turret);
+    choose(rig, player, rig.tank_b, true);
+    choose(rig, player, rig.tank_a, true);
     const std::vector<sim::UnitId> before = selected(player);
     ASSERT_EQ(before.size(), 3U);
 
@@ -271,7 +365,7 @@ TEST(Interaction, TWithNothingSelectedIsRefusedAndSaysWhy) {
 TEST(Interaction, TOffAHostileIsRefused) {
     Rig rig = make_rig();
     Interaction player{rig.tank_a};
-    player.handle(with_click(at(rig, rig.tank_b)), rig.sim, rig.options);
+    choose(rig, player, rig.tank_b);
 
     static_cast<void>(ground_click(rig));
     player.handle(with_key(input::kKeyT), rig.sim, rig.options);
@@ -288,7 +382,7 @@ TEST(Interaction, TOffAHostileIsRefused) {
 TEST(Interaction, TWithOnlyTheDrivenTankSelectedIsRefused) {
     Rig rig = make_rig();
     Interaction player{rig.tank_a};
-    player.handle(with_click(at(rig, rig.tank_a)), rig.sim, rig.options);
+    choose(rig, player, rig.tank_a);
     static_cast<void>(at(rig, rig.enemy));
     player.handle(with_key(input::kKeyT), rig.sim, rig.options);
     EXPECT_TRUE(player.take_orders().empty());
@@ -298,7 +392,7 @@ TEST(Interaction, TWithOnlyTheDrivenTankSelectedIsRefused) {
 TEST(Interaction, TRetargetsWithoutReselecting) {
     Rig rig = make_rig();
     Interaction player{rig.tank_a};
-    player.handle(with_click(at(rig, rig.tank_b)), rig.sim, rig.options);
+    choose(rig, player, rig.tank_b);
     const std::vector<sim::UnitId> before = selected(player);
 
     static_cast<void>(at(rig, rig.enemy));
@@ -319,7 +413,7 @@ TEST(Interaction, TRetargetsWithoutReselecting) {
 TEST(Interaction, EscapeClearsTheSelection) {
     Rig rig = make_rig();
     Interaction player{rig.tank_a};
-    player.handle(with_click(at(rig, rig.tank_b)), rig.sim, rig.options);
+    choose(rig, player, rig.tank_b);
     ASSERT_FALSE(player.selection().empty());
     player.handle(with_key(input::kKeyEscape), rig.sim, rig.options);
     EXPECT_TRUE(player.selection().empty());
@@ -330,7 +424,7 @@ TEST(Interaction, EscapeClearsTheSelection) {
 TEST(Interaction, RightClickOnTheGroundMovesTheSelectionThere) {
     Rig rig = make_rig();
     Interaction player{rig.tank_a};
-    player.handle(with_click(at(rig, rig.tank_b)), rig.sim, rig.options);
+    choose(rig, player, rig.tank_b);
     player.handle(with_click(ground_click(rig, true)), rig.sim, rig.options);
 
     const std::vector<Order> orders = player.take_orders();
@@ -344,8 +438,8 @@ TEST(Interaction, RightClickOnTheGroundMovesTheSelectionThere) {
 TEST(Interaction, TheDrivenTankIsNeverOrderedByAClick) {
     Rig rig = make_rig();
     Interaction player{rig.tank_a};
-    player.handle(with_click(at(rig, rig.tank_b)), rig.sim, rig.options);
-    player.handle(with_click(at(rig, rig.tank_a, MouseButton::Left, true)), rig.sim, rig.options);
+    choose(rig, player, rig.tank_b);
+    choose(rig, player, rig.tank_a, true);
     ASSERT_EQ(player.selection().size(), 2U);
 
     player.handle(with_click(ground_click(rig, true)), rig.sim, rig.options);
@@ -357,7 +451,7 @@ TEST(Interaction, TheDrivenTankIsNeverOrderedByAClick) {
 TEST(Interaction, RightClickWithOnlyTheDrivenTankSelectedIsRefused) {
     Rig rig = make_rig();
     Interaction player{rig.tank_a};
-    player.handle(with_click(at(rig, rig.tank_a)), rig.sim, rig.options);
+    choose(rig, player, rig.tank_a);
     player.handle(with_click(ground_click(rig, true)), rig.sim, rig.options);
     EXPECT_TRUE(player.take_orders().empty());
     EXPECT_FALSE(player.message().empty())
@@ -367,7 +461,7 @@ TEST(Interaction, RightClickWithOnlyTheDrivenTankSelectedIsRefused) {
 TEST(Interaction, RightClickOnAHostileOrdersAnAttack) {
     Rig rig = make_rig();
     Interaction player{rig.tank_a};
-    player.handle(with_click(at(rig, rig.tank_b)), rig.sim, rig.options);
+    choose(rig, player, rig.tank_b);
     player.handle(with_click(at(rig, rig.enemy, MouseButton::Right)), rig.sim, rig.options);
 
     const std::vector<Order> orders = player.take_orders();
@@ -388,7 +482,7 @@ TEST(Interaction, RightClickWithNothingSelectedIsRefused) {
 TEST(Interaction, OrdersAreDrainedOnce) {
     Rig rig = make_rig();
     Interaction player{rig.tank_a};
-    player.handle(with_click(at(rig, rig.tank_b)), rig.sim, rig.options);
+    choose(rig, player, rig.tank_b);
     player.handle(with_click(ground_click(rig, true)), rig.sim, rig.options);
     EXPECT_EQ(player.take_orders().size(), 1U);
     EXPECT_TRUE(player.take_orders().empty()) << "the same click must not be applied twice";
@@ -421,10 +515,8 @@ TEST(Interaction, ADeadUnitLeavesTheSelection) {
     const Projected p
         = project(options.camera, kExtent, static_cast<float>(t->x.raw) / 65536.0F * kMetresPerTile,
                   ground + 0.9F, static_cast<float>(t->y.raw) / 65536.0F * kMetresPerTile);
-    InputFrame frame{};
-    frame.clicks.push_back(
-        Click{static_cast<int>(p.x), static_cast<int>(p.y), MouseButton::Left, true, false});
     options.aim = Aim{p.x, p.y}; // the MARK selects, so the mark goes on the turret
+    const InputFrame frame = with_key(input::kKeySpace);
     player.handle(frame, sim, options);
     ASSERT_EQ(selected(player), (std::vector<sim::UnitId>{turret}));
 
@@ -442,9 +534,8 @@ TEST(Interaction, TheSameInputProducesTheSameOrders) {
     const auto play = [] {
         Rig rig = make_rig();
         Interaction player{rig.tank_a};
-        player.handle(with_click(at(rig, rig.tank_b)), rig.sim, rig.options);
-        player.handle(with_click(at(rig, rig.turret, MouseButton::Left, true)), rig.sim,
-                      rig.options);
+        choose(rig, player, rig.tank_b);
+        choose(rig, player, rig.turret, true);
         player.handle(with_click(ground_click(rig, true)), rig.sim, rig.options);
         return player.take_orders();
     };
@@ -467,11 +558,13 @@ TEST(Interaction, AClickAimsWithTheMarkAndNotItsOwnPixel) {
     // nothing, or the mark could say one thing while the click did another.
     Rig rig = make_rig();
     Interaction player(rig.tank_a);
-    static_cast<void>(at(rig, rig.tank_b)); // puts the MARK on tank b
+    static_cast<void>(at(rig, rig.enemy)); // puts the MARK on the enemy
     ASSERT_TRUE(rig.options.aim.has_value());
     const Click elsewhere{5, 700, MouseButton::Left, true, false}; // no unit is behind that pixel
     player.handle(with_click(elsewhere), rig.sim, rig.options);
-    EXPECT_EQ(selected(player), (std::vector<sim::UnitId>{rig.tank_b}));
+    const std::vector<Order> orders = player.take_orders();
+    ASSERT_EQ(orders.size(), 1U);
+    EXPECT_EQ(std::get<sim::orders::FocusFire>(orders.at(0).payload).target, rig.enemy);
 }
 
 TEST(Interaction, AClickWithNoMarkDoesNothing) {
@@ -484,6 +577,7 @@ TEST(Interaction, AClickWithNoMarkDoesNothing) {
     player.handle(with_click(click), rig.sim, rig.options);
     EXPECT_TRUE(player.selection().empty());
     EXPECT_TRUE(player.take_orders().empty());
+    EXPECT_FALSE(player.take_dry_shot()) << "and it makes no sound either";
 }
 
 } // namespace protekt::game

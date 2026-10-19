@@ -4,6 +4,7 @@
 
 #include <cmath>
 #include <cstdint>
+#include <variant>
 #include <vector>
 
 #include "protekt/game/pick.hpp"
@@ -133,6 +134,14 @@ struct ScreenPoint {
 [[nodiscard]] Click ground_click(Rig& rig) {
     rig.options.aim = Aim{640.0F, 700.0F};
     return Click{640, 700, MouseButton::Right, true, false};
+}
+
+/// Select with the keyboard: the mark on `unit`, then Space (the left button is the trigger now).
+[[nodiscard]] InputFrame space_on(Rig& rig, sim::UnitId unit) {
+    static_cast<void>(click_on(rig, unit, MouseButton::Left));
+    InputFrame frame{};
+    frame.keys.push_back(KeyEvent{input::kKeySpace, true, false});
+    return frame;
 }
 
 [[nodiscard]] InputFrame with_click(const Click& click) {
@@ -356,7 +365,7 @@ TEST(Session, AClickSelectsAndARightClickOrdersAnotherTank) {
     // One frame at a time, because the MARK moves between the two clicks and moving it is what
     // building the click does: building both frames up front would leave both of them aimed at
     // wherever the mark ended up last.
-    run_frames(rig, session, {with_click(click_on(rig, rig.tank_b, MouseButton::Left))});
+    run_frames(rig, session, {space_on(rig, rig.tank_b)});
     run_frames(rig, session, {with_click(ground_click(rig))});
 
     EXPECT_EQ(rig.sim.find(rig.tank_b)->stance, Stance::MoveTo)
@@ -369,8 +378,7 @@ TEST(Session, TheDrivenTankIsNeverGivenAClickOrder) {
     // Select the driven tank, then right click the ground. The only order for it must be the one
     // the throttle produces -- the click has to be refused, not quietly obeyed.
     std::vector<Order> orders;
-    session.frame(with_click(click_on(rig, rig.tank_a, MouseButton::Left)), rig.sim, rig.options,
-                  orders);
+    session.frame(space_on(rig, rig.tank_a), rig.sim, rig.options, orders);
     orders.clear();
     session.frame(with_click(ground_click(rig)), rig.sim, rig.options, orders);
 
@@ -388,11 +396,46 @@ TEST(Session, EscapeClearsTheSelection) {
     Rig rig = make_rig();
     Session session{rig.tank_a};
     std::vector<InputFrame> frames;
-    frames.push_back(with_click(click_on(rig, rig.tank_b, MouseButton::Left)));
+    frames.push_back(space_on(rig, rig.tank_b));
     InputFrame escape{};
     escape.keys.push_back(KeyEvent{input::kKeyEscape, true, false});
     frames.push_back(escape);
     run_frames(rig, session, frames);
+    EXPECT_TRUE(session.selection().empty());
+}
+
+TEST(Session, ALeftClickOnTheGroundIsAShotToHearAndMovesNothing) {
+    Rig rig = make_rig();
+    Session session{rig.tank_a};
+    run_frames(rig, session, {space_on(rig, rig.tank_b)});
+    const std::uint64_t hash = rig.sim.state_hash();
+    static_cast<void>(hash);
+
+    std::vector<Order> orders;
+    Click click = ground_click(rig);
+    click.button = MouseButton::Left;
+    session.frame(with_click(click), rig.sim, rig.options, orders);
+    EXPECT_TRUE(session.take_dry_shot());
+    EXPECT_FALSE(session.take_dry_shot());
+    ASSERT_EQ(orders.size(), 1U) << "only the throttle's order: the shot issued none";
+    EXPECT_EQ(orders.front().kind(), sim::OrderKind::MoveTo);
+    EXPECT_EQ(session.selection().size(), 1U) << "and the selection survived the shot";
+}
+
+TEST(Session, ALeftClickOnAnOwnUnitFiresOnItThroughTheSim) {
+    Rig rig = make_rig();
+    Session session{rig.tank_a};
+    std::vector<Order> orders;
+    session.frame(with_click(click_on(rig, rig.tank_b, MouseButton::Left)), rig.sim, rig.options,
+                  orders);
+    bool fired_on_b = false;
+    for (const Order& order : orders) {
+        if (order.kind() == sim::OrderKind::FocusFire && order.unit == rig.tank_a) {
+            fired_on_b = std::get<sim::orders::FocusFire>(order.payload).target == rig.tank_b;
+        }
+    }
+    EXPECT_TRUE(fired_on_b);
+    EXPECT_FALSE(session.take_dry_shot()) << "the sim makes the sound of a shot it fires";
     EXPECT_TRUE(session.selection().empty());
 }
 

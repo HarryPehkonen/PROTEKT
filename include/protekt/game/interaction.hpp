@@ -3,6 +3,7 @@
 #include <string_view>
 #include <vector>
 
+#include "protekt/audio/mixer.hpp"
 #include "protekt/cmd/selection.hpp"
 #include "protekt/game/scene.hpp"
 #include "protekt/input/input.hpp"
@@ -10,6 +11,15 @@
 #include "protekt/sim/sim.hpp"
 
 namespace protekt::game {
+
+/// The gun's rate limit on the player's BUTTON: at most one manual shot per this many sim ticks (8
+/// is just over a quarter of a second). A shot the sim fires itself -- auto-engagement, a FocusFire
+/// already ordered -- is not on this timer.
+inline constexpr sim::Tick kManualShotIntervalTicks = 8;
+
+/// The voice of a shot that hits nothing: the player's own gun, full gain, centred. The same voice
+/// `sounds_for` gives a shot the sim fires from the player's side.
+[[nodiscard]] audio::Voice dry_shot_voice() noexcept;
 
 /// The player's hands, as a pure function of input and what he can see.
 ///
@@ -29,10 +39,11 @@ public:
 
     /// Consume one frame of input against the world as it is now.
     ///
-    ///  * left click on an own unit: select exactly that unit
-    ///  * left click + Shift on an own unit: add it to the selection, or remove it if it is there
-    ///  * left click on a unit that is not ours: refused, selection unchanged
-    ///  * left click on the ground or the sky: clear the selection
+    ///  * left click: THE TRIGGER, whatever is under the mark, at most once per
+    ///    `kManualShotIntervalTicks`. On any unit, hostile or ours, it is a FocusFire from the
+    ///    driven tank; on the ground or the sky it is no order, only a shot to be heard
+    ///    (`take_dry_shot`). It never changes the selection.
+    ///  * Space / Shift-Space: select the own unit under the mark / toggle it
     ///  * right click on the ground with a selection: MoveTo that tile, for every selected unit
     ///  that
     ///    is not the driven one
@@ -49,6 +60,10 @@ public:
     /// that was asked could not be done. Units appear in ascending id order, because `cmd::` verbs
     /// build them that way and the order the player clicked in must not change what the sim sees.
     [[nodiscard]] std::vector<sim::Order> take_orders() noexcept;
+
+    /// Whether the last `handle` pulled the trigger at nothing: a shot to play `dry_shot_voice`
+    /// for. Drained by reading, like the orders.
+    [[nodiscard]] bool take_dry_shot() noexcept;
 
     [[nodiscard]] const cmd::Selection& selection() const noexcept;
     [[nodiscard]] sim::UnitId driven() const noexcept;
@@ -71,6 +86,9 @@ private:
     sim::UnitId driven_;
     cmd::Selection selection_;
     std::vector<sim::Order> pending_;
+    bool dry_shot_{false};
+    bool has_fired_{false};
+    sim::Tick last_shot_tick_{};
     std::string_view message_;
 };
 

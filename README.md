@@ -19,8 +19,7 @@ You are one tank. Everything else you command.
 | `A` / `D` | aim left / right: they turn the view, not the hull |
 | `E` (**held**) | boost: lift the hull, and settle back down when you let go |
 | `C` | toggle the colour calibration view: three red/green/blue bars, a check on the display path |
-| **left click** with the mark on an own unit | select it |
-| **left click** + `Shift`, mark on a unit | add it to the selection, or remove it |
+| **left click** | **fire**, wherever the mark is (see below) |
 | `Space`, mark on an own unit | select it -- a click on a keyboard |
 | `Space` + `Shift`, mark on a unit | add it to the selection, or remove it |
 | `T` | order every selected unit to attack the unit under the mark -- a hostile, or one of your own |
@@ -29,7 +28,6 @@ You are one tank. Everything else you command.
 | `Ctrl`+`Q` | quit from anywhere |
 | **right click**, mark on the ground | order every selected unit there |
 | **right click**, mark on a hostile | order every selected unit to attack it |
-| **left click**, mark on a hostile | shoot at it: the gun fires at whatever the mark covers |
 
 The tank you are sitting in is **never** moved by a click. It is driven by `W`/`S` and your view
 every tick, so an order from the mouse would fight your own hands: while the throttle is held the hull
@@ -43,27 +41,31 @@ its own -- only an order crosses that line (see Display/HUD below).
 
 Selected units are drawn brighter than the rest of their side, so you can see what you have hold of.
 
-**The mark is the gun.** It sits in the middle of the screen horizontally, and the mouse moves it up
-and down — the tank's gun is on its centre line, so **turning with `A`/`D` is how you aim sideways**:
-bring what you want under the mark, then click. The mark's colour says what a click would do before you
-make it:
+**The mark is the gun.** It is the crosshair, fixed at the centre of the screen, and you aim by
+**looking**: the mouse swings the view and `A`/`D` do the same from the keyboard. Whatever is under
+the crosshair is what a click fires at, so bring the view round until it is there. The mark's colour
+says what a click would do before you make it:
 
 | mark | what a click does |
 |---|---|
-| **white** | select nothing, or order your selection to that ground — nothing is harmed |
-| **green** | select one of your own units (or, with `Shift`, add it to the selection) |
-| **red** | **fire** at the hostile under it |
+| **white** | a click fires at nothing: you hear the shot, nothing is harmed |
+| **green** | a click fires on **your own** unit. You can destroy your own tank on purpose |
+| **red** | a click fires at the hostile under it |
 
 The unit under the mark is tinted as well, so the warning is on the thing itself and not only on the
 mark: **amber** for one of yours ("do not shoot this"), **salmon** for a hostile.
 
-**Shooting never costs you your selection.** A click on the ground, the sky or a hostile leaves it alone --
+**The left button is the trigger, always.** It never selects: `Space` (and `Shift`+`Space`) does that. A shot
+at the ground or the sky makes your gun's sound and nothing else — there is no projectile yet. The button
+is rate-limited to about four shots a second; your gun's own auto-fire is not. When you are hit the screen
+flashes red and fades over 0.4 seconds.
+
+**Shooting never costs you your selection.** A click on the ground, the sky, a hostile or your own unit leaves it alone --
 only `Tab` and `Escape` clear it. `T` reads the mark fresh every time it is pressed, so after a kill you can
 put the mark on the next enemy and press `T` again without re-selecting anything.
 
-A small square outline, and the only thing drawn close to your eye: if you can see it, that is where
-your click lands. The pointer does not aim — a click anywhere on the screen does what the mark shows,
-which is why the mark cannot promise something the shot cannot do.
+The crosshair is the only thing drawn close to your eye. There is no pointer on screen — the mouse
+moves the view — so the crosshair is both where you look and where your click lands.
 
 ## The radar
 

@@ -335,6 +335,7 @@ int run_game_cli(std::span<const std::string_view> args, std::ostream& out, std:
     // commands. `app` decides what to present; `game::Session` decides what the input MEANS.
     game::Session session{player_id};
     game::Hover hover;
+    game::HitFlash hit_flash;
     bool calibration = false; // C toggles the colour calibration view; it never touches the sim
     ai::ScriptedCommander enemy;
 
@@ -423,6 +424,7 @@ int run_game_cli(std::span<const std::string_view> args, std::ostream& out, std:
         scene_options.radius_tiles = 24;
         scene_options.aim = game::aim_from(hands, extent);
         scene_options.viewer_unit = options.no_radar ? sim::UnitId{} : player_id;
+        const bool player_alive = is_alive(sim, player_id);
 
         std::vector<sim::Order> orders;
         session.frame(hands, sim, scene_options, orders);
@@ -454,15 +456,20 @@ int run_game_cli(std::span<const std::string_view> args, std::ostream& out, std:
             }
         }
         // Sound is derived AFTER each step from the states either side of it, the way the replay
-        // log is: the sim is not told, and the copy is only taken when someone is listening. One
-        // mix covers every tick stepped this frame.
+        // log is: the sim is not told, and the copy is only taken when someone is listening -- or
+        // when the player is alive to be hit, for the flash. One mix covers every tick stepped this
+        // frame.
         std::vector<audio::Voice> voices;
+        // A trigger pulled at the ground or the sky: no order, so the sim has no event to hear.
+        if (session.take_dry_shot()) {
+            voices.push_back(game::dry_shot_voice());
+        }
         const game::Listener listener{scene_options.camera.x, scene_options.camera.z,
                                       scene_options.camera.yaw, sim::Side::Player};
         // A dead player is listening from nowhere: the camera has no tank to stand at.
         const bool listening = audio_out != nullptr && audio_out->ok() && is_alive(sim, player_id);
         for (std::uint32_t tick = 0; tick < steps; ++tick) {
-            if (!listening) {
+            if (!listening && !player_alive) {
                 sim.step();
                 continue;
             }
@@ -471,12 +478,18 @@ int run_game_cli(std::span<const std::string_view> args, std::ostream& out, std:
             sim.step();
             const std::vector<sim::BattleEvent> events
                 = sim::events_between(before, sim, tick_number);
+            if (game::unit_was_hit(events, player_id, before)) {
+                hit_flash.hit(sim.tick());
+            }
+            if (!listening) {
+                continue;
+            }
             const std::vector<game::Health> health = health_of(before);
             const std::vector<audio::Voice> heard
                 = game::sounds_for(events, listener, before, health);
             voices.insert(voices.end(), heard.begin(), heard.end());
         }
-        if (!voices.empty()) {
+        if (!voices.empty() && audio_out != nullptr && audio_out->ok()) {
             const std::vector<float> samples
                 = audio::mix(voices, audio::frames_to_play(voices), audio::kSampleRate);
             audio_out->play(samples, audio::kSampleRate);
@@ -494,6 +507,7 @@ int run_game_cli(std::span<const std::string_view> args, std::ostream& out, std:
         }
         scene_options.camera = camera_for(sim, player_id, session.view_yaw(), session.view_pitch(),
                                           options.seed, hover.z());
+        scene_options.hit_flash = hit_flash.level(sim.tick());
         const render::Scene scene
             = calibration ? game::build_calibration_scene(scene_options)
                           : game::build_scene(sim, scene_options, session.selection().units());

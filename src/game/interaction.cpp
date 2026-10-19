@@ -23,12 +23,17 @@ namespace {
 
 } // namespace
 
+audio::Voice dry_shot_voice() noexcept {
+    return audio::Voice{audio::SoundKind::YourShot, 1.0F, 0.0F};
+}
+
 Interaction::Interaction(sim::UnitId driven) noexcept : driven_(driven) {}
 
 void Interaction::handle(const input::InputFrame& frame, const sim::Sim& sim,
                          const SceneOptions& options) {
     message_ = std::string_view{};
     pending_.clear();
+    dry_shot_ = false;
 
     selection_.retain(living_own(sim));
 
@@ -45,31 +50,37 @@ void Interaction::handle(const input::InputFrame& frame, const sim::Sim& sim,
         // what the mark covers is what the click acts on. See game/aim.hpp.
         const Pick picked = pick(sim, options, options.aim->x, options.aim->y);
         const sim::Unit* hit = picked.has_unit() ? sim.find(picked.unit) : nullptr;
-        const bool hit_is_ours = hit != nullptr && hit->alive && hit->side == sim::Side::Player;
         const bool hit_is_hostile = hit != nullptr && hit->alive && hit->side != sim::Side::Player;
 
         // The mouse half of the control set: this is the whole of what a left and a right click
         // mean. The keys are in game/session.cpp (throttle) and input/bindings.hpp (movement), and
         // the table a player reads is README.md, "How to play".
         if (click.button == input::MouseButton::Left) {
-            if (hit_is_ours) {
-                if (click.shift) {
-                    toggle(hit->id);
-                } else {
-                    select_only(hit->id);
-                }
-            } else if (hit_is_hostile) {
-                // THE TRIGGER. A left click on a hostile is not a selection and not a movement
-                // order: it names a target for the unit the player is sitting in, through the same
-                // FocusFire order the AI would use. It is the one order the driven unit accepts,
-                // and it is safe precisely because it sets a target and nothing else -- no stance,
-                // no destination -- so it cannot fight the keyboard.
-                const std::vector<sim::Order> shot = cmd::focus_fire(driven_, hit->id);
-                pending_.insert(pending_.end(), shot.begin(), shot.end());
-                message_ = "engaging the target under the crosshair.";
+            // THE TRIGGER, on whatever the mark covers. It is not a selection (Space is) and not a
+            // movement order: a unit under the mark is named as a target for the unit the player
+            // is sitting in, through the same FocusFire order the AI would use, and that is safe
+            // precisely because it sets a target and nothing else -- no stance, no destination --
+            // so it cannot fight the keyboard. The sim permits it on one of our own too (friendly
+            // fire on purpose). The selection survives a shot; only Tab and Escape clear it.
+            if (has_fired_ && sim.tick() - last_shot_tick_ < kManualShotIntervalTicks) {
+                continue; // the button, not the gun, is what this limits
             }
-            // Anything else -- ground, sky -- does nothing: the selection survives a shot. Only Tab
-            // and Escape clear it.
+            has_fired_ = true;
+            last_shot_tick_ = sim.tick();
+            const bool targeted = hit != nullptr && hit->alive;
+            std::vector<sim::Order> shot;
+            if (targeted) {
+                shot = cmd::focus_fire(driven_, hit->id);
+            }
+            if (!shot.empty()) {
+                pending_.insert(pending_.end(), shot.begin(), shot.end());
+                message_ = hit_is_hostile ? "engaging the target under the crosshair."
+                                          : "firing on your own unit.";
+            } else {
+                // Ground, sky, or the driven tank itself: nothing to name, so the gun fires for the
+                // sound's sake only. Nothing in the sim changes.
+                dry_shot_ = true;
+            }
         } else if (click.button == input::MouseButton::Right) {
             if (selection_.empty()) {
                 refuse("Nothing is selected to give an order to.");
@@ -156,6 +167,8 @@ void Interaction::handle(const input::InputFrame& frame, const sim::Sim& sim,
 std::vector<sim::Order> Interaction::take_orders() noexcept {
     return std::exchange(pending_, std::vector<sim::Order>{});
 }
+
+bool Interaction::take_dry_shot() noexcept { return std::exchange(dry_shot_, false); }
 
 const cmd::Selection& Interaction::selection() const noexcept { return selection_; }
 
