@@ -217,7 +217,7 @@ endif()
 # protekt_render or sees PROTEKT_HAVE_WINDOW. Defined AFTER the render section because
 # PROTEKT_WINDOW is computed there -- wiring it earlier made the condition always false and silently
 # built a binary with no window in it, which `nm` showed.
-set(PROTEKT_APP_SOURCES src/app/cli.cpp src/app/audio.cpp src/app/game.cpp)
+set(PROTEKT_APP_SOURCES src/app/cli.cpp src/app/audio.cpp src/app/audio_pipeline.cpp src/app/game.cpp)
 if(PROTEKT_RENDER)
     list(APPEND PROTEKT_APP_SOURCES src/app/render.cpp)
 endif()
@@ -274,6 +274,7 @@ if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
                                         tests/test_interaction.cpp tests/test_bindings.cpp
                                         tests/test_session.cpp tests/test_navigate.cpp
                                         tests/test_utility.cpp tests/test_time_accumulator.cpp
+                                        tests/test_audio_pipeline.cpp
                                         tests/test_utility_battle.cpp
                                         tests/test_layering.cpp
                                         tests/test_navigation.cpp

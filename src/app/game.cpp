@@ -16,8 +16,8 @@
 #include "protekt/ai/scripted.hpp"
 #include "protekt/app/args.hpp"
 #include "protekt/app/audio.hpp"
+#include "protekt/app/audio_pipeline.hpp"
 #include "protekt/app/time_accumulator.hpp"
-#include "protekt/audio/mixer.hpp"
 #include "protekt/game/aim.hpp"
 #include "protekt/game/scene.hpp"
 #include "protekt/game/session.hpp"
@@ -187,19 +187,6 @@ int write_ppm(const std::string& path, const std::vector<std::uint8_t>& rgba,
     return out ? 0 : 1;
 }
 
-/// What the player's hit points were before a tick: the living units' `{id, hp}`. Taken from the
-/// snapshot the events are diffed against, so the two cannot describe different moments.
-std::vector<game::Health> health_of(const sim::UnitSnapshot& snapshot) {
-    std::vector<game::Health> health;
-    health.reserve(snapshot.size());
-    for (const sim::Unit& unit : snapshot) {
-        if (unit.alive) {
-            health.push_back(game::Health{unit.id, unit.hp});
-        }
-    }
-    return health;
-}
-
 bool is_alive(const sim::Sim& sim, sim::UnitId id) {
     for (const sim::Unit& unit : sim.units()) {
         if (unit.id == id) {
@@ -332,6 +319,11 @@ int run_game_cli(std::span<const std::string_view> args, std::ostream& out, std:
     game::HitFlash hit_flash;
     bool calibration = false; // C toggles the colour calibration view; it never touches the sim
     ai::ScriptedCommander enemy;
+    std::optional<AudioOutSink> audio_sink;
+    if (audio_out != nullptr) {
+        audio_sink.emplace(*audio_out);
+    }
+    const AudioPipeline pipeline{audio_sink ? &*audio_sink : nullptr, player_id};
 
     // 30 Hz is the rate the sim is designed and balanced at: 6 tiles/s at 30 ticks/s is the 12 m/s
     // hover tank in docs/PLAN.md.
@@ -438,45 +430,13 @@ int run_game_cli(std::span<const std::string_view> args, std::ostream& out, std:
         if (options.frames == 0) {
             steps = play_clock.steps_at(TimeAccumulator::Clock::now());
         }
-        // Sound is derived AFTER each step from the states either side of it, the way the replay
-        // log is: the sim is not told, and the copy is only taken when someone is listening -- or
-        // when the player is alive to be hit, for the flash. One mix covers every tick stepped this
-        // frame.
-        std::vector<audio::Voice> voices;
-        // A trigger pulled at the ground or the sky: no order, so the sim has no event to hear.
-        if (session.take_shot_voice()) {
-            voices.push_back(game::shot_voice());
-        }
+        // A trigger pulled at the ground or the sky has no order, so the sim has no event to hear.
+        const bool shot_fired = session.take_shot_voice();
         const game::Listener listener{scene_options.camera.x, scene_options.camera.z,
                                       scene_options.camera.yaw, sim::Side::Player};
-        // A dead player is listening from nowhere: the camera has no tank to stand at.
-        const bool listening = audio_out != nullptr && audio_out->ok() && is_alive(sim, player_id);
-        for (std::uint32_t tick = 0; tick < steps; ++tick) {
-            if (!listening && !player_alive) {
-                sim.step();
-                continue;
-            }
-            const sim::UnitSnapshot before = sim.units();
-            const sim::Tick tick_number = sim.tick();
-            sim.step();
-            const std::vector<sim::BattleEvent> events
-                = sim::events_between(before, sim, tick_number);
-            if (game::unit_was_hit(events, player_id)) {
-                hit_flash.hit(sim.tick());
-            }
-            if (!listening) {
-                continue;
-            }
-            const std::vector<game::Health> health = health_of(before);
-            const std::vector<audio::Voice> heard
-                = game::sounds_for(events, listener, before, health);
-            voices.insert(voices.end(), heard.begin(), heard.end());
-        }
-        if (!voices.empty() && audio_out != nullptr && audio_out->ok()) {
-            const std::vector<float> samples
-                = audio::mix(voices, audio::frames_to_play(voices), audio::kSampleRate);
-            audio_out->play(samples, audio::kSampleRate);
-        }
+        pipeline.advance(sim, steps,
+                         AudioFrame{listener, shot_fired, player_alive, is_alive(sim, player_id)},
+                         hit_flash);
 
         // The hover advances once per tick the sim has run, off the sim's own counter, from the
         // ground under the tank where it now stands. A dead player has no hull to float.
