@@ -1977,3 +1977,167 @@ TEST(SceneBolts, AHostileBoltDrawsToo) {
     const auto with = protekt::game::build_scene(sim, bolt_options(sim));
     EXPECT_EQ(with.vertices.size() - none.vertices.size(), kBoxVertices);
 }
+
+// The viewer's tank, drawn with a hull, a turret and a barrel so the steering model can be seen.
+
+namespace {
+
+using protekt::sim::UnitId;
+
+constexpr std::size_t kHullVertices = 36;
+constexpr std::size_t kTurretVertices = 36;
+constexpr std::size_t kBarrelVertices = 36;
+constexpr std::size_t kFacingTankVertices = kHullVertices + kTurretVertices + kBarrelVertices;
+
+/// The enemy factory first and the viewer's tank LAST, so the viewer's boxes are the tail of the
+/// scene: these options have no radar, reticle or bolts after the units.
+protekt::sim::Sim facing_sim() {
+    return sim_of(
+        {{Side::Enemy, UnitKind::Factory, 106, 100}, {Side::Player, UnitKind::Tank, 100, 100}});
+}
+
+const protekt::sim::Unit& viewer_of(const protekt::sim::Sim& sim) { return sim.units().back(); }
+
+SceneOptions facing_options(const protekt::sim::Sim& sim) {
+    SceneOptions o = options_at(0.0F, 0.0F, 42, 20);
+    o.camera.x = static_cast<float>(viewer_of(sim).x.raw) / 65536.0F * kMetresPerTile;
+    o.camera.z = static_cast<float>(viewer_of(sim).y.raw) / 65536.0F * kMetresPerTile;
+    return o;
+}
+
+Scene facing_scene(const protekt::sim::Sim& sim, float heading, float turret) {
+    SceneOptions o = facing_options(sim);
+    o.facing = SceneOptions::Facing{viewer_of(sim).id, heading, turret};
+    return protekt::game::build_scene(sim, o);
+}
+
+/// The barrel is the last box of the viewer's tank, and the viewer's tank is the end of the scene.
+std::vector<protekt::render::SceneVertex> barrel_of(const Scene& scene) {
+    const auto first = scene.vertices.end() - static_cast<std::ptrdiff_t>(kBarrelVertices);
+    return {first, scene.vertices.end()};
+}
+
+/// Where the barrel lies from the tank's own centre, on the map plane: the mean of its vertices.
+/// The barrel is symmetric about its own axis, so this points along it.
+std::array<float, 2> barrel_direction(const Scene& scene, const protekt::sim::Unit& unit) {
+    const auto barrel = barrel_of(scene);
+    float x = 0.0F;
+    float z = 0.0F;
+    for (const auto& v : barrel) {
+        x += v.position[0];
+        z += v.position[2];
+    }
+    x /= static_cast<float>(barrel.size());
+    z /= static_cast<float>(barrel.size());
+    x -= static_cast<float>(unit.x.raw) / 65536.0F * kMetresPerTile;
+    z -= static_cast<float>(unit.y.raw) / 65536.0F * kMetresPerTile;
+    const float length = std::hypot(x, z);
+    return {x / length, z / length};
+}
+
+/// How far the barrel's far end is from the tank's centre, along the map plane.
+float barrel_reach(const Scene& scene, const protekt::sim::Unit& unit) {
+    const float ux = static_cast<float>(unit.x.raw) / 65536.0F * kMetresPerTile;
+    const float uz = static_cast<float>(unit.y.raw) / 65536.0F * kMetresPerTile;
+    float reach = 0.0F;
+    for (const auto& v : barrel_of(scene)) {
+        reach = std::max(reach, std::hypot(v.position[0] - ux, v.position[2] - uz));
+    }
+    return reach;
+}
+
+bool same_vertices(const std::vector<protekt::render::SceneVertex>& a,
+                   const std::vector<protekt::render::SceneVertex>& b) {
+    return a.size() == b.size()
+           && std::equal(a.begin(), a.end(), b.begin(), [](const auto& l, const auto& r) {
+                  return l.position == r.position && l.colour == r.colour;
+              });
+}
+
+} // namespace
+
+TEST(SceneFacing, TheTurretFollowsTheFacingNotTheBody) {
+    const auto sim = facing_sim();
+    const auto base = barrel_of(facing_scene(sim, 0.3F, 0.4F));
+    const auto other_turret = barrel_of(facing_scene(sim, 0.3F, 1.1F));
+    const auto other_heading = barrel_of(facing_scene(sim, 0.9F, 0.4F));
+    EXPECT_FALSE(same_vertices(base, other_turret)) << "the turret angle must move the barrel";
+    EXPECT_FALSE(same_vertices(base, other_heading)) << "the body heading must move the barrel";
+    // The turret rides the body: the same sum of the two points the barrel the same way.
+    const auto same_sum = barrel_of(facing_scene(sim, 0.7F, 0.0F));
+    const auto reference = barrel_of(facing_scene(sim, 0.0F, 0.7F));
+    ASSERT_EQ(same_sum.size(), reference.size());
+    for (std::size_t i = 0; i < same_sum.size(); ++i) {
+        for (std::size_t axis = 0; axis < 3; ++axis) {
+            EXPECT_NEAR(same_sum.at(i).position.at(axis), reference.at(i).position.at(axis), 1e-4F);
+        }
+    }
+}
+
+// The convention, derived from the camera and not from a belief about it: the camera looks along
+// `math::basis_from(yaw, 0).forward`, which is (sin yaw, 0, cos yaw) -- yaw 0 is +Z, and a POSITIVE
+// yaw turns toward +X, which on the (mirrored) screen is the LEFT. The turret's world yaw is
+// `heading + turret`, the same sum `PlayerCommander::view_yaw` hands the camera, so the barrel must
+// lie along the camera's forward at that yaw. If the rotation sign were flipped the barrel would
+// point along (-sin, cos): the x component changes sign for every non-zero angle, so every case
+// below that has a non-zero yaw fails (and the cases are chosen so none is its own mirror image).
+TEST(SceneFacing, TheBarrelPointsWhereTheTurretLooks) {
+    const auto sim = facing_sim();
+    const auto& viewer = viewer_of(sim);
+    struct Case {
+        float heading;
+        float turret;
+    };
+    for (const Case c : {Case{0.0F, 0.5F}, Case{0.0F, -0.5F}, Case{0.6F, 0.0F}, Case{0.3F, 0.4F},
+                         Case{-0.8F, 0.3F}, Case{2.0F, -0.7F}}) {
+        const auto camera = protekt::math::basis_from(c.heading + c.turret, 0.0F).forward;
+        const auto got = barrel_direction(facing_scene(sim, c.heading, c.turret), viewer);
+        EXPECT_NEAR(got.at(0), camera.at(0), 1e-3F) << c.heading << " / " << c.turret;
+        EXPECT_NEAR(got.at(1), camera.at(2), 1e-3F) << c.heading << " / " << c.turret;
+    }
+    // And the absolute reading, so the test does not lean on basis_from alone: yaw +0.5 lies toward
+    // +X and +Z.
+    const auto turned = barrel_direction(facing_scene(sim, 0.0F, 0.5F), viewer);
+    EXPECT_GT(turned.at(0), 0.3F);
+    EXPECT_GT(turned.at(1), 0.3F);
+    // A barrel you can read: well clear of the hull, which is 0.3 tiles from the centre.
+    EXPECT_GT(barrel_reach(facing_scene(sim, 0.0F, 0.0F), viewer), kMetresPerTile * 0.3F * 1.4F);
+}
+
+TEST(SceneFacing, OnlyTheViewersTankChanges) {
+    const auto sim = facing_sim();
+    const SceneOptions plain = facing_options(sim);
+    const Scene without = protekt::game::build_scene(sim, plain);
+    const Scene with = facing_scene(sim, 0.7F, -0.4F);
+    EXPECT_EQ(with.vertices.size() - without.vertices.size(), kFacingTankVertices - kBoxVertices);
+    // Everything before the viewer's tank -- the terrain and the factory -- is untouched.
+    const auto shared = static_cast<std::ptrdiff_t>(without.vertices.size() - kBoxVertices);
+    EXPECT_TRUE(same_vertices({without.vertices.begin(), without.vertices.begin() + shared},
+                              {with.vertices.begin(), with.vertices.begin() + shared}));
+    // A facing that names someone else rotates THAT unit and leaves the viewer a plain box.
+    SceneOptions elsewhere = plain;
+    elsewhere.facing = SceneOptions::Facing{sim.units().front().id, 0.7F, -0.4F};
+    const Scene other = protekt::game::build_scene(sim, elsewhere);
+    EXPECT_GT(other.vertices.size(), without.vertices.size());
+    EXPECT_TRUE(same_vertices(
+        {without.vertices.end() - static_cast<std::ptrdiff_t>(kBoxVertices),
+         without.vertices.end()},
+        {other.vertices.end() - static_cast<std::ptrdiff_t>(kBoxVertices), other.vertices.end()}));
+}
+
+TEST(SceneFacing, AFrameWithoutFacingIsByteIdentical) {
+    const auto sim = facing_sim();
+    SceneOptions absent = facing_options(sim);
+    absent.facing = std::nullopt;
+    const SceneOptions never_heard = facing_options(sim);
+    const Scene a = protekt::game::build_scene(sim, absent);
+    const Scene b = protekt::game::build_scene(sim, never_heard);
+    EXPECT_TRUE(same_vertices(a.vertices, b.vertices));
+    // The viewer's tank is still one axis-aligned box of the size it always was.
+    const auto& viewer = viewer_of(sim);
+    const float ux = static_cast<float>(viewer.x.raw) / 65536.0F * kMetresPerTile;
+    const auto tail = a.vertices.end() - static_cast<std::ptrdiff_t>(kBoxVertices);
+    for (auto v = tail; v != a.vertices.end(); ++v) {
+        EXPECT_NEAR(std::abs(v->position[0] - ux), kMetresPerTile * 0.3F, 1e-4F);
+    }
+}

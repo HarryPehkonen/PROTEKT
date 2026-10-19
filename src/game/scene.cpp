@@ -147,6 +147,82 @@ void build_unit_box(std::vector<render::SceneVertex>& out, std::uint64_t seed,
     emit_quad(out, p[4], p[5], p[1], p[0], colour); // bottom
 }
 
+/// A local offset turned by `angle` and added to a world point on the map plane. Local +z is
+/// FORWARD and local +x is across it; the angle is a camera yaw, so forward lands on
+/// `(sin angle, cos angle)` -- exactly the `math::basis_from` forward the view is built from, in
+/// which yaw 0 is +Z and a positive yaw turns toward +X (the screen's LEFT: the world is drawn
+/// mirrored). The sign is pinned by `SceneFacing.TheBarrelPointsWhereTheTurretLooks`.
+std::array<float, 2> rotate_offset(float x, float z, float dx, float dz, float angle) {
+    const float sine = std::sin(angle);
+    const float cosine = std::cos(angle);
+    return {x + (dx * cosine) + (dz * sine), z - (dx * sine) + (dz * cosine)};
+}
+
+/// A box in a frame turned by `angle` about the point (x, z): `across` is its half-width, and it
+/// runs from `back` to `front` along the heading, from `y0` to `y1`. The faces are the same six, in
+/// the same order and winding, as `build_unit_box`; a turn about the vertical axis keeps the
+/// winding.
+void emit_turned_box(std::vector<render::SceneVertex>& out, float x, float z, float angle,
+                     float across, float back, float front, float y0, float y1,
+                     const Vec3& colour) {
+    const auto corner = [&](float dx, float dz, float y) {
+        const std::array<float, 2> at = rotate_offset(x, z, dx, dz, angle);
+        return Vec3{at.at(0), y, at.at(1)};
+    };
+    const std::array<Vec3, 8> p{{corner(-across, back, y0), corner(across, back, y0),
+                                 corner(across, back, y1), corner(-across, back, y1),
+                                 corner(-across, front, y0), corner(across, front, y0),
+                                 corner(across, front, y1), corner(-across, front, y1)}};
+    emit_quad(out, p[0], p[1], p[2], p[3], colour); // near
+    emit_quad(out, p[5], p[4], p[7], p[6], colour); // far
+    emit_quad(out, p[4], p[0], p[3], p[7], colour); // left
+    emit_quad(out, p[1], p[5], p[6], p[2], colour); // right
+    emit_quad(out, p[3], p[2], p[6], p[7], colour); // top
+    emit_quad(out, p[4], p[5], p[1], p[0], colour); // bottom
+}
+
+/// The viewer's tank: a hull turned by `heading`, a turret on top of it turned by `heading +
+/// turret`, and a barrel running forward from the turret along ITS direction. The 1.8 m of a plain
+/// tank box is split between the hull and the turret, so this is a change of shape and not of size.
+void build_facing_tank(std::vector<render::SceneVertex>& out, std::uint64_t seed,
+                       const sim::Unit& unit, Mark mark, std::optional<float> hull_z,
+                       const SceneOptions::Facing& facing) {
+    const float x
+        = static_cast<float>(unit.x.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile;
+    const float z
+        = static_cast<float>(unit.y.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile;
+    const float ground = hull_z.value_or(ground_metres(seed, unit.x, unit.y));
+    const float half_width = kMetresPerTile * 0.3F;
+    constexpr float kHullHeight = 1.0F;
+    constexpr float kTurretHeight = 0.8F;
+    constexpr float kTurretHalfFraction = 0.6F;     ///< of the hull's half-width
+    constexpr float kTurretForwardFraction = 0.15F; ///< the turret sits a little forward of centre
+    constexpr float kBarrelHalfFraction = 0.2F;     ///< wide enough to read in silhouette
+    constexpr float kBarrelLengthFraction = 2.0F;   ///< the tip, from the tank's centre
+    constexpr float kBarrelBottom = 0.25F;          ///< above the turret's base
+    constexpr float kBarrelTop = 0.6F;
+
+    Vec3 colour = side_colour(unit.side);
+    if (mark == Mark::Selected) {
+        colour = highlight(colour);
+    } else if (mark != Mark::None) {
+        colour = aim_tint(colour, mark == Mark::AimedOwn);
+    }
+
+    const float turret_angle = facing.heading + facing.turret;
+    const float hull_top = ground + kHullHeight;
+    emit_turned_box(out, x, z, facing.heading, half_width, -half_width, half_width, ground,
+                    hull_top, colour);
+    const std::array<float, 2> turret_at
+        = rotate_offset(x, z, 0.0F, half_width * kTurretForwardFraction, turret_angle);
+    const float turret_half = half_width * kTurretHalfFraction;
+    emit_turned_box(out, turret_at.at(0), turret_at.at(1), turret_angle, turret_half, -turret_half,
+                    turret_half, hull_top, hull_top + kTurretHeight, colour);
+    emit_turned_box(out, x, z, turret_angle, half_width * kBarrelHalfFraction,
+                    half_width * kTurretForwardFraction, half_width * kBarrelLengthFraction,
+                    hull_top + kBarrelBottom, hull_top + kBarrelTop, colour);
+}
+
 /// A tracer is brighter than anything it flies over: a unit colour is a thing standing on the
 /// ground, but a bolt is a few decimetres wide and must not be lost against grass, rock or a
 /// side's own tanks. Two hues, so incoming fire and outgoing fire read apart at a glance --
@@ -592,8 +668,14 @@ render::Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
                 mark = unit.side == options.viewer_side ? Mark::AimedOwn : Mark::AimedHostile;
             }
             const bool hovering = options.hover.has_value() && options.hover->unit == unit.id;
-            build_unit_box(scene.vertices, options.seed, unit, mark,
-                           hovering ? std::optional<float>{options.hover->z} : std::nullopt);
+            const std::optional<float> hull_z
+                = hovering ? std::optional<float>{options.hover->z} : std::nullopt;
+            if (options.facing.has_value() && options.facing->unit == unit.id) {
+                build_facing_tank(scene.vertices, options.seed, unit, mark, hull_z,
+                                  *options.facing);
+            } else {
+                build_unit_box(scene.vertices, options.seed, unit, mark, hull_z);
+            }
         }
     }
 

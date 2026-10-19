@@ -507,6 +507,12 @@ int run_game_cli(std::span<const std::string_view> args, std::ostream& out, std:
         }
         scene_options.camera = camera_for(sim, player_id, session.view_yaw(), session.view_pitch(),
                                           options.seed, hover.z());
+        // The turret's angle relative to the hull: `Session` exposes the hull's heading and the
+        // turret's world yaw (`view_yaw`), but not `PlayerCommander::turret_yaw` itself, so it is
+        // their wrapped difference -- the same number, without adding an accessor.
+        scene_options.facing = game::SceneOptions::Facing{
+            player_id, session.heading(),
+            game::Camera::wrap_angle(session.view_yaw() - session.heading())};
         scene_options.hit_flash = hit_flash.level(sim.tick());
         const render::Scene scene
             = calibration ? game::build_calibration_scene(scene_options)

@@ -161,6 +161,16 @@ struct SceneOptions {
         float z{};
     };
     std::optional<Hovering> hover{};
+    /// How the viewer's own tank is oriented, so the drawn tank shows the steering model the player
+    /// is using: `heading` is which way the body points and `turret` is how far the turret is
+    /// turned relative to it, both in radians. ABSENT draws every unit as an axis-aligned box, so a
+    /// frame without one is byte-identical to a frame that never heard of this field.
+    struct Facing {
+        sim::UnitId unit{};
+        float heading{};
+        float turret{};
+    };
+    std::optional<Facing> facing{};
     /// The red hit flash, 0 (none) to 1 (just hit): the app owns it and advances it each frame.
     /// 0 draws nothing at all, so a frame that is not flashing is byte-identical to one that never
     /// heard of it.
