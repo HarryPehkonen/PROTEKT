@@ -1,7 +1,6 @@
 #include "protekt/app/game.hpp"
 
 #include <algorithm>
-#include <charconv>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -15,6 +14,7 @@
 #include <vector>
 
 #include "protekt/ai/scripted.hpp"
+#include "protekt/app/args.hpp"
 #include "protekt/app/audio.hpp"
 #include "protekt/audio/mixer.hpp"
 #include "protekt/game/aim.hpp"
@@ -74,13 +74,6 @@ struct Options {
     /// so it changes nothing but what the speakers do.
     bool no_sound{false};
 };
-
-template <typename T> bool parse_number(std::string_view text, T& value) {
-    const char* end = text.data() + text.size();
-    // NOLINTNEXTLINE(bugprone-suspicious-stringview-data-usage): from_chars takes a length.
-    const auto [ptr, ec] = std::from_chars(text.data(), end, value);
-    return ec == std::errc{} && ptr == end;
-}
 
 /// Returns 0 on success, or 2 after printing why the command line was refused.
 int parse_args(std::span<const std::string_view> args, Options& options, std::ostream& err) {

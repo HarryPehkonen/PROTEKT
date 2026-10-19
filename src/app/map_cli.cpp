@@ -1,7 +1,6 @@
 // protekt-map --seed <u64> --size <N> [--chunk <cx> <cy>]
 // Prints the world as ASCII plus the region hash. Its purpose is the one thing unit tests
 // cannot check: that the SAME seed gives the SAME bytes in a DIFFERENT process.
-#include <charconv>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
@@ -10,17 +9,8 @@
 #include <span>
 #include <string_view>
 
+#include "protekt/app/args.hpp"
 #include "protekt/world/world.hpp"
-
-namespace {
-
-std::uint64_t parse_u64(std::string_view text, std::uint64_t fallback) {
-    std::uint64_t value = 0;
-    const auto result = std::from_chars(text.data(), text.data() + text.size(), value);
-    return result.ec == std::errc{} ? value : fallback;
-}
-
-} // namespace
 
 int main(int argc, char** argv) {
     std::uint64_t seed = 1;
@@ -31,7 +21,8 @@ int main(int argc, char** argv) {
     for (std::size_t i = 1; i < args.size(); ++i) {
         const std::string_view arg = args[i];
         if (arg == "--seed" && i + 1 < args.size()) {
-            seed = parse_u64(args[++i], seed);
+            // A refused value leaves `seed` as it was, which is the fallback this used to pass.
+            protekt::app::parse_number(args[++i], seed);
         } else if (arg == "--size" && i + 1 < args.size()) {
             size = std::atoi(args[++i]);
         } else if (arg == "--chunk" && i + 2 < args.size()) {

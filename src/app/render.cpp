@@ -1,6 +1,5 @@
 #include "protekt/app/render.hpp"
 
-#include <charconv>
 #include <cstdint>
 #include <fstream>
 #include <memory>
@@ -8,25 +7,12 @@
 #include <string>
 #include <vector>
 
+#include "protekt/app/args.hpp"
 #include "protekt/render/renderer.hpp"
 
 namespace protekt::app {
 
 namespace {
-
-template <typename T> bool parse_number(std::string_view text, T& value) {
-    T parsed{};
-    const char* end = text.data() + text.size();
-    // from_chars takes a pointer AND a length, so it never reads past `end`: the NUL-terminated
-    // assumption this check warns about does not exist here.
-    // NOLINTNEXTLINE(bugprone-suspicious-stringview-data-usage)
-    const auto [ptr, ec] = std::from_chars(text.data(), end, parsed);
-    if (ec != std::errc{} || ptr != end) {
-        return false;
-    }
-    value = parsed;
-    return true;
-}
 
 struct Options {
     std::uint64_t seed{42};

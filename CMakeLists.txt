@@ -250,6 +250,7 @@ if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
         tests/test_observer.cpp
         tests/test_commander.cpp
         tests/test_cli.cpp
+        tests/test_args.cpp
         tests/test_fuzz_entry.cpp
         fuzz/replay_entry.cpp
     )
