@@ -273,7 +273,7 @@ if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
                                         tests/test_pick.cpp tests/test_input.cpp
                                         tests/test_interaction.cpp tests/test_bindings.cpp
                                         tests/test_session.cpp tests/test_navigate.cpp
-                                        tests/test_utility.cpp
+                                        tests/test_utility.cpp tests/test_time_accumulator.cpp
                                         tests/test_utility_battle.cpp
                                         tests/test_layering.cpp
                                         tests/test_navigation.cpp

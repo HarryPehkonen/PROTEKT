@@ -16,6 +16,7 @@
 #include "protekt/ai/scripted.hpp"
 #include "protekt/app/args.hpp"
 #include "protekt/app/audio.hpp"
+#include "protekt/app/time_accumulator.hpp"
 #include "protekt/audio/mixer.hpp"
 #include "protekt/game/aim.hpp"
 #include "protekt/game/scene.hpp"
@@ -348,10 +349,11 @@ int run_game_cli(std::span<const std::string_view> args, std::ostream& out, std:
 #endif
     }
 
-    constexpr std::chrono::nanoseconds play_tick_period{1'000'000'000LL / 30};
-    constexpr std::chrono::nanoseconds play_max_catch_up{250'000'000LL};
-    auto last_step_time = std::chrono::steady_clock::now();
-    std::chrono::nanoseconds tick_backlog{0};
+    // 30 Hz is the rate the sim is designed and balanced at, and a stall is capped at 250 ms of
+    // catch-up (see TimeAccumulator).
+    TimeAccumulator play_clock{std::chrono::nanoseconds{1'000'000'000LL / 30},
+                               std::chrono::nanoseconds{250'000'000LL},
+                               TimeAccumulator::Clock::now()};
 
     std::vector<std::uint8_t> last_frame;
     std::string last_message;
@@ -434,19 +436,7 @@ int run_game_cli(std::span<const std::string_view> args, std::ostream& out, std:
         // ticks_per_frame times and never reads a clock, so its capture stays reproducible.
         std::uint32_t steps = options.ticks_per_frame;
         if (options.frames == 0) {
-            const auto now = std::chrono::steady_clock::now();
-            auto elapsed = now - last_step_time;
-            last_step_time = now;
-            // A stall must not turn into a catch-up burst that teleports the tank.
-            if (elapsed > play_max_catch_up) {
-                elapsed = play_max_catch_up;
-            }
-            tick_backlog += elapsed;
-            steps = 0;
-            while (tick_backlog >= play_tick_period) {
-                tick_backlog -= play_tick_period;
-                ++steps;
-            }
+            steps = play_clock.steps_at(TimeAccumulator::Clock::now());
         }
         // Sound is derived AFTER each step from the states either side of it, the way the replay
         // log is: the sim is not told, and the copy is only taken when someone is listening -- or
