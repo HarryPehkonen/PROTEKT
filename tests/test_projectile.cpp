@@ -167,8 +167,12 @@ TEST(Projectile, KeepsFlyingWhenItsTargetDiesBeforeItArrives) {
     };
 
     ASSERT_GT(step_until_fired(sim), 0);
+    ASSERT_NE(watchers_bolt(), nullptr);
+    const std::int64_t length = isqrt(speed_squared(*watchers_bolt()));
+    const std::int64_t expiry_age = (kProjectileRange.raw + length - 1) / length;
     int target_died_at = 0;
     int bolt_gone_at = 0;
+    std::uint32_t last_age = 0;
     for (int step = 1; step <= 120 && bolt_gone_at == 0; ++step) {
         const std::vector<BattleEvent> events = step_events(sim);
         for (const BattleEvent& event : events) {
@@ -180,12 +184,16 @@ TEST(Projectile, KeepsFlyingWhenItsTargetDiesBeforeItArrives) {
         }
         if (watchers_bolt() == nullptr) {
             bolt_gone_at = step;
+        } else {
+            last_age = watchers_bolt()->age;
         }
     }
     ASSERT_GT(target_died_at, 0) << "the volley never killed the target";
     ASSERT_GT(bolt_gone_at, 0) << "the bolt never left the air";
-    EXPECT_GT(bolt_gone_at, target_died_at)
+    EXPECT_GT(bolt_gone_at, target_died_at + 1)
         << "the bolt vanished with its target instead of flying on";
+    // It was removed at range and for no other reason: it flew every tick of its range.
+    EXPECT_EQ(static_cast<std::int64_t>(last_age) + 1, expiry_age);
     EXPECT_EQ(sim.find(target)->hp, 0);
 }
 
