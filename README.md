@@ -15,7 +15,8 @@ You are one tank. Everything else you command.
 | input | what it does |
 |---|---|
 | `W` / `S` | throttle forward / back |
-| `A` / `D` | turn left / right |
+| **mouse** | look around: the pointer is captured, and the crosshair is always the centre of the screen |
+| `A` / `D` | aim left / right: they turn the view, not the hull |
 | `E` (**held**) | boost: lift the hull, and settle back down when you let go |
 | `C` | toggle the colour calibration view: three red/green/blue bars, a check on the display path |
 | **left click** with the mark on an own unit | select it |
@@ -30,9 +31,11 @@ You are one tank. Everything else you command.
 | **right click**, mark on a hostile | order every selected unit to attack it |
 | **left click**, mark on a hostile | shoot at it: the gun fires at whatever the mark covers |
 
-The tank you are sitting in is **never** moved by a click. It is driven by `W`/`A`/`D` every tick, so
-an order from the mouse would fight your own hands. Selecting it is fine, and firing is the one thing
-a click may tell it to do — that order sets a target and nothing else.
+The tank you are sitting in is **never** moved by a click. It is driven by `W`/`S` and your view
+every tick, so an order from the mouse would fight your own hands: while the throttle is held the hull
+turns toward where you look, and a stopped tank sits still while you look around. Selecting it is
+fine, and firing is the one thing a click may tell it to do — that order sets a target and nothing
+else. Looking keeps working after the tank is destroyed, and the radar and health bar stay up.
 
 Your gun also fires on its own at any hostile within twelve tiles. Clicking a hostile is how you
 *choose* between them; `Escape` and Stop are how you hold fire. It will **not** fire on your own units on

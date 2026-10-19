@@ -276,6 +276,10 @@ bool VulkanWindow::init(const WindowOptions& options, std::string& error) {
             extent_.height = static_cast<std::uint32_t>(height);
         }
     }
+    // The pointer is captured for look from the first frame: relative mode hides the cursor and
+    // reports only movement. It is released before the window goes (see the teardown), so the user
+    // gets their cursor back.
+    SDL_SetWindowRelativeMouseMode(window_, true);
     if (!create_instance(options, error) || !create_surface(error) || !create_device(options, error)
         || !create_swapchain(error) || !create_staging(error)) {
         return false;
@@ -943,6 +947,7 @@ void VulkanWindow::destroy() {
         instance_ = VK_NULL_HANDLE;
     }
     if (window_ != nullptr) {
+        SDL_SetWindowRelativeMouseMode(window_, false);
         SDL_DestroyWindow(window_);
         window_ = nullptr;
     }

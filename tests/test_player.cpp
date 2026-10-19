@@ -135,11 +135,11 @@ TEST(PlayerCommander, TheHelmEasesUpToTheTankRate) {
     player.set_input(input);
 
     float previous = 0.0F;
-    float last = player.heading();
+    float last = player.view_yaw();
     for (int tick = 0; tick < kTicksToFullLock; ++tick) {
         tick_once(sim, player);
-        const float delta = player.heading() - last;
-        last = player.heading();
+        const float delta = player.view_yaw() - last;
+        last = player.view_yaw();
         EXPECT_GE(delta, previous) << "tick " << tick << ": the helm jumped instead of easing in";
         EXPECT_LE(delta, kTurnRatePerTick + 1e-6F)
             << "tick " << tick << ": faster than full lock, which easing must not allow";
@@ -172,9 +172,9 @@ TEST(PlayerCommander, TheHelmEasesBackToCentre) {
     player.set_input(input);
     float previous = kTurnRatePerTick + 1.0F;
     for (int tick = 0; tick < kTicksToFullLock; ++tick) {
-        const float last = player.heading();
+        const float last = player.view_yaw();
         tick_once(sim, player);
-        const float delta = player.heading() - last;
+        const float delta = player.view_yaw() - last;
         EXPECT_LE(delta, previous + 1e-6F) << "tick " << tick << ": the helm snapped off the stop";
         previous = delta;
     }
@@ -257,14 +257,14 @@ TEST(PlayerCommander, TheHelmIsClockedByTheSimTickAndNotByTheFrame) {
     framed.think(protekt::sim::observe(by_frame, protekt::sim::Side::Player), ignored);
 
     ASSERT_EQ(by_tick.tick(), by_frame.tick()) << "the two runs must have run the same ticks";
-    EXPECT_FLOAT_EQ(framed.heading(), ticked.heading())
+    EXPECT_FLOAT_EQ(framed.view_yaw(), ticked.view_yaw())
         << "the frame rate is reaching the helm: two ticks in one frame did not land where two "
            "single-tick frames did";
 
     // And a frame in which no tick ran turns nothing at all.
-    const float before = framed.heading();
+    const float before = framed.view_yaw();
     framed.think(protekt::sim::observe(by_frame, protekt::sim::Side::Player), ignored);
-    EXPECT_FLOAT_EQ(framed.heading(), before) << "a frame with no tick in it turned the tank";
+    EXPECT_FLOAT_EQ(framed.view_yaw(), before) << "a frame with no tick in it turned the tank";
 }
 
 TEST(PlayerCommander, IdleDoesNotDriveAnywhere) {

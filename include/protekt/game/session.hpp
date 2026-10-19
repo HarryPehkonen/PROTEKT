@@ -27,7 +27,11 @@ public:
                std::vector<sim::Order>& out);
 
     [[nodiscard]] sim::UnitId driven() const noexcept;
+    /// The hull's heading: where the tank points. Presentation state, never read by the sim.
     [[nodiscard]] float heading() const noexcept;
+    /// Where the player is looking, in radians. Free of the hull, and alive after death.
+    [[nodiscard]] float view_yaw() const noexcept;
+    [[nodiscard]] float view_pitch() const noexcept;
     [[nodiscard]] const cmd::Selection& selection() const noexcept;
     /// The interaction's refusal, for a HUD: "you are driving that one", "nothing selected".
     [[nodiscard]] std::string_view message() const noexcept;

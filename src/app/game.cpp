@@ -215,13 +215,14 @@ bool is_alive(const sim::Sim& sim, sim::UnitId id) {
     return false;
 }
 
-/// The player's eye: kEyeHeight metres above the ground under the tank, looking along its heading.
-/// The height is `game::ground_metres`, the same continuous surface the tank stands on, so the
-/// camera neither floats over a ridge nor sinks into a hollow, and never steps at a tile edge.
-/// The camera rides the hull: once the tank hovers, the eye is kEyeHeight above the HULL, so it
-/// lags, overshoots and settles with the tank. Before the hover has a height the hull is at rest.
-game::Camera camera_for(const sim::Sim& sim, sim::UnitId id, float yaw, std::uint64_t seed,
-                        std::optional<float> hull_z) {
+/// The player's eye: kEyeHeight metres above the ground under the tank, looking where the player is
+/// looking (the view, not the hull). The height is `game::ground_metres`, the same continuous
+/// surface the tank stands on, so the camera neither floats over a ridge nor sinks into a hollow,
+/// and never steps at a tile edge. The camera rides the hull: once the tank hovers, the eye is
+/// kEyeHeight above the HULL, so it lags, overshoots and settles with the tank. Before the hover
+/// has a height the hull is at rest.
+game::Camera camera_for(const sim::Sim& sim, sim::UnitId id, float yaw, float pitch,
+                        std::uint64_t seed, std::optional<float> hull_z) {
     constexpr float kEyeHeight = 3.0F;
     game::Camera camera;
     for (const sim::Unit& unit : sim.units()) {
@@ -236,7 +237,7 @@ game::Camera camera_for(const sim::Sim& sim, sim::UnitId id, float yaw, std::uin
         break;
     }
     camera.yaw = yaw;
-    camera.pitch = -0.12F; // a slight downward tilt: the ground ahead beats empty sky
+    camera.pitch = pitch;
     return camera;
 }
 
@@ -273,7 +274,8 @@ int run_game_cli(std::span<const std::string_view> args, std::ostream& out, std:
         // from. One line and a pointer rather than the whole table, because the table lives in one
         // place -- README.md, "How to play" -- and a second copy of it here is a second copy to go
         // stale.
-        out << "protekt-game: W/S throttle, A/D turn | left click a unit to select it, a HOSTILE "
+        out << "protekt-game: W/S throttle, mouse and A/D look | left click a unit to select it, a "
+               "HOSTILE "
                "to "
                "fire at it | right click to order what is selected | Tab cycles, Escape clears\n"
             << "protekt-game: the full table, and what each control does not do: README.md "
@@ -415,8 +417,8 @@ int run_game_cli(std::span<const std::string_view> args, std::ostream& out, std:
         // and one frame of staleness is invisible: the tank does not teleport.
         game::SceneOptions scene_options;
         scene_options.seed = options.seed;
-        scene_options.camera
-            = camera_for(sim, player_id, session.heading(), options.seed, hover.z());
+        scene_options.camera = camera_for(sim, player_id, session.view_yaw(), session.view_pitch(),
+                                          options.seed, hover.z());
         scene_options.extent = extent;
         scene_options.radius_tiles = 24;
         scene_options.aim = game::aim_from(hands, extent);
@@ -490,8 +492,8 @@ int run_game_cli(std::span<const std::string_view> args, std::ostream& out, std:
                 break;
             }
         }
-        scene_options.camera
-            = camera_for(sim, player_id, session.heading(), options.seed, hover.z());
+        scene_options.camera = camera_for(sim, player_id, session.view_yaw(), session.view_pitch(),
+                                          options.seed, hover.z());
         const render::Scene scene
             = calibration ? game::build_calibration_scene(scene_options)
                           : game::build_scene(sim, scene_options, session.selection().units());

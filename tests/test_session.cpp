@@ -70,7 +70,7 @@ void run_frames(Rig& rig, Session& session, const std::vector<InputFrame>& frame
             rig.sim.step();
         }
         rig.options.camera = Camera{rig.options.camera.x, rig.options.camera.y,
-                                    rig.options.camera.z, session.heading(), -0.12F};
+                                    rig.options.camera.z, session.view_yaw(), session.view_pitch()};
         const sim::Unit* self = rig.sim.find(rig.tank_a);
         rig.options.camera.x = static_cast<float>(self->x.raw) / 65536.0F * kMetresPerTile;
         rig.options.camera.z
@@ -225,22 +225,113 @@ TEST(Session, ReleasingWStopsTheTank) {
     EXPECT_EQ(tank->vy.raw, 0);
 }
 
-TEST(Session, AAndDTurnTheTankOppositeWays) {
+TEST(Session, AAndDTurnTheViewOppositeWays) {
     Rig left = make_rig();
     Session left_session{left.tank_a};
-    std::vector<InputFrame> frames{holding(input::kKeyA)};
-    run_frames(left, left_session, frames);
-    const float left_heading = left_session.heading();
+    run_frames(left, left_session, {holding(input::kKeyA)});
+    const float left_yaw = left_session.view_yaw();
 
     Rig right = make_rig();
     Session right_session{right.tank_a};
-    std::vector<InputFrame> frames_right{holding(input::kKeyD)};
-    run_frames(right, right_session, frames_right);
-    const float right_heading = right_session.heading();
+    run_frames(right, right_session, {holding(input::kKeyD)});
+    const float right_yaw = right_session.view_yaw();
 
-    EXPECT_NE(left_heading, right_heading);
-    EXPECT_NE(left_heading, 0.0F);
-    EXPECT_NE(right_heading, 0.0F);
+    EXPECT_NE(left_yaw, right_yaw);
+    EXPECT_NE(left_yaw, 0.0F);
+    EXPECT_NE(right_yaw, 0.0F);
+}
+
+/// A frame whose only content is the mouse having moved.
+[[nodiscard]] InputFrame mouse_moved(float dx, float dy) {
+    InputFrame frame{};
+    frame.mouse_dx = dx;
+    frame.mouse_dy = dy;
+    return frame;
+}
+
+TEST(SessionLook, AMouseMoveToTheRightLooksRightWhichIsLessYaw) {
+    // "Less yaw" and not "more": the world is drawn mirrored, so increasing the yaw turns the view
+    // to the LEFT on screen -- the same reason A adds to the yaw. A rightward mouse move must
+    // therefore subtract. A test that only checked "the yaw changed" would pass with the view
+    // turning the wrong way, which is exactly the bug this pins.
+    Rig rig = make_rig();
+    Session session(rig.tank_a);
+    run_frames(rig, session, {mouse_moved(0.0F, 0.0F)});
+    const float before = session.view_yaw();
+    run_frames(rig, session, {mouse_moved(40.0F, 0.0F)});
+    EXPECT_LT(session.view_yaw(), before);
+    EXPECT_NEAR(session.view_yaw() - before, -40.0F * kLookRadiansPerPixel, 1e-4F);
+}
+
+TEST(SessionLook, AMouseMoveDownLooksDown) {
+    Rig rig = make_rig();
+    Session session(rig.tank_a);
+    run_frames(rig, session, {mouse_moved(0.0F, 0.0F)});
+    const float before = session.view_pitch();
+    run_frames(rig, session, {mouse_moved(0.0F, 20.0F)});
+    EXPECT_LT(session.view_pitch(), before);
+    run_frames(rig, session, {mouse_moved(0.0F, -60.0F)});
+    EXPECT_GT(session.view_pitch(), before);
+}
+
+TEST(SessionLook, ThePitchClampsAtTheLimitInBothDirections) {
+    Rig rig = make_rig();
+    Session session(rig.tank_a);
+    for (int i = 0; i < 20; ++i) {
+        run_frames(rig, session, {mouse_moved(0.0F, 100000.0F)});
+    }
+    EXPECT_FLOAT_EQ(session.view_pitch(), -kLookPitchLimit);
+    for (int i = 0; i < 20; ++i) {
+        run_frames(rig, session, {mouse_moved(0.0F, -100000.0F)});
+    }
+    EXPECT_FLOAT_EQ(session.view_pitch(), kLookPitchLimit);
+}
+
+TEST(SessionLook, TheHullDoesNotMoveWhenStopped) {
+    Rig rig = make_rig();
+    Session session(rig.tank_a);
+    run_frames(rig, session, {mouse_moved(0.0F, 0.0F)});
+    const float hull = session.heading();
+    const float view = session.view_yaw();
+    run_frames(rig, session, {holding(input::kKeyA), mouse_moved(300.0F, 0.0F)});
+    for (int i = 0; i < 60; ++i) {
+        run_frames(rig, session, {mouse_moved(10.0F, 0.0F)});
+    }
+    EXPECT_NE(session.view_yaw(), view) << "the view must turn freely";
+    EXPECT_FLOAT_EQ(session.heading(), hull) << "the hull moved with no throttle";
+}
+
+TEST(SessionLook, TheHullFollowsTheViewWhileDriving) {
+    Rig rig = make_rig();
+    Session session(rig.tank_a);
+    run_frames(rig, session, {mouse_moved(0.0F, 0.0F)});
+    const auto gap = [&session] {
+        return std::abs(Camera::wrap_angle(session.view_yaw() - session.heading()));
+    };
+    run_frames(rig, session, {mouse_moved(-200.0F, 0.0F)});
+    const float before = gap();
+    ASSERT_GT(before, 0.1F);
+    run_frames(rig, session, {holding(input::kKeyW)});
+    for (int i = 0; i < 30; ++i) {
+        run_frames(rig, session, {InputFrame{}});
+    }
+    EXPECT_LT(gap(), before) << "the hull did not turn toward the view";
+}
+
+TEST(SessionLook, TheViewStillAnswersTheMouseAfterTheTankIsDestroyed) {
+    Rig rig = make_rig();
+    Session gone(sim::UnitId{9999});
+    std::vector<Order> orders;
+    gone.frame(mouse_moved(0.0F, 0.0F), rig.sim, rig.options, orders);
+    ASSERT_TRUE(gone.destroyed());
+    const float yaw = gone.view_yaw();
+    const float pitch = gone.view_pitch();
+    const float hull = gone.heading();
+    gone.frame(mouse_moved(50.0F, 30.0F), rig.sim, rig.options, orders);
+    EXPECT_LT(gone.view_yaw(), yaw); // right is less yaw: the world is drawn mirrored
+    EXPECT_LT(gone.view_pitch(), pitch);
+    EXPECT_FLOAT_EQ(gone.heading(), hull);
+    EXPECT_TRUE(orders.empty());
 }
 
 TEST(Session, TheDrivenTankGetsOneOrderPerFrameWhileDriving) {
@@ -353,11 +444,11 @@ TEST(Session, AKeyTurnsTheViewToScreenLeft) {
     }
     ASSERT_GT(rig.sim.tick(), start_tick) << "the frames must have advanced the world";
 
-    camera.yaw = session.heading();
+    camera.yaw = session.view_yaw();
     const ScreenPoint after = project(camera, 1280.0F, 720.0F, {ahead_x, camera.y, ahead_z});
     EXPECT_GT(after.x, 0.5F)
         << "A must turn the view to screen-left, so a point dead ahead swings RIGHT: x=" << after.x
-        << " heading=" << session.heading();
+        << " view yaw=" << session.view_yaw();
 }
 
 TEST(Session, ADestroyedTankSaysSoAndStopsTakingInput) {

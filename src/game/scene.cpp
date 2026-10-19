@@ -252,7 +252,7 @@ void append_radar(std::vector<render::SceneVertex>& out, const SceneOptions& opt
     const std::vector<RadarMark> marks
         = radar_marks(sim.units(), options.viewer_unit, options.camera.yaw, panel);
     if (marks.empty()) {
-        return; // no such unit, or a dead one: there is nothing for the radar to be centred on
+        return; // no such unit: there is nothing for the radar to be centred on
     }
     const float marks_at = math::kNearPlane * kHudClearance * corner_ray_length(options.extent);
     const float face_at = marks_at * kHudFaceRatio;
@@ -303,14 +303,14 @@ void append_radar(std::vector<render::SceneVertex>& out, const SceneOptions& opt
     // The viewer's hull as a bar directly above the panel: the same width as the panel with its
     // border, a small gap up. The sim owns the numbers; nothing is added to `Unit` for this.
     const sim::Unit* viewer = sim.find(options.viewer_unit);
-    if (viewer != nullptr && viewer->alive) {
+    if (viewer != nullptr) {
         const float height = std::max(kHealthBarMinPixels, panel.size * kHealthBarHeightFraction);
         const float bottom = y0 - kHealthBarGapPixels;
         const float top = bottom - height;
         rect(face_at, x0, top, x1, bottom, kFace);
         const std::uint32_t max_hp = sim::profile(viewer->kind).hp;
         const std::uint32_t hp = std::min<std::uint32_t>(viewer->hp, max_hp);
-        if (max_hp > 0 && hp > 0) {
+        if (viewer->alive && max_hp > 0 && hp > 0) {
             const float fill
                 = x0 + ((x1 - x0) * static_cast<float>(hp) / static_cast<float>(max_hp));
             rect(marks_at, x0, top, fill, bottom, health_colour(hp, max_hp));

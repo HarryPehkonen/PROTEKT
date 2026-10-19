@@ -127,14 +127,22 @@ TEST(RadarYou, IsDrawnOnceAndItsOwnUnitIsNotMarkedTwice) {
 
 TEST(RadarYou, WithoutAViewerUnitThereIsNothingAtAll) {
     // A radar with no centre would be a lie about where the tank is. An invalid id, a missing unit
-    // and a dead one all mean the same thing: no panel.
+    // mean the same thing: no panel. (A dead one is different: see RadarYou.)
     const std::vector<Unit> units = with_viewer({});
     EXPECT_TRUE(radar_marks(units, UnitId{}, 0.0F, kPanel).empty());
     EXPECT_TRUE(radar_marks(units, UnitId{999}, 0.0F, kPanel).empty());
+}
 
-    std::vector<Unit> dead = with_viewer({});
-    dead.front().alive = false;
-    EXPECT_TRUE(radar_marks(dead, UnitId{1}, 0.0F, kPanel).empty());
+TEST(RadarYou, ADeadViewerIsStillTheCentreAndTheLivingAreStillMarked) {
+    // Death leaves a spectator, not a blank screen.
+    std::vector<Unit> units = with_viewer(
+        {at_bearing(2, 10.0F, 0.0F, Side::Enemy),
+         at_bearing(3, static_cast<float>(kRadarRadiusTiles) + 5.0F, 0.0F, Side::Enemy)});
+    units.front().alive = false;
+    const std::vector<RadarMark> marks = radar_marks(units, UnitId{1}, 0.0F, kPanel);
+    ASSERT_EQ(marks.size(), 2U) << "the viewer and the one living unit in radius";
+    EXPECT_NEAR(viewer_mark(marks).px, panel_middle(kPanel), kTolerance);
+    EXPECT_LT(marks.at(1).py, panel_middle(kPanel));
 }
 
 TEST(RadarYou, ARadiusOfZeroDrawsNothingRatherThanEverything) {

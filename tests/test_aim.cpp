@@ -1,8 +1,8 @@
 // Where the gun is pointed.
 //
-// The tank's gun is on its centre line and the player turns with A/D, so the middle of the screen
-// is the only place a shot can come from; the mouse adds elevation within that. These tests pin the
-// rule as a pure function of the frame and the extent, so it needs no window and no world.
+// The pointer is captured and the player aims by looking, so the mark is the middle of the frame.
+// These tests pin the rule as a pure function of the frame and the extent, so it needs no window
+// and no world.
 #include <gtest/gtest.h>
 
 #include <optional>
@@ -39,38 +39,30 @@ Aim mark_for(int x, int y, Extent extent = kExtent) {
     return aim.value_or(Aim{});
 }
 
-TEST(AimPoint, IsHorizontallyTheMiddleOfTheScreenWhateverTheMouseDoes) {
-    // The mark cannot be dragged sideways: turning the tank is what moves it across the world, and
-    // a mark that could slide to the edge would promise a shot the middle of the screen cannot
-    // take.
-    for (const int x : {0, 1, 100, 639, 640, 641, 1200, 1279}) {
-        EXPECT_FLOAT_EQ(mark_for(x, 360).x, 640.0F) << "mouse at x=" << x;
+TEST(AimPoint, IsTheCentreOfTheFrameInBothAxesWhateverThePointerSays) {
+    // The pointer is captured for look and the player aims by looking, so the mark is the middle
+    // of the frame and the cursor fields mean nothing to it.
+    for (const int x : {0, 100, 640, 1279}) {
+        for (const int y : {0, 360, 719}) {
+            const Aim aim = mark_for(x, y);
+            EXPECT_FLOAT_EQ(aim.x, 640.0F) << "pointer at " << x << "," << y;
+            EXPECT_FLOAT_EQ(aim.y, 360.0F) << "pointer at " << x << "," << y;
+        }
     }
 }
 
-TEST(AimPoint, FollowsTheMouseUpAndDown) {
-    for (const int y : {0, 120, 360, 719}) {
-        EXPECT_FLOAT_EQ(mark_for(640, y).y, static_cast<float>(y)) << "mouse at y=" << y;
-    }
-}
-
-TEST(AimPoint, CannotLeaveTheFrame) {
-    // A click cannot land outside the frame, so the mark must not pretend that it can: a mouse
-    // event from before a resize can carry a height the frame no longer has.
-    EXPECT_FLOAT_EQ(mark_for(640, -50).y, 0.0F);
-    EXPECT_FLOAT_EQ(mark_for(640, 5000).y, 719.0F);
-}
-
-TEST(AimPoint, NoPointerMeansNoMark) {
-    // A headless run and a scripted one never see a pointer, and must therefore draw no mark and
-    // pick nothing -- which is what leaves their frames identical to before there was a mark at
-    // all.
+TEST(AimPoint, DoesNotNeedAKnownPointer) {
     const InputFrame none{};
-    EXPECT_FALSE(aim_from(none, kExtent).has_value());
+    const std::optional<Aim> aim = aim_from(none, kExtent);
+    ASSERT_TRUE(aim.has_value());
+    EXPECT_FLOAT_EQ(aim.value_or(Aim{}).x, 640.0F);
+    EXPECT_FLOAT_EQ(aim.value_or(Aim{}).y, 360.0F);
+}
 
-    InputFrame stale = pointer_at(640, 360);
-    stale.cursor_known = false;
-    EXPECT_FALSE(aim_from(stale, kExtent).has_value());
+TEST(AimPoint, FollowsTheFrameSize) {
+    const Aim aim = mark_for(0, 0, Extent{800, 600});
+    EXPECT_FLOAT_EQ(aim.x, 400.0F);
+    EXPECT_FLOAT_EQ(aim.y, 300.0F);
 }
 
 TEST(AimPoint, ADegenerateFrameHasNoMark) {

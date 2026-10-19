@@ -44,7 +44,7 @@ std::vector<RadarMark> radar_marks(std::span<const sim::Unit> units, sim::UnitId
             viewer = &unit;
         }
     }
-    if (viewer == nullptr || !viewer->alive) {
+    if (viewer == nullptr) {
         return marks;
     }
 

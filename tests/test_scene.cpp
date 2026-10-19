@@ -8,6 +8,7 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <limits>
 #include <optional>
 #include <set>
 #include <span>
@@ -808,6 +809,12 @@ Hud hud_of(const protekt::sim::Sim& sim, SceneOptions watched) {
 }
 
 float min_x(const std::vector<std::array<float, 2>>& points) {
+    if (points.empty()) {
+        // Never deref an empty list: a broken HUD must FAIL a test, not crash the run before the
+        // later tests get their turn. NaN compares false against everything, so every EXPECT built
+        // on this value fails, which is what the reader wants to see.
+        return std::numeric_limits<float>::quiet_NaN();
+    }
     float lowest = points.front().at(0);
     for (const auto& p : points) {
         lowest = std::min(lowest, p.at(0));
@@ -815,6 +822,12 @@ float min_x(const std::vector<std::array<float, 2>>& points) {
     return lowest;
 }
 float max_x(const std::vector<std::array<float, 2>>& points) {
+    if (points.empty()) {
+        // Never deref an empty list: a broken HUD must FAIL a test, not crash the run before the
+        // later tests get their turn. NaN compares false against everything, so every EXPECT built
+        // on this value fails, which is what the reader wants to see.
+        return std::numeric_limits<float>::quiet_NaN();
+    }
     float highest = points.front().at(0);
     for (const auto& p : points) {
         highest = std::max(highest, p.at(0));
@@ -822,6 +835,12 @@ float max_x(const std::vector<std::array<float, 2>>& points) {
     return highest;
 }
 float min_y(const std::vector<std::array<float, 2>>& points) {
+    if (points.empty()) {
+        // Never deref an empty list: a broken HUD must FAIL a test, not crash the run before the
+        // later tests get their turn. NaN compares false against everything, so every EXPECT built
+        // on this value fails, which is what the reader wants to see.
+        return std::numeric_limits<float>::quiet_NaN();
+    }
     float lowest = points.front().at(1);
     for (const auto& p : points) {
         lowest = std::min(lowest, p.at(1));
@@ -829,6 +848,12 @@ float min_y(const std::vector<std::array<float, 2>>& points) {
     return lowest;
 }
 float max_y(const std::vector<std::array<float, 2>>& points) {
+    if (points.empty()) {
+        // Never deref an empty list: a broken HUD must FAIL a test, not crash the run before the
+        // later tests get their turn. NaN compares false against everything, so every EXPECT built
+        // on this value fails, which is what the reader wants to see.
+        return std::numeric_limits<float>::quiet_NaN();
+    }
     float highest = points.front().at(1);
     for (const auto& p : points) {
         highest = std::max(highest, p.at(1));
@@ -908,15 +933,19 @@ TEST(HealthBar, HalfHealthFillsHalfTheTrack) {
 TEST(HealthBar, NoFillWhenTheHullIsGone) {
     const Damaged d = factory_down_to(0);
     ASSERT_FALSE(d.sim.find(d.viewer)->alive);
-    // A dead viewer has no radar to take vertices from, so count the fill colours directly: the
-    // frame with this viewer named must hold no more of them than the frame without.
-    const auto fills = [](const Scene& scene) {
-        return std::count_if(scene.vertices.begin(), scene.vertices.end(), [](const auto& v) {
-            return v.colour == kGreenRgb || v.colour == kAmberRgb || v.colour == kRedRgb;
-        });
-    };
-    EXPECT_EQ(fills(protekt::game::build_scene(d.sim, watching(d))),
-              fills(protekt::game::build_scene(d.sim, battle_options())));
+    // The radar still draws for a dead viewer, and its marks may be green, so look at the fill by
+    // where it lands -- inside the bar -- and not by colour alone.
+    const Hud hud = hud_of(d.sim, watching(d));
+    EXPECT_TRUE(hud.bar_fill.empty());
+}
+
+TEST(HealthBar, ADeadViewerStillGetsTheDarkTrackAndNoFill) {
+    const Damaged d = factory_down_to(0);
+    ASSERT_FALSE(d.sim.find(d.viewer)->alive);
+    const Hud hud = hud_of(d.sim, watching(d));
+    EXPECT_FALSE(hud.bar_track.empty()) << "death must not blank the health bar";
+    EXPECT_TRUE(hud.bar_fill.empty());
+    EXPECT_NEAR(min_x(hud.bar_track), hud.panel.x - protekt::game::kRadarBorderPixels, kPixelEps);
 }
 
 TEST(HealthBar, TheColourChangesAtTheThresholds) {
@@ -958,7 +987,7 @@ TEST(HealthBar, SitsAboveTheRadarAndSharesItsWidth) {
     EXPECT_GE(min_y(hud.bar_track), 0.0F) << "on the screen";
 }
 
-TEST(HealthBar, IsAbsentWithoutALivingViewer) {
+TEST(HealthBar, IsAbsentWithoutAViewerUnitInTheWorld) {
     const Damaged alive = factory_down_to(400);
     SceneOptions none = battle_options();
     EXPECT_EQ(protekt::game::build_scene(alive.sim, none).vertices.size(),
@@ -967,12 +996,6 @@ TEST(HealthBar, IsAbsentWithoutALivingViewer) {
     stranger.viewer_unit = protekt::sim::UnitId{9999};
     EXPECT_EQ(protekt::game::build_scene(alive.sim, stranger).vertices.size(),
               protekt::game::build_scene(alive.sim, none).vertices.size());
-
-    const Damaged dead = factory_down_to(0);
-    ASSERT_FALSE(dead.sim.find(dead.viewer)->alive);
-    EXPECT_EQ(protekt::game::build_scene(dead.sim, watching(dead)).vertices.size(),
-              protekt::game::build_scene(dead.sim, battle_options()).vertices.size())
-        << "a dead viewer draws no bar and no radar";
 }
 
 // Round radar -------------------------------------------------------------------------------

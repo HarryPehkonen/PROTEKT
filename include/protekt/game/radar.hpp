@@ -75,9 +75,9 @@ struct RadarPanel {
 
 /// The marks for one frame, in panel pixels.
 ///
-/// The centre is the unit named by `viewer_unit`; with no such unit in `units`, or a dead one,
-/// there are no marks at all -- there is nothing to be the centre of, and a panel with no centre
-/// would be a lie about where the tank is.
+/// The centre is the unit named by `viewer_unit`; with no such unit in `units` there are no marks
+/// at all -- there is nothing to be the centre of, and a panel with no centre would be a lie about
+/// where the tank is. A DEAD viewer is still the centre: death leaves a spectator, not a blank.
 ///
 /// Everything alive inside `radius_tiles` is marked, yours and theirs. Everything outside it is
 /// dropped, EXCEPT your own factories, which become an arrow at the rim: you are never lost about

@@ -25,11 +25,21 @@ inline constexpr float kTurnEasePerTick = 1.0F / 30.0F;
 /// The throttle eases the same way, over the same second.
 inline constexpr float kThrottleEasePerTick = 1.0F / 30.0F;
 
+/// Mouse look: radians of view per pixel of relative mouse movement. Exposed so a test asserts the
+/// property (right turns the yaw up, down looks down) and not the number.
+inline constexpr float kLookRadiansPerPixel = 0.0025F;
+/// The view's pitch is held within +-this many radians: far enough to see the ground under the nose
+/// and the sky above the horizon, and no further, so the view cannot roll over the top.
+inline constexpr float kLookPitchLimit = 1.0F;
+/// The pitch the view starts at: a slight downward tilt, the ground ahead beating empty sky.
+inline constexpr float kLookPitchStart = -0.12F;
+
 struct InputState {
-    float throttle{};   ///< -1 (reverse) to +1 (full ahead)
-    float turn{};       ///< -1 (left) to +1 (right)
-    float look_yaw{};   ///< radians to add to the camera's yaw this frame
-    float look_pitch{}; ///< radians to add to the camera's pitch this frame
+    float throttle{}; ///< -1 (reverse) to +1 (full ahead)
+    float turn{};     ///< -1 (left) to +1 (right)
+    float look_yaw{}; ///< radians to add to the view's yaw this frame; spent by the next `think`
+    float
+        look_pitch{}; ///< radians to add to the view's pitch this frame; spent by the next `think`
     bool quit{};
 };
 
@@ -39,7 +49,13 @@ public:
 
     void set_input(const InputState& input) noexcept;
     [[nodiscard]] const InputState& input() const noexcept;
+    /// The HULL's heading: where the tank points. It follows the view only while the throttle is
+    /// non-zero.
     [[nodiscard]] float heading() const noexcept;
+    /// Where the player is LOOKING, in radians. Free of the hull: A/D and the mouse turn this, and
+    /// it keeps answering after the tank is destroyed.
+    [[nodiscard]] float view_yaw() const noexcept;
+    [[nodiscard]] float view_pitch() const noexcept;
     /// The eased helm state, -1..+1: what the turn and throttle have reached, as against what the
     /// keys are asking for. Exposed so a test can see the ease rather than infer it from a
     /// waypoint.
@@ -74,6 +90,8 @@ private:
     sim::UnitId unit_;
     InputState input_{};
     float heading_{};
+    float view_yaw_{};
+    float view_pitch_{kLookPitchStart};
     float turn_rate_{};     ///< eased -1..+1, what the helm has reached
     float throttle_rate_{}; ///< eased -1..+1, what the throttle has reached
     sim::Tick last_tick_{};
