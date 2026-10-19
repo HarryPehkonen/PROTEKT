@@ -28,23 +28,24 @@ struct Field {
     UnitId far_enemy{};
 };
 
-/// One player tank at (100,100) and two enemy factories at three and ten tiles east. Both are
-/// inside the tank's twelve-tile weapon range, so which one gets shot is a real choice and not a
-/// geometry test.
+/// One player tank at (100,100) and two enemy factories: one at (103,104), five tiles away, and one
+/// ten tiles due east. Both are inside the tank's twelve-tile weapon range, so which one gets shot
+/// is a real choice. The near one is OFF the line to the far one on purpose: a bolt hits the first
+/// hostile on its path, so a factory standing in the way would take the shot meant for the other.
 [[nodiscard]] Field field() {
     Scenario scenario{};
     scenario.seed = 42;
-    const auto add = [&](Side side, UnitKind kind, int tile_x) {
+    const auto add = [&](Side side, UnitKind kind, int tile_x, int tile_y) {
         Spawn spawn{};
         spawn.side = side;
         spawn.kind = kind;
         spawn.tile_x = tile_x;
-        spawn.tile_y = 100;
+        spawn.tile_y = tile_y;
         scenario.spawns.push_back(spawn);
     };
-    add(Side::Player, UnitKind::Tank, 100);
-    add(Side::Enemy, UnitKind::Factory, 103);
-    add(Side::Enemy, UnitKind::Factory, 110);
+    add(Side::Player, UnitKind::Tank, 100, 100);
+    add(Side::Enemy, UnitKind::Factory, 103, 104);
+    add(Side::Enemy, UnitKind::Factory, 110, 100);
 
     Field out{};
     out.sim = Sim::create(scenario);
@@ -117,13 +118,15 @@ TEST(FocusFire, StopClearsItAndTheGunGoesBackToTheNearest) {
     focus_fire(f.sim, f.mine, f.far_enemy);
     run(f.sim, 90);
     EXPECT_LT(f.sim.find(f.far_enemy)->hp, kFactoryHp);
-    const std::uint16_t far_reached = f.sim.find(f.far_enemy)->hp;
 
+    // Stop does not recall a bolt already in the air: let those land before taking the count.
     f.sim.enqueue(Order{f.mine, orders::Stop{}});
     f.sim.step();
+    run(f.sim, 30);
+    const std::uint16_t far_after_flight = f.sim.find(f.far_enemy)->hp;
     run(f.sim, 150);
 
-    EXPECT_EQ(f.sim.find(f.far_enemy)->hp, far_reached)
+    EXPECT_EQ(f.sim.find(f.far_enemy)->hp, far_after_flight)
         << "the gun kept firing at the unit the trigger named, after Stop";
     EXPECT_LT(f.sim.find(f.near_enemy)->hp, kFactoryHp)
         << "with the focus cleared it must go back to engaging the nearest hostile in range";

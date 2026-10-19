@@ -57,29 +57,6 @@ std::int64_t dist2(Fixed ax, Fixed ay, Fixed bx, Fixed by) noexcept {
     return dx * dx + dy * dy;
 }
 
-// floor(sqrt(n)) for n >= 0, by the bitwise method: no floating point, no loop-count surprises.
-std::int64_t isqrt(std::int64_t n) noexcept {
-    if (n <= 0) {
-        return 0;
-    }
-    auto rest = static_cast<std::uint64_t>(n);
-    std::uint64_t root = 0;
-    std::uint64_t bit = std::uint64_t{1} << 62;
-    while (bit > rest) {
-        bit >>= 2;
-    }
-    while (bit != 0) {
-        if (rest >= root + bit) {
-            rest -= root + bit;
-            root = (root >> 1) + bit;
-        } else {
-            root >>= 1;
-        }
-        bit >>= 2;
-    }
-    return static_cast<std::int64_t>(root);
-}
-
 Unit* find_mut(std::vector<Unit>& units, UnitId id) noexcept {
     if (!id.valid() || id.value > units.size()) {
         return nullptr;
@@ -382,8 +359,12 @@ void Sim::step() {
         move(ground, prof, unit);
     }
 
-    // 3. fire, ascending id. Damage lands immediately, so a unit killed earlier in this phase
-    //    does not shoot back this tick.
+    // 3. the bolts already in the air, in spawn order. Before the guns, so a unit killed here does
+    //    not shoot this tick, and a bolt fired this tick has not moved yet.
+    impacts_.clear();
+    advance_projectiles(projectiles_, units_, impacts_);
+
+    // 4. fire, ascending id. The shot leaves the gun now; its damage arrives with it.
     for (Unit& unit : units_) {
         if (!unit.alive) {
             continue;
@@ -435,18 +416,11 @@ void Sim::step() {
         if (best == nullptr) {
             continue;
         }
-        best->hp = best->hp > prof.damage ? static_cast<std::uint16_t>(best->hp - prof.damage)
-                                          : std::uint16_t{0};
-        if (best->hp == 0) {
-            best->alive = false;
-            best->stance = Stance::Dead;
-            best->vx = Fixed::zero();
-            best->vy = Fixed::zero();
-        }
+        projectiles_.push_back(launch(unit, *best, prof.damage));
         unit.cooldown = prof.cooldown_ticks;
     }
 
-    // 4.
+    // 5.
     ++tick_;
 }
 
@@ -455,6 +429,10 @@ std::uint32_t Sim::tick() const noexcept { return tick_; }
 const std::vector<Unit>& Sim::units() const noexcept { return units_; }
 
 const Unit* Sim::find(UnitId id) const noexcept { return find_const(units_, id); }
+
+const std::vector<Projectile>& Sim::projectiles() const noexcept { return projectiles_; }
+
+const std::vector<Impact>& Sim::impacts() const noexcept { return impacts_; }
 
 const std::vector<Command>& Sim::command_log() const noexcept { return log_; }
 
@@ -485,6 +463,22 @@ std::uint64_t Sim::state_hash() const noexcept {
         h.i32(u.patrol_x.raw);
         h.i32(u.patrol_y.raw);
         h.u64(u.alive ? 1 : 0);
+    }
+    // Bolts in the air are state. An empty sky adds nothing to the stream, so a battle that never
+    // fired a shot hashes exactly as it did before bolts existed.
+    if (!projectiles_.empty()) {
+        h.u64(projectiles_.size());
+        for (const Projectile& p : projectiles_) {
+            h.i32(p.x.raw);
+            h.i32(p.y.raw);
+            h.i32(p.vx.raw);
+            h.i32(p.vy.raw);
+            h.u64(p.shooter.value);
+            h.u64(static_cast<std::uint64_t>(p.side));
+            h.u64(p.aimed_at.value);
+            h.u64(p.damage);
+            h.u64(p.age);
+        }
     }
     // Orders accepted but not yet applied are part of the state: they will change the next tick.
     h.u64(pending_.size());

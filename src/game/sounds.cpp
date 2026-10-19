@@ -112,6 +112,16 @@ std::vector<Voice> sounds_for(std::span<const sim::BattleEvent> events, const Li
             (void)positioned(SoundKind::YourShot, listener, *actor, kEarshotTiles, voices);
             break;
         }
+        case sim::EventKind::HitTaken: {
+            // The bolt landed. A hit on your side is the thump, full gain and dead centre, for the
+            // reason a hit that arrived in a Fired event always was; a hit anywhere else is silent.
+            const sim::Unit* subject = living(units, event.subject);
+            if (subject != nullptr && subject->side == listener.side
+                && lost_hit_points(event, health_before)) {
+                voices.push_back(Voice{SoundKind::HitTaken, 1.0F, 0.0F});
+            }
+            break;
+        }
         case sim::EventKind::Killed: {
             const sim::Unit* subject = living(units, event.subject);
             if (subject == nullptr) {

@@ -267,7 +267,9 @@ TEST(Sim, ATurretFiresAtTheNearestHostileInRange) {
     ASSERT_NE(far, nullptr);
     const UnitId near_id = near->id;
     const UnitId far_id = far->id;
-    for (int t = 0; t < kTurretCooldownTicks + 3; ++t) {
+    // The first bolt leaves at the end of the reload and takes about 19 ticks to cross ten tiles;
+    // the second leaves a reload later and has not arrived.
+    for (int t = 0; t < kTurretCooldownTicks + 25; ++t) {
         sim.step();
     }
     EXPECT_EQ(sim.find(near_id)->hp, kTankHp - kTurretDamage)
@@ -444,13 +446,15 @@ TEST(Sim, AnAttackOrderEngagesItsNamedTargetNotTheNearest) {
     Scenario s;
     s.seed = 5;
     s.spawns = {{UnitKind::Tank, Side::Player, 100, 100},
-                {UnitKind::Factory, Side::Enemy, 105, 100},
+                {UnitKind::Factory, Side::Enemy, 105, 104},
                 {UnitKind::Factory, Side::Enemy, 110, 100}};
     Sim sim = Sim::create(s);
     const UnitId near_factory = by_side(sim, Side::Enemy, 0)->id;
     const UnitId far_factory = by_side(sim, Side::Enemy, 1)->id;
     sim.enqueue(Order{by_side(sim, Side::Player, 0)->id, orders::Attack{far_factory}});
-    for (int t = 0; t < kTankCooldownTicks + 2; ++t) {
+    // The nearer factory is off the line of fire (a bolt hits the first hostile on its path). The
+    // first bolt takes about 19 ticks to cross ten tiles; the second has not arrived.
+    for (int t = 0; t < kTankCooldownTicks + 25; ++t) {
         sim.step();
     }
     EXPECT_EQ(sim.find(far_factory)->hp, kFactoryHp - kTankDamage) << "the named target was hit";

@@ -22,7 +22,7 @@ using sim::BattleLog;
 using sim::EventKind;
 
 constexpr unsigned kSeed
-    = 99; ///< a seed where the two commanders genuinely trade: see the note below
+    = 2; ///< a seed where the two commanders genuinely trade: see the note below
 constexpr sim::Tick kTicks = 2400;
 
 struct Fight {

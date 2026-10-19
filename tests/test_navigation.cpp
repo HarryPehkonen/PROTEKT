@@ -144,7 +144,7 @@ TEST(Navigation, ATankOrderedOntoAFactoryReachesItAndDamagesIt) {
     }
     EXPECT_TRUE(sim.find(tank)->alive) << "it died on the way, so this measures something else";
     EXPECT_LT(lowest, 400) << "the base took no damage at all";
-    EXPECT_EQ(first_damage, 965)
+    EXPECT_EQ(first_damage, 981)
         << "and it takes about a thousand ticks to get there and open fire";
 }
 

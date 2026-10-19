@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "protekt/sim/orders.hpp"
+#include "protekt/sim/projectile.hpp"
 #include "protekt/sim/units.hpp"
 
 namespace protekt::sim {
@@ -55,12 +56,16 @@ protected:
 ///   2. units act in ascending unit-id order: a mobile unit with a MoveTo/GuardAt/Patrol
 ///      stance steers towards its goal, then every unit's position moves by its velocity;
 ///      map bounds clamp, and a unit may not enter an impassable tile;
-///   3. units fire in ascending unit-id order: a unit under an Attack order fires at its named
+///   3. every projectile already in the air advances, in spawn order; one that reaches a living
+///      hostile lands its damage there (see advance_projectiles), so a unit killed here does not
+///      fire this tick;
+///   4. units fire in ascending unit-id order: a unit under an Attack order fires at its named
 ///      target while that target is alive and in range -- an explicit order outranks
 ///      auto-engagement -- and otherwise at the nearest hostile in range (distance is
-///      squared fixed-point; ties go to the lowest id). Damage is exact: there is no
-///      spread, so the sim needs no RNG;
-///   4. the tick counter advances.
+///      squared fixed-point; ties go to the lowest id). Firing spawns a projectile aimed at the
+///      target's position NOW; the damage arrives when the projectile does. Damage is exact:
+///      there is no spread, so the sim needs no RNG;
+///   5. the tick counter advances.
 class Sim final : public OrderSink {
 public:
     [[nodiscard]] static Sim create(const Scenario& scenario);
@@ -72,16 +77,24 @@ public:
     [[nodiscard]] const std::vector<Unit>& units() const noexcept;
     [[nodiscard]] const Unit* find(UnitId id) const noexcept;
 
+    /// The shots in the air, in the order they were fired.
+    [[nodiscard]] const std::vector<Projectile>& projectiles() const noexcept;
+    /// The bolts that landed during the most recent step. Output, not state: it is rebuilt by every
+    /// step and is not part of the hash.
+    [[nodiscard]] const std::vector<Impact>& impacts() const noexcept;
+
     /// Every command that was enqueued and accepted, in order. A replay is this list.
     [[nodiscard]] const std::vector<Command>& command_log() const noexcept;
 
-    /// A hash of the ENTIRE simulation state that can be replayed (units and tick). The
-    /// determinism oracle: a replay must reproduce it exactly, on any machine.
+    /// A hash of the ENTIRE simulation state that can be replayed (units, projectiles and tick).
+    /// The determinism oracle: a replay must reproduce it exactly, on any machine.
     [[nodiscard]] std::uint64_t state_hash() const noexcept;
 
 private:
     Scenario scenario_{};
     std::vector<Unit> units_{};
+    std::vector<Projectile> projectiles_{};
+    std::vector<Impact> impacts_{};
     std::vector<Order> pending_{};
     std::vector<Command> log_{};
     std::uint32_t tick_{};
