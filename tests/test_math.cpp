@@ -58,6 +58,16 @@ TEST(Math, LookAtBuildsRightAsForwardCrossUp) {
     EXPECT_NEAR(m.at(9), 0.0F, kTolerance);
 }
 
+/// THE ORACLE for the camera's handedness, and the single statement of truth for it: a camera at
+/// the origin looking down +Z sees a world point at +X on the RIGHT half of the screen (x greater
+/// than the centre). Every other sign in the project is judged against this one.
+TEST(Math, APointAtPlusXIsRightOfCentreForACameraLookingDownPlusZ) {
+    const Mat4 m = view_projection({0.0F, 0.0F, 0.0F}, 0.0F, 0.0F, 16.0F / 9.0F);
+    const std::array<float, 4> clip = clip_of(m, {1.0F, 0.0F, 10.0F});
+    ASSERT_GT(clip.at(3), 0.0F) << "in front of the camera";
+    EXPECT_GT(clip.at(0) / clip.at(3), 0.0F) << "+X is to the camera's right";
+}
+
 TEST(Math, PerspectiveMapsTheNearPlaneToZeroAndTheFarPlaneToOne) {
     const Mat4 p = perspective(kFovRadians, 16.0F / 9.0F, kNearPlane, kFarPlane);
     const std::array<float, 4> near_point = clip_of(p, {0.0F, 0.0F, -kNearPlane});
