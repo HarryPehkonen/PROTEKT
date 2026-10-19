@@ -5,6 +5,7 @@
 #include "protekt/render/renderer.hpp"
 
 #include "protekt/math/math.hpp"
+#include "protekt/rng.hpp"
 
 #include <vulkan/vulkan.h>
 
@@ -59,19 +60,11 @@ constexpr std::uint32_t kVertexCount = kUnitVertices + kGroundVertices;
 constexpr Vec3 kSky{0.53F, 0.81F, 0.92F};
 constexpr Vec3 kUnit{0.85F, 0.15F, 0.15F};
 
-std::uint64_t splitmix64(std::uint64_t& state) {
-    state += 0x9E3779B97F4A7C15ULL;
-    std::uint64_t z = state;
-    z = (z ^ (z >> 30U)) * 0xBF58476D1CE4E5B9ULL;
-    z = (z ^ (z >> 27U)) * 0x94D049BB133111EBULL;
-    return z ^ (z >> 31U);
-}
-
 /// Green-dominant, so the ground can never collide with the (red) unit or the (blue) sky.
 Vec3 ground_colour(std::uint64_t seed) {
-    std::uint64_t state = seed;
-    const auto unit_float = [&state] {
-        return static_cast<float>(splitmix64(state) >> 40U) / static_cast<float>(1U << 24U);
+    rng::SplitMix64 stream(seed);
+    const auto unit_float = [&stream] {
+        return static_cast<float>(stream.next() >> 40U) / static_cast<float>(1U << 24U);
     };
     return {0.10F + 0.25F * unit_float(), 0.35F + 0.40F * unit_float(),
             0.10F + 0.25F * unit_float()};
