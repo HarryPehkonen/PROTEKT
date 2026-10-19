@@ -1,6 +1,7 @@
 #include "protekt/cmd/controller.hpp"
 
 #include <algorithm>
+#include <array>
 
 #include "protekt/cmd/command.hpp"
 
@@ -77,7 +78,7 @@ void Controller::think(const sim::Observation& observation, sim::Tick tick,
         constexpr std::int64_t kRadiusSq = kRadiusRaw * kRadiusRaw;
         for (const sim::UnitId id : living) {
             const sim::UnitView* view = find_view(observation.own, id);
-            const std::vector<sim::UnitId> one(1, id);
+            const std::array<sim::UnitId, 1> one{id};
             if (distance_sq(*view, policy_.x, policy_.y) <= kRadiusSq) {
                 append(out,
                        guard_at(one, sim::Fixed::from_int(view->x), sim::Fixed::from_int(view->y)));

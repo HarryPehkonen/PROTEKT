@@ -41,7 +41,10 @@ void Interaction::handle(const input::InputFrame& frame, const sim::Sim& sim,
     pending_.clear();
     shot_voice_ = false;
 
-    selection_.retain(living_own(sim));
+    selection_.retain_if([&sim](sim::UnitId id) {
+        const sim::Unit* unit = sim.find(id);
+        return unit != nullptr && unit->alive && unit->side == sim::Side::Player;
+    });
 
     for (const input::Click& click : frame.clicks) {
         if (!click.pressed) {

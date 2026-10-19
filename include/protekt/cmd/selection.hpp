@@ -40,6 +40,12 @@ public:
     /// and a selection that quietly keeps dead ids is how a player ends up commanding ghosts.
     void retain(std::span<const sim::UnitId> living) noexcept;
 
+    /// Drops every id for which `keep` returns false. The same as `retain`, without building a
+    /// list of the living first: the predicate asks the world about each id as it goes.
+    template <typename Pred> void retain_if(Pred keep) {
+        std::erase_if(ids_, [&keep](sim::UnitId id) { return !keep(id); });
+    }
+
 private:
     std::vector<sim::UnitId> ids_{}; ///< ascending, unique
 };

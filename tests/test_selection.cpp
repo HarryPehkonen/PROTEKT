@@ -90,6 +90,19 @@ TEST(Selection, RetainDropsTheDeadAndKeepsTheOrder) {
     EXPECT_FALSE(selection.contains(id(2))) << "a dead unit must stop receiving orders";
 }
 
+TEST(Selection, RetainIfKeepsExactlyWhatThePredicateSays) {
+    Selection selection;
+    for (const std::uint32_t value : {8U, 2U, 5U}) {
+        ASSERT_TRUE(selection.add(id(value)));
+    }
+    selection.retain_if([](UnitId unit) { return unit != id(2); });
+    const std::vector<UnitId> expected{id(5), id(8)};
+    EXPECT_TRUE(std::equal(selection.units().begin(), selection.units().end(), expected.begin(),
+                           expected.end()))
+        << "two kept, one dropped, and the ascending order must survive";
+    EXPECT_EQ(selection.size(), 2U);
+}
+
 TEST(Selection, RetainingNothingEmptiesIt) {
     Selection selection;
     ASSERT_TRUE(selection.add(id(3)));

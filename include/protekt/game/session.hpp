@@ -52,7 +52,7 @@ private:
     input::HeldKeys keys_{};
     bool headed_{false}; ///< the spawn heading is chosen once, from the terrain, on the first frame
     bool destroyed_{false};
-    std::string destroyed_message_{};
+    std::string_view destroyed_message_{};
 };
 
 } // namespace protekt::game
