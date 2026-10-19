@@ -581,7 +581,13 @@ TEST(AimCue, ASelectedUnitUnderTheCrosshairStillReadsAsSelected) {
     EXPECT_EQ(box_colour(scenes.aimed, *own), box_colour(scenes.elsewhere, *own))
         << "selection takes precedence: aiming at a selected unit must not change its colour";
     const auto selected = box_colour(scenes.aimed, *own);
-    EXPECT_GT(selected[2], 0.9F) << "still the white-mixed blue of a selection";
+    // The probed corner is shaded (the sun is not square to it), so the highlight is read against
+    // the same corner of the unselected unit, not against an absolute white.
+    const auto unselected = box_colour(scenes_for(sim, options, *own, {}).elsewhere, *own);
+    for (std::size_t i = 0; i < 3; ++i) {
+        EXPECT_GT(selected.at(i), unselected.at(i)) << "still the white-mixed blue of a selection";
+    }
+    EXPECT_GT(selected[0] / selected[2], unselected[0] / unselected[2]);
 }
 
 TEST(AimCue, SceneIsDeterministicWithAnAimPoint) {
@@ -2287,6 +2293,84 @@ TEST(SceneFacing, AFrameWithoutFacingIsByteIdentical) {
         widest = std::max(widest, std::abs(v->position[0] - ux));
     }
     EXPECT_NEAR(widest, kMetresPerTile * 0.3F, 1e-4F);
+}
+
+// ---------------------------------------------------------------- shading
+
+namespace {
+
+/// Face `face` (0 near, 1 far, 2 left, 3 right, 4 top, 5 bottom) of prism `prism` of the viewer's
+/// tank (0, 1 tracks; 2 hull), as the colour of its first vertex.
+std::array<float, 3> tank_face_colour(const Scene& scene, std::size_t prism, std::size_t face) {
+    const auto tail = scene.vertices.end() - static_cast<std::ptrdiff_t>(kFacingTankVertices);
+    return (tail + static_cast<std::ptrdiff_t>((prism * kPrismVertices) + (face * 6)))->colour;
+}
+
+constexpr std::size_t kHull = 2;
+constexpr std::size_t kLeftFace = 2;
+constexpr std::size_t kRightFace = 3;
+constexpr std::size_t kTopFace = 4;
+constexpr std::size_t kBottomFace = 5;
+
+} // namespace
+
+// Heading 0 leaves the hull's left face looking toward -x (the sun's side, see kSunDirection) and
+// its right face toward +x (away from it).
+TEST(SceneShading, TheTopIsBrighterThanTheSideAwayFromTheSunAndKeepsTheHue) {
+    const auto sim = facing_sim();
+    const Scene scene = facing_scene(sim, 0.0F, 0.0F);
+    const auto top = tank_face_colour(scene, kHull, kTopFace);
+    const auto lit = tank_face_colour(scene, kHull, kLeftFace);
+    const auto shade = tank_face_colour(scene, kHull, kRightFace);
+    const auto under = tank_face_colour(scene, kHull, kBottomFace);
+    EXPECT_GT(top[2], lit[2]);
+    EXPECT_GT(lit[2], shade[2]);
+    EXPECT_GT(shade[2], under[2]);
+    // Every face is the side's blue scaled, never greyed: the channel ratios are the base's.
+    const protekt::math::Vec3 base{0.15F, 0.35F, 0.85F};
+    for (const auto& face : {top, lit, shade, under}) {
+        EXPECT_GT(face[2], 0.0F);
+        const float scale = face[2] / base[2];
+        EXPECT_GE(scale, 0.45F - 1e-4F);
+        EXPECT_LE(scale, 1.0F + 1e-4F);
+        EXPECT_NEAR(face[0], base[0] * scale, 1e-5F);
+        EXPECT_NEAR(face[1], base[1] * scale, 1e-5F);
+    }
+}
+
+TEST(SceneShading, TheSunFollowsTheWorldAndNotTheTanksHeading) {
+    const auto sim = facing_sim();
+    // Turned half a turn, the hull's RIGHT face now looks toward -x, so it is the lit one.
+    const Scene turned = facing_scene(sim, protekt::math::kPi, 0.0F);
+    EXPECT_GT(tank_face_colour(turned, kHull, kRightFace)[2],
+              tank_face_colour(turned, kHull, kLeftFace)[2]);
+}
+
+TEST(SceneShading, ASelectedHullStillReadsAsTheHighlight) {
+    const auto sim = facing_sim();
+    SceneOptions o = facing_options(sim);
+    o.facing = SceneOptions::Facing{viewer_of(sim).id, 0.0F, 0.0F};
+    const Scene plain = protekt::game::build_scene(sim, o);
+    const std::vector<protekt::sim::UnitId> chosen{viewer_of(sim).id};
+    const Scene picked = protekt::game::build_scene(sim, o, chosen);
+    const auto before = tank_face_colour(plain, kHull, kTopFace);
+    const auto after = tank_face_colour(picked, kHull, kTopFace);
+    // Brighter in every channel, and bluer-white: the mix toward white lifts red most.
+    for (std::size_t i = 0; i < 3; ++i) {
+        EXPECT_GT(after.at(i), before.at(i));
+    }
+    EXPECT_GT(after[0] / after[2], before[0] / before[2]);
+    // The shaded highlight is the highlight colour times the same light the unmarked top got.
+    const float light = before[2] / 0.85F;
+    const float mix = 0.55F;
+    EXPECT_NEAR(after[0], (0.15F + ((1.0F - 0.15F) * mix)) * light, 1e-5F);
+    EXPECT_NEAR(after[2], (0.85F + ((1.0F - 0.85F) * mix)) * light, 1e-5F);
+}
+
+TEST(SceneShading, TerrainIsNotShaded) {
+    const auto sim = facing_sim();
+    const Scene scene = facing_scene(sim, 0.0F, 0.0F);
+    EXPECT_EQ(scene.vertices.front().colour, (std::array<float, 3>{0.25F, 0.55F, 0.20F}));
 }
 
 // ---------------------------------------------------------------- which way a tank faces

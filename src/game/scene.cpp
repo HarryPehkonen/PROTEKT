@@ -111,46 +111,6 @@ Vec3 aim_tint(const Vec3& colour, bool own) {
 /// that is not selected.
 enum class Mark : std::uint8_t { None, Selected, AimedOwn, AimedHostile };
 
-void build_unit_box(std::vector<SceneVertex>& out, std::uint64_t seed, const sim::Unit& unit,
-                    Mark mark, float lift_z, bool lifted) {
-    const float x
-        = static_cast<float>(unit.x.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile;
-    const float z
-        = static_cast<float>(unit.y.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile;
-    // float + bool rather than optional<float>: gcc -O2 wrongly warns may-be-uninitialized on the
-    // optional's storage at the call site (the same false alarm hover_.z() once raised).
-    const float ground = lifted ? lift_z : ground_metres(seed, unit.x, unit.y);
-    const float half_width = kMetresPerTile * 0.3F;
-    const float height = unit.kind == sim::UnitKind::Factory ? 4.5F : 1.8F;
-    Vec3 colour = side_colour(unit.side);
-    if (mark == Mark::Selected) {
-        colour = highlight(colour);
-    } else if (mark != Mark::None) {
-        colour = aim_tint(colour, mark == Mark::AimedOwn);
-    }
-
-    const float x0 = x - half_width;
-    const float x1 = x + half_width;
-    const float z0 = z - half_width;
-    const float z1 = z + half_width;
-    const float y0 = ground;
-    const float y1 = ground + height;
-    const std::array<Vec3, 8> p{{{x0, y0, z0},
-                                 {x1, y0, z0},
-                                 {x1, y1, z0},
-                                 {x0, y1, z0},
-                                 {x0, y0, z1},
-                                 {x1, y0, z1},
-                                 {x1, y1, z1},
-                                 {x0, y1, z1}}};
-    emit_quad(out, p[0], p[1], p[2], p[3], colour); // near
-    emit_quad(out, p[5], p[4], p[7], p[6], colour); // far
-    emit_quad(out, p[4], p[0], p[3], p[7], colour); // left
-    emit_quad(out, p[1], p[5], p[6], p[2], colour); // right
-    emit_quad(out, p[3], p[2], p[6], p[7], colour); // top
-    emit_quad(out, p[4], p[5], p[1], p[0], colour); // bottom
-}
-
 /// A local offset turned by `angle` and added to a world point on the map plane. Local +z is
 /// FORWARD and local +x is across it; the angle is a camera yaw, so forward lands on
 /// `(sin angle, cos angle)` -- exactly the `math::basis_from` forward the view is built from, in
@@ -181,6 +141,39 @@ struct Prism {
     float front_y1;
 };
 
+/// How lit a face is: its outward unit normal against the sun (`kSunDirection`), mapped so a face
+/// square to the sun is 1.0 and one square away is `kShadeFloor` -- never black. A half-Lambert
+/// ramp rather than a clamped dot, so a face turned away from the sun still differs from the
+/// underside: top > sun side > shade side > bottom.
+float face_light(const Vec3& normal) {
+    constexpr float kShadeFloor = 0.45F;
+    const float facing = std::clamp(dot(normal, normalise(kSunDirection)), -1.0F, 1.0F);
+    return kShadeFloor + ((1.0F - kShadeFloor) * (0.5F + (0.5F * facing)));
+}
+
+/// One face of a prism, shaded by its WORLD normal. The normal comes from the face's own corners,
+/// so the turn by `angle` and any slant are already in it; it is flipped to point away from the
+/// prism's centre, so it does not depend on the winding.
+void emit_shaded_face(std::vector<SceneVertex>& out, const std::array<Vec3, 8>& p,
+                      const Vec3& centre, std::size_t a, std::size_t b, std::size_t c,
+                      std::size_t d, const Vec3& colour) {
+    const Vec3 ab{p.at(b)[0] - p.at(a)[0], p.at(b)[1] - p.at(a)[1], p.at(b)[2] - p.at(a)[2]};
+    const Vec3 ac{p.at(c)[0] - p.at(a)[0], p.at(c)[1] - p.at(a)[1], p.at(c)[2] - p.at(a)[2]};
+    Vec3 normal = normalise(cross(ab, ac));
+    const Vec3 outward{(p.at(a)[0] + p.at(c)[0]) * 0.5F - centre[0],
+                       (p.at(a)[1] + p.at(c)[1]) * 0.5F - centre[1],
+                       (p.at(a)[2] + p.at(c)[2]) * 0.5F - centre[2]};
+    if (dot(normal, outward) < 0.0F) {
+        normal = {-normal[0], -normal[1], -normal[2]};
+    }
+    const float light = face_light(normal);
+    const Vec3 shaded{colour[0] * light, colour[1] * light, colour[2] * light};
+    emit_quad(out, p.at(a), p.at(b), p.at(c), p.at(d), shaded);
+}
+
+/// SHADING ORDER: `colour` is the FINAL unit colour -- the side colour after `highlight` or
+/// `aim_tint` has picked the mark -- and the face light multiplies it last, so a selection or aim
+/// cue is tinted by the light like everything else but is never replaced by it.
 void emit_turned_prism(std::vector<SceneVertex>& out, float x, float z, float angle, const Prism& s,
                        const Vec3& colour) {
     const auto corner = [&](float dx, float dz, float y) {
@@ -192,12 +185,18 @@ void emit_turned_prism(std::vector<SceneVertex>& out, float x, float z, float an
          corner(s.right, s.back_top, s.back_y1), corner(s.left, s.back_top, s.back_y1),
          corner(s.left, s.front_bottom, s.y0), corner(s.right, s.front_bottom, s.y0),
          corner(s.right, s.front_top, s.front_y1), corner(s.left, s.front_top, s.front_y1)}};
-    emit_quad(out, p[0], p[1], p[2], p[3], colour); // near
-    emit_quad(out, p[5], p[4], p[7], p[6], colour); // far
-    emit_quad(out, p[4], p[0], p[3], p[7], colour); // left
-    emit_quad(out, p[1], p[5], p[6], p[2], colour); // right
-    emit_quad(out, p[3], p[2], p[6], p[7], colour); // top
-    emit_quad(out, p[4], p[5], p[1], p[0], colour); // bottom
+    Vec3 centre{0.0F, 0.0F, 0.0F};
+    for (const Vec3& corner_point : p) {
+        for (std::size_t axis = 0; axis < 3; ++axis) {
+            centre.at(axis) += corner_point.at(axis) * 0.125F;
+        }
+    }
+    emit_shaded_face(out, p, centre, 0, 1, 2, 3, colour); // near
+    emit_shaded_face(out, p, centre, 5, 4, 7, 6, colour); // far
+    emit_shaded_face(out, p, centre, 4, 0, 3, 7, colour); // left
+    emit_shaded_face(out, p, centre, 1, 5, 6, 2, colour); // right
+    emit_shaded_face(out, p, centre, 3, 2, 6, 7, colour); // top
+    emit_shaded_face(out, p, centre, 4, 5, 1, 0, colour); // bottom
 }
 
 /// A box in a frame turned by `angle` about the point (x, z): `across` is its half-width, and it
@@ -206,6 +205,31 @@ void emit_turned_box(std::vector<SceneVertex>& out, float x, float z, float angl
                      float back, float front, float y0, float y1, const Vec3& colour) {
     emit_turned_prism(out, x, z, angle,
                       Prism{-across, across, back, back, front, front, y0, y1, y1}, colour);
+}
+
+void build_unit_box(std::vector<SceneVertex>& out, std::uint64_t seed, const sim::Unit& unit,
+                    Mark mark, float lift_z, bool lifted) {
+    const float x
+        = static_cast<float>(unit.x.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile;
+    const float z
+        = static_cast<float>(unit.y.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile;
+    // float + bool rather than optional<float>: gcc -O2 wrongly warns may-be-uninitialized on the
+    // optional's storage at the call site (the same false alarm hover_.z() once raised).
+    const float ground = lifted ? lift_z : ground_metres(seed, unit.x, unit.y);
+    const float half_width = kMetresPerTile * 0.3F;
+    const float height = unit.kind == sim::UnitKind::Factory ? 4.5F : 1.8F;
+    Vec3 colour = side_colour(unit.side);
+    if (mark == Mark::Selected) {
+        colour = highlight(colour);
+    } else if (mark != Mark::None) {
+        colour = aim_tint(colour, mark == Mark::AimedOwn);
+    }
+
+    // An axis-aligned box is a prism at angle 0, so it is shaded like every other unit part.
+    emit_turned_prism(out, x, z, 0.0F,
+                      Prism{-half_width, half_width, -half_width, -half_width, half_width,
+                            half_width, ground, ground + height, ground + height},
+                      colour);
 }
 
 /// A tank, abstracted from a side-on battle tank and built only of flat-shaded prisms: two dark

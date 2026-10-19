@@ -22,6 +22,14 @@ namespace protekt::game {
 inline constexpr float kMetresPerTile = 2.0F;
 inline constexpr float kMetresPerHeightUnit = kMetresPerTile / 64.0F;
 
+/// THE SUN. Where the light comes FROM, as a world-space direction (x east, y up, z north): high
+/// overhead and a little toward -x / -z, so a unit's top face is brightest, the faces turned toward
+/// -x and -z come next, the faces turned away are darker, and the underside is darkest. Fixed data,
+/// not a function of the camera or the clock: the same scene bytes every frame. Used only to shade
+/// the prisms that make units (`emit_turned_prism`); terrain, bolts, radar and reticle keep their
+/// flat colours.
+inline constexpr math::Vec3 kSunDirection{-0.35F, 0.85F, -0.40F};
+
 /// Where the player's eye is, in world metres and radians. Yaw 0 looks down +Z.
 struct Camera {
     float x{};
