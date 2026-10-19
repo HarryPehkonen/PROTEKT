@@ -3,7 +3,9 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
+#include <iterator>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -197,6 +199,166 @@ TEST(Observer, TheSameBattleLogsIdentically) {
     ai::ScriptedCommander b(30);
     EXPECT_EQ(run_battle(scenario, {}, 600, &a, &a).to_text(60),
               run_battle(scenario, {}, 600, &b, &b).to_text(60));
+}
+
+/// A reloaded tank whose gun has nothing to shoot, and an unarmed hostile factory just beyond its
+/// weapon range. A gun with a target in range fires the moment it reloads, so a shot at nothing is
+/// only possible when the hostile comes into range on the SAME tick: the tank is therefore ordered
+/// to advance on it, and one tick of that move carries it inside the range.
+struct Approach {
+    Sim sim;
+    UnitId tank{};
+    UnitId hostile{};
+};
+
+bool in_range(const Sim& sim, UnitId a, UnitId b) {
+    const Unit& from = *sim.find(a);
+    const Unit& to = *sim.find(b);
+    const std::int64_t dx = static_cast<std::int64_t>(from.x.raw) - to.x.raw;
+    const std::int64_t dy = static_cast<std::int64_t>(from.y.raw) - to.y.raw;
+    const std::int64_t range = profile(from.kind).weapon_range.raw;
+    return dx * dx + dy * dy <= range * range;
+}
+
+Approach approach_field() {
+    Scenario scenario{};
+    scenario.seed = 42;
+    const auto add = [&scenario](Side side, UnitKind kind, int tile_x, int tile_y) {
+        Spawn spawn{};
+        spawn.side = side;
+        spawn.kind = kind;
+        spawn.tile_x = tile_x;
+        spawn.tile_y = tile_y;
+        scenario.spawns.push_back(spawn);
+    };
+    add(Side::Player, UnitKind::Tank, 100, 100);
+    add(Side::Enemy, UnitKind::Factory, 112, 101);
+    Approach out{Sim::create(scenario), {}, {}};
+    out.tank = out.sim.units().at(0).id;
+    out.hostile = out.sim.units().at(1).id;
+    for (int t = 0; t < profile(UnitKind::Tank).cooldown_ticks; ++t) {
+        out.sim.step();
+    }
+    return out;
+}
+
+/// Advance on the hostile, enqueue `trigger` on the same tick, step once, and return what the
+/// observer called Fired. The premise is asserted: out of range before the step, in range after.
+std::vector<BattleEvent> fired_while_closing_in(Approach& field, const Order& trigger) {
+    EXPECT_FALSE(in_range(field.sim, field.tank, field.hostile));
+    const Unit& hostile = *field.sim.find(field.hostile);
+    field.sim.enqueue(Order{field.tank, orders::MoveTo{hostile.x, hostile.y}});
+    field.sim.enqueue(trigger);
+    const UnitSnapshot before = field.sim.units();
+    field.sim.step();
+    EXPECT_TRUE(in_range(field.sim, field.tank, field.hostile));
+    std::vector<BattleEvent> fired;
+    for (const BattleEvent& e : events_between(before, field.sim, field.sim.tick())) {
+        if (e.kind == EventKind::Fired) {
+            fired.push_back(e);
+        }
+    }
+    return fired;
+}
+
+const orders::FireTowards kShotAtNothing{Fixed::from_int(-1), Fixed::zero()};
+
+TEST(Observer, AShotAtNothingEmitsNoFiredEvent) {
+    Approach field = approach_field();
+    const std::vector<BattleEvent> fired
+        = fired_while_closing_in(field, Order{field.tank, kShotAtNothing});
+    ASSERT_EQ(field.sim.shots().size(), 1U) << "the shot at nothing really was made";
+    ASSERT_EQ(field.sim.projectiles().size(), 1U);
+    for (const BattleEvent& e : fired) {
+        EXPECT_NE(e.subject, field.hostile) << "a shot at nothing was attributed to a unit";
+    }
+    EXPECT_TRUE(fired.empty());
+
+    // The control: same field, same move, but the trigger names the hostile. THAT shot is reported.
+    Approach control = approach_field();
+    const std::vector<BattleEvent> named
+        = fired_while_closing_in(control, Order{control.tank, orders::FocusFire{control.hostile}});
+    ASSERT_EQ(named.size(), 1U);
+    EXPECT_EQ(named[0].actor, control.tank);
+    EXPECT_EQ(named[0].subject, control.hostile);
+}
+
+TEST(Observer, EveryShotTheSimReportsAppearsAsOneFiredEvent) {
+    Approach field = approach_field();
+    Sim& sim = field.sim;
+    std::size_t valid_shots = 0;
+    std::size_t shots_at_nothing = 0;
+    std::vector<BattleEvent> fired;
+    for (Tick t = 0; t < 200; ++t) {
+        if (t == 0) {
+            const Unit& hostile = *sim.find(field.hostile);
+            sim.enqueue(Order{field.tank, orders::MoveTo{hostile.x, hostile.y}});
+            sim.enqueue(Order{field.tank, kShotAtNothing});
+        }
+        const UnitSnapshot before = sim.units();
+        sim.step();
+        const std::size_t first = fired.size();
+        for (const BattleEvent& e : events_between(before, sim, t)) {
+            if (e.kind == EventKind::Fired) {
+                fired.push_back(e);
+            }
+        }
+        for (const Sim::Shot& shot : sim.shots()) {
+            if (!shot.target.valid()) {
+                ++shots_at_nothing;
+                continue;
+            }
+            ++valid_shots;
+            const auto begin = fired.begin() + static_cast<std::ptrdiff_t>(first);
+            EXPECT_TRUE(std::any_of(begin, fired.end(),
+                                    [&shot](const BattleEvent& e) {
+                                        return e.actor == shot.shooter && e.subject == shot.target;
+                                    }))
+                << "a shot the sim made has no Fired event at tick " << t;
+        }
+    }
+    EXPECT_GT(valid_shots, 1U) << "the tank keeps shooting once it is in range";
+    EXPECT_EQ(shots_at_nothing, 1U);
+    EXPECT_EQ(fired.size(), valid_shots);
+}
+
+TEST(Observer, TheFiredStreamForAScriptedBattleIsUnchanged) {
+    // Recorded by running this battle on the code BEFORE shots() existed, when Fired was still
+    // inferred from a cooldown diff. Columns: tick, actor, subject, subject_hp.
+    struct Expected {
+        Tick tick;
+        std::uint32_t actor;
+        std::uint32_t subject;
+        std::uint16_t hp;
+    };
+    static const Expected kExpected[] = {
+        {449, 2, 7, 100}, {449, 7, 2, 100}, {464, 2, 7, 100}, {464, 7, 2, 100}, {464, 8, 2, 100},
+        {470, 1, 7, 92},  {479, 2, 7, 92},  {479, 7, 2, 92},  {479, 8, 2, 92},  {485, 1, 7, 92},
+        {494, 2, 7, 76},  {494, 7, 2, 76},  {494, 8, 2, 76},  {500, 1, 7, 76},  {509, 2, 7, 60},
+        {509, 7, 2, 60},  {509, 8, 2, 60},  {515, 1, 7, 60},  {523, 3, 7, 44},  {524, 2, 7, 44},
+        {524, 7, 2, 44},  {524, 8, 2, 44},  {530, 1, 7, 44},  {538, 3, 7, 28},  {539, 2, 7, 28},
+        {539, 7, 2, 28},  {539, 8, 2, 28},  {545, 1, 7, 20},  {549, 9, 2, 12},  {553, 3, 7, 4},
+        {554, 2, 7, 4},   {554, 7, 2, 12},  {554, 8, 2, 12},  {560, 1, 9, 100}, {564, 9, 3, 100},
+        {568, 3, 9, 84},  {569, 8, 3, 92},  {575, 1, 9, 84},  {579, 9, 3, 76},  {583, 3, 9, 60},
+        {584, 8, 3, 76},  {590, 1, 9, 60},  {594, 9, 3, 60},  {598, 3, 9, 44},  {599, 8, 3, 60},
+    };
+    const Scenario scenario = skirmish(42);
+    ai::ScriptedCommander player(30);
+    ai::ScriptedCommander enemy(30);
+    const BattleLog log = run_battle(scenario, {}, 600, &player, &enemy);
+    std::vector<Expected> got;
+    for (const BattleEvent& e : log.events) {
+        if (e.kind == EventKind::Fired) {
+            got.push_back(Expected{e.tick, e.actor.value, e.subject.value, e.subject_hp});
+        }
+    }
+    ASSERT_EQ(got.size(), std::size(kExpected));
+    for (std::size_t i = 0; i < got.size(); ++i) {
+        EXPECT_EQ(got[i].tick, kExpected[i].tick) << "event " << i;
+        EXPECT_EQ(got[i].actor, kExpected[i].actor) << "event " << i;
+        EXPECT_EQ(got[i].subject, kExpected[i].subject) << "event " << i;
+        EXPECT_EQ(got[i].hp, kExpected[i].hp) << "event " << i;
+    }
 }
 
 } // namespace

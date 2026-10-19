@@ -48,12 +48,6 @@ UnitKind kind_of(std::uint16_t attrs) noexcept { return static_cast<UnitKind>(at
 Side side_of(std::uint16_t attrs) noexcept { return static_cast<Side>((attrs >> 4) & 0xFU); }
 Stance stance_of(std::uint16_t attrs) noexcept { return static_cast<Stance>((attrs >> 8) & 0xFFU); }
 
-std::int64_t dist2(const Unit& a, const Unit& b) noexcept {
-    const std::int64_t dx = static_cast<std::int64_t>(a.x.raw) - b.x.raw;
-    const std::int64_t dy = static_cast<std::int64_t>(a.y.raw) - b.y.raw;
-    return dx * dx + dy * dy;
-}
-
 /// Records the units whose state differs from the last record (everything, the first time).
 void record_status(const Sim& sim, std::vector<UnitState>& last, std::vector<bool>& seen,
                    BattleLog& log) {
@@ -150,13 +144,12 @@ void append_status_lines(std::string& out, Tick tick,
 } // namespace
 
 std::vector<BattleEvent> events_between(const UnitSnapshot& before, const Sim& sim, Tick tick) {
-    // Two things happened this tick that a diff of units cannot see on its own. Bolts that LANDED
-    // are reported by the sim itself (Sim::impacts), because which of two bolts hit which unit is
-    // not recoverable from hit points alone. Guns that FIRED are found the old way: a unit fired
-    // exactly when its cooldown went UP (a reload only ever counts down), and its target is found
-    // with the sim's own targeting rule. Landings come first because they run first in a tick, and
-    // they are what killed anything that died, so the target rule reads the table as the guns saw
-    // it.
+    // Two things happened this tick that a diff of units cannot see on its own, and the sim reports
+    // both itself: bolts that LANDED (Sim::impacts, because which of two bolts hit which unit is
+    // not recoverable from hit points alone) and guns that FIRED (Sim::shots, because a cooldown
+    // going up does not say whether the shot had a target). Landings come first because they run
+    // first in a tick, and they are what killed anything that died, so the shots are read against
+    // the same table.
     std::vector<BattleEvent> events;
     const std::vector<Unit>& after = sim.units();
     if (before.size() != after.size()) {
@@ -170,45 +163,20 @@ std::vector<BattleEvent> events_between(const UnitSnapshot& before, const Sim& s
                 BattleEvent{tick, EventKind::Killed, impact.shooter, impact.victim, 0});
         }
     }
-    for (std::size_t i = 0; i < after.size(); ++i) {
-        const Unit& shooter = after[i];
-        if (!before[i].alive || shooter.cooldown <= before[i].cooldown) {
+    for (const Sim::Shot& shot : sim.shots()) {
+        if (!shot.target.valid()) {
+            continue; // a shot at nothing: the sim has nothing to attribute it to
+        }
+        const Unit* target = sim.find(shot.target);
+        if (target == nullptr) {
             continue;
         }
-        const UnitProfile prof = profile(shooter.kind);
-        const std::int64_t range = prof.weapon_range.raw;
-        std::size_t best = after.size();
-        if (shooter.target.valid()) { // only an Attack order leaves a target set
-            for (std::size_t j = 0; j < after.size(); ++j) {
-                if (after[j].id == shooter.target) {
-                    if (after[j].alive && after[j].side != shooter.side
-                        && dist2(shooter, after[j]) <= range * range) {
-                        best = j;
-                    }
-                    break;
-                }
-            }
-        }
-        if (best == after.size()) {
-            std::int64_t best_d2 = range * range + 1;
-            for (std::size_t j = 0; j < after.size(); ++j) {
-                if (!after[j].alive || after[j].side == shooter.side) {
-                    continue;
-                }
-                const std::int64_t d2 = dist2(shooter, after[j]);
-                if (d2 <= range * range && d2 < best_d2) {
-                    best = j;
-                    best_d2 = d2;
-                }
-            }
-        }
-        if (best == after.size()) {
-            continue;
-        }
-        // The shot has not hurt anyone yet, so the target's hit points are what they were as it
-        // fired; the HitTaken event is what reports the damage, when the bolt gets there.
+        // The target's hit points as the shot leaves the gun, read from BEFORE the tick: a bolt
+        // fired earlier may land on it in this very step, and that damage is HitTaken's to report,
+        // not this shot's. This is the value the stream has always carried.
+        const std::size_t index = static_cast<std::size_t>(target - after.data());
         events.push_back(
-            BattleEvent{tick, EventKind::Fired, shooter.id, after[best].id, before[best].hp});
+            BattleEvent{tick, EventKind::Fired, shot.shooter, shot.target, before[index].hp});
     }
     return events;
 }

@@ -83,6 +83,15 @@ public:
     /// step and is not part of the hash.
     [[nodiscard]] const std::vector<Impact>& impacts() const noexcept;
 
+    /// The shots this step made: the firing unit and the unit it was aimed at, or an invalid target
+    /// for a shot fired at nothing. Cleared at the start of every step, like `impacts()`, and NOT
+    /// part of `state_hash()`: it describes a step, not a state.
+    struct Shot {
+        UnitId shooter{};
+        UnitId target{}; ///< invalid for a shot at nothing (`orders::FireTowards`)
+    };
+    [[nodiscard]] const std::vector<Shot>& shots() const noexcept;
+
     /// Every command that was enqueued and accepted, in order. A replay is this list.
     [[nodiscard]] const std::vector<Command>& command_log() const noexcept;
 
@@ -95,6 +104,7 @@ private:
     std::vector<Unit> units_{};
     std::vector<Projectile> projectiles_{};
     std::vector<Impact> impacts_{};
+    std::vector<Shot> shots_{};
     std::vector<Order> pending_{};
     std::vector<Command> log_{};
     std::uint32_t tick_{};

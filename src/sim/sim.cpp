@@ -112,7 +112,7 @@ void apply_posted(Unit& unit, Stance stance, Fixed x, Fixed y, Fixed x2, Fixed y
 }
 
 void apply_order(std::vector<Unit>& units, std::vector<Projectile>& projectiles,
-                 const Order& order) noexcept {
+                 std::vector<Sim::Shot>& shots, const Order& order) noexcept {
     // Re-validated here: the unit may have died between enqueue and the tick it takes effect.
     if (!order_is_valid(units, order)) {
         return;
@@ -166,6 +166,7 @@ void apply_order(std::vector<Unit>& units, std::vector<Projectile>& projectiles,
             const UnitProfile prof = profile(unit.kind);
             if (prof.weapon_range.raw > 0 && prof.damage > 0 && unit.cooldown == 0) {
                 projectiles.push_back(launch_towards(unit, o->dir_x, o->dir_y, prof.damage));
+                shots.push_back(Sim::Shot{unit.id, UnitId{}});
                 unit.cooldown = prof.cooldown_ticks;
             }
         }
@@ -350,8 +351,9 @@ void Sim::enqueue(const Order& order) {
 
 void Sim::step() {
     // 1. orders, in the order enqueued.
+    shots_.clear();
     for (const Order& order : pending_) {
-        apply_order(units_, projectiles_, order);
+        apply_order(units_, projectiles_, shots_, order);
     }
     pending_.clear();
 
@@ -430,6 +432,7 @@ void Sim::step() {
             continue;
         }
         projectiles_.push_back(launch(unit, *best, prof.damage));
+        shots_.push_back(Shot{unit.id, best->id});
         unit.cooldown = prof.cooldown_ticks;
         // The focus is spent by the shot it names: one click, one bolt. Whoever it was fired at,
         // the choice of target does not persist; auto-engagement resumes on the next chance.
@@ -451,6 +454,8 @@ const Unit* Sim::find(UnitId id) const noexcept { return find_const(units_, id);
 const std::vector<Projectile>& Sim::projectiles() const noexcept { return projectiles_; }
 
 const std::vector<Impact>& Sim::impacts() const noexcept { return impacts_; }
+
+const std::vector<Sim::Shot>& Sim::shots() const noexcept { return shots_; }
 
 const std::vector<Command>& Sim::command_log() const noexcept { return log_; }
 
