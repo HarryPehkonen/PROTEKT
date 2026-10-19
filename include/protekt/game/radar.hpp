@@ -4,7 +4,7 @@
 #include <span>
 #include <vector>
 
-#include "protekt/render/renderer.hpp"
+#include "protekt/game/scene_data.hpp"
 #include "protekt/sim/sim.hpp"
 
 /// The radar: what is near the tank you are sitting in, and nothing else.

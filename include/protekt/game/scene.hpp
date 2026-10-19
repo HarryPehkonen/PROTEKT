@@ -5,8 +5,8 @@
 #include <optional>
 #include <span>
 
+#include "protekt/game/scene_data.hpp"
 #include "protekt/math/math.hpp"
-#include "protekt/render/renderer.hpp"
 #include "protekt/sim/observer.hpp"
 #include "protekt/sim/sim.hpp"
 #include "protekt/world/world.hpp"

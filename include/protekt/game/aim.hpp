@@ -3,8 +3,8 @@
 #include <optional>
 
 #include "protekt/game/scene.hpp"
+#include "protekt/game/scene_data.hpp"
 #include "protekt/input/input.hpp"
-#include "protekt/render/renderer.hpp"
 
 namespace protekt::game {
 

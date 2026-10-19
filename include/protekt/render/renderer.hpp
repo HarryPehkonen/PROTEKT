@@ -7,6 +7,7 @@
 #include <string_view>
 #include <vector>
 
+#include "protekt/game/scene_data.hpp"
 #include "protekt/sim/sim.hpp"
 
 /// The renderer, as a client of the simulation.
@@ -27,24 +28,6 @@ struct DeviceInfo {
     bool discrete{};
     bool integrated{};
     bool cpu{};
-};
-
-struct Extent {
-    std::uint32_t width{};
-    std::uint32_t height{};
-};
-
-/// One vertex of a scene: position in world metres, then a flat colour. The layout is part of the
-/// contract because the vertex buffer is uploaded verbatim.
-struct SceneVertex {
-    std::array<float, 3> position{};
-    std::array<float, 3> colour{};
-};
-
-/// A frame's worth of geometry, already in world space, plus whose camera it is.
-struct Scene {
-    std::vector<SceneVertex> vertices;       ///< triples: three vertices per triangle
-    std::array<float, 16> view_projection{}; ///< column-major, what GLSL's mat4 expects
 };
 
 /// What to draw. With `scene == nullptr` the renderer draws the built-in test scene M3a shipped
