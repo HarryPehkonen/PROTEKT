@@ -437,8 +437,10 @@ void Sim::step() {
             }
         }
         if (best == nullptr) {
+            retarget_aim(unit, UnitId{}); // nothing to aim at: the belief goes with it
             continue;
         }
+        retarget_aim(unit, best->id);
         projectiles_.push_back(launch(unit, *best, prof.damage));
         shots_.push_back(Shot{unit.id, best->id});
         unit.cooldown = prof.cooldown_ticks;
@@ -493,6 +495,9 @@ std::uint64_t Sim::state_hash() const noexcept {
         h.i32(u.guard_y.raw);
         h.i32(u.patrol_x.raw);
         h.i32(u.patrol_y.raw);
+        h.i32(u.aim_x.raw);
+        h.i32(u.aim_y.raw);
+        h.u64(u.aim_target.value);
         h.u64(u.alive ? 1 : 0);
     }
     // Bolts in the air are state. An empty sky adds nothing to the stream, so a battle that never
@@ -509,6 +514,10 @@ std::uint64_t Sim::state_hash() const noexcept {
             h.u64(p.aimed_at.value);
             h.u64(p.damage);
             h.u64(p.age);
+            h.u64(p.learns ? 1 : 0);
+            h.u64(static_cast<std::uint64_t>(p.closest_d2));
+            h.i32(p.miss_x.raw);
+            h.i32(p.miss_y.raw);
         }
     }
     // Orders accepted but not yet applied are part of the state: they will change the next tick.

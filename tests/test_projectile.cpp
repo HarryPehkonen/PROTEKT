@@ -366,20 +366,21 @@ constexpr UnitId kMark{2};
 
 } // namespace
 
-TEST(Projectile, LeadHitsWhatAStraightShotMisses) {
+TEST(Projectile, AnEstimateHitsWhatAStraightShotMisses) {
     // Twelve tiles off, crossing the line of fire at 0.1 tiles per tick: it drifts over two tiles
-    // while the bolt is in the air, against a hit radius of half a tile.
-    const Unit gun = bare(kGun, Side::Player, 100, 100, 0, 0);
+    // while the bolt is in the air, against a hit radius of half a tile. (Was LeadHitsWhat...:
+    // launch() no longer predicts, so the lead is handed to the gun as the estimate it would have
+    // learned, a little over the 2.25 tiles of drift.)
+    Unit gun = bare(kGun, Side::Player, 100, 100, 0, 0);
     const Unit mark = bare(kMark, Side::Enemy, 112, 100, 0, kTenthTile);
 
-    Unit still_copy = mark; // what a gun that ignored the drift would have aimed at
-    still_copy.vx = Fixed::zero();
-    still_copy.vy = Fixed::zero();
-    EXPECT_EQ(fly(launch(gun, still_copy, kTankDamage), mark), kTankHp)
-        << "the control is wrong: an unled shot should miss this target";
+    EXPECT_EQ(fly(launch(gun, mark, kTankDamage), mark), kTankHp)
+        << "the control is wrong: a gun with no estimate should miss this target";
 
+    gun.aim_target = kMark;
+    gun.aim_y = Fixed::from_raw(Fixed::kOne * 9 / 4);
     EXPECT_LT(fly(launch(gun, mark, kTankDamage), mark), kTankHp)
-        << "the led shot did not damage a crossing target";
+        << "the shot with the estimate did not damage a crossing target";
     EXPECT_EQ(fly(launch(gun, mark, kTankDamage), mark), kTankHp - kTankDamage);
 }
 
@@ -409,28 +410,36 @@ TEST(Projectile, OwnMotionStillThrowsTheShot) {
 }
 
 TEST(Projectile, ATargetThatReversesIsMissed) {
-    const Unit gun = bare(kGun, Side::Player, 100, 100, 0, 0);
+    // The estimate is the lead the target had; a target that turns round is missed. (Same test as
+    // before, with the estimate standing in for the old computed lead.)
+    Unit gun = bare(kGun, Side::Player, 100, 100, 0, 0);
     const Unit mark = bare(kMark, Side::Enemy, 112, 100, 0, kTenthTile);
+    gun.aim_target = kMark;
+    gun.aim_y = Fixed::from_raw(Fixed::kOne * 9 / 4);
     const Projectile bolt = launch(gun, mark, kTankDamage);
     ASSERT_EQ(fly(bolt, mark), kTankHp - kTankDamage) << "the control shot should land";
     EXPECT_EQ(fly(bolt, mark, 5), kTankHp) << "the bolt followed a target that turned round";
 }
 
-TEST(Projectile, LeadIsCappedAndAPointBlankTargetIsSane) {
-    // Forty tiles off and driving at half a tile per tick: left uncapped the lead would be 37
-    // tiles; capped at one second of flight it is 15.
-    const Unit gun = bare(kGun, Side::Player, 100, 100, 0, 0);
-    const Unit far = bare(kMark, Side::Enemy, 140, 100, 0, Fixed::kOne / 2);
-    const Projectile bolt = launch(gun, far, kTankDamage);
-    const double sideways = static_cast<double>(bolt.vy.raw) * 40.0;
-    const double along = static_cast<double>(bolt.vx.raw) * 15.0;
-    EXPECT_NEAR(sideways, along, along * 0.02) << "the lead is not capped at one second";
+TEST(Projectile, TheAimPointIsTheTargetPlusTheEstimate) {
+    // Was LeadIsCappedAndAPointBlankTargetIsSane. The cap of the old lead is gone with the lead;
+    // the cap of the estimate is pinned in test_ai_aim.cpp. What is left to pin here is the
+    // geometry: the bolt points at target + estimate, and a point-blank target still has a heading.
+    Unit gun = bare(kGun, Side::Player, 100, 100, 0, 0);
+    const Unit mark = bare(kMark, Side::Enemy, 112, 100, 0, Fixed::kOne / 2);
+    gun.aim_target = kMark;
+    gun.aim_y = Fixed::from_int(4);
+    const Projectile bolt = launch(gun, mark, kTankDamage);
+    // The aim point is (112, 104) from (100, 100): twelve across, four up. The mark's own
+    // velocity, half a tile per tick, played no part.
+    EXPECT_NEAR(static_cast<double>(bolt.vy.raw) * 12.0, static_cast<double>(bolt.vx.raw) * 4.0,
+                static_cast<double>(bolt.vx.raw) * 0.05);
 
-    // On top of the gun and moving: the flight time floors at one tick, so there is a direction.
+    // On top of the gun with no estimate: no direction to aim in, so due east, at full speed.
     const Unit here = bare(kMark, Side::Enemy, 100, 100, kTenthTile, 0);
-    const Projectile close = launch(gun, here, kTankDamage);
-    EXPECT_NEAR(static_cast<double>(isqrt(speed_squared(close))),
-                static_cast<double>(kProjectileSpeedRaw), 4.0);
+    const Projectile close = launch(bare(kGun, Side::Player, 100, 100, 0, 0), here, kTankDamage);
+    EXPECT_EQ(close.vx.raw, kProjectileSpeedRaw);
+    EXPECT_EQ(close.vy.raw, 0);
 }
 
 namespace {

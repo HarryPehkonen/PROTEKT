@@ -63,7 +63,8 @@ protected:
 ///      target while that target is alive and in range -- an explicit order outranks
 ///      auto-engagement -- and otherwise at the nearest hostile in range (distance is
 ///      squared fixed-point; ties go to the lowest id). Firing spawns a projectile aimed at the
-///      target's position NOW; the damage arrives when the projectile does. Damage is exact:
+///      target's position NOW plus the gun's learned aim estimate (see `launch`); the damage
+///      arrives when the projectile does. Damage is exact:
 ///      there is no spread, so the sim needs no RNG;
 ///   5. the tick counter advances.
 class Sim final : public OrderSink {

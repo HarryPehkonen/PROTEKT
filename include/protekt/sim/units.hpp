@@ -59,6 +59,13 @@ struct Unit {
     Fixed guard_y{};
     Fixed patrol_x{}; ///< Patrol: the far end of the beat (the near end is the post)
     Fixed patrol_y{};
+    /// The aim estimate: how far ahead of its target this unit's gun believes it should aim,
+    /// learned from where its own earlier bolts missed (see `launch` and `advance_projectiles`).
+    /// Zero means "aim where the target is". It is the SHOOTER's one belief, held about
+    /// `aim_target` alone, and it is hashed: it changes what the next bolt does.
+    Fixed aim_x{};
+    Fixed aim_y{};
+    UnitId aim_target{}; ///< whom the estimate was learned against; none when it is zero
     bool alive{true};
 };
 

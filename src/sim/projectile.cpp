@@ -7,32 +7,36 @@ namespace protekt::sim {
 
 namespace {
 
-// The longest lead, in ticks. A bolt flies at most kProjectileRange (16 tiles) before it fizzles,
-// which at kProjectileSpeed is one second, so predicting further ahead than that aims at a place
-// the bolt could never reach.
-constexpr std::int64_t kMaxLeadTicks = kTicksPerSecond;
-
 // The last representable position: just inside the map's far edge.
 constexpr std::int64_t kMaxPosRaw = static_cast<std::int64_t>(kMapTiles) * Fixed::kOne - 1;
 
-// Squared distance from the point (px, py) to the segment from (ax, ay) along (dx, dy). Positions
-// are inside the map and a step is a fraction of a tile, so every product fits int64.
-std::int64_t segment_dist2(std::int64_t ax, std::int64_t ay, std::int64_t dx, std::int64_t dy,
-                           std::int64_t px, std::int64_t py) noexcept {
+struct Point {
+    std::int64_t x;
+    std::int64_t y;
+};
+
+// The point on the segment from (ax, ay) along (dx, dy) nearest to (px, py). Positions are inside
+// the map and a step is a fraction of a tile, so every product fits int64.
+Point nearest_on_segment(std::int64_t ax, std::int64_t ay, std::int64_t dx, std::int64_t dy,
+                         std::int64_t px, std::int64_t py) noexcept {
     const std::int64_t length2 = dx * dx + dy * dy;
     const std::int64_t along = (px - ax) * dx + (py - ay) * dy;
-    std::int64_t cx = ax;
-    std::int64_t cy = ay;
+    Point c{ax, ay};
     if (length2 > 0 && along > 0) {
         if (along >= length2) {
-            cx = ax + dx;
-            cy = ay + dy;
+            c = Point{ax + dx, ay + dy};
         } else {
-            cx = ax + dx * along / length2;
-            cy = ay + dy * along / length2;
+            c = Point{ax + dx * along / length2, ay + dy * along / length2};
         }
     }
-    return (px - cx) * (px - cx) + (py - cy) * (py - cy);
+    return c;
+}
+
+// Squared distance from the point (px, py) to the segment from (ax, ay) along (dx, dy).
+std::int64_t segment_dist2(std::int64_t ax, std::int64_t ay, std::int64_t dx, std::int64_t dy,
+                           std::int64_t px, std::int64_t py) noexcept {
+    const Point c = nearest_on_segment(ax, ay, dx, dy, px, py);
+    return (px - c.x) * (px - c.x) + (py - c.y) * (py - c.y);
 }
 
 void take_damage(Unit& unit, std::uint16_t damage) noexcept {
@@ -45,12 +49,65 @@ void take_damage(Unit& unit, std::uint16_t damage) noexcept {
     }
 }
 
+// Tracks the bolt's closest approach to the unit it was aimed at, over this tick's step.
+void track_approach(Projectile& bolt, const std::vector<Unit>& units, std::int64_t from_x,
+                    std::int64_t from_y) noexcept {
+    for (const Unit& unit : units) {
+        if (unit.id != bolt.aimed_at) {
+            continue;
+        }
+        if (!unit.alive) {
+            return; // nothing left to measure against; the last approach stands
+        }
+        const Point c
+            = nearest_on_segment(from_x, from_y, bolt.vx.raw, bolt.vy.raw, unit.x.raw, unit.y.raw);
+        const std::int64_t mx = static_cast<std::int64_t>(unit.x.raw) - c.x;
+        const std::int64_t my = static_cast<std::int64_t>(unit.y.raw) - c.y;
+        const std::int64_t d2 = mx * mx + my * my;
+        if (d2 < bolt.closest_d2) {
+            bolt.closest_d2 = d2;
+            bolt.miss_x = Fixed::from_raw(static_cast<std::int32_t>(mx));
+            bolt.miss_y = Fixed::from_raw(static_cast<std::int32_t>(my));
+        }
+        return;
+    }
+}
+
+// The shot fizzled: the shooter adds the miss it saw to its aim estimate. The correction is the
+// target's position when the bolt was nearest MINUS the bolt's, so it is measured from where the
+// target WAS a flight-time ago: against a steady course it lands on the right lead, and against one
+// that has changed it is wrong by exactly the change. That staleness is the evasion, not a flaw.
+void learn_from(const Projectile& bolt, std::vector<Unit>& units) noexcept {
+    if (!bolt.learns || bolt.closest_d2 == INT64_MAX) {
+        return;
+    }
+    for (Unit& shooter : units) {
+        if (shooter.id != bolt.shooter) {
+            continue;
+        }
+        if (!shooter.alive || shooter.aim_target != bolt.aimed_at) {
+            return; // dead, or it has moved on: one belief at a time, and this is not about it
+        }
+        std::int64_t x = static_cast<std::int64_t>(shooter.aim_x.raw) + bolt.miss_x.raw;
+        std::int64_t y = static_cast<std::int64_t>(shooter.aim_y.raw) + bolt.miss_y.raw;
+        const std::int64_t length = isqrt(x * x + y * y);
+        if (length > kMaxAimLeadRaw) {
+            x = x * kMaxAimLeadRaw / length;
+            y = y * kMaxAimLeadRaw / length;
+        }
+        shooter.aim_x = Fixed::from_raw(static_cast<std::int32_t>(x));
+        shooter.aim_y = Fixed::from_raw(static_cast<std::int32_t>(y));
+        return;
+    }
+}
+
 } // namespace
 
 bool operator==(const Projectile& a, const Projectile& b) noexcept {
     return a.x == b.x && a.y == b.y && a.vx == b.vx && a.vy == b.vy && a.shooter == b.shooter
-           && a.side == b.side && a.aimed_at == b.aimed_at && a.damage == b.damage
-           && a.age == b.age;
+           && a.side == b.side && a.aimed_at == b.aimed_at && a.damage == b.damage && a.age == b.age
+           && a.learns == b.learns && a.closest_d2 == b.closest_d2 && a.miss_x == b.miss_x
+           && a.miss_y == b.miss_y;
 }
 
 std::int64_t isqrt(std::int64_t n) noexcept {
@@ -75,17 +132,20 @@ std::int64_t isqrt(std::int64_t n) noexcept {
     return static_cast<std::int64_t>(root);
 }
 
+void retarget_aim(Unit& shooter, UnitId target) noexcept {
+    if (shooter.aim_target != target) {
+        shooter.aim_x = Fixed::zero();
+        shooter.aim_y = Fixed::zero();
+        shooter.aim_target = target;
+    }
+}
+
 Projectile launch(const Unit& shooter, const Unit& target, std::uint16_t damage) noexcept {
-    // Predict once: how long the bolt takes to cover the present distance, at least a tick and at
-    // most kMaxLeadTicks, and where the target will be by then if it holds its course.
-    const std::int64_t gap_x = static_cast<std::int64_t>(target.x.raw) - shooter.x.raw;
-    const std::int64_t gap_y = static_cast<std::int64_t>(target.y.raw) - shooter.y.raw;
-    const std::int64_t gap = isqrt(gap_x * gap_x + gap_y * gap_y);
-    const std::int64_t lead_ticks
-        = std::clamp<std::int64_t>(gap / kProjectileSpeedRaw, 1, kMaxLeadTicks);
-    // The shooter's own velocity is deliberately not part of this: only the target's motion is led.
-    const std::int64_t dx = gap_x + target.vx.raw * lead_ticks;
-    const std::int64_t dy = gap_y + target.vy.raw * lead_ticks;
+    // Aim at where the target IS, plus what this gun has learned about how far to lead it.
+    const std::int64_t dx
+        = static_cast<std::int64_t>(target.x.raw) - shooter.x.raw + shooter.aim_x.raw;
+    const std::int64_t dy
+        = static_cast<std::int64_t>(target.y.raw) - shooter.y.raw + shooter.aim_y.raw;
     const std::int64_t dist = isqrt(dx * dx + dy * dy);
     // An aim point exactly on the gun has no direction to aim in; due east is as good as any and
     // keeps the answer defined.
@@ -104,6 +164,7 @@ Projectile launch(const Unit& shooter, const Unit& target, std::uint16_t damage)
     bolt.side = shooter.side;
     bolt.aimed_at = target.id;
     bolt.damage = damage;
+    bolt.learns = true;
     return bolt;
 }
 
@@ -144,6 +205,9 @@ void advance_projectiles(std::vector<Projectile>& projectiles, std::vector<Unit>
         const std::int64_t to_x = from_x + bolt.vx.raw;
         const std::int64_t to_y = from_y + bolt.vy.raw;
         ++bolt.age;
+        if (bolt.learns) {
+            track_approach(bolt, units, from_x, from_y);
+        }
 
         Unit* hit = nullptr;
         std::int64_t hit_d2 = radius2 + 1;
@@ -161,7 +225,7 @@ void advance_projectiles(std::vector<Projectile>& projectiles, std::vector<Unit>
         if (hit != nullptr) {
             take_damage(*hit, bolt.damage);
             impacts.push_back(Impact{bolt.shooter, hit->id, hit->hp});
-            continue;
+            continue; // a hit teaches nothing: there was nothing to correct
         }
 
         const std::int64_t speed = isqrt(static_cast<std::int64_t>(bolt.vx.raw) * bolt.vx.raw
@@ -170,6 +234,7 @@ void advance_projectiles(std::vector<Projectile>& projectiles, std::vector<Unit>
             = static_cast<std::int64_t>(bolt.age) * speed >= kProjectileRange.raw;
         const bool off_map = to_x < 0 || to_y < 0 || to_x > kMaxPosRaw || to_y > kMaxPosRaw;
         if (speed == 0 || out_of_range || off_map) {
+            learn_from(bolt, units);
             continue; // fizzles: no damage, and no impact to report
         }
         bolt.x = Fixed::from_raw(static_cast<std::int32_t>(to_x));
