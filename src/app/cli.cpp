@@ -10,6 +10,7 @@
 
 #include "protekt/ai/scripted.hpp"
 #include "protekt/ai/utility.hpp"
+#include "protekt/app/args.hpp"
 #include "protekt/sim/commander.hpp"
 #include "protekt/sim/observer.hpp"
 #include "protekt/sim/replay.hpp"
@@ -31,25 +32,6 @@ struct Options {
     std::optional<std::string> replay_out{};
 };
 
-/// Digits only: no sign, no whitespace, no overflow past `max`.
-std::optional<std::uint64_t> parse_number(std::string_view s, std::uint64_t max) {
-    if (s.empty()) {
-        return std::nullopt;
-    }
-    std::uint64_t value = 0;
-    for (const char c : s) {
-        if (c < '0' || c > '9') {
-            return std::nullopt;
-        }
-        const auto digit = static_cast<std::uint64_t>(c - '0');
-        if (value > (max - digit) / 10) {
-            return std::nullopt;
-        }
-        value = value * 10 + digit;
-    }
-    return value;
-}
-
 /// Parses the arguments; on failure returns the reason.
 std::optional<std::string> parse_args(std::span<const std::string_view> args, Options& opt) {
     for (std::size_t i = 0; i < args.size(); ++i) {
@@ -65,23 +47,23 @@ std::optional<std::string> parse_args(std::span<const std::string_view> args, Op
         }
         const std::string_view value = args[++i];
         if (flag == "--seed") {
-            const auto n = parse_number(value, ~std::uint64_t{0});
-            if (!n) {
+            std::uint64_t n = 0;
+            if (!parse_number(value, n)) {
                 return "bad --seed value '" + std::string(value) + "'";
             }
-            opt.seed = *n;
+            opt.seed = n;
         } else if (flag == "--ticks") {
-            const auto n = parse_number(value, kMaxTicks);
-            if (!n) {
+            std::uint64_t n = 0;
+            if (!parse_number(value, n) || n > kMaxTicks) {
                 return "bad --ticks value '" + std::string(value) + "'";
             }
-            opt.ticks = static_cast<std::uint32_t>(*n);
+            opt.ticks = static_cast<std::uint32_t>(n);
         } else if (flag == "--status-period") {
-            const auto n = parse_number(value, 0xFFFFFFFFULL);
-            if (!n) {
+            std::uint64_t n = 0;
+            if (!parse_number(value, n) || n > 0xFFFFFFFFULL) {
                 return "bad --status-period value '" + std::string(value) + "'";
             }
-            opt.status_period = static_cast<std::uint32_t>(*n);
+            opt.status_period = static_cast<std::uint32_t>(n);
         } else if (flag == "--commander") {
             if (value != "none" && value != "scripted" && value != "utility") {
                 return "bad --commander value '" + std::string(value) + "' (none|scripted|utility)";
