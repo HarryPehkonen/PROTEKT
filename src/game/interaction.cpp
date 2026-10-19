@@ -1,9 +1,7 @@
 #include "protekt/game/interaction.hpp"
 
-#include <algorithm>
 #include <cmath>
 #include <cstdint>
-#include <span>
 #include <utility>
 
 #include "protekt/cmd/command.hpp"
@@ -11,17 +9,6 @@
 
 namespace protekt::game {
 namespace {
-
-[[nodiscard]] std::vector<sim::UnitId> living_own(const sim::Sim& sim) {
-    std::vector<sim::UnitId> ids;
-    for (const sim::Unit& unit : sim.units()) {
-        if (unit.alive && unit.side == sim::Side::Player) {
-            ids.push_back(unit.id);
-        }
-    }
-    std::sort(ids.begin(), ids.end());
-    return ids;
-}
 
 /// A float on the unit circle as the sim's Q16.16.
 [[nodiscard]] sim::Fixed to_fixed(float value) noexcept {
@@ -136,8 +123,7 @@ void Interaction::handle(const input::InputFrame& frame, const sim::Sim& sim,
             continue;
         }
         if (key.scancode == input::kKeyEscape || key.scancode == input::kKeyTab) {
-            // Tab clears, as Escape does. Cycling (`cycle`) is unbound: it lost its key to this and
-            // needs a new one.
+            // Tab clears, as Escape does.
             selection_.clear();
         } else if (key.scancode == input::kKeySpace || key.scancode == input::kKeyT) {
             if (!options.aim.has_value()) {
@@ -214,30 +200,6 @@ void Interaction::select_only(sim::UnitId id) noexcept {
 }
 
 void Interaction::toggle(sim::UnitId id) noexcept { selection_.toggle(id); }
-
-void Interaction::cycle(bool backwards, const sim::Sim& sim) {
-    const std::vector<sim::UnitId> own = living_own(sim);
-    if (own.empty()) {
-        refuse("There are no units to select.");
-        return;
-    }
-    sim::UnitId next = backwards ? own.back() : own.front();
-    if (!selection_.empty()) {
-        const std::span<const sim::UnitId> chosen = selection_.units();
-        if (backwards) {
-            const auto it = std::lower_bound(own.begin(), own.end(), chosen.front());
-            if (it != own.begin()) {
-                next = *(it - 1);
-            }
-        } else {
-            const auto it = std::upper_bound(own.begin(), own.end(), chosen.back());
-            if (it != own.end()) {
-                next = *it;
-            }
-        }
-    }
-    select_only(next);
-}
 
 void Interaction::refuse(std::string_view why) noexcept { message_ = why; }
 

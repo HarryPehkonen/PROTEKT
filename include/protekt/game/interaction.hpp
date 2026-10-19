@@ -25,8 +25,8 @@ inline constexpr sim::Tick kManualShotIntervalTicks = 8;
 /// The player's hands, as a pure function of input and what he can see.
 ///
 /// Everything the mouse and the keyboard mean lives here and NOWHERE else: which unit a click
-/// selects, what a right click orders, what Tab cycles. No window, no SDL, no clock, no GPU -- so
-/// the whole of "what does that click do" is tested on a machine with no display, and a recorded
+/// selects, what a right click orders, what Escape clears. No window, no SDL, no clock, no GPU --
+/// so the whole of "what does that click do" is tested on a machine with no display, and a recorded
 /// frame of input replays exactly.
 ///
 /// The one thing it will not do is order the tank the player is sitting in. That unit is driven by
@@ -51,8 +51,7 @@ public:
     ///    is not the driven one
     ///  * right click on a hostile unit with a selection: Attack it, same roster rule
     ///  * right click with nothing selected, or with only the driven unit selected: refused
-    ///  * Tab / Shift-Tab: cycle the selection through our units, ascending id, wrapping
-    ///  * Escape: clear the selection
+    ///  * Tab or Escape: clear the selection
     ///
     /// Refusals never throw and never half-apply: either the whole intent is carried out or none of
     /// it is, and `message()` says why.
@@ -84,7 +83,6 @@ private:
 
     void select_only(sim::UnitId id) noexcept;
     void toggle(sim::UnitId id) noexcept;
-    void cycle(bool backwards, const sim::Sim& sim);
     void refuse(std::string_view why) noexcept;
 
     sim::UnitId driven_;
