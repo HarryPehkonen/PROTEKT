@@ -79,6 +79,61 @@ void build_terrain(std::vector<SceneVertex>& out, std::uint64_t seed, int centre
     }
 }
 
+/// The sky dome, centred on the camera. Raw colours, never shaded. See `kSkySegments`.
+void append_sky(std::vector<SceneVertex>& out, const Camera& camera) {
+    const Vec3 eye{camera.x, camera.y, camera.z};
+    const auto at = [&](const Vec3& direction, float radius) {
+        return Vec3{eye[0] + (direction[0] * radius), eye[1] + (direction[1] * radius),
+                    eye[2] + (direction[2] * radius)};
+    };
+    const auto ring_point = [&](std::size_t ring, int segment) {
+        const float elevation = kSkyRingElevationDegrees.at(ring) * kPi / 180.0F;
+        const float azimuth = 2.0F * kPi * static_cast<float>(segment) / kSkySegments;
+        const float flat = std::cos(elevation);
+        return at(Vec3{std::sin(azimuth) * flat, std::sin(elevation), std::cos(azimuth) * flat},
+                  kSkyRadiusMetres);
+    };
+    for (std::size_t ring = 0; ring + 1 < kSkyRings; ++ring) {
+        const Vec3& low = kSkyRingColours.at(ring);
+        const Vec3& high = kSkyRingColours.at(ring + 1);
+        const bool cap = ring + 2 == kSkyRings;
+        for (int segment = 0; segment < kSkySegments; ++segment) {
+            const Vec3 a = ring_point(ring, segment);
+            const Vec3 b = ring_point(ring, segment + 1);
+            const Vec3 c = ring_point(ring + 1, segment + 1);
+            const Vec3 d = ring_point(ring + 1, segment);
+            out.push_back(SceneVertex{a, low});
+            out.push_back(SceneVertex{b, low});
+            out.push_back(SceneVertex{c, high});
+            if (!cap) {
+                out.push_back(SceneVertex{a, low});
+                out.push_back(SceneVertex{c, high});
+                out.push_back(SceneVertex{d, high});
+            }
+        }
+    }
+
+    // The sun disc, on exactly the direction the prisms are lit from.
+    constexpr float kDiscRadius = 0.98F * kSkyRadiusMetres;
+    constexpr float kDiscAngularSize = 0.06F; ///< rim radius as a fraction of the distance
+    const Vec3 direction = normalise(kSunDirection);
+    const Vec3 across = normalise(cross(Vec3{0.0F, 1.0F, 0.0F}, direction));
+    const Vec3 up = cross(direction, across);
+    const Vec3 centre = at(direction, kDiscRadius);
+    const auto rim = [&](int segment) {
+        const float angle = 2.0F * kPi * static_cast<float>(segment) / kSkySegments;
+        const float scale = kDiscRadius * kDiscAngularSize;
+        const float u = std::cos(angle) * scale;
+        const float v = std::sin(angle) * scale;
+        return Vec3{centre[0] + (across[0] * u) + (up[0] * v),
+                    centre[1] + (across[1] * u) + (up[1] * v),
+                    centre[2] + (across[2] * u) + (up[2] * v)};
+    };
+    for (int segment = 0; segment < kSkySegments; ++segment) {
+        emit_triangle(out, centre, rim(segment), rim(segment + 1), kSunDiscColour);
+    }
+}
+
 /// A box standing on the ground beneath (x, z): wider and shorter for a tank or turret, taller
 /// for a factory.
 /// A selected unit keeps its side's colour and is mixed towards white, so a glance tells you both
@@ -976,6 +1031,7 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
     const int centre_x = static_cast<int>(std::floor(options.camera.x / kMetresPerTile));
     const int centre_y = static_cast<int>(std::floor(options.camera.z / kMetresPerTile));
     build_terrain(scene.vertices, options.seed, centre_x, centre_y, options.radius_tiles);
+    append_sky(scene.vertices, options.camera);
 
     // The one pick the frame makes: the reticle and the unit tint both read it, so they can never
     // disagree about what is under the crosshair.

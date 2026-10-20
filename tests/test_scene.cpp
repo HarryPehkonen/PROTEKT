@@ -8,6 +8,7 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <limits>
 #include <optional>
 #include <set>
@@ -58,6 +59,22 @@ std::set<int> mesh_heights(const Scene& scene) {
         heights.insert(static_cast<int>(std::lround(v.position[1] / kMetresPerHeightUnit)));
     }
     return heights;
+}
+
+/// The terrain mesh alone: (2r+2)^2 tiles of six vertices, then the sky, then everything else.
+std::size_t terrain_vertex_count(int radius) {
+    const auto side = static_cast<std::size_t>(radius) * 2U + 2U;
+    return side * side * 6U;
+}
+
+/// The scene with its sky cut out, for tests about the ground that the sky's far-away vertices
+/// would otherwise swamp.
+Scene without_sky(Scene scene, int radius) {
+    const auto first
+        = scene.vertices.begin() + static_cast<std::ptrdiff_t>(terrain_vertex_count(radius));
+    scene.vertices.erase(first,
+                         first + static_cast<std::ptrdiff_t>(protekt::game::kSkyVertexCount));
+    return scene;
 }
 
 /// The height the hover reports, as a plain float -- or a test failure.
@@ -136,8 +153,10 @@ TEST(SceneTerrain, MeshesTwoTrianglesPerTile) {
 
 TEST(SceneTerrain, StaysWhereItWasAsked) {
     const int radius = 6;
-    const Scene scene = protekt::game::build_scene(
-        protekt::sim::Sim::create(protekt::sim::skirmish(7)), options_at(100.0F, 60.0F, 7, radius));
+    const Scene scene = without_sky(
+        protekt::game::build_scene(protekt::sim::Sim::create(protekt::sim::skirmish(7)),
+                                   options_at(100.0F, 60.0F, 7, radius)),
+        radius);
     ASSERT_FALSE(scene.vertices.empty());
     float min_x = 1e9F;
     float max_x = -1e9F;
@@ -158,8 +177,10 @@ TEST(SceneTerrain, StaysWhereItWasAsked) {
 
 TEST(SceneTerrain, HeightsComeFromTheWorldGeneratorAndNotFromSomewhereElse) {
     const int radius = 6;
-    const Scene scene = protekt::game::build_scene(
-        protekt::sim::Sim::create(protekt::sim::skirmish(9)), options_at(90.0F, 90.0F, 9, radius));
+    const Scene scene = without_sky(
+        protekt::game::build_scene(protekt::sim::Sim::create(protekt::sim::skirmish(9)),
+                                   options_at(90.0F, 90.0F, 9, radius)),
+        radius);
     ASSERT_FALSE(scene.vertices.empty());
 
     int lowest = 100000;
@@ -2751,4 +2772,139 @@ TEST(AimedBar, IsLargeCentredAndBelowTheCrosshair) {
     EXPECT_GE(s.bottom - s.top, 14.0F);
     EXPECT_NEAR((s.left + s.right) * 0.5F, at.x, 1.0F);
     EXPECT_GT(s.top, at.y) << "below the crosshair";
+}
+
+// ---- the sky: a gradient dome and a sun disc, raw colours, centred on the camera ----
+
+namespace {
+
+using protekt::game::kSkyVertexCount;
+using protekt::game::SceneVertex;
+
+/// The sky's vertices as build_scene lays them out: right after the terrain.
+std::vector<SceneVertex> sky_of(const Scene& scene, int radius) {
+    const auto first
+        = scene.vertices.begin() + static_cast<std::ptrdiff_t>(terrain_vertex_count(radius));
+    return {first, first + static_cast<std::ptrdiff_t>(kSkyVertexCount)};
+}
+
+Scene sky_scene(const SceneOptions& options) {
+    return protekt::game::build_scene(protekt::sim::Sim::create(protekt::sim::skirmish(5)),
+                                      options);
+}
+
+} // namespace
+
+TEST(Sky, AddsExactlyItsGeometryToTheScene) {
+    // Three quad bands (16 x 6) + a zenith fan (16 x 3) + the sun disc (16 x 3) = 384 vertices.
+    EXPECT_EQ(kSkyVertexCount, std::size_t{384});
+    const SceneOptions options = options_at(60.0F, 60.0F, 5, 4);
+    const Scene scene = sky_scene(options);
+    const std::size_t terrain = terrain_vertex_count(4);
+    ASSERT_GE(scene.vertices.size(), terrain + kSkyVertexCount);
+    // The terrain is first and the sky follows: the first sky vertex is on the dome, 1000 m out.
+    const auto& v = scene.vertices.at(terrain);
+    const float dx = v.position[0] - options.camera.x;
+    const float dy = v.position[1] - options.camera.y;
+    const float dz = v.position[2] - options.camera.z;
+    EXPECT_NEAR(std::sqrt((dx * dx) + (dy * dy) + (dz * dz)), protekt::game::kSkyRadiusMetres,
+                0.1F);
+}
+
+TEST(Sky, SunDiscSitsExactlyOnTheDirectionThePrismsAreLitFrom) {
+    const SceneOptions options = options_at(60.0F, 60.0F, 5, 4);
+    const std::vector<SceneVertex> sky = sky_of(sky_scene(options), 4);
+    const std::size_t disc = protekt::game::kSunDiscVertexCount;
+    std::array<double, 3> sum{};
+    for (std::size_t i = sky.size() - disc; i < sky.size(); ++i) {
+        EXPECT_EQ(sky.at(i).colour, protekt::game::kSunDiscColour);
+        sum[0] += static_cast<double>(sky.at(i).position[0] - options.camera.x);
+        sum[1] += static_cast<double>(sky.at(i).position[1] - options.camera.y);
+        sum[2] += static_cast<double>(sky.at(i).position[2] - options.camera.z);
+    }
+    const double n = static_cast<double>(disc);
+    const protekt::math::Vec3 centroid{static_cast<float>(sum[0] / n),
+                                       static_cast<float>(sum[1] / n),
+                                       static_cast<float>(sum[2] / n)};
+    const protekt::math::Vec3 seen = protekt::math::normalise(centroid);
+    const protekt::math::Vec3 sun = protekt::math::normalise(protekt::game::kSunDirection);
+    for (std::size_t axis = 0; axis < 3; ++axis) {
+        EXPECT_NEAR(seen.at(axis), sun.at(axis), 1e-4F) << "axis " << axis;
+    }
+    EXPECT_GT(seen[1], 0.5F) << "the sun is well above the horizon";
+}
+
+TEST(Sky, CarriesTheExactGradientColoursAndIsNeverShaded) {
+    const SceneOptions options = options_at(60.0F, 60.0F, 5, 4);
+    const std::vector<SceneVertex> sky = sky_of(sky_scene(options), 4);
+    const std::size_t dome = sky.size() - protekt::game::kSunDiscVertexCount;
+    // Every dome vertex's colour is one of the ring colours, chosen by its elevation.
+    for (std::size_t i = 0; i < dome; ++i) {
+        const float dy = sky.at(i).position[1] - options.camera.y;
+        const float elevation = std::asin(std::min(1.0F, dy / protekt::game::kSkyRadiusMetres))
+                                * 180.0F / 3.14159265F;
+        std::size_t ring = 0;
+        for (std::size_t r = 0; r < protekt::game::kSkyRings; ++r) {
+            if (std::abs(elevation - protekt::game::kSkyRingElevationDegrees.at(r)) < 0.2F) {
+                ring = r;
+            }
+        }
+        EXPECT_NEAR(elevation, protekt::game::kSkyRingElevationDegrees.at(ring), 0.2F);
+        EXPECT_EQ(sky.at(i).colour, protekt::game::kSkyRingColours.at(ring));
+    }
+    // Horizon haze is lighter than the zenith, and the old flat clear colour is in the gradient.
+    EXPECT_GT(protekt::game::kSkyRingColours.front()[0], protekt::game::kSkyRingColours.back()[0]);
+    EXPECT_EQ(protekt::game::kSkyRingColours.at(2), (protekt::math::Vec3{0.53F, 0.81F, 0.92F}));
+}
+
+TEST(Sky, NothingIsBelowTheHorizonPlaneAtTheCameraHeight) {
+    SceneOptions options = options_at(60.0F, 60.0F, 5, 4);
+    options.camera.y = 11.5F;
+    options.camera.yaw = 2.0F;
+    options.camera.pitch = -0.4F;
+    for (const SceneVertex& v : sky_of(sky_scene(options), 4)) {
+        EXPECT_GE(v.position[1], options.camera.y - 1e-3F);
+    }
+}
+
+TEST(Sky, FollowsTheCameraButNeverTurnsWithIt) {
+    SceneOptions a = options_at(60.0F, 60.0F, 5, 4);
+    SceneOptions b = a;
+    b.camera.yaw = 1.3F;
+    b.camera.pitch = 0.2F;
+    const auto sky_a = sky_of(sky_scene(a), 4);
+    const auto sky_b = sky_of(sky_scene(b), 4);
+    ASSERT_EQ(sky_a.size(), sky_b.size());
+    for (std::size_t i = 0; i < sky_a.size(); ++i) {
+        EXPECT_EQ(sky_a.at(i).position, sky_b.at(i).position) << "world-fixed orientation";
+    }
+    SceneOptions moved = a;
+    moved.camera.x += 2.0F;
+    const auto sky_m = sky_of(sky_scene(moved), 4);
+    EXPECT_NEAR(sky_m.front().position[0] - sky_a.front().position[0], 2.0F, 1e-3F);
+}
+
+TEST(Sky, FitsInsideTheFarPlane) {
+    SceneOptions options = options_at(60.0F, 60.0F, 5, 4);
+    for (const SceneVertex& v : sky_of(sky_scene(options), 4)) {
+        const float dx = v.position[0] - options.camera.x;
+        const float dy = v.position[1] - options.camera.y;
+        const float dz = v.position[2] - options.camera.z;
+        EXPECT_LT(std::sqrt((dx * dx) + (dy * dy) + (dz * dz)), protekt::math::kFarPlane);
+    }
+}
+
+TEST(Sky, TwoBuildsOfTheSameFrameAreByteIdentical) {
+    const SceneOptions options = options_at(60.0F, 60.0F, 5, 4);
+    const Scene a = sky_scene(options);
+    const Scene b = sky_scene(options);
+    ASSERT_EQ(a.vertices.size(), b.vertices.size());
+    EXPECT_EQ(
+        std::memcmp(a.vertices.data(), b.vertices.data(), a.vertices.size() * sizeof(SceneVertex)),
+        0);
+}
+
+TEST(Sky, IsAbsentFromTheViewlessCalibrationScene) {
+    const Scene scene = protekt::game::build_calibration_scene(options_at(60.0F, 60.0F, 5, 4));
+    EXPECT_EQ(scene.vertices.size(), std::size_t{18}) << "three bars, and no sky";
 }
