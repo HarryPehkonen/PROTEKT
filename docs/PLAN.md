@@ -614,7 +614,7 @@ only when neither will do — he considers them overkill for this work.** So:
 - **Measure the split rather than trusting it:** M1 is the bake-off. Same spec + same tests to
   Haiku and to a stronger model; count round-trips to green and cost. If Haiku is not cheaper
   per merged milestone, use it for mechanical edits only.
-- Mechanics: `HOME=/home/harri claude ...` (a sandboxed HOME breaks auth);
+- Mechanics: `HOME=<your-home> claude ...` (a sandboxed HOME breaks auth);
   `--output-format json` for `total_cost_usd`; put `Bash(clang-format *)`, `Bash(cmake *)`,
   `Bash(ctest *)` in `--allowedTools` or the run stalls at the formatter.
 
