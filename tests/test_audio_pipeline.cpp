@@ -34,15 +34,6 @@ public:
 
 protekt::sim::Sim make_sim() { return protekt::sim::Sim::create(protekt::sim::skirmish(7)); }
 
-protekt::sim::UnitId player_tank(const protekt::sim::Sim& sim) {
-    for (const protekt::sim::Unit& unit : sim.units()) {
-        if (unit.side == protekt::sim::Side::Player && unit.kind == protekt::sim::UnitKind::Tank) {
-            return unit.id;
-        }
-    }
-    return {};
-}
-
 AudioFrame frame_for(bool shot_fired) {
     return AudioFrame{protekt::game::Listener{}, shot_fired, true, true};
 }
@@ -50,7 +41,7 @@ AudioFrame frame_for(bool shot_fired) {
 TEST(AudioPipeline, StepsExactlyTheTicksAskedFor) {
     protekt::sim::Sim sim = make_sim();
     protekt::game::HitFlash flash;
-    AudioPipeline pipeline{nullptr, player_tank(sim)};
+    AudioPipeline pipeline{nullptr};
     pipeline.advance(sim, 5, frame_for(false), flash);
     EXPECT_EQ(sim.tick(), 5U);
 }
@@ -60,7 +51,7 @@ TEST(AudioPipeline, ListeningDoesNotMoveTheSimulation) {
     protekt::sim::Sim silent = make_sim();
     protekt::game::HitFlash flash;
     FakeSink sink;
-    AudioPipeline listening{&sink, player_tank(heard)};
+    AudioPipeline listening{&sink};
     listening.advance(heard, 40, frame_for(true), flash);
     for (int i = 0; i < 40; ++i) {
         silent.step();
@@ -72,7 +63,7 @@ TEST(AudioPipeline, AShotAtTheGroundIsOneMixHandedToTheDevice) {
     protekt::sim::Sim sim = make_sim();
     protekt::game::HitFlash flash;
     FakeSink sink;
-    AudioPipeline pipeline{&sink, player_tank(sim)};
+    AudioPipeline pipeline{&sink};
     pipeline.advance(sim, 3, frame_for(true), flash);
     EXPECT_EQ(sink.plays, 1);
     EXPECT_GT(sink.last_samples, 0U);
@@ -82,7 +73,7 @@ TEST(AudioPipeline, SilenceIsNotPlayed) {
     protekt::sim::Sim sim = make_sim();
     protekt::game::HitFlash flash;
     FakeSink sink;
-    AudioPipeline pipeline{&sink, player_tank(sim)};
+    AudioPipeline pipeline{&sink};
     pipeline.advance(sim, 1, frame_for(false), flash);
     EXPECT_EQ(sink.plays, 0);
 }
@@ -92,7 +83,7 @@ TEST(AudioPipeline, AFailedDeviceIsNeverPlayedTo) {
     protekt::game::HitFlash flash;
     FakeSink sink;
     sink.healthy = false;
-    AudioPipeline pipeline{&sink, player_tank(sim)};
+    AudioPipeline pipeline{&sink};
     pipeline.advance(sim, 3, frame_for(true), flash);
     EXPECT_EQ(sink.plays, 0);
     EXPECT_EQ(sim.tick(), 3U);

@@ -41,7 +41,7 @@ void AudioPipeline::advance(sim::Sim& sim, std::uint32_t steps, const AudioFrame
         const sim::Tick tick_number = sim.tick();
         sim.step();
         const std::vector<sim::BattleEvent> events = sim::events_between(before, sim, tick_number);
-        if (game::unit_was_hit(events, player_)) {
+        if (game::unit_was_hit(events, frame.player)) {
             hit_flash.hit(sim.tick());
         }
         if (!listening) {

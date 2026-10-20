@@ -47,6 +47,9 @@ struct AudioFrame {
     bool player_alive_before{false};
     /// Whether the player is alive now: a dead player is listening from nowhere.
     bool player_alive_now{false};
+    /// The tank being driven THIS frame, whose hits flash the screen. Read from the session each
+    /// frame, never kept: a swap changes it.
+    sim::UnitId player{};
 };
 
 /// Advances the sim and derives sound from it.
@@ -57,14 +60,13 @@ struct AudioFrame {
 class AudioPipeline {
 public:
     /// `sink` may be null (a headless or silent run); it is not owned.
-    AudioPipeline(SampleSink* sink, sim::UnitId player) noexcept : sink_(sink), player_(player) {}
+    explicit AudioPipeline(SampleSink* sink) noexcept : sink_(sink) {}
 
     void advance(sim::Sim& sim, std::uint32_t steps, const AudioFrame& frame,
                  game::HitFlash& hit_flash) const;
 
 private:
     SampleSink* sink_;
-    sim::UnitId player_;
 };
 
 } // namespace protekt::app

@@ -18,6 +18,7 @@
 #include "protekt/app/audio.hpp"
 #include "protekt/app/audio_pipeline.hpp"
 #include "protekt/app/game_presenter.hpp"
+#include "protekt/app/player_view.hpp"
 #include "protekt/app/time_accumulator.hpp"
 #include "protekt/game/aim.hpp"
 #include "protekt/game/scene.hpp"
@@ -185,47 +186,12 @@ int write_ppm(const std::string& path, const std::vector<std::uint8_t>& rgba,
     return out ? 0 : 1;
 }
 
-bool is_alive(const sim::Sim& sim, sim::UnitId id) {
-    for (const sim::Unit& unit : sim.units()) {
-        if (unit.id == id) {
-            return unit.alive;
-        }
-    }
-    return false;
-}
-
-/// The player's eye: kEyeHeight metres above the ground under the tank, looking where the turret
-/// is pointed (the view, not the hull's heading). The height is `game::ground_metres`,
-/// the same continuous surface the tank stands on, so the camera neither floats over a ridge nor
-/// sinks into a hollow, and never steps at a tile edge. The camera rides the hull: once the tank
-/// hovers, the eye is kEyeHeight above the HULL, so it lags, overshoots and settles with the tank.
-/// Before the hover has a height the hull is at rest.
-game::Camera camera_for(const sim::Sim& sim, sim::UnitId id, float yaw, float pitch,
-                        std::uint64_t seed, std::optional<float> hull_z) {
-    constexpr float kEyeHeight = 3.0F;
-    game::Camera camera;
-    for (const sim::Unit& unit : sim.units()) {
-        if (unit.id != id) {
-            continue;
-        }
-        camera.x = static_cast<float>(unit.x.raw) / 65536.0F * game::kMetresPerTile;
-        camera.z = static_cast<float>(unit.y.raw) / 65536.0F * game::kMetresPerTile;
-        camera.y
-            = hull_z.value_or(game::ground_metres(seed, unit.x, unit.y) + game::kRideHeightMetres)
-              + kEyeHeight;
-        break;
-    }
-    camera.yaw = yaw;
-    camera.pitch = pitch;
-    return camera;
-}
-
 /// The player's side of a frame and the world it plays in, in the order a frame needs them. `app`
 /// decides what to present; `game::Session` decides what the input MEANS.
 class Game {
 public:
-    Game(Options options, sim::Sim sim, sim::UnitId player, const AudioPipeline& pipeline)
-        : options_(std::move(options)), sim_(std::move(sim)), player_(player), session_(player),
+    Game(Options options, sim::Sim sim, const game::Session& session, const AudioPipeline& pipeline)
+        : options_(std::move(options)), sim_(std::move(sim)), session_(session),
           pipeline_(pipeline),
           // 30 Hz is the rate the sim is designed and balanced at: 6 tiles/s at 30 ticks/s is the
           // 12 m/s hover tank in docs/PLAN.md. A stall is capped at 250 ms of catch-up.
@@ -243,13 +209,12 @@ public:
                                std::ostream& out) {
         game::SceneOptions scene_options;
         scene_options.seed = options_.seed;
-        scene_options.camera = camera_for(sim_, player_, session_.view_yaw(), session_.view_pitch(),
-                                          options_.seed, hover_.z());
+        scene_options.camera = camera_for(sim_, session_, options_.seed, hover_.z());
         scene_options.extent = extent;
         scene_options.radius_tiles = 24;
         scene_options.aim = game::aim_from(hands, extent);
-        scene_options.viewer_unit = options_.no_radar ? sim::UnitId{} : player_;
-        player_alive_before_ = is_alive(sim_, player_);
+        scene_options.viewer_unit = radar_viewer(session_, options_.no_radar);
+        player_alive_before_ = is_alive(sim_, session_.driven());
 
         std::vector<sim::Order> orders;
         session_.frame(hands, sim_, scene_options, orders);
@@ -274,11 +239,9 @@ public:
                                         : options_.ticks_per_frame;
         // A trigger pulled at the ground or the sky has no order, so the sim has no event to hear.
         const bool shot_fired = session_.take_shot_voice();
-        const game::Listener listener{scene_options.camera.x, scene_options.camera.z,
-                                      scene_options.camera.yaw, sim::Side::Player};
         pipeline_.advance(
             sim_, steps,
-            AudioFrame{listener, shot_fired, player_alive_before_, is_alive(sim_, player_)},
+            audio_frame_for(sim_, session_, scene_options.camera, shot_fired, player_alive_before_),
             hit_flash_);
     }
 
@@ -286,24 +249,24 @@ public:
     /// counter, from the ground under the tank where it now stands. A dead player has no hull to
     /// float.
     game::Scene scene(game::SceneOptions scene_options) {
+        const sim::UnitId driven = session_.driven();
         for (const sim::Unit& unit : sim_.units()) {
-            if (unit.id == player_) {
+            if (unit.id == driven) {
                 hover_.advance(sim_.tick(), game::ground_metres(options_.seed, unit.x, unit.y),
                                session_.keys().boost);
                 // `advance` has just given the hover a height.
                 if (const std::optional<float> z = hover_.z(); z.has_value()) {
-                    scene_options.hover = game::SceneOptions::Hovering{player_, *z};
+                    scene_options.hover = game::SceneOptions::Hovering{driven, *z};
                 }
                 break;
             }
         }
-        scene_options.camera = camera_for(sim_, player_, session_.view_yaw(), session_.view_pitch(),
-                                          options_.seed, hover_.z());
+        scene_options.camera = camera_for(sim_, session_, options_.seed, hover_.z());
         // The turret's angle relative to the hull: `Session` exposes the hull's heading and the
         // turret's world yaw (`view_yaw`), but not `PlayerCommander::turret_yaw` itself, so it is
         // their wrapped difference -- the same number, without adding an accessor.
         scene_options.facing = game::SceneOptions::Facing{
-            player_, session_.heading(),
+            driven, session_.heading(),
             game::Camera::wrap_angle(session_.view_yaw() - session_.heading())};
         headings_.observe(sim_);
         scene_options.headings = &headings_;
@@ -315,7 +278,6 @@ public:
 private:
     Options options_;
     sim::Sim sim_;
-    sim::UnitId player_;
     game::Session session_;
     game::Hover hover_;
     game::HitFlash hit_flash_;
@@ -441,8 +403,8 @@ int run_game_cli(std::span<const std::string_view> args, std::ostream& out, std:
 #endif
     }
 
-    Game game{options, std::move(sim), player_id,
-              AudioPipeline{audio_sink ? &*audio_sink : nullptr, player_id}};
+    Game game{options, std::move(sim), game::Session{player_id},
+              AudioPipeline{audio_sink ? &*audio_sink : nullptr}};
     if (const int code = play(game, *presenter, options, out, err); code != 0) {
         return code;
     }
