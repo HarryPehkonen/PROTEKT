@@ -534,18 +534,19 @@ constexpr float kReticleBarFraction = 0.22F;
 /// The reticle's colour is the ANSWER to "what would a click here do": red fires, green selects,
 /// white is ground. Text is not drawn anywhere in this project yet, so colour is the only channel
 /// there is.
+constexpr std::array<float, 3> kReticleGround{0.92F, 0.92F, 0.92F};
+constexpr std::array<float, 3> kReticleHostile{1.0F, 0.25F, 0.25F};
+constexpr std::array<float, 3> kReticleOwn{0.45F, 1.0F, 0.45F};
+
 std::array<float, 3> reticle_colour(const sim::Sim& sim, const Pick& picked, sim::Side viewer) {
-    constexpr std::array<float, 3> kGround{0.92F, 0.92F, 0.92F};
-    constexpr std::array<float, 3> kHostile{1.0F, 0.25F, 0.25F};
-    constexpr std::array<float, 3> kOwn{0.45F, 1.0F, 0.45F};
     if (!picked.has_unit()) {
-        return kGround;
+        return kReticleGround;
     }
     const sim::Unit* unit = sim.find(picked.unit);
     if (unit == nullptr) {
-        return kGround;
+        return kReticleGround;
     }
-    return unit->side == viewer ? kOwn : kHostile;
+    return unit->side == viewer ? kReticleOwn : kReticleHostile;
 }
 
 /// How far the radar is drawn from the eye, PER LAYER, derived from the frame rather than fixed.
@@ -727,6 +728,62 @@ void append_radar(std::vector<SceneVertex>& out, const SceneOptions& options, co
         out.push_back(SceneVertex{at(marks_at, side_a.at(0), side_a.at(1)), rgb});
         out.push_back(SceneVertex{at(marks_at, side_b.at(0), side_b.at(1)), rgb});
     }
+}
+
+constexpr float kAimedBarWidthFraction = 0.22F;  ///< of the frame width: 176 px at 800
+constexpr float kAimedBarHeightFraction = 0.05F; ///< of the frame height: 22 px at 450
+constexpr float kAimedBarGapFraction = 0.06F;    ///< from the crosshair to the bar, of the height
+constexpr float kAimedBarMinWidth = 96.0F;
+constexpr float kAimedBarMinHeight = 16.0F;
+constexpr float kAimedBarBorderPixels = 3.0F;
+
+/// The health bar under the crosshair, in frame pixels on the radar's HUD layers: a light border, a
+/// dark track and a fill coloured like the reticle (the hostile family or the friendly one), so a
+/// bar says whose unit it is as well as how hurt. Centred on the aim point and just below it, and
+/// deliberately big -- a fifth of the frame wide -- because a small bar is one that cannot be read.
+/// Always `kAimedBarVertexCount` vertices when a unit is aimed at, a zero-width fill at zero hp.
+void append_aimed_bar(std::vector<SceneVertex>& out, const SceneOptions& options,
+                      const sim::Sim& sim, const Pick& picked) {
+    if (!options.aim.has_value() || !picked.has_unit()) {
+        return;
+    }
+    const sim::Unit* unit = sim.find(picked.unit);
+    if (unit == nullptr) {
+        return;
+    }
+    const float frame_w = static_cast<float>(options.extent.width);
+    const float frame_h = static_cast<float>(options.extent.height);
+    const float width = std::max(kAimedBarMinWidth, frame_w * kAimedBarWidthFraction);
+    const float height = std::max(kAimedBarMinHeight, frame_h * kAimedBarHeightFraction);
+    const float gap = frame_h * kAimedBarGapFraction;
+    const float left
+        = std::clamp(options.aim->x - (width * 0.5F), 0.0F, std::max(0.0F, frame_w - width));
+    const float right = left + width;
+    const float top = options.aim->y + gap;
+    const float bottom = top + height;
+
+    const float marks_at = math::kNearPlane * kHudClearance * corner_ray_length(options.extent);
+    const auto rect = [&](float distance, float ax, float ay, float bx, float by,
+                          const std::array<float, 3>& rgb) {
+        const auto at = [&](float px, float py) {
+            const RayPoint point = ray_point(options.camera, options.extent, px, py, distance);
+            return Vec3{point.x, point.y, point.z};
+        };
+        emit_quad(out, at(ax, ay), at(bx, ay), at(bx, by), at(ax, by), rgb);
+    };
+    constexpr std::array<float, 3> kBorder{0.80F, 0.82F, 0.85F};
+    constexpr std::array<float, 3> kTrack{0.04F, 0.05F, 0.06F};
+    rect(marks_at * kHudBorderRatio, left, top, right, bottom, kBorder);
+    const float inner_left = left + kAimedBarBorderPixels;
+    const float inner_right = right - kAimedBarBorderPixels;
+    const float inner_top = top + kAimedBarBorderPixels;
+    const float inner_bottom = bottom - kAimedBarBorderPixels;
+    rect(marks_at * kHudFaceRatio, inner_left, inner_top, inner_right, inner_bottom, kTrack);
+    const std::uint32_t max_hp = sim::profile(unit->kind).hp;
+    const std::uint32_t hp = std::min<std::uint32_t>(unit->hp, max_hp);
+    const float share = max_hp > 0 ? static_cast<float>(hp) / static_cast<float>(max_hp) : 0.0F;
+    rect(marks_at, inner_left, inner_top, inner_left + ((inner_right - inner_left) * share),
+         inner_bottom, unit->side == options.viewer_side ? kReticleOwn : kReticleHostile);
 }
 
 /// Four bars forming a square outline, in the plane the camera looks along, centred on the point
@@ -963,6 +1020,7 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
 
     append_projectiles(scene.vertices, options, sim);
     append_radar(scene.vertices, options, sim);
+    append_aimed_bar(scene.vertices, options, sim, aimed);
     append_reticle(scene.vertices, options, sim, aimed);
 
     // LAST, so it tints everything under it. The vertex format has no alpha, so the wash is each

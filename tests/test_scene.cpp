@@ -2576,3 +2576,179 @@ TEST(SceneHeading, AStoppedTankKeepsTheFacingItHadWhileMoving) {
     // Without the memory the same stopped tank falls back to +Y: the memory is what holds it.
     EXPECT_EQ(Headings{}.of(sim.units().front()), 0.0F);
 }
+
+// ---------------------------------------------------------------- the bar under the crosshair
+//
+// A unit under the crosshair gets a health bar on the HUD layer, just below the reticle. It sits
+// between the radar and the reticle in the vertex list, so the reticle stays the tail. Colours are
+// literals on purpose, as above.
+
+using protekt::game::kAimedBarVertexCount;
+
+constexpr std::array<float, 3> kOwnBarRgb{0.45F, 1.0F, 0.45F};
+constexpr std::array<float, 3> kHostileBarRgb{1.0F, 0.25F, 0.25F};
+
+/// The aimed bar: the `kAimedBarVertexCount` vertices just before the reticle.
+std::vector<protekt::game::SceneVertex> aimed_bar_of(const Scene& scene) {
+    const std::size_t tail = kAimedBarVertexCount + kReticleVertexCount;
+    if (scene.vertices.size() < tail) {
+        return {};
+    }
+    const auto end = scene.vertices.end() - static_cast<std::ptrdiff_t>(kReticleVertexCount);
+    return {end - static_cast<std::ptrdiff_t>(kAimedBarVertexCount), end};
+}
+
+/// The pixel span of the fill: the vertices that are neither the border nor the dark track.
+struct BarSpan {
+    float left{};
+    float right{};
+    float top{};
+    float bottom{};
+    std::array<float, 3> colour{};
+    bool found{false};
+};
+BarSpan fill_span(const SceneOptions& options, const Scene& scene) {
+    BarSpan span;
+    for (const auto& v : aimed_bar_of(scene)) {
+        if (v.colour == kBorderRgb || v.colour == kFaceRgb) {
+            continue;
+        }
+        const protekt::game::Projected p = protekt::game::project(
+            options.camera, options.extent, v.position[0], v.position[1], v.position[2]);
+        if (!span.found) {
+            span = BarSpan{p.x, p.x, p.y, p.y, v.colour, true};
+        }
+        span.left = std::min(span.left, p.x);
+        span.right = std::max(span.right, p.x);
+        span.top = std::min(span.top, p.y);
+        span.bottom = std::max(span.bottom, p.y);
+    }
+    return span;
+}
+
+/// A battle with the factory at `hp`, the camera aimed at it, and the aim point set.
+struct AimedFactory {
+    Damaged battle;
+    SceneOptions options;
+    bool aimed{false};
+};
+AimedFactory aimed_factory(std::uint16_t hp) {
+    AimedFactory a{factory_down_to(hp), battle_options(), false};
+    const protekt::sim::Unit* factory = a.battle.sim.find(a.battle.viewer);
+    Pixel at{};
+    if (factory != nullptr && aim_at(a.battle.sim, a.options, *factory, at)) {
+        a.options.aim = Aim{at.x, at.y};
+        a.aimed = true;
+    }
+    return a;
+}
+
+TEST(AimedBar, AUnitUnderTheCrosshairAddsTheBarAndNothingUnderItAddsNone) {
+    AimedFactory a = aimed_factory(400);
+    ASSERT_TRUE(a.aimed);
+    const Scene with_unit = build_scene(a.battle.sim, a.options);
+    SceneOptions blind = a.options;
+    blind.aim.reset();
+    const Scene without_aim = build_scene(a.battle.sim, blind);
+    EXPECT_EQ(with_unit.vertices.size(),
+              without_aim.vertices.size() + kReticleVertexCount + kAimedBarVertexCount);
+
+    const auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(42));
+    SceneOptions options = options_at(200.0F, 200.0F);
+    options.camera.pitch = -0.35F;
+    Pixel ground{};
+    ASSERT_TRUE(pixel_over_ground(sim, options, ground));
+    const Scene before = build_scene(sim, options);
+    options.aim = Aim{ground.x, ground.y};
+    EXPECT_EQ(build_scene(sim, options).vertices.size(),
+              before.vertices.size() + kReticleVertexCount)
+        << "ground under the crosshair gets a reticle and no bar";
+}
+
+TEST(AimedBar, HalfHealthFillsLessThanFullHealth) {
+    const AimedFactory full = aimed_factory(400);
+    const AimedFactory half = aimed_factory(200);
+    ASSERT_TRUE(full.aimed);
+    ASSERT_TRUE(half.aimed);
+    ASSERT_EQ(half.battle.sim.find(half.battle.viewer)->hp, 200);
+    const BarSpan f = fill_span(full.options, build_scene(full.battle.sim, full.options));
+    const BarSpan h = fill_span(half.options, build_scene(half.battle.sim, half.options));
+    ASSERT_TRUE(f.found);
+    ASSERT_TRUE(h.found);
+    EXPECT_LT(h.right - h.left, f.right - f.left);
+    EXPECT_NEAR(h.right - h.left, (f.right - f.left) * 0.5F, 0.5F);
+}
+
+TEST(AimedBar, AnOwnUnitAndAnEnemyGetDifferentColours) {
+    const auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(42));
+    SceneOptions options = options_at(60.0F, 60.0F);
+    options.viewer_side = protekt::sim::Side::Player;
+    const protekt::sim::Unit* enemy = first_aimable(sim, options, protekt::sim::Side::Enemy);
+    ASSERT_NE(enemy, nullptr);
+    Pixel at_enemy{};
+    ASSERT_TRUE(aim_at(sim, options, *enemy, at_enemy));
+    options.aim = Aim{at_enemy.x, at_enemy.y};
+    const BarSpan hostile = fill_span(options, build_scene(sim, options));
+    const protekt::sim::Unit* own = first_aimable(sim, options, protekt::sim::Side::Player);
+    ASSERT_NE(own, nullptr);
+    Pixel at_own{};
+    ASSERT_TRUE(aim_at(sim, options, *own, at_own));
+    options.aim = Aim{at_own.x, at_own.y};
+    const BarSpan friendly = fill_span(options, build_scene(sim, options));
+    ASSERT_TRUE(hostile.found);
+    ASSERT_TRUE(friendly.found);
+    EXPECT_EQ(hostile.colour, kHostileBarRgb) << "the reticle's hostile family";
+    EXPECT_EQ(friendly.colour, kOwnBarRgb) << "the reticle's friendly family";
+}
+
+TEST(AimedBar, AFrameWithNoAimHasNoBar) {
+    // The headless case: no aim means no pick, no reticle and no bar. With no radar either, nothing
+    // at all is drawn near the eye.
+    AimedFactory a = aimed_factory(400);
+    ASSERT_TRUE(a.aimed);
+    a.options.aim.reset();
+    a.options.viewer_unit = protekt::sim::UnitId{};
+    const Camera& camera = a.options.camera;
+    for (const auto& v : build_scene(a.battle.sim, a.options).vertices) {
+        const float dx = v.position[0] - camera.x;
+        const float dy = v.position[1] - camera.y;
+        const float dz = v.position[2] - camera.z;
+        EXPECT_GT(std::sqrt((dx * dx) + (dy * dy) + (dz * dz)), 1.0F) << "nothing on the HUD layer";
+    }
+}
+
+TEST(AimedBar, LivesOnTheHudLayerAndSurvivesWithoutARadar) {
+    AimedFactory a = aimed_factory(400);
+    ASSERT_TRUE(a.aimed);
+    for (const bool with_radar : {false, true}) {
+        SceneOptions options = a.options;
+        options.viewer_unit = with_radar ? a.battle.viewer : protekt::sim::UnitId{};
+        const std::vector<protekt::game::SceneVertex> bar
+            = aimed_bar_of(build_scene(a.battle.sim, options));
+        ASSERT_EQ(bar.size(), kAimedBarVertexCount);
+        for (const auto& v : bar) {
+            const float dx = v.position[0] - options.camera.x;
+            const float dy = v.position[1] - options.camera.y;
+            const float dz = v.position[2] - options.camera.z;
+            const float distance = std::sqrt((dx * dx) + (dy * dy) + (dz * dz));
+            EXPECT_GT(distance, 0.1F) << "past the near plane";
+            EXPECT_LT(distance, 1.0F) << "on the HUD layer, nearer than the reticle's 1.5 m";
+        }
+    }
+}
+
+TEST(AimedBar, IsLargeCentredAndBelowTheCrosshair) {
+    AimedFactory a = aimed_factory(400);
+    ASSERT_TRUE(a.aimed);
+    a.options.extent = protekt::game::Extent{800, 450};
+    Pixel at{};
+    const protekt::sim::Unit* factory = a.battle.sim.find(a.battle.viewer);
+    ASSERT_TRUE(aim_at(a.battle.sim, a.options, *factory, at));
+    a.options.aim = Aim{at.x, at.y};
+    const BarSpan s = fill_span(a.options, build_scene(a.battle.sim, a.options));
+    ASSERT_TRUE(s.found);
+    EXPECT_GE(s.right - s.left, 120.0F) << "a 3-pixel bar is a failure";
+    EXPECT_GE(s.bottom - s.top, 14.0F);
+    EXPECT_NEAR((s.left + s.right) * 0.5F, at.x, 1.0F);
+    EXPECT_GT(s.top, at.y) << "below the crosshair";
+}

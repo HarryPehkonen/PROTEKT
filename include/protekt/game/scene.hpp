@@ -167,6 +167,11 @@ private:
 /// A reticle is four bars, six vertices each, in a triangle list.
 inline constexpr std::size_t kReticleVertexCount = 24;
 
+/// The health bar under the crosshair is three quads, six vertices each: a light border, a dark
+/// track and the fill. It sits just before the reticle in the vertex list, so the reticle stays the
+/// tail, and it is present exactly when a unit is under the crosshair.
+inline constexpr std::size_t kAimedBarVertexCount = 18;
+
 struct SceneOptions {
     std::uint64_t seed{};
     Camera camera{};
