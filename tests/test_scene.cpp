@@ -2798,8 +2798,9 @@ Scene sky_scene(const SceneOptions& options) {
 } // namespace
 
 TEST(Sky, AddsExactlyItsGeometryToTheScene) {
-    // Three quad bands (16 x 6) + a zenith fan (16 x 3) + the sun disc (16 x 3) = 384 vertices.
-    EXPECT_EQ(kSkyVertexCount, std::size_t{384});
+    // Nine quad bands (16 x 6) + a zenith fan (16 x 3) + the sun disc (16 x 3) = 960 vertices.
+    EXPECT_EQ(protekt::game::kSkyRings, std::size_t{11});
+    EXPECT_EQ(kSkyVertexCount, std::size_t{960});
     const SceneOptions options = options_at(60.0F, 60.0F, 5, 4);
     const Scene scene = sky_scene(options);
     const std::size_t terrain = terrain_vertex_count(4);
@@ -2856,7 +2857,35 @@ TEST(Sky, CarriesTheExactGradientColoursAndIsNeverShaded) {
     }
     // Horizon haze is lighter than the zenith, and the old flat clear colour is in the gradient.
     EXPECT_GT(protekt::game::kSkyRingColours.front()[0], protekt::game::kSkyRingColours.back()[0]);
-    EXPECT_EQ(protekt::game::kSkyRingColours.at(2), (protekt::math::Vec3{0.53F, 0.81F, 0.92F}));
+    EXPECT_EQ(protekt::game::kSkyRingColours.at(protekt::game::kSkyThirtyDegreeRing),
+              (protekt::math::Vec3{0.53F, 0.81F, 0.92F}));
+}
+
+TEST(Sky, RingsAreDenseEnoughNearTheHorizonToNotBand) {
+    const auto& degrees = protekt::game::kSkyRingElevationDegrees;
+    EXPECT_EQ(degrees.front(), 0.0F);
+    EXPECT_EQ(degrees.back(), 90.0F);
+    EXPECT_EQ(degrees.at(protekt::game::kSkyThirtyDegreeRing), 30.0F);
+    for (std::size_t r = 0; r + 1 < degrees.size(); ++r) {
+        EXPECT_GT(degrees.at(r + 1), degrees.at(r)) << "ring " << r;
+        if (degrees.at(r + 1) <= 30.0F) {
+            EXPECT_LE(degrees.at(r + 1) - degrees.at(r), 6.0F) << "gap above ring " << r;
+        }
+    }
+}
+
+TEST(Sky, RingColoursBlendMonotonicallyFromHazeToZenith) {
+    const auto& colours = protekt::game::kSkyRingColours;
+    EXPECT_EQ(colours.front(), (protekt::math::Vec3{0.80F, 0.90F, 0.95F}));
+    for (std::size_t r = 1; r + 1 < colours.size(); ++r) {
+        for (std::size_t c = 0; c < 3; ++c) {
+            EXPECT_LT(colours.at(r).at(c), colours.at(r - 1).at(c))
+                << "ring " << r << " channel " << c;
+            EXPECT_GT(colours.at(r).at(c), colours.at(r + 1).at(c))
+                << "ring " << r << " channel " << c;
+        }
+    }
+    EXPECT_EQ(colours.back(), (protekt::math::Vec3{0.25F, 0.50F, 0.82F}));
 }
 
 TEST(Sky, NothingIsBelowTheHorizonPlaneAtTheCameraHeight) {

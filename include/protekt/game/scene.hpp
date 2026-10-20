@@ -33,27 +33,36 @@ inline constexpr math::Vec3 kSunDirection{-0.35F, 0.85F, -0.40F};
 /// THE SKY. A dome centred on the camera every frame and fixed in ORIENTATION (north stays north
 /// as you turn), built from raw vertex colours: it is the light source, so it never goes through
 /// the shaded prism emitter. `kSkyRings` rings of `kSkySegments` vertices climb from the horizon
-/// (elevation 0, the lowest the dome goes) to the zenith; the three lower bands are quads, the top
+/// (elevation 0, the lowest the dome goes) to the zenith; the lower bands are quads, the top
 /// band a fan of triangles to the zenith point. Then comes the SUN DISC: `kSunDiscSegments`
 /// triangles in the plane perpendicular to `kSunDirection`, centred exactly on it, a hair inside
 /// the dome so it wins the depth test.
 inline constexpr int kSkySegments = 16;
 inline constexpr float kSkyRadiusMetres = 1000.0F; ///< well inside the 2000 m far plane
-inline constexpr std::size_t kSkyRings = 5;
+inline constexpr std::size_t kSkyRings = 11;
 inline constexpr std::size_t kSkyBandVertexCount = std::size_t{kSkySegments} * 6;
 inline constexpr std::size_t kSkyCapVertexCount = std::size_t{kSkySegments} * 3;
 inline constexpr std::size_t kSunDiscVertexCount = std::size_t{kSkySegments} * 3;
 inline constexpr std::size_t kSkyVertexCount
     = ((kSkyRings - 2) * kSkyBandVertexCount) + kSkyCapVertexCount + kSunDiscVertexCount;
-/// Elevation of each ring in degrees, horizon first, and its colour. The renderer's flat clear
-/// colour (0.53, 0.81, 0.92) is the 30-degree ring, so the overall tone does not lurch.
-inline constexpr std::array<float, kSkyRings> kSkyRingElevationDegrees{0.0F, 12.0F, 30.0F, 60.0F,
-                                                                       90.0F};
-inline constexpr std::array<math::Vec3, kSkyRings> kSkyRingColours{{{0.80F, 0.90F, 0.95F},
-                                                                    {0.66F, 0.85F, 0.94F},
-                                                                    {0.53F, 0.81F, 0.92F},
-                                                                    {0.38F, 0.65F, 0.88F},
-                                                                    {0.25F, 0.50F, 0.82F}}};
+/// Elevation of each ring in degrees, horizon first, and its colour. Rings are packed toward the
+/// horizon (never more than 6 degrees apart below 30) so the gradient has no visible banding. The
+/// colours blend the original five anchors (0, 12, 30, 60, 90 degrees) linearly by elevation; the
+/// renderer's flat clear colour (0.53, 0.81, 0.92) is exactly the 30-degree ring.
+inline constexpr std::size_t kSkyThirtyDegreeRing = 5;
+inline constexpr std::array<float, kSkyRings> kSkyRingElevationDegrees{
+    0.0F, 6.0F, 12.0F, 18.0F, 24.0F, 30.0F, 40.0F, 52.0F, 64.0F, 78.0F, 90.0F};
+inline constexpr std::array<math::Vec3, kSkyRings> kSkyRingColours{{{0.8000F, 0.9000F, 0.9500F},
+                                                                    {0.7300F, 0.8750F, 0.9450F},
+                                                                    {0.6600F, 0.8500F, 0.9400F},
+                                                                    {0.6167F, 0.8367F, 0.9333F},
+                                                                    {0.5733F, 0.8233F, 0.9267F},
+                                                                    {0.5300F, 0.8100F, 0.9200F},
+                                                                    {0.4800F, 0.7567F, 0.9067F},
+                                                                    {0.4200F, 0.6927F, 0.8907F},
+                                                                    {0.3627F, 0.6300F, 0.8720F},
+                                                                    {0.3020F, 0.5600F, 0.8440F},
+                                                                    {0.2500F, 0.5000F, 0.8200F}}};
 inline constexpr math::Vec3 kSunDiscColour{1.0F, 0.97F, 0.80F};
 
 /// Where the player's eye is, in world metres and radians. Yaw 0 looks down +Z.
