@@ -530,4 +530,157 @@ TEST(Sim, FireTowardsObeysTheWeaponCooldown) {
     EXPECT_EQ(sim.projectiles().size(), before + 1);
 }
 
+// ---- repair near a living friendly factory -------------------------------------------------
+// A damaged unit cannot be built from a scenario, so each case shoots the victim with a distant
+// enemy tank and compares against the same fight with no factory: any hp the factory gave shows
+// up as a difference, and nothing has to reach into the sim.
+
+constexpr int kRepairTicks = 120; // 20 repair beats; the enemy tank loses ~64 hp of shots at 8/15
+
+/// The player tank's hp after `ticks` of being shot by an enemy tank 10 tiles away, with the
+/// given extra spawns (factories) added to the fight.
+std::uint16_t victim_hp_after(std::vector<Spawn> extra, int ticks) {
+    Scenario s;
+    s.seed = 7;
+    s.spawns = {{UnitKind::Tank, Side::Player, 100, 100}, {UnitKind::Tank, Side::Enemy, 110, 100}};
+    s.spawns.insert(s.spawns.end(), extra.begin(), extra.end());
+    Sim sim = Sim::create(s);
+    for (int t = 0; t < ticks; ++t) {
+        sim.step();
+    }
+    return sim.units()[0].hp;
+}
+
+TEST(SimRepair, ADamagedTankNextToItsOwnFactoryGainsHp) {
+    const std::uint16_t alone = victim_hp_after({}, kRepairTicks);
+    const std::uint16_t repaired
+        = victim_hp_after({{UnitKind::Factory, Side::Player, 100, 96}}, kRepairTicks);
+    ASSERT_LT(alone, kTankHp) << "the fixture must actually hurt the tank";
+    EXPECT_GT(repaired, alone);
+}
+
+TEST(SimRepair, RepairIsOneHpEverySixthTick) {
+    // The first bolt lands on step 32, so the beats at ticks 0..30 (six of them) find a full-hp
+    // tank and heal nothing; every later beat heals exactly 1.
+    constexpr int kBeatsAtFullHp = 6;
+    const int beats = kRepairTicks / static_cast<int>(kRepairTickInterval) - kBeatsAtFullHp;
+    const std::uint16_t alone = victim_hp_after({}, kRepairTicks);
+    const std::uint16_t repaired
+        = victim_hp_after({{UnitKind::Factory, Side::Player, 100, 96}}, kRepairTicks);
+    EXPECT_EQ(repaired - alone, beats);
+}
+
+TEST(SimRepair, HpNeverExceedsTheKindMaximum) {
+    Scenario s;
+    s.seed = 7;
+    s.spawns = {{UnitKind::Factory, Side::Player, 100, 96},
+                {UnitKind::Tank, Side::Player, 100, 100},
+                {UnitKind::Turret, Side::Player, 103, 100}};
+    Sim sim = Sim::create(s);
+    for (int t = 0; t < 60; ++t) {
+        sim.step();
+    }
+    EXPECT_EQ(by_side(sim, Side::Player, 1)->hp, kTankHp);
+    EXPECT_EQ(by_side(sim, Side::Player, 2)->hp, kTurretHp);
+}
+
+TEST(SimRepair, ATankJustOutsideTheRadiusGainsNothing) {
+    const std::uint16_t alone = victim_hp_after({}, kRepairTicks);
+    const std::uint16_t outside = victim_hp_after(
+        {{UnitKind::Factory, Side::Player, 100, 100 - kRepairRadiusTiles - 1}}, kRepairTicks);
+    EXPECT_EQ(outside, alone);
+    const std::uint16_t edge = victim_hp_after(
+        {{UnitKind::Factory, Side::Player, 100, 100 - kRepairRadiusTiles}}, kRepairTicks);
+    EXPECT_GT(edge, alone) << "exactly on the radius is inside it";
+}
+
+TEST(SimRepair, AnEnemyFactoryRepairsNothing) {
+    const std::uint16_t alone = victim_hp_after({}, kRepairTicks);
+    const std::uint16_t near_enemy_factory
+        = victim_hp_after({{UnitKind::Factory, Side::Enemy, 100, 96}}, kRepairTicks);
+    EXPECT_EQ(near_enemy_factory, alone);
+}
+
+TEST(SimRepair, ADestroyedFactoryRepairsNothing) {
+    // Six enemy tanks beside the factory kill it, then turn on the tank 6 tiles away. After the
+    // factory is gone the tank's hp may only fall.
+    Scenario s;
+    s.seed = 7;
+    s.spawns
+        = {{UnitKind::Tank, Side::Player, 100, 106}, {UnitKind::Factory, Side::Player, 100, 100}};
+    for (int i = 0; i < 6; ++i) {
+        s.spawns.push_back({UnitKind::Tank, Side::Enemy, 96 + i, 96});
+    }
+    Sim sim = Sim::create(s);
+    const UnitId factory = id_of(sim, Side::Player, 1);
+    bool factory_dead = false;
+    std::uint16_t last = sim.units()[0].hp;
+    for (int t = 0; t < 600 && sim.units()[0].alive; ++t) {
+        sim.step();
+        factory_dead = factory_dead || !sim.find(factory)->alive;
+        if (factory_dead) {
+            EXPECT_LE(sim.units()[0].hp, last) << "tick " << t;
+        }
+        last = sim.units()[0].hp;
+    }
+    EXPECT_TRUE(factory_dead) << "the fixture must kill the factory";
+}
+
+TEST(SimRepair, TheFactoryDoesNotRepairItself) {
+    // Wounded factory: an enemy tank shoots it from 10 tiles; a second friendly factory beside it
+    // would heal it, so there is none -- a factory's own radius must not count itself.
+    Scenario s;
+    s.seed = 7;
+    s.spawns
+        = {{UnitKind::Factory, Side::Player, 100, 100}, {UnitKind::Tank, Side::Enemy, 110, 100}};
+    Sim sim = Sim::create(s);
+    std::uint16_t last = sim.units()[0].hp;
+    for (int t = 0; t < kRepairTicks; ++t) {
+        sim.step();
+        EXPECT_LE(sim.units()[0].hp, last) << "tick " << t;
+        last = sim.units()[0].hp;
+    }
+    EXPECT_LT(last, kFactoryHp);
+}
+
+TEST(SimRepair, AUnitKilledThisTickIsNotHealed) {
+    // Repair runs after fire, and skips the dead: a unit whose last hp was shot away stays at 0
+    // hp rather than being healed to 1 on the same tick.
+    Scenario s;
+    s.seed = 7;
+    s.spawns
+        = {{UnitKind::Factory, Side::Player, 100, 100}, {UnitKind::Tank, Side::Player, 100, 104}};
+    for (int i = 0; i < 12; ++i) {
+        s.spawns.push_back({UnitKind::Tank, Side::Enemy, 96 + i, 112});
+    }
+    Sim sim = Sim::create(s);
+    bool saw_death = false;
+    for (int t = 0; t < 300; ++t) {
+        sim.step();
+        for (const Unit& u : sim.units()) {
+            if (!u.alive) {
+                EXPECT_EQ(u.hp, 0) << "tick " << t;
+                saw_death = true;
+            }
+        }
+    }
+    EXPECT_TRUE(saw_death);
+}
+
+TEST(SimRepair, TheSameScenarioHashesTheSame) {
+    const auto run = [] {
+        Scenario s;
+        s.seed = 7;
+        s.spawns = {{UnitKind::Factory, Side::Player, 100, 96},
+                    {UnitKind::Tank, Side::Player, 100, 100},
+                    {UnitKind::Tank, Side::Enemy, 110, 100}};
+        Sim sim = Sim::create(s);
+        for (int t = 0; t < 300; ++t) {
+            sim.step();
+        }
+        return sim.state_hash();
+    };
+    EXPECT_EQ(run(), run());
+}
+
 } // namespace

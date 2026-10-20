@@ -455,7 +455,29 @@ void Sim::step() {
         }
     }
 
-    // 5.
+    // 5. repair, ascending id. AFTER movement and fire on purpose: a unit shot dead this tick is
+    //    already !alive and is skipped, so repair never undoes a kill, and the +1 lands on the hp
+    //    the tick's damage left. `tick_ % interval` keeps the beat global: no per-unit state.
+    if (tick_ % static_cast<std::uint64_t>(kRepairTickInterval) == 0) {
+        const std::int64_t radius_raw = static_cast<std::int64_t>(kRepairRadiusTiles) << 16;
+        for (Unit& unit : units_) {
+            if (!unit.alive || unit.kind == UnitKind::Factory) {
+                continue;
+            }
+            const std::uint16_t max_hp = profile(unit.kind).hp;
+            if (unit.hp >= max_hp) {
+                continue;
+            }
+            for (const Unit& factory : units_) {
+                if (factory.alive && factory.kind == UnitKind::Factory && factory.side == unit.side
+                    && dist2(unit.x, unit.y, factory.x, factory.y) <= radius_raw * radius_raw) {
+                    ++unit.hp;
+                    break;
+                }
+            }
+        }
+    }
+
     ++tick_;
 }
 

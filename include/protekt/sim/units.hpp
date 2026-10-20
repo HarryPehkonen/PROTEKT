@@ -75,6 +75,8 @@ struct Unit {
 inline constexpr std::uint16_t kTankHp = 100;
 inline constexpr std::uint16_t kTurretHp = 150;
 inline constexpr std::uint16_t kFactoryHp = 400;
+inline constexpr int kRepairRadiusTiles = 6;  ///< a living friendly factory mends units this close
+inline constexpr int kRepairTickInterval = 6; ///< ...by 1 hp every this many ticks
 inline constexpr std::uint16_t kTankDamage = 8;
 inline constexpr std::uint16_t kTurretDamage = 12;
 inline constexpr std::uint16_t kTankCooldownTicks = 15;
