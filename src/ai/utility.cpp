@@ -155,7 +155,12 @@ Decision decide(const sim::UnitView& self, const sim::Observation& observation,
         return decision;
     }
     const sim::UnitView* home = home_factory(observation);
-    if (self.hp <= tuning.retreat_hp) {
+    // Hysteresis without memory: a tank is "withdrawn" when it is wounded and standing at its own
+    // living factory, so it stays until topped up. A wounded tank in the field keeps fighting.
+    const std::int64_t repair_radius = sim::kRepairRadiusTiles;
+    const bool healing_at_home = home != nullptr && self.hp < tuning.return_hp
+                                 && distance_squared(self, *home) <= repair_radius * repair_radius;
+    if (self.hp <= tuning.retreat_hp || healing_at_home) {
         decision.intent = Intent::Retreat;
         decision.x = home != nullptr ? home->x : self.x;
         decision.y = home != nullptr ? home->y : self.y;

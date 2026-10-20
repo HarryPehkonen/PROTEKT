@@ -181,6 +181,63 @@ TEST(Utility, AHealthyTankIsNotWithdrawn) {
         Intent::Retreat);
 }
 
+// The return trip: withdraw at retreat_hp, but once at home keep healing until return_hp. The rule
+// reads "am I withdrawn" off the world (hp and distance to the home factory), not off a flag.
+
+namespace {
+[[nodiscard]] Decision decide_at(int x, int y, std::uint16_t hp, bool factory_alive = true) {
+    UtilityTuning tuning{};
+    tuning.retreat_hp = 20;
+    tuning.return_hp = 80;
+    std::vector<sim::UnitView> own;
+    if (factory_alive) {
+        own.push_back(unit(kFactory, UnitKind::Factory, Side::Enemy, 60, 70));
+    }
+    // the enemy tank sits 3 tiles from (x, y), so it is in range wherever the tank stands
+    const sim::Observation observation
+        = field(own, {unit(50, UnitKind::Tank, Side::Player, x + 3, y)});
+    return decide(unit(kTank, UnitKind::Tank, Side::Enemy, x, y, hp), observation, tuning);
+}
+} // namespace
+
+TEST(Utility, AHurtTankFarFromHomeStillWithdraws) {
+    EXPECT_EQ(decide_at(10, 10, 15).intent, Intent::Retreat);
+}
+
+TEST(Utility, AWoundedTankInTheFieldKeepsFighting) {
+    EXPECT_EQ(decide_at(10, 10, 25).intent, Intent::Engage);
+}
+
+TEST(Utility, AWoundedTankAtHomeStaysToHeal) {
+    const Decision decision = decide_at(60 - sim::kRepairRadiusTiles, 70, 25);
+    ASSERT_EQ(decision.intent, Intent::Retreat);
+    EXPECT_EQ(decision.x, 60);
+    EXPECT_EQ(decision.y, 70);
+}
+
+TEST(Utility, AToppedUpTankAtHomeGoesBackToWork) {
+    EXPECT_EQ(decide_at(60, 70, 85).intent, Intent::Engage);
+}
+
+TEST(Utility, ReturnHpIsAStrictBound) {
+    EXPECT_EQ(decide_at(60, 70, 79).intent, Intent::Retreat);
+    EXPECT_EQ(decide_at(60, 70, 80).intent, Intent::Engage);
+}
+
+TEST(Utility, RetreatHpIsAnInclusiveBound) {
+    EXPECT_EQ(decide_at(10, 10, 20).intent, Intent::Retreat);
+}
+
+TEST(Utility, TheRepairRadiusIsInclusiveAndOneTilePastItIsTheField) {
+    EXPECT_EQ(decide_at(60 - sim::kRepairRadiusTiles, 70, 25).intent, Intent::Retreat);
+    EXPECT_EQ(decide_at(60 - sim::kRepairRadiusTiles - 1, 70, 25).intent, Intent::Engage);
+}
+
+TEST(Utility, ADeadFactoryHealsNobodySoNothingKeepsATankHome) {
+    // A destroyed factory is absent from the observation, so there is no home to stay at.
+    EXPECT_EQ(decide_at(60, 70, 25, false).intent, Intent::Engage);
+}
+
 TEST(Utility, ATankWithNothingToShootGoesBackToTheBaseArea) {
     UtilityTuning tuning{};
     tuning.station_radius_tiles = 8;

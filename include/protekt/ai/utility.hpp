@@ -43,6 +43,8 @@ inline constexpr int kIntentCount = 5;
 struct UtilityTuning {
     int engage_range_tiles{14}; ///< what a tank will consider engaging
     int retreat_hp{20};         ///< at or below this, a tank withdraws
+    int return_hp{80};          ///< the upper end of the withdraw band: below this, a tank that is
+                                ///< already at its own factory stays and keeps healing
     int station_radius_tiles{
         8};                  ///< how far from the base a tank will stray with nothing to shoot at
     int cycle_ticks{15};     ///< half a second at 30 Hz. Slow is the design, not a limitation.
