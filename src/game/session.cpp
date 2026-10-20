@@ -48,16 +48,20 @@ void Session::frame(const input::InputFrame& frame, const sim::Sim& sim,
     // The driven tank's own order goes first, so the tank the player is sitting in has moved before
     // anything else is asked to. A destroyed tank is still thought through, for the view's sake;
     // it issues no order.
-    player_.think(interaction_.driven(), sim::observe(sim, sim::Side::Player), out);
-    if (destroyed_) {
-        return;
-    }
+    const sim::Observation seen = sim::observe(sim, sim::Side::Player);
+    player_.think(interaction_.driven(), seen, out);
 
-    const sim::UnitId driven_before = interaction_.driven();
-    interaction_.handle(frame, sim, options);
-    if (interaction_.driven() != driven_before) {
-        player_.reset_helm(); // a new tank starts from a standstill; the view is kept
+    if (!destroyed_) {
+        const sim::UnitId driven_before = interaction_.driven();
+        interaction_.handle(frame, sim, options);
+        if (interaction_.driven() != driven_before) {
+            player_.reset_helm(); // a new tank starts from a standstill; the view is kept
+        }
     }
+    // The wounded go home after the clicks, so a retreat outranks an order given this frame. It
+    // runs for a spectator too: the player's tanks do not stop looking after themselves when he
+    // dies.
+    interaction_.tend(seen);
     for (const sim::Order& order : interaction_.take_orders()) {
         out.push_back(order);
     }

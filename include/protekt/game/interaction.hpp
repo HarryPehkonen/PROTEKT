@@ -1,5 +1,7 @@
 #pragma once
 
+#include <map>
+#include <set>
 #include <string_view>
 #include <vector>
 
@@ -58,6 +60,14 @@ public:
     /// it is, and `message()` says why.
     void handle(const input::InputFrame& frame, const sim::Sim& sim, const SceneOptions& options);
 
+    /// The retreat -> repair -> return loop, and nothing else. Every own, living, non-driven tank
+    /// at or below `UtilityTuning::retreat_hp` is ordered to its home factory (none alive: it keeps
+    /// fighting), every frame, over whatever it was doing; once it is back at or above `return_hp`
+    /// it is re-issued the last order the player gave it (none remembered: it stays idle). The
+    /// driven tank is never touched: the player is its judgement. Appends to the pending orders, so
+    /// call it after `handle` -- a retreat outranks an order given the same frame.
+    void tend(const sim::Observation& own_side);
+
     /// Drain the orders this input implied. Empty when nothing was asked, or when the last thing
     /// that was asked could not be done. Units appear in ascending id order, because `cmd::` verbs
     /// build them that way and the order the player clicked in must not change what the sim sees.
@@ -88,7 +98,13 @@ private:
     void toggle(sim::UnitId id) noexcept;
     void refuse(std::string_view why) noexcept;
 
+    /// Record what the player ordered `orders` to do, for the return leg: a Stop forgets, and the
+    /// driven tank is never recorded.
+    void remember(const std::vector<sim::Order>& orders);
+
     sim::UnitId driven_;
+    std::map<sim::UnitId, sim::OrderPayload> remembered_; ///< each unit's last player order
+    std::set<sim::UnitId> retreating_;                    ///< tanks sent home and not yet healed
     cmd::Selection selection_;
     std::vector<sim::Order> pending_;
     bool shot_voice_{false};

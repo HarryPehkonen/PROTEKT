@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <utility>
 
+#include "protekt/ai/utility.hpp"
 #include "protekt/cmd/command.hpp"
 #include "protekt/game/pick.hpp"
 #include "protekt/input/bindings.hpp"
@@ -113,6 +114,7 @@ void Interaction::handle(const input::InputFrame& frame, const sim::Sim& sim,
                 refuse("That order cannot be carried out.");
                 continue;
             }
+            remember(orders);
             pending_.insert(pending_.end(), orders.begin(), orders.end());
         }
     }
@@ -167,8 +169,49 @@ void Interaction::handle(const input::InputFrame& frame, const sim::Sim& sim,
                 refuse("That order cannot be carried out.");
                 continue;
             }
+            remember(orders);
             pending_.insert(pending_.end(), orders.begin(), orders.end());
             message_ = "attacking the target under the crosshair.";
+        }
+    }
+}
+
+void Interaction::tend(const sim::Observation& own_side) {
+    // The same numbers the enemy's commander retreats and returns on.
+    const ai::UtilityTuning tuning{};
+    const sim::UnitView* home = ai::home_factory(own_side);
+    for (const sim::UnitView& unit : own_side.own) {
+        if (unit.kind != sim::UnitKind::Tank || unit.id == driven_) {
+            continue;
+        }
+        if (unit.hp <= tuning.retreat_hp) {
+            if (home == nullptr) {
+                continue; // no base to run to: keep fighting
+            }
+            retreating_.insert(unit.id);
+            // Every frame, on purpose: it overwrites itself and outranks the old stance.
+            const std::vector<sim::UnitId> roster{unit.id};
+            const std::vector<sim::Order> go = cmd::move_to(roster, sim::Fixed::from_int(home->x),
+                                                            sim::Fixed::from_int(home->y));
+            pending_.insert(pending_.end(), go.begin(), go.end());
+        } else if (unit.hp >= tuning.return_hp && retreating_.erase(unit.id) > 0) {
+            const auto last = remembered_.find(unit.id);
+            if (last != remembered_.end()) {
+                pending_.push_back(sim::Order{unit.id, last->second});
+            }
+        }
+    }
+}
+
+void Interaction::remember(const std::vector<sim::Order>& orders) {
+    for (const sim::Order& order : orders) {
+        if (order.unit == driven_) {
+            continue;
+        }
+        if (order.kind() == sim::OrderKind::Stop) {
+            remembered_.erase(order.unit);
+        } else {
+            remembered_[order.unit] = order.payload;
         }
     }
 }
@@ -216,6 +259,7 @@ void Interaction::swap_to_crosshair(const sim::Sim& sim, const SceneOptions& opt
         const sim::UnitId vacated = driven_;
         const std::vector<sim::UnitId> roster{vacated};
         const std::vector<sim::Order> stop = cmd::stop(roster);
+        remembered_.erase(vacated); // a Stop forgets; remember() skips the driven tank, as it was
         pending_.insert(pending_.end(), stop.begin(), stop.end());
         driven_ = hit->id;
         message_ = "swapped tanks -- you are driving the one you were looking at.";

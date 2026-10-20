@@ -923,4 +923,151 @@ TEST(Swap, AfterASwapTheNewTankIsNotOrderableAndTheOldOneIs) {
     EXPECT_EQ(orders.at(0).unit, rig.tank_a);
 }
 
+// ---------------------------------------------------------------- the retreat -> return loop
+
+constexpr std::int32_t kHomeX = 10;
+constexpr std::int32_t kHomeY = 12;
+
+/// What the player's side sees: `tank` at `hp`, and (unless `factory` is false) a living factory.
+/// Ids are the rig's; the factory borrows the turret's, because only the kind matters to the loop.
+[[nodiscard]] sim::Observation seen(const Rig& rig, sim::UnitId tank, std::uint16_t hp,
+                                    bool factory = true) {
+    sim::Observation observation{};
+    sim::UnitView view{};
+    view.id = tank;
+    view.kind = UnitKind::Tank;
+    view.side = Side::Player;
+    view.x = 44;
+    view.y = 41;
+    view.hp = hp;
+    observation.own.push_back(view);
+    if (factory) {
+        sim::UnitView home{};
+        home.id = rig.turret;
+        home.kind = UnitKind::Factory;
+        home.side = Side::Player;
+        home.x = kHomeX;
+        home.y = kHomeY;
+        home.hp = sim::kFactoryHp;
+        observation.own.push_back(home);
+    }
+    return observation;
+}
+
+/// Select `unit` and right-click `target` with the mark on it: the unit is ordered to attack it.
+void order_attack(Rig& rig, Interaction& player, sim::UnitId unit, sim::UnitId target) {
+    choose(rig, player, unit);
+    player.handle(with_click(at(rig, target, MouseButton::Right)), rig.sim, rig.options);
+    ASSERT_EQ(player.take_orders().size(), 1U);
+}
+
+TEST(Retreat, AWoundedTankIsSentToItsFactory) {
+    Rig rig = make_rig();
+    Interaction player(rig.tank_a);
+    player.tend(seen(rig, rig.tank_b, 20));
+    const std::vector<Order> orders = player.take_orders();
+    ASSERT_EQ(orders.size(), 1U);
+    EXPECT_EQ(orders.at(0).unit, rig.tank_b);
+    const auto* move = std::get_if<sim::orders::MoveTo>(&orders.at(0).payload);
+    ASSERT_NE(move, nullptr);
+    EXPECT_EQ(move->x, sim::Fixed::from_int(kHomeX));
+    EXPECT_EQ(move->y, sim::Fixed::from_int(kHomeY));
+}
+
+TEST(Retreat, WithNoLivingFactoryTheTankKeepsFighting) {
+    Rig rig = make_rig();
+    Interaction player(rig.tank_a);
+    player.tend(seen(rig, rig.tank_b, 5, false));
+    EXPECT_TRUE(player.take_orders().empty());
+}
+
+TEST(Retreat, AHealedTankResumesItsRememberedOrder) {
+    Rig rig = make_rig();
+    Interaction player(rig.tank_a);
+    order_attack(rig, player, rig.tank_b, rig.enemy);
+    player.tend(seen(rig, rig.tank_b, 20));
+    static_cast<void>(player.take_orders());
+    player.tend(seen(rig, rig.tank_b, 80));
+    const std::vector<Order> orders = player.take_orders();
+    ASSERT_EQ(orders.size(), 1U);
+    EXPECT_EQ(orders.at(0).unit, rig.tank_b);
+    const auto* attack = std::get_if<sim::orders::Attack>(&orders.at(0).payload);
+    ASSERT_NE(attack, nullptr);
+    EXPECT_EQ(attack->target, rig.enemy);
+}
+
+TEST(Retreat, ATankStillWoundedBetweenTheThresholdsStaysHome) {
+    Rig rig = make_rig();
+    Interaction player(rig.tank_a);
+    order_attack(rig, player, rig.tank_b, rig.enemy);
+    player.tend(seen(rig, rig.tank_b, 20));
+    static_cast<void>(player.take_orders());
+    player.tend(seen(rig, rig.tank_b, 79));
+    EXPECT_TRUE(player.take_orders().empty());
+}
+
+TEST(Retreat, AHealedTankWithNoRememberedOrderStaysIdleAndCommandable) {
+    Rig rig = make_rig();
+    Interaction player(rig.tank_a);
+    choose(rig, player, rig.tank_b);
+    player.tend(seen(rig, rig.tank_b, 10));
+    static_cast<void>(player.take_orders());
+    player.tend(seen(rig, rig.tank_b, 90));
+    EXPECT_TRUE(player.take_orders().empty());
+    player.handle(with_click(ground_click(rig, true)), rig.sim, rig.options);
+    EXPECT_EQ(player.take_orders().size(), 1U) << "still orderable";
+}
+
+TEST(Retreat, TheDrivenTankNeverRetreats) {
+    Rig rig = make_rig();
+    Interaction player(rig.tank_a);
+    player.tend(seen(rig, rig.tank_a, 1));
+    EXPECT_TRUE(player.take_orders().empty());
+}
+
+TEST(Retreat, ATankAboveTheThresholdIsLeftAlone) {
+    Rig rig = make_rig();
+    Interaction player(rig.tank_a);
+    order_attack(rig, player, rig.tank_b, rig.enemy);
+    player.tend(seen(rig, rig.tank_b, 21));
+    EXPECT_TRUE(player.take_orders().empty());
+    player.tend(seen(rig, rig.tank_b, 100));
+    EXPECT_TRUE(player.take_orders().empty()) << "and a tank that never retreated never resumes";
+}
+
+TEST(Retreat, AnOrderGivenWhileRetreatingIsTheOneResumed) {
+    Rig rig = make_rig();
+    Interaction player(rig.tank_a);
+    order_attack(rig, player, rig.tank_b, rig.enemy);
+    player.tend(seen(rig, rig.tank_b, 15));
+    static_cast<void>(player.take_orders());
+    order_attack(rig, player, rig.tank_b, rig.enemy2);
+    player.tend(seen(rig, rig.tank_b, 85));
+    const std::vector<Order> orders = player.take_orders();
+    ASSERT_EQ(orders.size(), 1U);
+    const auto* attack = std::get_if<sim::orders::Attack>(&orders.at(0).payload);
+    ASSERT_NE(attack, nullptr);
+    EXPECT_EQ(attack->target, rig.enemy2);
+}
+
+TEST(Retreat, StopForgetsTheRememberedOrder) {
+    // The only Stop the player's hands make is the swap's: the tank he leaves is told to Stop. Give
+    // tank_b an order, drive it, then leave it again -- its old order must not come back.
+    Rig rig = make_rig();
+    Interaction player(rig.tank_a);
+    order_attack(rig, player, rig.tank_b, rig.enemy);
+    static_cast<void>(at(rig, rig.tank_b));
+    player.handle(with_key(input::kKeyX), rig.sim, rig.options);
+    ASSERT_EQ(player.driven(), rig.tank_b);
+    static_cast<void>(player.take_orders());
+    static_cast<void>(at(rig, rig.tank_a));
+    player.handle(with_key(input::kKeyX), rig.sim, rig.options);
+    ASSERT_EQ(player.driven(), rig.tank_a);
+    static_cast<void>(player.take_orders());
+    player.tend(seen(rig, rig.tank_b, 20));
+    static_cast<void>(player.take_orders());
+    player.tend(seen(rig, rig.tank_b, 80));
+    EXPECT_TRUE(player.take_orders().empty());
+}
+
 } // namespace protekt::game

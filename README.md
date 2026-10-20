@@ -30,6 +30,9 @@ You are one tank. Everything else you command.
 | **right click**, mark on the ground | order every selected unit there |
 | **right click**, mark on a hostile | order every selected unit to attack it |
 
+Your other tanks retreat to your factory for repairs on their own (at 20 hp or less) and return to
+their last order when healed (80 hp); the tank you are driving never does.
+
 The tank you are sitting in is **never** moved by a click. It is driven by `W`/`S` and `A`/`D`
 every tick, so an order from the mouse would fight your own hands: the tank always drives the way its
 body points, and looking around with the mouse never changes where it goes. Selecting it is
