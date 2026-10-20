@@ -27,6 +27,12 @@
 
 namespace {
 
+// A tank is seven shaded prisms (12 triangles each) and then its paint: 7 camo quads and 16 track
+// links, six vertices a quad.
+constexpr std::size_t kTankPrismVertices = std::size_t{7} * 36;
+constexpr std::size_t kTankPaintVertices = std::size_t{7 + 16} * 6;
+constexpr std::size_t kTankVertices = kTankPrismVertices + kTankPaintVertices;
+
 using protekt::game::Camera;
 using protekt::game::kMetresPerHeightUnit;
 using protekt::game::kMetresPerTile;
@@ -238,8 +244,7 @@ TEST(SceneUnits, ASelectedUnitIsDrawnBrighterAndNothingElseChanges) {
                 << "a selection must not move anything";
         }
     }
-    EXPECT_EQ(different, 7U * 12U * 3U)
-        << "exactly one tank (seven prisms of 12 triangles) changes colour";
+    EXPECT_EQ(different, kTankVertices) << "exactly one tank (prisms and paint) changes colour";
 
     // And the highlight is brighter than the side colour it came from.
     bool brighter = false;
@@ -1411,6 +1416,30 @@ TEST(Hover, OnARampTheHullLagsBelowTheRisingGround) {
     EXPECT_GT(hover_height(hover.z()), kRideHeightMetres) << "but it has started to rise";
 }
 
+SceneOptions at_tank(const protekt::sim::Unit& tank) {
+    return options_at(static_cast<float>(tank.x.raw) / static_cast<float>(protekt::sim::Fixed::kOne)
+                          * kMetresPerTile,
+                      static_cast<float>(tank.y.raw) / static_cast<float>(protekt::sim::Fixed::kOne)
+                          * kMetresPerTile);
+}
+
+/// Exactly one tank's vertices: those that move when the tank is hovered far above the ground.
+std::vector<protekt::game::SceneVertex> tank_only(const protekt::sim::Sim& sim,
+                                                  const protekt::sim::Unit& tank,
+                                                  std::span<const protekt::sim::UnitId> selected) {
+    SceneOptions options = at_tank(tank);
+    const auto base = protekt::game::build_scene(sim, options, selected);
+    options.hover = SceneOptions::Hovering{tank.id, 1000.0F};
+    const auto raised = protekt::game::build_scene(sim, options, selected);
+    std::vector<protekt::game::SceneVertex> out;
+    for (std::size_t i = 0; i < base.vertices.size() && i < raised.vertices.size(); ++i) {
+        if (base.vertices.at(i).position != raised.vertices.at(i).position) {
+            out.push_back(base.vertices.at(i));
+        }
+    }
+    return out;
+}
+
 TEST(Hover, TheHoveringUnitIsDrawnAtTheHullHeightAndOthersStayOnTheGround) {
     const auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(42));
     const protekt::sim::Unit tank = sim.units().at(0);
@@ -1433,7 +1462,86 @@ TEST(Hover, TheHoveringUnitIsDrawnAtTheHullHeightAndOthersStayOnTheGround) {
             ++moved;
         }
     }
-    EXPECT_EQ(moved, 252U) << "exactly one tank (seven prisms: 252 vertices) moves";
+    EXPECT_EQ(moved, kTankVertices) << "exactly one tank (prisms and paint) moves";
+}
+
+TEST(TankPaint, ThePaintIsAppendedAfterTheShadedPrismsAndStaysUnderTheBudget) {
+    const auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(42));
+    const protekt::sim::Unit tank = sim.units().at(0);
+    const SceneOptions options = at_tank(tank);
+    const auto with = protekt::game::build_scene(sim, options);
+    EXPECT_LT(kTankVertices, 450U);
+    EXPECT_EQ(kTankVertices, kTankPrismVertices + kTankPaintVertices);
+    EXPECT_GE(with.vertices.size(), kTankVertices);
+}
+
+TEST(TankPaint, PaintVerticesExistAndDifferFromTheHullBaseColour) {
+    const auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(42));
+    const protekt::sim::Unit tank = sim.units().at(0);
+    const auto tank_vertices = tank_only(sim, tank, {});
+    ASSERT_EQ(tank_vertices.size(), kTankVertices);
+    // The hull is prism 3 (after two tracks); its top face is the fifth face of six.
+    const auto base = tank_vertices.at(((2U * 36U) + (4U * 6U))).colour;
+    std::set<std::array<float, 3>> tones;
+    for (std::size_t i = kTankPrismVertices; i < kTankVertices; ++i) {
+        tones.insert(tank_vertices.at(i).colour);
+        EXPECT_NE(tank_vertices.at(i).colour, base);
+    }
+    EXPECT_GE(tones.size(), 3U) << "camo dark, camo light and the track links are told apart";
+}
+
+TEST(TankPaint, TheSameSeedAndIdPaintTheSameTankEveryTime) {
+    const auto sim_a = protekt::sim::Sim::create(protekt::sim::skirmish(42));
+    const auto sim_b = protekt::sim::Sim::create(protekt::sim::skirmish(42));
+    const auto a = tank_only(sim_a, sim_a.units().at(0), {});
+    const auto b = tank_only(sim_b, sim_b.units().at(0), {});
+    ASSERT_EQ(a.size(), b.size());
+    for (std::size_t i = 0; i < a.size(); ++i) {
+        EXPECT_EQ(a.at(i).position, b.at(i).position);
+        EXPECT_EQ(a.at(i).colour, b.at(i).colour);
+    }
+}
+
+TEST(TankPaint, DifferentTanksAreNotPaintedIdentically) {
+    const auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(42));
+    // Same side, so the base colours match; only the id differs.
+    std::vector<protekt::sim::Unit> tanks;
+    for (const auto& unit : sim.units()) {
+        if (unit.kind == protekt::sim::UnitKind::Tank && unit.side == sim.units().at(0).side) {
+            tanks.push_back(unit);
+        }
+    }
+    ASSERT_GE(tanks.size(), 2U);
+    const auto a = tank_only(sim, tanks.at(0), {});
+    const auto b = tank_only(sim, tanks.at(1), {});
+    // Compare the paint as camo patch SHAPES in unit-local terms: the u/v jitter differs, so the
+    // vertex colours order or the lift differ. Colours alone may coincide, so compare the sets of
+    // offsets from each tank's own first paint vertex.
+    bool differ = false;
+    for (std::size_t i = kTankPrismVertices; i < kTankVertices && !differ; ++i) {
+        for (std::size_t axis = 0; axis < 3; ++axis) {
+            const float da = a.at(i).position.at(axis) - a.at(kTankPrismVertices).position.at(axis);
+            const float db = b.at(i).position.at(axis) - b.at(kTankPrismVertices).position.at(axis);
+            differ = differ || std::abs(da - db) > 1e-4F;
+        }
+    }
+    EXPECT_TRUE(differ);
+}
+
+TEST(TankPaint, SelectionTintCoversThePaintAsWellAsTheHull) {
+    const auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(42));
+    const protekt::sim::Unit tank = sim.units().at(0);
+    const auto plain = tank_only(sim, tank, {});
+    const std::vector<protekt::sim::UnitId> chosen{tank.id};
+    const auto marked = tank_only(sim, tank, chosen);
+    ASSERT_EQ(plain.size(), marked.size());
+    for (std::size_t i = kTankPrismVertices; i < kTankVertices; ++i) {
+        EXPECT_EQ(plain.at(i).position, marked.at(i).position);
+        const auto& before = plain.at(i).colour;
+        const auto& after = marked.at(i).colour;
+        EXPECT_TRUE(after[0] > before[0] && after[1] > before[1] && after[2] > before[2])
+            << "paint vertex " << i << " must be tinted brighter with the rest of the tank";
+    }
 }
 
 } // namespace
@@ -2130,8 +2238,9 @@ using protekt::sim::UnitId;
 
 constexpr std::size_t kPrismVertices = 36;
 constexpr std::size_t kBarrelVertices = kPrismVertices;
-/// Two tracks, hull, turret, bustle, muzzle collar, barrel -- the barrel is the last prism.
-constexpr std::size_t kFacingTankVertices = 7 * kPrismVertices;
+/// Two tracks, hull, turret, bustle, muzzle collar, barrel -- the barrel is the last prism -- and
+/// then the paint, which is the end of the tank.
+constexpr std::size_t kFacingTankVertices = kTankVertices;
 
 /// The enemy factory first and the viewer's tank LAST, so the viewer's boxes are the tail of the
 /// scene: these options have no radar, reticle or bolts after the units.
@@ -2155,10 +2264,12 @@ Scene facing_scene(const protekt::sim::Sim& sim, float heading, float turret) {
     return protekt::game::build_scene(sim, o);
 }
 
-/// The barrel is the last box of the viewer's tank, and the viewer's tank is the end of the scene.
+/// The barrel is the last PRISM of the viewer's tank (the paint follows it), and the viewer's tank
+/// is the end of the scene.
 std::vector<protekt::game::SceneVertex> barrel_of(const Scene& scene) {
-    const auto first = scene.vertices.end() - static_cast<std::ptrdiff_t>(kBarrelVertices);
-    return {first, scene.vertices.end()};
+    const auto first
+        = scene.vertices.end() - static_cast<std::ptrdiff_t>(kTankPaintVertices + kBarrelVertices);
+    return {first, first + static_cast<std::ptrdiff_t>(kBarrelVertices)};
 }
 
 /// Where the barrel lies from the tank's own centre, on the map plane: the mean of its vertices.
