@@ -32,9 +32,18 @@ constexpr std::uint64_t kSeed = 42;
 /// stops testing the thing the moment somebody tunes it.
 constexpr int kTicksToFullLock = static_cast<int>(1.0F / kTurnEasePerTick) + 2;
 
+protekt::sim::UnitId player_unit(const protekt::sim::Sim& sim) {
+    for (const auto& unit : sim.units()) {
+        if (unit.side == protekt::sim::Side::Player && unit.kind == protekt::sim::UnitKind::Tank) {
+            return unit.id;
+        }
+    }
+    return {};
+}
+
 std::vector<protekt::sim::Order> orders_for(const protekt::sim::Sim& sim, PlayerCommander& player) {
     std::vector<protekt::sim::Order> out;
-    player.think(protekt::sim::observe(sim, protekt::sim::Side::Player), out);
+    player.think(player_unit(sim), protekt::sim::observe(sim, protekt::sim::Side::Player), out);
     return out;
 }
 
@@ -48,20 +57,11 @@ void tick_once(protekt::sim::Sim& sim, PlayerCommander& player) {
     sim.step();
 }
 
-protekt::sim::UnitId player_unit(const protekt::sim::Sim& sim) {
-    for (const auto& unit : sim.units()) {
-        if (unit.side == protekt::sim::Side::Player && unit.kind == protekt::sim::UnitKind::Tank) {
-            return unit.id;
-        }
-    }
-    return {};
-}
-
 TEST(PlayerCommander, OnlyEverOrdersItsOwnUnit) {
     const auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(kSeed));
     const auto id = player_unit(sim);
     ASSERT_TRUE(id.valid());
-    PlayerCommander player(id);
+    PlayerCommander player;
     InputState input;
     input.throttle = 1.0F;
     input.turn = 0.4F;
@@ -76,8 +76,7 @@ TEST(PlayerCommander, OnlyEverOrdersItsOwnUnit) {
 
 TEST(PlayerCommander, FullAheadSendsTheTankWhereItIsPointing) {
     const auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(kSeed));
-    const auto id = player_unit(sim);
-    PlayerCommander player(id);
+    PlayerCommander player;
     const auto& tank = sim.units().front();
     InputState input;
     input.throttle = 1.0F;
@@ -94,8 +93,7 @@ TEST(PlayerCommander, FullAheadSendsTheTankWhereItIsPointing) {
 
 TEST(PlayerCommander, ReverseSendsItBackwards) {
     const auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(kSeed));
-    const auto id = player_unit(sim);
-    PlayerCommander player(id);
+    PlayerCommander player;
     const auto& tank = sim.units().front();
     InputState input;
     input.throttle = -1.0F;
@@ -108,7 +106,7 @@ TEST(PlayerCommander, ReverseSendsItBackwards) {
 
 TEST(PlayerCommander, TurningMovesTheWaypointOffTheOldHeading) {
     auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(kSeed));
-    PlayerCommander player(player_unit(sim));
+    PlayerCommander player;
     InputState input;
     input.throttle = 1.0F;
     player.set_input(input);
@@ -130,7 +128,7 @@ TEST(PlayerCommander, TurningMovesTheWaypointOffTheOldHeading) {
 
 TEST(PlayerCommander, TheHelmEasesUpToTheTankRate) {
     auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(kSeed));
-    PlayerCommander player(player_unit(sim));
+    PlayerCommander player;
     InputState input;
     input.turn = 1.0F;
     player.set_input(input);
@@ -160,7 +158,7 @@ TEST(PlayerCommander, TheHelmEasesUpToTheTankRate) {
 
 TEST(PlayerCommander, TheHelmEasesBackToCentre) {
     auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(kSeed));
-    PlayerCommander player(player_unit(sim));
+    PlayerCommander player;
     InputState input;
     input.turn = 1.0F;
     player.set_input(input);
@@ -186,7 +184,7 @@ TEST(PlayerCommander, TheHelmEasesBackToCentre) {
 TEST(PlayerCommander, TheThrottleEasesAndTopsOutAtTheLookahead) {
     auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(kSeed));
     const auto id = player_unit(sim);
-    PlayerCommander player(id);
+    PlayerCommander player;
     InputState input;
     input.throttle = 1.0F;
     player.set_input(input);
@@ -203,7 +201,8 @@ TEST(PlayerCommander, TheThrottleEasesAndTopsOutAtTheLookahead) {
         const float tank_y = static_cast<float>(tank->y.floor_int());
 
         std::vector<protekt::sim::Order> orders;
-        player.think(protekt::sim::observe(sim, protekt::sim::Side::Player), orders);
+        player.think(player_unit(sim), protekt::sim::observe(sim, protekt::sim::Side::Player),
+                     orders);
         ASSERT_EQ(orders.size(), 1U);
         const auto& move = std::get<protekt::sim::orders::MoveTo>(orders.front().payload);
         const float dx = (static_cast<float>(move.x.raw) * kRaw) - tank_x;
@@ -236,8 +235,8 @@ TEST(PlayerCommander, TheHelmIsClockedByTheSimTickAndNotByTheFrame) {
     // EXACTLY where two frames worth one tick each would.
     auto by_tick = protekt::sim::Sim::create(protekt::sim::skirmish(kSeed));
     auto by_frame = protekt::sim::Sim::create(protekt::sim::skirmish(kSeed));
-    PlayerCommander ticked(player_unit(by_tick));
-    PlayerCommander framed(player_unit(by_frame));
+    PlayerCommander ticked;
+    PlayerCommander framed;
     InputState input;
     input.turn = 1.0F;
     ticked.set_input(input);
@@ -248,14 +247,17 @@ TEST(PlayerCommander, TheHelmIsClockedByTheSimTickAndNotByTheFrame) {
         tick_once(by_tick, ticked);
     }
     std::vector<protekt::sim::Order> ignored;
-    ticked.think(protekt::sim::observe(by_tick, protekt::sim::Side::Player), ignored);
+    ticked.think(player_unit(by_tick), protekt::sim::observe(by_tick, protekt::sim::Side::Player),
+                 ignored);
 
     // B: a think at ticks 0, 1 and 3, with the middle frame stepping TWO ticks.
     tick_once(by_frame, framed);
-    framed.think(protekt::sim::observe(by_frame, protekt::sim::Side::Player), ignored);
+    framed.think(player_unit(by_frame), protekt::sim::observe(by_frame, protekt::sim::Side::Player),
+                 ignored);
     by_frame.step();
     by_frame.step();
-    framed.think(protekt::sim::observe(by_frame, protekt::sim::Side::Player), ignored);
+    framed.think(player_unit(by_frame), protekt::sim::observe(by_frame, protekt::sim::Side::Player),
+                 ignored);
 
     ASSERT_EQ(by_tick.tick(), by_frame.tick()) << "the two runs must have run the same ticks";
     EXPECT_FLOAT_EQ(framed.heading(), ticked.heading())
@@ -264,13 +266,14 @@ TEST(PlayerCommander, TheHelmIsClockedByTheSimTickAndNotByTheFrame) {
 
     // And a frame in which no tick ran turns nothing at all.
     const float before = framed.heading();
-    framed.think(protekt::sim::observe(by_frame, protekt::sim::Side::Player), ignored);
+    framed.think(player_unit(by_frame), protekt::sim::observe(by_frame, protekt::sim::Side::Player),
+                 ignored);
     EXPECT_FLOAT_EQ(framed.heading(), before) << "a frame with no tick in it turned the tank";
 }
 
 TEST(PlayerCommander, IdleDoesNotDriveAnywhere) {
     auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(kSeed));
-    PlayerCommander player(player_unit(sim));
+    PlayerCommander player;
     const auto id = player_unit(sim);
     const std::int32_t start_x = sim.units().front().x.raw;
     const std::int32_t start_y = sim.units().front().y.raw;
@@ -293,7 +296,7 @@ TEST(PlayerCommander, IdleDoesNotDriveAnywhere) {
 TEST(PlayerCommander, DrivingForwardActuallyMovesTheTankThroughTheSimulation) {
     auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(kSeed));
     const auto id = player_unit(sim);
-    PlayerCommander player(id);
+    PlayerCommander player;
     InputState input;
     input.throttle = 1.0F;
 
@@ -323,7 +326,8 @@ TEST(PlayerCommander, DrivingForwardActuallyMovesTheTankThroughTheSimulation) {
         // The tick must run as well as the think, or the heading never moves and this loop spins
         // until the guard trips -- which is how it behaved when the helm was clocked per call.
         std::vector<protekt::sim::Order> ignored;
-        player.think(protekt::sim::observe(sim, protekt::sim::Side::Player), ignored);
+        player.think(player_unit(sim), protekt::sim::observe(sim, protekt::sim::Side::Player),
+                     ignored);
         for (const auto& order : ignored) {
             sim.enqueue(order);
         }
@@ -356,8 +360,7 @@ TEST(PlayerCommander, DrivingForwardActuallyMovesTheTankThroughTheSimulation) {
 
 TEST(PlayerCommander, DoesNotHijackTheDrivingToChaseEnemies) {
     auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(kSeed));
-    const auto id = player_unit(sim);
-    PlayerCommander player(id);
+    PlayerCommander player;
     // Walk the sim forward until the sides are close, driving the player straight at the enemy.
     InputState input;
     input.throttle = 1.0F;
@@ -377,8 +380,8 @@ TEST(PlayerCommander, DoesNotHijackTheDrivingToChaseEnemies) {
 /// with the throttle at zero -- a tank turns on the spot.
 TEST(PlayerCommanderBody, ATurnsOneWayAndDTheOtherWithNoThrottleAtAll) {
     auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(kSeed));
-    PlayerCommander left(player_unit(sim));
-    PlayerCommander right(player_unit(sim));
+    PlayerCommander left;
+    PlayerCommander right;
     InputState input;
     input.throttle = 0.0F;
     input.turn = 1.0F;
@@ -388,7 +391,8 @@ TEST(PlayerCommanderBody, ATurnsOneWayAndDTheOtherWithNoThrottleAtAll) {
     for (int tick = 0; tick < kTicksToFullLock; ++tick) {
         tick_once(sim, left);
         std::vector<protekt::sim::Order> ignored;
-        right.think(protekt::sim::observe(sim, protekt::sim::Side::Player), ignored);
+        right.think(player_unit(sim), protekt::sim::observe(sim, protekt::sim::Side::Player),
+                    ignored);
     }
     EXPECT_GT(left.heading(), 0.1F) << "A did not turn the hull with the throttle at zero";
     EXPECT_LT(right.heading(), -0.1F) << "D did not turn the hull the other way";
@@ -399,7 +403,7 @@ TEST(PlayerCommanderBody, ATurnsOneWayAndDTheOtherWithNoThrottleAtAll) {
 /// was, while the tank is being driven.
 TEST(PlayerCommanderTurret, TheMouseMovesTheViewAndNotTheHull) {
     auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(kSeed));
-    PlayerCommander player(player_unit(sim));
+    PlayerCommander player;
     player.set_heading(0.0F);
     InputState input;
     input.throttle = 1.0F;
@@ -423,7 +427,7 @@ TEST(PlayerCommanderTurret, TheMouseMovesTheViewAndNotTheHull) {
 /// leaves the turret's angle relative to the hull alone.
 TEST(PlayerCommanderTurret, TurningTheBodyCarriesTheTurretWithIt) {
     auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(kSeed));
-    PlayerCommander player(player_unit(sim));
+    PlayerCommander player;
     InputState input;
     input.look_yaw = 0.7F;
     player.set_input(input);
@@ -450,7 +454,7 @@ TEST(PlayerCommanderTurret, TurningTheBodyCarriesTheTurretWithIt) {
 /// ordered destination, and A/D do.
 TEST(PlayerCommanderTurret, TheMouseDoesNotChangeWhereTheTankIsOrdered) {
     auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(kSeed));
-    PlayerCommander player(player_unit(sim));
+    PlayerCommander player;
     InputState input;
     input.throttle = 1.0F;
     player.set_input(input);
@@ -480,7 +484,7 @@ TEST(PlayerCommanderTurret, TheMouseDoesNotChangeWhereTheTankIsOrdered) {
 /// The turret may be turned all the way round, and further: it wraps and never clamps.
 TEST(PlayerCommanderTurret, TheTurretWrapsAndNeverClamps) {
     auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(kSeed));
-    PlayerCommander player(player_unit(sim));
+    PlayerCommander player;
     const float quarter = 1.5707964F;
     InputState input;
     float last = player.view_yaw();
@@ -502,7 +506,7 @@ TEST(PlayerCommanderTurret, TheTurretWrapsAndNeverClamps) {
 
 TEST(PlayerCommanderTurret, TheTurretDoesNotDecayBackToCentre) {
     auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(kSeed));
-    PlayerCommander player(player_unit(sim));
+    PlayerCommander player;
     InputState input;
     input.look_yaw = 0.9F;
     player.set_input(input);
@@ -516,7 +520,7 @@ TEST(PlayerCommanderTurret, TheTurretDoesNotDecayBackToCentre) {
 /// A destroyed tank's body cannot turn; its turret still looks.
 TEST(PlayerCommanderDeath, TheBodyStaysPutAndTheTurretStillLooks) {
     auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(kSeed));
-    PlayerCommander wreck(protekt::sim::UnitId{9999});
+    PlayerCommander wreck;
     wreck.set_heading(0.4F);
     InputState input;
     input.turn = 1.0F;
@@ -525,7 +529,8 @@ TEST(PlayerCommanderDeath, TheBodyStaysPutAndTheTurretStillLooks) {
     const float view = wreck.view_yaw();
     for (int tick = 0; tick < kTicksToFullLock; ++tick) {
         std::vector<protekt::sim::Order> out;
-        wreck.think(protekt::sim::observe(sim, protekt::sim::Side::Player), out);
+        wreck.think(protekt::sim::UnitId{9999},
+                    protekt::sim::observe(sim, protekt::sim::Side::Player), out);
         EXPECT_TRUE(out.empty());
         sim.step();
         input.look_yaw = 0.0F;

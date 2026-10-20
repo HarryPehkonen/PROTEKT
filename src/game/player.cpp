@@ -26,8 +26,6 @@ float eased(float value, float target, float step) noexcept {
 
 } // namespace
 
-PlayerCommander::PlayerCommander(sim::UnitId unit) : unit_(unit) {}
-
 void PlayerCommander::set_input(const InputState& input) noexcept { input_ = input; }
 const InputState& PlayerCommander::input() const noexcept { return input_; }
 float PlayerCommander::heading() const noexcept { return heading_; }
@@ -38,13 +36,13 @@ float PlayerCommander::view_pitch() const noexcept { return view_pitch_; }
 float PlayerCommander::turret_yaw() const noexcept { return turret_yaw_; }
 float PlayerCommander::turn_rate() const noexcept { return turn_rate_; }
 float PlayerCommander::throttle_rate() const noexcept { return throttle_rate_; }
-sim::UnitId PlayerCommander::unit() const noexcept { return unit_; }
 
 void PlayerCommander::set_heading(float radians) noexcept {
     heading_ = Camera::wrap_angle(radians);
 }
 
-void PlayerCommander::think(const sim::Observation& observation, std::vector<sim::Order>& out) {
+void PlayerCommander::think(sim::UnitId unit, const sim::Observation& observation,
+                            std::vector<sim::Order>& out) {
     // The turret first, and for a dead tank too: looking around from a wreck is the point of a
     // spectator. The mouse's radians for this frame are spent once, here, on the turret alone --
     // the hull never follows it.
@@ -55,7 +53,7 @@ void PlayerCommander::think(const sim::Observation& observation, std::vector<sim
 
     const sim::UnitView* self = nullptr;
     for (const auto& view : observation.own) {
-        if (view.id == unit_) {
+        if (view.id == unit) {
             self = &view;
             break;
         }
@@ -100,10 +98,10 @@ void PlayerCommander::think(const sim::Observation& observation, std::vector<sim
     const float target_y = static_cast<float>(self->y) + std::cos(heading_) * distance;
 
     out.push_back(
-        sim::Order{unit_, sim::orders::MoveTo{sim::Fixed::from_raw(static_cast<std::int32_t>(
-                                                  std::lround(target_x * sim::Fixed::kOne))),
-                                              sim::Fixed::from_raw(static_cast<std::int32_t>(
-                                                  std::lround(target_y * sim::Fixed::kOne)))}});
+        sim::Order{unit, sim::orders::MoveTo{sim::Fixed::from_raw(static_cast<std::int32_t>(
+                                                 std::lround(target_x * sim::Fixed::kOne))),
+                                             sim::Fixed::from_raw(static_cast<std::int32_t>(
+                                                 std::lround(target_y * sim::Fixed::kOne)))}});
 }
 
 } // namespace protekt::game

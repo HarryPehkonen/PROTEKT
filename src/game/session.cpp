@@ -7,14 +7,14 @@
 
 namespace protekt::game {
 
-Session::Session(sim::UnitId driven) noexcept : player_(driven), interaction_(driven) {}
+Session::Session(sim::UnitId driven) noexcept : interaction_(driven) {}
 
 void Session::frame(const input::InputFrame& frame, const sim::Sim& sim,
                     const SceneOptions& options, std::vector<sim::Order>& out) {
     if (!headed_) {
         // Face the open ground before the first frame: at seed 42 the player's tank spawns looking
         // straight at four crater tiles, and the simulation is right to refuse to drive into them.
-        const sim::Unit* self = sim.find(player_.unit());
+        const sim::Unit* self = sim.find(interaction_.driven());
         if (self != nullptr) {
             player_.set_heading(
                 clearest_heading(options.seed, self->x.floor_int(), self->y.floor_int()));
@@ -23,7 +23,7 @@ void Session::frame(const input::InputFrame& frame, const sim::Sim& sim,
     }
     // A destroyed tank explains the one report a player made that looked like a stuck game: the
     // throttle did nothing and turning still worked. Say it plainly, once.
-    if (!destroyed_ && sim.find(player_.unit()) == nullptr) {
+    if (!destroyed_ && sim.find(interaction_.driven()) == nullptr) {
         destroyed_ = true;
         destroyed_message_ = "your hover tank was destroyed -- the view is a spectator's now";
     }
@@ -48,7 +48,7 @@ void Session::frame(const input::InputFrame& frame, const sim::Sim& sim,
     // The driven tank's own order goes first, so the tank the player is sitting in has moved before
     // anything else is asked to. A destroyed tank is still thought through, for the view's sake;
     // it issues no order.
-    player_.think(sim::observe(sim, sim::Side::Player), out);
+    player_.think(interaction_.driven(), sim::observe(sim, sim::Side::Player), out);
     if (destroyed_) {
         return;
     }

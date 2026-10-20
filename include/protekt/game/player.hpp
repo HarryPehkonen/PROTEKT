@@ -43,9 +43,9 @@ struct InputState {
     bool quit{};
 };
 
-class PlayerCommander final : public sim::ICommander {
+class PlayerCommander final {
 public:
-    explicit PlayerCommander(sim::UnitId unit);
+    PlayerCommander() = default;
 
     void set_input(const InputState& input) noexcept;
     [[nodiscard]] const InputState& input() const noexcept;
@@ -69,9 +69,9 @@ public:
     /// heading with ground ahead of it: the sim will not drive into a crater, and a player whose
     /// first keypress does nothing has been told the game is broken.
     void set_heading(float radians) noexcept;
-    [[nodiscard]] sim::UnitId unit() const noexcept;
 
-    /// One order per TICK, for its own unit and no other: a `MoveTo` to a waypoint ahead of the
+    /// One order per TICK, for `unit` and no other (the caller owns which tank is driven; this
+    /// class keeps only the driver's helm state): a `MoveTo` to a waypoint ahead of the
     /// tank. Turning is applied here, because the sim moves a unit toward a destination and has no
     /// throttle -- the tank follows the waypoint.
     ///
@@ -87,10 +87,9 @@ public:
     /// the unit PURSUE, which would take the steering wheel out of the player's hands; the player's
     /// weapons still fire in range, because that is the sim's job. Attack-on-command is the
     /// commander layer's (M4).
-    void think(const sim::Observation& observation, std::vector<sim::Order>& out) override;
+    void think(sim::UnitId unit, const sim::Observation& observation, std::vector<sim::Order>& out);
 
 private:
-    sim::UnitId unit_;
     InputState input_{};
     float heading_{};
     float turret_yaw_{}; ///< relative to the hull
