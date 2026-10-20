@@ -53,23 +53,24 @@ constexpr int kFirstTeamHullTile = 10;
 
 constexpr Rgb kWhite{255, 255, 255};
 constexpr Rgb kMagenta{255, 0, 255};
-/// A camo palette: the base the tile is filled with, a dark tone and a light one painted over it.
+/// A camo palette: a mid tone (a minor accent), the dark tone the tile is filled with, and the
+/// light (sand) tone painted over both in big patches.
 struct Palette {
-    Rgb base;
+    Rgb mid;
     Rgb dark;
     Rgb light;
 };
 
-/// The neutral camo of tank_hull_a/b/c. The base sits well under 255 so the sand can be BRIGHTER
+/// The neutral camo of tank_hull_a/b/c. The mid sits well under 255 so the sand can be BRIGHTER
 /// than it: camo reads by lightness, and a sand that only shifted the hue would vanish on a blue
 /// tank.
 constexpr Palette kNeutralCamo{{190, 190, 186}, {86, 92, 80}, {255, 246, 214}};
 /// The TEAM camo. A neutral camo multiplied by a saturated side colour collapses into one hue in
 /// several brightnesses, which reads as shading, not camo; so each team's tiles carry the team's
-/// own hue family -- a dark tone near 0.32 luma, a mid base near 0.60 -- and a light tone near
+/// own hue family -- a dark tone near 0.32 luma, a mid accent near 0.60 -- and a light tone near
 /// 0.85 from ANOTHER hue family, so the pattern reads by hue as well as by lightness. The hull's
 /// vertex colour is only a pale tint of the side colour (see the scene), so these tones survive it.
-/// Player: navy, steel blue, sand. Enemy: oxblood, brick, pale sage.
+/// Player: navy and sand, steel-blue accent. Enemy: oxblood and pale sage, brick accent.
 constexpr Palette kPlayerCamo{{110, 160, 205}, {55, 82, 160}, {240, 216, 170}};
 constexpr Palette kEnemyCamo{{215, 140, 105}, {160, 60, 50}, {196, 226, 190}};
 constexpr Rgb kTrackBase{64, 64, 66};    ///< the scene's old kTrackTint
@@ -107,44 +108,65 @@ private:
     std::uint64_t state_;
 };
 
+/// The pattern's carriers are the dark and the light (sand) tone, the pair a hue apart: the tile is
+/// filled with the dark one and the sand goes on first, in a few BIG patches; the mid tone is only
+/// a minor accent after it. Every patch paints only the dark ground, so a later patch never breaks
+/// up an earlier one. A hull face shows the whole 64-texel tile in about 40 screen pixels, so a
+/// dozen small patches render as speckle and the face reads as one colour: each pattern puts 2-4
+/// bold sand patches, every one 16+ texels across, on the tile.
+constexpr int kSandPatches = 3;    ///< sand patches a tile is painted with
+constexpr int kAccentPatches = 3;  ///< mid-tone patches, painted after the sand, around it
+constexpr int kMinPatchRadius = 8; ///< so a patch spans 16+ texels
+
+/// Texel (x, y) becomes `tone` if it is still `ground`.
+void paint_over(Tile& tile, int x, int y, const Rgb& ground, const Rgb& tone) {
+    Rgb& at = texel(tile, static_cast<std::uint32_t>(x), static_cast<std::uint32_t>(y));
+    at = at == ground ? tone : at;
+}
+
 /// Camo A, SPLODGES: blobs, each a cluster of overlapping discs stamped at hashed offsets from a
-/// hashed centre, dark and sand in a checker over a 4 x 3 grid of cells (one blob a cell, so the
-/// whole tile is covered, not a corner of it); a later blob paints over an earlier one.
-Tile paint_splodges(std::uint64_t seed, int tile_index, const Palette& camo) {
-    Tile tile{};
-    tile.fill(camo.base);
-    HashWalk walk(seed, tile_index);
-    constexpr int kColumns = 4;
-    constexpr int kRows = 3;
+/// hashed centre. Blob `i` of `count` is centred in its own strip of the tile's width, alternately
+/// in the top and the bottom half (`phase` flips which), so the blobs spread over the whole tile
+/// and stay apart rather than running into one.
+void paint_blobs(Tile& tile, HashWalk& walk, int count, int phase, int lo, int hi,
+                 const Rgb& ground, const Rgb& tone) {
     constexpr int kDiscs = 4;
-    for (int blob = 0; blob < kColumns * kRows; ++blob) {
-        const int column = blob % kColumns;
-        const int row = blob / kColumns;
-        const Rgb tone = ((column + row) % 2) == 0 ? camo.dark : camo.light;
-        const int cx = (column * 16) + walk.between(0, 15);
-        const int cy = (row * 21) + walk.between(0, 20);
-        const int size = walk.between(7, 10);
+    const int strip = 64 / count;
+    for (int blob = 0; blob < count; ++blob) {
+        const int cx = (blob * strip) + walk.between(strip / 4, strip - (strip / 4));
+        const int cy = ((blob + phase) % 2) == 0 ? walk.between(10, 24) : walk.between(39, 53);
+        const int size = walk.between(lo, hi);
         for (int disc = 0; disc < kDiscs; ++disc) {
-            const int dx = disc == 0 ? 0 : walk.between(-size, size);
-            const int dy = disc == 0 ? 0 : walk.between(-size, size);
-            const int r = disc == 0 ? size : walk.between(size / 2, size - 1);
-            for (int y = cy + dy - r; y <= cy + dy + r; ++y) {
-                for (int x = cx + dx - r; x <= cx + dx + r; ++x) {
-                    const int ox = x - cx - dx;
-                    const int oy = y - cy - dy;
-                    if (x >= 0 && y >= 0 && x < 64 && y < 64 && (ox * ox) + (oy * oy) <= r * r) {
-                        texel(tile, static_cast<std::uint32_t>(x), static_cast<std::uint32_t>(y))
-                            = tone;
+            const int dx = disc == 0 ? 0 : walk.between(-size / 2, size / 2);
+            const int dy = disc == 0 ? 0 : walk.between(-size / 2, size / 2);
+            const int r = disc == 0 ? size : walk.between(kMinPatchRadius, size);
+            const int ox = cx + dx;
+            const int oy = cy + dy;
+            for (int y = std::max(oy - r, 0); y <= std::min(oy + r, 63); ++y) {
+                for (int x = std::max(ox - r, 0); x <= std::min(ox + r, 63); ++x) {
+                    if (((x - ox) * (x - ox)) + ((y - oy) * (y - oy)) <= r * r) {
+                        paint_over(tile, x, y, ground, tone);
                     }
                 }
             }
         }
     }
+}
+
+Tile paint_splodges(std::uint64_t seed, int tile_index, const Palette& camo) {
+    Tile tile{};
+    tile.fill(camo.dark);
+    HashWalk walk(seed, tile_index);
+    paint_blobs(tile, walk, kSandPatches, 0, kMinPatchRadius + 3, kMinPatchRadius + 5, camo.dark,
+                camo.light);
+    paint_blobs(tile, walk, kAccentPatches, 1, kMinPatchRadius, kMinPatchRadius + 1, camo.dark,
+                camo.mid);
     return tile;
 }
 
-/// Camo B, STRIPES: diagonal bands -- dark, base, sand, base, with hashed widths -- whose edges
-/// wander a few texels along their length, so they read as brushed stripes rather than a ruler's.
+/// Camo B, STRIPES: broad diagonal bands -- dark, sand, then a narrow mid accent -- with hashed
+/// widths, whose edges wander a few texels along their length, so they read as brushed stripes
+/// rather than a ruler's.
 Tile paint_stripes(std::uint64_t seed, int tile_index, const Palette& camo) {
     Tile tile{};
     HashWalk walk(seed, tile_index);
@@ -153,14 +175,14 @@ Tile paint_stripes(std::uint64_t seed, int tile_index, const Palette& camo) {
     std::array<Rgb, 176> bands{};
     int at = 0;
     for (int band = 0; at < static_cast<int>(bands.size()); ++band) {
-        Rgb tone = camo.base;
-        int width = walk.between(4, 7);
-        if (band % 4 == 0) {
-            tone = camo.dark;
-            width = walk.between(7, 11);
-        } else if (band % 4 == 2) {
+        Rgb tone = camo.dark;
+        int width = walk.between(2 * kMinPatchRadius, (2 * kMinPatchRadius) + 4);
+        if (band % 3 == 1) {
             tone = camo.light;
-            width = walk.between(4, 6);
+            width = walk.between(2 * kMinPatchRadius, (2 * kMinPatchRadius) + 4);
+        } else if (band % 3 == 2) {
+            tone = camo.mid;
+            width = walk.between(7, 9);
         }
         for (int i = 0; i < width && at < static_cast<int>(bands.size()); ++i) {
             bands.at(static_cast<std::size_t>(at++)) = tone;
@@ -189,37 +211,36 @@ Tile paint_stripes(std::uint64_t seed, int tile_index, const Palette& camo) {
 }
 
 /// Camo C, BLOCKS: a digital pattern. Walkers step one 4-texel cell at a time in hashed directions
-/// and stamp a 2x2-cell square wherever they stand, so the patches are blocky clusters whose every
-/// edge lies on the 4-texel grid. Each walker starts in its own quarter-by-quarter square of the
-/// tile, so the clusters spread over all of it.
-Tile paint_blocks(std::uint64_t seed, int tile_index, const Palette& camo) {
-    Tile tile{};
-    tile.fill(camo.base);
-    HashWalk walk(seed, tile_index);
+/// and stamp a 5x5-cell square wherever they stand, so the patches are big blocky clusters whose
+/// every edge lies on the 4-texel grid. Walker `i` of `count` starts in its own strip of the tile's
+/// width, alternately at the top and the bottom (`phase` flips which), so the clusters spread over
+/// all of it and stay apart.
+void walk_blocks(Tile& tile, HashWalk& walk, int count, int phase, int steps_lo, int steps_hi,
+                 const Rgb& ground, const Rgb& tone) {
     constexpr int kCell = 4;
     constexpr int kCells = 64 / kCell;
-    constexpr int kWalkers = 16;
-    for (int walker = 0; walker < kWalkers; ++walker) {
-        const Rgb tone = (((walker % 4) + (walker / 4)) % 2) == 0 ? camo.dark : camo.light;
-        int cx = ((walker % 4) * 4) + walk.between(0, 2);
-        int cy = ((walker / 4) * 4) + walk.between(0, 2);
-        const int steps = walk.between(4, 7);
+    constexpr int kStamp = ((2 * kMinPatchRadius) / kCell) + 1; // cells a side: 20 texels
+    const int strip = (kCells - kStamp) / count;
+    for (int walker = 0; walker < count; ++walker) {
+        int cx = (walker * strip) + walk.between(0, strip);
+        int cy = ((walker + phase) % 2) == 0 ? walk.between(0, 2)
+                                             : walk.between(kCells - kStamp - 2, kCells - kStamp);
+        const int steps = walk.between(steps_lo, steps_hi);
         for (int step = 0; step < steps; ++step) {
-            for (int y = cy * kCell; y < (cy + 2) * kCell && y < 64; ++y) {
-                for (int x = cx * kCell; x < (cx + 2) * kCell && x < 64; ++x) {
-                    texel(tile, static_cast<std::uint32_t>(x), static_cast<std::uint32_t>(y))
-                        = tone;
+            for (int y = cy * kCell; y < (cy + kStamp) * kCell; ++y) {
+                for (int x = cx * kCell; x < (cx + kStamp) * kCell; ++x) {
+                    paint_over(tile, x, y, ground, tone);
                 }
             }
             switch (walk.between(0, 3)) {
             case 0:
-                cx = std::min(cx + 1, kCells - 2);
+                cx = std::min(cx + 1, kCells - kStamp);
                 break;
             case 1:
                 cx = std::max(cx - 1, 0);
                 break;
             case 2:
-                cy = std::min(cy + 1, kCells - 2);
+                cy = std::min(cy + 1, kCells - kStamp);
                 break;
             default:
                 cy = std::max(cy - 1, 0);
@@ -227,6 +248,14 @@ Tile paint_blocks(std::uint64_t seed, int tile_index, const Palette& camo) {
             }
         }
     }
+}
+
+Tile paint_blocks(std::uint64_t seed, int tile_index, const Palette& camo) {
+    Tile tile{};
+    tile.fill(camo.dark);
+    HashWalk walk(seed, tile_index);
+    walk_blocks(tile, walk, kSandPatches, 0, 2, 4, camo.dark, camo.light);
+    walk_blocks(tile, walk, kAccentPatches, 1, 2, 3, camo.dark, camo.mid);
     return tile;
 }
 

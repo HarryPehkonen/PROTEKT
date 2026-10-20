@@ -415,6 +415,88 @@ TEST(AtlasPaint, EachTeamsCamoIsInItsOwnHueFamily) {
     }
 }
 
+/// D2g: the camo must read ON THE RENDERED TANK, where a hull face shows the whole tile in about 40
+/// screen pixels. At D2f the tile passed its gate but the seed-7 tank box was 3261 of 3804 pixels
+/// blue-family: sand covered ~10-15% of the tile in a dozen small specks. So the sand -- the tone a
+/// hue apart from the team's dark -- carries the pattern, in a few big patches.
+/// The share of the tile the sand (lightest) tone must cover, at least and at most.
+constexpr double kMinSandCoverage = 0.30;
+constexpr double kMaxSandCoverage = 0.45;
+/// A sand patch counts as a PATCH, not a speck, if it spans this many texels across or down...
+constexpr int kMinPatchSpan = 16;
+/// ...and nearly all the sand must lie in such patches (a sliver clipped by the tile's corner may
+/// not), and there are only a few of them: bold, not speckle.
+constexpr double kMinSandInPatches = 0.90;
+constexpr int kMinSandPatches = 2;
+constexpr int kMaxSandPatches = 4;
+
+TEST(AtlasPaint, EachHullTilesSandIsAFewBoldPatchesCoveringAThirdOfIt) {
+    const auto px = protekt::game::atlas_pixels();
+    for (const int tile : kHullTiles) {
+        const auto [darkest, sand] = tone_extremes(px, tile);
+        std::array<bool, 4096> seen{};
+        int sand_total = 0;
+        int sand_in_patches = 0;
+        int patches = 0;
+        for (int start = 0; start < 4096; ++start) {
+            if (seen.at(static_cast<std::size_t>(start))
+                || texel(px, tile, start % 64, start / 64) != sand) {
+                continue;
+            }
+            // Flood the 4-connected sand patch from `start`, keeping its size and bounding box.
+            std::vector<int> stack{start};
+            seen.at(static_cast<std::size_t>(start)) = true;
+            int size = 0;
+            int x0 = 64;
+            int x1 = -1;
+            int y0 = 64;
+            int y1 = -1;
+            while (!stack.empty()) {
+                const int at = stack.back();
+                stack.pop_back();
+                const int x = at % 64;
+                const int y = at / 64;
+                ++size;
+                x0 = std::min(x0, x);
+                x1 = std::max(x1, x);
+                y0 = std::min(y0, y);
+                y1 = std::max(y1, y);
+                for (const auto& [nx, ny] : std::array<std::array<int, 2>, 4>{
+                         {{x - 1, y}, {x + 1, y}, {x, y - 1}, {x, y + 1}}}) {
+                    const int next = (ny * 64) + nx;
+                    if (nx >= 0 && ny >= 0 && nx < 64 && ny < 64
+                        && !seen.at(static_cast<std::size_t>(next))
+                        && texel(px, tile, nx, ny) == sand) {
+                        seen.at(static_cast<std::size_t>(next)) = true;
+                        stack.push_back(next);
+                    }
+                }
+            }
+            sand_total += size;
+            if (std::max(x1 - x0, y1 - y0) + 1 >= kMinPatchSpan) {
+                sand_in_patches += size;
+                ++patches;
+            }
+        }
+        const double coverage = sand_total / 4096.0;
+        EXPECT_GE(coverage, kMinSandCoverage) << "tile " << tile;
+        EXPECT_LE(coverage, kMaxSandCoverage) << "tile " << tile;
+        EXPECT_GE(sand_in_patches, kMinSandInPatches * sand_total)
+            << "tile " << tile << ": the sand is patches, not specks";
+        EXPECT_GE(patches, kMinSandPatches) << "tile " << tile;
+        EXPECT_LE(patches, kMaxSandPatches) << "tile " << tile;
+        // The pattern is two-tone dark-and-sand: the mid tone is only an accent.
+        const auto shares = tone_shares(px, tile);
+        EXPECT_GT(shares.at(darkest), shares.at(sand) / 2) << "tile " << tile;
+        for (const auto& [rgb, share] : shares) {
+            if (rgb != darkest && rgb != sand) {
+                EXPECT_LT(share, shares.at(sand)) << "tile " << tile << ": the mid is an accent";
+                EXPECT_LT(share, shares.at(darkest)) << "tile " << tile << ": the mid is an accent";
+            }
+        }
+    }
+}
+
 TEST(AtlasPaint, TheTrackTileIsDarkWithLighterLinkStripesAcrossItsHeight) {
     const auto px = protekt::game::atlas_pixels();
     int light_rows = 0;
