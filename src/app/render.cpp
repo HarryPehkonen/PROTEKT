@@ -95,7 +95,7 @@ int run_render_cli(std::span<const std::string_view> args, std::ostream& out, st
     render::CreateOptions create_options;
     create_options.device_name = opt.gpu;
     create_options.extent = game::Extent{opt.width, opt.height};
-    create_options.atlas_rgba = game::atlas_pixels();
+    create_options.atlas_rgba = game::load_game_atlas(err).pixels;
     create_options.atlas_side = game::kAtlasSide;
     const auto renderer = render::create(create_options, error);
     if (!renderer) {

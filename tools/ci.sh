@@ -354,7 +354,7 @@ stage_format() {
     local -a sources=()
     while IFS= read -r f; do
         [ -n "$f" ] && [ -f "$f" ] && sources+=("$f")
-    done < <(printf '%s\n' "$touched" | grep -E '\.(cpp|cc|cxx|hpp|hh|h)$')
+    done < <(printf '%s\n' "$touched" | grep -E '\.(cpp|cc|cxx|hpp|hh|h)$' | grep -v '^third_party/')
     if [ "${#sources[@]}" -eq 0 ]; then
         printf '    nothing to check\n'
         ci_pass format
@@ -370,7 +370,7 @@ stage_format() {
         local -a staged=() index_drift=()
         local f staged_f
         while IFS= read -r staged_f; do
-            [ -n "$staged_f" ] && [ -f "$staged_f" ] && [[ "$staged_f" =~ \.(cpp|cc|cxx|hpp|hh|h)$ ]] && staged+=("$staged_f")
+            [ -n "$staged_f" ] && [ -f "$staged_f" ] && [[ "$staged_f" =~ \.(cpp|cc|cxx|hpp|hh|h)$ ]] && [[ "$staged_f" != third_party/* ]] && staged+=("$staged_f")
         done < <(git diff --cached --name-only --diff-filter=ACMR)
         if [ "${#staged[@]}" -gt 0 ]; then
             for f in "${staged[@]}"; do

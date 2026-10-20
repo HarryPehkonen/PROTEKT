@@ -2,7 +2,10 @@
 
 #include <array>
 #include <cstdint>
+#include <filesystem>
+#include <iosfwd>
 #include <map>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -11,7 +14,10 @@
 /// manifest that names the tiles, and the UV rectangle each tile occupies. The renderer knows none
 /// of this -- it is handed pixels and vertices.
 ///
-/// The atlas is still made in memory (solid tiles); a real image file is a later slice.
+/// The atlas lives in two places: built in memory (`atlas_pixels()`, `embedded_atlas_manifest()`),
+/// which is the single definition of the tiles and the fallback, and as files (assets/atlas.png,
+/// assets/atlas_manifest.txt) that `load_atlas_assets` prefers when it finds them, so a picture can
+/// be swapped without a recompile. `protekt-atlas-gen` writes the PNG FROM the in-memory builder.
 namespace protekt::game {
 
 inline constexpr std::uint32_t kTilesPerRow = 4;
@@ -31,8 +37,13 @@ struct UvRect {
     float v1{};
 };
 
-/// The exact rectangle of tile `index` (row-major). An index outside [0, kTileCount) gets the
-/// fallback tile's, so a bad index can never address outside the atlas.
+/// Half a texel in UV space: how far every tile's rectangle is pulled in from each edge, so a
+/// NEAREST fetch exactly on a face edge can never land in the neighbouring tile.
+inline constexpr float kHalfTexel = 0.5F / static_cast<float>(kAtlasSide);
+
+/// The rectangle of tile `index` (row-major): the tile's own cell shrunk by half a texel on each
+/// side. An index outside [0, kTileCount) gets the fallback tile's, so a bad index can never
+/// address outside the atlas.
 [[nodiscard]] UvRect tile_rect(int index) noexcept;
 
 /// Part name -> tile index. Parsing NEVER throws or fails: a line that is blank, a comment, or not
@@ -51,10 +62,40 @@ private:
     std::map<std::string, int, std::less<>> tiles_;
 };
 
-/// The committed manifest (assets/atlas_manifest.txt, embedded at configure time), parsed once.
+/// The committed manifest (assets/atlas_manifest.txt, embedded at configure time), parsed afresh.
+[[nodiscard]] AtlasManifest embedded_atlas_manifest();
+
+/// The manifest the scene uses: the embedded one until `install_atlas_manifest` replaces it. Set it
+/// once at startup, before any scene is built.
 [[nodiscard]] const AtlasManifest& atlas_manifest();
+void install_atlas_manifest(AtlasManifest manifest);
 
 /// The in-memory atlas: kAtlasSide x kAtlasSide RGBA8, tightly packed, each tile one solid colour.
+/// The one definition of the tile contents: the generator writes this, the fallback uploads this.
 [[nodiscard]] std::vector<std::uint8_t> atlas_pixels();
+
+/// What the game will use: the atlas pixels and manifest, and where each came from (a file path,
+/// or "embedded").
+struct AtlasAssets {
+    std::vector<std::uint8_t> pixels;
+    AtlasManifest manifest;
+    std::string pixels_source;
+    std::string manifest_source;
+};
+
+inline constexpr std::string_view kEmbeddedSource = "embedded";
+
+/// Looks for atlas.png and atlas_manifest.txt in each of `dirs` in order. A file that is missing,
+/// is not a kAtlasSide x kAtlasSide image, or holds no valid manifest line is skipped; if none
+/// qualifies the embedded version is used and ONE line saying so goes to `log`. Never fails:
+/// the game does not refuse to start over an asset.
+[[nodiscard]] AtlasAssets load_atlas_assets(std::span<const std::filesystem::path> dirs,
+                                            std::ostream& log);
+
+/// The search order: ./assets (the working directory), then assets/ next to the executable.
+[[nodiscard]] std::vector<std::filesystem::path> default_asset_dirs();
+
+/// `load_atlas_assets(default_asset_dirs())`, and the loaded manifest becomes the scene's.
+[[nodiscard]] AtlasAssets load_game_atlas(std::ostream& log);
 
 } // namespace protekt::game

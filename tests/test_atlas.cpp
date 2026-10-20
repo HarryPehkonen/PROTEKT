@@ -14,6 +14,7 @@ namespace {
 
 using protekt::game::AtlasManifest;
 using protekt::game::kFallbackTile;
+using protekt::game::kHalfTexel;
 using protekt::game::tile_rect;
 using protekt::game::UvRect;
 
@@ -88,34 +89,34 @@ TEST(AtlasManifest, TheEmbeddedTextIsTheCommittedFile) {
     EXPECT_EQ(text.str(), std::string{kAtlasManifestText});
 }
 
-TEST(AtlasLayout, ATilesRectIsExactlyItsAtlasRectangle) {
+TEST(AtlasLayout, ATilesRectIsExactlyItsAtlasRectangleInsetByHalfATexel) {
     const UvRect first = tile_rect(0);
-    EXPECT_EQ(first.u0, 0.0F);
-    EXPECT_EQ(first.v0, 0.0F);
-    EXPECT_EQ(first.u1, 0.25F);
-    EXPECT_EQ(first.v1, 0.25F);
+    EXPECT_EQ(first.u0, 0.0F + kHalfTexel);
+    EXPECT_EQ(first.v0, 0.0F + kHalfTexel);
+    EXPECT_EQ(first.u1, 0.25F - kHalfTexel);
+    EXPECT_EQ(first.v1, 0.25F - kHalfTexel);
     const UvRect one = tile_rect(1);
-    EXPECT_EQ(one.u0, 0.25F);
-    EXPECT_EQ(one.v0, 0.0F);
-    EXPECT_EQ(one.u1, 0.5F);
-    EXPECT_EQ(one.v1, 0.25F);
+    EXPECT_EQ(one.u0, 0.25F + kHalfTexel);
+    EXPECT_EQ(one.v0, 0.0F + kHalfTexel);
+    EXPECT_EQ(one.u1, 0.5F - kHalfTexel);
+    EXPECT_EQ(one.v1, 0.25F - kHalfTexel);
     const UvRect six = tile_rect(6);
-    EXPECT_EQ(six.u0, 0.5F);
-    EXPECT_EQ(six.v0, 0.25F);
-    EXPECT_EQ(six.u1, 0.75F);
-    EXPECT_EQ(six.v1, 0.5F);
+    EXPECT_EQ(six.u0, 0.5F + kHalfTexel);
+    EXPECT_EQ(six.v0, 0.25F + kHalfTexel);
+    EXPECT_EQ(six.u1, 0.75F - kHalfTexel);
+    EXPECT_EQ(six.v1, 0.5F - kHalfTexel);
     const UvRect last = tile_rect(15);
-    EXPECT_EQ(last.u0, 0.75F);
-    EXPECT_EQ(last.v0, 0.75F);
-    EXPECT_EQ(last.u1, 1.0F);
-    EXPECT_EQ(last.v1, 1.0F);
+    EXPECT_EQ(last.u0, 0.75F + kHalfTexel);
+    EXPECT_EQ(last.v0, 0.75F + kHalfTexel);
+    EXPECT_EQ(last.u1, 1.0F - kHalfTexel);
+    EXPECT_EQ(last.v1, 1.0F - kHalfTexel);
 }
 
 TEST(AtlasLayout, AnOutOfRangeIndexGetsTheFallbackRect) {
     for (const int bad : {-1, 16, 1000}) {
         const UvRect r = tile_rect(bad);
-        EXPECT_EQ(r.u1, 0.25F);
-        EXPECT_EQ(r.v1, 0.25F);
+        EXPECT_EQ(r.u1, 0.25F - kHalfTexel);
+        EXPECT_EQ(r.v1, 0.25F - kHalfTexel);
     }
 }
 

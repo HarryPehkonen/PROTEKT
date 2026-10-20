@@ -1,11 +1,16 @@
 #include "protekt/game/atlas.hpp"
 
 #include "atlas_manifest.hpp"
+#include "protekt/game/png.hpp"
 
 #include <charconv>
 #include <cstddef>
+#include <fstream>
+#include <iterator>
+#include <ostream>
 #include <string>
 #include <system_error>
+#include <utility>
 
 namespace protekt::game {
 
@@ -61,7 +66,8 @@ UvRect tile_rect(int index) noexcept {
     const std::uint32_t row_index = (static_cast<std::uint32_t>(index) - col_index) / kTilesPerRow;
     const auto col = static_cast<float>(col_index);
     const auto row = static_cast<float>(row_index);
-    return UvRect{col / side, row / side, (col + 1.0F) / side, (row + 1.0F) / side};
+    return UvRect{(col / side) + kHalfTexel, (row / side) + kHalfTexel,
+                  ((col + 1.0F) / side) - kHalfTexel, ((row + 1.0F) / side) - kHalfTexel};
 }
 
 AtlasManifest AtlasManifest::parse(std::string_view text) {
@@ -93,10 +99,20 @@ int AtlasManifest::tile(std::string_view name) const {
     return found == tiles_.end() ? kFallbackTile : found->second;
 }
 
-const AtlasManifest& atlas_manifest() {
-    static const AtlasManifest manifest = AtlasManifest::parse(kAtlasManifestText);
+AtlasManifest embedded_atlas_manifest() { return AtlasManifest::parse(kAtlasManifestText); }
+
+namespace {
+
+AtlasManifest& active_manifest() {
+    static AtlasManifest manifest = embedded_atlas_manifest();
     return manifest;
 }
+
+} // namespace
+
+const AtlasManifest& atlas_manifest() { return active_manifest(); }
+
+void install_atlas_manifest(AtlasManifest manifest) { active_manifest() = std::move(manifest); }
 
 std::vector<std::uint8_t> atlas_pixels() {
     std::vector<std::uint8_t> pixels(std::size_t{kAtlasSide} * kAtlasSide * 4U);
@@ -112,6 +128,67 @@ std::vector<std::uint8_t> atlas_pixels() {
         }
     }
     return pixels;
+}
+
+AtlasAssets load_atlas_assets(std::span<const std::filesystem::path> dirs, std::ostream& log) {
+    AtlasAssets assets;
+    for (const auto& dir : dirs) {
+        if (!assets.pixels.empty()) {
+            break;
+        }
+        std::vector<std::uint8_t> rgba;
+        std::uint32_t width = 0;
+        std::uint32_t height = 0;
+        const std::filesystem::path file = dir / "atlas.png";
+        if (read_png_rgba(file, rgba, width, height) && width == kAtlasSide
+            && height == kAtlasSide) {
+            assets.pixels = std::move(rgba);
+            assets.pixels_source = file.string();
+        }
+    }
+    for (const auto& dir : dirs) {
+        if (!assets.manifest_source.empty()) {
+            break;
+        }
+        const std::filesystem::path file = dir / "atlas_manifest.txt";
+        std::ifstream in(file, std::ios::binary);
+        const std::string text{std::istreambuf_iterator<char>(in),
+                               std::istreambuf_iterator<char>()};
+        AtlasManifest parsed = AtlasManifest::parse(text);
+        if (parsed.size() > 0) {
+            assets.manifest = std::move(parsed);
+            assets.manifest_source = file.string();
+        }
+    }
+    if (assets.pixels.empty()) {
+        assets.pixels = atlas_pixels();
+        assets.pixels_source = kEmbeddedSource;
+        log << "protekt: no usable assets/atlas.png (searched the working directory and the "
+               "executable's); using the embedded atlas\n";
+    }
+    if (assets.manifest_source.empty()) {
+        assets.manifest = embedded_atlas_manifest();
+        assets.manifest_source = kEmbeddedSource;
+        log << "protekt: no usable assets/atlas_manifest.txt; using the embedded manifest\n";
+    }
+    return assets;
+}
+
+std::vector<std::filesystem::path> default_asset_dirs() {
+    std::vector<std::filesystem::path> dirs{std::filesystem::path{"assets"}};
+    std::error_code ec;
+    const std::filesystem::path exe = std::filesystem::read_symlink("/proc/self/exe", ec);
+    if (!ec && exe.has_parent_path()) {
+        dirs.push_back(exe.parent_path() / "assets");
+    }
+    return dirs;
+}
+
+AtlasAssets load_game_atlas(std::ostream& log) {
+    const auto dirs = default_asset_dirs();
+    AtlasAssets assets = load_atlas_assets(dirs, log);
+    install_atlas_manifest(assets.manifest);
+    return assets;
 }
 
 } // namespace protekt::game

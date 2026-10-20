@@ -3015,9 +3015,15 @@ TEST(SceneUv, PinnedVertexCountsSurviveTheWiderVertex) {
 
 namespace {
 
+using protekt::game::kHalfTexel;
 using protekt::game::SceneVertex;
 using protekt::game::tile_rect;
 using protekt::game::UvRect;
+
+/// A whole 0.25-wide cell of the atlas pulled in by the half-texel inset.
+UvRect cell(float u0, float v0, float u1, float v1) {
+    return {u0 + kHalfTexel, v0 + kHalfTexel, u1 - kHalfTexel, v1 - kHalfTexel};
+}
 
 /// The viewer's drawn tank: the last kTankVertices of a facing scene, in emission order -- two
 /// track skirts, hull, turret, bustle, muzzle collar, barrel, then 7 camo quads and 16 track links.
@@ -3049,14 +3055,14 @@ TEST(TankUv, EachPartAddressesItsTilesExactRect) {
     // Pinned: tracks are tile 1, (0.25, 0) to (0.5, 0.25); hull 0; turret and bustle 2; barrel and
     // collar 3.
     const UvRect tracks = tile_rect(1);
-    EXPECT_EQ(tracks.u0, 0.25F);
-    EXPECT_EQ(tracks.u1, 0.5F);
-    expect_corners_of(tank, 0, 72, {0.25F, 0.0F, 0.5F, 0.25F}, "skirts");
-    expect_corners_of(tank, 72, 108, {0.0F, 0.0F, 0.25F, 0.25F}, "hull");
-    expect_corners_of(tank, 108, 144, {0.5F, 0.0F, 0.75F, 0.25F}, "turret");
-    expect_corners_of(tank, 144, 180, {0.5F, 0.0F, 0.75F, 0.25F}, "bustle");
-    expect_corners_of(tank, 180, 216, {0.75F, 0.0F, 1.0F, 0.25F}, "collar");
-    expect_corners_of(tank, 216, 252, {0.75F, 0.0F, 1.0F, 0.25F}, "barrel");
+    EXPECT_EQ(tracks.u0, 0.25F + kHalfTexel);
+    EXPECT_EQ(tracks.u1, 0.5F - kHalfTexel);
+    expect_corners_of(tank, 0, 72, cell(0.25F, 0.0F, 0.5F, 0.25F), "skirts");
+    expect_corners_of(tank, 72, 108, cell(0.0F, 0.0F, 0.25F, 0.25F), "hull");
+    expect_corners_of(tank, 108, 144, cell(0.5F, 0.0F, 0.75F, 0.25F), "turret");
+    expect_corners_of(tank, 144, 180, cell(0.5F, 0.0F, 0.75F, 0.25F), "bustle");
+    expect_corners_of(tank, 180, 216, cell(0.75F, 0.0F, 1.0F, 0.25F), "collar");
+    expect_corners_of(tank, 216, 252, cell(0.75F, 0.0F, 1.0F, 0.25F), "barrel");
 }
 
 TEST(TankUv, EveryHullFaceCarriesTheHullTilesCorners) {
@@ -3066,16 +3072,17 @@ TEST(TankUv, EveryHullFaceCarriesTheHullTilesCorners) {
         for (std::size_t i = 72 + (face * 6); i < 72 + (face * 6) + 6; ++i) {
             seen.insert({tank.at(i).u, tank.at(i).v});
         }
+        const UvRect hull = cell(0.0F, 0.0F, 0.25F, 0.25F);
         const std::set<std::pair<float, float>> corners{
-            {0.0F, 0.0F}, {0.25F, 0.0F}, {0.25F, 0.25F}, {0.0F, 0.25F}};
+            {hull.u0, hull.v0}, {hull.u1, hull.v0}, {hull.u1, hull.v1}, {hull.u0, hull.v1}};
         EXPECT_EQ(seen, corners) << "hull face " << face;
     }
 }
 
 TEST(TankUv, CamoTakesTheHullTileAndTrackLinksTheTrackTile) {
     const auto tank = drawn_tank(0.6F, -0.2F);
-    expect_corners_of(tank, 252, 252 + (7 * 6), {0.0F, 0.0F, 0.25F, 0.25F}, "camo");
-    expect_corners_of(tank, 252 + (7 * 6), kTankVertices, {0.25F, 0.0F, 0.5F, 0.25F}, "links");
+    expect_corners_of(tank, 252, 252 + (7 * 6), cell(0.0F, 0.0F, 0.25F, 0.25F), "camo");
+    expect_corners_of(tank, 252 + (7 * 6), kTankVertices, cell(0.25F, 0.0F, 0.5F, 0.25F), "links");
 }
 
 TEST(TankUv, NoTankUvIsOutsideTheAtlasOrLeftAtThePlaceholder) {

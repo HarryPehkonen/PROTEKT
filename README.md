@@ -257,6 +257,18 @@ because the obvious metric ("units lost") is won by a commander that does nothin
 to a hand-rolled probe, but a *stale* `build/` cache holds the old failed result. After any change to
 `CMakeLists.txt`, delete it: `rm -rf build`.
 
+## The texture atlas (assets/)
+
+The atlas is a 256x256 RGBA PNG of 4x4 tiles of 64x64, and `assets/atlas_manifest.txt` says which
+tile each tank part uses. At startup the game looks for `atlas.png` and `atlas_manifest.txt` in
+`./assets` (the working directory) and then in `assets/` next to the executable; a file that is
+missing or unusable falls back, with one log line, to the copy embedded in the binary, so the game
+never refuses to start over an asset. Drop in a different PNG of the same layout and it takes
+effect on the next start, with no recompile.
+
+`assets/atlas.png` is generated, not hand-edited: `./build/protekt-atlas-gen [--seed N] [--out PATH]`
+writes it (deterministically) from the same in-memory builder the embedded fallback uses.
+
 ## The gate
 
 No external CI. One script is the single definition of "green", and the git hooks call it:
@@ -291,3 +303,8 @@ the same `ICommander` interface.
 ## License
 
 [The Unlicense](LICENSE) — public domain.
+
+**Third-party code.** `third_party/stb/` holds two single-header libraries by Sean Barrett,
+[stb](https://github.com/nothings/stb): `stb_image.h` (v2.30) and `stb_image_write.h` (v1.16). stb is
+dual-licensed, public domain (Unlicense) or MIT, at your option; the full text is at the end of each
+header. They are used only to read and write the texture atlas PNG.

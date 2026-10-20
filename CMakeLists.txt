@@ -99,6 +99,7 @@ configure_file(
 add_library(protekt_game STATIC
     src/game/aim.cpp
     src/game/atlas.cpp
+    src/game/png.cpp
     src/game/scene.cpp
     src/game/player.cpp
     src/game/pick.cpp
@@ -112,6 +113,9 @@ target_include_directories(protekt_game PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_BINARY_DIR}/generated
 )
+# stb (third_party/stb) is public domain / MIT and is vendored whole; SYSTEM keeps its warnings out
+# of our -Werror, and only src/game/png.cpp includes it.
+target_include_directories(protekt_game SYSTEM PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/third_party/stb)
 target_link_libraries(protekt_game PUBLIC protekt_core protekt_cmd protekt_audio)
 protekt_warnings(protekt_game)
 # ================================ render ================================
@@ -292,7 +296,8 @@ if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
                                         tests/test_navigation.cpp
                                         tests/test_synth.cpp tests/test_mixer.cpp
                                         tests/test_sounds.cpp tests/test_audio_out.cpp
-                                        tests/test_pixels.cpp tests/test_atlas.cpp)
+                                        tests/test_pixels.cpp tests/test_atlas.cpp
+                                        tests/test_atlas_files.cpp)
     target_link_libraries(protekt_tests PRIVATE protekt_app)
     if(PROTEKT_RENDER)
         target_sources(protekt_tests PRIVATE tests/test_render.cpp)
@@ -319,6 +324,14 @@ if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
     add_executable(protekt-measure tools/measure_commanders.cpp)
     target_link_libraries(protekt-measure PRIVATE protekt_core)
     protekt_warnings(protekt-measure)
+
+    # Writes assets/atlas.png from the in-memory atlas builder (the single source of the tiles).
+    add_executable(protekt-atlas-gen tools/atlas_gen.cpp)
+    target_link_libraries(protekt-atlas-gen PRIVATE protekt_app)
+    protekt_warnings(protekt-atlas-gen)
+    add_dependencies(protekt_tests protekt-atlas-gen)
+    target_compile_definitions(protekt_tests
+        PRIVATE PROTEKT_ATLAS_GEN="$<TARGET_FILE:protekt-atlas-gen>")
 
     # The game itself: a window if SDL3 is there, an offscreen buffer if not.
     add_executable(protekt-game src/app/game_cli.cpp)
