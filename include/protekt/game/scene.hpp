@@ -32,14 +32,16 @@ inline constexpr math::Vec3 kSunDirection{-0.35F, 0.85F, -0.40F};
 
 /// THE SKY. A dome centred on the camera every frame and fixed in ORIENTATION (north stays north
 /// as you turn), built from raw vertex colours: it is the light source, so it never goes through
-/// the shaded prism emitter. `kSkyRings` rings of `kSkySegments` vertices climb from the horizon
-/// (elevation 0, the lowest the dome goes) to the zenith; the lower bands are quads, the top
+/// the shaded prism emitter. `kSkyRings` rings of `kSkySegments` vertices climb from the SKIRT
+/// (elevation -30, all haze) through the horizon to the zenith; the lower bands are quads, the top
 /// band a fan of triangles to the zenith point. Then comes the SUN DISC: `kSunDiscSegments`
 /// triangles in the plane perpendicular to `kSunDirection`, centred exactly on it, a hair inside
 /// the dome so it wins the depth test.
+/// The skirt (rings at -30, -20, -10 and 0 degrees, all the haze colour) closes the gap between
+/// the horizon and the terrain silhouette, which the renderer's clear colour used to show through.
 inline constexpr int kSkySegments = 16;
 inline constexpr float kSkyRadiusMetres = 1000.0F; ///< well inside the 2000 m far plane
-inline constexpr std::size_t kSkyRings = 11;
+inline constexpr std::size_t kSkyRings = 14;
 inline constexpr std::size_t kSkyBandVertexCount = std::size_t{kSkySegments} * 6;
 inline constexpr std::size_t kSkyCapVertexCount = std::size_t{kSkySegments} * 3;
 inline constexpr std::size_t kSunDiscVertexCount = std::size_t{kSkySegments} * 3;
@@ -49,10 +51,15 @@ inline constexpr std::size_t kSkyVertexCount
 /// horizon (never more than 6 degrees apart below 30) so the gradient has no visible banding. The
 /// colours blend the original five anchors (0, 12, 30, 60, 90 degrees) linearly by elevation; the
 /// renderer's flat clear colour (0.53, 0.81, 0.92) is exactly the 30-degree ring.
-inline constexpr std::size_t kSkyThirtyDegreeRing = 5;
+inline constexpr std::size_t kSkyThirtyDegreeRing = 8;
+inline constexpr std::size_t kSkyHorizonRing = 3; ///< the first ring at elevation 0
 inline constexpr std::array<float, kSkyRings> kSkyRingElevationDegrees{
-    0.0F, 6.0F, 12.0F, 18.0F, 24.0F, 30.0F, 40.0F, 52.0F, 64.0F, 78.0F, 90.0F};
+    -30.0F, -20.0F, -10.0F, 0.0F,  6.0F,  12.0F, 18.0F,
+    24.0F,  30.0F,  40.0F,  52.0F, 64.0F, 78.0F, 90.0F};
 inline constexpr std::array<math::Vec3, kSkyRings> kSkyRingColours{{{0.8000F, 0.9000F, 0.9500F},
+                                                                    {0.8000F, 0.9000F, 0.9500F},
+                                                                    {0.8000F, 0.9000F, 0.9500F},
+                                                                    {0.8000F, 0.9000F, 0.9500F},
                                                                     {0.7300F, 0.8750F, 0.9450F},
                                                                     {0.6600F, 0.8500F, 0.9400F},
                                                                     {0.6167F, 0.8367F, 0.9333F},

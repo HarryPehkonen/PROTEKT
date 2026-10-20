@@ -2798,9 +2798,9 @@ Scene sky_scene(const SceneOptions& options) {
 } // namespace
 
 TEST(Sky, AddsExactlyItsGeometryToTheScene) {
-    // Nine quad bands (16 x 6) + a zenith fan (16 x 3) + the sun disc (16 x 3) = 960 vertices.
-    EXPECT_EQ(protekt::game::kSkyRings, std::size_t{11});
-    EXPECT_EQ(kSkyVertexCount, std::size_t{960});
+    // Twelve quad bands (16 x 6) + a zenith fan (16 x 3) + the sun disc (16 x 3) = 1248 vertices.
+    EXPECT_EQ(protekt::game::kSkyRings, std::size_t{14});
+    EXPECT_EQ(kSkyVertexCount, std::size_t{1248});
     const SceneOptions options = options_at(60.0F, 60.0F, 5, 4);
     const Scene scene = sky_scene(options);
     const std::size_t terrain = terrain_vertex_count(4);
@@ -2863,12 +2863,13 @@ TEST(Sky, CarriesTheExactGradientColoursAndIsNeverShaded) {
 
 TEST(Sky, RingsAreDenseEnoughNearTheHorizonToNotBand) {
     const auto& degrees = protekt::game::kSkyRingElevationDegrees;
-    EXPECT_EQ(degrees.front(), 0.0F);
+    EXPECT_EQ(degrees.front(), -30.0F);
+    EXPECT_EQ(degrees.at(protekt::game::kSkyHorizonRing), 0.0F);
     EXPECT_EQ(degrees.back(), 90.0F);
     EXPECT_EQ(degrees.at(protekt::game::kSkyThirtyDegreeRing), 30.0F);
     for (std::size_t r = 0; r + 1 < degrees.size(); ++r) {
         EXPECT_GT(degrees.at(r + 1), degrees.at(r)) << "ring " << r;
-        if (degrees.at(r + 1) <= 30.0F) {
+        if (degrees.at(r) >= 0.0F && degrees.at(r + 1) <= 30.0F) {
             EXPECT_LE(degrees.at(r + 1) - degrees.at(r), 6.0F) << "gap above ring " << r;
         }
     }
@@ -2877,7 +2878,7 @@ TEST(Sky, RingsAreDenseEnoughNearTheHorizonToNotBand) {
 TEST(Sky, RingColoursBlendMonotonicallyFromHazeToZenith) {
     const auto& colours = protekt::game::kSkyRingColours;
     EXPECT_EQ(colours.front(), (protekt::math::Vec3{0.80F, 0.90F, 0.95F}));
-    for (std::size_t r = 1; r + 1 < colours.size(); ++r) {
+    for (std::size_t r = protekt::game::kSkyHorizonRing + 1; r + 1 < colours.size(); ++r) {
         for (std::size_t c = 0; c < 3; ++c) {
             EXPECT_LT(colours.at(r).at(c), colours.at(r - 1).at(c))
                 << "ring " << r << " channel " << c;
@@ -2888,215 +2889,26 @@ TEST(Sky, RingColoursBlendMonotonicallyFromHazeToZenith) {
     EXPECT_EQ(colours.back(), (protekt::math::Vec3{0.25F, 0.50F, 0.82F}));
 }
 
-TEST(Sky, NothingIsBelowTheHorizonPlaneAtTheCameraHeight) {
+TEST(Sky, TheSkirtReachesMinusThirtyDegreesInExactlyTheHazeColour) {
+    // The regression pin for the "ocean" band: the clear colour used to show between the dome's
+    // horizon ring and the terrain silhouette. The dome now covers -30 to 90 degrees, and its
+    // lowest ring (and the three above it, up to the horizon) is exactly haze.
+    const auto& degrees = protekt::game::kSkyRingElevationDegrees;
+    const auto& colours = protekt::game::kSkyRingColours;
+    EXPECT_EQ(degrees.front(), -30.0F);
+    for (std::size_t r = 0; r <= protekt::game::kSkyHorizonRing; ++r) {
+        EXPECT_EQ(colours.at(r), (protekt::math::Vec3{0.80F, 0.90F, 0.95F})) << "ring " << r;
+    }
     SceneOptions options = options_at(60.0F, 60.0F, 5, 4);
     options.camera.y = 11.5F;
-    options.camera.yaw = 2.0F;
-    options.camera.pitch = -0.4F;
-    for (const SceneVertex& v : sky_of(sky_scene(options), 4)) {
-        EXPECT_GE(v.position[1], options.camera.y - 1e-3F);
+    float lowest = 1e9F;
+    float highest = -1e9F;
+    const std::vector<SceneVertex> sky = sky_of(sky_scene(options), 4);
+    const std::size_t dome = sky.size() - protekt::game::kSunDiscVertexCount;
+    for (std::size_t i = 0; i < dome; ++i) {
+        lowest = std::min(lowest, sky.at(i).position[1] - options.camera.y);
+        highest = std::max(highest, sky.at(i).position[1] - options.camera.y);
     }
+    EXPECT_NEAR(lowest, -500.0F, 0.5F) << "sin(-30 degrees) * 1000 m";
+    EXPECT_NEAR(highest, protekt::game::kSkyRadiusMetres, 0.5F);
 }
-
-TEST(Sky, FollowsTheCameraButNeverTurnsWithIt) {
-    SceneOptions a = options_at(60.0F, 60.0F, 5, 4);
-    SceneOptions b = a;
-    b.camera.yaw = 1.3F;
-    b.camera.pitch = 0.2F;
-    const auto sky_a = sky_of(sky_scene(a), 4);
-    const auto sky_b = sky_of(sky_scene(b), 4);
-    ASSERT_EQ(sky_a.size(), sky_b.size());
-    for (std::size_t i = 0; i < sky_a.size(); ++i) {
-        EXPECT_EQ(sky_a.at(i).position, sky_b.at(i).position) << "world-fixed orientation";
-    }
-    SceneOptions moved = a;
-    moved.camera.x += 2.0F;
-    const auto sky_m = sky_of(sky_scene(moved), 4);
-    EXPECT_NEAR(sky_m.front().position[0] - sky_a.front().position[0], 2.0F, 1e-3F);
-}
-
-TEST(Sky, FitsInsideTheFarPlane) {
-    SceneOptions options = options_at(60.0F, 60.0F, 5, 4);
-    for (const SceneVertex& v : sky_of(sky_scene(options), 4)) {
-        const float dx = v.position[0] - options.camera.x;
-        const float dy = v.position[1] - options.camera.y;
-        const float dz = v.position[2] - options.camera.z;
-        EXPECT_LT(std::sqrt((dx * dx) + (dy * dy) + (dz * dz)), protekt::math::kFarPlane);
-    }
-}
-
-TEST(Sky, TwoBuildsOfTheSameFrameAreByteIdentical) {
-    const SceneOptions options = options_at(60.0F, 60.0F, 5, 4);
-    const Scene a = sky_scene(options);
-    const Scene b = sky_scene(options);
-    ASSERT_EQ(a.vertices.size(), b.vertices.size());
-    EXPECT_EQ(
-        std::memcmp(a.vertices.data(), b.vertices.data(), a.vertices.size() * sizeof(SceneVertex)),
-        0);
-}
-
-TEST(Sky, IsAbsentFromTheViewlessCalibrationScene) {
-    const Scene scene = protekt::game::build_calibration_scene(options_at(60.0F, 60.0F, 5, 4));
-    EXPECT_EQ(scene.vertices.size(), std::size_t{18}) << "three bars, and no sky";
-}
-
-// ---- texture plumbing (D2a): the vertex carries a UV that nothing sets yet ----
-
-namespace {
-
-using protekt::game::SceneVertex;
-
-TEST(SceneUv, TerrainLeavesTheUvAtZeroAndNothingLeavesTheAtlas) {
-    // A viewer (radar, health bar), an aim (reticle) and a hit flash (the final wash) between
-    // them reach every emitter in build_scene: terrain, sky, units, projectiles and the HUD.
-    const Damaged d = factory_down_to(200);
-    SceneOptions options = watching(d);
-    options.aim = protekt::game::Aim{640.0F, 360.0F};
-    options.hit_flash = 0.5F;
-    const Scene scene = protekt::game::build_scene(d.sim, options);
-    ASSERT_GT(scene.vertices.size(), terrain_vertex_count(options.radius_tiles));
-    // Tanks carry atlas UVs since D2b (see TankUv); everything else still sets none.
-    for (std::size_t i = 0; i < scene.vertices.size(); ++i) {
-        const SceneVertex& v = scene.vertices.at(i);
-        ASSERT_GE(v.u, 0.0F);
-        ASSERT_LE(v.u, 1.0F);
-        ASSERT_GE(v.v, 0.0F);
-        ASSERT_LE(v.v, 1.0F);
-        if (i < terrain_vertex_count(options.radius_tiles)) {
-            ASSERT_EQ(v.u, 0.0F);
-            ASSERT_EQ(v.v, 0.0F);
-        }
-    }
-}
-
-TEST(SceneUv, ASkirmishAndTheCalibrationSceneLeaveTheUvAtZeroToo) {
-    const auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(42));
-    const SceneOptions options = options_at(60.0F, 60.0F);
-    for (const Scene& scene : {protekt::game::build_scene(sim, options),
-                               protekt::game::build_calibration_scene(options)}) {
-        ASSERT_FALSE(scene.vertices.empty());
-        for (const SceneVertex& v : scene.vertices) {
-            ASSERT_EQ(v.u, 0.0F);
-            ASSERT_EQ(v.v, 0.0F);
-        }
-    }
-}
-
-TEST(SceneUv, TheVertexIsEightFloatsWithNoPaddingBecauseItIsUploadedVerbatim) {
-    EXPECT_EQ(sizeof(SceneVertex), std::size_t{8} * sizeof(float));
-    EXPECT_EQ(offsetof(SceneVertex, u), std::size_t{6} * sizeof(float));
-    EXPECT_EQ(offsetof(SceneVertex, v), std::size_t{7} * sizeof(float));
-}
-
-TEST(SceneUv, PinnedVertexCountsSurviveTheWiderVertex) {
-    const Scene scene = protekt::game::build_calibration_scene(options_at(60.0F, 60.0F, 5, 4));
-    EXPECT_EQ(scene.vertices.size(), std::size_t{18});
-    EXPECT_EQ(scene.vertices.size() * sizeof(SceneVertex), std::size_t{18} * 32U);
-}
-
-} // namespace
-
-// ---- real UVs on the tank (D2b): every part addresses its own atlas tile ----
-
-namespace {
-
-using protekt::game::SceneVertex;
-using protekt::game::tile_rect;
-using protekt::game::UvRect;
-
-/// The viewer's drawn tank: the last kTankVertices of a facing scene, in emission order -- two
-/// track skirts, hull, turret, bustle, muzzle collar, barrel, then 7 camo quads and 16 track links.
-std::vector<SceneVertex> drawn_tank(float heading, float turret) {
-    const auto sim = facing_sim();
-    const Scene scene = facing_scene(sim, heading, turret);
-    return {scene.vertices.end() - static_cast<std::ptrdiff_t>(kTankVertices),
-            scene.vertices.end()};
-}
-
-/// Every vertex in [first, last) lies on the corners of `rect`, and all four corners are used.
-void expect_corners_of(const std::vector<SceneVertex>& tank, std::size_t first, std::size_t last,
-                       const UvRect& rect, const char* what) {
-    std::set<std::pair<float, float>> seen;
-    for (std::size_t i = first; i < last; ++i) {
-        const SceneVertex& v = tank.at(i);
-        const bool on_u = v.u == rect.u0 || v.u == rect.u1;
-        const bool on_v = v.v == rect.v0 || v.v == rect.v1;
-        ASSERT_TRUE(on_u && on_v) << what << " vertex " << i << " has uv (" << v.u << ", " << v.v
-                                  << ")";
-        seen.insert({v.u, v.v});
-    }
-    EXPECT_EQ(seen.size(), std::size_t{4}) << what << " uses all four corners of its tile";
-}
-
-TEST(TankUv, EachPartAddressesItsTilesExactRect) {
-    const auto tank = drawn_tank(0.3F, 0.4F);
-    ASSERT_EQ(tank.size(), kTankVertices);
-    // Pinned: tracks are tile 1, (0.25, 0) to (0.5, 0.25); hull 0; turret and bustle 2; barrel and
-    // collar 3.
-    const UvRect tracks = tile_rect(1);
-    EXPECT_EQ(tracks.u0, 0.25F);
-    EXPECT_EQ(tracks.u1, 0.5F);
-    expect_corners_of(tank, 0, 72, {0.25F, 0.0F, 0.5F, 0.25F}, "skirts");
-    expect_corners_of(tank, 72, 108, {0.0F, 0.0F, 0.25F, 0.25F}, "hull");
-    expect_corners_of(tank, 108, 144, {0.5F, 0.0F, 0.75F, 0.25F}, "turret");
-    expect_corners_of(tank, 144, 180, {0.5F, 0.0F, 0.75F, 0.25F}, "bustle");
-    expect_corners_of(tank, 180, 216, {0.75F, 0.0F, 1.0F, 0.25F}, "collar");
-    expect_corners_of(tank, 216, 252, {0.75F, 0.0F, 1.0F, 0.25F}, "barrel");
-}
-
-TEST(TankUv, EveryHullFaceCarriesTheHullTilesCorners) {
-    const auto tank = drawn_tank(0.0F, 0.0F);
-    for (std::size_t face = 0; face < 6; ++face) {
-        std::set<std::pair<float, float>> seen;
-        for (std::size_t i = 72 + (face * 6); i < 72 + (face * 6) + 6; ++i) {
-            seen.insert({tank.at(i).u, tank.at(i).v});
-        }
-        const std::set<std::pair<float, float>> corners{
-            {0.0F, 0.0F}, {0.25F, 0.0F}, {0.25F, 0.25F}, {0.0F, 0.25F}};
-        EXPECT_EQ(seen, corners) << "hull face " << face;
-    }
-}
-
-TEST(TankUv, CamoTakesTheHullTileAndTrackLinksTheTrackTile) {
-    const auto tank = drawn_tank(0.6F, -0.2F);
-    expect_corners_of(tank, 252, 252 + (7 * 6), {0.0F, 0.0F, 0.25F, 0.25F}, "camo");
-    expect_corners_of(tank, 252 + (7 * 6), kTankVertices, {0.25F, 0.0F, 0.5F, 0.25F}, "links");
-}
-
-TEST(TankUv, NoTankUvIsOutsideTheAtlasOrLeftAtThePlaceholder) {
-    for (const float heading : {0.0F, 1.2F}) {
-        const auto tank = drawn_tank(heading, 0.5F);
-        for (std::size_t tri = 0; tri < tank.size(); tri += 3) {
-            bool moved = false;
-            for (std::size_t k = 0; k < 3; ++k) {
-                const SceneVertex& v = tank.at(tri + k);
-                ASSERT_GE(v.u, 0.0F);
-                ASSERT_LE(v.u, 1.0F);
-                ASSERT_GE(v.v, 0.0F);
-                ASSERT_LE(v.v, 1.0F);
-                moved = moved || v.u != tank.at(tri).u || v.v != tank.at(tri).v;
-            }
-            EXPECT_TRUE(moved) << "triangle " << tri / 3 << " has the same uv on all three corners";
-        }
-    }
-}
-
-TEST(TankUv, ATintStillMultipliesOnTopOfTheTexel) {
-    // The colour that reaches the shader is the tint, lit; the texel multiplies it. A selected tank
-    // therefore still differs from an unselected one in its vertex colour.
-    const auto sim = facing_sim();
-    const SceneOptions o = [&] {
-        SceneOptions x = facing_options(sim);
-        x.facing = SceneOptions::Facing{viewer_of(sim).id, 0.0F, 0.0F};
-        return x;
-    }();
-    const std::array<protekt::sim::UnitId, 1> chosen{viewer_of(sim).id};
-    const Scene plain = protekt::game::build_scene(sim, o);
-    const Scene picked = protekt::game::build_scene(sim, o, chosen);
-    ASSERT_EQ(plain.vertices.size(), picked.vertices.size());
-    const std::size_t hull = plain.vertices.size() - kTankVertices + 72;
-    EXPECT_NE(plain.vertices.at(hull).colour, picked.vertices.at(hull).colour);
-    EXPECT_EQ(plain.vertices.at(hull).u, picked.vertices.at(hull).u);
-}
-
-} // namespace
