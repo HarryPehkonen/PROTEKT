@@ -2,10 +2,14 @@
 # texels; the index counts left to right, top to bottom (0 = top-left, 15 = bottom-right).
 # A blank line, a '#' line, or a line that is not "name index" (index 0..15) is skipped.
 # A name that is not listed falls back to tile 0, which is white.
-tank_hull 0
+# tank_hull is an alias of tank_hull_a; a tank wears one of the three hull variants (a, b, c).
+tank_hull 7
 tank_tracks 1
 tank_turret 2
 tank_barrel 3
 factory_walls 4
 factory_roof 5
 turret_body 6
+tank_hull_a 7
+tank_hull_b 8
+tank_hull_c 9

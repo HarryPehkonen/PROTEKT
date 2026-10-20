@@ -70,9 +70,24 @@ private:
 [[nodiscard]] const AtlasManifest& atlas_manifest();
 void install_atlas_manifest(AtlasManifest manifest);
 
-/// The in-memory atlas: kAtlasSide x kAtlasSide RGBA8, tightly packed, each tile one solid colour.
-/// The one definition of the tile contents: the generator writes this, the fallback uploads this.
-[[nodiscard]] std::vector<std::uint8_t> atlas_pixels();
+/// The seed the committed atlas is painted from. Fixed: the tiles are data, so the same atlas comes
+/// out of every build and every run.
+inline constexpr std::uint64_t kAtlasSeed = 1;
+
+/// The three hull camo variants, by manifest name. Each is its own tile; `tank_hull` stays in the
+/// manifest as an alias of the first. A tank wears `kHullVariantNames[hull_variant(seed, id)]`.
+inline constexpr int kHullVariantCount = 3;
+inline constexpr std::array<std::string_view, kHullVariantCount> kHullVariantNames{
+    "tank_hull_a", "tank_hull_b", "tank_hull_c"};
+
+/// The in-memory atlas: kAtlasSide x kAtlasSide RGBA8, tightly packed. The one definition of the
+/// tile contents: the generator writes this, the fallback uploads this. PAINTED, not solid: the
+/// three hull tiles carry camo (A splodges, B stripes, C blocks) in a base, a dark and a sand tone;
+/// the track tile is dark with lighter link stripes across its height; the turret, barrel and
+/// building tiles are their base tone with a few percent of slow variation. Tile 0 stays solid
+/// white, the multiplicative identity for everything that sets no UV. Every texel is a pure
+/// function of (`seed`, its position): a hash walk, no RNG library, no runtime randomness.
+[[nodiscard]] std::vector<std::uint8_t> atlas_pixels(std::uint64_t seed = kAtlasSeed);
 
 /// What the game will use: the atlas pixels and manifest, and where each came from (a file path,
 /// or "embedded").

@@ -73,17 +73,24 @@ TEST(AtlasGenerator, TwoRunsWriteByteIdenticalPngsAndItIsTheCommittedOne) {
     const TempDir dir;
     const fs::path a = dir.path() / "a.png";
     const fs::path b = dir.path() / "b.png";
+    const fs::path c = dir.path() / "c.png";
     ASSERT_EQ(
         std::system(
             (std::string{PROTEKT_ATLAS_GEN} + " --out " + a.string() + " >/dev/null").c_str()),
         0);
+    ASSERT_EQ(
+        std::system(
+            (std::string{PROTEKT_ATLAS_GEN} + " --out " + b.string() + " >/dev/null").c_str()),
+        0);
     ASSERT_EQ(std::system(
-                  (std::string{PROTEKT_ATLAS_GEN} + " --seed 7 --out " + b.string() + " >/dev/null")
+                  (std::string{PROTEKT_ATLAS_GEN} + " --seed 7 --out " + c.string() + " >/dev/null")
                       .c_str()),
               0);
     const std::string bytes = slurp(a);
     EXPECT_GT(bytes.size(), std::size_t{0});
     EXPECT_EQ(bytes, slurp(b));
+    // The seed picks the camo: another seed paints another atlas.
+    EXPECT_NE(bytes, slurp(c));
     // The committed file is exactly what the tool writes: it is generated, never hand-made.
     EXPECT_EQ(bytes, slurp(fs::path{PROTEKT_SOURCE_DIR} / "assets" / "atlas.png"));
 }
@@ -199,8 +206,8 @@ TEST(AtlasLoading, AMissingOrEmptyManifestFileFallsBackToTheEmbeddedOne) {
     spit(dir.path() / "atlas_manifest.txt", "# nothing valid\nnot a line\n");
     const auto assets = load_atlas_assets(dirs, log);
     EXPECT_EQ(assets.manifest_source, "embedded");
-    EXPECT_EQ(assets.manifest.tile("tank_hull"), 0);
-    EXPECT_EQ(assets.manifest.size(), std::size_t{7});
+    EXPECT_EQ(assets.manifest.tile("tank_hull"), 7);
+    EXPECT_EQ(assets.manifest.size(), std::size_t{10});
 }
 
 TEST(AtlasLoading, ALaterDirectoryIsUsedWhenAnEarlierOneHasNothing) {
@@ -217,7 +224,7 @@ TEST(AtlasLoading, InstallingAManifestChangesWhatTheSceneReadsAndCanBeUndone) {
     protekt::game::install_atlas_manifest(AtlasManifest::parse("tank_hull 5\n"));
     EXPECT_EQ(protekt::game::atlas_manifest().tile("tank_hull"), 5);
     protekt::game::install_atlas_manifest(protekt::game::embedded_atlas_manifest());
-    EXPECT_EQ(protekt::game::atlas_manifest().tile("tank_hull"), 0);
+    EXPECT_EQ(protekt::game::atlas_manifest().tile("tank_hull"), 7);
 }
 
 TEST(AtlasInset, ATileRectIsTheTileShrunkByHalfATexelPerSide) {

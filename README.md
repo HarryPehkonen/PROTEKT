@@ -267,7 +267,11 @@ never refuses to start over an asset. Drop in a different PNG of the same layout
 effect on the next start, with no recompile.
 
 `assets/atlas.png` is generated, not hand-edited: `./build/protekt-atlas-gen [--seed N] [--out PATH]`
-writes it (deterministically) from the same in-memory builder the embedded fallback uses.
+writes it (deterministically) from the same in-memory builder the embedded fallback uses. The tiles
+are painted, not flat: three hull camo variants (`tank_hull_a` splodges, `_b` stripes, `_c` blocks;
+each tank wears one, picked from the game seed and its unit id), a track tile with link stripes, and
+metal and building tiles with a few percent of tone variation. `--seed` repaints the patterns; the
+committed file is the default seed, 1.
 
 ## The gate
 

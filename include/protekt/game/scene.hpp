@@ -171,6 +171,11 @@ private:
 [[nodiscard]] bool unit_was_hit(std::span<const sim::BattleEvent> events,
                                 sim::UnitId unit) noexcept;
 
+/// WHICH CAMO A TANK WEARS: an index into `kHullVariantNames`, always in [0, kHullVariantCount).
+/// A pure hash of (`seed`, `unit_id`) -- the standing determinism rule -- so a tank wears the same
+/// pattern on every run, and neighbouring ids spread across all three.
+[[nodiscard]] int hull_variant(std::uint64_t seed, std::uint32_t unit_id) noexcept;
+
 /// Column-major view-projection for a camera, matching what the vertex shader expects.
 [[nodiscard]] std::array<float, 16> view_projection(const Camera& camera, float aspect,
                                                     float fov_radians = math::kFovRadians) noexcept;

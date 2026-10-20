@@ -30,11 +30,10 @@
 
 namespace {
 
-// A tank is seven shaded prisms (12 triangles each) and then its paint: 7 camo quads and 16 track
-// links, six vertices a quad.
-constexpr std::size_t kTankPrismVertices = std::size_t{7} * 36;
-constexpr std::size_t kTankPaintVertices = std::size_t{7 + 16} * 6;
-constexpr std::size_t kTankVertices = kTankPrismVertices + kTankPaintVertices;
+// A tank is seven shaded prisms (12 triangles each) and nothing else: its camo and track links are
+// in the atlas tiles (D2e), so the 7 camo quads and 16 track-link quads that used to follow the
+// prisms -- 138 vertices -- are gone.
+constexpr std::size_t kTankVertices = std::size_t{7} * 36;
 
 using protekt::game::Camera;
 using protekt::game::kMetresPerHeightUnit;
@@ -267,7 +266,7 @@ TEST(SceneUnits, ASelectedUnitIsDrawnBrighterAndNothingElseChanges) {
                 << "a selection must not move anything";
         }
     }
-    EXPECT_EQ(different, kTankVertices) << "exactly one tank (prisms and paint) changes colour";
+    EXPECT_EQ(different, kTankVertices) << "exactly one tank changes colour";
 
     // And the highlight is brighter than the side colour it came from.
     bool brighter = false;
@@ -1485,86 +1484,80 @@ TEST(Hover, TheHoveringUnitIsDrawnAtTheHullHeightAndOthersStayOnTheGround) {
             ++moved;
         }
     }
-    EXPECT_EQ(moved, kTankVertices) << "exactly one tank (prisms and paint) moves";
+    EXPECT_EQ(moved, kTankVertices) << "exactly one tank moves";
 }
 
-TEST(TankPaint, ThePaintIsAppendedAfterTheShadedPrismsAndStaysUnderTheBudget) {
+TEST(TankShape, TheTankIsExactlyItsSevenPrisms) {
     const auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(42));
-    const protekt::sim::Unit tank = sim.units().at(0);
-    const SceneOptions options = at_tank(tank);
-    const auto with = protekt::game::build_scene(sim, options);
-    EXPECT_LT(kTankVertices, 450U);
-    EXPECT_EQ(kTankVertices, kTankPrismVertices + kTankPaintVertices);
-    EXPECT_GE(with.vertices.size(), kTankVertices);
+    const auto tank = tank_only(sim, sim.units().at(0), {});
+    EXPECT_EQ(tank.size(), std::size_t{252}) << "seven prisms of 36; was 390 before D2e";
+    EXPECT_EQ(kTankVertices, std::size_t{390 - 138});
 }
 
-TEST(TankPaint, PaintVerticesExistAndDifferFromTheHullBaseColour) {
-    const auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(42));
-    const protekt::sim::Unit tank = sim.units().at(0);
-    const auto tank_vertices = tank_only(sim, tank, {});
-    ASSERT_EQ(tank_vertices.size(), kTankVertices);
-    // The hull is prism 3 (after two tracks); its top face is the fifth face of six.
-    const auto base = tank_vertices.at(((2U * 36U) + (4U * 6U))).colour;
-    std::set<std::array<float, 3>> tones;
-    for (std::size_t i = kTankPrismVertices; i < kTankVertices; ++i) {
-        tones.insert(tank_vertices.at(i).colour);
-        EXPECT_NE(tank_vertices.at(i).colour, base);
-    }
-    EXPECT_GE(tones.size(), 3U) << "camo dark, camo light and the track links are told apart";
-}
-
-TEST(TankPaint, TheSameSeedAndIdPaintTheSameTankEveryTime) {
-    const auto sim_a = protekt::sim::Sim::create(protekt::sim::skirmish(42));
-    const auto sim_b = protekt::sim::Sim::create(protekt::sim::skirmish(42));
-    const auto a = tank_only(sim_a, sim_a.units().at(0), {});
-    const auto b = tank_only(sim_b, sim_b.units().at(0), {});
-    ASSERT_EQ(a.size(), b.size());
-    for (std::size_t i = 0; i < a.size(); ++i) {
-        EXPECT_EQ(a.at(i).position, b.at(i).position);
-        EXPECT_EQ(a.at(i).colour, b.at(i).colour);
+TEST(HullVariant, TheSameSeedAndIdAlwaysPickTheSameVariant) {
+    for (std::uint32_t id = 1; id < 64; ++id) {
+        const int first = protekt::game::hull_variant(42, id);
+        for (int run = 0; run < 3; ++run) {
+            EXPECT_EQ(protekt::game::hull_variant(42, id), first) << "id " << id;
+        }
     }
 }
 
-TEST(TankPaint, DifferentTanksAreNotPaintedIdentically) {
+TEST(HullVariant, DifferentIdsSpreadAcrossAllThreeAndEveryOneIsValid) {
+    for (const std::uint64_t seed : {std::uint64_t{1}, std::uint64_t{42}, std::uint64_t{99}}) {
+        std::array<int, protekt::game::kHullVariantCount> counts{};
+        for (std::uint32_t id = 1; id <= 30; ++id) {
+            const int variant = protekt::game::hull_variant(seed, id);
+            ASSERT_GE(variant, 0);
+            ASSERT_LT(variant, protekt::game::kHullVariantCount);
+            ++counts.at(static_cast<std::size_t>(variant));
+        }
+        for (const int count : counts) {
+            EXPECT_GE(count, 5) << "seed " << seed << ": thirty tanks, every pattern worn by some";
+        }
+    }
+    // The seed matters too: the same id is not bound to the same pattern in every world.
+    bool seed_matters = false;
+    for (std::uint32_t id = 1; id <= 30; ++id) {
+        seed_matters = seed_matters
+                       || protekt::game::hull_variant(1, id) != protekt::game::hull_variant(42, id);
+    }
+    EXPECT_TRUE(seed_matters);
+}
+
+/// The atlas tile a drawn tank's hull samples: the hull is the third prism, after two skirts.
+int hull_tile_of(const std::vector<protekt::game::SceneVertex>& tank) {
+    const protekt::game::SceneVertex& v = tank.at(std::size_t{2} * 36U);
+    for (int index = 0; index < protekt::game::kTileCount; ++index) {
+        const protekt::game::UvRect r = protekt::game::tile_rect(index);
+        if ((v.u == r.u0 || v.u == r.u1) && (v.v == r.v0 || v.v == r.v1)) {
+            return index;
+        }
+    }
+    return -1;
+}
+
+TEST(HullVariant, EveryTankWearsItsOwnValidVariantTileAndTheSquadIsNotUniform) {
     const auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(42));
-    // Same side, so the base colours match; only the id differs.
-    std::vector<protekt::sim::Unit> tanks;
+    const protekt::game::AtlasManifest& atlas = protekt::game::atlas_manifest();
+    std::set<int> worn;
     for (const auto& unit : sim.units()) {
-        if (unit.kind == protekt::sim::UnitKind::Tank && unit.side == sim.units().at(0).side) {
-            tanks.push_back(unit);
+        if (unit.kind != protekt::sim::UnitKind::Tank) {
+            continue;
         }
+        const auto tank = tank_only(sim, unit, {});
+        ASSERT_EQ(tank.size(), kTankVertices);
+        const int tile = hull_tile_of(tank);
+        const auto name = protekt::game::kHullVariantNames.at(
+            static_cast<std::size_t>(protekt::game::hull_variant(42, unit.id.value)));
+        EXPECT_EQ(tile, atlas.tile(name)) << "unit " << unit.id.value;
+        EXPECT_GE(tile, 7);
+        EXPECT_LE(tile, 9);
+        // Twice, the same: a tank wears the same pattern every time it is drawn.
+        EXPECT_EQ(hull_tile_of(tank_only(sim, unit, {})), tile);
+        worn.insert(tile);
     }
-    ASSERT_GE(tanks.size(), 2U);
-    const auto a = tank_only(sim, tanks.at(0), {});
-    const auto b = tank_only(sim, tanks.at(1), {});
-    // Compare the paint as camo patch SHAPES in unit-local terms: the u/v jitter differs, so the
-    // vertex colours order or the lift differ. Colours alone may coincide, so compare the sets of
-    // offsets from each tank's own first paint vertex.
-    bool differ = false;
-    for (std::size_t i = kTankPrismVertices; i < kTankVertices && !differ; ++i) {
-        for (std::size_t axis = 0; axis < 3; ++axis) {
-            const float da = a.at(i).position.at(axis) - a.at(kTankPrismVertices).position.at(axis);
-            const float db = b.at(i).position.at(axis) - b.at(kTankPrismVertices).position.at(axis);
-            differ = differ || std::abs(da - db) > 1e-4F;
-        }
-    }
-    EXPECT_TRUE(differ);
-}
-
-TEST(TankPaint, SelectionTintCoversThePaintAsWellAsTheHull) {
-    const auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(42));
-    const protekt::sim::Unit tank = sim.units().at(0);
-    const auto plain = tank_only(sim, tank, {});
-    const std::vector<protekt::sim::UnitId> chosen{tank.id};
-    const auto marked = tank_only(sim, tank, chosen);
-    ASSERT_EQ(plain.size(), marked.size());
-    for (std::size_t i = kTankPrismVertices; i < kTankVertices; ++i) {
-        EXPECT_EQ(plain.at(i).position, marked.at(i).position);
-        const auto& before = plain.at(i).colour;
-        const auto& after = marked.at(i).colour;
-        EXPECT_TRUE(after[0] > before[0] && after[1] > before[1] && after[2] > before[2])
-            << "paint vertex " << i << " must be tinted brighter with the rest of the tank";
-    }
+    EXPECT_GE(worn.size(), std::size_t{2}) << "the tanks of a skirmish do not all look alike";
 }
 
 } // namespace
@@ -2262,7 +2255,7 @@ using protekt::sim::UnitId;
 constexpr std::size_t kPrismVertices = 36;
 constexpr std::size_t kBarrelVertices = kPrismVertices;
 /// Two tracks, hull, turret, bustle, muzzle collar, barrel -- the barrel is the last prism -- and
-/// then the paint, which is the end of the tank.
+/// which is the end of the tank.
 constexpr std::size_t kFacingTankVertices = kTankVertices;
 
 /// The enemy factory first and the viewer's tank LAST, so the viewer's boxes are the tail of the
@@ -2287,11 +2280,10 @@ Scene facing_scene(const protekt::sim::Sim& sim, float heading, float turret) {
     return protekt::game::build_scene(sim, o);
 }
 
-/// The barrel is the last PRISM of the viewer's tank (the paint follows it), and the viewer's tank
-/// is the end of the scene.
+/// The barrel is the last prism of the viewer's tank, and the viewer's tank is the end of the
+/// scene.
 std::vector<protekt::game::SceneVertex> barrel_of(const Scene& scene) {
-    const auto first
-        = scene.vertices.end() - static_cast<std::ptrdiff_t>(kTankPaintVertices + kBarrelVertices);
+    const auto first = scene.vertices.end() - static_cast<std::ptrdiff_t>(kBarrelVertices);
     return {first, first + static_cast<std::ptrdiff_t>(kBarrelVertices)};
 }
 
@@ -2970,7 +2962,7 @@ TEST(SceneUv, TerrainLeavesTheUvAtZeroAndNothingLeavesTheAtlas) {
     options.hit_flash = 0.5F;
     const Scene scene = protekt::game::build_scene(d.sim, options);
     ASSERT_GT(scene.vertices.size(), terrain_vertex_count(options.radius_tiles));
-    // Tanks carry atlas UVs since D2b (see TankUv); everything else still sets none.
+    // Units carry atlas UVs (tanks since D2b, buildings since D2e); terrain still sets none.
     for (std::size_t i = 0; i < scene.vertices.size(); ++i) {
         const SceneVertex& v = scene.vertices.at(i);
         ASSERT_GE(v.u, 0.0F);
@@ -3026,7 +3018,7 @@ UvRect cell(float u0, float v0, float u1, float v1) {
 }
 
 /// The viewer's drawn tank: the last kTankVertices of a facing scene, in emission order -- two
-/// track skirts, hull, turret, bustle, muzzle collar, barrel, then 7 camo quads and 16 track links.
+/// track skirts, hull, turret, bustle, muzzle collar, barrel.
 std::vector<SceneVertex> drawn_tank(float heading, float turret) {
     const auto sim = facing_sim();
     const Scene scene = facing_scene(sim, heading, turret);
@@ -3049,16 +3041,26 @@ void expect_corners_of(const std::vector<SceneVertex>& tank, std::size_t first, 
     EXPECT_EQ(seen.size(), std::size_t{4}) << what << " uses all four corners of its tile";
 }
 
+/// The tile of the camo variant the facing scene's tank wears.
+UvRect viewer_hull_rect() {
+    const auto sim = facing_sim();
+    const auto name = protekt::game::kHullVariantNames.at(
+        static_cast<std::size_t>(protekt::game::hull_variant(42, viewer_of(sim).id.value)));
+    return tile_rect(protekt::game::atlas_manifest().tile(name));
+}
+
 TEST(TankUv, EachPartAddressesItsTilesExactRect) {
     const auto tank = drawn_tank(0.3F, 0.4F);
     ASSERT_EQ(tank.size(), kTankVertices);
-    // Pinned: tracks are tile 1, (0.25, 0) to (0.5, 0.25); hull 0; turret and bustle 2; barrel and
-    // collar 3.
+    // Pinned: tracks are tile 1, (0.25, 0) to (0.5, 0.25); the hull one of the camo tiles 7, 8, 9;
+    // turret and bustle 2; barrel and collar 3.
     const UvRect tracks = tile_rect(1);
     EXPECT_EQ(tracks.u0, 0.25F + kHalfTexel);
     EXPECT_EQ(tracks.u1, 0.5F - kHalfTexel);
     expect_corners_of(tank, 0, 72, cell(0.25F, 0.0F, 0.5F, 0.25F), "skirts");
-    expect_corners_of(tank, 72, 108, cell(0.0F, 0.0F, 0.25F, 0.25F), "hull");
+    const UvRect hull = viewer_hull_rect();
+    EXPECT_GE(hull.v0, 0.25F) << "the camo tiles are on the second and third rows";
+    expect_corners_of(tank, 72, 108, hull, "hull");
     expect_corners_of(tank, 108, 144, cell(0.5F, 0.0F, 0.75F, 0.25F), "turret");
     expect_corners_of(tank, 144, 180, cell(0.5F, 0.0F, 0.75F, 0.25F), "bustle");
     expect_corners_of(tank, 180, 216, cell(0.75F, 0.0F, 1.0F, 0.25F), "collar");
@@ -3072,17 +3074,11 @@ TEST(TankUv, EveryHullFaceCarriesTheHullTilesCorners) {
         for (std::size_t i = 72 + (face * 6); i < 72 + (face * 6) + 6; ++i) {
             seen.insert({tank.at(i).u, tank.at(i).v});
         }
-        const UvRect hull = cell(0.0F, 0.0F, 0.25F, 0.25F);
+        const UvRect hull = viewer_hull_rect();
         const std::set<std::pair<float, float>> corners{
             {hull.u0, hull.v0}, {hull.u1, hull.v0}, {hull.u1, hull.v1}, {hull.u0, hull.v1}};
         EXPECT_EQ(seen, corners) << "hull face " << face;
     }
-}
-
-TEST(TankUv, CamoTakesTheHullTileAndTrackLinksTheTrackTile) {
-    const auto tank = drawn_tank(0.6F, -0.2F);
-    expect_corners_of(tank, 252, 252 + (7 * 6), cell(0.0F, 0.0F, 0.25F, 0.25F), "camo");
-    expect_corners_of(tank, 252 + (7 * 6), kTankVertices, cell(0.25F, 0.0F, 0.5F, 0.25F), "links");
 }
 
 TEST(TankUv, NoTankUvIsOutsideTheAtlasOrLeftAtThePlaceholder) {
@@ -3101,6 +3097,46 @@ TEST(TankUv, NoTankUvIsOutsideTheAtlasOrLeftAtThePlaceholder) {
             EXPECT_TRUE(moved) << "triangle " << tri / 3 << " has the same uv on all three corners";
         }
     }
+}
+
+/// One unit's box, alone: the vertices that move when it is hovered far above the ground.
+std::vector<SceneVertex> unit_box_of(protekt::sim::UnitKind kind) {
+    const auto sim = sim_of({{Side::Player, kind, 100, 100}});
+    return tank_only(sim, sim.units().at(0), {});
+}
+
+TEST(UnitBoxUv, AFactorysWallsTakeTheWallTileAndItsRoofTheRoofTile) {
+    const auto box = unit_box_of(UnitKind::Factory);
+    ASSERT_EQ(box.size(), std::size_t{36});
+    const auto& atlas = protekt::game::atlas_manifest();
+    const UvRect walls = tile_rect(atlas.tile("factory_walls"));
+    const UvRect roof = tile_rect(atlas.tile("factory_roof"));
+    EXPECT_EQ(walls.u0, 0.0F + kHalfTexel) << "factory_walls is tile 4, the second row's first";
+    EXPECT_EQ(walls.v0, 0.25F + kHalfTexel);
+    // Faces in order: near, far, left, right, TOP, bottom.
+    expect_corners_of(box, 0, 24, walls, "walls");
+    expect_corners_of(box, 24, 30, roof, "roof");
+    expect_corners_of(box, 30, 36, walls, "underside");
+}
+
+TEST(UnitBoxUv, ATurretIsTurretBodyAllOver) {
+    const auto box = unit_box_of(UnitKind::Turret);
+    ASSERT_EQ(box.size(), std::size_t{36});
+    expect_corners_of(box, 0, 36, tile_rect(protekt::game::atlas_manifest().tile("turret_body")),
+                      "turret body");
+}
+
+TEST(UnitBoxUv, ATintStillMultipliesOnTheBuildingsVertexColourAndNotItsUv) {
+    const auto sim = sim_of({{Side::Player, UnitKind::Factory, 100, 100}});
+    const auto plain = tank_only(sim, sim.units().at(0), {});
+    const std::array<protekt::sim::UnitId, 1> chosen{sim.units().at(0).id};
+    const auto picked = tank_only(sim, sim.units().at(0), chosen);
+    ASSERT_EQ(plain.size(), picked.size());
+    for (std::size_t i = 0; i < plain.size(); ++i) {
+        EXPECT_EQ(plain.at(i).u, picked.at(i).u);
+        EXPECT_EQ(plain.at(i).v, picked.at(i).v);
+    }
+    EXPECT_NE(plain.at(0).colour, picked.at(0).colour);
 }
 
 TEST(TankUv, ATintStillMultipliesOnTopOfTheTexel) {

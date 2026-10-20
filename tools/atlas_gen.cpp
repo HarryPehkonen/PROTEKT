@@ -2,8 +2,8 @@
 // Writes the texture atlas as a PNG (default assets/atlas.png). The pixels come from the SAME
 // in-memory builder the game falls back to (game::atlas_pixels), so there is exactly one definition
 // of a tile; this tool only gives it a file name. The output is a pure function of the pixels: two
-// runs write byte-identical files. --seed is accepted for the paint pass to come; the solid tiles
-// take none, so today it changes nothing.
+// runs write byte-identical files. --seed picks the camo and metal patterns (default 1, the
+// game's game::kAtlasSeed); the committed assets/atlas.png is the default.
 #include <cstddef>
 #include <cstdint>
 #include <iostream>
@@ -16,7 +16,7 @@
 #include "protekt/game/png.hpp"
 
 int main(int argc, char** argv) {
-    std::uint64_t seed = 1;
+    std::uint64_t seed = protekt::game::kAtlasSeed;
     std::string out = "assets/atlas.png";
     const std::span<char*> args{argv, static_cast<std::size_t>(argc)};
     for (std::size_t i = 1; i < args.size(); ++i) {
@@ -33,7 +33,7 @@ int main(int argc, char** argv) {
             return 2;
         }
     }
-    const auto pixels = protekt::game::atlas_pixels();
+    const auto pixels = protekt::game::atlas_pixels(seed);
     if (!protekt::game::write_png_rgba(out, pixels, protekt::game::kAtlasSide,
                                        protekt::game::kAtlasSide)) {
         std::cerr << "protekt-atlas-gen: cannot write " << out << "\n";
