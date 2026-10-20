@@ -321,7 +321,8 @@ void build_unit_box(std::vector<SceneVertex>& out, std::uint64_t seed, const sim
 /// A tank, abstracted from a side-on battle tank and built only of flat-shaded prisms: two dark
 /// track skirts running past the hull at both ends, a hull between them with a sloped glacis and a
 /// slightly taller engine deck, a squat turret set back on the hull with a rear bustle, and a long
-/// thin barrel from the turret's front face with a thicker muzzle collar. The hull and tracks are
+/// thin barrel from the turret's front face with a thicker muzzle collar, and a flat team-colour
+/// panel on the turret roof. The hull and tracks are
 /// turned by `heading`, the turret group by `heading + turret`. Lateral extent stays the tank's
 /// 0.3 tile half-width (the outer face of a track), so only the length and the profile are new.
 void build_facing_tank(std::vector<SceneVertex>& out, std::uint64_t seed, const sim::Unit& unit,
@@ -333,15 +334,17 @@ void build_facing_tank(std::vector<SceneVertex>& out, std::uint64_t seed, const 
     const float ground = lifted ? lift_z : ground_metres(seed, unit.x, unit.y);
     const float half_width = kMetresPerTile * 0.3F; ///< the outer face of a track
     constexpr float kTrackInner = 0.7F;             ///< of half_width; the hull fills the rest
-    // The skirts are dark, with their links, because the TRACK TILE is, and the hull wears its camo
-    // because its tile does: the vertex keeps the side colour, the selection tint and the face
-    // light, and the texel multiplies them. Which of its team's three camo tiles is this tank's.
+    // The skirts are dark, with their links, because the TRACK TILE is, and the hull, turret and
+    // bustle wear the camo because their tile does: the vertex keeps the side colour, the selection
+    // tint and the face light, and the texel multiplies them. Which of its team's three camo tiles
+    // is this tank's -- one pattern for the whole tank. The roof panel wears the plain turret
+    // metal.
     const AtlasManifest& atlas = atlas_manifest();
     const UvRect hull_tile
         = atlas.rect(kTeamHullNames.at(static_cast<std::size_t>(unit.side))
                          .at(static_cast<std::size_t>(hull_variant(seed, unit.id.value))));
     const UvRect tracks_tile = atlas.rect("tank_tracks");
-    const UvRect turret_tile = atlas.rect("tank_turret");
+    const UvRect panel_tile = atlas.rect("tank_turret");
     const UvRect barrel_tile = atlas.rect("tank_barrel");
     constexpr float kTrackHeight = 0.4F;
     constexpr float kTrackBack = -1.3F; ///< metres along the heading from the centre
@@ -360,6 +363,10 @@ void build_facing_tank(std::vector<SceneVertex>& out, std::uint64_t seed, const 
     constexpr float kBustleHalfAcross = 0.25F;
     constexpr float kBustleBottom = 0.05F; ///< above the turret's base
     constexpr float kBustleTop = 0.3F;
+    constexpr float kPanelHalfAcross = 0.22F; ///< of the turret's 0.36: camo shows either side
+    constexpr float kPanelBack = -0.4F;       ///< along the turret from its centre
+    constexpr float kPanelFront = 0.25F;
+    constexpr float kPanelThickness = 0.03F; ///< standing just proud of the roof
     constexpr float kBarrelHalfAcross = 0.06F;
     constexpr float kBarrelBottom = 0.18F; ///< above the turret's base
     constexpr float kBarrelTop = 0.3F;
@@ -394,17 +401,18 @@ void build_facing_tank(std::vector<SceneVertex>& out, std::uint64_t seed, const 
                      ground,
                      ground + kHullRearHeight,
                      ground + kHullFrontHeight};
-    // The hull's colour is a PALE tint of the marked side colour, so its camo tile's tones
+    // The camo parts' colour is a PALE tint of the marked side colour, so the camo tile's tones
     // dominate.
-    Vec3 hull_colour = colour;
-    for (float& channel : hull_colour) {
+    Vec3 camo_colour = colour;
+    for (float& channel : camo_colour) {
         channel += (1.0F - channel) * kHullPaleMix;
     }
-    emit_turned_prism(out, x, z, heading, hull, hull_colour, hull_tile);
+    emit_turned_prism(out, x, z, heading, hull, camo_colour, hull_tile);
 
     // The turret group shares one frame at the turret's centre; the barrel starts at its front
     // face and is measured from the tank's centre along the same axis, so it points where the
-    // turret looks.
+    // turret looks. The turret and bustle are camo -- from the driver's seat they are most of the
+    // tank -- and the team reads from the two saturated accents: the roof panel and the barrel.
     const float turret_angle = heading + turret;
     const float turret_y0 = ground + kTurretBase;
     const std::array<float, 2> turret_at = rotate_offset(x, z, 0.0F, kTurretCentre, turret_angle);
@@ -412,11 +420,14 @@ void build_facing_tank(std::vector<SceneVertex>& out, std::uint64_t seed, const 
         -kTurretHalfAcross, kTurretHalfAcross,         -kTurretHalfLength,
         -kTurretHalfLength, kTurretHalfLength,         kTurretHalfLength,
         turret_y0,          turret_y0 + kTurretHeight, turret_y0 + kTurretHeight};
-    emit_turned_prism(out, turret_at.at(0), turret_at.at(1), turret_angle, turret_box, colour,
-                      turret_tile);
+    emit_turned_prism(out, turret_at.at(0), turret_at.at(1), turret_angle, turret_box, camo_colour,
+                      hull_tile);
     emit_turned_box(out, turret_at.at(0), turret_at.at(1), turret_angle, kBustleHalfAcross,
                     -kTurretHalfLength - kBustleLength, -kTurretHalfLength,
-                    turret_y0 + kBustleBottom, turret_y0 + kBustleTop, colour, turret_tile);
+                    turret_y0 + kBustleBottom, turret_y0 + kBustleTop, camo_colour, hull_tile);
+    const float roof = turret_y0 + kTurretHeight;
+    emit_turned_box(out, turret_at.at(0), turret_at.at(1), turret_angle, kPanelHalfAcross,
+                    kPanelBack, kPanelFront, roof, roof + kPanelThickness, colour, panel_tile);
     const float turret_front = kTurretCentre + kTurretHalfLength;
     emit_turned_box(out, x, z, turret_angle, kCollarHalfAcross, kBarrelTip - kCollarLength,
                     kBarrelTip, turret_y0 + kCollarBottom, turret_y0 + kCollarTop, colour,

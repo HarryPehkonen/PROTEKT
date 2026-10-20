@@ -177,11 +177,11 @@ private:
 /// pattern on every run, and neighbouring ids spread across all three.
 [[nodiscard]] int hull_variant(std::uint64_t seed, std::uint32_t unit_id) noexcept;
 
-/// How far a tank HULL's vertex colour is mixed from its (marked) side colour toward white. The
-/// hull tile already carries the team's camo palette; a saturated side colour multiplied over it
-/// would crush the pattern back into one hue, so the hull takes only a pale tint of it and the
-/// tile's own tones dominate. The turret, bustle and barrel keep the full side colour: they are
-/// the team-identity block, the hull carries the camo.
+/// How far a tank's CAMO parts' vertex colour -- hull, turret and bustle -- is mixed from its
+/// (marked) side colour toward white. Their tile already carries the team's camo palette; a
+/// saturated side colour multiplied over it would crush the pattern back into one hue, so they take
+/// only a pale tint of it and the tile's own tones dominate. The roof panel and the barrel keep the
+/// full side colour: they are the team-identity accents.
 inline constexpr float kHullPaleMix = 0.85F;
 
 /// Column-major view-projection for a camera, matching what the vertex shader expects.

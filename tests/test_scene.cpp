@@ -30,10 +30,11 @@
 
 namespace {
 
-// A tank is seven shaded prisms (12 triangles each) and nothing else: its camo and track links are
+// A tank is eight shaded prisms (12 triangles each) and nothing else: its camo and track links are
 // in the atlas tiles (D2e), so the 7 camo quads and 16 track-link quads that used to follow the
-// prisms -- 138 vertices -- are gone.
-constexpr std::size_t kTankVertices = std::size_t{7} * 36;
+// prisms -- 138 vertices -- are gone. The eighth prism is the turret's team-colour roof panel
+// (D2h).
+constexpr std::size_t kTankVertices = std::size_t{8} * 36;
 
 using protekt::game::Camera;
 using protekt::game::kMetresPerHeightUnit;
@@ -529,16 +530,17 @@ TEST(Reticle, IsTheSameEveryTime) {
 
 /// The colour of the first vertex of `unit`'s body in `scene`: it is the only thing at the unit's
 /// own position that is not terrain. A factory is found by a top corner of its box; a tank by the
-/// rear top corner of its TURRET (the full side colour: the hull is only a pale tint of it since
-/// D2f, and the turret is where the team and the mark read), where it faces +Y by default.
+/// rear corner of its turret's ROOF PANEL (the full side colour: hull, turret and bustle are only a
+/// pale tint of it under their camo since D2h, and the panel is where the team and the mark read),
+/// where it faces +Y by default.
 std::array<float, 3> box_colour(const Scene& scene, const protekt::sim::Unit& unit) {
     constexpr float kFixedOne = static_cast<float>(protekt::sim::Fixed::kOne);
     const float ux = static_cast<float>(unit.x.raw) / kFixedOne * kMetresPerTile;
     const float uz = static_cast<float>(unit.y.raw) / kFixedOne * kMetresPerTile;
     const bool tank = unit.kind == protekt::sim::UnitKind::Tank;
     const float half = kMetresPerTile * 0.3F;
-    const float want_x = tank ? ux - 0.36F : ux - half;       // the turret's half-width across
-    const float want_z = tank ? uz - 0.3F - 0.5F : uz - half; // its centre, less its half-length
+    const float want_x = tank ? ux - 0.22F : ux - half;       // the panel's half-width across
+    const float want_z = tank ? uz - 0.3F - 0.4F : uz - half; // the turret's centre, less its back
     for (const auto& v : scene.vertices) {
         if (std::abs(v.position[0] - want_x) < 1e-3F && std::abs(v.position[2] - want_z) < 1e-3F
             && v.position[1]
@@ -1487,11 +1489,11 @@ TEST(Hover, TheHoveringUnitIsDrawnAtTheHullHeightAndOthersStayOnTheGround) {
     EXPECT_EQ(moved, kTankVertices) << "exactly one tank moves";
 }
 
-TEST(TankShape, TheTankIsExactlyItsSevenPrisms) {
+TEST(TankShape, TheTankIsExactlyItsEightPrisms) {
     const auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(42));
     const auto tank = tank_only(sim, sim.units().at(0), {});
-    EXPECT_EQ(tank.size(), std::size_t{252}) << "seven prisms of 36; was 390 before D2e";
-    EXPECT_EQ(kTankVertices, std::size_t{390 - 138});
+    EXPECT_EQ(tank.size(), std::size_t{288}) << "eight prisms of 36; seven (252) before D2h";
+    EXPECT_EQ(kTankVertices, std::size_t{390 - 138 + 36});
 }
 
 TEST(HullVariant, TheSameSeedAndIdAlwaysPickTheSameVariant) {
@@ -2257,7 +2259,8 @@ using protekt::sim::UnitId;
 
 constexpr std::size_t kPrismVertices = 36;
 constexpr std::size_t kBarrelVertices = kPrismVertices;
-/// Two tracks, hull, turret, bustle, muzzle collar, barrel -- the barrel is the last prism -- and
+/// Two tracks, hull, turret, bustle, roof panel, muzzle collar, barrel -- the barrel is the last
+/// prism -- and
 /// which is the end of the tank.
 constexpr std::size_t kFacingTankVertices = kTankVertices;
 
@@ -2437,6 +2440,9 @@ std::array<float, 3> tank_face_colour(const Scene& scene, std::size_t prism, std
 
 constexpr std::size_t kHull = 2;
 constexpr std::size_t kTurretPrism = 3;
+constexpr std::size_t kBustlePrism = 4;
+constexpr std::size_t kRoofPanel = 5;
+constexpr std::size_t kBarrelPrism = 7;
 
 /// `c` mixed toward white by `kHullPaleMix`: what the scene does to a hull's colour.
 float pale(float c) { return c + ((1.0F - c) * protekt::game::kHullPaleMix); }
@@ -2504,26 +2510,66 @@ TEST(SceneShading, ASelectedHullStillReadsAsTheHighlight) {
 
 /// D2f: the hull takes only a PALE tint of the side colour, so its team camo tile dominates, and
 /// the turret keeps the full saturated side colour: the turret is the team-identity block.
-TEST(SceneShading, TheTurretKeepsTheSaturatedSideColourAndTheHullOnlyAPaleTint) {
+// From the driver's seat the tank is mostly turret, so the turret and bustle wear the same camo
+// tile and pale tint as the hull, and the team reads from two saturated accents: the roof panel and
+// the barrel.
+TEST(SceneShading, TheTurretWearsTheCamoAndTheRoofPanelAndBarrelCarryTheSideColour) {
     const auto sim = facing_sim();
     const Scene scene = facing_scene(sim, 0.0F, 0.0F);
-    const auto turret = tank_face_colour(scene, kTurretPrism, kTopFace);
-    const auto hull = tank_face_colour(scene, kHull, kTopFace);
-    const float light = turret[2] / 0.85F;
-    EXPECT_NEAR(turret[0], 0.15F * light, 1e-5F) << "the turret is the side's own blue";
-    EXPECT_NEAR(turret[1], 0.35F * light, 1e-5F);
-    const float hull_light = hull[2] / pale(0.85F);
-    EXPECT_NEAR(hull[0], pale(0.15F) * hull_light, 1e-5F) << "the hull is a pale tint of it";
-    EXPECT_NEAR(hull[1], pale(0.35F) * hull_light, 1e-5F);
-    // Saturation, max - min over max: the turret's is high, the hull's low enough that the tile's
-    // tones, not the vertex colour, set the hull's hue.
+    const auto tail = scene.vertices.end() - static_cast<std::ptrdiff_t>(kFacingTankVertices);
+    const auto first_of = [&](std::size_t prism) {
+        return *(tail + static_cast<std::ptrdiff_t>(prism * kPrismVertices));
+    };
+    // One pattern per tank: turret and bustle sample exactly the hull's camo tile.
+    for (const std::size_t part : {kTurretPrism, kBustlePrism}) {
+        EXPECT_EQ(first_of(part).u, first_of(kHull).u) << "prism " << part;
+        EXPECT_EQ(first_of(part).v, first_of(kHull).v) << "prism " << part;
+    }
+    // Their colour is the hull's pale tint: the same light-free ratio on the top face.
+    for (const std::size_t part : {kTurretPrism, kBustlePrism}) {
+        const auto top = tank_face_colour(scene, part, kTopFace);
+        const float light = top[2] / pale(0.85F);
+        EXPECT_NEAR(top[0], pale(0.15F) * light, 1e-5F) << "prism " << part;
+        EXPECT_NEAR(top[1], pale(0.35F) * light, 1e-5F) << "prism " << part;
+    }
+    // The roof panel and the barrel are the side's own saturated blue.
+    for (const std::size_t part : {kRoofPanel, kBarrelPrism}) {
+        const auto top = tank_face_colour(scene, part, kTopFace);
+        const float light = top[2] / 0.85F;
+        EXPECT_NEAR(top[0], 0.15F * light, 1e-5F) << "prism " << part;
+        EXPECT_NEAR(top[1], 0.35F * light, 1e-5F) << "prism " << part;
+    }
     const auto saturation = [](const std::array<float, 3>& c) {
         const float hi = std::max({c[0], c[1], c[2]});
         const float lo = std::min({c[0], c[1], c[2]});
         return (hi - lo) / hi;
     };
-    EXPECT_GT(saturation(turret), 0.7F);
-    EXPECT_LT(saturation(hull), 0.15F);
+    EXPECT_GT(saturation(tank_face_colour(scene, kRoofPanel, kTopFace)), 0.7F);
+    EXPECT_GT(saturation(tank_face_colour(scene, kBarrelPrism, kTopFace)), 0.7F);
+    EXPECT_LT(saturation(tank_face_colour(scene, kTurretPrism, kTopFace)), 0.15F);
+    // The panel sits on the roof, within it, and is big enough to read: over a quarter of the
+    // roof's area, with camo still showing round it.
+    const auto span = [&](std::size_t prism, std::size_t axis) {
+        float lo = 1e9F;
+        float hi = -1e9F;
+        for (std::size_t i = 0; i < kPrismVertices; ++i) {
+            const auto at = static_cast<std::ptrdiff_t>((prism * kPrismVertices) + i);
+            lo = std::min(lo, (tail + at)->position.at(axis));
+            hi = std::max(hi, (tail + at)->position.at(axis));
+        }
+        return std::array<float, 2>{lo, hi};
+    };
+    const auto extent = [&](std::size_t prism, std::size_t axis) {
+        const auto [lo, hi] = span(prism, axis);
+        return hi - lo;
+    };
+    EXPECT_NEAR(span(kRoofPanel, 1)[0], span(kTurretPrism, 1)[1], 1e-4F)
+        << "the panel stands on the roof";
+    const float panel_area = extent(kRoofPanel, 0) * extent(kRoofPanel, 2);
+    const float roof_area = extent(kTurretPrism, 0) * extent(kTurretPrism, 2);
+    EXPECT_GT(panel_area, 0.25F * roof_area);
+    EXPECT_LT(extent(kRoofPanel, 0), extent(kTurretPrism, 0));
+    EXPECT_LT(extent(kRoofPanel, 2), extent(kTurretPrism, 2));
 }
 
 TEST(SceneShading, TerrainIsNotShaded) {
@@ -3051,7 +3097,7 @@ UvRect cell(float u0, float v0, float u1, float v1) {
 }
 
 /// The viewer's drawn tank: the last kTankVertices of a facing scene, in emission order -- two
-/// track skirts, hull, turret, bustle, muzzle collar, barrel.
+/// track skirts, hull, turret, bustle, roof panel, muzzle collar, barrel.
 std::vector<SceneVertex> drawn_tank(float heading, float turret) {
     const auto sim = facing_sim();
     const Scene scene = facing_scene(sim, heading, turret);
@@ -3087,8 +3133,8 @@ UvRect viewer_hull_rect() {
 TEST(TankUv, EachPartAddressesItsTilesExactRect) {
     const auto tank = drawn_tank(0.3F, 0.4F);
     ASSERT_EQ(tank.size(), kTankVertices);
-    // Pinned: tracks are tile 1, (0.25, 0) to (0.5, 0.25); the hull one of its team's camo tiles;
-    // turret and bustle 2; barrel and collar 3.
+    // Pinned: tracks are tile 1, (0.25, 0) to (0.5, 0.25); the hull, turret and bustle the same one
+    // of its team's camo tiles; the roof panel 2; barrel and collar 3.
     const UvRect tracks = tile_rect(1);
     EXPECT_EQ(tracks.u0, 0.25F + kHalfTexel);
     EXPECT_EQ(tracks.u1, 0.5F - kHalfTexel);
@@ -3096,10 +3142,11 @@ TEST(TankUv, EachPartAddressesItsTilesExactRect) {
     const UvRect hull = viewer_hull_rect();
     EXPECT_GE(hull.v0, 0.25F) << "the camo tiles are on the second and third rows";
     expect_corners_of(tank, 72, 108, hull, "hull");
-    expect_corners_of(tank, 108, 144, cell(0.5F, 0.0F, 0.75F, 0.25F), "turret");
-    expect_corners_of(tank, 144, 180, cell(0.5F, 0.0F, 0.75F, 0.25F), "bustle");
-    expect_corners_of(tank, 180, 216, cell(0.75F, 0.0F, 1.0F, 0.25F), "collar");
-    expect_corners_of(tank, 216, 252, cell(0.75F, 0.0F, 1.0F, 0.25F), "barrel");
+    expect_corners_of(tank, 108, 144, hull, "turret");
+    expect_corners_of(tank, 144, 180, hull, "bustle");
+    expect_corners_of(tank, 180, 216, cell(0.5F, 0.0F, 0.75F, 0.25F), "roof panel");
+    expect_corners_of(tank, 216, 252, cell(0.75F, 0.0F, 1.0F, 0.25F), "collar");
+    expect_corners_of(tank, 252, 288, cell(0.75F, 0.0F, 1.0F, 0.25F), "barrel");
 }
 
 TEST(TankUv, EveryHullFaceCarriesTheHullTilesCorners) {
