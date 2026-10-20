@@ -335,10 +335,11 @@ void build_facing_tank(std::vector<SceneVertex>& out, std::uint64_t seed, const 
     constexpr float kTrackInner = 0.7F;             ///< of half_width; the hull fills the rest
     // The skirts are dark, with their links, because the TRACK TILE is, and the hull wears its camo
     // because its tile does: the vertex keeps the side colour, the selection tint and the face
-    // light, and the texel multiplies them. Which of the three camo tiles is this tank's own.
+    // light, and the texel multiplies them. Which of its team's three camo tiles is this tank's.
     const AtlasManifest& atlas = atlas_manifest();
-    const UvRect hull_tile = atlas.rect(
-        kHullVariantNames.at(static_cast<std::size_t>(hull_variant(seed, unit.id.value))));
+    const UvRect hull_tile
+        = atlas.rect(kTeamHullNames.at(static_cast<std::size_t>(unit.side))
+                         .at(static_cast<std::size_t>(hull_variant(seed, unit.id.value))));
     const UvRect tracks_tile = atlas.rect("tank_tracks");
     const UvRect turret_tile = atlas.rect("tank_turret");
     const UvRect barrel_tile = atlas.rect("tank_barrel");
@@ -393,7 +394,13 @@ void build_facing_tank(std::vector<SceneVertex>& out, std::uint64_t seed, const 
                      ground,
                      ground + kHullRearHeight,
                      ground + kHullFrontHeight};
-    emit_turned_prism(out, x, z, heading, hull, colour, hull_tile);
+    // The hull's colour is a PALE tint of the marked side colour, so its camo tile's tones
+    // dominate.
+    Vec3 hull_colour = colour;
+    for (float& channel : hull_colour) {
+        channel += (1.0F - channel) * kHullPaleMix;
+    }
+    emit_turned_prism(out, x, z, heading, hull, hull_colour, hull_tile);
 
     // The turret group shares one frame at the turret's centre; the barrel starts at its front
     // face and is measured from the tank's centre along the same axis, so it points where the

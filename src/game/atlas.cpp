@@ -37,9 +37,10 @@ std::string_view next_word(std::string_view& line) {
 
 using Rgb = std::array<std::uint8_t, 3>;
 
-/// The tiles, by index. Tile 0 is the identity and every unassigned tile is magenta, so a stray UV
-/// is loud. The tank's tones are near-neutral MULTIPLIERS: the side colour, the selection tint and
-/// the face light all stay in the vertex colour and multiply on top.
+/// The tiles, by index. Tile 0 is the identity and an unassigned tile would be magenta, so a stray
+/// UV is loud (all sixteen are assigned now). The tank's tones are near-neutral MULTIPLIERS: the
+/// side colour, the selection tint and the face light all stay in the vertex colour and multiply on
+/// top.
 constexpr int kTracksTile = 1;
 constexpr int kTurretTile = 2;
 constexpr int kBarrelTile = 3;
@@ -47,14 +48,30 @@ constexpr int kFactoryWallsTile = 4;
 constexpr int kFactoryRoofTile = 5;
 constexpr int kTurretBodyTile = 6;
 constexpr int kFirstHullTile = 7; ///< tank_hull_a; b and c follow
+/// The team camo sets: the player's a, b, c, then the enemy's, on the last six tiles.
+constexpr int kFirstTeamHullTile = 10;
 
 constexpr Rgb kWhite{255, 255, 255};
 constexpr Rgb kMagenta{255, 0, 255};
-/// Camo tones. The base sits well under 255 so the sand can be BRIGHTER than it: camo reads by
-/// lightness, and a sand that only shifted the hue would vanish on a blue tank.
-constexpr Rgb kHullBase{190, 190, 186};
-constexpr Rgb kHullDark{86, 92, 80};
-constexpr Rgb kHullSand{255, 246, 214};
+/// A camo palette: the base the tile is filled with, a dark tone and a light one painted over it.
+struct Palette {
+    Rgb base;
+    Rgb dark;
+    Rgb light;
+};
+
+/// The neutral camo of tank_hull_a/b/c. The base sits well under 255 so the sand can be BRIGHTER
+/// than it: camo reads by lightness, and a sand that only shifted the hue would vanish on a blue
+/// tank.
+constexpr Palette kNeutralCamo{{190, 190, 186}, {86, 92, 80}, {255, 246, 214}};
+/// The TEAM camo. A neutral camo multiplied by a saturated side colour collapses into one hue in
+/// several brightnesses, which reads as shading, not camo; so each team's tiles carry the team's
+/// own hue family -- a dark tone near 0.32 luma, a mid base near 0.60 -- and a light tone near
+/// 0.85 from ANOTHER hue family, so the pattern reads by hue as well as by lightness. The hull's
+/// vertex colour is only a pale tint of the side colour (see the scene), so these tones survive it.
+/// Player: navy, steel blue, sand. Enemy: oxblood, brick, pale sage.
+constexpr Palette kPlayerCamo{{110, 160, 205}, {55, 82, 160}, {240, 216, 170}};
+constexpr Palette kEnemyCamo{{215, 140, 105}, {160, 60, 50}, {196, 226, 190}};
 constexpr Rgb kTrackBase{64, 64, 66};    ///< the scene's old kTrackTint
 constexpr Rgb kTrackLink{132, 130, 124}; ///< the lighter face of a link
 constexpr Rgb kTrackGap{38, 38, 40};     ///< the shadow under it
@@ -93,9 +110,9 @@ private:
 /// Camo A, SPLODGES: blobs, each a cluster of overlapping discs stamped at hashed offsets from a
 /// hashed centre, dark and sand in a checker over a 4 x 3 grid of cells (one blob a cell, so the
 /// whole tile is covered, not a corner of it); a later blob paints over an earlier one.
-Tile paint_splodges(std::uint64_t seed, int tile_index) {
+Tile paint_splodges(std::uint64_t seed, int tile_index, const Palette& camo) {
     Tile tile{};
-    tile.fill(kHullBase);
+    tile.fill(camo.base);
     HashWalk walk(seed, tile_index);
     constexpr int kColumns = 4;
     constexpr int kRows = 3;
@@ -103,7 +120,7 @@ Tile paint_splodges(std::uint64_t seed, int tile_index) {
     for (int blob = 0; blob < kColumns * kRows; ++blob) {
         const int column = blob % kColumns;
         const int row = blob / kColumns;
-        const Rgb tone = ((column + row) % 2) == 0 ? kHullDark : kHullSand;
+        const Rgb tone = ((column + row) % 2) == 0 ? camo.dark : camo.light;
         const int cx = (column * 16) + walk.between(0, 15);
         const int cy = (row * 21) + walk.between(0, 20);
         const int size = walk.between(7, 10);
@@ -128,7 +145,7 @@ Tile paint_splodges(std::uint64_t seed, int tile_index) {
 
 /// Camo B, STRIPES: diagonal bands -- dark, base, sand, base, with hashed widths -- whose edges
 /// wander a few texels along their length, so they read as brushed stripes rather than a ruler's.
-Tile paint_stripes(std::uint64_t seed, int tile_index) {
+Tile paint_stripes(std::uint64_t seed, int tile_index, const Palette& camo) {
     Tile tile{};
     HashWalk walk(seed, tile_index);
     // The band each diagonal position falls in, for positions -24 .. 151 (offset by 24).
@@ -136,13 +153,13 @@ Tile paint_stripes(std::uint64_t seed, int tile_index) {
     std::array<Rgb, 176> bands{};
     int at = 0;
     for (int band = 0; at < static_cast<int>(bands.size()); ++band) {
-        Rgb tone = kHullBase;
+        Rgb tone = camo.base;
         int width = walk.between(4, 7);
         if (band % 4 == 0) {
-            tone = kHullDark;
+            tone = camo.dark;
             width = walk.between(7, 11);
         } else if (band % 4 == 2) {
-            tone = kHullSand;
+            tone = camo.light;
             width = walk.between(4, 6);
         }
         for (int i = 0; i < width && at < static_cast<int>(bands.size()); ++i) {
@@ -175,15 +192,15 @@ Tile paint_stripes(std::uint64_t seed, int tile_index) {
 /// and stamp a 2x2-cell square wherever they stand, so the patches are blocky clusters whose every
 /// edge lies on the 4-texel grid. Each walker starts in its own quarter-by-quarter square of the
 /// tile, so the clusters spread over all of it.
-Tile paint_blocks(std::uint64_t seed, int tile_index) {
+Tile paint_blocks(std::uint64_t seed, int tile_index, const Palette& camo) {
     Tile tile{};
-    tile.fill(kHullBase);
+    tile.fill(camo.base);
     HashWalk walk(seed, tile_index);
     constexpr int kCell = 4;
     constexpr int kCells = 64 / kCell;
     constexpr int kWalkers = 16;
     for (int walker = 0; walker < kWalkers; ++walker) {
-        const Rgb tone = (((walker % 4) + (walker / 4)) % 2) == 0 ? kHullDark : kHullSand;
+        const Rgb tone = (((walker % 4) + (walker / 4)) % 2) == 0 ? camo.dark : camo.light;
         int cx = ((walker % 4) * 4) + walk.between(0, 2);
         int cy = ((walker / 4) * 4) + walk.between(0, 2);
         const int steps = walk.between(4, 7);
@@ -267,7 +284,29 @@ Tile solid(Rgb rgb) {
     return tile;
 }
 
+/// Camo variant `variant` (0 splodges, 1 stripes, 2 blocks) in `camo`, painted as tile `index`.
+Tile paint_camo(std::uint64_t seed, int index, int variant, const Palette& camo) {
+    switch (variant) {
+    case 0:
+        return paint_splodges(seed, index, camo);
+    case 1:
+        return paint_stripes(seed, index, camo);
+    default:
+        return paint_blocks(seed, index, camo);
+    }
+}
+
 Tile paint_tile(std::uint64_t seed, int index) {
+    if (index >= kFirstHullTile && index < kFirstHullTile + kHullVariantCount) {
+        return paint_camo(seed, index, index - kFirstHullTile, kNeutralCamo);
+    }
+    if (index >= kFirstTeamHullTile && index < kFirstTeamHullTile + kHullVariantCount) {
+        return paint_camo(seed, index, index - kFirstTeamHullTile, kPlayerCamo);
+    }
+    if (index >= kFirstTeamHullTile + kHullVariantCount
+        && index < kFirstTeamHullTile + (2 * kHullVariantCount)) {
+        return paint_camo(seed, index, index - kFirstTeamHullTile - kHullVariantCount, kEnemyCamo);
+    }
     switch (index) {
     case 0:
         return solid(kWhite);
@@ -283,12 +322,6 @@ Tile paint_tile(std::uint64_t seed, int index) {
         return paint_metal(seed, index, {228, 228, 228}, 8);
     case kTurretBodyTile:
         return paint_metal(seed, index, {236, 236, 236}, 8);
-    case kFirstHullTile:
-        return paint_splodges(seed, index);
-    case kFirstHullTile + 1:
-        return paint_stripes(seed, index);
-    case kFirstHullTile + 2:
-        return paint_blocks(seed, index);
     default:
         return solid(kMagenta);
     }

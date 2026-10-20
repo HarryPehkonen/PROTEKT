@@ -529,16 +529,16 @@ TEST(Reticle, IsTheSameEveryTime) {
 
 /// The colour of the first vertex of `unit`'s body in `scene`: it is the only thing at the unit's
 /// own position that is not terrain. A factory is found by a top corner of its box; a tank by the
-/// rear top corner of its hull (side colour, not the dark track tint), where it faces +Y by
-/// default.
+/// rear top corner of its TURRET (the full side colour: the hull is only a pale tint of it since
+/// D2f, and the turret is where the team and the mark read), where it faces +Y by default.
 std::array<float, 3> box_colour(const Scene& scene, const protekt::sim::Unit& unit) {
     constexpr float kFixedOne = static_cast<float>(protekt::sim::Fixed::kOne);
     const float ux = static_cast<float>(unit.x.raw) / kFixedOne * kMetresPerTile;
     const float uz = static_cast<float>(unit.y.raw) / kFixedOne * kMetresPerTile;
     const bool tank = unit.kind == protekt::sim::UnitKind::Tank;
     const float half = kMetresPerTile * 0.3F;
-    const float want_x = tank ? ux - (half * 0.7F) : ux - half;
-    const float want_z = tank ? uz - 1.1F : uz - half;
+    const float want_x = tank ? ux - 0.36F : ux - half;       // the turret's half-width across
+    const float want_z = tank ? uz - 0.3F - 0.5F : uz - half; // its centre, less its half-length
     for (const auto& v : scene.vertices) {
         if (std::abs(v.position[0] - want_x) < 1e-3F && std::abs(v.position[2] - want_z) < 1e-3F
             && v.position[1]
@@ -1548,11 +1548,14 @@ TEST(HullVariant, EveryTankWearsItsOwnValidVariantTileAndTheSquadIsNotUniform) {
         const auto tank = tank_only(sim, unit, {});
         ASSERT_EQ(tank.size(), kTankVertices);
         const int tile = hull_tile_of(tank);
-        const auto name = protekt::game::kHullVariantNames.at(
-            static_cast<std::size_t>(protekt::game::hull_variant(42, unit.id.value)));
+        const auto name
+            = protekt::game::kTeamHullNames.at(static_cast<std::size_t>(unit.side))
+                  .at(static_cast<std::size_t>(protekt::game::hull_variant(42, unit.id.value)));
         EXPECT_EQ(tile, atlas.tile(name)) << "unit " << unit.id.value;
-        EXPECT_GE(tile, 7);
-        EXPECT_LE(tile, 9);
+        // The player's set is tiles 10-12, the enemy's 13-15: each tank wears its own team's camo.
+        const int first = unit.side == protekt::sim::Side::Player ? 10 : 13;
+        EXPECT_GE(tile, first);
+        EXPECT_LE(tile, first + 2);
         // Twice, the same: a tank wears the same pattern every time it is drawn.
         EXPECT_EQ(hull_tile_of(tank_only(sim, unit, {})), tile);
         worn.insert(tile);
@@ -2433,6 +2436,10 @@ std::array<float, 3> tank_face_colour(const Scene& scene, std::size_t prism, std
 }
 
 constexpr std::size_t kHull = 2;
+constexpr std::size_t kTurretPrism = 3;
+
+/// `c` mixed toward white by `kHullPaleMix`: what the scene does to a hull's colour.
+float pale(float c) { return c + ((1.0F - c) * protekt::game::kHullPaleMix); }
 constexpr std::size_t kLeftFace = 2;
 constexpr std::size_t kRightFace = 3;
 constexpr std::size_t kTopFace = 4;
@@ -2452,8 +2459,9 @@ TEST(SceneShading, TheTopIsBrighterThanTheSideAwayFromTheSunAndKeepsTheHue) {
     EXPECT_GT(top[2], lit[2]);
     EXPECT_GT(lit[2], shade[2]);
     EXPECT_GT(shade[2], under[2]);
-    // Every face is the side's blue scaled, never greyed: the channel ratios are the base's.
-    const protekt::math::Vec3 base{0.15F, 0.35F, 0.85F};
+    // Every face is the hull's pale tint of the side's blue, scaled, never greyed: the channel
+    // ratios are the base's.
+    const protekt::math::Vec3 base{pale(0.15F), pale(0.35F), pale(0.85F)};
     for (const auto& face : {top, lit, shade, under}) {
         EXPECT_GT(face[2], 0.0F);
         const float scale = face[2] / base[2];
@@ -2486,11 +2494,36 @@ TEST(SceneShading, ASelectedHullStillReadsAsTheHighlight) {
         EXPECT_GT(after.at(i), before.at(i));
     }
     EXPECT_GT(after[0] / after[2], before[0] / before[2]);
-    // The shaded highlight is the highlight colour times the same light the unmarked top got.
-    const float light = before[2] / 0.85F;
+    // The shaded highlight is the hull's pale tint of the highlight colour times the same light
+    // the unmarked top got.
+    const float light = before[2] / pale(0.85F);
     const float mix = 0.55F;
-    EXPECT_NEAR(after[0], (0.15F + ((1.0F - 0.15F) * mix)) * light, 1e-5F);
-    EXPECT_NEAR(after[2], (0.85F + ((1.0F - 0.85F) * mix)) * light, 1e-5F);
+    EXPECT_NEAR(after[0], pale(0.15F + ((1.0F - 0.15F) * mix)) * light, 1e-5F);
+    EXPECT_NEAR(after[2], pale(0.85F + ((1.0F - 0.85F) * mix)) * light, 1e-5F);
+}
+
+/// D2f: the hull takes only a PALE tint of the side colour, so its team camo tile dominates, and
+/// the turret keeps the full saturated side colour: the turret is the team-identity block.
+TEST(SceneShading, TheTurretKeepsTheSaturatedSideColourAndTheHullOnlyAPaleTint) {
+    const auto sim = facing_sim();
+    const Scene scene = facing_scene(sim, 0.0F, 0.0F);
+    const auto turret = tank_face_colour(scene, kTurretPrism, kTopFace);
+    const auto hull = tank_face_colour(scene, kHull, kTopFace);
+    const float light = turret[2] / 0.85F;
+    EXPECT_NEAR(turret[0], 0.15F * light, 1e-5F) << "the turret is the side's own blue";
+    EXPECT_NEAR(turret[1], 0.35F * light, 1e-5F);
+    const float hull_light = hull[2] / pale(0.85F);
+    EXPECT_NEAR(hull[0], pale(0.15F) * hull_light, 1e-5F) << "the hull is a pale tint of it";
+    EXPECT_NEAR(hull[1], pale(0.35F) * hull_light, 1e-5F);
+    // Saturation, max - min over max: the turret's is high, the hull's low enough that the tile's
+    // tones, not the vertex colour, set the hull's hue.
+    const auto saturation = [](const std::array<float, 3>& c) {
+        const float hi = std::max({c[0], c[1], c[2]});
+        const float lo = std::min({c[0], c[1], c[2]});
+        return (hi - lo) / hi;
+    };
+    EXPECT_GT(saturation(turret), 0.7F);
+    EXPECT_LT(saturation(hull), 0.15F);
 }
 
 TEST(SceneShading, TerrainIsNotShaded) {
@@ -3044,15 +3077,17 @@ void expect_corners_of(const std::vector<SceneVertex>& tank, std::size_t first, 
 /// The tile of the camo variant the facing scene's tank wears.
 UvRect viewer_hull_rect() {
     const auto sim = facing_sim();
-    const auto name = protekt::game::kHullVariantNames.at(
-        static_cast<std::size_t>(protekt::game::hull_variant(42, viewer_of(sim).id.value)));
+    const auto name
+        = protekt::game::kTeamHullNames.at(static_cast<std::size_t>(viewer_of(sim).side))
+              .at(static_cast<std::size_t>(
+                  protekt::game::hull_variant(42, viewer_of(sim).id.value)));
     return tile_rect(protekt::game::atlas_manifest().tile(name));
 }
 
 TEST(TankUv, EachPartAddressesItsTilesExactRect) {
     const auto tank = drawn_tank(0.3F, 0.4F);
     ASSERT_EQ(tank.size(), kTankVertices);
-    // Pinned: tracks are tile 1, (0.25, 0) to (0.5, 0.25); the hull one of the camo tiles 7, 8, 9;
+    // Pinned: tracks are tile 1, (0.25, 0) to (0.5, 0.25); the hull one of its team's camo tiles;
     // turret and bustle 2; barrel and collar 3.
     const UvRect tracks = tile_rect(1);
     EXPECT_EQ(tracks.u0, 0.25F + kHalfTexel);

@@ -2,7 +2,8 @@
 # texels; the index counts left to right, top to bottom (0 = top-left, 15 = bottom-right).
 # A blank line, a '#' line, or a line that is not "name index" (index 0..15) is skipped.
 # A name that is not listed falls back to tile 0, which is white.
-# tank_hull is an alias of tank_hull_a; a tank wears one of the three hull variants (a, b, c).
+# tank_hull is an alias of tank_hull_a. tank_hull_a/b/c are the neutral camo; a tank wears one of
+# its team's three variants (a, b, c), tank_hull_player_* or tank_hull_enemy_*.
 tank_hull 7
 tank_tracks 1
 tank_turret 2
@@ -13,3 +14,9 @@ turret_body 6
 tank_hull_a 7
 tank_hull_b 8
 tank_hull_c 9
+tank_hull_player_a 10
+tank_hull_player_b 11
+tank_hull_player_c 12
+tank_hull_enemy_a 13
+tank_hull_enemy_b 14
+tank_hull_enemy_c 15
