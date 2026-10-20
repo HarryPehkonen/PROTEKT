@@ -87,8 +87,18 @@ protekt_warnings(protekt_audio)
 # ================================ game ================================
 # The game's own logic -- the world as seen, and the player as a commander -- is PURE, has no
 # window and no Vulkan in it, and is therefore tested on the gate box with everything else.
+# The atlas manifest is committed data (assets/atlas_manifest.txt) and is compiled INTO the binary,
+# like the shaders: the game reads no data file at run time, and a configure re-runs when it changes.
+file(READ ${CMAKE_CURRENT_SOURCE_DIR}/assets/atlas_manifest.txt PROTEKT_ATLAS_MANIFEST_TEXT)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS assets/atlas_manifest.txt)
+configure_file(
+    ${CMAKE_CURRENT_SOURCE_DIR}/cmake/atlas_manifest.hpp.in
+    ${CMAKE_BINARY_DIR}/generated/atlas_manifest.hpp
+    @ONLY
+)
 add_library(protekt_game STATIC
     src/game/aim.cpp
+    src/game/atlas.cpp
     src/game/scene.cpp
     src/game/player.cpp
     src/game/pick.cpp
@@ -282,7 +292,7 @@ if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
                                         tests/test_navigation.cpp
                                         tests/test_synth.cpp tests/test_mixer.cpp
                                         tests/test_sounds.cpp tests/test_audio_out.cpp
-                                        tests/test_pixels.cpp)
+                                        tests/test_pixels.cpp tests/test_atlas.cpp)
     target_link_libraries(protekt_tests PRIVATE protekt_app)
     if(PROTEKT_RENDER)
         target_sources(protekt_tests PRIVATE tests/test_render.cpp)

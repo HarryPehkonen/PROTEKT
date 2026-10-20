@@ -27,6 +27,9 @@ struct WindowOptions {
     /// Start in desktop fullscreen. A command-line flag rather than only a key, because that is
     /// what makes a full-screen frame reproducible on a machine nobody is sitting at.
     bool fullscreen{false};
+    /// The scene texture, as in `CreateOptions`: RGBA8, `atlas_side` squared; empty keeps white.
+    std::vector<std::uint8_t> atlas_rgba;
+    std::uint32_t atlas_side{0};
 };
 
 class Window {

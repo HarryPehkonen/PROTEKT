@@ -1,5 +1,6 @@
 #include "protekt/game/scene.hpp"
 
+#include "protekt/game/atlas.hpp"
 #include "protekt/game/pick.hpp"
 #include "protekt/game/radar.hpp"
 #include "protekt/math/math.hpp"
@@ -56,6 +57,19 @@ void emit_quad(std::vector<SceneVertex>& out, const Vec3& a, const Vec3& b, cons
                const Vec3& d, const Vec3& colour) {
     emit_triangle(out, a, b, c, colour);
     emit_triangle(out, a, c, d, colour);
+}
+
+/// A quad that samples one whole atlas tile: its corners a, b, c, d take the tile's corners
+/// top-left, top-right, bottom-right, bottom-left. The colour still multiplies the texel.
+void emit_tiled_quad(std::vector<SceneVertex>& out, const Vec3& a, const Vec3& b, const Vec3& c,
+                     const Vec3& d, const Vec3& colour, const UvRect& tile) {
+    const SceneVertex va{a, colour, tile.u0, tile.v0};
+    const SceneVertex vb{b, colour, tile.u1, tile.v0};
+    const SceneVertex vc{c, colour, tile.u1, tile.v1};
+    const SceneVertex vd{d, colour, tile.u0, tile.v1};
+    for (const SceneVertex& v : {va, vb, vc, va, vc, vd}) {
+        out.push_back(v);
+    }
 }
 
 void build_terrain(std::vector<SceneVertex>& out, std::uint64_t seed, int centre_x, int centre_y,
@@ -211,7 +225,7 @@ float face_light(const Vec3& normal) {
 /// prism's centre, so it does not depend on the winding.
 void emit_shaded_face(std::vector<SceneVertex>& out, const std::array<Vec3, 8>& p,
                       const Vec3& centre, std::size_t a, std::size_t b, std::size_t c,
-                      std::size_t d, const Vec3& colour) {
+                      std::size_t d, const Vec3& colour, const UvRect& tile) {
     const Vec3 ab{p.at(b)[0] - p.at(a)[0], p.at(b)[1] - p.at(a)[1], p.at(b)[2] - p.at(a)[2]};
     const Vec3 ac{p.at(c)[0] - p.at(a)[0], p.at(c)[1] - p.at(a)[1], p.at(c)[2] - p.at(a)[2]};
     Vec3 normal = normalise(cross(ab, ac));
@@ -223,7 +237,7 @@ void emit_shaded_face(std::vector<SceneVertex>& out, const std::array<Vec3, 8>& 
     }
     const float light = face_light(normal);
     const Vec3 shaded{colour[0] * light, colour[1] * light, colour[2] * light};
-    emit_quad(out, p.at(a), p.at(b), p.at(c), p.at(d), shaded);
+    emit_tiled_quad(out, p.at(a), p.at(b), p.at(c), p.at(d), shaded, tile);
 }
 
 /// The eight corners of a prism in a frame turned by `angle` about (x, z), in the order the faces
@@ -243,7 +257,7 @@ std::array<Vec3, 8> prism_corners(float x, float z, float angle, const Prism& s)
 /// `aim_tint` has picked the mark -- and the face light multiplies it last, so a selection or aim
 /// cue is tinted by the light like everything else but is never replaced by it.
 void emit_turned_prism(std::vector<SceneVertex>& out, float x, float z, float angle, const Prism& s,
-                       const Vec3& colour) {
+                       const Vec3& colour, const UvRect& tile) {
     const std::array<Vec3, 8> p = prism_corners(x, z, angle, s);
     Vec3 centre{0.0F, 0.0F, 0.0F};
     for (const Vec3& corner_point : p) {
@@ -251,19 +265,19 @@ void emit_turned_prism(std::vector<SceneVertex>& out, float x, float z, float an
             centre.at(axis) += corner_point.at(axis) * 0.125F;
         }
     }
-    emit_shaded_face(out, p, centre, 0, 1, 2, 3, colour); // near
-    emit_shaded_face(out, p, centre, 5, 4, 7, 6, colour); // far
-    emit_shaded_face(out, p, centre, 4, 0, 3, 7, colour); // left
-    emit_shaded_face(out, p, centre, 1, 5, 6, 2, colour); // right
-    emit_shaded_face(out, p, centre, 3, 2, 6, 7, colour); // top
-    emit_shaded_face(out, p, centre, 4, 5, 1, 0, colour); // bottom
+    emit_shaded_face(out, p, centre, 0, 1, 2, 3, colour, tile); // near
+    emit_shaded_face(out, p, centre, 5, 4, 7, 6, colour, tile); // far
+    emit_shaded_face(out, p, centre, 4, 0, 3, 7, colour, tile); // left
+    emit_shaded_face(out, p, centre, 1, 5, 6, 2, colour, tile); // right
+    emit_shaded_face(out, p, centre, 3, 2, 6, 7, colour, tile); // top
+    emit_shaded_face(out, p, centre, 4, 5, 1, 0, colour, tile); // bottom
 }
 
-/// Paint is flat detail quads lying on a prism's TOP face: no textures, no UVs, the same
-/// `SceneVertex`. A quad is placed by fractions (u across, v along) of the top face, so it follows
-/// the face's turn and slope, and lifted `lift` metres along the face normal so it never z-fights
-/// the face under it. Its colour is `tone` times the same `face_light` the face under it got, so
-/// the paint sits IN the shading rather than on top of it as a bright sticker.
+/// Paint is flat detail quads lying on a prism's TOP face: the same `SceneVertex`, each quad
+/// sampling one whole atlas tile. A quad is placed by fractions (u across, v along) of the top
+/// face, so it follows the face's turn and slope, and lifted `lift` metres along the face normal so
+/// it never z-fights the face under it. Its colour is `tone` times the same `face_light` the face
+/// under it got, so the paint sits IN the shading rather than on top of it as a bright sticker.
 struct TopFace {
     Vec3 back_left;
     Vec3 back_right;
@@ -289,7 +303,8 @@ Vec3 on_top_face(const TopFace& face, float u, float v) {
 
 /// A quad with its four corners given as (u, v) fractions of the top face.
 void emit_paint_quad(std::vector<SceneVertex>& out, const TopFace& face,
-                     const std::array<std::array<float, 2>, 4>& uv, float lift, const Vec3& tone) {
+                     const std::array<std::array<float, 2>, 4>& uv, float lift, const Vec3& tone,
+                     const UvRect& tile) {
     const Vec3 across{face.back_right[0] - face.back_left[0],
                       face.back_right[1] - face.back_left[1],
                       face.back_right[2] - face.back_left[2]};
@@ -307,7 +322,7 @@ void emit_paint_quad(std::vector<SceneVertex>& out, const TopFace& face,
         corners.at(i) = Vec3{on[0] + (normal[0] * lift), on[1] + (normal[1] * lift),
                              on[2] + (normal[2] * lift)};
     }
-    emit_quad(out, corners.at(0), corners.at(1), corners.at(2), corners.at(3), shaded);
+    emit_tiled_quad(out, corners.at(0), corners.at(1), corners.at(2), corners.at(3), shaded, tile);
 }
 
 /// splitmix64: a small, fixed generator, so the same (seed, unit id) paints the same tank on every
@@ -338,7 +353,7 @@ constexpr float kPaintLift = 0.012F;
 constexpr float kPaintLiftStep = 0.0015F;
 
 void emit_camo(std::vector<SceneVertex>& out, PaintRng& rng, const TopFace& face, int patches,
-               const Vec3& dark, const Vec3& light) {
+               const Vec3& dark, const Vec3& light, const UvRect& tile) {
     for (int i = 0; i < patches; ++i) {
         const float cu = rng.between(0.2F, 0.8F);
         const float cv = rng.between(0.15F, 0.85F);
@@ -353,13 +368,13 @@ void emit_camo(std::vector<SceneVertex>& out, PaintRng& rng, const TopFace& face
             {corner(-1.0F, -1.0F), corner(1.0F, -1.0F), corner(1.0F, 1.0F), corner(-1.0F, 1.0F)}};
         const bool is_dark = (i % 2) == 0;
         emit_paint_quad(out, face, uv, kPaintLift + (kPaintLiftStep * static_cast<float>(i)),
-                        is_dark ? dark : light);
+                        is_dark ? dark : light, tile);
     }
 }
 
 /// Chunky alternating light and dark strips along a track's top; which tone starts is the rng's.
 void emit_track_links(std::vector<SceneVertex>& out, PaintRng& rng, const TopFace& face, int links,
-                      const Vec3& dark, const Vec3& light) {
+                      const Vec3& dark, const Vec3& light, const UvRect& tile) {
     constexpr float kInset = 0.08F; ///< across, so the links do not run to the skirt's edge
     const bool first_light = rng.between(0.0F, 1.0F) < 0.5F;
     for (int i = 0; i < links; ++i) {
@@ -368,16 +383,17 @@ void emit_track_links(std::vector<SceneVertex>& out, PaintRng& rng, const TopFac
         const bool is_light = ((i % 2) == 0) == first_light;
         emit_paint_quad(out, face,
                         {{{kInset, v0}, {1.0F - kInset, v0}, {1.0F - kInset, v1}, {kInset, v1}}},
-                        kPaintLift, is_light ? light : dark);
+                        kPaintLift, is_light ? light : dark, tile);
     }
 }
 
 /// A box in a frame turned by `angle` about the point (x, z): `across` is its half-width, and it
 /// runs from `back` to `front` along the heading, from `y0` to `y1`.
 void emit_turned_box(std::vector<SceneVertex>& out, float x, float z, float angle, float across,
-                     float back, float front, float y0, float y1, const Vec3& colour) {
+                     float back, float front, float y0, float y1, const Vec3& colour,
+                     const UvRect& tile) {
     emit_turned_prism(out, x, z, angle,
-                      Prism{-across, across, back, back, front, front, y0, y1, y1}, colour);
+                      Prism{-across, across, back, back, front, front, y0, y1, y1}, colour, tile);
 }
 
 void build_unit_box(std::vector<SceneVertex>& out, std::uint64_t seed, const sim::Unit& unit,
@@ -402,7 +418,7 @@ void build_unit_box(std::vector<SceneVertex>& out, std::uint64_t seed, const sim
     emit_turned_prism(out, x, z, 0.0F,
                       Prism{-half_width, half_width, -half_width, -half_width, half_width,
                             half_width, ground, ground + height, ground + height},
-                      colour);
+                      colour, UvRect{});
 }
 
 /// A tank, abstracted from a side-on battle tank and built only of flat-shaded prisms: two dark
@@ -420,7 +436,15 @@ void build_facing_tank(std::vector<SceneVertex>& out, std::uint64_t seed, const 
     const float ground = lifted ? lift_z : ground_metres(seed, unit.x, unit.y);
     const float half_width = kMetresPerTile * 0.3F; ///< the outer face of a track
     constexpr float kTrackInner = 0.7F;             ///< of half_width; the hull fills the rest
-    constexpr float kTrackTint = 0.25F;             ///< near-black version of the side colour
+    // The skirts are dark because the TRACK TILE is dark (a 64 texel), not because their vertex
+    // colour is: the vertex keeps the side colour, the selection tint and the face light, and the
+    // texel multiplies them. Paint quads on the tracks divide this out to keep their old tones.
+    constexpr float kTrackTexel = 64.0F / 255.0F;
+    const AtlasManifest& atlas = atlas_manifest();
+    const UvRect hull_tile = atlas.rect("tank_hull");
+    const UvRect tracks_tile = atlas.rect("tank_tracks");
+    const UvRect turret_tile = atlas.rect("tank_turret");
+    const UvRect barrel_tile = atlas.rect("tank_barrel");
     constexpr float kTrackHeight = 0.4F;
     constexpr float kTrackBack = -1.3F; ///< metres along the heading from the centre
     constexpr float kTrackFront = 1.3F;
@@ -453,7 +477,6 @@ void build_facing_tank(std::vector<SceneVertex>& out, std::uint64_t seed, const 
     } else if (mark != Mark::None) {
         colour = aim_tint(colour, mark == Mark::AimedOwn);
     }
-    const Vec3 track_colour{colour[0] * kTrackTint, colour[1] * kTrackTint, colour[2] * kTrackTint};
 
     const float inner = half_width * kTrackInner;
     std::array<TopFace, 2> track_tops{};
@@ -464,7 +487,7 @@ void build_facing_tank(std::vector<SceneVertex>& out, std::uint64_t seed, const 
         const Prism track{std::min(a, b), std::max(a, b),        kTrackBack,
                           kTrackBack,     kTrackFront,           kTrackFront,
                           ground,         ground + kTrackHeight, ground + kTrackHeight};
-        emit_turned_prism(out, x, z, heading, track, track_colour);
+        emit_turned_prism(out, x, z, heading, track, colour, tracks_tile);
         track_tops.at(track_index++) = top_face_of(prism_corners(x, z, heading, track));
     }
     const Prism hull{-inner,
@@ -476,7 +499,7 @@ void build_facing_tank(std::vector<SceneVertex>& out, std::uint64_t seed, const 
                      ground,
                      ground + kHullRearHeight,
                      ground + kHullFrontHeight};
-    emit_turned_prism(out, x, z, heading, hull, colour);
+    emit_turned_prism(out, x, z, heading, hull, colour, hull_tile);
 
     // The turret group shares one frame at the turret's centre; the barrel starts at its front
     // face and is measured from the tank's centre along the same axis, so it points where the
@@ -488,16 +511,18 @@ void build_facing_tank(std::vector<SceneVertex>& out, std::uint64_t seed, const 
         -kTurretHalfAcross, kTurretHalfAcross,         -kTurretHalfLength,
         -kTurretHalfLength, kTurretHalfLength,         kTurretHalfLength,
         turret_y0,          turret_y0 + kTurretHeight, turret_y0 + kTurretHeight};
-    emit_turned_prism(out, turret_at.at(0), turret_at.at(1), turret_angle, turret_box, colour);
+    emit_turned_prism(out, turret_at.at(0), turret_at.at(1), turret_angle, turret_box, colour,
+                      turret_tile);
     emit_turned_box(out, turret_at.at(0), turret_at.at(1), turret_angle, kBustleHalfAcross,
                     -kTurretHalfLength - kBustleLength, -kTurretHalfLength,
-                    turret_y0 + kBustleBottom, turret_y0 + kBustleTop, colour);
+                    turret_y0 + kBustleBottom, turret_y0 + kBustleTop, colour, turret_tile);
     const float turret_front = kTurretCentre + kTurretHalfLength;
     emit_turned_box(out, x, z, turret_angle, kCollarHalfAcross, kBarrelTip - kCollarLength,
-                    kBarrelTip, turret_y0 + kCollarBottom, turret_y0 + kCollarTop, colour);
+                    kBarrelTip, turret_y0 + kCollarBottom, turret_y0 + kCollarTop, colour,
+                    barrel_tile);
     emit_turned_box(out, x, z, turret_angle, kBarrelHalfAcross, turret_front,
                     kBarrelTip - kCollarLength, turret_y0 + kBarrelBottom, turret_y0 + kBarrelTop,
-                    colour);
+                    colour, barrel_tile);
 
     // PAINT, after all the shaded geometry. The tones come from the FINAL colour, so a selection
     // or aim tint covers the paint exactly as it covers the hull: the whole tank reads marked.
@@ -516,16 +541,17 @@ void build_facing_tank(std::vector<SceneVertex>& out, std::uint64_t seed, const 
                           colour[1] + ((kSand[1] - colour[1]) * kCamoSand),
                           colour[2] + ((kSand[2] - colour[2]) * kCamoSand)};
     emit_camo(out, rng, top_face_of(prism_corners(x, z, heading, hull)), kHullPatches, camo_dark,
-              camo_light);
+              camo_light, hull_tile);
     emit_camo(
         out, rng,
         top_face_of(prism_corners(turret_at.at(0), turret_at.at(1), turret_angle, turret_box)),
-        kTurretPatches, camo_dark, camo_light);
-    const Vec3 link_light{colour[0] * kLinkLight, colour[1] * kLinkLight, colour[2] * kLinkLight};
-    const Vec3 link_dark{colour[0] * kLinkDark * kTrackTint, colour[1] * kLinkDark * kTrackTint,
-                         colour[2] * kLinkDark * kTrackTint};
+        kTurretPatches, camo_dark, camo_light, hull_tile);
+    const float light_gain = kLinkLight / kTrackTexel; ///< the track tile multiplies it back down
+    const float dark_gain = kLinkDark;
+    const Vec3 link_light{colour[0] * light_gain, colour[1] * light_gain, colour[2] * light_gain};
+    const Vec3 link_dark{colour[0] * dark_gain, colour[1] * dark_gain, colour[2] * dark_gain};
     for (const TopFace& top : track_tops) {
-        emit_track_links(out, rng, top, kTrackLinks, link_dark, link_light);
+        emit_track_links(out, rng, top, kTrackLinks, link_dark, link_light, tracks_tile);
     }
 }
 

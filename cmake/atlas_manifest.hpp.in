@@ -1,0 +1,4 @@
+// Generated from assets/atlas_manifest.txt by CMake. Do not edit.
+#pragma once
+
+inline constexpr const char* kAtlasManifestText = R"PROTEKT_MANIFEST(@PROTEKT_ATLAS_MANIFEST_TEXT@)PROTEKT_MANIFEST";

@@ -84,6 +84,11 @@ struct CreateOptions {
     std::string device_name;
     bool validation{true};
     game::Extent extent{320, 200};
+    /// The scene texture: tightly packed RGBA8, `atlas_side` x `atlas_side`. Empty (or a size that
+    /// does not match) keeps the renderer's own 2x2 white texture, under which every UV is an
+    /// identity. The renderer does not know what the tiles are; the game hands it pixels.
+    std::vector<std::uint8_t> atlas_rgba;
+    std::uint32_t atlas_side{0};
 };
 
 /// Every physical device that can be enumerated. Empty when there is no loader or no driver;

@@ -313,6 +313,8 @@ public:
 
     bool init(const CreateOptions& options, std::string& error) {
         extent_ = options.extent;
+        atlas_rgba_ = options.atlas_rgba;
+        atlas_side_ = options.atlas_side;
         if (options.extent.width == 0 || options.extent.height == 0) {
             error = "refusing to create a renderer with an empty extent ("
                     + std::to_string(options.extent.width) + "x"
@@ -844,13 +846,16 @@ private:
     /// drivers. UNORM, not sRGB, so a texel of 255 reads back as exactly 1.0.
     bool create_texture(std::string& error) {
         constexpr std::size_t kSide = 2;
-        const std::array<std::uint8_t, kSide * kSide * 4U> white{
-            255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255};
+        const std::vector<std::uint8_t> white(kSide * kSide * 4U, 255);
+        const bool supplied
+            = atlas_side_ > 0
+              && atlas_rgba_.size() == static_cast<std::size_t>(atlas_side_) * atlas_side_ * 4U;
         VkBuffer staging{};
         VkDeviceMemory staging_memory{};
         void* staging_mapped = nullptr;
-        const bool ok = upload_texture(white, static_cast<std::uint32_t>(kSide), staging,
-                                       staging_memory, staging_mapped);
+        const bool ok = upload_texture(supplied ? atlas_rgba_ : white,
+                                       supplied ? atlas_side_ : static_cast<std::uint32_t>(kSide),
+                                       staging, staging_memory, staging_mapped);
         if (staging_mapped != nullptr) {
             vkUnmapMemory(device_, staging_memory);
         }
@@ -1227,6 +1232,8 @@ private:
     VkPipelineLayout pipeline_layout_{};
     VkPipeline pipeline_{};
 
+    std::vector<std::uint8_t> atlas_rgba_;
+    std::uint32_t atlas_side_{0};
     VkImage texture_{};
     VkDeviceMemory texture_memory_{};
     VkImageView texture_view_{};

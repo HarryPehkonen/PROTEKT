@@ -21,6 +21,7 @@
 #include <vector>
 
 #include "protekt/app/render.hpp"
+#include "protekt/game/atlas.hpp"
 #include "protekt/game/radar.hpp"
 #include "protekt/game/scene.hpp"
 #include "protekt/render/renderer.hpp"
@@ -539,3 +540,41 @@ TEST_F(RenderTest, DrawsTheRadarWithAFaceMarksAndABorderThatSurviveTheDepthTest)
 }
 
 } // namespace
+
+// ---- the atlas reaches the GPU (D2b) ----
+
+TEST_F(RenderTest, AFacingTankDrawsTwiceByteIdenticallyThroughTheAtlas) {
+    namespace sim = protekt::sim;
+    const auto world = sim::Sim::create(sim::skirmish(42));
+    protekt::game::SceneOptions so;
+    so.seed = 42;
+    so.extent = Extent{kWidth, kHeight};
+    so.radius_tiles = 12;
+    const auto& tank = world.units().back();
+    so.camera.x = static_cast<float>(tank.x.raw) / 65536.0F * protekt::game::kMetresPerTile;
+    so.camera.z = static_cast<float>(tank.y.raw) / 65536.0F * protekt::game::kMetresPerTile;
+    so.camera.y = protekt::game::height_metres(42, static_cast<int>(tank.x.raw / 65536),
+                                               static_cast<int>(tank.y.raw / 65536))
+                  + 5.0F;
+    so.camera.pitch = -1.5F;
+    so.facing = protekt::game::SceneOptions::Facing{tank.id, 0.4F, 0.2F};
+    const protekt::game::Scene scene = protekt::game::build_scene(world, so);
+    const auto draw = [&](protekt::render::Renderer& r) {
+        protekt::render::FrameStats stats{};
+        return r.render(
+            protekt::render::FrameRequest{
+                .extent = Extent{kWidth, kHeight}, .seed = 42, .tick = 0, .scene = &scene},
+            stats);
+    };
+    protekt::render::CreateOptions with = options();
+    with.atlas_rgba = protekt::game::atlas_pixels();
+    with.atlas_side = protekt::game::kAtlasSide;
+    std::string error;
+    const auto atlas_renderer = protekt::render::create(with, error);
+    ASSERT_NE(atlas_renderer, nullptr) << error;
+    EXPECT_EQ(draw(*atlas_renderer), draw(*atlas_renderer)) << "same scene, same bytes";
+    EXPECT_EQ(atlas_renderer->validation_errors(), 0U);
+    // The atlas is really sampled: the same scene over the default white texture differs, because
+    // the track tile is dark.
+    EXPECT_NE(draw(*atlas_renderer), draw(*renderer_));
+}

@@ -4,6 +4,7 @@
 #include <utility>
 
 #ifdef PROTEKT_HAVE_WINDOW
+#include "protekt/game/atlas.hpp"
 #include "protekt/input/bindings.hpp"
 #include "protekt/render/window.hpp"
 #endif
@@ -23,6 +24,8 @@ std::unique_ptr<GamePresenter> GamePresenter::create(const PresenterOptions& opt
         window_options.extent = options.extent;
         window_options.device_name = options.gpu;
         window_options.fullscreen = options.fullscreen;
+        window_options.atlas_rgba = game::atlas_pixels();
+        window_options.atlas_side = game::kAtlasSide;
         presenter->window_ = render::Window::create(window_options, error);
         if (presenter->window_ == nullptr) {
             err << "protekt-game: " << error << "\n"
@@ -46,6 +49,8 @@ std::unique_ptr<GamePresenter> GamePresenter::create(const PresenterOptions& opt
         create_options.device_name = options.gpu;
         create_options.validation = true;
         create_options.extent = options.extent;
+        create_options.atlas_rgba = game::atlas_pixels();
+        create_options.atlas_side = game::kAtlasSide;
         presenter->offscreen_ = render::create(create_options, error);
         if (presenter->offscreen_ == nullptr) {
             err << "protekt-game: " << error << "\n";
