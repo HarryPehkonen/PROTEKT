@@ -2,11 +2,24 @@
 
 // stb is vendored and warning-noisy by design; it is included as a SYSTEM header (see
 // CMakeLists.txt) and compiled in this one translation unit.
+//
+// gcc -O2 fires a KNOWN maybe-uninitialized false positive inside stb_image.h
+// (tc16[0], stbi__compute_transparency16) that the -Werror release gate rejects. It is a
+// vendor false alarm, not a bug: the value is always assigned before use along every path
+// gcc can actually reach. Suppress exactly that warning, exactly around the vendored
+// includes, and never edit the vendored headers themselves.
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
+#endif
 #define STB_IMAGE_IMPLEMENTATION
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #define STBI_ONLY_PNG
 #include <stb_image.h>
 #include <stb_image_write.h>
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
 
 #include <algorithm>
 #include <cstddef>
