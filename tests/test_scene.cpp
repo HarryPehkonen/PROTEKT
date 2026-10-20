@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <limits>
@@ -2908,3 +2909,51 @@ TEST(Sky, IsAbsentFromTheViewlessCalibrationScene) {
     const Scene scene = protekt::game::build_calibration_scene(options_at(60.0F, 60.0F, 5, 4));
     EXPECT_EQ(scene.vertices.size(), std::size_t{18}) << "three bars, and no sky";
 }
+
+// ---- texture plumbing (D2a): the vertex carries a UV that nothing sets yet ----
+
+namespace {
+
+using protekt::game::SceneVertex;
+
+TEST(SceneUv, EveryEmitterLeavesTheUvAtZero) {
+    // A viewer (radar, health bar), an aim (reticle) and a hit flash (the final wash) between
+    // them reach every emitter in build_scene: terrain, sky, units, projectiles and the HUD.
+    const Damaged d = factory_down_to(200);
+    SceneOptions options = watching(d);
+    options.aim = protekt::game::Aim{640.0F, 360.0F};
+    options.hit_flash = 0.5F;
+    const Scene scene = protekt::game::build_scene(d.sim, options);
+    ASSERT_GT(scene.vertices.size(), terrain_vertex_count(options.radius_tiles));
+    for (const SceneVertex& v : scene.vertices) {
+        ASSERT_EQ(v.u, 0.0F);
+        ASSERT_EQ(v.v, 0.0F);
+    }
+}
+
+TEST(SceneUv, ASkirmishAndTheCalibrationSceneLeaveTheUvAtZeroToo) {
+    const auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(42));
+    const SceneOptions options = options_at(60.0F, 60.0F);
+    for (const Scene& scene : {protekt::game::build_scene(sim, options),
+                               protekt::game::build_calibration_scene(options)}) {
+        ASSERT_FALSE(scene.vertices.empty());
+        for (const SceneVertex& v : scene.vertices) {
+            ASSERT_EQ(v.u, 0.0F);
+            ASSERT_EQ(v.v, 0.0F);
+        }
+    }
+}
+
+TEST(SceneUv, TheVertexIsEightFloatsWithNoPaddingBecauseItIsUploadedVerbatim) {
+    EXPECT_EQ(sizeof(SceneVertex), std::size_t{8} * sizeof(float));
+    EXPECT_EQ(offsetof(SceneVertex, u), std::size_t{6} * sizeof(float));
+    EXPECT_EQ(offsetof(SceneVertex, v), std::size_t{7} * sizeof(float));
+}
+
+TEST(SceneUv, PinnedVertexCountsSurviveTheWiderVertex) {
+    const Scene scene = protekt::game::build_calibration_scene(options_at(60.0F, 60.0F, 5, 4));
+    EXPECT_EQ(scene.vertices.size(), std::size_t{18});
+    EXPECT_EQ(scene.vertices.size() * sizeof(SceneVertex), std::size_t{18} * 32U);
+}
+
+} // namespace

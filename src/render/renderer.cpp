@@ -51,6 +51,8 @@ using math::Vec3;
 struct Vertex {
     Vec3 position;
     Vec3 colour;
+    float u;
+    float v;
 };
 
 constexpr std::uint32_t kUnitVertices = 36;
@@ -72,8 +74,9 @@ Vec3 ground_colour(std::uint64_t seed) {
 
 void emit_triangle(std::vector<Vertex>& out, const Vec3& a, const Vec3& b, const Vec3& c,
                    const Vec3& colour) {
-    const auto emit
-        = [&out, &colour](const Vec3& position) { out.push_back(Vertex{position, colour}); };
+    const auto emit = [&out, &colour](const Vec3& position) {
+        out.push_back(Vertex{position, colour, 0.0F, 0.0F});
+    };
     emit(a);
     emit(b);
     emit(c);
@@ -358,7 +361,8 @@ public:
             return false;
         }
         return create_device(error) && create_render_pass(error) && create_pipeline(error)
-               && create_frame_objects(error) && create_target(options.extent, error);
+               && create_frame_objects(error) && create_texture(error)
+               && create_target(options.extent, error);
     }
 
     [[nodiscard]] game::Extent extent() const noexcept override { return extent_; }
@@ -585,9 +589,27 @@ private:
             return false;
         }
 
+        VkDescriptorSetLayoutBinding texture_binding{};
+        texture_binding.binding = 0;
+        texture_binding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        texture_binding.descriptorCount = 1;
+        texture_binding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+        VkDescriptorSetLayoutCreateInfo set_layout{};
+        set_layout.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+        set_layout.bindingCount = 1;
+        set_layout.pBindings = &texture_binding;
+        if (vkCreateDescriptorSetLayout(device_, &set_layout, nullptr, &set_layout_)
+            != VK_SUCCESS) {
+            set_layout_ = VK_NULL_HANDLE;
+            error = "vkCreateDescriptorSetLayout failed";
+            return false;
+        }
+
         VkPushConstantRange push{VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(Mat4)};
         VkPipelineLayoutCreateInfo layout{};
         layout.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+        layout.setLayoutCount = 1;
+        layout.pSetLayouts = &set_layout_;
         layout.pushConstantRangeCount = 1;
         layout.pPushConstantRanges = &push;
         if (vkCreatePipelineLayout(device_, &layout, nullptr, &pipeline_layout_) != VK_SUCCESS) {
@@ -607,9 +629,10 @@ private:
         stages[1].pName = "main";
 
         VkVertexInputBindingDescription binding{0, sizeof(Vertex), VK_VERTEX_INPUT_RATE_VERTEX};
-        std::array<VkVertexInputAttributeDescription, 2> attributes{{
+        std::array<VkVertexInputAttributeDescription, 3> attributes{{
             {0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, position)},
             {1, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, colour)},
+            {2, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex, u)},
         }};
         VkPipelineVertexInputStateCreateInfo vertex_input{};
         vertex_input.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
@@ -815,6 +838,137 @@ private:
         return true;
     }
 
+    /// The one texture, uploaded once: an in-memory 2x2 opaque white RGBA image, and the one
+    /// sampler that reads it. The sampler is the determinism contract -- NEAREST, no mipmaps, no
+    /// anisotropy -- because integer texel fetches are what keep frames byte-identical across
+    /// drivers. UNORM, not sRGB, so a texel of 255 reads back as exactly 1.0.
+    bool create_texture(std::string& error) {
+        constexpr std::size_t kSide = 2;
+        const std::array<std::uint8_t, kSide * kSide * 4U> white{
+            255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255};
+        VkBuffer staging{};
+        VkDeviceMemory staging_memory{};
+        void* staging_mapped = nullptr;
+        const bool ok = upload_texture(white, static_cast<std::uint32_t>(kSide), staging,
+                                       staging_memory, staging_mapped);
+        if (staging_mapped != nullptr) {
+            vkUnmapMemory(device_, staging_memory);
+        }
+        vkDestroyBuffer(device_, staging, nullptr);
+        vkFreeMemory(device_, staging_memory, nullptr);
+        if (!ok) {
+            error = "could not create the scene texture on " + device_name_;
+            return false;
+        }
+
+        VkSamplerCreateInfo sampler{};
+        sampler.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+        sampler.magFilter = VK_FILTER_NEAREST;
+        sampler.minFilter = VK_FILTER_NEAREST;
+        sampler.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+        sampler.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        sampler.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        sampler.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        sampler.anisotropyEnable = VK_FALSE;
+        sampler.maxAnisotropy = 1.0F;
+        sampler.minLod = 0.0F;
+        sampler.maxLod = 0.0F;
+        if (vkCreateSampler(device_, &sampler, nullptr, &sampler_) != VK_SUCCESS) {
+            sampler_ = VK_NULL_HANDLE;
+            error = "vkCreateSampler failed";
+            return false;
+        }
+
+        VkDescriptorPoolSize pool_size{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1};
+        VkDescriptorPoolCreateInfo pool{};
+        pool.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+        pool.maxSets = 1;
+        pool.poolSizeCount = 1;
+        pool.pPoolSizes = &pool_size;
+        if (vkCreateDescriptorPool(device_, &pool, nullptr, &descriptor_pool_) != VK_SUCCESS) {
+            descriptor_pool_ = VK_NULL_HANDLE;
+            error = "vkCreateDescriptorPool failed";
+            return false;
+        }
+        VkDescriptorSetAllocateInfo alloc{};
+        alloc.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+        alloc.descriptorPool = descriptor_pool_;
+        alloc.descriptorSetCount = 1;
+        alloc.pSetLayouts = &set_layout_;
+        if (vkAllocateDescriptorSets(device_, &alloc, &descriptor_set_) != VK_SUCCESS) {
+            error = "vkAllocateDescriptorSets failed";
+            return false;
+        }
+        VkDescriptorImageInfo image_info{sampler_, texture_view_,
+                                         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+        VkWriteDescriptorSet write{};
+        write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        write.dstSet = descriptor_set_;
+        write.dstBinding = 0;
+        write.descriptorCount = 1;
+        write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        write.pImageInfo = &image_info;
+        vkUpdateDescriptorSets(device_, 1, &write, 0, nullptr);
+        return true;
+    }
+
+    /// Creates the texture image, copies `pixels` (tightly packed RGBA8, `side` x `side`) into it
+    /// through the caller's staging buffer, and leaves it in SHADER_READ_ONLY_OPTIMAL.
+    bool upload_texture(std::span<const std::uint8_t> pixels, std::uint32_t side, VkBuffer& staging,
+                        VkDeviceMemory& staging_memory, void*& staging_mapped) {
+        if (!make_buffer(pixels.size(), VK_BUFFER_USAGE_TRANSFER_SRC_BIT, staging, staging_memory,
+                         staging_mapped)
+            || !make_image({side, side}, VK_FORMAT_R8G8B8A8_UNORM,
+                           VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+                           VK_IMAGE_ASPECT_COLOR_BIT, texture_, texture_memory_, texture_view_)) {
+            return false;
+        }
+        std::memcpy(staging_mapped, pixels.data(), pixels.size());
+
+        VkCommandBufferBeginInfo begin{};
+        begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        vkBeginCommandBuffer(cmd_, &begin);
+
+        VkImageMemoryBarrier barrier{};
+        barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.image = texture_;
+        barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+        barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        vkCmdPipelineBarrier(cmd_, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                             VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1,
+                             &barrier);
+
+        VkBufferImageCopy copy{};
+        copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+        copy.imageExtent = {side, side, 1};
+        vkCmdCopyBufferToImage(cmd_, staging, texture_, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1,
+                               &copy);
+
+        barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        vkCmdPipelineBarrier(cmd_, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                             VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1,
+                             &barrier);
+        if (vkEndCommandBuffer(cmd_) != VK_SUCCESS) {
+            return false;
+        }
+
+        VkSubmitInfo submit{};
+        submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        submit.commandBufferCount = 1;
+        submit.pCommandBuffers = &cmd_;
+        vkResetFences(device_, 1, &fence_);
+        return vkQueueSubmit(queue_, 1, &submit, fence_) == VK_SUCCESS
+               && vkWaitForFences(device_, 1, &fence_, VK_TRUE, UINT64_MAX) == VK_SUCCESS;
+    }
+
     /// Grows the vertex buffer to hold at least `bytes`, if it does not already: a caller-supplied
     /// Scene has no fixed size, unlike the built-in test scene.
     bool ensure_vertex_capacity(VkDeviceSize bytes, std::string& error) {
@@ -967,6 +1121,8 @@ private:
         const VkRect2D scissor{{0, 0}, {extent.width, extent.height}};
         vkCmdSetViewport(cmd_, 0, 1, &viewport);
         vkCmdSetScissor(cmd_, 0, 1, &scissor);
+        vkCmdBindDescriptorSets(cmd_, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout_, 0, 1,
+                                &descriptor_set_, 0, nullptr);
         vkCmdPushConstants(cmd_, pipeline_layout_, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(Mat4),
                            mvp.data());
         if (vertex_count > 0) {
@@ -1023,10 +1179,16 @@ private:
             }
             vkDestroyBuffer(device_, vertex_buffer_, nullptr);
             vkFreeMemory(device_, vertex_memory_, nullptr);
+            vkDestroyDescriptorPool(device_, descriptor_pool_, nullptr);
+            vkDestroySampler(device_, sampler_, nullptr);
+            vkDestroyImageView(device_, texture_view_, nullptr);
+            vkDestroyImage(device_, texture_, nullptr);
+            vkFreeMemory(device_, texture_memory_, nullptr);
             vkDestroyFence(device_, fence_, nullptr);
             vkDestroyCommandPool(device_, pool_, nullptr);
             vkDestroyPipeline(device_, pipeline_, nullptr);
             vkDestroyPipelineLayout(device_, pipeline_layout_, nullptr);
+            vkDestroyDescriptorSetLayout(device_, set_layout_, nullptr);
             vkDestroyShaderModule(device_, vert_, nullptr);
             vkDestroyShaderModule(device_, frag_, nullptr);
             vkDestroyRenderPass(device_, render_pass_, nullptr);
@@ -1061,8 +1223,16 @@ private:
     VkRenderPass render_pass_{};
     VkShaderModule vert_{};
     VkShaderModule frag_{};
+    VkDescriptorSetLayout set_layout_{};
     VkPipelineLayout pipeline_layout_{};
     VkPipeline pipeline_{};
+
+    VkImage texture_{};
+    VkDeviceMemory texture_memory_{};
+    VkImageView texture_view_{};
+    VkSampler sampler_{};
+    VkDescriptorPool descriptor_pool_{};
+    VkDescriptorSet descriptor_set_{};
 
     VkCommandPool pool_{};
     VkCommandBuffer cmd_{};

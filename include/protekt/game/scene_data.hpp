@@ -13,11 +13,15 @@ struct Extent {
     std::uint32_t height{};
 };
 
-/// One vertex of a scene: position in world metres, then a flat colour. The layout is part of the
-/// contract because the vertex buffer is uploaded verbatim.
+/// One vertex of a scene: position in world metres, a flat colour, then a texture coordinate. The
+/// layout is part of the contract because the vertex buffer is uploaded verbatim. The fragment
+/// stage multiplies the texel at (u, v) by the colour; nothing sets a UV yet, and the renderer's
+/// one white texture makes (0, 0) an identity.
 struct SceneVertex {
     std::array<float, 3> position{};
     std::array<float, 3> colour{};
+    float u{};
+    float v{};
 };
 
 /// A frame's worth of geometry, already in world space, plus whose camera it is.
