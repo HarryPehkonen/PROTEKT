@@ -51,6 +51,7 @@ public:
     ///    is not the driven one
     ///  * right click on a hostile unit with a selection: Attack it, same roster rule
     ///  * right click with nothing selected, or with only the driven unit selected: refused
+    ///  * X: swap the driven tank to the own tank under the mark; the vacated one is told to Stop
     ///  * Tab or Escape: clear the selection
     ///
     /// Refusals never throw and never half-apply: either the whole intent is carried out or none of
@@ -81,6 +82,8 @@ private:
     /// at all if that is all there is.
     [[nodiscard]] std::vector<sim::UnitId> orderable() const;
 
+    /// X: drive the own, living, other tank under the crosshair; refuse with a reason otherwise.
+    void swap_to_crosshair(const sim::Sim& sim, const SceneOptions& options);
     void select_only(sim::UnitId id) noexcept;
     void toggle(sim::UnitId id) noexcept;
     void refuse(std::string_view why) noexcept;

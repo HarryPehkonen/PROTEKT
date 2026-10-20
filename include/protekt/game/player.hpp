@@ -70,6 +70,12 @@ public:
     /// first keypress does nothing has been told the game is broken.
     void set_heading(float radians) noexcept;
 
+    /// The player has moved to another tank: zero the eased turn and throttle so the new tank
+    /// starts from a standstill instead of lurching with the old one's momentum. The heading and
+    /// the turret yaw stay -- the player keeps looking where they were looking. This is helm
+    /// state, not the driven id; `Interaction` owns that.
+    void reset_helm() noexcept;
+
     /// One order per TICK, for `unit` and no other (the caller owns which tank is driven; this
     /// class keeps only the driver's helm state): a `MoveTo` to a waypoint ahead of the
     /// tank. Turning is applied here, because the sim moves a unit toward a destination and has no

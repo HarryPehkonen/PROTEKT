@@ -542,4 +542,29 @@ TEST(PlayerCommanderDeath, TheBodyStaysPutAndTheTurretStillLooks) {
         << "the wreck's turret did not look";
 }
 
+TEST(PlayerCommander, ResetHelmZeroesTheRatesAndKeepsWhereYouAreLooking) {
+    auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(kSeed));
+    PlayerCommander player;
+    InputState input;
+    input.turn = 1.0F;
+    input.throttle = 1.0F;
+    input.look_yaw = 0.4F;
+    player.set_input(input);
+    for (int tick = 0; tick < 10; ++tick) {
+        tick_once(sim, player);
+    }
+    ASSERT_GT(player.turn_rate(), 0.0F);
+    ASSERT_GT(player.throttle_rate(), 0.0F);
+    const float heading = player.heading();
+    const float turret = player.turret_yaw();
+    const float view = player.view_yaw();
+
+    player.reset_helm();
+    EXPECT_EQ(player.turn_rate(), 0.0F);
+    EXPECT_EQ(player.throttle_rate(), 0.0F);
+    EXPECT_EQ(player.heading(), heading);
+    EXPECT_EQ(player.turret_yaw(), turret);
+    EXPECT_EQ(player.view_yaw(), view);
+}
+
 } // namespace

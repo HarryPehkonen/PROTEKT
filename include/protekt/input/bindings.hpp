@@ -19,6 +19,7 @@ inline constexpr std::int32_t kKeyD = 7;
 inline constexpr std::int32_t kKeyE = 8;
 inline constexpr std::int32_t kKeyS = 22;
 inline constexpr std::int32_t kKeyW = 26;
+inline constexpr std::int32_t kKeyX = 27;
 
 /// The movement keys, as a state rather than as a stream of events: a tank keeps going while a key
 /// is held, and a missed key-up would otherwise drive it into a wall forever.

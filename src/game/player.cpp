@@ -37,6 +37,11 @@ float PlayerCommander::turret_yaw() const noexcept { return turret_yaw_; }
 float PlayerCommander::turn_rate() const noexcept { return turn_rate_; }
 float PlayerCommander::throttle_rate() const noexcept { return throttle_rate_; }
 
+void PlayerCommander::reset_helm() noexcept {
+    turn_rate_ = 0.0F;
+    throttle_rate_ = 0.0F;
+}
+
 void PlayerCommander::set_heading(float radians) noexcept {
     heading_ = Camera::wrap_angle(radians);
 }

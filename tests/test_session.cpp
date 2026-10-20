@@ -521,4 +521,30 @@ TEST(Session, ADestroyedTankSaysSoAndStopsTakingInput) {
     EXPECT_FALSE(gone.message().empty()) << "and the player must be told, not left guessing";
 }
 
+TEST(Session, SwappingKeepsTheLook) {
+    Rig rig = make_rig();
+    Session session{rig.tank_a};
+    std::vector<InputFrame> drive;
+    drive.push_back(holding(input::kKeyW));
+    for (int i = 1; i < 20; ++i) {
+        drive.push_back(InputFrame{});
+    }
+    run_frames(rig, session, drive);
+    const float yaw_before = session.view_yaw();
+
+    // The mark on tank B, then X.
+    const sim::Unit* b = rig.sim.find(rig.tank_b);
+    const float bx = static_cast<float>(b->x.raw) / 65536.0F * kMetresPerTile;
+    const float bz = static_cast<float>(b->y.raw) / 65536.0F * kMetresPerTile;
+    const float ground = height_metres(kSeed, b->x.floor_int(), b->y.floor_int());
+    const Projected p = game::project(rig.options.camera, kExtent, bx, ground + 0.9F, bz);
+    rig.options.aim = Aim{p.x, p.y};
+    InputFrame swap;
+    swap.keys.push_back(KeyEvent{input::kKeyX, true, false});
+    std::vector<Order> out;
+    session.frame(swap, rig.sim, rig.options, out);
+    ASSERT_EQ(session.driven(), rig.tank_b);
+    EXPECT_EQ(session.view_yaw(), yaw_before) << "you keep looking where you were looking";
+}
+
 } // namespace protekt::game

@@ -53,7 +53,11 @@ void Session::frame(const input::InputFrame& frame, const sim::Sim& sim,
         return;
     }
 
+    const sim::UnitId driven_before = interaction_.driven();
     interaction_.handle(frame, sim, options);
+    if (interaction_.driven() != driven_before) {
+        player_.reset_helm(); // a new tank starts from a standstill; the view is kept
+    }
     for (const sim::Order& order : interaction_.take_orders()) {
         out.push_back(order);
     }

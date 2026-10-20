@@ -6,6 +6,7 @@
 
 #include "protekt/cmd/command.hpp"
 #include "protekt/game/pick.hpp"
+#include "protekt/input/bindings.hpp"
 
 namespace protekt::game {
 namespace {
@@ -123,6 +124,8 @@ void Interaction::handle(const input::InputFrame& frame, const sim::Sim& sim,
         if (key.scancode == input::kKeyEscape || key.scancode == input::kKeyTab) {
             // Tab clears, as Escape does.
             selection_.clear();
+        } else if (key.scancode == input::kKeyX) {
+            swap_to_crosshair(sim, options);
         } else if (key.scancode == input::kKeySpace || key.scancode == input::kKeyT) {
             if (!options.aim.has_value()) {
                 continue; // no mark, nothing to point at; see the click loop
@@ -190,6 +193,33 @@ std::vector<sim::UnitId> Interaction::orderable() const {
         }
     }
     return roster;
+}
+
+void Interaction::swap_to_crosshair(const sim::Sim& sim, const SceneOptions& options) {
+    if (!options.aim.has_value()) {
+        refuse("There is nothing under the crosshair to swap into.");
+        return;
+    }
+    const Pick picked = pick(sim, options, options.aim->x, options.aim->y);
+    const sim::Unit* hit = picked.has_unit() ? sim.find(picked.unit) : nullptr;
+    if (hit == nullptr || !hit->alive) {
+        refuse("There is nothing under the crosshair to swap into.");
+    } else if (hit->side != sim::Side::Player) {
+        refuse("That tank is not yours -- you can only swap into your own.");
+    } else if (hit->kind != sim::UnitKind::Tank) {
+        refuse("That is not a tank -- you can only swap into a tank.");
+    } else if (hit->id == driven_) {
+        refuse("You are already driving that tank.");
+    } else {
+        // The old tank would otherwise trundle off on its last MoveTo with nobody at the helm: Stop
+        // idles it and the sim's steering zeroes its velocity. It is an ordinary unit from now on.
+        const sim::UnitId vacated = driven_;
+        const std::vector<sim::UnitId> roster{vacated};
+        const std::vector<sim::Order> stop = cmd::stop(roster);
+        pending_.insert(pending_.end(), stop.begin(), stop.end());
+        driven_ = hit->id;
+        message_ = "swapped tanks -- you are driving the one you were looking at.";
+    }
 }
 
 void Interaction::select_only(sim::UnitId id) noexcept {

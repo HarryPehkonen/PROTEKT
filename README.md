@@ -22,6 +22,7 @@ You are one tank. Everything else you command.
 | **left click** | **fire**, wherever the mark is (see below) |
 | `Space`, mark on an own unit | select it -- a click on a keyboard |
 | `Space` + `Shift`, mark on a unit | add it to the selection, or remove it |
+| `X`, mark on an own tank | swap: drive that tank instead; the one you leave stops, and becomes an ordinary unit you can command |
 | `T` | order every selected unit to attack the unit under the mark -- a hostile, or one of your own |
 | `Tab` or `Escape` | clear the selection |
 | `F11` or `Alt`+`Enter` | full screen, and back again |

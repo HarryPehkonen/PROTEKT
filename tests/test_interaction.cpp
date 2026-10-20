@@ -10,6 +10,7 @@
 #include "protekt/game/pick.hpp"
 #include "protekt/game/scene.hpp"
 #include "protekt/game/sounds.hpp"
+#include "protekt/input/bindings.hpp"
 #include "protekt/input/input.hpp"
 #include "protekt/math/math.hpp"
 #include "protekt/sim/observer.hpp"
@@ -824,6 +825,102 @@ TEST(Interaction, AClickWithNoMarkDoesNothing) {
     EXPECT_TRUE(player.selection().empty());
     EXPECT_TRUE(player.take_orders().empty());
     EXPECT_FALSE(player.take_shot_voice()) << "and it makes no sound either";
+}
+
+// ---------------------------------------------------------------- X swaps tanks
+
+TEST(Swap, XOnAnOwnTankUnderTheCrosshairDrivesIt) {
+    Rig rig = make_rig();
+    Interaction player(rig.tank_a);
+    static_cast<void>(at(rig, rig.tank_b));
+    player.handle(with_key(input::kKeyX), rig.sim, rig.options);
+    EXPECT_EQ(player.driven(), rig.tank_b);
+    EXPECT_FALSE(player.message().empty()) << "success says what happened";
+}
+
+TEST(Swap, AnEnemyTankIsRefusedWithAReason) {
+    Rig rig = make_rig();
+    Interaction player(rig.tank_a);
+    static_cast<void>(at(rig, rig.enemy));
+    player.handle(with_key(input::kKeyX), rig.sim, rig.options);
+    EXPECT_EQ(player.driven(), rig.tank_a);
+    EXPECT_EQ(player.message(), "That tank is not yours -- you can only swap into your own.");
+    EXPECT_TRUE(player.take_orders().empty());
+}
+
+TEST(Swap, AnOwnTurretIsRefusedWithAReason) {
+    Rig rig = make_rig();
+    Interaction player(rig.tank_a);
+    static_cast<void>(at(rig, rig.turret));
+    player.handle(with_key(input::kKeyX), rig.sim, rig.options);
+    EXPECT_EQ(player.driven(), rig.tank_a);
+    EXPECT_EQ(player.message(), "That is not a tank -- you can only swap into a tank.");
+    EXPECT_TRUE(player.take_orders().empty());
+}
+
+TEST(Swap, NothingUnderTheCrosshairIsRefusedWithAReason) {
+    Rig rig = make_rig();
+    Interaction player(rig.tank_a);
+    static_cast<void>(ground_click(rig));
+    player.handle(with_key(input::kKeyX), rig.sim, rig.options);
+    EXPECT_EQ(player.driven(), rig.tank_a);
+    EXPECT_EQ(player.message(), "There is nothing under the crosshair to swap into.");
+}
+
+TEST(Swap, TheTankAlreadyDrivenIsRefusedWithAReason) {
+    Rig rig = make_rig();
+    Interaction player(rig.tank_a);
+    static_cast<void>(at(rig, rig.tank_a));
+    player.handle(with_key(input::kKeyX), rig.sim, rig.options);
+    EXPECT_EQ(player.driven(), rig.tank_a);
+    EXPECT_EQ(player.message(), "You are already driving that tank.");
+    EXPECT_TRUE(player.take_orders().empty());
+}
+
+TEST(Swap, TheVacatedTankIsToldToStopAndEndsWithZeroVelocity) {
+    Rig rig = make_rig();
+    Interaction player(rig.tank_a);
+    // Get the old tank rolling, as the driver's MoveTo would have.
+    rig.sim.enqueue(
+        Order{rig.tank_a, sim::orders::MoveTo{sim::Fixed::from_int(40), sim::Fixed::from_int(55)}});
+    for (int i = 0; i < 20; ++i) {
+        rig.sim.step();
+    }
+    const sim::Unit* before = rig.sim.find(rig.tank_a);
+    ASSERT_TRUE(before->vx.raw != 0 || before->vy.raw != 0) << "the rig must have it moving";
+
+    static_cast<void>(at(rig, rig.tank_b));
+    player.handle(with_key(input::kKeyX), rig.sim, rig.options);
+    const std::vector<Order> orders = player.take_orders();
+    ASSERT_EQ(orders.size(), 1U);
+    EXPECT_EQ(orders.at(0).unit, rig.tank_a);
+    EXPECT_EQ(orders.at(0).kind(), OrderKind::Stop);
+
+    for (const Order& order : orders) {
+        rig.sim.enqueue(order);
+    }
+    rig.sim.step();
+    const sim::Unit* after = rig.sim.find(rig.tank_a);
+    EXPECT_EQ(after->vx.raw, 0);
+    EXPECT_EQ(after->vy.raw, 0);
+}
+
+TEST(Swap, AfterASwapTheNewTankIsNotOrderableAndTheOldOneIs) {
+    Rig rig = make_rig();
+    Interaction player(rig.tank_a);
+    choose(rig, player, rig.tank_a);
+    choose(rig, player, rig.tank_b, true);
+    // Both are selected; the mark is still on tank B. Swap into it.
+    player.handle(with_key(input::kKeyX), rig.sim, rig.options);
+    ASSERT_EQ(player.driven(), rig.tank_b);
+    static_cast<void>(player.take_orders());
+
+    static_cast<void>(ground_click(rig, true));
+    player.handle(with_click(Click{640, 700, MouseButton::Right, true, false}), rig.sim,
+                  rig.options);
+    const std::vector<Order> orders = player.take_orders();
+    ASSERT_EQ(orders.size(), 1U) << "only the vacated tank takes the order";
+    EXPECT_EQ(orders.at(0).unit, rig.tank_a);
 }
 
 } // namespace protekt::game
