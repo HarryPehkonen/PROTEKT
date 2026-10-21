@@ -17,6 +17,7 @@ inline constexpr std::int32_t kKeyA = 4;
 inline constexpr std::int32_t kKeyC = 6;
 inline constexpr std::int32_t kKeyD = 7;
 inline constexpr std::int32_t kKeyE = 8;
+inline constexpr std::int32_t kKeyF = 9;
 inline constexpr std::int32_t kKeyS = 22;
 inline constexpr std::int32_t kKeyW = 26;
 inline constexpr std::int32_t kKeyX = 27;

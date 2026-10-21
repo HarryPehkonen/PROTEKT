@@ -896,6 +896,67 @@ TEST(MoveKey, MWithNoMarkIssuesNoOrders) {
     EXPECT_TRUE(player.take_orders().empty());
 }
 
+TEST(FollowKey, FOrdersEverySelectedUnitToFollowTheUnitUnderTheMark) {
+    Rig rig = make_rig();
+    Interaction player{rig.tank_a};
+    choose(rig, player, rig.tank_b);
+    choose(rig, player, rig.turret);
+    static_cast<void>(at(rig, rig.tank_a)); // the mark on the driven tank: the wingman case
+    const Aim aim = mark_of(rig);
+    const Pick picked = pick(rig.sim, rig.options, aim.x, aim.y);
+    ASSERT_TRUE(picked.has_unit());
+
+    player.handle(with_key(input::kKeyF), rig.sim, rig.options);
+    const std::vector<Order> orders = player.take_orders();
+    ASSERT_EQ(orders.size(), 2U);
+    for (const Order& order : orders) {
+        EXPECT_EQ(order.kind(), OrderKind::Follow);
+        EXPECT_EQ(std::get<sim::orders::Follow>(order.payload).target, rig.tank_a);
+    }
+    EXPECT_EQ(orders.at(0).unit, rig.tank_b);
+    EXPECT_EQ(orders.at(1).unit, rig.turret);
+}
+
+TEST(FollowKey, FOnAHostileIssuesFollowOrdersToo) {
+    Rig rig = make_rig();
+    Interaction player{rig.tank_a};
+    choose(rig, player, rig.tank_b);
+    static_cast<void>(at(rig, rig.enemy));
+    player.handle(with_key(input::kKeyF), rig.sim, rig.options);
+    const std::vector<Order> orders = player.take_orders();
+    ASSERT_EQ(orders.size(), 1U);
+    EXPECT_EQ(orders.front().kind(), OrderKind::Follow);
+    EXPECT_EQ(std::get<sim::orders::Follow>(orders.front().payload).target, rig.enemy);
+}
+
+TEST(FollowKey, FOnTheGroundIssuesNoOrders) {
+    Rig rig = make_rig();
+    Interaction player{rig.tank_a};
+    choose(rig, player, rig.tank_b);
+    rig.options.aim = Aim{640.0F, 700.0F}; // open ground, as the MoveKey tests use
+    ASSERT_TRUE(pick(rig.sim, rig.options, 640.0F, 700.0F).has_tile());
+    ASSERT_FALSE(pick(rig.sim, rig.options, 640.0F, 700.0F).has_unit());
+    player.handle(with_key(input::kKeyF), rig.sim, rig.options);
+    EXPECT_TRUE(player.take_orders().empty());
+}
+
+TEST(FollowKey, FWithNothingSelectedIssuesNoOrders) {
+    Rig rig = make_rig();
+    Interaction player{rig.tank_a};
+    static_cast<void>(at(rig, rig.tank_b));
+    player.handle(with_key(input::kKeyF), rig.sim, rig.options);
+    EXPECT_TRUE(player.take_orders().empty());
+}
+
+TEST(FollowKey, FWithNoMarkIssuesNoOrders) {
+    Rig rig = make_rig();
+    Interaction player{rig.tank_a};
+    choose(rig, player, rig.tank_b);
+    rig.options.aim.reset();
+    player.handle(with_key(input::kKeyF), rig.sim, rig.options);
+    EXPECT_TRUE(player.take_orders().empty());
+}
+
 TEST(Interaction, TheDrivenTankIsNeverOrderedByAClick) {
     Rig rig = make_rig();
     Interaction player{rig.tank_a};

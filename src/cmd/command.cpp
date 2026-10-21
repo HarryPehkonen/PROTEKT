@@ -64,6 +64,13 @@ std::vector<sim::Order> attack(std::span<const sim::UnitId> roster, sim::UnitId 
     return make(roster, sim::orders::Attack{target});
 }
 
+std::vector<sim::Order> follow(std::span<const sim::UnitId> roster, sim::UnitId target) {
+    if (!target.valid()) {
+        return {};
+    }
+    return make(roster, sim::orders::Follow{target});
+}
+
 std::vector<sim::Order> focus_fire(sim::UnitId shooter, sim::UnitId target) {
     if (!shooter.valid() || !target.valid() || shooter == target) {
         return {};

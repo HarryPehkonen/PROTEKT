@@ -108,6 +108,7 @@ private:
     /// X: drive the own, living, other tank under the crosshair; refuse with a reason otherwise.
     void swap_to_crosshair(const sim::Sim& sim, const SceneOptions& options);
     void move_to_crosshair_ground(const sim::Sim& sim, const SceneOptions& options);
+    void follow_crosshair_unit(const sim::Sim& sim, const SceneOptions& options);
     void select_only(sim::UnitId id) noexcept;
     void toggle(sim::UnitId id) noexcept;
     void refuse(std::string_view why) noexcept;

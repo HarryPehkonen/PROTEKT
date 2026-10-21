@@ -166,6 +166,8 @@ void Interaction::handle(const input::InputFrame& frame, const sim::Sim& sim,
             swap_to_crosshair(sim, options);
         } else if (key.scancode == input::kKeyM) {
             move_to_crosshair_ground(sim, options);
+        } else if (key.scancode == input::kKeyF) {
+            follow_crosshair_unit(sim, options);
         } else if (key.scancode == input::kKeySpace || key.scancode == input::kKeyT) {
             if (!options.aim.has_value()) {
                 continue; // no mark, nothing to point at; see the click loop
@@ -340,6 +342,39 @@ void Interaction::move_to_crosshair_ground(const sim::Sim& sim, const SceneOptio
     }
     remember(orders);
     pending_.insert(pending_.end(), orders.begin(), orders.end());
+}
+
+void Interaction::follow_crosshair_unit(const sim::Sim& sim, const SceneOptions& options) {
+    if (selection_.empty()) {
+        refuse("Nothing is selected to give an order to.");
+        return;
+    }
+    const std::vector<sim::UnitId> roster = orderable();
+    if (roster.empty()) {
+        refuse("You are driving that one; select another unit to give orders.");
+        return;
+    }
+    // F is a unit order, not a ground order: the followee is whatever LIVING unit stands
+    // under the mark, on either side (tailing an enemy is allowed by design). Following the
+    // driven tank is the point: after an X-swap the wingman still shadows the old hull.
+    if (!options.aim.has_value()) {
+        refuse("Aim at a unit to follow it.");
+        return;
+    }
+    const Pick picked = pick(sim, options, options.aim->x, options.aim->y);
+    const sim::Unit* target = picked.has_unit() ? sim.find(picked.unit) : nullptr;
+    if (target == nullptr || !target->alive) {
+        refuse("Aim at a living unit to follow it.");
+        return;
+    }
+    const std::vector<sim::Order> orders = cmd::follow(roster, target->id);
+    if (orders.empty()) {
+        refuse("That order cannot be carried out.");
+        return;
+    }
+    remember(orders);
+    pending_.insert(pending_.end(), orders.begin(), orders.end());
+    message_ = "shadowing that unit.";
 }
 
 void Interaction::select_only(sim::UnitId id) noexcept {

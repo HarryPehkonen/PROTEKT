@@ -38,6 +38,12 @@ namespace protekt::cmd {
 [[nodiscard]] std::vector<sim::Order> attack(std::span<const sim::UnitId> roster,
                                              sim::UnitId target);
 
+/// Every unit in the roster shadows `target`, holding within the follow radius and firing at
+/// what is in range but never pursuing. Refuses an invalid target for the same reason attack
+/// does: following nothing is standing still with extra steps.
+[[nodiscard]] std::vector<sim::Order> follow(std::span<const sim::UnitId> roster,
+                                             sim::UnitId target);
+
 /// `shooter` shoots `target` and does nothing else: no stance, no destination, no velocity.
 ///
 /// This is the TRIGGER, and it is deliberately not `attack`. `attack` gives a unit a hunting
