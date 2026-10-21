@@ -698,37 +698,32 @@ void append_radar(std::vector<SceneVertex>& out, const SceneOptions& options, co
     }
 }
 
-constexpr float kAimedBarWidthFraction = 0.22F;  ///< of the frame width: 176 px at 800
-constexpr float kAimedBarHeightFraction = 0.05F; ///< of the frame height: 22 px at 450
-constexpr float kAimedBarGapFraction = 0.06F;    ///< from the crosshair to the bar, of the height
-constexpr float kAimedBarMinWidth = 96.0F;
-constexpr float kAimedBarMinHeight = 16.0F;
-constexpr float kAimedBarBorderPixels = 3.0F;
+/// The floating health bars: 20x4 px at 800x450 (so fractions of the frame, and the same size at
+/// any range), a few pixels above each tank's projected top. The 20x4 is the track; a 1 px outline
+/// stands outside it, so the whole mark is 22x6.
+constexpr float kUnitBarWidthFraction = 20.0F / 800.0F;
+constexpr float kUnitBarHeightFraction = 4.0F / 450.0F;
+constexpr float kUnitBarOutlineFraction = 1.0F / 450.0F;
+constexpr float kUnitBarGapFraction = 3.0F / 450.0F; ///< from the tank's top to the outline
+constexpr float kTankTopMetres = 1.2F;               ///< the turret roof, above the tank's ground
 
-/// The health bar under the crosshair, in frame pixels on the radar's HUD layers: a light border, a
-/// dark track and a fill coloured like the reticle (the hostile family or the friendly one), so a
-/// bar says whose unit it is as well as how hurt. Centred on the aim point and just below it, and
-/// deliberately big -- a fifth of the frame wide -- because a small bar is one that cannot be read.
-/// Always `kAimedBarVertexCount` vertices when a unit is aimed at, a zero-width fill at zero hp.
-void append_aimed_bar(std::vector<SceneVertex>& out, const SceneOptions& options,
-                      const sim::Sim& sim, const Pick& picked) {
-    if (!options.aim.has_value() || !picked.has_unit()) {
-        return;
-    }
-    const sim::Unit* unit = sim.find(picked.unit);
-    if (unit == nullptr) {
+/// One small health bar over each living tank in view, on the radar's HUD layers: a near-black
+/// outline, a dark track and a fill in the reticle's colours (green yours, red hostile), centred
+/// over the tank and sitting above its projected top. Fixed size, whatever the range. The viewer's
+/// own tank gets none -- its hull is in the HUD panel -- and with no viewer there are no bars at
+/// all, which keeps a frame with no player in it as it was. Always `kUnitBarVertexCount` vertices
+/// per bar, in sim order; a bar with a zero-width fill stays whole.
+void append_unit_bars(std::vector<SceneVertex>& out, const SceneOptions& options,
+                      const sim::Sim& sim) {
+    if (!options.viewer_unit.valid()) {
         return;
     }
     const float frame_w = static_cast<float>(options.extent.width);
     const float frame_h = static_cast<float>(options.extent.height);
-    const float width = std::max(kAimedBarMinWidth, frame_w * kAimedBarWidthFraction);
-    const float height = std::max(kAimedBarMinHeight, frame_h * kAimedBarHeightFraction);
-    const float gap = frame_h * kAimedBarGapFraction;
-    const float left
-        = std::clamp(options.aim->x - (width * 0.5F), 0.0F, std::max(0.0F, frame_w - width));
-    const float right = left + width;
-    const float top = options.aim->y + gap;
-    const float bottom = top + height;
+    const float width = frame_w * kUnitBarWidthFraction;
+    const float height = frame_h * kUnitBarHeightFraction;
+    const float outline = frame_h * kUnitBarOutlineFraction;
+    const float gap = frame_h * kUnitBarGapFraction;
 
     const float marks_at = math::kNearPlane * kHudClearance * corner_ray_length(options.extent);
     const auto rect = [&](float distance, float ax, float ay, float bx, float by,
@@ -739,19 +734,44 @@ void append_aimed_bar(std::vector<SceneVertex>& out, const SceneOptions& options
         };
         emit_quad(out, at(ax, ay), at(bx, ay), at(bx, by), at(ax, by), rgb);
     };
-    constexpr std::array<float, 3> kBorder{0.80F, 0.82F, 0.85F};
-    constexpr std::array<float, 3> kTrack{0.04F, 0.05F, 0.06F};
-    rect(marks_at * kHudBorderRatio, left, top, right, bottom, kBorder);
-    const float inner_left = left + kAimedBarBorderPixels;
-    const float inner_right = right - kAimedBarBorderPixels;
-    const float inner_top = top + kAimedBarBorderPixels;
-    const float inner_bottom = bottom - kAimedBarBorderPixels;
-    rect(marks_at * kHudFaceRatio, inner_left, inner_top, inner_right, inner_bottom, kTrack);
-    const std::uint32_t max_hp = sim::profile(unit->kind).hp;
-    const std::uint32_t hp = std::min<std::uint32_t>(unit->hp, max_hp);
-    const float share = max_hp > 0 ? static_cast<float>(hp) / static_cast<float>(max_hp) : 0.0F;
-    rect(marks_at, inner_left, inner_top, inner_left + ((inner_right - inner_left) * share),
-         inner_bottom, unit->side == options.viewer_side ? kReticleOwn : kReticleHostile);
+    constexpr std::array<float, 3> kOutline{0.0F, 0.0F, 0.0F};
+    constexpr std::array<float, 3> kPlate{0.10F, 0.10F, 0.12F};
+
+    const int centre_x = static_cast<int>(std::floor(options.camera.x / kMetresPerTile));
+    const int centre_y = static_cast<int>(std::floor(options.camera.z / kMetresPerTile));
+    for (const sim::Unit& unit : sim.units()) {
+        if (!unit.alive || unit.kind != sim::UnitKind::Tank || unit.id == options.viewer_unit) {
+            continue;
+        }
+        // Only a tank that is drawn gets a bar: the same terrain window the units use.
+        if (std::abs(unit.x.floor_int() - centre_x) > options.radius_tiles
+            || std::abs(unit.y.floor_int() - centre_y) > options.radius_tiles) {
+            continue;
+        }
+        const bool hovering = options.hover.has_value() && options.hover->unit == unit.id;
+        const float ground
+            = hovering ? options.hover->z : ground_metres(options.seed, unit.x, unit.y);
+        const Projected top = project(
+            options.camera, options.extent,
+            static_cast<float>(unit.x.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile,
+            ground + kTankTopMetres,
+            static_cast<float>(unit.y.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile);
+        if (top.depth <= math::kNearPlane || top.x < 0.0F || top.x > frame_w || top.y < 0.0F
+            || top.y > frame_h) {
+            continue; // behind the eye, or off the frame: not visible
+        }
+        const float left = top.x - (width * 0.5F);
+        const float bottom = top.y - gap - outline;
+        const float track_top = bottom - height;
+        rect(marks_at * kHudBorderRatio, left - outline, track_top - outline,
+             left + width + outline, bottom + outline, kOutline);
+        rect(marks_at * kHudFaceRatio, left, track_top, left + width, bottom, kPlate);
+        const std::uint32_t max_hp = sim::profile(unit.kind).hp;
+        const std::uint32_t hp = std::min<std::uint32_t>(unit.hp, max_hp);
+        const float share = max_hp > 0 ? static_cast<float>(hp) / static_cast<float>(max_hp) : 0.0F;
+        rect(marks_at, left, track_top, left + (width * share), bottom,
+             unit.side == options.viewer_side ? kReticleOwn : kReticleHostile);
+    }
 }
 
 /// Four bars forming a square outline, in the plane the camera looks along, centred on the point
@@ -998,7 +1018,7 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
 
     append_projectiles(scene.vertices, options, sim);
     append_radar(scene.vertices, options, sim);
-    append_aimed_bar(scene.vertices, options, sim, aimed);
+    append_unit_bars(scene.vertices, options, sim);
     append_reticle(scene.vertices, options, sim, aimed);
 
     // LAST, so it tints everything under it. The vertex format has no alpha, so the wash is each

@@ -2671,180 +2671,246 @@ TEST(SceneHeading, AStoppedTankKeepsTheFacingItHadWhileMoving) {
     EXPECT_EQ(Headings{}.of(sim.units().front()), 0.0F);
 }
 
-// ---------------------------------------------------------------- the bar under the crosshair
+// ---------------------------------------------------------------- the bars over the tanks
 //
-// A unit under the crosshair gets a health bar on the HUD layer, just below the reticle. It sits
-// between the radar and the reticle in the vertex list, so the reticle stays the tail. Colours are
-// literals on purpose, as above.
+// Every living tank in view, the driven one excepted, wears a small health bar above its projected
+// top: a 20x4 px track at 800x450 inside a 1 px outline, green fill for yours and red for hostiles.
+// The bars follow the radar in the vertex list; these scenes have no aim, so they are the tail.
+// Colours are literals on purpose, as above.
 
-using protekt::game::kAimedBarVertexCount;
+using protekt::game::kUnitBarVertexCount;
 
 constexpr std::array<float, 3> kOwnBarRgb{0.45F, 1.0F, 0.45F};
 constexpr std::array<float, 3> kHostileBarRgb{1.0F, 0.25F, 0.25F};
+constexpr std::array<float, 3> kBarOutlineRgb{0.0F, 0.0F, 0.0F};
+constexpr std::array<float, 3> kBarPlateRgb{0.10F, 0.10F, 0.12F};
+constexpr protekt::game::Extent kBarFrame{800, 450};
 
-/// The aimed bar: the `kAimedBarVertexCount` vertices just before the reticle.
-std::vector<protekt::game::SceneVertex> aimed_bar_of(const Scene& scene) {
-    const std::size_t tail = kAimedBarVertexCount + kReticleVertexCount;
-    if (scene.vertices.size() < tail) {
-        return {};
-    }
-    const auto end = scene.vertices.end() - static_cast<std::ptrdiff_t>(kReticleVertexCount);
-    return {end - static_cast<std::ptrdiff_t>(kAimedBarVertexCount), end};
-}
-
-/// The pixel span of the fill: the vertices that are neither the border nor the dark track.
-struct BarSpan {
+/// A pixel rectangle, from the projected corners of one quad.
+struct PixelRect {
     float left{};
     float right{};
     float top{};
     float bottom{};
-    std::array<float, 3> colour{};
-    bool found{false};
+    float width() const { return right - left; }
+    float height() const { return bottom - top; }
+    float centre_x() const { return (left + right) * 0.5F; }
 };
-BarSpan fill_span(const SceneOptions& options, const Scene& scene) {
-    BarSpan span;
-    for (const auto& v : aimed_bar_of(scene)) {
-        if (v.colour == kBorderRgb || v.colour == kFaceRgb) {
+
+struct UnitBar {
+    PixelRect outline;
+    PixelRect track;
+    PixelRect fill;
+    std::array<float, 3> fill_colour{};
+    float distance_from_eye{};
+};
+
+PixelRect rect_of(const SceneOptions& options, const Scene& scene, std::size_t first) {
+    PixelRect r{1e9F, -1e9F, 1e9F, -1e9F};
+    for (std::size_t i = 0; i < 6; ++i) {
+        const protekt::game::SceneVertex& v = scene.vertices.at(first + i);
+        const protekt::game::Projected p
+            = project(options.camera, options.extent, v.position[0], v.position[1], v.position[2]);
+        r = PixelRect{std::min(r.left, p.x), std::max(r.right, p.x), std::min(r.top, p.y),
+                      std::max(r.bottom, p.y)};
+    }
+    return r;
+}
+
+/// The bars at the tail of the scene, in vertex order: groups of `kUnitBarVertexCount` read back
+/// from the end while they still look like a bar (an outline quad, a plate quad, a fill quad).
+std::vector<UnitBar> unit_bars_of(const SceneOptions& options, const Scene& scene) {
+    std::vector<UnitBar> bars;
+    for (std::size_t end = scene.vertices.size(); end >= kUnitBarVertexCount;
+         end -= kUnitBarVertexCount) {
+        const std::size_t first = end - kUnitBarVertexCount;
+        const auto& v = scene.vertices;
+        if (v.at(first).colour != kBarOutlineRgb || v.at(first + 6).colour != kBarPlateRgb) {
+            break;
+        }
+        const float dx = v.at(first + 12).position[0] - options.camera.x;
+        const float dy = v.at(first + 12).position[1] - options.camera.y;
+        const float dz = v.at(first + 12).position[2] - options.camera.z;
+        bars.insert(bars.begin(),
+                    UnitBar{rect_of(options, scene, first), rect_of(options, scene, first + 6),
+                            rect_of(options, scene, first + 12), v.at(first + 12).colour,
+                            std::sqrt((dx * dx) + (dy * dy) + (dz * dz))});
+    }
+    return bars;
+}
+
+/// A viewer tank, one more of yours and two hostiles, in a row about ten tiles in front of the
+/// camera, which looks down +Z from above and behind them.
+struct BarBattle {
+    protekt::sim::Sim sim;
+    protekt::sim::UnitId viewer;
+    SceneOptions options;
+};
+BarBattle bar_battle() {
+    using protekt::sim::Side;
+    using protekt::sim::Spawn;
+    using protekt::sim::UnitKind;
+    protekt::sim::Scenario scenario;
+    scenario.seed = 42;
+    scenario.spawns.push_back(Spawn{UnitKind::Tank, Side::Player, 50, 50});
+    scenario.spawns.push_back(Spawn{UnitKind::Tank, Side::Player, 54, 51});
+    scenario.spawns.push_back(Spawn{UnitKind::Tank, Side::Enemy, 46, 51});
+    scenario.spawns.push_back(Spawn{UnitKind::Tank, Side::Enemy, 52, 53});
+    auto sim = protekt::sim::Sim::create(scenario);
+    const protekt::sim::UnitId viewer = sim.units().front().id;
+    SceneOptions options;
+    options.seed = 42;
+    options.radius_tiles = 20;
+    options.extent = kBarFrame;
+    options.viewer_unit = viewer;
+    options.viewer_side = Side::Player;
+    options.camera.x = 50.0F * kMetresPerTile;
+    options.camera.z = 38.0F * kMetresPerTile;
+    options.camera.y = 14.0F;
+    options.camera.yaw = 0.0F;
+    options.camera.pitch = -0.4F;
+    return BarBattle{std::move(sim), viewer, options};
+}
+
+/// Where a tank's projected top is: the turret roof, 1.2 m above its ground.
+protekt::game::Projected top_of(const SceneOptions& options, const protekt::sim::Unit& unit) {
+    constexpr float kFixedOne = static_cast<float>(protekt::sim::Fixed::kOne);
+    return project(
+        options.camera, options.extent, static_cast<float>(unit.x.raw) / kFixedOne * kMetresPerTile,
+        protekt::game::height_metres(options.seed, unit.x.floor_int(), unit.y.floor_int()) + 1.2F,
+        static_cast<float>(unit.y.raw) / kFixedOne * kMetresPerTile);
+}
+
+TEST(UnitBars, EveryVisibleTankButTheDrivenOneGetsABar) {
+    const BarBattle b = bar_battle();
+    const std::vector<UnitBar> bars = unit_bars_of(b.options, build_scene(b.sim, b.options));
+    ASSERT_EQ(bars.size(), 3U) << "four tanks in view, one of them driven";
+    for (const protekt::sim::Unit& unit : b.sim.units()) {
+        const protekt::game::Projected top = top_of(b.options, unit);
+        ASSERT_GT(top.depth, 0.0F);
+        ASSERT_GE(top.x, 0.0F);
+        ASSERT_LE(top.x, 800.0F);
+        ASSERT_GE(top.y, 0.0F);
+        ASSERT_LE(top.y, 450.0F);
+    }
+}
+
+TEST(UnitBars, TheDrivenTankHasNoBarOverIt) {
+    const BarBattle b = bar_battle();
+    const std::vector<UnitBar> bars = unit_bars_of(b.options, build_scene(b.sim, b.options));
+    const protekt::game::Projected driven = top_of(b.options, *b.sim.find(b.viewer));
+    for (const UnitBar& bar : bars) {
+        const bool over_it = std::abs(bar.track.centre_x() - driven.x) < 3.0F
+                             && bar.track.bottom > driven.y - 12.0F && bar.track.bottom < driven.y;
+        EXPECT_FALSE(over_it) << "the driven tank's hull is in the HUD panel";
+    }
+}
+
+TEST(UnitBars, ATrackIs20By4AtEightHundredByFourFifty) {
+    const BarBattle b = bar_battle();
+    for (const UnitBar& bar : unit_bars_of(b.options, build_scene(b.sim, b.options))) {
+        EXPECT_NEAR(bar.track.width(), 20.0F, 0.1F);
+        EXPECT_NEAR(bar.track.height(), 4.0F, 0.1F);
+        EXPECT_NEAR(bar.outline.width(), 22.0F, 0.1F) << "a 1 px outline all round";
+        EXPECT_NEAR(bar.outline.height(), 6.0F, 0.1F);
+        EXPECT_NEAR(bar.outline.left, bar.track.left - 1.0F, 0.1F);
+        EXPECT_NEAR(bar.outline.top, bar.track.top - 1.0F, 0.1F);
+    }
+}
+
+TEST(UnitBars, EachBarIsCentredAboveItsTanksProjectedTop) {
+    const BarBattle b = bar_battle();
+    const std::vector<UnitBar> bars = unit_bars_of(b.options, build_scene(b.sim, b.options));
+    ASSERT_EQ(bars.size(), 3U);
+    std::size_t next = 0;
+    for (const protekt::sim::Unit& unit : b.sim.units()) {
+        if (unit.id == b.viewer) {
             continue;
         }
-        const protekt::game::Projected p = protekt::game::project(
-            options.camera, options.extent, v.position[0], v.position[1], v.position[2]);
-        if (!span.found) {
-            span = BarSpan{p.x, p.x, p.y, p.y, v.colour, true};
+        const protekt::game::Projected top = top_of(b.options, unit);
+        const UnitBar& bar = bars.at(next++);
+        EXPECT_NEAR(bar.track.centre_x(), top.x, 1.0F);
+        EXPECT_LT(bar.outline.bottom, top.y) << "above the top edge, not on it";
+        EXPECT_GT(bar.outline.bottom, top.y - 8.0F) << "a few pixels above, not floating off";
+    }
+}
+
+TEST(UnitBars, TheSizeDoesNotChangeWithRange) {
+    BarBattle b = bar_battle();
+    const std::vector<UnitBar> near_bars = unit_bars_of(b.options, build_scene(b.sim, b.options));
+    b.options.camera.z -= 4.0F * kMetresPerTile;
+    const std::vector<UnitBar> far_bars = unit_bars_of(b.options, build_scene(b.sim, b.options));
+    ASSERT_FALSE(near_bars.empty());
+    ASSERT_FALSE(far_bars.empty());
+    EXPECT_NEAR(far_bars.front().track.width(), near_bars.front().track.width(), 0.1F);
+    EXPECT_NEAR(far_bars.front().track.height(), near_bars.front().track.height(), 0.1F);
+}
+
+TEST(UnitBars, GreenForYoursAndRedForHostiles) {
+    const BarBattle b = bar_battle();
+    const std::vector<UnitBar> bars = unit_bars_of(b.options, build_scene(b.sim, b.options));
+    ASSERT_EQ(bars.size(), 3U);
+    std::size_t next = 0;
+    for (const protekt::sim::Unit& unit : b.sim.units()) {
+        if (unit.id == b.viewer) {
+            continue;
         }
-        span.left = std::min(span.left, p.x);
-        span.right = std::max(span.right, p.x);
-        span.top = std::min(span.top, p.y);
-        span.bottom = std::max(span.bottom, p.y);
-    }
-    return span;
-}
-
-/// A battle with the factory at `hp`, the camera aimed at it, and the aim point set.
-struct AimedFactory {
-    Damaged battle;
-    SceneOptions options;
-    bool aimed{false};
-};
-AimedFactory aimed_factory(std::uint16_t hp) {
-    AimedFactory a{factory_down_to(hp), battle_options(), false};
-    const protekt::sim::Unit* factory = a.battle.sim.find(a.battle.viewer);
-    Pixel at{};
-    if (factory != nullptr && aim_at(a.battle.sim, a.options, *factory, at)) {
-        a.options.aim = Aim{at.x, at.y};
-        a.aimed = true;
-    }
-    return a;
-}
-
-TEST(AimedBar, AUnitUnderTheCrosshairAddsTheBarAndNothingUnderItAddsNone) {
-    AimedFactory a = aimed_factory(400);
-    ASSERT_TRUE(a.aimed);
-    const Scene with_unit = build_scene(a.battle.sim, a.options);
-    SceneOptions blind = a.options;
-    blind.aim.reset();
-    const Scene without_aim = build_scene(a.battle.sim, blind);
-    EXPECT_EQ(with_unit.vertices.size(),
-              without_aim.vertices.size() + kReticleVertexCount + kAimedBarVertexCount);
-
-    const auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(42));
-    SceneOptions options = options_at(200.0F, 200.0F);
-    options.camera.pitch = -0.35F;
-    Pixel ground{};
-    ASSERT_TRUE(pixel_over_ground(sim, options, ground));
-    const Scene before = build_scene(sim, options);
-    options.aim = Aim{ground.x, ground.y};
-    EXPECT_EQ(build_scene(sim, options).vertices.size(),
-              before.vertices.size() + kReticleVertexCount)
-        << "ground under the crosshair gets a reticle and no bar";
-}
-
-TEST(AimedBar, HalfHealthFillsLessThanFullHealth) {
-    const AimedFactory full = aimed_factory(400);
-    const AimedFactory half = aimed_factory(200);
-    ASSERT_TRUE(full.aimed);
-    ASSERT_TRUE(half.aimed);
-    ASSERT_EQ(half.battle.sim.find(half.battle.viewer)->hp, 200);
-    const BarSpan f = fill_span(full.options, build_scene(full.battle.sim, full.options));
-    const BarSpan h = fill_span(half.options, build_scene(half.battle.sim, half.options));
-    ASSERT_TRUE(f.found);
-    ASSERT_TRUE(h.found);
-    EXPECT_LT(h.right - h.left, f.right - f.left);
-    EXPECT_NEAR(h.right - h.left, (f.right - f.left) * 0.5F, 0.5F);
-}
-
-TEST(AimedBar, AnOwnUnitAndAnEnemyGetDifferentColours) {
-    const auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(42));
-    SceneOptions options = options_at(60.0F, 60.0F);
-    options.viewer_side = protekt::sim::Side::Player;
-    const protekt::sim::Unit* enemy = first_aimable(sim, options, protekt::sim::Side::Enemy);
-    ASSERT_NE(enemy, nullptr);
-    Pixel at_enemy{};
-    ASSERT_TRUE(aim_at(sim, options, *enemy, at_enemy));
-    options.aim = Aim{at_enemy.x, at_enemy.y};
-    const BarSpan hostile = fill_span(options, build_scene(sim, options));
-    const protekt::sim::Unit* own = first_aimable(sim, options, protekt::sim::Side::Player);
-    ASSERT_NE(own, nullptr);
-    Pixel at_own{};
-    ASSERT_TRUE(aim_at(sim, options, *own, at_own));
-    options.aim = Aim{at_own.x, at_own.y};
-    const BarSpan friendly = fill_span(options, build_scene(sim, options));
-    ASSERT_TRUE(hostile.found);
-    ASSERT_TRUE(friendly.found);
-    EXPECT_EQ(hostile.colour, kHostileBarRgb) << "the reticle's hostile family";
-    EXPECT_EQ(friendly.colour, kOwnBarRgb) << "the reticle's friendly family";
-}
-
-TEST(AimedBar, AFrameWithNoAimHasNoBar) {
-    // The headless case: no aim means no pick, no reticle and no bar. With no radar either, nothing
-    // at all is drawn near the eye.
-    AimedFactory a = aimed_factory(400);
-    ASSERT_TRUE(a.aimed);
-    a.options.aim.reset();
-    a.options.viewer_unit = protekt::sim::UnitId{};
-    const Camera& camera = a.options.camera;
-    for (const auto& v : build_scene(a.battle.sim, a.options).vertices) {
-        const float dx = v.position[0] - camera.x;
-        const float dy = v.position[1] - camera.y;
-        const float dz = v.position[2] - camera.z;
-        EXPECT_GT(std::sqrt((dx * dx) + (dy * dy) + (dz * dz)), 1.0F) << "nothing on the HUD layer";
+        EXPECT_EQ(bars.at(next++).fill_colour,
+                  unit.side == protekt::sim::Side::Player ? kOwnBarRgb : kHostileBarRgb);
     }
 }
 
-TEST(AimedBar, LivesOnTheHudLayerAndSurvivesWithoutARadar) {
-    AimedFactory a = aimed_factory(400);
-    ASSERT_TRUE(a.aimed);
-    for (const bool with_radar : {false, true}) {
-        SceneOptions options = a.options;
-        options.viewer_unit = with_radar ? a.battle.viewer : protekt::sim::UnitId{};
-        const std::vector<protekt::game::SceneVertex> bar
-            = aimed_bar_of(build_scene(a.battle.sim, options));
-        ASSERT_EQ(bar.size(), kAimedBarVertexCount);
-        for (const auto& v : bar) {
-            const float dx = v.position[0] - options.camera.x;
-            const float dy = v.position[1] - options.camera.y;
-            const float dz = v.position[2] - options.camera.z;
-            const float distance = std::sqrt((dx * dx) + (dy * dy) + (dz * dz));
-            EXPECT_GT(distance, 0.1F) << "past the near plane";
-            EXPECT_LT(distance, 1.0F) << "on the HUD layer, nearer than the reticle's 1.5 m";
+TEST(UnitBars, AFullHullFillsTheTrackAndAHurtOneFillsItsShare) {
+    BarBattle b = bar_battle();
+    const std::vector<UnitBar> full = unit_bars_of(b.options, build_scene(b.sim, b.options));
+    ASSERT_EQ(full.size(), 3U);
+    for (const UnitBar& bar : full) {
+        EXPECT_NEAR(bar.fill.width(), 20.0F, 0.1F);
+        EXPECT_NEAR(bar.fill.left, bar.track.left, 0.1F) << "the fill grows from the left";
+    }
+    // The tanks shoot each other: step until somebody is hurt, then every fill must be its hp
+    // share.
+    bool hurt = false;
+    for (int guard = 0; guard < 4000 && !hurt; ++guard) {
+        b.sim.step();
+        for (const protekt::sim::Unit& unit : b.sim.units()) {
+            hurt = hurt || (unit.alive && unit.hp < protekt::sim::profile(unit.kind).hp);
         }
     }
+    ASSERT_TRUE(hurt) << "the scenario must produce damage";
+    const std::vector<UnitBar> after = unit_bars_of(b.options, build_scene(b.sim, b.options));
+    std::vector<const protekt::sim::Unit*> drawn;
+    for (const protekt::sim::Unit& unit : b.sim.units()) {
+        if (unit.alive && unit.id != b.viewer) {
+            drawn.push_back(&unit);
+        }
+    }
+    ASSERT_EQ(after.size(), drawn.size());
+    bool saw_partial = false;
+    for (std::size_t i = 0; i < after.size(); ++i) {
+        const float share = static_cast<float>(drawn.at(i)->hp)
+                            / static_cast<float>(protekt::sim::profile(drawn.at(i)->kind).hp);
+        EXPECT_NEAR(after.at(i).fill.width(), 20.0F * share, 0.1F);
+        saw_partial = saw_partial || share < 1.0F;
+    }
+    EXPECT_TRUE(saw_partial);
 }
 
-TEST(AimedBar, IsLargeCentredAndBelowTheCrosshair) {
-    AimedFactory a = aimed_factory(400);
-    ASSERT_TRUE(a.aimed);
-    a.options.extent = protekt::game::Extent{800, 450};
-    Pixel at{};
-    const protekt::sim::Unit* factory = a.battle.sim.find(a.battle.viewer);
-    ASSERT_TRUE(aim_at(a.battle.sim, a.options, *factory, at));
-    a.options.aim = Aim{at.x, at.y};
-    const BarSpan s = fill_span(a.options, build_scene(a.battle.sim, a.options));
-    ASSERT_TRUE(s.found);
-    EXPECT_GE(s.right - s.left, 120.0F) << "a 3-pixel bar is a failure";
-    EXPECT_GE(s.bottom - s.top, 14.0F);
-    EXPECT_NEAR((s.left + s.right) * 0.5F, at.x, 1.0F);
-    EXPECT_GT(s.top, at.y) << "below the crosshair";
+TEST(UnitBars, SitOnTheHudLayerNearerThanTheReticle) {
+    const BarBattle b = bar_battle();
+    for (const UnitBar& bar : unit_bars_of(b.options, build_scene(b.sim, b.options))) {
+        EXPECT_GT(bar.distance_from_eye, 0.1F) << "past the near plane";
+        EXPECT_LT(bar.distance_from_eye, 1.0F) << "nearer than the reticle's 1.5 m";
+    }
+}
+
+TEST(UnitBars, NoViewerMeansNoBarsAndATankBehindTheEyeGetsNone) {
+    BarBattle b = bar_battle();
+    SceneOptions blind = b.options;
+    blind.viewer_unit = protekt::sim::UnitId{};
+    EXPECT_TRUE(unit_bars_of(blind, build_scene(b.sim, blind)).empty());
+    b.options.camera.yaw = protekt::math::kPi; // looking away from every tank
+    EXPECT_TRUE(unit_bars_of(b.options, build_scene(b.sim, b.options)).empty());
 }
 
 // ---- the sky: a gradient dome and a sun disc, raw colours, centred on the camera ----

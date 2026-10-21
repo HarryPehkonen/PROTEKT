@@ -222,10 +222,10 @@ private:
 /// A reticle is four bars, six vertices each, in a triangle list.
 inline constexpr std::size_t kReticleVertexCount = 24;
 
-/// The health bar under the crosshair is three quads, six vertices each: a light border, a dark
-/// track and the fill. It sits just before the reticle in the vertex list, so the reticle stays the
-/// tail, and it is present exactly when a unit is under the crosshair.
-inline constexpr std::size_t kAimedBarVertexCount = 18;
+/// A floating health bar over a tank is three quads, six vertices each: an outline, a dark track
+/// and the fill. The bars follow the radar in the vertex list and come before the reticle, one per
+/// living tank in view other than the viewer's own, and only when there is a viewer.
+inline constexpr std::size_t kUnitBarVertexCount = 18;
 
 struct SceneOptions {
     std::uint64_t seed{};
