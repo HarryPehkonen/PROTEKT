@@ -12,6 +12,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <map>
+#include <string_view>
 #include <utility>
 
 namespace protekt::game {
@@ -1098,6 +1099,113 @@ void append_unit_bars(std::vector<SceneVertex>& out, const SceneOptions& options
     }
 }
 
+/// The DEPLOYING plate over a turret of yours that is not yet mounted (moving, or still settling):
+/// the word in black 5x5-cell capitals, cell 3 px at 450 px of frame height (so each letter is
+/// 15 px tall), on a yellow plate inside a 1.5 px black outline -- about 170x26 px at 800x450, the
+/// same size at any range. Anchored like the E5 bars: centred over the turret's projected top,
+/// a few pixels above it. A mounted turret, a hostile one and a tank get nothing.
+constexpr std::string_view kMountWord = "DEPLOYING";
+constexpr std::array<float, 3> kMountPlate{1.0F, 0.85F, 0.10F};
+constexpr float kMountCellFraction = 3.0F / 450.0F;
+constexpr float kMountPadFraction = 3.0F / 450.0F;
+constexpr float kMountOutlineFraction = 1.5F / 450.0F;
+constexpr float kMountGapFraction = 4.0F / 450.0F; ///< from the turret's top to the outline
+
+std::array<std::uint8_t, 5> mount_glyph(char glyph) {
+    switch (glyph) {
+    case 'D':
+        return {0b11110, 0b10001, 0b10001, 0b10001, 0b11110};
+    case 'E':
+        return {0b11111, 0b10000, 0b11110, 0b10000, 0b11111};
+    case 'P':
+        return {0b11110, 0b10001, 0b11110, 0b10000, 0b10000};
+    case 'L':
+        return {0b10000, 0b10000, 0b10000, 0b10000, 0b11111};
+    case 'O':
+        return {0b01110, 0b10001, 0b10001, 0b10001, 0b01110};
+    case 'Y':
+        return {0b10001, 0b01010, 0b00100, 0b00100, 0b00100};
+    case 'I':
+        return {0b11111, 0b00100, 0b00100, 0b00100, 0b11111};
+    case 'N':
+        return {0b10001, 0b11001, 0b10101, 0b10011, 0b10001};
+    default: // 'G'
+        return {0b01111, 0b10000, 0b10011, 0b10001, 0b01111};
+    }
+}
+
+void append_mount_plates(std::vector<SceneVertex>& out, const SceneOptions& options,
+                         const sim::Sim& sim) {
+    if (!options.viewer_unit.valid()) {
+        return;
+    }
+    const float frame_w = static_cast<float>(options.extent.width);
+    const float frame_h = static_cast<float>(options.extent.height);
+    const float cell = frame_h * kMountCellFraction;
+    const float pad = frame_h * kMountPadFraction;
+    const float outline = frame_h * kMountOutlineFraction;
+    const float gap = frame_h * kMountGapFraction;
+    const float letters = static_cast<float>(kMountWord.size());
+    const float text_w = ((letters * 6.0F) - 1.0F) * cell;
+    const float text_h = 5.0F * cell;
+
+    const float marks_at = math::kNearPlane * kHudClearance * corner_ray_length(options.extent);
+    const auto rect = [&](float distance, float ax, float ay, float bx, float by,
+                          const std::array<float, 3>& rgb) {
+        const auto at = [&](float px, float py) {
+            const RayPoint point = ray_point(options.camera, options.extent, px, py, distance);
+            return Vec3{point.x, point.y, point.z};
+        };
+        emit_quad(out, at(ax, ay), at(bx, ay), at(bx, by), at(ax, by), rgb);
+    };
+    constexpr std::array<float, 3> kInk{0.0F, 0.0F, 0.0F};
+
+    const int centre_x = static_cast<int>(std::floor(options.camera.x / kMetresPerTile));
+    const int centre_y = static_cast<int>(std::floor(options.camera.z / kMetresPerTile));
+    for (const sim::Unit& unit : sim.units()) {
+        if (!unit.alive || unit.kind != sim::UnitKind::Turret || unit.side != options.viewer_side
+            || sim::is_mounted(unit)) {
+            continue;
+        }
+        if (std::abs(unit.x.floor_int() - centre_x) > options.radius_tiles
+            || std::abs(unit.y.floor_int() - centre_y) > options.radius_tiles) {
+            continue;
+        }
+        const Projected top = project(
+            options.camera, options.extent,
+            static_cast<float>(unit.x.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile,
+            ground_metres(options.seed, unit.x, unit.y) + kTankTopMetres,
+            static_cast<float>(unit.y.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile);
+        if (top.depth <= math::kNearPlane || top.x < 0.0F || top.x > frame_w || top.y < 0.0F
+            || top.y > frame_h) {
+            continue;
+        }
+        const float left = top.x - (text_w * 0.5F);
+        const float plate_bottom = top.y - gap - outline;
+        const float plate_top = plate_bottom - text_h - (2.0F * pad);
+        const float plate_left = left - pad;
+        const float plate_right = left + text_w + pad;
+        rect(marks_at * kHudBorderRatio, plate_left - outline, plate_top - outline,
+             plate_right + outline, plate_bottom + outline, kInk);
+        rect(marks_at * kHudFaceRatio, plate_left, plate_top, plate_right, plate_bottom,
+             kMountPlate);
+        for (std::size_t index = 0; index < kMountWord.size(); ++index) {
+            const std::array<std::uint8_t, 5> rows = mount_glyph(kMountWord.at(index));
+            const float glyph_left = left + (static_cast<float>(index) * 6.0F * cell);
+            for (std::size_t row = 0; row < rows.size(); ++row) {
+                for (int col = 0; col < 5; ++col) {
+                    if (((rows.at(row) >> (4 - col)) & 1U) == 0U) {
+                        continue;
+                    }
+                    const float x = glyph_left + (static_cast<float>(col) * cell);
+                    const float y = plate_top + pad + (static_cast<float>(row) * cell);
+                    rect(marks_at, x, y, x + cell, y + cell, kInk);
+                }
+            }
+        }
+    }
+}
+
 /// Four ticks round an OPEN centre and a small dot in it, in the plane the camera looks along,
 /// centred on the point the click's own ray reaches. Six vertices per quad: two triangles, and no
 /// winding to get wrong, because the pipeline culls nothing. The ticks reach the old box's
@@ -1416,6 +1524,7 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
 
     append_projectiles(scene.vertices, options, sim);
     append_radar(scene.vertices, options, sim);
+    append_mount_plates(scene.vertices, options, sim);
     append_unit_bars(scene.vertices, options, sim);
     append_reticle(scene.vertices, options, sim, aimed);
 

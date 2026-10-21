@@ -3935,6 +3935,125 @@ TEST(HoverShape, AHoverTankInViewGetsItsBarOverIt) {
     EXPECT_GT(bars.front().outline.bottom, top.y - 8.0F);
 }
 
+// ---------------------------------------------------------------- the DEPLOYING plate
+//
+// An own turret that is not yet mounted wears a yellow plate reading DEPLOYING over its projected
+// top, the E5 bars' anchor; a mounted turret, a hostile one and a tank wear nothing.
+
+constexpr std::array<float, 3> kMountPlateRgb{1.0F, 0.85F, 0.10F};
+
+std::vector<PixelRect> mount_plates_of(const SceneOptions& options, const Scene& scene) {
+    std::vector<PixelRect> plates;
+    // The plate is the only yellow quad: a run of six vertices, so each one starts a run.
+    for (std::size_t first = 0; first + 6 <= scene.vertices.size();) {
+        if (scene.vertices.at(first).colour == kMountPlateRgb) {
+            plates.push_back(rect_of(options, scene, first));
+            first += 6;
+        } else {
+            ++first;
+        }
+    }
+    return plates;
+}
+
+/// The bar battle plus a turret of yours at (54, 53) and a hostile one at (46, 53), both mounted.
+BarBattle turret_battle() {
+    using protekt::sim::Side;
+    using protekt::sim::Spawn;
+    using protekt::sim::UnitKind;
+    protekt::sim::Scenario scenario;
+    scenario.seed = 42;
+    scenario.spawns.push_back(Spawn{UnitKind::Tank, Side::Player, 50, 50});
+    scenario.spawns.push_back(Spawn{UnitKind::Turret, Side::Player, 54, 53});
+    scenario.spawns.push_back(Spawn{UnitKind::Turret, Side::Enemy, 46, 53});
+    scenario.spawns.push_back(Spawn{UnitKind::HoverTank, Side::Player, 50, 53});
+    BarBattle b = bar_battle();
+    b.sim = protekt::sim::Sim::create(scenario);
+    b.viewer = b.sim.units().front().id;
+    b.options.viewer_unit = b.viewer;
+    return b;
+}
+
+void unmount(BarBattle& b, std::size_t index, std::int32_t to_tile_x) {
+    const protekt::sim::UnitId id = b.sim.units().at(index).id;
+    b.sim.enqueue(protekt::sim::Order{
+        id, protekt::sim::orders::MoveTo{protekt::sim::Fixed::from_int(to_tile_x),
+                                         b.sim.units().at(index).y}});
+    for (int t = 0; t < 5; ++t) {
+        b.sim.step();
+    }
+}
+
+TEST(MountPlate, AMountedTurretWearsNothing) {
+    const BarBattle b = turret_battle();
+    ASSERT_TRUE(protekt::sim::is_mounted(b.sim.units().at(1)));
+    EXPECT_TRUE(mount_plates_of(b.options, build_scene(b.sim, b.options)).empty());
+}
+
+TEST(MountPlate, AnUnmountedOwnTurretWearsOne) {
+    BarBattle b = turret_battle();
+    unmount(b, 1, 56);
+    ASSERT_FALSE(protekt::sim::is_mounted(b.sim.units().at(1)));
+    const std::vector<PixelRect> plates = mount_plates_of(b.options, build_scene(b.sim, b.options));
+    ASSERT_EQ(plates.size(), 1U);
+    EXPECT_GE(plates.front().height(), 20.0F) << "not tiny";
+    EXPECT_GE(plates.front().width(), 150.0F);
+}
+
+TEST(MountPlate, AHostileTurretNeverWearsOne) {
+    BarBattle b = turret_battle();
+    unmount(b, 2, 44);
+    ASSERT_FALSE(protekt::sim::is_mounted(b.sim.units().at(2)));
+    EXPECT_TRUE(mount_plates_of(b.options, build_scene(b.sim, b.options)).empty());
+}
+
+TEST(MountPlate, ATankOrHoverTankNeverWearsOne) {
+    BarBattle b = turret_battle();
+    unmount(b, 3, 52); // the hover tank moves
+    EXPECT_TRUE(mount_plates_of(b.options, build_scene(b.sim, b.options)).empty());
+}
+
+TEST(MountPlate, ThePlateFollowsTheTurretLikeABar) {
+    BarBattle b = turret_battle();
+    unmount(b, 1, 58);
+    const auto check = [&]() {
+        const std::vector<PixelRect> plates
+            = mount_plates_of(b.options, build_scene(b.sim, b.options));
+        ASSERT_EQ(plates.size(), 1U);
+        const protekt::game::Projected top = top_of(b.options, b.sim.units().at(1));
+        EXPECT_NEAR(plates.front().centre_x(), top.x, 1.0F);
+        EXPECT_LT(plates.front().bottom, top.y);
+        EXPECT_GT(plates.front().bottom, top.y - 12.0F);
+    };
+    check();
+    for (int t = 0; t < 10; ++t) {
+        b.sim.step();
+    }
+    check(); // it has moved on, and the plate with it
+}
+
+TEST(MountPlate, TheRemountedTurretLosesItsPlate) {
+    BarBattle b = turret_battle();
+    unmount(b, 1, 55);
+    for (int t = 0; t < 400 && !protekt::sim::is_mounted(b.sim.units().at(1)); ++t) {
+        b.sim.step();
+    }
+    ASSERT_TRUE(protekt::sim::is_mounted(b.sim.units().at(1)));
+    EXPECT_TRUE(mount_plates_of(b.options, build_scene(b.sim, b.options)).empty());
+}
+
+TEST(MountPlate, TwoSameSceneBuildsAreByteIdentical) {
+    BarBattle b = turret_battle();
+    unmount(b, 1, 56);
+    const Scene one = build_scene(b.sim, b.options);
+    const Scene two = build_scene(b.sim, b.options);
+    ASSERT_EQ(one.vertices.size(), two.vertices.size());
+    for (std::size_t i = 0; i < one.vertices.size(); ++i) {
+        EXPECT_EQ(one.vertices.at(i).position, two.vertices.at(i).position);
+        EXPECT_EQ(one.vertices.at(i).colour, two.vertices.at(i).colour);
+    }
+}
+
 } // namespace
 
 // D5a-2: guns point where they shoot. Every gun that is not the driven one is aimed from the sim's
