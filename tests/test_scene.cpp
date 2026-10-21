@@ -34,7 +34,7 @@ namespace {
 // in the atlas tiles (D2e), so the 7 camo quads and 16 track-link quads that used to follow the
 // prisms -- 138 vertices -- are gone. The eighth prism is the turret's team-colour roof panel
 // (D2h).
-constexpr std::size_t kTankVertices = std::size_t{8} * 36;
+constexpr std::size_t kTankVertices = std::size_t{12} * 36;
 
 using protekt::game::Camera;
 using protekt::game::kMetresPerHeightUnit;
@@ -720,8 +720,9 @@ std::array<float, 3> box_colour(const Scene& scene, const protekt::sim::Unit& un
     const float uz = static_cast<float>(unit.y.raw) / kFixedOne * kMetresPerTile;
     const bool tank = unit.kind == protekt::sim::UnitKind::Tank;
     const float half = kMetresPerTile * 0.3F;
-    const float want_x = tank ? ux - 0.22F : ux - half;       // the panel's half-width across
-    const float want_z = tank ? uz - 0.3F - 0.4F : uz - half; // the turret's centre, less its back
+    const float want_x = tank ? ux - 0.22F : ux - half; // the panel's half-width across
+    // The turret's centre (0.15 m aft since D5b moved it up the hull), less the panel's back.
+    const float want_z = tank ? uz - 0.15F - 0.4F : uz - half;
     for (const auto& v : scene.vertices) {
         if (std::abs(v.position[0] - want_x) < 1e-3F && std::abs(v.position[2] - want_z) < 1e-3F
             && v.position[1]
@@ -1673,11 +1674,85 @@ TEST(Hover, TheHoveringUnitIsDrawnAtTheHullHeightAndOthersStayOnTheGround) {
     EXPECT_EQ(moved, kTankVertices) << "exactly one tank moves";
 }
 
-TEST(TankShape, TheTankIsExactlyItsEightPrisms) {
+// Re-pinned DELIBERATELY (D5b): the hull gained an engine deck, a grille band and two fenders.
+TEST(TankShape, TheTankIsExactlyItsTwelvePrisms) {
     const auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(42));
     const auto tank = tank_only(sim, sim.units().at(0), {});
-    EXPECT_EQ(tank.size(), std::size_t{288}) << "eight prisms of 36; seven (252) before D2h";
-    EXPECT_EQ(kTankVertices, std::size_t{390 - 138 + 36});
+    EXPECT_EQ(tank.size(), std::size_t{432}) << "twelve prisms of 36; eight (288) before D5b";
+    EXPECT_EQ(kTankVertices, std::size_t{432});
+}
+
+namespace {
+
+/// The [lo, hi] of `axis` (0 across at heading 0, 1 up, 2 along) over prism `prism` of `tank`.
+std::array<float, 2> prism_span(const std::vector<protekt::game::SceneVertex>& tank,
+                                std::size_t prism, std::size_t axis) {
+    float lo = 1e9F;
+    float hi = -1e9F;
+    for (std::size_t i = prism * 36U; i < (prism + 1U) * 36U; ++i) {
+        lo = std::min(lo, tank.at(i).position.at(axis));
+        hi = std::max(hi, tank.at(i).position.at(axis));
+    }
+    return {lo, hi};
+}
+
+/// The skirmish's first tank at tick 0, never seen moving, so it faces +Y: across is world X,
+/// along is world Z.
+std::vector<protekt::game::SceneVertex> lone_tank() {
+    const auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(42));
+    return tank_only(sim, sim.units().at(0), {});
+}
+
+constexpr std::size_t kHullPart = 2;
+constexpr std::size_t kEngineDeckPart = 3;
+constexpr std::size_t kGrillePart = 4;
+constexpr std::size_t kFenderParts = 5; ///< and 6: left, then right
+
+} // namespace
+
+TEST(TankHull, TheGlacisLeansBackFromItsFootToTheCompartmentRoof) {
+    const auto tank = lone_tank();
+    const auto height = prism_span(tank, kHullPart, 1);
+    float foot = -1e9F;
+    float crest = -1e9F;
+    for (std::size_t i = kHullPart * 36U; i < (kHullPart + 1U) * 36U; ++i) {
+        const auto& p = tank.at(i).position;
+        if (std::abs(p[1] - height[0]) < kTolerance) {
+            foot = std::max(foot, p[2]);
+        }
+        if (std::abs(p[1] - height[1]) < kTolerance) {
+            crest = std::max(crest, p[2]);
+        }
+    }
+    // Run 0.65 m over a rise of 0.85 m: a plate sloped well off the vertical.
+    EXPECT_GT(foot - crest, 0.5F) << "the front face is a sloped plate, not a wall";
+}
+
+TEST(TankHull, TheDeckStepsDownFromTheCompartmentToTheEngineDeckWithAGrilleOnIt) {
+    const auto tank = lone_tank();
+    const auto compartment = prism_span(tank, kHullPart, 1);
+    const auto deck = prism_span(tank, kEngineDeckPart, 1);
+    EXPECT_GT(compartment[1] - deck[1], 0.15F) << "two distinct top heights";
+    EXPECT_LT(prism_span(tank, kEngineDeckPart, 2)[0], prism_span(tank, kHullPart, 2)[0])
+        << "the engine deck is aft of the compartment";
+    const auto grille = prism_span(tank, kGrillePart, 1);
+    EXPECT_NEAR(grille[0], deck[1], kTolerance) << "the grille lies on the engine deck";
+    EXPECT_LT(grille[1], compartment[1]);
+}
+
+TEST(TankHull, EachFenderIsAShelfWiderThanTheTrackUnderIt) {
+    const auto tank = lone_tank();
+    for (std::size_t side = 0; side < 2; ++side) {
+        const auto track = prism_span(tank, side, 0);
+        const auto fender = prism_span(tank, kFenderParts + side, 0);
+        EXPECT_GT(fender[1] - fender[0], track[1] - track[0]) << "side " << side;
+        EXPECT_LT(fender[0], track[0]) << "side " << side << ": it overhangs the track inboard";
+        EXPECT_GT(fender[1], track[1]) << "side " << side << ": and outboard";
+        EXPECT_LE(prism_span(tank, kFenderParts + side, 1)[0], prism_span(tank, side, 1)[1])
+            << "side " << side << ": it sits on the track";
+        EXPECT_LT(prism_span(tank, kFenderParts + side, 1)[1] - prism_span(tank, side, 1)[1], 0.1F)
+            << "side " << side << ": a thin plate";
+    }
 }
 
 TEST(HullVariant, TheSameSeedAndIdAlwaysPickTheSameVariant) {
@@ -2661,7 +2736,7 @@ TEST(SceneFacing, AFrameWithoutFacingIsByteIdentical) {
     const Scene b = protekt::game::build_scene(sim, never_heard);
     EXPECT_TRUE(same_vertices(a.vertices, b.vertices));
     // A tank with no facing and no velocity is the default one: it is axis-aligned and no wider
-    // than it always was (the outer face of a track), because heading 0 is the world's +Y.
+    // than it always was (the outer edge of a fender), because heading 0 is the world's +Y.
     const auto& viewer = viewer_of(sim);
     const float ux = static_cast<float>(viewer.x.raw) / 65536.0F * kMetresPerTile;
     const auto tail = a.vertices.end() - static_cast<std::ptrdiff_t>(kFacingTankVertices);
@@ -2684,10 +2759,10 @@ std::array<float, 3> tank_face_colour(const Scene& scene, std::size_t prism, std
 }
 
 constexpr std::size_t kHull = 2;
-constexpr std::size_t kTurretPrism = 3;
-constexpr std::size_t kBustlePrism = 4;
-constexpr std::size_t kRoofPanel = 5;
-constexpr std::size_t kBarrelPrism = 7;
+constexpr std::size_t kTurretPrism = 7;
+constexpr std::size_t kBustlePrism = 8;
+constexpr std::size_t kRoofPanel = 9;
+constexpr std::size_t kBarrelPrism = 11;
 
 /// `c` mixed toward white by `kHullPaleMix`: what the scene does to a hull's colour.
 float pale(float c) { return c + ((1.0F - c) * protekt::game::kHullPaleMix); }
@@ -3422,7 +3497,8 @@ UvRect cell(float u0, float v0, float u1, float v1) {
 }
 
 /// The viewer's drawn tank: the last kTankVertices of a facing scene, in emission order -- two
-/// track skirts, hull, turret, bustle, roof panel, muzzle collar, barrel.
+/// tracks, hull, engine deck, grille, two fenders, turret, bustle, roof panel, muzzle collar,
+/// barrel.
 std::vector<SceneVertex> drawn_tank(float heading, float turret) {
     const auto sim = facing_sim();
     const Scene scene = facing_scene(sim, heading, turret);
@@ -3458,8 +3534,9 @@ UvRect viewer_hull_rect() {
 TEST(TankUv, EachPartAddressesItsTilesExactRect) {
     const auto tank = drawn_tank(0.3F, 0.4F);
     ASSERT_EQ(tank.size(), kTankVertices);
-    // Pinned: tracks are tile 1, (0.125, 0) to (0.25, 0.125); the hull, turret and bustle the same
-    // one of its team's camo tiles; the roof panel 2; barrel and collar 3.
+    // Pinned: tracks and grille are tile 1, (0.125, 0) to (0.25, 0.125); the hull, engine deck,
+    // fenders, turret and bustle the same one of its team's camo tiles; the roof panel 2; barrel
+    // and collar 3.
     const UvRect tracks = tile_rect(1);
     EXPECT_EQ(tracks.u0, 0.125F + kHalfTexel);
     EXPECT_EQ(tracks.u1, 0.25F - kHalfTexel);
@@ -3467,11 +3544,14 @@ TEST(TankUv, EachPartAddressesItsTilesExactRect) {
     const UvRect hull = viewer_hull_rect();
     EXPECT_GE(hull.v0, 0.125F) << "the camo tiles are on the second and third rows";
     expect_corners_of(tank, 72, 108, hull, "hull");
-    expect_corners_of(tank, 108, 144, hull, "turret");
-    expect_corners_of(tank, 144, 180, hull, "bustle");
-    expect_corners_of(tank, 180, 216, cell(0.25F, 0.0F, 0.375F, 0.125F), "roof panel");
-    expect_corners_of(tank, 216, 252, cell(0.375F, 0.0F, 0.5F, 0.125F), "collar");
-    expect_corners_of(tank, 252, 288, cell(0.375F, 0.0F, 0.5F, 0.125F), "barrel");
+    expect_corners_of(tank, 108, 144, hull, "engine deck");
+    expect_corners_of(tank, 144, 180, cell(0.125F, 0.0F, 0.25F, 0.125F), "grille");
+    expect_corners_of(tank, 180, 252, hull, "fenders");
+    expect_corners_of(tank, 252, 288, hull, "turret");
+    expect_corners_of(tank, 288, 324, hull, "bustle");
+    expect_corners_of(tank, 324, 360, cell(0.25F, 0.0F, 0.375F, 0.125F), "roof panel");
+    expect_corners_of(tank, 360, 396, cell(0.375F, 0.0F, 0.5F, 0.125F), "collar");
+    expect_corners_of(tank, 396, 432, cell(0.375F, 0.0F, 0.5F, 0.125F), "barrel");
 }
 
 TEST(TankUv, EveryHullFaceCarriesTheHullTilesCorners) {

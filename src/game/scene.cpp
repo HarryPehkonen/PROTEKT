@@ -375,12 +375,14 @@ void build_defense_turret(std::vector<SceneVertex>& out, std::uint64_t seed, con
 }
 
 /// A tank, abstracted from a side-on battle tank and built only of flat-shaded prisms: two dark
-/// track skirts running past the hull at both ends, a hull between them with a sloped glacis and a
-/// slightly taller engine deck, a squat turret set back on the hull with a rear bustle, and a long
-/// thin barrel from the turret's front face with a thicker muzzle collar, and a flat team-colour
-/// panel on the turret roof. The hull and tracks are
-/// turned by `heading`, the turret group by `heading + turret`. Lateral extent stays the tank's
-/// 0.3 tile half-width (the outer face of a track), so only the length and the profile are new.
+/// tracks with a camo fender over each, a shelf a little wider than the track under it, a hull
+/// between them whose raised fighting compartment meets the ground in a sloped front glacis and
+/// steps down aft to a lower engine deck with a dark grille band, a squat turret on the
+/// compartment roof with a rear bustle over the engine deck, a long thin barrel from the turret's
+/// front face with a thicker muzzle collar, and a flat team-colour panel on the turret roof. The
+/// hull, tracks and fenders are turned by `heading`, the turret group by `heading + turret`.
+/// Lateral extent stays the tank's 0.3 tile half-width -- the outer edge of a fender, with the
+/// track tucked just inside it -- and the barrel is always the last prism.
 void build_facing_tank(std::vector<SceneVertex>& out, std::uint64_t seed, const sim::Unit& unit,
                        Mark mark, float lift_z, bool lifted, float heading, float turret) {
     const float x
@@ -388,13 +390,14 @@ void build_facing_tank(std::vector<SceneVertex>& out, std::uint64_t seed, const 
     const float z
         = static_cast<float>(unit.y.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile;
     const float ground = lifted ? lift_z : ground_metres(seed, unit.x, unit.y);
-    const float half_width = kMetresPerTile * 0.3F; ///< the outer face of a track
+    const float half_width = kMetresPerTile * 0.3F; ///< the outer edge of a fender
     constexpr float kTrackInner = 0.7F;             ///< of half_width; the hull fills the rest
-    // The skirts are dark, with their links, because the TRACK TILE is, and the hull, turret and
-    // bustle wear the camo because their tile does: the vertex keeps the side colour, the selection
-    // tint and the face light, and the texel multiplies them. Which of its team's three camo tiles
-    // is this tank's -- one pattern for the whole tank. The roof panel wears the plain turret
-    // metal.
+    constexpr float kTrackOuter = 0.95F;            ///< of half_width; the fender overhangs it
+    // The tracks and grille are dark, with their links, because the TRACK TILE is, and the hull,
+    // engine deck, fenders, turret and bustle wear the camo because their tile does: the vertex
+    // keeps the side colour, the selection tint and the face light, and the texel multiplies them.
+    // Which of its team's three camo tiles is this tank's -- one pattern for the whole tank. The
+    // roof panel wears the plain turret metal.
     const AtlasManifest& atlas = atlas_manifest();
     const UvRect hull_tile
         = atlas.rect(kTeamHullNames.at(static_cast<std::size_t>(unit.side))
@@ -405,15 +408,24 @@ void build_facing_tank(std::vector<SceneVertex>& out, std::uint64_t seed, const 
     constexpr float kTrackHeight = 0.4F;
     constexpr float kTrackBack = -1.3F; ///< metres along the heading from the centre
     constexpr float kTrackFront = 1.3F;
-    constexpr float kHullBack = -1.1F;
-    constexpr float kHullFront = 1.2F;
-    constexpr float kGlacisTop = 0.75F; ///< where the slanted front plate meets the deck
-    constexpr float kHullFrontHeight = 0.7F;
-    constexpr float kHullRearHeight = 0.85F; ///< the engine deck, a little above the front
-    constexpr float kTurretBase = 0.8F;      ///< above the ground; the hull's mean top
+    constexpr float kHullBack = -1.2F;
+    constexpr float kHullFront = 1.2F;  ///< the foot of the glacis
+    constexpr float kGlacisTop = 0.55F; ///< where the glacis meets the compartment roof
+    constexpr float kDeckStep = -0.45F; ///< where the compartment steps down to the engine deck
+    constexpr float kCompartmentTop = 0.85F;
+    constexpr float kEngineDeckTop = 0.62F;
+    constexpr float kDeckTuck = 0.05F; ///< the engine deck runs on inside the compartment
+    constexpr float kGrilleHalfAcross = 0.28F;
+    constexpr float kGrilleBack = -1.1F;
+    constexpr float kGrilleFront = -0.55F;
+    constexpr float kGrilleThickness = 0.03F; ///< standing just proud of the deck
+    constexpr float kFenderInner = 0.65F;     ///< of half_width: just inside the hull's side
+    constexpr float kFenderBottom = 0.38F;    ///< a little into the track, so its top is hidden
+    constexpr float kFenderTop = 0.44F;
+    constexpr float kTurretBase = 0.8F; ///< above the ground; sunk into the compartment roof
     constexpr float kTurretHeight = 0.4F;
     constexpr float kTurretHalfAcross = 0.36F;
-    constexpr float kTurretCentre = -0.3F; ///< set back from the hull's centre
+    constexpr float kTurretCentre = -0.15F; ///< set back from the hull's centre
     constexpr float kTurretHalfLength = 0.5F;
     constexpr float kBustleLength = 0.25F;
     constexpr float kBustleHalfAcross = 0.25F;
@@ -438,32 +450,52 @@ void build_facing_tank(std::vector<SceneVertex>& out, std::uint64_t seed, const 
     } else if (mark != Mark::None) {
         colour = aim_tint(colour, mark == Mark::AimedOwn);
     }
-
-    const float inner = half_width * kTrackInner;
-    for (const float side : {-1.0F, 1.0F}) {
-        const float a = side * inner;
-        const float b = side * half_width;
-        const Prism track{std::min(a, b), std::max(a, b),        kTrackBack,
-                          kTrackBack,     kTrackFront,           kTrackFront,
-                          ground,         ground + kTrackHeight, ground + kTrackHeight};
-        emit_turned_prism(out, x, z, heading, track, colour, tracks_tile);
-    }
-    const Prism hull{-inner,
-                     inner,
-                     kHullBack,
-                     kHullBack,
-                     kHullFront,
-                     kGlacisTop,
-                     ground,
-                     ground + kHullRearHeight,
-                     ground + kHullFrontHeight};
     // The camo parts' colour is a PALE tint of the marked side colour, so the camo tile's tones
     // dominate.
     Vec3 camo_colour = colour;
     for (float& channel : camo_colour) {
         channel += (1.0F - channel) * kHullPaleMix;
     }
+
+    const float inner = half_width * kTrackInner;
+    for (const float side : {-1.0F, 1.0F}) {
+        const float a = side * inner;
+        const float b = side * half_width * kTrackOuter;
+        const Prism track{std::min(a, b), std::max(a, b),        kTrackBack,
+                          kTrackBack,     kTrackFront,           kTrackFront,
+                          ground,         ground + kTrackHeight, ground + kTrackHeight};
+        emit_turned_prism(out, x, z, heading, track, colour, tracks_tile);
+    }
+    // The fighting compartment: its front face leans back from the foot of the glacis to the roof.
+    const Prism hull{-inner,
+                     inner,
+                     kDeckStep,
+                     kDeckStep,
+                     kHullFront,
+                     kGlacisTop,
+                     ground,
+                     ground + kCompartmentTop,
+                     ground + kCompartmentTop};
     emit_turned_prism(out, x, z, heading, hull, camo_colour, hull_tile);
+    emit_turned_box(out, x, z, heading, inner, kHullBack, kDeckStep + kDeckTuck, ground,
+                    ground + kEngineDeckTop, camo_colour, hull_tile);
+    const float deck = ground + kEngineDeckTop;
+    emit_turned_box(out, x, z, heading, kGrilleHalfAcross, kGrilleBack, kGrilleFront, deck,
+                    deck + kGrilleThickness, colour, tracks_tile);
+    for (const float side : {-1.0F, 1.0F}) {
+        const float a = side * half_width * kFenderInner;
+        const float b = side * half_width;
+        const Prism fender{std::min(a, b),
+                           std::max(a, b),
+                           kTrackBack,
+                           kTrackBack,
+                           kTrackFront,
+                           kTrackFront,
+                           ground + kFenderBottom,
+                           ground + kFenderTop,
+                           ground + kFenderTop};
+        emit_turned_prism(out, x, z, heading, fender, camo_colour, hull_tile);
+    }
 
     // The turret group shares one frame at the turret's centre; the barrel starts at its front
     // face and is measured from the tank's centre along the same axis, so it points where the
