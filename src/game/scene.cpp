@@ -312,6 +312,11 @@ void build_unit_box(std::vector<SceneVertex>& out, std::uint64_t seed, const sim
     const bool factory = unit.kind == sim::UnitKind::Factory;
     const UvRect sides = atlas.rect(factory ? "factory_walls" : "turret_body");
     const UvRect top = factory ? atlas.rect("factory_roof") : sides;
+    // Pale-mixed like the hull: the deep side colour would multiply the tile's detail down to a
+    // tenth of a luma step; the pale tint lets the metal carry and the team read through as a tint.
+    for (float& channel : colour) {
+        channel += (1.0F - channel) * kHullPaleMix;
+    }
     emit_turned_prism(out, x, z, 0.0F,
                       Prism{-half_width, half_width, -half_width, -half_width, half_width,
                             half_width, ground, ground + height, ground + height},

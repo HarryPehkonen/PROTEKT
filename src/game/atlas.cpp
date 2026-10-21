@@ -465,15 +465,18 @@ Tile paint_factory_wall(std::uint64_t seed, int tile_index) {
     // The door: x 10..45, y 19..63, a dark frame, light slats split by dark gaps.
     fill_rect(tile, 10, 19, 45, 63, 212);
     for (int y = 29; y <= 63; y += 5) {
-        fill_rect(tile, 12, y, 43, y, 80);
+        fill_rect(tile, 12, y, 43, y, 60);
         fill_rect(tile, 12, y + 1, 43, y + 1, 250);
     }
     fill_rect(tile, 27, 19, 28, 63, 110); // the meeting of its two leaves
-    frame_rect(tile, 9, 18, 46, 63, 40);
-    frame_rect(tile, 10, 19, 45, 63, 110);
+    // A heavy near-black frame, six texels thick: a face is ~50 px across at gameplay distance, so
+    // anything thinner is under four pixels.
+    for (int i = 0; i < 6; ++i) {
+        frame_rect(tile, 4 + i, 13 + i, 51 - i, 63, 28);
+    }
     for (int y = 20; y <= 25; ++y) { // the chevron band over the door
         for (int x = 11; x <= 44; ++x) {
-            put(tile, x, y, (((std::abs(x - 28) + y) / 3) % 2) == 0 ? 45 : 250);
+            put(tile, x, y, (((std::abs(x - 28) + y) / 3) % 2) == 0 ? 28 : 250);
         }
     }
     vent(tile, 52, 31, 58, 46);

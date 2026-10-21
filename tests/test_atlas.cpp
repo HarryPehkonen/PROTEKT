@@ -553,7 +553,8 @@ constexpr int kMinSeamTexels = 150;
 constexpr double kSeamLuma = 0.45;
 constexpr int kMinPlateTexels = 600;
 constexpr double kPlateLuma = 0.80;
-constexpr double kMinTintedRange = 0.10;
+constexpr double kMinTintedRange = 0.25; ///< E11b: was 0.10, which a flat deep tint just met
+constexpr double kNearBlackLuma = 0.15;  ///< the door frame and the chevrons
 
 TEST(AtlasPaint, TheTurretAndFactoryTilesCarryVisibleLuminanceDetail) {
     const auto px = protekt::game::atlas_pixels();
@@ -577,18 +578,37 @@ TEST(AtlasPaint, TheTurretAndFactoryTilesCarryVisibleLuminanceDetail) {
         EXPECT_GE(hi - lo, kMinStructureRange) << "tile " << tile;
         EXPECT_GE(seams, kMinSeamTexels) << "tile " << tile;
         EXPECT_GE(plates, kMinPlateTexels) << "tile " << tile;
-        for (const auto& side : kSideColours) {
+        // AS DRAWN: the structures take the hull's pale tint of their side colour.
+        const auto tinted_range = [&](const std::array<float, 3>& tint) {
             double tlo = 1.0;
             double thi = 0.0;
             for (int y = 0; y < 64; ++y) {
                 for (int x = 0; x < 64; ++x) {
-                    const double l = luma(tinted(texel(px, tile, x, y), side));
+                    const double l = luma(tinted(texel(px, tile, x, y), tint));
                     tlo = std::min(tlo, l);
                     thi = std::max(thi, l);
                 }
             }
-            EXPECT_GE(thi - tlo, kMinTintedRange) << "tile " << tile << " after the tint";
+            return thi - tlo;
+        };
+        for (const auto& side : kSideColours) {
+            EXPECT_GE(tinted_range(hull_tint(side)), kMinTintedRange)
+                << "tile " << tile << " under the pale tint";
         }
+    }
+}
+
+TEST(AtlasPaint, TheFactoryWallsDoorFrameAndChevronsAreNearBlack) {
+    const auto px = protekt::game::atlas_pixels();
+    int dark = 0;
+    for (int y = 13; y < 64; ++y) {
+        for (int x = 4; x < 52; ++x) {
+            dark += luma(texel(px, 4, x, y)) <= kNearBlackLuma ? 1 : 0;
+        }
+    }
+    EXPECT_GE(dark, 300);
+    for (int x = 4; x <= 9; ++x) { // the frame's left side is six texels of near-black
+        EXPECT_LE(luma(texel(px, 4, x, 40)), kNearBlackLuma) << "x " << x;
     }
 }
 
