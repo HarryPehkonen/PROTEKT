@@ -515,9 +515,9 @@ TEST(AtlasPaint, TheTrackTileIsDarkWithLighterLinkStripesAcrossItsHeight) {
     }
 }
 
-TEST(AtlasPaint, MetalAndBuildingTilesAreTheirBaseToneWithOnlyAFewPercentOfVariation) {
+TEST(AtlasPaint, TankMetalTilesAreTheirBaseToneWithOnlyAFewPercentOfVariation) {
     const auto px = protekt::game::atlas_pixels();
-    for (const int tile : {2, 3, 4, 5, 6}) {
+    for (const int tile : {2, 3}) {
         int lo = 255;
         int hi = 0;
         for (int y = 0; y < 64; ++y) {
@@ -538,6 +538,56 @@ TEST(AtlasPaint, MetalAndBuildingTilesAreTheirBaseToneWithOnlyAFewPercentOfVaria
                           2)
                     << "tile " << tile;
             }
+        }
+    }
+}
+
+/// The structure tiles -- factory walls (4), factory roof (5), turret body (6) -- carry PAINTED
+/// detail, read by luminance steps so it survives the side-colour multiply. The gate's thresholds:
+/// a luma range of at least kMinStructureRange, at least kMinSeamTexels seam texels (luma under
+/// kSeamLuma), at least kMinPlateTexels light-plate texels (luma over kPlateLuma), and, after a
+/// saturated side tint multiplies them, a luma range of at least kMinTintedRange. Measured before
+/// the paint: range 0.07 at most, no seams, which is what these fail on.
+constexpr double kMinStructureRange = 0.55;
+constexpr int kMinSeamTexels = 150;
+constexpr double kSeamLuma = 0.45;
+constexpr int kMinPlateTexels = 600;
+constexpr double kPlateLuma = 0.80;
+constexpr double kMinTintedRange = 0.10;
+
+TEST(AtlasPaint, TheTurretAndFactoryTilesCarryVisibleLuminanceDetail) {
+    const auto px = protekt::game::atlas_pixels();
+    for (const int tile : {4, 5, 6}) {
+        double lo = 1.0;
+        double hi = 0.0;
+        int seams = 0;
+        int plates = 0;
+        for (int y = 0; y < 64; ++y) {
+            for (int x = 0; x < 64; ++x) {
+                const Rgb rgb = texel(px, tile, x, y);
+                EXPECT_EQ(rgb.at(0), rgb.at(1)) << "near-neutral, so the side colour shows";
+                EXPECT_EQ(rgb.at(1), rgb.at(2)) << "luminance steps, not hue tricks";
+                const double l = luma(rgb);
+                lo = std::min(lo, l);
+                hi = std::max(hi, l);
+                seams += l < kSeamLuma ? 1 : 0;
+                plates += l > kPlateLuma ? 1 : 0;
+            }
+        }
+        EXPECT_GE(hi - lo, kMinStructureRange) << "tile " << tile;
+        EXPECT_GE(seams, kMinSeamTexels) << "tile " << tile;
+        EXPECT_GE(plates, kMinPlateTexels) << "tile " << tile;
+        for (const auto& side : kSideColours) {
+            double tlo = 1.0;
+            double thi = 0.0;
+            for (int y = 0; y < 64; ++y) {
+                for (int x = 0; x < 64; ++x) {
+                    const double l = luma(tinted(texel(px, tile, x, y), side));
+                    tlo = std::min(tlo, l);
+                    thi = std::max(thi, l);
+                }
+            }
+            EXPECT_GE(thi - tlo, kMinTintedRange) << "tile " << tile << " after the tint";
         }
     }
 }

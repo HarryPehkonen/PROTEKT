@@ -7,6 +7,7 @@
 #include <array>
 #include <charconv>
 #include <cstddef>
+#include <cstdlib>
 #include <fstream>
 #include <iterator>
 #include <ostream>
@@ -307,6 +308,180 @@ Tile paint_metal(std::uint64_t seed, int tile_index, Rgb base, int amount) {
     return tile;
 }
 
+/// Structure paint. These tiles are neutral grey MULTIPLIERS like the tank's, but they carry real
+/// detail in luminance steps -- dark seams, light plates -- never hue, so the side colour and the
+/// face light multiply over it and the detail still reads. A face shows the whole tile.
+void put(Tile& tile, int x, int y, int grey) {
+    if (x < 0 || x >= 64 || y < 0 || y >= 64) {
+        return;
+    }
+    const auto v = static_cast<std::uint8_t>(std::clamp(grey, 0, 255));
+    texel(tile, static_cast<std::uint32_t>(x), static_cast<std::uint32_t>(y)) = Rgb{v, v, v};
+}
+
+int grey_at(Tile& tile, int x, int y) {
+    return texel(tile, static_cast<std::uint32_t>(x), static_cast<std::uint32_t>(y)).at(0);
+}
+
+void fill_rect(Tile& tile, int x0, int y0, int x1, int y1, int grey) {
+    for (int y = y0; y <= y1; ++y) {
+        for (int x = x0; x <= x1; ++x) {
+            put(tile, x, y, grey);
+        }
+    }
+}
+
+void frame_rect(Tile& tile, int x0, int y0, int x1, int y1, int grey) {
+    fill_rect(tile, x0, y0, x1, y0, grey);
+    fill_rect(tile, x0, y1, x1, y1, grey);
+    fill_rect(tile, x0, y0, x0, y1, grey);
+    fill_rect(tile, x1, y0, x1, y1, grey);
+}
+
+/// A hashed value in [0, 99] for texel (x, y): the same on every machine.
+int grain(std::uint64_t seed, int tile_index, int x, int y) noexcept {
+    const std::uint64_t key = (static_cast<std::uint64_t>(tile_index) << 16U)
+                              | (static_cast<std::uint64_t>(y) << 8U)
+                              | static_cast<std::uint64_t>(x);
+    return static_cast<int>(mix(seed ^ (key * 0x9E3779B97F4A7C15ULL)) % 100U);
+}
+
+/// Soot: darkens the tile inside a ragged disc, most at the centre (up to `depth` of 255).
+void scorch(Tile& tile, std::uint64_t seed, int tile_index, int cx, int cy, int radius, int depth) {
+    for (int y = cy - radius; y <= cy + radius; ++y) {
+        for (int x = cx - radius; x <= cx + radius; ++x) {
+            if (x < 0 || x >= 64 || y < 0 || y >= 64) {
+                continue;
+            }
+            const int d2 = ((x - cx) * (x - cx)) + ((y - cy) * (y - cy))
+                           + (grain(seed, tile_index, x, y) * radius / 20);
+            if (d2 < radius * radius) {
+                const int dark = depth * (radius * radius - d2) / (radius * radius);
+                put(tile, x, y, grey_at(tile, x, y) * (255 - dark) / 255);
+            }
+        }
+    }
+}
+
+/// Hazard stripes: diagonal bands, `period` texels, half dark and half light, inside the rect.
+void hazard_band(Tile& tile, int x0, int y0, int x1, int y1, int period, int dark, int light) {
+    for (int y = y0; y <= y1; ++y) {
+        for (int x = x0; x <= x1; ++x) {
+            put(tile, x, y, ((x + y) % period) < period / 2 ? dark : light);
+        }
+    }
+}
+
+/// A louvred vent: a light frame round dark slots.
+void vent(Tile& tile, int x0, int y0, int x1, int y1) {
+    fill_rect(tile, x0, y0, x1, y1, 55);
+    for (int y = y0 + 2; y <= y1 - 2; y += 3) {
+        fill_rect(tile, x0 + 2, y, x1 - 2, y, 150);
+    }
+    frame_rect(tile, x0 - 1, y0 - 1, x1 + 1, y1 + 1, 250);
+    frame_rect(tile, x0 - 2, y0 - 2, x1 + 2, y1 + 2, 95);
+}
+
+/// The defence turret's housing: gun-metal plates split by dark seams with a light bevel beside
+/// each, weathered edges, a hatch ring with eight bolts, and a warning stripe along the foot.
+Tile paint_turret_housing(std::uint64_t seed, int tile_index) {
+    Tile tile = paint_metal(seed, tile_index, {222, 222, 222}, 8);
+    for (int y = 0; y < 64; ++y) {
+        for (int x = 0; x < 64; ++x) {
+            const int edge = std::min({x, y, 63 - x, 63 - y});
+            if (edge < 4 && grain(seed, tile_index, x, y) < 70 - (edge * 15)) {
+                put(tile, x, y, grey_at(tile, x, y) - 95 + (edge * 12)); // weathered edges
+            }
+        }
+    }
+    for (const int row : {16, 41}) {
+        fill_rect(tile, 0, row, 63, row + 1, 70);
+        fill_rect(tile, 0, row + 2, 63, row + 2, 252);
+    }
+    fill_rect(tile, 10, 0, 11, 15, 70);
+    fill_rect(tile, 50, 42, 51, 63, 70);
+    // The hatch: a dark ring round a light lid, a bolt on each of eight points of the ring.
+    constexpr int kCx = 32;
+    constexpr int kCy = 28;
+    for (int y = kCy - 15; y <= kCy + 15; ++y) {
+        for (int x = kCx - 15; x <= kCx + 15; ++x) {
+            const int d2 = ((x - kCx) * (x - kCx)) + ((y - kCy) * (y - kCy));
+            if (d2 <= 15 * 15 && d2 >= 11 * 11) {
+                put(tile, x, y, 60);
+            } else if (d2 < 11 * 11) {
+                put(tile, x, y, 238 - (d2 / 12));
+            }
+        }
+    }
+    constexpr std::array<std::array<int, 2>, 8> kBolts{
+        {{13, 0}, {9, 9}, {0, 13}, {-9, 9}, {-13, 0}, {-9, -9}, {0, -13}, {9, -13 + 4}}};
+    for (const auto& bolt : kBolts) {
+        fill_rect(tile, kCx + bolt.at(0) - 1, kCy + bolt.at(1) - 1, kCx + bolt.at(0) + 1,
+                  kCy + bolt.at(1) + 1, 255);
+        put(tile, kCx + bolt.at(0) + 1, kCy + bolt.at(1) + 1, 40);
+    }
+    fill_rect(tile, kCx - 5, kCy - 1, kCx + 5, kCy, 90); // the hatch handle
+    hazard_band(tile, 0, 52, 63, 61, 8, 55, 245);
+    fill_rect(tile, 0, 51, 63, 51, 55);
+    fill_rect(tile, 0, 62, 63, 62, 55);
+    return tile;
+}
+
+/// The factory's roof: corrugated ribs, two seams across them, two louvred vents, a hazard-
+/// bordered service hatch, and scorch on the corner by the door.
+Tile paint_factory_roof(std::uint64_t seed, int tile_index) {
+    Tile tile = paint_metal(seed, tile_index, {232, 232, 232}, 6);
+    constexpr std::array<int, 8> kRib{105, 150, 205, 245, 255, 245, 205, 150};
+    for (int y = 0; y < 64; ++y) {
+        for (int x = 0; x < 64; ++x) {
+            put(tile, x, y, grey_at(tile, x, y) * kRib.at(static_cast<std::size_t>(x % 8)) / 255);
+        }
+    }
+    for (const int row : {21, 42}) {
+        fill_rect(tile, 0, row, 63, row + 1, 60);
+        fill_rect(tile, 0, row + 2, 63, row + 2, 255);
+    }
+    vent(tile, 8, 6, 21, 15);
+    vent(tile, 40, 6, 53, 15);
+    fill_rect(tile, 20, 28, 43, 38, 250);
+    hazard_band(tile, 20, 28, 43, 29, 6, 50, 250);
+    hazard_band(tile, 20, 37, 43, 38, 6, 50, 250);
+    frame_rect(tile, 19, 27, 44, 39, 50);
+    fill_rect(tile, 28, 31, 35, 34, 120); // its handle
+    scorch(tile, seed, tile_index, 52, 56, 13, 190);
+    scorch(tile, seed, tile_index, 12, 50, 8, 150);
+    return tile;
+}
+
+/// The factory's wall: a corrugated-panel course, a big vehicle door with a hazard-chevron band on
+/// its head, slats, a side vent, and soot rising from the sill.
+Tile paint_factory_wall(std::uint64_t seed, int tile_index) {
+    Tile tile = paint_metal(seed, tile_index, {240, 240, 240}, 7);
+    for (const int row : {9, 26}) {
+        fill_rect(tile, 0, row, 63, row, 85);
+        fill_rect(tile, 0, row + 1, 63, row + 1, 255);
+    }
+    fill_rect(tile, 0, 0, 63, 2, 200); // eaves
+    // The door: x 10..45, y 19..63, a dark frame, light slats split by dark gaps.
+    fill_rect(tile, 10, 19, 45, 63, 212);
+    for (int y = 29; y <= 63; y += 5) {
+        fill_rect(tile, 12, y, 43, y, 80);
+        fill_rect(tile, 12, y + 1, 43, y + 1, 250);
+    }
+    fill_rect(tile, 27, 19, 28, 63, 110); // the meeting of its two leaves
+    frame_rect(tile, 9, 18, 46, 63, 40);
+    frame_rect(tile, 10, 19, 45, 63, 110);
+    for (int y = 20; y <= 25; ++y) { // the chevron band over the door
+        for (int x = 11; x <= 44; ++x) {
+            put(tile, x, y, (((std::abs(x - 28) + y) / 3) % 2) == 0 ? 45 : 250);
+        }
+    }
+    vent(tile, 52, 31, 58, 46);
+    scorch(tile, seed, tile_index, 28, 63, 24, 200);
+    scorch(tile, seed, tile_index, 56, 63, 10, 150);
+    return tile;
+}
+
 Tile solid(Rgb rgb) {
     Tile tile{};
     tile.fill(rgb);
@@ -346,11 +521,11 @@ Tile paint_tile(std::uint64_t seed, int index) {
     case kBarrelTile:
         return paint_metal(seed, index, {182, 182, 180}, 5);
     case kFactoryWallsTile:
-        return paint_metal(seed, index, {244, 244, 244}, 9);
+        return paint_factory_wall(seed, index);
     case kFactoryRoofTile:
-        return paint_metal(seed, index, {228, 228, 228}, 8);
+        return paint_factory_roof(seed, index);
     case kTurretBodyTile:
-        return paint_metal(seed, index, {236, 236, 236}, 8);
+        return paint_turret_housing(seed, index);
     default:
         return solid(kMagenta);
     }
