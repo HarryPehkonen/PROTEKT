@@ -78,6 +78,8 @@ int threat_of(sim::UnitKind kind) noexcept {
     switch (kind) {
     case sim::UnitKind::Tank:
     case sim::UnitKind::HoverTank:
+    case sim::UnitKind::Mortar:
+    case sim::UnitKind::Rocket:
         return 3;
     case sim::UnitKind::Turret:
         return 2;

@@ -152,13 +152,38 @@ void learn_from(const Projectile& bolt, std::vector<Unit>& units) noexcept {
     }
 }
 
+// A splashing bolt has ended at (at_x, at_y): every living unit of either side whose centre is
+// within the bolt's splash radius takes its damage, in ascending id (the unit table's order).
+// `skip` is the unit a direct hit already hurt.
+void splash(const Projectile& bolt, std::int64_t at_x, std::int64_t at_y, const Unit* skip,
+            std::vector<Unit>& units, std::vector<Impact>& impacts) noexcept {
+    if (bolt.splash_radius.raw <= 0) {
+        return;
+    }
+    const std::int64_t radius2
+        = static_cast<std::int64_t>(bolt.splash_radius.raw) * bolt.splash_radius.raw;
+    for (Unit& unit : units) {
+        if (!unit.alive || &unit == skip) {
+            continue;
+        }
+        const std::int64_t dx = static_cast<std::int64_t>(unit.x.raw) - at_x;
+        const std::int64_t dy = static_cast<std::int64_t>(unit.y.raw) - at_y;
+        if (dx * dx + dy * dy <= radius2) {
+            take_damage(unit, bolt.damage);
+            impacts.push_back(Impact{bolt.shooter, unit.id, unit.hp});
+        }
+    }
+}
+
 } // namespace
 
 bool operator==(const Projectile& a, const Projectile& b) noexcept {
     return a.x == b.x && a.y == b.y && a.z == b.z && a.vx == b.vx && a.vy == b.vy && a.vz == b.vz
-           && a.shooter == b.shooter && a.side == b.side && a.aimed_at == b.aimed_at
-           && a.damage == b.damage && a.age == b.age && a.learns == b.learns
-           && a.closest_d2 == b.closest_d2 && a.miss_x == b.miss_x && a.miss_y == b.miss_y;
+           && a.gravity == b.gravity && a.splash_radius == b.splash_radius
+           && a.max_travel == b.max_travel && a.shooter == b.shooter && a.side == b.side
+           && a.aimed_at == b.aimed_at && a.damage == b.damage && a.age == b.age
+           && a.learns == b.learns && a.closest_d2 == b.closest_d2 && a.miss_x == b.miss_x
+           && a.miss_y == b.miss_y;
 }
 
 std::int64_t isqrt(std::int64_t n) noexcept {
@@ -238,6 +263,9 @@ Projectile launch(const Unit& shooter, const Unit& target, std::uint16_t damage,
     bolt.z = Fixed::from_raw(ground_height(seed, shooter.x, shooter.y).raw + kMuzzleHeight.raw);
     bolt.vx = Fixed::from_raw(static_cast<std::int32_t>(aim_x + shooter.vx.raw));
     bolt.vy = Fixed::from_raw(static_cast<std::int32_t>(aim_y + shooter.vy.raw));
+    bolt.gravity = weapon.gravity;
+    bolt.splash_radius = weapon.splash_radius;
+    bolt.max_travel = weapon.max_travel;
 
     // The vertical aim is exact: the aim POINT is on the ground it is over, and a body stands on
     // it. With no estimate that is the target where it really stands; with one, it is where the
@@ -250,9 +278,20 @@ Projectile launch(const Unit& shooter, const Unit& target, std::uint16_t damage,
     if (dist > 0) {
         const std::int64_t point_x = static_cast<std::int64_t>(shooter.x.raw) + dx;
         const std::int64_t point_y = static_cast<std::int64_t>(shooter.y.raw) + dy;
-        const std::int64_t aim_z = aim_height(seed, shooter.x.raw, shooter.y.raw, bolt.z.raw,
-                                              point_x, point_y, target.kind)
-                                       .z;
+        // A lob goes OVER the ground between, so it aims at the middle of the body and does not
+        // need the straight line the flat guns look for.
+        const std::int64_t aim_z
+            = weapon.gravity.raw > 0
+                  ? ground_height(seed, Fixed::from_raw(static_cast<std::int32_t>(point_x)),
+                                  Fixed::from_raw(static_cast<std::int32_t>(point_y)))
+                            .raw
+                        + body_bottom(target.kind).raw
+                        + (static_cast<std::int64_t>(body_top(target.kind).raw)
+                           - body_bottom(target.kind).raw)
+                              / 2
+                  : aim_height(seed, shooter.x.raw, shooter.y.raw, bolt.z.raw, point_x, point_y,
+                               target.kind)
+                        .z;
         // The rise is spread over the bolt's real closing speed on the aim point -- the gun's own
         // drive adds to it or takes from it -- not over the speed it was aimed at, or a moving
         // gun's bolt would arrive early and low (or late and high).
@@ -262,8 +301,19 @@ Projectile launch(const Unit& shooter, const Unit& target, std::uint16_t damage,
         const std::int64_t speed = closing > 0 ? closing : bolt_speed;
         const std::int64_t steepest = static_cast<std::int64_t>(weapon.arc.raw) * bolt_speed
                                       / Fixed::kOne * kHeightUnitsPerTile;
-        const std::int64_t vz
-            = std::clamp((aim_z - bolt.z.raw) * speed / dist, -steepest, steepest);
+        std::int64_t vz = 0;
+        if (weapon.gravity.raw > 0) {
+            // The parabola through the aim point. The bolt steps with the vz it has and then loses
+            // `gravity`, so after t ticks it has risen t*vz - g*t*(t-1)/2; set that equal to the
+            // rise at t = the flight time in ticks (Q16.16), and solve for vz.
+            const std::int64_t t = std::max<std::int64_t>(Fixed::kOne, dist * Fixed::kOne / speed);
+            vz = (aim_z - bolt.z.raw) * Fixed::kOne / t
+                 + static_cast<std::int64_t>(weapon.gravity.raw) * (t - Fixed::kOne)
+                       / (std::int64_t{2} * Fixed::kOne);
+        } else {
+            vz = (aim_z - bolt.z.raw) * speed / dist;
+        }
+        vz = std::clamp(vz, -steepest, steepest);
         bolt.vz = Fixed::from_raw(static_cast<std::int32_t>(vz));
     }
     bolt.shooter = shooter.id;
@@ -281,6 +331,9 @@ bool can_see(std::uint64_t seed, Fixed from_x, Fixed from_y, Fixed at_x, Fixed a
 }
 
 bool has_line(const Unit& shooter, const Unit& target, std::uint64_t seed) noexcept {
+    if (spec_of(shooter.kind).gravity.raw > 0) {
+        return true; // a lob clears the ground between
+    }
     // The aim point `launch` uses: where the target is plus what this gun has learned of the lead.
     const std::int64_t point_x = static_cast<std::int64_t>(target.x.raw) + shooter.aim_x.raw;
     const std::int64_t point_y = static_cast<std::int64_t>(target.y.raw) + shooter.aim_y.raw;
@@ -319,6 +372,9 @@ Projectile launch_towards(const Unit& shooter, Fixed dir_x, Fixed dir_y, Fixed d
     bolt.vx = Fixed::from_raw(static_cast<std::int32_t>(aim_x + shooter.vx.raw));
     bolt.vy = Fixed::from_raw(static_cast<std::int32_t>(aim_y + shooter.vy.raw));
     bolt.vz = Fixed::from_raw(static_cast<std::int32_t>(aim_z));
+    bolt.gravity = spec_of(shooter.kind).gravity;
+    bolt.splash_radius = spec_of(shooter.kind).splash_radius;
+    bolt.max_travel = spec_of(shooter.kind).max_travel;
     bolt.shooter = shooter.id;
     bolt.side = shooter.side;
     bolt.aimed_at = aimed_at; // intent only: the velocity above never looked at it
@@ -396,6 +452,10 @@ void advance_projectiles(std::vector<Projectile>& projectiles, std::vector<Unit>
         if (hit != nullptr) {
             take_damage(*hit, bolt.damage);
             impacts.push_back(Impact{bolt.shooter, hit->id, hit->hp});
+            // The shell bursts where its path was nearest the body it hit.
+            const Point c
+                = nearest_on_segment(from_x, from_y, step_x, step_y, hit->x.raw, hit->y.raw);
+            splash(bolt, c.x, c.y, hit, units, impacts);
             continue; // a hit teaches nothing: there was nothing to correct
         }
         if (passed) {
@@ -403,15 +463,22 @@ void advance_projectiles(std::vector<Projectile>& projectiles, std::vector<Unit>
             bolt.learns = false;
         }
         if (grounded) {
-            continue; // gone where it met the ground: no damage, no mark, no lesson
+            // Gone where it met the ground: no direct damage, no mark, no lesson -- but a shell
+            // bursts there.
+            splash(bolt, from_x + step_x, from_y + step_y, nullptr, units, impacts);
+            continue;
         }
 
         const std::int64_t vz_tiles = static_cast<std::int64_t>(bolt.vz.raw) / kHeightUnitsPerTile;
         const std::int64_t speed
             = isqrt(static_cast<std::int64_t>(bolt.vx.raw) * bolt.vx.raw
                     + static_cast<std::int64_t>(bolt.vy.raw) * bolt.vy.raw + vz_tiles * vz_tiles);
+        // A bolt with gravity has no constant speed: its range is the ground it has covered.
+        const std::int64_t hspeed = isqrt(static_cast<std::int64_t>(bolt.vx.raw) * bolt.vx.raw
+                                          + static_cast<std::int64_t>(bolt.vy.raw) * bolt.vy.raw);
         const bool out_of_range
-            = static_cast<std::int64_t>(bolt.age) * speed >= kProjectileRange.raw;
+            = static_cast<std::int64_t>(bolt.age) * (bolt.gravity.raw != 0 ? hspeed : speed)
+              >= bolt.max_travel.raw;
         const bool off_map = to_x < 0 || to_y < 0 || to_x > kMaxPosRaw || to_y > kMaxPosRaw;
         if (speed == 0 || out_of_range || off_map) {
             learn_from(bolt, units);
@@ -420,6 +487,7 @@ void advance_projectiles(std::vector<Projectile>& projectiles, std::vector<Unit>
         bolt.x = Fixed::from_raw(static_cast<std::int32_t>(to_x));
         bolt.y = Fixed::from_raw(static_cast<std::int32_t>(to_y));
         bolt.z = Fixed::from_raw(static_cast<std::int32_t>(from_z + step_z));
+        bolt.vz = Fixed::from_raw(static_cast<std::int32_t>(bolt.vz.raw - bolt.gravity.raw));
         projectiles[kept++] = bolt;
     }
     projectiles.resize(kept);

@@ -620,6 +620,14 @@ std::uint64_t Sim::state_hash() const noexcept {
             h.u64(static_cast<std::uint64_t>(p.closest_d2));
             h.i32(p.miss_x.raw);
             h.i32(p.miss_y.raw);
+            // Ballistics only when a bolt has any, so a straight single-target battle hashes as it
+            // always did.
+            if (p.gravity.raw != 0 || p.splash_radius.raw != 0
+                || p.max_travel != kProjectileRange) {
+                h.i32(p.gravity.raw);
+                h.i32(p.splash_radius.raw);
+                h.i32(p.max_travel.raw);
+            }
         }
     }
     // Orders accepted but not yet applied are part of the state: they will change the next tick.

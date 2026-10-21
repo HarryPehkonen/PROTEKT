@@ -72,7 +72,7 @@ TEST(Sim, ProfilesMatchTheFrozenBalance) {
 }
 
 TEST(Sim, TheHoverTankHasTheTanksProfileExactly) {
-    EXPECT_EQ(kUnitKindCount, 4);
+    EXPECT_EQ(kUnitKindCount, 6);
     EXPECT_EQ(static_cast<int>(UnitKind::HoverTank), 3);
     const UnitProfile tank = profile(UnitKind::Tank);
     const UnitProfile hover = profile(UnitKind::HoverTank);

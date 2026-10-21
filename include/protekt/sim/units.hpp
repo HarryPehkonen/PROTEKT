@@ -14,8 +14,15 @@ using Tick = std::uint32_t;
 
 inline constexpr int kTicksPerSecond = 30;
 
-enum class UnitKind : std::uint8_t { Tank = 0, Turret = 1, Factory = 2, HoverTank = 3 };
-inline constexpr int kUnitKindCount = 4;
+enum class UnitKind : std::uint8_t {
+    Tank = 0,
+    Turret = 1,
+    Factory = 2,
+    HoverTank = 3,
+    Mortar = 4, ///< lobs a splashing shell over hills; outranged by a turret
+    Rocket = 5  ///< slow, heavy, single-target
+};
+inline constexpr int kUnitKindCount = 6;
 
 /// Tanks and hover tanks: every rule written "for a tank" (orders, retreat, defend, swap, the AI's
 /// hunters) takes both. The hover tank has the tank's profile and, until it is drivable, its

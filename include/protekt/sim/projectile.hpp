@@ -61,6 +61,15 @@ struct Projectile {
     /// one: an explicit order to shoot a friendly (friendly fire) has to be able to land. The bolt
     /// does not follow it -- this names who it may hurt, not where it flies.
     UnitId aimed_at{};
+    /// Height units per tick squared that `vz` loses every tick, Q16.16. Zero is a straight flight;
+    /// a mortar shell's is not, and its launch solved `vz` so the parabola ends at the aim point.
+    Fixed gravity{};
+    /// Tiles around the end of the flight in which every living unit, either side, takes `damage`;
+    /// zero is single-target.
+    Fixed splash_radius{};
+    /// How far the bolt flies before it fizzles: the distance flown for a straight bolt, the
+    /// distance flown ACROSS THE MAP for one with gravity (its speed is not constant).
+    Fixed max_travel{kProjectileRange};
     std::uint16_t damage{};
     std::uint32_t age{}; ///< ticks in the air
     /// True while a bolt the sim aimed (`launch`) still has a lesson to report: the moment it has
@@ -76,7 +85,8 @@ struct Projectile {
 };
 [[nodiscard]] bool operator==(const Projectile& a, const Projectile& b) noexcept;
 
-/// A bolt that landed during the last step: the raw material for a HitTaken event.
+/// A bolt that landed during the last step: the raw material for a HitTaken event. A splash victim
+/// is reported like a direct hit.
 struct Impact {
     UnitId shooter{};
     UnitId victim{};
@@ -151,16 +161,19 @@ void retarget_aim(Unit& shooter, UnitId target) noexcept;
 /// ground it stands on) the bolt is level with at that moment -- nearest, ties to the lowest id --
 /// takes its damage and the bolt is removed. A shot aimed over a unit's head passes over it. A bolt
 /// that meets the ground is removed where it meets it, with no damage and no mark; one that has
-/// flown kProjectileRange, or left the map, is removed with no effect.
-/// While a sim-aimed bolt (`learns`) flies it tracks its closest approach to its `aimed_at` unit;
-/// the moment it has PASSED that unit -- the distance has stopped falling -- its shooter adds
-/// `target - bolt` at that closest moment to its aim estimate (clamped to kMaxAimLeadRaw), once,
-/// without waiting for the bolt to expire -- unless the shooter is dead or has since moved on to
-/// another target, in which case the lesson is dropped. A bolt that expires un-passed (its target
-/// died, say) still reports at the end if it has not already; a bolt that lands, or stops at the
-/// ground before it has passed, corrects nothing at all.
-/// `units` is mutated (hit points, death); each landing is appended to `impacts`. `seed` is the
-/// world's: it says where the ground is.
+/// flown its max_travel, or left the map, is removed with no effect. A bolt with gravity loses
+/// `gravity` of vertical speed after every step. When a bolt with a splash radius ends on the
+/// ground or on a unit, every other living unit of EITHER side whose centre is within the radius of
+/// the impact point takes its damage too, in ascending id (the shooter's side included: friendly
+/// fire is real); each is reported as an Impact, after the direct hit. While a sim-aimed bolt
+/// (`learns`) flies it tracks its closest approach to its `aimed_at` unit; the moment it has PASSED
+/// that unit -- the distance has stopped falling -- its shooter adds `target - bolt` at that
+/// closest moment to its aim estimate (clamped to kMaxAimLeadRaw), once, without waiting for the
+/// bolt to expire -- unless the shooter is dead or has since moved on to another target, in which
+/// case the lesson is dropped. A bolt that expires un-passed (its target died, say) still reports
+/// at the end if it has not already; a bolt that lands, or stops at the ground before it has
+/// passed, corrects nothing at all. `units` is mutated (hit points, death); each landing is
+/// appended to `impacts`. `seed` is the world's: it says where the ground is.
 void advance_projectiles(std::vector<Projectile>& projectiles, std::vector<Unit>& units,
                          std::vector<Impact>& impacts, std::uint64_t seed) noexcept;
 

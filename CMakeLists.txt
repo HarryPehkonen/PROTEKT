@@ -267,6 +267,7 @@ if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
         tests/test_follow.cpp
         tests/test_mount.cpp
         tests/test_spec.cpp
+        tests/test_mortar.cpp
         tests/test_roster.cpp
         tests/test_hover_drive.cpp
         tests/test_friendly_fire.cpp
