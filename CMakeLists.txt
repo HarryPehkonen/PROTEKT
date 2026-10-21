@@ -62,13 +62,12 @@ target_include_directories(protekt_core PUBLIC
 protekt_warnings(protekt_core)
 
 # ================================ command ================================
-# The human's side of the order interface: the selection, the verbs that turn a click into orders,
-# and the standing controllers. Pure logic -- no window, no GPU, no clock -- so every part of it
+# The human's side of the order interface: the selection and the verbs that turn a click into
+# orders. Pure logic -- no window, no GPU, no clock -- so every part of it
 # runs in the gate on a machine with no display.
 add_library(protekt_cmd STATIC
     src/cmd/selection.cpp
     src/cmd/command.cpp
-    src/cmd/controller.cpp
 )
 target_link_libraries(protekt_cmd PUBLIC protekt_core)
 protekt_warnings(protekt_cmd)
@@ -286,7 +285,7 @@ if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
                 PROTEKT_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
     target_sources(protekt_tests PRIVATE tests/test_scene.cpp tests/test_radar.cpp tests/test_player.cpp
                                         tests/test_game_cli.cpp tests/test_selection.cpp
-                                        tests/test_command.cpp tests/test_controller.cpp
+                                        tests/test_command.cpp
                                         tests/test_pick.cpp tests/test_input.cpp
                                         tests/test_interaction.cpp tests/test_bindings.cpp
                                         tests/test_session.cpp tests/test_navigate.cpp

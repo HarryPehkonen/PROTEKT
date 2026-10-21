@@ -88,7 +88,7 @@ include/protekt/    public headers, self-contained, one directory per layer
   world/            worldgen (pure, integer)
   sim/              tick, entities, orders, replay, steering, the commander seam
   ai/               ICommander implementations (scripted, utility)
-  cmd/              the command layer: policies and controllers
+  cmd/              the command layer: selection and the order verbs
   input/            key and mouse bindings (header-only)
   math/             the one floating-point module (the camera convention)
   render/           renderer interface + backends
@@ -240,10 +240,10 @@ Split in two: the order interface first, the economy second.
   from (roster, aim) to orders, one order per unit in ascending id order, and an impossible order is
   DROPPED rather than repaired: `attack` on `UnitId{}` is not a move, and a verb that silently
   becomes another verb is worse than one that refuses.
-* `controller.hpp` — the standing controllers described below: `Policy` (`Hold`, `Deny`, `Focus`),
-  `Controller` (a roster, a cadence, and orders through the same channel as the player), and
-  `ControllerSet`, which enforces the invariant that matters — no unit is owned by two controllers,
-  or two of them fight over one turret and the last order to arrive wins by accident.
+* `controller.hpp` — **deleted 2026-10-20.** The `Policy`/`Controller`/`ControllerSet`
+  implementation (2026-10-19) had no caller in the game loop or any commander — only its own
+  tests — so it was removed whole rather than frozen. The design sketch below stands; the
+  code is recoverable from git history when a caller exists.
 
 26 new tests, red against stubs, with the 134 existing tests still green as a regression guard.
 
