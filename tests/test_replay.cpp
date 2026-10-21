@@ -145,6 +145,7 @@ TEST(Replay, EveryOrderKindSurvivesARoundTripAndNoneIsDropped) {
             7, Order{UnitId{8}, orders::FireTowards{Fixed::from_raw(-65536), Fixed::from_raw(46341),
                                                     UnitId{9}, Fixed::from_raw(-23170)}}},
         Command{8, Order{UnitId{2}, orders::Strafe{Fixed::from_raw(65536), Fixed::from_raw(-1)}}},
+        Command{9, Order{UnitId{3}, orders::Follow{UnitId{4}}}},
     };
     ASSERT_EQ(r.commands.size(), kOrderKindCount) << "this test must cover every kind";
     for (std::size_t i = 0; i < r.commands.size(); ++i) {
@@ -158,6 +159,7 @@ TEST(Replay, EveryOrderKindSurvivesARoundTripAndNoneIsDropped) {
         << "header + seed + one line per order: a kind with no spelling is a dropped command";
     EXPECT_NE(text.find("6 focusfire 7 11\n"), std::string::npos) << text;
     EXPECT_NE(text.find("7 firetowards 8 -65536 46341 -23170 9\n"), std::string::npos) << text;
+    EXPECT_NE(text.find("9 follow 3 4\n"), std::string::npos) << text;
 
     const Replay again = must_parse(text);
     ASSERT_EQ(again.commands.size(), r.commands.size());

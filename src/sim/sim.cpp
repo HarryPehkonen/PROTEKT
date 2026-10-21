@@ -86,6 +86,9 @@ const UnitId* order_target(const Order& order) noexcept {
     if (const auto* fire = std::get_if<orders::FocusFire>(&order.payload)) {
         return &fire->target;
     }
+    if (const auto* follow = std::get_if<orders::Follow>(&order.payload)) {
+        return &follow->target; // a living unit of either side, never itself: the same rule
+    }
     return nullptr;
 }
 
@@ -185,6 +188,12 @@ void apply_order(std::vector<Unit>& units, std::vector<Projectile>& projectiles,
     case OrderKind::Attack:
         if (const auto* o = std::get_if<orders::Attack>(&order.payload)) {
             unit.stance = Stance::Attack;
+            unit.target = o->target;
+        }
+        break;
+    case OrderKind::Follow:
+        if (const auto* o = std::get_if<orders::Follow>(&order.payload)) {
+            unit.stance = Stance::Follow;
             unit.target = o->target;
         }
         break;
@@ -288,6 +297,21 @@ void steer(std::vector<Unit>& units, Unit& unit, const UnitProfile& prof) noexce
         if (prof.weapon_range.raw > 0) {
             stop_radius = prof.weapon_range.raw;
         }
+        break;
+    }
+    case Stance::Follow: {
+        // Shadow the target's CURRENT position: close to the radius, hold inside it. Unlike an
+        // attack there is no weapon range here and nothing else is ever chased -- the gun fires
+        // from step 4 at whatever is in range, wherever the follower happens to be.
+        const Unit* target = find_const(units, unit.target);
+        if (target == nullptr || !target->alive) {
+            unit.stance = Stance::Idle; // moot: defend in place
+            unit.target = UnitId{};
+            return;
+        }
+        goal_x = target->x;
+        goal_y = target->y;
+        stop_radius = static_cast<std::int64_t>(kFollowRadiusTiles) << Fixed::kShift;
         break;
     }
     case Stance::Idle:

@@ -33,7 +33,8 @@ enum class Stance : std::uint8_t {
     GuardAt = 2,
     Patrol = 3,
     Attack = 4,
-    Dead = 5
+    Dead = 5,
+    Follow = 6 ///< appended after Dead, so every recorded stance value (and hash) is unchanged
 };
 
 struct UnitId {
@@ -55,7 +56,7 @@ struct Unit {
     std::uint16_t hp{};
     std::uint16_t cooldown{}; ///< ticks until this unit may fire again
     Stance stance{};
-    UnitId target{}; ///< Attack: the unit being hunted
+    UnitId target{}; ///< Attack: the unit being hunted; Follow: the unit being shadowed
     /// FocusFire: what the trigger named, if anything. Preferred over both the Attack stance and
     /// auto-engagement while it is alive and in range.
     UnitId focus_target{};
@@ -82,6 +83,8 @@ struct Unit {
 inline constexpr std::uint16_t kTankHp = 100;
 inline constexpr std::uint16_t kTurretHp = 150;
 inline constexpr std::uint16_t kFactoryHp = 400;
+/// A follower holds within this many tiles of the unit it follows, and closes in when outside it.
+inline constexpr int kFollowRadiusTiles = 4;
 inline constexpr int kRepairRadiusTiles = 6;  ///< a living friendly factory mends units this close
 inline constexpr int kRepairTickInterval = 6; ///< ...by 1 hp every this many ticks
 inline constexpr std::uint16_t kTankDamage = 8;

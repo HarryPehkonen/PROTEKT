@@ -344,6 +344,8 @@ const char* to_string(Stance stance) noexcept {
         return "attack";
     case Stance::Dead:
         return "dead";
+    case Stance::Follow:
+        return "follow";
     }
     return "unknown";
 }
@@ -366,6 +368,8 @@ const char* to_string(OrderKind kind) noexcept {
         return "strafe";
     case OrderKind::Stop:
         return "stop";
+    case OrderKind::Follow:
+        return "follow";
     }
     return "unknown";
 }

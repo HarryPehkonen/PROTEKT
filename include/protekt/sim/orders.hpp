@@ -53,6 +53,13 @@ struct Attack {
 /// Stop where you are, keep firing if armed.
 struct Stop {};
 
+/// Keep within kFollowRadiusTiles of `target`, wherever it goes. A standing order: it closes when
+/// outside the radius, holds inside it, fires at what is in range on the way but never leaves the
+/// radius to chase. It names the unit, not whoever drives it; if the target dies the order lapses.
+struct Follow {
+    UnitId target{};
+};
+
 /// Shoot THIS unit, and change nothing else. Deliberately does NOT set a stance or a
 /// destination: a unit the player is driving is steered by the player's keys every tick, so an
 /// order that also moved it would fight the keyboard. This is the trigger, as an order.
@@ -89,7 +96,7 @@ struct Strafe {
 
 using OrderPayload
     = std::variant<orders::MoveTo, orders::GuardAt, orders::Patrol, orders::Attack, orders::Stop,
-                   orders::FocusFire, orders::FireTowards, orders::Strafe>;
+                   orders::FocusFire, orders::FireTowards, orders::Strafe, orders::Follow>;
 
 /// How each payload alternative is named and reported. This is the payload's index, in the
 /// payload's order, and the assertions below make that true rather than intended.
@@ -102,9 +109,10 @@ enum class OrderKind : std::uint8_t {
     FocusFire = 5,
     FireTowards = 6,
     Strafe = 7,
+    Follow = 8,
 };
 
-inline constexpr std::size_t kOrderKindCount = static_cast<std::size_t>(OrderKind::Strafe) + 1;
+inline constexpr std::size_t kOrderKindCount = static_cast<std::size_t>(OrderKind::Follow) + 1;
 
 static_assert(std::variant_size_v<OrderPayload> == kOrderKindCount,
               "every alternative needs a kind, and every kind an alternative");
@@ -123,6 +131,7 @@ static_assert(std::is_same_v<PayloadOf<OrderKind::Stop>, orders::Stop>);
 static_assert(std::is_same_v<PayloadOf<OrderKind::FocusFire>, orders::FocusFire>);
 static_assert(std::is_same_v<PayloadOf<OrderKind::FireTowards>, orders::FireTowards>);
 static_assert(std::is_same_v<PayloadOf<OrderKind::Strafe>, orders::Strafe>);
+static_assert(std::is_same_v<PayloadOf<OrderKind::Follow>, orders::Follow>);
 
 /// The kind is the payload's own index. There is no second field that can disagree with it, which
 /// is precisely what the flat record could not promise.
@@ -164,6 +173,9 @@ struct OrderFields {
         out.positions[3] = p->y2;
         out.position_count = 4;
     } else if (const auto* p = std::get_if<orders::Attack>(&payload)) {
+        out.has_target = true;
+        out.target = p->target;
+    } else if (const auto* p = std::get_if<orders::Follow>(&payload)) {
         out.has_target = true;
         out.target = p->target;
     } else if (const auto* p = std::get_if<orders::FocusFire>(&payload)) {
