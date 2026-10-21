@@ -129,6 +129,8 @@ void Interaction::handle(const input::InputFrame& frame, const sim::Sim& sim,
             selection_.clear();
         } else if (key.scancode == input::kKeyX) {
             swap_to_crosshair(sim, options);
+        } else if (key.scancode == input::kKeyM) {
+            move_to_crosshair_ground(sim, options);
         } else if (key.scancode == input::kKeySpace || key.scancode == input::kKeyT) {
             if (!options.aim.has_value()) {
                 continue; // no mark, nothing to point at; see the click loop
@@ -263,6 +265,36 @@ void Interaction::swap_to_crosshair(const sim::Sim& sim, const SceneOptions& opt
         driven_ = hit->id;
         message_ = "swapped tanks -- you are driving the one you were looking at.";
     }
+}
+
+void Interaction::move_to_crosshair_ground(const sim::Sim& sim, const SceneOptions& options) {
+    if (!options.aim.has_value()) {
+        return; // no mark, nothing to point at; see the click loop
+    }
+    if (selection_.empty()) {
+        refuse("Nothing is selected to give an order to.");
+        return;
+    }
+    const std::vector<sim::UnitId> roster = orderable();
+    if (roster.empty()) {
+        refuse("You are driving that one; select another unit to give orders.");
+        return;
+    }
+    // The ground the mark's ray meets first. A unit under the mark does not matter: the pick
+    // reports the tile behind it too, and M is always a move, never an attack.
+    const Pick picked = pick(sim, options, options.aim->x, options.aim->y);
+    if (!picked.has_tile()) {
+        refuse("There is no ground there to send anyone to.");
+        return;
+    }
+    const std::vector<sim::Order> orders = cmd::move_to(roster, sim::Fixed::from_int(picked.tile_x),
+                                                        sim::Fixed::from_int(picked.tile_y));
+    if (orders.empty()) {
+        refuse("That order cannot be carried out.");
+        return;
+    }
+    remember(orders);
+    pending_.insert(pending_.end(), orders.begin(), orders.end());
 }
 
 void Interaction::select_only(sim::UnitId id) noexcept {

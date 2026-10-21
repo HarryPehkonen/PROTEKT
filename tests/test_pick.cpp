@@ -222,6 +222,39 @@ TEST(Pick, AClickOnTheGroundReturnsTheTileItLandedOn) {
     EXPECT_LE(ground.distance_tiles, kPickMaxDistanceTiles);
 }
 
+TEST(Pick, ARayStraightDownPicksTheTileUnderTheCamera) {
+    // The simplest ground there is: looking nearly straight down, the first hit is the tile the
+    // camera hangs over, whatever the hills do a few tiles away.
+    sim::Sim sim = two_tanks({{UnitKind::Tank, Side::Player, 10, 10}});
+    SceneOptions options{};
+    options.seed = kSeed;
+    options.camera = Camera{82.0F, 60.0F, 82.0F, 0.0F, -1.5F};
+    const Pick ground = pick(sim, options, 640.0F, 360.0F);
+    ASSERT_TRUE(ground.has_tile());
+    EXPECT_NEAR(ground.tile_x, 41, 1);
+    EXPECT_NEAR(ground.tile_y, 41, 2) << "a few metres of forward lean at most";
+}
+
+TEST(Pick, AGroundHitLiesOnTheSurfaceTheRayMet) {
+    // A shallow ray crosses a slope: the point at the reported distance is ON the heightfield
+    // (not above it, not buried), and the tile reported is the one that point is in.
+    sim::Sim sim = two_tanks({{UnitKind::Tank, Side::Player, 10, 10}});
+    SceneOptions options{};
+    options.seed = kSeed;
+    options.extent = kExtent;
+    options.camera = Camera{82.0F, 14.0F, 60.0F, 0.0F, -0.2F};
+    for (const float y : {420.0F, 500.0F, 600.0F}) {
+        const Pick ground = pick(sim, options, 640.0F, y);
+        ASSERT_TRUE(ground.has_tile()) << "y=" << y;
+        const RayPoint at
+            = ray_point(options.camera, kExtent, 640.0F, y, ground.distance_tiles * kMetresPerTile);
+        EXPECT_EQ(ground.tile_x, static_cast<int>(std::floor(at.x / kMetresPerTile)));
+        EXPECT_EQ(ground.tile_y, static_cast<int>(std::floor(at.z / kMetresPerTile)));
+        EXPECT_NEAR(at.y, ground_metres(kSeed, at.x / kMetresPerTile, at.z / kMetresPerTile), 0.1F)
+            << "the hit is on the surface";
+    }
+}
+
 TEST(Pick, AClickAboveAHorizonlessCameraFindsNoGround) {
     // Pitch UP: every ray leaves the terrain for the sky, so there is no tile to order anything to.
     sim::Sim sim = two_tanks({{UnitKind::Tank, Side::Player, 40, 40}});

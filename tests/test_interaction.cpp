@@ -790,6 +790,73 @@ TEST(Interaction, RightClickOnTheGroundMovesTheSelectionThere) {
         << "the order carries the tile the click landed on";
 }
 
+TEST(MoveKey, MOrdersEverySelectedUnitToTheGroundUnderTheMark) {
+    Rig rig = make_rig();
+    Interaction player{rig.tank_a};
+    choose(rig, player, rig.tank_b);
+    choose(rig, player, rig.turret);
+    rig.options.aim = Aim{640.0F, 700.0F};
+    const Pick ground = pick(rig.sim, rig.options, 640.0F, 700.0F);
+    ASSERT_TRUE(ground.has_tile());
+
+    player.handle(with_key(input::kKeyM), rig.sim, rig.options);
+    const std::vector<Order> orders = player.take_orders();
+    ASSERT_EQ(orders.size(), 2U);
+    for (const Order& order : orders) {
+        ASSERT_EQ(order.kind(), OrderKind::MoveTo);
+        const auto& move = std::get<sim::orders::MoveTo>(order.payload);
+        EXPECT_EQ(move.x, sim::Fixed::from_int(ground.tile_x));
+        EXPECT_EQ(move.y, sim::Fixed::from_int(ground.tile_y));
+    }
+    EXPECT_EQ(orders.at(0).unit, rig.tank_b);
+    EXPECT_EQ(orders.at(1).unit, rig.turret);
+}
+
+TEST(MoveKey, MWithNothingSelectedIssuesNoOrders) {
+    Rig rig = make_rig();
+    Interaction player{rig.tank_a};
+    rig.options.aim = Aim{640.0F, 700.0F};
+    player.handle(with_key(input::kKeyM), rig.sim, rig.options);
+    EXPECT_TRUE(player.take_orders().empty());
+}
+
+TEST(MoveKey, MWithOnlyTheDrivenTankSelectedIssuesNoOrders) {
+    Rig rig = make_rig();
+    Interaction player{rig.tank_a};
+    choose(rig, player, rig.tank_a);
+    rig.options.aim = Aim{640.0F, 700.0F};
+    player.handle(with_key(input::kKeyM), rig.sim, rig.options);
+    EXPECT_TRUE(player.take_orders().empty());
+}
+
+TEST(MoveKey, MWithTheMarkOverAUnitStillOrdersTheGroundNotTheUnit) {
+    Rig rig = make_rig();
+    Interaction player{rig.tank_a};
+    choose(rig, player, rig.tank_b);
+    static_cast<void>(at(rig, rig.enemy)); // the mark on a hostile
+    const Aim aim = mark_of(rig);
+    const Pick picked = pick(rig.sim, rig.options, aim.x, aim.y);
+    ASSERT_TRUE(picked.has_unit());
+    ASSERT_TRUE(picked.has_tile());
+
+    player.handle(with_key(input::kKeyM), rig.sim, rig.options);
+    const std::vector<Order> orders = player.take_orders();
+    ASSERT_EQ(orders.size(), 1U);
+    ASSERT_EQ(orders.front().kind(), OrderKind::MoveTo) << "not an Attack";
+    const auto& move = std::get<sim::orders::MoveTo>(orders.front().payload);
+    EXPECT_EQ(move.x, sim::Fixed::from_int(picked.tile_x));
+    EXPECT_EQ(move.y, sim::Fixed::from_int(picked.tile_y));
+}
+
+TEST(MoveKey, MWithNoMarkIssuesNoOrders) {
+    Rig rig = make_rig();
+    Interaction player{rig.tank_a};
+    choose(rig, player, rig.tank_b);
+    rig.options.aim.reset();
+    player.handle(with_key(input::kKeyM), rig.sim, rig.options);
+    EXPECT_TRUE(player.take_orders().empty());
+}
+
 TEST(Interaction, TheDrivenTankIsNeverOrderedByAClick) {
     Rig rig = make_rig();
     Interaction player{rig.tank_a};
