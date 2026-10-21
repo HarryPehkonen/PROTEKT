@@ -38,10 +38,10 @@ std::string_view next_word(std::string_view& line) {
 
 using Rgb = std::array<std::uint8_t, 3>;
 
-/// The tiles, by index. Tile 0 is the identity and an unassigned tile would be magenta, so a stray
-/// UV is loud (all sixteen are assigned now). The tank's tones are near-neutral MULTIPLIERS: the
-/// side colour, the selection tint and the face light all stay in the vertex colour and multiply on
-/// top.
+/// The tiles, by index. Tile 0 is the identity and an unassigned tile is magenta, so a stray UV is
+/// loud (the first quadrant's sixteen and the hover skirt are assigned; the rest are the budget).
+/// The tank's tones are near-neutral MULTIPLIERS: the side colour, the selection tint and the face
+/// light all stay in the vertex colour and multiply on top.
 constexpr int kTracksTile = 1;
 constexpr int kTurretTile = 2;
 constexpr int kBarrelTile = 3;
@@ -51,6 +51,7 @@ constexpr int kTurretBodyTile = 6;
 constexpr int kFirstHullTile = 7; ///< tank_hull_a; b and c follow
 /// The team camo sets: the player's a, b, c, then the enemy's, on the last six tiles.
 constexpr int kFirstTeamHullTile = 10;
+constexpr int kHoverSkirtTile = 16; ///< the first tile of the second quadrant
 
 constexpr Rgb kWhite{255, 255, 255};
 constexpr Rgb kMagenta{255, 0, 255};
@@ -485,6 +486,22 @@ Tile paint_factory_wall(std::uint64_t seed, int tile_index) {
     return tile;
 }
 
+/// The hover skirt: the glow of the lift under a hover tank. Near-white, so the raw skirt colour
+/// the scene puts on it is what shows: a dark lip along the top where it meets the hull, then a
+/// ramp that brightens toward the ground, crossed by faint vertical vanes every 8 texels.
+Tile paint_hover_skirt() {
+    Tile tile{};
+    constexpr int kLip = 4; ///< texels of the dark lip
+    for (int y = 0; y < 64; ++y) {
+        for (int x = 0; x < 64; ++x) {
+            const int ramp = 190 + ((65 * (y - kLip)) / (63 - kLip));
+            const int grey = y < kLip ? 110 : (x % 8 == 0 ? ramp - 30 : ramp);
+            put(tile, x, y, grey);
+        }
+    }
+    return tile;
+}
+
 Tile solid(Rgb rgb) {
     Tile tile{};
     tile.fill(rgb);
@@ -529,6 +546,8 @@ Tile paint_tile(std::uint64_t seed, int index) {
         return paint_factory_roof(seed, index);
     case kTurretBodyTile:
         return paint_turret_housing(seed, index);
+    case kHoverSkirtTile:
+        return paint_hover_skirt();
     default:
         return solid(kMagenta);
     }
@@ -541,10 +560,9 @@ UvRect tile_rect(int index) noexcept {
         index = kFallbackTile;
     }
     const auto side = static_cast<float>(kTilesPerRow);
-    const std::uint32_t col_index = static_cast<std::uint32_t>(index) % kTilesPerRow;
-    const std::uint32_t row_index = (static_cast<std::uint32_t>(index) - col_index) / kTilesPerRow;
-    const auto col = static_cast<float>(col_index);
-    const auto row = static_cast<float>(row_index);
+    const TileCell cell = tile_cell(index);
+    const auto col = static_cast<float>(cell.col);
+    const auto row = static_cast<float>(cell.row);
     return UvRect{(col / side) + kHalfTexel, (row / side) + kHalfTexel,
                   ((col + 1.0F) / side) - kHalfTexel, ((row + 1.0F) / side) - kHalfTexel};
 }
@@ -597,8 +615,9 @@ std::vector<std::uint8_t> atlas_pixels(std::uint64_t seed) {
     std::vector<std::uint8_t> pixels(std::size_t{kAtlasSide} * kAtlasSide * 4U);
     for (int index = 0; index < kTileCount; ++index) {
         const Tile tile = paint_tile(seed, index);
-        const std::uint32_t x0 = (static_cast<std::uint32_t>(index) % kTilesPerRow) * kTileSide;
-        const std::uint32_t y0 = (static_cast<std::uint32_t>(index) / kTilesPerRow) * kTileSide;
+        const TileCell cell = tile_cell(index);
+        const std::uint32_t x0 = cell.col * kTileSide;
+        const std::uint32_t y0 = cell.row * kTileSide;
         for (std::uint32_t y = 0; y < kTileSide; ++y) {
             for (std::uint32_t x = 0; x < kTileSide; ++x) {
                 const Rgb& rgb = tile.at((std::size_t{y} * kTileSide) + x);

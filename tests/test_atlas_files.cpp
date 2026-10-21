@@ -105,13 +105,13 @@ TEST(AtlasGenerator, ABadArgumentIsAUsageErrorAndWritesNothing) {
     EXPECT_FALSE(fs::exists(out));
 }
 
-TEST(AtlasFiles, TheCommittedPngIs256SquareRgbaAndEqualsTheInMemoryTiles) {
+TEST(AtlasFiles, TheCommittedPngIs512SquareRgbaAndEqualsTheInMemoryTiles) {
     std::vector<std::uint8_t> rgba;
     std::uint32_t w = 0;
     std::uint32_t h = 0;
     ASSERT_TRUE(read_png_rgba(fs::path{PROTEKT_SOURCE_DIR} / "assets" / "atlas.png", rgba, w, h));
-    EXPECT_EQ(w, std::uint32_t{256});
-    EXPECT_EQ(h, std::uint32_t{256});
+    EXPECT_EQ(w, std::uint32_t{512});
+    EXPECT_EQ(h, std::uint32_t{512});
     EXPECT_EQ(rgba, protekt::game::atlas_pixels());
 }
 
@@ -207,7 +207,7 @@ TEST(AtlasLoading, AMissingOrEmptyManifestFileFallsBackToTheEmbeddedOne) {
     const auto assets = load_atlas_assets(dirs, log);
     EXPECT_EQ(assets.manifest_source, "embedded");
     EXPECT_EQ(assets.manifest.tile("tank_hull"), 7);
-    EXPECT_EQ(assets.manifest.size(), std::size_t{16});
+    EXPECT_EQ(assets.manifest.size(), std::size_t{17});
 }
 
 TEST(AtlasLoading, ALaterDirectoryIsUsedWhenAnEarlierOneHasNothing) {
@@ -228,10 +228,10 @@ TEST(AtlasLoading, InstallingAManifestChangesWhatTheSceneReadsAndCanBeUndone) {
 }
 
 TEST(AtlasInset, ATileRectIsTheTileShrunkByHalfATexelPerSide) {
-    EXPECT_EQ(kHalfTexel, 1.0F / 512.0F);
+    EXPECT_EQ(kHalfTexel, 1.0F / 1024.0F);
     for (int index = 0; index < protekt::game::kTileCount; ++index) {
-        const auto col = static_cast<std::uint32_t>(index) % protekt::game::kTilesPerRow;
-        const auto row = static_cast<std::uint32_t>(index) / protekt::game::kTilesPerRow;
+        const auto col = protekt::game::tile_cell(index).col;
+        const auto row = protekt::game::tile_cell(index).row;
         const auto side = static_cast<float>(kAtlasSide);
         const auto texel_x0 = static_cast<float>(col * kTileSide);
         const auto texel_y0 = static_cast<float>(row * kTileSide);
@@ -246,8 +246,8 @@ TEST(AtlasInset, ATileRectIsTheTileShrunkByHalfATexelPerSide) {
 
 TEST(AtlasInset, NoUvOfATileLiesOutsideItsOwnTexelRange) {
     for (int index = 0; index < protekt::game::kTileCount; ++index) {
-        const auto col = static_cast<std::uint32_t>(index) % protekt::game::kTilesPerRow;
-        const auto row = static_cast<std::uint32_t>(index) / protekt::game::kTilesPerRow;
+        const auto col = protekt::game::tile_cell(index).col;
+        const auto row = protekt::game::tile_cell(index).row;
         const auto r = tile_rect(index);
         const auto side = static_cast<float>(kAtlasSide);
         for (const float u : {r.u0, r.u1}) {

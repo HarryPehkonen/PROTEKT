@@ -184,6 +184,13 @@ private:
 /// full side colour: they are the team-identity accents.
 inline constexpr float kHullPaleMix = 0.85F;
 
+/// The hover skirt's colour: a hot pale cyan, RAW -- never lit, never marked -- so the band of lift
+/// under a hover tank stays the brightest thing on it from every side and in every mark.
+inline constexpr math::Vec3 kHoverSkirtColour{0.70F, 1.0F, 1.0F};
+
+/// A drawn hover tank: the wedge, four skirt quads, the turret, the barrel and the fin.
+inline constexpr std::size_t kHoverTankVertices = (4U * 36U) + (4U * 6U);
+
 /// Column-major view-projection for a camera, matching what the vertex shader expects.
 [[nodiscard]] std::array<float, 16> view_projection(const Camera& camera, float aspect,
                                                     float fov_radians = math::kFovRadians) noexcept;

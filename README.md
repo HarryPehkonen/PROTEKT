@@ -259,8 +259,9 @@ to a hand-rolled probe, but a *stale* `build/` cache holds the old failed result
 
 ## The texture atlas (assets/)
 
-The atlas is a 256x256 RGBA PNG of 4x4 tiles of 64x64, and `assets/atlas_manifest.txt` says which
-tile each tank part uses. At startup the game looks for `atlas.png` and `atlas_manifest.txt` in
+The atlas is a 512x512 RGBA PNG of 8x8 tiles of 64x64, in four 4x4 quadrants (tiles 0-15 are the
+top-left one, 16-31 the top-right, and so on; unassigned tiles are magenta), and
+`assets/atlas_manifest.txt` says which tile each tank part uses. At startup the game looks for `atlas.png` and `atlas_manifest.txt` in
 `./assets` (the working directory) and then in `assets/` next to the executable; a file that is
 missing or unusable falls back, with one log line, to the copy embedded in the binary, so the game
 never refuses to start over an asset. Drop in a different PNG of the same layout and it takes
@@ -270,7 +271,8 @@ effect on the next start, with no recompile.
 writes it (deterministically) from the same in-memory builder the embedded fallback uses. The tiles
 are painted, not flat: three hull camo variants (`tank_hull_a` splodges, `_b` stripes, `_c` blocks;
 each tank wears one, picked from the game seed and its unit id), a track tile with link stripes, and
-metal and building tiles with a few percent of tone variation. `--seed` repaints the patterns; the
+metal and building tiles with a few percent of tone variation, and the hover tank's bright skirt
+band (`hover_skirt`). `--seed` repaints the patterns; the
 committed file is the default seed, 1.
 
 ## The gate

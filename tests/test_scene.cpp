@@ -3160,7 +3160,7 @@ using protekt::game::SceneVertex;
 using protekt::game::tile_rect;
 using protekt::game::UvRect;
 
-/// A whole 0.25-wide cell of the atlas pulled in by the half-texel inset.
+/// A whole 0.125-wide cell of the atlas pulled in by the half-texel inset.
 UvRect cell(float u0, float v0, float u1, float v1) {
     return {u0 + kHalfTexel, v0 + kHalfTexel, u1 - kHalfTexel, v1 - kHalfTexel};
 }
@@ -3202,20 +3202,20 @@ UvRect viewer_hull_rect() {
 TEST(TankUv, EachPartAddressesItsTilesExactRect) {
     const auto tank = drawn_tank(0.3F, 0.4F);
     ASSERT_EQ(tank.size(), kTankVertices);
-    // Pinned: tracks are tile 1, (0.25, 0) to (0.5, 0.25); the hull, turret and bustle the same one
-    // of its team's camo tiles; the roof panel 2; barrel and collar 3.
+    // Pinned: tracks are tile 1, (0.125, 0) to (0.25, 0.125); the hull, turret and bustle the same
+    // one of its team's camo tiles; the roof panel 2; barrel and collar 3.
     const UvRect tracks = tile_rect(1);
-    EXPECT_EQ(tracks.u0, 0.25F + kHalfTexel);
-    EXPECT_EQ(tracks.u1, 0.5F - kHalfTexel);
-    expect_corners_of(tank, 0, 72, cell(0.25F, 0.0F, 0.5F, 0.25F), "skirts");
+    EXPECT_EQ(tracks.u0, 0.125F + kHalfTexel);
+    EXPECT_EQ(tracks.u1, 0.25F - kHalfTexel);
+    expect_corners_of(tank, 0, 72, cell(0.125F, 0.0F, 0.25F, 0.125F), "skirts");
     const UvRect hull = viewer_hull_rect();
-    EXPECT_GE(hull.v0, 0.25F) << "the camo tiles are on the second and third rows";
+    EXPECT_GE(hull.v0, 0.125F) << "the camo tiles are on the second and third rows";
     expect_corners_of(tank, 72, 108, hull, "hull");
     expect_corners_of(tank, 108, 144, hull, "turret");
     expect_corners_of(tank, 144, 180, hull, "bustle");
-    expect_corners_of(tank, 180, 216, cell(0.5F, 0.0F, 0.75F, 0.25F), "roof panel");
-    expect_corners_of(tank, 216, 252, cell(0.75F, 0.0F, 1.0F, 0.25F), "collar");
-    expect_corners_of(tank, 252, 288, cell(0.75F, 0.0F, 1.0F, 0.25F), "barrel");
+    expect_corners_of(tank, 180, 216, cell(0.25F, 0.0F, 0.375F, 0.125F), "roof panel");
+    expect_corners_of(tank, 216, 252, cell(0.375F, 0.0F, 0.5F, 0.125F), "collar");
+    expect_corners_of(tank, 252, 288, cell(0.375F, 0.0F, 0.5F, 0.125F), "barrel");
 }
 
 TEST(TankUv, EveryHullFaceCarriesTheHullTilesCorners) {
@@ -3263,7 +3263,7 @@ TEST(UnitBoxUv, AFactorysWallsTakeTheWallTileAndItsRoofTheRoofTile) {
     const UvRect walls = tile_rect(atlas.tile("factory_walls"));
     const UvRect roof = tile_rect(atlas.tile("factory_roof"));
     EXPECT_EQ(walls.u0, 0.0F + kHalfTexel) << "factory_walls is tile 4, the second row's first";
-    EXPECT_EQ(walls.v0, 0.25F + kHalfTexel);
+    EXPECT_EQ(walls.v0, 0.125F + kHalfTexel);
     // Faces in order: near, far, left, right, TOP, bottom.
     expect_corners_of(box, 0, 24, walls, "walls");
     expect_corners_of(box, 24, 30, roof, "roof");
@@ -3306,6 +3306,195 @@ TEST(TankUv, ATintStillMultipliesOnTopOfTheTexel) {
     const std::size_t hull = plain.vertices.size() - kTankVertices + 72;
     EXPECT_NE(plain.vertices.at(hull).colour, picked.vertices.at(hull).colour);
     EXPECT_EQ(plain.vertices.at(hull).u, picked.vertices.at(hull).u);
+}
+
+// ---------------------------------------------------------------- the hover tank (E9b)
+
+/// One hover tank of `side` at tile (100, 100), alone, and its drawn vertices in emission order:
+/// the wedge (36), the four skirt quads (24), the turret (36), the barrel (36), the fin (36).
+std::vector<SceneVertex> hover_tank_of(Side side, std::span<const protekt::sim::UnitId> selected) {
+    const auto sim = sim_of({{side, UnitKind::HoverTank, 100, 100}});
+    return tank_only(sim, sim.units().at(0), selected);
+}
+
+constexpr std::size_t kWedge = 0;
+constexpr std::size_t kSkirt = 36;
+constexpr std::size_t kHoverTurret = 60;
+constexpr std::size_t kHoverBarrel = 96;
+constexpr std::size_t kFin = 132;
+
+bool on_rect(const SceneVertex& v, const UvRect& r) {
+    return (v.u == r.u0 || v.u == r.u1) && (v.v == r.v0 || v.v == r.v1);
+}
+
+float lowest(const std::vector<SceneVertex>& v, std::size_t first, std::size_t last) {
+    float y = 1e9F;
+    for (std::size_t i = first; i < last; ++i) {
+        y = std::min(y, v.at(i).position[1]);
+    }
+    return y;
+}
+
+float highest(const std::vector<SceneVertex>& v, std::size_t first, std::size_t last) {
+    float y = -1e9F;
+    for (std::size_t i = first; i < last; ++i) {
+        y = std::max(y, v.at(i).position[1]);
+    }
+    return y;
+}
+
+TEST(HoverShape, TheHoverTankIsItsWedgeSkirtTurretBarrelAndFin) {
+    const auto hover = hover_tank_of(Side::Player, {});
+    EXPECT_EQ(hover.size(), protekt::game::kHoverTankVertices);
+    EXPECT_EQ(protekt::game::kHoverTankVertices, std::size_t{168}) << "four solids and four quads";
+}
+
+TEST(HoverShape, NoPartOfItIsATrack) {
+    const UvRect tracks = tile_rect(protekt::game::atlas_manifest().tile("tank_tracks"));
+    for (const Side side : {Side::Player, Side::Enemy}) {
+        const auto hover = hover_tank_of(side, {});
+        for (const SceneVertex& v : hover) {
+            ASSERT_FALSE(on_rect(v, tracks)) << "a hover tank has no track prisms";
+        }
+    }
+}
+
+TEST(HoverShape, TheSkirtIsFourRawBrightQuadsUnderTheHull) {
+    const auto hover = hover_tank_of(Side::Player, {});
+    const UvRect skirt = tile_rect(protekt::game::atlas_manifest().tile("hover_skirt"));
+    ASSERT_NE(protekt::game::atlas_manifest().tile("hover_skirt"), protekt::game::kFallbackTile);
+    std::size_t on_skirt = 0;
+    for (std::size_t i = 0; i < hover.size(); ++i) {
+        if (on_rect(hover.at(i), skirt)) {
+            ++on_skirt;
+            EXPECT_GE(i, kSkirt);
+            EXPECT_LT(i, kHoverTurret);
+            // Raw: not lit by the face it is on, so every vertex carries exactly the skirt colour.
+            EXPECT_EQ(hover.at(i).colour, protekt::game::kHoverSkirtColour) << i;
+        }
+    }
+    EXPECT_EQ(on_skirt, std::size_t{24}) << "one quad on each of the wedge's four sides";
+    EXPECT_LE(highest(hover, kSkirt, kHoverTurret), lowest(hover, kWedge, kSkirt) + kTolerance)
+        << "the band is under the hull";
+    // The brightest thing on it: brighter than any lit face of the wedge.
+    const auto sum = [](const SceneVertex& v) { return v.colour[0] + v.colour[1] + v.colour[2]; };
+    for (std::size_t i = kWedge; i < kSkirt; ++i) {
+        EXPECT_LT(sum(hover.at(i)), sum(hover.at(kSkirt)));
+    }
+}
+
+TEST(HoverShape, ASelectionMarksTheHullAndLeavesTheSkirtRaw) {
+    const auto sim = sim_of({{Side::Player, UnitKind::HoverTank, 100, 100}});
+    const std::array<protekt::sim::UnitId, 1> chosen{sim.units().at(0).id};
+    const auto plain = tank_only(sim, sim.units().at(0), {});
+    const auto picked = tank_only(sim, sim.units().at(0), chosen);
+    ASSERT_EQ(plain.size(), picked.size());
+    EXPECT_NE(plain.at(kWedge).colour, picked.at(kWedge).colour);
+    EXPECT_EQ(plain.at(kSkirt).colour, picked.at(kSkirt).colour);
+}
+
+TEST(HoverShape, TheWedgeIsShallowerAndPointierThanATanksHull) {
+    const auto hover = hover_tank_of(Side::Player, {});
+    const auto sim = sim_of({{Side::Player, UnitKind::Tank, 100, 100}});
+    const auto tank = tank_only(sim, sim.units().at(0), {});
+    // Heading 0 (never seen moving): local +z is world +Z, across is world X.
+    const auto depth = [](const std::vector<SceneVertex>& v, std::size_t first) {
+        return highest(v, first, first + 36) - lowest(v, first, first + 36);
+    };
+    EXPECT_LT(depth(hover, kWedge), depth(tank, 72)) << "a slab is deeper than the wedge";
+    float nose_z = -1e9F;
+    float tail_z = 1e9F;
+    for (std::size_t i = kWedge; i < kSkirt; ++i) {
+        nose_z = std::max(nose_z, hover.at(i).position[2]);
+        tail_z = std::min(tail_z, hover.at(i).position[2]);
+    }
+    float nose_width = 0.0F;
+    float tail_width = 0.0F;
+    float nose_top = -1e9F;
+    float tail_top = -1e9F;
+    const float centre_x = static_cast<float>(sim.units().at(0).x.raw)
+                           / static_cast<float>(protekt::sim::Fixed::kOne) * kMetresPerTile;
+    for (std::size_t i = kWedge; i < kSkirt; ++i) {
+        const auto& p = hover.at(i).position;
+        const float across = std::abs(p[0] - centre_x);
+        if (std::abs(p[2] - nose_z) < kTolerance) {
+            nose_width = std::max(nose_width, across);
+            nose_top = std::max(nose_top, p[1]);
+        }
+        if (std::abs(p[2] - tail_z) < kTolerance) {
+            tail_width = std::max(tail_width, across);
+            tail_top = std::max(tail_top, p[1]);
+        }
+    }
+    EXPECT_LT(nose_width * 4.0F, tail_width) << "it tapers in plan to a narrow nose";
+    EXPECT_LT(nose_top + 0.2F, tail_top) << "and slopes down to it in profile";
+}
+
+TEST(HoverShape, ItWearsItsTeamsCamoAndTheBarrelAndFinCarryTheSideColour) {
+    const auto& atlas = protekt::game::atlas_manifest();
+    for (const Side side : {Side::Player, Side::Enemy}) {
+        const auto sim = sim_of({{side, UnitKind::HoverTank, 100, 100}});
+        const auto hover = tank_only(sim, sim.units().at(0), {});
+        const auto name = protekt::game::kTeamHullNames.at(static_cast<std::size_t>(side))
+                              .at(static_cast<std::size_t>(
+                                  protekt::game::hull_variant(42, sim.units().at(0).id.value)));
+        const UvRect camo = tile_rect(atlas.tile(name));
+        expect_corners_of(hover, kWedge, kSkirt, camo, "wedge");
+        expect_corners_of(hover, kHoverTurret, kHoverBarrel, camo, "turret");
+        expect_corners_of(hover, kHoverBarrel, kFin, tile_rect(atlas.tile("tank_barrel")),
+                          "barrel");
+        expect_corners_of(hover, kFin, hover.size(), tile_rect(atlas.tile("tank_turret")), "fin");
+        // The accents are saturated toward the side's hue; the camo parts only a pale tint of it.
+        const auto& barrel = hover.at(kHoverBarrel).colour;
+        const auto& wedge = hover.at(kWedge).colour;
+        const std::size_t hue = side == Side::Player ? 2 : 0;
+        const std::size_t other = 1;
+        EXPECT_GT(barrel.at(hue) - barrel.at(other), wedge.at(hue) - wedge.at(other));
+    }
+}
+
+TEST(HoverShape, ATankIsStillATankAndTheFacingTurnsTheHoverTank) {
+    // The tank's eight prisms are untouched by the hover tank's arrival.
+    const auto sim = sim_of({{Side::Player, UnitKind::Tank, 100, 100}});
+    EXPECT_EQ(tank_only(sim, sim.units().at(0), {}).size(), kTankVertices);
+    // A facing on a hover tank turns the hover model, never swaps in the tank's.
+    const auto hover_sim = sim_of({{Side::Player, UnitKind::HoverTank, 100, 100}});
+    const protekt::sim::Unit& unit = hover_sim.units().at(0);
+    SceneOptions options = at_tank(unit);
+    const Scene still = protekt::game::build_scene(hover_sim, options);
+    options.facing = SceneOptions::Facing{unit.id, 1.0F, 0.5F};
+    const Scene turned = protekt::game::build_scene(hover_sim, options);
+    ASSERT_EQ(still.vertices.size(), turned.vertices.size());
+    EXPECT_NE(still.vertices.back().position, turned.vertices.back().position);
+}
+
+TEST(HoverShape, TheHealthBarSitsJustOverTheModelsTop) {
+    // The bar is drawn over a point 1.2 m above the unit's ground; the hover tank's highest part
+    // (the fin) must stand under it, and close enough that the bar does not float off the model.
+    const auto hover = hover_tank_of(Side::Player, {});
+    const auto sim = sim_of({{Side::Player, UnitKind::HoverTank, 100, 100}});
+    const float ground = protekt::game::ground_metres(42, sim.units().at(0).x, sim.units().at(0).y);
+    const float top = highest(hover, 0, hover.size()) - ground;
+    EXPECT_LE(top, 1.2F);
+    EXPECT_GE(top, 0.9F);
+}
+
+TEST(HoverShape, AHoverTankInViewGetsItsBarOverIt) {
+    using protekt::sim::Spawn;
+    protekt::sim::Scenario scenario;
+    scenario.seed = 42;
+    scenario.spawns.push_back(Spawn{UnitKind::Tank, Side::Player, 50, 50});
+    scenario.spawns.push_back(Spawn{UnitKind::HoverTank, Side::Player, 52, 51});
+    const auto sim = protekt::sim::Sim::create(scenario);
+    BarBattle b = bar_battle();
+    b.options.viewer_unit = sim.units().front().id;
+    const Scene scene = build_scene(sim, b.options);
+    const std::vector<UnitBar> bars = unit_bars_of(b.options, scene);
+    ASSERT_EQ(bars.size(), 1U);
+    const protekt::game::Projected top = top_of(b.options, sim.units().at(1));
+    EXPECT_NEAR(bars.front().track.centre_x(), top.x, 1.0F);
+    EXPECT_LT(bars.front().outline.bottom, top.y);
+    EXPECT_GT(bars.front().outline.bottom, top.y - 8.0F);
 }
 
 } // namespace

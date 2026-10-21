@@ -34,12 +34,16 @@ constexpr std::array<std::array<int, 3>, 3> kHullSets{{{7, 8, 9}, {10, 11, 12}, 
 /// The two team sets, which tanks wear.
 constexpr std::array<int, 6> kTeamHullTiles{10, 11, 12, 13, 14, 15};
 
+/// The tiles painted so far: the first quadrant and the hover skirt.
+constexpr int kAssignedTiles = 17;
+
 /// Texel (x, y) of `tile` in a whole-atlas RGBA buffer.
 Rgb texel(const std::vector<std::uint8_t>& px, int tile, int x, int y) {
-    const int ax = ((tile % 4) * 64) + x;
-    const int ay = ((tile / 4) * 64) + y;
+    const auto cell = protekt::game::tile_cell(tile);
+    const int ax = (static_cast<int>(cell.col) * 64) + x;
+    const int ay = (static_cast<int>(cell.row) * 64) + y;
     const std::size_t at
-        = ((static_cast<std::size_t>(ay) * 256U) + static_cast<std::size_t>(ax)) * 4U;
+        = ((static_cast<std::size_t>(ay) * 512U) + static_cast<std::size_t>(ax)) * 4U;
     return {px.at(at), px.at(at + 1), px.at(at + 2)};
 }
 
@@ -110,7 +114,7 @@ TEST(AtlasManifest, ABadLineIsSkippedAndTheRestSurvive) {
                              "no_index\n"
                              "bad_index abc\n"
                              "negative -1\n"
-                             "too_big 16\n"
+                             "too_big 64\n"
                              "trailing 5x\n"
                              "\n"
                              "# a comment 9\n"
@@ -147,7 +151,8 @@ TEST(AtlasManifest, ALaterLineForTheSameNameWins) {
 }
 
 TEST(AtlasManifest, TheCommittedManifestAssignsTheDocumentedTiles) {
-    // D2f: the six team camo tiles took the six spare tiles, so the manifest is 16 names.
+    // D2f: the six team camo tiles took the six spare tiles, so the manifest is 16 names; E9b's
+    // hover skirt opened the second quadrant, so it is 17.
     const AtlasManifest& m = protekt::game::atlas_manifest();
     EXPECT_EQ(m.tile("tank_hull"), 7) << "an alias of tank_hull_a";
     EXPECT_EQ(m.tile("tank_tracks"), 1);
@@ -168,12 +173,13 @@ TEST(AtlasManifest, TheCommittedManifestAssignsTheDocumentedTiles) {
     EXPECT_EQ(m.tile("tank_hull_enemy_a"), 13);
     EXPECT_EQ(m.tile("tank_hull_enemy_b"), 14);
     EXPECT_EQ(m.tile("tank_hull_enemy_c"), 15);
+    EXPECT_EQ(m.tile("hover_skirt"), 16);
     for (const auto& team : protekt::game::kTeamHullNames) {
         for (const auto name : team) {
             EXPECT_NE(m.tile(name), kFallbackTile) << name << " is listed";
         }
     }
-    EXPECT_EQ(m.size(), std::size_t{16});
+    EXPECT_EQ(m.size(), std::size_t{17});
 }
 
 TEST(AtlasManifest, TheEmbeddedTextIsTheCommittedFile) {
@@ -188,47 +194,99 @@ TEST(AtlasLayout, ATilesRectIsExactlyItsAtlasRectangleInsetByHalfATexel) {
     const UvRect first = tile_rect(0);
     EXPECT_EQ(first.u0, 0.0F + kHalfTexel);
     EXPECT_EQ(first.v0, 0.0F + kHalfTexel);
-    EXPECT_EQ(first.u1, 0.25F - kHalfTexel);
-    EXPECT_EQ(first.v1, 0.25F - kHalfTexel);
+    EXPECT_EQ(first.u1, 0.125F - kHalfTexel);
+    EXPECT_EQ(first.v1, 0.125F - kHalfTexel);
     const UvRect one = tile_rect(1);
-    EXPECT_EQ(one.u0, 0.25F + kHalfTexel);
+    EXPECT_EQ(one.u0, 0.125F + kHalfTexel);
     EXPECT_EQ(one.v0, 0.0F + kHalfTexel);
-    EXPECT_EQ(one.u1, 0.5F - kHalfTexel);
-    EXPECT_EQ(one.v1, 0.25F - kHalfTexel);
+    EXPECT_EQ(one.u1, 0.25F - kHalfTexel);
+    EXPECT_EQ(one.v1, 0.125F - kHalfTexel);
     const UvRect six = tile_rect(6);
-    EXPECT_EQ(six.u0, 0.5F + kHalfTexel);
-    EXPECT_EQ(six.v0, 0.25F + kHalfTexel);
-    EXPECT_EQ(six.u1, 0.75F - kHalfTexel);
-    EXPECT_EQ(six.v1, 0.5F - kHalfTexel);
+    EXPECT_EQ(six.u0, 0.25F + kHalfTexel);
+    EXPECT_EQ(six.v0, 0.125F + kHalfTexel);
+    EXPECT_EQ(six.u1, 0.375F - kHalfTexel);
+    EXPECT_EQ(six.v1, 0.25F - kHalfTexel);
     const UvRect last = tile_rect(15);
-    EXPECT_EQ(last.u0, 0.75F + kHalfTexel);
-    EXPECT_EQ(last.v0, 0.75F + kHalfTexel);
-    EXPECT_EQ(last.u1, 1.0F - kHalfTexel);
-    EXPECT_EQ(last.v1, 1.0F - kHalfTexel);
+    EXPECT_EQ(last.u0, 0.375F + kHalfTexel);
+    EXPECT_EQ(last.v0, 0.375F + kHalfTexel);
+    EXPECT_EQ(last.u1, 0.5F - kHalfTexel);
+    EXPECT_EQ(last.v1, 0.5F - kHalfTexel);
 }
 
 TEST(AtlasLayout, AnOutOfRangeIndexGetsTheFallbackRect) {
-    for (const int bad : {-1, 16, 1000}) {
+    for (const int bad : {-1, 64, 1000}) {
         const UvRect r = tile_rect(bad);
-        EXPECT_EQ(r.u1, 0.25F - kHalfTexel);
-        EXPECT_EQ(r.v1, 0.25F - kHalfTexel);
+        EXPECT_EQ(r.u1, 0.125F - kHalfTexel);
+        EXPECT_EQ(r.v1, 0.125F - kHalfTexel);
     }
 }
 
-TEST(AtlasPixels, IsA256SquareOpaqueImageWithAWhiteIdentityTileAndNoSpareLeft) {
+TEST(AtlasLayout, TheEightByEightIsFourQuadrantsAndTheFirstIsTheOldFourByFour) {
+    using protekt::game::tile_cell;
+    EXPECT_EQ(protekt::game::kTilesPerRow, 8U);
+    EXPECT_EQ(protekt::game::kAtlasSide, 512U);
+    EXPECT_EQ(protekt::game::kTileCount, 64);
+    // Tiles 0-15 are where the 4x4 atlas had them: row-major in the top-left quadrant.
+    for (int index = 0; index < 16; ++index) {
+        EXPECT_EQ(tile_cell(index).col, static_cast<std::uint32_t>(index % 4)) << index;
+        EXPECT_EQ(tile_cell(index).row, static_cast<std::uint32_t>(index / 4)) << index;
+    }
+    // Then the top-right, bottom-left and bottom-right quadrants, row-major inside each.
+    EXPECT_EQ(tile_cell(16).col, 4U);
+    EXPECT_EQ(tile_cell(16).row, 0U);
+    EXPECT_EQ(tile_cell(21).col, 5U);
+    EXPECT_EQ(tile_cell(21).row, 1U);
+    EXPECT_EQ(tile_cell(32).col, 0U);
+    EXPECT_EQ(tile_cell(32).row, 4U);
+    EXPECT_EQ(tile_cell(48).col, 4U);
+    EXPECT_EQ(tile_cell(48).row, 4U);
+    EXPECT_EQ(tile_cell(63).col, 7U);
+    EXPECT_EQ(tile_cell(63).row, 7U);
+    const UvRect skirt = tile_rect(16);
+    EXPECT_EQ(skirt.u0, 0.5F + kHalfTexel);
+    EXPECT_EQ(skirt.v0, 0.0F + kHalfTexel);
+    EXPECT_EQ(skirt.u1, 0.625F - kHalfTexel);
+    EXPECT_EQ(skirt.v1, 0.125F - kHalfTexel);
+}
+
+TEST(AtlasPaint, TheHoverSkirtIsABrightBandUnderADarkLip) {
     const auto px = protekt::game::atlas_pixels();
-    ASSERT_EQ(px.size(), std::size_t{256} * 256 * 4);
+    constexpr int kSkirt = 16;
+    for (int x = 0; x < 64; ++x) {
+        EXPECT_LT(lightness(texel(px, kSkirt, x, 0)), 3 * 128)
+            << "the lip, where it meets the hull";
+    }
+    int bright = 0;
+    for (int y = 4; y < 64; ++y) {
+        for (int x = 0; x < 64; ++x) {
+            const Rgb rgb = texel(px, kSkirt, x, y);
+            EXPECT_EQ(rgb.at(0), rgb.at(1)) << "grey: the raw skirt colour is the hue";
+            EXPECT_EQ(rgb.at(1), rgb.at(2));
+            bright += luma(rgb) >= 0.6 ? 1 : 0;
+        }
+    }
+    EXPECT_EQ(bright, 60 * 64) << "every texel under the lip is bright";
+    // It brightens toward the ground, and paints the same with any seed: it has no pattern.
+    EXPECT_LT(lightness(texel(px, kSkirt, 3, 4)), lightness(texel(px, kSkirt, 3, 63)));
+    EXPECT_EQ(texel(px, kSkirt, 9, 40), texel(protekt::game::atlas_pixels(7), kSkirt, 9, 40));
+}
+
+TEST(AtlasPixels, IsA512SquareOpaqueImageWithAWhiteIdentityTileAndNoAssignedTileLeftMagenta) {
+    const auto px = protekt::game::atlas_pixels();
+    ASSERT_EQ(px.size(), std::size_t{512} * 512 * 4);
     for (std::size_t i = 3; i < px.size(); i += 4) {
         ASSERT_EQ(px.at(i), 255) << "opaque";
     }
     // Tile 0 is solid white: it is the identity for everything that sets no UV. Since D2f the team
-    // camo fills tiles 10 to 15, so no tile is left at the unassigned magenta.
+    // camo fills tiles 10 to 15, so no tile of the first quadrant is left at the unassigned
+    // magenta; E9b's 8x8 growth assigns the hover skirt (16) and leaves the rest magenta, the loud
+    // budget.
     for (int y = 0; y < 64; ++y) {
         for (int x = 0; x < 64; ++x) {
             ASSERT_EQ(texel(px, 0, x, y), (Rgb{255, 255, 255})) << "tile 0 is solid white";
         }
     }
-    for (int tile = 0; tile < protekt::game::kTileCount; ++tile) {
+    for (int tile = 0; tile < kAssignedTiles; ++tile) {
         EXPECT_NE(texel(px, tile, 0, 0), (Rgb{255, 0, 255})) << "tile " << tile << " is assigned";
     }
 }

@@ -10,7 +10,7 @@
 #include <string_view>
 #include <vector>
 
-/// The texture atlas, as the GAME sees it: a fixed 4x4 grid of 64x64 tiles in a 256x256 image, a
+/// The texture atlas, as the GAME sees it: a fixed 8x8 grid of 64x64 tiles in a 512x512 image, a
 /// manifest that names the tiles, and the UV rectangle each tile occupies. The renderer knows none
 /// of this -- it is handed pixels and vertices.
 ///
@@ -20,10 +20,29 @@
 /// be swapped without a recompile. `protekt-atlas-gen` writes the PNG FROM the in-memory builder.
 namespace protekt::game {
 
-inline constexpr std::uint32_t kTilesPerRow = 4;
+inline constexpr std::uint32_t kTilesPerRow = 8;
 inline constexpr std::uint32_t kTileSide = 64;
 inline constexpr std::uint32_t kAtlasSide = kTilesPerRow * kTileSide;
 inline constexpr int kTileCount = static_cast<int>(kTilesPerRow * kTilesPerRow);
+
+/// THE LAYOUT. The atlas is four quadrants of 4x4 tiles -- top-left, top-right, bottom-left,
+/// bottom-right -- and the index counts quadrant by quadrant, row-major inside each. So tiles 0-15
+/// are the old 4x4 atlas, every one at the texels it always had, and the growth moved nothing.
+inline constexpr std::uint32_t kQuadrantSide = 4;
+inline constexpr int kQuadrantTiles = static_cast<int>(kQuadrantSide * kQuadrantSide);
+
+/// Where tile `index` (in [0, kTileCount)) sits, in tiles from the atlas's top-left corner.
+struct TileCell {
+    std::uint32_t col{};
+    std::uint32_t row{};
+};
+[[nodiscard]] constexpr TileCell tile_cell(int index) noexcept {
+    const auto at = static_cast<std::uint32_t>(index);
+    const std::uint32_t quadrant = at / static_cast<std::uint32_t>(kQuadrantTiles);
+    const std::uint32_t inside = at % static_cast<std::uint32_t>(kQuadrantTiles);
+    return {((quadrant % 2U) * kQuadrantSide) + (inside % kQuadrantSide),
+            ((quadrant / 2U) * kQuadrantSide) + (inside / kQuadrantSide)};
+}
 
 /// The tile an unlisted part name gets. Tile 0 is solid white, so it is a multiplicative identity:
 /// geometry that sets no UV (0, 0 is this tile's corner) draws in its own vertex colour.
@@ -41,9 +60,9 @@ struct UvRect {
 /// NEAREST fetch exactly on a face edge can never land in the neighbouring tile.
 inline constexpr float kHalfTexel = 0.5F / static_cast<float>(kAtlasSide);
 
-/// The rectangle of tile `index` (row-major): the tile's own cell shrunk by half a texel on each
-/// side. An index outside [0, kTileCount) gets the fallback tile's, so a bad index can never
-/// address outside the atlas.
+/// The rectangle of tile `index` (at its `tile_cell`): the tile's own cell shrunk by half a texel
+/// on each side. An index outside [0, kTileCount) gets the fallback tile's, so a bad index can
+/// never address outside the atlas.
 [[nodiscard]] UvRect tile_rect(int index) noexcept;
 
 /// Part name -> tile index. Parsing NEVER throws or fails: a line that is blank, a comment, or not
