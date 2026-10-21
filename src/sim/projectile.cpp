@@ -1,5 +1,7 @@
 #include "protekt/sim/projectile.hpp"
 
+#include "protekt/sim/spec.hpp"
+
 #include <algorithm>
 #include <cstddef>
 #include <cstdlib>
@@ -214,6 +216,8 @@ void retarget_aim(Unit& shooter, UnitId target) noexcept {
 
 Projectile launch(const Unit& shooter, const Unit& target, std::uint16_t damage,
                   std::uint64_t seed) noexcept {
+    const UnitSpec& weapon = spec_of(shooter.kind);
+    const std::int64_t bolt_speed = weapon.bolt_speed.raw;
     // Aim at where the target IS, plus what this gun has learned about how far to lead it.
     const std::int64_t dx
         = static_cast<std::int64_t>(target.x.raw) - shooter.x.raw + shooter.aim_x.raw;
@@ -222,11 +226,11 @@ Projectile launch(const Unit& shooter, const Unit& target, std::uint16_t damage,
     const std::int64_t dist = isqrt(dx * dx + dy * dy);
     // An aim point exactly on the gun has no direction to aim in; due east is as good as any and
     // keeps the answer defined.
-    std::int64_t aim_x = kProjectileSpeedRaw;
+    std::int64_t aim_x = bolt_speed;
     std::int64_t aim_y = 0;
     if (dist > 0) {
-        aim_x = dx * kProjectileSpeedRaw / dist;
-        aim_y = dy * kProjectileSpeedRaw / dist;
+        aim_x = dx * bolt_speed / dist;
+        aim_y = dy * bolt_speed / dist;
     }
     Projectile bolt{};
     bolt.x = shooter.x;
@@ -255,8 +259,9 @@ Projectile launch(const Unit& shooter, const Unit& target, std::uint16_t damage,
         const std::int64_t closing = (static_cast<std::int64_t>(bolt.vx.raw) * dx
                                       + static_cast<std::int64_t>(bolt.vy.raw) * dy)
                                      / dist;
-        const std::int64_t speed = closing > 0 ? closing : kProjectileSpeedRaw;
-        const std::int64_t steepest = std::int64_t{2} * kProjectileSpeedRaw * kHeightUnitsPerTile;
+        const std::int64_t speed = closing > 0 ? closing : bolt_speed;
+        const std::int64_t steepest = static_cast<std::int64_t>(weapon.arc.raw) * bolt_speed
+                                      / Fixed::kOne * kHeightUnitsPerTile;
         const std::int64_t vz
             = std::clamp((aim_z - bolt.z.raw) * speed / dist, -steepest, steepest);
         bolt.vz = Fixed::from_raw(static_cast<std::int32_t>(vz));
@@ -285,6 +290,7 @@ bool has_line(const Unit& shooter, const Unit& target, std::uint64_t seed) noexc
 
 Projectile launch_towards(const Unit& shooter, Fixed dir_x, Fixed dir_y, Fixed dir_z,
                           UnitId aimed_at, std::uint16_t damage, std::uint64_t seed) noexcept {
+    const std::int64_t bolt_speed = spec_of(shooter.kind).bolt_speed.raw;
     std::int64_t dx = dir_x.raw;
     std::int64_t dy = dir_y.raw;
     std::int64_t dz = dir_z.raw;
@@ -297,14 +303,14 @@ Projectile launch_towards(const Unit& shooter, Fixed dir_x, Fixed dir_y, Fixed d
         dz >>= 8;
     }
     const std::int64_t length = isqrt(dx * dx + dy * dy + dz * dz);
-    std::int64_t aim_x = kProjectileSpeedRaw;
+    std::int64_t aim_x = bolt_speed;
     std::int64_t aim_y = 0;
     std::int64_t aim_z = 0;
     if (length > 0) {
-        aim_x = dx * kProjectileSpeedRaw / length;
-        aim_y = dy * kProjectileSpeedRaw / length;
+        aim_x = dx * bolt_speed / length;
+        aim_y = dy * bolt_speed / length;
         // The same direction, the same speed: a rise of one tile is 64 height units.
-        aim_z = dz * kProjectileSpeedRaw * kHeightUnitsPerTile / length;
+        aim_z = dz * bolt_speed * kHeightUnitsPerTile / length;
     }
     Projectile bolt{};
     bolt.x = shooter.x;
