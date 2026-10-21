@@ -88,7 +88,10 @@ inline constexpr std::uint16_t kTankDamage = 8;
 inline constexpr std::uint16_t kTurretDamage = 12;
 inline constexpr std::uint16_t kTankCooldownTicks = 15;
 inline constexpr std::uint16_t kTurretCooldownTicks = 20;
-inline constexpr std::int32_t kTankSpeedRaw = 13107;    ///< 0.2 tiles/tick = 6 tiles/second
+inline constexpr std::int32_t kTankSpeedRaw = 13107; ///< 0.2 tiles/tick = 6 tiles/second
+/// A strafe slides at this fraction of the unit's speed (3/4), in integer parts.
+inline constexpr std::int64_t kStrafeSpeedNumerator = 3;
+inline constexpr std::int64_t kStrafeSpeedDenominator = 4;
 inline constexpr std::int32_t kTankRangeRaw = 12 << 16; ///< 12 tiles
 inline constexpr std::int32_t kTurretRangeRaw = 16 << 16;
 inline constexpr std::int32_t kArriveRadiusRaw = 1 << 16; ///< 1 tile

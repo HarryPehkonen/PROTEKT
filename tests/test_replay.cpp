@@ -144,6 +144,7 @@ TEST(Replay, EveryOrderKindSurvivesARoundTripAndNoneIsDropped) {
         Command{
             7, Order{UnitId{8}, orders::FireTowards{Fixed::from_raw(-65536), Fixed::from_raw(46341),
                                                     UnitId{9}, Fixed::from_raw(-23170)}}},
+        Command{8, Order{UnitId{2}, orders::Strafe{Fixed::from_raw(65536), Fixed::from_raw(-1)}}},
     };
     ASSERT_EQ(r.commands.size(), kOrderKindCount) << "this test must cover every kind";
     for (std::size_t i = 0; i < r.commands.size(); ++i) {

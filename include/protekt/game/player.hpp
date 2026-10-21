@@ -37,6 +37,9 @@ inline constexpr float kLookPitchStart = -0.12F;
 struct InputState {
     float throttle{}; ///< -1 (reverse) to +1 (full ahead)
     float turn{};     ///< -1 (left) to +1 (right)
+    /// -1 (left) to +1 (right): sideways drift. Only a driven HoverTank reads it, and then it
+    /// replaces `turn` -- the same A/D keys, a strafe instead of a turn.
+    float strafe{};
     float look_yaw{}; ///< radians to add to the view's yaw this frame; spent by the next `think`
     float
         look_pitch{}; ///< radians to add to the view's pitch this frame; spent by the next `think`

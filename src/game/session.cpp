@@ -40,6 +40,8 @@ void Session::frame(const input::InputFrame& frame, const sim::Sim& sim,
     input.throttle = destroyed_ ? 0.0F : (keys_.forward ? 1.0F : 0.0F) - (keys_.back ? 1.0F : 0.0F);
     // Increasing the yaw turns toward +X, which is the RIGHT of the screen, so A subtracts.
     input.turn = (keys_.right ? 1.0F : 0.0F) - (keys_.left ? 1.0F : 0.0F);
+    // The same keys strafe a hover tank; the commander reads whichever fits the unit it drives.
+    input.strafe = input.turn;
     // The mouse looks. Moving it right looks right, and moving it down looks down.
     input.look_yaw = frame.mouse_dx * kLookRadiansPerPixel;
     input.look_pitch = -frame.mouse_dy * kLookRadiansPerPixel;

@@ -75,10 +75,21 @@ struct FireTowards {
     Fixed dir_z{};
 };
 
+/// One tick of sideways drift, as an INPUT: the direction (map x, map y; need not be normalised,
+/// zero is no strafe at all) a hover tank slides this tick. The sim scales it to a fixed fraction
+/// of the unit's speed, so the commander says where and the sim says how fast. It sets no stance
+/// and no destination and nothing is remembered: the next tick without a Strafe order has no
+/// strafe, which is what keeps it an input like a throttle and not a state on the unit.
+struct Strafe {
+    Fixed dx{};
+    Fixed dy{};
+};
+
 } // namespace orders
 
-using OrderPayload = std::variant<orders::MoveTo, orders::GuardAt, orders::Patrol, orders::Attack,
-                                  orders::Stop, orders::FocusFire, orders::FireTowards>;
+using OrderPayload
+    = std::variant<orders::MoveTo, orders::GuardAt, orders::Patrol, orders::Attack, orders::Stop,
+                   orders::FocusFire, orders::FireTowards, orders::Strafe>;
 
 /// How each payload alternative is named and reported. This is the payload's index, in the
 /// payload's order, and the assertions below make that true rather than intended.
@@ -90,9 +101,10 @@ enum class OrderKind : std::uint8_t {
     Stop = 4,
     FocusFire = 5,
     FireTowards = 6,
+    Strafe = 7,
 };
 
-inline constexpr std::size_t kOrderKindCount = static_cast<std::size_t>(OrderKind::FireTowards) + 1;
+inline constexpr std::size_t kOrderKindCount = static_cast<std::size_t>(OrderKind::Strafe) + 1;
 
 static_assert(std::variant_size_v<OrderPayload> == kOrderKindCount,
               "every alternative needs a kind, and every kind an alternative");
@@ -110,6 +122,7 @@ static_assert(std::is_same_v<PayloadOf<OrderKind::Attack>, orders::Attack>);
 static_assert(std::is_same_v<PayloadOf<OrderKind::Stop>, orders::Stop>);
 static_assert(std::is_same_v<PayloadOf<OrderKind::FocusFire>, orders::FocusFire>);
 static_assert(std::is_same_v<PayloadOf<OrderKind::FireTowards>, orders::FireTowards>);
+static_assert(std::is_same_v<PayloadOf<OrderKind::Strafe>, orders::Strafe>);
 
 /// The kind is the payload's own index. There is no second field that can disagree with it, which
 /// is precisely what the flat record could not promise.
@@ -163,6 +176,10 @@ struct OrderFields {
         out.position_count = 3;
         out.has_target = true; // the intent: replays and the hash must keep it
         out.target = p->aimed_at;
+    } else if (const auto* p = std::get_if<orders::Strafe>(&payload)) {
+        out.positions[0] = p->dx;
+        out.positions[1] = p->dy;
+        out.position_count = 2;
     }
     // Stop carries nothing, and neither does anything else that reaches here.
     return out;

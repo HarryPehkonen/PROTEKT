@@ -265,6 +265,7 @@ if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
         tests/test_aim.cpp
         tests/test_steering.cpp
         tests/test_focus_fire.cpp
+        tests/test_hover_drive.cpp
         tests/test_friendly_fire.cpp
         tests/test_sim.cpp
         tests/test_projectile.cpp

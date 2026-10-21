@@ -64,6 +64,15 @@ void PlayerCommander::think(sim::UnitId unit, const sim::Observation& observatio
         }
     }
 
+    // A driven hover tank's hull IS the view: whatever the mouse has turned goes straight into the
+    // heading, this tick, with no easing, and the turret sits on the centre line. So the view and
+    // the hull can never differ, and `view_yaw()` is unchanged by the fold.
+    const bool hover = self != nullptr && self->kind == sim::UnitKind::HoverTank;
+    if (hover) {
+        heading_ = Camera::wrap_angle(heading_ + turret_yaw_);
+        turret_yaw_ = 0.0F;
+    }
+
     // How many ticks this frame is worth, read from the sim's own clock. The first observation has
     // no earlier tick to measure from, so it is worth one -- which is also what the old
     // once-per-call code did, and keeps a capture that steps one tick per frame identical.
@@ -86,8 +95,10 @@ void PlayerCommander::think(sim::UnitId unit, const sim::Observation& observatio
         // tap is a nudge rather than a full-lock lurch and letting go eases back to centre. This
         // is the only thing that changes where the tank points, and so where it drives; the
         // turret rides on the hull and is carried round with it.
-        turn_rate_ = eased(turn_rate_, input_.turn, kTurnEasePerTick);
-        heading_ = Camera::wrap_angle(heading_ + (kTurnRatePerTick * turn_rate_));
+        if (!hover) { // a hover tank does not turn on a key: A/D strafe it, the mouse turns it
+            turn_rate_ = eased(turn_rate_, input_.turn, kTurnEasePerTick);
+            heading_ = Camera::wrap_angle(heading_ + (kTurnRatePerTick * turn_rate_));
+        }
         throttle_rate_ = eased(throttle_rate_, input_.throttle, kThrottleEasePerTick);
     }
     if (self == nullptr) {
@@ -107,6 +118,16 @@ void PlayerCommander::think(sim::UnitId unit, const sim::Observation& observatio
                                                  std::lround(target_x * sim::Fixed::kOne))),
                                              sim::Fixed::from_raw(static_cast<std::int32_t>(
                                                  std::lround(target_y * sim::Fixed::kOne)))}});
+
+    if (hover && input_.strafe != 0.0F) {
+        // The hull's right: yaw 0 points at +y, so right is +x there, and turns with the heading.
+        const float side = input_.strafe > 0.0F ? 1.0F : -1.0F;
+        out.push_back(sim::Order{
+            unit, sim::orders::Strafe{sim::Fixed::from_raw(static_cast<std::int32_t>(std::lround(
+                                          std::cos(heading_) * side * sim::Fixed::kOne))),
+                                      sim::Fixed::from_raw(static_cast<std::int32_t>(std::lround(
+                                          -std::sin(heading_) * side * sim::Fixed::kOne)))}});
+    }
 }
 
 } // namespace protekt::game

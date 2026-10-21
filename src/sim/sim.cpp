@@ -101,6 +101,17 @@ bool order_is_valid(const std::vector<Unit>& units, const Order& order) noexcept
     return true;
 }
 
+/// The world as the mover sees it: one question, answered from the seed. A designed map answers the
+/// same question from its own tiles, and a route planner asks it many times, without the sim
+/// caring.
+struct WorldGround {
+    std::uint64_t seed;
+    [[nodiscard]] std::int64_t factor(int tile_x, int tile_y) const noexcept {
+        const world::Tile tile = world::sample(seed, tile_x, tile_y);
+        return terrain_speed_factor(tile.terrain).raw;
+    }
+};
+
 /// Where a position-bearing order sends the unit; unused points are the origin, as they always
 /// were.
 void apply_posted(Unit& unit, Stance stance, Fixed x, Fixed y, Fixed x2, Fixed y2) noexcept {
@@ -110,6 +121,34 @@ void apply_posted(Unit& unit, Stance stance, Fixed x, Fixed y, Fixed x2, Fixed y
     unit.patrol_x = clamp_pos(x2);
     unit.patrol_y = clamp_pos(y2);
     unit.target = UnitId{};
+}
+
+/// One tick of sideways drift. Applied where the order is, not stored: the lateral term is an input
+/// like a throttle, so a tick with no Strafe order has none, and a zero direction moves nothing.
+/// The step goes through the same terrain rule as any move, but a strafe never starts or ends a
+/// detour -- that state belongs to the unit's MoveTo.
+void apply_strafe(Unit& unit, const orders::Strafe& strafe, std::uint64_t seed) noexcept {
+    const UnitProfile prof = profile(unit.kind);
+    const std::int64_t length = isqrt(static_cast<std::int64_t>(strafe.dx.raw) * strafe.dx.raw
+                                      + static_cast<std::int64_t>(strafe.dy.raw) * strafe.dy.raw);
+    if (!prof.mobile || length == 0) {
+        return;
+    }
+    const std::int64_t speed = prof.max_speed.raw * kStrafeSpeedNumerator / kStrafeSpeedDenominator;
+    StepRequest request;
+    request.x = unit.x;
+    request.y = unit.y;
+    request.want_dx = strafe.dx.raw * speed / length;
+    request.want_dy = strafe.dy.raw * speed / length;
+    request.speed = speed;
+    const StepPlan plan = plan_step(request, WorldGround{seed});
+    if (!plan.moved) {
+        return;
+    }
+    unit.x = Fixed::from_raw(static_cast<std::int32_t>(
+        std::clamp<std::int64_t>(unit.x.raw + plan.step.dx, 0, kMaxPosRaw)));
+    unit.y = Fixed::from_raw(static_cast<std::int32_t>(
+        std::clamp<std::int64_t>(unit.y.raw + plan.step.dy, 0, kMaxPosRaw)));
 }
 
 void apply_order(std::vector<Unit>& units, std::vector<Projectile>& projectiles,
@@ -159,6 +198,11 @@ void apply_order(std::vector<Unit>& units, std::vector<Projectile>& projectiles,
             unit.focus_target = o->target;
         }
         break;
+    case OrderKind::Strafe:
+        if (const auto* o = std::get_if<orders::Strafe>(&order.payload)) {
+            apply_strafe(unit, *o, seed);
+        }
+        break;
     case OrderKind::FireTowards:
         if (const auto* o = std::get_if<orders::FireTowards>(&order.payload)) {
             // The player's trigger: the bolt is launched here, where the order is applied, and the
@@ -182,17 +226,6 @@ void apply_order(std::vector<Unit>& units, std::vector<Projectile>& projectiles,
         break;
     }
 }
-
-/// The world as the mover sees it: one question, answered from the seed. A designed map answers the
-/// same question from its own tiles, and a route planner asks it many times, without the sim
-/// caring.
-struct WorldGround {
-    std::uint64_t seed;
-    [[nodiscard]] std::int64_t factor(int tile_x, int tile_y) const noexcept {
-        const world::Tile tile = world::sample(seed, tile_x, tile_y);
-        return terrain_speed_factor(tile.terrain).raw;
-    }
-};
 
 struct Coord {
     int x;
