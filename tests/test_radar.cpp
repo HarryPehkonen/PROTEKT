@@ -3,8 +3,11 @@
 // These are pure geometry over a span of units, so they run anywhere, with no sim and no display.
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
+#include <string>
 #include <vector>
 
 #include "protekt/game/radar.hpp"
@@ -14,8 +17,10 @@ namespace {
 
 using protekt::game::Extent;
 using protekt::game::kRadarRadiusTiles;
+using protekt::game::radar_compass;
 using protekt::game::radar_marks;
 using protekt::game::radar_panel;
+using protekt::game::RadarLetter;
 using protekt::game::RadarMark;
 using protekt::game::RadarPanel;
 using protekt::game::RadarShape;
@@ -371,6 +376,78 @@ TEST(RadarMarks, TheSameStateGivesTheSameMarksInTheSameOrder) {
         EXPECT_EQ(first.at(i).tone, second.at(i).tone);
         EXPECT_EQ(first.at(i).shape, second.at(i).shape);
     }
+}
+
+// The compass: N, E, S, W on the ring, true world directions (x east, z north, as the scene and the
+// sky define them), placed from the same yaw the marks use.
+
+const RadarLetter& letter(const std::array<RadarLetter, 4>& letters, char glyph) {
+    for (const RadarLetter& l : letters) {
+        if (l.glyph == glyph) {
+            return l;
+        }
+    }
+    ADD_FAILURE() << "no letter " << glyph;
+    return letters.at(0);
+}
+
+TEST(RadarCompass, FacingNorthPutsNAtTheTopOfTheRing) {
+    const auto letters = radar_compass(0.0F, kPanel);
+    const float middle = kPanel.size * 0.5F;
+    EXPECT_NEAR(letter(letters, 'N').px, middle, kTolerance);
+    EXPECT_LT(letter(letters, 'N').py, middle); // above the centre: the top of the panel
+    EXPECT_GT(letter(letters, 'E').px, middle); // east is to the right
+    EXPECT_NEAR(letter(letters, 'E').py, middle, kTolerance);
+    EXPECT_GT(letter(letters, 'S').py, middle);
+    EXPECT_LT(letter(letters, 'W').px, middle);
+}
+
+TEST(RadarCompass, TheLettersSitOnTheRingAtOneRadius) {
+    const float middle = kPanel.size * 0.5F;
+    for (const float yaw : {0.0F, 0.4F, 2.0F}) {
+        for (const RadarLetter& l : radar_compass(yaw, kPanel)) {
+            const float radius = std::hypot(l.px - middle, l.py - middle);
+            EXPECT_GT(radius, middle * 0.7F);
+            EXPECT_LE(radius, middle);
+        }
+    }
+}
+
+TEST(RadarCompass, TurningTheViewRotatesTheLettersTheOtherWay) {
+    // Turned a quarter turn to the right (yaw +90), north is on the viewer's left: the top of the
+    // panel is east. This is the same yaw the marks use: a unit due north lands where N does.
+    constexpr float kQuarter = 1.57079632F;
+    const auto letters = radar_compass(kQuarter, kPanel);
+    const float middle = kPanel.size * 0.5F;
+    EXPECT_LT(letter(letters, 'N').px, middle);
+    EXPECT_NEAR(letter(letters, 'N').py, middle, kTolerance);
+    EXPECT_NEAR(letter(letters, 'E').px, middle, kTolerance);
+    EXPECT_LT(letter(letters, 'E').py, middle);
+
+    // Agreement with the marks: a unit straight north, on the same yaw, is on N's side of the
+    // panel.
+    const std::vector<Unit> units = with_viewer({unit_at(2, 0.0F, 10.0F, Side::Enemy)});
+    const RadarMark north_unit = radar_marks(units, UnitId{1}, 0.7F, kPanel).at(1);
+    const auto turned = radar_compass(0.7F, kPanel);
+    const RadarLetter& n = letter(turned, 'N');
+    EXPECT_NEAR(std::atan2(north_unit.px - middle, middle - north_unit.py),
+                std::atan2(n.px - middle, middle - n.py), 0.001F);
+}
+
+TEST(RadarCompass, ExactlyNESWAndNoDiagonals) {
+    const auto letters = radar_compass(0.3F, kPanel);
+    std::string glyphs;
+    for (const RadarLetter& l : letters) {
+        glyphs += l.glyph;
+    }
+    std::sort(glyphs.begin(), glyphs.end());
+    EXPECT_EQ(glyphs, "ENSW");
+    // Neighbours are a quarter turn apart: nothing sits at an eighth.
+    const float middle = kPanel.size * 0.5F;
+    EXPECT_NEAR(
+        std::atan2(letter(letters, 'E').px - middle, middle - letter(letters, 'E').py)
+            - std::atan2(letter(letters, 'N').px - middle, middle - letter(letters, 'N').py),
+        1.57079632F, 0.001F);
 }
 
 } // namespace

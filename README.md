@@ -192,7 +192,7 @@ change a verification run.
 | **Silence beyond earshot is deliberate** | 60 tiles for a shot, 90 for a death; past it there is no voice at all. It is not a bug to report when a distant fight makes no noise |
 | **Sounds queue, they do not overlap across frames** | the device plays what it is given in order, so a burst of fire within one sound's length waits its turn, and a buffer arriving with more than about three quarters of a second already queued is dropped rather than played late |
 | **The radar is range-based, not line-of-sight** | a hostile behind a hill inside the 40 tiles is still on it. Battlezone's radar worked the same way, and this is the version to play before adding occlusion |
-| **No compass** | the panel turns with the tank and there is no north tick: there is nothing to correlate a bearing with until there is a map |
+| **Compass** | the panel turns with the tank; N, E, S, W sit on the ring for the true world directions, from the same yaw as the marks |
 | **Two units on one panel pixel** | the depth test decides, so one colour wins. A hostile within about a tile of you hides under your own mark |
 | Text is not drawn at all | there are coloured boxes and a horizon, and no font. Flat colours, no textures, no lighting |
 

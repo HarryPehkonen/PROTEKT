@@ -32,6 +32,21 @@ RadarPanel radar_panel(Extent extent) noexcept {
     return RadarPanel{kRadarMarginPixels, height - kRadarMarginPixels - size, size};
 }
 
+std::array<RadarLetter, 4> radar_compass(float yaw_radians, const RadarPanel& panel) noexcept {
+    // World north is (dx, dz) = (0, 1), east is (1, 0), pushed through the SAME forward/right the
+    // marks use: forward = dx*sin + dz*cos, right = dx*cos - dz*sin.
+    const float sine = std::sin(yaw_radians);
+    const float cosine = std::cos(yaw_radians);
+    const float middle = panel.size * 0.5F;
+    const float radius = std::max(middle - kRadarLetterInsetPixels, 0.0F);
+    const auto at = [&](char glyph, float dx, float dz) {
+        const float forward = (dx * sine) + (dz * cosine);
+        const float right = (dx * cosine) - (dz * sine);
+        return RadarLetter{glyph, middle + (right * radius), middle - (forward * radius)};
+    };
+    return {at('N', 0.0F, 1.0F), at('E', 1.0F, 0.0F), at('S', 0.0F, -1.0F), at('W', -1.0F, 0.0F)};
+}
+
 std::vector<RadarMark> radar_marks(std::span<const sim::Unit> units, sim::UnitId viewer_unit,
                                    float yaw_radians, const RadarPanel& panel, int radius_tiles) {
     std::vector<RadarMark> marks;

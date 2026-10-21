@@ -580,6 +580,31 @@ std::array<float, 3> health_colour(std::uint32_t hp, std::uint32_t max_hp) {
     return radar_colour(RadarTone::Hostile);
 }
 
+/// The compass letters: 5x5 cell glyphs, each cell a 2 px square, so a letter is 10x10 px, in white
+/// on a near-black plate with a pixel of margin. They go on the ring, over the dark face, which is
+/// what makes them readable on every mark and terrain colour. Rows are top to bottom, bit 4 left.
+constexpr float kLetterCellPixels = 2.0F;
+constexpr float kLetterPlatePadPixels = 2.0F;
+constexpr float kHudCompassRatio
+    = 0.9F; ///< nearer than the marks, so the plate hides what it covers
+
+const std::array<std::uint8_t, 5>& letter_rows(char glyph) {
+    static constexpr std::array<std::uint8_t, 5> kN{0b10001, 0b11001, 0b10101, 0b10011, 0b10001};
+    static constexpr std::array<std::uint8_t, 5> kE{0b11110, 0b10000, 0b11100, 0b10000, 0b11110};
+    static constexpr std::array<std::uint8_t, 5> kS{0b01111, 0b10000, 0b01110, 0b00001, 0b11110};
+    static constexpr std::array<std::uint8_t, 5> kW{0b10001, 0b10001, 0b10101, 0b10101, 0b01010};
+    switch (glyph) {
+    case 'N':
+        return kN;
+    case 'E':
+        return kE;
+    case 'S':
+        return kS;
+    default:
+        return kW;
+    }
+}
+
 /// The radar, drawn in PANEL PIXELS: every corner goes through `ray_point`, the same pixel-to-world
 /// function the picker uses, so the panel is exactly where its pixels are and a mark can never sit
 /// somewhere other than its own place on the panel. Three metres of nothing, a dark face so the
@@ -655,6 +680,31 @@ void append_radar(std::vector<SceneVertex>& out, const SceneOptions& options, co
             const float fill
                 = x0 + ((x1 - x0) * static_cast<float>(hp) / static_cast<float>(max_hp));
             rect(marks_at, x0, top, fill, bottom, health_colour(hp, max_hp));
+        }
+    }
+
+    constexpr std::array<float, 3> kLetterPlate{0.0F, 0.0F, 0.0F};
+    constexpr std::array<float, 3> kLetterInk{1.0F, 1.0F, 1.0F};
+    for (const RadarLetter& l : radar_compass(options.camera.yaw, panel)) {
+        const float half_w = (2.5F * kLetterCellPixels) + kLetterPlatePadPixels;
+        const float half_h = (2.5F * kLetterCellPixels) + kLetterPlatePadPixels;
+        const float cx = panel.x + l.px;
+        const float cy = panel.y + l.py;
+        const float plate_at = marks_at * kHudCompassRatio * 1.05F;
+        const float ink_at = marks_at * kHudCompassRatio;
+        rect(plate_at, cx - half_w, cy - half_h, cx + half_w, cy + half_h, kLetterPlate);
+        const std::array<std::uint8_t, 5>& rows = letter_rows(l.glyph);
+        for (std::size_t row = 0; row < rows.size(); ++row) {
+            for (int col = 0; col < 5; ++col) {
+                if (((rows.at(row) >> (4 - col)) & 1U) == 0U) {
+                    continue;
+                }
+                const float x = cx - (2.5F * kLetterCellPixels)
+                                + (static_cast<float>(col) * kLetterCellPixels);
+                const float y = cy - (2.5F * kLetterCellPixels)
+                                + (static_cast<float>(row) * kLetterCellPixels);
+                rect(ink_at, x, y, x + kLetterCellPixels, y + kLetterCellPixels, kLetterInk);
+            }
         }
     }
 

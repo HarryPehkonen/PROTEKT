@@ -728,6 +728,9 @@ TEST(RadarDraws, MarksCountUpTheWayTheRulesSay) {
     // The panel itself: a 48-slice ring (a quad a slice) and a 48-slice disc (a triangle a slice),
     // and above it the health bar's track and its fill (a quad each, the viewer being unhurt).
     std::size_t expected = (48 * 6) + (48 * 3) + 6 + 6;
+    // The compass: a plate (a quad) per letter, and a quad per lit cell of its 5x5 glyph:
+    // N 13, E 13, S 13, W 12.
+    expected += (4 * 6) + ((13 + 13 + 13 + 12) * 6);
     for (const auto& mark : marks) {
         switch (mark.shape) {
         case protekt::game::RadarShape::Square:

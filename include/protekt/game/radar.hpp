@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <span>
 #include <vector>
@@ -19,8 +20,9 @@
 /// Forward and right are taken from the same camera yaw the projection uses, so the radar cannot
 /// disagree with the frame.
 ///
-/// There is no compass tick: there is nothing to correlate a bearing with yet. When there is a map,
-/// a tick comes with it.
+/// The ring carries four letters, N, E, S and W, for the TRUE world directions (x east, z north, as
+/// the sky and the sun define them). The panel turns with the tank, so the letters turn with it:
+/// `radar_compass` takes the same yaw `radar_marks` does and is the only place they are placed.
 ///
 /// The panel is anchored to a corner of the FRAME, not to the world, and its size follows the frame
 /// width, so it is the same fraction of the screen at 1280x720 and at a full-screen resolution. It
@@ -72,6 +74,22 @@ struct RadarPanel {
 /// The panel for a frame of this size: bottom-left, with a margin, sized to the frame and clamped
 /// so that a small window still has a usable radar and a large one does not grow it without limit.
 [[nodiscard]] RadarPanel radar_panel(Extent extent) noexcept;
+
+/// One compass letter, in panel pixels like a mark: the centre of the glyph.
+struct RadarLetter {
+    char glyph{};
+    float px{};
+    float py{};
+};
+
+/// How far in from the disc's edge a letter's centre sits, as pixels. The glyph and its plate are
+/// drawn around this point, so the plate reaches the ring and not past it.
+inline constexpr float kRadarLetterInsetPixels = 8.0F;
+
+/// N, E, S, W in that order, at the ring, for a camera yaw. At yaw 0 the tank faces north, so N is
+/// at the top; a quarter turn to the right puts N on the left. Never diagonals.
+[[nodiscard]] std::array<RadarLetter, 4> radar_compass(float yaw_radians,
+                                                       const RadarPanel& panel) noexcept;
 
 /// The marks for one frame, in panel pixels.
 ///
