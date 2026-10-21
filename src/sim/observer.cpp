@@ -1,5 +1,7 @@
 #include "protekt/sim/observer.hpp"
 
+#include "protekt/sim/spec.hpp"
+
 #include <algorithm>
 #include <cstddef>
 #include <limits>
@@ -307,17 +309,10 @@ BattleLog run_battle(const Scenario& scenario, std::span<const Command> script, 
 }
 
 const char* to_string(UnitKind kind) noexcept {
-    switch (kind) {
-    case UnitKind::Tank:
-        return "tank";
-    case UnitKind::HoverTank:
-        return "hovertank";
-    case UnitKind::Turret:
-        return "turret";
-    case UnitKind::Factory:
-        return "factory";
+    if (static_cast<std::size_t>(kind) >= kUnitSpecs.size()) {
+        return "unknown";
     }
-    return "unknown";
+    return spec_of(kind).name;
 }
 
 const char* to_string(Side side) noexcept {

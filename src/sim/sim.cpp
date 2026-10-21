@@ -1,5 +1,7 @@
 #include "protekt/sim/sim.hpp"
 
+#include "protekt/sim/spec.hpp"
+
 #include <algorithm>
 #include <array>
 #include <cstddef>
@@ -9,26 +11,12 @@
 namespace protekt::sim {
 
 UnitProfile profile(UnitKind kind) noexcept {
-    switch (kind) {
-    case UnitKind::Tank:
-    case UnitKind::HoverTank: // identical stats: the look and the controls differ, not the numbers
-        return UnitProfile{kTankHp,
-                           Fixed::from_raw(kTankSpeedRaw),
-                           Fixed::from_raw(kTankRangeRaw),
-                           kTankDamage,
-                           kTankCooldownTicks,
-                           true};
-    case UnitKind::Turret:
-        return UnitProfile{kTurretHp,
-                           Fixed::from_raw(kTurretSpeedRaw),
-                           Fixed::from_raw(kTurretRangeRaw),
-                           kTurretDamage,
-                           kTurretCooldownTicks,
-                           true};
-    case UnitKind::Factory:
-        return UnitProfile{kFactoryHp, Fixed::zero(), Fixed::zero(), 0, 0, false};
+    if (static_cast<std::size_t>(kind) >= kUnitSpecs.size()) {
+        return UnitProfile{};
     }
-    return UnitProfile{};
+    const UnitSpec& spec = spec_of(kind);
+    return UnitProfile{spec.hp,     spec.max_speed, spec.range,
+                       spec.damage, spec.cooldown,  spec.max_speed.raw > 0};
 }
 
 Fixed terrain_speed_factor(world::Terrain terrain) noexcept {
