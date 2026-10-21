@@ -11,6 +11,7 @@
 #include "protekt/input/bindings.hpp"
 #include "protekt/math/math.hpp"
 #include "protekt/sim/projectile.hpp"
+#include "protekt/sim/spec.hpp"
 
 namespace protekt::game {
 namespace {
@@ -26,7 +27,7 @@ namespace {
 /// to the lower id, whatever order the observation lists them in. Null when there is none.
 [[nodiscard]] const sim::UnitView* nearest_in_range(const sim::Observation& observation,
                                                     const sim::UnitView& tank) noexcept {
-    const std::int64_t range = sim::profile(sim::UnitKind::Tank).weapon_range.raw;
+    const std::int64_t range = sim::spec_of(sim::UnitKind::Tank).range.raw;
     const sim::Fixed from_x = sim::Fixed::from_raw(tank.raw_x);
     const sim::Fixed from_y = sim::Fixed::from_raw(tank.raw_y);
     const sim::UnitView* best = nullptr;

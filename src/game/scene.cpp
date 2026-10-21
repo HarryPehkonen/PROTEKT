@@ -4,6 +4,7 @@
 #include "protekt/game/pick.hpp"
 #include "protekt/game/radar.hpp"
 #include "protekt/math/math.hpp"
+#include "protekt/sim/spec.hpp"
 
 #include <algorithm>
 #include <array>
@@ -949,7 +950,7 @@ void append_radar(std::vector<SceneVertex>& out, const SceneOptions& options, co
         const float bottom = y0 - kHealthBarGapPixels;
         const float top = bottom - height;
         rect(face_at, x0, top, x1, bottom, kFace);
-        const std::uint32_t max_hp = sim::profile(viewer->kind).hp;
+        const std::uint32_t max_hp = sim::spec_of(viewer->kind).hp;
         const std::uint32_t hp = std::min<std::uint32_t>(viewer->hp, max_hp);
         if (viewer->alive && max_hp > 0 && hp > 0) {
             const float fill
@@ -1091,7 +1092,7 @@ void append_unit_bars(std::vector<SceneVertex>& out, const SceneOptions& options
         rect(marks_at * kHudBorderRatio, left - outline, track_top - outline,
              left + width + outline, bottom + outline, kOutline);
         rect(marks_at * kHudFaceRatio, left, track_top, left + width, bottom, kPlate);
-        const std::uint32_t max_hp = sim::profile(unit.kind).hp;
+        const std::uint32_t max_hp = sim::spec_of(unit.kind).hp;
         const std::uint32_t hp = std::min<std::uint32_t>(unit.hp, max_hp);
         const float share = max_hp > 0 ? static_cast<float>(hp) / static_cast<float>(max_hp) : 0.0F;
         rect(marks_at, left, track_top, left + (width * share), bottom,

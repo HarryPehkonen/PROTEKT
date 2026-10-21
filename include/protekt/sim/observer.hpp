@@ -38,6 +38,19 @@ using UnitSnapshot = std::vector<Unit>;
 [[nodiscard]] std::vector<BattleEvent> events_between(const UnitSnapshot& before, const Sim& after,
                                                       Tick tick);
 
+/// The packed per-unit attributes the status events carry in `subject_hp` (16 bits):
+///   bits 0..5   kind   (6 bits, ceiling 64 kinds; was bits 0..3, ceiling 16)
+///   bits 6..7   side   (2 bits; was bits 4..7)
+///   bits 8..15  stance (unchanged)
+inline constexpr unsigned kKindMask = 0x3FU;
+inline constexpr unsigned kSideShift = 6;
+inline constexpr unsigned kSideMask = 0x3U;
+inline constexpr unsigned kStanceShift = 8;
+[[nodiscard]] std::uint16_t pack_unit_attrs(UnitKind kind, Side side, Stance stance) noexcept;
+[[nodiscard]] UnitKind unpack_unit_kind(std::uint16_t attrs) noexcept;
+[[nodiscard]] Side unpack_unit_side(std::uint16_t attrs) noexcept;
+[[nodiscard]] Stance unpack_unit_stance(std::uint16_t attrs) noexcept;
+
 struct BattleLog {
     Tick ticks{};
     std::uint64_t seed{};

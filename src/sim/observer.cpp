@@ -17,7 +17,7 @@ namespace {
 // lines print have to live in `events` too. Two private event kinds past the public enum carry
 // them: a "status position" event (actor = unit, subject = raw x, subject_hp = hp) is always
 // followed by a "status attributes" event (actor = unit, subject = raw y, subject_hp = kind |
-// side << 4 | stance << 8). They are recorded only when a unit's state changed since its last
+// side << 6 | stance << 8). They are recorded only when a unit's state changed since its last
 // record, and to_text() replays them to know every unit's state at any tick, whatever status
 // period it is asked for.
 constexpr EventKind kStatusPos = static_cast<EventKind>(0x80);
@@ -32,23 +32,17 @@ struct UnitState {
     std::uint16_t attrs{};
 };
 
-std::uint16_t pack_attrs(const Unit& u) noexcept {
-    return static_cast<std::uint16_t>(static_cast<unsigned>(u.kind)
-                                      | (static_cast<unsigned>(u.side) << 4)
-                                      | (static_cast<unsigned>(u.stance) << 8));
-}
-
 UnitState state_of(const Unit& u) noexcept {
-    return UnitState{u.x.raw, u.y.raw, u.hp, pack_attrs(u)};
+    return UnitState{u.x.raw, u.y.raw, u.hp, pack_unit_attrs(u.kind, u.side, u.stance)};
 }
 
 bool same(const UnitState& a, const UnitState& b) noexcept {
     return a.x == b.x && a.y == b.y && a.hp == b.hp && a.attrs == b.attrs;
 }
 
-UnitKind kind_of(std::uint16_t attrs) noexcept { return static_cast<UnitKind>(attrs & 0xFU); }
-Side side_of(std::uint16_t attrs) noexcept { return static_cast<Side>((attrs >> 4) & 0xFU); }
-Stance stance_of(std::uint16_t attrs) noexcept { return static_cast<Stance>((attrs >> 8) & 0xFFU); }
+UnitKind kind_of(std::uint16_t attrs) noexcept { return unpack_unit_kind(attrs); }
+Side side_of(std::uint16_t attrs) noexcept { return unpack_unit_side(attrs); }
+Stance stance_of(std::uint16_t attrs) noexcept { return unpack_unit_stance(attrs); }
 
 /// Records the units whose state differs from the last record (everything, the first time).
 void record_status(const Sim& sim, std::vector<UnitState>& last, std::vector<bool>& seen,
@@ -144,6 +138,22 @@ void append_status_lines(std::string& out, Tick tick,
 }
 
 } // namespace
+
+std::uint16_t pack_unit_attrs(UnitKind kind, Side side, Stance stance) noexcept {
+    return static_cast<std::uint16_t>((static_cast<unsigned>(kind) & kKindMask)
+                                      | ((static_cast<unsigned>(side) & kSideMask) << kSideShift)
+                                      | (static_cast<unsigned>(stance) << kStanceShift));
+}
+
+UnitKind unpack_unit_kind(std::uint16_t attrs) noexcept {
+    return static_cast<UnitKind>(attrs & kKindMask);
+}
+Side unpack_unit_side(std::uint16_t attrs) noexcept {
+    return static_cast<Side>((attrs >> kSideShift) & kSideMask);
+}
+Stance unpack_unit_stance(std::uint16_t attrs) noexcept {
+    return static_cast<Stance>((attrs >> kStanceShift) & 0xFFU);
+}
 
 std::vector<BattleEvent> events_between(const UnitSnapshot& before, const Sim& sim, Tick tick) {
     // Two things happened this tick that a diff of units cannot see on its own, and the sim reports

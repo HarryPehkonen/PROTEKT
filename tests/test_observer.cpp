@@ -15,6 +15,7 @@
 #include "protekt/sim/observer.hpp"
 #include "protekt/sim/scenario.hpp"
 #include "protekt/sim/sim.hpp"
+#include "protekt/sim/spec.hpp"
 
 namespace {
 
@@ -368,6 +369,41 @@ TEST(Observer, TheFiredStreamForAScriptedBattleIsUnchanged) {
         EXPECT_EQ(got[i].subject, kExpected.at(i).subject) << "event " << i;
         EXPECT_EQ(got[i].hp, kExpected.at(i).hp) << "event " << i;
     }
+}
+
+TEST(ObserverPacking, KindIsSixBitsSideTwoStanceEight) {
+    EXPECT_EQ(pack_unit_attrs(UnitKind::HoverTank, Side::Enemy, Stance::Follow),
+              3U | (1U << 6) | (6U << 8));
+    EXPECT_EQ(pack_unit_attrs(UnitKind::Tank, Side::Player, Stance::Idle), 0U);
+}
+
+TEST(ObserverPacking, EveryRealKindSideAndStanceRoundTrips) {
+    for (int k = 0; k < kUnitKindCount; ++k) {
+        for (const Side side : {Side::Player, Side::Enemy}) {
+            for (int st = 0; st <= static_cast<int>(Stance::Follow); ++st) {
+                const auto kind = static_cast<UnitKind>(k);
+                const auto stance = static_cast<Stance>(st);
+                const std::uint16_t packed = pack_unit_attrs(kind, side, stance);
+                EXPECT_EQ(unpack_unit_kind(packed), kind);
+                EXPECT_EQ(unpack_unit_side(packed), side);
+                EXPECT_EQ(unpack_unit_stance(packed), stance);
+            }
+        }
+    }
+}
+
+TEST(ObserverPacking, SyntheticKindsUpToSixtyThreeRoundTripWithoutBleedingIntoSide) {
+    for (unsigned k = 0; k < 64; ++k) {
+        const std::uint16_t packed
+            = pack_unit_attrs(static_cast<UnitKind>(k), Side::Enemy, Stance::Dead);
+        EXPECT_EQ(static_cast<unsigned>(unpack_unit_kind(packed)), k);
+        EXPECT_EQ(unpack_unit_side(packed), Side::Enemy);
+        EXPECT_EQ(unpack_unit_stance(packed), Stance::Dead);
+    }
+}
+
+TEST(ObserverPacking, AKindPastTheTableIsPrintedUnknownNotCrashed) {
+    EXPECT_STREQ(to_string(static_cast<UnitKind>(63)), "unknown");
 }
 
 } // namespace

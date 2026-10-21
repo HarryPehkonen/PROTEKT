@@ -26,6 +26,7 @@
 #include "protekt/render/renderer.hpp"
 #include "protekt/sim/scenario.hpp"
 #include "protekt/sim/sim.hpp"
+#include "protekt/sim/spec.hpp"
 #include "protekt/world/world.hpp"
 
 namespace {
@@ -3195,7 +3196,7 @@ TEST(UnitBars, AFullHullFillsTheTrackAndAHurtOneFillsItsShare) {
     for (int guard = 0; guard < 4000 && !hurt; ++guard) {
         b.sim.step();
         for (const protekt::sim::Unit& unit : b.sim.units()) {
-            hurt = hurt || (unit.alive && unit.hp < protekt::sim::profile(unit.kind).hp);
+            hurt = hurt || (unit.alive && unit.hp < protekt::sim::spec_of(unit.kind).hp);
         }
     }
     ASSERT_TRUE(hurt) << "the scenario must produce damage";
@@ -3210,7 +3211,7 @@ TEST(UnitBars, AFullHullFillsTheTrackAndAHurtOneFillsItsShare) {
     bool saw_partial = false;
     for (std::size_t i = 0; i < after.size(); ++i) {
         const float share = static_cast<float>(drawn.at(i)->hp)
-                            / static_cast<float>(protekt::sim::profile(drawn.at(i)->kind).hp);
+                            / static_cast<float>(protekt::sim::spec_of(drawn.at(i)->kind).hp);
         EXPECT_NEAR(after.at(i).fill.width(), 20.0F * share, 0.1F);
         saw_partial = saw_partial || share < 1.0F;
     }
