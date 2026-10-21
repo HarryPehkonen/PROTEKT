@@ -23,6 +23,7 @@ struct UnitView {
     std::uint16_t hp{};
     std::int32_t raw_x{}; ///< the same position in Q16.16, for questions the tile cannot answer
     std::int32_t raw_y{};
+    bool mounted{true}; ///< `is_mounted` passed through: false only for a turret still redeploying
 };
 
 struct Observation {

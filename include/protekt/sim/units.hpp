@@ -74,8 +74,20 @@ struct Unit {
     Fixed aim_x{};
     Fixed aim_y{};
     UnitId aim_target{}; ///< whom the estimate was learned against; none when it is zero
+    /// Ticks since this unit last moved, saturating at kMountTicks. Only a Turret's is ever
+    /// advanced (see `is_mounted`); it is hashed because it decides whether the gun may fire.
+    std::uint16_t still_ticks{};
     bool alive{true};
 };
+
+/// A turret is a DEPLOYABLE weapon: it crawls unmounted and cannot fire, and it mounts after this
+/// many ticks (3 s) of unbroken stillness. Moving unmounts it at once.
+inline constexpr std::uint16_t kMountTicks = 90;
+
+/// True when the gun may fire. Every other kind fires on the move, so it is always "mounted".
+[[nodiscard]] constexpr bool is_mounted(const Unit& unit) noexcept {
+    return unit.kind != UnitKind::Turret || unit.still_ticks >= kMountTicks;
+}
 
 /// Frozen balance (M2). These live in the contract on purpose: a test asserts "a tank shot
 /// costs a factory 8 hit points", and that must be a property of the game, not of whatever the

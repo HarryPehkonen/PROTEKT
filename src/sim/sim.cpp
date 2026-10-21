@@ -156,6 +156,7 @@ void apply_strafe(Unit& unit, const orders::Strafe& strafe, std::uint64_t seed) 
         std::clamp<std::int64_t>(unit.x.raw + plan.step.dx, 0, kMaxPosRaw)));
     unit.y = Fixed::from_raw(static_cast<std::int32_t>(
         std::clamp<std::int64_t>(unit.y.raw + plan.step.dy, 0, kMaxPosRaw)));
+    unit.still_ticks = 0; // moved: a turret is unmounted
 }
 
 void apply_order(std::vector<Unit>& units, std::vector<Projectile>& projectiles,
@@ -224,7 +225,8 @@ void apply_order(std::vector<Unit>& units, std::vector<Projectile>& projectiles,
             // direction and nowhere else. `aimed_at` only says who it may hurt on its own side.
             // A unit may not name itself: its own bolt starts on top of it.
             const UnitProfile prof = profile(unit.kind);
-            if (prof.weapon_range.raw > 0 && prof.damage > 0 && unit.cooldown == 0) {
+            if (prof.weapon_range.raw > 0 && prof.damage > 0 && unit.cooldown == 0
+                && is_mounted(unit)) {
                 const UnitId aimed_at = o->aimed_at == unit.id ? UnitId{} : o->aimed_at;
                 projectiles.push_back(launch_towards(unit, o->dir_x, o->dir_y, o->dir_z, aimed_at,
                                                      prof.damage, seed));
@@ -367,6 +369,7 @@ void move(const WorldGround& ground, const UnitProfile& prof, Unit& unit) noexce
         std::clamp<std::int64_t>(unit.x.raw + plan.step.dx, 0, kMaxPosRaw)));
     unit.y = Fixed::from_raw(static_cast<std::int32_t>(
         std::clamp<std::int64_t>(unit.y.raw + plan.step.dy, 0, kMaxPosRaw)));
+    unit.still_ticks = 0; // moved: a turret is unmounted
 }
 
 // FNV-1a over little-endian bytes: specified here, so the hash is the same on every machine.
@@ -404,6 +407,9 @@ Sim Sim::create(const Scenario& scenario) {
         unit.y = Fixed::from_int(tile.y);
         unit.hp = prof.hp;
         unit.cooldown = prof.cooldown_ticks; // a fresh gun starts reloading
+        if (spawn.kind == UnitKind::Turret) {
+            unit.still_ticks = kMountTicks; // every turret starts mounted
+        }
         unit.stance = Stance::Idle;
         unit.alive = true;
         sim.units_.push_back(unit);
@@ -425,6 +431,13 @@ void Sim::enqueue(const Order& order) {
 void Sim::step() {
     // 1. orders, in the order enqueued.
     shots_.clear();
+    // A turret that has not moved yet this tick has been still one tick longer; any move below
+    // (a strafe in this step's orders, or the mover) puts it back to zero.
+    for (Unit& unit : units_) {
+        if (unit.kind == UnitKind::Turret && unit.still_ticks < kMountTicks) {
+            ++unit.still_ticks;
+        }
+    }
     for (const Order& order : pending_) {
         apply_order(units_, projectiles_, shots_, order, scenario_.seed);
     }
@@ -464,8 +477,8 @@ void Sim::step() {
         if (unit.cooldown > 0) {
             --unit.cooldown;
         }
-        if (unit.cooldown > 0) {
-            continue;
+        if (unit.cooldown > 0 || !is_mounted(unit)) {
+            continue; // reloading, or a turret that has not redeployed (the gun reloads meanwhile)
         }
         const std::int64_t range = prof.weapon_range.raw;
         Unit* best = nullptr;
@@ -586,6 +599,7 @@ std::uint64_t Sim::state_hash() const noexcept {
         h.u64(u.detour.ticks_left);
         h.u64(u.hp);
         h.u64(u.cooldown);
+        h.u64(u.still_ticks);
         h.u64(static_cast<std::uint64_t>(u.stance));
         h.u64(u.target.value);
         h.u64(u.focus_target.value);

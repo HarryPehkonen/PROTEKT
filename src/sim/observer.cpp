@@ -385,8 +385,8 @@ Observation observe(const Sim& sim, Side side) {
         if (!unit.alive) {
             continue;
         }
-        const UnitView view{unit.id, unit.kind,  unit.side, unit.x.floor_int(), unit.y.floor_int(),
-                            unit.hp, unit.x.raw, unit.y.raw};
+        const UnitView view{unit.id, unit.kind,  unit.side,  unit.x.floor_int(), unit.y.floor_int(),
+                            unit.hp, unit.x.raw, unit.y.raw, is_mounted(unit)};
         (unit.side == side ? observation.own : observation.enemy).push_back(view);
     }
     return observation;
