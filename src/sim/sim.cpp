@@ -19,8 +19,12 @@ UnitProfile profile(UnitKind kind) noexcept {
                            kTankCooldownTicks,
                            true};
     case UnitKind::Turret:
-        return UnitProfile{kTurretHp,     Fixed::zero(),        Fixed::from_raw(kTurretRangeRaw),
-                           kTurretDamage, kTurretCooldownTicks, false};
+        return UnitProfile{kTurretHp,
+                           Fixed::from_raw(kTurretSpeedRaw),
+                           Fixed::from_raw(kTurretRangeRaw),
+                           kTurretDamage,
+                           kTurretCooldownTicks,
+                           true};
     case UnitKind::Factory:
         return UnitProfile{kFactoryHp, Fixed::zero(), Fixed::zero(), 0, 0, false};
     }
@@ -275,6 +279,9 @@ void steer(std::vector<Unit>& units, Unit& unit, const UnitProfile& prof) noexce
             unit.stance = Stance::Idle;
             unit.target = UnitId{};
             return;
+        }
+        if (unit.kind == UnitKind::Turret) {
+            return; // shoots the named target in place (see step 4); an attack never moves a turret
         }
         goal_x = target->x;
         goal_y = target->y;

@@ -62,7 +62,11 @@ TEST(Sim, ProfilesMatchTheFrozenBalance) {
     EXPECT_EQ(profile(UnitKind::Tank).max_speed.raw, kTankSpeedRaw);
     EXPECT_TRUE(profile(UnitKind::Tank).mobile);
     EXPECT_EQ(profile(UnitKind::Turret).hp, kTurretHp);
-    EXPECT_FALSE(profile(UnitKind::Turret).mobile);
+    EXPECT_TRUE(profile(UnitKind::Turret).mobile) << "turrets crawl";
+    EXPECT_EQ(profile(UnitKind::Turret).max_speed.raw, kTankSpeedRaw / 4);
+    EXPECT_EQ(profile(UnitKind::Turret).max_speed.raw, kTurretSpeedRaw);
+    EXPECT_FALSE(profile(UnitKind::Factory).mobile);
+    EXPECT_EQ(profile(UnitKind::Factory).max_speed.raw, 0) << "a factory stays put";
     EXPECT_EQ(profile(UnitKind::Factory).hp, kFactoryHp);
     EXPECT_EQ(profile(UnitKind::Factory).weapon_range.raw, 0) << "a factory has no gun";
 }
@@ -275,6 +279,47 @@ TEST(Sim, DrivesAcrossFlatGroundAndArrives) {
     EXPECT_LT(fixed_abs(fixed_sub(tank.x, goal)), Fixed::from_raw(kArriveRadiusRaw))
         << "never arrived";
     EXPECT_EQ(tank.stance, Stance::MoveTo);
+}
+
+TEST(Sim, ATurretMovesToATileAtCrawlSpeed) {
+    constexpr std::uint64_t kSeed = 3;
+    int x0 = 0;
+    int y0 = 0;
+    ASSERT_TRUE(find_flat_run(kSeed, 40, &x0, &y0));
+    Scenario s;
+    s.seed = kSeed;
+    s.spawns = {{UnitKind::Turret, Side::Player, x0 + 2, y0}};
+    Sim sim = Sim::create(s);
+    const Fixed goal = Fixed::from_int(x0 + 32);
+    const std::int32_t start = sim.units()[0].x.raw;
+    sim.enqueue(Order{sim.units()[0].id, orders::MoveTo{goal, Fixed::from_int(y0)}});
+    for (int t = 0; t < 100; ++t) {
+        sim.step();
+    }
+    EXPECT_EQ(sim.units()[0].x.raw - start, 100 * kTurretSpeedRaw) << "a steady crawl";
+    EXPECT_GT(fixed_abs(fixed_sub(sim.units()[0].x, goal)), Fixed::from_raw(kArriveRadiusRaw));
+    for (int t = 0; t < 600; ++t) {
+        sim.step();
+    }
+    EXPECT_LT(fixed_abs(fixed_sub(sim.units()[0].x, goal)), Fixed::from_raw(kArriveRadiusRaw))
+        << "never arrived";
+}
+
+TEST(Sim, AttackDoesNotMakeATurretChase) {
+    Scenario s;
+    s.seed = 3;
+    s.spawns
+        = {{UnitKind::Turret, Side::Player, 100, 100}, {UnitKind::Tank, Side::Enemy, 140, 100}};
+    Sim sim = Sim::create(s);
+    const Fixed x = sim.units()[0].x;
+    const Fixed y = sim.units()[0].y;
+    sim.enqueue(Order{sim.units()[0].id, orders::Attack{sim.units()[1].id}});
+    for (int t = 0; t < 200; ++t) {
+        sim.step();
+    }
+    EXPECT_EQ(sim.units()[0].x.raw, x.raw) << "a turret shoots in place, it never closes";
+    EXPECT_EQ(sim.units()[0].y.raw, y.raw);
+    EXPECT_EQ(sim.units()[0].vx.raw, 0);
 }
 
 TEST(Sim, GuardAtHoldsThePost) {

@@ -831,6 +831,26 @@ TEST(MoveKey, MOrdersEverySelectedUnitToTheGroundUnderTheMark) {
     EXPECT_EQ(orders.at(1).unit, rig.turret);
 }
 
+TEST(MoveKey, SpaceSelectsAPlayerTurretAndMMovesIt) {
+    Rig rig = make_rig();
+    Interaction player{rig.tank_a};
+    choose(rig, player, rig.turret);
+    ASSERT_EQ(selected(player), (std::vector<sim::UnitId>{rig.turret}));
+    rig.options.aim = Aim{640.0F, 700.0F};
+    player.handle(with_key(input::kKeyM), rig.sim, rig.options);
+    const std::vector<Order> orders = player.take_orders();
+    ASSERT_EQ(orders.size(), 1U);
+    EXPECT_EQ(orders.front().unit, rig.turret);
+    EXPECT_EQ(orders.front().kind(), OrderKind::MoveTo);
+    const std::int64_t before = rig.sim.find(rig.turret)->x.raw + rig.sim.find(rig.turret)->y.raw;
+    rig.sim.enqueue(orders.front());
+    for (int t = 0; t < 5; ++t) {
+        rig.sim.step();
+    }
+    EXPECT_NE(rig.sim.find(rig.turret)->x.raw + rig.sim.find(rig.turret)->y.raw, before)
+        << "the turret crawls to the ground under the mark";
+}
+
 TEST(MoveKey, MWithNothingSelectedIssuesNoOrders) {
     Rig rig = make_rig();
     Interaction player{rig.tank_a};

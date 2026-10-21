@@ -89,6 +89,9 @@ inline constexpr std::uint16_t kTurretDamage = 12;
 inline constexpr std::uint16_t kTankCooldownTicks = 15;
 inline constexpr std::uint16_t kTurretCooldownTicks = 20;
 inline constexpr std::int32_t kTankSpeedRaw = 13107; ///< 0.2 tiles/tick = 6 tiles/second
+/// A turret crawls at a quarter of tank speed (0.05 tiles/tick = 1.5 tiles/second): a defense that
+/// can be repositioned, not a rolling wall of guns.
+inline constexpr std::int32_t kTurretSpeedRaw = kTankSpeedRaw / 4;
 /// A strafe slides at this fraction of the unit's speed (3/4), in integer parts.
 inline constexpr std::int64_t kStrafeSpeedNumerator = 3;
 inline constexpr std::int64_t kStrafeSpeedDenominator = 4;
