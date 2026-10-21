@@ -458,37 +458,18 @@ void build_defense_turret(std::vector<SceneVertex>& out, std::uint64_t seed, con
                     ground + kBarrelBottom, ground + kBarrelTop, colour, metal);
 }
 
-/// A tank, abstracted from a side-on battle tank and built only of flat-shaded prisms: two dark
-/// tracks with a camo fender over each, a shelf a little wider than the track under it, a hull
-/// between them whose raised fighting compartment meets the ground in a sloped front glacis and
-/// steps down aft to a lower engine deck with a dark grille band, a squat turret on the
-/// compartment roof with a rear bustle over the engine deck, a long thin barrel from the turret's
-/// front face with a thicker muzzle collar, and a flat team-colour panel on the turret roof. The
-/// hull, tracks and fenders are turned by `heading`, the turret group by `heading + turret`.
-/// Lateral extent stays the tank's 0.3 tile half-width -- the outer edge of a fender, with the
-/// track tucked just inside it -- and the barrel is always the last prism.
-void build_facing_tank(std::vector<SceneVertex>& out, std::uint64_t seed, const sim::Unit& unit,
-                       Mark mark, float lift_z, bool lifted, float heading, float turret) {
-    const float x
-        = static_cast<float>(unit.x.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile;
-    const float z
-        = static_cast<float>(unit.y.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile;
-    const float ground = lifted ? lift_z : ground_metres(seed, unit.x, unit.y);
+/// THE TANK'S HULL, shared by the tank and the rocket: two dark tracks with a camo fender over
+/// each, a shelf a little wider than the track under it, and a hull between them whose raised
+/// fighting compartment meets the ground in a sloped front glacis and steps down aft to a lower
+/// engine deck with a dark grille band -- seven prisms, all turned by `heading`, in that order:
+/// tracks, the compartment, the engine deck, the grille, fenders. `colour` is the marked side
+/// colour (the tracks and grille), `camo_colour` its pale tint (the rest).
+void emit_tank_hull(std::vector<SceneVertex>& out, float x, float z, float ground, float heading,
+                    const Vec3& colour, const Vec3& camo_colour, const UvRect& hull_tile,
+                    const UvRect& tracks_tile) {
     const float half_width = kMetresPerTile * 0.3F; ///< the outer edge of a fender
     constexpr float kTrackInner = 0.7F;             ///< of half_width; the hull fills the rest
     constexpr float kTrackOuter = 0.95F;            ///< of half_width; the fender overhangs it
-    // The tracks and grille are dark, with their links, because the TRACK TILE is, and the hull,
-    // engine deck, fenders, turret and bustle wear the camo because their tile does: the vertex
-    // keeps the side colour, the selection tint and the face light, and the texel multiplies them.
-    // Which of its team's three camo tiles is this tank's -- one pattern for the whole tank. The
-    // roof panel wears the plain turret metal.
-    const AtlasManifest& atlas = atlas_manifest();
-    const UvRect hull_tile
-        = atlas.rect(kTeamHullNames.at(static_cast<std::size_t>(unit.side))
-                         .at(static_cast<std::size_t>(hull_variant(seed, unit.id.value))));
-    const UvRect tracks_tile = atlas.rect("tank_tracks");
-    const UvRect panel_tile = atlas.rect("tank_turret");
-    const UvRect barrel_tile = atlas.rect("tank_barrel");
     constexpr float kTrackHeight = 0.4F;
     constexpr float kTrackBack = -1.3F; ///< metres along the heading from the centre
     constexpr float kTrackFront = 1.3F;
@@ -506,40 +487,6 @@ void build_facing_tank(std::vector<SceneVertex>& out, std::uint64_t seed, const 
     constexpr float kFenderInner = 0.65F;     ///< of half_width: just inside the hull's side
     constexpr float kFenderBottom = 0.38F;    ///< a little into the track, so its top is hidden
     constexpr float kFenderTop = 0.44F;
-    constexpr float kTurretBase = 0.8F; ///< above the ground; sunk into the compartment roof
-    constexpr float kTurretHeight = 0.4F;
-    constexpr float kTurretHalfAcross = 0.36F;
-    constexpr float kTurretCentre = -0.15F; ///< set back from the hull's centre
-    constexpr float kTurretHalfLength = 0.5F;
-    constexpr float kBustleLength = 0.25F;
-    constexpr float kBustleHalfAcross = 0.25F;
-    constexpr float kBustleBottom = 0.05F; ///< above the turret's base
-    constexpr float kBustleTop = 0.3F;
-    constexpr float kPanelHalfAcross = 0.22F; ///< of the turret's 0.36: camo shows either side
-    constexpr float kPanelBack = -0.4F;       ///< along the turret from its centre
-    constexpr float kPanelFront = 0.25F;
-    constexpr float kPanelThickness = 0.03F; ///< standing just proud of the roof
-    constexpr float kBarrelHalfAcross = 0.06F;
-    constexpr float kBarrelBottom = 0.18F; ///< above the turret's base
-    constexpr float kBarrelTop = 0.3F;
-    constexpr float kBarrelTip = 2.0F; ///< from the tank's centre, well past the hull front
-    constexpr float kCollarLength = 0.3F;
-    constexpr float kCollarHalfAcross = 0.1F;
-    constexpr float kCollarBottom = 0.14F;
-    constexpr float kCollarTop = 0.34F;
-
-    Vec3 colour = side_colour(unit.side);
-    if (mark == Mark::Selected) {
-        colour = highlight(colour);
-    } else if (mark != Mark::None) {
-        colour = aim_tint(colour, mark == Mark::AimedOwn);
-    }
-    // The camo parts' colour is a PALE tint of the marked side colour, so the camo tile's tones
-    // dominate.
-    Vec3 camo_colour = colour;
-    for (float& channel : camo_colour) {
-        channel += (1.0F - channel) * kHullPaleMix;
-    }
 
     const float inner = half_width * kTrackInner;
     for (const float side : {-1.0F, 1.0F}) {
@@ -580,6 +527,70 @@ void build_facing_tank(std::vector<SceneVertex>& out, std::uint64_t seed, const 
                            ground + kFenderTop};
         emit_turned_prism(out, x, z, heading, fender, camo_colour, hull_tile);
     }
+}
+
+/// A tank, abstracted from a side-on battle tank and built only of flat-shaded prisms: the hull
+/// (`emit_tank_hull`), a squat turret on the compartment roof with a rear bustle over the engine
+/// deck, a long thin barrel from the turret's front face with a thicker muzzle collar, and a flat
+/// team-colour panel on the turret roof. The hull, tracks and fenders are turned by `heading`, the
+/// turret group by `heading + turret`. Lateral extent stays the tank's 0.3 tile half-width -- the
+/// outer edge of a fender, with the track tucked just inside it -- and the barrel is always the
+/// last prism.
+void build_facing_tank(std::vector<SceneVertex>& out, std::uint64_t seed, const sim::Unit& unit,
+                       Mark mark, float lift_z, bool lifted, float heading, float turret) {
+    const float x
+        = static_cast<float>(unit.x.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile;
+    const float z
+        = static_cast<float>(unit.y.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile;
+    const float ground = lifted ? lift_z : ground_metres(seed, unit.x, unit.y);
+    // The tracks and grille are dark, with their links, because the TRACK TILE is, and the hull,
+    // engine deck, fenders, turret and bustle wear the camo because their tile does: the vertex
+    // keeps the side colour, the selection tint and the face light, and the texel multiplies them.
+    // Which of its team's three camo tiles is this tank's -- one pattern for the whole tank. The
+    // roof panel wears the plain turret metal.
+    const AtlasManifest& atlas = atlas_manifest();
+    const UvRect hull_tile
+        = atlas.rect(kTeamHullNames.at(static_cast<std::size_t>(unit.side))
+                         .at(static_cast<std::size_t>(hull_variant(seed, unit.id.value))));
+    const UvRect tracks_tile = atlas.rect("tank_tracks");
+    const UvRect panel_tile = atlas.rect("tank_turret");
+    const UvRect barrel_tile = atlas.rect("tank_barrel");
+    constexpr float kTurretBase = 0.8F; ///< above the ground; sunk into the compartment roof
+    constexpr float kTurretHeight = 0.4F;
+    constexpr float kTurretHalfAcross = 0.36F;
+    constexpr float kTurretCentre = -0.15F; ///< set back from the hull's centre
+    constexpr float kTurretHalfLength = 0.5F;
+    constexpr float kBustleLength = 0.25F;
+    constexpr float kBustleHalfAcross = 0.25F;
+    constexpr float kBustleBottom = 0.05F; ///< above the turret's base
+    constexpr float kBustleTop = 0.3F;
+    constexpr float kPanelHalfAcross = 0.22F; ///< of the turret's 0.36: camo shows either side
+    constexpr float kPanelBack = -0.4F;       ///< along the turret from its centre
+    constexpr float kPanelFront = 0.25F;
+    constexpr float kPanelThickness = 0.03F; ///< standing just proud of the roof
+    constexpr float kBarrelHalfAcross = 0.06F;
+    constexpr float kBarrelBottom = 0.18F; ///< above the turret's base
+    constexpr float kBarrelTop = 0.3F;
+    constexpr float kBarrelTip = 2.0F; ///< from the tank's centre, well past the hull front
+    constexpr float kCollarLength = 0.3F;
+    constexpr float kCollarHalfAcross = 0.1F;
+    constexpr float kCollarBottom = 0.14F;
+    constexpr float kCollarTop = 0.34F;
+
+    Vec3 colour = side_colour(unit.side);
+    if (mark == Mark::Selected) {
+        colour = highlight(colour);
+    } else if (mark != Mark::None) {
+        colour = aim_tint(colour, mark == Mark::AimedOwn);
+    }
+    // The camo parts' colour is a PALE tint of the marked side colour, so the camo tile's tones
+    // dominate.
+    Vec3 camo_colour = colour;
+    for (float& channel : camo_colour) {
+        channel += (1.0F - channel) * kHullPaleMix;
+    }
+
+    emit_tank_hull(out, x, z, ground, heading, colour, camo_colour, hull_tile, tracks_tile);
 
     // The turret group shares one frame at the turret's centre; the barrel starts at its front
     // face and is measured from the tank's centre along the same axis, so it points where the
@@ -713,6 +724,132 @@ void build_hover_tank(std::vector<SceneVertex>& out, std::uint64_t seed, const s
     // The fin rides the hull, so it turns with the heading, from the deck at the tail up.
     emit_turned_box(out, x, z, heading, kFinHalfAcross, kFinBack, kFinFront, ground + kTailTop,
                     ground + kFinTop, colour, fin_tile);
+}
+
+/// A solid tube in a frame turned by `angle` about (x, z), its axis in the frame's upright plane:
+/// from the breech at `breech` along the heading and `breech_y` up, `length` long, raised
+/// `elevation` radians from level. `half_across` is its half-width, `half_thick` its half-depth
+/// square to the axis. Corners in prism order, so it shades as any other part does.
+void emit_raised_tube(std::vector<SceneVertex>& out, float x, float z, float angle, float breech,
+                      float breech_y, float length, float elevation, float half_across,
+                      float half_thick, const Vec3& colour, const UvRect& tile) {
+    const float along = std::cos(elevation);
+    const float up = std::sin(elevation);
+    const auto corner = [&](float dx, float distance, float side) {
+        const float dz = breech + (distance * along) - (side * half_thick * up);
+        const float y = breech_y + (distance * up) + (side * half_thick * along);
+        const std::array<float, 2> at = rotate_offset(x, z, dx, dz, angle);
+        return Vec3{at.at(0), y, at.at(1)};
+    };
+    emit_shaded_solid(out,
+                      {{corner(-half_across, 0.0F, -1.0F), corner(half_across, 0.0F, -1.0F),
+                        corner(half_across, 0.0F, 1.0F), corner(-half_across, 0.0F, 1.0F),
+                        corner(-half_across, length, -1.0F), corner(half_across, length, -1.0F),
+                        corner(half_across, length, 1.0F), corner(-half_across, length, 1.0F)}},
+                      colour, tile, tile);
+}
+
+/// THE MORTAR: a low wide base box on the ground, turned by `heading`; a small mount on it; and a
+/// SHORT STUBBY TUBE angled up 45 degrees -- it lobs -- with a thicker collar at its mouth (the
+/// fleet's convention), all three turned by `gun_yaw`. The base and mount wear the team's camo;
+/// the tube and collar are the saturated side-colour accents, as a tank's barrel is. Its top stays
+/// under the health bar's anchor.
+void build_mortar(std::vector<SceneVertex>& out, std::uint64_t seed, const sim::Unit& unit,
+                  Mark mark, float lift_z, bool lifted, float heading, float aim) {
+    const float x
+        = static_cast<float>(unit.x.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile;
+    const float z
+        = static_cast<float>(unit.y.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile;
+    const float ground = lifted ? lift_z : ground_metres(seed, unit.x, unit.y);
+    const AtlasManifest& atlas = atlas_manifest();
+    const UvRect hull_tile
+        = atlas.rect(kTeamHullNames.at(static_cast<std::size_t>(unit.side))
+                         .at(static_cast<std::size_t>(hull_variant(seed, unit.id.value))));
+    const UvRect barrel_tile = atlas.rect("tank_barrel");
+    const float half_width = kMetresPerTile * 0.3F; ///< a tank's: the base is as wide as one
+    constexpr float kBaseHalfLength = 0.7F;
+    constexpr float kBaseTop = 0.4F;
+    constexpr float kMountHalfAcross = 0.22F;
+    constexpr float kMountHalfLength = 0.25F;
+    constexpr float kMountTop = 0.58F;
+    constexpr float kBreech = -0.15F; ///< along the aim from the centre: the tube leans forward
+    constexpr float kBreechHeight = 0.5F;
+    constexpr float kElevation = 0.785398F; ///< 45 degrees: a lob, not a flat shot
+    constexpr float kTubeLength = 0.55F;
+    constexpr float kTubeHalf = 0.12F; ///< twice a tank barrel's: stubby
+    constexpr float kCollarLength = 0.2F;
+    constexpr float kCollarHalf = 0.16F;
+
+    Vec3 colour = side_colour(unit.side);
+    if (mark == Mark::Selected) {
+        colour = highlight(colour);
+    } else if (mark != Mark::None) {
+        colour = aim_tint(colour, mark == Mark::AimedOwn);
+    }
+    Vec3 camo_colour = colour;
+    for (float& channel : camo_colour) {
+        channel += (1.0F - channel) * kHullPaleMix;
+    }
+
+    emit_turned_box(out, x, z, heading, half_width, -kBaseHalfLength, kBaseHalfLength, ground,
+                    ground + kBaseTop, camo_colour, hull_tile);
+    emit_turned_box(out, x, z, aim, kMountHalfAcross, -kMountHalfLength, kMountHalfLength,
+                    ground + kBaseTop, ground + kMountTop, camo_colour, hull_tile);
+    emit_raised_tube(out, x, z, aim, kBreech, ground + kBreechHeight, kTubeLength, kElevation,
+                     kTubeHalf, kTubeHalf, colour, barrel_tile);
+    const float mouth = kTubeLength;
+    emit_raised_tube(out, x, z, aim, kBreech + (mouth * std::cos(kElevation)),
+                     ground + kBreechHeight + (mouth * std::sin(kElevation)), kCollarLength,
+                     kElevation, kCollarHalf, kCollarHalf, colour, barrel_tile);
+}
+
+/// THE ROCKET: the tank's hull (`emit_tank_hull`, the same seven prisms in the same camo) with,
+/// where the turret and barrel would be, a small mount and a broad RECTANGULAR LAUNCHER RACK on
+/// it -- no gun. The mount wears the camo; the rack is the side-colour accent on the turret's
+/// plain metal, as a tank's roof panel is. Mount and rack turn by `heading + turret`. The rack
+/// stays inside the hull's length and under the health bar's anchor.
+void build_rocket(std::vector<SceneVertex>& out, std::uint64_t seed, const sim::Unit& unit,
+                  Mark mark, float lift_z, bool lifted, float heading, float turret) {
+    const float x
+        = static_cast<float>(unit.x.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile;
+    const float z
+        = static_cast<float>(unit.y.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile;
+    const float ground = lifted ? lift_z : ground_metres(seed, unit.x, unit.y);
+    const AtlasManifest& atlas = atlas_manifest();
+    const UvRect hull_tile
+        = atlas.rect(kTeamHullNames.at(static_cast<std::size_t>(unit.side))
+                         .at(static_cast<std::size_t>(hull_variant(seed, unit.id.value))));
+    const UvRect tracks_tile = atlas.rect("tank_tracks");
+    const UvRect rack_tile = atlas.rect("tank_turret");
+    constexpr float kMountHalfAcross = 0.2F;
+    constexpr float kMountCentre = -0.15F; ///< where a tank's turret stands
+    constexpr float kMountHalfLength = 0.25F;
+    constexpr float kMountBottom = 0.8F; ///< sunk into the compartment roof
+    constexpr float kMountTop = 0.98F;
+    constexpr float kRackHalfAcross = 0.42F;
+    constexpr float kRackBack = -0.75F; ///< along the aim from the centre
+    constexpr float kRackFront = 0.55F;
+    constexpr float kRackBottom = 0.95F;
+    constexpr float kRackTop = 1.18F;
+
+    Vec3 colour = side_colour(unit.side);
+    if (mark == Mark::Selected) {
+        colour = highlight(colour);
+    } else if (mark != Mark::None) {
+        colour = aim_tint(colour, mark == Mark::AimedOwn);
+    }
+    Vec3 camo_colour = colour;
+    for (float& channel : camo_colour) {
+        channel += (1.0F - channel) * kHullPaleMix;
+    }
+
+    emit_tank_hull(out, x, z, ground, heading, colour, camo_colour, hull_tile, tracks_tile);
+    const float rack_angle = heading + turret;
+    emit_turned_box(out, x, z, rack_angle, kMountHalfAcross, kMountCentre - kMountHalfLength,
+                    kMountCentre + kMountHalfLength, ground + kMountBottom, ground + kMountTop,
+                    camo_colour, hull_tile);
+    emit_turned_box(out, x, z, rack_angle, kRackHalfAcross, kRackBack, kRackFront,
+                    ground + kRackBottom, ground + kRackTop, colour, rack_tile);
 }
 
 /// A tracer is brighter than anything it flies over: a unit colour is a thing standing on the
@@ -1037,12 +1174,13 @@ constexpr float kUnitBarOutlineFraction = 1.0F / 450.0F;
 constexpr float kUnitBarGapFraction = 3.0F / 450.0F; ///< from the tank's top to the outline
 constexpr float kTankTopMetres = 1.2F;               ///< the turret roof, above the tank's ground
 
-/// One small health bar over each living tank in view, on the radar's HUD layers: a near-black
-/// outline, a dark track and a fill in the reticle's colours (green yours, red hostile), centred
-/// over the tank and sitting above its projected top. Fixed size, whatever the range. The viewer's
-/// own tank gets none -- its hull is in the HUD panel -- and with no viewer there are no bars at
-/// all, which keeps a frame with no player in it as it was. Always `kUnitBarVertexCount` vertices
-/// per bar, in sim order; a bar with a zero-width fill stays whole.
+/// One small health bar over each living field unit in view (not the factory, not a turret), on the
+/// radar's HUD layers: a near-black outline, a dark track and a fill in the reticle's colours
+/// (green yours, red hostile), centred over the tank and sitting above its projected top. Fixed
+/// size, whatever the range. The viewer's own tank gets none -- its hull is in the HUD panel -- and
+/// with no viewer there are no bars at all, which keeps a frame with no player in it as it was.
+/// Always `kUnitBarVertexCount` vertices per bar, in sim order; a bar with a zero-width fill stays
+/// whole.
 void append_unit_bars(std::vector<SceneVertex>& out, const SceneOptions& options,
                       const sim::Sim& sim) {
     if (!options.viewer_unit.valid()) {
@@ -1070,10 +1208,14 @@ void append_unit_bars(std::vector<SceneVertex>& out, const SceneOptions& options
     const int centre_x = static_cast<int>(std::floor(options.camera.x / kMetresPerTile));
     const int centre_y = static_cast<int>(std::floor(options.camera.z / kMetresPerTile));
     for (const sim::Unit& unit : sim.units()) {
-        if (!unit.alive || !sim::is_tank(unit.kind) || unit.id == options.viewer_unit) {
+        // Every unit in the field wears one -- tank, hover tank, mortar, rocket alike. The
+        // structures do not: the factory is the base, and a turret wears its DEPLOYING plate there.
+        const bool structure
+            = unit.kind == sim::UnitKind::Factory || unit.kind == sim::UnitKind::Turret;
+        if (!unit.alive || structure || unit.id == options.viewer_unit) {
             continue;
         }
-        // Only a tank that is drawn gets a bar: the same terrain window the units use.
+        // Only a unit that is drawn gets a bar: the same terrain window the units use.
         if (std::abs(unit.x.floor_int() - centre_x) > options.radius_tiles
             || std::abs(unit.y.floor_int() - centre_y) > options.radius_tiles) {
             continue;
@@ -1515,6 +1657,12 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
             if (unit.kind == sim::UnitKind::HoverTank) {
                 build_hover_tank(scene.vertices, options.seed, unit, mark, lift_z, hovering,
                                  heading, turret);
+            } else if (unit.kind == sim::UnitKind::Mortar) {
+                build_mortar(scene.vertices, options.seed, unit, mark, lift_z, hovering, heading,
+                             heading + turret);
+            } else if (unit.kind == sim::UnitKind::Rocket) {
+                build_rocket(scene.vertices, options.seed, unit, mark, lift_z, hovering, heading,
+                             turret);
             } else if (faced || unit.kind == sim::UnitKind::Tank) {
                 build_facing_tank(scene.vertices, options.seed, unit, mark, lift_z, hovering,
                                   heading, turret);

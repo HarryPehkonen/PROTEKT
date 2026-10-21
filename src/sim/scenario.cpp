@@ -29,8 +29,9 @@ struct Offset {
 };
 
 /// The roster's kinds, in spawn order (creation order is id order): tanks, the hover tank, the
-/// factory, then the turrets. Both sides spawn the same list.
-constexpr std::array<UnitKind, 7> kRoster{{
+/// factory, the turrets, then the support weapons -- the mortar and the rocket. Both sides spawn
+/// the same list. The support weapons come last so every unit before them keeps its id and tile.
+constexpr std::array<UnitKind, 9> kRoster{{
     UnitKind::Tank,
     UnitKind::Tank,
     UnitKind::Tank,
@@ -38,11 +39,15 @@ constexpr std::array<UnitKind, 7> kRoster{{
     UnitKind::Factory,
     UnitKind::Turret,
     UnitKind::Turret,
+    UnitKind::Mortar,
+    UnitKind::Rocket,
 }};
 
 /// Offsets from the side's base centre, parallel to kRoster; mirrored for the enemy so the two
-/// sides face each other.
-constexpr std::array<Offset, 7> kOffsets{{
+/// sides face each other. +x,+y is toward the enemy: the tanks lead, the turrets flank the factory,
+/// and the mortar and rocket stand BEHIND it, at the rear of the cluster, where the tanks screen
+/// them.
+constexpr std::array<Offset, 9> kOffsets{{
     {8, 2},
     {8, 8},
     {2, 8},
@@ -50,6 +55,8 @@ constexpr std::array<Offset, 7> kOffsets{{
     {0, 0},
     {5, -3},
     {-3, 5},
+    {-4, -1},
+    {-1, -4},
 }};
 
 bool passable(std::uint64_t seed, int x, int y) {

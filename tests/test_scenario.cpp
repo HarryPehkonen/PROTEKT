@@ -24,10 +24,11 @@ int count_of(const Scenario& s, Side side, UnitKind kind) {
     return n;
 }
 
+// Updated (R3b2): nine a side -- the mortar and the rocket joined.
 TEST(Scenario, BothSidesGetTheFrozenComposition) {
     const Scenario s = skirmish(42);
     EXPECT_EQ(s.seed, 42U);
-    ASSERT_EQ(s.spawns.size(), 14U) << "7 units a side, the hover tank included";
+    ASSERT_EQ(s.spawns.size(), 18U) << "9 units a side, the hover tank, mortar and rocket included";
     EXPECT_EQ(count_of(s, Side::Player, UnitKind::HoverTank), 1);
     EXPECT_EQ(count_of(s, Side::Enemy, UnitKind::HoverTank), 1);
     EXPECT_EQ(s.spawns.at(3).kind, UnitKind::HoverTank) << "the player's fourth unit";
@@ -36,14 +37,17 @@ TEST(Scenario, BothSidesGetTheFrozenComposition) {
         EXPECT_EQ(count_of(s, side, UnitKind::Tank), 3);
         EXPECT_EQ(count_of(s, side, UnitKind::Factory), 1);
         EXPECT_EQ(count_of(s, side, UnitKind::Turret), 2);
+        EXPECT_EQ(count_of(s, side, UnitKind::Mortar), 1);
+        EXPECT_EQ(count_of(s, side, UnitKind::Rocket), 1);
     }
 }
 
+// Updated (R3b2): 18 spawns now; the hover tank is still the player's fourth.
 TEST(Scenario, ThePlayersFourthUnitIsAHoverTankDeterministicallyFromTheSeed) {
     for (const std::uint64_t seed : {7ULL, 42ULL}) {
         const Scenario a = skirmish(seed);
         const Scenario b = skirmish(seed);
-        ASSERT_EQ(a.spawns.size(), 14U);
+        ASSERT_EQ(a.spawns.size(), 18U);
         EXPECT_EQ(a.spawns.at(3).kind, UnitKind::HoverTank);
         EXPECT_EQ(a.spawns.at(3).side, Side::Player);
         EXPECT_EQ(a.spawns.at(3).tile_x, b.spawns.at(3).tile_x);
@@ -87,9 +91,10 @@ TEST(Scenario, IsAPureFunctionOfTheSeed) {
     EXPECT_TRUE(differs) << "two seeds must not produce the same battlefield run for run";
 }
 
+// Updated (R3b2): 18 units.
 TEST(Scenario, IdsAreAscendingAndUnique) {
     Sim sim = Sim::create(skirmish(42));
-    ASSERT_EQ(sim.units().size(), 14U);
+    ASSERT_EQ(sim.units().size(), 18U);
     std::set<std::uint32_t> seen;
     for (const Unit& u : sim.units()) {
         EXPECT_TRUE(u.id.valid());

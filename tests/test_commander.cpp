@@ -19,12 +19,13 @@ namespace {
 using namespace protekt::ai;
 using namespace protekt::sim;
 
+// Updated (R3b2): nine a side.
 TEST(Commander, ObserveSplitsOwnFromEnemyAndOnlyLivingUnits) {
     Sim sim = Sim::create(skirmish(42));
     const Observation obs = observe(sim, Side::Player);
     EXPECT_EQ(obs.tick, 0U);
-    EXPECT_EQ(obs.own.size(), 7U);
-    EXPECT_EQ(obs.enemy.size(), 7U);
+    EXPECT_EQ(obs.own.size(), 9U);
+    EXPECT_EQ(obs.enemy.size(), 9U);
     for (const UnitView& v : obs.own) {
         EXPECT_EQ(v.side, Side::Player);
     }

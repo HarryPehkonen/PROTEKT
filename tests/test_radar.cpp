@@ -362,6 +362,24 @@ TEST(RadarMarks, ABaseIsBiggerThanATankAndYouAreInBetween) {
     EXPECT_GT(marks.at(0).half, marks.at(1).half); // and you read bigger than both
 }
 
+/// R3b2: a mortar and a rocket are units like any other -- the same square dot a tank gets, in
+/// the same size and tone, with nothing special-cased for them.
+TEST(RadarMarks, AMortarAndARocketAreMarkedExactlyAsATankIs) {
+    const std::vector<Unit> units = with_viewer({
+        at_bearing(2, 5.0F, 0.0F, Side::Enemy),
+        at_bearing(3, 8.0F, 90.0F, Side::Enemy, UnitKind::Mortar),
+        at_bearing(4, 11.0F, 180.0F, Side::Player, UnitKind::Rocket),
+    });
+    const std::vector<RadarMark> marks = radar_marks(units, UnitId{1}, 0.0F, kPanel);
+    ASSERT_EQ(marks.size(), 4U);
+    for (std::size_t i = 2; i < 4; ++i) {
+        EXPECT_EQ(marks.at(i).shape, RadarShape::Square) << "mark " << i;
+        EXPECT_FLOAT_EQ(marks.at(i).half, marks.at(1).half) << "mark " << i;
+    }
+    EXPECT_EQ(marks.at(2).tone, RadarTone::Hostile);
+    EXPECT_EQ(marks.at(3).tone, RadarTone::Yours);
+}
+
 TEST(RadarMarks, TheSameStateGivesTheSameMarksInTheSameOrder) {
     const std::vector<Unit> units = with_viewer({
         at_bearing(2, 5.0F, 10.0F, Side::Enemy),

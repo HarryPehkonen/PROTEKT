@@ -4270,4 +4270,112 @@ TEST(TurretModel, ADefenseTurretIsAPedestalAHousingAMuzzleCollarAndABarrel) {
         << "a barrel you can read, past the pedestal";
 }
 
+// ---------------------------------------------------------------- the mortar and the rocket (R3b2)
+//
+// Both are built of the fleet's shaded prisms and wear the team's camo with side-colour accents; no
+// new atlas tile. The mortar is a low wide box, a mount and a short stubby tube angled up with a
+// collar at its mouth (it lobs). The rocket is the tank's hull -- the same seven prisms, byte for
+// byte -- with a mount and a rectangular launcher rack where the turret and barrel would be.
+
+constexpr std::size_t kMortarBase = 0;
+constexpr std::size_t kMortarMount = 36;
+constexpr std::size_t kMortarTube = 72;
+constexpr std::size_t kMortarCollar = 108;
+constexpr std::size_t kRocketHull = std::size_t{7} * 36U; ///< the tank's tracks .. fenders
+constexpr std::size_t kRocketRack = kRocketHull + 36U;
+
+TEST(MortarModel, TheMortarIsALowWideBoxAMountAStubbyTubeAndACollar) {
+    const auto model = unit_box_of(UnitKind::Mortar);
+    ASSERT_EQ(model.size(), protekt::game::kMortarVertices);
+    EXPECT_EQ(protekt::game::kMortarVertices, std::size_t{144}) << "four prisms";
+    const auto sim = sim_of({{Side::Player, UnitKind::Mortar, 100, 100}});
+    const protekt::sim::Unit& unit = sim.units().at(0);
+    const float ground = protekt::game::ground_metres(42, unit.x, unit.y);
+    // Low and wide: the base is under half a metre tall and as wide as a tank.
+    EXPECT_LT(highest(model, kMortarBase, kMortarMount) - ground, 0.5F);
+    const auto base = reach_of(model, kMortarBase, kMortarMount, unit);
+    EXPECT_GT(base[1], kMetresPerTile * 0.3F) << "as wide as a tank";
+    // The tube is angled UP: its mouth (the collar) stands well over its breech, and it is short.
+    EXPECT_GT(highest(model, kMortarCollar, model.size()),
+              lowest(model, kMortarTube, kMortarCollar) + 0.4F);
+    const auto tube = reach_of(model, kMortarTube, model.size(), unit);
+    EXPECT_LT(tube[1], 1.2F) << "stubby: nothing like the tank's 2 m barrel";
+    // And it stays under the health bar's 1.2 m anchor.
+    EXPECT_LE(highest(model, 0, model.size()) - ground, 1.2F);
+    EXPECT_GE(highest(model, 0, model.size()) - ground, 0.9F);
+}
+
+TEST(MortarModel, TheTubeAndCollarCarryTheSideColourAndTheSidesDiffer) {
+    const auto mine = unit_box_of(UnitKind::Mortar);
+    const auto theirs = [] {
+        const auto sim = sim_of({{Side::Enemy, UnitKind::Mortar, 100, 100}});
+        return tank_only(sim, sim.units().at(0), {});
+    }();
+    ASSERT_EQ(mine.size(), theirs.size());
+    EXPECT_NE(mine.at(kMortarTube).colour, theirs.at(kMortarTube).colour);
+    EXPECT_NE(mine.at(kMortarBase).colour, theirs.at(kMortarBase).colour);
+    // The base is the pale camo tint; the tube is the saturated accent, so they differ.
+    EXPECT_NE(mine.at(kMortarBase).colour, mine.at(kMortarTube).colour);
+}
+
+TEST(RocketModel, TheRocketIsATanksHullWithAMountAndALauncherRack) {
+    const auto rocket = unit_box_of(UnitKind::Rocket);
+    ASSERT_EQ(rocket.size(), protekt::game::kRocketVertices);
+    EXPECT_EQ(protekt::game::kRocketVertices, std::size_t{324}) << "nine prisms";
+    // The hull is the tank's, vertex for vertex: the same id at the same tile wears the same camo.
+    const auto tank = unit_box_of(UnitKind::Tank);
+    for (std::size_t i = 0; i < kRocketHull; ++i) {
+        ASSERT_EQ(rocket.at(i).position, tank.at(i).position) << "vertex " << i;
+        ASSERT_EQ(rocket.at(i).colour, tank.at(i).colour) << "vertex " << i;
+        ASSERT_EQ(rocket.at(i).u, tank.at(i).u) << "vertex " << i;
+    }
+    // No barrel: nothing on it addresses the barrel tile.
+    const UvRect barrel = tile_rect(protekt::game::atlas_manifest().tile("tank_barrel"));
+    for (const SceneVertex& v : rocket) {
+        ASSERT_FALSE(on_rect(v, barrel)) << "a rocket carries a rack, not a gun";
+    }
+    // The rack sits on the mount, is a broad slab rather than a barrel, and stays inside the hull's
+    // length rather than reaching past the nose as a barrel does.
+    const auto sim = sim_of({{Side::Player, UnitKind::Rocket, 100, 100}});
+    const protekt::sim::Unit& unit = sim.units().at(0);
+    EXPECT_GE(lowest(rocket, kRocketRack, rocket.size()) + kTolerance,
+              lowest(rocket, kRocketHull, kRocketRack));
+    const auto rack = reach_of(rocket, kRocketRack, rocket.size(), unit);
+    EXPECT_LT(rack[1], 1.3F) << "inside the 1.3 m track, no barrel past the nose";
+    const float ground = protekt::game::ground_metres(42, unit.x, unit.y);
+    EXPECT_LE(highest(rocket, 0, rocket.size()) - ground, 1.2F) << "under the bar's anchor";
+    EXPECT_NE(rocket.at(kRocketRack).colour, rocket.at(kRocketHull - 36U).colour)
+        << "the rack is the side-colour accent, the fender the pale camo";
+}
+
+TEST(MortarModel, AMortarAndARocketInViewEachGetABarLikeATank) {
+    using protekt::sim::Spawn;
+    protekt::sim::Scenario scenario;
+    scenario.seed = 42;
+    scenario.spawns.push_back(Spawn{UnitKind::Tank, Side::Player, 50, 50});
+    scenario.spawns.push_back(Spawn{UnitKind::Mortar, Side::Player, 54, 51});
+    scenario.spawns.push_back(Spawn{UnitKind::Rocket, Side::Enemy, 46, 51});
+    const auto sim = protekt::sim::Sim::create(scenario);
+    BarBattle b = bar_battle();
+    b.options.viewer_unit = sim.units().front().id;
+    const Scene scene = build_scene(sim, b.options);
+    const std::vector<UnitBar> bars = unit_bars_of(b.options, scene);
+    ASSERT_EQ(bars.size(), 2U);
+    EXPECT_EQ(bars.at(0).fill_colour, kOwnBarRgb);
+    EXPECT_EQ(bars.at(1).fill_colour, kHostileBarRgb);
+}
+
+TEST(MortarModel, TwoBuildsOfASkirmishWithBothInViewAreByteIdentical) {
+    const auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(42));
+    const protekt::sim::Unit& mortar = sim.units().at(7);
+    ASSERT_EQ(mortar.kind, UnitKind::Mortar);
+    const SceneOptions options = at_tank(mortar);
+    const Scene a = build_scene(sim, options);
+    const Scene b = build_scene(sim, options);
+    ASSERT_EQ(a.vertices.size(), b.vertices.size());
+    EXPECT_EQ(
+        std::memcmp(a.vertices.data(), b.vertices.data(), a.vertices.size() * sizeof(SceneVertex)),
+        0);
+}
+
 } // namespace

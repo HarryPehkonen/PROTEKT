@@ -117,17 +117,29 @@ TEST(Mortar, ExistingKindsKeepTheOldRangeAndNoSplashOrGravity) {
     }
 }
 
-TEST(Mortar, NeitherNewKindIsInEitherRoster) {
+// Replaced (R3b2): was NeitherNewKindIsInEitherRoster -- R3b-1 kept them off the field; R3b2
+// puts exactly one of each on every side.
+TEST(Mortar, EachRosterCarriesExactlyOneOfEachNewKind) {
     for (const Side side : {Side::Player, Side::Enemy}) {
+        int mortars = 0;
+        int rockets = 0;
         for (const UnitKind kind : side_roster(side)) {
-            EXPECT_NE(kind, UnitKind::Mortar);
-            EXPECT_NE(kind, UnitKind::Rocket);
+            mortars += kind == UnitKind::Mortar ? 1 : 0;
+            rockets += kind == UnitKind::Rocket ? 1 : 0;
         }
+        EXPECT_EQ(mortars, 1);
+        EXPECT_EQ(rockets, 1);
     }
     const Scenario s = skirmish(7);
-    for (const Spawn& spawn : s.spawns) {
-        EXPECT_NE(spawn.kind, UnitKind::Mortar);
-        EXPECT_NE(spawn.kind, UnitKind::Rocket);
+    for (const Side side : {Side::Player, Side::Enemy}) {
+        int mortars = 0;
+        int rockets = 0;
+        for (const Spawn& spawn : s.spawns) {
+            mortars += spawn.side == side && spawn.kind == UnitKind::Mortar ? 1 : 0;
+            rockets += spawn.side == side && spawn.kind == UnitKind::Rocket ? 1 : 0;
+        }
+        EXPECT_EQ(mortars, 1);
+        EXPECT_EQ(rockets, 1);
     }
 }
 
