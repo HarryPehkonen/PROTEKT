@@ -2,7 +2,9 @@
 
 #include <algorithm>
 #include <array>
+#include <cstddef>
 #include <cstdlib>
+#include <span>
 
 #include "protekt/rng.hpp"
 #include "protekt/world/world.hpp"
@@ -21,24 +23,33 @@ constexpr int kEnemyEdge = 144;
 constexpr int kJitter = 24;
 constexpr int kBaseAttempts = 32; ///< enemy base candidates tried per seed
 
-struct Slot {
-    UnitKind kind;
+struct Offset {
     int dx;
     int dy;
-    bool mirrored; ///< the enemy gets the same slot; false means the player's alone
 };
 
-/// Creation order is id order: tanks, the player's hover tank, then the factory, then the turrets.
-/// Offsets are mirrored for the enemy so the two sides face each other. The hover tank is the
-/// player's fourth unit and has no enemy twin.
-constexpr std::array<Slot, 7> kComposition{{
-    {UnitKind::Tank, 8, 2, true},
-    {UnitKind::Tank, 8, 8, true},
-    {UnitKind::Tank, 2, 8, true},
-    {UnitKind::HoverTank, 5, 5, false},
-    {UnitKind::Factory, 0, 0, true},
-    {UnitKind::Turret, 5, -3, true},
-    {UnitKind::Turret, -3, 5, true},
+/// The roster's kinds, in spawn order (creation order is id order): tanks, the hover tank, the
+/// factory, then the turrets. Both sides spawn the same list.
+constexpr std::array<UnitKind, 7> kRoster{{
+    UnitKind::Tank,
+    UnitKind::Tank,
+    UnitKind::Tank,
+    UnitKind::HoverTank,
+    UnitKind::Factory,
+    UnitKind::Turret,
+    UnitKind::Turret,
+}};
+
+/// Offsets from the side's base centre, parallel to kRoster; mirrored for the enemy so the two
+/// sides face each other.
+constexpr std::array<Offset, 7> kOffsets{{
+    {8, 2},
+    {8, 8},
+    {2, 8},
+    {5, 5},
+    {0, 0},
+    {5, -3},
+    {-3, 5},
 }};
 
 bool passable(std::uint64_t seed, int x, int y) {
@@ -97,6 +108,8 @@ int blocked_tiles(std::uint64_t seed, int x0, int y0, int x1, int y1) {
 
 } // namespace
 
+std::span<const UnitKind> side_roster(Side /*side*/) noexcept { return kRoster; }
+
 Scenario skirmish(std::uint64_t seed) {
     rng::SplitMix64 stream(rng::stream_seed(seed, kScenarioStream));
     const int jitter = static_cast<int>(kJitter);
@@ -105,10 +118,12 @@ Scenario skirmish(std::uint64_t seed) {
 
     Scenario scenario{};
     scenario.seed = seed;
-    scenario.spawns.reserve(2 * kComposition.size() - 1);
-    for (const Slot& slot : kComposition) {
-        scenario.spawns.push_back(place(seed, scenario.spawns, slot.kind, Side::Player,
-                                        player_x + slot.dx, player_y + slot.dy));
+    scenario.spawns.reserve(2 * kRoster.size());
+    const std::span<const UnitKind> player_roster = side_roster(Side::Player);
+    for (std::size_t i = 0; i < player_roster.size(); ++i) {
+        scenario.spawns.push_back(place(seed, scenario.spawns, player_roster[i], Side::Player,
+                                        player_x + kOffsets.at(i).dx,
+                                        player_y + kOffsets.at(i).dy));
     }
 
     // The enemy base: the candidate (drawn from the same seeded stream) whose straight lines from
@@ -131,12 +146,10 @@ Scenario skirmish(std::uint64_t seed) {
             enemy_y = cy;
         }
     }
-    for (const Slot& slot : kComposition) {
-        if (!slot.mirrored) {
-            continue;
-        }
-        scenario.spawns.push_back(place(seed, scenario.spawns, slot.kind, Side::Enemy,
-                                        enemy_x - slot.dx, enemy_y - slot.dy));
+    const std::span<const UnitKind> enemy_roster = side_roster(Side::Enemy);
+    for (std::size_t i = 0; i < enemy_roster.size(); ++i) {
+        scenario.spawns.push_back(place(seed, scenario.spawns, enemy_roster[i], Side::Enemy,
+                                        enemy_x - kOffsets.at(i).dx, enemy_y - kOffsets.at(i).dy));
     }
     return scenario;
 }

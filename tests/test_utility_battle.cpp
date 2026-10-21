@@ -21,10 +21,10 @@ using sim::BattleEvent;
 using sim::BattleLog;
 using sim::EventKind;
 
-/// A seed where the two commanders genuinely trade. It was 2 until the player gained a fourth unit
-/// (the hover tank): there the player now wins without losing a unit, so seed 9, where each side
-/// loses one, replaces it.
-constexpr unsigned kSeed = 9;
+/// A seed where the two commanders genuinely trade. It was 2, then 9; RE-RECORDED for R3a, when the
+/// enemy gained its own hover tank and battles changed again: seed 777 now has each side losing
+/// units, with first contact at tick 325.
+constexpr unsigned kSeed = 777;
 constexpr sim::Tick kTicks = 2400;
 
 struct Fight {

@@ -27,9 +27,9 @@ int count_of(const Scenario& s, Side side, UnitKind kind) {
 TEST(Scenario, BothSidesGetTheFrozenComposition) {
     const Scenario s = skirmish(42);
     EXPECT_EQ(s.seed, 42U);
-    ASSERT_EQ(s.spawns.size(), 13U) << "6 units a side, plus the player's hover tank";
+    ASSERT_EQ(s.spawns.size(), 14U) << "7 units a side, the hover tank included";
     EXPECT_EQ(count_of(s, Side::Player, UnitKind::HoverTank), 1);
-    EXPECT_EQ(count_of(s, Side::Enemy, UnitKind::HoverTank), 0);
+    EXPECT_EQ(count_of(s, Side::Enemy, UnitKind::HoverTank), 1);
     EXPECT_EQ(s.spawns.at(3).kind, UnitKind::HoverTank) << "the player's fourth unit";
     EXPECT_EQ(s.spawns.at(3).side, Side::Player);
     for (const Side side : {Side::Player, Side::Enemy}) {
@@ -43,7 +43,7 @@ TEST(Scenario, ThePlayersFourthUnitIsAHoverTankDeterministicallyFromTheSeed) {
     for (const std::uint64_t seed : {7ULL, 42ULL}) {
         const Scenario a = skirmish(seed);
         const Scenario b = skirmish(seed);
-        ASSERT_EQ(a.spawns.size(), 13U);
+        ASSERT_EQ(a.spawns.size(), 14U);
         EXPECT_EQ(a.spawns.at(3).kind, UnitKind::HoverTank);
         EXPECT_EQ(a.spawns.at(3).side, Side::Player);
         EXPECT_EQ(a.spawns.at(3).tile_x, b.spawns.at(3).tile_x);
@@ -89,7 +89,7 @@ TEST(Scenario, IsAPureFunctionOfTheSeed) {
 
 TEST(Scenario, IdsAreAscendingAndUnique) {
     Sim sim = Sim::create(skirmish(42));
-    ASSERT_EQ(sim.units().size(), 13U);
+    ASSERT_EQ(sim.units().size(), 14U);
     std::set<std::uint32_t> seen;
     for (const Unit& u : sim.units()) {
         EXPECT_TRUE(u.id.valid());

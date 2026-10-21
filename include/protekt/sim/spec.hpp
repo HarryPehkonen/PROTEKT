@@ -25,6 +25,8 @@ struct UnitSpec {
     /// may climb
     /// (`vz` raw <= arc * bolt_speed * kHeightUnitsPerTile), so 2.0 is a 63 degree ceiling.
     Fixed arc{};
+    /// May a side build this kind in play. False for every kind today; the build menu fills it.
+    bool buildable{};
 };
 
 /// Every armed kind today shoots at kProjectileSpeedRaw with a climb ceiling of 2.0.
@@ -33,15 +35,16 @@ inline constexpr std::int32_t kBoltArcRaw = 2 * Fixed::kOne;
 /// Indexed by the value of `UnitKind`, which stays the index type; the order below is the enum's.
 inline constexpr std::array<UnitSpec, static_cast<std::size_t>(kUnitKindCount)> kUnitSpecs{{
     {"tank", kTankHp, Fixed::from_raw(kTankSpeedRaw), Fixed::from_raw(kTankRangeRaw), kTankDamage,
-     kTankCooldownTicks, Fixed::from_raw(kProjectileSpeedRaw), Fixed::from_raw(kBoltArcRaw)},
+     kTankCooldownTicks, Fixed::from_raw(kProjectileSpeedRaw), Fixed::from_raw(kBoltArcRaw), false},
     {"turret", kTurretHp, Fixed::from_raw(kTurretSpeedRaw), Fixed::from_raw(kTurretRangeRaw),
      kTurretDamage, kTurretCooldownTicks, Fixed::from_raw(kProjectileSpeedRaw),
-     Fixed::from_raw(kBoltArcRaw)},
-    {"factory", kFactoryHp, Fixed::zero(), Fixed::zero(), 0, 0, Fixed::zero(), Fixed::zero()},
+     Fixed::from_raw(kBoltArcRaw), false},
+    {"factory", kFactoryHp, Fixed::zero(), Fixed::zero(), 0, 0, Fixed::zero(), Fixed::zero(),
+     false},
     // The hover tank has the tank's numbers: the look and the controls differ, not the stats.
     {"hovertank", kTankHp, Fixed::from_raw(kTankSpeedRaw), Fixed::from_raw(kTankRangeRaw),
      kTankDamage, kTankCooldownTicks, Fixed::from_raw(kProjectileSpeedRaw),
-     Fixed::from_raw(kBoltArcRaw)},
+     Fixed::from_raw(kBoltArcRaw), false},
 }};
 
 [[nodiscard]] constexpr const UnitSpec& spec_of(UnitKind kind) noexcept {

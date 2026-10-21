@@ -24,7 +24,7 @@ TEST(Commander, ObserveSplitsOwnFromEnemyAndOnlyLivingUnits) {
     const Observation obs = observe(sim, Side::Player);
     EXPECT_EQ(obs.tick, 0U);
     EXPECT_EQ(obs.own.size(), 7U);
-    EXPECT_EQ(obs.enemy.size(), 6U);
+    EXPECT_EQ(obs.enemy.size(), 7U);
     for (const UnitView& v : obs.own) {
         EXPECT_EQ(v.side, Side::Player);
     }
