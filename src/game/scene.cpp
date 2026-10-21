@@ -308,7 +308,7 @@ void build_unit_box(std::vector<SceneVertex>& out, std::uint64_t seed, const sim
     }
 
     // An axis-aligned box is a prism at angle 0, so it is shaded like every other unit part. A
-    // factory's walls and roof take their own tiles; a turret is turret body all over.
+    // factory's walls and roof take their own tiles; anything else is turret body all over.
     const AtlasManifest& atlas = atlas_manifest();
     const bool factory = unit.kind == sim::UnitKind::Factory;
     const UvRect sides = atlas.rect(factory ? "factory_walls" : "turret_body");
@@ -322,6 +322,56 @@ void build_unit_box(std::vector<SceneVertex>& out, std::uint64_t seed, const sim
                       Prism{-half_width, half_width, -half_width, -half_width, half_width,
                             half_width, ground, ground + height, ground + height},
                       colour, sides, top);
+}
+
+/// A defense turret, built of the same shaded prisms as a tank and all of the `turret_body` metal
+/// tile: a square pedestal on the ground turned by `heading` (the turret crawls, and faces its
+/// course as a tank does), a housing on top of it, and a barrel from the housing's front face with
+/// a thicker muzzle collar AT ITS TIP -- the fleet's convention. The housing, collar and barrel
+/// turn together by `aim`. The top of the housing is the old box's 1.8 m, which is what the picker
+/// tests against. The pedestal and housing are the pale tint the box was; the collar and barrel
+/// carry the full side colour, as a tank's barrel does.
+void build_defense_turret(std::vector<SceneVertex>& out, std::uint64_t seed, const sim::Unit& unit,
+                          Mark mark, float lift_z, bool lifted, float heading, float aim) {
+    const float x
+        = static_cast<float>(unit.x.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile;
+    const float z
+        = static_cast<float>(unit.y.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile;
+    const float ground = lifted ? lift_z : ground_metres(seed, unit.x, unit.y);
+    const float half_width = kMetresPerTile * 0.3F;
+    constexpr float kPedestalHeight = 1.1F;
+    constexpr float kHousingHalfAcross = 0.45F;
+    constexpr float kHousingBack = -0.5F;
+    constexpr float kHousingFront = 0.45F;
+    constexpr float kHousingTop = 1.8F; ///< above the ground
+    constexpr float kBarrelHalfAcross = 0.08F;
+    constexpr float kBarrelBottom = 1.36F;
+    constexpr float kBarrelTop = 1.52F;
+    constexpr float kBarrelTip = 2.0F; ///< from the turret's centre, well past the pedestal
+    constexpr float kCollarLength = 0.3F;
+    constexpr float kCollarHalfAcross = 0.13F;
+    constexpr float kCollarBottom = 1.32F;
+    constexpr float kCollarTop = 1.56F;
+
+    Vec3 colour = side_colour(unit.side);
+    if (mark == Mark::Selected) {
+        colour = highlight(colour);
+    } else if (mark != Mark::None) {
+        colour = aim_tint(colour, mark == Mark::AimedOwn);
+    }
+    Vec3 pale = colour;
+    for (float& channel : pale) {
+        channel += (1.0F - channel) * kHullPaleMix;
+    }
+    const UvRect metal = atlas_manifest().rect("turret_body");
+    emit_turned_box(out, x, z, heading, half_width, -half_width, half_width, ground,
+                    ground + kPedestalHeight, pale, metal);
+    emit_turned_box(out, x, z, aim, kHousingHalfAcross, kHousingBack, kHousingFront,
+                    ground + kPedestalHeight, ground + kHousingTop, pale, metal);
+    emit_turned_box(out, x, z, aim, kCollarHalfAcross, kBarrelTip - kCollarLength, kBarrelTip,
+                    ground + kCollarBottom, ground + kCollarTop, colour, metal);
+    emit_turned_box(out, x, z, aim, kBarrelHalfAcross, kHousingFront, kBarrelTip - kCollarLength,
+                    ground + kBarrelBottom, ground + kBarrelTop, colour, metal);
 }
 
 /// A tank, abstracted from a side-on battle tank and built only of flat-shaded prisms: two dark
@@ -1106,6 +1156,22 @@ float Headings::of(const sim::Unit& unit) const {
     return found != last_.end() ? found->second : 0.0F;
 }
 
+float gun_yaw(const sim::Sim& sim, const sim::Unit& unit, float heading) {
+    const sim::UnitId attacking = unit.stance == sim::Stance::Attack ? unit.target : sim::UnitId{};
+    for (const sim::UnitId source : {unit.focus_target, attacking, unit.aim_target}) {
+        if (!source.valid()) {
+            continue;
+        }
+        const sim::Unit* target = sim.find(source);
+        if (target != nullptr && target->alive) {
+            // The same yaw convention as `Headings::heading_of`, from the raw Q16.16 offsets.
+            return std::atan2(static_cast<float>(target->x.raw - unit.x.raw),
+                              static_cast<float>(target->y.raw - unit.y.raw));
+        }
+    }
+    return heading;
+}
+
 float Camera::wrap_angle(float radians) noexcept {
     float wrapped = std::fmod(radians + kPi, 2.0F * kPi);
     if (wrapped < 0.0F) {
@@ -1159,22 +1225,24 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
             const bool hovering = options.hover.has_value() && options.hover->unit == unit.id;
             const float lift_z = hovering ? options.hover->z : 0.0F;
             const bool faced = options.facing.has_value() && options.facing->unit == unit.id;
+            // The hull's heading, and -- for every gun but the driven one -- the turret turned
+            // from it to where `gun_yaw` says the gun points. The driven unit's turret is the
+            // player's, untouched.
+            const float heading = faced ? options.facing->heading
+                                  : options.headings != nullptr
+                                      ? options.headings->of(unit)
+                                      : Headings::heading_of(unit).value_or(0.0F);
+            const float turret
+                = faced ? options.facing->turret : gun_yaw(sim, unit, heading) - heading;
             if (unit.kind == sim::UnitKind::HoverTank) {
-                const float heading = faced ? options.facing->heading
-                                      : options.headings != nullptr
-                                          ? options.headings->of(unit)
-                                          : Headings::heading_of(unit).value_or(0.0F);
                 build_hover_tank(scene.vertices, options.seed, unit, mark, lift_z, hovering,
-                                 heading, faced ? options.facing->turret : 0.0F);
-            } else if (faced) {
+                                 heading, turret);
+            } else if (faced || unit.kind == sim::UnitKind::Tank) {
                 build_facing_tank(scene.vertices, options.seed, unit, mark, lift_z, hovering,
-                                  options.facing->heading, options.facing->turret);
-            } else if (unit.kind == sim::UnitKind::Tank) {
-                const float heading = options.headings != nullptr
-                                          ? options.headings->of(unit)
-                                          : Headings::heading_of(unit).value_or(0.0F);
-                build_facing_tank(scene.vertices, options.seed, unit, mark, lift_z, hovering,
-                                  heading, 0.0F);
+                                  heading, turret);
+            } else if (unit.kind == sim::UnitKind::Turret) {
+                build_defense_turret(scene.vertices, options.seed, unit, mark, lift_z, hovering,
+                                     heading, heading + turret);
             } else {
                 build_unit_box(scene.vertices, options.seed, unit, mark, lift_z, hovering);
             }

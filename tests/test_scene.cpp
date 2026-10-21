@@ -3328,10 +3328,12 @@ TEST(UnitBoxUv, AFactorysWallsTakeTheWallTileAndItsRoofTheRoofTile) {
     expect_corners_of(box, 30, 36, walls, "underside");
 }
 
+// Re-pinned DELIBERATELY (D5a-2): the turret was one box, it is four prisms of the metal tile now.
 TEST(UnitBoxUv, ATurretIsTurretBodyAllOver) {
     const auto box = unit_box_of(UnitKind::Turret);
-    ASSERT_EQ(box.size(), std::size_t{36});
-    expect_corners_of(box, 0, 36, tile_rect(protekt::game::atlas_manifest().tile("turret_body")),
+    ASSERT_EQ(box.size(), protekt::game::kTurretVertices);
+    expect_corners_of(box, 0, protekt::game::kTurretVertices,
+                      tile_rect(protekt::game::atlas_manifest().tile("turret_body")),
                       "turret body");
 }
 
@@ -3553,6 +3555,217 @@ TEST(HoverShape, AHoverTankInViewGetsItsBarOverIt) {
     EXPECT_NEAR(bars.front().track.centre_x(), top.x, 1.0F);
     EXPECT_LT(bars.front().outline.bottom, top.y);
     EXPECT_GT(bars.front().outline.bottom, top.y - 8.0F);
+}
+
+} // namespace
+
+// D5a-2: guns point where they shoot. Every gun that is not the driven one is aimed from the sim's
+// own persistent target data (`game::gun_yaw`); with none it lies along its heading.
+
+namespace {
+
+using protekt::game::gun_yaw;
+using protekt::game::kTurretVertices;
+
+/// The world yaw from one unit to another, in the `Headings` convention.
+float bearing(const protekt::sim::Unit& from, const protekt::sim::Unit& to) {
+    return std::atan2(static_cast<float>(to.x.raw - from.x.raw),
+                      static_cast<float>(to.y.raw - from.y.raw));
+}
+
+/// The yaw from a unit's centre to the mean of vertices [first, last) on the map plane. A barrel is
+/// symmetric about its own axis, so for a barrel this is the way it points.
+float yaw_of_part(const std::vector<SceneVertex>& v, std::size_t first, std::size_t last,
+                  const protekt::sim::Unit& unit) {
+    float x = 0.0F;
+    float z = 0.0F;
+    for (std::size_t i = first; i < last; ++i) {
+        x += v.at(i).position[0];
+        z += v.at(i).position[2];
+    }
+    const auto n = static_cast<float>(last - first);
+    return std::atan2((x / n) - (static_cast<float>(unit.x.raw) / 65536.0F * kMetresPerTile),
+                      (z / n) - (static_cast<float>(unit.y.raw) / 65536.0F * kMetresPerTile));
+}
+
+/// The barrel is the last prism of every gun model.
+float barrel_yaw(const std::vector<SceneVertex>& model, const protekt::sim::Unit& unit) {
+    return yaw_of_part(model, model.size() - kPrismVertices, model.size(), unit);
+}
+
+/// Steps until some gun has fired, so `aim_target` names what it engaged.
+void step_until_shot(protekt::sim::Sim& sim) {
+    for (int step = 0; step < 200 && sim.shots().empty(); ++step) {
+        sim.step();
+    }
+    ASSERT_FALSE(sim.shots().empty()) << "no gun fired within 200 ticks";
+}
+
+/// The farthest any of vertices [first, last) lies from the unit's centre, and the nearest.
+std::array<float, 2> reach_of(const std::vector<SceneVertex>& v, std::size_t first,
+                              std::size_t last, const protekt::sim::Unit& unit) {
+    const float ux = static_cast<float>(unit.x.raw) / 65536.0F * kMetresPerTile;
+    const float uz = static_cast<float>(unit.y.raw) / 65536.0F * kMetresPerTile;
+    float near = 1e9F;
+    float far = 0.0F;
+    for (std::size_t i = first; i < last; ++i) {
+        const float d = std::hypot(v.at(i).position[0] - ux, v.at(i).position[2] - uz);
+        near = std::min(near, d);
+        far = std::max(far, d);
+    }
+    return {near, far};
+}
+
+constexpr float kYawTolerance = 1e-3F;
+
+TEST(GunAim, WithNoTargetTheGunLiesAlongTheHeading) {
+    const auto sim = sim_of({{Side::Player, UnitKind::Tank, 100, 100}});
+    EXPECT_FLOAT_EQ(gun_yaw(sim, sim.units().at(0), 0.7F), 0.7F);
+    EXPECT_FLOAT_EQ(gun_yaw(sim, sim.units().at(0), -2.1F), -2.1F);
+}
+
+TEST(GunAim, AnAttackTargetIsAimedAtEvenOutOfRange) {
+    // Eighteen tiles off, past a tank's twelve: nothing is engaged, so only the order names it.
+    auto sim = sim_of(
+        {{Side::Player, UnitKind::Tank, 100, 100}, {Side::Enemy, UnitKind::Factory, 115, 110}});
+    sim.enqueue(protekt::sim::Order{sim.units().at(0).id,
+                                    protekt::sim::orders::Attack{sim.units().at(1).id}});
+    sim.step();
+    const auto& tank = sim.units().at(0);
+    ASSERT_FALSE(tank.aim_target.valid()) << "the order alone must name the target";
+    EXPECT_NEAR(gun_yaw(sim, tank, 3.0F), bearing(tank, sim.units().at(1)), kYawTolerance);
+}
+
+TEST(GunAim, TheTriggersFocusOutranksTheAttackTarget) {
+    auto sim = sim_of({{Side::Player, UnitKind::Tank, 100, 100},
+                       {Side::Enemy, UnitKind::Factory, 115, 110},
+                       {Side::Enemy, UnitKind::Factory, 85, 115}});
+    const auto tank_id = sim.units().at(0).id;
+    sim.enqueue(protekt::sim::Order{tank_id, protekt::sim::orders::Attack{sim.units().at(1).id}});
+    sim.enqueue(
+        protekt::sim::Order{tank_id, protekt::sim::orders::FocusFire{sim.units().at(2).id}});
+    sim.step();
+    const auto& tank = sim.units().at(0);
+    EXPECT_NEAR(gun_yaw(sim, tank, 0.0F), bearing(tank, sim.units().at(2)), kYawTolerance);
+}
+
+TEST(GunAim, AnAutoEngagedGunAimsAtWhatItLastEngaged) {
+    // No order at all: the turret picks the factory itself, and the sim remembers it as
+    // `aim_target` between shots.
+    auto sim = sim_of(
+        {{Side::Enemy, UnitKind::Turret, 100, 100}, {Side::Player, UnitKind::Factory, 106, 103}});
+    step_until_shot(sim);
+    sim.step(); // reloading: no shot this tick, the gun still holds its target
+    const auto& turret = sim.units().at(0);
+    EXPECT_NEAR(gun_yaw(sim, turret, 1.0F), bearing(turret, sim.units().at(1)), kYawTolerance);
+}
+
+TEST(SceneGunAim, AnAiTanksBarrelPointsAtWhatItShoots) {
+    // A stopped tank faces +Y; its target is due +X. Before D5a-2 the barrel lay along the hull.
+    auto sim = one_player_bolt_sim();
+    step_until_shot(sim);
+    const auto& tank = sim.units().at(0);
+    const auto model = tank_only(sim, tank, {});
+    ASSERT_EQ(model.size(), kTankVertices);
+    EXPECT_NEAR(barrel_yaw(model, tank), bearing(tank, sim.units().at(1)), kYawTolerance);
+    EXPECT_NEAR(barrel_yaw(model, tank), protekt::math::kPi * 0.5F, kYawTolerance);
+}
+
+TEST(SceneGunAim, AnAiHoverTanksBarrelPointsAtWhatItShoots) {
+    auto sim = sim_of(
+        {{Side::Player, UnitKind::HoverTank, 100, 100}, {Side::Enemy, UnitKind::Factory, 94, 100}});
+    step_until_shot(sim);
+    const auto& hover = sim.units().at(0);
+    const auto model = tank_only(sim, hover, {});
+    ASSERT_EQ(model.size(), protekt::game::kHoverTankVertices);
+    // The barrel is the fourth solid, before the fin.
+    EXPECT_NEAR(yaw_of_part(model, kHoverBarrel, kFin, hover), bearing(hover, sim.units().at(1)),
+                kYawTolerance);
+}
+
+TEST(SceneGunAim, AnIdleTanksGunLiesAlongItsHull) {
+    auto sim = sim_of({{Side::Player, UnitKind::Tank, 100, 100}});
+    sim.enqueue(protekt::sim::Order{
+        sim.units().at(0).id, protekt::sim::orders::MoveTo{protekt::sim::Fixed::from_int(110),
+                                                           protekt::sim::Fixed::from_int(100)}});
+    sim.step();
+    const auto& tank = sim.units().at(0);
+    EXPECT_NEAR(barrel_yaw(tank_only(sim, tank, {}), tank), protekt::math::kPi * 0.5F,
+                kYawTolerance)
+        << "moving east with nothing to shoot: the gun looks the way the hull goes";
+}
+
+TEST(SceneGunAim, ADefenseTurretsBarrelPointsAtWhatItShoots) {
+    auto sim = sim_of(
+        {{Side::Enemy, UnitKind::Turret, 100, 100}, {Side::Player, UnitKind::Factory, 106, 103}});
+    step_until_shot(sim);
+    const auto& turret = sim.units().at(0);
+    const auto model = tank_only(sim, turret, {});
+    ASSERT_EQ(model.size(), kTurretVertices);
+    EXPECT_NEAR(barrel_yaw(model, turret), bearing(turret, sim.units().at(1)), kYawTolerance);
+    // The housing turns with the barrel; the pedestal keeps the turret's own heading (+Y).
+    EXPECT_NEAR(yaw_of_part(model, 72, 144, turret), bearing(turret, sim.units().at(1)), 0.05F);
+}
+
+TEST(SceneGunAim, AnIdleTurretLooksForwardAndAMovingOneAlongItsCourse) {
+    auto sim = sim_of({{Side::Player, UnitKind::Turret, 100, 100}});
+    EXPECT_NEAR(barrel_yaw(tank_only(sim, sim.units().at(0), {}), sim.units().at(0)), 0.0F,
+                kYawTolerance)
+        << "never moved, never fired: forward, +Y";
+    sim.enqueue(protekt::sim::Order{
+        sim.units().at(0).id, protekt::sim::orders::MoveTo{protekt::sim::Fixed::from_int(90),
+                                                           protekt::sim::Fixed::from_int(100)}});
+    sim.step();
+    const auto& turret = sim.units().at(0);
+    const auto model = tank_only(sim, turret, {});
+    EXPECT_NEAR(barrel_yaw(model, turret), -protekt::math::kPi * 0.5F, kYawTolerance)
+        << "crawling west";
+    // The pedestal turns to the course too. It is square, so read one face: the back one.
+    const float corner_yaw = yaw_of_part(model, 0, 6, turret);
+    EXPECT_NEAR(corner_yaw, protekt::math::kPi * 0.5F, kYawTolerance)
+        << "the back face is behind, to the east";
+}
+
+TEST(SceneGunAim, TheDrivenTankKeepsThePlayersTurret) {
+    // The viewer's tank has engaged the factory (due +X), but the player's turret wins.
+    auto sim = facing_sim();
+    step_until_shot(sim);
+    ASSERT_TRUE(viewer_of(sim).aim_target.valid());
+    // The bolt in the air follows the units, so the viewer's tank ends one box before the end.
+    const Scene scene = facing_scene(sim, 0.3F, 0.4F);
+    const auto bolts = static_cast<std::ptrdiff_t>(sim.projectiles().size() * kBoxVertices);
+    const std::vector<SceneVertex> tank{scene.vertices.end() - bolts
+                                            - static_cast<std::ptrdiff_t>(kTankVertices),
+                                        scene.vertices.end() - bolts};
+    EXPECT_NEAR(barrel_yaw(tank, viewer_of(sim)), 0.3F + 0.4F, kYawTolerance);
+}
+
+// Re-pinned DELIBERATELY (D5a-2): a defense turret was one 36-vertex box; it is four prisms now.
+TEST(TurretModel, ADefenseTurretIsAPedestalAHousingAMuzzleCollarAndABarrel) {
+    const auto sim = sim_of({{Side::Player, UnitKind::Turret, 100, 100}});
+    const auto& turret = sim.units().at(0);
+    const auto model = unit_box_of(UnitKind::Turret);
+    ASSERT_EQ(model.size(), kTurretVertices);
+    EXPECT_EQ(kTurretVertices, std::size_t{144}) << "four prisms";
+    constexpr std::size_t kPedestal = 0;
+    constexpr std::size_t kHousing = 36;
+    constexpr std::size_t kCollar = 72;
+    constexpr std::size_t kBarrel = 108;
+    // The housing sits on the pedestal.
+    EXPECT_NEAR(lowest(model, kHousing, kCollar), highest(model, kPedestal, kHousing), kTolerance);
+    // The barrel runs from the housing's front face; the collar is AT THE TIP, past the barrel's
+    // end, and thicker than it.
+    const auto housing = reach_of(model, kHousing, kCollar, turret);
+    const auto collar = reach_of(model, kCollar, kBarrel, turret);
+    const auto barrel = reach_of(model, kBarrel, model.size(), turret);
+    EXPECT_LT(barrel[0], housing[1]) << "the barrel starts inside the housing's reach";
+    EXPECT_GT(collar[1], barrel[1]) << "the collar is the far end";
+    EXPECT_GT(collar[0], barrel[1] - 0.2F) << "the collar starts where the barrel ends";
+    EXPECT_GT(highest(model, kCollar, kBarrel) - lowest(model, kCollar, kBarrel),
+              highest(model, kBarrel, model.size()) - lowest(model, kBarrel, model.size()))
+        << "the collar is thicker than the barrel";
+    EXPECT_GT(collar[1], kMetresPerTile * 0.3F * 2.0F)
+        << "a barrel you can read, past the pedestal";
 }
 
 } // namespace

@@ -246,6 +246,19 @@ private:
     std::map<std::uint32_t, float> last_;
 };
 
+/// WHERE A GUN POINTS. Presentation derived from the sim's OWN persistent target data, as the
+/// driven tank's turret is derived from the player's view: nothing is invented and nothing is
+/// eased. The source, first that names a LIVING unit wins: the trigger's `focus_target`, then the
+/// Attack stance's `target`, then `aim_target` -- whom the gun last engaged, which the sim keeps
+/// until it has nothing in range, so an auto-engaging gun aims too. With none of them the gun lies
+/// along `heading` (the hull's, or a turret's own). Returns a world yaw in the `Headings`
+/// convention: 0 is +Y on the map, positive turns toward +X.
+[[nodiscard]] float gun_yaw(const sim::Sim& sim, const sim::Unit& unit, float heading);
+
+/// A drawn defense turret: a pedestal turned by its heading, then a housing, a muzzle collar at
+/// the barrel's tip and the barrel, all three turned by `gun_yaw`.
+inline constexpr std::size_t kTurretVertices = std::size_t{4} * 36U;
+
 /// A reticle is four bars, six vertices each, in a triangle list.
 inline constexpr std::size_t kReticleVertexCount = 24;
 
