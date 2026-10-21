@@ -1245,4 +1245,128 @@ TEST(Retreat, StopForgetsTheRememberedOrder) {
     EXPECT_TRUE(player.take_orders().empty());
 }
 
+// ---------------------------------------------------------------- defend in place
+
+/// A tank_b at (44,41) that sees one hostile tank per `hostiles` entry at the given tile, on the
+/// defend cadence unless `tick` says otherwise. Ids are the caller's.
+struct Hostile {
+    sim::UnitId id;
+    std::int32_t x;
+    std::int32_t y;
+};
+
+[[nodiscard]] sim::Observation guarding(const Rig& rig, const std::vector<Hostile>& hostiles,
+                                        std::uint16_t hp = 100, sim::Tick tick = kDefendCadence,
+                                        sim::UnitId tank = sim::UnitId{}) {
+    sim::Observation observation = seen(rig, tank.valid() ? tank : rig.tank_b, hp);
+    observation.tick = tick;
+    for (const Hostile& hostile : hostiles) {
+        sim::UnitView view{};
+        view.id = hostile.id;
+        view.kind = UnitKind::Tank;
+        view.side = Side::Enemy;
+        view.x = hostile.x;
+        view.y = hostile.y;
+        view.raw_x = hostile.x << 16;
+        view.raw_y = hostile.y << 16;
+        view.hp = 100;
+        observation.enemy.push_back(view);
+    }
+    for (sim::UnitView& own : observation.own) {
+        own.raw_x = own.x << 16;
+        own.raw_y = own.y << 16;
+    }
+    return observation;
+}
+
+[[nodiscard]] sim::UnitId focus_of(const Order& order) {
+    const auto* focus = std::get_if<sim::orders::FocusFire>(&order.payload);
+    return focus != nullptr ? focus->target : sim::UnitId{};
+}
+
+TEST(Defend, AnIdleTankFiresInPlaceAtAHostileInRange) {
+    Rig rig = make_rig();
+    Interaction player(rig.tank_a);
+    player.tend(guarding(rig, {{rig.enemy, 50, 41}}));
+    const std::vector<Order> orders = player.take_orders();
+    ASSERT_EQ(orders.size(), 1U);
+    EXPECT_EQ(orders.at(0).unit, rig.tank_b);
+    EXPECT_EQ(focus_of(orders.at(0)), rig.enemy) << "FocusFire: no stance, no destination";
+}
+
+TEST(Defend, AHostileOutOfRangeIsLeftAlone) {
+    Rig rig = make_rig();
+    Interaction player(rig.tank_a);
+    player.tend(guarding(rig, {{rig.enemy, 44 + 13, 41}}));
+    EXPECT_TRUE(player.take_orders().empty());
+}
+
+TEST(Defend, ItThinksOnTheFifteenTickBeatAndNoOther) {
+    Rig rig = make_rig();
+    Interaction player(rig.tank_a);
+    player.tend(guarding(rig, {{rig.enemy, 50, 41}}, 100, kDefendCadence + 1));
+    EXPECT_TRUE(player.take_orders().empty());
+    player.tend(guarding(rig, {{rig.enemy, 50, 41}}, 100, 2 * kDefendCadence));
+    EXPECT_EQ(player.take_orders().size(), 1U);
+}
+
+TEST(Defend, AStandingMoveOrderKeepsMovingAndNothingIsEmitted) {
+    Rig rig = make_rig();
+    Interaction player(rig.tank_a);
+    choose(rig, player, rig.tank_b);
+    player.handle(with_click(ground_click(rig, true)), rig.sim, rig.options);
+    ASSERT_EQ(player.take_orders().size(), 1U);
+    player.tend(guarding(rig, {{rig.enemy, 50, 41}}));
+    EXPECT_TRUE(player.take_orders().empty());
+}
+
+TEST(Defend, TheDrivenTankNeverDefendsThisWay) {
+    Rig rig = make_rig();
+    Interaction player(rig.tank_a);
+    player.tend(guarding(rig, {{rig.enemy, 44, 44}}, 100, kDefendCadence, rig.tank_a));
+    EXPECT_TRUE(player.take_orders().empty());
+}
+
+TEST(Defend, ARetreatingTankDoesNotDefend) {
+    Rig rig = make_rig();
+    Interaction player(rig.tank_a);
+    player.tend(guarding(rig, {{rig.enemy, 50, 41}}, 20));
+    const std::vector<Order> orders = player.take_orders();
+    ASSERT_EQ(orders.size(), 1U) << "the retreat, and only the retreat";
+    EXPECT_NE(std::get_if<sim::orders::MoveTo>(&orders.at(0).payload), nullptr);
+    // Healing a little is still retreating: it stays home until return_hp.
+    player.tend(guarding(rig, {{rig.enemy, 50, 41}}, 50, 2 * kDefendCadence));
+    EXPECT_TRUE(player.take_orders().empty());
+}
+
+TEST(Defend, ATankBackAtReturnHpWithNoOrderDefendsAgain) {
+    Rig rig = make_rig();
+    Interaction player(rig.tank_a);
+    player.tend(guarding(rig, {}, 20));
+    static_cast<void>(player.take_orders());
+    player.tend(guarding(rig, {{rig.enemy, 50, 41}}, 80, 2 * kDefendCadence));
+    const std::vector<Order> orders = player.take_orders();
+    ASSERT_EQ(orders.size(), 1U);
+    EXPECT_EQ(focus_of(orders.at(0)), rig.enemy);
+}
+
+TEST(Defend, TheNearerOfTwoHostilesIsChosen) {
+    Rig rig = make_rig();
+    Interaction player(rig.tank_a);
+    player.tend(guarding(rig, {{rig.enemy, 52, 41}, {rig.enemy2, 48, 41}}));
+    const std::vector<Order> orders = player.take_orders();
+    ASSERT_EQ(orders.size(), 1U);
+    EXPECT_EQ(focus_of(orders.at(0)), rig.enemy2);
+}
+
+TEST(Defend, EqualRangeGoesToTheLowerIdWhateverTheListOrder) {
+    Rig rig = make_rig();
+    ASSERT_LT(rig.enemy, rig.enemy2);
+    Interaction player(rig.tank_a);
+    player.tend(guarding(rig, {{rig.enemy2, 44, 45}, {rig.enemy, 48, 41}}));
+    const std::vector<Order> orders = player.take_orders();
+    ASSERT_EQ(orders.size(), 1U);
+    EXPECT_EQ(focus_of(orders.at(0)), rig.enemy);
+}
+
 } // namespace protekt::game

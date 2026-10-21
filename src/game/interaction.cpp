@@ -10,6 +10,7 @@
 #include "protekt/game/pick.hpp"
 #include "protekt/input/bindings.hpp"
 #include "protekt/math/math.hpp"
+#include "protekt/sim/projectile.hpp"
 
 namespace protekt::game {
 namespace {
@@ -18,6 +19,40 @@ namespace {
 [[nodiscard]] sim::Fixed to_fixed(float value) noexcept {
     return sim::Fixed::from_raw(
         static_cast<std::int32_t>(std::lround(static_cast<double>(value) * sim::Fixed::kOne)));
+}
+
+/// The nearest hostile this tank could shoot from where it stands: within its weapon range by the
+/// sim's own squared-distance rule (Q16.16), with a line to it where the ground is known. Ties go
+/// to the lower id, whatever order the observation lists them in. Null when there is none.
+[[nodiscard]] const sim::UnitView* nearest_in_range(const sim::Observation& observation,
+                                                    const sim::UnitView& tank) noexcept {
+    const std::int64_t range = sim::profile(sim::UnitKind::Tank).weapon_range.raw;
+    const sim::Fixed from_x = sim::Fixed::from_raw(tank.raw_x);
+    const sim::Fixed from_y = sim::Fixed::from_raw(tank.raw_y);
+    const sim::UnitView* best = nullptr;
+    std::int64_t best_d2 = 0;
+    for (const sim::UnitView& enemy : observation.enemy) {
+        const std::int64_t dx = static_cast<std::int64_t>(enemy.raw_x) - tank.raw_x;
+        const std::int64_t dy = static_cast<std::int64_t>(enemy.raw_y) - tank.raw_y;
+        const std::int64_t d2 = dx * dx + dy * dy;
+        if (d2 > range * range) {
+            continue;
+        }
+        const bool nearer
+            = best == nullptr || d2 < best_d2 || (d2 == best_d2 && enemy.id < best->id);
+        if (!nearer) {
+            continue;
+        }
+        if (observation.terrain.has_value()
+            && !sim::can_see(*observation.terrain, from_x, from_y,
+                             sim::Fixed::from_raw(enemy.raw_x), sim::Fixed::from_raw(enemy.raw_y),
+                             enemy.kind)) {
+            continue;
+        }
+        best = &enemy;
+        best_d2 = d2;
+    }
+    return best;
 }
 
 } // namespace
@@ -200,6 +235,16 @@ void Interaction::tend(const sim::Observation& own_side) {
             if (last != remembered_.end()) {
                 pending_.push_back(sim::Order{unit.id, last->second});
             }
+        }
+        // Defend in place: no standing order, not on the way home, not wounded -- and only on the
+        // beat, so the choice is a pure function of the tick and the board.
+        if (own_side.tick % kDefendCadence != 0 || unit.hp <= tuning.retreat_hp
+            || retreating_.count(unit.id) > 0 || remembered_.count(unit.id) > 0) {
+            continue;
+        }
+        if (const sim::UnitView* target = nearest_in_range(own_side, unit)) {
+            const std::vector<sim::Order> fire = cmd::focus_fire(unit.id, target->id);
+            pending_.insert(pending_.end(), fire.begin(), fire.end());
         }
     }
 }

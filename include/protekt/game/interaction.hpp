@@ -19,6 +19,10 @@ namespace protekt::game {
 /// already ordered -- is not on this timer.
 inline constexpr sim::Tick kManualShotIntervalTicks = 8;
 
+/// The beat the idle tanks think their defence on: every 15th sim tick, the cadence the AI's
+/// controllers use. Between beats nothing is emitted; the sim's own aim and cooldown carry on.
+inline constexpr sim::Tick kDefendCadence = 15;
+
 /// The voice of a manual shot: the player's own gun, full gain, centred. Every trigger pull makes
 /// this sound, whatever it was aimed at, because the sim reports no `Fired` event for a shot the
 /// player asked for. The same voice `sounds_for` gives a shot the sim fires from the player's side.
@@ -68,6 +72,13 @@ public:
     /// it is re-issued the last order the player gave it (none remembered: it stays idle). The
     /// driven tank is never touched: the player is its judgement. Appends to the pending orders, so
     /// call it after `handle` -- a retreat outranks an order given the same frame.
+    ///
+    /// And the defence: on every `kDefendCadence`th tick an own, living, non-driven tank with NO
+    /// remembered player order, not retreating and above the retreat line is told to FocusFire the
+    /// nearest hostile within weapon range it has a line to (squared distance in Q16.16, ties to
+    /// the lower id). FocusFire sets no stance and no destination: the tank fires from where it
+    /// stands, never pursues, and a target that leaves range is simply not shot at. It never
+    /// overrides an order the player gave.
     void tend(const sim::Observation& own_side);
 
     /// Drain the orders this input implied. Empty when nothing was asked, or when the last thing
