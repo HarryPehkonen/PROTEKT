@@ -34,8 +34,9 @@ constexpr std::array<std::array<int, 3>, 3> kHullSets{{{7, 8, 9}, {10, 11, 12}, 
 /// The two team sets, which tanks wear.
 constexpr std::array<int, 6> kTeamHullTiles{10, 11, 12, 13, 14, 15};
 
-/// The tiles painted so far: the first quadrant, the hover skirt and the four ground tiles.
-constexpr int kAssignedTiles = 21;
+/// The tiles painted so far: the first quadrant, the hover skirt, the four ground tiles and their
+/// twelve variants (D6).
+constexpr int kAssignedTiles = 33;
 
 /// Texel (x, y) of `tile` in a whole-atlas RGBA buffer.
 Rgb texel(const std::vector<std::uint8_t>& px, int tile, int x, int y) {
@@ -183,7 +184,7 @@ TEST(AtlasManifest, TheCommittedManifestAssignsTheDocumentedTiles) {
             EXPECT_NE(m.tile(name), kFallbackTile) << name << " is listed";
         }
     }
-    EXPECT_EQ(m.size(), std::size_t{21});
+    EXPECT_EQ(m.size(), std::size_t{33});
 }
 
 TEST(AtlasManifest, TheEmbeddedTextIsTheCommittedFile) {
@@ -283,8 +284,8 @@ TEST(AtlasPixels, IsA512SquareOpaqueImageWithAWhiteIdentityTileAndNoAssignedTile
     }
     // Tile 0 is solid white: it is the identity for everything that sets no UV. Since D2f the team
     // camo fills tiles 10 to 15, so no tile of the first quadrant is left at the unassigned
-    // magenta; E9b's 8x8 growth assigns the hover skirt (16), D3 the ground (17 to 20), and the
-    // rest stay magenta, the loud budget.
+    // magenta; E9b's 8x8 growth assigns the hover skirt (16), D3 the ground (17 to 20), D6 its
+    // variants (21 to 32), and the rest stay magenta, the loud budget.
     for (int y = 0; y < 64; ++y) {
         for (int x = 0; x < 64; ++x) {
             ASSERT_EQ(texel(px, 0, x, y), (Rgb{255, 255, 255})) << "tile 0 is solid white";

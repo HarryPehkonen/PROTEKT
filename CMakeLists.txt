@@ -301,7 +301,7 @@ if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
                                         tests/test_synth.cpp tests/test_mixer.cpp
                                         tests/test_sounds.cpp tests/test_audio_out.cpp
                                         tests/test_pixels.cpp tests/test_atlas.cpp
-                                        tests/test_atlas_files.cpp)
+                                        tests/test_atlas_files.cpp tests/test_ground_variants.cpp)
     target_link_libraries(protekt_tests PRIVATE protekt_app)
     if(PROTEKT_RENDER)
         target_sources(protekt_tests PRIVATE tests/test_render.cpp)

@@ -248,7 +248,9 @@ TEST(SceneTerrain, EveryQuadSamplesTheWholeTileOfItsTypeTheSameWayRound) {
         const int ty = static_cast<int>(std::lround(p00.position[2] / kMetresPerTile));
         const auto terrain = protekt::world::sample(seed, tx, ty).terrain;
         seen.insert(terrain);
-        const auto r = atlas.rect(protekt::game::terrain_tile_name(terrain));
+        // D6: the type picks the family, the tile's hash the variant inside it.
+        const auto r = atlas.rect(protekt::game::terrain_variant_name(
+            terrain, protekt::game::variant_index(terrain, tx, ty)));
         const std::array<std::array<float, 2>, 6> want{
             {{r.u0, r.v0}, {r.u1, r.v0}, {r.u1, r.v1}, {r.u0, r.v0}, {r.u1, r.v1}, {r.u0, r.v1}}};
         for (std::size_t i = 0; i < 6; ++i) {
@@ -3430,11 +3432,13 @@ TEST(SceneUv, TerrainSamplesAGroundTileAndNothingLeavesTheAtlas) {
     const Scene scene = protekt::game::build_scene(d.sim, options);
     ASSERT_GT(scene.vertices.size(), terrain_vertex_count(options.radius_tiles));
     // Units carry atlas UVs (tanks since D2b, buildings since D2e); since D3 the terrain samples
-    // one of the four ground tiles, never anything else.
-    std::array<protekt::game::UvRect, protekt::world::kTerrainCount> ground{};
+    // one of the ground tiles (since D6 one of each type's three variants), never anything else.
+    std::vector<protekt::game::UvRect> ground;
     for (int t = 0; t < protekt::world::kTerrainCount; ++t) {
-        ground.at(static_cast<std::size_t>(t)) = protekt::game::atlas_manifest().rect(
-            protekt::game::terrain_tile_name(static_cast<protekt::world::Terrain>(t)));
+        for (int v = 0; v < protekt::game::kGroundVariantCount; ++v) {
+            ground.push_back(protekt::game::atlas_manifest().rect(
+                protekt::game::terrain_variant_name(static_cast<protekt::world::Terrain>(t), v)));
+        }
     }
     for (std::size_t i = 0; i < scene.vertices.size(); ++i) {
         const SceneVertex& v = scene.vertices.at(i);

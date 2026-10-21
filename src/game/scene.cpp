@@ -67,17 +67,21 @@ void build_terrain(std::vector<SceneVertex>& out, std::uint64_t seed, int centre
     // the low edge by one tile too keeps the sampled HEIGHT field symmetric around the camera,
     // even though the tolerance on the mesh's visual extent absorbs the extra row.
     // Each quad takes its tile with x along u and z along v, the same way round everywhere, so
-    // neighbours of one type continue each other's (wrapping) paint.
+    // neighbours of one type and variant continue each other's (wrapping) paint, and neighbours of
+    // two variants meet in the same tones.
     const AtlasManifest& atlas = atlas_manifest();
-    std::array<UvRect, world::kTerrainCount> tiles{};
+    std::array<std::array<UvRect, kGroundVariantCount>, world::kTerrainCount> tiles{};
     for (int t = 0; t < world::kTerrainCount; ++t) {
-        tiles.at(static_cast<std::size_t>(t))
-            = atlas.rect(terrain_tile_name(static_cast<world::Terrain>(t)));
+        for (int v = 0; v < kGroundVariantCount; ++v) {
+            tiles.at(static_cast<std::size_t>(t)).at(static_cast<std::size_t>(v))
+                = atlas.rect(terrain_variant_name(static_cast<world::Terrain>(t), v));
+        }
     }
     for (int ty = centre_y - radius - 1; ty <= centre_y + radius; ++ty) {
         for (int tx = centre_x - radius - 1; tx <= centre_x + radius; ++tx) {
-            const UvRect& tile
-                = tiles.at(static_cast<std::size_t>(world::sample(seed, tx, ty).terrain));
+            const world::Terrain terrain = world::sample(seed, tx, ty).terrain;
+            const UvRect& tile = tiles.at(static_cast<std::size_t>(terrain))
+                                     .at(static_cast<std::size_t>(variant_index(terrain, tx, ty)));
             const float x0 = static_cast<float>(tx) * kMetresPerTile;
             const float x1 = static_cast<float>(tx + 1) * kMetresPerTile;
             const float z0 = static_cast<float>(ty) * kMetresPerTile;

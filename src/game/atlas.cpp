@@ -39,8 +39,8 @@ std::string_view next_word(std::string_view& line) {
 using Rgb = std::array<std::uint8_t, 3>;
 
 /// The tiles, by index. Tile 0 is the identity and an unassigned tile is magenta, so a stray UV is
-/// loud (the first quadrant's sixteen, the hover skirt and the four ground tiles are assigned; the
-/// rest are the budget).
+/// loud (the first quadrant's sixteen, the hover skirt and the four ground tiles and their twelve
+/// variants are assigned; the rest are the budget).
 /// The tank's tones are near-neutral MULTIPLIERS: the side colour, the selection tint and the face
 /// light all stay in the vertex colour and multiply on top.
 constexpr int kTracksTile = 1;
@@ -58,6 +58,12 @@ constexpr int kGrassTile = 17;
 constexpr int kDirtTile = 18;
 constexpr int kRockTile = 19;
 constexpr int kCraterTile = 20;
+/// The ground's variants (D6): three per type, in the order above -- grass 21-23, dirt 24-26, rock
+/// 27-29, crater 30-32 -- each its family's painter run under its own tile index, so the hash walk
+/// redraws the pattern in the same tones and shares.
+constexpr int kFirstGroundVariantTile = 21;
+constexpr int kGroundVariants = 3;
+constexpr int kGroundVariantTiles = 4 * kGroundVariants;
 
 constexpr Rgb kWhite{255, 255, 255};
 constexpr Rgb kMagenta{255, 0, 255};
@@ -642,7 +648,24 @@ Tile paint_camo(std::uint64_t seed, int index, int variant, const Palette& camo)
     }
 }
 
+/// The ground tile of type `family` (0 grass, 1 dirt, 2 rock, 3 crater), painted as tile `index`.
+Tile paint_ground(std::uint64_t seed, int index, int family) {
+    switch (family) {
+    case 0:
+        return paint_patches(seed, index, kGrass, 3, 1);
+    case 1:
+        return paint_patches(seed, index, kDirt, 1, 1);
+    case 2:
+        return paint_rock(seed, index);
+    default:
+        return paint_crater(seed, index);
+    }
+}
+
 Tile paint_tile(std::uint64_t seed, int index) {
+    if (index >= kFirstGroundVariantTile && index < kFirstGroundVariantTile + kGroundVariantTiles) {
+        return paint_ground(seed, index, (index - kFirstGroundVariantTile) / kGroundVariants);
+    }
     if (index >= kFirstHullTile && index < kFirstHullTile + kHullVariantCount) {
         return paint_camo(seed, index, index - kFirstHullTile, kNeutralCamo);
     }
@@ -671,13 +694,10 @@ Tile paint_tile(std::uint64_t seed, int index) {
     case kHoverSkirtTile:
         return paint_hover_skirt();
     case kGrassTile:
-        return paint_patches(seed, index, kGrass, 3, 1);
     case kDirtTile:
-        return paint_patches(seed, index, kDirt, 1, 1);
     case kRockTile:
-        return paint_rock(seed, index);
     case kCraterTile:
-        return paint_crater(seed, index);
+        return paint_ground(seed, index, index - kGrassTile);
     default:
         return solid(kMagenta);
     }

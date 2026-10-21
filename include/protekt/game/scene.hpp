@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <map>
@@ -74,9 +75,9 @@ inline constexpr std::array<math::Vec3, kSkyRings> kSkyRingColours{{{0.8000F, 0.
 inline constexpr math::Vec3 kSunDiscColour{1.0F, 0.97F, 0.80F};
 
 /// THE GROUND'S PAINT. A terrain quad samples one whole atlas tile, and WHICH tile is a pure
-/// function of the world tile's `Terrain` and nothing else: every grass tile on the map paints
-/// identically. The tiles carry their own colour, so the terrain's vertex colour is
-/// `kTerrainLight`, white, the multiplicative identity: what shows is the tile.
+/// function of the world tile's `Terrain` FAMILY, then of its variant below (D6). The tiles carry
+/// their own colour, so the terrain's vertex colour is `kTerrainLight`, white, the multiplicative
+/// identity: what shows is the tile.
 [[nodiscard]] constexpr std::string_view terrain_tile_name(world::Terrain terrain) noexcept {
     switch (terrain) {
     case world::Terrain::Flat:
@@ -89,6 +90,41 @@ inline constexpr math::Vec3 kSunDiscColour{1.0F, 0.97F, 0.80F};
         return "terrain_crater";
     }
     return "terrain_grass";
+}
+
+/// THE GROUND'S VARIANTS (D6). The type picks the FAMILY above; inside it, each world tile paints
+/// from one of `kGroundVariantCount` variant tiles -- the family's pattern redrawn from other hash
+/// seeds in the same tones -- so a field of one type is not a grid of identical stamps. Which
+/// variant is a pure function of (type, tile_x, tile_y): no world seed, no state, so a tile keeps
+/// its variant forever and the same scene comes out byte-identical.
+inline constexpr int kGroundVariantCount = 3;
+inline constexpr std::array<std::array<std::string_view, kGroundVariantCount>, world::kTerrainCount>
+    kGroundVariantNames{{{"terrain_grass_a", "terrain_grass_b", "terrain_grass_c"},
+                         {"terrain_dirt_a", "terrain_dirt_b", "terrain_dirt_c"},
+                         {"terrain_rock_a", "terrain_rock_b", "terrain_rock_c"},
+                         {"terrain_crater_a", "terrain_crater_b", "terrain_crater_c"}}};
+
+/// The variant of world tile (tile_x, tile_y) of type `terrain`, in [0, kGroundVariantCount):
+/// splitmix64's finaliser over the packed (type, x, y), modulo the count.
+[[nodiscard]] constexpr int variant_index(world::Terrain terrain, int tile_x, int tile_y) noexcept {
+    std::uint64_t z = (static_cast<std::uint64_t>(static_cast<std::uint32_t>(tile_x)) << 32U)
+                      | static_cast<std::uint32_t>(tile_y);
+    z ^= (static_cast<std::uint64_t>(terrain) + 1U) * 0x9E3779B97F4A7C15ULL;
+    z = (z ^ (z >> 30U)) * 0xBF58476D1CE4E5B9ULL;
+    z = (z ^ (z >> 27U)) * 0x94D049BB133111EBULL;
+    z ^= z >> 31U;
+    return static_cast<int>(z % static_cast<std::uint64_t>(kGroundVariantCount));
+}
+
+/// The manifest name of `terrain`'s variant `variant`; an out-of-range variant gets the first.
+[[nodiscard]] constexpr std::string_view terrain_variant_name(world::Terrain terrain,
+                                                              int variant) noexcept {
+    const auto type = static_cast<std::size_t>(terrain);
+    const auto at = variant >= 0 && variant < kGroundVariantCount
+                        ? static_cast<std::size_t>(variant)
+                        : std::size_t{0};
+    return type < kGroundVariantNames.size() ? kGroundVariantNames.at(type).at(at)
+                                             : kGroundVariantNames.front().front();
 }
 inline constexpr math::Vec3 kTerrainLight{1.0F, 1.0F, 1.0F};
 
