@@ -655,6 +655,13 @@ constexpr float kReticleHalfFraction = 0.055F;
 constexpr float kTriangleBaseFraction = 0.85F;
 constexpr float kTriangleTurn = 2.35619449F; ///< 135 degrees: where a triangle's base corners sit
 constexpr float kReticleBarFraction = 0.22F;
+/// The crosshair's shape, as fractions of the half-size: where the ticks start (the open centre is
+/// everything inside), the dot's half-width, and how far a full pulse pushes the ticks out and how
+/// much it swells the dot.
+constexpr float kReticleGapFraction = 0.35F;
+constexpr float kReticleDotFraction = 0.09F;
+constexpr float kReticlePulseSpread = 0.45F;
+constexpr float kReticlePulseDotGrowth = 1.5F;
 
 /// The reticle's colour is the ANSWER to "what would a click here do": red fires, green selects,
 /// white is ground. Text is not drawn anywhere in this project yet, so colour is the only channel
@@ -981,9 +988,10 @@ void append_unit_bars(std::vector<SceneVertex>& out, const SceneOptions& options
     }
 }
 
-/// Four bars forming a square outline, in the plane the camera looks along, centred on the point
-/// the click's own ray reaches. Six vertices per bar: two triangles, and no winding to get wrong,
-/// because the pipeline culls nothing.
+/// Four ticks round an OPEN centre and a small dot in it, in the plane the camera looks along,
+/// centred on the point the click's own ray reaches. Six vertices per quad: two triangles, and no
+/// winding to get wrong, because the pipeline culls nothing. The ticks reach the old box's
+/// half-size; a pulse pushes them outward and swells the dot, and 0 is the reticle at rest.
 void append_reticle(std::vector<SceneVertex>& out, const SceneOptions& options, const sim::Sim& sim,
                     const Pick& picked) {
     if (!options.aim.has_value()) {
@@ -998,7 +1006,12 @@ void append_reticle(std::vector<SceneVertex>& out, const SceneOptions& options, 
     const math::Basis basis = math::basis_from(camera.yaw, camera.pitch);
     const float half
         = kReticleDistanceMetres * std::tan(math::kFovRadians * 0.5F) * kReticleHalfFraction;
-    const float bar = half * kReticleBarFraction;
+    const float pulse = std::clamp(options.reticle_pulse, 0.0F, 1.0F);
+    const float thick = half * kReticleBarFraction * 0.5F;
+    const float spread = half * kReticlePulseSpread * pulse;
+    const float inner = (half * kReticleGapFraction) + spread;
+    const float outer = half + spread;
+    const float dot = half * kReticleDotFraction * (1.0F + (kReticlePulseDotGrowth * pulse));
     const auto corner = [&](float right, float up) {
         return std::array<float, 3>{centre.x + (right * basis.right.at(0)) + (up * basis.up.at(0)),
                                     centre.y + (right * basis.right.at(1)) + (up * basis.up.at(1)),
@@ -1016,10 +1029,11 @@ void append_reticle(std::vector<SceneVertex>& out, const SceneOptions& options, 
         out.push_back(SceneVertex{c, colour});
         out.push_back(SceneVertex{d, colour});
     };
-    bar_quad(-half, half - bar, half, half);               // top
-    bar_quad(-half, -half, half, -half + bar);             // bottom
-    bar_quad(-half, -half + bar, -half + bar, half - bar); // left
-    bar_quad(half - bar, -half + bar, half, half - bar);   // right
+    bar_quad(-thick, inner, thick, outer);   // up
+    bar_quad(-thick, -outer, thick, -inner); // down
+    bar_quad(-outer, -thick, -inner, thick); // left
+    bar_quad(inner, -thick, outer, thick);   // right
+    bar_quad(-dot, -dot, dot, dot);          // the centre dot
 }
 
 } // namespace
@@ -1115,6 +1129,47 @@ float HitFlash::level(sim::Tick now) const noexcept {
         return 0.0F;
     }
     return 1.0F - (static_cast<float>(elapsed) / static_cast<float>(kHitFlashTicks));
+}
+
+void HitMark::hit(sim::Tick now) noexcept {
+    hit_at_ = now;
+    armed_ = true;
+}
+
+float HitMark::level(sim::Tick now) const noexcept {
+    if (!armed_ || now < hit_at_) {
+        return 0.0F;
+    }
+    const sim::Tick elapsed = now - hit_at_;
+    if (elapsed >= kHitMarkTicks) {
+        return 0.0F;
+    }
+    return 1.0F - (static_cast<float>(elapsed) / static_cast<float>(kHitMarkTicks));
+}
+
+bool shooter_connected(std::span<const sim::BattleEvent> events, sim::UnitId shooter,
+                       std::span<const sim::Unit> units) noexcept {
+    const auto side_of = [&units](sim::UnitId id, sim::Side& side) {
+        for (const sim::Unit& unit : units) {
+            if (unit.id == id) {
+                side = unit.side;
+                return true;
+            }
+        }
+        return false;
+    };
+    sim::Side shooter_side{};
+    if (!side_of(shooter, shooter_side)) {
+        return false;
+    }
+    for (const sim::BattleEvent& event : events) {
+        sim::Side victim_side{};
+        if (event.kind == sim::EventKind::HitTaken && event.actor == shooter
+            && side_of(event.subject, victim_side) && victim_side != shooter_side) {
+            return true;
+        }
+    }
+    return false;
 }
 
 bool unit_was_hit(std::span<const sim::BattleEvent> events, sim::UnitId unit) noexcept {

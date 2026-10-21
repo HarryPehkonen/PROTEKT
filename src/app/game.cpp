@@ -57,6 +57,9 @@ struct Options {
     int cursor_x{};
     int cursor_y{};
     bool cursor_placed{false};
+    /// The reticle's pulse held at a percentage, for a frame that has no firefight to time: the
+    /// same family as `--cursor`. Absent (-1) is the default, and the pulse is the real one.
+    int pulse_percent{-1};
     /// Start in full screen. The window is the authority on its size either way; this only says
     /// which size to start at.
     bool fullscreen{false};
@@ -153,6 +156,12 @@ int parse_args(std::span<const std::string_view> args, Options& options, std::os
                 return 2;
             }
             options.cursor_placed = true;
+        } else if (arg == "--pulse") {
+            if (!next(value) || !parse_number(value, options.pulse_percent)
+                || options.pulse_percent < 0 || options.pulse_percent > 100) {
+                err << "protekt-game: --pulse wants a percentage from 0 to 100\n";
+                return 2;
+            }
         } else if (arg == "--capture") {
             if (!next(value)) {
                 return 2;
@@ -242,7 +251,7 @@ public:
         pipeline_.advance(
             sim_, steps,
             audio_frame_for(sim_, session_, scene_options.camera, shot_fired, player_alive_before_),
-            hit_flash_);
+            hit_flash_, hit_mark_);
     }
 
     /// The frame, as of now. The hover advances once per tick the sim has run, off the sim's own
@@ -271,6 +280,9 @@ public:
         headings_.observe(sim_);
         scene_options.headings = &headings_;
         scene_options.hit_flash = hit_flash_.level(sim_.tick());
+        scene_options.reticle_pulse = options_.pulse_percent >= 0
+                                          ? static_cast<float>(options_.pulse_percent) / 100.0F
+                                          : hit_mark_.level(sim_.tick());
         return calibration_ ? game::build_calibration_scene(scene_options)
                             : game::build_scene(sim_, scene_options, session_.selection().units());
     }
@@ -281,6 +293,7 @@ private:
     game::Session session_;
     game::Hover hover_;
     game::HitFlash hit_flash_;
+    game::HitMark hit_mark_;
     game::Headings headings_;
     bool calibration_{false}; // C toggles the colour calibration view; it never touches the sim
     bool player_alive_before_{false};

@@ -41,8 +41,9 @@ AudioFrame frame_for(bool shot_fired) {
 TEST(AudioPipeline, StepsExactlyTheTicksAskedFor) {
     protekt::sim::Sim sim = make_sim();
     protekt::game::HitFlash flash;
+    protekt::game::HitMark mark;
     AudioPipeline pipeline{nullptr};
-    pipeline.advance(sim, 5, frame_for(false), flash);
+    pipeline.advance(sim, 5, frame_for(false), flash, mark);
     EXPECT_EQ(sim.tick(), 5U);
 }
 
@@ -50,9 +51,10 @@ TEST(AudioPipeline, ListeningDoesNotMoveTheSimulation) {
     protekt::sim::Sim heard = make_sim();
     protekt::sim::Sim silent = make_sim();
     protekt::game::HitFlash flash;
+    protekt::game::HitMark mark;
     FakeSink sink;
     AudioPipeline listening{&sink};
-    listening.advance(heard, 40, frame_for(true), flash);
+    listening.advance(heard, 40, frame_for(true), flash, mark);
     for (int i = 0; i < 40; ++i) {
         silent.step();
     }
@@ -62,9 +64,10 @@ TEST(AudioPipeline, ListeningDoesNotMoveTheSimulation) {
 TEST(AudioPipeline, AShotAtTheGroundIsOneMixHandedToTheDevice) {
     protekt::sim::Sim sim = make_sim();
     protekt::game::HitFlash flash;
+    protekt::game::HitMark mark;
     FakeSink sink;
     AudioPipeline pipeline{&sink};
-    pipeline.advance(sim, 3, frame_for(true), flash);
+    pipeline.advance(sim, 3, frame_for(true), flash, mark);
     EXPECT_EQ(sink.plays, 1);
     EXPECT_GT(sink.last_samples, 0U);
 }
@@ -72,19 +75,21 @@ TEST(AudioPipeline, AShotAtTheGroundIsOneMixHandedToTheDevice) {
 TEST(AudioPipeline, SilenceIsNotPlayed) {
     protekt::sim::Sim sim = make_sim();
     protekt::game::HitFlash flash;
+    protekt::game::HitMark mark;
     FakeSink sink;
     AudioPipeline pipeline{&sink};
-    pipeline.advance(sim, 1, frame_for(false), flash);
+    pipeline.advance(sim, 1, frame_for(false), flash, mark);
     EXPECT_EQ(sink.plays, 0);
 }
 
 TEST(AudioPipeline, AFailedDeviceIsNeverPlayedTo) {
     protekt::sim::Sim sim = make_sim();
     protekt::game::HitFlash flash;
+    protekt::game::HitMark mark;
     FakeSink sink;
     sink.healthy = false;
     AudioPipeline pipeline{&sink};
-    pipeline.advance(sim, 3, frame_for(true), flash);
+    pipeline.advance(sim, 3, frame_for(true), flash, mark);
     EXPECT_EQ(sink.plays, 0);
     EXPECT_EQ(sim.tick(), 3U);
 }

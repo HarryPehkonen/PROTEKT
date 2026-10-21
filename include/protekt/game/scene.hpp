@@ -187,6 +187,29 @@ private:
     bool armed_{false};
 };
 
+/// THE HIT MARK. How long the reticle's pulse takes to fade after a shot of the DRIVEN unit
+/// damages an enemy: 6 ticks, 0.2 s.
+inline constexpr sim::Tick kHitMarkTicks = 6;
+
+/// The reticle pulse's state, owned by the app, the same shape as `HitFlash`: `hit` arms it, and
+/// `level` is 1 on the tick of the hit, falls linearly, and is exactly 0 from `kHitMarkTicks`
+/// later on. Getting hit never arms it -- that is `HitFlash`'s job.
+class HitMark {
+public:
+    void hit(sim::Tick now) noexcept;
+    [[nodiscard]] float level(sim::Tick now) const noexcept;
+
+private:
+    sim::Tick hit_at_{};
+    bool armed_{false};
+};
+
+/// True when one of `events` is a `HitTaken` whose bolt came from `shooter` and landed on a unit
+/// of the other side, looked up in `units` (the table as it stood before the step). A bolt that
+/// hurts the shooter's own side, or one fired by someone else, is not a connection.
+[[nodiscard]] bool shooter_connected(std::span<const sim::BattleEvent> events, sim::UnitId shooter,
+                                     std::span<const sim::Unit> units) noexcept;
+
 /// True when one of `events` is a `HitTaken` whose victim is `unit` -- a bolt landed on it.
 [[nodiscard]] bool unit_was_hit(std::span<const sim::BattleEvent> events,
                                 sim::UnitId unit) noexcept;
@@ -259,8 +282,9 @@ private:
 /// the barrel's tip and the barrel, all three turned by `gun_yaw`.
 inline constexpr std::size_t kTurretVertices = std::size_t{4} * 36U;
 
-/// A reticle is four bars, six vertices each, in a triangle list.
-inline constexpr std::size_t kReticleVertexCount = 24;
+/// A reticle is four ticks (up, down, left, right) and a centre dot, six vertices each, in a
+/// triangle list: the ticks first, the dot last. The centre between the ticks is open.
+inline constexpr std::size_t kReticleVertexCount = 30;
 
 /// A floating health bar over a tank is three quads, six vertices each: an outline, a dark track
 /// and the fill. The bars follow the radar in the vertex list and come before the reticle, one per
@@ -308,6 +332,9 @@ struct SceneOptions {
     /// 0 draws nothing at all, so a frame that is not flashing is byte-identical to one that never
     /// heard of it.
     float hit_flash{0.0F};
+    /// The reticle's pulse, 0 (rest) to 1 (just connected): the app owns it. 0 draws the reticle
+    /// at rest, byte-identical to one that never heard of it.
+    float reticle_pulse{0.0F};
 };
 
 /// Triangles for the terrain mesh (two per tile, painted by `Terrain`) followed by one box per
@@ -317,11 +344,11 @@ struct SceneOptions {
 /// has hold of, and a tint is the smallest honest version of that before there is any text on
 /// screen.
 ///
-/// With `options.aim` set, the scene ends with a reticle: `kReticleVertexCount` more vertices,
-/// marking what a click at that pixel would hit. White on the ground, red on a hostile (a click
-/// there fires), brighter on one of yours (a click there selects). It is a WORLD-space mark placed
-/// a short distance along the click's own ray, which is why it needs no font and cannot be hidden
-/// by terrain.
+/// With `options.aim` set, the scene ends with a reticle: `kReticleVertexCount` more vertices
+/// (four ticks round an open centre, and a dot), marking what a click at that pixel would hit.
+/// White on the ground, red on a hostile (a click there fires), brighter on one of yours (a click
+/// there selects). It is a WORLD-space mark placed a short distance along the click's own ray,
+/// which is why it needs no font and cannot be hidden by terrain.
 [[nodiscard]] Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
                                 std::span<const sim::UnitId> selected = {});
 

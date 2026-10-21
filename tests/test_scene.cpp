@@ -570,6 +570,143 @@ TEST(Reticle, IsTheSameEveryTime) {
     }
 }
 
+/// The reticle's vertices in its own plane: (right, up) metres from its centre, which is the middle
+/// of the dot (the last quad). Ticks first, dot last, as `kReticleVertexCount` documents.
+struct LocalPoint {
+    float right{};
+    float up{};
+};
+
+std::vector<LocalPoint> reticle_local(const Scene& scene, const SceneOptions& options) {
+    const std::vector<protekt::game::SceneVertex> mark = reticle_of(scene);
+    const protekt::math::Basis basis
+        = protekt::math::basis_from(options.camera.yaw, options.camera.pitch);
+    std::array<float, 3> centre{};
+    for (std::size_t i = mark.size() - 6; i < mark.size(); ++i) {
+        for (std::size_t axis = 0; axis < 3; ++axis) {
+            centre.at(axis) += mark.at(i).position.at(axis) / 6.0F;
+        }
+    }
+    std::vector<LocalPoint> out;
+    for (const auto& v : mark) {
+        LocalPoint p;
+        for (std::size_t axis = 0; axis < 3; ++axis) {
+            const float d = v.position.at(axis) - centre.at(axis);
+            p.right += d * basis.right.at(axis);
+            p.up += d * basis.up.at(axis);
+        }
+        out.push_back(p);
+    }
+    return out;
+}
+
+/// The reticle's half-size at rest, in metres: what the old box measured from its centre to an
+/// edge.
+float reticle_half() { return 1.5F * std::tan(protekt::math::kFovRadians * 0.5F) * 0.055F; }
+
+Scene reticle_scene(float pulse, SceneOptions& options) {
+    const auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(42));
+    options = options_at(60.0F, 60.0F);
+    options.aim = Aim{640.0F, 360.0F};
+    options.reticle_pulse = pulse;
+    return build_scene(sim, options);
+}
+
+TEST(Reticle, IsFourTicksAndADot) {
+    SceneOptions options;
+    const std::vector<LocalPoint> p = reticle_local(reticle_scene(0.0F, options), options);
+    ASSERT_EQ(p.size(), std::size_t{30});
+    // Each of the first four quads sits on one axis, and between them they cover
+    // up/down/left/right.
+    int up = 0;
+    int down = 0;
+    int left = 0;
+    int right = 0;
+    for (std::size_t quad = 0; quad < 4; ++quad) {
+        float cr = 0.0F;
+        float cu = 0.0F;
+        for (std::size_t i = quad * 6; i < (quad * 6) + 6; ++i) {
+            cr += p.at(i).right / 6.0F;
+            cu += p.at(i).up / 6.0F;
+        }
+        const float eps = reticle_half() * 0.01F;
+        if (std::abs(cr) < eps && cu > 0.0F) {
+            ++up;
+        } else if (std::abs(cr) < eps && cu < 0.0F) {
+            ++down;
+        } else if (std::abs(cu) < eps && cr < 0.0F) {
+            ++left;
+        } else if (std::abs(cu) < eps && cr > 0.0F) {
+            ++right;
+        }
+    }
+    EXPECT_EQ(up, 1);
+    EXPECT_EQ(down, 1);
+    EXPECT_EQ(left, 1);
+    EXPECT_EQ(right, 1);
+}
+
+TEST(Reticle, TheCentreIsOpenExceptForTheDot) {
+    SceneOptions options;
+    const std::vector<LocalPoint> p = reticle_local(reticle_scene(0.0F, options), options);
+    const float half = reticle_half();
+    for (std::size_t i = 0; i < 24; ++i) {
+        EXPECT_GE(std::max(std::abs(p.at(i).right), std::abs(p.at(i).up)), half * 0.25F)
+            << "tick vertex " << i << " intrudes on the open centre";
+    }
+    for (std::size_t i = 24; i < 30; ++i) {
+        EXPECT_LE(std::max(std::abs(p.at(i).right), std::abs(p.at(i).up)), half * 0.15F)
+            << "the dot is small";
+    }
+}
+
+TEST(Reticle, IsNoLongerABox) {
+    // The retired square outline had a vertex at every corner (+-half, +-half), and a bar as wide
+    // as the whole mark. Nothing of the sort is drawn now, and the size is the same.
+    SceneOptions options;
+    const std::vector<LocalPoint> p = reticle_local(reticle_scene(0.0F, options), options);
+    const float half = reticle_half();
+    float widest = 0.0F;
+    for (const LocalPoint& v : p) {
+        EXPECT_FALSE(std::abs(v.right) > half * 0.5F && std::abs(v.up) > half * 0.5F)
+            << "a vertex out at a corner is the old box";
+        widest = std::max(widest, std::max(std::abs(v.right), std::abs(v.up)));
+    }
+    EXPECT_NEAR(widest, half, half * 0.01F) << "the size is comparable to the box it replaced";
+}
+
+TEST(Reticle, APulseSpreadsTheTicksAndRestIsUntouched) {
+    SceneOptions rest_options;
+    SceneOptions pulse_options;
+    SceneOptions mid_options;
+    const Scene rest = reticle_scene(0.0F, rest_options);
+    const Scene mid = reticle_scene(0.5F, mid_options);
+    const Scene full = reticle_scene(1.0F, pulse_options);
+    ASSERT_EQ(rest.vertices.size(), full.vertices.size());
+    const auto reach = [](const std::vector<LocalPoint>& pts) {
+        float far = 0.0F;
+        for (std::size_t i = 0; i < 24; ++i) {
+            far = std::max(far, std::max(std::abs(pts.at(i).right), std::abs(pts.at(i).up)));
+        }
+        return far;
+    };
+    const float r0 = reach(reticle_local(rest, rest_options));
+    const float r1 = reach(reticle_local(mid, mid_options));
+    const float r2 = reach(reticle_local(full, pulse_options));
+    EXPECT_LT(r0, r1);
+    EXPECT_LT(r1, r2);
+    // A pulse of exactly zero is the same bytes as an options struct that never set it.
+    SceneOptions plain;
+    const auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(42));
+    plain = options_at(60.0F, 60.0F);
+    plain.aim = Aim{640.0F, 360.0F};
+    const Scene never = build_scene(sim, plain);
+    ASSERT_EQ(never.vertices.size(), rest.vertices.size());
+    for (std::size_t i = 0; i < never.vertices.size(); ++i) {
+        EXPECT_EQ(never.vertices.at(i).position, rest.vertices.at(i).position);
+    }
+}
+
 // ---------------------------------------------------------------- the aim cue on the unit
 
 /// The colour of the first vertex of `unit`'s body in `scene`: it is the only thing at the unit's
@@ -1931,6 +2068,67 @@ TEST(HitFlash, OnlyALandedBoltOnThatUnitCounts) {
     EXPECT_FALSE(unit_was_hit(std::vector{fired_at(1)}, protekt::sim::UnitId{1}))
         << "a shot LEAVING the gun is not a hit";
     EXPECT_FALSE(unit_was_hit(std::vector<BattleEvent>{}, protekt::sim::UnitId{1}));
+}
+
+// ---------------------------------------------------------------- the hit mark
+
+using protekt::game::HitMark;
+using protekt::game::kHitMarkTicks;
+using protekt::game::shooter_connected;
+
+TEST(HitMark, IsOffUntilTheFirstConnection) {
+    const HitMark mark;
+    EXPECT_FLOAT_EQ(mark.level(0), 0.0F);
+    EXPECT_FLOAT_EQ(mark.level(1000), 0.0F);
+}
+
+TEST(HitMark, PulsesOnTheTickOfTheHitAndDecaysToRestWithinSixTicks) {
+    EXPECT_EQ(kHitMarkTicks, 6U) << "N, the ticks a pulse lasts";
+    HitMark mark;
+    mark.hit(100);
+    EXPECT_FLOAT_EQ(mark.level(100), 1.0F);
+    float previous = 1.0F;
+    for (std::uint32_t t = 101; t < 100 + kHitMarkTicks; ++t) {
+        EXPECT_LT(mark.level(t), previous) << "tick " << t;
+        previous = mark.level(t);
+    }
+    EXPECT_FLOAT_EQ(mark.level(100 + kHitMarkTicks), 0.0F);
+    EXPECT_FLOAT_EQ(mark.level(100 + kHitMarkTicks + 500), 0.0F);
+}
+
+TEST(HitMark, OnlyABoltFromTheShooterOntoTheOtherSideCounts) {
+    using protekt::sim::BattleEvent;
+    using protekt::sim::EventKind;
+    const auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(42));
+    protekt::sim::UnitId mine{};
+    protekt::sim::UnitId ally{};
+    protekt::sim::UnitId foe{};
+    for (const protekt::sim::Unit& unit : sim.units()) {
+        if (unit.side == protekt::sim::Side::Enemy && !foe.valid()) {
+            foe = unit.id;
+        } else if (unit.side == protekt::sim::Side::Player) {
+            if (!mine.valid()) {
+                mine = unit.id;
+            } else if (!ally.valid()) {
+                ally = unit.id;
+            }
+        }
+    }
+    ASSERT_TRUE(mine.valid() && ally.valid() && foe.valid());
+    const auto hit = [](protekt::sim::UnitId by, protekt::sim::UnitId victim) {
+        return BattleEvent{5, EventKind::HitTaken, by, victim, 90};
+    };
+    const auto fired = [](protekt::sim::UnitId by, protekt::sim::UnitId at) {
+        return BattleEvent{5, EventKind::Fired, by, at, 100};
+    };
+    const std::span<const protekt::sim::Unit> units = sim.units();
+    EXPECT_TRUE(shooter_connected(std::vector{hit(mine, foe)}, mine, units));
+    EXPECT_FALSE(shooter_connected(std::vector{hit(foe, mine)}, mine, units))
+        << "getting hit is hit_flash_'s job, not the reticle's";
+    EXPECT_FALSE(shooter_connected(std::vector{hit(ally, foe)}, mine, units)) << "someone else's";
+    EXPECT_FALSE(shooter_connected(std::vector{hit(mine, ally)}, mine, units)) << "friendly fire";
+    EXPECT_FALSE(shooter_connected(std::vector{fired(mine, foe)}, mine, units))
+        << "a shot leaving the gun is not a connection";
 }
 
 TEST(SceneHitFlash, ZeroDrawsNothingAtAll) {

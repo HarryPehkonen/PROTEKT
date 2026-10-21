@@ -26,7 +26,7 @@ std::vector<game::Health> health_of(const sim::UnitSnapshot& snapshot) {
 } // namespace
 
 void AudioPipeline::advance(sim::Sim& sim, std::uint32_t steps, const AudioFrame& frame,
-                            game::HitFlash& hit_flash) const {
+                            game::HitFlash& hit_flash, game::HitMark& hit_mark) const {
     std::vector<audio::Voice> voices;
     if (frame.shot_fired) {
         voices.push_back(game::shot_voice());
@@ -43,6 +43,9 @@ void AudioPipeline::advance(sim::Sim& sim, std::uint32_t steps, const AudioFrame
         const std::vector<sim::BattleEvent> events = sim::events_between(before, sim, tick_number);
         if (game::unit_was_hit(events, frame.player)) {
             hit_flash.hit(sim.tick());
+        }
+        if (game::shooter_connected(events, frame.player, before)) {
+            hit_mark.hit(sim.tick());
         }
         if (!listening) {
             continue;

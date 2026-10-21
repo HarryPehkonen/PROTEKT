@@ -63,7 +63,7 @@ public:
     explicit AudioPipeline(SampleSink* sink) noexcept : sink_(sink) {}
 
     void advance(sim::Sim& sim, std::uint32_t steps, const AudioFrame& frame,
-                 game::HitFlash& hit_flash) const;
+                 game::HitFlash& hit_flash, game::HitMark& hit_mark) const;
 
 private:
     SampleSink* sink_;
