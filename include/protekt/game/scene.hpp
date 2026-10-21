@@ -5,6 +5,7 @@
 #include <map>
 #include <optional>
 #include <span>
+#include <string_view>
 
 #include "protekt/game/scene_data.hpp"
 #include "protekt/math/math.hpp"
@@ -71,6 +72,25 @@ inline constexpr std::array<math::Vec3, kSkyRings> kSkyRingColours{{{0.8000F, 0.
                                                                     {0.3020F, 0.5600F, 0.8440F},
                                                                     {0.2500F, 0.5000F, 0.8200F}}};
 inline constexpr math::Vec3 kSunDiscColour{1.0F, 0.97F, 0.80F};
+
+/// THE GROUND'S PAINT. A terrain quad samples one whole atlas tile, and WHICH tile is a pure
+/// function of the world tile's `Terrain` and nothing else: every grass tile on the map paints
+/// identically. The tiles carry their own colour, so the terrain's vertex colour is
+/// `kTerrainLight`, white, the multiplicative identity: what shows is the tile.
+[[nodiscard]] constexpr std::string_view terrain_tile_name(world::Terrain terrain) noexcept {
+    switch (terrain) {
+    case world::Terrain::Flat:
+        return "terrain_grass";
+    case world::Terrain::Rough:
+        return "terrain_dirt";
+    case world::Terrain::Ridge:
+        return "terrain_rock";
+    case world::Terrain::Crater:
+        return "terrain_crater";
+    }
+    return "terrain_grass";
+}
+inline constexpr math::Vec3 kTerrainLight{1.0F, 1.0F, 1.0F};
 
 /// Where the player's eye is, in world metres and radians. Yaw 0 looks down +Z.
 struct Camera {
@@ -277,7 +297,7 @@ struct SceneOptions {
     float hit_flash{0.0F};
 };
 
-/// Triangles for the terrain mesh (two per tile, coloured by `Terrain`) followed by one box per
+/// Triangles for the terrain mesh (two per tile, painted by `Terrain`) followed by one box per
 /// living unit (coloured by side, taller for a factory than for a tank). Pure: same options and
 /// same sim state give byte-identical vertices.
 /// `selected` units are drawn brighter than the rest of their side: the player needs to see what he

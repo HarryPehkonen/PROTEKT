@@ -207,7 +207,7 @@ TEST(AtlasLoading, AMissingOrEmptyManifestFileFallsBackToTheEmbeddedOne) {
     const auto assets = load_atlas_assets(dirs, log);
     EXPECT_EQ(assets.manifest_source, "embedded");
     EXPECT_EQ(assets.manifest.tile("tank_hull"), 7);
-    EXPECT_EQ(assets.manifest.size(), std::size_t{17});
+    EXPECT_EQ(assets.manifest.size(), std::size_t{21});
 }
 
 TEST(AtlasLoading, ALaterDirectoryIsUsedWhenAnEarlierOneHasNothing) {

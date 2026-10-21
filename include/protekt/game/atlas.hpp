@@ -114,7 +114,9 @@ inline constexpr std::array<std::array<std::string_view, kHullVariantCount>, kTe
 /// nine hull tiles carry camo (A splodges, B stripes, C blocks) in a base, a dark and a light tone
 /// -- three in the neutral palette, three in the player's, three in the enemy's;
 /// the track tile is dark with lighter link stripes across its height; the turret, barrel and
-/// building tiles are their base tone with a few percent of slow variation. Tile 0 stays solid
+/// building tiles are their base tone with a few percent of slow variation; the four ground tiles
+/// (grass, dirt, rock, crater) carry their own colour in three tones, in patches and bands no finer
+/// than 8 texels that wrap at the tile's edges. Tile 0 stays solid
 /// white, the multiplicative identity for everything that sets no UV. Every texel is a pure
 /// function of (`seed`, its position): a hash walk, no RNG library, no runtime randomness.
 [[nodiscard]] std::vector<std::uint8_t> atlas_pixels(std::uint64_t seed = kAtlasSeed);

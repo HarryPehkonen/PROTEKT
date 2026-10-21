@@ -6,6 +6,7 @@
 #include "protekt/math/math.hpp"
 
 #include <algorithm>
+#include <array>
 
 #include <cmath>
 #include <cstdint>
@@ -27,20 +28,6 @@ using math::multiply;
 using math::normalise;
 using math::perspective;
 using math::Vec3;
-
-Vec3 terrain_colour(world::Terrain terrain) {
-    switch (terrain) {
-    case world::Terrain::Flat:
-        return {0.25F, 0.55F, 0.20F};
-    case world::Terrain::Rough:
-        return {0.45F, 0.42F, 0.18F};
-    case world::Terrain::Ridge:
-        return {0.55F, 0.50F, 0.48F};
-    case world::Terrain::Crater:
-        return {0.15F, 0.12F, 0.10F};
-    }
-    return {0.0F, 0.0F, 0.0F};
-}
 
 Vec3 side_colour(sim::Side side) {
     return side == sim::Side::Player ? Vec3{0.15F, 0.35F, 0.85F} : Vec3{0.85F, 0.15F, 0.15F};
@@ -77,9 +64,18 @@ void build_terrain(std::vector<SceneVertex>& out, std::uint64_t seed, int centre
     // Each tile's corners are sampled one tile beyond it on the far edge (tx+1, ty+1); widening
     // the low edge by one tile too keeps the sampled HEIGHT field symmetric around the camera,
     // even though the tolerance on the mesh's visual extent absorbs the extra row.
+    // Each quad takes its tile with x along u and z along v, the same way round everywhere, so
+    // neighbours of one type continue each other's (wrapping) paint.
+    const AtlasManifest& atlas = atlas_manifest();
+    std::array<UvRect, world::kTerrainCount> tiles{};
+    for (int t = 0; t < world::kTerrainCount; ++t) {
+        tiles.at(static_cast<std::size_t>(t))
+            = atlas.rect(terrain_tile_name(static_cast<world::Terrain>(t)));
+    }
     for (int ty = centre_y - radius - 1; ty <= centre_y + radius; ++ty) {
         for (int tx = centre_x - radius - 1; tx <= centre_x + radius; ++tx) {
-            const Vec3 colour = terrain_colour(world::sample(seed, tx, ty).terrain);
+            const UvRect& tile
+                = tiles.at(static_cast<std::size_t>(world::sample(seed, tx, ty).terrain));
             const float x0 = static_cast<float>(tx) * kMetresPerTile;
             const float x1 = static_cast<float>(tx + 1) * kMetresPerTile;
             const float z0 = static_cast<float>(ty) * kMetresPerTile;
@@ -88,7 +84,7 @@ void build_terrain(std::vector<SceneVertex>& out, std::uint64_t seed, int centre
             const Vec3 p10{x1, height_metres(seed, tx + 1, ty), z0};
             const Vec3 p11{x1, height_metres(seed, tx + 1, ty + 1), z1};
             const Vec3 p01{x0, height_metres(seed, tx, ty + 1), z1};
-            emit_quad(out, p00, p10, p11, p01, colour);
+            emit_tiled_quad(out, p00, p10, p11, p01, kTerrainLight, tile);
         }
     }
 }

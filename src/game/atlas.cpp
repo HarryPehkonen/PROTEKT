@@ -39,7 +39,8 @@ std::string_view next_word(std::string_view& line) {
 using Rgb = std::array<std::uint8_t, 3>;
 
 /// The tiles, by index. Tile 0 is the identity and an unassigned tile is magenta, so a stray UV is
-/// loud (the first quadrant's sixteen and the hover skirt are assigned; the rest are the budget).
+/// loud (the first quadrant's sixteen, the hover skirt and the four ground tiles are assigned; the
+/// rest are the budget).
 /// The tank's tones are near-neutral MULTIPLIERS: the side colour, the selection tint and the face
 /// light all stay in the vertex colour and multiply on top.
 constexpr int kTracksTile = 1;
@@ -52,6 +53,11 @@ constexpr int kFirstHullTile = 7; ///< tank_hull_a; b and c follow
 /// The team camo sets: the player's a, b, c, then the enemy's, on the last six tiles.
 constexpr int kFirstTeamHullTile = 10;
 constexpr int kHoverSkirtTile = 16; ///< the first tile of the second quadrant
+/// The ground, one tile per world::Terrain: grass (Flat), dirt (Rough), rock (Ridge), crater.
+constexpr int kGrassTile = 17;
+constexpr int kDirtTile = 18;
+constexpr int kRockTile = 19;
+constexpr int kCraterTile = 20;
 
 constexpr Rgb kWhite{255, 255, 255};
 constexpr Rgb kMagenta{255, 0, 255};
@@ -502,6 +508,122 @@ Tile paint_hover_skirt() {
     return tile;
 }
 
+/// THE GROUND. Unlike the tank's multipliers these tiles carry their own colour -- the scene draws
+/// the terrain in white light -- in three tones each whose share-weighted mean sits near the flat
+/// colour that terrain type used to be, so grass, dirt, rock and crater still read apart at a
+/// glance. Every tile WRAPS (its left edge continues its right, its top its bottom), because the
+/// same tile lies on every quad of its type side by side. Detail is never finer than 8 texels: a
+/// ground quad is 2 m, and at gameplay distance anything smaller is sub-pixel speckle.
+struct GroundTones {
+    Rgb dark;
+    Rgb base;
+    Rgb light;
+};
+constexpr GroundTones kGrass{{44, 104, 36}, {66, 142, 52}, {104, 172, 72}};
+constexpr GroundTones kDirt{{82, 74, 34}, {118, 109, 48}, {158, 146, 90}};
+constexpr GroundTones kRock{{96, 88, 84}, {142, 130, 124}, {190, 180, 172}};
+constexpr GroundTones kCrater{{20, 16, 14}, {40, 33, 28}, {92, 84, 76}};
+
+using Field = std::array<int, std::size_t{kTileSide} * kTileSide>;
+
+/// Adds `weight` times one octave of value noise to `field`: hashed knots in [-1024, 1024] on a
+/// lattice `cell` texels apart that wraps at the tile's edge, blended bilinearly -- seamless, and
+/// with no feature finer than `cell`.
+void add_wrapped_noise(Field& field, HashWalk& walk, int cell, int weight) {
+    const int knots = 64 / cell;
+    std::vector<int> lattice(static_cast<std::size_t>(knots) * static_cast<std::size_t>(knots));
+    for (int& knot : lattice) {
+        knot = walk.between(-1024, 1024);
+    }
+    const auto knot = [&](int i, int j) {
+        return lattice.at((static_cast<std::size_t>(j % knots) * static_cast<std::size_t>(knots))
+                          + static_cast<std::size_t>(i % knots));
+    };
+    for (int y = 0; y < 64; ++y) {
+        for (int x = 0; x < 64; ++x) {
+            const int i = x / cell;
+            const int j = y / cell;
+            const int fx = x % cell;
+            const int fy = y % cell;
+            const int top = (knot(i, j) * (cell - fx)) + (knot(i + 1, j) * fx);
+            const int bottom = (knot(i, j + 1) * (cell - fx)) + (knot(i + 1, j + 1) * fx);
+            field.at((static_cast<std::size_t>(y) * 64U) + static_cast<std::size_t>(x))
+                += weight * (((top * (cell - fy)) + (bottom * fy)) / (cell * cell));
+        }
+    }
+}
+
+/// The value below which `percent` of the field lies: thresholds by share, not by value, so every
+/// tone covers a known part of the tile whatever the knots drew.
+int percentile(Field field, int percent) {
+    const auto at = (field.size() * static_cast<std::size_t>(percent)) / 100U;
+    std::nth_element(field.begin(), field.begin() + static_cast<std::ptrdiff_t>(at), field.end());
+    return field.at(at);
+}
+
+/// Grass clumps and dirt mottling: two octaves of wrapped noise (16- and 8-texel cells, weighted
+/// `coarse`:`fine`) cut into three tones at the 30th and 70th percentiles -- a dark and a light
+/// patch on a base that keeps the middle 40%.
+Tile paint_patches(std::uint64_t seed, int tile_index, const GroundTones& tones, int coarse,
+                   int fine) {
+    HashWalk walk(seed, tile_index);
+    Field field{};
+    add_wrapped_noise(field, walk, 16, coarse);
+    add_wrapped_noise(field, walk, 8, fine);
+    const int low = percentile(field, 30);
+    const int high = percentile(field, 70);
+    Tile tile{};
+    for (std::size_t i = 0; i < tile.size(); ++i) {
+        const int f = field.at(i);
+        tile.at(i) = f < low ? tones.dark : (f >= high ? tones.light : tones.base);
+    }
+    return tile;
+}
+
+/// Bands across the tile: `position(x, y)` is where a texel lies across the bands, wrapped to
+/// [0, 64), and the band it falls in gives its tone. The band widths sum to 64, so the pattern
+/// wraps; the narrowest is 8 texels. The wander, a wrapped 16-texel noise of up to +/- `wander`
+/// texels, bends the band edges so they read as layers rather than a ruler's lines.
+template <typename Position>
+Tile paint_bands(std::uint64_t seed, int tile_index, std::span<const int> widths,
+                 std::span<const Rgb> tones, int wander, Position position) {
+    HashWalk walk(seed, tile_index);
+    Field bend{};
+    add_wrapped_noise(bend, walk, 16, 1);
+    std::array<std::size_t, 64> band_at{};
+    std::size_t at = 0;
+    for (std::size_t band = 0; band < widths.size(); ++band) {
+        for (int i = 0; i < widths[band] && at < band_at.size(); ++i) {
+            band_at.at(at++) = band;
+        }
+    }
+    Tile tile{};
+    for (int y = 0; y < 64; ++y) {
+        for (int x = 0; x < 64; ++x) {
+            const std::size_t i = (static_cast<std::size_t>(y) * 64U) + static_cast<std::size_t>(x);
+            const int across = position(x, y) + ((bend.at(i) * wander) / 1024);
+            tile.at(i) = tones[band_at.at(static_cast<std::size_t>(((across % 64) + 64) % 64))];
+        }
+    }
+    return tile;
+}
+
+/// Rock: strata, horizontal bands of the three greys.
+Tile paint_rock(std::uint64_t seed, int tile_index) {
+    constexpr std::array<int, 6> kWidths{10, 8, 12, 8, 14, 12};
+    const std::array<Rgb, 6> tones{kRock.base, kRock.light, kRock.base,
+                                   kRock.dark, kRock.base,  kRock.light};
+    return paint_bands(seed, tile_index, kWidths, tones, 6, [](int /*x*/, int y) { return y; });
+}
+
+/// Crater: striations, diagonal streaks of scorched floor with pale ash between them.
+Tile paint_crater(std::uint64_t seed, int tile_index) {
+    constexpr std::array<int, 6> kWidths{12, 8, 10, 8, 12, 14};
+    const std::array<Rgb, 6> tones{kCrater.base, kCrater.light, kCrater.dark,
+                                   kCrater.base, kCrater.light, kCrater.dark};
+    return paint_bands(seed, tile_index, kWidths, tones, 6, [](int x, int y) { return x + y; });
+}
+
 Tile solid(Rgb rgb) {
     Tile tile{};
     tile.fill(rgb);
@@ -548,6 +670,14 @@ Tile paint_tile(std::uint64_t seed, int index) {
         return paint_turret_housing(seed, index);
     case kHoverSkirtTile:
         return paint_hover_skirt();
+    case kGrassTile:
+        return paint_patches(seed, index, kGrass, 3, 1);
+    case kDirtTile:
+        return paint_patches(seed, index, kDirt, 1, 1);
+    case kRockTile:
+        return paint_rock(seed, index);
+    case kCraterTile:
+        return paint_crater(seed, index);
     default:
         return solid(kMagenta);
     }

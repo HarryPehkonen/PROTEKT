@@ -202,19 +202,63 @@ TEST(SceneTerrain, HeightsComeFromTheWorldGeneratorAndNotFromSomewhereElse) {
     EXPECT_GT(static_cast<int>(heights.size()), 1) << "flat terrain means the mesh ignores height";
 }
 
-TEST(SceneTerrain, ColoursTerrainTypesApart) {
-    // Find two tiles of different Terrain near the camera and check they are not the same colour.
-    const std::uint64_t seed = 3;
+TEST(SceneTerrain, TheTileIsAPureFunctionOfTheTerrainTypePinnedPerType) {
+    using protekt::game::terrain_tile_name;
+    using protekt::world::Terrain;
+    EXPECT_EQ(terrain_tile_name(Terrain::Flat), "terrain_grass");
+    EXPECT_EQ(terrain_tile_name(Terrain::Rough), "terrain_dirt");
+    EXPECT_EQ(terrain_tile_name(Terrain::Ridge), "terrain_rock");
+    EXPECT_EQ(terrain_tile_name(Terrain::Crater), "terrain_crater");
+    const auto& atlas = protekt::game::atlas_manifest();
+    std::set<int> tiles;
+    for (int t = 0; t < protekt::world::kTerrainCount; ++t) {
+        const int tile = atlas.tile(terrain_tile_name(static_cast<Terrain>(t)));
+        EXPECT_NE(tile, protekt::game::kFallbackTile) << "terrain " << t << " has a listed tile";
+        tiles.insert(tile);
+    }
+    EXPECT_EQ(tiles.size(), std::size_t{4}) << "every terrain type has its own tile";
+}
+
+TEST(SceneTerrain, EveryQuadSamplesTheWholeTileOfItsTypeTheSameWayRound) {
+    // A view with all four types inside the mesh. Each quad is six vertices p00, p10, p11, p00,
+    // p11, p01, and p00 sits on its tile's own lattice corner (tx * 2 m, ty * 2 m).
+    const std::uint64_t seed = 42;
+    constexpr int kRadius = 10;
+    int centre = 0;
+    for (int c = 0; c < 400 && centre == 0; c += 4) {
+        std::set<protekt::world::Terrain> types;
+        for (int y = c - kRadius; y <= c + kRadius; ++y) {
+            for (int x = c - kRadius; x <= c + kRadius; ++x) {
+                types.insert(protekt::world::sample(seed, x, y).terrain);
+            }
+        }
+        centre = types.size() == 4U ? c : 0;
+    }
+    ASSERT_NE(centre, 0) << "no view on the diagonal holds all four terrain types";
+    const float metres = static_cast<float>(centre) * kMetresPerTile;
     const auto scene
         = protekt::game::build_scene(protekt::sim::Sim::create(protekt::sim::skirmish(seed)),
-                                     options_at(120.0F, 120.0F, seed, 10));
-    ASSERT_FALSE(scene.vertices.empty());
-    std::set<std::array<float, 3>> colours;
-    for (const auto& v : scene.vertices) {
-        colours.insert(v.colour);
+                                     options_at(metres, metres, seed, kRadius));
+    const auto& atlas = protekt::game::atlas_manifest();
+    std::set<protekt::world::Terrain> seen;
+    for (std::size_t q = 0; q < terrain_vertex_count(kRadius); q += 6) {
+        const auto& p00 = scene.vertices.at(q);
+        const int tx = static_cast<int>(std::lround(p00.position[0] / kMetresPerTile));
+        const int ty = static_cast<int>(std::lround(p00.position[2] / kMetresPerTile));
+        const auto terrain = protekt::world::sample(seed, tx, ty).terrain;
+        seen.insert(terrain);
+        const auto r = atlas.rect(protekt::game::terrain_tile_name(terrain));
+        const std::array<std::array<float, 2>, 6> want{
+            {{r.u0, r.v0}, {r.u1, r.v0}, {r.u1, r.v1}, {r.u0, r.v0}, {r.u1, r.v1}, {r.u0, r.v1}}};
+        for (std::size_t i = 0; i < 6; ++i) {
+            const auto& v = scene.vertices.at(q + i);
+            ASSERT_EQ(v.u, want.at(i).at(0)) << "tile " << tx << "," << ty << " vertex " << i;
+            ASSERT_EQ(v.v, want.at(i).at(1)) << "tile " << tx << "," << ty << " vertex " << i;
+            ASSERT_EQ(v.colour, (std::array<float, 3>{1.0F, 1.0F, 1.0F}))
+                << "the tile carries the colour; the light is white";
+        }
     }
-    EXPECT_GT(colours.size(), 2U)
-        << "terrain alone should show more than one colour when terrain types differ";
+    EXPECT_EQ(seen.size(), std::size_t{4}) << "this view should hold every terrain type";
 }
 
 TEST(SceneUnits, DrawsABoxPerLivingUnitAndColoursTheSidesApart) {
@@ -2576,9 +2620,10 @@ TEST(SceneShading, TheTurretWearsTheCamoAndTheRoofPanelAndBarrelCarryTheSideColo
 }
 
 TEST(SceneShading, TerrainIsNotShaded) {
+    // D3: the terrain's colour is its tile's; the vertex light is a flat white, never sun-shaded.
     const auto sim = facing_sim();
     const Scene scene = facing_scene(sim, 0.0F, 0.0F);
-    EXPECT_EQ(scene.vertices.front().colour, (std::array<float, 3>{0.25F, 0.55F, 0.20F}));
+    EXPECT_EQ(scene.vertices.front().colour, (std::array<float, 3>{1.0F, 1.0F, 1.0F}));
 }
 
 // ---------------------------------------------------------------- which way a tank faces
@@ -3101,7 +3146,7 @@ namespace {
 
 using protekt::game::SceneVertex;
 
-TEST(SceneUv, TerrainLeavesTheUvAtZeroAndNothingLeavesTheAtlas) {
+TEST(SceneUv, TerrainSamplesAGroundTileAndNothingLeavesTheAtlas) {
     // A viewer (radar, health bar), an aim (reticle) and a hit flash (the final wash) between
     // them reach every emitter in build_scene: terrain, sky, units, projectiles and the HUD.
     const Damaged d = factory_down_to(200);
@@ -3110,7 +3155,13 @@ TEST(SceneUv, TerrainLeavesTheUvAtZeroAndNothingLeavesTheAtlas) {
     options.hit_flash = 0.5F;
     const Scene scene = protekt::game::build_scene(d.sim, options);
     ASSERT_GT(scene.vertices.size(), terrain_vertex_count(options.radius_tiles));
-    // Units carry atlas UVs (tanks since D2b, buildings since D2e); terrain still sets none.
+    // Units carry atlas UVs (tanks since D2b, buildings since D2e); since D3 the terrain samples
+    // one of the four ground tiles, never anything else.
+    std::array<protekt::game::UvRect, protekt::world::kTerrainCount> ground{};
+    for (int t = 0; t < protekt::world::kTerrainCount; ++t) {
+        ground.at(static_cast<std::size_t>(t)) = protekt::game::atlas_manifest().rect(
+            protekt::game::terrain_tile_name(static_cast<protekt::world::Terrain>(t)));
+    }
     for (std::size_t i = 0; i < scene.vertices.size(); ++i) {
         const SceneVertex& v = scene.vertices.at(i);
         ASSERT_GE(v.u, 0.0F);
@@ -3118,21 +3169,28 @@ TEST(SceneUv, TerrainLeavesTheUvAtZeroAndNothingLeavesTheAtlas) {
         ASSERT_GE(v.v, 0.0F);
         ASSERT_LE(v.v, 1.0F);
         if (i < terrain_vertex_count(options.radius_tiles)) {
-            ASSERT_EQ(v.u, 0.0F);
-            ASSERT_EQ(v.v, 0.0F);
+            ASSERT_TRUE(std::any_of(ground.begin(), ground.end(),
+                                    [&](const auto& r) {
+                                        return (v.u == r.u0 || v.u == r.u1)
+                                               && (v.v == r.v0 || v.v == r.v1);
+                                    }))
+                << "terrain vertex " << i;
         }
     }
 }
 
-TEST(SceneUv, ASkirmishAndTheCalibrationSceneLeaveTheUvAtZeroToo) {
+TEST(SceneUv, ASkirmishPastItsTerrainAndTheCalibrationSceneLeaveTheUvAtZeroToo) {
+    // D3: the terrain samples its ground tiles (above); everything after it here sets no UV.
     const auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(42));
     const SceneOptions options = options_at(60.0F, 60.0F);
-    for (const Scene& scene : {protekt::game::build_scene(sim, options),
-                               protekt::game::build_calibration_scene(options)}) {
-        ASSERT_FALSE(scene.vertices.empty());
-        for (const SceneVertex& v : scene.vertices) {
-            ASSERT_EQ(v.u, 0.0F);
-            ASSERT_EQ(v.v, 0.0F);
+    const std::size_t terrain = terrain_vertex_count(options.radius_tiles);
+    for (const auto& [scene, first] :
+         {std::pair{protekt::game::build_scene(sim, options), terrain},
+          std::pair{protekt::game::build_calibration_scene(options), std::size_t{0}}}) {
+        ASSERT_GT(scene.vertices.size(), first);
+        for (std::size_t i = first; i < scene.vertices.size(); ++i) {
+            ASSERT_EQ(scene.vertices.at(i).u, 0.0F);
+            ASSERT_EQ(scene.vertices.at(i).v, 0.0F);
         }
     }
 }

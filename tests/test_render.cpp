@@ -26,6 +26,7 @@
 #include "protekt/game/scene.hpp"
 #include "protekt/render/renderer.hpp"
 #include "protekt/sim/scenario.hpp"
+#include "protekt/world/world.hpp"
 
 namespace {
 
@@ -577,4 +578,90 @@ TEST_F(RenderTest, AFacingTankDrawsTwiceByteIdenticallyThroughTheAtlas) {
     // The atlas is really sampled: the same scene over the default white texture differs, because
     // the track tile is dark.
     EXPECT_NE(draw(*atlas_renderer), draw(*renderer_));
+}
+
+// ---- the ground is painted (D3), measured on the rendered frame, not the tile ----
+
+/// THE CAPTURE GATE. Over a patch of grass seen from a tank's-eye height, the rendered pixels'
+/// luma spans at least this (where the flat-coloured ground spanned nothing)...
+constexpr double kMinCapturedGroundLumaRange = 0.20;
+/// ...and a run of one colour along a row averages at least this many pixels: the detail is
+/// patches the eye can see, not sub-pixel speckle.
+constexpr double kMinCapturedGroundPatchPixels = 6.0;
+
+TEST_F(RenderTest, GrassUnderTheCameraRendersWithVisibleTextureDetail) {
+    namespace sim = protekt::sim;
+    namespace world = protekt::world;
+    constexpr std::uint64_t kSeed = 42;
+    // The first tile whose 7x7 neighbourhood is all grass: the whole frame below is one type, so
+    // any luma range in it is the texture's and not a border between types.
+    int gx = 0;
+    int gy = 0;
+    bool found = false;
+    for (int y = 3; y < 200 && !found; ++y) {
+        for (int x = 3; x < 200 && !found; ++x) {
+            bool all = true;
+            for (int dy = -3; dy <= 3 && all; ++dy) {
+                for (int dx = -3; dx <= 3 && all; ++dx) {
+                    all = world::sample(kSeed, x + dx, y + dy).terrain == world::Terrain::Flat;
+                }
+            }
+            if (all) {
+                gx = x;
+                gy = y;
+                found = true;
+            }
+        }
+    }
+    ASSERT_TRUE(found) << "no 7x7 patch of grass to look at";
+    const auto state = sim::Sim::create(sim::skirmish(kSeed));
+    protekt::game::SceneOptions so;
+    so.seed = kSeed;
+    so.extent = Extent{kWidth, kHeight};
+    so.radius_tiles = 6;
+    so.camera.x = (static_cast<float>(gx) + 0.5F) * protekt::game::kMetresPerTile;
+    so.camera.z = (static_cast<float>(gy) + 0.5F) * protekt::game::kMetresPerTile;
+    so.camera.y = protekt::game::height_metres(kSeed, gx, gy) + 3.0F;
+    so.camera.pitch = -1.5F;
+    const protekt::game::Scene scene = protekt::game::build_scene(state, so);
+    protekt::render::CreateOptions with = options();
+    with.atlas_rgba = protekt::game::atlas_pixels();
+    with.atlas_side = protekt::game::kAtlasSide;
+    std::string error;
+    const auto atlas_renderer = protekt::render::create(with, error);
+    ASSERT_NE(atlas_renderer, nullptr) << error;
+    Frame frame;
+    frame.extent = Extent{kWidth, kHeight};
+    frame.pixels = atlas_renderer->render(
+        protekt::render::FrameRequest{
+            .extent = frame.extent, .seed = kSeed, .tick = 0, .scene = &scene},
+        frame.stats);
+    EXPECT_EQ(atlas_renderer->validation_errors(), 0U);
+
+    double lo = 1.0;
+    double hi = 0.0;
+    std::size_t runs = 0;
+    for (std::uint32_t y = 0; y < kHeight; ++y) {
+        ++runs;
+        for (std::uint32_t x = 0; x < kWidth; ++x) {
+            const std::uint32_t c = frame.rgb(x, y);
+            const double l = ((0.2126 * ((c >> 16U) & 0xFFU)) + (0.7152 * ((c >> 8U) & 0xFFU))
+                              + (0.0722 * (c & 0xFFU)))
+                             / 255.0;
+            lo = std::min(lo, l);
+            hi = std::max(hi, l);
+            runs += x > 0 && c != frame.rgb(x - 1, y) ? 1U : 0U;
+        }
+    }
+    const double mean_run = static_cast<double>(kWidth) * kHeight / static_cast<double>(runs);
+    RecordProperty("ground_luma_range", std::to_string(hi - lo));
+    RecordProperty("ground_mean_run_pixels", std::to_string(mean_run));
+    EXPECT_GE(hi - lo, kMinCapturedGroundLumaRange) << "luma " << lo << " .. " << hi;
+    EXPECT_GE(mean_run, kMinCapturedGroundPatchPixels);
+    // Two renders of the one request are byte-identical: the paint is data, not noise.
+    std::vector<std::uint8_t> again = atlas_renderer->render(
+        protekt::render::FrameRequest{
+            .extent = frame.extent, .seed = kSeed, .tick = 0, .scene = &scene},
+        frame.stats);
+    EXPECT_EQ(again, frame.pixels);
 }

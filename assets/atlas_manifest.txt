@@ -6,6 +6,8 @@
 # A name that is not listed falls back to tile 0, which is white.
 # tank_hull is an alias of tank_hull_a. tank_hull_a/b/c are the neutral camo; a tank wears one of
 # its team's three variants (a, b, c), tank_hull_player_* or tank_hull_enemy_*.
+# terrain_* are the ground, one per world terrain type: grass Flat, dirt Rough, rock Ridge,
+# crater Crater.
 tank_hull 7
 tank_tracks 1
 tank_turret 2
@@ -23,3 +25,7 @@ tank_hull_enemy_a 13
 tank_hull_enemy_b 14
 tank_hull_enemy_c 15
 hover_skirt 16
+terrain_grass 17
+terrain_dirt 18
+terrain_rock 19
+terrain_crater 20

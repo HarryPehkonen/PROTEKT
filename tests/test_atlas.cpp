@@ -34,8 +34,8 @@ constexpr std::array<std::array<int, 3>, 3> kHullSets{{{7, 8, 9}, {10, 11, 12}, 
 /// The two team sets, which tanks wear.
 constexpr std::array<int, 6> kTeamHullTiles{10, 11, 12, 13, 14, 15};
 
-/// The tiles painted so far: the first quadrant and the hover skirt.
-constexpr int kAssignedTiles = 17;
+/// The tiles painted so far: the first quadrant, the hover skirt and the four ground tiles.
+constexpr int kAssignedTiles = 21;
 
 /// Texel (x, y) of `tile` in a whole-atlas RGBA buffer.
 Rgb texel(const std::vector<std::uint8_t>& px, int tile, int x, int y) {
@@ -152,7 +152,7 @@ TEST(AtlasManifest, ALaterLineForTheSameNameWins) {
 
 TEST(AtlasManifest, TheCommittedManifestAssignsTheDocumentedTiles) {
     // D2f: the six team camo tiles took the six spare tiles, so the manifest is 16 names; E9b's
-    // hover skirt opened the second quadrant, so it is 17.
+    // hover skirt opened the second quadrant, so it is 17; D3's four ground tiles make it 21.
     const AtlasManifest& m = protekt::game::atlas_manifest();
     EXPECT_EQ(m.tile("tank_hull"), 7) << "an alias of tank_hull_a";
     EXPECT_EQ(m.tile("tank_tracks"), 1);
@@ -174,12 +174,16 @@ TEST(AtlasManifest, TheCommittedManifestAssignsTheDocumentedTiles) {
     EXPECT_EQ(m.tile("tank_hull_enemy_b"), 14);
     EXPECT_EQ(m.tile("tank_hull_enemy_c"), 15);
     EXPECT_EQ(m.tile("hover_skirt"), 16);
+    EXPECT_EQ(m.tile("terrain_grass"), 17);
+    EXPECT_EQ(m.tile("terrain_dirt"), 18);
+    EXPECT_EQ(m.tile("terrain_rock"), 19);
+    EXPECT_EQ(m.tile("terrain_crater"), 20);
     for (const auto& team : protekt::game::kTeamHullNames) {
         for (const auto name : team) {
             EXPECT_NE(m.tile(name), kFallbackTile) << name << " is listed";
         }
     }
-    EXPECT_EQ(m.size(), std::size_t{17});
+    EXPECT_EQ(m.size(), std::size_t{21});
 }
 
 TEST(AtlasManifest, TheEmbeddedTextIsTheCommittedFile) {
@@ -279,8 +283,8 @@ TEST(AtlasPixels, IsA512SquareOpaqueImageWithAWhiteIdentityTileAndNoAssignedTile
     }
     // Tile 0 is solid white: it is the identity for everything that sets no UV. Since D2f the team
     // camo fills tiles 10 to 15, so no tile of the first quadrant is left at the unassigned
-    // magenta; E9b's 8x8 growth assigns the hover skirt (16) and leaves the rest magenta, the loud
-    // budget.
+    // magenta; E9b's 8x8 growth assigns the hover skirt (16), D3 the ground (17 to 20), and the
+    // rest stay magenta, the loud budget.
     for (int y = 0; y < 64; ++y) {
         for (int x = 0; x < 64; ++x) {
             ASSERT_EQ(texel(px, 0, x, y), (Rgb{255, 255, 255})) << "tile 0 is solid white";
@@ -667,6 +671,147 @@ TEST(AtlasPaint, TheFactoryWallsDoorFrameAndChevronsAreNearBlack) {
     EXPECT_GE(dark, 300);
     for (int x = 4; x <= 9; ++x) { // the frame's left side is six texels of near-black
         EXPECT_LE(luma(texel(px, 4, x, 40)), kNearBlackLuma) << "x " << x;
+    }
+}
+
+// ---------------------------------------------------------------- the ground (D3)
+
+/// The ground tiles, in world::Terrain order (Flat, Rough, Ridge, Crater), and the flat colour each
+/// terrain type was drawn in before it had a tile, in 0-255.
+constexpr std::array<int, 4> kGroundTiles{17, 18, 19, 20};
+constexpr std::array<std::array<double, 3>, 4> kOldFlatColours{
+    {{0.25 * 255, 0.55 * 255, 0.20 * 255},
+     {0.45 * 255, 0.42 * 255, 0.18 * 255},
+     {0.55 * 255, 0.50 * 255, 0.48 * 255},
+     {0.15 * 255, 0.12 * 255, 0.10 * 255}}};
+
+/// THE VARIANCE AND READABILITY GATE, in named thresholds.
+/// A ground tile's luma spans at least this, texel to texel: real detail, not a flat colour.
+constexpr double kMinGroundLumaRange = 0.20;
+/// Its patches and bands average at least this many texels along a row and down a column, so the
+/// detail survives gameplay distance instead of collapsing into sub-pixel speckle.
+constexpr double kMinGroundPatchTexels = 8.0;
+/// Its mean colour stays within this of the flat colour the type used to be (per channel, 0-255),
+/// so the ground still reads as the terrain it was.
+constexpr double kMaxGroundMeanDrift = 0.08 * 255;
+/// Any two types' mean colours are at least this far apart (RGB distance, 0-255): grass, dirt, rock
+/// and crater stay distinguishable at a glance.
+constexpr double kMinGroundTypeSeparation = 0.12 * 255;
+/// A tile wraps: at least this share of its edge texels equal the texel across the seam.
+constexpr double kMinGroundSeamMatch = 0.80;
+
+std::array<double, 3> mean_colour(const std::vector<std::uint8_t>& px, int tile) {
+    std::array<double, 3> sum{};
+    for (int y = 0; y < 64; ++y) {
+        for (int x = 0; x < 64; ++x) {
+            const Rgb rgb = texel(px, tile, x, y);
+            for (std::size_t c = 0; c < 3; ++c) {
+                sum.at(c) += rgb.at(c) / 4096.0;
+            }
+        }
+    }
+    return sum;
+}
+
+/// The mean length of a run of one colour along the rows (`down` false) or the columns.
+double mean_run(const std::vector<std::uint8_t>& px, int tile, bool down) {
+    int runs = 0;
+    for (int a = 0; a < 64; ++a) {
+        ++runs;
+        for (int b = 1; b < 64; ++b) {
+            const Rgb here = down ? texel(px, tile, a, b) : texel(px, tile, b, a);
+            const Rgb before = down ? texel(px, tile, a, b - 1) : texel(px, tile, b - 1, a);
+            runs += here != before ? 1 : 0;
+        }
+    }
+    return 4096.0 / runs;
+}
+
+TEST(AtlasGround, EachGroundTileHasALumaRangeOfAtLeastKMinGroundLumaRange) {
+    const auto px = protekt::game::atlas_pixels();
+    for (const int tile : kGroundTiles) {
+        double lo = 1.0;
+        double hi = 0.0;
+        for (int y = 0; y < 64; ++y) {
+            for (int x = 0; x < 64; ++x) {
+                lo = std::min(lo, luma(texel(px, tile, x, y)));
+                hi = std::max(hi, luma(texel(px, tile, x, y)));
+            }
+        }
+        EXPECT_GE(hi - lo, kMinGroundLumaRange) << "tile " << tile;
+    }
+}
+
+TEST(AtlasGround, EachGroundTilesDetailIsAtLeastKMinGroundPatchTexelsAcross) {
+    const auto px = protekt::game::atlas_pixels();
+    for (const int tile : kGroundTiles) {
+        EXPECT_GE(mean_run(px, tile, false), kMinGroundPatchTexels) << "tile " << tile << " rows";
+        EXPECT_GE(mean_run(px, tile, true), kMinGroundPatchTexels) << "tile " << tile << " columns";
+        EXPECT_LE(tone_shares(px, tile).size(), std::size_t{3})
+            << "tile " << tile << ": three tones";
+    }
+}
+
+TEST(AtlasGround, EachGroundTileMeansTheFlatColourItsTypeUsedToBe) {
+    const auto px = protekt::game::atlas_pixels();
+    for (std::size_t t = 0; t < kGroundTiles.size(); ++t) {
+        const auto mean = mean_colour(px, kGroundTiles.at(t));
+        for (std::size_t c = 0; c < 3; ++c) {
+            EXPECT_NEAR(mean.at(c), kOldFlatColours.at(t).at(c), kMaxGroundMeanDrift)
+                << "tile " << kGroundTiles.at(t) << " channel " << c;
+        }
+    }
+}
+
+TEST(AtlasGround, TheFourGroundTypesStayKMinGroundTypeSeparationApart) {
+    const auto px = protekt::game::atlas_pixels();
+    for (std::size_t a = 0; a < kGroundTiles.size(); ++a) {
+        for (std::size_t b = a + 1; b < kGroundTiles.size(); ++b) {
+            const auto ma = mean_colour(px, kGroundTiles.at(a));
+            const auto mb = mean_colour(px, kGroundTiles.at(b));
+            double d2 = 0.0;
+            for (std::size_t c = 0; c < 3; ++c) {
+                d2 += (ma.at(c) - mb.at(c)) * (ma.at(c) - mb.at(c));
+            }
+            EXPECT_GE(std::sqrt(d2), kMinGroundTypeSeparation)
+                << "tiles " << kGroundTiles.at(a) << " and " << kGroundTiles.at(b);
+        }
+    }
+    // The crater is the darkest ground by a wide margin: a hole, not another field.
+    const auto mean_luma = [&](int tile) {
+        const auto m = mean_colour(px, tile);
+        return ((0.2126 * m.at(0)) + (0.7152 * m.at(1)) + (0.0722 * m.at(2))) / 255.0;
+    };
+    for (const int tile : {17, 18, 19}) {
+        EXPECT_LT(mean_luma(20) + 0.15, mean_luma(tile)) << "tile " << tile;
+    }
+}
+
+TEST(AtlasGround, EachGroundTileWrapsSoNeighbouringQuadsShowNoSeam) {
+    const auto px = protekt::game::atlas_pixels();
+    for (const int tile : kGroundTiles) {
+        int match = 0;
+        for (int i = 0; i < 64; ++i) {
+            match += texel(px, tile, 0, i) == texel(px, tile, 63, i) ? 1 : 0;
+            match += texel(px, tile, i, 0) == texel(px, tile, i, 63) ? 1 : 0;
+        }
+        EXPECT_GE(match / 128.0, kMinGroundSeamMatch) << "tile " << tile;
+    }
+}
+
+TEST(AtlasGround, TheGroundIsPaintedDeterministicallyFromTheSeed) {
+    const auto a = protekt::game::atlas_pixels(7);
+    const auto b = protekt::game::atlas_pixels(7);
+    const auto c = protekt::game::atlas_pixels();
+    for (const int tile : kGroundTiles) {
+        bool differs = false;
+        for (int y = 0; y < 64; ++y) {
+            for (int x = 0; x < 64; ++x) {
+                ASSERT_EQ(texel(a, tile, x, y), texel(b, tile, x, y)) << "tile " << tile;
+                differs = differs || texel(a, tile, x, y) != texel(c, tile, x, y);
+            }
+        }
+        EXPECT_TRUE(differs) << "tile " << tile << ": another seed paints another pattern";
     }
 }
 
