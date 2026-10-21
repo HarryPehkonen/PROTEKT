@@ -134,8 +134,8 @@ TEST(Observer, StatusLinesAppearEveryPeriodAndAlwaysAtTickZero) {
             }
         }
     }
-    EXPECT_EQ(at_tick_zero, 12) << "one status line per living unit at tick 0";
-    EXPECT_EQ(at_tick_sixty, 12);
+    EXPECT_EQ(at_tick_zero, 13) << "one status line per living unit at tick 0";
+    EXPECT_EQ(at_tick_sixty, 13);
 }
 
 TEST(Observer, PositionsPrintAsTilesWithOneDecimal) {
@@ -322,9 +322,16 @@ TEST(Observer, EveryShotTheSimReportsAppearsAsOneFiredEvent) {
     EXPECT_EQ(fired.size(), valid_shots);
 }
 
+TEST(Observer, TheHoverTankPrintsAsHovertank) {
+    EXPECT_STREQ(to_string(UnitKind::HoverTank), "hovertank");
+    EXPECT_STREQ(to_string(UnitKind::Tank), "tank");
+}
+
 TEST(Observer, TheFiredStreamForAScriptedBattleIsUnchanged) {
-    // Recorded by running this battle on the code BEFORE shots() existed, when Fired was still
-    // inferred from a cooldown diff. Columns: tick, actor, subject, subject_hp.
+    // First recorded on the code BEFORE shots() existed, when Fired was still inferred from a
+    // cooldown diff; RE-RECORDED for E9a, when the player gained a fourth unit (the hover tank,
+    // id 4): every id after it moved up one and the battle itself changed. Columns: tick, actor,
+    // subject, subject_hp.
     struct Expected {
         Tick tick;
         std::uint32_t actor;
@@ -332,15 +339,17 @@ TEST(Observer, TheFiredStreamForAScriptedBattleIsUnchanged) {
         std::uint16_t hp;
     };
     static const std::vector<Expected> kExpected = {
-        {449, 2, 7, 100}, {449, 7, 2, 100}, {464, 2, 7, 100}, {464, 7, 2, 100}, {464, 8, 2, 100},
-        {470, 1, 7, 92},  {479, 2, 7, 92},  {479, 7, 2, 92},  {479, 8, 2, 92},  {485, 1, 7, 92},
-        {494, 2, 7, 76},  {494, 7, 2, 76},  {494, 8, 2, 76},  {500, 1, 7, 76},  {509, 2, 7, 60},
-        {509, 7, 2, 60},  {509, 8, 2, 60},  {515, 1, 7, 60},  {523, 3, 7, 44},  {524, 2, 7, 44},
-        {524, 7, 2, 44},  {524, 8, 2, 44},  {530, 1, 7, 44},  {538, 3, 7, 28},  {539, 2, 7, 28},
-        {539, 7, 2, 28},  {539, 8, 2, 28},  {545, 1, 7, 20},  {549, 9, 2, 12},  {553, 3, 7, 4},
-        {554, 2, 7, 4},   {554, 7, 2, 12},  {554, 8, 2, 12},  {560, 1, 9, 100}, {564, 9, 3, 100},
-        {568, 3, 9, 84},  {569, 8, 3, 92},  {575, 1, 9, 84},  {579, 9, 3, 76},  {583, 3, 9, 60},
-        {584, 8, 3, 76},  {590, 1, 9, 60},  {594, 9, 3, 60},  {598, 3, 9, 44},  {599, 8, 3, 60},
+        {449, 2, 8, 100}, {449, 8, 2, 100}, {464, 2, 8, 100}, {464, 8, 2, 100}, {464, 9, 2, 100},
+        {470, 1, 8, 92},  {479, 2, 8, 92},  {479, 8, 2, 92},  {479, 9, 2, 92},  {485, 1, 8, 92},
+        {486, 4, 8, 92},  {494, 2, 8, 76},  {494, 8, 2, 76},  {494, 9, 2, 76},  {500, 1, 8, 76},
+        {501, 4, 8, 76},  {509, 2, 8, 52},  {509, 8, 2, 60},  {509, 9, 2, 60},  {515, 1, 8, 52},
+        {516, 4, 8, 52},  {523, 3, 8, 36},  {524, 2, 8, 28},  {524, 8, 2, 44},  {524, 9, 2, 44},
+        {530, 1, 8, 28},  {531, 4, 8, 28},  {538, 3, 8, 12},  {539, 2, 9, 100}, {539, 9, 2, 28},
+        {545, 1, 9, 100}, {546, 4, 9, 100}, {548, 10, 4, 84}, {553, 3, 9, 92},  {554, 2, 9, 92},
+        {554, 9, 2, 28},  {560, 1, 9, 92},  {561, 4, 9, 92},  {563, 10, 2, 28}, {568, 3, 9, 92},
+        {569, 2, 9, 92},  {569, 9, 2, 28},  {575, 1, 10, 52}, {576, 4, 10, 44}, {578, 10, 4, 60},
+        {583, 3, 10, 28}, {584, 2, 10, 20}, {584, 9, 4, 60},  {590, 1, 10, 20}, {591, 4, 10, 12},
+        {593, 10, 4, 44}, {598, 3, 9, 92},  {599, 2, 9, 84},  {599, 9, 4, 44},
     };
     const Scenario scenario = skirmish(42);
     ai::ScriptedCommander player(30);

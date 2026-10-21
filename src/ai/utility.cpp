@@ -77,6 +77,7 @@ namespace {
 int threat_of(sim::UnitKind kind) noexcept {
     switch (kind) {
     case sim::UnitKind::Tank:
+    case sim::UnitKind::HoverTank:
         return 3;
     case sim::UnitKind::Turret:
         return 2;
@@ -151,7 +152,7 @@ Decision decide(const sim::UnitView& self, const sim::Observation& observation,
     Decision decision{};
     decision.unit = self.id;
     // Only tanks move and hunt; turrets and factories hold whatever happens.
-    if (self.kind != sim::UnitKind::Tank) {
+    if (!sim::is_tank(self.kind)) {
         return decision;
     }
     const sim::UnitView* home = home_factory(observation);

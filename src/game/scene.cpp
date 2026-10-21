@@ -790,7 +790,7 @@ void append_unit_bars(std::vector<SceneVertex>& out, const SceneOptions& options
     const int centre_x = static_cast<int>(std::floor(options.camera.x / kMetresPerTile));
     const int centre_y = static_cast<int>(std::floor(options.camera.z / kMetresPerTile));
     for (const sim::Unit& unit : sim.units()) {
-        if (!unit.alive || unit.kind != sim::UnitKind::Tank || unit.id == options.viewer_unit) {
+        if (!unit.alive || !sim::is_tank(unit.kind) || unit.id == options.viewer_unit) {
             continue;
         }
         // Only a tank that is drawn gets a bar: the same terrain window the units use.
@@ -1054,7 +1054,7 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
             if (options.facing.has_value() && options.facing->unit == unit.id) {
                 build_facing_tank(scene.vertices, options.seed, unit, mark, lift_z, hovering,
                                   options.facing->heading, options.facing->turret);
-            } else if (unit.kind == sim::UnitKind::Tank) {
+            } else if (unit.kind == sim::UnitKind::Tank) { // HoverTank stays a box: no visuals yet
                 const float heading = options.headings != nullptr
                                           ? options.headings->of(unit)
                                           : Headings::heading_of(unit).value_or(0.0F);

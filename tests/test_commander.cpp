@@ -23,7 +23,7 @@ TEST(Commander, ObserveSplitsOwnFromEnemyAndOnlyLivingUnits) {
     Sim sim = Sim::create(skirmish(42));
     const Observation obs = observe(sim, Side::Player);
     EXPECT_EQ(obs.tick, 0U);
-    EXPECT_EQ(obs.own.size(), 6U);
+    EXPECT_EQ(obs.own.size(), 7U);
     EXPECT_EQ(obs.enemy.size(), 6U);
     for (const UnitView& v : obs.own) {
         EXPECT_EQ(v.side, Side::Player);
@@ -81,7 +81,8 @@ TEST(Commander, IssuesOneOrderPerOwnCombatUnitAndNeverForAFactory) {
     ScriptedCommander commander(30);
     std::vector<Order> orders;
     commander.think(observe(sim, Side::Player), orders);
-    ASSERT_EQ(orders.size(), 5U) << "3 tanks ordered to attack, 2 turrets ordered to guard";
+    ASSERT_EQ(orders.size(), 6U)
+        << "3 tanks and the hover tank ordered to attack, 2 turrets ordered to guard";
 
     const Observation obs = observe(sim, Side::Player);
     std::set<std::uint32_t> own_ids;
@@ -107,7 +108,7 @@ TEST(Commander, IssuesOneOrderPerOwnCombatUnitAndNeverForAFactory) {
             FAIL() << "unexpected order kind " << static_cast<int>(o.kind());
         }
     }
-    EXPECT_EQ(attacks, 3);
+    EXPECT_EQ(attacks, 4);
     EXPECT_EQ(guards, 2);
 }
 

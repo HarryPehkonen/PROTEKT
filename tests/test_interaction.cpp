@@ -51,18 +51,18 @@ struct Rig {
 /// unit at x=40 is directly behind whatever is in front of it on that line, and a click on it lands
 /// on the near unit instead. The first version of this rig put the turret and the enemy at x=40
 /// behind the driven tank, and five tests failed for exactly that reason -- the picker was right.
-[[nodiscard]] Rig make_rig() {
+[[nodiscard]] Rig make_rig(UnitKind second = UnitKind::Tank) {
     Rig rig{};
     rig.sim = sim::Sim::create(Scenario{kSeed,
                                         {{UnitKind::Tank, Side::Player, 40, 40},
-                                         {UnitKind::Tank, Side::Player, 44, 41},
+                                         {second, Side::Player, 44, 41},
                                          {UnitKind::Turret, Side::Player, 36, 41},
                                          {UnitKind::Tank, Side::Enemy, 38, 44},
                                          {UnitKind::Tank, Side::Enemy, 46, 44}}});
     for (const sim::Unit& unit : rig.sim.units()) {
         if (unit.kind == UnitKind::Tank && unit.side == Side::Player && unit.x.floor_int() == 40) {
             rig.tank_a = unit.id;
-        } else if (unit.kind == UnitKind::Tank && unit.side == Side::Player) {
+        } else if (unit.kind == second && unit.side == Side::Player) {
             rig.tank_b = unit.id;
         } else if (unit.kind == UnitKind::Turret) {
             rig.turret = unit.id;
@@ -685,6 +685,25 @@ TEST(Interaction, SpaceOverGroundHostileOrNothingLeavesTheSelectionAlone) {
     EXPECT_TRUE(player.take_orders().empty());
 }
 
+TEST(HoverTank, SpaceSelectsItAndRightClickOrdersItLikeATank) {
+    Rig rig = make_rig(UnitKind::HoverTank);
+    Interaction player{rig.tank_a};
+    choose(rig, player, rig.tank_b);
+    EXPECT_EQ(selected(player), (std::vector<sim::UnitId>{rig.tank_b}));
+
+    player.handle(with_click(ground_click(rig, true)), rig.sim, rig.options);
+    const std::vector<Order> moved = player.take_orders();
+    ASSERT_EQ(moved.size(), 1U);
+    EXPECT_EQ(moved.at(0).unit, rig.tank_b);
+    EXPECT_EQ(moved.at(0).kind(), OrderKind::MoveTo);
+
+    player.handle(with_click(at(rig, rig.enemy, MouseButton::Right)), rig.sim, rig.options);
+    const std::vector<Order> attack = player.take_orders();
+    ASSERT_EQ(attack.size(), 1U);
+    EXPECT_EQ(attack.at(0).unit, rig.tank_b);
+    EXPECT_EQ(attack.at(0).kind(), OrderKind::Attack);
+}
+
 TEST(Interaction, TOrdersAnAttackFromEverySelectedUnitAndKeepsTheSelection) {
     Rig rig = make_rig();
     Interaction player{rig.tank_a};
@@ -1013,6 +1032,15 @@ TEST(Swap, XOnAnOwnTankUnderTheCrosshairDrivesIt) {
     EXPECT_FALSE(player.message().empty()) << "success says what happened";
 }
 
+TEST(Swap, XOnAnOwnHoverTankDrivesItLikeATank) {
+    // E9a: the hover tank has no drive model of its own yet, so it is driven as a tank is.
+    Rig rig = make_rig(UnitKind::HoverTank);
+    Interaction player(rig.tank_a);
+    static_cast<void>(at(rig, rig.tank_b));
+    player.handle(with_key(input::kKeyX), rig.sim, rig.options);
+    EXPECT_EQ(player.driven(), rig.tank_b);
+}
+
 TEST(Swap, AnEnemyTankIsRefusedWithAReason) {
     Rig rig = make_rig();
     Interaction player(rig.tank_a);
@@ -1147,6 +1175,18 @@ TEST(Retreat, AWoundedTankIsSentToItsFactory) {
     ASSERT_NE(move, nullptr);
     EXPECT_EQ(move->x, sim::Fixed::from_int(kHomeX));
     EXPECT_EQ(move->y, sim::Fixed::from_int(kHomeY));
+}
+
+TEST(Retreat, AWoundedHoverTankIsSentToItsFactoryLikeATank) {
+    Rig rig = make_rig();
+    Interaction player(rig.tank_a);
+    sim::Observation observation = seen(rig, rig.tank_b, 20);
+    observation.own.at(0).kind = UnitKind::HoverTank;
+    player.tend(observation);
+    const std::vector<Order> orders = player.take_orders();
+    ASSERT_EQ(orders.size(), 1U);
+    EXPECT_EQ(orders.at(0).unit, rig.tank_b);
+    EXPECT_EQ(orders.at(0).kind(), OrderKind::MoveTo);
 }
 
 TEST(Retreat, WithNoLivingFactoryTheTankKeepsFighting) {
@@ -1292,6 +1332,18 @@ TEST(Defend, AnIdleTankFiresInPlaceAtAHostileInRange) {
     ASSERT_EQ(orders.size(), 1U);
     EXPECT_EQ(orders.at(0).unit, rig.tank_b);
     EXPECT_EQ(focus_of(orders.at(0)), rig.enemy) << "FocusFire: no stance, no destination";
+}
+
+TEST(Defend, AnIdleHoverTankFiresInPlaceLikeATank) {
+    Rig rig = make_rig();
+    Interaction player(rig.tank_a);
+    sim::Observation observation = guarding(rig, {{rig.enemy, 50, 41}});
+    observation.own.at(0).kind = UnitKind::HoverTank;
+    player.tend(observation);
+    const std::vector<Order> orders = player.take_orders();
+    ASSERT_EQ(orders.size(), 1U);
+    EXPECT_EQ(orders.at(0).unit, rig.tank_b);
+    EXPECT_EQ(focus_of(orders.at(0)), rig.enemy);
 }
 
 TEST(Defend, AHostileOutOfRangeIsLeftAlone) {

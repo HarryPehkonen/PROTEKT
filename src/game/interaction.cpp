@@ -217,7 +217,7 @@ void Interaction::tend(const sim::Observation& own_side) {
     const ai::UtilityTuning tuning{};
     const sim::UnitView* home = ai::home_factory(own_side);
     for (const sim::UnitView& unit : own_side.own) {
-        if (unit.kind != sim::UnitKind::Tank || unit.id == driven_) {
+        if (!sim::is_tank(unit.kind) || unit.id == driven_) {
             continue;
         }
         if (unit.hp <= tuning.retreat_hp) {
@@ -295,7 +295,7 @@ void Interaction::swap_to_crosshair(const sim::Sim& sim, const SceneOptions& opt
         refuse("There is nothing under the crosshair to swap into.");
     } else if (hit->side != sim::Side::Player) {
         refuse("That tank is not yours -- you can only swap into your own.");
-    } else if (hit->kind != sim::UnitKind::Tank) {
+    } else if (!sim::is_tank(hit->kind)) {
         refuse("That is not a tank -- you can only swap into a tank.");
     } else if (hit->id == driven_) {
         refuse("You are already driving that tank.");

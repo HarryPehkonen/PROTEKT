@@ -310,6 +310,8 @@ const char* to_string(UnitKind kind) noexcept {
     switch (kind) {
     case UnitKind::Tank:
         return "tank";
+    case UnitKind::HoverTank:
+        return "hovertank";
     case UnitKind::Turret:
         return "turret";
     case UnitKind::Factory:

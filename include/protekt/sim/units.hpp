@@ -14,8 +14,15 @@ using Tick = std::uint32_t;
 
 inline constexpr int kTicksPerSecond = 30;
 
-enum class UnitKind : std::uint8_t { Tank = 0, Turret = 1, Factory = 2 };
-inline constexpr int kUnitKindCount = 3;
+enum class UnitKind : std::uint8_t { Tank = 0, Turret = 1, Factory = 2, HoverTank = 3 };
+inline constexpr int kUnitKindCount = 4;
+
+/// Tanks and hover tanks: every rule written "for a tank" (orders, retreat, defend, swap, the AI's
+/// hunters) takes both. The hover tank has the tank's profile and, until it is drivable, its
+/// behaviour.
+[[nodiscard]] constexpr bool is_tank(UnitKind kind) noexcept {
+    return kind == UnitKind::Tank || kind == UnitKind::HoverTank;
+}
 
 enum class Side : std::uint8_t { Player = 0, Enemy = 1 };
 

@@ -25,17 +25,20 @@ struct Slot {
     UnitKind kind;
     int dx;
     int dy;
+    bool mirrored; ///< the enemy gets the same slot; false means the player's alone
 };
 
-/// Creation order is id order: tanks, then the factory, then the turrets. Offsets are mirrored for
-/// the enemy so the two sides face each other.
-constexpr std::array<Slot, 6> kComposition{{
-    {UnitKind::Tank, 8, 2},
-    {UnitKind::Tank, 8, 8},
-    {UnitKind::Tank, 2, 8},
-    {UnitKind::Factory, 0, 0},
-    {UnitKind::Turret, 5, -3},
-    {UnitKind::Turret, -3, 5},
+/// Creation order is id order: tanks, the player's hover tank, then the factory, then the turrets.
+/// Offsets are mirrored for the enemy so the two sides face each other. The hover tank is the
+/// player's fourth unit and has no enemy twin.
+constexpr std::array<Slot, 7> kComposition{{
+    {UnitKind::Tank, 8, 2, true},
+    {UnitKind::Tank, 8, 8, true},
+    {UnitKind::Tank, 2, 8, true},
+    {UnitKind::HoverTank, 5, 5, false},
+    {UnitKind::Factory, 0, 0, true},
+    {UnitKind::Turret, 5, -3, true},
+    {UnitKind::Turret, -3, 5, true},
 }};
 
 bool passable(std::uint64_t seed, int x, int y) {
@@ -102,7 +105,7 @@ Scenario skirmish(std::uint64_t seed) {
 
     Scenario scenario{};
     scenario.seed = seed;
-    scenario.spawns.reserve(2 * kComposition.size());
+    scenario.spawns.reserve(2 * kComposition.size() - 1);
     for (const Slot& slot : kComposition) {
         scenario.spawns.push_back(place(seed, scenario.spawns, slot.kind, Side::Player,
                                         player_x + slot.dx, player_y + slot.dy));
@@ -118,7 +121,7 @@ Scenario skirmish(std::uint64_t seed) {
         const int cy = kEnemyEdge + static_cast<int>(stream.bounded(jitter));
         int blocked = 0;
         for (const Spawn& s : scenario.spawns) {
-            if (s.kind == UnitKind::Tank) {
+            if (is_tank(s.kind)) {
                 blocked += blocked_tiles(seed, s.tile_x, s.tile_y, cx, cy);
             }
         }
@@ -129,6 +132,9 @@ Scenario skirmish(std::uint64_t seed) {
         }
     }
     for (const Slot& slot : kComposition) {
+        if (!slot.mirrored) {
+            continue;
+        }
         scenario.spawns.push_back(place(seed, scenario.spawns, slot.kind, Side::Enemy,
                                         enemy_x - slot.dx, enemy_y - slot.dy));
     }

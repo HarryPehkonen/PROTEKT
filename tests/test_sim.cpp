@@ -67,6 +67,60 @@ TEST(Sim, ProfilesMatchTheFrozenBalance) {
     EXPECT_EQ(profile(UnitKind::Factory).weapon_range.raw, 0) << "a factory has no gun";
 }
 
+TEST(Sim, TheHoverTankHasTheTanksProfileExactly) {
+    EXPECT_EQ(kUnitKindCount, 4);
+    EXPECT_EQ(static_cast<int>(UnitKind::HoverTank), 3);
+    const UnitProfile tank = profile(UnitKind::Tank);
+    const UnitProfile hover = profile(UnitKind::HoverTank);
+    EXPECT_EQ(hover.hp, tank.hp);
+    EXPECT_EQ(hover.max_speed.raw, tank.max_speed.raw);
+    EXPECT_EQ(hover.weapon_range.raw, tank.weapon_range.raw);
+    EXPECT_EQ(hover.damage, tank.damage);
+    EXPECT_EQ(hover.cooldown_ticks, tank.cooldown_ticks);
+    EXPECT_EQ(hover.mobile, tank.mobile);
+    EXPECT_TRUE(is_tank(UnitKind::Tank));
+    EXPECT_TRUE(is_tank(UnitKind::HoverTank));
+    EXPECT_FALSE(is_tank(UnitKind::Turret));
+    EXPECT_FALSE(is_tank(UnitKind::Factory));
+}
+
+TEST(Sim, AHoverTankMovesUnderOrdersAtTankSpeed) {
+    constexpr std::uint64_t kSeed = 3;
+    int x0 = 0;
+    int y0 = 0;
+    ASSERT_TRUE(find_flat_run(kSeed, 40, &x0, &y0));
+    const Fixed goal_x = Fixed::from_int(x0 + 32);
+    const auto drive = [&](UnitKind kind) {
+        Scenario s;
+        s.seed = kSeed;
+        s.spawns = {{kind, Side::Player, x0 + 2, y0}};
+        Sim sim = Sim::create(s);
+        sim.enqueue(Order{sim.units()[0].id, orders::MoveTo{goal_x, Fixed::from_int(y0)}});
+        for (int t = 0; t < 100; ++t) {
+            sim.step();
+        }
+        return sim.units()[0];
+    };
+    const Unit tank = drive(UnitKind::Tank);
+    const Unit hover = drive(UnitKind::HoverTank);
+    EXPECT_EQ(hover.x.raw, tank.x.raw) << "same speed, same path: the same position";
+    EXPECT_EQ(hover.vx.raw, tank.vx.raw);
+    EXPECT_GT(hover.x.raw, Fixed::from_int(x0 + 2).raw) << "it moved";
+}
+
+TEST(Sim, AHoverTankAutoFiresInRangeLikeAnyArmedUnit) {
+    Scenario s;
+    s.seed = 5;
+    s.spawns
+        = {{UnitKind::HoverTank, Side::Player, 100, 100}, {UnitKind::Tank, Side::Enemy, 108, 100}};
+    Sim sim = Sim::create(s);
+    const UnitId enemy = sim.units()[1].id;
+    for (int t = 0; t < kTankCooldownTicks + 30; ++t) {
+        sim.step();
+    }
+    EXPECT_LT(sim.find(enemy)->hp, kTankHp) << "the hover tank shot the tank in range";
+}
+
 TEST(Sim, ScenarioPlacesUnitsWithUniqueIds) {
     Sim sim = Sim::create(two_tanks(42));
     ASSERT_EQ(sim.units().size(), 2U);

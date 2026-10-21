@@ -11,6 +11,7 @@ namespace protekt::sim {
 UnitProfile profile(UnitKind kind) noexcept {
     switch (kind) {
     case UnitKind::Tank:
+    case UnitKind::HoverTank: // identical stats: the look and the controls differ, not the numbers
         return UnitProfile{kTankHp,
                            Fixed::from_raw(kTankSpeedRaw),
                            Fixed::from_raw(kTankRangeRaw),
