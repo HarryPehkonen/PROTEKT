@@ -136,6 +136,14 @@ void reload(sim::Sim& sim) {
     }
 }
 
+/// Drive `unit` and keep it selected: Space cannot select the tank being driven, so it is selected
+/// first, then swapped into with X. Whoever was driven is an ordinary unit afterwards.
+void select_and_drive(Rig& rig, Interaction& player, sim::UnitId unit) {
+    choose(rig, player, unit);
+    player.handle(with_key(input::kKeyX), rig.sim, rig.options);
+    ASSERT_EQ(player.driven(), unit);
+}
+
 [[nodiscard]] std::vector<sim::UnitId> selected(const Interaction& interaction) {
     std::vector<sim::UnitId> ids;
     for (const sim::UnitId id : interaction.selection().units()) {
@@ -148,11 +156,10 @@ void reload(sim::Sim& sim) {
 
 // ---------------------------------------------------------------- selection
 
-TEST(Interaction, SpacePlainReplacesAndShiftSpaceAddsAndRemoves) {
+TEST(Interaction, ShiftSpaceStillAddsAndRemoves) {
     Rig rig = make_rig();
     Interaction player{rig.tank_a};
-    choose(rig, player, rig.tank_a);
-    choose(rig, player, rig.tank_b);
+    choose(rig, player, rig.tank_b, true);
     EXPECT_EQ(selected(player), (std::vector<sim::UnitId>{rig.tank_b}));
     choose(rig, player, rig.turret, true);
     EXPECT_EQ(selected(player), (std::vector<sim::UnitId>{rig.tank_b, rig.turret}));
@@ -594,7 +601,7 @@ TEST(Interaction, TabClearsTheSelection) {
 
 // ---------------------------------------------------------------- space and T
 
-TEST(Interaction, SpaceSelectsTheUnitUnderTheCrosshairAndShiftSpaceToggles) {
+TEST(Interaction, SpaceTogglesTheUnitUnderTheCrosshairWithOrWithoutShift) {
     Rig rig = make_rig();
     Interaction player{rig.tank_a};
     static_cast<void>(at(rig, rig.tank_b));
@@ -611,8 +618,47 @@ TEST(Interaction, SpaceSelectsTheUnitUnderTheCrosshairAndShiftSpaceToggles) {
 
     static_cast<void>(at(rig, rig.turret));
     player.handle(with_key(input::kKeySpace), rig.sim, rig.options);
-    EXPECT_EQ(selected(player), (std::vector<sim::UnitId>{rig.turret}))
-        << "plain space replaces the selection, as a plain click does";
+    EXPECT_EQ(selected(player), (std::vector<sim::UnitId>{rig.tank_b, rig.turret}))
+        << "plain space adds, as shift-space does";
+    EXPECT_TRUE(player.message().empty());
+}
+
+TEST(Interaction, PlainSpaceOnAnUnselectedOwnTankAddsItToTheSelection) {
+    Rig rig = make_rig();
+    Interaction player{rig.tank_a};
+    choose(rig, player, rig.tank_b);
+    choose(rig, player, rig.turret);
+    EXPECT_EQ(selected(player), (std::vector<sim::UnitId>{rig.tank_b, rig.turret}))
+        << "no shift needed to build a group";
+}
+
+TEST(Interaction, PlainSpaceOnASelectedTankRemovesIt) {
+    Rig rig = make_rig();
+    Interaction player{rig.tank_a};
+    choose(rig, player, rig.tank_b);
+    choose(rig, player, rig.turret);
+    choose(rig, player, rig.tank_b);
+    EXPECT_EQ(selected(player), (std::vector<sim::UnitId>{rig.turret}));
+}
+
+TEST(Interaction, TwoSpacesOnTheSameTankAreNetNothing) {
+    Rig rig = make_rig();
+    Interaction player{rig.tank_a};
+    choose(rig, player, rig.turret);
+    const std::vector<sim::UnitId> before = selected(player);
+    choose(rig, player, rig.tank_b);
+    choose(rig, player, rig.tank_b);
+    EXPECT_EQ(selected(player), before);
+}
+
+TEST(Interaction, SpaceOnTheDrivenTankLeavesTheSelectionAlone) {
+    Rig rig = make_rig();
+    Interaction player{rig.tank_a};
+    choose(rig, player, rig.tank_b);
+    const std::vector<sim::UnitId> before = selected(player);
+    choose(rig, player, rig.tank_a);
+    choose(rig, player, rig.tank_a, true);
+    EXPECT_EQ(selected(player), before);
     EXPECT_TRUE(player.message().empty());
 }
 
@@ -642,9 +688,9 @@ TEST(Interaction, SpaceOverGroundHostileOrNothingLeavesTheSelectionAlone) {
 TEST(Interaction, TOrdersAnAttackFromEverySelectedUnitAndKeepsTheSelection) {
     Rig rig = make_rig();
     Interaction player{rig.tank_a};
+    select_and_drive(rig, player, rig.tank_b);
     choose(rig, player, rig.turret);
-    choose(rig, player, rig.tank_b, true);
-    choose(rig, player, rig.tank_a, true);
+    choose(rig, player, rig.tank_a);
     const std::vector<sim::UnitId> before = selected(player);
     ASSERT_EQ(before.size(), 3U);
 
@@ -656,7 +702,7 @@ TEST(Interaction, TOrdersAnAttackFromEverySelectedUnitAndKeepsTheSelection) {
     EXPECT_LT(orders.at(0).unit, orders.at(1).unit) << "ascending id order";
     for (const Order& order : orders) {
         EXPECT_EQ(order.kind(), OrderKind::Attack);
-        EXPECT_NE(order.unit, rig.tank_a);
+        EXPECT_NE(order.unit, rig.tank_b);
         EXPECT_EQ(std::get<sim::orders::Attack>(order.payload).target, rig.enemy);
     }
     EXPECT_EQ(selected(player), before);
@@ -691,7 +737,7 @@ TEST(Interaction, TOffAHostileIsRefused) {
 TEST(Interaction, TWithOnlyTheDrivenTankSelectedIsRefused) {
     Rig rig = make_rig();
     Interaction player{rig.tank_a};
-    choose(rig, player, rig.tank_a);
+    select_and_drive(rig, player, rig.tank_b);
     static_cast<void>(at(rig, rig.enemy));
     player.handle(with_key(input::kKeyT), rig.sim, rig.options);
     EXPECT_TRUE(player.take_orders().empty());
@@ -747,14 +793,14 @@ TEST(Interaction, RightClickOnTheGroundMovesTheSelectionThere) {
 TEST(Interaction, TheDrivenTankIsNeverOrderedByAClick) {
     Rig rig = make_rig();
     Interaction player{rig.tank_a};
-    choose(rig, player, rig.tank_b);
-    choose(rig, player, rig.tank_a, true);
+    select_and_drive(rig, player, rig.tank_b);
+    choose(rig, player, rig.tank_a);
     ASSERT_EQ(player.selection().size(), 2U);
 
     player.handle(with_click(ground_click(rig, true)), rig.sim, rig.options);
     const std::vector<Order> orders = player.take_orders();
     ASSERT_EQ(orders.size(), 1U) << "only the unit the player is not sitting in may be ordered";
-    EXPECT_EQ(orders.front().unit, rig.tank_b);
+    EXPECT_EQ(orders.front().unit, rig.tank_a);
 }
 
 TEST(Interaction, RightClickWithOnlyTheDrivenTankSelectedIsRefused) {
@@ -970,11 +1016,9 @@ TEST(Swap, TheVacatedTankIsToldToStopAndEndsWithZeroVelocity) {
 TEST(Swap, AfterASwapTheNewTankIsNotOrderableAndTheOldOneIs) {
     Rig rig = make_rig();
     Interaction player(rig.tank_a);
-    choose(rig, player, rig.tank_a);
-    choose(rig, player, rig.tank_b, true);
-    // Both are selected; the mark is still on tank B. Swap into it.
-    player.handle(with_key(input::kKeyX), rig.sim, rig.options);
-    ASSERT_EQ(player.driven(), rig.tank_b);
+    select_and_drive(rig, player, rig.tank_b);
+    choose(rig, player, rig.tank_a); // the vacated tank is selectable again
+    ASSERT_EQ(player.selection().size(), 2U);
     static_cast<void>(player.take_orders());
 
     static_cast<void>(ground_click(rig, true));
@@ -1018,7 +1062,9 @@ constexpr std::int32_t kHomeY = 12;
 
 /// Select `unit` and right-click `target` with the mark on it: the unit is ordered to attack it.
 void order_attack(Rig& rig, Interaction& player, sim::UnitId unit, sim::UnitId target) {
-    choose(rig, player, unit);
+    if (!player.selection().contains(unit)) { // Space toggles: a second press would deselect it
+        choose(rig, player, unit);
+    }
     player.handle(with_click(at(rig, target, MouseButton::Right)), rig.sim, rig.options);
     ASSERT_EQ(player.take_orders().size(), 1U);
 }

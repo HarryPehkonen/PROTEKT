@@ -141,14 +141,12 @@ void Interaction::handle(const input::InputFrame& frame, const sim::Sim& sim,
                 = hit != nullptr && hit->alive && hit->side != sim::Side::Player;
 
             if (key.scancode == input::kKeySpace) {
-                // Space is a left click on an own unit and nothing else: ground, sky and hostiles
-                // are not refused, they are ignored.
-                if (hit_is_ours) {
-                    if (key.shift) {
-                        toggle(hit->id);
-                    } else {
-                        select_only(hit->id);
-                    }
+                // Space TOGGLES the own unit under the mark in or out of the selection, so a
+                // group is built one press at a time with no modifier (Shift-Space still does
+                // the same). Ground, sky, hostiles and the driven tank (nothing to order) are
+                // not refused, they are ignored: a stray press never clears the selection.
+                if (hit_is_ours && hit->id != driven_) {
+                    toggle(hit->id);
                 }
                 continue;
             }
