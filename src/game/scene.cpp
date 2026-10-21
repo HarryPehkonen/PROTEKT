@@ -144,8 +144,6 @@ void append_sky(std::vector<SceneVertex>& out, const Camera& camera) {
     }
 }
 
-/// A box standing on the ground beneath (x, z): wider and shorter for a tank or turret, taller
-/// for a factory.
 /// A selected unit keeps its side's colour and is mixed towards white, so a glance tells you both
 /// whose it is and that it is yours to move.
 Vec3 highlight(const Vec3& colour) {
@@ -191,9 +189,9 @@ std::array<float, 2> rotate_offset(float x, float z, float dx, float dz, float a
 /// and its side profile is a quadrilateral -- ground-level ends `back_bottom` and `front_bottom`
 /// along the heading, top ends `back_top` and `front_top`, heights `y0` at the bottom and
 /// `back_y1` / `front_y1` at the top. A box is the case where the top ends equal the bottom ends;
-/// a slanted front plate (a glacis) is `front_top` short of `front_bottom`. The faces are the same
-/// six, in the same order and winding, as `build_unit_box`; a turn about the vertical axis keeps
-/// the winding.
+/// a slanted front plate (a glacis) is `front_top` short of `front_bottom`. Its faces are the six
+/// `emit_shaded_solid` emits, in that order and winding; a turn about the vertical axis keeps the
+/// winding.
 struct Prism {
     float left;
     float right;
@@ -289,8 +287,37 @@ void emit_turned_box(std::vector<SceneVertex>& out, float x, float z, float angl
                       Prism{-across, across, back, back, front, front, y0, y1, y1}, colour, tile);
 }
 
-void build_unit_box(std::vector<SceneVertex>& out, std::uint64_t seed, const sim::Unit& unit,
-                    Mark mark, float lift_z, bool lifted) {
+/// The part of a wall tile from texel column `c0` to `c1` and texel row `r0` (top) to `r1`, stood
+/// UPRIGHT: a side face hands its ground edge the rect's v0 (see `emit_shaded_solid`), so v0 here
+/// is the part's BOTTOM row and the tile's eaves land at the top of the wall. Edges on the tile's
+/// own border stay at its half-texel inset.
+UvRect upright_part(const UvRect& tile, int c0, int r0, int c1, int r1) {
+    constexpr float kTexel = 2.0F * kHalfTexel;
+    const float u_origin = tile.u0 - kHalfTexel;
+    const float v_origin = tile.v0 - kHalfTexel;
+    const auto u = [&](int column) {
+        return std::clamp(u_origin + (static_cast<float>(column) * kTexel), tile.u0, tile.u1);
+    };
+    const auto v = [&](int row) {
+        return std::clamp(v_origin + (static_cast<float>(row) * kTexel), tile.v0, tile.v1);
+    };
+    return UvRect{u(c0), v(r1), u(c1), v(r0)};
+}
+
+/// THE FACTORY, a skyline rather than a crate, inside the old box's footprint (0.3 tile either side
+/// of the unit) with its hall roof at the old box's 4.5 m, which is what the picker tests against:
+/// - the HALL, its front face set back by a shallow recess, with the walls tile on its sides and
+///   the roof tile (ribs, vents, hatch) on top;
+/// - a PORTAL standing proud of that face to the old front -- two jambs and a lintel framing the
+///   painted door, so the door sits in the recess. Each portal piece samples exactly the strip of
+///   the wall tile it covers, so the painted front reads on unbroken and only the door steps in;
+/// - a lower ANNEX beside the hall and set back from its front, its roof well under the hall's;
+/// - a STACK at the annex's rear corner rising well over the hall roof, the silhouette against the
+///   sky, with a team-colour band near its top (the fleet's saturated accent, as a barrel's).
+/// Local +z is the door's side; a player's factory faces +Y and an enemy's -Y, toward the field
+/// the other side comes from. Every structure part keeps the pale tint; only the band does not.
+void build_factory(std::vector<SceneVertex>& out, std::uint64_t seed, const sim::Unit& unit,
+                   Mark mark, float lift_z, bool lifted) {
     const float x
         = static_cast<float>(unit.x.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile;
     const float z
@@ -298,30 +325,81 @@ void build_unit_box(std::vector<SceneVertex>& out, std::uint64_t seed, const sim
     // float + bool rather than optional<float>: gcc -O2 wrongly warns may-be-uninitialized on the
     // optional's storage at the call site (the same false alarm hover_.z() once raised).
     const float ground = lifted ? lift_z : ground_metres(seed, unit.x, unit.y);
-    const float half_width = kMetresPerTile * 0.3F;
-    const float height = unit.kind == sim::UnitKind::Factory ? 4.5F : 1.8F;
+    const float half_width = kMetresPerTile * 0.3F; ///< the footprint, every part inside it
+    const float angle = unit.side == sim::Side::Player ? 0.0F : kPi;
+    constexpr float kHallTop = 4.5F;   ///< the picker's housing height
+    constexpr float kHallRight = 0.2F; ///< the annex takes the rest of the width
+    constexpr float kRecess = 0.15F;   ///< how far the door's face is set back
+    // The door's painted frame, in the walls tile's texels: its outer edge is the opening.
+    constexpr int kTileTexels = 64;
+    constexpr int kOpeningLeft = 4;
+    constexpr int kOpeningRight = 52;
+    constexpr int kOpeningTop = 13;
+    constexpr float kAnnexTop = 2.6F;
+    constexpr float kAnnexBack = -0.5F;
+    constexpr float kAnnexFront = 0.3F; ///< set back from the portal's face
+    constexpr float kStackLeft = 0.3F;
+    constexpr float kStackRight = 0.54F;
+    constexpr float kStackBack = -0.56F;
+    constexpr float kStackFront = -0.32F;
+    constexpr float kStackTop = 6.2F;
+    constexpr float kBandOverhang = 0.03F; ///< a collar just proud of the stack
+    constexpr float kBandBottom = 5.7F;
+    constexpr float kBandTop = 5.95F;
+
     Vec3 colour = side_colour(unit.side);
     if (mark == Mark::Selected) {
         colour = highlight(colour);
     } else if (mark != Mark::None) {
         colour = aim_tint(colour, mark == Mark::AimedOwn);
     }
-
-    // An axis-aligned box is a prism at angle 0, so it is shaded like every other unit part. A
-    // factory's walls and roof take their own tiles; anything else is turret body all over.
-    const AtlasManifest& atlas = atlas_manifest();
-    const bool factory = unit.kind == sim::UnitKind::Factory;
-    const UvRect sides = atlas.rect(factory ? "factory_walls" : "turret_body");
-    const UvRect top = factory ? atlas.rect("factory_roof") : sides;
     // Pale-mixed like the hull: the deep side colour would multiply the tile's detail down to a
     // tenth of a luma step; the pale tint lets the metal carry and the team read through as a tint.
-    for (float& channel : colour) {
+    Vec3 pale = colour;
+    for (float& channel : pale) {
         channel += (1.0F - channel) * kHullPaleMix;
     }
-    emit_turned_prism(out, x, z, 0.0F,
-                      Prism{-half_width, half_width, -half_width, -half_width, half_width,
-                            half_width, ground, ground + height, ground + height},
-                      colour, sides, top);
+    const AtlasManifest& atlas = atlas_manifest();
+    const UvRect walls_tile = atlas.rect("factory_walls");
+    const UvRect walls = upright_part(walls_tile, 0, 0, kTileTexels, kTileTexels);
+    const UvRect roof = atlas.rect("factory_roof");
+
+    const float left = -half_width;
+    const float front = half_width;
+    const float face = front - kRecess;
+    const float width = kHallRight - left;
+    // The front face's u runs from the hall's right (+x) edge to its left, and its height spans
+    // the whole tile, so a texel column or row is a fixed place on the wall.
+    const auto across = [&](int column) {
+        return kHallRight - (width * static_cast<float>(column) / static_cast<float>(kTileTexels));
+    };
+    const float lintel_bottom = kHallTop * static_cast<float>(kTileTexels - kOpeningTop)
+                                / static_cast<float>(kTileTexels);
+    const auto box = [&](float l, float r, float back, float fwd, float y0, float y1) {
+        return Prism{l, r, back, back, fwd, fwd, ground + y0, ground + y1, ground + y1};
+    };
+
+    emit_turned_prism(out, x, z, angle, box(left, kHallRight, -half_width, face, 0.0F, kHallTop),
+                      pale, walls, roof);
+    emit_turned_prism(out, x, z, angle,
+                      box(across(kOpeningLeft), kHallRight, face, front, 0.0F, lintel_bottom), pale,
+                      upright_part(walls_tile, 0, kOpeningTop, kOpeningLeft, kTileTexels));
+    emit_turned_prism(
+        out, x, z, angle, box(left, across(kOpeningRight), face, front, 0.0F, lintel_bottom), pale,
+        upright_part(walls_tile, kOpeningRight, kOpeningTop, kTileTexels, kTileTexels));
+    emit_turned_prism(out, x, z, angle, box(left, kHallRight, face, front, lintel_bottom, kHallTop),
+                      pale, upright_part(walls_tile, 0, 0, kTileTexels, kOpeningTop), roof);
+    emit_turned_prism(out, x, z, angle,
+                      box(kHallRight, half_width, kAnnexBack, kAnnexFront, 0.0F, kAnnexTop), pale,
+                      walls, roof);
+    emit_turned_prism(out, x, z, angle,
+                      box(kStackLeft, kStackRight, kStackBack, kStackFront, 0.0F, kStackTop), pale,
+                      roof);
+    emit_turned_prism(out, x, z, angle,
+                      box(kStackLeft - kBandOverhang, kStackRight + kBandOverhang,
+                          kStackBack - kBandOverhang, kStackFront + kBandOverhang, kBandBottom,
+                          kBandTop),
+                      colour, roof);
 }
 
 /// A defense turret, built of the same shaded prisms as a tank and all of the `turret_body` metal
@@ -641,8 +719,8 @@ constexpr Vec3 kHostileBoltColour{1.0F, 0.85F, 0.10F};
 /// high it is, and it is drawn there, not at some height re-derived from the ground it is over.
 constexpr float kBoltHalfWidthMetres = 0.12F;
 
-/// One small box per projectile the sim has in the air, built the way `build_unit_box` builds a
-/// unit: the same tile-to-metre conversion, the same six faces, the same winding.
+/// One small box per projectile the sim has in the air, at the units' tile-to-metre conversion and
+/// with the six faces, in the winding, that `emit_shaded_solid` gives a unit part.
 void append_projectiles(std::vector<SceneVertex>& out, const SceneOptions& options,
                         const sim::Sim& sim) {
     for (const sim::Projectile& bolt : sim.projectiles()) {
@@ -1331,7 +1409,7 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
                 build_defense_turret(scene.vertices, options.seed, unit, mark, lift_z, hovering,
                                      heading, heading + turret);
             } else {
-                build_unit_box(scene.vertices, options.seed, unit, mark, lift_z, hovering);
+                build_factory(scene.vertices, options.seed, unit, mark, lift_z, hovering);
             }
         }
     }

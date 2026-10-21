@@ -411,7 +411,7 @@ bool aim_at(const protekt::sim::Sim& state, SceneOptions& options, const protekt
     const float uz = static_cast<float>(unit.y.raw) / kFixedOne * kMetresPerTile;
     const float ground
         = protekt::game::height_metres(options.seed, unit.x.floor_int(), unit.y.floor_int());
-    const float mid = ground + 0.9F; // half of a tank's box: build_unit_box uses 1.8 m for a tank
+    const float mid = ground + 0.9F; // half of the 1.8 m box a tank once was
     options.camera.x = ux;
     options.camera.z = uz - 8.0F;
     options.camera.y = ground + 2.0F;
@@ -3592,18 +3592,60 @@ std::vector<SceneVertex> unit_box_of(protekt::sim::UnitKind kind) {
     return tank_only(sim, sim.units().at(0), {});
 }
 
+/// The factory's prisms, in emission order. The player's factory is not turned, so its local
+/// across is world X and its door's side is world +Z.
+constexpr std::size_t kHallPart = 0;
+constexpr std::size_t kJambParts = 1; ///< and 2
+constexpr std::size_t kLintelPart = 3;
+constexpr std::size_t kAnnexPart = 4;
+constexpr std::size_t kStackPart = 5;
+constexpr std::size_t kBandPart = 6;
+
+/// The [lo, hi] of `axis` (0 X, 1 up, 2 Z) over prism `prism` of a drawn factory.
+std::array<float, 2> factory_span(const std::vector<SceneVertex>& factory, std::size_t prism,
+                                  std::size_t axis) {
+    float lo = 1e9F;
+    float hi = -1e9F;
+    for (std::size_t i = prism * 36U; i < (prism + 1U) * 36U; ++i) {
+        lo = std::min(lo, factory.at(i).position.at(axis));
+        hi = std::max(hi, factory.at(i).position.at(axis));
+    }
+    return {lo, hi};
+}
+
+// Adapted (D5c): the factory is seven prisms, not one box. The hall and annex keep whole tiles per
+// face, the walls now stood upright; each portal piece samples the strip of wall it covers.
 TEST(UnitBoxUv, AFactorysWallsTakeTheWallTileAndItsRoofTheRoofTile) {
     const auto box = unit_box_of(UnitKind::Factory);
-    ASSERT_EQ(box.size(), std::size_t{36});
+    ASSERT_EQ(box.size(), protekt::game::kFactoryVertices);
     const auto& atlas = protekt::game::atlas_manifest();
     const UvRect walls = tile_rect(atlas.tile("factory_walls"));
     const UvRect roof = tile_rect(atlas.tile("factory_roof"));
     EXPECT_EQ(walls.u0, 0.0F + kHalfTexel) << "factory_walls is tile 4, the second row's first";
     EXPECT_EQ(walls.v0, 0.125F + kHalfTexel);
     // Faces in order: near, far, left, right, TOP, bottom.
-    expect_corners_of(box, 0, 24, walls, "walls");
-    expect_corners_of(box, 24, 30, roof, "roof");
-    expect_corners_of(box, 30, 36, walls, "underside");
+    for (const std::size_t solid : {kHallPart, kAnnexPart}) {
+        const std::size_t at = solid * 36U;
+        expect_corners_of(box, at, at + 24, walls, "walls");
+        expect_corners_of(box, at + 24, at + 30, roof, "roof");
+        expect_corners_of(box, at + 30, at + 36, walls, "underside");
+    }
+    expect_corners_of(box, kStackPart * 36U, (kStackPart + 2U) * 36U, roof, "stack and band");
+    for (std::size_t i = kHallPart * 36U + 36U; i < kAnnexPart * 36U; ++i) {
+        const auto& v = box.at(i);
+        const UvRect& tile
+            = i >= (kLintelPart * 36U) + 24 && i < (kLintelPart * 36U) + 30 ? roof : walls;
+        EXPECT_TRUE(v.u >= tile.u0 && v.u <= tile.u1 && v.v >= tile.v0 && v.v <= tile.v1)
+            << "portal vertex " << i << " stays in its tile";
+    }
+    // UPRIGHT: on the hall's front face the ground edge takes the tile's bottom row, so the
+    // painted door stands on the ground and the eaves are at the roof.
+    const float ground = factory_span(box, kHallPart, 1)[0];
+    for (std::size_t i = (kHallPart * 36U) + 6; i < (kHallPart * 36U) + 12; ++i) {
+        const auto& v = box.at(i);
+        EXPECT_EQ(v.v, std::abs(v.position[1] - ground) < kTolerance ? walls.v1 : walls.v0)
+            << "front face vertex " << i;
+    }
 }
 
 // Re-pinned DELIBERATELY (D5a-2): the turret was one box, it is four prisms of the metal tile now.
@@ -3626,6 +3668,64 @@ TEST(UnitBoxUv, ATintStillMultipliesOnTheBuildingsVertexColourAndNotItsUv) {
         EXPECT_EQ(plain.at(i).v, picked.at(i).v);
     }
     EXPECT_NE(plain.at(0).colour, picked.at(0).colour);
+}
+
+// Re-pinned DELIBERATELY (D5c): the factory was one 36-vertex box.
+TEST(FactoryShape, TheFactoryIsExactlyItsSevenPrisms) {
+    EXPECT_EQ(unit_box_of(UnitKind::Factory).size(), std::size_t{252})
+        << "seven prisms of 36; one box (36) before D5c";
+    EXPECT_EQ(protekt::game::kFactoryVertices, std::size_t{252});
+}
+
+TEST(FactorySkyline, TheStackRisesWellOverTheHallRoofInsideTheFootprint) {
+    const auto factory = unit_box_of(UnitKind::Factory);
+    const auto hall = factory_span(factory, kHallPart, 1);
+    EXPECT_NEAR(hall[1] - hall[0], 4.5F, kTolerance) << "the picker's housing height";
+    const auto stack = factory_span(factory, kStackPart, 1);
+    EXPECT_GT(stack[1] - hall[1], 1.0F) << "a silhouette against the sky, not a vent";
+    EXPECT_LT(factory_span(factory, kStackPart, 2)[1],
+              factory_span(factory, kHallPart, 2)[0] + 0.5F)
+        << "at the rear";
+    const auto band = factory_span(factory, kBandPart, 1);
+    EXPECT_GT(band[0], hall[1]) << "the band is up in the skyline";
+    EXPECT_LT(band[1], stack[1]);
+    // Every part inside the old box's footprint: 0.3 tile either way of the unit (tile 100, 100).
+    constexpr float kCentre = 100.0F * kMetresPerTile;
+    for (const SceneVertex& v : factory) {
+        EXPECT_LE(std::abs(v.position[0] - kCentre), (0.3F * kMetresPerTile) + kTolerance);
+        EXPECT_LE(std::abs(v.position[2] - kCentre), (0.3F * kMetresPerTile) + kTolerance);
+    }
+}
+
+TEST(FactorySkyline, TheAnnexRoofSitsWellUnderTheHallRoof) {
+    const auto factory = unit_box_of(UnitKind::Factory);
+    EXPECT_GT(factory_span(factory, kHallPart, 1)[1] - factory_span(factory, kAnnexPart, 1)[1],
+              1.0F)
+        << "the skyline steps";
+    EXPECT_NEAR(factory_span(factory, kAnnexPart, 0)[0], factory_span(factory, kHallPart, 0)[1],
+                kTolerance)
+        << "beside the hall";
+    EXPECT_LT(factory_span(factory, kAnnexPart, 2)[1], factory_span(factory, kHallPart, 2)[1])
+        << "and set back from its front";
+}
+
+TEST(FactorySkyline, TheFrontFaceStepsInAroundTheDoor) {
+    const auto factory = unit_box_of(UnitKind::Factory);
+    const float face = factory_span(factory, kHallPart, 2)[1];
+    const float ground = factory_span(factory, kHallPart, 1)[0];
+    for (const std::size_t part : {kJambParts, kJambParts + 1, kLintelPart}) {
+        const auto depth = factory_span(factory, part, 2);
+        EXPECT_NEAR(depth[0], face, kTolerance) << "part " << part << " stands on the face";
+        EXPECT_GT(depth[1] - face, 0.1F) << "part " << part << ": the door is set back";
+    }
+    // The opening between the jambs and under the lintel is most of the face: it is the door.
+    const float opening
+        = factory_span(factory, kJambParts, 0)[0] - factory_span(factory, kJambParts + 1, 0)[1];
+    const auto across = factory_span(factory, kHallPart, 0);
+    EXPECT_GT(opening, 0.6F * (across[1] - across[0]));
+    EXPECT_NEAR(factory_span(factory, kJambParts, 1)[1], factory_span(factory, kLintelPart, 1)[0],
+                kTolerance);
+    EXPECT_GT(factory_span(factory, kLintelPart, 1)[0] - ground, 3.0F) << "a vehicle door";
 }
 
 TEST(TankUv, ATintStillMultipliesOnTopOfTheTexel) {

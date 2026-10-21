@@ -282,6 +282,10 @@ private:
 /// the barrel's tip and the barrel, all three turned by `gun_yaw`.
 inline constexpr std::size_t kTurretVertices = std::size_t{4} * 36U;
 
+/// A drawn factory: the hall, the portal's two jambs and lintel round the recessed door, the
+/// annex, the stack and the band near its top.
+inline constexpr std::size_t kFactoryVertices = std::size_t{7} * 36U;
+
 /// A reticle is four ticks (up, down, left, right) and a centre dot, six vertices each, in a
 /// triangle list: the ticks first, the dot last. The centre between the ticks is open.
 inline constexpr std::size_t kReticleVertexCount = 30;
