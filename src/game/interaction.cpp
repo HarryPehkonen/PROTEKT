@@ -1,5 +1,6 @@
 #include "protekt/game/interaction.hpp"
 
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <utility>
@@ -8,6 +9,7 @@
 #include "protekt/cmd/command.hpp"
 #include "protekt/game/pick.hpp"
 #include "protekt/input/bindings.hpp"
+#include "protekt/math/math.hpp"
 
 namespace protekt::game {
 namespace {
@@ -66,23 +68,22 @@ void Interaction::handle(const input::InputFrame& frame, const sim::Sim& sim,
             last_shot_tick_ = sim.tick();
             // The driven tank itself is nothing to name: it cannot shoot itself.
             const bool named = hit != nullptr && hit->alive && hit->id != driven_;
-            // THE DIRECTION. The camera's forward is (sin yaw, 0, cos yaw) in world metres
-            // (math::basis_from; yaw 0 looks down +Z), and the map plane is x = world x,
-            // y = world z -- a tile is two metres either way, so only the direction matters.
-            // So the aim on the map is (sin yaw, cos yaw), with no sign flipped.
+            // THE DIRECTION. The shot is aimed from the MUZZLE at the point the mark's ray
+            // reaches, so it crosses the reticle where the reticle is drawn instead of running
+            // parallel to it, a muzzle-drop below (game::shot_direction). Out of the camera's
+            // basis (math::basis_from; yaw 0 looks down +Z) it is (x, up, z) in world metres, and
+            // the map plane is x = world x, y = world z -- a tile is two metres either way, so
+            // only the direction matters. With no driven tank to fire from, the camera's forward.
             // tests/test_interaction.cpp checks it against `math::basis_from` itself.
-            //
-            // THE PITCH. The camera's forward is (sin yaw cos pitch, sin pitch, cos yaw cos pitch):
-            // the same basis, with the vertical as its second number and positive UP (a pitch of
-            // +0.3 looks above the horizon). The shot takes all three, so the horizontal share is
-            // cos(pitch) and the total speed does not depend on where the player looks.
-            const float yaw = options.camera.yaw;
-            const float pitch = options.camera.pitch;
+            const sim::Unit* gun = sim.find(driven_);
+            const std::array<float, 3> dir
+                = gun != nullptr
+                      ? shot_direction(*gun, options, picked, *options.aim)
+                      : math::basis_from(options.camera.yaw, options.camera.pitch).forward;
             pending_.push_back(sim::Order{
-                driven_, sim::orders::FireTowards{to_fixed(std::sin(yaw) * std::cos(pitch)),
-                                                  to_fixed(std::cos(yaw) * std::cos(pitch)),
-                                                  named ? hit->id : sim::UnitId{},
-                                                  to_fixed(std::sin(pitch))}});
+                driven_,
+                sim::orders::FireTowards{to_fixed(dir.at(0)), to_fixed(dir.at(2)),
+                                         named ? hit->id : sim::UnitId{}, to_fixed(dir.at(1))}});
             // Every manual shot is one order, one bolt, and the app's own sound: the sim reports
             // no Fired event for it, so this is the only thing the player hears.
             shot_voice_ = true;

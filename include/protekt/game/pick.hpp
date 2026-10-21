@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 
 #include "protekt/game/scene.hpp"
@@ -60,5 +61,17 @@ struct RayPoint {
 /// always picks the same one.
 [[nodiscard]] Pick pick(const sim::Sim& sim, const SceneOptions& options, float screen_x,
                         float screen_y) noexcept;
+
+/// WHERE THE SHOT GOES so that it lands on the mark. The camera's ray through the aim point is what
+/// the reticle marks, but the bolt leaves the shooter's MUZZLE, a couple of metres below the eye:
+/// fired along the camera's own direction it runs parallel to the mark and passes under it by that
+/// drop at any range (the "I have to aim higher" error). So the shot is aimed from the muzzle at
+/// the point the mark's ray reaches -- `picked.distance_tiles` along it, which is the unit, the
+/// ground or, over the horizon, the far end of the pick -- and crosses the mark exactly there.
+/// A unit vector in world metres: x, UP, z. The camera's own forward when that point is not in
+/// front of the muzzle. Presentation only; the sim is told the direction and nothing else.
+[[nodiscard]] std::array<float, 3> shot_direction(const sim::Unit& shooter,
+                                                  const SceneOptions& options, const Pick& picked,
+                                                  Aim aim) noexcept;
 
 } // namespace protekt::game
