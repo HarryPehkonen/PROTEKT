@@ -67,6 +67,9 @@ public:
     /// waypoint.
     [[nodiscard]] float turn_rate() const noexcept;
     [[nodiscard]] float throttle_rate() const noexcept;
+    /// The eased strafe, -1..+1 (+ is right): what A/D have reached on a driven hover tank. Its
+    /// magnitude is the length of the Strafe vector the sim is given.
+    [[nodiscard]] float strafe_rate() const noexcept;
 
     /// Point the tank somewhere before the player takes the wheel. Used once, at spawn, to choose a
     /// heading with ground ahead of it: the sim will not drive into a crater, and a player whose
@@ -105,6 +108,7 @@ private:
     float view_pitch_{kLookPitchStart};
     float turn_rate_{};     ///< eased -1..+1, what the helm has reached
     float throttle_rate_{}; ///< eased -1..+1, what the throttle has reached
+    float strafe_rate_{};   ///< eased -1..+1, what the strafe has reached (hover only)
     sim::Tick last_tick_{};
     bool clocked_{false}; ///< false until the first observation gives the clock a starting point
 };

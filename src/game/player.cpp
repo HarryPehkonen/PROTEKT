@@ -36,10 +36,12 @@ float PlayerCommander::view_pitch() const noexcept { return view_pitch_; }
 float PlayerCommander::turret_yaw() const noexcept { return turret_yaw_; }
 float PlayerCommander::turn_rate() const noexcept { return turn_rate_; }
 float PlayerCommander::throttle_rate() const noexcept { return throttle_rate_; }
+float PlayerCommander::strafe_rate() const noexcept { return strafe_rate_; }
 
 void PlayerCommander::reset_helm() noexcept {
     turn_rate_ = 0.0F;
     throttle_rate_ = 0.0F;
+    strafe_rate_ = 0.0F;
 }
 
 void PlayerCommander::set_heading(float radians) noexcept {
@@ -100,6 +102,9 @@ void PlayerCommander::think(sim::UnitId unit, const sim::Observation& observatio
             heading_ = Camera::wrap_angle(heading_ + (kTurnRatePerTick * turn_rate_));
         }
         throttle_rate_ = eased(throttle_rate_, input_.throttle, kThrottleEasePerTick);
+        if (hover) { // the strafe ramps at the throttle's own rate: a second, not a lurch
+            strafe_rate_ = eased(strafe_rate_, input_.strafe, kThrottleEasePerTick);
+        }
     }
     if (self == nullptr) {
         // The tank is gone -- destroyed. The turret above still turns; the body does not, and no
@@ -119,14 +124,16 @@ void PlayerCommander::think(sim::UnitId unit, const sim::Observation& observatio
                                              sim::Fixed::from_raw(static_cast<std::int32_t>(
                                                  std::lround(target_y * sim::Fixed::kOne)))}});
 
-    if (hover && input_.strafe != 0.0F) {
+    if (hover && strafe_rate_ != 0.0F) {
         // The hull's right: yaw 0 points at +y, so right is +x there, and turns with the heading.
-        const float side = input_.strafe > 0.0F ? 1.0F : -1.0F;
+        // The vector's length is the eased rate -- the sim reads it as the throttle -- so it keeps
+        // being sent while the rate ramps down after the key is let go.
         out.push_back(sim::Order{
-            unit, sim::orders::Strafe{sim::Fixed::from_raw(static_cast<std::int32_t>(std::lround(
-                                          std::cos(heading_) * side * sim::Fixed::kOne))),
-                                      sim::Fixed::from_raw(static_cast<std::int32_t>(std::lround(
-                                          -std::sin(heading_) * side * sim::Fixed::kOne)))}});
+            unit, sim::orders::Strafe{
+                      sim::Fixed::from_raw(static_cast<std::int32_t>(
+                          std::lround(std::cos(heading_) * strafe_rate_ * sim::Fixed::kOne))),
+                      sim::Fixed::from_raw(static_cast<std::int32_t>(
+                          std::lround(-std::sin(heading_) * strafe_rate_ * sim::Fixed::kOne)))}});
     }
 }
 

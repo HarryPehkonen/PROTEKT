@@ -123,6 +123,11 @@ void apply_posted(Unit& unit, Stance stance, Fixed x, Fixed y, Fixed x2, Fixed y
 /// like a throttle, so a tick with no Strafe order has none, and a zero direction moves nothing.
 /// The step goes through the same terrain rule as any move, but a strafe never starts or ends a
 /// detour -- that state belongs to the unit's MoveTo.
+///
+/// The vector's LENGTH is the throttle the driver's eased input asks for, capped at one tile-unit
+/// (Fixed::kOne); its direction is where. A full-length vector therefore gives exactly 3/4 of the
+/// unit's speed, as it always did -- which is why a commander that sends one (the AI) behaves
+/// exactly as before. Integer parts only, and a zero length returns before any division.
 void apply_strafe(Unit& unit, const orders::Strafe& strafe, std::uint64_t seed) noexcept {
     const UnitProfile prof = profile(unit.kind);
     const std::int64_t length = isqrt(static_cast<std::int64_t>(strafe.dx.raw) * strafe.dx.raw
@@ -130,7 +135,11 @@ void apply_strafe(Unit& unit, const orders::Strafe& strafe, std::uint64_t seed) 
     if (!prof.mobile || length == 0) {
         return;
     }
-    const std::int64_t speed = prof.max_speed.raw * kStrafeSpeedNumerator / kStrafeSpeedDenominator;
+    const std::int64_t full = prof.max_speed.raw * kStrafeSpeedNumerator / kStrafeSpeedDenominator;
+    const std::int64_t speed = full * std::min<std::int64_t>(length, Fixed::kOne) / Fixed::kOne;
+    if (speed == 0) {
+        return;
+    }
     StepRequest request;
     request.x = unit.x;
     request.y = unit.y;

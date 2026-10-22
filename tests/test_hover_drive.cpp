@@ -3,6 +3,7 @@
 // everywhere else, and zero must be an exact identity.
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <variant>
@@ -90,6 +91,9 @@ TEST(HoverDrive, StrafeNeedsNoStateBetweenTicks) {
 }
 
 TEST(HoverDrive, DrivenHoverHeldDStrafesRightHullYawUnchanged) {
+    // RE-RECORDED (SE1): the strafe eases like the throttle, so ONE tick of held D is 1/30 of full
+    // strafe, not "at least half". The intent -- D strafes right, the yaw is untouched -- is kept;
+    // the half-speed floor moves to after the ramp (30 ticks), below.
     auto s = sim::Sim::create(sim::skirmish(kSeed));
     const auto id = first_of(s, sim::UnitKind::HoverTank);
     PlayerCommander player;
@@ -102,10 +106,28 @@ TEST(HoverDrive, DrivenHoverHeldDStrafesRightHullYawUnchanged) {
     EXPECT_GT(raw_dx(before, s, id), 0.0);
     EXPECT_EQ(raw_dy(before, s, id), 0.0);
     EXPECT_FLOAT_EQ(player.heading(), 0.0F);
-    // At most 0.75x of tank speed (less only where the ground is slower); the exact ratio is pinned
-    // at the sim level above.
-    EXPECT_LE(raw_dx(before, s, id), kStrafeFactor * sim::kTankSpeedRaw);
-    EXPECT_GE(raw_dx(before, s, id), 0.5 * kStrafeFactor * sim::kTankSpeedRaw);
+    // The first tick of the ramp: a thirtieth of 0.75x tank speed, never more.
+    EXPECT_LE(raw_dx(before, s, id), kStrafeFactor * sim::kTankSpeedRaw / 30.0 + 2.0);
+}
+
+TEST(HoverDrive, DrivenHoverHeldDReachesAtLeastHalfStrafeSpeedAfterTheRamp) {
+    // The half-speed floor the one-tick test used to assert, moved to where the ramp has run.
+    auto s = sim::Sim::create(sim::skirmish(kSeed));
+    const auto id = first_of(s, sim::UnitKind::HoverTank);
+    PlayerCommander player;
+    player.set_heading(0.0F);
+    InputState input;
+    input.strafe = 1.0F;
+    player.set_input(input);
+    // Terrain can deflect a single step, so the best step of the run is what is asserted.
+    double best = 0.0;
+    for (int i = 0; i < 40; ++i) {
+        const auto before = s;
+        tick_once(s, player, id);
+        best = std::max(best, raw_dx(before, s, id));
+    }
+    EXPECT_LE(best, kStrafeFactor * sim::kTankSpeedRaw);
+    EXPECT_GE(best, 0.5 * kStrafeFactor * sim::kTankSpeedRaw);
 }
 
 TEST(HoverDrive, DrivenHoverHeldAStrafesLeftMirrored) {
@@ -204,6 +226,183 @@ TEST(HoverDrive, StrafeDriveIsDeterministic) {
         return s.state_hash();
     };
     EXPECT_EQ(run(), run());
+}
+
+// ---- SE1: the sim scales a strafe by the vector's length; the player eases that length ----------
+
+/// The length of the Strafe order in `out`, in tiles (1.0 = a full-length vector); 0 if none.
+double strafe_magnitude(const std::vector<sim::Order>& out) {
+    for (const auto& order : out) {
+        if (const auto* o = std::get_if<sim::orders::Strafe>(&order.payload)) {
+            const double dx = static_cast<double>(o->dx.raw) / sim::Fixed::kOne;
+            const double dy = static_cast<double>(o->dy.raw) / sim::Fixed::kOne;
+            return std::hypot(dx, dy);
+        }
+    }
+    return 0.0;
+}
+
+/// One tick for the commander AND the sim; returns the emitted strafe length.
+double tick_magnitude(sim::Sim& s, PlayerCommander& player, sim::UnitId id) {
+    std::vector<sim::Order> out;
+    player.think(id, sim::observe(s, sim::Side::Player), out);
+    for (const auto& order : out) {
+        s.enqueue(order);
+    }
+    s.step();
+    return strafe_magnitude(out);
+}
+
+TEST(HoverDrive, SimScalesStrafeSpeedByVectorLengthAndFullLengthIsUnchanged) {
+    auto base = sim::Sim::create(sim::skirmish(kSeed));
+    const auto id = first_of(base, sim::UnitKind::HoverTank);
+    auto full = base;
+    auto quarter = base;
+    auto over = base;
+    full.enqueue(sim::Order{id, sim::orders::Strafe{sim::Fixed::from_int(1), sim::Fixed{}}});
+    quarter.enqueue(sim::Order{
+        id, sim::orders::Strafe{sim::Fixed::from_raw(sim::Fixed::kOne / 4), sim::Fixed{}}});
+    over.enqueue(sim::Order{id, sim::orders::Strafe{sim::Fixed::from_int(3), sim::Fixed{}}});
+    full.step();
+    quarter.step();
+    over.step();
+    const double f = raw_dx(base, full, id);
+    const double q = raw_dx(base, quarter, id);
+    ASSERT_GT(f, 0.0);
+    EXPECT_NEAR(q * 4.0, f, 4.0) << "a quarter-length vector moves at a quarter of the speed";
+    EXPECT_EQ(full.state_hash(), over.state_hash())
+        << "length is capped at one: longer is no faster";
+    // Today's number, exactly: 3/4 of the unit's speed when the ground is no slower.
+    EXPECT_LE(f, kStrafeFactor * sim::kTankSpeedRaw);
+}
+
+TEST(HoverDrive, StrafeAndThrottleRampToFullOverTheSameThirtyTicks) {
+    auto s = sim::Sim::create(sim::skirmish(kSeed));
+    const auto id = first_of(s, sim::UnitKind::HoverTank);
+    PlayerCommander player;
+    InputState input;
+    input.strafe = 1.0F;
+    input.throttle = 1.0F;
+    player.set_input(input);
+    double last = 0.0;
+    int strafe_full_at = 0;
+    int throttle_full_at = 0;
+    for (int tick = 1; tick <= 40; ++tick) {
+        const double mag = tick_magnitude(s, player, id);
+        EXPECT_GE(mag, last) << "monotone, tick " << tick;
+        last = mag;
+        if (strafe_full_at == 0 && mag >= 0.999) {
+            strafe_full_at = tick;
+        }
+        if (throttle_full_at == 0 && player.throttle_rate() >= 0.999F) {
+            throttle_full_at = tick;
+        }
+    }
+    EXPECT_EQ(strafe_full_at, 30);
+    EXPECT_EQ(throttle_full_at, 30);
+    EXPECT_EQ(strafe_full_at, throttle_full_at) << "the strafe is as quick as the throttle";
+    EXPECT_NEAR(last, 1.0, 0.001);
+}
+
+TEST(HoverDrive, ReleasingStrafeRampsBackToZeroNeverSnapping) {
+    auto s = sim::Sim::create(sim::skirmish(kSeed));
+    const auto id = first_of(s, sim::UnitKind::HoverTank);
+    PlayerCommander player;
+    InputState input;
+    input.strafe = 1.0F;
+    player.set_input(input);
+    double last = 0.0;
+    for (int tick = 0; tick < 30; ++tick) {
+        last = tick_magnitude(s, player, id);
+    }
+    ASSERT_NEAR(last, 1.0, 0.001);
+    player.set_input(InputState{});
+    int zero_at = 0;
+    for (int tick = 1; tick <= 40; ++tick) {
+        const double mag = tick_magnitude(s, player, id);
+        EXPECT_LE(mag, last + 1e-9) << "monotone down, tick " << tick;
+        EXPECT_LE(last - mag, 1.0 / 30.0 + 0.002) << "no snap, tick " << tick;
+        last = mag;
+        if (zero_at == 0 && mag == 0.0) {
+            zero_at = tick;
+        }
+    }
+    EXPECT_EQ(zero_at, 30) << "back to zero over the same thirty ticks";
+}
+
+TEST(HoverDrive, OneTickStrafeTapLeavesASmallValueNotAFullSpeedLurch) {
+    auto s = sim::Sim::create(sim::skirmish(kSeed));
+    const auto id = first_of(s, sim::UnitKind::HoverTank);
+    PlayerCommander player;
+    InputState input;
+    input.strafe = 1.0F;
+    player.set_input(input);
+    const double tap = tick_magnitude(s, player, id);
+    EXPECT_GT(tap, 0.0);
+    EXPECT_LE(tap, 1.0 / 30.0 + 0.001);
+    // A longer tap decays after release rather than stopping dead.
+    InputState held = input;
+    player.set_input(held);
+    double peak = tap;
+    for (int i = 0; i < 4; ++i) {
+        peak = tick_magnitude(s, player, id);
+    }
+    player.set_input(InputState{});
+    const double after = tick_magnitude(s, player, id);
+    EXPECT_GT(after, 0.0);
+    EXPECT_LT(after, peak);
+}
+
+TEST(HoverDrive, StrafeRampIsSymmetricLeftAndRight) {
+    auto rs = sim::Sim::create(sim::skirmish(kSeed));
+    auto ls = rs;
+    const auto id = first_of(rs, sim::UnitKind::HoverTank);
+    PlayerCommander pr;
+    PlayerCommander pl;
+    InputState d;
+    d.strafe = 1.0F;
+    InputState a;
+    a.strafe = -1.0F;
+    pr.set_input(d);
+    pl.set_input(a);
+    for (int tick = 0; tick < 35; ++tick) {
+        std::vector<sim::Order> r;
+        std::vector<sim::Order> l;
+        pr.think(id, sim::observe(rs, sim::Side::Player), r);
+        pl.think(id, sim::observe(ls, sim::Side::Player), l);
+        for (const auto& o : r) {
+            rs.enqueue(o);
+        }
+        for (const auto& o : l) {
+            ls.enqueue(o);
+        }
+        rs.step();
+        ls.step();
+        EXPECT_NEAR(strafe_magnitude(r), strafe_magnitude(l), 1e-6) << "tick " << tick;
+        EXPECT_FLOAT_EQ(pr.heading(), pl.heading());
+    }
+}
+
+TEST(HoverDrive, DrivenTankStillTurnsAndNeverStrafes) {
+    auto s = sim::Sim::create(sim::skirmish(kSeed));
+    const auto id = first_of(s, sim::UnitKind::Tank);
+    PlayerCommander player;
+    InputState input;
+    input.turn = 1.0F;
+    input.strafe = 1.0F;
+    player.set_input(input);
+    for (int tick = 0; tick < 10; ++tick) {
+        std::vector<sim::Order> out;
+        player.think(id, sim::observe(s, sim::Side::Player), out);
+        for (const auto& order : out) {
+            EXPECT_NE(order.kind(), sim::OrderKind::Strafe);
+            s.enqueue(order);
+        }
+        s.step();
+    }
+    EXPECT_GT(player.turn_rate(), 0.3F);
+    EXPECT_NE(player.heading(), 0.0F);
+    EXPECT_EQ(player.strafe_rate(), 0.0F);
 }
 
 } // namespace
