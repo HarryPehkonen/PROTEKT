@@ -21,6 +21,7 @@
 #include "protekt/app/player_view.hpp"
 #include "protekt/app/time_accumulator.hpp"
 #include "protekt/game/aim.hpp"
+#include "protekt/game/player.hpp"
 #include "protekt/game/scene.hpp"
 #include "protekt/game/session.hpp"
 #include "protekt/game/sounds.hpp"
@@ -71,6 +72,11 @@ struct Options {
     /// `--switch N`: the weapon key (Q) pressed once on each of the first N frames, so a capture
     /// can show the gun (0), the rocket (1) or the mortar (2) with nobody at the keyboard.
     std::uint32_t switches{0};
+    /// `--look-up N`: the view tilted up N hundredths of a radian on the first frame, and
+    /// `--fire N`: the trigger pulled on frame N (1-based; 0 is never), so a capture can show a
+    /// shell in the air with nobody at the mouse. The same family as `--switch`.
+    std::uint32_t look_up_centirad{0};
+    std::uint32_t fire_frame{0};
     bool press_ctrl{false};
     bool press_alt{false};
     /// Turn the radar off, for comparing two frames pixel by pixel. The game always has one.
@@ -115,6 +121,16 @@ int parse_args(std::span<const std::string_view> args, Options& options, std::os
         } else if (arg == "--switch") {
             if (!next(value) || !parse_number(value, options.switches)) {
                 err << "protekt-game: --switch wants a number of weapon-key presses\n";
+                return 2;
+            }
+        } else if (arg == "--look-up") {
+            if (!next(value) || !parse_number(value, options.look_up_centirad)) {
+                err << "protekt-game: --look-up wants hundredths of a radian\n";
+                return 2;
+            }
+        } else if (arg == "--fire") {
+            if (!next(value) || !parse_number(value, options.fire_frame)) {
+                err << "protekt-game: --fire wants a frame number\n";
                 return 2;
             }
         } else if (arg == "--fullscreen") {
@@ -325,6 +341,13 @@ void script_hands(const Options& options, std::uint32_t frame, input::InputFrame
     }
     if (frame < options.switches) {
         hands.keys.push_back(input::KeyEvent{input::kKeyQ, true, false});
+    }
+    if (frame == 0 && options.look_up_centirad > 0) {
+        hands.mouse_dy
+            = -static_cast<float>(options.look_up_centirad) / 100.0F / game::kLookRadiansPerPixel;
+    }
+    if (options.fire_frame > 0 && frame + 1 == options.fire_frame) {
+        hands.clicks.push_back(input::Click{0, 0, input::MouseButton::Left, true, false});
     }
     if (options.cursor_placed) {
         hands.cursor_x = options.cursor_x;

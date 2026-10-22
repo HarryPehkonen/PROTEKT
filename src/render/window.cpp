@@ -238,6 +238,7 @@ private:
     VkDeviceSize staging_size_{0};
     std::unique_ptr<Renderer> offscreen_{};
     std::vector<std::uint8_t> last_frame_{};
+    float wheel_remainder_{};   ///< the part of a smooth scroll that is not yet a whole notch
     input::InputFrame input_{}; ///< what the user did this frame, cleared by pump_events
     std::uint64_t frames_presented_{0};
     bool validation_{true};
@@ -701,6 +702,13 @@ bool VulkanWindow::pump_events() {
             // the same ray a click is picked with, so the two must agree about where the pointer
             // is.
             set_cursor(event.motion.x, event.motion.y, scale_x, scale_y);
+            break;
+        case SDL_EVENT_MOUSE_WHEEL:
+            // Whole notches only: the remainder of a smooth scroll waits for the next event, and
+            // a notch is never counted twice.
+            wheel_remainder_ += event.wheel.y;
+            input_.wheel += static_cast<int>(wheel_remainder_);
+            wheel_remainder_ -= std::trunc(wheel_remainder_);
             break;
         case SDL_EVENT_KEY_UP:
             input_.keys.push_back(input::KeyEvent{static_cast<std::int32_t>(event.key.scancode),

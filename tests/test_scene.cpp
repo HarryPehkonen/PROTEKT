@@ -737,7 +737,9 @@ TEST(WeaponReticle, TheChoiceIsAPureFunctionOfWeaponAndPitch) {
     EXPECT_EQ(reticle_for(Weapon::Mortar, 0.45F).rung, 2U);
     EXPECT_EQ(reticle_for(Weapon::Mortar, 0.62F).rung, 3U);
     EXPECT_EQ(reticle_for(Weapon::Mortar, 0.79F).rung, 4U);
-    EXPECT_EQ(reticle_for(Weapon::Mortar, 1.0F).rung, kMortarRungCount - 1);
+    EXPECT_EQ(reticle_for(Weapon::Mortar, 1.0F).rung, 5U);
+    EXPECT_EQ(reticle_for(Weapon::Mortar, 1.3F).rung, kMortarRungCount - 1)
+        << "the limit lights the last";
     for (std::size_t rung = 0; rung < kMortarRungCount; ++rung) {
         EXPECT_EQ(mortar_rung(kMortarRungPitches.at(rung)), rung);
     }
@@ -778,7 +780,7 @@ TEST(MortarLadder, RungDistancesAreTheSimsOwnFlightOnLevelGround) {
     // own `advance_projectiles`; the ladder's distance must fall inside the last step it took.
     namespace sim = protekt::sim;
     const sim::UnitSpec& mortar = sim::spec_of(sim::UnitKind::Mortar);
-    const LevelRow row = find_level_row(9);
+    const LevelRow row = find_level_row(16);
     ASSERT_TRUE(row.found);
     const sim::Fixed start_x = sim::Fixed::from_int(row.x);
     const sim::Fixed start_y = sim::Fixed::from_raw((row.y * sim::Fixed::kOne) + 32768);
@@ -815,7 +817,9 @@ TEST(MortarLadder, RungDistancesAreTheSimsOwnFlightOnLevelGround) {
 
 TEST(MortarLadder, TheRungsArePinnedAndClimbWithThePitch) {
     // From the spec: 17476 raw tiles a tick across, a 36.8-unit muzzle, 2.25 units a tick^2.
-    const std::array<float, kMortarRungCount> tiles{1.66F, 2.16F, 2.80F, 3.67F, 4.90F, 6.90F};
+    // M2 re-record: M1's six rungs are unchanged; 1.15 and 1.28 rad are new, the last the full 14.
+    const std::array<float, kMortarRungCount> tiles{1.66F, 2.16F, 2.80F, 3.67F,
+                                                    4.90F, 6.90F, 9.55F, 13.95F};
     for (std::size_t rung = 0; rung < kMortarRungCount; ++rung) {
         EXPECT_NEAR(mortar_landing_tiles(kMortarRungPitches.at(rung)), tiles.at(rung), 0.01F)
             << "rung " << rung;

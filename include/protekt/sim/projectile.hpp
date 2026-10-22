@@ -155,6 +155,21 @@ void retarget_aim(Unit& shooter, UnitId target) noexcept;
                                         UnitId aimed_at, std::uint16_t damage,
                                         std::uint64_t seed) noexcept;
 
+/// THE MORTAR'S CLIMB, the one place it is computed: the vertical speed (height units a tick) of a
+/// mortar shell that rises `rise` over a horizontal run of `run` (both Q16.16, any common scale;
+/// `run` > 0), leaving at the mortar spec's `bolt_speed` across the map -- `tan(pitch)` tiles of
+/// climb per tile of run -- and capped at the spec's `arc`. Both `launch_lob` and the player's
+/// range ladder (`mortar_landing_tiles`) call it, so the sight cannot disagree with the shot.
+[[nodiscard]] std::int64_t mortar_climb(std::int64_t run, std::int64_t rise) noexcept;
+
+/// The mortar shell `shooter` lobs along (`dir_x`, `dir_y`) with `dir_z` of climb per unit of
+/// horizontal run (the same world-space direction as `launch_towards`; it need not be normalised):
+/// the MORTAR's spec ballistics whatever `shooter` is, from the muzzle, no aim solve, no lead and
+/// no shooter velocity. A zero horizontal direction goes due east at the arc cap up or down.
+[[nodiscard]] Projectile launch_lob(const Unit& shooter, Fixed dir_x, Fixed dir_y, Fixed dir_z,
+                                    UnitId aimed_at, std::uint16_t damage,
+                                    std::uint64_t seed) noexcept;
+
 /// One tick of flight for every projectile, in index order. Each moves by its velocity; the first
 /// living unit on the other side (or the one it was aimed at) whose centre the path passes within
 /// kProjectileHitRadius of in the map plane AND whose body (`body_bottom`..`body_top` above the

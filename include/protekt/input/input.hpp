@@ -51,6 +51,10 @@ struct InputFrame {
     std::vector<KeyEvent> keys;
     float mouse_dx{}; ///< relative motion this frame, pixels (positive = right)
     float mouse_dy{}; ///< relative motion this frame, pixels (positive = down)
+    /// Mouse-wheel detents this frame, whole notches: positive is wheel-up (away from the user, as
+    /// SDL reports `y`), negative wheel-down. A fractional scroll (a trackpad) is accumulated by
+    /// the window until it makes a whole notch, so one notch is exactly one count here.
+    int wheel{};
     /// Where the pointer is, in framebuffer pixels -- from the left, from the TOP -- and whether
     /// anything has ever said. A POSITION, not an event, so `clear()` leaves it alone: a frame with
     /// no mouse event must not forget where the pointer is. It is false for a run that has no
@@ -66,6 +70,7 @@ struct InputFrame {
         keys.clear();
         mouse_dx = 0.0F;
         mouse_dy = 0.0F;
+        wheel = 0;
         quit = false;
     }
 };

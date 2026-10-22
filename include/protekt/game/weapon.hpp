@@ -5,9 +5,9 @@
 #include <cstdint>
 #include <string_view>
 
-/// WHICH WEAPON THE PLAYER HAS UP (M1). Game layer only: choosing a weapon changes the reticle and
-/// the HUD label, and nothing else -- the trigger still fires today's shot (M2 makes it fire the
-/// chosen one), so no order, tick or hash depends on it.
+/// WHICH WEAPON THE PLAYER HAS UP (M1). Choosing a weapon changes the reticle and the HUD label;
+/// the trigger fires the gun's and the rocket's auto-assisted shot as ever, and the MORTAR's shell
+/// along the barrel (M2, `sim::orders::FireLob`).
 namespace protekt::game {
 
 enum class Weapon : std::uint8_t { Gun, Rocket, Mortar };
@@ -22,6 +22,10 @@ inline constexpr std::array<Weapon, 3> kDrivenWeapons{Weapon::Gun, Weapon::Rocke
 /// the first.
 [[nodiscard]] Weapon next_weapon(Weapon current) noexcept;
 
+/// The weapon before `current` in `kDrivenWeapons`, wrapping at the start; one not in the set gives
+/// the first. The wheel-up step (M2): `next_weapon`'s inverse.
+[[nodiscard]] Weapon previous_weapon(Weapon current) noexcept;
+
 /// The HUD's name for a weapon: GUN, ROCKET, MORTAR.
 [[nodiscard]] std::string_view weapon_name(Weapon weapon) noexcept;
 
@@ -30,9 +34,12 @@ inline constexpr std::array<Weapon, 3> kDrivenWeapons{Weapon::Gun, Weapon::Rocke
 /// The barrel's climb IS the view's pitch: the shell leaves at the mortar's own `bolt_speed` across
 /// the map (as the sim's `launch` lobs it) climbing `tan(pitch)` tiles per tile -- capped at the
 /// spec's `arc` -- from `kMuzzleHeight`, and loses the spec's `gravity` every tick.
-inline constexpr std::size_t kMortarRungCount = 6;
-inline constexpr std::array<float, kMortarRungCount> kMortarRungPitches{0.0F, 0.2F, 0.4F,
-                                                                        0.6F, 0.8F, 1.0F};
+///
+/// M2 widened the view's pitch limit to 1.3 rad, so the ladder runs to the mortar's whole 14 tiles:
+/// two rungs more than M1's six (1.15 and 1.28 rad, the last landing at 13.9 tiles).
+inline constexpr std::size_t kMortarRungCount = 8;
+inline constexpr std::array<float, kMortarRungCount> kMortarRungPitches{0.0F, 0.2F, 0.4F,  0.6F,
+                                                                        0.8F, 1.0F, 1.15F, 1.28F};
 
 /// Where a mortar shell fired at `pitch` comes down on level ground, in tiles from the muzzle.
 /// Pure, and the sim's own integer flight step for step (`advance_projectiles` over flat ground at

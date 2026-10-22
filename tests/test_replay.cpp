@@ -59,7 +59,8 @@ void expect_same_order(const Order& got, const Order& want) {
                 EXPECT_EQ(g.y, w.y);
                 EXPECT_EQ(g.x2, w.x2);
                 EXPECT_EQ(g.y2, w.y2);
-            } else if constexpr (std::is_same_v<P, orders::FireTowards>) {
+            } else if constexpr (std::is_same_v<P, orders::FireTowards>
+                                 || std::is_same_v<P, orders::FireLob>) {
                 EXPECT_EQ(g.dir_x, w.dir_x);
                 EXPECT_EQ(g.dir_y, w.dir_y);
                 EXPECT_EQ(g.dir_z, w.dir_z)
@@ -146,6 +147,8 @@ TEST(Replay, EveryOrderKindSurvivesARoundTripAndNoneIsDropped) {
                                                     UnitId{9}, Fixed::from_raw(-23170)}}},
         Command{8, Order{UnitId{2}, orders::Strafe{Fixed::from_raw(65536), Fixed::from_raw(-1)}}},
         Command{9, Order{UnitId{3}, orders::Follow{UnitId{4}}}},
+        Command{10, Order{UnitId{5}, orders::FireLob{Fixed::from_raw(65536), Fixed::zero(),
+                                                     UnitId{6}, Fixed::from_raw(131072)}}},
     };
     ASSERT_EQ(r.commands.size(), kOrderKindCount) << "this test must cover every kind";
     for (std::size_t i = 0; i < r.commands.size(); ++i) {

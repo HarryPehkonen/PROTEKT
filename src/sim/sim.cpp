@@ -209,6 +209,22 @@ void apply_order(std::vector<Unit>& units, std::vector<Projectile>& projectiles,
             apply_strafe(unit, *o, seed);
         }
         break;
+    case OrderKind::FireLob:
+        if (const auto* o = std::get_if<orders::FireLob>(&order.payload)) {
+            // The player's mortar: FireTowards' rules (armed, reloaded, mounted, no naming
+            // oneself, no Fired event) with the MORTAR's shell, damage and reload.
+            const UnitProfile prof = profile(unit.kind);
+            const UnitProfile shell = profile(UnitKind::Mortar);
+            if (prof.weapon_range.raw > 0 && prof.damage > 0 && unit.cooldown == 0
+                && is_mounted(unit)) {
+                const UnitId aimed_at = o->aimed_at == unit.id ? UnitId{} : o->aimed_at;
+                projectiles.push_back(
+                    launch_lob(unit, o->dir_x, o->dir_y, o->dir_z, aimed_at, shell.damage, seed));
+                shots.push_back(Sim::Shot{unit.id, UnitId{}});
+                unit.cooldown = shell.cooldown_ticks;
+            }
+        }
+        break;
     case OrderKind::FireTowards:
         if (const auto* o = std::get_if<orders::FireTowards>(&order.payload)) {
             // The player's trigger: the bolt is launched here, where the order is applied, and the

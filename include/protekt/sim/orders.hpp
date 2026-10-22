@@ -82,6 +82,19 @@ struct FireTowards {
     Fixed dir_z{};
 };
 
+/// Lob one MORTAR shell along a barrel direction, whatever the shooter is: the player's manual
+/// mortar (M2). The same payload as FireTowards, a different flight: the shell is the mortar's own
+/// (its bolt speed across the map, its gravity, arc cap, splash and travel, its damage and its
+/// cooldown), leaves the muzzle climbing `dir_z` per unit of horizontal run, and goes where that
+/// parabola goes. No aim solve, no lead, no shooter velocity. `aimed_at` is intent, as in
+/// FireTowards. A zero horizontal run (straight up or down) climbs or falls at the arc cap.
+struct FireLob {
+    Fixed dir_x{};
+    Fixed dir_y{};
+    UnitId aimed_at{};
+    Fixed dir_z{};
+};
+
 /// One tick of sideways drift, as an INPUT: the direction (map x, map y; need not be normalised,
 /// zero is no strafe at all) a hover tank slides this tick. The sim scales it to a fixed fraction
 /// of the unit's speed, so the commander says where and the sim says how fast. It sets no stance
@@ -94,9 +107,9 @@ struct Strafe {
 
 } // namespace orders
 
-using OrderPayload
-    = std::variant<orders::MoveTo, orders::GuardAt, orders::Patrol, orders::Attack, orders::Stop,
-                   orders::FocusFire, orders::FireTowards, orders::Strafe, orders::Follow>;
+using OrderPayload = std::variant<orders::MoveTo, orders::GuardAt, orders::Patrol, orders::Attack,
+                                  orders::Stop, orders::FocusFire, orders::FireTowards,
+                                  orders::Strafe, orders::Follow, orders::FireLob>;
 
 /// How each payload alternative is named and reported. This is the payload's index, in the
 /// payload's order, and the assertions below make that true rather than intended.
@@ -110,9 +123,10 @@ enum class OrderKind : std::uint8_t {
     FireTowards = 6,
     Strafe = 7,
     Follow = 8,
+    FireLob = 9,
 };
 
-inline constexpr std::size_t kOrderKindCount = static_cast<std::size_t>(OrderKind::Follow) + 1;
+inline constexpr std::size_t kOrderKindCount = static_cast<std::size_t>(OrderKind::FireLob) + 1;
 
 static_assert(std::variant_size_v<OrderPayload> == kOrderKindCount,
               "every alternative needs a kind, and every kind an alternative");
@@ -132,6 +146,7 @@ static_assert(std::is_same_v<PayloadOf<OrderKind::FocusFire>, orders::FocusFire>
 static_assert(std::is_same_v<PayloadOf<OrderKind::FireTowards>, orders::FireTowards>);
 static_assert(std::is_same_v<PayloadOf<OrderKind::Strafe>, orders::Strafe>);
 static_assert(std::is_same_v<PayloadOf<OrderKind::Follow>, orders::Follow>);
+static_assert(std::is_same_v<PayloadOf<OrderKind::FireLob>, orders::FireLob>);
 
 /// The kind is the payload's own index. There is no second field that can disagree with it, which
 /// is precisely what the flat record could not promise.
@@ -187,6 +202,13 @@ struct OrderFields {
         out.positions[2] = p->dir_z;
         out.position_count = 3;
         out.has_target = true; // the intent: replays and the hash must keep it
+        out.target = p->aimed_at;
+    } else if (const auto* p = std::get_if<orders::FireLob>(&payload)) {
+        out.positions[0] = p->dir_x;
+        out.positions[1] = p->dir_y;
+        out.positions[2] = p->dir_z;
+        out.position_count = 3;
+        out.has_target = true;
         out.target = p->aimed_at;
     } else if (const auto* p = std::get_if<orders::Strafe>(&payload)) {
         out.positions[0] = p->dx;

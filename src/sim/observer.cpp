@@ -375,6 +375,8 @@ const char* to_string(OrderKind kind) noexcept {
         return "stop";
     case OrderKind::Follow:
         return "follow";
+    case OrderKind::FireLob:
+        return "firelob";
     }
     return "unknown";
 }

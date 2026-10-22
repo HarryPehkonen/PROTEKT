@@ -3,6 +3,7 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <utility>
 
 #include "protekt/ai/utility.hpp"
@@ -73,6 +74,12 @@ void Interaction::handle(const input::InputFrame& frame, const sim::Sim& sim,
         return unit != nullptr && unit->alive && unit->side == sim::Side::Player;
     });
 
+    // The wheel: ONE weapon per notch, up = previous, down = next, the wrap Q has. Scrolled before
+    // the clicks are read, so a flick and a click in one frame fires the weapon the flick chose.
+    for (int notch = 0; notch < std::abs(frame.wheel); ++notch) {
+        weapon_ = frame.wheel > 0 ? previous_weapon(weapon_) : next_weapon(weapon_);
+    }
+
     for (const input::Click& click : frame.clicks) {
         if (!click.pressed) {
             continue;
@@ -116,10 +123,22 @@ void Interaction::handle(const input::InputFrame& frame, const sim::Sim& sim,
                 = gun != nullptr
                       ? shot_direction(*gun, options, picked, *options.aim)
                       : math::basis_from(options.camera.yaw, options.camera.pitch).forward;
-            pending_.push_back(sim::Order{
-                driven_,
-                sim::orders::FireTowards{to_fixed(dir.at(0)), to_fixed(dir.at(2)),
-                                         named ? hit->id : sim::UnitId{}, to_fixed(dir.at(1))}});
+            if (weapon_ == Weapon::Mortar) {
+                // THE MORTAR IS AIMED BY HAND (M2): the shell flies the barrel -- the view's own
+                // yaw and pitch, which is what the range ladder reads -- and not the path to
+                // whatever is under the mark. Nothing is solved, nothing led.
+                const std::array<float, 3> barrel
+                    = math::basis_from(options.camera.yaw, options.camera.pitch).forward;
+                pending_.push_back(sim::Order{
+                    driven_,
+                    sim::orders::FireLob{to_fixed(barrel.at(0)), to_fixed(barrel.at(2)),
+                                         named ? hit->id : sim::UnitId{}, to_fixed(barrel.at(1))}});
+            } else {
+                pending_.push_back(sim::Order{
+                    driven_, sim::orders::FireTowards{to_fixed(dir.at(0)), to_fixed(dir.at(2)),
+                                                      named ? hit->id : sim::UnitId{},
+                                                      to_fixed(dir.at(1))}});
+            }
             // Every manual shot is one order, one bolt, and the app's own sound: the sim reports
             // no Fired event for it, so this is the only thing the player hears.
             shot_voice_ = true;

@@ -30,7 +30,7 @@ inline constexpr float kThrottleEasePerTick = 1.0F / 30.0F;
 inline constexpr float kLookRadiansPerPixel = 0.0025F;
 /// The view's pitch is held within +-this many radians: far enough to see the ground under the nose
 /// and the sky above the horizon, and no further, so the view cannot roll over the top.
-inline constexpr float kLookPitchLimit = 1.0F;
+inline constexpr float kLookPitchLimit = 1.3F;
 /// The pitch the view starts at: a slight downward tilt, the ground ahead beating empty sky.
 inline constexpr float kLookPitchStart = -0.12F;
 

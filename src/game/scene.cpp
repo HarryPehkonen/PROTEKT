@@ -1492,13 +1492,19 @@ void append_weapon_hud(std::vector<SceneVertex>& out, const SceneOptions& option
         rect(marks_at * kHudBorderRatio, aim_x - half_w - edge, y - half_t - edge,
              aim_x + half_w + edge, y + half_t + edge, kPlate);
         rect(marks_at, aim_x - half_w, y - half_t, aim_x + half_w, y + half_t, ink);
-        // The distance to a tenth of a tile: "6.9".
+        // The distance to a tenth of a tile: "6.9", and "13.9" once it passes ten.
         const int tenths = static_cast<int>(
             std::lround(mortar_landing_tiles(kMortarRungPitches.at(rung)) * 10.0F));
-        const std::array<char, 3> digits{static_cast<char>('0' + ((tenths / 10) % 10)), '.',
-                                         static_cast<char>('0' + (tenths % 10))};
+        std::array<char, 4> digits{};
+        std::size_t count = 0;
+        if (tenths >= 100) {
+            digits.at(count++) = static_cast<char>('0' + ((tenths / 100) % 10));
+        }
+        digits.at(count++) = static_cast<char>('0' + ((tenths / 10) % 10));
+        digits.at(count++) = '.';
+        digits.at(count++) = static_cast<char>('0' + (tenths % 10));
         const float cell = kRungCellPixels * px;
-        text(std::string_view{digits.data(), digits.size()},
+        text(std::string_view{digits.data(), count},
              aim_x + half_w + edge + ((kRungLabelGapPixels + kRungPadPixels) * px),
              y - (2.5F * cell), cell, kRungPadPixels * px, ink);
     }

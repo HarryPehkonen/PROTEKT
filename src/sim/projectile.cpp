@@ -382,6 +382,54 @@ Projectile launch_towards(const Unit& shooter, Fixed dir_x, Fixed dir_y, Fixed d
     return bolt;
 }
 
+std::int64_t mortar_climb(std::int64_t run, std::int64_t rise) noexcept {
+    const UnitSpec& mortar = spec_of(UnitKind::Mortar);
+    const std::int64_t across = mortar.bolt_speed.raw;
+    const std::int64_t steepest
+        = static_cast<std::int64_t>(mortar.arc.raw) * across / Fixed::kOne * kHeightUnitsPerTile;
+    if (run <= 0) {
+        return rise < 0 ? -steepest : steepest;
+    }
+    return std::clamp(rise * across * kHeightUnitsPerTile / run, -steepest, steepest);
+}
+
+Projectile launch_lob(const Unit& shooter, Fixed dir_x, Fixed dir_y, Fixed dir_z, UnitId aimed_at,
+                      std::uint16_t damage, std::uint64_t seed) noexcept {
+    const UnitSpec& mortar = spec_of(UnitKind::Mortar);
+    const std::int64_t across = mortar.bolt_speed.raw;
+    std::int64_t dx = dir_x.raw;
+    std::int64_t dy = dir_y.raw;
+    std::int64_t dz = dir_z.raw;
+    const std::int64_t largest = std::max({std::abs(dx), std::abs(dy), std::abs(dz)});
+    if (largest > (std::int64_t{1} << 28)) {
+        dx >>= 8;
+        dy >>= 8;
+        dz >>= 8;
+    }
+    const std::int64_t run = isqrt(dx * dx + dy * dy);
+    std::int64_t aim_x = across;
+    std::int64_t aim_y = 0;
+    if (run > 0) {
+        aim_x = dx * across / run;
+        aim_y = dy * across / run;
+    }
+    Projectile bolt{};
+    bolt.x = shooter.x;
+    bolt.y = shooter.y;
+    bolt.z = Fixed::from_raw(ground_height(seed, shooter.x, shooter.y).raw + kMuzzleHeight.raw);
+    bolt.vx = Fixed::from_raw(static_cast<std::int32_t>(aim_x));
+    bolt.vy = Fixed::from_raw(static_cast<std::int32_t>(aim_y));
+    bolt.vz = Fixed::from_raw(static_cast<std::int32_t>(mortar_climb(run, dz)));
+    bolt.gravity = mortar.gravity;
+    bolt.splash_radius = mortar.splash_radius;
+    bolt.max_travel = mortar.max_travel;
+    bolt.shooter = shooter.id;
+    bolt.side = shooter.side;
+    bolt.aimed_at = aimed_at;
+    bolt.damage = damage;
+    return bolt;
+}
+
 void advance_projectiles(std::vector<Projectile>& projectiles, std::vector<Unit>& units,
                          std::vector<Impact>& impacts, std::uint64_t seed) noexcept {
     const std::int64_t radius2

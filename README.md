@@ -20,7 +20,8 @@ You are one tank. Everything else you command.
 | `E` (**held**) | boost: lift the hull, and settle back down when you let go |
 | `C` | toggle the colour calibration view: three red/green/blue bars, a check on the display path |
 | **left click** | **fire**, wherever the mark is (see below) |
-| `Q` | switch weapon: gun -> rocket -> mortar -> gun. The crosshair and the label beside it change; the mortar's crosshair is a range ladder, each rung the distance in tiles a shell fired at that view pitch lands on level ground, the lit rung being where you look now. The trigger still fires the gun for now |
+| `Q` | switch weapon: gun -> rocket -> mortar -> gun. The crosshair and the label beside it change; the mortar's crosshair is a range ladder, each rung the distance in tiles a shell fired at that view pitch lands on level ground, the lit rung being where you look now. The trigger fires the gun's and the rocket's auto-aimed shot as ever; with the mortar up it lobs a shell along your own view (heading and pitch, no aim-assist, no lead): point up, fire, and the rung you lit is where it lands |
+| mouse wheel | switch weapon, one per notch: wheel up = previous, wheel down = next, the same wrap as `Q` |
 | `Space`, mark on an own unit | add it to the selection, or remove it if it is already in (`Shift`+`Space` does the same); ground, enemies and the tank you drive are ignored |
 | `X`, mark on an own tank | swap: drive that tank instead; the one you leave stops, and becomes an ordinary unit you can command |
 | `M` | order every selected unit to move to the ground under the mark, even when a unit is in front of it |
@@ -228,6 +229,8 @@ Then any of:
 
 # the weapon switched N times before the frame (0 gun, 1 rocket, 2 mortar), to capture a reticle
 ./build/protekt-game --headless --seed 42 --frames 30 --cursor 640 360 --switch 2 --capture /tmp/mortar.ppm
+# a mortar shell in the air: view tilted up 1.40 rad (clamps at the 1.3 limit), trigger on frame 18
+./build/protekt-game --headless --no-sound --seed 42 --switch 2 --look-up 140 --fire 18 --frames 40 --capture /tmp/lob.ppm
 
 # the radar off, for comparing two frames pixel by pixel (the game always has one)
 ./build/protekt-game --headless --seed 42 --frames 60 --autodrive --no-radar --capture without.ppm

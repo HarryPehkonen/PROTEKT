@@ -22,6 +22,15 @@ Weapon next_weapon(Weapon current) noexcept {
     return kDrivenWeapons.front();
 }
 
+Weapon previous_weapon(Weapon current) noexcept {
+    for (std::size_t i = 0; i < kDrivenWeapons.size(); ++i) {
+        if (kDrivenWeapons.at(i) == current) {
+            return kDrivenWeapons.at((i + kDrivenWeapons.size() - 1) % kDrivenWeapons.size());
+        }
+    }
+    return kDrivenWeapons.front();
+}
+
 std::string_view weapon_name(Weapon weapon) noexcept {
     switch (weapon) {
     case Weapon::Gun:
@@ -37,12 +46,11 @@ std::string_view weapon_name(Weapon weapon) noexcept {
 float mortar_landing_tiles(float pitch) noexcept {
     const sim::UnitSpec& mortar = sim::spec_of(sim::UnitKind::Mortar);
     const std::int64_t across = mortar.bolt_speed.raw;
-    const std::int64_t steepest = static_cast<std::int64_t>(mortar.arc.raw) * across
-                                  / sim::Fixed::kOne * sim::kHeightUnitsPerTile;
-    // The climb in height units a tick: tan(pitch) tiles per tile of run, 64 units to the tile.
-    std::int64_t vz = static_cast<std::int32_t>(
-        std::tan(pitch) * static_cast<float>(across * sim::kHeightUnitsPerTile));
-    vz = std::clamp(vz, -steepest, steepest);
+    // The climb in height units a tick, from the sim's own `mortar_climb` (the very call the
+    // player's shell is launched with): one tile of run, `tan(pitch)` tiles of rise in Q16.16.
+    std::int64_t vz
+        = sim::mortar_climb(sim::Fixed::kOne, std::lround(static_cast<double>(std::tan(pitch))
+                                                          * static_cast<double>(sim::Fixed::kOne)));
     std::int64_t z = sim::kMuzzleHeight.raw; // over flat ground at height 0
     std::int64_t flown = 0;
     // `advance_projectiles`, step for step: move by the velocity; a step that ends at or under the
