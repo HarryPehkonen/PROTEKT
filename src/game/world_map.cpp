@@ -17,7 +17,7 @@ namespace {
 /// cell that starts there; float rounding must not tip it into the one before.
 constexpr float kCellSlack = 1.0e-3F;
 constexpr float kReferenceHeight = 720.0F;
-constexpr float kMapTopReservePixels = 88.0F;    ///< the roster strip, and its notice line
+constexpr float kMapTopReservePixels = 62.0F;    ///< the roster strip, and its notice line
 constexpr float kMapBottomReservePixels = 30.0F; ///< the caption
 
 [[nodiscard]] float tiles(const sim::Fixed& value) noexcept {

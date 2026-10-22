@@ -42,17 +42,19 @@ Vec3 side_colour(sim::Side side) {
     return side == sim::Side::Player ? Vec3{0.15F, 0.35F, 0.85F} : Vec3{0.85F, 0.15F, 0.15F};
 }
 
+/// `alpha` defaults to 1, which makes the renderer's blend a no-op, so every caller that does not
+/// ask for transparency emits exactly the vertices it always did.
 void emit_triangle(std::vector<SceneVertex>& out, const Vec3& a, const Vec3& b, const Vec3& c,
-                   const Vec3& colour) {
-    out.push_back(SceneVertex{a, colour});
-    out.push_back(SceneVertex{b, colour});
-    out.push_back(SceneVertex{c, colour});
+                   const Vec3& colour, float alpha = 1.0F) {
+    out.push_back(SceneVertex{a, colour, alpha});
+    out.push_back(SceneVertex{b, colour, alpha});
+    out.push_back(SceneVertex{c, colour, alpha});
 }
 
 void emit_quad(std::vector<SceneVertex>& out, const Vec3& a, const Vec3& b, const Vec3& c,
-               const Vec3& d, const Vec3& colour) {
-    emit_triangle(out, a, b, c, colour);
-    emit_triangle(out, a, c, d, colour);
+               const Vec3& d, const Vec3& colour, float alpha = 1.0F) {
+    emit_triangle(out, a, b, c, colour, alpha);
+    emit_triangle(out, a, c, d, colour, alpha);
 }
 
 /// A quad that samples one whole atlas tile: its corners a, b, c, d take the tile's corners
@@ -61,7 +63,7 @@ void emit_tiled_quad(std::vector<SceneVertex>& out, const Vec3& a, const Vec3& b
                      const Vec3& d, const Vec3& colour, const UvRect& tile, int orientation = 0) {
     const auto corner = [&](const Vec3& p, int which) {
         const auto uv = oriented_corner_uv(tile, orientation, which);
-        return SceneVertex{p, colour, uv.at(0), uv.at(1)};
+        return SceneVertex{p, colour, 1.0F, uv.at(0), uv.at(1)};
     };
     const SceneVertex va = corner(a, 0);
     const SceneVertex vb = corner(b, 1);
@@ -1374,37 +1376,26 @@ void append_radar(std::vector<SceneVertex>& out, const SceneOptions& options, co
         out.push_back(SceneVertex{at(marks_at, side_b.at(0), side_b.at(1)), rgb});
     }
 
-    // THE NAV MARKS (N1): a bright plate with its number in black, a black outline round it for
-    // contrast, nearer than the compass so a mark pinned to the rim is not hidden by a letter.
+    // THE NAV MARKS (N1): a small cyan plus, nearer than the compass so a mark pinned to the rim is
+    // not hidden by a letter. BZ2 shows a placed nav point as a tiny plus in its radar, and the
+    // user asked for ours to be no bigger than the unit blips, so the plate and its number are gone
+    // from the radar: the number still rides on the world map, which is where a mark has to be
+    // named to order a unit to it. Two crossed bars, a pixel thick each way, so the mark is lighter
+    // than a blip of the same span.
     if (options.nav_marks != nullptr) {
-        constexpr std::array<float, 3> kNavInk{0.0F, 0.0F, 0.0F};
         const std::array<float, 3> plate_rgb{kNavColour[0], kNavColour[1], kNavColour[2]};
-        constexpr float kOutlineRatio = 0.88F;
         constexpr float kPlateRatio = 0.87F;
-        constexpr float kInkRatio = 0.86F;
-        constexpr float kOutlinePixels = 1.5F;
+        constexpr float kBarHalf = 1.0F;
         for (const RadarNav& nav :
              radar_nav_marks(sim.units(), options.viewer_unit, options.nav_marks->marks(),
                              options.camera.yaw, panel)) {
             const float cx = panel.x + nav.px;
             const float cy = panel.y + nav.py;
-            const float cell = nav.half / 3.1F;
-            rect(marks_at * kOutlineRatio, cx - nav.half - kOutlinePixels,
-                 cy - nav.half - kOutlinePixels, cx + nav.half + kOutlinePixels,
-                 cy + nav.half + kOutlinePixels, kNavInk);
-            rect(marks_at * kPlateRatio, cx - nav.half, cy - nav.half, cx + nav.half, cy + nav.half,
+            const float half = nav.half;
+            rect(marks_at * kPlateRatio, cx - half, cy - kBarHalf, cx + half, cy + kBarHalf,
                  plate_rgb);
-            const std::array<std::uint8_t, 5>& rows = digit_rows(nav.number);
-            for (std::size_t row = 0; row < rows.size(); ++row) {
-                for (int col = 0; col < 5; ++col) {
-                    if (((rows.at(row) >> (4 - col)) & 1U) == 0U) {
-                        continue;
-                    }
-                    const float x = cx - (2.5F * cell) + (static_cast<float>(col) * cell);
-                    const float y = cy - (2.5F * cell) + (static_cast<float>(row) * cell);
-                    rect(marks_at * kInkRatio, x, y, x + cell, y + cell, kNavInk);
-                }
-            }
+            rect(marks_at * kPlateRatio, cx - kBarHalf, cy - half, cx + kBarHalf, cy + half,
+                 plate_rgb);
         }
     }
 }
@@ -1767,25 +1758,35 @@ void append_weapon_hud(std::vector<SceneVertex>& out, const SceneOptions& option
 /// THE ROSTER STRIP (N2), in frame pixels on the HUD layer, scaled by the frame's height (the px
 /// below are at 720). One slot per living own unit with a key, left to right in spawn order, a
 /// dead unit's slot simply absent -- the others keep their digit, so the gap closes up but no
-/// number moves. A slot is 136 px wide and 74 tall on a black plate with a 2 px frame (yellow when
-/// the unit is selected, white otherwise), 6 px from the top and 6 px apart, nine of them filling
-/// 1280. Top row: the hotkey in 30 px capitals (cell 6) and the hit points beside it in 20 px
-/// digits (cell 4); then the kind in 15 px capitals (cell 3, FACTORY is 123 of the 124 px inside);
-/// then a 6 px hit-point bar, green over yellow over red. A living unit past the ninth has no key
-/// and gets no slot: a "+N" tag in the strip's last place counts them. Under the strip,
-/// `options.notice` in 24 px yellow capitals.
+/// number moves. A slot is 88 px wide and 34 tall on a black plate with a 2 px frame (yellow when
+/// the unit is selected, white otherwise), 6 px from the top and 6 px apart. Every glyph in the
+/// strip is 10 px tall (cell 2.0), which is BZ2's own HUD text height, counted rather than guessed:
+/// its text is 10 px in the 800x600 originals and still ~10 px in a 1280x730 screenshot of the
+/// remaster, so it is a fixed pixel font that ignores the resolution. Top row: the hotkey and the
+/// hit points beside it; then the kind (cell 2.0, FACTORY is 82 of the 82 px inside); then a 3 px
+/// hit-point bar, green over yellow over red. A living unit past the ninth has no key and gets no
+/// slot: a "+N" tag in the strip's last place counts them. Under the strip, `options.notice` in
+/// 10 px yellow capitals.
 constexpr float kStripMarginPixels = 6.0F;
-constexpr float kStripSlotWidthPixels = 136.0F;
+constexpr float kStripSlotWidthPixels = 88.0F;
 constexpr float kStripSlotGapPixels = 6.0F;
-constexpr float kStripSlotHeightPixels = 74.0F;
+constexpr float kStripSlotHeightPixels = 34.0F;
 constexpr float kStripFramePixels = 2.0F;
-constexpr float kStripPadPixels = 6.0F;
-constexpr float kStripKeyCell = 6.0F;
-constexpr float kStripHpCell = 4.0F;
-constexpr float kStripKindCell = 3.0F;
-constexpr float kStripBarPixels = 6.0F;
-constexpr float kStripNoticeCell = 4.8F;
-constexpr float kStripTagCell = 4.0F;
+constexpr float kStripPadPixels = 3.0F;
+constexpr float kStripKeyCell = 2.0F;
+constexpr float kStripHpCell = 2.0F;
+constexpr float kStripKindCell = 2.0F;
+constexpr float kStripBarPixels = 3.0F;
+constexpr float kStripNoticeCell = 2.0F;
+constexpr float kStripTagCell = 2.0F;
+/// The corner radius of a HUD panel, at 720p. Panels are rounded like BZ2's rather than square, and
+/// the frame ring clamps the radius to at least its own width so the face inside it can never be
+/// handed a negative radius.
+constexpr float kHudCornerPixels = 5.0F;
+/// How much of the world shows through a HUD panel's face. The frame and every glyph stay opaque,
+/// so the ink keeps its full contrast against the panel and only the panel itself is translucent --
+/// which is how BZ2's panels read.
+constexpr float kHudPanelAlpha = 0.65F;
 constexpr std::array<float, 3> kStripFrame{0.95F, 0.95F, 0.95F};
 constexpr std::array<float, 3> kStripSelected{1.0F, 0.85F, 0.10F};
 
@@ -1797,12 +1798,12 @@ void append_roster_strip(std::vector<SceneVertex>& out, const SceneOptions& opti
     const float px = static_cast<float>(options.extent.height) * kHudPerFrameHeight;
     const float marks_at = math::kNearPlane * kHudClearance * corner_ray_length(options.extent);
     const auto rect = [&](float distance, float ax, float ay, float bx, float by,
-                          const std::array<float, 3>& rgb) {
+                          const std::array<float, 3>& rgb, float alpha = 1.0F) {
         const auto at = [&](float x, float y) {
             const RayPoint point = ray_point(options.camera, options.extent, x, y, distance);
             return Vec3{point.x, point.y, point.z};
         };
-        emit_quad(out, at(ax, ay), at(bx, ay), at(bx, by), at(ax, by), rgb);
+        emit_quad(out, at(ax, ay), at(bx, ay), at(bx, by), at(ax, by), rgb, alpha);
     };
     constexpr std::array<float, 3> kPlate{0.0F, 0.0F, 0.0F};
     // Ink only; the plate under it is the caller's.
@@ -1827,14 +1828,80 @@ void append_roster_strip(std::vector<SceneVertex>& out, const SceneOptions& opti
     const auto word_width = [](std::string_view word, float cell) {
         return ((static_cast<float>(word.size()) * 6.0F) - 1.0F) * cell;
     };
-    // A plate with a frame round it: the frame behind, the face in front, then the caller's ink.
-    const auto plate
-        = [&](float left, float top, float right, float bottom, const std::array<float, 3>& frame) {
-              const float edge = kStripFramePixels * px;
-              rect(marks_at * kHudBorderRatio, left, top, right, bottom, frame);
-              rect(marks_at * kHudFaceRatio, left + edge, top + edge, right - edge, bottom - edge,
-                   kPlate);
+    // A plate with a rounded frame round it: a ring of four straight bars and four quarter-annulus
+    // corners, the glass face inside, then the caller's ink. The frame is a ring and never one
+    // filled rectangle on purpose: a filled rectangle sits behind the face and is then the only
+    // thing the face ever blends with, so a translucent panel reads as flat grey instead of letting
+    // the world through. Each corner is walked as short arcs so it reads round rather than
+    // chamfered, and every point still goes through `ray_point` like everything else here.
+    constexpr int kCornerSlices = 4;
+    // The four arcs of one rounded rectangle, clockwise from the top left, in screen space with y
+    // down. `emit` takes the corner's centre and the arc's start and end angles.
+    const auto walk_corners
+        = [](float left, float top, float right, float bottom, float radius, auto&& emit) {
+              const float mid = kPi * 0.5F;
+              emit(left + radius, top + radius, kPi, kPi + mid);
+              emit(right - radius, top + radius, kPi + mid, 2.0F * kPi);
+              emit(right - radius, bottom - radius, 0.0F, mid);
+              emit(left + radius, bottom - radius, mid, kPi);
           };
+    const auto plate = [&](float left, float top, float right, float bottom,
+                           const std::array<float, 3>& frame) {
+        const float edge = kStripFramePixels * px;
+        const float radius = std::max(kHudCornerPixels * px, edge);
+        const float bars_at = marks_at * kHudBorderRatio;
+        const float face_at = marks_at * kHudFaceRatio;
+        const auto at = [&](float distance, float x, float y) {
+            const RayPoint point = ray_point(options.camera, options.extent, x, y, distance);
+            return Vec3{point.x, point.y, point.z};
+        };
+        // The straight bars, held back from the corners by the radius.
+        rect(bars_at, left + radius, top, right - radius, top + edge, frame);
+        rect(bars_at, left + radius, bottom - edge, right - radius, bottom, frame);
+        rect(bars_at, left, top + radius, left + edge, bottom - radius, frame);
+        rect(bars_at, right - edge, top + radius, right, bottom - radius, frame);
+        // The corners: a quarter annulus from the outer radius in to the inner one, one quad
+        // per slice, in the frame's own opaque colour so the ink still has a crisp edge.
+        const float inner = radius - edge;
+        walk_corners(
+            left, top, right, bottom, radius, [&](float cx, float cy, float from, float to) {
+                for (int slice = 0; slice < kCornerSlices; ++slice) {
+                    const float a = from
+                                    + ((to - from) * static_cast<float>(slice)
+                                       / static_cast<float>(kCornerSlices));
+                    const float b = from
+                                    + ((to - from) * static_cast<float>(slice + 1)
+                                       / static_cast<float>(kCornerSlices));
+                    emit_quad(
+                        out, at(bars_at, cx + (radius * std::cos(a)), cy + (radius * std::sin(a))),
+                        at(bars_at, cx + (radius * std::cos(b)), cy + (radius * std::sin(b))),
+                        at(bars_at, cx + (inner * std::cos(b)), cy + (inner * std::sin(b))),
+                        at(bars_at, cx + (inner * std::cos(a)), cy + (inner * std::sin(a))), frame);
+                }
+            });
+        // The glass face: the same rounded rectangle inset by the frame, as a fan from its
+        // centre, translucent so the world shows through it.
+        const float inset = radius - edge;
+        std::vector<std::array<float, 2>> rim;
+        walk_corners(left + edge, top + edge, right - edge, bottom - edge, inset,
+                     [&](float cx, float cy, float from, float to) {
+                         for (int slice = 0; slice <= kCornerSlices; ++slice) {
+                             const float a = from
+                                             + ((to - from) * static_cast<float>(slice)
+                                                / static_cast<float>(kCornerSlices));
+                             rim.push_back(
+                                 {cx + (inset * std::cos(a)), cy + (inset * std::sin(a))});
+                         }
+                     });
+        const float centre_x = (left + right) * 0.5F;
+        const float centre_y = (top + bottom) * 0.5F;
+        for (std::size_t i = 0; i < rim.size(); ++i) {
+            const std::array<float, 2>& a = rim.at(i);
+            const std::array<float, 2>& b = rim.at((i + 1) % rim.size());
+            emit_triangle(out, at(face_at, centre_x, centre_y), at(face_at, a.at(0), a.at(1)),
+                          at(face_at, b.at(0), b.at(1)), kPlate, kHudPanelAlpha);
+        }
+    };
 
     const Roster roster = roster_of(sim, options.viewer_side);
     const float top = kStripMarginPixels * px;

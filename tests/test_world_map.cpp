@@ -284,9 +284,13 @@ TEST(WorldMap, TheNumbersAreBigEnoughToRead) {
     (void)marks.press(100, 100);
     const WorldMap map = map_of(rig, &marks);
     ASSERT_EQ(map.marks.size(), 1U);
-    // A digit is 5 cells across; 3 px a cell is 15 px, readable at arm's length on a laptop.
-    EXPECT_GE(map.marks.at(0).cell, 3.0F);
-    EXPECT_GE(map.marks.at(0).half, 7.5F);
+    // A digit is 5 cells across, so 2.0 px a cell is 10 px. That is BZ2's own HUD text height,
+    // measured by counting pixels: 10 px in its 800x600 originals and still ~10 px in a 1280x730
+    // screenshot of the remaster, so it is a fixed pixel font that ignores the resolution. The
+    // user's instruction is to match BZ2, and the plainer floor this replaced (15 px, chosen for
+    // arm's-length reading on a laptop) is not BZ2's. The plate is 13 px round the 10 px digit.
+    EXPECT_GE(map.marks.at(0).cell, 2.0F);
+    EXPECT_GE(map.marks.at(0).half, 6.5F);
 }
 
 TEST(WorldMap, ThePaletteIsTheGroundsOwn) {

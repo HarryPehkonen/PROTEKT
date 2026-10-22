@@ -3666,16 +3666,17 @@ TEST(SceneUv, ASkirmishPastItsTerrainAndTheCalibrationSceneLeaveTheUvAtZeroToo) 
     }
 }
 
-TEST(SceneUv, TheVertexIsEightFloatsWithNoPaddingBecauseItIsUploadedVerbatim) {
-    EXPECT_EQ(sizeof(SceneVertex), std::size_t{8} * sizeof(float));
-    EXPECT_EQ(offsetof(SceneVertex, u), std::size_t{6} * sizeof(float));
-    EXPECT_EQ(offsetof(SceneVertex, v), std::size_t{7} * sizeof(float));
+TEST(SceneUv, TheVertexIsNineFloatsWithNoPaddingBecauseItIsUploadedVerbatim) {
+    EXPECT_EQ(sizeof(SceneVertex), std::size_t{9} * sizeof(float));
+    EXPECT_EQ(offsetof(SceneVertex, alpha), std::size_t{6} * sizeof(float));
+    EXPECT_EQ(offsetof(SceneVertex, u), std::size_t{7} * sizeof(float));
+    EXPECT_EQ(offsetof(SceneVertex, v), std::size_t{8} * sizeof(float));
 }
 
 TEST(SceneUv, PinnedVertexCountsSurviveTheWiderVertex) {
     const Scene scene = protekt::game::build_calibration_scene(options_at(60.0F, 60.0F, 5, 4));
     EXPECT_EQ(scene.vertices.size(), std::size_t{18});
-    EXPECT_EQ(scene.vertices.size() * sizeof(SceneVertex), std::size_t{18} * 32U);
+    EXPECT_EQ(scene.vertices.size() * sizeof(SceneVertex), std::size_t{18} * 36U);
 }
 
 } // namespace

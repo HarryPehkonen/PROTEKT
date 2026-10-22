@@ -51,8 +51,9 @@ using math::Vec3;
 struct Vertex {
     Vec3 position;
     Vec3 colour;
-    float u;
-    float v;
+    float alpha{1.0F};
+    float u{};
+    float v{};
 };
 
 constexpr std::uint32_t kUnitVertices = 36;
@@ -75,7 +76,7 @@ Vec3 ground_colour(std::uint64_t seed) {
 void emit_triangle(std::vector<Vertex>& out, const Vec3& a, const Vec3& b, const Vec3& c,
                    const Vec3& colour) {
     const auto emit = [&out, &colour](const Vec3& position) {
-        out.push_back(Vertex{position, colour, 0.0F, 0.0F});
+        out.push_back(Vertex{position, colour, 1.0F, 0.0F, 0.0F});
     };
     emit(a);
     emit(b);
@@ -631,10 +632,11 @@ private:
         stages[1].pName = "main";
 
         VkVertexInputBindingDescription binding{0, sizeof(Vertex), VK_VERTEX_INPUT_RATE_VERTEX};
-        std::array<VkVertexInputAttributeDescription, 3> attributes{{
+        std::array<VkVertexInputAttributeDescription, 4> attributes{{
             {0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, position)},
             {1, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, colour)},
-            {2, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex, u)},
+            {2, 0, VK_FORMAT_R32_SFLOAT, offsetof(Vertex, alpha)},
+            {3, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex, u)},
         }};
         VkPipelineVertexInputStateCreateInfo vertex_input{};
         vertex_input.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
@@ -670,7 +672,16 @@ private:
         depth.depthWriteEnable = VK_TRUE;
         depth.depthCompareOp = VK_COMPARE_OP_LESS;
 
+        // Straight alpha: source over destination. World geometry carries alpha 1, so
+        // src*1 + dst*(1-1) = src and nothing opaque changes. Only the HUD's panel faces opt in.
         VkPipelineColorBlendAttachmentState blend_attachment{};
+        blend_attachment.blendEnable = VK_TRUE;
+        blend_attachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+        blend_attachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+        blend_attachment.colorBlendOp = VK_BLEND_OP_ADD;
+        blend_attachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+        blend_attachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+        blend_attachment.alphaBlendOp = VK_BLEND_OP_ADD;
         blend_attachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT
                                           | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
         VkPipelineColorBlendStateCreateInfo blend{};

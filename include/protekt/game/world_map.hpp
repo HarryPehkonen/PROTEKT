@@ -44,8 +44,8 @@ inline constexpr float kWorldMapFraction = 0.96F;
 inline constexpr float kMapUnitHalf = 3.0F;
 inline constexpr float kMapBuildingHalf = 5.0F;
 inline constexpr float kMapDrivenRingHalf = 8.0F;
-inline constexpr float kMapMarkHalf = 10.0F; ///< a mark's plate: 20 px square
-inline constexpr float kMapMarkCell = 3.0F;  ///< a digit is 5x5 cells, so 15 px tall
+inline constexpr float kMapMarkHalf = 6.5F; ///< a mark's plate: 13 px square
+inline constexpr float kMapMarkCell = 2.0F; ///< a digit is 5x5 cells, so 10 px tall (BZ2's size)
 
 [[nodiscard]] WorldMapLayout world_map_layout(Extent extent) noexcept;
 

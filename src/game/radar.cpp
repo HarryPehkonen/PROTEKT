@@ -14,9 +14,11 @@ constexpr float kBaseHalfFraction = 0.05F;
 constexpr float kViewerHalfFraction = 0.03F;
 constexpr float kArrowHalfFraction = 0.045F;
 constexpr float kArrowInsetFraction = 0.055F;
-/// A nav mark's plate is a square of this half-size, of the panel: 11 px at the 230 px panel, big
-/// enough to carry a digit a person can read, and kept clear of the rim by `kNavRimFraction`.
-constexpr float kNavHalfFraction = 0.05F;
+/// A nav mark's plus is this half-size, of the panel: 4 px at the 230 px panel, so the mark spans
+/// about 9 px and is SMALLER than a unit blip (`kDotHalfFraction`, about 10 px) -- BZ2 shows a
+/// placed nav point as a tiny plus in its radar and the user asked for ours to be no bigger than
+/// the tanks'. Kept clear of the rim by `kNavRimFraction`.
+constexpr float kNavHalfFraction = 0.019F;
 constexpr float kNavRimFraction = 0.02F;
 
 [[nodiscard]] float tiles(const sim::Fixed& value) noexcept {
