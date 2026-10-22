@@ -1,0 +1,67 @@
+commander measurement, 2400 ticks, 10 seeds, scenario skirmish(seed)
+
+placebo enemy -- the enemy side gets NO orders at all
+  seed 7  units lost: player 6, enemy 4   first contact 725   first kill 816
+  seed 11  units lost: player 5, enemy 5   first contact 638   first kill 735
+  seed 42  units lost: player 6, enemy 5   first contact 916   first kill 998
+  seed 99  units lost: player 0, enemy 4   first contact 1838   first kill 2160
+  seed 123  units lost: player 6, enemy 5   first contact 909   first kill 979
+  seed 500  units lost: player 6, enemy 5   first contact 933   first kill 1000
+  seed 777  units lost: player 4, enemy 3   first contact 655   first kill 857
+  seed 1024  units lost: player 4, enemy 4   first contact 783   first kill 880
+  seed 31337  units lost: player 0, enemy 0   first contact 2178   first kill never
+  seed 65535  units lost: player 6, enemy 8   first contact 846   first kill 913
+  TOTAL: player lost 43, enemy lost 43, seeds where anything was fired at all: 10/10
+
+scripted enemy
+  seed 7  units lost: player 6, enemy 6   first contact 763   first kill 1085
+  seed 11  units lost: player 6, enemy 6   first contact 316   first kill 405
+  seed 42  units lost: player 6, enemy 6   first contact 440   first kill 523
+  seed 99  units lost: player 6, enemy 6   first contact 449   first kill 550
+  seed 123  units lost: player 6, enemy 6   first contact 483   first kill 580
+  seed 500  units lost: player 6, enemy 6   first contact 465   first kill 555
+  seed 777  units lost: player 6, enemy 6   first contact 325   first kill 428
+  seed 1024  units lost: player 6, enemy 6   first contact 379   first kill 472
+  seed 31337  units lost: player 6, enemy 5   first contact 498   first kill 572
+  seed 65535  units lost: player 5, enemy 6   first contact 386   first kill 498
+  TOTAL: player lost 59, enemy lost 59, seeds where anything was fired at all: 10/10
+
+utility enemy
+  seed 7  units lost: player 6, enemy 3   first contact 339   first kill 435
+  seed 11  units lost: player 6, enemy 1   first contact 318   first kill 412
+  seed 42  units lost: player 6, enemy 4   first contact 439   first kill 520
+  seed 99  units lost: player 6, enemy 2   first contact 452   first kill 534
+  seed 123  units lost: player 6, enemy 4   first contact 511   first kill 794
+  seed 500  units lost: player 6, enemy 4   first contact 467   first kill 534
+  seed 777  units lost: player 6, enemy 2   first contact 325   first kill 412
+  seed 1024  units lost: player 6, enemy 1   first contact 385   first kill 460
+  seed 31337  units lost: player 5, enemy 3   first contact 607   first kill 689
+  seed 65535  units lost: player 6, enemy 5   first contact 399   first kill 471
+  TOTAL: player lost 59, enemy lost 29, seeds where anything was fired at all: 10/10
+
+utility PLAYER against a scripted enemy
+  seed 7  units lost: player 1, enemy 6   first contact 384   first kill 505
+  seed 11  units lost: player 1, enemy 6   first contact 316   first kill 404
+  seed 42  units lost: player 1, enemy 6   first contact 441   first kill 522
+  seed 99  units lost: player 2, enemy 6   first contact 448   first kill 539
+  seed 123  units lost: player 0, enemy 6   first contact 514   first kill 580
+  seed 500  units lost: player 3, enemy 6   first contact 465   first kill 546
+  seed 777  units lost: player 0, enemy 6   first contact 326   first kill 412
+  seed 1024  units lost: player 4, enemy 6   first contact 377   first kill 478
+  seed 31337  units lost: player 3, enemy 4   first contact 917   first kill 995
+  seed 65535  units lost: player 0, enemy 6   first contact 386   first kill 458
+  TOTAL: player lost 15, enemy lost 58, seeds where anything was fired at all: 10/10
+
+utility against utility
+  seed 7  units lost: player 0, enemy 4   first contact 339   first kill 447
+  seed 11  units lost: player 0, enemy 3   first contact 318   first kill 428
+  seed 42  units lost: player 2, enemy 5   first contact 439   first kill 549
+  seed 99  units lost: player 1, enemy 2   first contact 452   first kill 802
+  seed 123  units lost: player 0, enemy 3   first contact 510   first kill 698
+  seed 500  units lost: player 5, enemy 2   first contact 466   first kill 554
+  seed 777  units lost: player 3, enemy 3   first contact 325   first kill 405
+  seed 1024  units lost: player 5, enemy 0   first contact 390   first kill 544
+  seed 31337  units lost: player 0, enemy 0   first contact never   first kill never
+  seed 65535  units lost: player 5, enemy 1   first contact 423   first kill 492
+  TOTAL: player lost 21, enemy lost 23, seeds where anything was fired at all: 9/10
+

@@ -1,4 +1,5 @@
 #include "protekt/ai/scripted.hpp"
+#include "protekt/ai/utility.hpp"
 #include "protekt/sim/commander.hpp"
 
 #include <cstddef>
@@ -17,7 +18,11 @@ void ScriptedCommander::think(const sim::Observation& observation, std::vector<s
         if (unit.kind == sim::UnitKind::Turret) {
             out.push_back(sim::Order{unit.id, sim::orders::GuardAt{sim::Fixed::from_int(unit.x),
                                                                    sim::Fixed::from_int(unit.y)}});
-        } else if (sim::is_tank(unit.kind)) {
+        } else if (is_combatant(unit.kind)) {
+            // Every combatant is ordered to attack the nearest enemy. The sim's attack stance is
+            // what makes the roles differ: a unit closes only until its OWN weapon range reaches
+            // the target and then holds, so the mortar (range 14) stands off where a tank (12)
+            // would still be walking, and the rocket (15) closes with the tanks. No state needed.
             const sim::UnitView* nearest = nullptr;
             std::int64_t nearest_d2 = 0;
             for (const sim::UnitView& enemy : observation.enemy) {
