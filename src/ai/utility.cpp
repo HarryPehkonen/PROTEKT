@@ -1,5 +1,6 @@
 #include "protekt/ai/utility.hpp"
 
+#include <algorithm>
 #include <optional>
 
 #include "protekt/sim/projectile.hpp"
@@ -73,6 +74,23 @@ namespace {
 }
 
 } // namespace
+
+Role role_of(sim::UnitKind kind) noexcept {
+    switch (kind) {
+    case sim::UnitKind::Tank:
+    case sim::UnitKind::HoverTank:
+    case sim::UnitKind::Rocket:
+        return Role::Frontline;
+    case sim::UnitKind::Mortar:
+        return Role::Standoff;
+    case sim::UnitKind::Turret:
+    case sim::UnitKind::Factory:
+        return Role::None;
+    }
+    return Role::None;
+}
+
+bool is_combatant(sim::UnitKind kind) noexcept { return role_of(kind) != Role::None; }
 
 int threat_of(sim::UnitKind kind) noexcept {
     switch (kind) {
@@ -153,15 +171,18 @@ Decision decide(const sim::UnitView& self, const sim::Observation& observation,
                 const UtilityTuning& tuning) noexcept {
     Decision decision{};
     decision.unit = self.id;
-    // Only tanks move and hunt; turrets and factories hold whatever happens.
-    if (!sim::is_tank(self.kind)) {
+    // Only combatants move and hunt; turrets and factories hold whatever happens.
+    if (!is_combatant(self.kind)) {
         return decision;
     }
     const sim::UnitView* home = home_factory(observation);
     // Hysteresis without memory: a tank is "withdrawn" when it is wounded and standing at its own
     // living factory, so it stays until topped up. A wounded tank in the field keeps fighting.
     const std::int64_t repair_radius = sim::kRepairRadiusTiles;
-    const bool healing_at_home = home != nullptr && self.hp < tuning.return_hp
+    // The band's top is capped at the kind's own full health: a mortar is built at 75 hp, so an
+    // absolute 80 would read a mortar at full health as forever "still healing" and keep it home.
+    const int topped_up = std::min<int>(tuning.return_hp, sim::profile(self.kind).hp);
+    const bool healing_at_home = home != nullptr && self.hp < topped_up
                                  && distance_squared(self, *home) <= repair_radius * repair_radius;
     if (self.hp <= tuning.retreat_hp || healing_at_home) {
         decision.intent = Intent::Retreat;
@@ -173,8 +194,11 @@ Decision decide(const sim::UnitView& self, const sim::Observation& observation,
         // A target it cannot see is a hill it would be shooting. It keeps the target and moves:
         // sideways first, because charging a target behind a rise is how a unit ends up pressed
         // against the rise, and straight at it only when no step to either side gives a line.
-        if (terrain_hides(observation, sim::Fixed::from_raw(self.raw_x),
-                          sim::Fixed::from_raw(self.raw_y), *target)) {
+        // A standoff unit needs no line: its shell lobs over the rise, so it engages from where it
+        // stands (the sim holds it at its weapon range) instead of walking up to the hill.
+        if (role_of(self.kind) == Role::Frontline
+            && terrain_hides(observation, sim::Fixed::from_raw(self.raw_x),
+                             sim::Fixed::from_raw(self.raw_y), *target)) {
             if (const std::optional<Decision> aside
                 = sidestep(self, *target, observation, tuning)) {
                 return *aside;
@@ -224,7 +248,7 @@ void UtilityCommander::think(const sim::Observation& observation, std::vector<si
     for (const sim::UnitView& unit : observation.own) {
         const Decision decision = decide(unit, observation, tuning_);
         decisions_.push_back(decision);
-        // A tank that holds needs no order; a turret holds by being told to guard its post.
+        // A combatant that holds needs no order; a turret holds by being told to guard its post.
         if (decision.intent == Intent::Hold && unit.kind != sim::UnitKind::Turret) {
             continue;
         }

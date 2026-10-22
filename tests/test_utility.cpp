@@ -6,10 +6,14 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <type_traits>
+#include <utility>
 #include <variant>
 
+#include "protekt/sim/observer.hpp"
 #include "protekt/sim/projectile.hpp"
+#include "protekt/sim/scenario.hpp"
 #include "protekt/sim/sim.hpp"
 
 namespace protekt::ai {
@@ -759,6 +763,207 @@ TEST(UtilityLine, TheSameWorldGivesTheSameDecisions) {
         return trail;
     };
     EXPECT_EQ(history(), history());
+}
+
+// ---------------------------------------------------------------------------------------------
+// Doctrine by role (AID): frontline closes, standoff holds, both are combatants
+// ---------------------------------------------------------------------------------------------
+
+namespace {
+
+[[nodiscard]] sim::UnitView of_kind(sim::UnitView view, UnitKind kind) {
+    view.kind = kind;
+    return view;
+}
+
+/// Own factory far behind, enemy factory far ahead: a war to go to, both bases known.
+[[nodiscard]] sim::Observation war(const sim::UnitView& self, std::vector<sim::UnitView> enemy) {
+    std::vector<sim::UnitView> own{unit(900, UnitKind::Factory, Side::Player, 100, 20), self};
+    enemy.push_back(unit(901, UnitKind::Factory, Side::Enemy, 100, 200));
+    return field(own, enemy);
+}
+
+} // namespace
+
+TEST(UtilityRole, EveryArmedMobileKindIsACombatantAndTheMortarAloneStandsOff) {
+    EXPECT_EQ(role_of(UnitKind::Tank), Role::Frontline);
+    EXPECT_EQ(role_of(UnitKind::HoverTank), Role::Frontline);
+    EXPECT_EQ(role_of(UnitKind::Rocket), Role::Frontline);
+    EXPECT_EQ(role_of(UnitKind::Mortar), Role::Standoff);
+    EXPECT_EQ(role_of(UnitKind::Turret), Role::None);
+    EXPECT_EQ(role_of(UnitKind::Factory), Role::None);
+    EXPECT_TRUE(is_combatant(UnitKind::Mortar));
+    EXPECT_TRUE(is_combatant(UnitKind::Rocket));
+    EXPECT_FALSE(is_combatant(UnitKind::Turret));
+}
+
+TEST(UtilityRole, AMortarInRangeHoldsItsGroundWhereATankInTheSameSpotAdvances) {
+    // (42,30) -> (52,30): ten tiles, inside every range, and a rise in the way (asserted).
+    ASSERT_FALSE(sees(42, 30, 52, 30));
+    const sim::UnitView enemy = at(kEnemyTank, Side::Enemy, 52, 30);
+    const sim::UnitView tank = at(kTank, Side::Player, 42, 30);
+    const sim::UnitView mortar = of_kind(tank, UnitKind::Mortar);
+
+    const Decision tank_decision = decide(tank, on_the_hill(tank, enemy), UtilityTuning{});
+    EXPECT_TRUE(tank_decision.intent == Intent::Reposition
+                || tank_decision.intent == Intent::Advance)
+        << "a tank with no line has to move to get one";
+
+    const Decision mortar_decision = decide(mortar, on_the_hill(mortar, enemy), UtilityTuning{});
+    EXPECT_EQ(mortar_decision.intent, Intent::Engage) << "its shell lobs over the rise: it stays";
+    EXPECT_EQ(mortar_decision.target, UnitId{kEnemyTank});
+}
+
+TEST(UtilityRole, AMortarOutOfRangeAdvancesAndOnceTheTargetIsInsideItsRangeItEngages) {
+    const sim::UnitView mortar = unit(kTank, UnitKind::Mortar, Side::Player, 100, 100);
+    const Decision far = decide(
+        mortar, war(mortar, {unit(50, UnitKind::Tank, Side::Enemy, 100, 115)}), UtilityTuning{});
+    EXPECT_EQ(far.intent, Intent::Advance) << "fifteen tiles is past its fourteen";
+    const Decision near = decide(
+        mortar, war(mortar, {unit(50, UnitKind::Tank, Side::Enemy, 100, 114)}), UtilityTuning{});
+    EXPECT_EQ(near.intent, Intent::Engage) << "fourteen tiles is inside it";
+}
+
+TEST(UtilityRole, AMortarWalksUpToItsRangeInTheSimAndThenStopsMoving) {
+    sim::Scenario scenario{};
+    scenario.seed = 42;
+    scenario.spawns.push_back({UnitKind::Factory, Side::Player, 30, 60});
+    scenario.spawns.push_back({UnitKind::Mortar, Side::Player, 30, 66});
+    scenario.spawns.push_back({UnitKind::Factory, Side::Enemy, 30, 200});
+    scenario.spawns.push_back({UnitKind::Tank, Side::Enemy, 30, 110});
+    sim::Sim world = sim::Sim::create(scenario);
+    UtilityCommander commander{UtilityTuning{}};
+    const UnitId mortar{2};
+    const UnitId target{4};
+    const auto distance = [&] {
+        const sim::Unit* m = world.find(mortar);
+        const sim::Unit* t = world.find(target);
+        const std::int64_t dx = (m->x.raw - t->x.raw) >> 16;
+        const std::int64_t dy = (m->y.raw - t->y.raw) >> 16;
+        return sim::isqrt(dx * dx + dy * dy);
+    };
+    std::int64_t first_inside = -1;
+    sim::Fixed held_x{};
+    sim::Fixed held_y{};
+    int held_ticks = 0;
+    for (int tick = 0; tick < 1500 && world.find(target)->alive; ++tick) {
+        std::vector<sim::Order> orders;
+        commander.think(sim::observe(world, Side::Player), orders);
+        for (const sim::Order& order : orders) {
+            world.enqueue(order);
+        }
+        world.step();
+        if (first_inside < 0 && distance() <= 14) {
+            first_inside = tick;
+        } else if (first_inside >= 0 && tick == first_inside + 20) { // one decision cycle later
+            held_x = world.find(mortar)->x;
+            held_y = world.find(mortar)->y;
+        } else if (first_inside >= 0 && tick > first_inside + 20 && world.find(target)->alive) {
+            ++held_ticks;
+            EXPECT_EQ(world.find(mortar)->x.raw, held_x.raw) << "tick " << tick;
+            EXPECT_EQ(world.find(mortar)->y.raw, held_y.raw) << "tick " << tick;
+        }
+    }
+    ASSERT_GE(first_inside, 0) << "it closed until the tank was inside its range";
+    EXPECT_GE(distance(), 10) << "and did not charge past it";
+    EXPECT_GT(held_ticks, 30) << "and it stood and shot rather than closing";
+}
+
+TEST(UtilityRole, ARocketDecidesExactlyAsATankDoesInEverySituation) {
+    const sim::UnitView tank = at(kTank, Side::Player, 42, 30);
+    const sim::UnitView rocket = of_kind(tank, UnitKind::Rocket);
+    const sim::UnitView clear_tank = at(kTank, Side::Player, 100, 100);
+    const sim::UnitView clear_rocket = of_kind(clear_tank, UnitKind::Rocket);
+    const std::vector<std::pair<sim::UnitView, sim::UnitView>> cases{{tank, rocket},
+                                                                     {clear_tank, clear_rocket}};
+    const sim::UnitView hill_enemy = at(kEnemyTank, Side::Enemy, 52, 30);
+    const sim::UnitView clear_enemy = at(kEnemyTank, Side::Enemy, 110, 100);
+    for (const auto& [t, r] : cases) {
+        const sim::UnitView& e = t.x == 42 ? hill_enemy : clear_enemy;
+        const Decision dt = decide(t, on_the_hill(t, e), UtilityTuning{});
+        const Decision dr = decide(r, on_the_hill(r, e), UtilityTuning{});
+        EXPECT_EQ(dt.intent, dr.intent);
+        EXPECT_EQ(dt.x, dr.x);
+        EXPECT_EQ(dt.y, dr.y);
+        EXPECT_EQ(dt.target, dr.target);
+        EXPECT_EQ(dt.score, dr.score);
+    }
+    const Decision engaging
+        = decide(clear_rocket, on_the_hill(clear_rocket, clear_enemy), UtilityTuning{});
+    EXPECT_EQ(engaging.intent, Intent::Engage);
+    const sim::UnitView r2 = unit(kTank, UnitKind::Rocket, Side::Player, 100, 100);
+    EXPECT_EQ(
+        decide(r2, war(r2, {unit(50, UnitKind::Tank, Side::Enemy, 100, 130)}), UtilityTuning{})
+            .intent,
+        Intent::Advance)
+        << "out of range it closes toward the war, as a tank does";
+}
+
+TEST(UtilityRole, ARocketInRangeOfATankFiresInTheSim) {
+    sim::Scenario scenario{};
+    scenario.seed = kHillSeed;
+    scenario.spawns.push_back({UnitKind::Rocket, Side::Player, 100, 100});
+    scenario.spawns.push_back({UnitKind::Tank, Side::Enemy, 110, 100});
+    sim::Sim world = sim::Sim::create(scenario);
+    UtilityCommander commander{UtilityTuning{}};
+    std::size_t shots = 0;
+    for (int tick = 0; tick < 200; ++tick) {
+        std::vector<sim::Order> orders;
+        commander.think(sim::observe(world, Side::Player), orders);
+        for (const sim::Order& order : orders) {
+            world.enqueue(order);
+        }
+        world.step();
+        for (const auto& shot : world.shots()) {
+            shots += shot.shooter == UnitId{1} ? 1U : 0U;
+        }
+    }
+    EXPECT_GT(shots, 0U);
+}
+
+TEST(UtilityRole, AHurtMortarAndAHurtRocketBothWithdrawToTheirFactory) {
+    for (const UnitKind kind : {UnitKind::Mortar, UnitKind::Rocket}) {
+        const sim::UnitView self = unit(kTank, kind, Side::Player, 100, 100, 20);
+        const Decision d = decide(
+            self, war(self, {unit(50, UnitKind::Tank, Side::Enemy, 100, 105)}), UtilityTuning{});
+        EXPECT_EQ(d.intent, Intent::Retreat) << static_cast<int>(kind);
+        EXPECT_EQ(d.x, 100);
+        EXPECT_EQ(d.y, 20);
+        const sim::UnitView healing = unit(kTank, kind, Side::Player, 100, 22, 60);
+        EXPECT_EQ(decide(healing, war(healing, {}), UtilityTuning{}).intent, Intent::Retreat)
+            << "and stays to heal";
+    }
+}
+
+TEST(UtilityRole, AMortarWithNoTargetAndNoWarDoesNothingAtAll) {
+    sim::Scenario scenario{};
+    scenario.seed = 42;
+    scenario.spawns.push_back({UnitKind::Mortar, Side::Player, 80, 80});
+    sim::Sim world = sim::Sim::create(scenario);
+    UtilityCommander commander{UtilityTuning{}};
+    const sim::Unit before = *world.find(UnitId{1});
+    for (int tick = 0; tick < 300; ++tick) {
+        std::vector<sim::Order> orders;
+        commander.think(sim::observe(world, Side::Player), orders);
+        EXPECT_TRUE(orders.empty()) << "tick " << tick;
+        world.step();
+    }
+    const sim::Unit* after = world.find(UnitId{1});
+    EXPECT_EQ(after->x.raw, before.x.raw);
+    EXPECT_EQ(after->y.raw, before.y.raw);
+    EXPECT_EQ(after->vx.raw, 0);
+    EXPECT_EQ(after->vy.raw, 0);
+}
+
+TEST(UtilityRole, TwoSameSeedBattlesWithMortarsAndRocketsAreByteIdentical) {
+    const auto run = [] {
+        sim::Scenario scenario = sim::skirmish(11);
+        UtilityCommander p{UtilityTuning{}};
+        UtilityCommander e{UtilityTuning{}};
+        const sim::BattleLog log = sim::run_battle(scenario, {}, 900, &p, &e);
+        return std::make_pair(log.final_hash, log.to_text(1000000));
+    };
+    EXPECT_EQ(run(), run());
 }
 
 } // namespace protekt::ai

@@ -133,12 +133,10 @@ TEST(Roster, TheEnemyAiDrivesItsHoverTank) {
     EXPECT_GT(shots, 0) << "and it engaged";
 }
 
-/// DISCLOSED GAP (R3b2), pinned so it cannot change unnoticed: the utility commander moves and
-/// hunts only with tanks (`is_tank`), so it never orders a mortar or a rocket. A mortar still
-/// fires at whatever comes into its range -- the sim's own auto-engagement, not the AI -- and a
-/// rocket with nothing in range stands where it spawned for good. Doctrine for them is a later
-/// slice.
-TEST(Roster, TheAiNeverOrdersAMortarOrRocketButAMortarStillFiresAtWhatIsInRange) {
+/// The R3b2 gap, closed by AID: the utility commander commands by role, so the rocket (frontline)
+/// closes on the war like a tank and the mortar (standoff) is a combatant that fires and is
+/// ordered. The rocket used to stand where it spawned for good; this pins the opposite.
+TEST(Roster, TheAiOrdersARocketForwardAndAMortarStillFiresAtWhatIsInRange) {
     Scenario scenario{};
     scenario.seed = 42;
     scenario.spawns.push_back(Spawn{UnitKind::Mortar, Side::Enemy, 60, 60});
@@ -152,12 +150,12 @@ TEST(Roster, TheAiNeverOrdersAMortarOrRocketButAMortarStillFiresAtWhatIsInRange)
     Sim sim = Sim::create(scenario);
     std::vector<Order> orders;
     int mortar_shots = 0;
+    bool rocket_ordered = false;
     for (int t = 0; t < 300; ++t) {
         orders.clear();
         enemy.think(observe(sim, Side::Enemy), orders);
         for (const Order& order : orders) {
-            EXPECT_NE(order.unit, mortar) << "tick " << t;
-            EXPECT_NE(order.unit, rocket) << "tick " << t;
+            rocket_ordered = rocket_ordered || order.unit == rocket;
             sim.enqueue(order);
         }
         sim.step();
@@ -167,11 +165,12 @@ TEST(Roster, TheAiNeverOrdersAMortarOrRocketButAMortarStillFiresAtWhatIsInRange)
             }
         }
     }
-    EXPECT_GT(mortar_shots, 0) << "the mortar engages the tank 8 tiles off, by auto-fire";
-    const Unit* parked = sim.find(rocket);
-    ASSERT_NE(parked, nullptr);
-    EXPECT_EQ(parked->x, Fixed::from_int(90)) << "the rocket never closes";
-    EXPECT_EQ(parked->y, Fixed::from_int(60));
+    EXPECT_GT(mortar_shots, 0) << "the mortar engages the tank 8 tiles off";
+    EXPECT_TRUE(rocket_ordered) << "the rocket is commanded now";
+    const Unit* moved = sim.find(rocket);
+    ASSERT_NE(moved, nullptr);
+    EXPECT_TRUE(moved->x != Fixed::from_int(90) || moved->y != Fixed::from_int(60))
+        << "the rocket closes on the war";
 }
 
 TEST(Roster, SameSeedBattlesAreByteIdentical) {
