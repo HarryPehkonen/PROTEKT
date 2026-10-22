@@ -9,6 +9,7 @@
 #include <string_view>
 
 #include "protekt/game/scene_data.hpp"
+#include "protekt/game/weapon.hpp"
 #include "protekt/math/math.hpp"
 #include "protekt/sim/observer.hpp"
 #include "protekt/sim/sim.hpp"
@@ -383,6 +384,12 @@ struct SceneOptions {
     /// The reticle's pulse, 0 (rest) to 1 (just connected): the app owns it. 0 draws the reticle
     /// at rest, byte-identical to one that never heard of it.
     float reticle_pulse{0.0F};
+    /// The weapon the driven craft has up, which picks the reticle (`reticle_for`, with the
+    /// camera's pitch): the gun is E12's four ticks, unchanged, so a frame that never heard of it
+    /// is byte-identical. The mortar adds its range ladder.
+    Weapon weapon{Weapon::Gun};
+    /// Draw the weapon's name by the reticle. Off by default for the same reason.
+    bool show_weapon{false};
 };
 
 /// Triangles for the terrain mesh (two per tile, painted by `Terrain`) followed by one box per

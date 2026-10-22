@@ -8,6 +8,7 @@
 #include "protekt/audio/mixer.hpp"
 #include "protekt/cmd/selection.hpp"
 #include "protekt/game/scene.hpp"
+#include "protekt/game/weapon.hpp"
 #include "protekt/input/input.hpp"
 #include "protekt/sim/orders.hpp"
 #include "protekt/sim/sim.hpp"
@@ -61,6 +62,8 @@ public:
     ///    the driven one, even with a unit under the mark; nothing selected: refused
     ///  * X: swap the driven tank to the own tank under the mark; the vacated one is told to Stop
     ///  * Tab or Escape: clear the selection
+    ///  * Q (bare -- Ctrl+Q is the quit): bring up the next weapon of `kDrivenWeapons`, wrapping.
+    ///    Never refused; it orders nothing and the trigger still fires today's shot (M1).
     ///
     /// Refusals never throw and never half-apply: either the whole intent is carried out or none of
     /// it is, and `message()` says why.
@@ -94,6 +97,8 @@ public:
 
     [[nodiscard]] const cmd::Selection& selection() const noexcept;
     [[nodiscard]] sim::UnitId driven() const noexcept;
+    /// The weapon the driven craft has up. The craft carries the set, so an X swap keeps it.
+    [[nodiscard]] Weapon weapon() const noexcept;
 
     /// Why the last input was refused, for the HUD. Empty when it was carried out. Cleared at the
     /// start of every `handle`, so a message describes the frame that just happened and nothing
@@ -121,6 +126,7 @@ private:
     std::map<sim::UnitId, sim::OrderPayload> remembered_; ///< each unit's last player order
     std::set<sim::UnitId> retreating_;                    ///< tanks sent home and not yet healed
     cmd::Selection selection_;
+    Weapon weapon_{Weapon::Gun};
     std::vector<sim::Order> pending_;
     bool shot_voice_{false};
     bool has_fired_{false};

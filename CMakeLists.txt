@@ -107,6 +107,7 @@ add_library(protekt_game STATIC
     src/game/navigate.cpp
     src/game/radar.cpp
     src/game/sounds.cpp
+    src/game/weapon.cpp
 )
 target_include_directories(protekt_game PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include

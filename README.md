@@ -20,6 +20,7 @@ You are one tank. Everything else you command.
 | `E` (**held**) | boost: lift the hull, and settle back down when you let go |
 | `C` | toggle the colour calibration view: three red/green/blue bars, a check on the display path |
 | **left click** | **fire**, wherever the mark is (see below) |
+| `Q` | switch weapon: gun -> rocket -> mortar -> gun. The crosshair and the label beside it change; the mortar's crosshair is a range ladder, each rung the distance in tiles a shell fired at that view pitch lands on level ground, the lit rung being where you look now. The trigger still fires the gun for now |
 | `Space`, mark on an own unit | add it to the selection, or remove it if it is already in (`Shift`+`Space` does the same); ground, enemies and the tank you drive are ignored |
 | `X`, mark on an own tank | swap: drive that tank instead; the one you leave stops, and becomes an ordinary unit you can command |
 | `M` | order every selected unit to move to the ground under the mark, even when a unit is in front of it |
@@ -224,6 +225,9 @@ Then any of:
 
 # a run nobody is sitting at: press one key on the first frame, so a keypress is reproducible
 ./build/protekt-game --headless --seed 42 --frames 90 --autodrive --press ctrl+q
+
+# the weapon switched N times before the frame (0 gun, 1 rocket, 2 mortar), to capture a reticle
+./build/protekt-game --headless --seed 42 --frames 30 --cursor 640 360 --switch 2 --capture /tmp/mortar.ppm
 
 # the radar off, for comparing two frames pixel by pixel (the game always has one)
 ./build/protekt-game --headless --seed 42 --frames 60 --autodrive --no-radar --capture without.ppm

@@ -79,6 +79,8 @@ float Session::view_yaw() const noexcept { return player_.view_yaw(); }
 
 float Session::view_pitch() const noexcept { return player_.view_pitch(); }
 
+Weapon Session::weapon() const noexcept { return interaction_.weapon(); }
+
 const cmd::Selection& Session::selection() const noexcept { return interaction_.selection(); }
 
 std::string_view Session::message() const noexcept {

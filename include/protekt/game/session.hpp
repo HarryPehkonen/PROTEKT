@@ -6,6 +6,7 @@
 
 #include "protekt/game/interaction.hpp"
 #include "protekt/game/player.hpp"
+#include "protekt/game/weapon.hpp"
 #include "protekt/input/bindings.hpp"
 
 namespace protekt::game {
@@ -39,6 +40,8 @@ public:
     /// Alive after death, from the wreck's last heading.
     [[nodiscard]] float view_yaw() const noexcept;
     [[nodiscard]] float view_pitch() const noexcept;
+    /// The weapon the driven craft has up (Q cycles it): the reticle and the HUD label read it.
+    [[nodiscard]] Weapon weapon() const noexcept;
     [[nodiscard]] const cmd::Selection& selection() const noexcept;
     /// The interaction's refusal, for a HUD: "you are driving that one", "nothing selected".
     [[nodiscard]] std::string_view message() const noexcept;

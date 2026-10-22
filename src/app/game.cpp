@@ -68,6 +68,9 @@ struct Options {
     /// did it. The same family as `--cursor`: a scripted frame of input, so what happened is
     /// repeatable.
     std::int32_t press_scancode{-1};
+    /// `--switch N`: the weapon key (Q) pressed once on each of the first N frames, so a capture
+    /// can show the gun (0), the rocket (1) or the mortar (2) with nobody at the keyboard.
+    std::uint32_t switches{0};
     bool press_ctrl{false};
     bool press_alt{false};
     /// Turn the radar off, for comparing two frames pixel by pixel. The game always has one.
@@ -108,6 +111,11 @@ int parse_args(std::span<const std::string_view> args, Options& options, std::os
             options.press_alt = name == "alt+enter";
             if (options.press_alt) {
                 options.press_scancode = input::kKeyEnter;
+            }
+        } else if (arg == "--switch") {
+            if (!next(value) || !parse_number(value, options.switches)) {
+                err << "protekt-game: --switch wants a number of weapon-key presses\n";
+                return 2;
             }
         } else if (arg == "--fullscreen") {
             if (options.headless) {
@@ -280,6 +288,8 @@ public:
         headings_.observe(sim_);
         scene_options.headings = &headings_;
         scene_options.hit_flash = hit_flash_.level(sim_.tick());
+        scene_options.weapon = session_.weapon();
+        scene_options.show_weapon = !session_.destroyed();
         scene_options.reticle_pulse = options_.pulse_percent >= 0
                                           ? static_cast<float>(options_.pulse_percent) / 100.0F
                                           : hit_mark_.level(sim_.tick());
@@ -305,13 +315,16 @@ private:
 
 /// The keys and pointer a run puts in the player's hands on its own, for a frame nobody is
 /// sitting at.
-void script_hands(const Options& options, input::InputFrame& hands) {
+void script_hands(const Options& options, std::uint32_t frame, input::InputFrame& hands) {
     if (options.autodrive) {
         hands.keys.push_back(input::KeyEvent{input::kKeyW, true, false});
     }
     if (options.press_scancode >= 0) {
         hands.keys.push_back(input::KeyEvent{options.press_scancode, true, false,
                                              options.press_ctrl, options.press_alt});
+    }
+    if (frame < options.switches) {
+        hands.keys.push_back(input::KeyEvent{input::kKeyQ, true, false});
     }
     if (options.cursor_placed) {
         hands.cursor_x = options.cursor_x;
@@ -340,7 +353,7 @@ int play(Game& game, GamePresenter& presenter, const Options& options, std::ostr
                 << '\n';
             break;
         }
-        script_hands(options, hands);
+        script_hands(options, frame, hands);
         const game::Extent extent = presenter.follow(hands);
         if (input::calibration_toggled(hands)) {
             game.toggle_calibration();

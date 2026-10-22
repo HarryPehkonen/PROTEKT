@@ -163,6 +163,8 @@ void Interaction::handle(const input::InputFrame& frame, const sim::Sim& sim,
         if (key.scancode == input::kKeyEscape || key.scancode == input::kKeyTab) {
             // Tab clears, as Escape does.
             selection_.clear();
+        } else if (key.scancode == input::kKeyQ && !key.ctrl) {
+            weapon_ = next_weapon(weapon_);
         } else if (key.scancode == input::kKeyX) {
             swap_to_crosshair(sim, options);
         } else if (key.scancode == input::kKeyM) {
@@ -274,6 +276,8 @@ bool Interaction::take_shot_voice() noexcept { return std::exchange(shot_voice_,
 const cmd::Selection& Interaction::selection() const noexcept { return selection_; }
 
 sim::UnitId Interaction::driven() const noexcept { return driven_; }
+
+Weapon Interaction::weapon() const noexcept { return weapon_; }
 
 std::string_view Interaction::message() const noexcept { return message_; }
 

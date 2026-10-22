@@ -22,8 +22,10 @@
 #include "protekt/game/pick.hpp"
 #include "protekt/game/radar.hpp"
 #include "protekt/game/scene.hpp"
+#include "protekt/game/weapon.hpp"
 #include "protekt/input/bindings.hpp"
 #include "protekt/render/renderer.hpp"
+#include "protekt/sim/projectile.hpp"
 #include "protekt/sim/scenario.hpp"
 #include "protekt/sim/sim.hpp"
 #include "protekt/sim/spec.hpp"
@@ -707,6 +709,188 @@ TEST(Reticle, APulseSpreadsTheTicksAndRestIsUntouched) {
     ASSERT_EQ(never.vertices.size(), rest.vertices.size());
     for (std::size_t i = 0; i < never.vertices.size(); ++i) {
         EXPECT_EQ(never.vertices.at(i).position, rest.vertices.at(i).position);
+    }
+}
+
+// ---------------------------------------------------------------- the weapon's reticle (M1)
+
+using protekt::game::kMortarRungCount;
+using protekt::game::kMortarRungPitches;
+using protekt::game::mortar_landing_tiles;
+using protekt::game::mortar_rung;
+using protekt::game::reticle_for;
+using protekt::game::ReticleKind;
+using protekt::game::Weapon;
+
+TEST(WeaponReticle, TheChoiceIsAPureFunctionOfWeaponAndPitch) {
+    for (const float pitch : {-1.0F, -0.12F, 0.0F, 0.45F, 1.0F}) {
+        EXPECT_EQ(reticle_for(Weapon::Gun, pitch).kind, ReticleKind::FourTicks);
+        EXPECT_EQ(reticle_for(Weapon::Rocket, pitch).kind, ReticleKind::Heavy);
+        EXPECT_EQ(reticle_for(Weapon::Mortar, pitch).kind, ReticleKind::Ladder);
+        EXPECT_EQ(reticle_for(Weapon::Mortar, pitch).rung, reticle_for(Weapon::Mortar, pitch).rung);
+    }
+    // The lit rung follows the pitch: nearest band, clamped at both ends.
+    EXPECT_EQ(reticle_for(Weapon::Mortar, -1.0F).rung, 0U);
+    EXPECT_EQ(reticle_for(Weapon::Mortar, -0.12F).rung, 0U) << "the starting view";
+    EXPECT_EQ(reticle_for(Weapon::Mortar, 0.0F).rung, 0U);
+    EXPECT_EQ(reticle_for(Weapon::Mortar, 0.25F).rung, 1U);
+    EXPECT_EQ(reticle_for(Weapon::Mortar, 0.45F).rung, 2U);
+    EXPECT_EQ(reticle_for(Weapon::Mortar, 0.62F).rung, 3U);
+    EXPECT_EQ(reticle_for(Weapon::Mortar, 0.79F).rung, 4U);
+    EXPECT_EQ(reticle_for(Weapon::Mortar, 1.0F).rung, kMortarRungCount - 1);
+    for (std::size_t rung = 0; rung < kMortarRungCount; ++rung) {
+        EXPECT_EQ(mortar_rung(kMortarRungPitches.at(rung)), rung);
+    }
+}
+
+/// A row of `length` + 1 tiles at seed 42 within six height units of each other, none a crater:
+/// level ground, as tests/test_mortar.cpp finds it.
+struct LevelRow {
+    int x{};
+    int y{};
+    bool found{};
+};
+
+LevelRow find_level_row(int length) {
+    constexpr int kSlack = 6;
+    constexpr int kTiles = protekt::sim::kMapTiles;
+    for (int y = 5; y < kTiles - 5; ++y) {
+        for (int x = 5; x + length < kTiles - 5; ++x) {
+            const int h0 = protekt::world::sample(42, x, y).height;
+            bool level = true;
+            for (int i = 0; i <= length && level; ++i) {
+                const protekt::world::Tile t = protekt::world::sample(42, x + i, y);
+                const protekt::world::Tile below = protekt::world::sample(42, x + i, y + 1);
+                level = t.terrain != protekt::world::Terrain::Crater
+                        && std::abs(t.height - h0) <= kSlack
+                        && std::abs(below.height - h0) <= kSlack;
+            }
+            if (level) {
+                return LevelRow{x, y, true};
+            }
+        }
+    }
+    return LevelRow{};
+}
+
+TEST(MortarLadder, RungDistancesAreTheSimsOwnFlightOnLevelGround) {
+    // ONE source of truth: the shell is built from the mortar's spec row and flown by the sim's
+    // own `advance_projectiles`; the ladder's distance must fall inside the last step it took.
+    namespace sim = protekt::sim;
+    const sim::UnitSpec& mortar = sim::spec_of(sim::UnitKind::Mortar);
+    const LevelRow row = find_level_row(9);
+    ASSERT_TRUE(row.found);
+    const sim::Fixed start_x = sim::Fixed::from_int(row.x);
+    const sim::Fixed start_y = sim::Fixed::from_raw((row.y * sim::Fixed::kOne) + 32768);
+    for (std::size_t rung = 0; rung < kMortarRungCount; ++rung) {
+        const float pitch = kMortarRungPitches.at(rung);
+        sim::Projectile shell{};
+        shell.x = start_x;
+        shell.y = start_y;
+        shell.z = sim::Fixed::from_raw(sim::ground_height(42, start_x, start_y).raw
+                                       + sim::kMuzzleHeight.raw);
+        shell.vx = mortar.bolt_speed;
+        shell.vz = sim::Fixed::from_raw(static_cast<std::int32_t>(
+            std::tan(pitch) * static_cast<float>(mortar.bolt_speed.raw * 64)));
+        shell.gravity = mortar.gravity;
+        shell.max_travel = mortar.max_travel;
+        std::vector<sim::Projectile> bolts{shell};
+        std::vector<sim::Unit> nobody;
+        std::vector<sim::Impact> impacts;
+        sim::Fixed last_x = shell.x;
+        for (int tick = 0; tick < 200 && !bolts.empty(); ++tick) {
+            last_x = bolts.front().x;
+            sim::advance_projectiles(bolts, nobody, impacts, 42);
+        }
+        ASSERT_TRUE(bolts.empty());
+        const float one = static_cast<float>(sim::Fixed::kOne);
+        const float before = static_cast<float>(last_x.raw - start_x.raw) / one;
+        const float after = before + (static_cast<float>(mortar.bolt_speed.raw) / one);
+        const float ladder = mortar_landing_tiles(pitch);
+        // Six height units of unevenness in the row move the touchdown a little either way.
+        EXPECT_GE(ladder, before - 0.25F) << "rung " << rung;
+        EXPECT_LE(ladder, after + 0.25F) << "rung " << rung;
+    }
+}
+
+TEST(MortarLadder, TheRungsArePinnedAndClimbWithThePitch) {
+    // From the spec: 17476 raw tiles a tick across, a 36.8-unit muzzle, 2.25 units a tick^2.
+    const std::array<float, kMortarRungCount> tiles{1.66F, 2.16F, 2.80F, 3.67F, 4.90F, 6.90F};
+    for (std::size_t rung = 0; rung < kMortarRungCount; ++rung) {
+        EXPECT_NEAR(mortar_landing_tiles(kMortarRungPitches.at(rung)), tiles.at(rung), 0.01F)
+            << "rung " << rung;
+    }
+    EXPECT_FLOAT_EQ(mortar_landing_tiles(0.6F), mortar_landing_tiles(0.6F));
+}
+
+/// The mortar's and the rocket's scenes, at the reticle test's own place.
+Scene weapon_scene(Weapon weapon, SceneOptions& options, float pitch = 0.0F) {
+    const auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(42));
+    options = options_at(60.0F, 60.0F);
+    options.aim = Aim{640.0F, 360.0F};
+    options.camera.pitch = pitch;
+    options.weapon = weapon;
+    return build_scene(sim, options);
+}
+
+TEST(WeaponReticle, TheGunIsE12sReticleByteForByte) {
+    SceneOptions plain;
+    const Scene before = reticle_scene(0.0F, plain);
+    SceneOptions gun;
+    const Scene after = weapon_scene(Weapon::Gun, gun);
+    ASSERT_EQ(after.vertices.size(), before.vertices.size());
+    EXPECT_EQ(std::memcmp(after.vertices.data(), before.vertices.data(),
+                          after.vertices.size() * sizeof(protekt::game::SceneVertex)),
+              0);
+}
+
+TEST(WeaponReticle, TheRocketHasABiggerDotAndShorterTicks) {
+    SceneOptions gun_options;
+    SceneOptions rocket_options;
+    const std::vector<LocalPoint> gun
+        = reticle_local(weapon_scene(Weapon::Gun, gun_options), gun_options);
+    const std::vector<LocalPoint> rocket
+        = reticle_local(weapon_scene(Weapon::Rocket, rocket_options), rocket_options);
+    ASSERT_EQ(rocket.size(), kReticleVertexCount);
+    const auto reach = [](const std::vector<LocalPoint>& pts, std::size_t from, std::size_t to) {
+        float far = 0.0F;
+        for (std::size_t i = from; i < to; ++i) {
+            far = std::max(far, std::max(std::abs(pts.at(i).right), std::abs(pts.at(i).up)));
+        }
+        return far;
+    };
+    EXPECT_GT(reach(rocket, 24, 30), reach(gun, 24, 30) * 2.0F) << "the dot reads heavier";
+    EXPECT_LT(reach(rocket, 0, 24), reach(gun, 0, 24) * 0.8F) << "the ticks are shorter";
+}
+
+TEST(WeaponReticle, TheMortarAddsALadderAndItsLitRungMovesWithThePitch) {
+    SceneOptions gun_options;
+    SceneOptions mortar_options;
+    const Scene gun = weapon_scene(Weapon::Gun, gun_options);
+    const Scene mortar = weapon_scene(Weapon::Mortar, mortar_options);
+    EXPECT_GT(mortar.vertices.size(), gun.vertices.size()) << "rungs and their labels";
+    SceneOptions again_options;
+    const Scene again = weapon_scene(Weapon::Mortar, again_options);
+    ASSERT_EQ(again.vertices.size(), mortar.vertices.size());
+    EXPECT_EQ(std::memcmp(again.vertices.data(), mortar.vertices.data(),
+                          again.vertices.size() * sizeof(protekt::game::SceneVertex)),
+              0)
+        << "the same weapon and pitch draw the same bytes";
+}
+
+TEST(WeaponReticle, TheLabelIsDrawnOnlyWhenAsked) {
+    SceneOptions options;
+    const Scene quiet = weapon_scene(Weapon::Rocket, options);
+    const auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(42));
+    options.show_weapon = true;
+    const Scene labelled = build_scene(sim, options);
+    EXPECT_GT(labelled.vertices.size(), quiet.vertices.size());
+    // The label goes in BEFORE the reticle, so the reticle is still the tail.
+    const std::vector<protekt::game::SceneVertex> a = reticle_of(quiet);
+    const std::vector<protekt::game::SceneVertex> b = reticle_of(labelled);
+    ASSERT_EQ(a.size(), b.size());
+    for (std::size_t i = 0; i < a.size(); ++i) {
+        EXPECT_EQ(a.at(i).position, b.at(i).position);
     }
 }
 

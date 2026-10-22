@@ -12,6 +12,7 @@
 #include "protekt/game/pick.hpp"
 #include "protekt/game/scene.hpp"
 #include "protekt/game/sounds.hpp"
+#include "protekt/game/weapon.hpp"
 #include "protekt/input/bindings.hpp"
 #include "protekt/input/input.hpp"
 #include "protekt/math/math.hpp"
@@ -1500,6 +1501,62 @@ TEST(Defend, EqualRangeGoesToTheLowerIdWhateverTheListOrder) {
     const std::vector<Order> orders = player.take_orders();
     ASSERT_EQ(orders.size(), 1U);
     EXPECT_EQ(focus_of(orders.at(0)), rig.enemy);
+}
+
+} // namespace protekt::game
+
+// ---------------------------------------------------------------- the weapon switch (M1)
+
+namespace protekt::game {
+namespace {
+
+[[nodiscard]] InputFrame with_ctrl_key(std::int32_t scancode) {
+    InputFrame frame{};
+    frame.keys.push_back(KeyEvent{scancode, true, false, true});
+    return frame;
+}
+
+} // namespace
+
+TEST(WeaponKey, QCyclesGunRocketMortarAndWrapsToTheGun) {
+    Rig rig = make_rig();
+    Interaction player{rig.tank_a};
+    EXPECT_EQ(player.weapon(), Weapon::Gun) << "the craft starts with the gun up";
+    const std::array<Weapon, 4> expected{Weapon::Rocket, Weapon::Mortar, Weapon::Gun,
+                                         Weapon::Rocket};
+    for (const Weapon want : expected) {
+        player.handle(with_key(input::kKeyQ), rig.sim, rig.options);
+        EXPECT_EQ(player.weapon(), want);
+        EXPECT_TRUE(player.message().empty()) << "the switch refuses nothing";
+        EXPECT_TRUE(player.take_orders().empty()) << "choosing a weapon orders nothing";
+    }
+}
+
+TEST(WeaponKey, CtrlQIsTheQuitAndNotASwitch) {
+    Rig rig = make_rig();
+    Interaction player{rig.tank_a};
+    player.handle(with_ctrl_key(input::kKeyQ), rig.sim, rig.options);
+    EXPECT_EQ(player.weapon(), Weapon::Gun);
+}
+
+TEST(WeaponKey, AReleaseOrAnotherKeyDoesNotSwitch) {
+    Rig rig = make_rig();
+    Interaction player{rig.tank_a};
+    InputFrame release{};
+    release.keys.push_back(KeyEvent{input::kKeyQ, false, false});
+    player.handle(release, rig.sim, rig.options);
+    player.handle(with_key(input::kKeyTab), rig.sim, rig.options);
+    EXPECT_EQ(player.weapon(), Weapon::Gun);
+}
+
+TEST(WeaponKey, TheChoiceSurvivesASwapBecauseTheCraftCarriesIt) {
+    Rig rig = make_rig();
+    Interaction player{rig.tank_a};
+    player.handle(with_key(input::kKeyQ), rig.sim, rig.options);
+    player.handle(with_key(input::kKeyQ), rig.sim, rig.options);
+    ASSERT_EQ(player.weapon(), Weapon::Mortar);
+    select_and_drive(rig, player, rig.tank_b);
+    EXPECT_EQ(player.weapon(), Weapon::Mortar);
 }
 
 } // namespace protekt::game
