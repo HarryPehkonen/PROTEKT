@@ -25,21 +25,44 @@ std::vector<game::Health> health_of(const sim::UnitSnapshot& snapshot) {
 
 } // namespace
 
-void AudioPipeline::advance(sim::Sim& sim, std::uint32_t steps, const AudioFrame& frame,
-                            game::HitFlash& hit_flash, game::HitMark& hit_mark) const {
+AdvanceResult AudioPipeline::advance(sim::Sim& sim, std::uint32_t steps, const AudioFrame& frame,
+                                     game::HitFlash& hit_flash, game::HitMark& hit_mark) const {
+    AdvanceResult result;
     std::vector<audio::Voice> voices;
-    if (frame.shot_fired) {
-        voices.push_back(game::shot_voice());
-    }
+    // The trigger is judged on the first step: that is the one that applies the order it queued.
+    bool judged = !frame.trigger_pulled;
     const bool listening = sink_ != nullptr && sink_->ok() && frame.player_alive_now;
     for (std::uint32_t tick = 0; tick < steps; ++tick) {
-        if (!listening && !frame.player_alive_before) {
-            sim.step();
+        const bool observing = listening || frame.player_alive_before;
+        sim::UnitSnapshot before;
+        sim::Tick tick_number = 0;
+        if (observing) {
+            before = sim.units();
+            tick_number = sim.tick();
+        }
+        sim.step();
+        // The sim's own word on it: a shot of the driven unit's, aimed at nothing, is the trigger.
+        // No such shot means the sim declined it, and nothing is heard.
+        if (!judged) {
+            judged = true;
+            bool launched = false;
+            for (const sim::Sim::Shot& shot : sim.shots()) {
+                launched = launched || (shot.shooter == frame.player && !shot.target.valid());
+            }
+            if (launched) {
+                voices.push_back(game::shot_voice());
+            } else {
+                result.trigger_refused = true;
+            }
+        }
+        for (const sim::Landing& landing : sim.landings()) {
+            if (landing.shooter == frame.player && landing.lob) {
+                result.touchdowns.push_back(AdvanceResult::Touchdown{sim.tick(), landing});
+            }
+        }
+        if (!observing) {
             continue;
         }
-        const sim::UnitSnapshot before = sim.units();
-        const sim::Tick tick_number = sim.tick();
-        sim.step();
         const std::vector<sim::BattleEvent> events = sim::events_between(before, sim, tick_number);
         if (game::unit_was_hit(events, frame.player)) {
             hit_flash.hit(sim.tick());
@@ -60,6 +83,7 @@ void AudioPipeline::advance(sim::Sim& sim, std::uint32_t steps, const AudioFrame
             = audio::mix(voices, audio::frames_to_play(voices), audio::kSampleRate);
         sink_->play(samples, audio::kSampleRate);
     }
+    return result;
 }
 
 } // namespace protekt::app

@@ -432,6 +432,19 @@ Projectile launch_lob(const Unit& shooter, Fixed dir_x, Fixed dir_y, Fixed dir_z
 
 void advance_projectiles(std::vector<Projectile>& projectiles, std::vector<Unit>& units,
                          std::vector<Impact>& impacts, std::uint64_t seed) noexcept {
+    std::vector<Landing> unobserved;
+    advance_projectiles(projectiles, units, impacts, unobserved, seed);
+}
+
+void advance_projectiles(std::vector<Projectile>& projectiles, std::vector<Unit>& units,
+                         std::vector<Impact>& impacts, std::vector<Landing>& landings,
+                         std::uint64_t seed) noexcept {
+    const auto land
+        = [&](const Projectile& shell, std::int64_t raw_x, std::int64_t raw_y, bool hit) {
+              landings.push_back(Landing{shell.shooter, static_cast<std::int32_t>(raw_x >> 16),
+                                         static_cast<std::int32_t>(raw_y >> 16), hit,
+                                         shell.gravity.raw > 0});
+          };
     const std::int64_t radius2
         = static_cast<std::int64_t>(kProjectileHitRadius.raw) * kProjectileHitRadius.raw;
     std::size_t kept = 0;
@@ -504,6 +517,7 @@ void advance_projectiles(std::vector<Projectile>& projectiles, std::vector<Unit>
             const Point c
                 = nearest_on_segment(from_x, from_y, step_x, step_y, hit->x.raw, hit->y.raw);
             splash(bolt, c.x, c.y, hit, units, impacts);
+            land(bolt, c.x, c.y, true);
             continue; // a hit teaches nothing: there was nothing to correct
         }
         if (passed) {
@@ -514,6 +528,7 @@ void advance_projectiles(std::vector<Projectile>& projectiles, std::vector<Unit>
             // Gone where it met the ground: no direct damage, no mark, no lesson -- but a shell
             // bursts there.
             splash(bolt, from_x + step_x, from_y + step_y, nullptr, units, impacts);
+            land(bolt, from_x + step_x, from_y + step_y, false);
             continue;
         }
 

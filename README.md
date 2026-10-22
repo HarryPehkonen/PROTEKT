@@ -232,6 +232,9 @@ Then any of:
 # a mortar shell in the air: view tilted up 1.40 rad (clamps at the 1.3 limit), trigger on frame 18
 ./build/protekt-game --headless --no-sound --seed 42 --switch 2 --look-up 140 --fire 18 --frames 40 --capture /tmp/lob.ppm
 
+# the same shell at the top rung (1.28 rad, lands 13.9 tiles out), the view levelled on frame 25 to watch it land
+./build/protekt-game --headless --no-sound --seed 42 --switch 2 --look-up 128 --fire 18 --look-level 25 --frames 90 --capture /tmp/lob-high.ppm
+
 # the radar off, for comparing two frames pixel by pixel (the game always has one)
 ./build/protekt-game --headless --seed 42 --frames 60 --autodrive --no-radar --capture without.ppm
 

@@ -36,9 +36,11 @@ sim::UnitId radar_viewer(const game::Session& session, bool no_radar) {
 }
 
 AudioFrame audio_frame_for(const sim::Sim& sim, const game::Session& session,
-                           const game::Camera& camera, bool shot_fired, bool player_alive_before) {
-    return AudioFrame{game::Listener{camera.x, camera.z, camera.yaw, sim::Side::Player}, shot_fired,
-                      player_alive_before, is_alive(sim, session.driven()), session.driven()};
+                           const game::Camera& camera, bool trigger_pulled,
+                           bool player_alive_before) {
+    return AudioFrame{game::Listener{camera.x, camera.z, camera.yaw, sim::Side::Player},
+                      trigger_pulled, player_alive_before, is_alive(sim, session.driven()),
+                      session.driven()};
 }
 
 } // namespace protekt::app

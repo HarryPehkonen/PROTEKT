@@ -102,6 +102,11 @@ public:
     };
     [[nodiscard]] const std::vector<Shot>& shots() const noexcept;
 
+    /// The shells that came down during the most recent step (see `Landing`). Observation output,
+    /// not state: cleared at the start of every step like `impacts()` and `shots()`, and NOT part
+    /// of `state_hash()`.
+    [[nodiscard]] const std::vector<Landing>& landings() const noexcept;
+
     /// Every command that was enqueued and accepted, in order. A replay is this list.
     [[nodiscard]] const std::vector<Command>& command_log() const noexcept;
 
@@ -118,6 +123,7 @@ private:
     std::vector<Projectile> projectiles_{};
     std::vector<Impact> impacts_{};
     std::vector<Shot> shots_{};
+    std::vector<Landing> landings_{};
     std::vector<Order> pending_{};
     std::vector<Command> log_{};
     std::uint32_t tick_{};

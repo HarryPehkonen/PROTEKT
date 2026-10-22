@@ -865,38 +865,127 @@ constexpr Vec3 kHostileBoltColour{1.0F, 0.85F, 0.10F};
 constexpr float kBoltHalfWidthMetres = 0.12F;
 
 /// One small box per projectile the sim has in the air, at the units' tile-to-metre conversion and
-/// with the six faces, in the winding, that `emit_shaded_solid` gives a unit part.
+/// with the six faces, in the winding, that `emit_shaded_solid` gives a unit part. A shell with
+/// gravity (the mortar's) also trails three dimmer, smaller boxes at the places it was one, two and
+/// three ticks ago, so its arc reads as a streak against the sky.
+void emit_bolt_box(std::vector<SceneVertex>& out, float x, float centre, float z, float half,
+                   const Vec3& colour) {
+    const float x0 = x - half;
+    const float x1 = x + half;
+    const float z0 = z - half;
+    const float z1 = z + half;
+    const float y0 = centre - half;
+    const float y1 = centre + half;
+    const std::array<Vec3, 8> p{{{x0, y0, z0},
+                                 {x1, y0, z0},
+                                 {x1, y1, z0},
+                                 {x0, y1, z0},
+                                 {x0, y0, z1},
+                                 {x1, y0, z1},
+                                 {x1, y1, z1},
+                                 {x0, y1, z1}}};
+    emit_quad(out, p[0], p[1], p[2], p[3], colour); // near
+    emit_quad(out, p[5], p[4], p[7], p[6], colour); // far
+    emit_quad(out, p[4], p[0], p[3], p[7], colour); // left
+    emit_quad(out, p[1], p[5], p[6], p[2], colour); // right
+    emit_quad(out, p[3], p[2], p[6], p[7], colour); // top
+    emit_quad(out, p[4], p[5], p[1], p[0], colour); // bottom
+}
+
+constexpr std::size_t kShellTrailPuffs = 3;
+constexpr float kShellTrailShade = 0.55F;
+
 void append_projectiles(std::vector<SceneVertex>& out, const SceneOptions& options,
                         const sim::Sim& sim) {
+    constexpr float kOne = static_cast<float>(sim::Fixed::kOne);
     for (const sim::Projectile& bolt : sim.projectiles()) {
-        const float x = static_cast<float>(bolt.x.raw) / static_cast<float>(sim::Fixed::kOne)
-                        * kMetresPerTile;
-        const float z = static_cast<float>(bolt.y.raw) / static_cast<float>(sim::Fixed::kOne)
-                        * kMetresPerTile;
-        const float centre = static_cast<float>(bolt.z.raw) / static_cast<float>(sim::Fixed::kOne)
-                             * kMetresPerHeightUnit;
+        const float x = static_cast<float>(bolt.x.raw) / kOne * kMetresPerTile;
+        const float z = static_cast<float>(bolt.y.raw) / kOne * kMetresPerTile;
+        const float centre = static_cast<float>(bolt.z.raw) / kOne * kMetresPerHeightUnit;
         const Vec3 colour = bolt.side == options.viewer_side ? kOwnBoltColour : kHostileBoltColour;
+        emit_bolt_box(out, x, centre, z, kBoltHalfWidthMetres, colour);
+        if (bolt.gravity.raw <= 0) {
+            continue;
+        }
+        const Vec3 dim{colour[0] * kShellTrailShade, colour[1] * kShellTrailShade,
+                       colour[2] * kShellTrailShade};
+        for (std::size_t puff = 1; puff <= kShellTrailPuffs; ++puff) {
+            const float back = static_cast<float>(puff);
+            const float shrink = 1.0F - (0.2F * back);
+            emit_bolt_box(
+                out, x - (static_cast<float>(bolt.vx.raw) / kOne * kMetresPerTile * back),
+                centre - (static_cast<float>(bolt.vz.raw) / kOne * kMetresPerHeightUnit * back),
+                z - (static_cast<float>(bolt.vy.raw) / kOne * kMetresPerTile * back),
+                kBoltHalfWidthMetres * shrink, dim);
+        }
+    }
+}
 
-        const float x0 = x - kBoltHalfWidthMetres;
-        const float x1 = x + kBoltHalfWidthMetres;
-        const float z0 = z - kBoltHalfWidthMetres;
-        const float z1 = z + kBoltHalfWidthMetres;
-        const float y0 = centre - kBoltHalfWidthMetres;
-        const float y1 = centre + kBoltHalfWidthMetres;
-        const std::array<Vec3, 8> p{{{x0, y0, z0},
-                                     {x1, y0, z0},
-                                     {x1, y1, z0},
-                                     {x0, y1, z0},
-                                     {x0, y0, z1},
-                                     {x1, y0, z1},
-                                     {x1, y1, z1},
-                                     {x0, y1, z1}}};
-        emit_quad(out, p[0], p[1], p[2], p[3], colour); // near
-        emit_quad(out, p[5], p[4], p[7], p[6], colour); // far
-        emit_quad(out, p[4], p[0], p[3], p[7], colour); // left
-        emit_quad(out, p[1], p[5], p[6], p[2], colour); // right
-        emit_quad(out, p[3], p[2], p[6], p[7], colour); // top
-        emit_quad(out, p[4], p[5], p[1], p[0], colour); // bottom
+/// THE LANDING MARKER: a bracketed cross standing upright on the touchdown tile, turned to face the
+/// camera, 4 m tall and up to 3.2 m across in hot magenta (nothing in the terrain or sky is that
+/// colour), so a shell that comes down on empty ground at a low view pitch -- where flat paint on
+/// the ground would be edge-on and invisible -- still shows exactly where. The X is two diagonal
+/// bars; the four corner brackets are an L of two bars each. It shrinks away across the fade.
+/// Always `kLandingMarkVertexCount` vertices per mark.
+constexpr Vec3 kLandingMarkColour{1.0F, 0.1F, 0.85F};
+/// The mark is 4 m tall whatever the range (the eye is higher than a shell's close landings, so the
+/// height is what keeps it in the frame), but its width follows the range -- 0.3 of it, from 0.7 to
+/// 1.6 m either side -- so a shell that lands at your feet is a tall narrow cross, not a wall.
+constexpr float kLandingMarkWidthPerMetre = 0.3F;
+constexpr float kLandingMarkMinHalfWidth = 0.7F;
+constexpr float kLandingMarkMaxHalfWidth = 1.6F;
+constexpr float kLandingMarkBarFraction = 0.125F; ///< half-thickness of a bar, of the half-width
+constexpr float kLandingMarkArmFraction = 0.55F;  ///< how far a bracket reaches, of the half-width
+
+void append_landing_marks(std::vector<SceneVertex>& out, const SceneOptions& options,
+                          sim::Tick now) {
+    if (options.landing_marks == nullptr) {
+        return;
+    }
+    for (const LandingMarks::Mark& mark : options.landing_marks->active(now)) {
+        const float tile_x = static_cast<float>(mark.tile_x) + 0.5F;
+        const float tile_y = static_cast<float>(mark.tile_y) + 0.5F;
+        const float cx = tile_x * kMetresPerTile;
+        const float cz = tile_y * kMetresPerTile;
+        const float ground = ground_metres(options.seed, tile_x, tile_y);
+        // Face the camera: `right` is the horizontal direction across the line from it to the mark.
+        float to_x = options.camera.x - cx;
+        float to_z = options.camera.z - cz;
+        const float length = std::sqrt((to_x * to_x) + (to_z * to_z));
+        if (length < 1e-4F) {
+            continue; // standing on it: nothing sensible to face
+        }
+        to_x /= length;
+        to_z /= length;
+        const float right_x = to_z;
+        const float right_z = -to_x;
+        const float full = std::clamp(length * kLandingMarkWidthPerMetre, kLandingMarkMinHalfWidth,
+                                      kLandingMarkMaxHalfWidth);
+        const float half = full * mark.level;
+        const float height = kLandingMarkHeight * mark.level;
+        const float bar = half * kLandingMarkBarFraction;
+        const float arm = half * kLandingMarkArmFraction;
+        const auto at = [&](float u, float v) {
+            return Vec3{cx + (right_x * u), ground + v, cz + (right_z * u)};
+        };
+        // A bar of half-thickness `bar` from (u0, v0) to (u1, v1), in the mark's own plane.
+        const auto stroke = [&](float u0, float v0, float u1, float v1) {
+            const float du = u1 - u0;
+            const float dv = v1 - v0;
+            const float run = std::sqrt((du * du) + (dv * dv));
+            const float nu = -dv / run * bar;
+            const float nv = du / run * bar;
+            emit_quad(out, at(u0 + nu, v0 + nv), at(u1 + nu, v1 + nv), at(u1 - nu, v1 - nv),
+                      at(u0 - nu, v0 - nv), kLandingMarkColour);
+        };
+        stroke(-half, 0.0F, half, height);
+        stroke(-half, height, half, 0.0F);
+        for (const float side : {-1.0F, 1.0F}) {
+            stroke(side * half, 0.0F, side * (half - arm), 0.0F);
+            stroke(side * half, 0.0F, side * half, arm);
+            stroke(side * half, height, side * (half - arm), height);
+            stroke(side * half, height, side * half, height - arm);
+        }
     }
 }
 
@@ -927,6 +1016,9 @@ constexpr float kReticlePulseDotGrowth = 1.5F;
 /// The reticle's colour is the ANSWER to "what would a click here do": red fires, green selects,
 /// white is ground. Text is not drawn anywhere in this project yet, so colour is the only channel
 /// there is.
+/// How much of its colour the reticle keeps while the driven weapon reloads: 30%, so the bright
+/// white of a ready reticle drops to a dark grey that no ground or sky is mistaken for it.
+constexpr float kReticleSpentShade = 0.3F;
 constexpr std::array<float, 3> kReticleGround{0.92F, 0.92F, 0.92F};
 constexpr std::array<float, 3> kReticleHostile{1.0F, 0.25F, 0.25F};
 constexpr std::array<float, 3> kReticleOwn{0.45F, 1.0F, 0.45F};
@@ -1522,7 +1614,12 @@ void append_reticle(std::vector<SceneVertex>& out, const SceneOptions& options, 
     const Camera& camera = options.camera;
     const float screen_x = options.aim->x;
     const float screen_y = options.aim->y;
-    const std::array<float, 3> colour = reticle_colour(sim, picked, options.viewer_side);
+    std::array<float, 3> colour = reticle_colour(sim, picked, options.viewer_side);
+    if (options.reloading) {
+        for (float& channel : colour) {
+            channel *= kReticleSpentShade; // a ghost of itself until the gun is ready again
+        }
+    }
     // The weapon picks the shape (M1): the gun's is E12's, untouched; the rocket's is heavier;
     // the mortar's is the dot alone, its ladder drawn on the HUD layer by `append_weapon_hud`.
     const ReticleShape shape = reticle_for(options.weapon, camera.pitch);
@@ -1666,6 +1763,34 @@ float HitFlash::level(sim::Tick now) const noexcept {
 void HitMark::hit(sim::Tick now) noexcept {
     hit_at_ = now;
     armed_ = true;
+}
+
+void LandingMarks::land(sim::Tick landed_at, std::int32_t tile_x, std::int32_t tile_y) {
+    // What has run out by now is gone for good: the list never grows past what is showing.
+    std::erase_if(entries_, [&](const Entry& entry) {
+        return landed_at - entry.at >= kLandingMarkHoldTicks + kLandingMarkFadeTicks;
+    });
+    entries_.push_back(Entry{landed_at, tile_x, tile_y});
+}
+
+std::vector<LandingMarks::Mark> LandingMarks::active(sim::Tick now) const {
+    std::vector<Mark> showing;
+    for (const Entry& entry : entries_) {
+        if (now < entry.at) {
+            continue;
+        }
+        const sim::Tick age = now - entry.at;
+        if (age >= kLandingMarkHoldTicks + kLandingMarkFadeTicks) {
+            continue;
+        }
+        const float level = age < kLandingMarkHoldTicks
+                                ? 1.0F
+                                : 1.0F
+                                      - (static_cast<float>(age - kLandingMarkHoldTicks)
+                                         / static_cast<float>(kLandingMarkFadeTicks));
+        showing.push_back(Mark{entry.tile_x, entry.tile_y, level});
+    }
+    return showing;
 }
 
 float HitMark::level(sim::Tick now) const noexcept {
@@ -1843,6 +1968,7 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
     }
 
     append_projectiles(scene.vertices, options, sim);
+    append_landing_marks(scene.vertices, options, sim.tick());
     append_radar(scene.vertices, options, sim);
     append_mount_plates(scene.vertices, options, sim);
     append_unit_bars(scene.vertices, options, sim);

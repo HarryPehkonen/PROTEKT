@@ -93,6 +93,18 @@ struct Impact {
     std::uint16_t victim_hp{}; ///< after the hit
 };
 
+/// A shell that came down during the last step, and where: the tile it touched down on, whether a
+/// unit was under it, and whether it was a lob. OBSERVATION OUTPUT, NOT SIMULATION STATE -- it is
+/// rebuilt by every step, never hashed, and nothing in the sim reads it. It exists for the shell
+/// that lands on EMPTY GROUND, which makes no `Impact` and so would otherwise leave no trace.
+struct Landing {
+    UnitId shooter{};
+    std::int32_t tile_x{};
+    std::int32_t tile_y{};
+    bool hit{}; ///< it burst on a unit rather than on bare ground
+    bool lob{}; ///< it had gravity (a mortar shell), not a straight bolt
+};
+
 /// floor(sqrt(n)) for n >= 0, by the bitwise method: no floating point, no loop-count surprises.
 [[nodiscard]] std::int64_t isqrt(std::int64_t n) noexcept;
 
@@ -191,5 +203,11 @@ void retarget_aim(Unit& shooter, UnitId target) noexcept;
 /// appended to `impacts`. `seed` is the world's: it says where the ground is.
 void advance_projectiles(std::vector<Projectile>& projectiles, std::vector<Unit>& units,
                          std::vector<Impact>& impacts, std::uint64_t seed) noexcept;
+
+/// The same flight, and every shell that comes down -- on bare ground or on a unit -- is also
+/// appended to `landings`. Observation output: it changes nothing about the flight.
+void advance_projectiles(std::vector<Projectile>& projectiles, std::vector<Unit>& units,
+                         std::vector<Impact>& impacts, std::vector<Landing>& landings,
+                         std::uint64_t seed) noexcept;
 
 } // namespace protekt::sim

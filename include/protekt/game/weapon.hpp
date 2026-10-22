@@ -5,6 +5,8 @@
 #include <cstdint>
 #include <string_view>
 
+#include "protekt/sim/sim.hpp"
+
 /// WHICH WEAPON THE PLAYER HAS UP (M1). Choosing a weapon changes the reticle and the HUD label;
 /// the trigger fires the gun's and the rocket's auto-assisted shot as ever, and the MORTAR's shell
 /// along the barrel (M2, `sim::orders::FireLob`).
@@ -50,6 +52,15 @@ inline constexpr std::array<float, kMortarRungCount> kMortarRungPitches{0.0F, 0.
 /// The rung whose pitch is nearest `pitch` (ties to the lower), so every pitch the view can take
 /// has exactly one rung lit: below the first band is the first rung, above the last the last.
 [[nodiscard]] std::size_t mortar_rung(float pitch) noexcept;
+
+/// Whether the driven unit's gun is still reloading: the reticle reads it. It is the sim's own
+/// cooldown, so the reticle is spent for exactly as long as a trigger would be refused -- 45 ticks
+/// after a mortar shell, 15 after a tank's bolt. A unit that is not there is not reloading.
+[[nodiscard]] bool weapon_reloading(const sim::Sim& sim, sim::UnitId driven) noexcept;
+
+/// Why a trigger the sim declined was declined, for the HUD: "the turret is deploying." for a
+/// turret not yet mounted, otherwise "the <weapon> is reloading.".
+[[nodiscard]] std::string_view trigger_refusal(Weapon weapon, const sim::Unit& unit) noexcept;
 
 /// The reticle a weapon draws.
 ///  * FourTicks: E12's four ticks and dot, unchanged -- the gun.

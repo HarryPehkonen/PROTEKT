@@ -95,6 +95,11 @@ public:
     /// the orders.
     [[nodiscard]] bool take_shot_voice() noexcept;
 
+    /// The sim launched no shot for the trigger the last frame pulled: say why (`trigger_refusal`).
+    /// Called by the app after the step, once the sim has answered; the message then stands until
+    /// the next `handle` clears it.
+    void trigger_refused(const sim::Sim& sim) noexcept;
+
     [[nodiscard]] const cmd::Selection& selection() const noexcept;
     [[nodiscard]] sim::UnitId driven() const noexcept;
     /// The weapon the driven craft has up. The craft carries the set, so an X swap keeps it.

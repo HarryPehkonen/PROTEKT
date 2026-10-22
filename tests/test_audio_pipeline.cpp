@@ -10,6 +10,7 @@
 
 #include "protekt/app/audio_pipeline.hpp"
 #include "protekt/game/scene.hpp"
+#include "protekt/sim/orders.hpp"
 #include "protekt/sim/scenario.hpp"
 #include "protekt/sim/sim.hpp"
 
@@ -61,15 +62,56 @@ TEST(AudioPipeline, ListeningDoesNotMoveTheSimulation) {
     EXPECT_EQ(heard.state_hash(), silent.state_hash());
 }
 
-TEST(AudioPipeline, AShotAtTheGroundIsOneMixHandedToTheDevice) {
+/// The first player tank, with its gun loaded: a skirmish's tanks start reloading.
+protekt::sim::UnitId loaded_tank(protekt::sim::Sim& sim) {
+    protekt::sim::UnitId tank{};
+    for (const protekt::sim::Unit& unit : sim.units()) {
+        if (unit.side == protekt::sim::Side::Player && unit.kind == protekt::sim::UnitKind::Tank) {
+            tank = unit.id;
+            break;
+        }
+    }
+    for (int i = 0; i < 20; ++i) {
+        sim.step();
+    }
+    return tank;
+}
+
+AudioFrame trigger_for(protekt::sim::UnitId player) {
+    return AudioFrame{protekt::game::Listener{}, true, true, true, player};
+}
+
+// M5 re-record: this was "a shot at the ground is one mix" with NO shot in the sim. The sound now
+// plays if and only if the sim launched the shot, so the shot is made for real.
+TEST(AudioPipeline, ALaunchedShotIsOneMixHandedToTheDevice) {
     protekt::sim::Sim sim = make_sim();
+    const protekt::sim::UnitId tank = loaded_tank(sim);
     protekt::game::HitFlash flash;
     protekt::game::HitMark mark;
     FakeSink sink;
     AudioPipeline pipeline{&sink};
-    pipeline.advance(sim, 3, frame_for(true), flash, mark);
+    sim.enqueue(protekt::sim::Order{
+        tank, protekt::sim::orders::FireTowards{protekt::sim::Fixed::from_int(1),
+                                                protekt::sim::Fixed::zero(), protekt::sim::UnitId{},
+                                                protekt::sim::Fixed::zero()}});
+    const protekt::app::AdvanceResult result
+        = pipeline.advance(sim, 3, trigger_for(tank), flash, mark);
+    EXPECT_FALSE(result.trigger_refused);
     EXPECT_EQ(sink.plays, 1);
     EXPECT_GT(sink.last_samples, 0U);
+}
+
+TEST(AudioPipeline, ATriggerTheSimDeclinedMakesNoSoundAndIsReported) {
+    protekt::sim::Sim sim = make_sim();
+    const protekt::sim::UnitId tank = loaded_tank(sim);
+    protekt::game::HitFlash flash;
+    protekt::game::HitMark mark;
+    FakeSink sink;
+    AudioPipeline pipeline{&sink};
+    const protekt::app::AdvanceResult result
+        = pipeline.advance(sim, 3, trigger_for(tank), flash, mark);
+    EXPECT_TRUE(result.trigger_refused) << "no order was queued, so no shot was launched";
+    EXPECT_EQ(sink.plays, 0);
 }
 
 TEST(AudioPipeline, SilenceIsNotPlayed) {

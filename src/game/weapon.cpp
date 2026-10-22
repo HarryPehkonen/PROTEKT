@@ -84,6 +84,26 @@ std::size_t mortar_rung(float pitch) noexcept {
     return best;
 }
 
+bool weapon_reloading(const sim::Sim& sim, sim::UnitId driven) noexcept {
+    const sim::Unit* unit = sim.find(driven);
+    return unit != nullptr && unit->alive && unit->cooldown > 0;
+}
+
+std::string_view trigger_refusal(Weapon weapon, const sim::Unit& unit) noexcept {
+    if (!sim::is_mounted(unit)) {
+        return "the turret is deploying.";
+    }
+    switch (weapon) {
+    case Weapon::Gun:
+        return "the gun is reloading.";
+    case Weapon::Rocket:
+        return "the rocket is reloading.";
+    case Weapon::Mortar:
+        return "the mortar is reloading.";
+    }
+    return "the weapon is reloading.";
+}
+
 ReticleShape reticle_for(Weapon weapon, float pitch) noexcept {
     switch (weapon) {
     case Weapon::Gun:

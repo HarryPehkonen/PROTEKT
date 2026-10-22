@@ -1,5 +1,7 @@
+#include "protekt/sim/orders.hpp"
 #include "protekt/sim/projectile.hpp"
 #include "protekt/sim/scenario.hpp"
+#include "protekt/sim/sim.hpp"
 #include "protekt/sim/spec.hpp"
 #include "protekt/sim/units.hpp"
 
@@ -319,6 +321,53 @@ TEST(Mortar, TwoSameSeedBoltsFlyIdentically) {
         return zs;
     };
     EXPECT_EQ(run(), run());
+}
+
+// --- M5: the ground-burst record --------------------------------------------------------------
+
+TEST(Landing, ALobOntoEmptyGroundReportsATouchdownTileAndNothingElseDoes) {
+    // The case the record exists for: a shell that lands on nothing makes no Impact, so without a
+    // Landing the sim would say nothing happened.
+    const Level at = find_level_row(16);
+    ASSERT_TRUE(at.found);
+    const int far_y = at.y < 100 ? at.y + 40 : at.y - 40;
+    Sim sim = Sim::create(Scenario{
+        kSeed,
+        {{UnitKind::Tank, Side::Player, at.x, at.y}, {UnitKind::Tank, Side::Enemy, at.x, far_y}}});
+    const UnitId tank = sim.units()[0].id;
+    for (int tick = 0; tick < profile(UnitKind::Tank).cooldown_ticks; ++tick) {
+        sim.step(); // a new unit starts with its gun reloading
+    }
+    for (int quiet = 0; quiet < 5; ++quiet) {
+        sim.step();
+        EXPECT_TRUE(sim.landings().empty()) << "ground nobody shot at reports nothing";
+    }
+
+    sim.enqueue(Order{tank, orders::FireLob{Fixed::from_int(1), Fixed::zero(), UnitId{},
+                                            Fixed::from_raw(44800)}}); // ~0.68 climb a tile
+    std::vector<Landing> seen;
+    int landed_on = -1;
+    for (int tick = 0; tick < 200 && landed_on < 0; ++tick) {
+        sim.step();
+        for (const Landing& landing : sim.landings()) {
+            seen.push_back(landing);
+            landed_on = tick;
+        }
+    }
+    ASSERT_EQ(seen.size(), 1U) << "one shell, one Landing";
+    EXPECT_EQ(seen[0].shooter, tank);
+    EXPECT_FALSE(seen[0].hit) << "nothing was under it";
+    EXPECT_TRUE(seen[0].lob);
+    const Unit* gun = sim.find(tank);
+    ASSERT_NE(gun, nullptr);
+    EXPECT_EQ(seen[0].tile_y, gun->y.floor_int()) << "fired along +x";
+    EXPECT_GE(seen[0].tile_x, gun->x.floor_int() + 2) << "a lob goes some way";
+    EXPECT_LE(seen[0].tile_x, gun->x.floor_int() + 14) << "and no further than the mortar's range";
+    EXPECT_TRUE(sim.impacts().empty()) << "no unit was hit";
+    EXPECT_TRUE(sim.projectiles().empty());
+
+    sim.step();
+    EXPECT_TRUE(sim.landings().empty()) << "cleared at the start of the next step";
 }
 
 } // namespace

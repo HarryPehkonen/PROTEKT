@@ -71,6 +71,8 @@ void Session::frame(const input::InputFrame& frame, const sim::Sim& sim,
 
 bool Session::take_shot_voice() noexcept { return interaction_.take_shot_voice(); }
 
+void Session::trigger_refused(const sim::Sim& sim) noexcept { interaction_.trigger_refused(sim); }
+
 sim::UnitId Session::driven() const noexcept { return interaction_.driven(); }
 
 float Session::heading() const noexcept { return player_.heading(); }

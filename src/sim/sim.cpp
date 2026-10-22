@@ -585,7 +585,8 @@ void Sim::step() {
     // 3. the bolts already in the air, in spawn order. Before the guns, so a unit killed here does
     //    not shoot this tick, and a bolt fired this tick has not moved yet.
     impacts_.clear();
-    advance_projectiles(projectiles_, units_, impacts_, seed);
+    landings_.clear();
+    advance_projectiles(projectiles_, units_, impacts_, landings_, seed);
 
     // 4. fire, ascending id. The shot leaves the gun now; its damage arrives with it.
     for (Unit& unit : units_) {
@@ -701,6 +702,8 @@ const std::vector<Projectile>& Sim::projectiles() const noexcept { return projec
 const std::vector<Impact>& Sim::impacts() const noexcept { return impacts_; }
 
 const std::vector<Sim::Shot>& Sim::shots() const noexcept { return shots_; }
+
+const std::vector<Landing>& Sim::landings() const noexcept { return landings_; }
 
 const std::vector<Command>& Sim::command_log() const noexcept { return log_; }
 

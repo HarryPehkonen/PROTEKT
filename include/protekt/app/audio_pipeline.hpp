@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <span>
+#include <vector>
 
 #include "protekt/app/audio.hpp"
 #include "protekt/game/scene.hpp"
@@ -40,8 +41,9 @@ private:
 /// What the pipeline needs to know about the frame it is stepping.
 struct AudioFrame {
     game::Listener listener;
-    /// A trigger pulled at the ground or the sky: no order, so the sim has no event to hear.
-    bool shot_fired{false};
+    /// The player pulled the trigger this frame. It does NOT mean a shot was made: the sound plays
+    /// if and only if the sim launched one, which the pipeline reads from the sim's own `shots()`.
+    bool trigger_pulled{false};
     /// Whether the player was alive before this frame's orders, which decides if the hit flash
     /// needs the per-tick copy of the units.
     bool player_alive_before{false};
@@ -50,6 +52,19 @@ struct AudioFrame {
     /// The tank being driven THIS frame, whose hits flash the screen. Read from the session each
     /// frame, never kept: a swap changes it.
     sim::UnitId player{};
+};
+
+/// What a call to `advance` learned that the caller must act on.
+struct AdvanceResult {
+    /// The trigger was pulled and the sim launched no shot for the driven unit on the step that
+    /// applied it: the gun was reloading, or the turret not yet mounted.
+    bool trigger_refused{false};
+    /// Every landing of the PLAYER's own lob during the call, with the tick it came down on.
+    struct Touchdown {
+        sim::Tick tick{};
+        sim::Landing landing{};
+    };
+    std::vector<Touchdown> touchdowns{};
 };
 
 /// Advances the sim and derives sound from it.
@@ -62,8 +77,8 @@ public:
     /// `sink` may be null (a headless or silent run); it is not owned.
     explicit AudioPipeline(SampleSink* sink) noexcept : sink_(sink) {}
 
-    void advance(sim::Sim& sim, std::uint32_t steps, const AudioFrame& frame,
-                 game::HitFlash& hit_flash, game::HitMark& hit_mark) const;
+    AdvanceResult advance(sim::Sim& sim, std::uint32_t steps, const AudioFrame& frame,
+                          game::HitFlash& hit_flash, game::HitMark& hit_mark) const;
 
 private:
     SampleSink* sink_;

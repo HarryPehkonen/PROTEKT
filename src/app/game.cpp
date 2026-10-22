@@ -77,6 +77,9 @@ struct Options {
     /// shell in the air with nobody at the mouse. The same family as `--switch`.
     std::uint32_t look_up_centirad{0};
     std::uint32_t fire_frame{0};
+    /// `--look-level N`: on frame N (1-based; 0 is never) the view comes back down by exactly what
+    /// `--look-up` raised it, so a capture can watch where a high lob landed.
+    std::uint32_t level_frame{0};
     bool press_ctrl{false};
     bool press_alt{false};
     /// Turn the radar off, for comparing two frames pixel by pixel. The game always has one.
@@ -126,6 +129,11 @@ int parse_args(std::span<const std::string_view> args, Options& options, std::os
         } else if (arg == "--look-up") {
             if (!next(value) || !parse_number(value, options.look_up_centirad)) {
                 err << "protekt-game: --look-up wants hundredths of a radian\n";
+                return 2;
+            }
+        } else if (arg == "--look-level") {
+            if (!next(value) || !parse_number(value, options.level_frame)) {
+                err << "protekt-game: --look-level wants a frame number\n";
                 return 2;
             }
         } else if (arg == "--fire") {
@@ -255,11 +263,17 @@ public:
         for (const sim::Order& order : orders) {
             sim_.enqueue(order);
         }
+        announce(out);
+        return scene_options;
+    }
+
+    /// Says the session's message once, when it changes. The sim's answer to a trigger arrives in
+    /// `advance`, after `command`, so this runs again after the step.
+    void announce(std::ostream& out) {
         if (!session_.message().empty() && session_.message() != last_message_) {
             out << "protekt-game: " << session_.message() << '\n';
             last_message_ = std::string(session_.message());
         }
-        return scene_options;
     }
 
     /// Steps the sim, and hears it. PLAY mode advances on the wall clock at 30 Hz, so the tank
@@ -270,12 +284,21 @@ public:
         const std::uint32_t steps = options_.frames == 0
                                         ? play_clock_.steps_at(TimeAccumulator::Clock::now())
                                         : options_.ticks_per_frame;
-        // A trigger pulled at the ground or the sky has no order, so the sim has no event to hear.
-        const bool shot_fired = session_.take_shot_voice();
-        pipeline_.advance(
-            sim_, steps,
-            audio_frame_for(sim_, session_, scene_options.camera, shot_fired, player_alive_before_),
-            hit_flash_, hit_mark_);
+        // The trigger waits for a step to be judged on: with none this frame, the pull stays
+        // pending (the flag is drained only when the sim is stepped).
+        const bool trigger_pulled = steps > 0 && session_.take_shot_voice();
+        const AdvanceResult result
+            = pipeline_.advance(sim_, steps,
+                                audio_frame_for(sim_, session_, scene_options.camera,
+                                                trigger_pulled, player_alive_before_),
+                                hit_flash_, hit_mark_);
+        // The sim's own answer to the trigger: it launched nothing, so say why.
+        if (result.trigger_refused) {
+            session_.trigger_refused(sim_);
+        }
+        for (const AdvanceResult::Touchdown& down : result.touchdowns) {
+            landing_marks_.land(down.tick, down.landing.tile_x, down.landing.tile_y);
+        }
     }
 
     /// The frame, as of now. The hover advances once per tick the sim has run, off the sim's own
@@ -306,6 +329,8 @@ public:
         scene_options.hit_flash = hit_flash_.level(sim_.tick());
         scene_options.weapon = session_.weapon();
         scene_options.show_weapon = !session_.destroyed();
+        scene_options.reloading = game::weapon_reloading(sim_, driven);
+        scene_options.landing_marks = &landing_marks_;
         scene_options.reticle_pulse = options_.pulse_percent >= 0
                                           ? static_cast<float>(options_.pulse_percent) / 100.0F
                                           : hit_mark_.level(sim_.tick());
@@ -320,6 +345,7 @@ private:
     game::Hover hover_;
     game::HitFlash hit_flash_;
     game::HitMark hit_mark_;
+    game::LandingMarks landing_marks_;
     game::Headings headings_;
     bool calibration_{false}; // C toggles the colour calibration view; it never touches the sim
     bool player_alive_before_{false};
@@ -345,6 +371,10 @@ void script_hands(const Options& options, std::uint32_t frame, input::InputFrame
     if (frame == 0 && options.look_up_centirad > 0) {
         hands.mouse_dy
             = -static_cast<float>(options.look_up_centirad) / 100.0F / game::kLookRadiansPerPixel;
+    }
+    if (options.level_frame > 0 && frame + 1 == options.level_frame) {
+        hands.mouse_dy
+            = static_cast<float>(options.look_up_centirad) / 100.0F / game::kLookRadiansPerPixel;
     }
     if (options.fire_frame > 0 && frame + 1 == options.fire_frame) {
         hands.clicks.push_back(input::Click{0, 0, input::MouseButton::Left, true, false});
@@ -388,6 +418,7 @@ int play(Game& game, GamePresenter& presenter, const Options& options, std::ostr
         }
         game::SceneOptions scene_options = game.command(hands, extent, out);
         game.advance(scene_options);
+        game.announce(out);
         if (!presenter.present(game.scene(scene_options), options.seed, game.tick())) {
             err << "protekt-game: frame " << frame << " could not be rendered\n";
             return 1;

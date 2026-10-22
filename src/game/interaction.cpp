@@ -139,8 +139,10 @@ void Interaction::handle(const input::InputFrame& frame, const sim::Sim& sim,
                                                       named ? hit->id : sim::UnitId{},
                                                       to_fixed(dir.at(1))}});
             }
-            // Every manual shot is one order, one bolt, and the app's own sound: the sim reports
-            // no Fired event for it, so this is the only thing the player hears.
+            // Every manual shot is one order and one bolt. The sound is NOT played here: pulling
+            // the trigger only raises the flag, and audio_pipeline judges it against the sim's own
+            // Shot record, so a trigger the sim declines (still reloading, turret not mounted) is
+            // silent instead of a lie.
             shot_voice_ = true;
             if (named) {
                 message_ = hit_is_hostile ? "engaging the target under the crosshair."
@@ -297,6 +299,13 @@ const cmd::Selection& Interaction::selection() const noexcept { return selection
 sim::UnitId Interaction::driven() const noexcept { return driven_; }
 
 Weapon Interaction::weapon() const noexcept { return weapon_; }
+
+void Interaction::trigger_refused(const sim::Sim& sim) noexcept {
+    const sim::Unit* gun = sim.find(driven_);
+    if (gun != nullptr && gun->alive) {
+        message_ = trigger_refusal(weapon_, *gun);
+    }
+}
 
 std::string_view Interaction::message() const noexcept { return message_; }
 

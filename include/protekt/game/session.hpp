@@ -32,6 +32,9 @@ public:
     /// Drained by reading.
     [[nodiscard]] bool take_shot_voice() noexcept;
 
+    /// The sim declined the trigger: set the message that says why. See `Interaction`.
+    void trigger_refused(const sim::Sim& sim) noexcept;
+
     [[nodiscard]] sim::UnitId driven() const noexcept;
     /// The hull's heading: where the tank points and drives. Only A/D turn it. Presentation state,
     /// never read by the sim.

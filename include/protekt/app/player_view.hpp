@@ -29,7 +29,7 @@ namespace protekt::app {
 /// The audio side of a frame: the listener sits at the camera, and the player the hit flash and
 /// the listening are about is the driven tank.
 [[nodiscard]] AudioFrame audio_frame_for(const sim::Sim& sim, const game::Session& session,
-                                         const game::Camera& camera, bool shot_fired,
+                                         const game::Camera& camera, bool trigger_pulled,
                                          bool player_alive_before);
 
 } // namespace protekt::app

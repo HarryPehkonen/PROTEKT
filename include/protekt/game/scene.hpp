@@ -7,6 +7,7 @@
 #include <optional>
 #include <span>
 #include <string_view>
+#include <vector>
 
 #include "protekt/game/scene_data.hpp"
 #include "protekt/game/weapon.hpp"
@@ -241,6 +242,41 @@ private:
     bool armed_{false};
 };
 
+/// THE LANDING MARKER (M5). Where the player's own lob touched down, drawn for
+/// `kLandingMarkHoldTicks` at full strength and then shrinking away over `kLandingMarkFadeTicks`
+/// more, so a shell that lands on empty ground still tells the player where. Fed from the sim's own
+/// `Landing` record, never re-derived. The app owns it, like `HitMark`.
+inline constexpr sim::Tick kLandingMarkHoldTicks = 60;
+inline constexpr sim::Tick kLandingMarkFadeTicks = 20;
+
+/// Vertices in one marker: a bracketed cross standing upright at the touchdown tile -- the X's two
+/// bars and four corner brackets of two bars each, ten quads of six vertices.
+inline constexpr std::size_t kLandingMarkVertexCount = 60;
+/// It stands 4 m tall -- more than the eye's height over the ground -- so the middle of it is in
+/// the frame at any view pitch a shell can be fired from, however close it lands.
+inline constexpr float kLandingMarkHeight = 4.0F;
+
+class LandingMarks {
+public:
+    struct Mark {
+        std::int32_t tile_x{};
+        std::int32_t tile_y{};
+        float level{}; ///< 1 while held, falling linearly to 0 across the fade
+    };
+
+    void land(sim::Tick landed_at, std::int32_t tile_x, std::int32_t tile_y);
+    /// The marks still showing at `now`, oldest first; exactly the ones with `level` > 0.
+    [[nodiscard]] std::vector<Mark> active(sim::Tick now) const;
+
+private:
+    struct Entry {
+        sim::Tick at{};
+        std::int32_t tile_x{};
+        std::int32_t tile_y{};
+    };
+    std::vector<Entry> entries_{};
+};
+
 /// True when one of `events` is a `HitTaken` whose bolt came from `shooter` and landed on a unit
 /// of the other side, looked up in `units` (the table as it stood before the step). A bolt that
 /// hurts the shooter's own side, or one fired by someone else, is not a connection.
@@ -390,6 +426,12 @@ struct SceneOptions {
     Weapon weapon{Weapon::Gun};
     /// Draw the weapon's name by the reticle. Off by default for the same reason.
     bool show_weapon{false};
+    /// The driven weapon is reloading: the reticle is drawn spent (a dim ghost of itself) until it
+    /// is ready again. False draws it as it always was.
+    bool reloading{false};
+    /// The player's landing markers, drawn standing at their touchdown tiles. Null draws none.
+    /// Not owned.
+    const LandingMarks* landing_marks{nullptr};
 };
 
 /// Triangles for the terrain mesh (two per tile, painted by `Terrain`) followed by one box per
