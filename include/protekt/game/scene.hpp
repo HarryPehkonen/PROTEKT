@@ -6,6 +6,7 @@
 #include <map>
 #include <optional>
 #include <span>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -439,6 +440,13 @@ struct SceneOptions {
     /// The player's navigational marks (N1), drawn as a slim beacon at each tile. Null draws none.
     /// Not owned.
     const NavMarks* nav_marks{nullptr};
+    /// The roster strip (N2) along the top of the frame: the player's living units with their
+    /// keys and hit points, drawn from the sim's own unit list. Off by default, so a frame that
+    /// never heard of it is unchanged.
+    bool show_roster{false};
+    /// One line under the strip, for what a roster key just said ("Unit 4 is destroyed."). Empty
+    /// draws none. The app holds it for a few seconds; the scene only draws it.
+    std::string notice{};
 };
 
 /// Triangles for the terrain mesh (two per tile, painted by `Terrain`) followed by one box per

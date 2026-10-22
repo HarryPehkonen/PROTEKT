@@ -61,6 +61,9 @@ public:
     ///  * M with a selection: MoveTo the ground under the mark for every selected unit that is not
     ///    the driven one, even with a unit under the mark; nothing selected: refused
     ///  * X: swap the driven tank to the own tank under the mark; the vacated one is told to Stop
+    ///  * 1-9: select the own unit holding that number in spawn order, on screen or not (the
+    ///    roster strip, `game/roster.hpp`); a destroyed or never-existing number selects nothing,
+    ///    leaves the selection as it was, and says so
     ///  * Tab or Escape: clear the selection
     ///  * Q (bare -- Ctrl+Q is the quit): bring up the next weapon of `kDrivenWeapons`, wrapping.
     ///    Never refused; it orders nothing and the trigger still fires today's shot (M1).
@@ -119,6 +122,8 @@ private:
     void swap_to_crosshair(const sim::Sim& sim, const SceneOptions& options);
     void move_to_crosshair_ground(const sim::Sim& sim, const SceneOptions& options);
     void follow_crosshair_unit(const sim::Sim& sim, const SceneOptions& options);
+    /// 1-9: select the own unit that holds that number, wherever it is (N2).
+    void select_roster_key(const sim::Sim& sim, int digit);
     void select_only(sim::UnitId id) noexcept;
     void toggle(sim::UnitId id) noexcept;
     void refuse(std::string_view why) noexcept;

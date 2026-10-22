@@ -9,6 +9,7 @@
 #include "protekt/ai/utility.hpp"
 #include "protekt/cmd/command.hpp"
 #include "protekt/game/pick.hpp"
+#include "protekt/game/roster.hpp"
 #include "protekt/input/bindings.hpp"
 #include "protekt/math/math.hpp"
 #include "protekt/sim/projectile.hpp"
@@ -183,7 +184,9 @@ void Interaction::handle(const input::InputFrame& frame, const sim::Sim& sim,
         if (!key.pressed) {
             continue;
         }
-        if (key.scancode == input::kKeyEscape || key.scancode == input::kKeyTab) {
+        if (const int digit = input::roster_digit(key); digit != 0) {
+            select_roster_key(sim, digit);
+        } else if (key.scancode == input::kKeyEscape || key.scancode == input::kKeyTab) {
             // Tab clears, as Escape does.
             selection_.clear();
         } else if (key.scancode == input::kKeyQ && !key.ctrl) {
@@ -410,6 +413,23 @@ void Interaction::follow_crosshair_unit(const sim::Sim& sim, const SceneOptions&
     remember(orders);
     pending_.insert(pending_.end(), orders.begin(), orders.end());
     message_ = "shadowing that unit.";
+}
+
+void Interaction::select_roster_key(const sim::Sim& sim, int digit) {
+    // The roster's number for a unit is its place in the sim's own list (game/roster.hpp), so the
+    // unit need not be on screen -- or anywhere near. The selection is the one the mouse builds.
+    const KeyLookup lookup = unit_for_key(sim, sim::Side::Player, digit);
+    switch (lookup.state) {
+    case KeyState::Alive:
+        select_only(lookup.id);
+        break;
+    case KeyState::Dead:
+        refuse(dead_key_message(digit));
+        break;
+    case KeyState::Never:
+        refuse(empty_key_message(digit));
+        break;
+    }
 }
 
 void Interaction::select_only(sim::UnitId id) noexcept {

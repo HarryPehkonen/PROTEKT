@@ -23,6 +23,7 @@ You are one tank. Everything else you command.
 | `Q` | switch weapon: gun -> rocket -> mortar -> gun. The crosshair and the label beside it change; the mortar's crosshair is a range ladder, each rung the distance in tiles a shell fired at that view pitch lands on level ground, the lit rung being where you look now. The trigger fires the gun's and the rocket's auto-aimed shot as ever; with the mortar up it lobs a shell along your own view (heading and pitch, no aim-assist, no lead): point up, fire, and the rung you lit is where it lands |
 | mouse wheel | switch weapon, one per notch: wheel up = previous, wheel down = next, the same wrap as `Q` |
 | `Space`, mark on an own unit | add it to the selection, or remove it if it is already in (`Shift`+`Space` does the same); ground, enemies and the tank you drive are ignored |
+| `1`-`9` | select your own unit with that number, wherever it is: numbers are spawn order and never change (a dead unit's key just says so); the strip along the top shows each living unit's key, kind and hit points, and a 10th unit has no key (a `+N` tag counts them) |
 | `X`, mark on an own tank | swap: drive that tank instead; the one you leave stops, and becomes an ordinary unit you can command |
 | `M` | order every selected unit to move to the ground under the mark, even when a unit is in front of it |
 | `T` | order every selected unit to attack the unit under the mark -- a hostile, or one of your own |

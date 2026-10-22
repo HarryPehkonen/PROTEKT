@@ -84,6 +84,13 @@ struct Options {
     /// `--nav FRAME` (repeatable): N pressed on that frame (1-based), so a capture can show nav
     /// marks with nobody at the keyboard. The same family as `--fire`.
     std::vector<std::uint32_t> nav_frames{};
+    /// `--digit FRAME N` (repeatable): the number key N (1-9) pressed on that frame (1-based), so
+    /// a capture can show a roster selection, or a dead key, with nobody at the keyboard.
+    struct DigitPress {
+        std::uint32_t frame{};
+        int digit{};
+    };
+    std::vector<DigitPress> digit_presses{};
     bool press_ctrl{false};
     bool press_alt{false};
     /// Turn the radar off, for comparing two frames pixel by pixel. The game always has one.
@@ -152,6 +159,16 @@ int parse_args(std::span<const std::string_view> args, Options& options, std::os
                 return 2;
             }
             options.nav_frames.push_back(frame);
+        } else if (arg == "--digit") {
+            std::string_view digit_text;
+            Options::DigitPress press;
+            if (!next(value) || !next(digit_text) || !parse_number(value, press.frame)
+                || !parse_number(digit_text, press.digit) || press.frame == 0 || press.digit < 1
+                || press.digit > 9) {
+                err << "protekt-game: --digit wants a frame number (1-based) and a key 1-9\n";
+                return 2;
+            }
+            options.digit_presses.push_back(press);
         } else if (arg == "--fullscreen") {
             if (options.headless) {
                 err << "protekt-game: --fullscreen needs a window; --headless has none\n";
@@ -279,6 +296,14 @@ public:
         for (const sim::Order& order : orders) {
             sim_.enqueue(order);
         }
+        // A roster key the roster refused: keep its sentence on screen a few seconds, since the
+        // session's own message lasts one frame.
+        for (const input::KeyEvent& key : hands.keys) {
+            if (input::roster_digit(key) != 0 && !session_.message().empty()) {
+                notice_ = std::string(session_.message());
+                notice_until_ = sim_.tick() + kNoticeTicks;
+            }
+        }
         announce(out);
         return scene_options;
     }
@@ -348,6 +373,10 @@ public:
         scene_options.reloading = game::weapon_reloading(sim_, driven);
         scene_options.landing_marks = &landing_marks_;
         scene_options.nav_marks = &nav_marks_;
+        scene_options.show_roster = true;
+        if (sim_.tick() < notice_until_) {
+            scene_options.notice = notice_;
+        }
         scene_options.reticle_pulse = options_.pulse_percent >= 0
                                           ? static_cast<float>(options_.pulse_percent) / 100.0F
                                           : hit_mark_.level(sim_.tick());
@@ -371,6 +400,11 @@ private:
     AudioPipeline pipeline_;
     TimeAccumulator play_clock_;
     std::string last_message_;
+    /// What a roster key just said, held for `kNoticeTicks` of sim time (tick-based, so a scripted
+    /// capture shows it identically every run).
+    static constexpr sim::Tick kNoticeTicks = 3 * sim::kTicksPerSecond;
+    std::string notice_;
+    sim::Tick notice_until_{0};
 };
 
 /// The keys and pointer a run puts in the player's hands on its own, for a frame nobody is
@@ -382,6 +416,11 @@ void script_hands(const Options& options, std::uint32_t frame, input::InputFrame
     if (std::find(options.nav_frames.begin(), options.nav_frames.end(), frame + 1)
         != options.nav_frames.end()) {
         hands.keys.push_back(input::KeyEvent{input::kKeyN, true, false});
+    }
+    for (const Options::DigitPress& press : options.digit_presses) {
+        if (press.frame == frame + 1) {
+            hands.keys.push_back(input::KeyEvent{input::kKey1 + press.digit - 1, true, false});
+        }
     }
     if (options.press_scancode >= 0) {
         hands.keys.push_back(input::KeyEvent{options.press_scancode, true, false,

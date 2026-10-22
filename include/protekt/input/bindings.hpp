@@ -100,6 +100,14 @@ inline void apply(HeldKeys& keys, const KeyEvent& event) noexcept {
     return false;
 }
 
+/// The digit 1-9 a key event is, or 0. Bare only: Ctrl/Alt+digit are not the roster's.
+[[nodiscard]] inline int roster_digit(const KeyEvent& key) noexcept {
+    if (!key.pressed || key.ctrl || key.alt || key.scancode < kKey1 || key.scancode > kKey1 + 8) {
+        return 0;
+    }
+    return key.scancode - kKey1 + 1;
+}
+
 /// N: drop a navigational mark under the crosshair, or clear the one aimed at. Asks once per press.
 [[nodiscard]] inline bool nav_mark_pressed(const InputFrame& frame) noexcept {
     for (const KeyEvent& key : frame.keys) {

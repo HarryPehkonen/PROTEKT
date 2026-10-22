@@ -4,18 +4,21 @@
 #include "protekt/game/nav_marks.hpp"
 #include "protekt/game/pick.hpp"
 #include "protekt/game/radar.hpp"
+#include "protekt/game/roster.hpp"
 #include "protekt/game/weapon.hpp"
 #include "protekt/math/math.hpp"
 #include "protekt/sim/spec.hpp"
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
 #include <map>
+#include <string>
 #include <string_view>
 #include <utility>
 
@@ -1506,8 +1509,12 @@ std::array<std::uint8_t, 5> mount_glyph(char glyph) {
         return {0b11110, 0b10001, 0b10001, 0b10001, 0b11110};
     case 'E':
         return {0b11111, 0b10000, 0b11110, 0b10000, 0b11111};
+    case 'F':
+        return {0b11111, 0b10000, 0b11110, 0b10000, 0b10000};
     case 'G':
         return {0b01111, 0b10000, 0b10011, 0b10001, 0b01111};
+    case 'H':
+        return {0b10001, 0b10001, 0b11111, 0b10001, 0b10001};
     case 'I':
         return {0b11111, 0b00100, 0b00100, 0b00100, 0b11111};
     case 'K':
@@ -1526,8 +1533,12 @@ std::array<std::uint8_t, 5> mount_glyph(char glyph) {
         return {0b11110, 0b10001, 0b11110, 0b10010, 0b10001};
     case 'T':
         return {0b11111, 0b00100, 0b00100, 0b00100, 0b00100};
+    case 'S':
+        return {0b01111, 0b10000, 0b01110, 0b00001, 0b11110};
     case 'U':
         return {0b10001, 0b10001, 0b10001, 0b10001, 0b01110};
+    case 'V':
+        return {0b10001, 0b10001, 0b10001, 0b01010, 0b00100};
     case 'Y':
         return {0b10001, 0b01010, 0b00100, 0b00100, 0b00100};
     case '0':
@@ -1552,6 +1563,8 @@ std::array<std::uint8_t, 5> mount_glyph(char glyph) {
         return {0b01110, 0b10001, 0b01111, 0b00001, 0b01110};
     case '.':
         return {0b00000, 0b00000, 0b00000, 0b01100, 0b01100};
+    case '+':
+        return {0b00100, 0b00100, 0b11111, 0b00100, 0b00100};
     default:
         return {};
     }
@@ -1735,6 +1748,135 @@ void append_weapon_hud(std::vector<SceneVertex>& out, const SceneOptions& option
         text(std::string_view{digits.data(), count},
              aim_x + half_w + edge + ((kRungLabelGapPixels + kRungPadPixels) * px),
              y - (2.5F * cell), cell, kRungPadPixels * px, ink);
+    }
+}
+
+/// THE ROSTER STRIP (N2), in frame pixels on the HUD layer, scaled by the frame's height (the px
+/// below are at 720). One slot per living own unit with a key, left to right in spawn order, a
+/// dead unit's slot simply absent -- the others keep their digit, so the gap closes up but no
+/// number moves. A slot is 136 px wide and 74 tall on a black plate with a 2 px frame (yellow when
+/// the unit is selected, white otherwise), 6 px from the top and 6 px apart, nine of them filling
+/// 1280. Top row: the hotkey in 30 px capitals (cell 6) and the hit points beside it in 20 px
+/// digits (cell 4); then the kind in 15 px capitals (cell 3, FACTORY is 123 of the 124 px inside);
+/// then a 6 px hit-point bar, green over yellow over red. A living unit past the ninth has no key
+/// and gets no slot: a "+N" tag in the strip's last place counts them. Under the strip,
+/// `options.notice` in 24 px yellow capitals.
+constexpr float kStripMarginPixels = 6.0F;
+constexpr float kStripSlotWidthPixels = 136.0F;
+constexpr float kStripSlotGapPixels = 6.0F;
+constexpr float kStripSlotHeightPixels = 74.0F;
+constexpr float kStripFramePixels = 2.0F;
+constexpr float kStripPadPixels = 6.0F;
+constexpr float kStripKeyCell = 6.0F;
+constexpr float kStripHpCell = 4.0F;
+constexpr float kStripKindCell = 3.0F;
+constexpr float kStripBarPixels = 6.0F;
+constexpr float kStripNoticeCell = 4.8F;
+constexpr float kStripTagCell = 4.0F;
+constexpr std::array<float, 3> kStripFrame{0.95F, 0.95F, 0.95F};
+constexpr std::array<float, 3> kStripSelected{1.0F, 0.85F, 0.10F};
+
+void append_roster_strip(std::vector<SceneVertex>& out, const SceneOptions& options,
+                         const sim::Sim& sim, std::span<const sim::UnitId> selected) {
+    if (!options.show_roster) {
+        return;
+    }
+    const float px = static_cast<float>(options.extent.height) * kHudPerFrameHeight;
+    const float marks_at = math::kNearPlane * kHudClearance * corner_ray_length(options.extent);
+    const auto rect = [&](float distance, float ax, float ay, float bx, float by,
+                          const std::array<float, 3>& rgb) {
+        const auto at = [&](float x, float y) {
+            const RayPoint point = ray_point(options.camera, options.extent, x, y, distance);
+            return Vec3{point.x, point.y, point.z};
+        };
+        emit_quad(out, at(ax, ay), at(bx, ay), at(bx, by), at(ax, by), rgb);
+    };
+    constexpr std::array<float, 3> kPlate{0.0F, 0.0F, 0.0F};
+    // Ink only; the plate under it is the caller's.
+    const auto ink_text = [&](std::string_view word, float left, float top, float cell,
+                              const std::array<float, 3>& ink) {
+        for (std::size_t index = 0; index < word.size(); ++index) {
+            const std::array<std::uint8_t, 5> rows = mount_glyph(
+                static_cast<char>(std::toupper(static_cast<unsigned char>(word.at(index)))));
+            const float glyph_left = left + (static_cast<float>(index) * 6.0F * cell);
+            for (std::size_t row = 0; row < rows.size(); ++row) {
+                for (int col = 0; col < 5; ++col) {
+                    if (((rows.at(row) >> (4 - col)) & 1U) == 0U) {
+                        continue;
+                    }
+                    const float x = glyph_left + (static_cast<float>(col) * cell);
+                    const float y = top + (static_cast<float>(row) * cell);
+                    rect(marks_at, x, y, x + cell, y + cell, ink);
+                }
+            }
+        }
+    };
+    const auto word_width = [](std::string_view word, float cell) {
+        return ((static_cast<float>(word.size()) * 6.0F) - 1.0F) * cell;
+    };
+    // A plate with a frame round it: the frame behind, the face in front, then the caller's ink.
+    const auto plate
+        = [&](float left, float top, float right, float bottom, const std::array<float, 3>& frame) {
+              const float edge = kStripFramePixels * px;
+              rect(marks_at * kHudBorderRatio, left, top, right, bottom, frame);
+              rect(marks_at * kHudFaceRatio, left + edge, top + edge, right - edge, bottom - edge,
+                   kPlate);
+          };
+
+    const Roster roster = roster_of(sim, options.viewer_side);
+    const float top = kStripMarginPixels * px;
+    const float slot_w = kStripSlotWidthPixels * px;
+    const float slot_h = kStripSlotHeightPixels * px;
+    const float pad = kStripPadPixels * px;
+    float left = kStripMarginPixels * px;
+    for (const RosterSlot& slot : roster.slots) {
+        const bool chosen = std::find(selected.begin(), selected.end(), slot.id) != selected.end();
+        plate(left, top, left + slot_w, top + slot_h, chosen ? kStripSelected : kStripFrame);
+        const std::array<char, 1> key{static_cast<char>('0' + slot.key)};
+        const float key_cell = kStripKeyCell * px;
+        const float hp_cell = kStripHpCell * px;
+        ink_text(std::string_view{key.data(), 1}, left + pad, top + pad, key_cell,
+                 chosen ? kStripSelected : kStripFrame);
+        const std::string hp = std::to_string(slot.hp);
+        const float hp_left = left + slot_w - pad - word_width(hp, hp_cell);
+        ink_text(hp, hp_left, top + pad + (2.5F * key_cell) - (2.5F * hp_cell), hp_cell,
+                 kStripFrame);
+        const float kind_top = top + pad + (5.0F * key_cell) + pad;
+        ink_text(kind_label(slot.kind), left + pad, kind_top, kStripKindCell * px, kStripFrame);
+        // The bar: a dark track the width of the slot's inside, the fill in proportion.
+        const float bar_top = top + slot_h - pad - (kStripBarPixels * px) + (2.0F * px);
+        const float bar_left = left + pad;
+        const float bar_width = slot_w - (2.0F * pad);
+        const float fraction
+            = slot.max_hp == 0
+                  ? 0.0F
+                  : std::clamp(static_cast<float>(slot.hp) / static_cast<float>(slot.max_hp), 0.0F,
+                               1.0F);
+        const std::array<float, 3> fill = fraction > 0.6F ? std::array<float, 3>{0.1F, 0.85F, 0.2F}
+                                          : fraction > 0.3F
+                                              ? std::array<float, 3>{1.0F, 0.85F, 0.1F}
+                                              : std::array<float, 3>{1.0F, 0.15F, 0.1F};
+        rect(marks_at * kHudFaceRatio * 0.999F, bar_left, bar_top, bar_left + bar_width,
+             bar_top + (kStripBarPixels * px), {0.25F, 0.25F, 0.25F});
+        rect(marks_at, bar_left, bar_top, bar_left + (bar_width * fraction),
+             bar_top + (kStripBarPixels * px), fill);
+        left += slot_w + (kStripSlotGapPixels * px);
+    }
+    if (roster.unkeyed > 0) {
+        const std::string tag = "+" + std::to_string(roster.unkeyed);
+        const float cell = kStripTagCell * px;
+        const float width = word_width(tag, cell) + (2.0F * pad);
+        plate(left, top, left + width, top + slot_h, kStripFrame);
+        ink_text(tag, left + pad, top + (slot_h * 0.5F) - (2.5F * cell), cell, kStripFrame);
+    }
+    if (!options.notice.empty()) {
+        const float cell = kStripNoticeCell * px;
+        const float notice_top = top + slot_h + (kStripMarginPixels * px) + pad;
+        const float notice_left = kStripMarginPixels * px + pad;
+        plate(kStripMarginPixels * px, notice_top - pad,
+              notice_left + word_width(options.notice, cell) + pad,
+              notice_top + (5.0F * cell) + pad, kStripSelected);
+        ink_text(options.notice, notice_left, notice_top, cell, kStripSelected);
     }
 }
 
@@ -2110,6 +2252,7 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
     append_mount_plates(scene.vertices, options, sim);
     append_unit_bars(scene.vertices, options, sim);
     append_weapon_hud(scene.vertices, options);
+    append_roster_strip(scene.vertices, options, sim, selected);
     append_reticle(scene.vertices, options, sim, aimed);
 
     // LAST, so it tints everything under it. The vertex format has no alpha, so the wash is each
