@@ -204,10 +204,11 @@ TEST(Wheel, DownCyclesGunRocketMortarAndUpReverses) {
 }
 
 TEST(Wheel, WrapsTheWayQDoes) {
-    EXPECT_EQ(after_wheel(Weapon::Mortar, -1), next_weapon(Weapon::Mortar));
-    EXPECT_EQ(after_wheel(Weapon::Mortar, -1), Weapon::Gun);
+    EXPECT_EQ(after_wheel(Weapon::Bouncer, -1), next_weapon(Weapon::Bouncer));
+    EXPECT_EQ(after_wheel(Weapon::Bouncer, -1), Weapon::Gun);
     EXPECT_EQ(after_wheel(Weapon::Gun, +1), previous_weapon(Weapon::Gun));
-    EXPECT_EQ(after_wheel(Weapon::Gun, +1), Weapon::Mortar);
+    EXPECT_EQ(after_wheel(Weapon::Gun, +1), Weapon::Bouncer);
+    EXPECT_EQ(after_wheel(Weapon::Mortar, -1), Weapon::Bouncer) << "one detent, one step";
 }
 
 TEST(Wheel, OneNotchIsExactlyOneStepAndAFlickIsOneStepPerNotch) {

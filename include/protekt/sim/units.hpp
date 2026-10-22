@@ -9,6 +9,10 @@
 
 namespace protekt::sim {
 
+/// Which round a lob fires: a Contact shell bursts where it lands (the mortar's), a Bounce shell
+/// bounces, comes to rest and pulses shrapnel (the bouncer's, `kBouncer`). A round, not a unit.
+enum class Round : std::uint8_t { Contact = 0, Bounce = 1 };
+
 inline constexpr int kMapTiles = 256; ///< the playable world is [0, kMapTiles) tiles square
 static_assert(kMapTiles == kRouteTiles, "a tile coordinate in a Route is one byte");
 /// A tick counter. Named once so the sim, orders, replays and observers cannot drift apart on it.

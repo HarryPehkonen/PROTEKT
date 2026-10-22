@@ -123,7 +123,7 @@ void Interaction::handle(const input::InputFrame& frame, const sim::Sim& sim,
                 = gun != nullptr
                       ? shot_direction(*gun, options, picked, *options.aim)
                       : math::basis_from(options.camera.yaw, options.camera.pitch).forward;
-            if (weapon_ == Weapon::Mortar) {
+            if (weapon_ == Weapon::Mortar || weapon_ == Weapon::Bouncer) {
                 // THE MORTAR IS AIMED BY HAND (M2): the shell flies the barrel -- the view's own
                 // yaw and pitch, which is what the range ladder reads -- and not the path to
                 // whatever is under the mark. Nothing is solved, nothing led.
@@ -132,7 +132,9 @@ void Interaction::handle(const input::InputFrame& frame, const sim::Sim& sim,
                 pending_.push_back(sim::Order{
                     driven_,
                     sim::orders::FireLob{to_fixed(barrel.at(0)), to_fixed(barrel.at(2)),
-                                         named ? hit->id : sim::UnitId{}, to_fixed(barrel.at(1))}});
+                                         named ? hit->id : sim::UnitId{}, to_fixed(barrel.at(1)),
+                                         weapon_ == Weapon::Bouncer ? sim::Round::Bounce
+                                                                    : sim::Round::Contact}});
             } else {
                 pending_.push_back(sim::Order{
                     driven_, sim::orders::FireTowards{to_fixed(dir.at(0)), to_fixed(dir.at(2)),

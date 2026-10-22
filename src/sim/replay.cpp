@@ -97,7 +97,8 @@ OrderPayload payload_from(OrderKind kind, const OrderFields& f) {
     case OrderKind::Follow:
         return orders::Follow{f.target};
     case OrderKind::FireLob:
-        return orders::FireLob{f.positions.at(0), f.positions.at(1), f.target, f.positions.at(2)};
+        return orders::FireLob{f.positions.at(0), f.positions.at(1), f.target, f.positions.at(2),
+                               f.positions.at(3).raw == 1 ? Round::Bounce : Round::Contact};
     }
     return orders::Stop{};
 }

@@ -895,6 +895,33 @@ void emit_bolt_box(std::vector<SceneVertex>& out, float x, float centre, float z
 constexpr std::size_t kShellTrailPuffs = 3;
 constexpr float kShellTrailShade = 0.55F;
 
+/// A resting bouncer (M3): a fat core with four spokes turning as it spins, and eight shrapnel
+/// chips flying out to the pulse radius over every pulse interval, so the damage reach is on
+/// screen.
+constexpr Vec3 kShrapnelColour{1.0F, 0.45F, 0.05F};
+constexpr float kSpinPerTick = 0.35F;
+
+void emit_resting_bouncer(std::vector<SceneVertex>& out, const sim::Projectile& bolt, float x,
+                          float centre, float z, const Vec3& colour) {
+    constexpr float kTau = 6.2831853F;
+    emit_bolt_box(out, x, centre, z, kBoltHalfWidthMetres * 2.0F, colour);
+    const float spin = static_cast<float>(bolt.rested) * kSpinPerTick;
+    for (int spoke = 0; spoke < 4; ++spoke) {
+        const float a = spin + (static_cast<float>(spoke) * kTau / 4.0F);
+        emit_bolt_box(out, x + (std::cos(a) * 0.45F), centre, z + (std::sin(a) * 0.45F),
+                      kBoltHalfWidthMetres, colour);
+    }
+    const float phase = static_cast<float>(bolt.rested % sim::kBouncer.pulse_interval)
+                        / static_cast<float>(sim::kBouncer.pulse_interval);
+    const float reach = static_cast<float>(sim::kBouncer.pulse_radius.raw)
+                        / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile * phase;
+    for (int chip = 0; chip < 8; ++chip) {
+        const float a = static_cast<float>(chip) * kTau / 8.0F;
+        emit_bolt_box(out, x + (std::cos(a) * reach), centre, z + (std::sin(a) * reach),
+                      kBoltHalfWidthMetres * 1.3F, kShrapnelColour);
+    }
+}
+
 void append_projectiles(std::vector<SceneVertex>& out, const SceneOptions& options,
                         const sim::Sim& sim) {
     constexpr float kOne = static_cast<float>(sim::Fixed::kOne);
@@ -903,6 +930,10 @@ void append_projectiles(std::vector<SceneVertex>& out, const SceneOptions& optio
         const float z = static_cast<float>(bolt.y.raw) / kOne * kMetresPerTile;
         const float centre = static_cast<float>(bolt.z.raw) / kOne * kMetresPerHeightUnit;
         const Vec3 colour = bolt.side == options.viewer_side ? kOwnBoltColour : kHostileBoltColour;
+        if (bolt.resting) {
+            emit_resting_bouncer(out, bolt, x, centre, z, colour);
+            continue;
+        }
         emit_bolt_box(out, x, centre, z, kBoltHalfWidthMetres, colour);
         if (bolt.gravity.raw <= 0) {
             continue;
@@ -1370,6 +1401,8 @@ std::array<std::uint8_t, 5> mount_glyph(char glyph) {
     switch (glyph) {
     case 'A':
         return {0b01110, 0b10001, 0b11111, 0b10001, 0b10001};
+    case 'B':
+        return {0b11110, 0b10001, 0b11110, 0b10001, 0b11110};
     case 'C':
         return {0b01111, 0b10000, 0b10000, 0b10000, 0b01111};
     case 'D':

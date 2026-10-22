@@ -48,6 +48,27 @@ inline constexpr std::int32_t kMortarRangeRaw = 14 << 16;
 inline constexpr std::int32_t kMortarGravityRaw = 9 * Fixed::kOne / 4;
 inline constexpr std::int32_t kMortarArcRaw = 4 * Fixed::kOne;
 inline constexpr std::int32_t kMortarSplashRaw = 3 * Fixed::kOne / 2;
+/// THE BOUNCER ROUND (M3), all of it data. It leaves the barrel with the mortar's own ballistics,
+/// so the range ladder is honest for its FIRST landing; then it bounces, rests, spins and pulses.
+struct BouncerSpec {
+    Fixed restitution{};         ///< fraction of the fall speed kept as the rebound
+    Fixed horizontal_keep{};     ///< fraction of the horizontal speed kept by each bounce
+    std::uint32_t max_bounces{}; ///< contacts it bounces off; the next one brings it to rest
+    Fixed min_bounce_vz{}; ///< a rebound slower than this (height units a tick) is not a bounce
+    std::uint32_t rest_ticks{};     ///< how long it spins at rest, then vanishes
+    std::uint32_t pulse_interval{}; ///< ticks between shrapnel pulses; the last ends the rest
+    Fixed pulse_radius{};         ///< tiles; every living unit of either side inside takes a pulse
+    std::uint16_t pulse_damage{}; ///< at the centre; falls off linearly to zero at the radius
+};
+inline constexpr BouncerSpec kBouncer{Fixed::from_raw(Fixed::kOne / 2),
+                                      Fixed::from_raw(Fixed::kOne * 3 / 4),
+                                      3,
+                                      Fixed::from_raw(6 * Fixed::kOne),
+                                      90,
+                                      15,
+                                      Fixed::from_raw(3 * Fixed::kOne),
+                                      12};
+
 /// The rocket: the tank's hp and speed, range 15, three times the damage, five times the cooldown,
 /// three quarters of the bolt speed, a straight flight, no splash.
 inline constexpr std::int32_t kRocketRangeRaw = 15 << 16;

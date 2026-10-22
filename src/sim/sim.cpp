@@ -227,8 +227,8 @@ void apply_order(std::vector<Unit>& units, std::vector<Projectile>& projectiles,
             if (prof.weapon_range.raw > 0 && prof.damage > 0 && unit.cooldown == 0
                 && is_mounted(unit)) {
                 const UnitId aimed_at = o->aimed_at == unit.id ? UnitId{} : o->aimed_at;
-                projectiles.push_back(
-                    launch_lob(unit, o->dir_x, o->dir_y, o->dir_z, aimed_at, shell.damage, seed));
+                projectiles.push_back(launch_lob(unit, o->dir_x, o->dir_y, o->dir_z, aimed_at,
+                                                 shell.damage, seed, o->round));
                 shots.push_back(Sim::Shot{unit.id, UnitId{}});
                 unit.cooldown = shell.cooldown_ticks;
             }
@@ -785,6 +785,14 @@ std::uint64_t Sim::state_hash() const noexcept {
             h.u64(static_cast<std::uint64_t>(p.closest_d2));
             h.i32(p.miss_x.raw);
             h.i32(p.miss_y.raw);
+            // The bouncer's state only for a bouncer, so a contact battle hashes as it always did.
+            if (p.round != Round::Contact) {
+                h.u64(static_cast<std::uint64_t>(p.round));
+                h.u64(p.bounces);
+                h.u64(p.resting ? 1 : 0);
+                h.u64(p.rested);
+                h.u64(p.bounced_off.value);
+            }
             // Ballistics only when a bolt has any, so a straight single-target battle hashes as it
             // always did.
             if (p.gravity.raw != 0 || p.splash_radius.raw != 0

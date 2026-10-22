@@ -12,13 +12,14 @@
 /// along the barrel (M2, `sim::orders::FireLob`).
 namespace protekt::game {
 
-enum class Weapon : std::uint8_t { Gun, Rocket, Mortar };
+enum class Weapon : std::uint8_t { Gun, Rocket, Mortar, Bouncer };
 
 /// THE CARRIED SET: what the player's craft carries, in the order the switch key walks it. The
 /// craft is whatever the player is driving -- the scenario's first player tank, presented as the
 /// hover tank -- so the set belongs to the DRIVEN vehicle, not to a sim kind, and an X swap keeps
 /// it.
-inline constexpr std::array<Weapon, 3> kDrivenWeapons{Weapon::Gun, Weapon::Rocket, Weapon::Mortar};
+inline constexpr std::array<Weapon, 4> kDrivenWeapons{Weapon::Gun, Weapon::Rocket, Weapon::Mortar,
+                                                      Weapon::Bouncer};
 
 /// The weapon after `current` in `kDrivenWeapons`, wrapping at the end; one not in the set gives
 /// the first.
@@ -28,7 +29,7 @@ inline constexpr std::array<Weapon, 3> kDrivenWeapons{Weapon::Gun, Weapon::Rocke
 /// the first. The wheel-up step (M2): `next_weapon`'s inverse.
 [[nodiscard]] Weapon previous_weapon(Weapon current) noexcept;
 
-/// The HUD's name for a weapon: GUN, ROCKET, MORTAR.
+/// The HUD's name for a weapon: GUN, ROCKET, MORTAR, BOUNCER.
 [[nodiscard]] std::string_view weapon_name(Weapon weapon) noexcept;
 
 /// THE MORTAR'S RANGE LADDER. Its rungs are pitch bands of the view (`view_pitch`, radians, up is
@@ -66,7 +67,9 @@ inline constexpr std::array<float, kMortarRungCount> kMortarRungPitches{0.0F, 0.
 ///  * FourTicks: E12's four ticks and dot, unchanged -- the gun.
 ///  * Heavy: the same family, a centre dot 3.3x as big, ticks 0.4 long instead of 0.65 and nearly
 ///    twice as thick -- the rocket, one heavy hit.
-///  * Ladder: the centre dot alone, with the mortar's range ladder under it.
+///  * Ladder: the centre dot alone, with the mortar's range ladder under it -- the mortar's, and
+///    the bouncer's too, whose FIRST landing is the same ballistics (the bounce carries it
+///    further).
 enum class ReticleKind : std::uint8_t { FourTicks, Heavy, Ladder };
 
 struct ReticleShape {

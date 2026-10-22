@@ -183,7 +183,8 @@ bool operator==(const Projectile& a, const Projectile& b) noexcept {
            && a.max_travel == b.max_travel && a.shooter == b.shooter && a.side == b.side
            && a.aimed_at == b.aimed_at && a.damage == b.damage && a.age == b.age
            && a.learns == b.learns && a.closest_d2 == b.closest_d2 && a.miss_x == b.miss_x
-           && a.miss_y == b.miss_y;
+           && a.miss_y == b.miss_y && a.round == b.round && a.bounces == b.bounces
+           && a.resting == b.resting && a.rested == b.rested && a.bounced_off == b.bounced_off;
 }
 
 std::int64_t isqrt(std::int64_t n) noexcept {
@@ -394,7 +395,7 @@ std::int64_t mortar_climb(std::int64_t run, std::int64_t rise) noexcept {
 }
 
 Projectile launch_lob(const Unit& shooter, Fixed dir_x, Fixed dir_y, Fixed dir_z, UnitId aimed_at,
-                      std::uint16_t damage, std::uint64_t seed) noexcept {
+                      std::uint16_t damage, std::uint64_t seed, Round round) noexcept {
     const UnitSpec& mortar = spec_of(UnitKind::Mortar);
     const std::int64_t across = mortar.bolt_speed.raw;
     std::int64_t dx = dir_x.raw;
@@ -427,6 +428,12 @@ Projectile launch_lob(const Unit& shooter, Fixed dir_x, Fixed dir_y, Fixed dir_z
     bolt.side = shooter.side;
     bolt.aimed_at = aimed_at;
     bolt.damage = damage;
+    if (round == Round::Bounce) {
+        // The bouncer bursts nowhere: no splash, and its damage is the pulse's, from the spec.
+        bolt.round = Round::Bounce;
+        bolt.splash_radius = Fixed::zero();
+        bolt.damage = kBouncer.pulse_damage;
+    }
     return bolt;
 }
 
@@ -435,6 +442,57 @@ void advance_projectiles(std::vector<Projectile>& projectiles, std::vector<Unit>
     std::vector<Landing> unobserved;
     advance_projectiles(projectiles, units, impacts, unobserved, seed);
 }
+
+namespace {
+
+/// One shrapnel pulse from a resting bouncer: every living unit of EITHER side within the spec's
+/// radius (map plane) takes the pulse damage scaled linearly down to nothing at the rim, in
+/// ascending id.
+void pulse(const Projectile& shell, std::vector<Unit>& units,
+           std::vector<Impact>& impacts) noexcept {
+    const std::int64_t radius = kBouncer.pulse_radius.raw;
+    for (Unit& unit : units) {
+        if (!unit.alive) {
+            continue;
+        }
+        const std::int64_t dx = unit.x.raw - static_cast<std::int64_t>(shell.x.raw);
+        const std::int64_t dy = unit.y.raw - static_cast<std::int64_t>(shell.y.raw);
+        const std::int64_t d2 = dx * dx + dy * dy;
+        if (d2 >= radius * radius) {
+            continue;
+        }
+        const auto hurt = static_cast<std::uint16_t>(static_cast<std::int64_t>(shell.damage)
+                                                     * (radius - isqrt(d2)) / radius);
+        if (hurt == 0) {
+            continue;
+        }
+        take_damage(unit, hurt);
+        impacts.push_back(Impact{shell.shooter, unit.id, unit.hp});
+    }
+}
+
+/// What a bouncer's contact does with its vertical speed: the rebound it would have (fall speed
+/// times the spec's restitution), and whether that is a bounce at all -- not past the cap, not
+/// below the threshold.
+struct Rebound {
+    std::int64_t vz{};
+    bool bounces{};
+};
+
+Rebound rebound_of(const Projectile& shell) noexcept {
+    const std::int64_t fall = std::abs(static_cast<std::int64_t>(shell.vz.raw));
+    const std::int64_t up = fall * kBouncer.restitution.raw / Fixed::kOne;
+    return Rebound{up, shell.bounces < kBouncer.max_bounces && up >= kBouncer.min_bounce_vz.raw};
+}
+
+void damp_horizontal(Projectile& shell) noexcept {
+    shell.vx = Fixed::from_raw(static_cast<std::int32_t>(
+        static_cast<std::int64_t>(shell.vx.raw) * kBouncer.horizontal_keep.raw / Fixed::kOne));
+    shell.vy = Fixed::from_raw(static_cast<std::int32_t>(
+        static_cast<std::int64_t>(shell.vy.raw) * kBouncer.horizontal_keep.raw / Fixed::kOne));
+}
+
+} // namespace
 
 void advance_projectiles(std::vector<Projectile>& projectiles, std::vector<Unit>& units,
                          std::vector<Impact>& impacts, std::vector<Landing>& landings,
@@ -452,6 +510,18 @@ void advance_projectiles(std::vector<Projectile>& projectiles, std::vector<Unit>
     // later ones, so the order bolts were fired in decides who lands the killing blow.
     for (std::size_t i = 0; i < projectiles.size(); ++i) {
         Projectile bolt = projectiles[i];
+        if (bolt.resting) {
+            // A bouncer at rest spins in place: a pulse every interval, gone after the last.
+            ++bolt.age;
+            ++bolt.rested;
+            if (bolt.rested % kBouncer.pulse_interval == 0) {
+                pulse(bolt, units, impacts);
+            }
+            if (bolt.rested < kBouncer.rest_ticks) {
+                projectiles[kept++] = bolt;
+            }
+            continue;
+        }
         const std::int64_t from_x = bolt.x.raw;
         const std::int64_t from_y = bolt.y.raw;
         const std::int64_t from_z = bolt.z.raw;
@@ -492,7 +562,8 @@ void advance_projectiles(std::vector<Projectile>& projectiles, std::vector<Unit>
         Unit* hit = nullptr;
         std::int64_t hit_d2 = radius2 + 1;
         for (Unit& unit : units) { // ascending id, so a tie keeps the lowest
-            if (!unit.alive || (unit.side == bolt.side && unit.id != bolt.aimed_at)) {
+            if (!unit.alive || (unit.side == bolt.side && unit.id != bolt.aimed_at)
+                || unit.id == bolt.bounced_off) {
                 continue;
             }
             const Point c
@@ -510,6 +581,24 @@ void advance_projectiles(std::vector<Projectile>& projectiles, std::vector<Unit>
                 hit_d2 = d2;
             }
         }
+        if (hit != nullptr && bolt.round == Round::Bounce) {
+            // A bouncer takes no life: it glances off the body where its path was nearest it. A
+            // rebound too weak to be a bounce just loses its climb and drops to the ground.
+            const Point c
+                = nearest_on_segment(from_x, from_y, step_x, step_y, hit->x.raw, hit->y.raw);
+            const Rebound rebound = rebound_of(bolt);
+            bolt.x = Fixed::from_raw(static_cast<std::int32_t>(c.x));
+            bolt.y = Fixed::from_raw(static_cast<std::int32_t>(c.y));
+            bolt.z = Fixed::from_raw(static_cast<std::int32_t>(
+                c.length2 > 0 ? from_z + step_z * c.along / c.length2 : from_z));
+            damp_horizontal(bolt);
+            bolt.vz = Fixed::from_raw(static_cast<std::int32_t>(rebound.bounces ? rebound.vz : 0));
+            bolt.bounces += rebound.bounces ? 1 : 0;
+            bolt.bounced_off = hit->id;
+            ++bolt.age;
+            projectiles[kept++] = bolt;
+            continue;
+        }
         if (hit != nullptr) {
             take_damage(*hit, bolt.damage);
             impacts.push_back(Impact{bolt.shooter, hit->id, hit->hp});
@@ -523,6 +612,26 @@ void advance_projectiles(std::vector<Projectile>& projectiles, std::vector<Unit>
         if (passed) {
             learn_from(bolt, units); // it has told the shooter all it can; not again at the end
             bolt.learns = false;
+        }
+        if (grounded && bolt.round == Round::Bounce) {
+            const Rebound rebound = rebound_of(bolt);
+            bolt.x = Fixed::from_raw(static_cast<std::int32_t>(from_x + step_x));
+            bolt.y = Fixed::from_raw(static_cast<std::int32_t>(from_y + step_y));
+            bolt.z = Fixed::from_raw(static_cast<std::int32_t>(from_z + step_z));
+            bolt.bounced_off = UnitId{};
+            if (rebound.bounces) {
+                damp_horizontal(bolt);
+                bolt.vz = Fixed::from_raw(static_cast<std::int32_t>(rebound.vz));
+                ++bolt.bounces;
+            } else {
+                bolt.vx = Fixed::zero();
+                bolt.vy = Fixed::zero();
+                bolt.vz = Fixed::zero();
+                bolt.resting = true;
+            }
+            ++bolt.age;
+            projectiles[kept++] = bolt;
+            continue;
         }
         if (grounded) {
             // Gone where it met the ground: no direct damage, no mark, no lesson -- but a shell
@@ -539,9 +648,12 @@ void advance_projectiles(std::vector<Projectile>& projectiles, std::vector<Unit>
         // A bolt with gravity has no constant speed: its range is the ground it has covered.
         const std::int64_t hspeed = isqrt(static_cast<std::int64_t>(bolt.vx.raw) * bolt.vx.raw
                                           + static_cast<std::int64_t>(bolt.vy.raw) * bolt.vy.raw);
+        // A bouncer's first flight is the one the ladder shows and the range bounds; what the
+        // bounces add is bounded by the cap.
         const bool out_of_range
-            = static_cast<std::int64_t>(bolt.age) * (bolt.gravity.raw != 0 ? hspeed : speed)
-              >= bolt.max_travel.raw;
+            = bolt.bounces == 0
+              && static_cast<std::int64_t>(bolt.age) * (bolt.gravity.raw != 0 ? hspeed : speed)
+                     >= bolt.max_travel.raw;
         const bool off_map = to_x < 0 || to_y < 0 || to_x > kMaxPosRaw || to_y > kMaxPosRaw;
         if (speed == 0 || out_of_range || off_map) {
             learn_from(bolt, units);

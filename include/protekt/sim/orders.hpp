@@ -93,6 +93,9 @@ struct FireLob {
     Fixed dir_y{};
     UnitId aimed_at{};
     Fixed dir_z{};
+    /// Contact is the order as it always was; Bounce is the bouncer's (M3). Last, and defaulted,
+    /// so a four-field order keeps its meaning.
+    Round round{Round::Contact};
 };
 
 /// One tick of sideways drift, as an INPUT: the direction (map x, map y; need not be normalised,
@@ -207,7 +210,10 @@ struct OrderFields {
         out.positions[0] = p->dir_x;
         out.positions[1] = p->dir_y;
         out.positions[2] = p->dir_z;
-        out.position_count = 3;
+        // The round rides in the fourth slot as its raw number: zero for Contact, so the hashed
+        // stream (which always walks four slots) of every existing lob is unchanged.
+        out.positions[3] = Fixed::from_raw(static_cast<std::int32_t>(p->round));
+        out.position_count = 4;
         out.has_target = true;
         out.target = p->aimed_at;
     } else if (const auto* p = std::get_if<orders::Strafe>(&payload)) {

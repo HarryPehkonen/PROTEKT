@@ -1536,12 +1536,12 @@ namespace {
 
 } // namespace
 
-TEST(WeaponKey, QCyclesGunRocketMortarAndWrapsToTheGun) {
+TEST(WeaponKey, QCyclesGunRocketMortarBouncerAndWrapsToTheGun) {
     Rig rig = make_rig();
     Interaction player{rig.tank_a};
     EXPECT_EQ(player.weapon(), Weapon::Gun) << "the craft starts with the gun up";
-    const std::array<Weapon, 4> expected{Weapon::Rocket, Weapon::Mortar, Weapon::Gun,
-                                         Weapon::Rocket};
+    const std::array<Weapon, 5> expected{Weapon::Rocket, Weapon::Mortar, Weapon::Bouncer,
+                                         Weapon::Gun, Weapon::Rocket};
     for (const Weapon want : expected) {
         player.handle(with_key(input::kKeyQ), rig.sim, rig.options);
         EXPECT_EQ(player.weapon(), want);

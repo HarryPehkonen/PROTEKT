@@ -82,6 +82,13 @@ struct Projectile {
     std::int64_t closest_d2{INT64_MAX};
     Fixed miss_x{};
     Fixed miss_y{};
+    /// The bouncer's state (M3). All zero for a contact shell, and hashed only when `round` is not
+    /// Contact. `damage` is a bouncer's pulse damage at the centre.
+    Round round{Round::Contact};
+    std::uint32_t bounces{}; ///< contacts it has bounced off
+    bool resting{};          ///< it has come to rest and spins, pulsing
+    std::uint32_t rested{};  ///< ticks it has spent at rest
+    UnitId bounced_off{};    ///< the unit it last bounced off, which it does not bounce off twice
 };
 [[nodiscard]] bool operator==(const Projectile& a, const Projectile& b) noexcept;
 
@@ -179,8 +186,8 @@ void retarget_aim(Unit& shooter, UnitId target) noexcept;
 /// the MORTAR's spec ballistics whatever `shooter` is, from the muzzle, no aim solve, no lead and
 /// no shooter velocity. A zero horizontal direction goes due east at the arc cap up or down.
 [[nodiscard]] Projectile launch_lob(const Unit& shooter, Fixed dir_x, Fixed dir_y, Fixed dir_z,
-                                    UnitId aimed_at, std::uint16_t damage,
-                                    std::uint64_t seed) noexcept;
+                                    UnitId aimed_at, std::uint16_t damage, std::uint64_t seed,
+                                    Round round = Round::Contact) noexcept;
 
 /// One tick of flight for every projectile, in index order. Each moves by its velocity; the first
 /// living unit on the other side (or the one it was aimed at) whose centre the path passes within
