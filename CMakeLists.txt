@@ -298,7 +298,7 @@ if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
                                         tests/test_audio_pipeline.cpp tests/test_player_view.cpp tests/test_game_presenter.cpp
                                         tests/test_utility_battle.cpp
                                         tests/test_layering.cpp
-                                        tests/test_navigation.cpp
+                                        tests/test_navigation.cpp tests/test_routing.cpp
                                         tests/test_synth.cpp tests/test_mixer.cpp
                                         tests/test_sounds.cpp tests/test_audio_out.cpp
                                         tests/test_pixels.cpp tests/test_atlas.cpp

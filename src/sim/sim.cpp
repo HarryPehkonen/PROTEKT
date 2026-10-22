@@ -116,6 +116,7 @@ void apply_posted(Unit& unit, Stance stance, Fixed x, Fixed y, Fixed x2, Fixed y
     unit.patrol_x = clamp_pos(x2);
     unit.patrol_y = clamp_pos(y2);
     unit.target = UnitId{};
+    unit.route.age = kRouteAgeFresh; // a new goal re-plans at once; the same goal keeps its route
 }
 
 /// One tick of sideways drift. Applied where the order is, not stored: the lateral term is an input
@@ -178,18 +179,21 @@ void apply_order(std::vector<Unit>& units, std::vector<Projectile>& projectiles,
         if (const auto* o = std::get_if<orders::Attack>(&order.payload)) {
             unit.stance = Stance::Attack;
             unit.target = o->target;
+            unit.route.age = kRouteAgeFresh;
         }
         break;
     case OrderKind::Follow:
         if (const auto* o = std::get_if<orders::Follow>(&order.payload)) {
             unit.stance = Stance::Follow;
             unit.target = o->target;
+            unit.route.age = kRouteAgeFresh;
         }
         break;
     case OrderKind::Stop:
         unit.stance = Stance::Idle;
         unit.target = UnitId{};
         unit.focus_target = UnitId{}; // and hold fire
+        unit.route = Route{};
         unit.vx = Fixed::zero();
         unit.vy = Fixed::zero();
         break;
@@ -261,7 +265,62 @@ Coord nearest_passable(std::uint64_t seed, int x, int y) noexcept {
 // Sets unit.vx/vy for this tick from the unit's stance. Pure integer steering: head straight at
 // the goal at max speed; once inside the arrive radius (or, for a chase, inside weapon range)
 // stand still. A patrol that arrives swaps its two ends, so it walks back and forth.
-void steer(std::vector<Unit>& units, Unit& unit, const UnitProfile& prof) noexcept {
+constexpr std::int64_t kWaypointArriveRaw = 1 << 15; ///< half a tile
+
+[[nodiscard]] TileXY tile_of(Fixed x, Fixed y) noexcept {
+    return TileXY{static_cast<std::uint8_t>(std::clamp(x.floor_int(), 0, kMapTiles - 1)),
+                  static_cast<std::uint8_t>(std::clamp(y.floor_int(), 0, kMapTiles - 1))};
+}
+
+[[nodiscard]] Fixed tile_center(std::uint8_t tile) noexcept {
+    return Fixed::from_raw((static_cast<std::int32_t>(tile) << Fixed::kShift) + (Fixed::kOne / 2));
+}
+
+/// Keeps `unit.route` serving `goal`: plans when the goal tile has drifted more than
+/// kReplanGoalDriftTiles from the one served, when the unit has strayed more than
+/// kReplanOffRouteTiles from its leg, or when a truncated route has run out -- the last two (and
+/// the first, once a route exists) no sooner than kReplanMinTicks after the previous plan. A plan
+/// that finds no route leaves the unit with none, which is today's steer-at-goal.
+void update_route(Unit& unit, Fixed goal_x, Fixed goal_y, const WorldGround& ground,
+                  std::uint32_t& plans) noexcept {
+    Route& route = unit.route;
+    if (route.age < kRouteAgeFresh) {
+        ++route.age;
+    }
+    const TileXY goal = tile_of(goal_x, goal_y);
+    bool replan = false;
+    if (!route.has_goal) {
+        replan = true;
+    } else {
+        const int drift = std::max(std::abs(static_cast<int>(goal.x) - route.goal.x),
+                                   std::abs(static_cast<int>(goal.y) - route.goal.y));
+        const bool settled = route.age >= kReplanMinTicks;
+        const bool drifted = drift > kReplanGoalDriftTiles && settled;
+        const bool spent = !route.following() && route.partial;
+        if (drifted || spent) {
+            replan = true;
+        } else if (route.following() && settled) {
+            const std::int64_t ax = static_cast<std::int64_t>(route.from.x) * 256 + 128;
+            const std::int64_t ay = static_cast<std::int64_t>(route.from.y) * 256 + 128;
+            const std::int64_t bx
+                = static_cast<std::int64_t>(route.points.at(route.next).x) * 256 + 128;
+            const std::int64_t by
+                = static_cast<std::int64_t>(route.points.at(route.next).y) * 256 + 128;
+            const std::int64_t off
+                = point_segment_dist2(unit.x.raw >> 8, unit.y.raw >> 8, ax, ay, bx, by);
+            const std::int64_t limit = static_cast<std::int64_t>(kReplanOffRouteTiles) * 256;
+            replan = off > limit * limit;
+        }
+    }
+    if (!replan) {
+        return;
+    }
+    ++plans;
+    (void)plan_route(ground, tile_of(unit.x, unit.y), goal, route);
+}
+
+void steer(std::vector<Unit>& units, Unit& unit, const UnitProfile& prof, const WorldGround& ground,
+           std::uint32_t& plans) noexcept {
     unit.vx = Fixed::zero();
     unit.vy = Fixed::zero();
     Fixed goal_x = unit.guard_x;
@@ -317,9 +376,36 @@ void steer(std::vector<Unit>& units, Unit& unit, const UnitProfile& prof) noexce
         }
         return;
     }
-    const std::int64_t dist = isqrt(d2); // >= stop_radius > 0
-    const std::int64_t dx = static_cast<std::int64_t>(goal_x.raw) - unit.x.raw;
-    const std::int64_t dy = static_cast<std::int64_t>(goal_y.raw) - unit.y.raw;
+    // The route, if there is one: aim at the current waypoint (a tile center) and pop it on
+    // arrival; the goal itself is only steered at once the waypoints are spent.
+    update_route(unit, goal_x, goal_y, ground, plans);
+    Fixed aim_x = goal_x;
+    Fixed aim_y = goal_y;
+    while (unit.route.following()) {
+        const TileXY wp = unit.route.points.at(unit.route.next);
+        if (!unit.route.partial && unit.route.next + 1 == unit.route.count) {
+            // The last waypoint is the goal's own tile: the live goal (which may have moved, or
+            // sit off the tile center) is a better thing to steer at, so the route ends here.
+            unit.route.from = wp;
+            ++unit.route.next;
+            break;
+        }
+        aim_x = tile_center(wp.x);
+        aim_y = tile_center(wp.y);
+        if (dist2(unit.x, unit.y, aim_x, aim_y) >= kWaypointArriveRaw * kWaypointArriveRaw) {
+            break;
+        }
+        unit.route.from = wp;
+        ++unit.route.next;
+        aim_x = goal_x;
+        aim_y = goal_y;
+    }
+    const std::int64_t dist = isqrt(dist2(unit.x, unit.y, aim_x, aim_y));
+    if (dist == 0) {
+        return;
+    }
+    const std::int64_t dx = static_cast<std::int64_t>(aim_x.raw) - unit.x.raw;
+    const std::int64_t dy = static_cast<std::int64_t>(aim_y.raw) - unit.y.raw;
     const std::int64_t speed = prof.max_speed.raw;
     std::int64_t vx = dx;
     std::int64_t vy = dy;
@@ -444,7 +530,7 @@ void Sim::step() {
             unit.vy = Fixed::zero();
             continue;
         }
-        steer(units_, unit, prof);
+        steer(units_, unit, prof, ground, route_plans_);
         move(ground, prof, unit);
     }
 
@@ -549,6 +635,8 @@ void Sim::step() {
 
 std::uint32_t Sim::tick() const noexcept { return tick_; }
 
+std::uint32_t Sim::route_plans() const noexcept { return route_plans_; }
+
 std::uint64_t Sim::seed() const noexcept { return scenario_.seed; }
 
 bool tile_passable(std::uint64_t seed, int tile_x, int tile_y) noexcept {
@@ -599,6 +687,20 @@ std::uint64_t Sim::state_hash() const noexcept {
         h.i32(u.aim_y.raw);
         h.u64(u.aim_target.value);
         h.u64(u.alive ? 1 : 0);
+        // The route: the goal it serves, the leg it is on, and every waypoint.
+        h.u64(u.route.has_goal ? 1 : 0);
+        h.u64(u.route.partial ? 1 : 0);
+        h.u64(u.route.goal.x);
+        h.u64(u.route.goal.y);
+        h.u64(u.route.from.x);
+        h.u64(u.route.from.y);
+        h.u64(u.route.age);
+        h.u64(u.route.count);
+        h.u64(u.route.next);
+        for (std::size_t i = 0; i < u.route.count; ++i) {
+            h.u64(u.route.points.at(i).x);
+            h.u64(u.route.points.at(i).y);
+        }
     }
     // Bolts in the air are state. An empty sky adds nothing to the stream, so a battle that never
     // fired a shot hashes exactly as it did before bolts existed.

@@ -3,12 +3,14 @@
 #include <cstdint>
 
 #include "protekt/sim/fixed.hpp"
+#include "protekt/sim/route.hpp"
 #include "protekt/sim/steering.hpp"
 #include "protekt/world/world.hpp"
 
 namespace protekt::sim {
 
 inline constexpr int kMapTiles = 256; ///< the playable world is [0, kMapTiles) tiles square
+static_assert(kMapTiles == kRouteTiles, "a tile coordinate in a Route is one byte");
 /// A tick counter. Named once so the sim, orders, replays and observers cannot drift apart on it.
 using Tick = std::uint32_t;
 
@@ -84,6 +86,8 @@ struct Unit {
     /// Ticks since this unit last moved, saturating at kMountTicks. Only a Turret's is ever
     /// advanced (see `is_mounted`); it is hashed because it decides whether the gun may fire.
     std::uint16_t still_ticks{};
+    /// The planned route to this unit's goal (see sim/route.hpp). Hashed: it decides every step.
+    Route route{};
     bool alive{true};
 };
 

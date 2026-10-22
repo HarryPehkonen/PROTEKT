@@ -105,6 +105,9 @@ public:
     /// Every command that was enqueued and accepted, in order. A replay is this list.
     [[nodiscard]] const std::vector<Command>& command_log() const noexcept;
 
+    /// How many A* route plans this battle has run. Output, not state: a cost meter, not hashed.
+    [[nodiscard]] std::uint32_t route_plans() const noexcept;
+
     /// A hash of the ENTIRE simulation state that can be replayed (units, projectiles and tick).
     /// The determinism oracle: a replay must reproduce it exactly, on any machine.
     [[nodiscard]] std::uint64_t state_hash() const noexcept;
@@ -119,6 +122,7 @@ private:
     std::vector<Command> log_{};
     std::uint32_t tick_{};
     std::uint32_t next_id_{1};
+    std::uint32_t route_plans_{};
 };
 
 } // namespace protekt::sim
