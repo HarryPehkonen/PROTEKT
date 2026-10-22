@@ -73,8 +73,10 @@ struct BattleLog {
 ///   end tick <t> seed <seed> units <n> hash <hash>
 /// One status line per living unit every `status_period` ticks, and always on tick 0. Positions
 /// print as tiles with ONE decimal digit (e.g. 24.0), computed with integer arithmetic.
-/// Names are lowercase and fixed: kinds tank/turret/factory, sides player/enemy, stances
-/// idle/move/guard/patrol/attack/dead, verbs move/guard/patrol/attack/stop/focusfire.
+/// Names are lowercase and fixed: kinds tank/turret/factory/hovertank/mortar/rocket (the names in
+/// sim/spec.hpp), sides player/enemy, stances idle/move/guard/patrol/attack/dead/follow, and the
+/// `ordered` verbs move/guard/patrol/attack/focus/firetowards/strafe/stop/follow/firelob (the
+/// names of `to_string(OrderKind)`; note `focus`, where the replay file says `focusfire`).
 [[nodiscard]] const char* to_string(UnitKind kind) noexcept;
 [[nodiscard]] const char* to_string(Side side) noexcept;
 [[nodiscard]] const char* to_string(Stance stance) noexcept;

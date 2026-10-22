@@ -20,11 +20,14 @@ You are one tank. Everything else you command.
 | `E` (**held**) | boost: lift the hull, and settle back down when you let go |
 | `C` | toggle the colour calibration view: three red/green/blue bars, a check on the display path |
 | **left click** | **fire**, wherever the mark is (see below) |
-| `Q` | switch weapon: gun -> rocket -> mortar -> gun. The crosshair and the label beside it change; the mortar's crosshair is a range ladder, each rung the distance in tiles a shell fired at that view pitch lands on level ground, the lit rung being where you look now. The trigger fires the gun's and the rocket's auto-aimed shot as ever; with the mortar up it lobs a shell along your own view (heading and pitch, no aim-assist, no lead): point up, fire, and the rung you lit is where it lands |
+| `Q` | switch weapon: gun -> rocket -> mortar -> bouncer -> gun. The crosshair and the label beside it change; the mortar's crosshair is a range ladder, each rung the distance in tiles a shell fired at that view pitch lands on level ground, the lit rung being where you look now. The trigger fires the gun's and the rocket's auto-aimed shot as ever; with the mortar up it lobs a shell along your own view (heading and pitch, no aim-assist, no lead): point up, fire, and the rung you lit is where it lands. The bouncer is lobbed the same way, by hand, and fires a bouncing round instead of a contact one |
 | mouse wheel | switch weapon, one per notch: wheel up = previous, wheel down = next, the same wrap as `Q` |
 | `Space`, mark on an own unit | add it to the selection, or remove it if it is already in (`Shift`+`Space` does the same); ground, enemies and the tank you drive are ignored |
 | `1`-`9` | select your own unit with that number, wherever it is: numbers are spawn order and never change (a dead unit's key just says so); the strip along the top shows each living unit's key, kind and hit points, and a 10th unit has no key (a `+N` tag counts them) |
-| `X`, mark on an own tank | swap: drive that tank instead; the one you leave stops, and becomes an ordinary unit you can command |
+| `X`, mark on an own armed unit | swap: drive that unit instead; the one you leave stops, and becomes an ordinary unit you can command. Any of your tanks, hover tanks, turrets, mortars and rockets can be driven. It refuses an enemy unit, your factory (unarmed and immobile, so nothing to drive), a dead unit, the unit you are already driving, and an empty mark |
+| `F`, mark on a unit | every selected unit follows that unit: it holds within 4 tiles of it, closing when it is further and standing still inside, and its gun fires at whatever is in range meanwhile. Any living unit of either side may be followed (so a wingman can shadow the hull you left after `X`), but not the follower itself. It refuses with nothing selected, with nothing living under the mark, or when you are driving the only selected unit |
+| `N` | drop a numbered nav mark (0-9) on the ground under the crosshair, or clear the one you are aiming at. Marks are your own annotation: the sim never sees them, they show on the radar and the world map with their numbers, and ten is the limit |
+| `G`, then `0`-`9` | send every selected unit to that nav mark, as a move order. `G` waits for one key: a digit answers it, `Escape` cancels, and any other key cancels and then does its own job. It refuses when that number is not placed, or with nothing selected |
 | `M` | order every selected unit to move to the ground under the mark, even when a unit is in front of it |
 | `T` | order every selected unit to attack the unit under the mark -- a hostile, or one of your own |
 | `Tab` or `Escape` | clear the selection |
@@ -100,6 +103,7 @@ nothing, which is the entire reason the radius exists.
 - **green square** — one of your units, in range.
 - **red square** — a hostile, in range. The only way a hostile ever appears.
 - **green outline** — your base, in range: a shape as well as a colour, so it reads at a glance.
+- **numbered plate** — one of your nav marks, with its number, in range or pinned to the rim.
 - **green arrow at the rim** — your base, out of range. Your own base is the one thing you are never
   lost about, so it is always drawn or always pointed at. Enemy assets get no arrow, ever.
 
@@ -108,9 +112,11 @@ sized to be read rather than to be exact.
 
 ## Display/HUD
 
-The panel above is most of the HUD. Three more things are drawn on the screen, and one is not drawn at
-all: **there is no text anywhere in this project yet**, so every element below says what it means in
-colour and length only. That is a limit, not a style: a font is its own piece of work.
+The panel above is most of the HUD. Beyond it the screen carries a small amount of text, in a built-in
+five-by-five block font: the weapon's name beside the crosshair, the mortar ladder's range in tiles
+on each rung, a strip along the top with each living unit's key, kind and hit points, a
+`DEPLOYING` plate over one of your turrets that is not yet mounted, and a notice line for a
+refused roster or nav-mark key. The health bar below, and the radar, are colour and length only.
 
 ### The health bar
 
@@ -186,11 +192,11 @@ change a verification run.
 
 | gap | what it means when you play |
 |---|---|
-| **No route planning** | a unit goes straight at its goal, slides along a rim, and takes a short detour around a corner it cannot pass. It does not plan a path: a concave corner cannot hold a unit, but a U-shaped crater field can still keep one inside the pocket. `tests/test_steering.cpp` draws the shapes, `tests/test_navigation.cpp` pins the open-ground and corner cases |
+| **Unreachable goals are not planned for** | a move order is planned as a route over the tile grid (deterministic A*), so units go round craters and rims and out of pockets. A goal that cannot be reached at all gets no route: the unit steers straight at it and may stop against what is in the way. `tests/test_routing.cpp` pins the plan, `tests/test_navigation.cpp` and `tests/test_steering.cpp` the local detour it falls back on |
 | **No economy** | no resources, no harvester, no building. A factory is a 400 hp target and nothing more |
 | **No way to win or lose** | nothing ends a match. An undefended factory can be destroyed by a single tank — factories are unarmed on purpose and defence is what turrets are for — but there is no objective beyond that |
-| **No text anywhere** | there is no font in the project, so nothing on screen is written: refusals ("that order would move the tank you are in") go to the console, not the screen. The HUD is colour and length only -- the radar, the health bar above it and the mark. No numbers, no labels, no marker on the unit your gun is engaging |
-| **No feedback that YOUR shot happened** | the bolt itself is drawn, so the fight is legible, but nothing tells you that the shot you just fired is yours: no muzzle flash, no recoil, no reticle kick. The reticle says what a click *would* do, not what one just did |
+| **Most refusals are on the console, not the screen** | text is drawn (see Display/HUD), but only a refused roster key or nav-mark digit puts its sentence on screen; every other refusal ("that order would move the tank you are in") goes to the console. The radar and the health bar carry no text, and nothing marks the unit your gun is engaging |
+| **Little feedback that YOUR shot happened** | the bolt is drawn, your gun is heard, the reticle spreads for 0.2 seconds when your shot damages an enemy and a mortar shell leaves a landing mark. There is no muzzle flash and no recoil, and a shot that misses gives no reticle response |
 | **No positional audio beyond left and right** | a sound is placed on a line between the speakers: no front or back, no height, no echo or occlusion. A shot behind a hill sounds exactly like one in the open |
 | **Sounds are generated, not recorded** | they are made of noise and sine waves and sound like it. A recording would sound better and bring files, licences and a loader; that trade has not been made |
 | **Silence beyond earshot is deliberate** | 60 tiles for a shot, 90 for a death; past it there is no voice at all. It is not a bug to report when a distant fight makes no noise |
@@ -198,7 +204,7 @@ change a verification run.
 | **The radar is range-based, not line-of-sight** | a hostile behind a hill inside the 40 tiles is still on it. Battlezone's radar worked the same way, and this is the version to play before adding occlusion |
 | **Compass** | the panel turns with the tank; N, E, S, W sit on the ring for the true world directions, from the same yaw as the marks |
 | **Two units on one panel pixel** | the depth test decides, so one colour wins. A hostile within about a tile of you hides under your own mark |
-| Text is not drawn at all | there are coloured boxes and a horizon, and no font. Flat colours, no textures, no lighting |
+| **Lighting is one sun, no shadows** | the ground is painted from textures (six variants of each terrain type, each tile turned one of eight ways) and units are built from several lit prisms, all shaded by one directional sun. Nothing casts a shadow, and the textures are generated, not authored art |
 
 ## Requirements
 
@@ -229,7 +235,7 @@ Then any of:
 # a run nobody is sitting at: press one key on the first frame, so a keypress is reproducible
 ./build/protekt-game --headless --seed 42 --frames 90 --autodrive --press ctrl+q
 
-# the weapon switched N times before the frame (0 gun, 1 rocket, 2 mortar), to capture a reticle
+# the weapon switched N times before the frame (0 gun, 1 rocket, 2 mortar, 3 bouncer), to capture a reticle
 ./build/protekt-game --headless --seed 42 --frames 30 --cursor 640 360 --switch 2 --capture /tmp/mortar.ppm
 # a mortar shell in the air: view tilted up 1.40 rad (clamps at the 1.3 limit), trigger on frame 18
 ./build/protekt-game --headless --no-sound --seed 42 --switch 2 --look-up 140 --fire 18 --frames 40 --capture /tmp/lob.ppm

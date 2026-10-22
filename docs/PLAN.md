@@ -109,30 +109,38 @@ docs/               this plan
 **Where it is now.** A deterministic world from a seed; a fixed-tick simulation with units, orders and
 replay; a Vulkan client that draws it, headless or in a window — full screen included, on `F11` or
 `Alt`+`Enter`, with `Ctrl`+`Q` to quit from anywhere; a command layer where the human and the AI issue
-the same orders through the same interface; a utility AI that advances, engages and withdraws; a
-trigger that chooses a target; units that go around the ground rather than into it; and a radar in the
-corner of the frame that shows what is within 40 tiles of the tank and nothing beyond it; and sound,
-synthesised from arithmetic with no assets: a pure rule in `game/` turns the observer's `fired` and
-`killed` events into voices, `audio/` makes and mixes the samples, and `app/` plays them, so the
-simulation never learns that sound exists and a shot beyond earshot (60 tiles; 90 for a death) is not
-quiet but absent. A machine with no sound device runs silent. 396 tests.
+the same orders through the same interface; a utility AI that advances, engages and withdraws, and
+commands its mortars and rockets by role; a trigger that chooses a target; **deterministic A\* routes**
+(`sim/route.hpp`) that take units round craters and rims, with the local detour kept as the fallback
+for a goal that cannot be reached; six unit kinds (tank, hover tank, mortar, rocket, turret,
+factory), four player weapons (gun, rocket, mortar, bouncer on `Q` or the wheel), and any armed unit
+drivable with `X`; `F` follow, nav marks (`N`, then `G` and a digit to send a selection there), the
+roster strip (`1`-`9`) and the world map (`O`); a radar in the corner of the frame that shows what is
+within 40 tiles of the tank and nothing beyond it; **on-screen feedback**: HUD text (weapon name,
+roster strip, range ladder, notice line), the reticle's hit pulse when your shot damages an enemy,
+mortar landing marks, and the red flash when you are hit; **rendering depth**: textured ground (six
+variants of each terrain type, eight orientations), one directional sun, multi-prism unit models;
+and sound, synthesised from arithmetic with no assets: a pure rule in `game/` turns the observer's
+`fired` and `killed` events into voices, `audio/` makes and mixes the samples, and `app/` plays them,
+so the simulation never learns that sound exists and a shot beyond earshot (60 tiles; 90 for a death)
+is not quiet but absent. A machine with no sound device runs silent.
 
 **What is next, in order.**
 
-1. **On-screen hit feedback.** The reticle says what a click *would* do; it does not say what one just
-   did. The events that drive sound (`sim::events_between`, the one place the diff is written) are
-   there for a flash or a marker when a shot lands. Everything stays world-space triangles, so the
-   renderer contract does not move.
-2. **Economy and objectives: the unpaid half of M4.** Resources, a harvester, building, and a way for a
-   match to end. This is what makes an A\* worth building and what gives turret placement a point.
-3. **Deterministic A\* (navigation option 2)**, as its own milestone, once units have somewhere to go
-   that matters.
-4. **Rendering depth**: textures, lighting, unit shapes. Today the world is flat colours.
-5. **Strategic controllers** (below), the slow layer that decides what to defend.
+1. **Economy and objectives: the unpaid half of M4.** Resources, a harvester, building, and a way for a
+   match to end. This is what gives turret placement a point, and the A\* it was waiting on is built.
+   Nothing in the tree has it yet: a factory is a 400 hp target, and nothing ends a match.
+2. **Strategic controllers** (below), the slow layer that decides what to defend. Still a design
+   sketch: the module was deleted unwired and is recoverable from history.
+
+Shipped from this list since it was written, and no longer next: on-screen hit feedback, deterministic
+A\* (navigation option 2), and rendering depth (textures, lighting, unit shapes). What the rendering
+still lacks is honest in the README gap table: one sun and no shadows, and generated rather than
+authored art.
 
 
-Ranked by *risk reduction per unit of work*, not by visibility. Note that the flashy part
-(rendering) is deliberately third: it is the part with the most known-knowns.
+Ranked by *risk reduction per unit of work*, not by visibility. The flashy part (rendering) was
+deliberately left behind the simulation work, and has now been done.
 
 ### M0 — Skeleton and gate ✅ (this commit)
 Repo, CMake, `tools/ci.sh` green from the first commit, `CODING_STANDARDS.md`, this plan.
@@ -443,7 +451,8 @@ direction AND both axes are blocked it takes a short **detour**: a remembered di
 first. `include/protekt/sim/steering.hpp` holds that decision, and it is the only place a step is
 decided.
 
-**The seam is built for a route planner.** `plan_step` answers one question -- "which way does this unit
+**The seam was built for a route planner, and the planner is now built** (NAV1, `sim/route.hpp`; see
+"Navigation today" below). `plan_step` answers one question -- "which way does this unit
 go this tick?" -- from a ground handed to it as any type with `factor(tile_x, tile_y)`, so a test draws
 a map and the sim hands it the world. A deterministic A* answers the same question from a waypoint list
 and needs nothing else in the tick loop to change.
@@ -452,8 +461,9 @@ and needs nothing else in the tick loop to change.
 ordered onto the enemy base crosses **94 tiles** to (137,158), which is **11.8 tiles** from the base and
 inside its 12-tile weapon range, and stops there to fire. An unarmed base goes **400 -> 0 hp**, first
 damage at tick **965**; with one turret covering the approach the tank still reaches firing range (first
-damage tick 966) and takes the base to **336/400** before dying. What it does NOT do is plan a route: a
-U-shaped crater field can still keep a unit inside the pocket, and there is no notion of a route at all.
+damage tick 966) and takes the base to **336/400** before dying. What it did NOT do, at the time of this
+measurement, was plan a route: a U-shaped crater field could still keep a unit inside the pocket.
+The A* below is the answer to that.
 
 Two constraints the code keeps, because the obvious alternatives are wrong:
 
@@ -465,18 +475,19 @@ Two constraints the code keeps, because the obvious alternatives are wrong:
   standing in. It decides one step. The escape and the detour lifecycle use the whole-tile version;
   applying that to ordinary movement stops units crossing the map at all.
 
-**Next: deterministic A* on the tile grid, followed as waypoints -- its own milestone, after the
-economy.**
+**Navigation today (NAV1, shipped).** Deterministic integer A* on the tile grid, using the mover's own
+passability: eight-connected, no corner cutting, ties broken by lowest f, h, x, y so every platform
+finds the same route. The path is smoothed to its corners and a unit follows them as waypoints; the
+route is unit state and inside `state_hash()`. A route longer than `kMaxWaypoints` (24) is kept as
+its first corners and re-planned from where the unit stands; a moved goal or a wandered unit
+re-plans, at most once per `kReplanMinTicks`. The concave-corner detour above stays as the local
+layer. A goal that cannot be reached gets no route and the unit steers straight at it, as before
+(`tests/test_routing.cpp`). It fixed the pinned follow wedges on seeds 8 and 10. The decision that
+sequenced it behind the economy was reversed: the planner went first. Clearing the spawn corridor
+was rejected: it hides a gameplay defect behind a favourable map.
 
-| option | what it fixes | cost and what it does NOT touch |
-|---|---|---|
-| **Deterministic A\* on the tile grid, followed as waypoints** (new module, ~300 lines + tests) | units actually reach destinations, including around U-shapes and long rims; makes an advance-to-contact order mean what it says | the world is a pure function of `(seed, x, y)` so the grid is cheap and the search is deterministic, but it puts a waypoint list into the order and replay format, so the format gains state and the replay corpus regenerates. It re-records the battle properties the detour already moved |
-
-An economy whose harvesters cannot reliably reach a resource field is not worth building first, and an
-A* nobody has yet needed is a module tuned against nothing. Clearing the spawn corridor was rejected:
-it hides a gameplay defect behind a favourable map.
-
-Recorded values, for provenance: the seed-42 1200-tick battle ends with **7 units** and state hash
+Recorded values, for provenance (the DETOUR-era numbers, before A*; the current baselines are
+`docs/baselines/`): the seed-42 1200-tick battle ends with **7 units** and state hash
 `9354737314166346737`; a 300-frame `--autodrive` headless run hashes `8785776222935281865` (the detour
 is part of unit state, so it is inside both numbers).
 

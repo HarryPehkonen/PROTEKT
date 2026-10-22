@@ -36,6 +36,11 @@ struct Replay {
 ///       patrol <unit> <x> <y> <x2> <y2>
 ///       attack <unit> <target>     stop <unit>     focusfire <unit> <target>
 ///       follow <unit> <target>
+///       strafe <unit> <dx> <dy>
+///       firetowards <unit> <dir_x> <dir_y> <dir_z> <aimed_at>
+///       firelob <unit> <dir_x> <dir_y> <dir_z> <round> <aimed_at>
+///     (`<round>` is a raw number: 0 a contact round, 1 the bouncer's. The positions are
+///     the order's fields in `fields_of`, written in that order, then the target.)
 ///   - numbers are decimal. Ticks, units and targets are plain integers. POSITIONS have two
 ///     accepted spellings: a plain integer is a raw Q16.16 value, and a literal containing '.'
 ///     is a tile value with up to 3 fractional digits, parsed with integer arithmetic only
