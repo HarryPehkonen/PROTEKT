@@ -258,6 +258,8 @@ inline constexpr std::size_t kLandingMarkVertexCount = 60;
 /// the frame at any view pitch a shell can be fired from, however close it lands.
 inline constexpr float kLandingMarkHeight = 4.0F;
 
+class NavMarks;
+
 class LandingMarks {
 public:
     struct Mark {
@@ -434,6 +436,9 @@ struct SceneOptions {
     /// The player's landing markers, drawn standing at their touchdown tiles. Null draws none.
     /// Not owned.
     const LandingMarks* landing_marks{nullptr};
+    /// The player's navigational marks (N1), drawn as a slim beacon at each tile. Null draws none.
+    /// Not owned.
+    const NavMarks* nav_marks{nullptr};
 };
 
 /// Triangles for the terrain mesh (two per tile, painted by `Terrain`) followed by one box per

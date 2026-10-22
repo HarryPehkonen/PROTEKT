@@ -100,4 +100,14 @@ inline void apply(HeldKeys& keys, const KeyEvent& event) noexcept {
     return false;
 }
 
+/// N: drop a navigational mark under the crosshair, or clear the one aimed at. Asks once per press.
+[[nodiscard]] inline bool nav_mark_pressed(const InputFrame& frame) noexcept {
+    for (const KeyEvent& key : frame.keys) {
+        if (key.pressed && !key.ctrl && !key.alt && key.scancode == kKeyN) {
+            return true;
+        }
+    }
+    return false;
+}
+
 } // namespace protekt::input

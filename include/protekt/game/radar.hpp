@@ -5,6 +5,7 @@
 #include <span>
 #include <vector>
 
+#include "protekt/game/nav_marks.hpp"
 #include "protekt/game/scene_data.hpp"
 #include "protekt/sim/sim.hpp"
 
@@ -104,5 +105,26 @@ inline constexpr float kRadarLetterInsetPixels = 8.0F;
                                                  sim::UnitId viewer_unit, float yaw_radians,
                                                  const RadarPanel& panel,
                                                  int radius_tiles = kRadarRadiusTiles);
+
+/// One navigational mark on the radar, in panel pixels like `RadarMark`: the centre of its plate,
+/// `half` the plate's half-size. The plate carries the mark's number.
+struct RadarNav {
+    float px{};
+    float py{};
+    float half{};
+    int number{};
+    bool at_rim{false}; ///< outside the radius: pinned to the rim, in the direction to turn
+};
+
+/// The nav marks for one frame, in ascending number, one per mark given -- a number that was never
+/// dropped is not in `marks`, so it is not here. Inside `radius_tiles` a mark is where its tile is;
+/// outside it is pinned to the rim in its direction, the way your own base is: a mark exists so you
+/// can find your way back to it, and a mark that vanished when you drove away would be no use. With
+/// no viewer unit there is no centre and so no marks.
+[[nodiscard]] std::vector<RadarNav> radar_nav_marks(std::span<const sim::Unit> units,
+                                                    sim::UnitId viewer_unit,
+                                                    std::span<const NavMarks::Mark> marks,
+                                                    float yaw_radians, const RadarPanel& panel,
+                                                    int radius_tiles = kRadarRadiusTiles);
 
 } // namespace protekt::game

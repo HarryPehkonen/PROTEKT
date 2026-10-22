@@ -1,6 +1,7 @@
 #include "protekt/game/scene.hpp"
 
 #include "protekt/game/atlas.hpp"
+#include "protekt/game/nav_marks.hpp"
 #include "protekt/game/pick.hpp"
 #include "protekt/game/radar.hpp"
 #include "protekt/game/weapon.hpp"
@@ -1026,6 +1027,51 @@ void append_landing_marks(std::vector<SceneVertex>& out, const SceneOptions& opt
     }
 }
 
+/// THE NAV BEACON (N1): a slim vertical bar of `kNavColour` standing on the mark's tile, turned to
+/// face the camera, tall enough to see over the terrain from a distance and thin enough not to
+/// fill the view up close. No number: that belongs to the radar. It is drawn only where the
+/// terrain is (the same radius the units use), so it never floats over bare void.
+constexpr float kNavBeaconHeight = 8.0F;
+constexpr float kNavBeaconWidthPerMetre = 0.012F;
+constexpr float kNavBeaconMinHalfWidth = 0.12F;
+constexpr float kNavBeaconMaxHalfWidth = 0.6F;
+
+void append_nav_beacons(std::vector<SceneVertex>& out, const SceneOptions& options) {
+    if (options.nav_marks == nullptr) {
+        return;
+    }
+    const int camera_tile_x = static_cast<int>(std::floor(options.camera.x / kMetresPerTile));
+    const int camera_tile_y = static_cast<int>(std::floor(options.camera.z / kMetresPerTile));
+    const std::array<float, 3> rgb{kNavColour[0], kNavColour[1], kNavColour[2]};
+    for (const NavMarks::Mark& mark : options.nav_marks->marks()) {
+        if (std::abs(mark.tile_x - camera_tile_x) > options.radius_tiles
+            || std::abs(mark.tile_y - camera_tile_y) > options.radius_tiles) {
+            continue;
+        }
+        const float tile_x = static_cast<float>(mark.tile_x) + 0.5F;
+        const float tile_y = static_cast<float>(mark.tile_y) + 0.5F;
+        const float cx = tile_x * kMetresPerTile;
+        const float cz = tile_y * kMetresPerTile;
+        const float ground = ground_metres(options.seed, tile_x, tile_y);
+        float to_x = options.camera.x - cx;
+        float to_z = options.camera.z - cz;
+        const float length = std::sqrt((to_x * to_x) + (to_z * to_z));
+        if (length < 1e-4F) {
+            continue;
+        }
+        to_x /= length;
+        to_z /= length;
+        const float half = std::clamp(length * kNavBeaconWidthPerMetre, kNavBeaconMinHalfWidth,
+                                      kNavBeaconMaxHalfWidth);
+        const float right_x = to_z * half;
+        const float right_z = -to_x * half;
+        emit_quad(out, Vec3{cx - right_x, ground, cz - right_z},
+                  Vec3{cx + right_x, ground, cz + right_z},
+                  Vec3{cx + right_x, ground + kNavBeaconHeight, cz + right_z},
+                  Vec3{cx - right_x, ground + kNavBeaconHeight, cz - right_z}, rgb);
+    }
+}
+
 /// The reticle's distance from the eye, in metres. This close, nothing can stand between the eye
 /// and the mark: it is a screen mark, and a crater rim must not be able to hide it.
 constexpr float kReticleDistanceMetres = 1.5F;
@@ -1157,6 +1203,23 @@ const std::array<std::uint8_t, 5>& letter_rows(char glyph) {
     default:
         return kW;
     }
+}
+
+/// The digits 0-9 in the same 5x5 cell grid as the compass letters, one row per byte.
+const std::array<std::uint8_t, 5>& digit_rows(int digit) {
+    static constexpr std::array<std::array<std::uint8_t, 5>, 10> kDigits{{
+        {0b01110, 0b10001, 0b10001, 0b10001, 0b01110},
+        {0b00100, 0b01100, 0b00100, 0b00100, 0b01110},
+        {0b01110, 0b10001, 0b00110, 0b01000, 0b11111},
+        {0b11110, 0b00001, 0b01110, 0b00001, 0b11110},
+        {0b00110, 0b01010, 0b10010, 0b11111, 0b00010},
+        {0b11111, 0b10000, 0b11110, 0b00001, 0b11110},
+        {0b01110, 0b10000, 0b11110, 0b10001, 0b01110},
+        {0b11111, 0b00001, 0b00010, 0b00100, 0b00100},
+        {0b01110, 0b10001, 0b01110, 0b10001, 0b01110},
+        {0b01110, 0b10001, 0b01111, 0b00001, 0b01110},
+    }};
+    return kDigits.at(static_cast<std::size_t>(std::clamp(digit, 0, 9)));
 }
 
 /// The radar, drawn in PANEL PIXELS: every corner goes through `ray_point`, the same pixel-to-world
@@ -1299,6 +1362,40 @@ void append_radar(std::vector<SceneVertex>& out, const SceneOptions& options, co
         out.push_back(SceneVertex{at(marks_at, apex.at(0), apex.at(1)), rgb});
         out.push_back(SceneVertex{at(marks_at, side_a.at(0), side_a.at(1)), rgb});
         out.push_back(SceneVertex{at(marks_at, side_b.at(0), side_b.at(1)), rgb});
+    }
+
+    // THE NAV MARKS (N1): a bright plate with its number in black, a black outline round it for
+    // contrast, nearer than the compass so a mark pinned to the rim is not hidden by a letter.
+    if (options.nav_marks != nullptr) {
+        constexpr std::array<float, 3> kNavInk{0.0F, 0.0F, 0.0F};
+        const std::array<float, 3> plate_rgb{kNavColour[0], kNavColour[1], kNavColour[2]};
+        constexpr float kOutlineRatio = 0.88F;
+        constexpr float kPlateRatio = 0.87F;
+        constexpr float kInkRatio = 0.86F;
+        constexpr float kOutlinePixels = 1.5F;
+        for (const RadarNav& nav :
+             radar_nav_marks(sim.units(), options.viewer_unit, options.nav_marks->marks(),
+                             options.camera.yaw, panel)) {
+            const float cx = panel.x + nav.px;
+            const float cy = panel.y + nav.py;
+            const float cell = nav.half / 3.1F;
+            rect(marks_at * kOutlineRatio, cx - nav.half - kOutlinePixels,
+                 cy - nav.half - kOutlinePixels, cx + nav.half + kOutlinePixels,
+                 cy + nav.half + kOutlinePixels, kNavInk);
+            rect(marks_at * kPlateRatio, cx - nav.half, cy - nav.half, cx + nav.half, cy + nav.half,
+                 plate_rgb);
+            const std::array<std::uint8_t, 5>& rows = digit_rows(nav.number);
+            for (std::size_t row = 0; row < rows.size(); ++row) {
+                for (int col = 0; col < 5; ++col) {
+                    if (((rows.at(row) >> (4 - col)) & 1U) == 0U) {
+                        continue;
+                    }
+                    const float x = cx - (2.5F * cell) + (static_cast<float>(col) * cell);
+                    const float y = cy - (2.5F * cell) + (static_cast<float>(row) * cell);
+                    rect(marks_at * kInkRatio, x, y, x + cell, y + cell, kNavInk);
+                }
+            }
+        }
     }
 }
 
@@ -2008,6 +2105,7 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
 
     append_projectiles(scene.vertices, options, sim);
     append_landing_marks(scene.vertices, options, sim.tick());
+    append_nav_beacons(scene.vertices, options);
     append_radar(scene.vertices, options, sim);
     append_mount_plates(scene.vertices, options, sim);
     append_unit_bars(scene.vertices, options, sim);

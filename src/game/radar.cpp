@@ -14,6 +14,10 @@ constexpr float kBaseHalfFraction = 0.05F;
 constexpr float kViewerHalfFraction = 0.03F;
 constexpr float kArrowHalfFraction = 0.045F;
 constexpr float kArrowInsetFraction = 0.055F;
+/// A nav mark's plate is a square of this half-size, of the panel: 11 px at the 230 px panel, big
+/// enough to carry a digit a person can read, and kept clear of the rim by `kNavRimFraction`.
+constexpr float kNavHalfFraction = 0.05F;
+constexpr float kNavRimFraction = 0.02F;
 
 [[nodiscard]] float tiles(const sim::Fixed& value) noexcept {
     return static_cast<float>(value.raw) / static_cast<float>(sim::Fixed::kOne);
@@ -108,6 +112,54 @@ std::vector<RadarMark> radar_marks(std::span<const sim::Unit> units, sim::UnitId
                                   RadarShape::Arrow, RadarTone::Yours});
     }
     return marks;
+}
+
+std::vector<RadarNav> radar_nav_marks(std::span<const sim::Unit> units, sim::UnitId viewer_unit,
+                                      std::span<const NavMarks::Mark> marks, float yaw_radians,
+                                      const RadarPanel& panel, int radius_tiles) {
+    std::vector<RadarNav> shown;
+    if (!viewer_unit.valid() || radius_tiles <= 0 || panel.size <= 0.0F) {
+        return shown;
+    }
+    const sim::Unit* viewer = nullptr;
+    for (const sim::Unit& unit : units) {
+        if (unit.id == viewer_unit) {
+            viewer = &unit;
+        }
+    }
+    if (viewer == nullptr) {
+        return shown;
+    }
+    const float middle = panel.size * 0.5F;
+    const float half = panel.size * kNavHalfFraction;
+    // The plate stays wholly on the disc: its centre never goes past this radius.
+    const float limit = middle - (kNavRimFraction * panel.size) - (1.5F * half);
+    const float pixels_per_tile
+        = (middle - (panel.size * kPanelInsetFraction)) / static_cast<float>(radius_tiles);
+    const float sine = std::sin(yaw_radians);
+    const float cosine = std::cos(yaw_radians);
+    for (const NavMarks::Mark& mark : marks) {
+        // The middle of the tile, in the same tile units as a unit's position.
+        const float dx = (static_cast<float>(mark.tile_x) + 0.5F) - tiles(viewer->x);
+        const float dz = (static_cast<float>(mark.tile_y) + 0.5F) - tiles(viewer->y);
+        const float distance = std::hypot(dx, dz);
+        const float forward = (dx * sine) + (dz * cosine);
+        const float right = (dx * cosine) - (dz * sine);
+        const bool in_range = distance <= static_cast<float>(radius_tiles);
+        float x = right * pixels_per_tile;
+        float y = forward * pixels_per_tile;
+        const float reach = std::hypot(x, y);
+        if (!in_range) {
+            const float length = std::max(distance, 1.0e-3F);
+            x = right / length * limit;
+            y = forward / length * limit;
+        } else if (reach > limit) {
+            x *= limit / reach;
+            y *= limit / reach;
+        }
+        shown.push_back(RadarNav{middle + x, middle - y, half, mark.number, !in_range});
+    }
+    return shown;
 }
 
 } // namespace protekt::game

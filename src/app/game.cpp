@@ -21,6 +21,7 @@
 #include "protekt/app/player_view.hpp"
 #include "protekt/app/time_accumulator.hpp"
 #include "protekt/game/aim.hpp"
+#include "protekt/game/nav_marks.hpp"
 #include "protekt/game/player.hpp"
 #include "protekt/game/scene.hpp"
 #include "protekt/game/session.hpp"
@@ -80,6 +81,9 @@ struct Options {
     /// `--look-level N`: on frame N (1-based; 0 is never) the view comes back down by exactly what
     /// `--look-up` raised it, so a capture can watch where a high lob landed.
     std::uint32_t level_frame{0};
+    /// `--nav FRAME` (repeatable): N pressed on that frame (1-based), so a capture can show nav
+    /// marks with nobody at the keyboard. The same family as `--fire`.
+    std::vector<std::uint32_t> nav_frames{};
     bool press_ctrl{false};
     bool press_alt{false};
     /// Turn the radar off, for comparing two frames pixel by pixel. The game always has one.
@@ -141,6 +145,13 @@ int parse_args(std::span<const std::string_view> args, Options& options, std::os
                 err << "protekt-game: --fire wants a frame number\n";
                 return 2;
             }
+        } else if (arg == "--nav") {
+            std::uint32_t frame = 0;
+            if (!next(value) || !parse_number(value, frame) || frame == 0) {
+                err << "protekt-game: --nav wants a frame number (1-based)\n";
+                return 2;
+            }
+            options.nav_frames.push_back(frame);
         } else if (arg == "--fullscreen") {
             if (options.headless) {
                 err << "protekt-game: --fullscreen needs a window; --headless has none\n";
@@ -259,6 +270,11 @@ public:
 
         std::vector<sim::Order> orders;
         session_.frame(hands, sim_, scene_options, orders);
+        if (input::nav_mark_pressed(hands)) {
+            // The player's own pin, held here and never given to the sim.
+            const std::string said = game::nav_press(nav_marks_, sim_, scene_options);
+            out << "protekt-game: " << said << '\n';
+        }
         enemy_.think(sim::observe(sim_, sim::Side::Enemy), orders);
         for (const sim::Order& order : orders) {
             sim_.enqueue(order);
@@ -331,6 +347,7 @@ public:
         scene_options.show_weapon = !session_.destroyed();
         scene_options.reloading = game::weapon_reloading(sim_, driven);
         scene_options.landing_marks = &landing_marks_;
+        scene_options.nav_marks = &nav_marks_;
         scene_options.reticle_pulse = options_.pulse_percent >= 0
                                           ? static_cast<float>(options_.pulse_percent) / 100.0F
                                           : hit_mark_.level(sim_.tick());
@@ -346,6 +363,7 @@ private:
     game::HitFlash hit_flash_;
     game::HitMark hit_mark_;
     game::LandingMarks landing_marks_;
+    game::NavMarks nav_marks_;
     game::Headings headings_;
     bool calibration_{false}; // C toggles the colour calibration view; it never touches the sim
     bool player_alive_before_{false};
@@ -360,6 +378,10 @@ private:
 void script_hands(const Options& options, std::uint32_t frame, input::InputFrame& hands) {
     if (options.autodrive) {
         hands.keys.push_back(input::KeyEvent{input::kKeyW, true, false});
+    }
+    if (std::find(options.nav_frames.begin(), options.nav_frames.end(), frame + 1)
+        != options.nav_frames.end()) {
+        hands.keys.push_back(input::KeyEvent{input::kKeyN, true, false});
     }
     if (options.press_scancode >= 0) {
         hands.keys.push_back(input::KeyEvent{options.press_scancode, true, false,
