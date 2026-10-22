@@ -1198,7 +1198,7 @@ struct Hud {
     std::vector<std::array<float, 2>> marks;
 };
 
-Hud hud_of(const protekt::sim::Sim& sim, SceneOptions watched) {
+Hud hud_of(const protekt::sim::Sim& sim, const SceneOptions& watched) {
     SceneOptions plain = watched;
     plain.viewer_unit = protekt::sim::UnitId{};
     Hud hud;

@@ -265,6 +265,7 @@ TEST(RosterStrip, AKeyForAUnitThatNeverExistedSaysSo) {
 
 TEST(RosterStrip, ATenthUnitHasNoKeyAndIsCountedNotNumbered) {
     std::vector<Spawn> more;
+    more.reserve(5);
     for (int i = 0; i < 5; ++i) {
         more.push_back({UnitKind::Tank, Side::Player, 20 + (4 * i), 100});
     }
