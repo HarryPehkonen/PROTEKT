@@ -447,6 +447,9 @@ struct SceneOptions {
     /// One line under the strip, for what a roster key just said ("Unit 4 is destroyed."). Empty
     /// draws none. The app holds it for a few seconds; the scene only draws it.
     std::string notice{};
+    /// The world map (N4), drawn last over everything: the whole world as a square, your own
+    /// assets and your nav marks. Off by default, so a frame that never heard of it is unchanged.
+    bool show_world_map{false};
 };
 
 /// Triangles for the terrain mesh (two per tile, painted by `Terrain`) followed by one box per

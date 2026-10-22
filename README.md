@@ -28,6 +28,7 @@ You are one tank. Everything else you command.
 | `M` | order every selected unit to move to the ground under the mark, even when a unit is in front of it |
 | `T` | order every selected unit to attack the unit under the mark -- a hostile, or one of your own |
 | `Tab` or `Escape` | clear the selection |
+| `O` | open or close the world map: the whole world as a square, north up, in the ground's own colours, with your units and buildings (the one you drive ringed in white) and your nav marks with their numbers. It never shows an enemy. It is only a picture: it gives no orders and cannot be clicked (a click still acts on the world behind it) |
 | `F11` or `Alt`+`Enter` | full screen, and back again |
 | `Ctrl`+`Q` | quit from anywhere |
 | **right click**, mark on the ground | order every selected unit there |

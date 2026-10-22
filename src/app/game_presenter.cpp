@@ -39,7 +39,8 @@ std::unique_ptr<GamePresenter> GamePresenter::create(const PresenterOptions& opt
         out << "protekt-game: W/S throttle, mouse and A/D look | left click a unit to select it, a "
                "HOSTILE "
                "to "
-               "fire at it | right click to order what is selected | Tab cycles, Escape clears\n"
+               "fire at it | right click to order what is selected | Tab or Escape clears | O "
+               "opens the world map\n"
             << "protekt-game: the full table, and what each control does not do: README.md "
                "(How to play)\n";
     }

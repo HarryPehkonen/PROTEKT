@@ -24,6 +24,7 @@ inline constexpr std::int32_t kKey0 = 39; ///< "0"; it follows "9" in the HID ta
 inline constexpr std::int32_t kKeyG = 10;
 inline constexpr std::int32_t kKeyM = 16;
 inline constexpr std::int32_t kKeyN = 17;
+inline constexpr std::int32_t kKeyO = 18;
 inline constexpr std::int32_t kKeyQ = 20;
 inline constexpr std::int32_t kKeyT = 23;
 inline constexpr std::int32_t kKeyEscape = 41;

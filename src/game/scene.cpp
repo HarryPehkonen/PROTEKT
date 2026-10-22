@@ -6,6 +6,7 @@
 #include "protekt/game/radar.hpp"
 #include "protekt/game/roster.hpp"
 #include "protekt/game/weapon.hpp"
+#include "protekt/game/world_map.hpp"
 #include "protekt/math/math.hpp"
 #include "protekt/sim/spec.hpp"
 
@@ -1949,6 +1950,141 @@ void append_reticle(std::vector<SceneVertex>& out, const SceneOptions& options, 
     bar_quad(-dot, -dot, dot, dot); // the centre dot
 }
 
+/// THE WORLD MAP (N4), on the radar's HUD layers and through the same pixel-to-world function: the
+/// ground first (one quad per run of tiles of the same terrain along a row), then YOUR assets as
+/// dark-edged squares, the driven one ringed in white, then the nav marks as cyan plates with their
+/// digit in black. Everything comes from `world_map`, which has no enemy in it.
+constexpr float kMapTerrainRatio = 2.4F;
+constexpr float kMapFrameRatio = 2.8F;
+constexpr float kMapRowStep = 0.0005F; ///< each row a hair further than the one below it
+constexpr std::size_t kWorldMapSide = static_cast<std::size_t>(kWorldMapTiles);
+constexpr float kMapEdgePixels = 3.0F;
+constexpr std::string_view kMapCaption = "WORLD MAP - O CLOSES";
+
+void append_world_map(std::vector<SceneVertex>& out, const SceneOptions& options,
+                      const sim::Sim& sim) {
+    if (!options.show_world_map) {
+        return;
+    }
+    const WorldMap map = world_map(sim, options.extent, options.viewer_side, options.viewer_unit,
+                                   options.nav_marks);
+    const WorldMapLayout& layout = map.layout;
+    const float scale = static_cast<float>(options.extent.height) * kHudPerFrameHeight;
+    const float marks_at = math::kNearPlane * kHudClearance * corner_ray_length(options.extent);
+    const auto rect = [&](float ratio, float ax, float ay, float bx, float by,
+                          const std::array<float, 3>& rgb) {
+        const auto at = [&](float x, float y) {
+            const RayPoint point
+                = ray_point(options.camera, options.extent, x, y, marks_at * ratio);
+            return Vec3{point.x, point.y, point.z};
+        };
+        emit_quad(out, at(ax, ay), at(bx, ay), at(bx, by), at(ax, by), rgb);
+    };
+    constexpr std::array<float, 3> kInk{0.0F, 0.0F, 0.0F};
+    constexpr std::array<float, 3> kEdge{0.80F, 0.82F, 0.85F};
+    constexpr std::array<float, 3> kOwn{0.30F, 0.85F, 0.35F};
+    constexpr std::array<float, 3> kDriven{1.0F, 1.0F, 1.0F};
+
+    const float edge = kMapEdgePixels * scale;
+    // The frame is four strips, never one square behind the ground: a big quad's depth is
+    // interpolated across its corners and would beat the ground's own quads in the middle.
+    const float frame_left = layout.x - edge;
+    const float frame_top = layout.y - edge;
+    const float right = layout.x + layout.size + edge;
+    const float bottom = layout.y + layout.size + edge;
+    rect(kMapFrameRatio, frame_left, frame_top, right, layout.y, kEdge);
+    rect(kMapFrameRatio, frame_left, layout.y + layout.size, right, bottom, kEdge);
+    rect(kMapFrameRatio, frame_left, layout.y, layout.x, layout.y + layout.size, kEdge);
+    rect(kMapFrameRatio, layout.x + layout.size, layout.y, right, layout.y + layout.size, kEdge);
+
+    const std::vector<world::Terrain>& grid = map_terrain_grid(options.seed);
+    const auto terrain_at = [&](int x, int y) {
+        return grid.at((static_cast<std::size_t>(y) * kWorldMapSide) + static_cast<std::size_t>(x));
+    };
+    for (int y = 0; y < kWorldMapTiles; ++y) {
+        const float top = map_point(layout, 0.0F, static_cast<float>(y + 1)).y;
+        const float bottom = map_point(layout, 0.0F, static_cast<float>(y)).y;
+        int x = 0;
+        while (x < kWorldMapTiles) {
+            const world::Terrain terrain = terrain_at(x, y);
+            int end = x + 1;
+            while (end < kWorldMapTiles && terrain_at(end, y) == terrain) {
+                ++end;
+            }
+            const MapColour colour = map_terrain_colour(terrain);
+            // Each row reaches half a pixel into the one below, which is a little nearer: runs
+            // end at different tiles from row to row, and without the overlap those T-junctions
+            // leave hairline cracks that show the world behind.
+            rect(kMapTerrainRatio + (kMapRowStep * static_cast<float>(y)),
+                 map_point(layout, static_cast<float>(x), 0.0F).x, top,
+                 map_point(layout, static_cast<float>(end), 0.0F).x, bottom + (0.6F * scale),
+                 {colour.r, colour.g, colour.b});
+            x = end;
+        }
+    }
+
+    // Your assets: a black edge, then the green square; the driven unit is ringed in white and
+    // drawn white-centred, so it is found at a glance. Buildings are the larger squares.
+    for (const MapAsset& asset : map.assets) {
+        const float h = asset.half;
+        if (asset.driven) {
+            const float ring = kMapDrivenRingHalf * scale;
+            rect(1.04F, asset.px - ring, asset.py - ring, asset.px + ring, asset.py + ring,
+                 kDriven);
+            rect(1.03F, asset.px - ring + (2.0F * scale), asset.py - ring + (2.0F * scale),
+                 asset.px + ring - (2.0F * scale), asset.py + ring - (2.0F * scale), kInk);
+        }
+        rect(1.02F, asset.px - h - scale, asset.py - h - scale, asset.px + h + scale,
+             asset.py + h + scale, kInk);
+        rect(1.0F, asset.px - h, asset.py - h, asset.px + h, asset.py + h,
+             asset.driven ? kDriven : kOwn);
+    }
+
+    // The nav marks, over the units: cyan plate, black outline, black digit.
+    const std::array<float, 3> plate_rgb{kNavColour[0], kNavColour[1], kNavColour[2]};
+    for (const MapMark& mark : map.marks) {
+        rect(0.90F, mark.px - mark.half - (2.0F * scale), mark.py - mark.half - (2.0F * scale),
+             mark.px + mark.half + (2.0F * scale), mark.py + mark.half + (2.0F * scale), kInk);
+        rect(0.89F, mark.px - mark.half, mark.py - mark.half, mark.px + mark.half,
+             mark.py + mark.half, plate_rgb);
+        const std::array<std::uint8_t, 5>& rows = digit_rows(mark.number);
+        for (std::size_t row = 0; row < rows.size(); ++row) {
+            for (int col = 0; col < 5; ++col) {
+                if (((rows.at(row) >> (4 - col)) & 1U) == 0U) {
+                    continue;
+                }
+                const float x
+                    = mark.px - (2.5F * mark.cell) + (static_cast<float>(col) * mark.cell);
+                const float y
+                    = mark.py - (2.5F * mark.cell) + (static_cast<float>(row) * mark.cell);
+                rect(0.88F, x, y, x + mark.cell, y + mark.cell, kInk);
+            }
+        }
+    }
+
+    // The caption under the map says what this is and how to close it.
+    const float cell = 2.0F * scale;
+    const float width = ((static_cast<float>(kMapCaption.size()) * 6.0F) - 1.0F) * cell;
+    const float left = layout.x + ((layout.size - width) * 0.5F);
+    const float top = layout.y + layout.size + edge + (4.0F * scale);
+    rect(0.9F, left - (4.0F * scale), top - (3.0F * scale), left + width + (4.0F * scale),
+         top + (13.0F * scale), kInk);
+    for (std::size_t index = 0; index < kMapCaption.size(); ++index) {
+        const std::array<std::uint8_t, 5> rows = mount_glyph(kMapCaption.at(index));
+        for (std::size_t row = 0; row < rows.size(); ++row) {
+            for (int col = 0; col < 5; ++col) {
+                if (((rows.at(row) >> (4 - col)) & 1U) == 0U) {
+                    continue;
+                }
+                const float x = left + (static_cast<float>(index) * 6.0F * cell)
+                                + (static_cast<float>(col) * cell);
+                const float y = top + (static_cast<float>(row) * cell);
+                rect(0.88F, x, y, x + cell, y + cell, kEdge);
+            }
+        }
+    }
+}
+
 } // namespace
 
 int hull_variant(std::uint64_t seed, std::uint32_t unit_id) noexcept {
@@ -2260,6 +2396,7 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
     append_weapon_hud(scene.vertices, options);
     append_roster_strip(scene.vertices, options, sim, selected);
     append_reticle(scene.vertices, options, sim, aimed);
+    append_world_map(scene.vertices, options, sim);
 
     // LAST, so it tints everything under it. The vertex format has no alpha, so the wash is each
     // colour taken a fraction of the way to deep red; zero returns before touching anything.

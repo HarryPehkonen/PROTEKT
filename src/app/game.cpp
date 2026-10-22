@@ -89,6 +89,9 @@ struct Options {
     /// `--go FRAME` (repeatable): G pressed on that frame (1-based); the number that answers it is
     /// a `--digit` on a later frame. Lets a capture show the go prompt with nobody at the keyboard.
     std::vector<std::uint32_t> go_frames{};
+    /// `--map FRAME` (repeatable): O pressed on that frame (1-based), which opens the world map and
+    /// on a second frame closes it, so a capture can show the map with nobody at the keyboard.
+    std::vector<std::uint32_t> map_frames{};
     struct DigitPress {
         std::uint32_t frame{};
         int digit{};
@@ -169,6 +172,13 @@ int parse_args(std::span<const std::string_view> args, Options& options, std::os
                 return 2;
             }
             options.go_frames.push_back(frame);
+        } else if (arg == "--map") {
+            std::uint32_t frame = 0;
+            if (!next(value) || !parse_number(value, frame) || frame == 0) {
+                err << "protekt-game: --map wants a frame number (1-based)\n";
+                return 2;
+            }
+            options.map_frames.push_back(frame);
         } else if (arg == "--digit") {
             std::string_view digit_text;
             Options::DigitPress press;
@@ -280,6 +290,7 @@ public:
     [[nodiscard]] sim::Tick tick() const { return sim_.tick(); }
     [[nodiscard]] std::uint64_t state_hash() const { return sim_.state_hash(); }
     void toggle_calibration() { calibration_ = !calibration_; }
+    void toggle_world_map() { world_map_ = !world_map_; }
 
     /// What the player does with this frame's hands: the orders, the enemy's reply, and the
     /// message to say. Returns the scene options as of the end of the last frame -- the picking
@@ -386,6 +397,7 @@ public:
         scene_options.landing_marks = &landing_marks_;
         scene_options.nav_marks = &nav_marks_;
         scene_options.show_roster = true;
+        scene_options.show_world_map = world_map_;
         if (session_.go_armed()) {
             // Never expires: the prompt is on screen for exactly as long as the mode lasts.
             scene_options.notice = std::string(game::kGoPrompt);
@@ -409,6 +421,7 @@ private:
     game::LandingMarks landing_marks_;
     game::NavMarks nav_marks_;
     game::Headings headings_;
+    bool world_map_{false};   // O toggles the world map; a view, it never touches the sim
     bool calibration_{false}; // C toggles the colour calibration view; it never touches the sim
     bool player_alive_before_{false};
     ai::ScriptedCommander enemy_;
@@ -435,6 +448,10 @@ void script_hands(const Options& options, std::uint32_t frame, input::InputFrame
     if (std::find(options.go_frames.begin(), options.go_frames.end(), frame + 1)
         != options.go_frames.end()) {
         hands.keys.push_back(input::KeyEvent{input::kKeyG, true, false});
+    }
+    if (std::find(options.map_frames.begin(), options.map_frames.end(), frame + 1)
+        != options.map_frames.end()) {
+        hands.keys.push_back(input::KeyEvent{input::kKeyO, true, false});
     }
     for (const Options::DigitPress& press : options.digit_presses) {
         if (press.frame == frame + 1) {
@@ -491,6 +508,9 @@ int play(Game& game, GamePresenter& presenter, const Options& options, std::ostr
         const game::Extent extent = presenter.follow(hands);
         if (input::calibration_toggled(hands)) {
             game.toggle_calibration();
+        }
+        if (input::world_map_toggled(hands)) {
+            game.toggle_world_map();
         }
         if (input::quit_requested(hands)) {
             out << "protekt-game: Ctrl+Q, so quitting at frame " << frame << ", tick "

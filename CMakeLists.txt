@@ -108,6 +108,7 @@ add_library(protekt_game STATIC
     src/game/radar.cpp
     src/game/nav_marks.cpp
     src/game/roster.cpp
+    src/game/world_map.cpp
     src/game/sounds.cpp
     src/game/weapon.cpp
 )
@@ -300,7 +301,7 @@ if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
                                         tests/test_interaction.cpp tests/test_bindings.cpp
                                         tests/test_session.cpp tests/test_navigate.cpp
                                         tests/test_utility.cpp tests/test_time_accumulator.cpp
-                                        tests/test_audio_pipeline.cpp tests/test_m5.cpp tests/test_nav_marks.cpp tests/test_send_to_mark.cpp tests/test_roster_strip.cpp tests/test_player_view.cpp tests/test_game_presenter.cpp
+                                        tests/test_audio_pipeline.cpp tests/test_m5.cpp tests/test_nav_marks.cpp tests/test_send_to_mark.cpp tests/test_roster_strip.cpp tests/test_world_map.cpp tests/test_player_view.cpp tests/test_game_presenter.cpp
                                         tests/test_utility_battle.cpp
                                         tests/test_layering.cpp
                                         tests/test_navigation.cpp tests/test_routing.cpp
