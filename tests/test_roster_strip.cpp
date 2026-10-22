@@ -1,5 +1,6 @@
-// N2: the roster strip. Digits 1-9 select your own units in spawn order from anywhere, the strip
-// lists the living ones with their keys, a death removes a slot and never renumbers.
+// K1: the roster strip. Digits 1-9 select a KIND, not a unit: the whole group answers, from
+// anywhere, wherever its units are. Keys come out of a pool, so a kind whose last unit dies gives
+// its key back and a surviving kind moves down into it.
 #include <gtest/gtest.h>
 
 #include <cstdint>
@@ -54,9 +55,9 @@ struct Rig {
     return ids;
 }
 
-/// Camera at tile (40,30) looking down +Z. Own units: tank at (40,40), tank at (44,41), a tank at
-/// (40,2) far BEHIND the camera (third in spawn order), a mortar at (60,41), a turret at (36,41).
-/// One enemy tank, in front.
+/// Camera at tile (40,30) looking down +Z. Own units, in spawn order: tank at (40,40), tank at
+/// (44,41), a tank at (40,2) far BEHIND the camera, a mortar at (60,41), a turret at (36,41) --
+/// so THREE TANKS under one key, then a mortar and a turret. One enemy tank, in front.
 [[nodiscard]] Rig make_rig(std::vector<Spawn> extra = {}) {
     Rig rig{};
     std::vector<Spawn> spawns{
@@ -102,65 +103,83 @@ void aim_at_unit(Rig& rig, UnitId unit) {
     return {units.begin(), units.end()};
 }
 
-TEST(RosterStrip, DigitThreeSelectsTheThirdOwnUnitFromWhereItCannotBeSeen) {
+TEST(RosterStrip, KeyOneSelectsEveryUnitOfItsKindFromWhereItCannotBeSeen) {
     Rig rig = make_rig();
-    const UnitId third = rig.own.at(2);
-    ASSERT_FALSE(mouse_could_find(rig, third))
-        << "the third unit is behind the camera: the mouse must not be able to pick it";
-
+    const UnitId behind = rig.own.at(2);
+    ASSERT_FALSE(mouse_could_find(rig, behind))
+        << "the third tank is behind the camera: the mouse must not be able to pick it";
     Interaction player{rig.own.at(0)};
-    player.handle(digit(3), rig.sim, rig.options);
-    EXPECT_EQ(selected(player), (std::vector<UnitId>{third}));
+    player.handle(digit(1), rig.sim, rig.options);
+    EXPECT_EQ(selected(player), (std::vector<UnitId>{rig.own.at(0), rig.own.at(1), rig.own.at(2)}));
     EXPECT_TRUE(player.message().empty());
 }
 
-TEST(RosterStrip, TheSelectedUnitObeysFollowWithNoNewPlumbing) {
+TEST(RosterStrip, TheSelectedGroupObeysFollowWithNoNewPlumbing) {
     Rig rig = make_rig();
     Interaction player{rig.own.at(0)};
-    player.handle(digit(3), rig.sim, rig.options);
-    aim_at_unit(rig, rig.own.at(1));
+    player.handle(digit(1), rig.sim, rig.options); // every tank
+    aim_at_unit(rig, rig.own.at(3));               // the mortar, which is NOT in the group
     player.handle(key_frame(input::kKeyF), rig.sim, rig.options);
+    // Two orders, not three: the tank the player is SITTING IN is not sent anywhere, and it is
+    // own.at(0). So the group order reaches the rest of the group and leaves the driven one alone.
     const std::vector<sim::Order> orders = player.take_orders();
-    ASSERT_EQ(orders.size(), 1U);
-    EXPECT_EQ(orders.at(0).unit, rig.own.at(2));
-    const auto* follow = std::get_if<sim::orders::Follow>(&orders.at(0).payload);
-    ASSERT_NE(follow, nullptr);
-    EXPECT_EQ(follow->target, rig.own.at(1));
-}
-
-TEST(RosterStrip, EveryDigitSelectsItsOwnUnitAndReplacesTheLast) {
-    Rig rig = make_rig();
-    Interaction player{rig.own.at(0)};
-    for (int n = 1; n <= static_cast<int>(rig.own.size()); ++n) {
-        player.handle(digit(n), rig.sim, rig.options);
-        EXPECT_EQ(selected(player),
-                  (std::vector<UnitId>{rig.own.at(static_cast<std::size_t>(n - 1))}))
-            << "key " << n;
+    ASSERT_EQ(orders.size(), 2U) << "one order per unit of the group, less the one being driven";
+    for (const sim::Order& order : orders) {
+        EXPECT_TRUE(order.unit == rig.own.at(1) || order.unit == rig.own.at(2));
+        EXPECT_NE(order.unit, rig.own.at(0)) << "the driven tank is not ordered";
+        const auto* follow = std::get_if<sim::orders::Follow>(&order.payload);
+        ASSERT_NE(follow, nullptr);
+        EXPECT_EQ(follow->target, rig.own.at(3));
     }
 }
 
-TEST(RosterStrip, TheStripListsExactlyTheLivingOwnUnitsInSpawnOrder) {
+TEST(RosterStrip, EveryKeySelectsItsOwnKindAndReplacesTheLast) {
+    Rig rig = make_rig();
+    Interaction player{rig.own.at(0)};
+    player.handle(digit(1), rig.sim, rig.options);
+    EXPECT_EQ(selected(player).size(), 3U) << "the three tanks";
+    player.handle(digit(2), rig.sim, rig.options);
+    EXPECT_EQ(selected(player), (std::vector<UnitId>{rig.own.at(3)})) << "the mortar alone";
+    player.handle(digit(3), rig.sim, rig.options);
+    EXPECT_EQ(selected(player), (std::vector<UnitId>{rig.own.at(4)})) << "the turret alone";
+    // Key 4 belongs to no kind: the selection is left as it was.
+    player.handle(digit(4), rig.sim, rig.options);
+    EXPECT_EQ(selected(player), (std::vector<UnitId>{rig.own.at(4)}));
+    EXPECT_FALSE(player.message().empty());
+}
+
+TEST(RosterStrip, TheStripListsOneRowPerKindWithItsCountAndTotals) {
     Rig rig = make_rig();
     const Roster roster = roster_of(rig.sim, Side::Player);
-    ASSERT_EQ(roster.slots.size(), rig.own.size());
-    EXPECT_EQ(roster.unkeyed, 0);
-    const std::vector<UnitKind> kinds{UnitKind::Tank, UnitKind::Tank, UnitKind::Tank,
-                                      UnitKind::Mortar, UnitKind::Turret};
-    for (std::size_t i = 0; i < roster.slots.size(); ++i) {
-        EXPECT_EQ(roster.slots.at(i).key, static_cast<int>(i) + 1);
-        EXPECT_EQ(roster.slots.at(i).id, rig.own.at(i));
-        EXPECT_EQ(roster.slots.at(i).kind, kinds.at(i));
-        EXPECT_EQ(roster.slots.at(i).hp, rig.sim.find(rig.own.at(i))->hp);
-        EXPECT_EQ(roster.slots.at(i).max_hp, sim::profile(kinds.at(i)).hp);
+    ASSERT_EQ(roster.groups.size(), 3U);
+    const std::vector<UnitKind> kinds{UnitKind::Tank, UnitKind::Mortar, UnitKind::Turret};
+    for (std::size_t i = 0; i < roster.groups.size(); ++i) {
+        EXPECT_EQ(roster.groups.at(i).key, static_cast<int>(i) + 1);
+        EXPECT_EQ(roster.groups.at(i).kind, kinds.at(i));
         EXPECT_FALSE(kind_label(kinds.at(i)).empty());
+        std::uint16_t hp = 0;
+        for (const UnitId id : roster.groups.at(i).units) {
+            EXPECT_EQ(rig.sim.find(id)->side, Side::Player);
+            hp = static_cast<std::uint16_t>(hp + rig.sim.find(id)->hp);
+        }
+        EXPECT_EQ(roster.groups.at(i).hp, hp) << "the group's hit points are its units' sum";
+        EXPECT_EQ(roster.groups.at(i).max_hp,
+                  static_cast<std::uint16_t>(sim::profile(kinds.at(i)).hp
+                                             * roster.groups.at(i).units.size()));
     }
+    EXPECT_EQ(roster.groups.at(0).units,
+              (std::vector<UnitId>{rig.own.at(0), rig.own.at(1), rig.own.at(2)}))
+        << "one row for all three tanks, in spawn order";
     // And the enemy never appears, from either side's point of view.
-    for (const RosterSlot& slot : roster.slots) {
-        EXPECT_EQ(rig.sim.find(slot.id)->side, Side::Player);
+    for (const RosterGroup& group : roster.groups) {
+        for (const UnitId id : group.units) {
+            EXPECT_EQ(rig.sim.find(id)->side, Side::Player);
+        }
     }
     const Roster theirs = roster_of(rig.sim, Side::Enemy);
-    ASSERT_EQ(theirs.slots.size(), 1U);
-    EXPECT_EQ(rig.sim.find(theirs.slots.at(0).id)->side, Side::Enemy);
+    ASSERT_EQ(theirs.groups.size(), 1U);
+    ASSERT_EQ(theirs.groups.at(0).units.size(), 1U);
+    EXPECT_EQ(rig.sim.find(theirs.groups.at(0).units.at(0))->side, Side::Enemy);
 }
 
 TEST(RosterStrip, TheLabelsAreTheShortNames) {
@@ -172,117 +191,111 @@ TEST(RosterStrip, TheLabelsAreTheShortNames) {
     EXPECT_EQ(kind_label(UnitKind::Factory), "FACTORY");
 }
 
-TEST(RosterStrip, HitPointsFollowDamage) {
+TEST(RosterStrip, TheGroupsHitPointsFollowDamage) {
     // Two enemy tanks beside the second own tank: it takes damage before anything else does.
     Rig rig
         = make_rig({{UnitKind::Tank, Side::Enemy, 47, 41}, {UnitKind::Tank, Side::Enemy, 47, 42}});
-    const std::uint16_t before = roster_of(rig.sim, Side::Player).slots.at(1).hp;
+    const Roster first = roster_of(rig.sim, Side::Player);
+    const RosterGroup* tanks = group_for_key(first, 1);
+    ASSERT_NE(tanks, nullptr);
+    const std::uint16_t before = tanks->hp;
     bool lower = false;
     for (int tick = 0; tick < 600 && !lower; ++tick) {
         rig.sim.step();
-        for (const RosterSlot& slot : roster_of(rig.sim, Side::Player).slots) {
-            if (slot.id == rig.own.at(1) && slot.hp < before) {
-                lower = true;
-                EXPECT_EQ(slot.hp, rig.sim.find(slot.id)->hp);
+        const Roster now = roster_of(rig.sim, Side::Player);
+        const RosterGroup* group = group_for_key(now, 1);
+        ASSERT_NE(group, nullptr);
+        if (group->hp < before) {
+            lower = true;
+            std::uint16_t sum = 0;
+            for (const UnitId id : group->units) {
+                sum = static_cast<std::uint16_t>(sum + rig.sim.find(id)->hp);
             }
+            EXPECT_EQ(group->hp, sum);
         }
     }
     EXPECT_TRUE(lower) << "nothing was hurt, so nothing is proved";
 }
 
-TEST(RosterStrip, ADeadUnitVanishesItsKeyIsDeadAndNoOtherKeyMoves) {
-    Rig rig = make_rig({{UnitKind::Tank, Side::Enemy, 47, 41},
-                        {UnitKind::Tank, Side::Enemy, 47, 42},
-                        {UnitKind::Tank, Side::Enemy, 46, 40}});
-    const std::vector<UnitId> own = rig.own;
-    int dead_index = -1;
-    for (int tick = 0; tick < 6000 && dead_index < 0; ++tick) {
-        rig.sim.step();
-        for (std::size_t i = 0; i < own.size(); ++i) {
-            if (!rig.sim.find(own.at(i))->alive) {
-                dead_index = static_cast<int>(i);
-            }
+TEST(RosterStrip, ThePoolReturnsASlainKindsKey) {
+    // The turret spawns first and stands in front of three enemy tanks; the factory spawns second
+    // and sits far behind them. So the turret takes key 1 and the factory key 2. When the turret
+    // dies the factory must come DOWN into the freed key: that is what the user's rule -- "when the
+    // last unit dies, the function key space gets returned to the pool" -- does to the strip, and
+    // it is the one thing the rule changes about one-key-per-unit numbering.
+    const std::vector<Spawn> spawns{{UnitKind::Turret, Side::Player, 44, 41},
+                                    {UnitKind::Factory, Side::Player, 4, 4},
+                                    {UnitKind::Tank, Side::Enemy, 45, 41},
+                                    {UnitKind::Tank, Side::Enemy, 46, 42},
+                                    {UnitKind::Tank, Side::Enemy, 45, 40}};
+    sim::Sim sim = sim::Sim::create(sim::Scenario{kSeed, spawns});
+    UnitId turret{};
+    for (const sim::Unit& unit : sim.units()) {
+        if (unit.kind == UnitKind::Turret) {
+            turret = unit.id;
         }
     }
-    ASSERT_GE(dead_index, 0) << "nothing died, so nothing is proved";
+    ASSERT_TRUE(turret.valid());
 
-    // Next frame: the slot is gone, the rest are where they were.
-    const Roster roster = roster_of(rig.sim, Side::Player);
-    std::size_t living = 0;
-    for (std::size_t i = 0; i < own.size(); ++i) {
-        if (!rig.sim.find(own.at(i))->alive) {
-            continue;
-        }
-        ++living;
-        bool found = false;
-        for (const RosterSlot& slot : roster.slots) {
-            if (slot.id == own.at(i)) {
-                found = true;
-                EXPECT_EQ(slot.key, static_cast<int>(i) + 1) << "unit " << i << " was renumbered";
-            }
-        }
-        EXPECT_TRUE(found) << "a living unit is missing from the strip";
-    }
-    EXPECT_EQ(roster.slots.size(), living);
-    for (const RosterSlot& slot : roster.slots) {
-        EXPECT_NE(slot.id, own.at(static_cast<std::size_t>(dead_index)));
-    }
+    const Roster before = roster_of(sim, Side::Player);
+    ASSERT_EQ(before.groups.size(), 2U);
+    EXPECT_EQ(before.groups.at(0).key, 1);
+    EXPECT_EQ(before.groups.at(0).kind, UnitKind::Turret);
+    EXPECT_EQ(before.groups.at(1).key, 2);
+    EXPECT_EQ(before.groups.at(1).kind, UnitKind::Factory);
 
-    // Every key: living ones select their unit, the dead one selects nothing and says so.
-    for (std::size_t i = 0; i < own.size(); ++i) {
-        Interaction player{UnitId{}};
-        const int key = static_cast<int>(i) + 1;
-        player.handle(digit(key), rig.sim, rig.options);
-        if (static_cast<int>(i) == dead_index) {
-            EXPECT_TRUE(player.selection().empty());
-            EXPECT_EQ(player.message(), dead_key_message(key));
-            EXPECT_FALSE(player.message().empty());
-        } else if (rig.sim.find(own.at(i))->alive) {
-            EXPECT_EQ(selected(player), (std::vector<UnitId>{own.at(i)})) << "key " << key;
-        }
+    for (int tick = 0; tick < 8000 && sim.find(turret)->alive; ++tick) {
+        sim.step();
     }
+    ASSERT_FALSE(sim.find(turret)->alive) << "the turret outlived the test, so nothing is proved";
+
+    const Roster after = roster_of(sim, Side::Player);
+    ASSERT_EQ(after.groups.size(), 1U);
+    EXPECT_EQ(after.groups.at(0).kind, UnitKind::Factory);
+    EXPECT_EQ(after.groups.at(0).key, 1) << "the freed key was not reused";
 }
 
-TEST(RosterStrip, ADeadKeyLeavesTheSelectionAlone) {
+TEST(RosterStrip, AFreeKeyLeavesTheSelectionAlone) {
     Rig rig = make_rig();
     Interaction player{rig.own.at(0)};
-    player.handle(digit(2), rig.sim, rig.options);
-    ASSERT_EQ(selected(player), (std::vector<UnitId>{rig.own.at(1)}));
+    player.handle(digit(1), rig.sim, rig.options);
+    ASSERT_EQ(selected(player).size(), 3U);
     player.handle(digit(8), rig.sim, rig.options);
-    EXPECT_EQ(selected(player), (std::vector<UnitId>{rig.own.at(1)}));
+    EXPECT_EQ(selected(player), (std::vector<UnitId>{rig.own.at(0), rig.own.at(1), rig.own.at(2)}));
 }
 
-TEST(RosterStrip, AKeyForAUnitThatNeverExistedSaysSo) {
-    Rig rig = make_rig(); // five own units: keys 6-9 never existed
+TEST(RosterStrip, AFreeKeySaysSo) {
+    Rig rig = make_rig(); // three kinds: keys 4-9 are free
     Interaction player{rig.own.at(0)};
     player.handle(digit(7), rig.sim, rig.options);
     EXPECT_TRUE(player.selection().empty());
-    EXPECT_EQ(player.message(), "You have no unit 7.");
-    EXPECT_EQ(unit_for_key(rig.sim, Side::Player, 7).state, KeyState::Never);
-    EXPECT_EQ(dead_key_message(4), "Unit 4 is destroyed.");
-    EXPECT_EQ(empty_key_message(7), "You have no unit 7.");
+    EXPECT_EQ(player.message(), "You have no group 7.");
+    const Roster roster = roster_of(rig.sim, Side::Player);
+    EXPECT_EQ(group_for_key(roster, 7), nullptr);
+    EXPECT_EQ(group_for_key(roster, 3), &roster.groups.at(2));
+    EXPECT_EQ(empty_key_message(7), "You have no group 7.");
 }
 
-TEST(RosterStrip, ATenthUnitHasNoKeyAndIsCountedNotNumbered) {
+TEST(RosterStrip, AHundredUnitsOfAKindAreStillOneRow) {
+    // Twelve more tanks on top of the three: fifteen under one key, still one row, and every unit
+    // the side owns is in exactly one group -- the old strip needed an "unkeyed" tally for the
+    // tenth unit and up, and grouping is what removes the need for it.
     std::vector<Spawn> more;
-    more.reserve(5);
-    for (int i = 0; i < 5; ++i) {
-        more.push_back({UnitKind::Tank, Side::Player, 20 + (4 * i), 100});
+    more.reserve(12);
+    for (int i = 0; i < 12; ++i) {
+        more.push_back({UnitKind::Tank, Side::Player, 20 + (3 * i), 100});
     }
-    Rig rig = make_rig(more); // ten own units
-    ASSERT_EQ(rig.own.size(), 10U);
+    Rig rig = make_rig(more);
+    ASSERT_EQ(rig.own.size(), 17U);
     const Roster roster = roster_of(rig.sim, Side::Player);
-    ASSERT_EQ(roster.slots.size(), 9U);
-    EXPECT_EQ(roster.unkeyed, 1);
-    for (const RosterSlot& slot : roster.slots) {
-        EXPECT_NE(slot.id, rig.own.at(9));
+    ASSERT_EQ(roster.groups.size(), 3U) << "one row per kind, however many units";
+    ASSERT_EQ(roster.groups.at(0).kind, UnitKind::Tank);
+    EXPECT_EQ(roster.groups.at(0).units.size(), 15U);
+    std::size_t counted = 0;
+    for (const RosterGroup& group : roster.groups) {
+        counted += group.units.size();
     }
-    for (int key = 1; key <= 9; ++key) {
-        EXPECT_EQ(unit_for_key(rig.sim, Side::Player, key).id,
-                  rig.own.at(static_cast<std::size_t>(key - 1)));
-    }
-    // Losing one of the nine does not promote the tenth into its key.
-    EXPECT_EQ(unit_for_key(rig.sim, Side::Player, 10).state, KeyState::Never);
+    EXPECT_EQ(counted, rig.own.size()) << "every own unit is in exactly one group";
 }
 
 TEST(RosterStrip, TheStripIsDrawnOnlyWhenAskedAndDoesNotTouchTheSim) {
@@ -293,7 +306,7 @@ TEST(RosterStrip, TheStripIsDrawnOnlyWhenAskedAndDoesNotTouchTheSim) {
     const Scene with = build_scene(rig.sim, rig.options);
     EXPECT_GT(with.vertices.size(), plain.vertices.size());
     EXPECT_EQ(rig.sim.state_hash(), hash);
-    rig.options.notice = "Unit 4 is destroyed.";
+    rig.options.notice = "You have no group 4.";
     const Scene noted = build_scene(rig.sim, rig.options);
     EXPECT_GT(noted.vertices.size(), with.vertices.size());
 }
@@ -302,9 +315,9 @@ TEST(RosterStrip, TwoSameSeedRunsAreByteIdentical) {
     const auto run = [] {
         Rig rig = make_rig();
         rig.options.show_roster = true;
-        rig.options.notice = "Unit 4 is destroyed.";
+        rig.options.notice = "You have no group 4.";
         Interaction player{rig.own.at(0)};
-        player.handle(digit(3), rig.sim, rig.options);
+        player.handle(digit(1), rig.sim, rig.options);
         for (int i = 0; i < 30; ++i) {
             rig.sim.step();
         }

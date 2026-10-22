@@ -476,19 +476,19 @@ void Interaction::send_to_mark(int number, const SceneOptions& options) {
 }
 
 void Interaction::select_roster_key(const sim::Sim& sim, int digit) {
-    // The roster's number for a unit is its place in the sim's own list (game/roster.hpp), so the
-    // unit need not be on screen -- or anywhere near. The selection is the one the mouse builds.
-    const KeyLookup lookup = unit_for_key(sim, sim::Side::Player, digit);
-    switch (lookup.state) {
-    case KeyState::Alive:
-        select_only(lookup.id);
-        break;
-    case KeyState::Dead:
-        refuse(dead_key_message(digit));
-        break;
-    case KeyState::Never:
+    // The roster's key belongs to a KIND now (game/roster.hpp): pressing it selects the whole
+    // group, wherever its units are, and replaces whatever the mouse had built. A key no group
+    // holds is FREE -- the pool keeps no memory of the group that returned it -- so one message
+    // covers "that group is gone" and "you never had that group" alike.
+    const Roster roster = roster_of(sim, sim::Side::Player);
+    const RosterGroup* group = group_for_key(roster, digit);
+    if (group == nullptr) {
         refuse(empty_key_message(digit));
-        break;
+        return;
+    }
+    selection_.clear();
+    for (const sim::UnitId id : group->units) {
+        selection_.add(id);
     }
 }
 

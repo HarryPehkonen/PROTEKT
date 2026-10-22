@@ -1755,18 +1755,18 @@ void append_weapon_hud(std::vector<SceneVertex>& out, const SceneOptions& option
     }
 }
 
-/// THE ROSTER STRIP (N2), in frame pixels on the HUD layer, scaled by the frame's height (the px
-/// below are at 720). One slot per living own unit with a key, left to right in spawn order, a
-/// dead unit's slot simply absent -- the others keep their digit, so the gap closes up but no
-/// number moves. A slot is 88 px wide and 34 tall on a black plate with a 2 px frame (yellow when
-/// the unit is selected, white otherwise), 6 px from the top and 6 px apart. Every glyph in the
-/// strip is 10 px tall (cell 2.0), which is BZ2's own HUD text height, counted rather than guessed:
-/// its text is 10 px in the 800x600 originals and still ~10 px in a 1280x730 screenshot of the
-/// remaster, so it is a fixed pixel font that ignores the resolution. Top row: the hotkey and the
-/// hit points beside it; then the kind (cell 2.0, FACTORY is 82 of the 82 px inside); then a 3 px
-/// hit-point bar, green over yellow over red. A living unit past the ninth has no key and gets no
-/// slot: a "+N" tag in the strip's last place counts them. Under the strip, `options.notice` in
-/// 10 px yellow capitals.
+/// THE ROSTER STRIP (K1), in frame pixels on the HUD layer, scaled by the frame's height (the px
+/// below are at 720). One plate per KIND that has living units, left to right in key order, so a
+/// kind with a hundred units is still one plate and the strip is never longer than the kinds a side
+/// can field. A plate is 88 px wide and 34 tall on a black plate with a 2 px frame (yellow when any
+/// unit of the group is selected, white otherwise), 6 px from the top and 6 px apart. Every glyph
+/// in the strip is 10 px tall (cell 2.0), which is BZ2's own HUD text height, counted rather than
+/// guessed: its text is 10 px in the 800x600 originals and still ~10 px in a 1280x730 screenshot of
+/// the remaster, so it is a fixed pixel font that ignores the resolution. Top row: the key, and how
+/// many units the group holds beside it; then the kind (cell 2.0, FACTORY is 82 of the 82 px
+/// inside); then a 3 px bar, green over yellow over red, showing the GROUP's fraction -- a group
+/// has no single hit-point figure, so the count takes the number's place and the bar carries the
+/// health. Under the strip, `options.notice` in 10 px yellow capitals.
 constexpr float kStripMarginPixels = 6.0F;
 constexpr float kStripSlotWidthPixels = 88.0F;
 constexpr float kStripSlotGapPixels = 6.0F;
@@ -1778,7 +1778,6 @@ constexpr float kStripHpCell = 2.0F;
 constexpr float kStripKindCell = 2.0F;
 constexpr float kStripBarPixels = 3.0F;
 constexpr float kStripNoticeCell = 2.0F;
-constexpr float kStripTagCell = 2.0F;
 /// The corner radius of a HUD panel, at 720p. Panels are rounded like BZ2's rather than square, and
 /// the frame ring clamps the radius to at least its own width so the face inside it can never be
 /// handed a negative radius.
@@ -1909,29 +1908,36 @@ void append_roster_strip(std::vector<SceneVertex>& out, const SceneOptions& opti
     const float slot_h = kStripSlotHeightPixels * px;
     const float pad = kStripPadPixels * px;
     float left = kStripMarginPixels * px;
-    for (const RosterSlot& slot : roster.slots) {
-        const bool chosen = std::find(selected.begin(), selected.end(), slot.id) != selected.end();
+    for (const RosterGroup& group : roster.groups) {
+        // Lit when ANY unit of the group is selected: the old per-unit rule, generalised. Pressing
+        // the key selects the whole group, so a lit row means "you have some of these".
+        const bool chosen
+            = std::any_of(group.units.begin(), group.units.end(), [selected](sim::UnitId id) {
+                  return std::find(selected.begin(), selected.end(), id) != selected.end();
+              });
         plate(left, top, left + slot_w, top + slot_h, chosen ? kStripSelected : kStripFrame);
-        const std::array<char, 1> key{static_cast<char>('0' + slot.key)};
+        const std::array<char, 1> key{static_cast<char>('0' + group.key)};
         const float key_cell = kStripKeyCell * px;
-        const float hp_cell = kStripHpCell * px;
+        const float count_cell = kStripHpCell * px;
         ink_text(std::string_view{key.data(), 1}, left + pad, top + pad, key_cell,
                  chosen ? kStripSelected : kStripFrame);
-        const std::string hp = std::to_string(slot.hp);
-        const float hp_left = left + slot_w - pad - word_width(hp, hp_cell);
-        ink_text(hp, hp_left, top + pad + (2.5F * key_cell) - (2.5F * hp_cell), hp_cell,
+        // How many, not how hurt. The "x" is what keeps a bare digit from reading as hit points.
+        const std::string count = "x" + std::to_string(group.units.size());
+        const float count_left = left + slot_w - pad - word_width(count, count_cell);
+        ink_text(count, count_left, top + pad + (2.5F * key_cell) - (2.5F * count_cell), count_cell,
                  kStripFrame);
         const float kind_top = top + pad + (5.0F * key_cell) + pad;
-        ink_text(kind_label(slot.kind), left + pad, kind_top, kStripKindCell * px, kStripFrame);
-        // The bar: a dark track the width of the slot's inside, the fill in proportion.
+        ink_text(kind_label(group.kind), left + pad, kind_top, kStripKindCell * px, kStripFrame);
+        // The bar: a dark track the width of the slot's inside, the fill in proportion. Summed
+        // totals give the group's fraction exactly, because every unit of a kind shares its max.
         const float bar_top = top + slot_h - pad - (kStripBarPixels * px) + (2.0F * px);
         const float bar_left = left + pad;
         const float bar_width = slot_w - (2.0F * pad);
         const float fraction
-            = slot.max_hp == 0
+            = group.max_hp == 0
                   ? 0.0F
-                  : std::clamp(static_cast<float>(slot.hp) / static_cast<float>(slot.max_hp), 0.0F,
-                               1.0F);
+                  : std::clamp(static_cast<float>(group.hp) / static_cast<float>(group.max_hp),
+                               0.0F, 1.0F);
         const std::array<float, 3> fill = fraction > 0.6F ? std::array<float, 3>{0.1F, 0.85F, 0.2F}
                                           : fraction > 0.3F
                                               ? std::array<float, 3>{1.0F, 0.85F, 0.1F}
@@ -1941,13 +1947,6 @@ void append_roster_strip(std::vector<SceneVertex>& out, const SceneOptions& opti
         rect(marks_at, bar_left, bar_top, bar_left + (bar_width * fraction),
              bar_top + (kStripBarPixels * px), fill);
         left += slot_w + (kStripSlotGapPixels * px);
-    }
-    if (roster.unkeyed > 0) {
-        const std::string tag = "+" + std::to_string(roster.unkeyed);
-        const float cell = kStripTagCell * px;
-        const float width = word_width(tag, cell) + (2.0F * pad);
-        plate(left, top, left + width, top + slot_h, kStripFrame);
-        ink_text(tag, left + pad, top + (slot_h * 0.5F) - (2.5F * cell), cell, kStripFrame);
     }
     if (!options.notice.empty()) {
         const float cell = kStripNoticeCell * px;

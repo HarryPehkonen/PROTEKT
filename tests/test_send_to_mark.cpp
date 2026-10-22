@@ -49,9 +49,11 @@ struct Rig {
 
 [[nodiscard]] Rig make_rig() {
     Rig rig{};
+    // One unit per KIND, so each roster key selects exactly one unit (K1 groups by kind): these
+    // tests are about sending a known unit to a mark, not about group selection.
     const std::vector<Spawn> spawns{{UnitKind::Tank, Side::Player, 40, 40},
-                                    {UnitKind::Tank, Side::Player, 44, 41},
-                                    {UnitKind::Tank, Side::Player, 40, 2},
+                                    {UnitKind::HoverTank, Side::Player, 44, 41},
+                                    {UnitKind::Mortar, Side::Player, 40, 2},
                                     {UnitKind::Tank, Side::Enemy, 38, 60}};
     rig.sim = sim::Sim::create(sim::Scenario{kSeed, spawns});
     for (const sim::Unit& unit : rig.sim.units()) {
