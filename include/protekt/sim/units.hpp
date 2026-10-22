@@ -33,6 +33,12 @@ inline constexpr int kUnitKindCount = 6;
     return kind == UnitKind::Tank || kind == UnitKind::HoverTank;
 }
 
+/// Every ARMED kind can be driven (swapped into): the tanks, the mortar, the rocket and the
+/// turret. The factory is unarmed and cannot move, so there is nothing to drive.
+[[nodiscard]] constexpr bool is_drivable(UnitKind kind) noexcept {
+    return kind != UnitKind::Factory;
+}
+
 enum class Side : std::uint8_t { Player = 0, Enemy = 1 };
 
 /// What a unit is currently doing. Orders set a stance; the sim advances it.
@@ -86,14 +92,21 @@ struct Unit {
     /// Ticks since this unit last moved, saturating at kMountTicks. Only a Turret's is ever
     /// advanced (see `is_mounted`); it is hashed because it decides whether the gun may fire.
     std::uint16_t still_ticks{};
+    /// A mounted turret that has been told to move spends kUnmountTicks unmounting first, and this
+    /// counts them (0 = not unmounting). Hashed only when non-zero.
+    std::uint16_t unmount_ticks{};
     /// The planned route to this unit's goal (see sim/route.hpp). Hashed: it decides every step.
     Route route{};
     bool alive{true};
 };
 
 /// A turret is a DEPLOYABLE weapon: it crawls unmounted and cannot fire, and it mounts after this
-/// many ticks (3 s) of unbroken stillness. Moving unmounts it at once.
+/// many ticks (3 s) of unbroken stillness. Moving unmounts it (see kUnmountTicks).
 inline constexpr std::uint16_t kMountTicks = 90;
+
+/// A MOUNTED turret told to move first spends this many ticks (3 s, as long as mounting takes)
+/// unmounting, during which it neither moves nor fires; only then does it crawl.
+inline constexpr std::uint16_t kUnmountTicks = 90;
 
 /// True when the gun may fire. Every other kind fires on the move, so it is always "mounted".
 [[nodiscard]] constexpr bool is_mounted(const Unit& unit) noexcept {

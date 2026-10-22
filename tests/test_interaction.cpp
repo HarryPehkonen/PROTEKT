@@ -845,7 +845,7 @@ TEST(MoveKey, SpaceSelectsAPlayerTurretAndMMovesIt) {
     EXPECT_EQ(orders.front().kind(), OrderKind::MoveTo);
     const std::int64_t before = rig.sim.find(rig.turret)->x.raw + rig.sim.find(rig.turret)->y.raw;
     rig.sim.enqueue(orders.front());
-    for (int t = 0; t < 5; ++t) {
+    for (int t = 0; t < sim::kUnmountTicks + 5; ++t) { // it unmounts first
         rig.sim.step();
     }
     EXPECT_NE(rig.sim.find(rig.turret)->x.raw + rig.sim.find(rig.turret)->y.raw, before)
@@ -1129,18 +1129,36 @@ TEST(Swap, AnEnemyTankIsRefusedWithAReason) {
     static_cast<void>(at(rig, rig.enemy));
     player.handle(with_key(input::kKeyX), rig.sim, rig.options);
     EXPECT_EQ(player.driven(), rig.tank_a);
-    EXPECT_EQ(player.message(), "That tank is not yours -- you can only swap into your own.");
+    EXPECT_EQ(player.message(), "That unit is not yours -- you can only swap into your own.");
     EXPECT_TRUE(player.take_orders().empty());
 }
 
-TEST(Swap, AnOwnTurretIsRefusedWithAReason) {
+TEST(Swap, XOnAnOwnTurretDrivesIt) {
     Rig rig = make_rig();
     Interaction player(rig.tank_a);
     static_cast<void>(at(rig, rig.turret));
     player.handle(with_key(input::kKeyX), rig.sim, rig.options);
-    EXPECT_EQ(player.driven(), rig.tank_a);
-    EXPECT_EQ(player.message(), "That is not a tank -- you can only swap into a tank.");
-    EXPECT_TRUE(player.take_orders().empty());
+    EXPECT_EQ(player.driven(), rig.turret);
+    EXPECT_FALSE(player.message().empty());
+}
+
+TEST(Swap, XOnAnOwnMortarOrRocketDrivesIt) {
+    for (const UnitKind kind : {UnitKind::Mortar, UnitKind::Rocket}) {
+        Rig rig = make_rig(kind);
+        Interaction player(rig.tank_a);
+        static_cast<void>(at(rig, rig.tank_b));
+        player.handle(with_key(input::kKeyX), rig.sim, rig.options);
+        EXPECT_EQ(player.driven(), rig.tank_b);
+    }
+}
+
+TEST(Swap, TheFactoryCannotBeDriven) {
+    EXPECT_TRUE(sim::is_drivable(UnitKind::Tank));
+    EXPECT_TRUE(sim::is_drivable(UnitKind::HoverTank));
+    EXPECT_TRUE(sim::is_drivable(UnitKind::Mortar));
+    EXPECT_TRUE(sim::is_drivable(UnitKind::Rocket));
+    EXPECT_TRUE(sim::is_drivable(UnitKind::Turret));
+    EXPECT_FALSE(sim::is_drivable(UnitKind::Factory));
 }
 
 TEST(Swap, NothingUnderTheCrosshairIsRefusedWithAReason) {
@@ -1158,7 +1176,7 @@ TEST(Swap, TheTankAlreadyDrivenIsRefusedWithAReason) {
     static_cast<void>(at(rig, rig.tank_a));
     player.handle(with_key(input::kKeyX), rig.sim, rig.options);
     EXPECT_EQ(player.driven(), rig.tank_a);
-    EXPECT_EQ(player.message(), "You are already driving that tank.");
+    EXPECT_EQ(player.message(), "You are already driving that unit.");
     EXPECT_TRUE(player.take_orders().empty());
 }
 

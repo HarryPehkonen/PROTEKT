@@ -4405,7 +4405,9 @@ TEST(SceneGunAim, AnIdleTurretLooksForwardAndAMovingOneAlongItsCourse) {
     sim.enqueue(protekt::sim::Order{
         sim.units().at(0).id, protekt::sim::orders::MoveTo{protekt::sim::Fixed::from_int(90),
                                                            protekt::sim::Fixed::from_int(100)}});
-    sim.step();
+    for (int t = 0; t <= protekt::sim::kUnmountTicks; ++t) {
+        sim.step(); // unmount, then one tick of crawl
+    }
     const auto& turret = sim.units().at(0);
     const auto model = tank_only(sim, turret, {});
     EXPECT_NEAR(barrel_yaw(model, turret), -protekt::math::kPi * 0.5F, kYawTolerance)

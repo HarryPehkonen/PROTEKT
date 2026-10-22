@@ -293,6 +293,10 @@ TEST(Sim, ATurretMovesToATileAtCrawlSpeed) {
     const Fixed goal = Fixed::from_int(x0 + 32);
     const std::int32_t start = sim.units()[0].x.raw;
     sim.enqueue(Order{sim.units()[0].id, orders::MoveTo{goal, Fixed::from_int(y0)}});
+    for (int t = 0; t < kUnmountTicks; ++t) {
+        sim.step(); // a mounted turret unmounts first, without moving
+    }
+    EXPECT_EQ(sim.units()[0].x.raw, start);
     for (int t = 0; t < 100; ++t) {
         sim.step();
     }

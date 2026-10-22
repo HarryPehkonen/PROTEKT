@@ -320,11 +320,11 @@ void Interaction::swap_to_crosshair(const sim::Sim& sim, const SceneOptions& opt
     if (hit == nullptr || !hit->alive) {
         refuse("There is nothing under the crosshair to swap into.");
     } else if (hit->side != sim::Side::Player) {
-        refuse("That tank is not yours -- you can only swap into your own.");
-    } else if (!sim::is_tank(hit->kind)) {
-        refuse("That is not a tank -- you can only swap into a tank.");
+        refuse("That unit is not yours -- you can only swap into your own.");
+    } else if (!sim::is_drivable(hit->kind)) {
+        refuse("That cannot be driven -- you can only swap into your own armed units.");
     } else if (hit->id == driven_) {
-        refuse("You are already driving that tank.");
+        refuse("You are already driving that unit.");
     } else {
         // The old tank would otherwise trundle off on its last MoveTo with nobody at the helm: Stop
         // idles it and the sim's steering zeroes its velocity. It is an ordinary unit from now on.
@@ -334,7 +334,7 @@ void Interaction::swap_to_crosshair(const sim::Sim& sim, const SceneOptions& opt
         remembered_.erase(vacated); // a Stop forgets; remember() skips the driven tank, as it was
         pending_.insert(pending_.end(), stop.begin(), stop.end());
         driven_ = hit->id;
-        message_ = "swapped tanks -- you are driving the one you were looking at.";
+        message_ = "swapped -- you are driving the unit you were looking at.";
     }
 }
 

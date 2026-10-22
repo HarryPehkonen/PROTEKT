@@ -433,6 +433,34 @@ void steer(std::vector<Unit>& units, Unit& unit, const UnitProfile& prof, const 
     unit.vy = Fixed::from_raw(static_cast<std::int32_t>(vy));
 }
 
+// The unmount gate. A turret that wants to move (steer gave it a velocity) but is mounted first
+// spends kUnmountTicks unmounting: no movement, no fire (still_ticks is 0 for the duration, so it
+// is not mounted). A turret that stops wanting to move mid-way abandons the unmount and mounts
+// again after a fresh kMountTicks of stillness -- the progress is not kept. Returns whether the
+// turret may move this tick.
+[[nodiscard]] bool turret_may_move(Unit& unit) noexcept {
+    if (unit.vx.raw == 0 && unit.vy.raw == 0) {
+        if (unit.unmount_ticks != 0) {
+            unit.unmount_ticks = 0;
+            unit.still_ticks = 1; // this tick was still too: the pre-step skipped its count
+        }
+        return true; // nothing to move anyway
+    }
+    if (unit.unmount_ticks == 0 && unit.still_ticks < kMountTicks) {
+        return true; // already unmounted: crawls
+    }
+    if (unit.unmount_ticks == 0) {
+        unit.still_ticks = 0; // the gun comes off its mount now
+    }
+    unit.unmount_ticks = static_cast<std::uint16_t>(unit.unmount_ticks + 1);
+    if (unit.unmount_ticks >= kUnmountTicks) {
+        unit.unmount_ticks = 0; // unmounted (still_ticks is 0): it crawls from the next tick
+    }
+    unit.vx = Fixed::zero();
+    unit.vy = Fixed::zero();
+    return false;
+}
+
 // Moves a unit by the step `plan_step` chose: straight on where it can, along a rim where it must,
 // and around an obstacle it cannot pass. The choice itself lives in sim/steering.hpp, which is the
 // seam a planned route will plug into.
@@ -524,7 +552,8 @@ void Sim::step() {
     // A turret that has not moved yet this tick has been still one tick longer; any move below
     // (a strafe in this step's orders, or the mover) puts it back to zero.
     for (Unit& unit : units_) {
-        if (unit.kind == UnitKind::Turret && unit.still_ticks < kMountTicks) {
+        if (unit.kind == UnitKind::Turret && unit.still_ticks < kMountTicks
+            && unit.unmount_ticks == 0) {
             ++unit.still_ticks;
         }
     }
@@ -547,6 +576,9 @@ void Sim::step() {
             continue;
         }
         steer(units_, unit, prof, ground, route_plans_);
+        if (unit.kind == UnitKind::Turret && !turret_may_move(unit)) {
+            continue;
+        }
         move(ground, prof, unit);
     }
 
@@ -692,6 +724,9 @@ std::uint64_t Sim::state_hash() const noexcept {
         h.u64(u.hp);
         h.u64(u.cooldown);
         h.u64(u.still_ticks);
+        if (u.unmount_ticks != 0) {
+            h.u64(u.unmount_ticks); // only when set, so a sim that never unmounts hashes as before
+        }
         h.u64(static_cast<std::uint64_t>(u.stance));
         h.u64(u.target.value);
         h.u64(u.focus_target.value);
