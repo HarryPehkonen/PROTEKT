@@ -405,6 +405,46 @@ TEST(LandingMarker, TheLowestLadderPitchLandsAMarkerThatIsClearlyVisibleInFront)
     expect_marker_at(rig, mortar_landing_tiles(kMortarRungPitches.front()));
 }
 
+TEST(LandingMarker, ACloseOneIsATallNarrowCrossAndNotAWall) {
+    // M5c, measured: the first version drew a 1.9 m-wide cross at the closest rung, which covered
+    // 34% of the frame's width and 80% of its height -- a magenta wall in the player's face at
+    // exactly the range the mark exists for. The HEIGHT stays 4 m (the eye is above a close
+    // landing, so the height is what carries the mark into the frame); the WIDTH now follows the
+    // range, so what stands at your feet is a tall narrow cross.
+    Rig rig;
+    make_rig(rig, Weapon::Mortar, kMortarRungPitches.front());
+    const float tiles = mortar_landing_tiles(kMortarRungPitches.front());
+    ASSERT_LT(tiles, 3.0F) << "the closest rung, about 1.6 tiles out";
+    // Fire and read the marker the moment it lands: `expect_marker_at` runs out the whole lifetime.
+    frame(rig, true);
+    for (int tick = 0; tick < 300 && rig.landings == 0; ++tick) {
+        frame(rig, false);
+    }
+    ASSERT_EQ(rig.landings, 1) << "the sim reported the touchdown";
+    const Marked drawn = marker_vertices(rig);
+    ASSERT_EQ(drawn.marker.size(), kLandingMarkVertexCount);
+    const float centre_x = (static_cast<float>(rig.last_landing.tile_x) + 0.5F) * kMetresPerTile;
+    const float centre_z = (static_cast<float>(rig.last_landing.tile_y) + 0.5F) * kMetresPerTile;
+    const float ground = ground_metres(kSeed, static_cast<float>(rig.last_landing.tile_x) + 0.5F,
+                                       static_cast<float>(rig.last_landing.tile_y) + 0.5F);
+    float wide = 0.0F;
+    float tall = 0.0F;
+    for (const SceneVertex& v : drawn.marker) {
+        wide = std::max(wide,
+                        std::sqrt(((v.position[0] - centre_x) * (v.position[0] - centre_x))
+                                  + ((v.position[2] - centre_z) * (v.position[2] - centre_z))));
+        tall = std::max(tall, v.position[1] - ground);
+    }
+    EXPECT_LE(wide, 0.5F) << "half a metre either side at 1.6 tiles: a cross, not a wall";
+    EXPECT_GE(tall, 3.5F) << "and still 4 m tall, so it reaches into the frame from a level view";
+}
+
+TEST(LandingMarker, TheHoldIsTwoSecondsSoAShotAtTheSkyCanBeLookedDownAt) {
+    // A lob at the top of the ladder is 52 ticks in the air; 60 ticks of hold left nothing to see
+    // by the time the player brought his view back down.
+    EXPECT_EQ(kLandingMarkHoldTicks, 120);
+}
+
 TEST(LandingMarker, TheHighestLadderPitchLandsAMarkerThirteenPointNineTilesOut) {
     Rig rig;
     make_rig(rig, Weapon::Mortar, kMortarRungPitches.back());

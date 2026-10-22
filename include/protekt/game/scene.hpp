@@ -246,7 +246,9 @@ private:
 /// `kLandingMarkHoldTicks` at full strength and then shrinking away over `kLandingMarkFadeTicks`
 /// more, so a shell that lands on empty ground still tells the player where. Fed from the sim's own
 /// `Landing` record, never re-derived. The app owns it, like `HitMark`.
-inline constexpr sim::Tick kLandingMarkHoldTicks = 60;
+/// The hold is 2 s (M5c): a lob at the top of the ladder is in the air for 52 ticks, so a player
+/// who fires at the sky and looks back down still has a second to read where it came down.
+inline constexpr sim::Tick kLandingMarkHoldTicks = 120;
 inline constexpr sim::Tick kLandingMarkFadeTicks = 20;
 
 /// Vertices in one marker: a bracketed cross standing upright at the touchdown tile -- the X's two

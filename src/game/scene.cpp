@@ -929,13 +929,18 @@ void append_projectiles(std::vector<SceneVertex>& out, const SceneOptions& optio
 /// Always `kLandingMarkVertexCount` vertices per mark.
 constexpr Vec3 kLandingMarkColour{1.0F, 0.1F, 0.85F};
 /// The mark is 4 m tall whatever the range (the eye is higher than a shell's close landings, so the
-/// height is what keeps it in the frame), but its width follows the range -- 0.3 of it, from 0.7 to
-/// 1.6 m either side -- so a shell that lands at your feet is a tall narrow cross, not a wall.
-constexpr float kLandingMarkWidthPerMetre = 0.3F;
-constexpr float kLandingMarkMinHalfWidth = 0.7F;
+/// height is what keeps it in the frame), but its width follows the range -- 0.10 of it, from 0.3
+/// to 1.6 m either side -- so a shell that lands at your feet is a tall narrow cross, not a wall.
+/// Measured (M5c): the old 0.3-per-metre with a 0.7 m floor gave a 1.9 m-wide cross at 1.6 tiles,
+/// which covered a third of the frame's width and eighty percent of its height -- a magenta wall in
+/// the player's face at exactly the range the mark exists for.
+constexpr float kLandingMarkWidthPerMetre = 0.10F;
+constexpr float kLandingMarkMinHalfWidth = 0.3F;
 constexpr float kLandingMarkMaxHalfWidth = 1.6F;
 constexpr float kLandingMarkBarFraction = 0.125F; ///< half-thickness of a bar, of the half-width
-constexpr float kLandingMarkArmFraction = 0.55F;  ///< how far a bracket reaches, of the half-width
+/// A floor on a bar's half-thickness, so the narrowest mark still draws strokes instead of threads.
+constexpr float kLandingMarkMinBarMetres = 0.06F;
+constexpr float kLandingMarkArmFraction = 0.55F; ///< how far a bracket reaches, of the half-width
 
 void append_landing_marks(std::vector<SceneVertex>& out, const SceneOptions& options,
                           sim::Tick now) {
@@ -963,7 +968,8 @@ void append_landing_marks(std::vector<SceneVertex>& out, const SceneOptions& opt
                                       kLandingMarkMaxHalfWidth);
         const float half = full * mark.level;
         const float height = kLandingMarkHeight * mark.level;
-        const float bar = half * kLandingMarkBarFraction;
+        const float bar
+            = std::max(half * kLandingMarkBarFraction, kLandingMarkMinBarMetres * mark.level);
         const float arm = half * kLandingMarkArmFraction;
         const auto at = [&](float u, float v) {
             return Vec3{cx + (right_x * u), ground + v, cz + (right_z * u)};
