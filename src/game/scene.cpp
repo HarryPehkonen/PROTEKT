@@ -58,11 +58,15 @@ void emit_quad(std::vector<SceneVertex>& out, const Vec3& a, const Vec3& b, cons
 /// A quad that samples one whole atlas tile: its corners a, b, c, d take the tile's corners
 /// top-left, top-right, bottom-right, bottom-left. The colour still multiplies the texel.
 void emit_tiled_quad(std::vector<SceneVertex>& out, const Vec3& a, const Vec3& b, const Vec3& c,
-                     const Vec3& d, const Vec3& colour, const UvRect& tile) {
-    const SceneVertex va{a, colour, tile.u0, tile.v0};
-    const SceneVertex vb{b, colour, tile.u1, tile.v0};
-    const SceneVertex vc{c, colour, tile.u1, tile.v1};
-    const SceneVertex vd{d, colour, tile.u0, tile.v1};
+                     const Vec3& d, const Vec3& colour, const UvRect& tile, int orientation = 0) {
+    const auto corner = [&](const Vec3& p, int which) {
+        const auto uv = oriented_corner_uv(tile, orientation, which);
+        return SceneVertex{p, colour, uv.at(0), uv.at(1)};
+    };
+    const SceneVertex va = corner(a, 0);
+    const SceneVertex vb = corner(b, 1);
+    const SceneVertex vc = corner(c, 2);
+    const SceneVertex vd = corner(d, 3);
     for (const SceneVertex& v : {va, vb, vc, va, vc, vd}) {
         out.push_back(v);
     }
@@ -74,8 +78,9 @@ void build_terrain(std::vector<SceneVertex>& out, std::uint64_t seed, int centre
     // the low edge by one tile too keeps the sampled HEIGHT field symmetric around the camera,
     // even though the tolerance on the mesh's visual extent absorbs the extra row.
     // Each quad takes its tile with x along u and z along v, the same way round everywhere, so
-    // neighbours of one type and variant continue each other's (wrapping) paint, and neighbours of
-    // two variants meet in the same tones.
+    // neighbours of one type, variant and orientation continue each other's (wrapping) paint, and
+    // neighbours of two variants or orientations meet in the same tones (D7 turns and mirrors the
+    // UV corners per tile, never the tile).
     const AtlasManifest& atlas = atlas_manifest();
     std::array<std::array<UvRect, kGroundVariantCount>, world::kTerrainCount> tiles{};
     for (int t = 0; t < world::kTerrainCount; ++t) {
@@ -97,7 +102,8 @@ void build_terrain(std::vector<SceneVertex>& out, std::uint64_t seed, int centre
             const Vec3 p10{x1, height_metres(seed, tx + 1, ty), z0};
             const Vec3 p11{x1, height_metres(seed, tx + 1, ty + 1), z1};
             const Vec3 p01{x0, height_metres(seed, tx, ty + 1), z1};
-            emit_tiled_quad(out, p00, p10, p11, p01, kTerrainLight, tile);
+            emit_tiled_quad(out, p00, p10, p11, p01, kTerrainLight, tile,
+                            orientation_index(terrain, tx, ty));
         }
     }
 }

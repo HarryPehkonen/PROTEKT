@@ -10,6 +10,7 @@
 #include <string_view>
 #include <vector>
 
+#include "protekt/game/atlas.hpp"
 #include "protekt/game/scene_data.hpp"
 #include "protekt/game/weapon.hpp"
 #include "protekt/math/math.hpp"
@@ -95,28 +96,65 @@ inline constexpr math::Vec3 kSunDiscColour{1.0F, 0.97F, 0.80F};
     return "terrain_grass";
 }
 
-/// THE GROUND'S VARIANTS (D6). The type picks the FAMILY above; inside it, each world tile paints
-/// from one of `kGroundVariantCount` variant tiles -- the family's pattern redrawn from other hash
-/// seeds in the same tones -- so a field of one type is not a grid of identical stamps. Which
-/// variant is a pure function of (type, tile_x, tile_y): no world seed, no state, so a tile keeps
-/// its variant forever and the same scene comes out byte-identical.
-inline constexpr int kGroundVariantCount = 3;
+/// THE GROUND'S VARIANTS (D6, six since D7). The type picks the FAMILY above; inside it, each world
+/// tile paints from one of `kGroundVariantCount` variant tiles -- the family's pattern redrawn from
+/// other hash seeds in the same tones -- so a field of one type is not a grid of identical stamps.
+/// Which variant is a pure function of (type, tile_x, tile_y): no world seed, no state, so a tile
+/// keeps its variant forever and the same scene comes out byte-identical.
+inline constexpr int kGroundVariantCount = 6;
 inline constexpr std::array<std::array<std::string_view, kGroundVariantCount>, world::kTerrainCount>
-    kGroundVariantNames{{{"terrain_grass_a", "terrain_grass_b", "terrain_grass_c"},
-                         {"terrain_dirt_a", "terrain_dirt_b", "terrain_dirt_c"},
-                         {"terrain_rock_a", "terrain_rock_b", "terrain_rock_c"},
-                         {"terrain_crater_a", "terrain_crater_b", "terrain_crater_c"}}};
+    kGroundVariantNames{{{"terrain_grass_a", "terrain_grass_b", "terrain_grass_c",
+                          "terrain_grass_d", "terrain_grass_e", "terrain_grass_f"},
+                         {"terrain_dirt_a", "terrain_dirt_b", "terrain_dirt_c", "terrain_dirt_d",
+                          "terrain_dirt_e", "terrain_dirt_f"},
+                         {"terrain_rock_a", "terrain_rock_b", "terrain_rock_c", "terrain_rock_d",
+                          "terrain_rock_e", "terrain_rock_f"},
+                         {"terrain_crater_a", "terrain_crater_b", "terrain_crater_c",
+                          "terrain_crater_d", "terrain_crater_e", "terrain_crater_f"}}};
 
-/// The variant of world tile (tile_x, tile_y) of type `terrain`, in [0, kGroundVariantCount):
-/// splitmix64's finaliser over the packed (type, x, y), modulo the count.
-[[nodiscard]] constexpr int variant_index(world::Terrain terrain, int tile_x, int tile_y) noexcept {
+/// The hash of world tile (tile_x, tile_y) of type `terrain`: splitmix64's finaliser over the
+/// packed (type, x, y). The variant and the orientation read different bits of it.
+[[nodiscard]] constexpr std::uint64_t ground_hash(world::Terrain terrain, int tile_x,
+                                                  int tile_y) noexcept {
     std::uint64_t z = (static_cast<std::uint64_t>(static_cast<std::uint32_t>(tile_x)) << 32U)
                       | static_cast<std::uint32_t>(tile_y);
     z ^= (static_cast<std::uint64_t>(terrain) + 1U) * 0x9E3779B97F4A7C15ULL;
     z = (z ^ (z >> 30U)) * 0xBF58476D1CE4E5B9ULL;
     z = (z ^ (z >> 27U)) * 0x94D049BB133111EBULL;
     z ^= z >> 31U;
-    return static_cast<int>(z % static_cast<std::uint64_t>(kGroundVariantCount));
+    return z;
+}
+
+/// The variant of world tile (tile_x, tile_y) of type `terrain`, in [0, kGroundVariantCount):
+/// the tile's hash modulo the count.
+[[nodiscard]] constexpr int variant_index(world::Terrain terrain, int tile_x, int tile_y) noexcept {
+    return static_cast<int>(ground_hash(terrain, tile_x, tile_y)
+                            % static_cast<std::uint64_t>(kGroundVariantCount));
+}
+
+/// THE GROUND'S ORIENTATION (D7). Beside its variant, each world tile gets one of the eight
+/// symmetries of the square (four rotations, each plain or mirrored): `orientation / 4` mirrors,
+/// `orientation % 4` rotates quarter turns. It is applied to the tile's UV corners when the quad
+/// is emitted, so the atlas is untouched, and it is the same kind of pure function as the variant.
+inline constexpr int kOrientationCount = 8;
+
+/// The UV of quad corner `corner` (0..3 in the order p00, p10, p11, p01) of `tile` under
+/// `orientation`; orientation 0 is the identity.
+[[nodiscard]] constexpr std::array<float, 2> oriented_corner_uv(const UvRect& tile, int orientation,
+                                                                int corner) noexcept {
+    const std::array<std::array<float, 2>, 4> base{
+        {{tile.u0, tile.v0}, {tile.u1, tile.v0}, {tile.u1, tile.v1}, {tile.u0, tile.v1}}};
+    const bool mirrored = (orientation & 4) != 0;
+    const int along = (corner + (orientation & 3)) & 3;
+    const int source = mirrored ? (4 - along) & 3 : along;
+    return base.at(static_cast<std::size_t>(source));
+}
+
+/// The orientation of world tile (tile_x, tile_y) of type `terrain`, in [0, kOrientationCount).
+[[nodiscard]] constexpr int orientation_index(world::Terrain terrain, int tile_x,
+                                              int tile_y) noexcept {
+    return static_cast<int>((ground_hash(terrain, tile_x, tile_y) >> 40U)
+                            % static_cast<std::uint64_t>(kOrientationCount));
 }
 
 /// The manifest name of `terrain`'s variant `variant`; an out-of-range variant gets the first.

@@ -253,8 +253,13 @@ TEST(SceneTerrain, EveryQuadSamplesTheWholeTileOfItsTypeTheSameWayRound) {
         // D6: the type picks the family, the tile's hash the variant inside it.
         const auto r = atlas.rect(protekt::game::terrain_variant_name(
             terrain, protekt::game::variant_index(terrain, tx, ty)));
-        const std::array<std::array<float, 2>, 6> want{
-            {{r.u0, r.v0}, {r.u1, r.v0}, {r.u1, r.v1}, {r.u0, r.v0}, {r.u1, r.v1}, {r.u0, r.v1}}};
+        // D7: the tile's orientation turns/mirrors the corners (p00, p10, p11, p01).
+        const int o = protekt::game::orientation_index(terrain, tx, ty);
+        const auto c0 = protekt::game::oriented_corner_uv(r, o, 0);
+        const auto c1 = protekt::game::oriented_corner_uv(r, o, 1);
+        const auto c2 = protekt::game::oriented_corner_uv(r, o, 2);
+        const auto c3 = protekt::game::oriented_corner_uv(r, o, 3);
+        const std::array<std::array<float, 2>, 6> want{{c0, c1, c2, c0, c2, c3}};
         for (std::size_t i = 0; i < 6; ++i) {
             const auto& v = scene.vertices.at(q + i);
             ASSERT_EQ(v.u, want.at(i).at(0)) << "tile " << tx << "," << ty << " vertex " << i;

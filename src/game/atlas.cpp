@@ -64,6 +64,9 @@ constexpr int kCraterTile = 20;
 constexpr int kFirstGroundVariantTile = 21;
 constexpr int kGroundVariants = 3;
 constexpr int kGroundVariantTiles = 4 * kGroundVariants;
+/// D7's three more per type, after the highest slot used so far: grass 33-35, dirt 36-38, rock
+/// 39-41, crater 42-44 (named _d, _e, _f), painted like the first three under their own indices.
+constexpr int kFirstMoreGroundVariantTile = 33;
 
 constexpr Rgb kWhite{255, 255, 255};
 constexpr Rgb kMagenta{255, 0, 255};
@@ -665,6 +668,10 @@ Tile paint_ground(std::uint64_t seed, int index, int family) {
 Tile paint_tile(std::uint64_t seed, int index) {
     if (index >= kFirstGroundVariantTile && index < kFirstGroundVariantTile + kGroundVariantTiles) {
         return paint_ground(seed, index, (index - kFirstGroundVariantTile) / kGroundVariants);
+    }
+    if (index >= kFirstMoreGroundVariantTile
+        && index < kFirstMoreGroundVariantTile + kGroundVariantTiles) {
+        return paint_ground(seed, index, (index - kFirstMoreGroundVariantTile) / kGroundVariants);
     }
     if (index >= kFirstHullTile && index < kFirstHullTile + kHullVariantCount) {
         return paint_camo(seed, index, index - kFirstHullTile, kNeutralCamo);

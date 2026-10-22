@@ -1,4 +1,4 @@
-// Ground variants (D6): each terrain type paints from three variant tiles of its own family,
+// Ground variants (D6): each terrain type paints from six variant tiles of its own family,
 // chosen per world tile by a pure hash of (type, x, y), so a field of one type is not a grid of
 // identical stamps. Pure data and the scene mesh, no GPU.
 #include <gtest/gtest.h>
@@ -8,9 +8,12 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
+#include <iostream>
 #include <map>
 #include <set>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "protekt/game/atlas.hpp"
@@ -22,6 +25,7 @@
 namespace {
 
 using protekt::game::kGroundVariantCount;
+using protekt::game::orientation_index;
 using protekt::game::terrain_variant_name;
 using protekt::game::variant_index;
 using protekt::world::Terrain;
@@ -56,15 +60,15 @@ TEST(GroundVariant, TheSameTileGetsTheSameVariantEveryTime) {
 
 TEST(GroundVariant, EveryVariantOccursForEveryType) {
     for (const Terrain type : kTypes) {
-        std::array<int, 3> count{};
+        std::array<int, kGroundVariantCount> count{};
         for (int y = kLo; y <= kHi; ++y) {
             for (int x = kLo; x <= kHi; ++x) {
                 ++count.at(static_cast<std::size_t>(variant_index(type, x, y)));
             }
         }
         for (std::size_t v = 0; v < count.size(); ++v) {
-            // 4096 tiles: each variant near a third of them, none starved.
-            EXPECT_GT(count.at(v), 4096 / 4) << "type " << static_cast<int>(type) << " v " << v;
+            // 4096 tiles: each variant near a sixth of them, none starved.
+            EXPECT_GT(count.at(v), 4096 / 9) << "type " << static_cast<int>(type) << " v " << v;
         }
     }
 }
@@ -93,7 +97,7 @@ TEST(GroundVariant, AdjacentTilesMostlyDifferAndNoLongRunOfOneVariant) {
     }
 }
 
-TEST(GroundVariant, TheManifestListsTwelveVariantSlotsAfterTheGroundTiles) {
+TEST(GroundVariant, TheManifestListsTwentyFourVariantSlotsAfterTheGroundTiles) {
     const auto& atlas = protekt::game::atlas_manifest();
     std::set<int> slots;
     for (const Terrain type : kTypes) {
@@ -104,7 +108,12 @@ TEST(GroundVariant, TheManifestListsTwelveVariantSlotsAfterTheGroundTiles) {
             slots.insert(atlas.tile(name));
         }
     }
-    EXPECT_EQ(slots, (std::set<int>{21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32}));
+    std::set<int> want;
+    for (int slot = 21; slot <= 44; ++slot) {
+        want.insert(slot);
+    }
+    EXPECT_EQ(slots, want);
+    EXPECT_EQ(kGroundVariantCount, 6);
 }
 
 /// The atlas texel of `tile` at (x, y).
@@ -183,14 +192,181 @@ TEST(GroundVariant, EveryTerrainQuadSamplesTheVariantItsTileHashesTo) {
         const Terrain type = protekt::world::sample(kSeed, tx, ty).terrain;
         const std::string_view name = terrain_variant_name(type, variant_index(type, tx, ty));
         const auto r = atlas.rect(name);
-        ASSERT_EQ(p00.u, r.u0) << tx << "," << ty;
-        ASSERT_EQ(p00.v, r.v0) << tx << "," << ty;
-        ASSERT_EQ(scene.vertices.at(q + 2).u, r.u1) << tx << "," << ty;
-        ASSERT_EQ(scene.vertices.at(q + 2).v, r.v1) << tx << "," << ty;
+        const int o = protekt::game::orientation_index(type, tx, ty);
+        // Quad vertices 0, 1, 2, 5 are the corners p00, p10, p11, p01.
+        constexpr std::array<std::size_t, 4> kAt{0, 1, 2, 5};
+        for (int c = 0; c < 4; ++c) {
+            const auto uv = protekt::game::oriented_corner_uv(r, o, c);
+            ASSERT_EQ(scene.vertices.at(q + kAt.at(static_cast<std::size_t>(c))).u, uv.at(0))
+                << tx << "," << ty;
+            ASSERT_EQ(scene.vertices.at(q + kAt.at(static_cast<std::size_t>(c))).v, uv.at(1))
+                << tx << "," << ty;
+        }
         slots_hit[type].insert(atlas.tile(name));
     }
     ASSERT_TRUE(slots_hit.contains(Terrain::Flat));
-    EXPECT_EQ(slots_hit.at(Terrain::Flat).size(), std::size_t{3}) << "grass shows all three";
+    EXPECT_EQ(slots_hit.at(Terrain::Flat).size(), std::size_t{6}) << "grass shows all six";
+}
+
+TEST(GroundOrientation, TheSameTileGetsTheSameOrientationEveryTime) {
+    for (const Terrain type : kTypes) {
+        for (int y = kLo; y <= kHi; y += 3) {
+            for (int x = kLo; x <= kHi; x += 5) {
+                const int o = orientation_index(type, x, y);
+                EXPECT_GE(o, 0);
+                EXPECT_LT(o, protekt::game::kOrientationCount);
+                EXPECT_EQ(o, orientation_index(type, x, y));
+            }
+        }
+    }
+    static_assert(orientation_index(Terrain::Ridge, -3, 9)
+                  == orientation_index(Terrain::Ridge, -3, 9));
+}
+
+TEST(GroundOrientation, AllEightOccurForEveryTypeAndAdjacentTilesMostlyDiffer) {
+    for (const Terrain type : kTypes) {
+        std::array<int, 8> count{};
+        int pairs = 0;
+        int differ = 0;
+        int longest = 0;
+        for (int a = kLo; a <= kHi; ++a) {
+            int run = 1;
+            for (int b = kLo; b <= kHi; ++b) {
+                ++count.at(static_cast<std::size_t>(orientation_index(type, b, a)));
+                if (b > kLo) {
+                    const bool same
+                        = orientation_index(type, b, a) == orientation_index(type, b - 1, a);
+                    ++pairs;
+                    differ += same ? 0 : 1;
+                    run = same ? run + 1 : 1;
+                    longest = std::max(longest, run);
+                }
+            }
+        }
+        for (const int n : count) {
+            EXPECT_GT(n, 4096 / 16) << "type " << static_cast<int>(type);
+        }
+        EXPECT_GE(static_cast<double>(differ) / pairs, 0.80) << "type " << static_cast<int>(type);
+        EXPECT_LE(longest, kMaxRun);
+    }
+}
+
+TEST(GroundOrientation, EveryVariantOfEveryTypeIsReachableAndExists) {
+    const auto& atlas = protekt::game::atlas_manifest();
+    for (const Terrain type : kTypes) {
+        std::set<int> chosen;
+        for (int y = kLo; y <= kHi; ++y) {
+            for (int x = kLo; x <= kHi; ++x) {
+                chosen.insert(variant_index(type, x, y));
+            }
+        }
+        std::set<int> all;
+        for (int v = 0; v < kGroundVariantCount; ++v) {
+            all.insert(v);
+            EXPECT_GT(atlas.tile(std::string{terrain_variant_name(type, v)}), 0);
+        }
+        EXPECT_EQ(chosen, all) << "type " << static_cast<int>(type);
+    }
+}
+
+TEST(GroundOrientation, TheEightOrientationsAreEightDistinctCornerOrders) {
+    const protekt::game::UvRect r{0.1F, 0.2F, 0.3F, 0.4F};
+    std::set<std::array<float, 8>> seen;
+    for (int o = 0; o < protekt::game::kOrientationCount; ++o) {
+        std::array<float, 8> flat{};
+        for (std::size_t c = 0; c < 4; ++c) {
+            const auto uv = protekt::game::oriented_corner_uv(r, o, static_cast<int>(c));
+            flat.at(2 * c) = uv.at(0);
+            flat.at(2 * c + 1) = uv.at(1);
+        }
+        seen.insert(flat);
+    }
+    EXPECT_EQ(seen.size(), std::size_t{8});
+    EXPECT_EQ(protekt::game::oriented_corner_uv(r, 0, 0), (std::array<float, 2>{r.u0, r.v0}));
+}
+
+TEST(GroundOrientation, RotatingATileKeepsItsWrappingSeamsAndItsTones) {
+    // A tile is painted to wrap; a symmetry of the square only swaps which edge pairs meet, so the
+    // total seam step (opposite edges, both axes) and the tone shares are exactly the tile's own.
+    const auto px = protekt::game::atlas_pixels();
+    const auto& atlas = protekt::game::atlas_manifest();
+    const auto seam = [&](int tile, int o) {
+        const auto at = [&](int x, int y) {
+            // The texel the quad shows at oriented position (x, y): invert the corner mapping on
+            // the unit square.
+            const bool mirrored = (o & 4) != 0;
+            int ux = x;
+            int uy = y;
+            for (int k = 0; k < (o & 3); ++k) {
+                const int nx = 63 - uy;
+                uy = ux;
+                ux = nx;
+            }
+            if (mirrored) {
+                ux = 63 - ux;
+            }
+            return texel(px, tile, ux, uy);
+        };
+        int step = 0;
+        for (int i = 0; i < 64; ++i) {
+            for (int c = 0; c < 3; ++c) {
+                step += std::abs(static_cast<int>(at(0, i).at(static_cast<std::size_t>(c)))
+                                 - static_cast<int>(at(63, i).at(static_cast<std::size_t>(c))));
+                step += std::abs(static_cast<int>(at(i, 0).at(static_cast<std::size_t>(c)))
+                                 - static_cast<int>(at(i, 63).at(static_cast<std::size_t>(c))));
+            }
+        }
+        return step;
+    };
+    for (const Terrain type : kTypes) {
+        for (int v = 0; v < kGroundVariantCount; ++v) {
+            const int tile = atlas.tile(std::string{terrain_variant_name(type, v)});
+            const int plain = seam(tile, 0);
+            for (int o = 1; o < protekt::game::kOrientationCount; ++o) {
+                EXPECT_EQ(seam(tile, o), plain) << "tile " << tile << " orientation " << o;
+            }
+        }
+    }
+}
+
+TEST(GroundOrientation, TheBandingRunInTheCapturedFrameIsShort) {
+    // The seed-and-radius the acceptance capture shows. Before D7 every tile was orientation 0
+    // among three variants; the longest row of one type then had one orientation all along.
+    constexpr std::uint64_t kSeed = 42;
+    constexpr int kRadius = 24;
+    std::set<std::pair<int, int>> pairs;
+    int longest = 0;
+    for (int ty = -kRadius; ty <= kRadius; ++ty) {
+        int run = 0;
+        Terrain last = Terrain::Flat;
+        int last_o = -1;
+        for (int tx = -kRadius; tx <= kRadius; ++tx) {
+            const Terrain type = protekt::world::sample(kSeed, tx, ty).terrain;
+            const int o = orientation_index(type, tx, ty);
+            pairs.insert({static_cast<int>(type) * 100 + variant_index(type, tx, ty), o});
+            run = (type == last && o == last_o) ? run + 1 : 1;
+            last = type;
+            last_o = o;
+            longest = std::max(longest, run);
+        }
+    }
+    std::cout << "D7 MEASURE distinct_pairs=" << pairs.size()
+              << " longest_identical_orientation_run=" << longest << "\n";
+    EXPECT_GT(pairs.size(), std::size_t{60});
+    EXPECT_LE(longest, 6);
+}
+
+TEST(GroundOrientation, TwoSameSeedScenesAreByteIdentical) {
+    protekt::game::SceneOptions options;
+    options.seed = 7;
+    options.radius_tiles = 10;
+    const auto a
+        = protekt::game::build_scene(protekt::sim::Sim::create(protekt::sim::skirmish(7)), options);
+    const auto b
+        = protekt::game::build_scene(protekt::sim::Sim::create(protekt::sim::skirmish(7)), options);
+    ASSERT_EQ(a.vertices.size(), b.vertices.size());
+    EXPECT_EQ(0, std::memcmp(a.vertices.data(), b.vertices.data(),
+                             a.vertices.size() * sizeof(a.vertices.front())));
 }
 
 } // namespace
