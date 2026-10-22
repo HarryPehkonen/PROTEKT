@@ -24,6 +24,9 @@ inline constexpr sim::Tick kManualShotIntervalTicks = 8;
 /// controllers use. Between beats nothing is emitted; the sim's own aim and cooldown carry on.
 inline constexpr sim::Tick kDefendCadence = 15;
 
+/// What the HUD says while G is armed. Shown the whole time `Interaction::go_armed()` is true.
+inline constexpr std::string_view kGoPrompt = "go where? 0-9 for a mark.";
+
 /// The voice of a manual shot: the player's own gun, full gain, centred. Every trigger pull makes
 /// this sound, whatever it was aimed at, because the sim reports no `Fired` event for a shot the
 /// player asked for. The same voice `sounds_for` gives a shot the sim fires from the player's side.
@@ -64,6 +67,12 @@ public:
     ///  * 1-9: select the own unit holding that number in spawn order, on screen or not (the
     ///    roster strip, `game/roster.hpp`); a destroyed or never-existing number selects nothing,
     ///    leaves the selection as it was, and says so
+    ///  * G, then 0-9 (N3): send the selection to that nav mark's tile -- the same MoveTo a right
+    ///    click makes. G arms; the next key settles it. A digit is then a MARK number, never N2's
+    ///    selection key: a number with no mark is refused and orders nothing. Any digit uses the
+    ///    arming up; Escape cancels it (and is spent doing so: the selection stays); any other key
+    ///    cancels it and then does its own job; a right-click order cancels it. A mouse click that
+    ///    is not an order (the trigger) leaves it armed.
     ///  * Tab or Escape: clear the selection
     ///  * Q (bare -- Ctrl+Q is the quit): bring up the next weapon of `kDrivenWeapons`, wrapping.
     ///    Never refused; it orders nothing and the trigger still fires today's shot (M1).
@@ -107,6 +116,9 @@ public:
     [[nodiscard]] sim::UnitId driven() const noexcept;
     /// The weapon the driven craft has up. The craft carries the set, so an X swap keeps it.
     [[nodiscard]] Weapon weapon() const noexcept;
+    /// G has been pressed and the digit that names its mark has not: the next 0-9 is a MARK number
+    /// (N3), and the HUD shows `kGoPrompt` for as long as this is true.
+    [[nodiscard]] bool go_armed() const noexcept;
 
     /// Why the last input was refused, for the HUD. Empty when it was carried out. Cleared at the
     /// start of every `handle`, so a message describes the frame that just happened and nothing
@@ -124,6 +136,8 @@ private:
     void follow_crosshair_unit(const sim::Sim& sim, const SceneOptions& options);
     /// 1-9: select the own unit that holds that number, wherever it is (N2).
     void select_roster_key(const sim::Sim& sim, int digit);
+    /// G then a digit: MoveTo the tile of mark `number` for every orderable selected unit (N3).
+    void send_to_mark(int number, const SceneOptions& options);
     void select_only(sim::UnitId id) noexcept;
     void toggle(sim::UnitId id) noexcept;
     void refuse(std::string_view why) noexcept;
@@ -139,6 +153,7 @@ private:
     Weapon weapon_{Weapon::Gun};
     std::vector<sim::Order> pending_;
     bool shot_voice_{false};
+    bool go_armed_{false};
     bool has_fired_{false};
     sim::Tick last_shot_tick_{};
     std::string_view message_;

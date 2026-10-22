@@ -1539,8 +1539,14 @@ std::array<std::uint8_t, 5> mount_glyph(char glyph) {
         return {0b10001, 0b10001, 0b10001, 0b10001, 0b01110};
     case 'V':
         return {0b10001, 0b10001, 0b10001, 0b01010, 0b00100};
+    case 'W':
+        return {0b10001, 0b10001, 0b10101, 0b10101, 0b01010};
     case 'Y':
         return {0b10001, 0b01010, 0b00100, 0b00100, 0b00100};
+    case '?':
+        return {0b01110, 0b10001, 0b00110, 0b00000, 0b00100};
+    case '-':
+        return {0b00000, 0b00000, 0b01110, 0b00000, 0b00000};
     case '0':
         return {0b01110, 0b10011, 0b10101, 0b11001, 0b01110};
     case '1':

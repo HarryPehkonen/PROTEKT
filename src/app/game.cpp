@@ -84,8 +84,11 @@ struct Options {
     /// `--nav FRAME` (repeatable): N pressed on that frame (1-based), so a capture can show nav
     /// marks with nobody at the keyboard. The same family as `--fire`.
     std::vector<std::uint32_t> nav_frames{};
-    /// `--digit FRAME N` (repeatable): the number key N (1-9) pressed on that frame (1-based), so
+    /// `--digit FRAME N` (repeatable): the number key N (0-9) pressed on that frame (1-based), so
     /// a capture can show a roster selection, or a dead key, with nobody at the keyboard.
+    /// `--go FRAME` (repeatable): G pressed on that frame (1-based); the number that answers it is
+    /// a `--digit` on a later frame. Lets a capture show the go prompt with nobody at the keyboard.
+    std::vector<std::uint32_t> go_frames{};
     struct DigitPress {
         std::uint32_t frame{};
         int digit{};
@@ -159,13 +162,20 @@ int parse_args(std::span<const std::string_view> args, Options& options, std::os
                 return 2;
             }
             options.nav_frames.push_back(frame);
+        } else if (arg == "--go") {
+            std::uint32_t frame = 0;
+            if (!next(value) || !parse_number(value, frame) || frame == 0) {
+                err << "protekt-game: --go wants a frame number (1-based)\n";
+                return 2;
+            }
+            options.go_frames.push_back(frame);
         } else if (arg == "--digit") {
             std::string_view digit_text;
             Options::DigitPress press;
             if (!next(value) || !next(digit_text) || !parse_number(value, press.frame)
-                || !parse_number(digit_text, press.digit) || press.frame == 0 || press.digit < 1
+                || !parse_number(digit_text, press.digit) || press.frame == 0 || press.digit < 0
                 || press.digit > 9) {
-                err << "protekt-game: --digit wants a frame number (1-based) and a key 1-9\n";
+                err << "protekt-game: --digit wants a frame number (1-based) and a key 0-9\n";
                 return 2;
             }
             options.digit_presses.push_back(press);
@@ -283,6 +293,7 @@ public:
         scene_options.radius_tiles = 24;
         scene_options.aim = game::aim_from(hands, extent);
         scene_options.viewer_unit = radar_viewer(session_, options_.no_radar);
+        scene_options.nav_marks = &nav_marks_; // G-then-a-number reads the marks
         player_alive_before_ = is_alive(sim_, session_.driven());
 
         std::vector<sim::Order> orders;
@@ -299,7 +310,8 @@ public:
         // A roster key the roster refused: keep its sentence on screen a few seconds, since the
         // session's own message lasts one frame.
         for (const input::KeyEvent& key : hands.keys) {
-            if (input::roster_digit(key) != 0 && !session_.message().empty()) {
+            if ((input::roster_digit(key) != 0 || input::mark_digit(key) >= 0)
+                && !session_.message().empty()) {
                 notice_ = std::string(session_.message());
                 notice_until_ = sim_.tick() + kNoticeTicks;
             }
@@ -374,7 +386,10 @@ public:
         scene_options.landing_marks = &landing_marks_;
         scene_options.nav_marks = &nav_marks_;
         scene_options.show_roster = true;
-        if (sim_.tick() < notice_until_) {
+        if (session_.go_armed()) {
+            // Never expires: the prompt is on screen for exactly as long as the mode lasts.
+            scene_options.notice = std::string(game::kGoPrompt);
+        } else if (sim_.tick() < notice_until_) {
             scene_options.notice = notice_;
         }
         scene_options.reticle_pulse = options_.pulse_percent >= 0
@@ -417,9 +432,14 @@ void script_hands(const Options& options, std::uint32_t frame, input::InputFrame
         != options.nav_frames.end()) {
         hands.keys.push_back(input::KeyEvent{input::kKeyN, true, false});
     }
+    if (std::find(options.go_frames.begin(), options.go_frames.end(), frame + 1)
+        != options.go_frames.end()) {
+        hands.keys.push_back(input::KeyEvent{input::kKeyG, true, false});
+    }
     for (const Options::DigitPress& press : options.digit_presses) {
         if (press.frame == frame + 1) {
-            hands.keys.push_back(input::KeyEvent{input::kKey1 + press.digit - 1, true, false});
+            hands.keys.push_back(input::KeyEvent{
+                press.digit == 0 ? input::kKey0 : input::kKey1 + press.digit - 1, true, false});
         }
     }
     if (options.press_scancode >= 0) {

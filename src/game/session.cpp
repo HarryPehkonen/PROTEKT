@@ -85,6 +85,8 @@ Weapon Session::weapon() const noexcept { return interaction_.weapon(); }
 
 const cmd::Selection& Session::selection() const noexcept { return interaction_.selection(); }
 
+bool Session::go_armed() const noexcept { return interaction_.go_armed(); }
+
 std::string_view Session::message() const noexcept {
     if (!destroyed_message_.empty()) {
         return destroyed_message_;

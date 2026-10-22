@@ -108,6 +108,19 @@ inline void apply(HeldKeys& keys, const KeyEvent& event) noexcept {
     return key.scancode - kKey1 + 1;
 }
 
+/// The mark number 0-9 a key event is, or -1. Bare only. "0" follows "9" in the HID table, so it
+/// is not in `roster_digit`'s run: the roster has no 0.
+[[nodiscard]] inline int mark_digit(const KeyEvent& key) noexcept {
+    if (!key.pressed || key.ctrl || key.alt) {
+        return -1;
+    }
+    if (key.scancode == kKey0) {
+        return 0;
+    }
+    const int roster = roster_digit(key);
+    return roster != 0 ? roster : -1;
+}
+
 /// N: drop a navigational mark under the crosshair, or clear the one aimed at. Asks once per press.
 [[nodiscard]] inline bool nav_mark_pressed(const InputFrame& frame) noexcept {
     for (const KeyEvent& key : frame.keys) {

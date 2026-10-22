@@ -20,6 +20,8 @@ enum class MouseButton : std::uint8_t { Left, Right, Middle };
 /// about a key without either of them including SDL (these are USB HID usage codes, which is what
 /// SDL scancodes are).
 inline constexpr std::int32_t kKey1 = 30; ///< "1"; "2".."9" follow, 31-38
+inline constexpr std::int32_t kKey0 = 39; ///< "0"; it follows "9" in the HID table
+inline constexpr std::int32_t kKeyG = 10;
 inline constexpr std::int32_t kKeyM = 16;
 inline constexpr std::int32_t kKeyN = 17;
 inline constexpr std::int32_t kKeyQ = 20;

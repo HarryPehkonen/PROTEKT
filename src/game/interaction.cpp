@@ -8,6 +8,7 @@
 
 #include "protekt/ai/utility.hpp"
 #include "protekt/cmd/command.hpp"
+#include "protekt/game/nav_marks.hpp"
 #include "protekt/game/pick.hpp"
 #include "protekt/game/roster.hpp"
 #include "protekt/input/bindings.hpp"
@@ -152,6 +153,7 @@ void Interaction::handle(const input::InputFrame& frame, const sim::Sim& sim,
                                           : "firing on your own unit.";
             }
         } else if (click.button == input::MouseButton::Right) {
+            go_armed_ = false; // a right-click order is the answer to "go where?", by hand
             if (selection_.empty()) {
                 refuse("Nothing is selected to give an order to.");
                 continue;
@@ -184,7 +186,22 @@ void Interaction::handle(const input::InputFrame& frame, const sim::Sim& sim,
         if (!key.pressed) {
             continue;
         }
-        if (const int digit = input::roster_digit(key); digit != 0) {
+        if (go_armed_) {
+            // G is waiting. Whatever this key is, the arming ends with it: a player is never left
+            // in a mode the screen has stopped saying. A digit is the answer (a MARK number, not
+            // N2's roster key); Escape only cancels; any other key cancels and then acts.
+            go_armed_ = false;
+            if (const int mark = input::mark_digit(key); mark >= 0) {
+                send_to_mark(mark, options);
+                continue;
+            }
+            if (key.scancode == input::kKeyEscape) {
+                continue;
+            }
+        }
+        if (key.scancode == input::kKeyG && !key.ctrl && !key.alt) {
+            go_armed_ = true;
+        } else if (const int digit = input::roster_digit(key); digit != 0) {
             select_roster_key(sim, digit);
         } else if (key.scancode == input::kKeyEscape || key.scancode == input::kKeyTab) {
             // Tab clears, as Escape does.
@@ -298,6 +315,8 @@ std::vector<sim::Order> Interaction::take_orders() noexcept {
 }
 
 bool Interaction::take_shot_voice() noexcept { return std::exchange(shot_voice_, false); }
+
+bool Interaction::go_armed() const noexcept { return go_armed_; }
 
 const cmd::Selection& Interaction::selection() const noexcept { return selection_; }
 
@@ -413,6 +432,47 @@ void Interaction::follow_crosshair_unit(const sim::Sim& sim, const SceneOptions&
     remember(orders);
     pending_.insert(pending_.end(), orders.begin(), orders.end());
     message_ = "shadowing that unit.";
+}
+
+void Interaction::send_to_mark(int number, const SceneOptions& options) {
+    // Words for each number, static because the message is a view.
+    static constexpr std::array<std::string_view, kNavSlots> kNoMark{
+        "There is no nav mark 0.", "There is no nav mark 1.", "There is no nav mark 2.",
+        "There is no nav mark 3.", "There is no nav mark 4.", "There is no nav mark 5.",
+        "There is no nav mark 6.", "There is no nav mark 7.", "There is no nav mark 8.",
+        "There is no nav mark 9."};
+    const NavMarks::Mark* target = nullptr;
+    const std::vector<NavMarks::Mark> marks
+        = options.nav_marks != nullptr ? options.nav_marks->marks() : std::vector<NavMarks::Mark>{};
+    for (const NavMarks::Mark& mark : marks) {
+        if (mark.number == number) {
+            target = &mark;
+        }
+    }
+    if (target == nullptr) {
+        refuse(kNoMark.at(static_cast<std::size_t>(number)));
+        return;
+    }
+    if (selection_.empty()) {
+        refuse("Nothing is selected to give an order to.");
+        return;
+    }
+    const std::vector<sim::UnitId> roster = orderable();
+    if (roster.empty()) {
+        refuse("You are driving that one; select another unit to give orders.");
+        return;
+    }
+    const std::vector<sim::Order> orders = cmd::move_to(
+        roster, sim::Fixed::from_int(target->tile_x), sim::Fixed::from_int(target->tile_y));
+    if (orders.empty()) {
+        refuse("That order cannot be carried out.");
+        return;
+    }
+    remember(orders);
+    pending_.insert(pending_.end(), orders.begin(), orders.end());
+    if (roster.size() < selection_.units().size()) {
+        message_ = "Sent the rest to the mark; you are driving that one, so it stays put.";
+    }
 }
 
 void Interaction::select_roster_key(const sim::Sim& sim, int digit) {

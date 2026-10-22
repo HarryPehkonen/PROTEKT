@@ -48,6 +48,8 @@ public:
     [[nodiscard]] const cmd::Selection& selection() const noexcept;
     /// The interaction's refusal, for a HUD: "you are driving that one", "nothing selected".
     [[nodiscard]] std::string_view message() const noexcept;
+    /// G is armed and waiting for its mark number (N3): the HUD must say so while it is.
+    [[nodiscard]] bool go_armed() const noexcept;
     [[nodiscard]] const input::HeldKeys& keys() const noexcept;
     /// True once the driven tank has been destroyed: the view is a spectator's from then on.
     [[nodiscard]] bool destroyed() const noexcept;
