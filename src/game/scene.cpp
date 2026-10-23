@@ -1755,18 +1755,25 @@ void append_weapon_hud(std::vector<SceneVertex>& out, const SceneOptions& option
     }
 }
 
-/// THE ROSTER STRIP (K1), in frame pixels on the HUD layer, scaled by the frame's height (the px
-/// below are at 720). One plate per KIND that has living units, left to right in key order, so a
-/// kind with a hundred units is still one plate and the strip is never longer than the kinds a side
-/// can field. A plate is 88 px wide and 34 tall on a black plate with a 2 px frame (yellow when any
-/// unit of the group is selected, white otherwise), 6 px from the top and 6 px apart. Every glyph
-/// in the strip is 10 px tall (cell 2.0), which is BZ2's own HUD text height, counted rather than
-/// guessed: its text is 10 px in the 800x600 originals and still ~10 px in a 1280x730 screenshot of
-/// the remaster, so it is a fixed pixel font that ignores the resolution. Top row: the key, and how
-/// many units the group holds beside it; then the kind (cell 2.0, FACTORY is 82 of the 82 px
-/// inside); then a 3 px bar, green over yellow over red, showing the GROUP's fraction -- a group
-/// has no single hit-point figure, so the count takes the number's place and the bar carries the
-/// health. Under the strip, `options.notice` in 10 px yellow capitals.
+/// THE HUD PANELS along the top left of the frame, in frame pixels on the HUD layer, scaled by the
+/// frame's height (the px below are at 720).
+///
+/// THE ROSTER STRIP (K1): one plate per KIND that has living units, left to right in key order, so
+/// a kind with a hundred units is still one plate and the strip is never longer than the kinds a
+/// side can field. A plate is 88 px wide and 34 tall on a black plate with a 2 px frame (yellow
+/// when any unit of the group is selected, white otherwise), 6 px from the top and 6 px apart.
+/// Every glyph in the strip is 10 px tall (cell 2.0), which is BZ2's own HUD text height, counted
+/// rather than guessed: its text is 10 px in the 800x600 originals and still ~10 px in a 1280x730
+/// screenshot of the remaster, so it is a fixed pixel font that ignores the resolution. Top row:
+/// the key, and how many units the group holds beside it; then the kind (cell 2.0, FACTORY is 82 of
+/// the 82 px inside); then a 3 px bar, green over yellow over red, showing the GROUP's fraction --
+/// a group has no single hit-point figure, so the count takes the number's place and the bar
+/// carries the health. Under the strip, `options.notice` in 10 px yellow capitals.
+///
+/// THE ATTACK LIST (BZ2A): the nearest enemies T offered, by the same plate and the same type, one
+/// row per enemy. It sits in the row BELOW the notice, which is reserved whether or not there is a
+/// notice, so the list never moves and never overlaps: the player is choosing under time pressure
+/// and a panel that jumps is a panel that gets misread.
 constexpr float kStripMarginPixels = 6.0F;
 constexpr float kStripSlotWidthPixels = 88.0F;
 constexpr float kStripSlotGapPixels = 6.0F;
@@ -1789,9 +1796,14 @@ constexpr float kHudPanelAlpha = 0.65F;
 constexpr std::array<float, 3> kStripFrame{0.95F, 0.95F, 0.95F};
 constexpr std::array<float, 3> kStripSelected{1.0F, 0.85F, 0.10F};
 
-void append_roster_strip(std::vector<SceneVertex>& out, const SceneOptions& options,
-                         const sim::Sim& sim, std::span<const sim::UnitId> selected) {
-    if (!options.show_roster) {
+/// A distance as the attack list shows it: whole metres and the unit, "132m". Built here so the
+/// panel can measure the column before it draws it.
+[[nodiscard]] std::string target_metres(int metres) { return std::to_string(metres) + "m"; }
+
+void append_hud_panels(std::vector<SceneVertex>& out, const SceneOptions& options,
+                       const sim::Sim& sim, std::span<const sim::UnitId> selected) {
+    const bool wants_list = options.attack_list != nullptr && !options.attack_list->empty();
+    if (!options.show_roster && !wants_list) {
         return;
     }
     const float px = static_cast<float>(options.extent.height) * kHudPerFrameHeight;
@@ -1902,11 +1914,16 @@ void append_roster_strip(std::vector<SceneVertex>& out, const SceneOptions& opti
         }
     };
 
-    const Roster roster = roster_of(sim, options.viewer_side);
+    // An empty roster when the strip is off, so nothing but the list below can draw: it is the one
+    // caller that wants this function for something other than the strip.
+    const Roster roster = options.show_roster ? roster_of(sim, options.viewer_side) : Roster{};
     const float top = kStripMarginPixels * px;
     const float slot_w = kStripSlotWidthPixels * px;
     const float slot_h = kStripSlotHeightPixels * px;
     const float pad = kStripPadPixels * px;
+    // The notice's row, reserved whether or not there is a notice: the attack list is drawn under
+    // it, and a panel that moves when a notice appears or expires is a panel that gets misread.
+    const float notice_top = top + slot_h + (kStripMarginPixels * px) + pad;
     float left = kStripMarginPixels * px;
     for (const RosterGroup& group : roster.groups) {
         // Lit when ANY unit of the group is selected: the old per-unit rule, generalised. Pressing
@@ -1950,12 +1967,41 @@ void append_roster_strip(std::vector<SceneVertex>& out, const SceneOptions& opti
     }
     if (!options.notice.empty()) {
         const float cell = kStripNoticeCell * px;
-        const float notice_top = top + slot_h + (kStripMarginPixels * px) + pad;
         const float notice_left = kStripMarginPixels * px + pad;
         plate(kStripMarginPixels * px, notice_top - pad,
               notice_left + word_width(options.notice, cell) + pad,
               notice_top + (5.0F * cell) + pad, kStripSelected);
         ink_text(options.notice, notice_left, notice_top, cell, kStripSelected);
+    }
+    // THE ATTACK LIST. The key to press, the kind in a column of its own, then the distance in
+    // whole metres: the hundred-metre figures are the ones worth comparing, and a column of them
+    // reads down the panel. The metres column is as wide as the widest row, so no row is pushed
+    // out of the plate by a number longer than its neighbours.
+    if (wants_list) {
+        const std::vector<TargetRow>& rows = *options.attack_list;
+        const float cell = kStripNoticeCell * px;
+        const float pitch = 6.0F * cell; // a 5-cell glyph and one blank row between rows
+        const float key_left = kStripMarginPixels * px + pad;
+        const float label_left = key_left + (7.0F * cell); // one glyph (5 cells) and a blank column
+        float label_width = 0.0F;
+        float metres_width = 0.0F;
+        for (const TargetRow& row : rows) {
+            label_width = std::max(label_width, word_width(kind_label(row.kind), cell));
+            metres_width = std::max(metres_width, word_width(target_metres(row.metres), cell));
+        }
+        const float metres_left = label_left + label_width + (2.0F * cell);
+        const float list_top = notice_top + (5.0F * cell) + (2.0F * pad);
+        const float list_left = kStripMarginPixels * px;
+        plate(list_left, list_top, metres_left + metres_width + pad,
+              list_top + pad + (static_cast<float>(rows.size() - 1) * pitch) + (5.0F * cell) + pad,
+              kStripFrame);
+        for (std::size_t index = 0; index < rows.size(); ++index) {
+            const float row_top = list_top + pad + (static_cast<float>(index) * pitch);
+            const char key = static_cast<char>('0' + rows.at(index).key);
+            ink_text(std::string_view{&key, 1}, key_left, row_top, cell, kStripFrame);
+            ink_text(kind_label(rows.at(index).kind), label_left, row_top, cell, kStripFrame);
+            ink_text(target_metres(rows.at(index).metres), metres_left, row_top, cell, kStripFrame);
+        }
     }
 }
 
@@ -2466,7 +2512,7 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
     append_mount_plates(scene.vertices, options, sim);
     append_unit_bars(scene.vertices, options, sim);
     append_weapon_hud(scene.vertices, options);
-    append_roster_strip(scene.vertices, options, sim, selected);
+    append_hud_panels(scene.vertices, options, sim, selected);
     append_reticle(scene.vertices, options, sim, aimed);
     append_world_map(scene.vertices, options, sim);
 

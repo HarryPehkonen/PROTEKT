@@ -92,6 +92,10 @@ struct Options {
     /// `--map FRAME` (repeatable): O pressed on that frame (1-based), which opens the world map and
     /// on a second frame closes it, so a capture can show the map with nobody at the keyboard.
     std::vector<std::uint32_t> map_frames{};
+    /// `--targets FRAME` (repeatable): T pressed on that frame (1-based), so a capture can show the
+    /// attack list with nobody at the keyboard. A hostile under the crosshair is still attacked;
+    /// aim at the sky to arm the list instead.
+    std::vector<std::uint32_t> target_frames{};
     struct DigitPress {
         std::uint32_t frame{};
         int digit{};
@@ -179,6 +183,13 @@ int parse_args(std::span<const std::string_view> args, Options& options, std::os
                 return 2;
             }
             options.map_frames.push_back(frame);
+        } else if (arg == "--targets") {
+            std::uint32_t frame = 0;
+            if (!next(value) || !parse_number(value, frame) || frame == 0) {
+                err << "protekt-game: --targets wants a frame number (1-based)\n";
+                return 2;
+            }
+            options.target_frames.push_back(frame);
         } else if (arg == "--digit") {
             std::string_view digit_text;
             Options::DigitPress press;
@@ -398,6 +409,11 @@ public:
         scene_options.nav_marks = &nav_marks_;
         scene_options.show_roster = true;
         scene_options.show_world_map = world_map_;
+        if (session_.attack_armed()) {
+            // The list lives in the Session's own vector and is captured when T arms it; pointing
+            // at it is enough, and nothing here is owned. A frame that is not arming stays null.
+            scene_options.attack_list = &session_.attack_targets();
+        }
         if (session_.go_armed()) {
             // Never expires: the prompt is on screen for exactly as long as the mode lasts.
             scene_options.notice = std::string(game::kGoPrompt);
@@ -452,6 +468,10 @@ void script_hands(const Options& options, std::uint32_t frame, input::InputFrame
     if (std::find(options.map_frames.begin(), options.map_frames.end(), frame + 1)
         != options.map_frames.end()) {
         hands.keys.push_back(input::KeyEvent{input::kKeyO, true, false});
+    }
+    if (std::find(options.target_frames.begin(), options.target_frames.end(), frame + 1)
+        != options.target_frames.end()) {
+        hands.keys.push_back(input::KeyEvent{input::kKeyT, true, false});
     }
     for (const Options::DigitPress& press : options.digit_presses) {
         if (press.frame == frame + 1) {

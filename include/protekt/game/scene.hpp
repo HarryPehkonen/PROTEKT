@@ -12,6 +12,7 @@
 
 #include "protekt/game/atlas.hpp"
 #include "protekt/game/scene_data.hpp"
+#include "protekt/game/targets.hpp"
 #include "protekt/game/weapon.hpp"
 #include "protekt/math/math.hpp"
 #include "protekt/sim/observer.hpp"
@@ -485,6 +486,11 @@ struct SceneOptions {
     /// One line under the strip, for what a roster key just said ("Unit 4 is destroyed."). Empty
     /// draws none. The app holds it for a few seconds; the scene only draws it.
     std::string notice{};
+    /// The attack list (BZ2A): the nearest enemies keyed 1-9 and 0, drawn as a panel of its own
+    /// under the strip and the notice line while the player chooses one. Null or empty draws
+    /// nothing, so a frame that never heard of it is byte-identical -- the same discipline as
+    /// `nav_marks`. NOT owned.
+    const std::vector<TargetRow>* attack_list{nullptr};
     /// The world map (N4), drawn last over everything: the whole world as a square, your own
     /// assets and your nav marks. Off by default, so a frame that never heard of it is unchanged.
     bool show_world_map{false};

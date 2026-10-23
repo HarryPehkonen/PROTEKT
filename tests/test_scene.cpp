@@ -4574,4 +4574,111 @@ TEST(MortarModel, TwoBuildsOfASkirmishWithBothInViewAreByteIdentical) {
         0);
 }
 
+// THE ATTACK LIST (BZ2A-2): the panel the player chooses from. The logic that fills it is tested
+// in test_targets.cpp; these tests pin the drawing: asked for or not, deterministic, and a pure
+// read of the sim.
+namespace {
+
+/// Two rows, near enough to name real units in the skirmish. The panel only reads the numbers and
+/// the kind, so the ids do not have to be the ones nearest the camera.
+std::vector<protekt::game::TargetRow> two_rows(const protekt::sim::Sim& sim) {
+    return {{1, sim.units().at(0).kind, sim.units().at(0).id, 12},
+            {2, sim.units().at(1).kind, sim.units().at(1).id, 40}};
+}
+
+} // namespace
+
+TEST(SceneAttackList, TheListIsDrawnOnlyWhenAskedAndNeverTouchesTheSim) {
+    const auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(42));
+    SceneOptions options = options_at(60.0F, 60.0F);
+    options.show_roster = true;
+    const std::uint64_t hash = sim.state_hash();
+    const Scene without = build_scene(sim, options);
+
+    const std::vector<protekt::game::TargetRow> rows = two_rows(sim);
+    options.attack_list = &rows;
+    const Scene with = build_scene(sim, options);
+    EXPECT_GT(with.vertices.size(), without.vertices.size()) << "the rows must reach the frame";
+    EXPECT_EQ(sim.state_hash(), hash) << "drawing the list orders nothing: it is a view";
+
+    // The field's default draws nothing at all, so a frame that never heard of it is unchanged.
+    SceneOptions plain = options_at(60.0F, 60.0F);
+    plain.show_roster = true;
+    const Scene untouched = build_scene(sim, plain);
+    ASSERT_EQ(untouched.vertices.size(), without.vertices.size());
+    EXPECT_EQ(std::memcmp(untouched.vertices.data(), without.vertices.data(),
+                          without.vertices.size() * sizeof(SceneVertex)),
+              0);
+}
+
+TEST(SceneAttackList, AnEmptyListDrawsNothing) {
+    const auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(42));
+    SceneOptions options = options_at(60.0F, 60.0F);
+    options.show_roster = true;
+    const Scene without = build_scene(sim, options);
+    const std::vector<protekt::game::TargetRow> none;
+    options.attack_list = &none;
+    const Scene empty = build_scene(sim, options);
+    ASSERT_EQ(empty.vertices.size(), without.vertices.size());
+    EXPECT_EQ(std::memcmp(empty.vertices.data(), without.vertices.data(),
+                          without.vertices.size() * sizeof(SceneVertex)),
+              0);
+}
+
+TEST(SceneAttackList, TwoSameSeedBuildsWithAListAreByteIdentical) {
+    const auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(42));
+    SceneOptions options = options_at(60.0F, 60.0F);
+    options.show_roster = true;
+    const std::vector<protekt::game::TargetRow> rows = two_rows(sim);
+    options.attack_list = &rows;
+    const Scene a = build_scene(sim, options);
+    const Scene b = build_scene(sim, options);
+    ASSERT_EQ(a.vertices.size(), b.vertices.size());
+    EXPECT_EQ(
+        std::memcmp(a.vertices.data(), b.vertices.data(), a.vertices.size() * sizeof(SceneVertex)),
+        0);
+}
+
+TEST(SceneAttackList, EveryRowIsDrawnSoMoreRowsMakeMoreVertices) {
+    const auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(42));
+    SceneOptions options = options_at(60.0F, 60.0F);
+    options.show_roster = true;
+    std::vector<protekt::game::TargetRow> rows = two_rows(sim);
+    options.attack_list = &rows;
+    const Scene two = build_scene(sim, options);
+    // A third row at a distance with more digits than either: the count and the width both grow.
+    rows.push_back({3, sim.units().at(2).kind, sim.units().at(2).id, 1234});
+    const Scene three = build_scene(sim, options);
+    ASSERT_EQ(rows.size(), 3U);
+    EXPECT_GT(three.vertices.size(), two.vertices.size()) << "each row must emit its own glyphs";
+}
+
+TEST(SceneAttackList, ThePanelSitsBelowTheRosterStrip) {
+    const auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(42));
+    SceneOptions options = options_at(60.0F, 60.0F);
+    options.show_roster = true;
+    const Scene without = build_scene(sim, options);
+    const std::vector<protekt::game::TargetRow> rows = two_rows(sim);
+    options.attack_list = &rows;
+    const Scene with = build_scene(sim, options);
+
+    // The panel's vertices are the tail the list added: the strip and its notice are drawn before
+    // it and are identical in both scenes, so the suffix is exactly the list.
+    ASSERT_GT(with.vertices.size(), without.vertices.size());
+    const float scale = static_cast<float>(options.extent.height) / 720.0F;
+    // The strip's bottom edge: its 6 px top margin and its 34 px plate, in the HUD's own units.
+    constexpr float kStripBottomPixels = 40.0F;
+    float highest = std::numeric_limits<float>::max();
+    for (std::size_t index = without.vertices.size(); index < with.vertices.size(); ++index) {
+        const SceneVertex& vertex = with.vertices.at(index);
+        const protekt::game::Projected p
+            = project(options.camera, options.extent, vertex.position[0], vertex.position[1],
+                      vertex.position[2]);
+        ASSERT_GT(p.depth, 0.0F) << "a HUD vertex must be in front of the camera";
+        highest = std::min(highest, p.y);
+    }
+    EXPECT_GE(highest, kStripBottomPixels * scale)
+        << "the list must start at or below the strip's bottom edge, never over it";
+}
+
 } // namespace
