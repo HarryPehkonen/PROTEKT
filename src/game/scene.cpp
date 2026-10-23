@@ -1263,7 +1263,7 @@ void append_radar(std::vector<SceneVertex>& out, const SceneOptions& options, co
     };
     const float x0 = panel.x - kRadarBorderPixels;
     const float y0 = panel.y - kRadarBorderPixels;
-    const float x1 = panel.x + panel.size + kRadarBorderPixels;
+    const float x1 = panel.x + panel.width + kRadarBorderPixels;
     constexpr std::array<float, 3> kBorder{0.80F, 0.82F, 0.85F};
     constexpr std::array<float, 3> kFace{0.04F, 0.05F, 0.06F};
 
@@ -1271,9 +1271,9 @@ void append_radar(std::vector<SceneVertex>& out, const SceneOptions& options, co
     // rectangle, ringed by the border. The corners of the rectangle are not painted. Both are fans
     // and strips of `kRadarSegments` slices, walked clockwise on the screen like `rect`, and every
     // point goes through `at` like everything else.
-    const float centre_x = panel.x + (panel.size * 0.5F);
+    const float centre_x = panel.x + (panel.width * 0.5F);
     const float centre_y = panel.y + (panel.height * 0.5F);
-    const float inner_x = panel.size * 0.5F;
+    const float inner_x = panel.width * 0.5F;
     const float inner_y = panel.height * 0.5F;
     const auto rim = [&](float grow, int slice) {
         const float angle = (2.0F * kPi * static_cast<float>(slice)) / kRadarSegments;
@@ -1300,7 +1300,7 @@ void append_radar(std::vector<SceneVertex>& out, const SceneOptions& options, co
     // border, a small gap up. The sim owns the numbers; nothing is added to `Unit` for this.
     const sim::Unit* viewer = sim.find(options.viewer_unit);
     if (viewer != nullptr) {
-        const float height = std::max(kHealthBarMinPixels, panel.size * kHealthBarHeightFraction);
+        const float height = std::max(kHealthBarMinPixels, panel.width * kHealthBarHeightFraction);
         const float bottom = y0 - kHealthBarGapPixels;
         const float top = bottom - height;
         rect(face_at, x0, top, x1, bottom, kFace);

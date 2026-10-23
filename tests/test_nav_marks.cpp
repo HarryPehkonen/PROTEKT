@@ -186,7 +186,7 @@ TEST(NavMarksRadar, ListsExactlyTheDroppedMarksWithTheirNumbers) {
     EXPECT_EQ(shown.at(1).number, 2);
     EXPECT_FALSE(shown.at(0).at_rim);
     // Heading-up at yaw 0: east of the tank is to the right of the centre, north of it is above.
-    const float middle = panel.size * 0.5F;
+    const float middle = panel.width * 0.5F;
     const float middle_y = panel.height * 0.5F;
     EXPECT_GT(shown.at(0).px, middle);
     EXPECT_NEAR(shown.at(0).py, middle_y, 3.0F) << "the same row, within a tile";
@@ -202,10 +202,10 @@ TEST(NavMarksRadar, AMarkBeyondTheRadiusIsPinnedToTheRimInItsDirection) {
         = radar_nav_marks(rig.sim.units(), rig.tank_a, marks.marks(), 0.0F, panel);
     ASSERT_EQ(shown.size(), 1U);
     EXPECT_TRUE(shown.at(0).at_rim);
-    const float middle = panel.size * 0.5F;
+    const float middle = panel.width * 0.5F;
     EXPECT_GT(shown.at(0).px, middle * 1.5F);
     EXPECT_NEAR(shown.at(0).py, panel.height * 0.5F, 0.5F);
-    EXPECT_LE(shown.at(0).px + shown.at(0).half, panel.size);
+    EXPECT_LE(shown.at(0).px + shown.at(0).half, panel.width);
 }
 
 TEST(NavMarksRadar, EveryMarkPlateLiesInsideTheOvalAtAnyBearing) {
@@ -228,7 +228,7 @@ TEST(NavMarksRadar, EveryMarkPlateLiesInsideTheOvalAtAnyBearing) {
         const RadarNav& nav = shown.at(0);
         for (const float dx : {-nav.half, nav.half}) {
             for (const float dy : {-nav.half, nav.half}) {
-                const float ex = (nav.px + dx - (panel.size * 0.5F)) / (panel.size * 0.5F);
+                const float ex = (nav.px + dx - (panel.width * 0.5F)) / (panel.width * 0.5F);
                 const float ey = (nav.py + dy - (panel.height * 0.5F)) / (panel.height * 0.5F);
                 EXPECT_LE((ex * ex) + (ey * ey), 1.0F) << tile.at(0) << "," << tile.at(1);
             }

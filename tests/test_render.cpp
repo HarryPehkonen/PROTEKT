@@ -484,13 +484,13 @@ TEST_F(RenderTest, DrawsTheRadarWithAFaceMarksAndABorderThatSurviveTheDepthTest)
         for (std::uint32_t y = static_cast<std::uint32_t>(panel.y - slack);
              y < static_cast<std::uint32_t>(panel.y + panel.height + slack); ++y) {
             for (std::uint32_t x = static_cast<std::uint32_t>(panel.x - slack);
-                 x < static_cast<std::uint32_t>(panel.x + panel.size + slack); ++x) {
+                 x < static_cast<std::uint32_t>(panel.x + panel.width + slack); ++x) {
                 const std::uint32_t rgb = frame.rgb(x, y);
                 const std::uint32_t r = (rgb >> 16U) & 0xFFU;
                 const std::uint32_t g = (rgb >> 8U) & 0xFFU;
                 const std::uint32_t b = rgb & 0xFFU;
                 const bool inside = static_cast<float>(x) >= panel.x
-                                    && static_cast<float>(x) < (panel.x + panel.size)
+                                    && static_cast<float>(x) < (panel.x + panel.width)
                                     && static_cast<float>(y) >= panel.y
                                     && static_cast<float>(y) < (panel.y + panel.height);
                 if (inside && r < 40U && g < 40U && b < 40U) {
@@ -510,7 +510,7 @@ TEST_F(RenderTest, DrawsTheRadarWithAFaceMarksAndABorderThatSurviveTheDepthTest)
         // You are always at the middle of the panel: a 3x3 window there must contain your own mark,
         // which is a structural claim about the radar rather than a claim about a colour value.
         bool you_are_at_the_middle = false;
-        const std::uint32_t middle_x = static_cast<std::uint32_t>(panel.x + (panel.size * 0.5F));
+        const std::uint32_t middle_x = static_cast<std::uint32_t>(panel.x + (panel.width * 0.5F));
         const std::uint32_t middle_y = static_cast<std::uint32_t>(panel.y + (panel.height * 0.5F));
         for (std::uint32_t y = middle_y - 1U; y <= middle_y + 1U; ++y) {
             for (std::uint32_t x = middle_x - 1U; x <= middle_x + 1U; ++x) {

@@ -81,19 +81,19 @@ const RadarMark& viewer_mark(const std::vector<RadarMark>& marks) {
     return marks.front();
 }
 
-float panel_middle(const RadarPanel& panel) { return panel.size * 0.5F; }
+float panel_middle(const RadarPanel& panel) { return panel.width * 0.5F; }
 float panel_middle_y(const RadarPanel& panel) { return panel.height * 0.5F; }
 
 /// Pixels per tile on the panel's x axis, and on its y axis: the tilt squeezes y by sin(elevation).
 float pixels_per_tile(const RadarPanel& panel) {
-    return panel.size / (2.0F * static_cast<float>(kRadarRadiusTiles));
+    return panel.width / (2.0F * static_cast<float>(kRadarRadiusTiles));
 }
 float squeeze() { return std::sin(kRadarElevationRadians); }
 
 /// Where a point sits against the oval face, 1 on the rim: the ellipse equation, semi-axes in
 /// pixels.
 float ellipse_value(const RadarPanel& panel, float px, float py, float inset = 0.0F) {
-    const float a = (panel.size * 0.5F) - inset;
+    const float a = (panel.width * 0.5F) - inset;
     const float b = (panel.height * 0.5F) - inset;
     const float x = (px - panel_middle(panel)) / a;
     const float y = (py - panel_middle_y(panel)) / b;
@@ -106,25 +106,25 @@ TEST(RadarPanel, SitsInTheBottomLeftCornerWithAMargin) {
     const RadarPanel panel = radar_panel(Extent{1280, 720});
     EXPECT_FLOAT_EQ(panel.x, protekt::game::kRadarMarginPixels);
     EXPECT_FLOAT_EQ(panel.y + panel.height + protekt::game::kRadarMarginPixels, 720.0F);
-    EXPECT_GT(panel.size, 100.0F);
+    EXPECT_GT(panel.width, 100.0F);
 }
 
 TEST(RadarPanel, IsBZ2sWideShallowOval) {
     // Measured off the user's own screenshots: the disc is 0.258 of the frame wide and 0.358 as
     // tall as it is wide -- a circular ground disc seen from 21 degrees up.
     const RadarPanel panel = radar_panel(Extent{1280, 720});
-    EXPECT_NEAR(panel.size, 0.258F * 1280.0F, 1.0F);
+    EXPECT_NEAR(panel.width, 0.258F * 1280.0F, 1.0F);
     EXPECT_NEAR(panel.height, 118.0F, 1.0F);
-    EXPECT_NEAR(panel.height / panel.size, kRadarAspect, 0.003F);
+    EXPECT_NEAR(panel.height / panel.width, kRadarAspect, 0.003F);
     EXPECT_NEAR(kRadarAspect, std::sin(kRadarElevationRadians), 0.001F)
         << "the oval is the ground circle seen at this elevation";
 }
 
 TEST(RadarPanel, FollowsTheFrameWidthAndIsClampedAtBothEnds) {
     // A small window still gets a usable radar, a huge one does not get an absurd one.
-    const float small = radar_panel(Extent{640, 360}).size;
-    const float wide = radar_panel(Extent{1280, 720}).size;
-    const float huge = radar_panel(Extent{3840, 2160}).size;
+    const float small = radar_panel(Extent{640, 360}).width;
+    const float wide = radar_panel(Extent{1280, 720}).width;
+    const float huge = radar_panel(Extent{3840, 2160}).width;
     EXPECT_FLOAT_EQ(small, protekt::game::kRadarMinPixels);
     EXPECT_GT(wide, small);
     EXPECT_FLOAT_EQ(huge, protekt::game::kRadarMaxPixels);
@@ -134,16 +134,16 @@ TEST(RadarPanel, FollowsTheFrameWidthAndIsClampedAtBothEnds) {
         EXPECT_GE(panel.x, 0.0F);
         EXPECT_GE(panel.y, 0.0F);
         EXPECT_LE(panel.y + panel.height, static_cast<float>(extent.height));
-        EXPECT_LE(panel.x + panel.size, static_cast<float>(extent.width));
-        EXPECT_NEAR(panel.height, panel.size * kRadarAspect, 0.01F);
+        EXPECT_LE(panel.x + panel.width, static_cast<float>(extent.width));
+        EXPECT_NEAR(panel.height, panel.width * kRadarAspect, 0.01F);
     }
 }
 
 TEST(RadarPanel, ShrinksToFitAWindowTooSmallForTheUsualSize) {
     const RadarPanel panel = radar_panel(Extent{400, 200});
     EXPECT_LE(panel.y + panel.height, 200.0F);
-    EXPECT_GT(panel.size, 0.0F);
-    EXPECT_NEAR(panel.height, panel.size * kRadarAspect, 0.01F);
+    EXPECT_GT(panel.width, 0.0F);
+    EXPECT_NEAR(panel.height, panel.width * kRadarAspect, 0.01F);
 }
 
 // ---------------------------------------------------------------- you, at the centre
@@ -333,7 +333,7 @@ TEST(RadarBase, AnArrowPointsTheWayToTurn) {
     EXPECT_NEAR(arrow.py, panel_middle_y(kPanel), 1.0F);
     EXPECT_NE(arrow.px, middle);
     EXPECT_GE(arrow.px - arrow.half, 0.0F);
-    EXPECT_LE(arrow.px + arrow.half, kPanel.size);
+    EXPECT_LE(arrow.px + arrow.half, kPanel.width);
 }
 
 TEST(RadarBase, AFarAwayBaseIsNotLostWhenYouTurn) {
@@ -380,7 +380,7 @@ TEST(RadarMarks, EveryMarkLiesInsideThePanel) {
     EXPECT_EQ(marks.size(), 5U);
     for (const RadarMark& mark : marks) {
         EXPECT_GE(mark.px - mark.half, 0.0F);
-        EXPECT_LE(mark.px + mark.half, kPanel.size);
+        EXPECT_LE(mark.px + mark.half, kPanel.width);
         EXPECT_GE(mark.py - mark.half, 0.0F);
         EXPECT_LE(mark.py + mark.half, kPanel.height);
     }
@@ -563,7 +563,7 @@ const RadarLetter& letter(const std::array<RadarLetter, 4>& letters, char glyph)
 
 TEST(RadarCompass, FacingNorthPutsNAtTheTopOfTheRing) {
     const auto letters = radar_compass(0.0F, kPanel);
-    const float middle = kPanel.size * 0.5F;
+    const float middle = kPanel.width * 0.5F;
     EXPECT_NEAR(letter(letters, 'N').px, middle, kTolerance);
     EXPECT_LT(letter(letters, 'N').py, panel_middle_y(kPanel)); // above the centre: the top
     EXPECT_GT(letter(letters, 'E').px, middle);                 // east is to the right
@@ -587,7 +587,7 @@ TEST(RadarCompass, TurningTheViewRotatesTheLettersTheOtherWay) {
     // panel is east. This is the same yaw the marks use: a unit due north lands where N does.
     constexpr float kQuarter = 1.57079632F;
     const auto letters = radar_compass(kQuarter, kPanel);
-    const float middle = kPanel.size * 0.5F;
+    const float middle = kPanel.width * 0.5F;
     EXPECT_LT(letter(letters, 'N').px, middle);
     EXPECT_NEAR(letter(letters, 'N').py, panel_middle_y(kPanel), kTolerance);
     EXPECT_NEAR(letter(letters, 'E').px, middle, kTolerance);
@@ -617,7 +617,7 @@ TEST(RadarCompass, ExactlyNESWAndNoDiagonals) {
     EXPECT_EQ(glyphs, "ENSW");
     // Neighbours are a quarter turn apart: nothing sits at an eighth.
     // (A quarter turn on the ground, so measured with y un-squeezed.)
-    const float middle = kPanel.size * 0.5F;
+    const float middle = kPanel.width * 0.5F;
     const float my = panel_middle_y(kPanel);
     const auto bearing = [&](const RadarLetter& l) {
         return std::atan2((l.px - middle) / (middle - protekt::game::kRadarLetterInsetPixels),

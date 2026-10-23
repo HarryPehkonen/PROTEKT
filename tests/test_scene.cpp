@@ -1066,15 +1066,15 @@ TEST(RadarDraws, ThePanelLandsOnItsPixelsAndInFrontOfTheNearPlane) {
         // The border sits just outside the panel's face, which is the widest thing drawn.
         const float slack = protekt::game::kRadarBorderPixels + 1.0F;
         EXPECT_GE(p.x, panel.x - slack);
-        EXPECT_LE(p.x, panel.x + panel.size + slack);
+        EXPECT_LE(p.x, panel.x + panel.width + slack);
         // The health bar stands above the panel, so the top is allowed that much further.
-        const float bar_room = (std::max(8.0F, panel.size * 0.08F)) + 4.0F;
+        const float bar_room = (std::max(8.0F, panel.width * 0.08F)) + 4.0F;
         EXPECT_GE(p.y, panel.y - slack - bar_room);
         EXPECT_LE(p.y, panel.y + panel.height + slack);
         // ...and the oval, not just its rectangle: nothing is drawn in the corners the oval leaves.
         if (p.y > panel.y - slack) {
             const float ex
-                = (p.x - (panel.x + (panel.size * 0.5F))) / ((panel.size * 0.5F) + slack);
+                = (p.x - (panel.x + (panel.width * 0.5F))) / ((panel.width * 0.5F) + slack);
             const float ey
                 = (p.y - (panel.y + (panel.height * 0.5F))) / ((panel.height * 0.5F) + slack);
             EXPECT_LE((ex * ex) + (ey * ey), 1.0F);
@@ -1408,12 +1408,12 @@ TEST(HealthBar, SitsAboveTheRadarAndSharesItsWidth) {
     ASSERT_FALSE(hud.bar_track.empty());
     const float border = protekt::game::kRadarBorderPixels;
     EXPECT_NEAR(min_x(hud.bar_track), hud.panel.x - border, kPixelEps);
-    EXPECT_NEAR(max_x(hud.bar_track), hud.panel.x + hud.panel.size + border, kPixelEps);
+    EXPECT_NEAR(max_x(hud.bar_track), hud.panel.x + hud.panel.width + border, kPixelEps);
     EXPECT_LT(max_y(hud.bar_track), hud.panel.y - border) << "above the ring, with a gap";
     EXPECT_GT(max_y(hud.bar_track), hud.panel.y - border - 16.0F) << "and only a small gap";
     const float height = max_y(hud.bar_track) - min_y(hud.bar_track);
     EXPECT_GE(height, 8.0F - kPixelEps);
-    EXPECT_NEAR(height, std::max(8.0F, hud.panel.size * 0.08F), kPixelEps);
+    EXPECT_NEAR(height, std::max(8.0F, hud.panel.width * 0.08F), kPixelEps);
     EXPECT_GE(min_y(hud.bar_track), 0.0F) << "on the screen";
 }
 
@@ -1433,9 +1433,9 @@ TEST(HealthBar, IsAbsentWithoutAViewerUnitInTheWorld) {
 /// Where a point is against the oval whose semi-axes are the panel's half-width and half-height,
 /// each grown by `grow`: 1 on that ellipse, less inside it.
 float ellipse_of(const Hud& hud, const std::array<float, 2>& p, float grow = 0.0F) {
-    const float a = (hud.panel.size * 0.5F) + grow;
+    const float a = (hud.panel.width * 0.5F) + grow;
     const float b = (hud.panel.height * 0.5F) + grow;
-    const float x = (p.at(0) - (hud.panel.x + (hud.panel.size * 0.5F))) / a;
+    const float x = (p.at(0) - (hud.panel.x + (hud.panel.width * 0.5F))) / a;
     const float y = (p.at(1) - (hud.panel.y + (hud.panel.height * 0.5F))) / b;
     return (x * x) + (y * y);
 }
@@ -1450,7 +1450,7 @@ TEST(Radar, TheFaceIsAnOvalNotARectangle) {
         EXPECT_LE(ellipse_of(hud, p), 1.0F + kEllipseEps);
     }
     EXPECT_NEAR(min_x(hud.face), hud.panel.x, kPixelEps);
-    EXPECT_NEAR(max_x(hud.face), hud.panel.x + hud.panel.size, kPixelEps);
+    EXPECT_NEAR(max_x(hud.face), hud.panel.x + hud.panel.width, kPixelEps);
     EXPECT_NEAR(min_y(hud.face), hud.panel.y, kPixelEps);
     EXPECT_NEAR(max_y(hud.face), hud.panel.y + hud.panel.height, kPixelEps);
 }
@@ -1510,7 +1510,7 @@ TEST(Radar, EveryMarkLiesWithinTheOval) {
     }
     ASSERT_TRUE(viewer.valid());
     const protekt::game::RadarPanel panel = protekt::game::radar_panel({1280, 720});
-    const float middle = panel.size * 0.5F;
+    const float middle = panel.width * 0.5F;
     const float middle_y = panel.height * 0.5F;
     float furthest = 0.0F;
     for (const float yaw : {0.0F, 0.7F, 2.0F, -1.3F, 3.1F}) {

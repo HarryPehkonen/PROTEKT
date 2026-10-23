@@ -38,8 +38,8 @@ RadarPanel radar_panel(Extent extent) noexcept {
 }
 
 RadarPoint radar_project(const RadarPanel& panel, float u, float v, int radius_tiles) noexcept {
-    const float scale = panel.size / (2.0F * static_cast<float>(std::max(radius_tiles, 1)));
-    return RadarPoint{(panel.size * 0.5F) + (u * scale),
+    const float scale = panel.width / (2.0F * static_cast<float>(std::max(radius_tiles, 1)));
+    return RadarPoint{(panel.width * 0.5F) + (u * scale),
                       (panel.height * 0.5F) - (v * std::sin(kRadarElevationRadians) * scale)};
 }
 
@@ -49,15 +49,15 @@ namespace {
 /// panel's, each reduced by `inset`. The pull is along the ray from the middle, so a direction is
 /// kept. A point already inside is left exactly where it is.
 [[nodiscard]] RadarPoint pin_inside(const RadarPanel& panel, RadarPoint p, float inset) noexcept {
-    const float a = std::max((panel.size * 0.5F) - inset, 1.0F);
+    const float a = std::max((panel.width * 0.5F) - inset, 1.0F);
     const float b = std::max((panel.height * 0.5F) - inset, 1.0F);
-    const float x = (p.px - (panel.size * 0.5F)) / a;
+    const float x = (p.px - (panel.width * 0.5F)) / a;
     const float y = (p.py - (panel.height * 0.5F)) / b;
     const float reach = std::hypot(x, y);
     if (reach <= 1.0F) {
         return p;
     }
-    return RadarPoint{(panel.size * 0.5F) + (x / reach * a),
+    return RadarPoint{(panel.width * 0.5F) + (x / reach * a),
                       (panel.height * 0.5F) + (y / reach * b)};
 }
 
@@ -65,7 +65,7 @@ namespace {
 /// face. A fixed inset from a flat oval is not enough (the corner of a box at the end of the long
 /// axis reaches past the offset curve), so this measures the corners and shrinks until they fit.
 [[nodiscard]] RadarPoint fit_box(const RadarPanel& panel, RadarPoint p, float half) noexcept {
-    const float middle_x = panel.size * 0.5F;
+    const float middle_x = panel.width * 0.5F;
     const float middle_y = panel.height * 0.5F;
     for (int pass = 0; pass < 16; ++pass) {
         float worst = 0.0F;
@@ -94,7 +94,7 @@ std::array<RadarLetter, 4> radar_compass(float yaw_radians, const RadarPanel& pa
     // inset from the rim, so a quarter turn is a quarter of the way round it.
     const float sine = std::sin(yaw_radians);
     const float cosine = std::cos(yaw_radians);
-    const float middle_x = panel.size * 0.5F;
+    const float middle_x = panel.width * 0.5F;
     const float middle_y = panel.height * 0.5F;
     const float radius_x = std::max(middle_x - kRadarLetterInsetPixels, 0.0F);
     const float radius_y = std::max(middle_y - kRadarLetterInsetPixels, 0.0F);
@@ -109,7 +109,7 @@ std::array<RadarLetter, 4> radar_compass(float yaw_radians, const RadarPanel& pa
 std::vector<RadarMark> radar_marks(std::span<const sim::Unit> units, sim::UnitId viewer_unit,
                                    float yaw_radians, const RadarPanel& panel, int radius_tiles) {
     std::vector<RadarMark> marks;
-    if (!viewer_unit.valid() || radius_tiles <= 0 || panel.size <= 0.0F) {
+    if (!viewer_unit.valid() || radius_tiles <= 0 || panel.width <= 0.0F) {
         return marks;
     }
     const sim::Unit* viewer = nullptr;
@@ -127,7 +127,7 @@ std::vector<RadarMark> radar_marks(std::span<const sim::Unit> units, sim::UnitId
 
     // You: at the middle, always pointing up, because the panel turns with you.
     const RadarPoint middle = radar_project(panel, 0.0F, 0.0F, radius_tiles);
-    marks.push_back(RadarMark{middle.px, middle.py, panel.size * kViewerHalfFraction, 0.0F,
+    marks.push_back(RadarMark{middle.px, middle.py, panel.width * kViewerHalfFraction, 0.0F,
                               RadarShape::Triangle, RadarTone::You});
 
     for (const sim::Unit& unit : units) {
@@ -150,7 +150,7 @@ std::vector<RadarMark> radar_marks(std::span<const sim::Unit> units, sim::UnitId
             // Where the projection puts it, pulled in just far enough that its box stays on the
             // face: a mark at the radius is ON the rim, and half of it would be outside the oval.
             const float half
-                = panel.size
+                = panel.width
                   * (unit.kind == sim::UnitKind::Factory ? kBaseHalfFraction : kDotHalfFraction);
             const RadarPoint at
                 = fit_box(panel, radar_project(panel, right, forward, radius_tiles), half);
@@ -165,7 +165,7 @@ std::vector<RadarMark> radar_marks(std::span<const sim::Unit> units, sim::UnitId
         const float length = std::max(distance, 1.0e-3F);
         const float ground_x = right / length;
         const float ground_y = forward / length;
-        const float half = panel.size * kArrowHalfFraction;
+        const float half = panel.width * kArrowHalfFraction;
         const RadarPoint at
             = fit_box(panel,
                       radar_project(panel, ground_x * static_cast<float>(radius_tiles),
@@ -181,7 +181,7 @@ std::vector<RadarNav> radar_nav_marks(std::span<const sim::Unit> units, sim::Uni
                                       std::span<const NavMarks::Mark> marks, float yaw_radians,
                                       const RadarPanel& panel, int radius_tiles) {
     std::vector<RadarNav> shown;
-    if (!viewer_unit.valid() || radius_tiles <= 0 || panel.size <= 0.0F) {
+    if (!viewer_unit.valid() || radius_tiles <= 0 || panel.width <= 0.0F) {
         return shown;
     }
     const sim::Unit* viewer = nullptr;
@@ -193,9 +193,9 @@ std::vector<RadarNav> radar_nav_marks(std::span<const sim::Unit> units, sim::Uni
     if (viewer == nullptr) {
         return shown;
     }
-    const float half = panel.size * kNavHalfFraction;
+    const float half = panel.width * kNavHalfFraction;
     // The plate stays wholly on the face: its centre never goes past the oval inset by this much.
-    const float inset = (kNavRimFraction * panel.size) + (1.5F * half);
+    const float inset = (kNavRimFraction * panel.width) + (1.5F * half);
     const float sine = std::sin(yaw_radians);
     const float cosine = std::cos(yaw_radians);
     for (const NavMarks::Mark& mark : marks) {

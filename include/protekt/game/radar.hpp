@@ -71,12 +71,11 @@ struct RadarMark {
 };
 
 /// The panel's bounding rectangle in the frame, with the y as the frame's y: from the top. The face
-/// is the oval inscribed in it. `size` is the WIDTH (the name predates the oval); `height` is
-/// `size * kRadarAspect`.
+/// is the oval inscribed in it; `height` is `width * kRadarAspect`.
 struct RadarPanel {
     float x{};
     float y{};
-    float size{};
+    float width{};
     float height{};
 };
 
