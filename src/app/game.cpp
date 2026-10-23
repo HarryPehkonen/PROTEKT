@@ -89,7 +89,7 @@ struct Options {
     /// `--go FRAME` (repeatable): G pressed on that frame (1-based); the number that answers it is
     /// a `--digit` on a later frame. Lets a capture show the go prompt with nobody at the keyboard.
     std::vector<std::uint32_t> go_frames{};
-    /// `--map FRAME` (repeatable): O pressed on that frame (1-based), which opens the world map and
+    /// `--map FRAME` (repeatable): R pressed on that frame (1-based), which opens the map view and
     /// on a second frame closes it, so a capture can show the map with nobody at the keyboard.
     std::vector<std::uint32_t> map_frames{};
     /// `--targets FRAME` (repeatable): T pressed on that frame (1-based), so a capture can show the
@@ -437,7 +437,7 @@ private:
     game::LandingMarks landing_marks_;
     game::NavMarks nav_marks_;
     game::Headings headings_;
-    bool world_map_{false};   // O toggles the world map; a view, it never touches the sim
+    bool world_map_{false};   // R toggles the map view; a view, it never touches the sim
     bool calibration_{false}; // C toggles the colour calibration view; it never touches the sim
     bool player_alive_before_{false};
     ai::ScriptedCommander enemy_;
@@ -467,7 +467,7 @@ void script_hands(const Options& options, std::uint32_t frame, input::InputFrame
     }
     if (std::find(options.map_frames.begin(), options.map_frames.end(), frame + 1)
         != options.map_frames.end()) {
-        hands.keys.push_back(input::KeyEvent{input::kKeyO, true, false});
+        hands.keys.push_back(input::KeyEvent{input::kKeyR, true, false});
     }
     if (std::find(options.target_frames.begin(), options.target_frames.end(), frame + 1)
         != options.target_frames.end()) {

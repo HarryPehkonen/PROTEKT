@@ -2513,7 +2513,12 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
     append_projectiles(scene.vertices, options, sim);
     append_landing_marks(scene.vertices, options, sim.tick());
     append_nav_beacons(scene.vertices, options);
-    append_radar(scene.vertices, options, sim);
+    // The map and the radar share the bottom-left corner: BZ2's R turns one into the other rather
+    // than stacking them, so the radar (and the hull bar it carries) is not drawn while the map is
+    // up. Hiding the radar must not change the sim, and it does not: this is a view.
+    if (!options.show_world_map) {
+        append_radar(scene.vertices, options, sim);
+    }
     append_mount_plates(scene.vertices, options, sim);
     append_unit_bars(scene.vertices, options, sim);
     append_weapon_hud(scene.vertices, options);

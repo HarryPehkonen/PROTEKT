@@ -140,11 +140,13 @@ inline void apply(HeldKeys& keys, const KeyEvent& event) noexcept {
     return false;
 }
 
-/// O: toggle the world map (N4). Bare only; a pure view, so the caller flips a flag and nothing
-/// else. (Tab clears the selection, M orders a move, so neither is free.)
+/// R: toggle the map view (N4, BZ2R -- BZ2 puts the map on R). Bare only; a pure view, so the
+/// caller flips a flag and nothing else. (Tab clears the selection, M orders a move, so neither is
+/// free.) O no longer does this: O is BZ2's OBJECTIVES key and stays unbound until objectives
+/// exist.
 [[nodiscard]] inline bool world_map_toggled(const InputFrame& frame) noexcept {
     for (const KeyEvent& key : frame.keys) {
-        if (key.pressed && !key.ctrl && !key.alt && key.scancode == kKeyO) {
+        if (key.pressed && !key.ctrl && !key.alt && key.scancode == kKeyR) {
             return true;
         }
     }

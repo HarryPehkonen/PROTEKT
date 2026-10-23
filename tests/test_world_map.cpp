@@ -1,5 +1,5 @@
-// N4: the square world map. A toggle draws the whole world as a square overlay, your own assets and
-// your nav marks on it and NOTHING of the enemy's, and it is a pure view.
+// N4 + BZ2R: the square world map. R turns the radar into a square map of the whole world, your own
+// assets and your nav marks on it and NOTHING of the enemy's, and it is a pure view.
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -66,16 +66,16 @@ struct Rig {
                       == 0);
 }
 
-TEST(WorldMap, TheKeyOOpensAndClosesAndNoOtherKeyDoes) {
+TEST(WorldMap, TheKeyROpensAndClosesAndNoOtherKeyDoes) {
     input::InputFrame frame{};
     EXPECT_FALSE(input::world_map_toggled(frame));
-    frame.keys.push_back(input::KeyEvent{input::kKeyO, true, false});
+    frame.keys.push_back(input::KeyEvent{input::kKeyR, true, false});
     EXPECT_TRUE(input::world_map_toggled(frame));
     input::InputFrame release{};
-    release.keys.push_back(input::KeyEvent{input::kKeyO, false, false});
+    release.keys.push_back(input::KeyEvent{input::kKeyR, false, false});
     EXPECT_FALSE(input::world_map_toggled(release));
     input::InputFrame modified{};
-    modified.keys.push_back(input::KeyEvent{input::kKeyO, true, false, true, false});
+    modified.keys.push_back(input::KeyEvent{input::kKeyR, true, false, true, false});
     EXPECT_FALSE(input::world_map_toggled(modified));
     for (const std::int32_t other : {input::kKeyTab, input::kKeyM, input::kKeyN, input::kKeyG,
                                      input::kKeyC, input::kKeyEscape}) {
@@ -85,13 +85,49 @@ TEST(WorldMap, TheKeyOOpensAndClosesAndNoOtherKeyDoes) {
     }
 }
 
-TEST(WorldMap, OThatIsNotAnyOtherBindingsKey) {
-    // O must not be a key another binding already answers to: the interaction layer must do
-    // nothing at all with it.
+TEST(WorldMap, OIsNotTheMapAnyMoreBecauseBZ2UsesItForObjectives) {
+    // 18 is HID 'O'. BZ2's O means OBJECTIVES, so it must not keep opening the map by habit: the
+    // old binding would make the key do two things the day objectives are built.
+    for (const float shift : {0.0F, 1.0F}) {
+        input::InputFrame frame{};
+        frame.keys.push_back(input::KeyEvent{18, true, false, shift != 0.0F, false});
+        EXPECT_FALSE(input::world_map_toggled(frame));
+    }
+}
+
+TEST(WorldMap, TheMapReplacesTheRadarRatherThanSittingOnTopOfIt) {
+    // BZ2's R turns the radar into the map in the same corner. The radar's face is the near-black
+    // {0.04, 0.05, 0.06} and nothing else in a frame uses it, so "is the radar drawn?" is a count.
+    Rig rig = make_rig();
+    SceneOptions radar_options = rig.options;
+    radar_options.show_world_map = false;
+    SceneOptions map_options = rig.options;
+    map_options.show_world_map = true;
+    const Scene radar_scene = build_scene(rig.sim, radar_options);
+    const Scene map_scene = build_scene(rig.sim, map_options);
+    const auto faces = [](const Scene& scene) {
+        std::size_t count = 0;
+        for (const SceneVertex& vertex : scene.vertices) {
+            if (vertex.colour[0] == 0.04F && vertex.colour[1] == 0.05F
+                && vertex.colour[2] == 0.06F) {
+                ++count;
+            }
+        }
+        return count;
+    };
+    EXPECT_GT(faces(radar_scene), 0U) << "the radar's own face must be drawn when no map is up";
+    EXPECT_EQ(faces(map_scene), 0U) << "the map must replace the radar, not be stacked on it";
+    // And the map itself is really there, so the zero above is not just an empty frame.
+    EXPECT_GT(map_scene.vertices.size(), std::size_t{0});
+}
+
+TEST(WorldMap, RThatIsNotAnyOtherBindingsKey) {
+    // R must not be a key another binding already answers to: the interaction layer must do
+    // nothing at all with it (the map toggle is the app's, a view).
     Rig rig = make_rig();
     Interaction player{rig.own.at(0)};
     input::InputFrame frame{};
-    frame.keys.push_back(input::KeyEvent{input::kKeyO, true, false});
+    frame.keys.push_back(input::KeyEvent{input::kKeyR, true, false});
     player.handle(frame, rig.sim, rig.options);
     EXPECT_TRUE(player.selection().empty());
     EXPECT_TRUE(player.take_orders().empty());
@@ -99,7 +135,7 @@ TEST(WorldMap, OThatIsNotAnyOtherBindingsKey) {
     EXPECT_FALSE(player.go_armed());
 }
 
-TEST(WorldMap, AClosedMapDrawsNothingAndAnOpenOneDrawsTheWorld) {
+TEST(WorldMap, AClosedMapDrawsNothingAndAnOpenOneDrawsTheWorldInsteadOfTheRadar) {
     Rig rig = make_rig();
     const Scene plain = build_scene(rig.sim, rig.options);
     SceneOptions closed = rig.options;
@@ -109,12 +145,10 @@ TEST(WorldMap, AClosedMapDrawsNothingAndAnOpenOneDrawsTheWorld) {
     SceneOptions open = rig.options;
     open.show_world_map = true;
     const Scene with_map = build_scene(rig.sim, open);
-    EXPECT_GT(with_map.vertices.size(), plain.vertices.size());
-    // The map is appended: the frame underneath it is the frame it always was.
-    ASSERT_GE(with_map.vertices.size(), plain.vertices.size());
-    EXPECT_EQ(std::memcmp(with_map.vertices.data(), plain.vertices.data(),
-                          plain.vertices.size() * sizeof(SceneVertex)),
-              0);
+    EXPECT_GT(with_map.vertices.size(), std::size_t{0}) << "the map itself must be drawn";
+    // BZ2R changed this: R turns the radar INTO the map, so the map is not the old frame with a
+    // picture appended -- the radar's vertices are gone and the map's are in their place.
+    EXPECT_FALSE(same_bytes(plain, with_map));
     // And closing it again returns the very same frame.
     EXPECT_TRUE(same_bytes(plain, build_scene(rig.sim, rig.options)));
 }
