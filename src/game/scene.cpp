@@ -1175,8 +1175,12 @@ std::array<float, 3> radar_colour(RadarTone tone) {
     return {1.0F, 1.0F, 1.0F};
 }
 
-constexpr int kRadarSegments = 48;                ///< slices in the disc and the ring
-constexpr float kHealthBarHeightFraction = 0.08F; ///< the bar's height, of the panel's size
+constexpr int kRadarSegments = 48; ///< slices in the disc and the ring
+/// The bar's height, of the panel's HEIGHT. It used to be 0.08 of the panel's `size`, which was
+/// the width while the panel was square; on the 0.258-wide oval that would be a 26 px slab. 0.15
+/// of the height is the same 18 px the bar had on the old 230 px panel, so widening the panel
+/// does not fatten the bar.
+constexpr float kHealthBarHeightFraction = 0.15F;
 constexpr float kHealthBarMinPixels = 8.0F;
 constexpr float kHealthBarGapPixels = 4.0F; ///< between the bar and the panel's border
 
@@ -1300,7 +1304,7 @@ void append_radar(std::vector<SceneVertex>& out, const SceneOptions& options, co
     // border, a small gap up. The sim owns the numbers; nothing is added to `Unit` for this.
     const sim::Unit* viewer = sim.find(options.viewer_unit);
     if (viewer != nullptr) {
-        const float height = std::max(kHealthBarMinPixels, panel.width * kHealthBarHeightFraction);
+        const float height = std::max(kHealthBarMinPixels, panel.height * kHealthBarHeightFraction);
         const float bottom = y0 - kHealthBarGapPixels;
         const float top = bottom - height;
         rect(face_at, x0, top, x1, bottom, kFace);

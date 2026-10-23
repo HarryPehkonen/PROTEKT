@@ -1413,7 +1413,9 @@ TEST(HealthBar, SitsAboveTheRadarAndSharesItsWidth) {
     EXPECT_GT(max_y(hud.bar_track), hud.panel.y - border - 16.0F) << "and only a small gap";
     const float height = max_y(hud.bar_track) - min_y(hud.bar_track);
     EXPECT_GE(height, 8.0F - kPixelEps);
-    EXPECT_NEAR(height, std::max(8.0F, hud.panel.width * 0.08F), kPixelEps);
+    // Of the panel's HEIGHT: on the oval a width-based bar would be a 26 px slab, and it was 18 px
+    // on the old square panel. 0.15 * 118 keeps that 18.
+    EXPECT_NEAR(height, std::max(8.0F, hud.panel.height * 0.15F), kPixelEps);
     EXPECT_GE(min_y(hud.bar_track), 0.0F) << "on the screen";
 }
 
