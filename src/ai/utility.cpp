@@ -85,6 +85,7 @@ Role role_of(sim::UnitKind kind) noexcept {
         return Role::Standoff;
     case sim::UnitKind::Turret:
     case sim::UnitKind::Factory:
+    case sim::UnitKind::Scavenger: // unarmed: it hauls, so there is no decision to make about it
         return Role::None;
     }
     return Role::None;
@@ -103,6 +104,8 @@ int threat_of(sim::UnitKind kind) noexcept {
         return 2;
     case sim::UnitKind::Factory:
         return 1;
+    case sim::UnitKind::Scavenger: // unarmed: nothing to shoot back with, nothing to fear from it
+        return 0;
     }
     return 0;
 }

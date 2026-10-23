@@ -105,6 +105,10 @@ struct Options {
     bool press_alt{false};
     /// Turn the radar off, for comparing two frames pixel by pixel. The game always has one.
     bool no_radar{false};
+    /// Suppress the radar's terrain wireframe (RADAR3D-2) while everything else about the radar
+    /// stays: the same family as `--no-radar`, and what the slice's pixel acceptance compares
+    /// against -- two frames that must differ ONLY inside the oval.
+    bool no_radar_mesh{false};
     /// Never open the sound device, for a run that must be silent whatever the machine has: the
     /// same family as `--no-radar`, a flag for verification. Sound never touches the simulation,
     /// so it changes nothing but what the speakers do.
@@ -128,6 +132,8 @@ int parse_args(std::span<const std::string_view> args, Options& options, std::os
             options.headless = true;
         } else if (arg == "--no-radar") {
             options.no_radar = true;
+        } else if (arg == "--no-radar-mesh") {
+            options.no_radar_mesh = true;
         } else if (arg == "--no-sound") {
             options.no_sound = true;
         } else if (arg == "--press") {
@@ -409,6 +415,7 @@ public:
         scene_options.landing_marks = &landing_marks_;
         scene_options.nav_marks = &nav_marks_;
         scene_options.show_roster = true;
+        scene_options.show_radar_mesh = !options_.no_radar_mesh;
         scene_options.show_world_map = world_map_;
         if (session_.attack_armed()) {
             // The list lives in the Session's own vector and is captured when T arms it; pointing

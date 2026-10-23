@@ -32,4 +32,13 @@ struct Scene {
     std::array<float, 16> view_projection{}; ///< column-major, what GLSL's mat4 expects
 };
 
+/// The radar's wireframe grid pitch in tiles, for RADAR3D-2: 2 gives a 41x41 grid of tile corners
+/// for the 40-tile radius (3,280 segments before clipping) and reads as BZ2's density at 1280.
+/// It lives in this lowest game header rather than beside the mesh in `radar.hpp` because BOTH
+/// sides need it: `radar_mesh` defaults to it, and `SceneOptions` (scene.hpp) offers it as a dial,
+/// priced in `protekt-meshcost`. `scene.hpp` may not include `radar.hpp` -- `nav_marks.hpp`
+/// includes `scene.hpp` and `radar.hpp` includes `nav_marks.hpp`, so putting the constant here is
+/// what keeps that triangle of headers from closing.
+inline constexpr int kRadarMeshStepTiles = 2;
+
 } // namespace protekt::game

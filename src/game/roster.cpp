@@ -60,6 +60,8 @@ std::string_view kind_label(sim::UnitKind kind) noexcept {
         return "TURRET";
     case sim::UnitKind::Factory:
         return "FACTORY";
+    case sim::UnitKind::Scavenger:
+        return "SCAVENGER";
     }
     return "UNIT";
 }

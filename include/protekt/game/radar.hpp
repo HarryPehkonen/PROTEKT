@@ -91,8 +91,14 @@ struct RadarPoint {
 /// pixels per tile. A point `radius_tiles` away therefore lands on the rim of the oval whatever its
 /// direction. Marks, nav marks and arrows are all placed through this; the compass letters share
 /// its ellipse.
+///
+/// `height_metres` is the point's height above the ground plane: a taller point reads HIGHER up the
+/// panel by `height / kMetresPerTile * cos(elevation) * s` pixels, which is what makes terrain
+/// relief visible on the oblique plane (RADAR3D-2). It defaults to 0, so every caller that is not
+/// the terrain mesh is placed exactly as it was.
 [[nodiscard]] RadarPoint radar_project(const RadarPanel& panel, float u, float v,
-                                       int radius_tiles = kRadarRadiusTiles) noexcept;
+                                       int radius_tiles = kRadarRadiusTiles,
+                                       float height_metres = 0.0F) noexcept;
 
 /// The panel for a frame of this size: bottom-left, with a margin, sized to the frame and clamped
 /// so that a small window still has a usable radar and a large one does not grow it without limit.
@@ -128,6 +134,38 @@ inline constexpr float kRadarLetterInsetPixels = 10.0F;
                                                  sim::UnitId viewer_unit, float yaw_radians,
                                                  const RadarPanel& panel,
                                                  int radius_tiles = kRadarRadiusTiles);
+
+/// One line of the radar's terrain wireframe, in PANEL pixels like a mark.
+struct RadarSegment {
+    RadarPoint a{};
+    RadarPoint b{};
+};
+
+/// A wireframe line's width in pixels at a 720-high frame; scaled with the frame like every other
+/// radar size, so the mesh does not fatten on a larger window.
+inline constexpr float kRadarMeshLinePixels = 1.0F;
+
+/// The ground under the marks, as a wireframe on the tilted plane (RADAR3D-2).
+///
+/// A square grid of tile CORNERS centred on the viewer, `step_tiles` apart, each corner lifted by
+/// its own terrain height (the relief `radar_project` carries), joined along the grid's rows and
+/// columns. It is a HEIGHTFIELD WIREFRAME, not contour lines: the lines run along the grid, so
+/// hills read as raised humps in the mesh.
+///
+/// The grid is anchored to world tile corners, so the picture does not swim as the viewer drives:
+/// the corners slide smoothly with the viewer and rows enter and leave at the far edge. Only
+/// corners within `radius_tiles` (plus one step, so the boundary is covered) are sampled, so the
+/// mesh never reads terrain the radar's range does not reach.
+///
+/// Every returned segment has BOTH endpoints inside the oval: clipping is analytic, in the panel's
+/// unit-disc space, and a segment that misses the oval entirely is dropped rather than drawn across
+/// the panel's corners. `step_tiles` is the frame-cost dial: 1 is a 81x81 grid, four times the
+/// work.
+[[nodiscard]] std::vector<RadarSegment> radar_mesh(std::uint64_t seed, float viewer_x,
+                                                   float viewer_z, float yaw_radians,
+                                                   const RadarPanel& panel,
+                                                   int radius_tiles = kRadarRadiusTiles,
+                                                   int step_tiles = kRadarMeshStepTiles);
 
 /// One navigational mark on the radar, in panel pixels like `RadarMark`: the centre of its plate,
 /// `half` the plate's half-size. The plate carries the mark's number.

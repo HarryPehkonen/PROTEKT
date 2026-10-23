@@ -351,6 +351,8 @@ const char* to_string(Stance stance) noexcept {
         return "dead";
     case Stance::Follow:
         return "follow";
+    case Stance::Fetch:
+        return "fetch";
     }
     return "unknown";
 }

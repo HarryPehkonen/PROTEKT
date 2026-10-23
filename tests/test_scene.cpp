@@ -1071,9 +1071,9 @@ TEST(RadarDraws, ThePanelLandsOnItsPixelsAndInFrontOfTheNearPlane) {
         const float slack = protekt::game::kRadarBorderPixels + 1.0F;
         EXPECT_GE(p.x, panel.x - slack);
         EXPECT_LE(p.x, panel.x + panel.width + slack);
-        // The health bar stands above the panel, so the top is allowed that much further.
-        const float bar_room = (std::max(8.0F, panel.width * 0.08F)) + 4.0F;
-        EXPECT_GE(p.y, panel.y - slack - bar_room);
+        // Nothing sits above the panel any more: the hull bar is retired, so the top edge of the
+        // ring is the highest thing the radar draws.
+        EXPECT_GE(p.y, panel.y - slack);
         EXPECT_LE(p.y, panel.y + panel.height + slack);
         // ...and the oval, not just its rectangle: nothing is drawn in the corners the oval leaves.
         if (p.y > panel.y - slack) {
@@ -1098,8 +1098,8 @@ TEST(RadarDraws, AnInvalidViewerUnitDrawsNoPanelAtAll) {
 }
 
 TEST(RadarDraws, MarksCountUpTheWayTheRulesSay) {
-    // The panel and its bar are counted below and each mark is 6, except the viewer's triangle and
-    // an arrow, which are 3.
+    // The panel and the ground under it are counted below, and each mark is 6, except the viewer's
+    // triangle and an arrow, which are 3.
     const auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(42));
     protekt::sim::UnitId player{};
     for (const auto& unit : sim.units()) {
@@ -1115,9 +1115,9 @@ TEST(RadarDraws, MarksCountUpTheWayTheRulesSay) {
                                                   protekt::game::radar_panel(watched.extent));
     const std::vector<protekt::game::SceneVertex> radar = radar_vertices(
         protekt::game::build_scene(sim, watched), protekt::game::build_scene(sim, plain));
-    // The panel itself: a 48-slice ring (a quad a slice) and a 48-slice disc (a triangle a slice),
-    // and above it the health bar's track and its fill (a quad each, the viewer being unhurt).
-    std::size_t expected = (48 * 6) + (48 * 3) + 6 + 6;
+    // The panel itself: a 48-slice ring (a quad a slice) and a 48-slice disc (a triangle a slice).
+    // The hull bar used to add two quads here; the ship instrument states the hull now.
+    std::size_t expected = (48 * 6) + (48 * 3);
     // The compass: a plate (a quad) per letter, and a quad per lit cell of its 5x5 glyph:
     // N 13, E 13, S 13, W 12.
     expected += (4 * 6) + ((13 + 13 + 13 + 12) * 6);
@@ -1135,7 +1135,95 @@ TEST(RadarDraws, MarksCountUpTheWayTheRulesSay) {
             break;
         }
     }
+    // The ground under the marks (RADAR3D-2): a thin quad a segment, from the viewer's own tile
+    // through the same default radius and grid step the drawing uses.
+    const protekt::sim::Unit* viewer = sim.find(player);
+    ASSERT_NE(viewer, nullptr);
+    const float kOne = static_cast<float>(protekt::sim::Fixed::kOne);
+    const float viewer_x = static_cast<float>(viewer->x.raw) / kOne;
+    const float viewer_z = static_cast<float>(viewer->y.raw) / kOne;
+    const std::size_t mesh_segments
+        = protekt::game::radar_mesh(watched.seed, viewer_x, viewer_z, watched.camera.yaw,
+                                    protekt::game::radar_panel(watched.extent))
+              .size();
+    EXPECT_GT(mesh_segments, 0U) << "the frame is drawn with the wireframe on";
+    expected += mesh_segments * 6U;
     EXPECT_EQ(radar.size(), expected);
+}
+
+TEST(RadarDraws, TheWireframeCanBeSwitchedOffAndChangesNothingElse) {
+    // The flag the plan's pixel acceptance needs: off removes the mesh's vertices and NOTHING else,
+    // so the two frames differ only where the ground is drawn.
+    const auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(42));
+    protekt::sim::UnitId player{};
+    for (const auto& unit : sim.units()) {
+        if (unit.side == protekt::sim::Side::Player && unit.kind == protekt::sim::UnitKind::Tank) {
+            player = unit.id;
+            break;
+        }
+    }
+    SceneOptions watched = options_at(60.0F, 60.0F);
+    watched.viewer_unit = player;
+    SceneOptions no_mesh = watched;
+    no_mesh.show_radar_mesh = false;
+    const Scene with = protekt::game::build_scene(sim, watched);
+    const Scene without = protekt::game::build_scene(sim, no_mesh);
+    ASSERT_GT(with.vertices.size(), without.vertices.size());
+    const std::size_t mesh_vertices = with.vertices.size() - without.vertices.size();
+    EXPECT_EQ(mesh_vertices % 6U, 0U) << "the mesh is quads, six vertices each";
+    // And a frame with no radar at all is untouched by the flag: there is no ground to draw.
+    SceneOptions blind = options_at(60.0F, 60.0F);
+    blind.show_radar_mesh = false;
+    SceneOptions unset = blind;
+    unset.show_radar_mesh = true;
+    const Scene blind_plain = protekt::game::build_scene(sim, blind);
+    const Scene blind_mesh = protekt::game::build_scene(sim, unset);
+    ASSERT_EQ(blind_plain.vertices.size(), blind_mesh.vertices.size());
+    EXPECT_EQ(std::memcmp(blind_plain.vertices.data(), blind_mesh.vertices.data(),
+                          blind_plain.vertices.size() * sizeof(protekt::game::SceneVertex)),
+              0)
+        << "with no viewer unit there is no mesh either way";
+}
+
+TEST(RadarDraws, TheMeshCoarsensWithItsStepDialAndNothingElseMoves) {
+    // RADAR3D-2's cost dial, as a unit test: a coarser grid draws fewer quads, only the wireframe
+    // changes (everything up to it is byte-identical), and the sim cannot see the dial at all --
+    // the mesh is a READING of the world, never an input to it.
+    auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(42));
+    const std::uint64_t hash_before = sim.state_hash();
+    protekt::sim::UnitId player{};
+    for (const auto& unit : sim.units()) {
+        if (unit.side == protekt::sim::Side::Player && unit.kind == protekt::sim::UnitKind::Tank) {
+            player = unit.id;
+            break;
+        }
+    }
+    SceneOptions fine = options_at(60.0F, 60.0F);
+    fine.viewer_unit = player;
+    SceneOptions coarse = fine;
+    coarse.radar_mesh_step_tiles = fine.radar_mesh_step_tiles * 2;
+    SceneOptions none = fine;
+    none.show_radar_mesh = false;
+    const Scene at_default = protekt::game::build_scene(sim, fine);
+    const Scene at_coarse = protekt::game::build_scene(sim, coarse);
+    const Scene at_none = protekt::game::build_scene(sim, none);
+    const std::size_t default_mesh = at_default.vertices.size() - at_none.vertices.size();
+    const std::size_t coarse_mesh = at_coarse.vertices.size() - at_none.vertices.size();
+    EXPECT_GT(default_mesh, coarse_mesh) << "a coarser grid draws fewer quads";
+    EXPECT_GT(coarse_mesh, 0U) << "and still draws a mesh";
+    EXPECT_EQ(coarse_mesh % 6U, 0U) << "the mesh is quads, six vertices each";
+    // The dial is inert when the mesh is off: it prices the wireframe, it does not touch the frame
+    // the wireframe is drawn into. (That the wireframe adds ONLY wireframe vertices is
+    // TheWireframeCanBeSwitchedOffAndChangesNothingElse's claim, above.)
+    SceneOptions none_coarse = none;
+    none_coarse.radar_mesh_step_tiles = 8;
+    const Scene at_none_coarse = protekt::game::build_scene(sim, none_coarse);
+    ASSERT_EQ(at_none.vertices.size(), at_none_coarse.vertices.size());
+    EXPECT_EQ(std::memcmp(at_none.vertices.data(), at_none_coarse.vertices.data(),
+                          at_none.vertices.size() * sizeof(protekt::game::SceneVertex)),
+              0)
+        << "with no mesh the step did something";
+    EXPECT_EQ(sim.state_hash(), hash_before) << "and the sim never saw the dial";
 }
 
 TEST(RadarDraws, AHostileInRangeIsDrawnRedAndOneOutOfRangeIsNotDrawnAtAll) {
@@ -1161,8 +1249,8 @@ TEST(RadarDraws, AHostileInRangeIsDrawnRedAndOneOutOfRangeIsNotDrawnAtAll) {
         plain.camera.x = 100.0F;
         plain.camera.z = 104.0F;
         plain.camera.y = 8.0F;
-        // The radar is found as "everything past the common prefix", so nothing but the radar may
-        // follow it here: the ship instrument is off, as in the other radar rigs.
+        // The radar is found as "everything past the common prefix", so nothing but the radar
+        // may follow it here: the ship instrument is off, as in the other radar rigs.
         plain.show_ship_gauge = false;
         SceneOptions watched = plain;
         watched.viewer_unit = player;
@@ -1184,8 +1272,8 @@ TEST(RadarDraws, AHostileInRangeIsDrawnRedAndOneOutOfRangeIsNotDrawnAtAll) {
     }
     EXPECT_EQ(reds, 6U) << "one red square per hostile in range";
 
-    // Three hundred tiles away: the same frame, but the enemy is not on the panel and nothing about
-    // him is drawn -- not a dot, not a hint at the rim.
+    // Three hundred tiles away: the same frame, but the enemy is not on the panel and nothing
+    // about him is drawn -- not a dot, not a hint at the rim.
     const std::vector<protekt::game::SceneVertex> far_enemy = scene_of(350);
     ASSERT_FALSE(far_enemy.empty());
     for (const auto& v : far_enemy) {
@@ -1193,11 +1281,11 @@ TEST(RadarDraws, AHostileInRangeIsDrawnRedAndOneOutOfRangeIsNotDrawnAtAll) {
     }
 }
 
-// ---------------------------------------------------------------- the health bar and the round
-// radar
+// ---------------------------------------------------------------- the radar, its marks and the
+// round radar
 //
-// Colours are asserted as literals on purpose: a test that compared against the constant the code
-// draws with would pass whatever the constant was.
+// Colours are asserted as literals on purpose: a test that compared against the constant the
+// code draws with would pass whatever the constant was.
 
 constexpr std::array<float, 3> kBorderRgb{0.80F, 0.82F, 0.85F};
 constexpr std::array<float, 3> kFaceRgb{0.04F, 0.05F, 0.06F};
@@ -1207,12 +1295,10 @@ constexpr std::array<float, 3> kRedRgb{1.0F, 0.30F, 0.25F};
 constexpr float kPixelEps = 0.1F;
 
 /// The HUD of one frame, sorted by what each vertex is. Sorting is by colour and by WHERE the
-/// vertex lands in pixels, never by position in the list, so it holds however the drawing is built.
+/// vertex lands in pixels, never by position in the list, so it holds however the drawing is
+/// built.
 struct Hud {
     protekt::game::RadarPanel panel{};
-    std::vector<std::array<float, 2>> bar_track;
-    std::vector<std::array<float, 2>> bar_fill;
-    std::vector<std::array<float, 3>> bar_fill_colours;
     std::vector<std::array<float, 2>> face;
     std::vector<std::array<float, 2>> border;
     std::vector<std::array<float, 2>> marks;
@@ -1223,7 +1309,6 @@ Hud hud_of(const protekt::sim::Sim& sim, const SceneOptions& watched) {
     plain.viewer_unit = protekt::sim::UnitId{};
     Hud hud;
     hud.panel = protekt::game::radar_panel(watched.extent);
-    const float above = hud.panel.y - protekt::game::kRadarBorderPixels - 0.5F;
     for (const auto& v : radar_vertices(protekt::game::build_scene(sim, watched),
                                         protekt::game::build_scene(sim, plain))) {
         const protekt::game::Projected p = protekt::game::project(
@@ -1231,11 +1316,6 @@ Hud hud_of(const protekt::sim::Sim& sim, const SceneOptions& watched) {
         const std::array<float, 2> at{p.x, p.y};
         if (v.colour == kBorderRgb) {
             hud.border.push_back(at);
-        } else if (p.y < above && v.colour == kFaceRgb) {
-            hud.bar_track.push_back(at);
-        } else if (p.y < above) {
-            hud.bar_fill.push_back(at);
-            hud.bar_fill_colours.push_back(v.colour);
         } else if (v.colour == kFaceRgb) {
             hud.face.push_back(at);
         } else {
@@ -1247,9 +1327,9 @@ Hud hud_of(const protekt::sim::Sim& sim, const SceneOptions& watched) {
 
 float min_x(const std::vector<std::array<float, 2>>& points) {
     if (points.empty()) {
-        // Never deref an empty list: a broken HUD must FAIL a test, not crash the run before the
-        // later tests get their turn. NaN compares false against everything, so every EXPECT built
-        // on this value fails, which is what the reader wants to see.
+        // Never deref an empty list: a broken HUD must FAIL a test, not crash the run before
+        // the later tests get their turn. NaN compares false against everything, so every
+        // EXPECT built on this value fails, which is what the reader wants to see.
         return std::numeric_limits<float>::quiet_NaN();
     }
     float lowest = points.front().at(0);
@@ -1260,9 +1340,9 @@ float min_x(const std::vector<std::array<float, 2>>& points) {
 }
 float max_x(const std::vector<std::array<float, 2>>& points) {
     if (points.empty()) {
-        // Never deref an empty list: a broken HUD must FAIL a test, not crash the run before the
-        // later tests get their turn. NaN compares false against everything, so every EXPECT built
-        // on this value fails, which is what the reader wants to see.
+        // Never deref an empty list: a broken HUD must FAIL a test, not crash the run before
+        // the later tests get their turn. NaN compares false against everything, so every
+        // EXPECT built on this value fails, which is what the reader wants to see.
         return std::numeric_limits<float>::quiet_NaN();
     }
     float highest = points.front().at(0);
@@ -1273,9 +1353,9 @@ float max_x(const std::vector<std::array<float, 2>>& points) {
 }
 float min_y(const std::vector<std::array<float, 2>>& points) {
     if (points.empty()) {
-        // Never deref an empty list: a broken HUD must FAIL a test, not crash the run before the
-        // later tests get their turn. NaN compares false against everything, so every EXPECT built
-        // on this value fails, which is what the reader wants to see.
+        // Never deref an empty list: a broken HUD must FAIL a test, not crash the run before
+        // the later tests get their turn. NaN compares false against everything, so every
+        // EXPECT built on this value fails, which is what the reader wants to see.
         return std::numeric_limits<float>::quiet_NaN();
     }
     float lowest = points.front().at(1);
@@ -1286,9 +1366,9 @@ float min_y(const std::vector<std::array<float, 2>>& points) {
 }
 float max_y(const std::vector<std::array<float, 2>>& points) {
     if (points.empty()) {
-        // Never deref an empty list: a broken HUD must FAIL a test, not crash the run before the
-        // later tests get their turn. NaN compares false against everything, so every EXPECT built
-        // on this value fails, which is what the reader wants to see.
+        // Never deref an empty list: a broken HUD must FAIL a test, not crash the run before
+        // the later tests get their turn. NaN compares false against everything, so every
+        // EXPECT built on this value fails, which is what the reader wants to see.
         return std::numeric_limits<float>::quiet_NaN();
     }
     float highest = points.front().at(1);
@@ -1306,15 +1386,16 @@ SceneOptions battle_options() {
     plain.camera.z = 104.0F;
     plain.camera.y = 8.0F;
     // The radar tests find the radar as "everything past the common prefix", which is only the
-    // radar while nothing after it is drawn from these options: the ship instrument is off here for
-    // the same reason it is off in `options_at`.
+    // radar while nothing after it is drawn from these options: the ship instrument is off here
+    // for the same reason it is off in `options_at`.
     plain.show_ship_gauge = false;
     return plain;
 }
 
-/// A factory (400 hp, unarmed) shot at by a tank (8 hp a hit) until the factory is down to exactly
-/// `hp`. The sim has no setter and must not get one, and the damage is exact, so this is the honest
-/// way to get a viewer at a chosen health. `hp == 0` runs it until the factory is dead.
+/// A factory (400 hp, unarmed) shot at by a tank (8 hp a hit) until the factory is down to
+/// exactly `hp`. The sim has no setter and must not get one, and the damage is exact, so this
+/// is the honest way to get a viewer at a chosen health. `hp == 0` runs it until the factory is
+/// dead.
 struct Damaged {
     protekt::sim::Sim sim;
     protekt::sim::UnitId viewer;
@@ -1346,105 +1427,10 @@ SceneOptions watching(const Damaged& d) {
     return options;
 }
 
-float track_width(const Hud& hud) { return max_x(hud.bar_track) - min_x(hud.bar_track); }
-float fill_width(const Hud& hud) {
-    return hud.bar_fill.empty() ? 0.0F : max_x(hud.bar_fill) - min_x(hud.bar_fill);
-}
-
-TEST(HealthBar, FullHealthFillsTheWholeTrack) {
-    const Damaged d = factory_down_to(400);
-    ASSERT_EQ(d.sim.find(d.viewer)->hp, 400);
-    const Hud hud = hud_of(d.sim, watching(d));
-    ASSERT_FALSE(hud.bar_track.empty());
-    ASSERT_FALSE(hud.bar_fill.empty());
-    EXPECT_NEAR(fill_width(hud), track_width(hud), kPixelEps);
-    EXPECT_NEAR(min_x(hud.bar_fill), min_x(hud.bar_track), kPixelEps);
-}
-
-TEST(HealthBar, HalfHealthFillsHalfTheTrack) {
-    const Damaged d = factory_down_to(200);
-    ASSERT_EQ(d.sim.find(d.viewer)->hp, 200);
-    const Hud hud = hud_of(d.sim, watching(d));
-    ASSERT_FALSE(hud.bar_track.empty());
-    ASSERT_FALSE(hud.bar_fill.empty());
-    EXPECT_NEAR(fill_width(hud), track_width(hud) * 0.5F, 0.25F);
-    EXPECT_NEAR(min_x(hud.bar_fill), min_x(hud.bar_track), kPixelEps) << "drawn from the left";
-}
-
-TEST(HealthBar, NoFillWhenTheHullIsGone) {
-    const Damaged d = factory_down_to(0);
-    ASSERT_FALSE(d.sim.find(d.viewer)->alive);
-    // The radar still draws for a dead viewer, and its marks may be green, so look at the fill by
-    // where it lands -- inside the bar -- and not by colour alone.
-    const Hud hud = hud_of(d.sim, watching(d));
-    EXPECT_TRUE(hud.bar_fill.empty());
-}
-
-TEST(HealthBar, ADeadViewerStillGetsTheDarkTrackAndNoFill) {
-    const Damaged d = factory_down_to(0);
-    ASSERT_FALSE(d.sim.find(d.viewer)->alive);
-    const Hud hud = hud_of(d.sim, watching(d));
-    EXPECT_FALSE(hud.bar_track.empty()) << "death must not blank the health bar";
-    EXPECT_TRUE(hud.bar_fill.empty());
-    EXPECT_NEAR(min_x(hud.bar_track), hud.panel.x - protekt::game::kRadarBorderPixels, kPixelEps);
-}
-
-TEST(HealthBar, TheColourChangesAtTheThresholds) {
-    // The sim's damage is exact, so the sides of each threshold are reached exactly: a 400 hp
-    // factory is at 0.50 at 200 hp and 0.20 at 80 hp, and each hit is 8 hp (0.02).
-    struct Case {
-        std::uint16_t hp;
-        std::array<float, 3> colour;
-    };
-    const std::array<Case, 6> cases{{{208, kGreenRgb}, // 0.52
-                                     {200, kGreenRgb}, // 0.50 is the first green
-                                     {192, kAmberRgb}, // 0.48
-                                     {88, kAmberRgb},  // 0.22
-                                     {80, kAmberRgb},  // 0.20 is the last amber
-                                     {72, kRedRgb}}};  // 0.18
-    for (const Case& c : cases) {
-        const Damaged d = factory_down_to(c.hp);
-        ASSERT_EQ(d.sim.find(d.viewer)->hp, c.hp);
-        const Hud hud = hud_of(d.sim, watching(d));
-        ASSERT_FALSE(hud.bar_fill_colours.empty()) << "hp " << c.hp;
-        for (const auto& colour : hud.bar_fill_colours) {
-            EXPECT_EQ(colour, c.colour) << "hp " << c.hp;
-        }
-    }
-}
-
-TEST(HealthBar, SitsAboveTheRadarAndSharesItsWidth) {
-    const Damaged d = factory_down_to(400);
-    const Hud hud = hud_of(d.sim, watching(d));
-    ASSERT_FALSE(hud.bar_track.empty());
-    const float border = protekt::game::kRadarBorderPixels;
-    EXPECT_NEAR(min_x(hud.bar_track), hud.panel.x - border, kPixelEps);
-    EXPECT_NEAR(max_x(hud.bar_track), hud.panel.x + hud.panel.width + border, kPixelEps);
-    EXPECT_LT(max_y(hud.bar_track), hud.panel.y - border) << "above the ring, with a gap";
-    EXPECT_GT(max_y(hud.bar_track), hud.panel.y - border - 16.0F) << "and only a small gap";
-    const float height = max_y(hud.bar_track) - min_y(hud.bar_track);
-    EXPECT_GE(height, 8.0F - kPixelEps);
-    // Of the panel's HEIGHT: on the oval a width-based bar would be a 26 px slab, and it was 18 px
-    // on the old square panel. 0.15 * 118 keeps that 18.
-    EXPECT_NEAR(height, std::max(8.0F, hud.panel.height * 0.15F), kPixelEps);
-    EXPECT_GE(min_y(hud.bar_track), 0.0F) << "on the screen";
-}
-
-TEST(HealthBar, IsAbsentWithoutAViewerUnitInTheWorld) {
-    const Damaged alive = factory_down_to(400);
-    SceneOptions none = battle_options();
-    EXPECT_EQ(protekt::game::build_scene(alive.sim, none).vertices.size(),
-              protekt::game::build_scene(alive.sim, battle_options()).vertices.size());
-    SceneOptions stranger = battle_options();
-    stranger.viewer_unit = protekt::sim::UnitId{9999};
-    EXPECT_EQ(protekt::game::build_scene(alive.sim, stranger).vertices.size(),
-              protekt::game::build_scene(alive.sim, none).vertices.size());
-}
-
 // Round radar -------------------------------------------------------------------------------
 
-/// Where a point is against the oval whose semi-axes are the panel's half-width and half-height,
-/// each grown by `grow`: 1 on that ellipse, less inside it.
+/// Where a point is against the oval whose semi-axes are the panel's half-width and
+/// half-height, each grown by `grow`: 1 on that ellipse, less inside it.
 float ellipse_of(const Hud& hud, const std::array<float, 2>& p, float grow = 0.0F) {
     const float a = (hud.panel.width * 0.5F) + grow;
     const float b = (hud.panel.height * 0.5F) + grow;
@@ -1511,9 +1497,9 @@ protekt::sim::Sim ring_of_units() {
 }
 
 TEST(Radar, EveryMarkLiesWithinTheOval) {
-    // A mark at the maximum range is on the rim of the oval in the projection and is pulled in by
-    // its own size, so no centre is outside the face. (An out-of-range base's ARROW is drawn at
-    // the rim by design and is held to the outer ellipse below instead.)
+    // A mark at the maximum range is on the rim of the oval in the projection and is pulled in
+    // by its own size, so no centre is outside the face. (An out-of-range base's ARROW is drawn
+    // at the rim by design and is held to the outer ellipse below instead.)
     const auto sim = ring_of_units();
     protekt::sim::UnitId viewer{};
     for (const auto& unit : sim.units()) {
@@ -3660,7 +3646,7 @@ namespace {
 using protekt::game::SceneVertex;
 
 TEST(SceneUv, TerrainSamplesAGroundTileAndNothingLeavesTheAtlas) {
-    // A viewer (radar, health bar), an aim (reticle) and a hit flash (the final wash) between
+    // A viewer (radar, ship instrument), an aim (reticle) and a hit flash (the final wash) between
     // them reach every emitter in build_scene: terrain, sky, units, projectiles and the HUD.
     const Damaged d = factory_down_to(200);
     SceneOptions options = watching(d);
@@ -4747,9 +4733,9 @@ constexpr std::array<float, 3> kGaugeHullDim{0.12F, 0.32F, 0.14F};
 constexpr std::array<float, 3> kGaugeAmmoLit{0.30F, 0.55F, 1.00F};
 constexpr std::array<float, 3> kGaugeAmmoDim{0.12F, 0.20F, 0.35F};
 constexpr std::array<float, 3> kGaugeActiveBar{0.16F, 0.42F, 0.18F};
-/// The hull number's amber, `health_colour`'s between a fifth of health and half of it: inside the
-/// ring's opening it is the number and nothing else, so it is what counts the number.
-constexpr std::array<float, 3> kGaugeHullAmber{1.0F, 0.75F, 0.20F};
+// The three inks `health_colour` gives the hull number (green/amber/red, named at the top of this
+// file where the radar's own colours live): it is the reading's ink and nothing else in the ring's
+// opening, so counting one of them counts the number.
 
 /// The ring, in the same fractions of the frame's height the drawing uses, and the font's cell.
 constexpr float kGaugeCentreFromRight = 0.300F;
@@ -4961,7 +4947,7 @@ TEST(ShipGauge, AnInvalidViewerLeavesTheHullArcFull) {
     // drawn for the sixth. The hull number stands inside the ring, in the amber two fifths is.
     EXPECT_EQ(arc_segments(watched_options, watched, kGaugeHullLit), 5U * 3U);
     EXPECT_EQ(arc_segments(watched_options, watched, kGaugeHullDim), 7U * 3U);
-    EXPECT_GT(inside_ring(watched_options, watched, kGaugeHullAmber), 0U)
+    EXPECT_GT(inside_ring(watched_options, watched, kAmberRgb), 0U)
         << "the hull number is drawn for a viewer that exists";
 
     SceneOptions nobody = watched_options;
@@ -4972,8 +4958,41 @@ TEST(ShipGauge, AnInvalidViewerLeavesTheHullArcFull) {
     // and no hull number is invented for it either.
     EXPECT_EQ(arc_segments(nobody, blind, kGaugeHullLit), 12U * 3U);
     EXPECT_EQ(arc_segments(nobody, blind, kGaugeHullDim), 0U);
-    EXPECT_EQ(inside_ring(nobody, blind, kGaugeHullAmber), 0U);
+    EXPECT_EQ(inside_ring(nobody, blind, kAmberRgb), 0U);
     EXPECT_FALSE(same_bytes(watched, blind));
+}
+
+TEST(ShipGauge, TheHullNumberChangesInkAtTheHealthThresholds) {
+    // The radar's hull bar used to carry this test; the bar is retired and the instrument is what
+    // states the hull, so the thresholds are pinned where the hull is stated now -- the NUMBER's
+    // ink inside the ring, which is `health_colour` and nothing else there. The sim's damage is
+    // exact, so each side of every threshold is reached exactly: a 400 hp factory is at 0.50 at 200
+    // hp and 0.20 at 80 hp, and a hit is 8 hp (0.02).
+    struct Case {
+        std::uint16_t hp;
+        std::array<float, 3> ink;
+    };
+    const std::array<Case, 6> cases{{{208, kGreenRgb}, // 0.52
+                                     {200, kGreenRgb}, // 0.50 is the first green
+                                     {192, kAmberRgb}, // 0.48
+                                     {88, kAmberRgb},  // 0.22
+                                     {80, kAmberRgb},  // 0.20 is the last amber
+                                     {72, kRedRgb}}};  // 0.18
+    const std::array<std::array<float, 3>, 3> inks{kGreenRgb, kAmberRgb, kRedRgb};
+    for (const Case& c : cases) {
+        const Damaged d = factory_down_to(c.hp);
+        ASSERT_EQ(d.sim.find(d.viewer)->hp, c.hp);
+        const SceneOptions options = gauge_options(d, protekt::game::Weapon::Gun);
+        const Scene scene = build_scene(d.sim, options);
+        EXPECT_GT(inside_ring(options, scene, c.ink), 0U)
+            << "no hull number in its own ink at hp " << c.hp;
+        for (const auto& other : inks) {
+            if (other != c.ink) {
+                EXPECT_EQ(inside_ring(options, scene, other), 0U)
+                    << "a second threshold's ink at hp " << c.hp;
+            }
+        }
+    }
 }
 
 TEST(ShipGauge, TheAmmoReadingIsThePlaceholder) {

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -7,6 +8,7 @@
 
 #include "protekt/sim/orders.hpp"
 #include "protekt/sim/projectile.hpp"
+#include "protekt/sim/scrap.hpp"
 #include "protekt/sim/units.hpp"
 
 namespace protekt::sim {
@@ -57,9 +59,11 @@ protected:
 ///   1. every order enqueued since the last step is applied in the order it was enqueued;
 ///      an order naming a unit that does not exist, is dead, or belongs to the other side is
 ///      dropped without effect;
-///   2. units act in ascending unit-id order: a mobile unit with a MoveTo/GuardAt/Patrol
-///      stance steers towards its goal, then every unit's position moves by its velocity;
-///      map bounds clamp, and a unit may not enter an impassable tile;
+///   2. units act in ascending unit-id order: a scavenger fetches (it is sent to the nearest
+///      wreckage, or home with a load aboard, and picks up or hands over anything it is standing
+///      next to -- C2; an order outranks it, always), then a mobile unit with a MoveTo/GuardAt/
+///      Patrol/Fetch stance steers towards its goal, then every unit's position moves by its
+///      velocity; map bounds clamp, and a unit may not enter an impassable tile;
 ///   3. every projectile already in the air advances, in spawn order; one that reaches a living
 ///      hostile lands its damage there (see advance_projectiles), so a unit killed here does not
 ///      fire this tick;
@@ -73,7 +77,12 @@ protected:
 ///      target's position NOW plus the gun's learned aim estimate (see `launch`); the damage
 ///      arrives when the projectile does. Damage is exact:
 ///      there is no spread, so the sim needs no RNG;
-///   5. the tick counter advances.
+///   5. every living unit near a living friendly factory mends 1 hp on the global repair beat
+///      (`tick % kRepairTickInterval`), after the shooting, so repair never undoes a kill;
+///   6. every unit this tick's damage killed leaves its wreckage on the ground (C1): scrap pieces
+///      around the tile it stood on, in ascending victim id, so the litter is a function of the
+///      battle and not of the order the bolts happened to fly in;
+///   7. the tick counter advances.
 class Sim final : public OrderSink {
 public:
     [[nodiscard]] static Sim create(const Scenario& scenario);
@@ -89,6 +98,14 @@ public:
 
     /// The shots in the air, in the order they were fired.
     [[nodiscard]] const std::vector<Projectile>& projectiles() const noexcept;
+
+    /// The wreckage on the ground, in the order it was made (C1). Litter, not an actor: a scavenger
+    /// walks to it and carries it home (C2), and its own state is hashed with the rest.
+    [[nodiscard]] const std::vector<Scrap>& scraps() const noexcept;
+
+    /// How many loads a side has delivered to its own factory (C3). The war's ledger: the only
+    /// currency, spent by a factory that builds (C4). A count, so repair stays free.
+    [[nodiscard]] std::uint16_t ore(Side side) const noexcept;
     /// The bolts that landed during the most recent step. Output, not state: it is rebuilt by every
     /// step and is not part of the hash.
     [[nodiscard]] const std::vector<Impact>& impacts() const noexcept;
@@ -121,6 +138,10 @@ private:
     Scenario scenario_{};
     std::vector<Unit> units_{};
     std::vector<Projectile> projectiles_{};
+    std::vector<Scrap> scraps_{};
+    /// Delivered loads per side, indexed by `Side` (C3). Hashed only when either side has
+    /// delivered anything, so a battle with no scavenger hashes exactly as before.
+    std::array<std::uint16_t, 2> ore_{};
     std::vector<Impact> impacts_{};
     std::vector<Shot> shots_{};
     std::vector<Landing> landings_{};

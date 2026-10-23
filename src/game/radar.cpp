@@ -1,5 +1,7 @@
 #include "protekt/game/radar.hpp"
 
+#include "protekt/game/scene.hpp" // kMetresPerTile and height_metres: what a metre is, in tiles
+
 #include <algorithm>
 #include <cmath>
 
@@ -37,10 +39,127 @@ RadarPanel radar_panel(Extent extent) noexcept {
     return RadarPanel{kRadarMarginPixels, height - kRadarMarginPixels - tall, size, tall};
 }
 
-RadarPoint radar_project(const RadarPanel& panel, float u, float v, int radius_tiles) noexcept {
+RadarPoint radar_project(const RadarPanel& panel, float u, float v, int radius_tiles,
+                         float height_metres) noexcept {
     const float scale = panel.width / (2.0F * static_cast<float>(std::max(radius_tiles, 1)));
+    // The relief lifts a point UP the panel: a hill expresses itself as pixels above the plane.
+    const float lift = (height_metres / kMetresPerTile) * std::cos(kRadarElevationRadians) * scale;
     return RadarPoint{(panel.width * 0.5F) + (u * scale),
-                      (panel.height * 0.5F) - (v * std::sin(kRadarElevationRadians) * scale)};
+                      (panel.height * 0.5F) - (v * std::sin(kRadarElevationRadians) * scale)
+                          - lift};
+}
+
+namespace {
+
+/// Clips a segment to the oval, in the panel's own unit-disc space: the oval IS the unit circle
+/// once each axis is divided by its semi-axis, so the inside range of the segment is a quadratic's
+/// two roots and both endpoints can be pulled exactly onto the ellipse. False when the segment
+/// misses the oval entirely, in which case nothing is drawn -- a segment drawn across the panel's
+/// corners would break the containment claim the whole radar is held to.
+[[nodiscard]] bool clip_to_oval(const RadarPanel& panel, RadarPoint& a, RadarPoint& b) noexcept {
+    const float half_x = std::max(panel.width * 0.5F, 1.0e-3F);
+    const float half_y = std::max(panel.height * 0.5F, 1.0e-3F);
+    const float x0 = (a.px - half_x) / half_x;
+    const float y0 = (a.py - half_y) / half_y;
+    const float x1 = (b.px - half_x) / half_x;
+    const float y1 = (b.py - half_y) / half_y;
+    const float dx = x1 - x0;
+    const float dy = y1 - y0;
+    const float aa = (dx * dx) + (dy * dy);
+    const float bb = 2.0F * ((x0 * dx) + (y0 * dy));
+    const float cc = (x0 * x0) + (y0 * y0) - 1.0F;
+    if (aa <= 0.0F) {
+        return cc <= 0.0F; // a zero-length segment is a point: on the face or nowhere
+    }
+    const float discriminant = (bb * bb) - (4.0F * aa * cc);
+    if (discriminant <= 0.0F) {
+        return false; // the line touches the oval nowhere
+    }
+    const float root = std::sqrt(discriminant);
+    const float lo = std::max(0.0F, (-bb - root) / (2.0F * aa));
+    const float hi = std::min(1.0F, (-bb + root) / (2.0F * aa));
+    if (hi <= lo) {
+        return false;
+    }
+    const auto at = [&](float t) {
+        return RadarPoint{half_x + ((x0 + (dx * t)) * half_x), half_y + ((y0 + (dy * t)) * half_y)};
+    };
+    a = at(lo);
+    b = at(hi);
+    return true;
+}
+
+} // namespace
+
+std::vector<RadarSegment> radar_mesh(std::uint64_t seed, float viewer_x, float viewer_z,
+                                     float yaw_radians, const RadarPanel& panel, int radius_tiles,
+                                     int step_tiles) {
+    std::vector<RadarSegment> segments;
+    if (radius_tiles <= 0 || step_tiles <= 0 || panel.width <= 0.0F || panel.height <= 0.0F) {
+        return segments;
+    }
+    const float sine = std::sin(yaw_radians);
+    const float cosine = std::cos(yaw_radians);
+    const int base_x = static_cast<int>(std::floor(viewer_x));
+    const int base_z = static_cast<int>(std::floor(viewer_z));
+    const int corners = ((2 * radius_tiles) / step_tiles) + 1;
+    // A corner just past the radius still covers the rim, so the mesh reaches the edge of the range
+    // rather than stopping a step short of it.
+    const float reach = static_cast<float>(radius_tiles + step_tiles);
+    const std::size_t count = static_cast<std::size_t>(corners) * static_cast<std::size_t>(corners);
+
+    // The grid, projected once per corner: row-major, and a corner outside the radius is left
+    // unsampled, so no height is ever read for terrain the radar cannot see.
+    std::vector<RadarPoint> points(count);
+    std::vector<std::uint8_t> sampled(count, 0);
+    for (int row = 0; row < corners; ++row) {
+        for (int column = 0; column < corners; ++column) {
+            const int tile_x = base_x - radius_tiles + (column * step_tiles);
+            const int tile_z = base_z - radius_tiles + (row * step_tiles);
+            const float dx = static_cast<float>(tile_x) - viewer_x;
+            const float dz = static_cast<float>(tile_z) - viewer_z;
+            if (std::hypot(dx, dz) > reach) {
+                continue;
+            }
+            // The same forward/right the marks are placed with, so the mesh cannot disagree with
+            // them about which way the tank is pointing.
+            const float forward = (dx * sine) + (dz * cosine);
+            const float right = (dx * cosine) - (dz * sine);
+            const std::size_t index
+                = (static_cast<std::size_t>(row) * static_cast<std::size_t>(corners))
+                  + static_cast<std::size_t>(column);
+            points.at(index) = radar_project(panel, right, forward, radius_tiles,
+                                             height_metres(seed, tile_x, tile_z));
+            sampled.at(index) = 1;
+        }
+    }
+
+    const auto edge = [&](std::size_t from, std::size_t to) {
+        if (sampled.at(from) == 0 || sampled.at(to) == 0) {
+            return; // one end is outside the radius, so there is no line there
+        }
+        RadarPoint a = points.at(from);
+        RadarPoint b = points.at(to);
+        if (clip_to_oval(panel, a, b)) {
+            segments.push_back(RadarSegment{a, b});
+        }
+    };
+    // Rows and columns, in a fixed order, so the same seed and the same viewer give the same list.
+    const auto index_at = [corners](int row, int column) {
+        return (static_cast<std::size_t>(row) * static_cast<std::size_t>(corners))
+               + static_cast<std::size_t>(column);
+    };
+    for (int row = 0; row < corners; ++row) {
+        for (int column = 0; column < corners; ++column) {
+            if (column + 1 < corners) {
+                edge(index_at(row, column), index_at(row, column + 1));
+            }
+            if (row + 1 < corners) {
+                edge(index_at(row, column), index_at(row + 1, column));
+            }
+        }
+    }
+    return segments;
 }
 
 namespace {

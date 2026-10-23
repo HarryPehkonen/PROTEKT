@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "protekt/game/radar.hpp"
+#include "protekt/game/scene.hpp" // kMetresPerTile and height_metres: what a metre is, in tiles
 #include "protekt/sim/sim.hpp"
 
 namespace {
@@ -624,6 +625,149 @@ TEST(RadarCompass, ExactlyNESWAndNoDiagonals) {
                           (my - l.py) / (my - protekt::game::kRadarLetterInsetPixels));
     };
     EXPECT_NEAR(bearing(letter(letters, 'E')) - bearing(letter(letters, 'N')), 1.57079632F, 0.001F);
+}
+
+// ---------------------------------------------------------------- the terrain mesh (RADAR3D-2)
+//
+// The mesh is pure geometry over the world's own height field, so these run anywhere: no sim, no
+// display. The pixel acceptance (a mesh-on frame differs from a mesh-off one ONLY inside the oval)
+// belongs to the render tests; these pin the geometry that makes it possible.
+
+using protekt::game::kRadarMeshLinePixels;
+using protekt::game::kRadarMeshStepTiles;
+using protekt::game::radar_mesh;
+using protekt::game::RadarSegment;
+
+/// A seed the mesh tests share: any seed would do, but a named one makes a failure reproducible.
+constexpr std::uint64_t kMeshSeed = 424242;
+
+/// The mesh's own yaw: straight up the panel, so a test that checks the tilt reads as arithmetic.
+constexpr float kMeshYaw = 0.0F;
+
+TEST(RadarMesh, EverySegmentLiesInsideTheOval) {
+    // The oval is the contract, exactly as it is for marks: a segment's BOTH ends are on the face.
+    // The mesh clips analytically in the panel's unit-disc space, so this must hold at every yaw
+    // and at the mesh's own step, without a single line reaching a rectangle corner.
+    for (const float yaw : {0.0F, 0.8F, -2.1F, 3.0F}) {
+        const std::vector<RadarSegment> segments
+            = radar_mesh(kMeshSeed, kViewerTile, kViewerTile, yaw, kPanel);
+        ASSERT_FALSE(segments.empty()) << "yaw " << yaw << " drew no mesh at all";
+        for (const RadarSegment& segment : segments) {
+            EXPECT_LE(ellipse_value(kPanel, segment.a.px, segment.a.py), 1.0001F) << "yaw " << yaw;
+            EXPECT_LE(ellipse_value(kPanel, segment.b.px, segment.b.py), 1.0001F) << "yaw " << yaw;
+            EXPECT_TRUE(std::isfinite(segment.a.px) && std::isfinite(segment.a.py));
+            EXPECT_TRUE(std::isfinite(segment.b.px) && std::isfinite(segment.b.py));
+        }
+    }
+}
+
+TEST(RadarMesh, IsDeterministicForASeedAndViewer) {
+    // Same seed, same viewer, same yaw: the same list in the same order. The mesh is rebuilt every
+    // frame and must not swim between two frames that changed nothing.
+    const std::vector<RadarSegment> first
+        = radar_mesh(kMeshSeed, kViewerTile, kViewerTile, 0.37F, kPanel);
+    const std::vector<RadarSegment> second
+        = radar_mesh(kMeshSeed, kViewerTile, kViewerTile, 0.37F, kPanel);
+    ASSERT_EQ(first.size(), second.size());
+    for (std::size_t i = 0; i < first.size(); ++i) {
+        EXPECT_FLOAT_EQ(first.at(i).a.px, second.at(i).a.px);
+        EXPECT_FLOAT_EQ(first.at(i).a.py, second.at(i).a.py);
+        EXPECT_FLOAT_EQ(first.at(i).b.px, second.at(i).b.px);
+        EXPECT_FLOAT_EQ(first.at(i).b.py, second.at(i).b.py);
+    }
+}
+
+TEST(RadarMesh, EverySampledCornerIsTheWorldsOwnHeightAtThatTile) {
+    // The coupling, checked point by point rather than in aggregate: a corner at a known tile is in
+    // the mesh exactly where `height_metres` for that tile and `radar_project` put it. If the mesh
+    // ignored the terrain, or read some other tile, nothing in it would match this point.
+    // Two tiles left of the viewer and dead ahead of it: sampled by the default step, well inside
+    // the oval, and its own height is not zero (asserted below, so a flat spot cannot pass).
+    const int tile_x = static_cast<int>(kViewerTile) - 2;
+    const int tile_z = static_cast<int>(kViewerTile);
+    const float h = protekt::game::height_metres(kMeshSeed, tile_x, tile_z);
+    const RadarPoint flat = radar_project(kPanel, -2.0F, 0.0F, kRadarRadiusTiles, 0.0F);
+    const RadarPoint want = radar_project(kPanel, -2.0F, 0.0F, kRadarRadiusTiles, h);
+    EXPECT_GT(std::abs(want.py - flat.py), 1.0e-3F)
+        << "this corner is flat in this seed: the test would pass without any relief at all";
+
+    bool found = false;
+    for (const RadarSegment& segment :
+         radar_mesh(kMeshSeed, kViewerTile, kViewerTile, kMeshYaw, kPanel)) {
+        for (const RadarPoint& p : {segment.a, segment.b}) {
+            if (std::abs(p.px - want.px) < 1.0e-3F && std::abs(p.py - want.py) < 1.0e-3F) {
+                found = true;
+            }
+        }
+    }
+    EXPECT_TRUE(found) << "the mesh does not put tile (" << tile_x << "," << tile_z
+                       << ") where the world says it is";
+}
+
+TEST(RadarMesh, ASeedChangeMovesTheWholePicture) {
+    // Aggregate form of the same coupling: the ground is different ground, so the mesh's own extent
+    // changes. Clipping means the two seeds need not agree on a COUNT (a hill near the rim clips a
+    // segment away), so this compares the shape, which is what a frame shows.
+    const std::vector<RadarSegment> first
+        = radar_mesh(kMeshSeed, kViewerTile, kViewerTile, kMeshYaw, kPanel);
+    const std::vector<RadarSegment> other
+        = radar_mesh(kMeshSeed + 1, kViewerTile, kViewerTile, kMeshYaw, kPanel);
+    ASSERT_FALSE(first.empty());
+    ASSERT_FALSE(other.empty());
+    const auto topmost = [](const std::vector<RadarSegment>& segments) {
+        float top = 1.0e9F;
+        for (const RadarSegment& s : segments) {
+            top = std::min({top, s.a.py, s.b.py});
+        }
+        return top;
+    };
+    EXPECT_GT(std::abs(topmost(first) - topmost(other)), 1.0F)
+        << "two seeds drew the same skyline: the mesh is not reading the terrain";
+}
+
+TEST(RadarMesh, TheReliefLiftsTheGroundUpThePanel) {
+    // `radar_project`'s height term, measured rather than assumed: a metre is `kMetresPerTile`
+    // tiles, so a tile's height in metres becomes `height / kMetresPerTile` tiles of offset, and
+    // that offset reads up the tilted plane as `cos(elevation)` of its length. A hill therefore
+    // sits HIGHER on the panel (smaller py) than flat ground at the same spot.
+    const float h = 6.0F; // metres, about three tiles of hill
+    const RadarPoint flat = radar_project(kPanel, 0.0F, 0.0F);
+    const RadarPoint lifted = radar_project(kPanel, 0.0F, 0.0F, kRadarRadiusTiles, h);
+    const float scale = pixels_per_tile(kPanel);
+    const float expected
+        = (h / protekt::game::kMetresPerTile) * std::cos(kRadarElevationRadians) * scale;
+    EXPECT_NEAR(flat.py - lifted.py, expected, 0.01F);
+    EXPECT_LT(lifted.py, flat.py) << "a hill must read above the flat plane, never below it";
+}
+
+TEST(RadarMesh, TheStepIsTheFrameCostDial) {
+    // The brief's cost dial: step 1 is four times the corners of step 2. Both must draw something,
+    // and the coarse mesh must be the cheaper one, or the dial does nothing.
+    const std::vector<RadarSegment> fine
+        = radar_mesh(kMeshSeed, kViewerTile, kViewerTile, kMeshYaw, kPanel, kRadarRadiusTiles, 1);
+    const std::vector<RadarSegment> coarse
+        = radar_mesh(kMeshSeed, kViewerTile, kViewerTile, kMeshYaw, kPanel, kRadarRadiusTiles,
+                     kRadarMeshStepTiles);
+    ASSERT_FALSE(fine.empty());
+    ASSERT_FALSE(coarse.empty());
+    EXPECT_GT(fine.size(), coarse.size()) << "step " << kRadarMeshStepTiles << " should cost less";
+}
+
+TEST(RadarMesh, ARadiusOfZeroDrawsNothingRatherThanEverything) {
+    // A degenerate radius must be an empty mesh, not a grid over the whole world.
+    EXPECT_TRUE(radar_mesh(kMeshSeed, kViewerTile, kViewerTile, kMeshYaw, kPanel, 0).empty());
+    EXPECT_TRUE(
+        radar_mesh(kMeshSeed, kViewerTile, kViewerTile, kMeshYaw, kPanel, kRadarRadiusTiles, 0)
+            .empty());
+    const RadarPanel empty{};
+    EXPECT_TRUE(radar_mesh(kMeshSeed, kViewerTile, kViewerTile, kMeshYaw, empty).empty());
+}
+
+TEST(RadarMesh, TheLineWidthScalesWithTheFrame) {
+    // The width constant is stated at a 720-high frame and scales from there, so the mesh does not
+    // fatten on a 1080 window. This pins the constant's own value and its stated reference height.
+    EXPECT_FLOAT_EQ(kRadarMeshLinePixels, 1.0F);
+    EXPECT_EQ(kRadarMeshStepTiles, 2);
 }
 
 } // namespace

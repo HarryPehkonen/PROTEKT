@@ -49,6 +49,7 @@ add_library(protekt_core STATIC
     src/sim/fixed.cpp
     src/sim/sim.cpp
     src/sim/projectile.cpp
+    src/sim/scrap.cpp
     src/sim/scenario.cpp
     src/sim/replay.cpp
     src/sim/observer.cpp
@@ -280,6 +281,8 @@ if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
         tests/test_friendly_fire.cpp
         tests/test_sim.cpp
         tests/test_projectile.cpp
+        tests/test_scrap.cpp
+        tests/test_scavenger.cpp
         tests/test_ai_aim.cpp
         tests/test_scenario.cpp
         tests/test_replay.cpp
@@ -336,6 +339,13 @@ if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
     add_executable(protekt-measure tools/measure_commanders.cpp)
     target_link_libraries(protekt-measure PRIVATE protekt_core)
     protekt_warnings(protekt-measure)
+
+    # The radar terrain wireframe's frame cost (RADAR3D-2): the mesh alone at both grid steps, and
+    # the whole frame with it on and off. The brief asked for this measurement before choosing the
+    # step, so the probe stays in the repo with the number it produced.
+    add_executable(protekt-meshcost tools/meshcost.cpp)
+    target_link_libraries(protekt-meshcost PRIVATE protekt_game protekt_core)
+    protekt_warnings(protekt-meshcost)
 
     # Writes assets/atlas.png from the in-memory atlas builder (the single source of the tiles).
     add_executable(protekt-atlas-gen tools/atlas_gen.cpp)

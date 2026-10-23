@@ -517,6 +517,17 @@ struct SceneOptions {
     /// because the game draws it; off lets a test or the calibration view measure another HUD
     /// layer without the instrument's vertices in the frame.
     bool show_ship_gauge{true};
+    /// The radar's terrain wireframe (RADAR3D-2): the ground under the marks, as a heightfield
+    /// grid on the tilted plane. ON by default, because the game draws it; off lets the plan's
+    /// pixel acceptance compare a mesh-on frame against a mesh-off one and demand that the two
+    /// differ only inside the oval. A frame with no radar at all (`viewer_unit` absent) draws no
+    /// mesh either way.
+    bool show_radar_mesh{true};
+    /// RADAR3D-2's dial, in tiles: the wireframe's grid pitch. Coarser is cheaper and each step up
+    /// costs roughly a quarter of the vertices -- measured in `protekt-meshcost`, which sweeps it
+    /// so the frame price of the dial is a number rather than a guess. The default is the shipped
+    /// look.
+    int radar_mesh_step_tiles{kRadarMeshStepTiles};
 };
 
 /// Triangles for the terrain mesh (two per tile, painted by `Terrain`) followed by one box per

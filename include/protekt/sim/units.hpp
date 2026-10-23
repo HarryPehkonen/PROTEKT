@@ -26,9 +26,12 @@ enum class UnitKind : std::uint8_t {
     Factory = 2,
     HoverTank = 3,
     Mortar = 4, ///< lobs a splashing shell over hills; outranged by a turret
-    Rocket = 5  ///< slow, heavy, single-target
+    Rocket = 5, ///< slow, heavy, single-target
+    /// Appended after Rocket so every kind's index -- and every hash, replay and observation that
+    /// carries one -- is unchanged by its arrival. Unarmed: it hauls wreckage, and never shoots.
+    Scavenger = 6
 };
-inline constexpr int kUnitKindCount = 6;
+inline constexpr int kUnitKindCount = 7;
 
 /// Tanks and hover tanks: every rule written "for a tank" (orders, retreat, defend, swap, the AI's
 /// hunters) takes both. The hover tank has the tank's profile and, until it is drivable, its
@@ -38,7 +41,9 @@ inline constexpr int kUnitKindCount = 6;
 }
 
 /// Every ARMED kind can be driven (swapped into): the tanks, the mortar, the rocket and the
-/// turret. The factory is unarmed and cannot move, so there is nothing to drive.
+/// turret. The factory is unarmed and cannot move, so there is nothing to drive. The scavenger is
+/// unarmed too, but it DOES move, so it can be driven -- an order from the player outranks the
+/// fetch it would otherwise run (see `Unit::fetching`).
 [[nodiscard]] constexpr bool is_drivable(UnitKind kind) noexcept {
     return kind != UnitKind::Factory;
 }
@@ -53,7 +58,11 @@ enum class Stance : std::uint8_t {
     Patrol = 3,
     Attack = 4,
     Dead = 5,
-    Follow = 6 ///< appended after Dead, so every recorded stance value (and hash) is unchanged
+    Follow = 6, ///< appended after Dead, so every recorded stance value (and hash) is unchanged
+    /// The fetch (C2), appended for the same reason. Not an order: nothing a commander can issue
+    /// sets it -- the sim sets it on an unarmed scavenger with no orders of its own, and any order
+    /// the player or an AI gives replaces it (see `fetch_step`).
+    Fetch = 7
 };
 
 struct UnitId {
@@ -101,6 +110,10 @@ struct Unit {
     std::uint16_t unmount_ticks{};
     /// The planned route to this unit's goal (see sim/route.hpp). Hashed: it decides every step.
     Route route{};
+    /// How many pieces of wreckage this unit is carrying (C2): 0 or 1 today, a count so a
+    /// bigger hold is a number and not a new field. Hashed only when non-zero, so a battle with
+    /// no scavenger anywhere in it hashes exactly as it did before the fetch existed.
+    std::uint16_t cargo{};
     bool alive{true};
 };
 
@@ -127,6 +140,13 @@ inline constexpr std::uint16_t kFactoryHp = 400;
 inline constexpr int kFollowRadiusTiles = 4;
 inline constexpr int kRepairRadiusTiles = 6;  ///< a living friendly factory mends units this close
 inline constexpr int kRepairTickInterval = 6; ///< ...by 1 hp every this many ticks
+/// THE BUILD (C4). A factory replaces a lost gun with a tank for `kTankOreCost` delivered loads --
+/// one wreck's worth, so one kill pays for one tank -- on a global production beat, the way repair
+/// runs on one. The spot it appears on is its own tile or the nearest free one within
+/// `kBuildSpawnRadiusTiles`; a yard with no room builds nothing and spends nothing.
+inline constexpr std::uint16_t kTankOreCost = 4;
+inline constexpr int kBuildIntervalTicks = 150; ///< 5 s: an unhurried production line
+inline constexpr int kBuildSpawnRadiusTiles = 3;
 inline constexpr std::uint16_t kTankDamage = 8;
 inline constexpr std::uint16_t kTurretDamage = 12;
 inline constexpr std::uint16_t kTankCooldownTicks = 15;
@@ -141,6 +161,15 @@ inline constexpr std::int64_t kStrafeSpeedDenominator = 4;
 inline constexpr std::int32_t kTankRangeRaw = 12 << 16; ///< 12 tiles
 inline constexpr std::int32_t kTurretRangeRaw = 16 << 16;
 inline constexpr std::int32_t kArriveRadiusRaw = 1 << 16; ///< 1 tile
+
+/// The scavenger (C2). Unarmed and lightly built -- three fifths of a tank's hit points, three
+/// quarters of its speed -- because a hauler is meant to be worth escorting, not worth arming.
+inline constexpr std::uint16_t kScavengerHp = kTankHp * 3 / 5;
+inline constexpr std::int32_t kScavengerSpeedRaw = kTankSpeedRaw * 3 / 4;
+/// How close (tiles) a scavenger must be to a piece of wreckage to pick it up, and to its own
+/// factory to hand the load over. Both are radii, not tiles: the mover stops inside them.
+inline constexpr int kFetchRadiusTiles = 1;
+inline constexpr int kDeliverRadiusTiles = 2;
 
 /// Per-kind constants, exposed so that the tests (and later the balance pass) can assert on
 /// them instead of restating them.

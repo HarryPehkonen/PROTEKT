@@ -656,6 +656,51 @@ void build_facing_tank(std::vector<SceneVertex>& out, std::uint64_t seed, const 
                     colour, barrel_tile);
 }
 
+/// THE SCAVENGER (C2). It is built on the TANK's own hull -- tracks, compartment, fenders, engine
+/// deck -- with the turret ring left empty and a low sloped cab where the turret would sit: an
+/// unarmed hauler has no gun to show, and a hull cut down from the tank is what it is. It is turned
+/// by `heading` alone; there is nothing on it that aims. The cab and deck wear the team's camo (the
+/// fleet's tiles, as a tank does) and the cab's roof panel the plain turret metal, so the colour
+/// language stays the army's. A PLACEHOLDER look: the kind's own machine is a later slice, and this
+/// one exists so that a new kind is not an invisible one.
+void build_scavenger(std::vector<SceneVertex>& out, std::uint64_t seed, const sim::Unit& unit,
+                     Mark mark, float lift_z, bool lifted, float heading) {
+    const float x
+        = static_cast<float>(unit.x.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile;
+    const float z
+        = static_cast<float>(unit.y.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile;
+    const float ground = lifted ? lift_z : ground_metres(seed, unit.x, unit.y);
+    const AtlasManifest& atlas = atlas_manifest();
+    const UvRect hull_tile
+        = atlas.rect(kTeamHullNames.at(static_cast<std::size_t>(unit.side))
+                         .at(static_cast<std::size_t>(hull_variant(seed, unit.id.value))));
+    const UvRect tracks_tile = atlas.rect("tank_tracks");
+    const UvRect panel_tile = atlas.rect("tank_turret");
+    constexpr float kCabBase = 0.75F; ///< above the ground: the deck it stands on
+    constexpr float kCabFront = 0.1F; ///< along the hull from its centre
+    constexpr float kCabBack = -0.5F;
+    constexpr float kCabHalfAcross = 0.28F;
+    constexpr float kCabRoof = kCabBase + 0.3F;
+    constexpr float kRoofThickness = 0.03F;
+
+    Vec3 colour = side_colour(unit.side);
+    if (mark == Mark::Selected) {
+        colour = highlight(colour);
+    } else if (mark != Mark::None) {
+        colour = aim_tint(colour, mark == Mark::AimedOwn);
+    }
+    Vec3 camo_colour = colour;
+    for (float& channel : camo_colour) {
+        channel += (1.0F - channel) * kHullPaleMix;
+    }
+
+    emit_tank_hull(out, x, z, ground, heading, colour, camo_colour, hull_tile, tracks_tile);
+    emit_turned_box(out, x, z, heading, kCabHalfAcross, kCabBack, kCabFront, ground + kCabBase,
+                    ground + kCabRoof, camo_colour, hull_tile);
+    emit_turned_box(out, x, z, heading, kCabHalfAcross, kCabBack, kCabFront, ground + kCabRoof,
+                    ground + kCabRoof + kRoofThickness, colour, panel_tile);
+}
+
 /// THE HOVER TANK, built to read as NOT a tank at a glance: no track skirts at all, a low wedge
 /// that tapers in plan to a narrow nose and slopes down to it in profile, riding on a bright band
 /// of lift -- the skirt -- with a gap of air under it. A small turret sits on the deck ahead of
@@ -1197,16 +1242,10 @@ std::array<float, 3> radar_colour(RadarTone tone) {
 }
 
 constexpr int kRadarSegments = 48; ///< slices in the disc and the ring
-/// The bar's height, of the panel's HEIGHT. It used to be 0.08 of the panel's `size`, which was
-/// the width while the panel was square; on the 0.258-wide oval that would be a 26 px slab. 0.15
-/// of the height is the same 18 px the bar had on the old 230 px panel, so widening the panel
-/// does not fatten the bar.
-constexpr float kHealthBarHeightFraction = 0.15F;
-constexpr float kHealthBarMinPixels = 8.0F;
-constexpr float kHealthBarGapPixels = 4.0F; ///< between the bar and the panel's border
 
 /// Green from half health up, amber from a fifth, red below -- in integers, so the thresholds are
-/// exact. Green and red are the radar's own "yours" and "hostile" colours.
+/// exact. Green and red are the radar's own "yours" and "hostile" colours. Used by the ship
+/// instrument's hull reading; the radar itself no longer states health at all (see below).
 std::array<float, 3> health_colour(std::uint32_t hp, std::uint32_t max_hp) {
     if (hp * 2 >= max_hp) {
         return radar_colour(RadarTone::Yours);
@@ -1286,9 +1325,6 @@ void append_radar(std::vector<SceneVertex>& out, const SceneOptions& options, co
         emit_quad(out, at(distance, ax, ay), at(distance, bx, ay), at(distance, bx, by),
                   at(distance, ax, by), rgb);
     };
-    const float x0 = panel.x - kRadarBorderPixels;
-    const float y0 = panel.y - kRadarBorderPixels;
-    const float x1 = panel.x + panel.width + kRadarBorderPixels;
     constexpr std::array<float, 3> kBorder{0.80F, 0.82F, 0.85F};
     constexpr std::array<float, 3> kFace{0.04F, 0.05F, 0.06F};
 
@@ -1321,22 +1357,48 @@ void append_radar(std::vector<SceneVertex>& out, const SceneOptions& options, co
                       at(face_at, b.at(0), b.at(1)), kFace);
     }
 
-    // The viewer's hull as a bar directly above the panel: the same width as the panel with its
-    // border, a small gap up. The sim owns the numbers; nothing is added to `Unit` for this.
+    // THE GROUND UNDER THE MARKS (RADAR3D-2): the heightfield as a wireframe on the same tilted
+    // plane the marks sit on, so hills read as raised humps rather than a flat disc. It goes on its
+    // own layer just NEARER than the face (so it cannot z-fight with it) and before the letters and
+    // the marks, so a blip is never buried under terrain. Each segment is a thin
+    // quad: `radar_mesh` already clipped both ends to the oval, so nothing here can leave it.
     const sim::Unit* viewer = sim.find(options.viewer_unit);
-    if (viewer != nullptr) {
-        const float height = std::max(kHealthBarMinPixels, panel.height * kHealthBarHeightFraction);
-        const float bottom = y0 - kHealthBarGapPixels;
-        const float top = bottom - height;
-        rect(face_at, x0, top, x1, bottom, kFace);
-        const std::uint32_t max_hp = sim::spec_of(viewer->kind).hp;
-        const std::uint32_t hp = std::min<std::uint32_t>(viewer->hp, max_hp);
-        if (viewer->alive && max_hp > 0 && hp > 0) {
-            const float fill
-                = x0 + ((x1 - x0) * static_cast<float>(hp) / static_cast<float>(max_hp));
-            rect(marks_at, x0, top, fill, bottom, health_colour(hp, max_hp));
+    if (options.show_radar_mesh && viewer != nullptr) {
+        constexpr std::array<float, 3> kMeshInk{0.30F, 0.46F, 0.38F};
+        constexpr float kMeshAlpha = 0.85F;
+        constexpr float kMeshNearerThanFace = 0.98F;
+        const float mesh_at = face_at * kMeshNearerThanFace;
+        const float half = std::max(
+            0.5F, (kRadarMeshLinePixels * static_cast<float>(options.extent.height)) / 1440.0F);
+        const float kOne = static_cast<float>(sim::Fixed::kOne);
+        const float viewer_x = static_cast<float>(viewer->x.raw) / kOne;
+        const float viewer_z = static_cast<float>(viewer->y.raw) / kOne;
+        for (const RadarSegment& segment :
+             radar_mesh(options.seed, viewer_x, viewer_z, options.camera.yaw, panel,
+                        kRadarRadiusTiles, options.radar_mesh_step_tiles)) {
+            const float ax = panel.x + segment.a.px;
+            const float ay = panel.y + segment.a.py;
+            const float bx = panel.x + segment.b.px;
+            const float by = panel.y + segment.b.py;
+            const float dx = bx - ax;
+            const float dy = by - ay;
+            const float length = std::hypot(dx, dy);
+            if (length <= 0.0F) {
+                continue;
+            }
+            const float nx = ((-dy / length) * half);
+            const float ny = ((dx / length) * half);
+            emit_quad(out, at(mesh_at, ax - nx, ay - ny), at(mesh_at, bx - nx, by - ny),
+                      at(mesh_at, bx + nx, by + ny), at(mesh_at, ax + nx, ay + ny), kMeshInk,
+                      kMeshAlpha);
         }
     }
+
+    // THE HULL BAR IS RETIRED (user, 2026-10-23): "Retire radar's hull bar. It's replaced by the
+    // health bar at the bottom right." The ship instrument states the hull twice already -- as an
+    // arc and as a number -- so a third readout floating above the panel was one too many. Nothing
+    // takes its slot: the panel's top edge is the border, and the compass letters are what the
+    // ring's top carries.
 
     constexpr std::array<float, 3> kLetterPlate{0.0F, 0.0F, 0.0F};
     constexpr std::array<float, 3> kLetterInk{1.0F, 1.0F, 1.0F};
@@ -2781,6 +2843,11 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
             } else if (unit.kind == sim::UnitKind::Rocket) {
                 build_rocket(scene.vertices, options.seed, unit, mark, lift_z, hovering, heading,
                              turret);
+            } else if (unit.kind == sim::UnitKind::Scavenger) {
+                // Before the tank fallback below: a driven scavenger is FACED too, and it must not
+                // borrow the tank's turret. Nothing on a scavenger aims.
+                build_scavenger(scene.vertices, options.seed, unit, mark, lift_z, hovering,
+                                heading);
             } else if (faced || unit.kind == sim::UnitKind::Tank) {
                 build_facing_tank(scene.vertices, options.seed, unit, mark, lift_z, hovering,
                                   heading, turret);

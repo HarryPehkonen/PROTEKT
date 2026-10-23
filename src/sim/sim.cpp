@@ -38,6 +38,16 @@ namespace {
 // The last representable position: just inside the map's far edge.
 constexpr std::int32_t kMaxPosRaw = kMapTiles * Fixed::kOne - 1;
 
+/// "No piece" from `nearest_scrap`.
+constexpr std::size_t kNoScrap = static_cast<std::size_t>(-1);
+/// The pick-up and hand-over radii, as squared raw distances (see kFetchRadiusTiles).
+constexpr std::int64_t kFetchRadiusRaw2
+    = (static_cast<std::int64_t>(kFetchRadiusTiles) << Fixed::kShift)
+      * (static_cast<std::int64_t>(kFetchRadiusTiles) << Fixed::kShift);
+constexpr std::int64_t kDeliverRadiusRaw2
+    = (static_cast<std::int64_t>(kDeliverRadiusTiles) << Fixed::kShift)
+      * (static_cast<std::int64_t>(kDeliverRadiusTiles) << Fixed::kShift);
+
 Fixed clamp_pos(Fixed v) noexcept {
     return Fixed::from_raw(std::clamp<std::int32_t>(v.raw, 0, kMaxPosRaw));
 }
@@ -344,6 +354,172 @@ void update_route(Unit& unit, Fixed goal_x, Fixed goal_y, const WorldGround& gro
     (void)plan_route(ground, tile_of(unit.x, unit.y), goal, route);
 }
 
+/// A kind with a gun. `range` is the one thing the sim, the spec table and the AI all agree on for
+/// "armed": a zero range means it never fires and is never a threat.
+bool armed_kind(UnitKind kind) noexcept { return spec_of(kind).range.raw > 0; }
+
+/// Where a factory's new tank appears: the factory's own tile when nothing is standing on it,
+/// otherwise the first free passable tile on growing square rings, to `kBuildSpawnRadiusTiles`.
+/// `{-1, -1}` means the yard is full: no build, and no ore spent.
+Coord builder_spot(std::uint64_t seed, const std::vector<Unit>& units, Fixed fx,
+                   Fixed fy) noexcept {
+    const TileXY home = tile_of(fx, fy);
+    const auto free_tile = [seed, &units](int tx, int ty) {
+        if (!tile_passable(seed, tx, ty)) {
+            return false;
+        }
+        for (const Unit& unit : units) {
+            const TileXY at = tile_of(unit.x, unit.y);
+            if (unit.alive && at.x == tx && at.y == ty) {
+                return false;
+            }
+        }
+        return true;
+    };
+    if (free_tile(home.x, home.y)) {
+        return Coord{home.x, home.y};
+    }
+    for (int r = 1; r <= kBuildSpawnRadiusTiles; ++r) {
+        for (int ty = home.y - r; ty <= home.y + r; ++ty) {
+            for (int tx = home.x - r; tx <= home.x + r; ++tx) {
+                const bool on_ring
+                    = ty == home.y - r || ty == home.y + r || tx == home.x - r || tx == home.x + r;
+                if (on_ring && free_tile(tx, ty)) {
+                    return Coord{tx, ty};
+                }
+            }
+        }
+    }
+    return Coord{-1, -1};
+}
+
+/// A unit as `create` makes one, for the one path that adds a unit after the battle has started:
+/// the factory's build (C4). The tile is a whole tile, as a spawn's is.
+Unit fresh_unit(std::uint32_t id, UnitKind kind, Side side, Coord tile) noexcept {
+    const UnitProfile prof = profile(kind);
+    Unit unit{};
+    unit.id = UnitId{id};
+    unit.kind = kind;
+    unit.side = side;
+    unit.x = Fixed::from_int(tile.x);
+    unit.y = Fixed::from_int(tile.y);
+    unit.hp = prof.hp;
+    unit.cooldown = prof.cooldown_ticks; // a fresh gun starts reloading
+    if (kind == UnitKind::Turret) {
+        unit.still_ticks = kMountTicks; // every turret starts mounted
+    }
+    unit.stance = Stance::Idle;
+    unit.alive = true;
+    return unit;
+}
+
+/// The nearest piece of wreckage, ties broken by the order the pieces were made in -- which is the
+/// order `scraps_` itself is in, so "the nearest" is a function of the litter and not of the walk.
+std::size_t nearest_scrap(const std::vector<Scrap>& scraps, Fixed x, Fixed y) noexcept {
+    std::size_t best = kNoScrap;
+    std::int64_t best_d = 0;
+    for (std::size_t i = 0; i < scraps.size(); ++i) {
+        const std::int64_t d = dist2(x, y, scraps.at(i).x, scraps.at(i).y);
+        if (best == kNoScrap || d < best_d) {
+            best = i;
+            best_d = d;
+        }
+    }
+    return best;
+}
+
+/// Wreckage settles where a hauler can reach it: a piece the hash dropped on ground no vehicle may
+/// enter -- a crater -- moves to the nearest tile one can, and never onto a tile another piece of
+/// the same wreck already holds. Deterministic, like the scatter itself: the same battle settles
+/// the same way. Without this a piece can lie in a crater where the only way to it is a tile the
+/// hauler cannot stand on, and a scavenger drives at the crater rim forever.
+void settle_litter(std::vector<Scrap>& scraps, std::size_t first, std::uint64_t seed) noexcept {
+    for (std::size_t i = first; i < scraps.size(); ++i) {
+        TileXY at = tile_of(scraps.at(i).x, scraps.at(i).y);
+        if (!tile_passable(seed, at.x, at.y)) {
+            const Coord spot = nearest_passable(seed, at.x, at.y);
+            at = TileXY{static_cast<std::uint8_t>(spot.x), static_cast<std::uint8_t>(spot.y)};
+        }
+        // One tile, one piece of this wreck: step east (a standable tile, the same way every time)
+        // while a piece of the same wreck already lies where this one would.
+        for (int step = 0; step < kScrapSpan; ++step) {
+            bool taken = false;
+            for (std::size_t j = first; j < i && !taken; ++j) {
+                const TileXY other = tile_of(scraps.at(j).x, scraps.at(j).y);
+                taken = other.x == at.x && other.y == at.y;
+            }
+            if (!taken) {
+                break;
+            }
+            const Coord next = nearest_passable(seed, static_cast<int>(at.x) + 1, at.y);
+            at = TileXY{static_cast<std::uint8_t>(next.x), static_cast<std::uint8_t>(next.y)};
+        }
+        scraps.at(i) = Scrap{tile_center(at.x), tile_center(at.y)};
+    }
+}
+
+/// The lowest-id living factory of a side: the same "home" every other rule in the sim means by it
+/// (repair, retreat), asked here for a caller that is only passing through.
+const Unit* home_factory(const std::vector<Unit>& units, Side side) noexcept {
+    const Unit* home = nullptr;
+    for (const Unit& unit : units) {
+        if (unit.alive && unit.kind == UnitKind::Factory && unit.side == side
+            && (home == nullptr || unit.id < home->id)) {
+            home = &unit;
+        }
+    }
+    return home;
+}
+
+/// THE FETCH (C2). Called for every living scavenger before it is steered, in ascending unit order,
+/// so a piece a lower id picked up this tick is already gone when a higher id looks for one.
+///
+/// Picking up and handing over are matters of where the hauler IS, not of what it was told:
+/// wreckage under the tracks is taken even by a scavenger a player is driving elsewhere, and a load
+/// that reaches its own yard is banked however it got there. The GOAL is the sim's business alone,
+/// and only for a scavenger with no orders of its own (`Idle` or already `Fetch`): carrying, the
+/// goal is home; empty, it is the nearest piece; with no wreckage left, the fetch ends and it
+/// stands. Any order sets a stance of its own, which is what stops the fetch -- the sim never
+/// argues with one.
+void fetch_step(std::vector<Unit>& units, std::vector<Scrap>& scraps,
+                std::array<std::uint16_t, 2>& ore, Unit& unit) noexcept {
+    if (unit.cargo == 0) {
+        const std::size_t pick = nearest_scrap(scraps, unit.x, unit.y);
+        if (pick != kNoScrap
+            && dist2(unit.x, unit.y, scraps.at(pick).x, scraps.at(pick).y) <= kFetchRadiusRaw2) {
+            scraps.erase(scraps.begin() + static_cast<std::ptrdiff_t>(pick));
+            unit.cargo = 1;
+        }
+    }
+    const Unit* home = home_factory(units, unit.side);
+    if (unit.cargo > 0 && home != nullptr
+        && dist2(unit.x, unit.y, home->x, home->y) <= kDeliverRadiusRaw2) {
+        unit.cargo = 0;
+        ++ore.at(static_cast<std::size_t>(unit.side));
+    }
+    if (unit.stance != Stance::Idle && unit.stance != Stance::Fetch) {
+        return; // under an order: it collects what it drives over, and goes where it was sent
+    }
+    if (unit.cargo > 0) {
+        if (home == nullptr) {
+            unit.stance = Stance::Idle; // hauling with no base to bank it at: hold where it stands
+            return;
+        }
+        unit.guard_x = home->x;
+        unit.guard_y = home->y;
+        unit.stance = Stance::Fetch;
+        return;
+    }
+    const std::size_t pick = nearest_scrap(scraps, unit.x, unit.y);
+    if (pick == kNoScrap) {
+        unit.stance = Stance::Idle;
+        return;
+    }
+    unit.guard_x = scraps.at(pick).x;
+    unit.guard_y = scraps.at(pick).y;
+    unit.stance = Stance::Fetch;
+}
+
 void steer(std::vector<Unit>& units, Unit& unit, const UnitProfile& prof, const WorldGround& ground,
            std::uint32_t& plans) noexcept {
     unit.vx = Fixed::zero();
@@ -355,6 +531,8 @@ void steer(std::vector<Unit>& units, Unit& unit, const UnitProfile& prof, const 
     case Stance::MoveTo:
     case Stance::GuardAt:
     case Stance::Patrol:
+    // The fetch steers at whatever goal `fetch_step` wrote into guard_x/guard_y this tick.
+    case Stance::Fetch:
         break;
     case Stance::Attack: {
         const Unit* target = find_const(units, unit.target);
@@ -521,25 +699,11 @@ Sim Sim::create(const Scenario& scenario) {
     sim.scenario_ = scenario;
     sim.units_.reserve(scenario.spawns.size());
     for (const Spawn& spawn : scenario.spawns) {
-        const UnitProfile prof = profile(spawn.kind);
-        Unit unit{};
-        unit.id = UnitId{sim.next_id_++};
-        unit.kind = spawn.kind;
-        unit.side = spawn.side;
         // Out-of-range spawns are clamped onto the map rather than rejected: total, not UB.
         const Coord tile
             = nearest_passable(scenario.seed, std::clamp(spawn.tile_x, 0, kMapTiles - 1),
                                std::clamp(spawn.tile_y, 0, kMapTiles - 1));
-        unit.x = Fixed::from_int(tile.x);
-        unit.y = Fixed::from_int(tile.y);
-        unit.hp = prof.hp;
-        unit.cooldown = prof.cooldown_ticks; // a fresh gun starts reloading
-        if (spawn.kind == UnitKind::Turret) {
-            unit.still_ticks = kMountTicks; // every turret starts mounted
-        }
-        unit.stance = Stance::Idle;
-        unit.alive = true;
-        sim.units_.push_back(unit);
+        sim.units_.push_back(fresh_unit(sim.next_id_++, spawn.kind, spawn.side, tile));
     }
     return sim;
 }
@@ -579,6 +743,10 @@ void Sim::step() {
             continue;
         }
         const UnitProfile prof = profile(unit.kind);
+        // The fetch, before the mover: it writes the goal the mover is about to steer at (C2).
+        if (unit.kind == UnitKind::Scavenger) {
+            fetch_step(units_, scraps_, ore_, unit);
+        }
         if (!prof.mobile) {
             unit.vx = Fixed::zero();
             unit.vy = Fixed::zero();
@@ -688,6 +856,73 @@ void Sim::step() {
         }
     }
 
+    // 6. THE WRECKS (C1). Every unit this tick's damage killed leaves scrap on the ground. The dead
+    //    are read off `impacts_` -- an impact reports the victim's hit points AFTER the hit, so
+    //    hp == 0 is exactly a kill -- and scattered in ASCENDING VICTIM ID, so the litter's order
+    //    (and so the state hash) is a function of the battle, not of the order the bolts flew in.
+    //    A dead unit is never hit again in the same step, so one victim means one wreck.
+    if (!impacts_.empty()) {
+        std::vector<UnitId> wrecked;
+        for (const Impact& impact : impacts_) {
+            if (impact.victim_hp == 0) {
+                wrecked.push_back(impact.victim);
+            }
+        }
+        std::sort(wrecked.begin(), wrecked.end());
+        wrecked.erase(std::unique(wrecked.begin(), wrecked.end()), wrecked.end());
+        for (const UnitId id : wrecked) {
+            const Unit* dead = find_const(units_, id);
+            if (dead != nullptr) {
+                const std::size_t first = scraps_.size();
+                scatter(scraps_, scenario_.seed, id, dead->x, dead->y);
+                // The pieces land where the hash says; then they settle where a hauler can reach
+                // them (and where a second piece of the same wreck is not already lying).
+                settle_litter(scraps_, first, scenario_.seed);
+            }
+        }
+    }
+    // 7. THE BUILD (C4). On the production beat, a living factory replaces a lost GUN: a side whose
+    //    living armed units are fewer than the armed units it started with, and which can afford
+    //    it, gets a tank -- built at the factory, so a base under siege builds into the siege. The
+    //    kind it lost is not remembered: a tank is what a factory makes (the only `buildable`
+    //    kind). Ore is spent here and nowhere else: repair, repairs and replenishment are always
+    //    free, whatever the ledger says.
+    if (tick_ % static_cast<std::uint64_t>(kBuildIntervalTicks) == 0) {
+        // Counted before the build, so one factory's new tank cannot make another factory think the
+        // side is up to strength (or the other way round).
+        std::array<int, 2> armed_started{};
+        std::array<int, 2> armed_living{};
+        for (const Spawn& spawn : scenario_.spawns) {
+            if (armed_kind(spawn.kind)) {
+                ++armed_started.at(static_cast<std::size_t>(spawn.side));
+            }
+        }
+        for (const Unit& unit : units_) {
+            if (unit.alive && armed_kind(unit.kind)) {
+                ++armed_living.at(static_cast<std::size_t>(unit.side));
+            }
+        }
+        for (std::size_t i = 0; i < units_.size(); ++i) {
+            const Unit& factory = units_.at(i);
+            if (!factory.alive || factory.kind != UnitKind::Factory) {
+                continue;
+            }
+            const auto side = static_cast<std::size_t>(factory.side);
+            if (armed_living.at(side) >= armed_started.at(side) || ore_.at(side) < kTankOreCost) {
+                continue;
+            }
+            const Coord spot = builder_spot(scenario_.seed, units_, factory.x, factory.y);
+            if (spot.x < 0) {
+                continue; // nowhere to put it (the yard is full): no build, and no ore spent
+            }
+            units_.push_back(fresh_unit(next_id_++, UnitKind::Tank, factory.side, spot));
+            ore_.at(side) -= kTankOreCost;
+            ++armed_living.at(side);
+            // One build per beat, and `units_` has just moved: the loop's indices are stale, so it
+            // ends here. The next beat builds again if the side is still short.
+            break;
+        }
+    }
     ++tick_;
 }
 
@@ -707,6 +942,10 @@ const std::vector<Unit>& Sim::units() const noexcept { return units_; }
 const Unit* Sim::find(UnitId id) const noexcept { return find_const(units_, id); }
 
 const std::vector<Projectile>& Sim::projectiles() const noexcept { return projectiles_; }
+
+const std::vector<Scrap>& Sim::scraps() const noexcept { return scraps_; }
+
+std::uint16_t Sim::ore(Side side) const noexcept { return ore_.at(static_cast<std::size_t>(side)); }
 
 const std::vector<Impact>& Sim::impacts() const noexcept { return impacts_; }
 
@@ -750,6 +989,9 @@ std::uint64_t Sim::state_hash() const noexcept {
         h.i32(u.aim_y.raw);
         h.u64(u.aim_target.value);
         h.u64(u.alive ? 1 : 0);
+        if (u.cargo != 0) {
+            h.u64(u.cargo); // only when set, like unmount_ticks: a haul-less sim hashes as before
+        }
         // The route: the goal it serves, the leg it is on, and every waypoint.
         h.u64(u.route.has_goal ? 1 : 0);
         h.u64(u.route.partial ? 1 : 0);
@@ -802,6 +1044,21 @@ std::uint64_t Sim::state_hash() const noexcept {
                 h.i32(p.max_travel.raw);
             }
         }
+    }
+    // The wreckage on the ground is state (C1). Bare ground adds nothing to the stream, so a battle
+    // that has not lost a unit hashes exactly as it did before wrecks existed.
+    if (!scraps_.empty()) {
+        h.u64(scraps_.size());
+        for (const Scrap& s : scraps_) {
+            h.i32(s.x.raw);
+            h.i32(s.y.raw);
+        }
+    }
+    // The ledger (C3), for the same reason: a war that has delivered nothing hashes as it did
+    // before ore existed.
+    if (ore_.at(0) != 0 || ore_.at(1) != 0) {
+        h.u64(ore_.at(0));
+        h.u64(ore_.at(1));
     }
     // Orders accepted but not yet applied are part of the state: they will change the next tick.
     h.u64(pending_.size());

@@ -71,8 +71,26 @@ TEST(Sim, ProfilesMatchTheFrozenBalance) {
     EXPECT_EQ(profile(UnitKind::Factory).weapon_range.raw, 0) << "a factory has no gun";
 }
 
+TEST(Sim, TheScavengerIsUnarmedAndMobile) {
+    // The kind that exists to haul (C2). Unarmed is the load-bearing half: `range == 0` is what
+    // keeps it out of targeting, out of the AI's threat list, and firing nothing at anyone.
+    const UnitProfile scav = profile(UnitKind::Scavenger);
+    EXPECT_EQ(scav.weapon_range.raw, 0)
+        << "unarmed: it never fires, and nothing it does is a threat";
+    EXPECT_EQ(scav.damage, 0);
+    EXPECT_EQ(scav.hp, kScavengerHp);
+    EXPECT_EQ(scav.max_speed.raw, kScavengerSpeedRaw);
+    EXPECT_TRUE(scav.mobile) << "it hauls: it has to reach the wreckage";
+    EXPECT_LT(scav.max_speed.raw, profile(UnitKind::Tank).max_speed.raw) << "slower than a tank";
+    EXPECT_GT(scav.hp, 0) << "light, but not a one-shot";
+    // Appended last, so no existing kind's index -- nor any hashed kind value -- moved.
+    EXPECT_EQ(static_cast<int>(UnitKind::Scavenger), kUnitKindCount - 1);
+    EXPECT_TRUE(is_drivable(UnitKind::Scavenger));
+    EXPECT_FALSE(is_tank(UnitKind::Scavenger)) << "the tank rules skip a hauler";
+}
+
 TEST(Sim, TheHoverTankHasTheTanksProfileExactly) {
-    EXPECT_EQ(kUnitKindCount, 6);
+    EXPECT_EQ(kUnitKindCount, 7);
     EXPECT_EQ(static_cast<int>(UnitKind::HoverTank), 3);
     const UnitProfile tank = profile(UnitKind::Tank);
     const UnitProfile hover = profile(UnitKind::HoverTank);
