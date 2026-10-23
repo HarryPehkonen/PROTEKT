@@ -1933,11 +1933,11 @@ void append_hud_panels(std::vector<SceneVertex>& out, const SceneOptions& option
                   return std::find(selected.begin(), selected.end(), id) != selected.end();
               });
         plate(left, top, left + slot_w, top + slot_h, chosen ? kStripSelected : kStripFrame);
-        const std::array<char, 1> key{static_cast<char>('0' + group.key)};
+        // The key the player presses, not its number: the pool's keys are the function row now.
+        const std::string key = "F" + std::to_string(group.key);
         const float key_cell = kStripKeyCell * px;
         const float count_cell = kStripHpCell * px;
-        ink_text(std::string_view{key.data(), 1}, left + pad, top + pad, key_cell,
-                 chosen ? kStripSelected : kStripFrame);
+        ink_text(key, left + pad, top + pad, key_cell, chosen ? kStripSelected : kStripFrame);
         // How many, not how hurt. The "x" is what keeps a bare digit from reading as hit points.
         const std::string count = "x" + std::to_string(group.units.size());
         const float count_left = left + slot_w - pad - word_width(count, count_cell);

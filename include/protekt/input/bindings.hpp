@@ -108,6 +108,15 @@ inline void apply(HeldKeys& keys, const KeyEvent& event) noexcept {
     return key.scancode - kKey1 + 1;
 }
 
+/// The roster group an F-key event asks for, 1-10, or 0 for any other key. Bare only: Ctrl/Alt+F1
+/// are not the roster's. F1..F10 are the pool's keys now; the digit row is the command/mark row.
+[[nodiscard]] inline int function_key(const KeyEvent& key) noexcept {
+    if (!key.pressed || key.ctrl || key.alt || key.scancode < kKeyF1 || key.scancode > kKeyF1 + 9) {
+        return 0;
+    }
+    return key.scancode - kKeyF1 + 1;
+}
+
 /// The mark number 0-9 a key event is, or -1. Bare only. "0" follows "9" in the HID table, so it
 /// is not in `roster_digit`'s run: the roster has no 0.
 [[nodiscard]] inline int mark_digit(const KeyEvent& key) noexcept {

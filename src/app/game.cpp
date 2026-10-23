@@ -332,7 +332,7 @@ public:
         // A roster key the roster refused: keep its sentence on screen a few seconds, since the
         // session's own message lasts one frame.
         for (const input::KeyEvent& key : hands.keys) {
-            if ((input::roster_digit(key) != 0 || input::mark_digit(key) >= 0)
+            if ((input::function_key(key) != 0 || input::mark_digit(key) >= 0)
                 && !session_.message().empty()) {
                 notice_ = std::string(session_.message());
                 notice_until_ = sim_.tick() + kNoticeTicks;

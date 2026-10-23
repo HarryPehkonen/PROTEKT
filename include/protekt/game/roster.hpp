@@ -31,7 +31,7 @@ namespace protekt::game {
 
 /// Digits 1-9. There are only `kUnitKindCount` kinds, so no kind is ever left without a key; the
 /// static assertion below is what keeps that true if a seventh kind is ever added.
-inline constexpr int kRosterKeys = 9;
+inline constexpr int kRosterKeys = 10;
 
 /// One kind's living units, under one key.
 struct RosterGroup {

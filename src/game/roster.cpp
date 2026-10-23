@@ -66,9 +66,10 @@ std::string_view kind_label(sim::UnitKind kind) noexcept {
 
 namespace {
 constexpr std::array<std::string_view, kRosterKeys> kEmpty{
-    "You have no group 1.", "You have no group 2.", "You have no group 3.",
-    "You have no group 4.", "You have no group 5.", "You have no group 6.",
-    "You have no group 7.", "You have no group 8.", "You have no group 9."};
+    "You have no group F1.", "You have no group F2.", "You have no group F3.",
+    "You have no group F4.", "You have no group F5.", "You have no group F6.",
+    "You have no group F7.", "You have no group F8.", "You have no group F9.",
+    "You have no group F10."};
 } // namespace
 
 std::string_view empty_key_message(int key) noexcept {

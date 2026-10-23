@@ -1,6 +1,7 @@
-// K1: the roster strip. Digits 1-9 select a KIND, not a unit: the whole group answers, from
-// anywhere, wherever its units are. Keys come out of a pool, so a kind whose last unit dies gives
-// its key back and a surviving kind moves down into it.
+// K1/K2: the roster strip. The FUNCTION keys F1-F10 select a KIND, not a unit: the whole group
+// answers, from anywhere, wherever its units are. Keys come out of a pool, so a kind whose last
+// unit dies gives its key back and a surviving kind moves down into it. The digit row selects
+// nothing: a digit answers G, T and the attack list, and Space selects the unit being looked at.
 #include <gtest/gtest.h>
 
 #include <cstdint>
@@ -36,8 +37,9 @@ constexpr Extent kExtent{1280, 720};
     return frame;
 }
 
-/// The digit `n` (1-9) as the window reports it: USB HID 30 is "1".
-[[nodiscard]] InputFrame digit(int n) { return key_frame(input::kKey1 + n - 1); }
+/// The F-key `n` (1-10) as the window reports it: USB HID 58 is F1. After K2 the pool's keys are
+/// the function row; the digit row answers marks and attack-list rows and selects nothing.
+[[nodiscard]] InputFrame group_key(int n) { return key_frame(input::kKeyF1 + n - 1); }
 
 struct Rig {
     sim::Sim sim;
@@ -109,16 +111,32 @@ TEST(RosterStrip, KeyOneSelectsEveryUnitOfItsKindFromWhereItCannotBeSeen) {
     ASSERT_FALSE(mouse_could_find(rig, behind))
         << "the third tank is behind the camera: the mouse must not be able to pick it";
     Interaction player{rig.own.at(0)};
-    player.handle(digit(1), rig.sim, rig.options);
+    player.handle(group_key(1), rig.sim, rig.options);
     EXPECT_EQ(selected(player), (std::vector<UnitId>{rig.own.at(0), rig.own.at(1), rig.own.at(2)}));
     EXPECT_TRUE(player.message().empty());
+}
+
+TEST(RosterStrip, TheDigitRowSelectsNothing) {
+    Rig rig = make_rig();
+    Interaction player{rig.own.at(0)};
+    player.handle(key_frame(input::kKey1), rig.sim, rig.options);
+    EXPECT_TRUE(selected(player).empty()) << "K2: a digit is a mark key now, never a group key";
+    EXPECT_TRUE(player.message().empty()) << "a digit that selects nothing has nothing to say";
+}
+
+TEST(RosterStrip, SpaceSelectsTheOneUnitThePlayerIsLookingAt) {
+    Rig rig = make_rig();
+    Interaction player{rig.own.at(0)};
+    aim_at_unit(rig, rig.own.at(3)); // the mortar alone: no group key needed, just the crosshair
+    player.handle(key_frame(input::kKeySpace), rig.sim, rig.options);
+    EXPECT_EQ(selected(player), (std::vector<UnitId>{rig.own.at(3)}));
 }
 
 TEST(RosterStrip, TheSelectedGroupObeysFollowWithNoNewPlumbing) {
     Rig rig = make_rig();
     Interaction player{rig.own.at(0)};
-    player.handle(digit(1), rig.sim, rig.options); // every tank
-    aim_at_unit(rig, rig.own.at(3));               // the mortar, which is NOT in the group
+    player.handle(group_key(1), rig.sim, rig.options); // every tank
+    aim_at_unit(rig, rig.own.at(3));                   // the mortar, which is NOT in the group
     player.handle(key_frame(input::kKeyF), rig.sim, rig.options);
     // Two orders, not three: the tank the player is SITTING IN is not sent anywhere, and it is
     // own.at(0). So the group order reaches the rest of the group and leaves the driven one alone.
@@ -136,14 +154,14 @@ TEST(RosterStrip, TheSelectedGroupObeysFollowWithNoNewPlumbing) {
 TEST(RosterStrip, EveryKeySelectsItsOwnKindAndReplacesTheLast) {
     Rig rig = make_rig();
     Interaction player{rig.own.at(0)};
-    player.handle(digit(1), rig.sim, rig.options);
+    player.handle(group_key(1), rig.sim, rig.options);
     EXPECT_EQ(selected(player).size(), 3U) << "the three tanks";
-    player.handle(digit(2), rig.sim, rig.options);
+    player.handle(group_key(2), rig.sim, rig.options);
     EXPECT_EQ(selected(player), (std::vector<UnitId>{rig.own.at(3)})) << "the mortar alone";
-    player.handle(digit(3), rig.sim, rig.options);
+    player.handle(group_key(3), rig.sim, rig.options);
     EXPECT_EQ(selected(player), (std::vector<UnitId>{rig.own.at(4)})) << "the turret alone";
     // Key 4 belongs to no kind: the selection is left as it was.
-    player.handle(digit(4), rig.sim, rig.options);
+    player.handle(group_key(4), rig.sim, rig.options);
     EXPECT_EQ(selected(player), (std::vector<UnitId>{rig.own.at(4)}));
     EXPECT_FALSE(player.message().empty());
 }
@@ -258,22 +276,22 @@ TEST(RosterStrip, ThePoolReturnsASlainKindsKey) {
 TEST(RosterStrip, AFreeKeyLeavesTheSelectionAlone) {
     Rig rig = make_rig();
     Interaction player{rig.own.at(0)};
-    player.handle(digit(1), rig.sim, rig.options);
+    player.handle(group_key(1), rig.sim, rig.options);
     ASSERT_EQ(selected(player).size(), 3U);
-    player.handle(digit(8), rig.sim, rig.options);
+    player.handle(group_key(8), rig.sim, rig.options);
     EXPECT_EQ(selected(player), (std::vector<UnitId>{rig.own.at(0), rig.own.at(1), rig.own.at(2)}));
 }
 
 TEST(RosterStrip, AFreeKeySaysSo) {
     Rig rig = make_rig(); // three kinds: keys 4-9 are free
     Interaction player{rig.own.at(0)};
-    player.handle(digit(7), rig.sim, rig.options);
+    player.handle(group_key(7), rig.sim, rig.options);
     EXPECT_TRUE(player.selection().empty());
-    EXPECT_EQ(player.message(), "You have no group 7.");
+    EXPECT_EQ(player.message(), "You have no group F7.");
     const Roster roster = roster_of(rig.sim, Side::Player);
     EXPECT_EQ(group_for_key(roster, 7), nullptr);
     EXPECT_EQ(group_for_key(roster, 3), &roster.groups.at(2));
-    EXPECT_EQ(empty_key_message(7), "You have no group 7.");
+    EXPECT_EQ(empty_key_message(7), "You have no group F7.");
 }
 
 TEST(RosterStrip, AHundredUnitsOfAKindAreStillOneRow) {
@@ -306,7 +324,7 @@ TEST(RosterStrip, TheStripIsDrawnOnlyWhenAskedAndDoesNotTouchTheSim) {
     const Scene with = build_scene(rig.sim, rig.options);
     EXPECT_GT(with.vertices.size(), plain.vertices.size());
     EXPECT_EQ(rig.sim.state_hash(), hash);
-    rig.options.notice = "You have no group 4.";
+    rig.options.notice = "You have no group F4.";
     const Scene noted = build_scene(rig.sim, rig.options);
     EXPECT_GT(noted.vertices.size(), with.vertices.size());
 }
@@ -315,9 +333,9 @@ TEST(RosterStrip, TwoSameSeedRunsAreByteIdentical) {
     const auto run = [] {
         Rig rig = make_rig();
         rig.options.show_roster = true;
-        rig.options.notice = "You have no group 4.";
+        rig.options.notice = "You have no group F4.";
         Interaction player{rig.own.at(0)};
-        player.handle(digit(1), rig.sim, rig.options);
+        player.handle(group_key(1), rig.sim, rig.options);
         for (int i = 0; i < 30; ++i) {
             rig.sim.step();
         }

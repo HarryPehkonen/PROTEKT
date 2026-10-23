@@ -35,10 +35,15 @@ constexpr Extent kExtent{1280, 720};
     return frame;
 }
 
-/// The digit `n` (0-9) as the window reports it: HID 30 is "1" ... 38 is "9", 39 is "0".
+/// The digit `n` (0-9) as the window reports it: HID 30 is "1" ... 38 is "9", 39 is "0". After K2
+/// a digit is the MARK and attack-list row key: it answers G or T and selects no vehicle.
 [[nodiscard]] InputFrame digit(int n) {
     return key_frame(n == 0 ? input::kKey0 : input::kKey1 + n - 1);
 }
+
+/// The F-key `n` (1-10) as the window reports it: F1 is HID 58 ... F10 is 67. These are the
+/// roster's group keys now: F1 selects every unit under group 1, wherever they are.
+[[nodiscard]] InputFrame fkey(int n) { return key_frame(input::kKeyF1 + n - 1); }
 
 struct Rig {
     sim::Sim sim;
@@ -88,7 +93,7 @@ void aim_at_unit(Rig& rig, UnitId unit) {
 
 /// own[1] selected alone.
 void select_second(Rig& rig, Interaction& player) {
-    player.handle(digit(2), rig.sim, rig.options);
+    player.handle(fkey(2), rig.sim, rig.options);
     ASSERT_EQ(selected(player), (std::vector<UnitId>{rig.own.at(1)}));
 }
 
@@ -159,10 +164,11 @@ TEST(SendToMark, WhileArmedADigitIsAMarkNumberAndNeverChangesTheSelection) {
     Interaction player{rig.own.at(0)};
     select_second(rig, player);
     player.handle(key_frame(input::kKeyG), rig.sim, rig.options);
-    player.handle(digit(3), rig.sim, rig.options); // N2 would select own[2]; mark 3 does not exist
+    player.handle(digit(3), rig.sim,
+                  rig.options); // G eats the digit as mark 3; mark 3 does not exist
     EXPECT_EQ(selected(player), (std::vector<UnitId>{rig.own.at(1)}));
-    // And the very next digit, with the arming used up, is N2's selection key again.
-    player.handle(digit(3), rig.sim, rig.options);
+    // And the very next key, with the arming used up, selects a group again: F3.
+    player.handle(fkey(3), rig.sim, rig.options);
     EXPECT_EQ(selected(player), (std::vector<UnitId>{rig.own.at(2)}));
 }
 
@@ -176,7 +182,7 @@ TEST(SendToMark, EscapeCancelsTheGoAndOrdersNothing) {
     EXPECT_FALSE(player.go_armed());
     EXPECT_TRUE(player.take_orders().empty());
     EXPECT_EQ(selected(player), (std::vector<UnitId>{rig.own.at(1)})) << "Escape only cancels";
-    player.handle(digit(1), rig.sim, rig.options); // an ordinary roster key again
+    player.handle(fkey(1), rig.sim, rig.options); // an ordinary roster key again
     EXPECT_EQ(selected(player), (std::vector<UnitId>{rig.own.at(1 - 1)}));
     EXPECT_TRUE(player.take_orders().empty());
 }
@@ -224,7 +230,7 @@ TEST(SendToMark, TheDrivenUnitIsSkippedAndTheRestStillGoToTheMark) {
     Rig rig = make_rig();
     drop_marks(rig);
     Interaction player{rig.own.at(0)};
-    player.handle(digit(1), rig.sim, rig.options); // the driven tank
+    player.handle(fkey(1), rig.sim, rig.options); // the driven tank
     aim_at_unit(rig, rig.own.at(1));
     player.handle(key_frame(input::kKeySpace), rig.sim, rig.options); // adds own[1]
     ASSERT_EQ(selected(player), (std::vector<UnitId>{rig.own.at(0), rig.own.at(1)}));
@@ -241,7 +247,7 @@ TEST(SendToMark, OnlyTheDrivenUnitSelectedIsRefused) {
     Rig rig = make_rig();
     drop_marks(rig);
     Interaction player{rig.own.at(0)};
-    player.handle(digit(1), rig.sim, rig.options);
+    player.handle(fkey(1), rig.sim, rig.options);
     player.handle(key_frame(input::kKeyG), rig.sim, rig.options);
     player.handle(digit(0), rig.sim, rig.options);
     EXPECT_TRUE(player.take_orders().empty());
@@ -254,7 +260,7 @@ TEST(SendToMark, TwoSameSeedRunsProduceByteIdenticalOrders) {
         drop_marks(rig);
         Interaction player{rig.own.at(0)};
         std::vector<sim::Order> all;
-        for (const InputFrame& frame : {digit(2), key_frame(input::kKeyG), digit(1)}) {
+        for (const InputFrame& frame : {fkey(2), key_frame(input::kKeyG), digit(1)}) {
             player.handle(frame, rig.sim, rig.options);
             for (const sim::Order& order : player.take_orders()) {
                 all.push_back(order);
@@ -332,7 +338,7 @@ TEST(AttackList, TWithAHostileUnderTheCrosshairAttacksItAndDoesNotArm) {
 TEST(AttackList, TWithNothingUnderTheCrosshairArmsAndADigitAttacksThatRow) {
     Rig rig = make_listing_rig();
     Interaction player{rig.own.at(0)};
-    player.handle(digit(1), rig.sim, rig.options); // the driven tank
+    player.handle(fkey(1), rig.sim, rig.options); // the driven tank
     aim_at_unit(rig, rig.own.at(1));
     player.handle(key_frame(input::kKeySpace), rig.sim, rig.options); // adds the hover tank
     rig.options.aim = Aim{640.0F, 360.0F};
@@ -390,10 +396,10 @@ TEST(AttackList, ADigitNamingNoRowIsRefusedOrdersNothingAndEndsTheMode) {
     EXPECT_EQ(player.message(), "no target 7 in the list.");
     EXPECT_FALSE(player.attack_armed());
     EXPECT_EQ(selected(player), (std::vector<UnitId>{rig.own.at(1)}));
-    player.handle(digit(1), rig.sim, rig.options);
+    player.handle(fkey(1), rig.sim, rig.options);
     EXPECT_TRUE(player.take_orders().empty());
     EXPECT_EQ(selected(player), (std::vector<UnitId>{rig.own.at(0)}))
-        << "the mode is over: 1 is the roster's key again";
+        << "the mode is over: F1 is the roster's key again";
 }
 
 TEST(AttackList, ZeroNamesTheTenthRow) {
@@ -453,7 +459,7 @@ TEST(AttackList, RefusalsNameTheirReasonAndLeaveTheModeUnarmed) {
     {
         Rig rig = make_listing_rig();
         Interaction player{rig.own.at(0)};
-        player.handle(digit(1), rig.sim, rig.options); // the driven tank, alone
+        player.handle(fkey(1), rig.sim, rig.options); // the driven tank, alone
         ASSERT_EQ(selected(player), (std::vector<UnitId>{rig.own.at(0)}));
         player.handle(key_frame(input::kKeyT), rig.sim, rig.options);
         EXPECT_FALSE(player.attack_armed());

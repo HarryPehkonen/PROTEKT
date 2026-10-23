@@ -217,8 +217,8 @@ void Interaction::handle(const input::InputFrame& frame, const sim::Sim& sim,
         }
         if (key.scancode == input::kKeyG && !key.ctrl && !key.alt) {
             go_armed_ = true;
-        } else if (const int digit = input::roster_digit(key); digit != 0) {
-            select_roster_key(sim, digit);
+        } else if (const int group = input::function_key(key); group != 0) {
+            select_roster_key(sim, group);
         } else if (key.scancode == input::kKeyEscape || key.scancode == input::kKeyTab) {
             // Tab clears, as Escape does.
             selection_.clear();
@@ -556,15 +556,16 @@ void Interaction::attack_row(const std::vector<TargetRow>& rows, int key) {
     message_ = kAttacking.at(static_cast<std::size_t>(key));
 }
 
-void Interaction::select_roster_key(const sim::Sim& sim, int digit) {
-    // The roster's key belongs to a KIND now (game/roster.hpp): pressing it selects the whole
-    // group, wherever its units are, and replaces whatever the mouse had built. A key no group
-    // holds is FREE -- the pool keeps no memory of the group that returned it -- so one message
-    // covers "that group is gone" and "you never had that group" alike.
+void Interaction::select_roster_key(const sim::Sim& sim, int group_key) {
+    // The roster's key belongs to a KIND now (game/roster.hpp): pressing its F-key selects the
+    // whole group, wherever its units are, and replaces whatever the mouse had built. A key no
+    // group holds is FREE -- the pool keeps no memory of the group that returned it -- so one
+    // message covers "that group is gone" and "you never had that group" alike. Digits no longer
+    // select: they are the mark and attack-list row keys, and the command row K2 will build on.
     const Roster roster = roster_of(sim, sim::Side::Player);
-    const RosterGroup* group = group_for_key(roster, digit);
+    const RosterGroup* group = group_for_key(roster, group_key);
     if (group == nullptr) {
-        refuse(empty_key_message(digit));
+        refuse(empty_key_message(group_key));
         return;
     }
     selection_.clear();

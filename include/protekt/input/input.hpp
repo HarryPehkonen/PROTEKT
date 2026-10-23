@@ -31,6 +31,9 @@ inline constexpr std::int32_t kKeyEscape = 41;
 inline constexpr std::int32_t kKeyTab = 43;
 inline constexpr std::int32_t kKeySpace = 44;
 inline constexpr std::int32_t kKeyEnter = 40;
+/// F1..F10 select the roster's groups: F1 is group 1, F10 is group 10. F2..F10 follow F1 in the
+/// HID table (59-67), and F11 (68) stays the full-screen key.
+inline constexpr std::int32_t kKeyF1 = 58;
 inline constexpr std::int32_t kKeyF11 = 68;
 
 struct Click {
