@@ -13,6 +13,7 @@
 #include "protekt/game/atlas.hpp"
 #include "protekt/game/scene_data.hpp"
 #include "protekt/game/targets.hpp"
+#include "protekt/game/terrain_cache.hpp"
 #include "protekt/game/weapon.hpp"
 #include "protekt/math/math.hpp"
 #include "protekt/sim/observer.hpp"
@@ -420,6 +421,16 @@ inline constexpr std::size_t kReticleVertexCount = 30;
 /// living tank in view other than the viewer's own, and only when there is a viewer.
 inline constexpr std::size_t kUnitBarVertexCount = 18;
 
+/// THE AMMO READING IS A PLACEHOLDER (SHIPGAUGE-1). The driven craft has no magazine in the sim --
+/// nothing counts rounds and nothing ever runs dry -- so the ship instrument's blue arc is always
+/// full and its number is always the string "100". It is a CONSTANT, never a value the sim
+/// computed, and it must stay obviously so: AMMO-2 replaces the constant, the string and this
+/// comment with a real reading. The user's ruling, 2026-10-23: "For now, we can keep the ammo
+/// capacity always at 100%. When we add capacity, we can change that." It lives here rather than in
+/// scene.cpp's anonymous namespace because a test pins it by name.
+inline constexpr float kAmmoPlaceholderFraction = 1.0F;
+[[nodiscard]] constexpr std::string_view ammo_placeholder_percent() noexcept { return "100"; }
+
 struct SceneOptions {
     std::uint64_t seed{};
     Camera camera{};
@@ -457,6 +468,13 @@ struct SceneOptions {
     /// Remembered headings, so a stopped tank keeps its facing. ABSENT (null) faces a stopped tank
     /// along +Y; a moving one still faces its velocity. Not owned.
     const Headings* headings{nullptr};
+    /// The world's per-tile answers for this seed, remembered (see game/terrain_cache.hpp): with it
+    /// the terrain mesh reads a table instead of running the noise three octaves deep five times a
+    /// tile, which is 78% of what a frame's mesh costs. ABSENT (null) derives every tile again, so
+    /// a frame that never heard of it is unchanged; PRESENT the vertices are the same bytes,
+    /// because the cache is a memo of a pure function and nothing else. Not owned, and ignored when
+    /// its seed is not this frame's seed.
+    const TerrainCache* terrain{nullptr};
     /// The red hit flash, 0 (none) to 1 (just hit): the app owns it and advances it each frame.
     /// 0 draws nothing at all, so a frame that is not flashing is byte-identical to one that never
     /// heard of it.
@@ -494,6 +512,11 @@ struct SceneOptions {
     /// The world map (N4), drawn last over everything: the whole world as a square, your own
     /// assets and your nav marks. Off by default, so a frame that never heard of it is unchanged.
     bool show_world_map{false};
+    /// The ship instrument (SHIPGAUGE-1) in the bottom right: the hull and ammo arcs, the two
+    /// readings in the ring's opening and the four carried weapons beside it. ON by default,
+    /// because the game draws it; off lets a test or the calibration view measure another HUD
+    /// layer without the instrument's vertices in the frame.
+    bool show_ship_gauge{true};
 };
 
 /// Triangles for the terrain mesh (two per tile, painted by `Terrain`) followed by one box per

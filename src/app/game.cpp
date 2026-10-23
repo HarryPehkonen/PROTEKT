@@ -292,7 +292,7 @@ class Game {
 public:
     Game(Options options, sim::Sim sim, const game::Session& session, const AudioPipeline& pipeline)
         : options_(std::move(options)), sim_(std::move(sim)), session_(session),
-          pipeline_(pipeline),
+          terrain_cache_(options_.seed), pipeline_(pipeline),
           // 30 Hz is the rate the sim is designed and balanced at: 6 tiles/s at 30 ticks/s is the
           // 12 m/s hover tank in docs/PLAN.md. A stall is capped at 250 ms of catch-up.
           play_clock_(std::chrono::nanoseconds{1'000'000'000LL / 30},
@@ -401,6 +401,7 @@ public:
             game::Camera::wrap_angle(session_.view_yaw() - session_.heading())};
         headings_.observe(sim_);
         scene_options.headings = &headings_;
+        scene_options.terrain = &terrain_cache_; // the per-seed memo the mesh reads through
         scene_options.hit_flash = hit_flash_.level(sim_.tick());
         scene_options.weapon = session_.weapon();
         scene_options.show_weapon = !session_.destroyed();
@@ -437,6 +438,11 @@ private:
     game::LandingMarks landing_marks_;
     game::NavMarks nav_marks_;
     game::Headings headings_;
+    /// The world's per-tile answers for this session's seed, remembered (game/terrain_cache.hpp):
+    /// the terrain mesh asks the world five times a tile and is rebuilt every frame, so this is the
+    /// difference between 12.1 ms and ~2.5 ms of a frame at radius 24. One cache, one seed: the
+    /// seed is fixed for the session, so the cache is never stale.
+    game::TerrainCache terrain_cache_;
     bool world_map_{false};   // R toggles the map view; a view, it never touches the sim
     bool calibration_{false}; // C toggles the colour calibration view; it never touches the sim
     bool player_alive_before_{false};

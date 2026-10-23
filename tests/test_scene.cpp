@@ -54,6 +54,10 @@ SceneOptions options_at(float x, float z, std::uint64_t seed = 42, int radius = 
     o.camera.x = x;
     o.camera.z = z;
     o.camera.y = 8.0F;
+    // A test rig builds a WORLD scene: the ship instrument is on in the game (its own test turns it
+    // on), but here its HUD vertices are the tail of the vertex list in every scene with no radar,
+    // no reticle and no roster, and these tests read that tail as a tank, a bolt or the reticle.
+    o.show_ship_gauge = false;
     return o;
 }
 
@@ -1157,6 +1161,9 @@ TEST(RadarDraws, AHostileInRangeIsDrawnRedAndOneOutOfRangeIsNotDrawnAtAll) {
         plain.camera.x = 100.0F;
         plain.camera.z = 104.0F;
         plain.camera.y = 8.0F;
+        // The radar is found as "everything past the common prefix", so nothing but the radar may
+        // follow it here: the ship instrument is off, as in the other radar rigs.
+        plain.show_ship_gauge = false;
         SceneOptions watched = plain;
         watched.viewer_unit = player;
         return radar_vertices(protekt::game::build_scene(sim, watched),
@@ -1298,6 +1305,10 @@ SceneOptions battle_options() {
     plain.camera.x = 100.0F;
     plain.camera.z = 104.0F;
     plain.camera.y = 8.0F;
+    // The radar tests find the radar as "everything past the common prefix", which is only the
+    // radar while nothing after it is drawn from these options: the ship instrument is off here for
+    // the same reason it is off in `options_at`.
+    plain.show_ship_gauge = false;
     return plain;
 }
 
@@ -4712,6 +4723,481 @@ TEST(SceneAttackList, ThePanelSitsBelowTheRosterStrip) {
     }
     EXPECT_GE(highest, kStripBottomPixels * scale)
         << "the list must start at or below the strip's bottom edge, never over it";
+}
+
+// ---------------------------------------------------------------- the ship instrument
+// (SHIPGAUGE-1)
+//
+// BZ2's bottom-right gauge: a segmented C-ring open to the right (the hull's arc green above, the
+// magazine's blue below), the two readings in the ring's opening, and the four carried weapons
+// beside it with the one he has up on a green bar. It is a PURE VIEW -- the sim is read and never
+// written -- and these tests count the vertices it puts on the frame and the bytes a weapon change
+// moves.
+//
+// Colours and geometry are literals on purpose, as everywhere else in this file: a test that
+// compared against the constant the drawing used would pass whatever the constant was.
+
+namespace {
+
+using protekt::game::Projected;
+using protekt::game::SceneVertex;
+
+constexpr std::array<float, 3> kGaugeHullLit{0.30F, 0.95F, 0.40F};
+constexpr std::array<float, 3> kGaugeHullDim{0.12F, 0.32F, 0.14F};
+constexpr std::array<float, 3> kGaugeAmmoLit{0.30F, 0.55F, 1.00F};
+constexpr std::array<float, 3> kGaugeAmmoDim{0.12F, 0.20F, 0.35F};
+constexpr std::array<float, 3> kGaugeActiveBar{0.16F, 0.42F, 0.18F};
+/// The hull number's amber, `health_colour`'s between a fifth of health and half of it: inside the
+/// ring's opening it is the number and nothing else, so it is what counts the number.
+constexpr std::array<float, 3> kGaugeHullAmber{1.0F, 0.75F, 0.20F};
+
+/// The ring, in the same fractions of the frame's height the drawing uses, and the font's cell.
+constexpr float kGaugeCentreFromRight = 0.300F;
+constexpr float kGaugeCentreFromBottom = 0.100F;
+constexpr float kGaugeOuter = 0.060F;
+constexpr float kGaugeThickness = 0.016F;
+constexpr float kGaugeCell = 3.0F / 720.0F;
+constexpr float kGaugeRowPitch = 8.0F * kGaugeCell;
+constexpr float kGaugeEps = 0.5F; ///< a pixel of slack, for the projection's own rounding
+
+/// Vertices of one colour whose pixel distance from the ring's centre is in [low, high].
+std::size_t at_radius(const SceneOptions& options, const Scene& scene,
+                      const std::array<float, 3>& rgb, float low, float high) {
+    const float height = static_cast<float>(options.extent.height);
+    const float cx = static_cast<float>(options.extent.width) - (kGaugeCentreFromRight * height);
+    const float cy = height - (kGaugeCentreFromBottom * height);
+    std::size_t count = 0;
+    for (const SceneVertex& vertex : scene.vertices) {
+        if (vertex.colour != rgb) {
+            continue;
+        }
+        const Projected p = project(options.camera, options.extent, vertex.position[0],
+                                    vertex.position[1], vertex.position[2]);
+        const float dx = p.x - cx;
+        const float dy = p.y - cy;
+        const float distance = std::sqrt((dx * dx) + (dy * dy));
+        if (distance >= low && distance <= high) {
+            ++count;
+        }
+    }
+    return count;
+}
+
+/// A ring's OUTER radius, in pixels: where three of a segment's six vertices stand (a segment is a
+/// quad; its other three are at the inner radius, and nothing else in the instrument reaches this
+/// far out except the weapon rows, which are well past it). So this counts segments, whole ones.
+float outer_radius(const SceneOptions& options) {
+    return kGaugeOuter * static_cast<float>(options.extent.height);
+}
+
+/// The segments of one colour: three vertices each, at the outer radius.
+std::size_t arc_segments(const SceneOptions& options, const Scene& scene,
+                         const std::array<float, 3>& rgb) {
+    const float outer = outer_radius(options);
+    return at_radius(options, scene, rgb, outer - kGaugeEps, outer + kGaugeEps);
+}
+
+/// Everything INSIDE the ring's opening: where the two readings are.
+std::size_t inside_ring(const SceneOptions& options, const Scene& scene,
+                        const std::array<float, 3>& rgb) {
+    const float height = static_cast<float>(options.extent.height);
+    const float inner = (kGaugeOuter - kGaugeThickness) * height;
+    return at_radius(options, scene, rgb, 0.0F, inner - kGaugeEps);
+}
+
+/// The active row's bar as a pixel rectangle {left, right, top, bottom}. False unless the frame
+/// holds EXACTLY one bar -- a bar is one quad of six vertices -- so a highlight that appeared on
+/// every row (or on two, or on none) fails here instead of being averaged away.
+bool active_bar_rect(const SceneOptions& options, const Scene& scene, std::array<float, 4>& out) {
+    std::size_t first = 0;
+    std::size_t runs = 0;
+    for (std::size_t index = 0; index + 6U <= scene.vertices.size(); ++index) {
+        if (scene.vertices.at(index).colour != kGaugeActiveBar) {
+            continue;
+        }
+        bool whole_quad = true;
+        for (std::size_t i = 1; i < 6U; ++i) {
+            whole_quad = whole_quad && scene.vertices.at(index + i).colour == kGaugeActiveBar;
+        }
+        if (!whole_quad) {
+            continue;
+        }
+        ++runs;
+        first = index;
+        index += 5U;
+    }
+    if (runs != 1U) {
+        return false;
+    }
+    out = std::array<float, 4>{1e9F, -1e9F, 1e9F, -1e9F};
+    for (std::size_t i = 0; i < 6U; ++i) {
+        const SceneVertex& vertex = scene.vertices.at(first + i);
+        const Projected p = project(options.camera, options.extent, vertex.position[0],
+                                    vertex.position[1], vertex.position[2]);
+        out = std::array<float, 4>{std::min(out.at(0), p.x), std::max(out.at(1), p.x),
+                                   std::min(out.at(2), p.y), std::max(out.at(3), p.y)};
+    }
+    return true;
+}
+
+/// The ring's centre line, in pixels: what the rows and the readings are hung off.
+std::array<float, 2> gauge_centre(const SceneOptions& options) {
+    const float height = static_cast<float>(options.extent.height);
+    return std::array<float, 2>{static_cast<float>(options.extent.width)
+                                    - (kGaugeCentreFromRight * height),
+                                height - (kGaugeCentreFromBottom * height)};
+}
+
+/// `test_world_map.cpp`'s byte compare: same vertices, same order, the same bytes.
+[[nodiscard]] bool same_bytes(const Scene& a, const Scene& b) {
+    return a.vertices.size() == b.vertices.size()
+           && (a.vertices.empty()
+               || std::memcmp(a.vertices.data(), b.vertices.data(),
+                              a.vertices.size() * sizeof(SceneVertex))
+                      == 0);
+}
+
+/// The shared rig builds a WORLD scene with the instrument off; a ShipGauge test asks for it.
+SceneOptions gauge_options(const Damaged& d, protekt::game::Weapon weapon) {
+    SceneOptions options = watching(d);
+    options.show_ship_gauge = true;
+    options.weapon = weapon;
+    return options;
+}
+
+} // namespace
+
+TEST(ShipGauge, AlwaysDrawsTheRingAndFourRows) {
+    // It is a HUD layer, not a reading that appears when something happens: the ring and the four
+    // rows are on the frame whatever the sim says. So the count is the DIFFERENCE against a frame
+    // with the instrument switched off, which is what that option is for.
+    const Damaged d = factory_down_to(400); // full health: the whole upper arc is lit
+    SceneOptions shown = gauge_options(d, protekt::game::Weapon::Gun);
+    SceneOptions hidden = shown;
+    hidden.show_ship_gauge = false;
+    const Scene with = build_scene(d.sim, shown);
+    const Scene without = build_scene(d.sim, hidden);
+    ASSERT_GT(with.vertices.size(), without.vertices.size());
+
+    // The two arcs: twelve segments a half and twenty-four round the ring, drawn as trapezoids in
+    // every case, lit or dim -- so 24 segments of three counted vertices each, whatever the
+    // readings are.
+    EXPECT_EQ(arc_segments(shown, with, kGaugeHullLit) + arc_segments(shown, with, kGaugeHullDim)
+                  + arc_segments(shown, with, kGaugeAmmoLit)
+                  + arc_segments(shown, with, kGaugeAmmoDim),
+              24U * 3U);
+    // A full hull over a full magazine: every segment lit, none dim.
+    EXPECT_EQ(arc_segments(shown, with, kGaugeHullLit), 12U * 3U);
+    EXPECT_EQ(arc_segments(shown, with, kGaugeHullDim), 0U);
+    EXPECT_EQ(arc_segments(shown, with, kGaugeAmmoLit), 12U * 3U);
+    EXPECT_EQ(arc_segments(shown, with, kGaugeAmmoDim), 0U);
+    EXPECT_EQ(arc_segments(shown, without, kGaugeHullLit)
+                  + arc_segments(shown, without, kGaugeHullDim),
+              0U)
+        << "the arcs are what the option turns off";
+    // And the four rows are drawn on top of the ring, not instead of it.
+    EXPECT_GT(with.vertices.size() - without.vertices.size(), 24U * 6U);
+
+    // AND IT IS NOT THE RADAR'S LAYER. R turns the radar into the world map; the instrument stands
+    // in the other corner on a layer of its own, so it is still whole with the map up.
+    SceneOptions mapped = shown;
+    mapped.show_world_map = true;
+    const Scene over_map = build_scene(d.sim, mapped);
+    EXPECT_EQ(arc_segments(mapped, over_map, kGaugeHullLit), 12U * 3U)
+        << "the hull arc survives the world map";
+    EXPECT_EQ(arc_segments(mapped, over_map, kGaugeAmmoLit), 12U * 3U)
+        << "and so does the magazine arc";
+
+    // Determinism: the same sim and the same options give the same frame, byte for byte, so the
+    // instrument's own size is the same number both times.
+    const Scene again = build_scene(d.sim, shown);
+    EXPECT_TRUE(same_bytes(with, again));
+    EXPECT_EQ(again.vertices.size() - build_scene(d.sim, hidden).vertices.size(),
+              with.vertices.size() - without.vertices.size());
+}
+
+TEST(ShipGauge, TheActiveWeaponMovesTheHighlightAndNothingElse) {
+    // The four rows, in `kDrivenWeapons` order: gun, rocket, mortar, bouncer.
+    const std::array<protekt::game::Weapon, 4> kRows{
+        protekt::game::Weapon::Gun, protekt::game::Weapon::Rocket, protekt::game::Weapon::Mortar,
+        protekt::game::Weapon::Bouncer};
+    const Damaged d = factory_down_to(400);
+    const std::array<float, 2> centre = gauge_centre(gauge_options(d, kRows.at(0)));
+    std::vector<Scene> frames;
+    for (std::size_t row = 0; row < kRows.size(); ++row) {
+        const SceneOptions options = gauge_options(d, kRows.at(row));
+        const Scene scene = build_scene(d.sim, options);
+        frames.push_back(scene);
+        const float scale = static_cast<float>(options.extent.height);
+        // ONE bar of six vertices, on the row of the weapon that is up: row i of four is pitched
+        // (i - 1.5) rows from the ring's centre line, and the bar is six cells of the font tall.
+        std::array<float, 4> bar{};
+        ASSERT_TRUE(active_bar_rect(options, scene, bar))
+            << "the frame must hold exactly one highlight bar, row " << row;
+        const float want
+            = centre.at(1) + ((static_cast<float>(row) - 1.5F) * kGaugeRowPitch * scale);
+        EXPECT_NEAR((bar.at(2) + bar.at(3)) * 0.5F, want, 0.5F) << "row " << row;
+        EXPECT_NEAR(bar.at(3) - bar.at(2), 6.0F * kGaugeCell * scale, 0.5F)
+            << "the bar is six cells tall, row " << row;
+        // And the rest of the instrument does not move: the same 24 segments, the same 12 lit a
+        // half, whatever weapon is up.
+        EXPECT_EQ(arc_segments(options, scene, kGaugeHullLit), 12U * 3U) << "row " << row;
+        EXPECT_EQ(arc_segments(options, scene, kGaugeAmmoLit), 12U * 3U) << "row " << row;
+    }
+    // The frames really do differ: each weapon puts its own ink and its own icon disc in the same
+    // places, which a count alone cannot see.
+    EXPECT_FALSE(same_bytes(frames.at(0), frames.at(1)));
+    EXPECT_FALSE(same_bytes(frames.at(1), frames.at(2)));
+    EXPECT_FALSE(same_bytes(frames.at(2), frames.at(3)));
+    EXPECT_FALSE(same_bytes(frames.at(0), frames.at(2)));
+}
+
+TEST(ShipGauge, AnInvalidViewerLeavesTheHullArcFull) {
+    const Damaged hurt = factory_down_to(160); // two fifths of the factory's 400 hit points
+    ASSERT_EQ(hurt.sim.find(hurt.viewer)->hp, 160);
+    const SceneOptions watched_options = gauge_options(hurt, protekt::game::Weapon::Gun);
+    const Scene watched = build_scene(hurt.sim, watched_options);
+    // Two fifths of twelve segments rounds to five lit and seven dim: WHOLE segments, no sliver
+    // drawn for the sixth. The hull number stands inside the ring, in the amber two fifths is.
+    EXPECT_EQ(arc_segments(watched_options, watched, kGaugeHullLit), 5U * 3U);
+    EXPECT_EQ(arc_segments(watched_options, watched, kGaugeHullDim), 7U * 3U);
+    EXPECT_GT(inside_ring(watched_options, watched, kGaugeHullAmber), 0U)
+        << "the hull number is drawn for a viewer that exists";
+
+    SceneOptions nobody = watched_options;
+    nobody.viewer_unit = protekt::sim::UnitId{9999};
+    const Scene blind = build_scene(hurt.sim, nobody);
+    // With no driven unit there is no hull to report at all, so every upper segment is lit rather
+    // than the arc reading empty -- an empty arc would say "dead" about a tank that is not there --
+    // and no hull number is invented for it either.
+    EXPECT_EQ(arc_segments(nobody, blind, kGaugeHullLit), 12U * 3U);
+    EXPECT_EQ(arc_segments(nobody, blind, kGaugeHullDim), 0U);
+    EXPECT_EQ(inside_ring(nobody, blind, kGaugeHullAmber), 0U);
+    EXPECT_FALSE(same_bytes(watched, blind));
+}
+
+TEST(ShipGauge, TheAmmoReadingIsThePlaceholder) {
+    // AMMO-2 replaces both halves of this: a fraction the sim owns and a number it produces. Today
+    // the sim has no magazine, so the constant is exactly 1 and the string is exactly "100".
+    static_assert(protekt::game::kAmmoPlaceholderFraction == 1.0F,
+                  "the placeholder is a full magazine, and changing it is AMMO-2's slice");
+    static_assert(protekt::game::ammo_placeholder_percent() == "100");
+    EXPECT_EQ(protekt::game::ammo_placeholder_percent(), "100");
+    // Because the fraction is 1 the ring's lower half is full: twelve lit segments, none dim.
+    const Damaged d = factory_down_to(400);
+    const SceneOptions options = gauge_options(d, protekt::game::Weapon::Gun);
+    const Scene scene = build_scene(d.sim, options);
+    EXPECT_EQ(arc_segments(options, scene, kGaugeAmmoLit), 12U * 3U);
+    EXPECT_EQ(arc_segments(options, scene, kGaugeAmmoDim), 0U);
+    // And "100" is drawn in that same blue inside the ring, so the reading is the number and not
+    // only the arc.
+    EXPECT_GT(inside_ring(options, scene, kGaugeAmmoLit), 0U);
+}
+
+// ---- the terrain memo (the world's per-tile answers for one seed, remembered) -------------------
+//
+// WHY IT EXISTS: world::sample runs three octaves of value noise per call (measured 0.77 us) and
+// the terrain mesh asks it five times a tile, every frame. game::TerrainCache remembers those
+// answers, so the two properties worth pinning are that it can never disagree with the world, and
+// that a frame drawn through it is the same frame to the byte.
+
+/// The memo's contract: an entry IS the world's own answer, tile for tile, inside the map and out.
+TEST(TerrainCache, MatchesTheWorldTileForTile) {
+    constexpr std::uint64_t kSeed = 42;
+    protekt::game::TerrainCache cache{kSeed};
+    ASSERT_EQ(cache.seed(), kSeed);
+    ASSERT_EQ(cache.tiles_derived(), std::size_t{0}) << "a fresh cache has derived nothing";
+    // The map's corners and edges, two interior tiles, and the fringe the mesh samples one tile
+    // past its far edge: off the map the field is still defined, and it is still the same field.
+    const std::array<std::pair<int, int>, 10> kTiles{{{0, 0},
+                                                      {1, 0},
+                                                      {0, 1},
+                                                      {255, 255},
+                                                      {254, 255},
+                                                      {255, 254},
+                                                      {128, 64},
+                                                      {-1, 0},
+                                                      {256, 256},
+                                                      {-1, 256}}};
+    for (const auto& [tile_x, tile_y] : kTiles) {
+        const protekt::world::Tile tile = protekt::world::sample(kSeed, tile_x, tile_y);
+        EXPECT_EQ(cache.height_units(tile_x, tile_y), tile.height)
+            << "height at " << tile_x << "," << tile_y;
+        EXPECT_EQ(cache.terrain(tile_x, tile_y), tile.terrain)
+            << "terrain at " << tile_x << "," << tile_y;
+    }
+    // The seven in-map tiles are remembered and the three off-map ones are not: a table that
+    // claimed to hold the off-map field would be claiming a table it does not have.
+    EXPECT_EQ(cache.tiles_derived(), std::size_t{7});
+    // Asking again derives nothing. This is the whole point of the type: the work is what changes,
+    // never the answer.
+    for (const auto& [tile_x, tile_y] : kTiles) {
+        (void)cache.height_units(tile_x, tile_y);
+        (void)cache.terrain(tile_x, tile_y);
+    }
+    EXPECT_EQ(cache.tiles_derived(), std::size_t{7});
+}
+
+/// A frame drawn through the memo is the SAME FRAME, byte for byte -- the terrain vertices carry
+/// replicated heights, so a memo off by one height unit would show up as bytes.
+TEST(TerrainCache, ChangesNothingAboutAFrame) {
+    const protekt::sim::Sim sim = protekt::sim::Sim::create(protekt::sim::skirmish(42));
+    // One camera well inside the map and one near the west edge, where the mesh walks off it.
+    for (const float camera_x : {100.0F, 6.0F}) {
+        protekt::game::TerrainCache cache{42};
+        SceneOptions plain = options_at(camera_x, 104.0F);
+        SceneOptions cached = plain;
+        cached.terrain = &cache;
+        EXPECT_TRUE(same_bytes(protekt::game::build_scene(sim, plain),
+                               protekt::game::build_scene(sim, cached)))
+            << "the memo must not change a byte at x=" << camera_x;
+        // The same again with the world map open, which draws the whole map from the same world.
+        plain.show_world_map = true;
+        cached.show_world_map = true;
+        EXPECT_TRUE(same_bytes(protekt::game::build_scene(sim, plain),
+                               protekt::game::build_scene(sim, cached)))
+            << "the memo must not change a byte with the map open at x=" << camera_x;
+        // And the memo really was read: every quad asks for its four corners, so a radius-8 mesh --
+        // (2*8+2)^2 quads spanning 2*8+2 tiles -- asks about a (2*8+3)^2 = 19x19 window of tiles.
+        // The tiles of that window which fall off the map are answered but not remembered, so the
+        // camera near the west edge fills in fewer.
+        const int centre = static_cast<int>(std::floor(camera_x / kMetresPerTile));
+        const int low = std::max(0, centre - 9);
+        const int high = std::min(255, centre + 9);
+        EXPECT_EQ(cache.tiles_derived(), static_cast<std::size_t>(high - low + 1) * 19U)
+            << "the frame should have filled the memo at x=" << camera_x;
+    }
+    // A cache built for ANOTHER seed is ignored rather than trusted: the seed is not this frame's,
+    // so the frame must still come out right.
+    protekt::game::TerrainCache other{7};
+    const SceneOptions plain = options_at(100.0F, 104.0F);
+    SceneOptions stale = plain;
+    stale.terrain = &other;
+    EXPECT_TRUE(
+        same_bytes(protekt::game::build_scene(sim, plain), protekt::game::build_scene(sim, stale)))
+        << "a cache for another seed must be ignored, not believed";
+}
+
+// ---- the instrument's placement, measured rather than eyeballed ---------------------------------
+//
+// The plan's own acceptance for this slice: the instrument stays inside the frame and clear of the
+// radar's panel rectangle, and four rows fit at the smallest window the game is run at. Both are
+// geometry, so both are asserted from the frame's own fractions and from vertices really emitted.
+
+/// The ring's box in the frame, in pixels. The ring is the instrument's outermost part on the left,
+/// the top and the bottom; the rows reach further right, and the row test measures that edge.
+struct GaugeBox {
+    float left{};
+    float right{};
+    float top{};
+    float bottom{};
+};
+
+GaugeBox gauge_box(const SceneOptions& options) {
+    const std::array<float, 2> centre = gauge_centre(options);
+    const float outer = outer_radius(options);
+    return GaugeBox{centre.at(0) - outer, centre.at(0) + outer, centre.at(1) - outer,
+                    centre.at(1) + outer};
+}
+
+/// The radar's panel rectangle widened by its own border: everything the radar draws is inside it.
+GaugeBox radar_box(const SceneOptions& options) {
+    const protekt::game::RadarPanel panel = protekt::game::radar_panel(options.extent);
+    const float border = protekt::game::kRadarBorderPixels;
+    return GaugeBox{panel.x - border, panel.x + panel.width + border, panel.y - border,
+                    panel.y + panel.height + border};
+}
+
+TEST(ShipGauge, TheInstrumentStaysInsideTheFrameAndClearOfTheRadarPanel) {
+    const Damaged d = factory_down_to(400);
+    // The smallest window the game is run at, the render CLI's own default, and a 1080p frame: the
+    // instrument is a fraction of the frame's HEIGHT, so all three have to hold.
+    for (const protekt::game::Extent extent :
+         {protekt::game::Extent{640, 400}, protekt::game::Extent{1280, 720},
+          protekt::game::Extent{1920, 1080}}) {
+        SceneOptions options = gauge_options(d, protekt::game::Weapon::Bouncer);
+        options.extent = extent;
+        const Scene scene = build_scene(d.sim, options);
+        const GaugeBox box = gauge_box(options);
+        const float width = static_cast<float>(extent.width);
+        const float height = static_cast<float>(extent.height);
+        EXPECT_GE(box.left, 0.0F) << "the ring's left edge is off the frame at " << width << "x"
+                                  << height;
+        EXPECT_GE(box.top, 0.0F) << "the ring's top is off the frame at " << width << "x" << height;
+        EXPECT_LE(box.right, width);
+        EXPECT_LE(box.bottom, height);
+
+        // Clear of the radar, which is bottom-left: the two must never share a column.
+        const GaugeBox radar = radar_box(options);
+        EXPECT_GT(box.left, radar.right)
+            << "the instrument overlaps the radar's panel at " << width << "x" << height;
+
+        // And the arcs really do land inside the frame: measured from the emitted vertices, not
+        // from the fractions that placed them.
+        for (const std::array<float, 3>& rgb :
+             {kGaugeHullLit, kGaugeHullDim, kGaugeAmmoLit, kGaugeAmmoDim}) {
+            for (const SceneVertex& vertex : scene.vertices) {
+                if (vertex.colour != rgb) {
+                    continue;
+                }
+                const Projected p = project(options.camera, options.extent, vertex.position[0],
+                                            vertex.position[1], vertex.position[2]);
+                EXPECT_GE(p.x, 0.0F);
+                EXPECT_GE(p.y, 0.0F);
+                EXPECT_LE(p.x, width);
+                EXPECT_LE(p.y, height);
+            }
+        }
+    }
+}
+
+TEST(ShipGauge, FourRowsFitAtTheSmallestWindow) {
+    const Damaged d = factory_down_to(400);
+    const protekt::game::Extent extent{640, 400}; // the smallest window the game is run at
+    const float height = static_cast<float>(extent.height);
+    const float cell = kGaugeCell * height;
+    const float pitch = kGaugeRowPitch * height;
+    // The window comes FIRST: the instrument is placed from the frame's height, so a centre
+    // computed from the default 1280x720 rig would measure a different frame than the one being
+    // built.
+    SceneOptions small = gauge_options(d, protekt::game::Weapon::Gun);
+    small.extent = extent;
+    const std::array<float, 2> centre = gauge_centre(small);
+
+    // The rows are one pitch apart and the glyphs are five cells tall, so the gap between two
+    // neighbouring rows is three cells and they cannot touch at any window, because both scale with
+    // the frame's height. What a small window CAN break is the frame's own edges.
+    EXPECT_GT(pitch, 5.0F * cell) << "the rows would overlap";
+    for (int row = 0; row < 4; ++row) {
+        const float row_y = centre.at(1) + ((static_cast<float>(row) - 1.5F) * pitch);
+        EXPECT_GE(row_y - (2.5F * cell), 0.0F) << "row " << row << " is off the top";
+        EXPECT_LE(row_y + (2.5F * cell), height) << "row " << row << " is off the bottom";
+    }
+
+    // The bar spans the icon and the name, so with the LONGEST name active it measures the furthest
+    // right the instrument ever reaches. That it lands inside the frame is the "four rows fit"
+    // claim, decided by the name that would break it first.
+    float widest_right = 0.0F;
+    for (const protekt::game::Weapon weapon :
+         {protekt::game::Weapon::Gun, protekt::game::Weapon::Rocket, protekt::game::Weapon::Mortar,
+          protekt::game::Weapon::Bouncer}) {
+        SceneOptions options = gauge_options(d, weapon);
+        options.extent = extent;
+        const Scene scene = build_scene(d.sim, options);
+        std::array<float, 4> bar{};
+        ASSERT_TRUE(active_bar_rect(options, scene, bar))
+            << "exactly one row is highlighted whatever the weapon is";
+        EXPECT_GE(bar.at(0), 0.0F);
+        EXPECT_LE(bar.at(1), static_cast<float>(extent.width)) << "a row runs off the right edge";
+        EXPECT_GE(bar.at(2), 0.0F);
+        EXPECT_LE(bar.at(3), height);
+        widest_right = std::max(widest_right, bar.at(1));
+    }
+    // BOUNCER is the longest name in `kDrivenWeapons`, so its bar is the rightmost thing the
+    // instrument draws: this pins that the measured edge really was the rows and not the ring.
+    EXPECT_GT(widest_right,
+              centre.at(0) + outer_radius(gauge_options(d, protekt::game::Weapon::Gun)))
+        << "the longest name should reach past the ring, or this test is measuring the ring";
 }
 
 } // namespace

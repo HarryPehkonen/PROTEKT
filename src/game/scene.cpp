@@ -74,8 +74,29 @@ void emit_tiled_quad(std::vector<SceneVertex>& out, const Vec3& a, const Vec3& b
     }
 }
 
-void build_terrain(std::vector<SceneVertex>& out, std::uint64_t seed, int centre_x, int centre_y,
-                   int radius) {
+/// The tile's terrain, from the cache when there is one for THIS seed and from the world otherwise.
+[[nodiscard]] world::Terrain cached_terrain(const TerrainCache* cache, std::uint64_t seed,
+                                            int tile_x, int tile_y) noexcept {
+    if (cache != nullptr && cache->seed() == seed) {
+        return cache->terrain(tile_x, tile_y);
+    }
+    return world::sample(seed, tile_x, tile_y).terrain;
+}
+
+/// A tile corner's height in metres, from the cache when there is one for this seed.
+/// `height_metres` is the only other way to ask and the two must agree: the cache's answer IS that
+/// function's answer, remembered (TerrainCache.MatchesTheWorld pins it), which is why this is a
+/// memo and not a second source of truth about the ground.
+[[nodiscard]] float cached_height_metres(const TerrainCache* cache, std::uint64_t seed, int tile_x,
+                                         int tile_y) noexcept {
+    if (cache != nullptr && cache->seed() == seed) {
+        return static_cast<float>(cache->height_units(tile_x, tile_y)) * kMetresPerHeightUnit;
+    }
+    return height_metres(seed, tile_x, tile_y);
+}
+
+void build_terrain(std::vector<SceneVertex>& out, const TerrainCache* cache, std::uint64_t seed,
+                   int centre_x, int centre_y, int radius) {
     // Each tile's corners are sampled one tile beyond it on the far edge (tx+1, ty+1); widening
     // the low edge by one tile too keeps the sampled HEIGHT field symmetric around the camera,
     // even though the tolerance on the mesh's visual extent absorbs the extra row.
@@ -93,17 +114,17 @@ void build_terrain(std::vector<SceneVertex>& out, std::uint64_t seed, int centre
     }
     for (int ty = centre_y - radius - 1; ty <= centre_y + radius; ++ty) {
         for (int tx = centre_x - radius - 1; tx <= centre_x + radius; ++tx) {
-            const world::Terrain terrain = world::sample(seed, tx, ty).terrain;
+            const world::Terrain terrain = cached_terrain(cache, seed, tx, ty);
             const UvRect& tile = tiles.at(static_cast<std::size_t>(terrain))
                                      .at(static_cast<std::size_t>(variant_index(terrain, tx, ty)));
             const float x0 = static_cast<float>(tx) * kMetresPerTile;
             const float x1 = static_cast<float>(tx + 1) * kMetresPerTile;
             const float z0 = static_cast<float>(ty) * kMetresPerTile;
             const float z1 = static_cast<float>(ty + 1) * kMetresPerTile;
-            const Vec3 p00{x0, height_metres(seed, tx, ty), z0};
-            const Vec3 p10{x1, height_metres(seed, tx + 1, ty), z0};
-            const Vec3 p11{x1, height_metres(seed, tx + 1, ty + 1), z1};
-            const Vec3 p01{x0, height_metres(seed, tx, ty + 1), z1};
+            const Vec3 p00{x0, cached_height_metres(cache, seed, tx, ty), z0};
+            const Vec3 p10{x1, cached_height_metres(cache, seed, tx + 1, ty), z0};
+            const Vec3 p11{x1, cached_height_metres(cache, seed, tx + 1, ty + 1), z1};
+            const Vec3 p01{x0, cached_height_metres(cache, seed, tx, ty + 1), z1};
             emit_tiled_quad(out, p00, p10, p11, p01, kTerrainLight, tile,
                             orientation_index(terrain, tx, ty));
         }
@@ -1760,6 +1781,267 @@ void append_weapon_hud(std::vector<SceneVertex>& out, const SceneOptions& option
     }
 }
 
+/// THE SHIP INSTRUMENT (SHIPGAUGE-1), bottom right: BZ2's own gauge -- a segmented C-shaped ring
+/// standing in for the hull and the magazine, the two readings in the ring's opening, and the four
+/// carried weapons beside it with the one he has up lit. Everything below is a fraction of the
+/// frame's HEIGHT, the unit every other constant on this layer uses, and every corner goes through
+/// `ray_point` like the radar's pixels do, so the instrument keeps its shape at any resolution and
+/// cannot sit anywhere but where its own pixels say.
+///
+/// THE RING is a C open to the right: its segments span 45 to 315 degrees, leaving a 90 degree gap
+/// centred on the frame's right. Angles are degrees with 0 = screen right and positive DOWNWARD,
+/// because that is the way screen y grows -- so 90 is the bottom of the ring, 180 its left and 270
+/// its top. The upper arc (180 to 315) is the HULL in green and the lower one (45 to 180) the AMMO
+/// in blue, and each is `kShipGaugeSegmentsPerHalf` trapezoids between the inner and outer radius,
+/// every one spanning its own slice less a `kShipGaugeSegmentGapDegrees` gap.
+constexpr float kShipGaugeCentreFromRight = 0.300F;   ///< the ring's centre, in from the right edge
+constexpr float kShipGaugeCentreFromBottom = 0.100F;  ///< and up from the bottom one
+constexpr float kShipGaugeOuterFraction = 0.060F;     ///< the ring's outer radius
+constexpr float kShipGaugeThicknessFraction = 0.016F; ///< its band, so inner = outer - this
+constexpr int kShipGaugeSegmentsPerHalf = 12;
+constexpr float kShipGaugeSegmentGapDegrees = 2.5F;
+constexpr float kShipGaugeOpenDegrees = 45.0F;   ///< where the walk starts, below the right gap
+constexpr float kShipGaugeCloseDegrees = 315.0F; ///< and where it ends, above it
+constexpr float kShipGaugeSwapDegrees = 180.0F;  ///< blue below this, green above it
+/// The blue half ends and the green one begins at the swap angle: 45 plus half of the 270 degrees
+/// the ring spans is 180, the left of the ring, so the halves are 135 degrees each and neither can
+/// be widened without moving this.
+static_assert(kShipGaugeSwapDegrees
+              == kShipGaugeOpenDegrees + ((kShipGaugeCloseDegrees - kShipGaugeOpenDegrees) * 0.5F));
+/// An UNLIT segment keeps its hue at 35%, so an empty half still reads as part of the instrument --
+/// and the eye can see HOW empty it is -- instead of vanishing.
+constexpr std::array<float, 3> kShipGaugeHullLit{0.30F, 0.95F, 0.40F};
+constexpr std::array<float, 3> kShipGaugeHullDim{0.12F, 0.32F, 0.14F};
+constexpr std::array<float, 3> kShipGaugeAmmoLit{0.30F, 0.55F, 1.00F};
+constexpr std::array<float, 3> kShipGaugeAmmoDim{0.12F, 0.20F, 0.35F};
+
+/// THE TWO READINGS in the ring's opening, in the same 5x5 cell capitals the reticle's label and
+/// the mount plates use: 3 px a cell at 720 px of frame height, so a digit is 15 px tall. Both
+/// stand on ONE opaque near-black plate, because a number in this corner looks out at terrain and
+/// the plate is its contrast -- the vertex format has no alpha worth leaning on for a reading that
+/// has to survive grass, rock and sky alike. The arcs are NOT plated; the ring's own segments are
+/// the shape.
+constexpr float kShipGaugeCellFraction = 3.0F / 720.0F;
+constexpr std::array<float, 3> kShipGaugePlateColour{0.03F, 0.04F, 0.03F};
+constexpr float kShipGaugeHullNumberAbove = 0.020F; ///< the hull number, above the centre
+constexpr float kShipGaugeAmmoNumberBelow = 0.012F; ///< the ammo number, below it
+/// Both readings are right-aligned to centre + this, so a 2-digit and a 3-digit value line up on
+/// the right. THE ONE PLACE THE BRIEF'S 0.018 MEASURED WRONG: a 3-digit block is 17 cells wide
+/// (0.0708 H) and the opening's left edge is the inner radius, 0.044 H from the centre, so 0.018
+/// put the block's left edge at -0.0528 H -- 6.4 px of the leading digit under the ring's own
+/// lower-left band at 720 px. The hull digit survived (its ink is a darker green than the arc) but
+/// the AMMO digit was the arc's own blue, drawn on blue: "100" rendered as "00". 0.030 clears the
+/// band by 2.3 px (its plate still tucks 0.6 px under the arc, where the arc covers it).
+constexpr float kShipGaugeNumberRight = 0.030F; ///< both right-aligned to centre + this
+
+/// THE WEAPON LIST: the four carried weapons beside the ring, top to bottom in `kDrivenWeapons`
+/// order, one row each, the active one on a green bar. row_y(i) = cy + (i - 1.5) * pitch, so the
+/// four rows straddle the ring's own centre line, two above it and two below.
+constexpr float kShipGaugeRowPitchCells = 8.0F;
+constexpr float kShipGaugeIconRadiusFraction = 0.006F;
+constexpr float kShipGaugeIconGapFraction = 0.014F; ///< ring's outer edge to the icon's centre
+constexpr float kShipGaugeNameGapFraction = 0.014F; ///< the icon's centre to the row's text
+constexpr int kShipGaugeIconSegments = 8;           ///< the icon disc: a fan of eight triangles
+constexpr float kShipGaugeActiveBarHeightCells = 6.0F;
+constexpr float kShipGaugeActiveBarPadFraction = 0.004F; ///< the bar's left edge, past the icon
+/// HARRI'S HIGH-CONTRAST REQUIREMENT: the weapon he has up must be obvious at a glance, so the
+/// active row is bright green ink standing on a green bar and every other row is dim grey with no
+/// bar at all. Never subtle.
+constexpr std::array<float, 3> kShipGaugeActiveInk{0.55F, 1.0F, 0.55F};
+constexpr std::array<float, 3> kShipGaugeIdleInk{0.55F, 0.55F, 0.55F};
+constexpr std::array<float, 3> kShipGaugeActiveBar{0.16F, 0.42F, 0.18F};
+/// The icon disc's colour per weapon, in `kDrivenWeapons` order. The colours are OURS: BZ2's own
+/// icons are weapon art we do not have, and `ReticleShape` carries no colour to take one from
+/// (weapon.hpp:75), so the reticle's SHAPE stays the shape cue and this disc is only a second,
+/// coarser cue beside the name. Indexed by the row's position in `kDrivenWeapons`, never by the
+/// enum's own value, so the table and the list can never fall out of step.
+constexpr std::array<std::array<float, 3>, 4> kShipGaugeIconColour{
+    {{{0.55F, 0.90F, 0.55F}},   // gun
+     {{0.95F, 0.55F, 0.25F}},   // rocket
+     {{0.95F, 0.85F, 0.30F}},   // mortar
+     {{0.45F, 0.70F, 0.95F}}}}; // bouncer
+
+void append_ship_gauge(std::vector<SceneVertex>& out, const SceneOptions& options,
+                       const sim::Sim& sim) {
+    const float frame_w = static_cast<float>(options.extent.width);
+    const float frame_h = static_cast<float>(options.extent.height);
+    const float distance = math::kNearPlane * kHudClearance * corner_ray_length(options.extent);
+    const auto at = [&](float px, float py) {
+        const RayPoint point = ray_point(options.camera, options.extent, px, py, distance);
+        return Vec3{point.x, point.y, point.z};
+    };
+    const auto rect = [&](float layer, float ax, float ay, float bx, float by,
+                          const std::array<float, 3>& rgb) {
+        const auto to = [&](float px, float py) {
+            const RayPoint point = ray_point(options.camera, options.extent, px, py, layer);
+            return Vec3{point.x, point.y, point.z};
+        };
+        emit_quad(out, to(ax, ay), to(bx, ay), to(bx, by), to(ax, by), rgb);
+    };
+    // THREE LAYERS, in the ratios the HUD clearance comment above lays out (1 : 1.6 : 2.2, wider
+    // than the depth variation across any one of these quads): the reading and the weapon rows
+    // nearest, then the ring, then the two plates. The ring and the reading are not decorative
+    // neighbours -- a three digit number right-aligned in the ring's opening runs about six pixels
+    // of its leading digit UNDER the ring's own left band -- so on ONE layer the two chew holes in
+    // each other wherever they overlap, and the digit that loses reads as a different number.
+    const float ring_at = distance * kHudFaceRatio;
+    const float plate_at = distance * kHudBorderRatio;
+    const auto ring_point = [&](float px, float py) {
+        const RayPoint point = ray_point(options.camera, options.extent, px, py, ring_at);
+        return Vec3{point.x, point.y, point.z};
+    };
+
+    const float cx = frame_w - (kShipGaugeCentreFromRight * frame_h);
+    const float cy = frame_h - (kShipGaugeCentreFromBottom * frame_h);
+    const float outer = kShipGaugeOuterFraction * frame_h;
+    const float inner = outer - (kShipGaugeThicknessFraction * frame_h);
+    const float cell = frame_h * kShipGaugeCellFraction;
+    const float pad = cell;
+
+    // THE HULL FRACTION, and the number that follows it. The sim owns both: the driven unit's own
+    // hp over its spec's. With NO driven unit there is no hull to report at all, so every green
+    // segment is lit rather than the arc reading empty -- an empty arc would say "dead" about a
+    // tank that is not even there -- and no hull number is drawn either, because a number the sim
+    // never produced is the lie the ammo placeholder exists to avoid.
+    const sim::Unit* viewer = sim.find(options.viewer_unit);
+    const std::uint32_t max_hp = viewer != nullptr ? sim::spec_of(viewer->kind).hp : 0U;
+    const std::uint32_t hp = viewer != nullptr ? std::min<std::uint32_t>(viewer->hp, max_hp) : 0U;
+    const float hull_fraction = viewer == nullptr ? 1.0F
+                                : max_hp > 0 ? static_cast<float>(hp) / static_cast<float>(max_hp)
+                                             : 0.0F;
+    // WHOLE SEGMENTS LIGHT UP, never a sliver of one: the gauge is read at a glance in the middle
+    // of a fight, and part of a segment is not a reading.
+    const auto lit_segments = [](float fraction) {
+        return std::clamp(
+            static_cast<int>(std::lround(fraction * static_cast<float>(kShipGaugeSegmentsPerHalf))),
+            0, kShipGaugeSegmentsPerHalf);
+    };
+    const int hull_lit = lit_segments(hull_fraction);
+    const int ammo_lit = lit_segments(kAmmoPlaceholderFraction);
+
+    // A point `degrees` round (0 right, positive downward) and `radius` out, in frame pixels.
+    const auto on_ring = [&](float radius, float degrees) {
+        const float radians = degrees * (kPi / 180.0F);
+        return std::array<float, 2>{cx + (radius * std::cos(radians)),
+                                    cy + (radius * std::sin(radians))};
+    };
+    const auto segment = [&](float from, float to, const std::array<float, 3>& rgb) {
+        const std::array<float, 2> a = on_ring(inner, from);
+        const std::array<float, 2> b = on_ring(outer, from);
+        const std::array<float, 2> c = on_ring(outer, to);
+        const std::array<float, 2> d = on_ring(inner, to);
+        emit_quad(out, ring_point(a.at(0), a.at(1)), ring_point(b.at(0), b.at(1)),
+                  ring_point(c.at(0), c.at(1)), ring_point(d.at(0), d.at(1)), rgb);
+    };
+
+    // The two halves are ONE walk from `kShipGaugeOpenDegrees` to `kShipGaugeCloseDegrees`: slices
+    // 0..11 are the blue half and 12..23 the green one. BZ2's arcs DRAIN TOWARD THE MIDDLE, so blue
+    // fills from the 45 end and green from the 315 end and the two never swap ends as they empty --
+    // filling either one from the middle outward would swap them, and the instrument would be
+    // unreadable at exactly the moment it matters.
+    const float slice = (kShipGaugeCloseDegrees - kShipGaugeOpenDegrees)
+                        / (2.0F * static_cast<float>(kShipGaugeSegmentsPerHalf));
+    const float half_gap = kShipGaugeSegmentGapDegrees * 0.5F;
+    for (int index = 0; index < 2 * kShipGaugeSegmentsPerHalf; ++index) {
+        const bool upper = index >= kShipGaugeSegmentsPerHalf;
+        // The position within its OWN half, counted from that half's starting angle: for the blue
+        // half that is the 45 end, where its fill starts, and for the green half the 180 end, which
+        // is why green's lit run is the run at the END of its half.
+        const int step = index % kShipGaugeSegmentsPerHalf;
+        const int lit_count = upper ? hull_lit : ammo_lit;
+        const bool lit = upper ? step >= (kShipGaugeSegmentsPerHalf - lit_count) : step < lit_count;
+        // Half a gap comes off each open end of the ring too, so the notch on the right is the same
+        // size as the gaps between the segments rather than half again as wide.
+        const float start = kShipGaugeOpenDegrees + (static_cast<float>(index) * slice) + half_gap;
+        const std::array<float, 3>& rgb = upper ? (lit ? kShipGaugeHullLit : kShipGaugeHullDim)
+                                                : (lit ? kShipGaugeAmmoLit : kShipGaugeAmmoDim);
+        segment(start, start + slice - kShipGaugeSegmentGapDegrees, rgb);
+    }
+
+    // THE TWO NUMBERS, right-aligned to one edge so a two digit value and a three digit one line up
+    // on it, and on ONE plate that covers both lines and the gap between them.
+    const std::string_view ammo_reading = ammo_placeholder_percent();
+    std::string hull_reading;
+    if (viewer != nullptr) {
+        hull_reading = std::to_string(hp);
+    }
+    const float right_edge = cx + (kShipGaugeNumberRight * frame_h);
+    const float hull_middle = cy - (kShipGaugeHullNumberAbove * frame_h);
+    const float ammo_middle = cy + (kShipGaugeAmmoNumberBelow * frame_h);
+    const float half_text = 2.5F * cell;
+    // A run of glyphs is six cells of pitch each, the last one five wide: two glyphs are 11 cells.
+    const auto text_width
+        = [&](std::size_t glyphs) { return ((static_cast<float>(glyphs) * 6.0F) - 1.0F) * cell; };
+    const float hull_width = hull_reading.empty() ? 0.0F : text_width(hull_reading.size());
+    const float widest = std::max(hull_width, text_width(ammo_reading.size()));
+    rect(plate_at, right_edge - widest - pad,
+         (hull_reading.empty() ? ammo_middle : hull_middle) - half_text - pad, right_edge + pad,
+         ammo_middle + half_text + pad, kShipGaugePlateColour);
+    // `word` with its RIGHT edge at `right` and its middle at `middle`, in `ink`: the weapon HUD's
+    // own glyph walk, over the same 5x5 cell font.
+    const auto text
+        = [&](std::string_view word, float right, float middle, const std::array<float, 3>& ink) {
+              const float left = right - text_width(word.size());
+              const float top = middle - half_text;
+              for (std::size_t index = 0; index < word.size(); ++index) {
+                  const std::array<std::uint8_t, 5> rows = mount_glyph(word.at(index));
+                  const float glyph_left = left + (static_cast<float>(index) * 6.0F * cell);
+                  for (std::size_t row = 0; row < rows.size(); ++row) {
+                      for (int col = 0; col < 5; ++col) {
+                          if (((rows.at(row) >> (4 - col)) & 1U) == 0U) {
+                              continue;
+                          }
+                          const float x = glyph_left + (static_cast<float>(col) * cell);
+                          const float y = top + (static_cast<float>(row) * cell);
+                          rect(distance, x, y, x + cell, y + cell, ink);
+                      }
+                  }
+              }
+          };
+    if (!hull_reading.empty()) {
+        // The number wears the same colour its arc does: green from half health, amber from a
+        // fifth, red below, so the reading and the ring can never disagree.
+        text(hull_reading, right_edge, hull_middle, health_colour(hp, max_hp));
+    }
+    text(ammo_reading, right_edge, ammo_middle, kShipGaugeAmmoLit);
+
+    // THE WEAPON LIST: one row per carried weapon, in `kDrivenWeapons` order, the active one on its
+    // green bar. The name is the weapon HUD's own (`weapon_name`), so the list and the label by the
+    // reticle can never disagree about what is up.
+    const float pitch = kShipGaugeRowPitchCells * cell;
+    const float icon_x = cx + outer + (kShipGaugeIconGapFraction * frame_h);
+    const float name_x = icon_x + (kShipGaugeNameGapFraction * frame_h);
+    const float icon_radius = kShipGaugeIconRadiusFraction * frame_h;
+    const float bar_half = kShipGaugeActiveBarHeightCells * 0.5F * cell;
+    for (std::size_t row = 0; row < kDrivenWeapons.size(); ++row) {
+        const float row_y = cy + ((static_cast<float>(row) - 1.5F) * pitch);
+        const bool active = kDrivenWeapons.at(row) == options.weapon;
+        const std::string_view name = weapon_name(kDrivenWeapons.at(row));
+        const float name_width = text_width(name.size());
+        // The bar goes down FIRST, on the ring's own layer, so the name stands ON it rather than
+        // under it.
+        if (active) {
+            rect(ring_at, icon_x - (kShipGaugeActiveBarPadFraction * frame_h), row_y - bar_half,
+                 name_x + name_width + pad, row_y + bar_half, kShipGaugeActiveBar);
+        }
+        // The disc: a fan of `kShipGaugeIconSegments` triangles round the icon's centre, cheap and
+        // round enough at fourteen pixels across.
+        const std::array<float, 3>& icon_rgb = kShipGaugeIconColour.at(row);
+        for (int slice_index = 0; slice_index < kShipGaugeIconSegments; ++slice_index) {
+            const float from = (2.0F * kPi * static_cast<float>(slice_index))
+                               / static_cast<float>(kShipGaugeIconSegments);
+            const float to = (2.0F * kPi * static_cast<float>(slice_index + 1))
+                             / static_cast<float>(kShipGaugeIconSegments);
+            emit_triangle(
+                out, at(icon_x, row_y),
+                at(icon_x + (icon_radius * std::cos(from)), row_y + (icon_radius * std::sin(from))),
+                at(icon_x + (icon_radius * std::cos(to)), row_y + (icon_radius * std::sin(to))),
+                icon_rgb);
+        }
+        text(name, name_x + name_width, row_y, active ? kShipGaugeActiveInk : kShipGaugeIdleInk);
+    }
+}
+
 /// THE HUD PANELS along the top left of the frame, in frame pixels on the HUD layer, scaled by the
 /// frame's height (the px below are at 720).
 ///
@@ -2450,7 +2732,8 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
 
     const int centre_x = static_cast<int>(std::floor(options.camera.x / kMetresPerTile));
     const int centre_y = static_cast<int>(std::floor(options.camera.z / kMetresPerTile));
-    build_terrain(scene.vertices, options.seed, centre_x, centre_y, options.radius_tiles);
+    build_terrain(scene.vertices, options.terrain, options.seed, centre_x, centre_y,
+                  options.radius_tiles);
     append_sky(scene.vertices, options.camera);
 
     // The one pick the frame makes: the reticle and the unit tint both read it, so they can never
@@ -2518,6 +2801,11 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
     // up. Hiding the radar must not change the sim, and it does not: this is a view.
     if (!options.show_world_map) {
         append_radar(scene.vertices, options, sim);
+    }
+    // The ship instrument is a HUD layer of its own, in the corner OPPOSITE the radar, so it is
+    // drawn whether or not R has turned the radar into the map.
+    if (options.show_ship_gauge) {
+        append_ship_gauge(scene.vertices, options, sim);
     }
     append_mount_plates(scene.vertices, options, sim);
     append_unit_bars(scene.vertices, options, sim);
