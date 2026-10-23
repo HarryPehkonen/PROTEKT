@@ -16,13 +16,17 @@
 namespace {
 
 using protekt::game::Extent;
+using protekt::game::kRadarAspect;
+using protekt::game::kRadarElevationRadians;
 using protekt::game::kRadarRadiusTiles;
 using protekt::game::radar_compass;
 using protekt::game::radar_marks;
 using protekt::game::radar_panel;
+using protekt::game::radar_project;
 using protekt::game::RadarLetter;
 using protekt::game::RadarMark;
 using protekt::game::RadarPanel;
+using protekt::game::RadarPoint;
 using protekt::game::RadarShape;
 using protekt::game::RadarTone;
 using protekt::sim::Fixed;
@@ -78,14 +82,42 @@ const RadarMark& viewer_mark(const std::vector<RadarMark>& marks) {
 }
 
 float panel_middle(const RadarPanel& panel) { return panel.size * 0.5F; }
+float panel_middle_y(const RadarPanel& panel) { return panel.height * 0.5F; }
+
+/// Pixels per tile on the panel's x axis, and on its y axis: the tilt squeezes y by sin(elevation).
+float pixels_per_tile(const RadarPanel& panel) {
+    return panel.size / (2.0F * static_cast<float>(kRadarRadiusTiles));
+}
+float squeeze() { return std::sin(kRadarElevationRadians); }
+
+/// Where a point sits against the oval face, 1 on the rim: the ellipse equation, semi-axes in
+/// pixels.
+float ellipse_value(const RadarPanel& panel, float px, float py, float inset = 0.0F) {
+    const float a = (panel.size * 0.5F) - inset;
+    const float b = (panel.height * 0.5F) - inset;
+    const float x = (px - panel_middle(panel)) / a;
+    const float y = (py - panel_middle_y(panel)) / b;
+    return (x * x) + (y * y);
+}
 
 // ---------------------------------------------------------------- the panel in the frame
 
 TEST(RadarPanel, SitsInTheBottomLeftCornerWithAMargin) {
     const RadarPanel panel = radar_panel(Extent{1280, 720});
     EXPECT_FLOAT_EQ(panel.x, protekt::game::kRadarMarginPixels);
-    EXPECT_FLOAT_EQ(panel.y + panel.size + protekt::game::kRadarMarginPixels, 720.0F);
+    EXPECT_FLOAT_EQ(panel.y + panel.height + protekt::game::kRadarMarginPixels, 720.0F);
     EXPECT_GT(panel.size, 100.0F);
+}
+
+TEST(RadarPanel, IsBZ2sWideShallowOval) {
+    // Measured off the user's own screenshots: the disc is 0.258 of the frame wide and 0.358 as
+    // tall as it is wide -- a circular ground disc seen from 21 degrees up.
+    const RadarPanel panel = radar_panel(Extent{1280, 720});
+    EXPECT_NEAR(panel.size, 0.258F * 1280.0F, 1.0F);
+    EXPECT_NEAR(panel.height, 118.0F, 1.0F);
+    EXPECT_NEAR(panel.height / panel.size, kRadarAspect, 0.003F);
+    EXPECT_NEAR(kRadarAspect, std::sin(kRadarElevationRadians), 0.001F)
+        << "the oval is the ground circle seen at this elevation";
 }
 
 TEST(RadarPanel, FollowsTheFrameWidthAndIsClampedAtBothEnds) {
@@ -101,15 +133,17 @@ TEST(RadarPanel, FollowsTheFrameWidthAndIsClampedAtBothEnds) {
         const RadarPanel panel = radar_panel(extent);
         EXPECT_GE(panel.x, 0.0F);
         EXPECT_GE(panel.y, 0.0F);
-        EXPECT_LE(panel.y + panel.size, static_cast<float>(extent.height));
+        EXPECT_LE(panel.y + panel.height, static_cast<float>(extent.height));
         EXPECT_LE(panel.x + panel.size, static_cast<float>(extent.width));
+        EXPECT_NEAR(panel.height, panel.size * kRadarAspect, 0.01F);
     }
 }
 
 TEST(RadarPanel, ShrinksToFitAWindowTooSmallForTheUsualSize) {
     const RadarPanel panel = radar_panel(Extent{400, 200});
-    EXPECT_LE(panel.y + panel.size, 200.0F);
+    EXPECT_LE(panel.y + panel.height, 200.0F);
     EXPECT_GT(panel.size, 0.0F);
+    EXPECT_NEAR(panel.height, panel.size * kRadarAspect, 0.01F);
 }
 
 // ---------------------------------------------------------------- you, at the centre
@@ -119,7 +153,7 @@ TEST(RadarYou, SitsAtTheMiddlePointingUp) {
     const std::vector<RadarMark> marks = radar_marks(units, UnitId{1}, 0.0F, kPanel);
     const RadarMark& you = viewer_mark(marks);
     EXPECT_NEAR(you.px, panel_middle(kPanel), kTolerance);
-    EXPECT_NEAR(you.py, panel_middle(kPanel), kTolerance);
+    EXPECT_NEAR(you.py, panel_middle_y(kPanel), kTolerance);
     EXPECT_EQ(you.shape, RadarShape::Triangle);
     EXPECT_FLOAT_EQ(you.angle, 0.0F); // heading-up: you always point up
 }
@@ -147,7 +181,7 @@ TEST(RadarYou, ADeadViewerIsStillTheCentreAndTheLivingAreStillMarked) {
     const std::vector<RadarMark> marks = radar_marks(units, UnitId{1}, 0.0F, kPanel);
     ASSERT_EQ(marks.size(), 2U) << "the viewer and the one living unit in radius";
     EXPECT_NEAR(viewer_mark(marks).px, panel_middle(kPanel), kTolerance);
-    EXPECT_LT(marks.at(1).py, panel_middle(kPanel));
+    EXPECT_LT(marks.at(1).py, panel_middle_y(kPanel));
 }
 
 TEST(RadarYou, ARadiusOfZeroDrawsNothingRatherThanEverything) {
@@ -164,7 +198,7 @@ TEST(RadarDirections, StraightAheadIsUpOnThePanel) {
     const std::vector<RadarMark> marks = radar_marks(units, UnitId{1}, 0.0F, kPanel);
     ASSERT_EQ(marks.size(), 2U);
     EXPECT_NEAR(marks.at(1).px, panel_middle(kPanel), kTolerance);
-    EXPECT_LT(marks.at(1).py, panel_middle(kPanel));
+    EXPECT_LT(marks.at(1).py, panel_middle_y(kPanel));
     EXPECT_EQ(marks.at(1).tone, RadarTone::Hostile);
 }
 
@@ -175,7 +209,7 @@ TEST(RadarDirections, ToYourRightIsRightOnThePanel) {
     const std::vector<Unit> units = with_viewer({at_bearing(2, 20.0F, 90.0F, Side::Enemy)});
     const std::vector<RadarMark> marks = radar_marks(units, UnitId{1}, 0.0F, kPanel);
     ASSERT_EQ(marks.size(), 2U);
-    EXPECT_NEAR(marks.at(1).py, panel_middle(kPanel), kTolerance);
+    EXPECT_NEAR(marks.at(1).py, panel_middle_y(kPanel), kTolerance);
     EXPECT_GT(marks.at(1).px, panel_middle(kPanel));
 }
 
@@ -185,22 +219,23 @@ TEST(RadarDirections, ThePanelTurnsWithTheTank) {
     const std::vector<Unit> units = with_viewer({at_bearing(2, 20.0F, 0.0F, Side::Enemy)});
     const RadarMark ahead = radar_marks(units, UnitId{1}, 0.0F, kPanel).at(1);
     const RadarMark turned = radar_marks(units, UnitId{1}, 1.57079632F, kPanel).at(1);
-    EXPECT_LT(ahead.py, panel_middle(kPanel)); // dead ahead: up
+    EXPECT_LT(ahead.py, panel_middle_y(kPanel)); // dead ahead: up
     EXPECT_NEAR(ahead.px, panel_middle(kPanel), kTolerance);
-    EXPECT_NEAR(turned.py, panel_middle(kPanel),
+    EXPECT_NEAR(turned.py, panel_middle_y(kPanel),
                 kTolerance);                    // a quarter turn later: level with you
     EXPECT_NE(turned.px, panel_middle(kPanel)); // ...and off to one side
     EXPECT_NE(turned.px, ahead.px);
 }
 
 TEST(RadarDirections, DistanceIsToScale) {
-    // Half the radius is half the panel's radius from the middle -- the one thing a radar must get
-    // right, because it is how "how far away is it" is read.
+    // Twice the distance is twice the offset from the middle -- the one thing a radar must get
+    // right, because it is how "how far away is it" is read. (Kept well inside the oval, where a
+    // mark is not pinned.)
     const std::vector<Unit> units = with_viewer(
-        {at_bearing(2, 20.0F, 0.0F, Side::Enemy), at_bearing(3, 40.0F, 0.0F, Side::Enemy)});
+        {at_bearing(2, 10.0F, 0.0F, Side::Enemy), at_bearing(3, 20.0F, 0.0F, Side::Enemy)});
     const std::vector<RadarMark> marks = radar_marks(units, UnitId{1}, 0.0F, kPanel);
     ASSERT_EQ(marks.size(), 3U);
-    const float middle = panel_middle(kPanel);
+    const float middle = panel_middle_y(kPanel);
     const float near_offset = middle - marks.at(1).py;
     const float far_offset = middle - marks.at(2).py;
     EXPECT_NEAR(far_offset, 2.0F * near_offset, 0.5F);
@@ -279,10 +314,10 @@ TEST(RadarBase, YourBaseOutOfRangeBecomesAnArrowAtTheRim) {
     EXPECT_EQ(arrow.tone, RadarTone::Yours);
 
     const float middle = panel_middle(kPanel);
-    EXPECT_NEAR(arrow.px, middle, 1.0F);    // dead ahead
-    EXPECT_LT(arrow.py, middle);            // so the arrow is above the middle
-    EXPECT_GT(arrow.py - arrow.half, 0.0F); // and wholly inside the panel
-    EXPECT_LT(arrow.py + arrow.half, kPanel.size);
+    EXPECT_NEAR(arrow.px, middle, 1.0F);         // dead ahead
+    EXPECT_LT(arrow.py, panel_middle_y(kPanel)); // so the arrow is above the middle
+    EXPECT_GT(arrow.py - arrow.half, 0.0F);      // and wholly inside the panel
+    EXPECT_LT(arrow.py + arrow.half, kPanel.height);
     EXPECT_FLOAT_EQ(arrow.angle, 0.0F); // pointing straight up: turn forwards
 }
 
@@ -295,7 +330,7 @@ TEST(RadarBase, AnArrowPointsTheWayToTurn) {
     ASSERT_EQ(marks.size(), 2U);
     const RadarMark& arrow = marks.at(1);
     const float middle = panel_middle(kPanel);
-    EXPECT_NEAR(arrow.py, middle, 1.0F);
+    EXPECT_NEAR(arrow.py, panel_middle_y(kPanel), 1.0F);
     EXPECT_NE(arrow.px, middle);
     EXPECT_GE(arrow.px - arrow.half, 0.0F);
     EXPECT_LE(arrow.px + arrow.half, kPanel.size);
@@ -309,9 +344,9 @@ TEST(RadarBase, AFarAwayBaseIsNotLostWhenYouTurn) {
     const RadarMark ahead = radar_marks(units, UnitId{1}, 0.0F, kPanel).at(1);
     const RadarMark turned = radar_marks(units, UnitId{1}, 3.14159265F, kPanel).at(1);
     const float middle = panel_middle(kPanel);
-    EXPECT_NEAR(std::hypot(ahead.px - middle, ahead.py - middle),
-                std::hypot(turned.px - middle, turned.py - middle), 0.5F);
-    EXPECT_GT(turned.py, middle); // half a turn later it is behind you: below the middle
+    EXPECT_NEAR(std::hypot(ahead.px - middle, ahead.py - panel_middle_y(kPanel)),
+                std::hypot(turned.px - middle, turned.py - panel_middle_y(kPanel)), 0.5F);
+    EXPECT_GT(turned.py, panel_middle_y(kPanel)); // half a turn later it is behind you: below
 }
 
 TEST(RadarBase, AnEnemyBaseOutOfRangeIsNotMarkedJustBecauseItIsABase) {
@@ -347,8 +382,125 @@ TEST(RadarMarks, EveryMarkLiesInsideThePanel) {
         EXPECT_GE(mark.px - mark.half, 0.0F);
         EXPECT_LE(mark.px + mark.half, kPanel.size);
         EXPECT_GE(mark.py - mark.half, 0.0F);
-        EXPECT_LE(mark.py + mark.half, kPanel.size);
+        EXPECT_LE(mark.py + mark.half, kPanel.height);
     }
+}
+
+TEST(RadarMarks, EveryMarkBoxLiesInsideTheOvalAndItsBorder) {
+    // The oval, not the rectangle, is the contract: the corners of a mark's box must be on the face
+    // or on the border ring, whatever the heading and however far out the unit is.
+    const std::vector<Unit> units = with_viewer({
+        at_bearing(2, 40.0F, 0.0F, Side::Enemy),
+        at_bearing(3, 40.0F, 90.0F, Side::Enemy),
+        at_bearing(4, 39.0F, 135.0F, Side::Enemy, UnitKind::Factory),
+        at_bearing(5, 40.0F, 180.0F, Side::Player),
+        at_bearing(6, 500.0F, 300.0F, Side::Player, UnitKind::Factory),
+        at_bearing(7, 500.0F, 0.0F, Side::Player, UnitKind::Factory),
+    });
+    const float border = protekt::game::kRadarBorderPixels;
+    for (const float yaw : {0.0F, 0.7F, 2.0F, -1.3F}) {
+        for (const RadarMark& mark : radar_marks(units, UnitId{1}, yaw, kPanel)) {
+            for (const float dx : {-mark.half, mark.half}) {
+                for (const float dy : {-mark.half, mark.half}) {
+                    EXPECT_LE(ellipse_value(kPanel, mark.px + dx, mark.py + dy, -border), 1.0F)
+                        << "yaw " << yaw << " shape " << static_cast<int>(mark.shape);
+                }
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------- the tilted plane
+
+TEST(RadarProject, TheMiddleOfThePanelIsTheViewer) {
+    const RadarPoint p = radar_project(kPanel, 0.0F, 0.0F);
+    EXPECT_NEAR(p.px, panel_middle(kPanel), kTolerance);
+    EXPECT_NEAR(p.py, panel_middle_y(kPanel), kTolerance);
+}
+
+TEST(RadarProject, ForwardIsUpTheVerticalCentreLine) {
+    const RadarPoint p = radar_project(kPanel, 0.0F, 20.0F);
+    EXPECT_NEAR(p.px, panel_middle(kPanel), kTolerance);
+    EXPECT_NEAR(p.py, panel_middle_y(kPanel) - (20.0F * pixels_per_tile(kPanel) * squeeze()),
+                0.01F);
+    EXPECT_LT(p.py, panel_middle_y(kPanel)) << "above the centre";
+}
+
+TEST(RadarProject, SidewaysIsAlongTheHorizontalCentreLineAtFullScale) {
+    const RadarPoint p = radar_project(kPanel, 20.0F, 0.0F);
+    EXPECT_NEAR(p.py, panel_middle_y(kPanel), kTolerance);
+    EXPECT_NEAR(p.px, panel_middle(kPanel) + (20.0F * pixels_per_tile(kPanel)), 0.01F);
+}
+
+TEST(RadarProject, TheRadiusLandsOnTheRimOfTheEllipseInEveryDirection) {
+    const float radius = static_cast<float>(kRadarRadiusTiles);
+    for (const float degrees : {0.0F, 30.0F, 90.0F, 150.0F, 180.0F, 250.0F, 315.0F}) {
+        const float r = degrees * 3.14159265F / 180.0F;
+        const RadarPoint p = radar_project(kPanel, std::sin(r) * radius, std::cos(r) * radius);
+        EXPECT_NEAR(ellipse_value(kPanel, p.px, p.py), 1.0F, 0.01F) << degrees << " degrees";
+    }
+}
+
+TEST(RadarProject, TwiceTheDistanceIsTwiceAsFarInXAndForeshortenedInY) {
+    // The tilt as a ratio a test can hold: along x a tile is `s` pixels, along y it is only
+    // `s * sin(elevation)` -- 0.358 as many.
+    const RadarPoint one = radar_project(kPanel, 10.0F, 10.0F);
+    const RadarPoint two = radar_project(kPanel, 20.0F, 20.0F);
+    const float dx1 = one.px - panel_middle(kPanel);
+    const float dx2 = two.px - panel_middle(kPanel);
+    const float dy1 = panel_middle_y(kPanel) - one.py;
+    const float dy2 = panel_middle_y(kPanel) - two.py;
+    EXPECT_NEAR(dx2, 2.0F * dx1, 0.01F);
+    EXPECT_NEAR(dy2, 2.0F * dy1, 0.01F);
+    EXPECT_NEAR(dy1 / dx1, kRadarAspect, 0.001F) << "a tile ahead is 0.358 of a tile across";
+}
+
+TEST(RadarProject, ARadiusOfZeroDoesNotDivideByZero) {
+    const RadarPoint p = radar_project(kPanel, 5.0F, 5.0F, 0);
+    EXPECT_TRUE(std::isfinite(p.px));
+    EXPECT_TRUE(std::isfinite(p.py));
+}
+
+TEST(RadarMarks, ADueNorthMarkIsAboveTheCentreOnTheVerticalLineByTheProjection) {
+    const std::vector<Unit> units = with_viewer({at_bearing(2, 25.0F, 0.0F, Side::Enemy)});
+    const RadarMark m = radar_marks(units, UnitId{1}, 0.0F, kPanel).at(1);
+    EXPECT_NEAR(m.px, panel_middle(kPanel), kTolerance);
+    EXPECT_NEAR(panel_middle_y(kPanel) - m.py, 25.0F * pixels_per_tile(kPanel) * squeeze(), 0.05F);
+}
+
+TEST(RadarMarks, ADueEastMarkIsOnTheHorizontalCentreLine) {
+    const std::vector<Unit> units = with_viewer({at_bearing(2, 25.0F, 90.0F, Side::Enemy)});
+    const RadarMark m = radar_marks(units, UnitId{1}, 0.0F, kPanel).at(1);
+    EXPECT_NEAR(m.py, panel_middle_y(kPanel), kTolerance);
+    EXPECT_NEAR(m.px - panel_middle(kPanel), 25.0F * pixels_per_tile(kPanel), 0.05F);
+}
+
+TEST(RadarMarks, TwiceTheDistanceMovesTwiceAsFarInXAndAsFarTimesTheAspectInY) {
+    const std::vector<Unit> units = with_viewer({
+        at_bearing(2, 8.0F, 45.0F, Side::Enemy),
+        at_bearing(3, 16.0F, 45.0F, Side::Enemy),
+    });
+    const std::vector<RadarMark> marks = radar_marks(units, UnitId{1}, 0.0F, kPanel);
+    const float dx1 = marks.at(1).px - panel_middle(kPanel);
+    const float dx2 = marks.at(2).px - panel_middle(kPanel);
+    const float dy1 = panel_middle_y(kPanel) - marks.at(1).py;
+    const float dy2 = panel_middle_y(kPanel) - marks.at(2).py;
+    EXPECT_NEAR(dx2, 2.0F * dx1, 0.05F);
+    EXPECT_NEAR(dy2, 2.0F * dy1, 0.05F);
+    EXPECT_NEAR(dy1 / dx1, kRadarAspect, 0.002F)
+        << "at 45 degrees ahead and across are equal tiles";
+}
+
+TEST(RadarMarks, AMarkAtTheRadiusIsPinnedJustInsideTheRimNotPastIt) {
+    // The projection puts it ON the rim; its box would then stick out of the oval, so it is drawn
+    // pulled in by its own size -- the same pin the nav marks have always had.
+    const std::vector<Unit> units
+        = with_viewer({at_bearing(2, static_cast<float>(kRadarRadiusTiles), 90.0F, Side::Enemy)});
+    const RadarMark m = radar_marks(units, UnitId{1}, 0.0F, kPanel).at(1);
+    EXPECT_LE(ellipse_value(kPanel, m.px, m.py), 1.0F);
+    EXPECT_GT(ellipse_value(kPanel, m.px, m.py), 0.7F)
+        << "still out at the rim, not near the middle";
+    EXPECT_NEAR(m.py, panel_middle_y(kPanel), kTolerance);
 }
 
 TEST(RadarMarks, ABaseIsBiggerThanATankAndYouAreInBetween) {
@@ -413,20 +565,19 @@ TEST(RadarCompass, FacingNorthPutsNAtTheTopOfTheRing) {
     const auto letters = radar_compass(0.0F, kPanel);
     const float middle = kPanel.size * 0.5F;
     EXPECT_NEAR(letter(letters, 'N').px, middle, kTolerance);
-    EXPECT_LT(letter(letters, 'N').py, middle); // above the centre: the top of the panel
-    EXPECT_GT(letter(letters, 'E').px, middle); // east is to the right
-    EXPECT_NEAR(letter(letters, 'E').py, middle, kTolerance);
-    EXPECT_GT(letter(letters, 'S').py, middle);
+    EXPECT_LT(letter(letters, 'N').py, panel_middle_y(kPanel)); // above the centre: the top
+    EXPECT_GT(letter(letters, 'E').px, middle);                 // east is to the right
+    EXPECT_NEAR(letter(letters, 'E').py, panel_middle_y(kPanel), kTolerance);
+    EXPECT_GT(letter(letters, 'S').py, panel_middle_y(kPanel));
     EXPECT_LT(letter(letters, 'W').px, middle);
 }
 
-TEST(RadarCompass, TheLettersSitOnTheRingAtOneRadius) {
-    const float middle = kPanel.size * 0.5F;
+TEST(RadarCompass, TheLettersSitOnTheEllipseInsetFromTheRim) {
     for (const float yaw : {0.0F, 0.4F, 2.0F}) {
         for (const RadarLetter& l : radar_compass(yaw, kPanel)) {
-            const float radius = std::hypot(l.px - middle, l.py - middle);
-            EXPECT_GT(radius, middle * 0.7F);
-            EXPECT_LE(radius, middle);
+            EXPECT_NEAR(ellipse_value(kPanel, l.px, l.py, protekt::game::kRadarLetterInsetPixels),
+                        1.0F, 0.001F)
+                << l.glyph << " at yaw " << yaw;
         }
     }
 }
@@ -438,9 +589,9 @@ TEST(RadarCompass, TurningTheViewRotatesTheLettersTheOtherWay) {
     const auto letters = radar_compass(kQuarter, kPanel);
     const float middle = kPanel.size * 0.5F;
     EXPECT_LT(letter(letters, 'N').px, middle);
-    EXPECT_NEAR(letter(letters, 'N').py, middle, kTolerance);
+    EXPECT_NEAR(letter(letters, 'N').py, panel_middle_y(kPanel), kTolerance);
     EXPECT_NEAR(letter(letters, 'E').px, middle, kTolerance);
-    EXPECT_LT(letter(letters, 'E').py, middle);
+    EXPECT_LT(letter(letters, 'E').py, panel_middle_y(kPanel));
 
     // Agreement with the marks: a unit straight north, on the same yaw, is on N's side of the
     // panel.
@@ -448,8 +599,12 @@ TEST(RadarCompass, TurningTheViewRotatesTheLettersTheOtherWay) {
     const RadarMark north_unit = radar_marks(units, UnitId{1}, 0.7F, kPanel).at(1);
     const auto turned = radar_compass(0.7F, kPanel);
     const RadarLetter& n = letter(turned, 'N');
-    EXPECT_NEAR(std::atan2(north_unit.px - middle, middle - north_unit.py),
-                std::atan2(n.px - middle, middle - n.py), 0.001F);
+    // The same bearing: the unit in the tilted plane's own terms (y un-squeezed), the letter in
+    // terms of the ellipse it rides (each axis over its own semi-axis).
+    const float my = panel_middle_y(kPanel);
+    const float inset = protekt::game::kRadarLetterInsetPixels;
+    EXPECT_NEAR(std::atan2(north_unit.px - middle, (my - north_unit.py) / kRadarAspect),
+                std::atan2((n.px - middle) / (middle - inset), (my - n.py) / (my - inset)), 0.001F);
 }
 
 TEST(RadarCompass, ExactlyNESWAndNoDiagonals) {
@@ -461,11 +616,14 @@ TEST(RadarCompass, ExactlyNESWAndNoDiagonals) {
     std::sort(glyphs.begin(), glyphs.end());
     EXPECT_EQ(glyphs, "ENSW");
     // Neighbours are a quarter turn apart: nothing sits at an eighth.
+    // (A quarter turn on the ground, so measured with y un-squeezed.)
     const float middle = kPanel.size * 0.5F;
-    EXPECT_NEAR(
-        std::atan2(letter(letters, 'E').px - middle, middle - letter(letters, 'E').py)
-            - std::atan2(letter(letters, 'N').px - middle, middle - letter(letters, 'N').py),
-        1.57079632F, 0.001F);
+    const float my = panel_middle_y(kPanel);
+    const auto bearing = [&](const RadarLetter& l) {
+        return std::atan2((l.px - middle) / (middle - protekt::game::kRadarLetterInsetPixels),
+                          (my - l.py) / (my - protekt::game::kRadarLetterInsetPixels));
+    };
+    EXPECT_NEAR(bearing(letter(letters, 'E')) - bearing(letter(letters, 'N')), 1.57079632F, 0.001F);
 }
 
 } // namespace

@@ -482,7 +482,7 @@ TEST_F(RenderTest, DrawsTheRadarWithAFaceMarksAndABorderThatSurviveTheDepthTest)
         // they are.
         const float slack = protekt::game::kRadarBorderPixels + 1.0F;
         for (std::uint32_t y = static_cast<std::uint32_t>(panel.y - slack);
-             y < static_cast<std::uint32_t>(panel.y + panel.size + slack); ++y) {
+             y < static_cast<std::uint32_t>(panel.y + panel.height + slack); ++y) {
             for (std::uint32_t x = static_cast<std::uint32_t>(panel.x - slack);
                  x < static_cast<std::uint32_t>(panel.x + panel.size + slack); ++x) {
                 const std::uint32_t rgb = frame.rgb(x, y);
@@ -492,7 +492,7 @@ TEST_F(RenderTest, DrawsTheRadarWithAFaceMarksAndABorderThatSurviveTheDepthTest)
                 const bool inside = static_cast<float>(x) >= panel.x
                                     && static_cast<float>(x) < (panel.x + panel.size)
                                     && static_cast<float>(y) >= panel.y
-                                    && static_cast<float>(y) < (panel.y + panel.size);
+                                    && static_cast<float>(y) < (panel.y + panel.height);
                 if (inside && r < 40U && g < 40U && b < 40U) {
                     ++face; // the panel's dark face
                 }
@@ -511,7 +511,7 @@ TEST_F(RenderTest, DrawsTheRadarWithAFaceMarksAndABorderThatSurviveTheDepthTest)
         // which is a structural claim about the radar rather than a claim about a colour value.
         bool you_are_at_the_middle = false;
         const std::uint32_t middle_x = static_cast<std::uint32_t>(panel.x + (panel.size * 0.5F));
-        const std::uint32_t middle_y = static_cast<std::uint32_t>(panel.y + (panel.size * 0.5F));
+        const std::uint32_t middle_y = static_cast<std::uint32_t>(panel.y + (panel.height * 0.5F));
         for (std::uint32_t y = middle_y - 1U; y <= middle_y + 1U; ++y) {
             for (std::uint32_t x = middle_x - 1U; x <= middle_x + 1U; ++x) {
                 const std::uint32_t rgb = frame.rgb(x, y);

@@ -3,6 +3,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <array>
 #include <cstdint>
 #include <cstring>
 #include <string>
@@ -186,9 +187,10 @@ TEST(NavMarksRadar, ListsExactlyTheDroppedMarksWithTheirNumbers) {
     EXPECT_FALSE(shown.at(0).at_rim);
     // Heading-up at yaw 0: east of the tank is to the right of the centre, north of it is above.
     const float middle = panel.size * 0.5F;
+    const float middle_y = panel.height * 0.5F;
     EXPECT_GT(shown.at(0).px, middle);
-    EXPECT_NEAR(shown.at(0).py, middle, 3.0F) << "the same row, within a tile";
-    EXPECT_LT(shown.at(1).py, middle);
+    EXPECT_NEAR(shown.at(0).py, middle_y, 3.0F) << "the same row, within a tile";
+    EXPECT_LT(shown.at(1).py, middle_y);
 }
 
 TEST(NavMarksRadar, AMarkBeyondTheRadiusIsPinnedToTheRimInItsDirection) {
@@ -202,8 +204,36 @@ TEST(NavMarksRadar, AMarkBeyondTheRadiusIsPinnedToTheRimInItsDirection) {
     EXPECT_TRUE(shown.at(0).at_rim);
     const float middle = panel.size * 0.5F;
     EXPECT_GT(shown.at(0).px, middle * 1.5F);
-    EXPECT_NEAR(shown.at(0).py, middle, 0.5F);
+    EXPECT_NEAR(shown.at(0).py, panel.height * 0.5F, 0.5F);
     EXPECT_LE(shown.at(0).px + shown.at(0).half, panel.size);
+}
+
+TEST(NavMarksRadar, EveryMarkPlateLiesInsideTheOvalAtAnyBearing) {
+    Rig rig = make_rig();
+    const RadarPanel panel = radar_panel(kExtent);
+    for (const std::array<int, 2>& tile : {std::array<int, 2>{40, 140},
+                                           {140, 40},
+                                           {140, 140},
+                                           {1, 140},
+                                           {1, 1},
+                                           {79, 40},
+                                           {40, 79},
+                                           {40, 1},
+                                           {1, 40}}) {
+        NavMarks marks;
+        marks.press(tile.at(0), tile.at(1));
+        const std::vector<RadarNav> shown
+            = radar_nav_marks(rig.sim.units(), rig.tank_a, marks.marks(), 0.4F, panel);
+        ASSERT_EQ(shown.size(), 1U);
+        const RadarNav& nav = shown.at(0);
+        for (const float dx : {-nav.half, nav.half}) {
+            for (const float dy : {-nav.half, nav.half}) {
+                const float ex = (nav.px + dx - (panel.size * 0.5F)) / (panel.size * 0.5F);
+                const float ey = (nav.py + dy - (panel.height * 0.5F)) / (panel.height * 0.5F);
+                EXPECT_LE((ex * ex) + (ey * ey), 1.0F) << tile.at(0) << "," << tile.at(1);
+            }
+        }
+    }
 }
 
 TEST(NavMarksRadar, NoViewerMeansNoMarks) {

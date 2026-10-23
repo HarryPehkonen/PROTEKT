@@ -33,9 +33,14 @@ namespace protekt::game {
 
 inline constexpr int kRadarRadiusTiles = 40;
 inline constexpr float kRadarMarginPixels = 24.0F;
-inline constexpr float kRadarWidthFraction = 0.18F;
-inline constexpr float kRadarMinPixels = 140.0F;
-inline constexpr float kRadarMaxPixels = 320.0F;
+/// The panel is BZ2's wide shallow oval: a circular ground disc seen from `kRadarElevationRadians`
+/// (21 degrees) above, so its height is `kRadarAspect` (= sin 21 degrees) of its width. Both, and
+/// the 0.258 of the frame it spans, were pixel-counted off BZCC screenshots.
+inline constexpr float kRadarWidthFraction = 0.258F;
+inline constexpr float kRadarMinPixels = 200.0F;
+inline constexpr float kRadarMaxPixels = 480.0F;
+inline constexpr float kRadarAspect = 0.358F;
+inline constexpr float kRadarElevationRadians = 0.3665F;
 /// The light border drawn just outside the panel's face, in pixels. Exported because it is the
 /// panel's outermost edge: anything drawn for the radar lies within the panel's rectangle widened
 /// by this much, and that is a claim a test can hold the drawing to.
@@ -65,12 +70,30 @@ struct RadarMark {
     RadarTone tone{RadarTone::Yours};
 };
 
-/// The panel's rectangle in the frame, with the y as the frame's y: from the top.
+/// The panel's bounding rectangle in the frame, with the y as the frame's y: from the top. The face
+/// is the oval inscribed in it. `size` is the WIDTH (the name predates the oval); `height` is
+/// `size * kRadarAspect`.
 struct RadarPanel {
     float x{};
     float y{};
     float size{};
+    float height{};
 };
+
+/// A point in panel pixels, like a mark's centre.
+struct RadarPoint {
+    float px{};
+    float py{};
+};
+
+/// THE projection, and the only place it lives: a ground offset from the viewer in tiles, `u` to
+/// the camera's right and `v` along its forward, onto the tilted plane. x is `u * s` and y is `v *
+/// sin(elevation) * s` (up the panel, so subtracted), where `s` is `size / (2 * radius_tiles)`
+/// pixels per tile. A point `radius_tiles` away therefore lands on the rim of the oval whatever its
+/// direction. Marks, nav marks and arrows are all placed through this; the compass letters share
+/// its ellipse.
+[[nodiscard]] RadarPoint radar_project(const RadarPanel& panel, float u, float v,
+                                       int radius_tiles = kRadarRadiusTiles) noexcept;
 
 /// The panel for a frame of this size: bottom-left, with a margin, sized to the frame and clamped
 /// so that a small window still has a usable radar and a large one does not grow it without limit.
@@ -83,9 +106,10 @@ struct RadarLetter {
     float py{};
 };
 
-/// How far in from the disc's edge a letter's centre sits, as pixels. The glyph and its plate are
-/// drawn around this point, so the plate reaches the ring and not past it.
-inline constexpr float kRadarLetterInsetPixels = 8.0F;
+/// How far in from the oval's rim a letter's centre sits, as pixels, on both axes. The glyph and
+/// its plate are drawn around this point, so the plate reaches the ring and not past it (the
+/// plate's corners are what set it: at the diagonals they reach furthest).
+inline constexpr float kRadarLetterInsetPixels = 10.0F;
 
 /// N, E, S, W in that order, at the ring, for a camera yaw. At yaw 0 the tank faces north, so N is
 /// at the top; a quarter turn to the right puts N on the left. Never diagonals.

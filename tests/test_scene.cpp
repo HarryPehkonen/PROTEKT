@@ -1070,7 +1070,15 @@ TEST(RadarDraws, ThePanelLandsOnItsPixelsAndInFrontOfTheNearPlane) {
         // The health bar stands above the panel, so the top is allowed that much further.
         const float bar_room = (std::max(8.0F, panel.size * 0.08F)) + 4.0F;
         EXPECT_GE(p.y, panel.y - slack - bar_room);
-        EXPECT_LE(p.y, panel.y + panel.size + slack);
+        EXPECT_LE(p.y, panel.y + panel.height + slack);
+        // ...and the oval, not just its rectangle: nothing is drawn in the corners the oval leaves.
+        if (p.y > panel.y - slack) {
+            const float ex
+                = (p.x - (panel.x + (panel.size * 0.5F))) / ((panel.size * 0.5F) + slack);
+            const float ey
+                = (p.y - (panel.y + (panel.height * 0.5F))) / ((panel.height * 0.5F) + slack);
+            EXPECT_LE((ex * ex) + (ey * ey), 1.0F);
+        }
     }
 }
 
@@ -1422,34 +1430,38 @@ TEST(HealthBar, IsAbsentWithoutAViewerUnitInTheWorld) {
 
 // Round radar -------------------------------------------------------------------------------
 
-float from_centre(const Hud& hud, const std::array<float, 2>& p) {
-    const float middle = hud.panel.size * 0.5F;
-    return std::hypot(p.at(0) - (hud.panel.x + middle), p.at(1) - (hud.panel.y + middle));
+/// Where a point is against the oval whose semi-axes are the panel's half-width and half-height,
+/// each grown by `grow`: 1 on that ellipse, less inside it.
+float ellipse_of(const Hud& hud, const std::array<float, 2>& p, float grow = 0.0F) {
+    const float a = (hud.panel.size * 0.5F) + grow;
+    const float b = (hud.panel.height * 0.5F) + grow;
+    const float x = (p.at(0) - (hud.panel.x + (hud.panel.size * 0.5F))) / a;
+    const float y = (p.at(1) - (hud.panel.y + (hud.panel.height * 0.5F))) / b;
+    return (x * x) + (y * y);
 }
 
-TEST(Radar, TheFaceIsADiscNotARectangle) {
+constexpr float kEllipseEps = 1.0e-3F;
+
+TEST(Radar, TheFaceIsAnOvalNotARectangle) {
     const Damaged d = factory_down_to(400);
     const Hud hud = hud_of(d.sim, watching(d));
     ASSERT_FALSE(hud.face.empty());
-    const float radius = hud.panel.size * 0.5F;
     for (const auto& p : hud.face) {
-        EXPECT_LE(from_centre(hud, p), radius + kPixelEps);
+        EXPECT_LE(ellipse_of(hud, p), 1.0F + kEllipseEps);
     }
     EXPECT_NEAR(min_x(hud.face), hud.panel.x, kPixelEps);
     EXPECT_NEAR(max_x(hud.face), hud.panel.x + hud.panel.size, kPixelEps);
     EXPECT_NEAR(min_y(hud.face), hud.panel.y, kPixelEps);
-    EXPECT_NEAR(max_y(hud.face), hud.panel.y + hud.panel.size, kPixelEps);
+    EXPECT_NEAR(max_y(hud.face), hud.panel.y + hud.panel.height, kPixelEps);
 }
 
 TEST(Radar, TheBorderIsARing) {
     const Damaged d = factory_down_to(400);
     const Hud hud = hud_of(d.sim, watching(d));
     ASSERT_FALSE(hud.border.empty());
-    const float inner = hud.panel.size * 0.5F;
-    const float outer = inner + protekt::game::kRadarBorderPixels;
     for (const auto& p : hud.border) {
-        EXPECT_GE(from_centre(hud, p), inner - kPixelEps);
-        EXPECT_LE(from_centre(hud, p), outer + kPixelEps);
+        EXPECT_GE(ellipse_of(hud, p), 1.0F - kEllipseEps);
+        EXPECT_LE(ellipse_of(hud, p, protekt::game::kRadarBorderPixels), 1.0F + kEllipseEps);
     }
 }
 
@@ -1485,10 +1497,10 @@ protekt::sim::Sim ring_of_units() {
     return protekt::sim::Sim::create(scenario);
 }
 
-TEST(Radar, EveryMarkLiesWithinTheInscribedRadius) {
-    // The projection is linear in distance, so a mark at the maximum range is exactly
-    // `middle - size * inset` from the centre, and nothing in range is further. (An out-of-range
-    // base's ARROW is drawn at the rim by design and is held to the outer circle below instead.)
+TEST(Radar, EveryMarkLiesWithinTheOval) {
+    // A mark at the maximum range is on the rim of the oval in the projection and is pulled in by
+    // its own size, so no centre is outside the face. (An out-of-range base's ARROW is drawn at
+    // the rim by design and is held to the outer ellipse below instead.)
     const auto sim = ring_of_units();
     protekt::sim::UnitId viewer{};
     for (const auto& unit : sim.units()) {
@@ -1499,7 +1511,7 @@ TEST(Radar, EveryMarkLiesWithinTheInscribedRadius) {
     ASSERT_TRUE(viewer.valid());
     const protekt::game::RadarPanel panel = protekt::game::radar_panel({1280, 720});
     const float middle = panel.size * 0.5F;
-    const float limit = middle - (panel.size * 0.06F);
+    const float middle_y = panel.height * 0.5F;
     float furthest = 0.0F;
     for (const float yaw : {0.0F, 0.7F, 2.0F, -1.3F, 3.1F}) {
         std::size_t in_range = 0;
@@ -1508,16 +1520,35 @@ TEST(Radar, EveryMarkLiesWithinTheInscribedRadius) {
                 continue;
             }
             ++in_range;
-            const float distance = std::hypot(mark.px - middle, mark.py - middle);
-            EXPECT_LE(distance, limit + kPixelEps) << "yaw " << yaw;
+            const float ex = (mark.px - middle) / middle;
+            const float ey = (mark.py - middle_y) / middle_y;
+            const float distance = (ex * ex) + (ey * ey);
+            EXPECT_LE(distance, 1.0F + kEllipseEps) << "yaw " << yaw;
             furthest = std::max(furthest, distance);
         }
         EXPECT_EQ(in_range, 17U) << "the viewer and sixteen hostiles, all in range";
     }
-    EXPECT_NEAR(furthest, limit, kPixelEps) << "the maximum range lands exactly on the limit";
+    EXPECT_GT(furthest, 0.6F) << "the units at the maximum range are out near the rim";
 }
 
-TEST(Radar, NothingIsDrawnOutsideTheOuterCircle) {
+TEST(Radar, TwoBuildsOfTheSameFrameAreByteIdentical) {
+    const auto sim = ring_of_units();
+    protekt::sim::UnitId viewer{};
+    for (const auto& unit : sim.units()) {
+        if (unit.kind == protekt::sim::UnitKind::Tank && unit.side == protekt::sim::Side::Player) {
+            viewer = unit.id;
+        }
+    }
+    SceneOptions watched = battle_options();
+    watched.viewer_unit = viewer;
+    watched.camera.yaw = 0.7F;
+    const auto first = protekt::game::build_scene(sim, watched).vertices;
+    const auto second = protekt::game::build_scene(sim, watched).vertices;
+    ASSERT_EQ(first.size(), second.size());
+    EXPECT_EQ(std::memcmp(first.data(), second.data(), first.size() * sizeof(first.front())), 0);
+}
+
+TEST(Radar, NothingIsDrawnOutsideTheOuterEllipse) {
     const auto sim = ring_of_units();
     protekt::sim::UnitId viewer{};
     for (const auto& unit : sim.units()) {
@@ -1531,10 +1562,10 @@ TEST(Radar, NothingIsDrawnOutsideTheOuterCircle) {
         watched.camera.yaw = yaw;
         const Hud hud = hud_of(sim, watched);
         ASSERT_FALSE(hud.marks.empty());
-        const float outer = (hud.panel.size * 0.5F) + protekt::game::kRadarBorderPixels;
         for (const auto* group : {&hud.face, &hud.border, &hud.marks}) {
             for (const auto& p : *group) {
-                EXPECT_LE(from_centre(hud, p), outer + kPixelEps) << "yaw " << yaw;
+                EXPECT_LE(ellipse_of(hud, p, protekt::game::kRadarBorderPixels), 1.0F + kEllipseEps)
+                    << "yaw " << yaw;
             }
         }
     }

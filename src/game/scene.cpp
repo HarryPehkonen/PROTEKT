@@ -1267,30 +1267,31 @@ void append_radar(std::vector<SceneVertex>& out, const SceneOptions& options, co
     constexpr std::array<float, 3> kBorder{0.80F, 0.82F, 0.85F};
     constexpr std::array<float, 3> kFace{0.04F, 0.05F, 0.06F};
 
-    // The panel is ROUND: a disc inscribed in its square, ringed by the border. The corners of the
-    // square are not painted. Both are fans and strips of `kRadarSegments` slices, walked clockwise
-    // on the screen like `rect`, and every point goes through `at` like everything else.
+    // The panel is an OVAL: the ground disc seen from 21 degrees up, an ellipse inscribed in its
+    // rectangle, ringed by the border. The corners of the rectangle are not painted. Both are fans
+    // and strips of `kRadarSegments` slices, walked clockwise on the screen like `rect`, and every
+    // point goes through `at` like everything else.
     const float centre_x = panel.x + (panel.size * 0.5F);
-    const float centre_y = panel.y + (panel.size * 0.5F);
-    const float inner = panel.size * 0.5F;
-    const float outer = inner + kRadarBorderPixels;
-    const auto rim = [&](float radius, int slice) {
+    const float centre_y = panel.y + (panel.height * 0.5F);
+    const float inner_x = panel.size * 0.5F;
+    const float inner_y = panel.height * 0.5F;
+    const auto rim = [&](float grow, int slice) {
         const float angle = (2.0F * kPi * static_cast<float>(slice)) / kRadarSegments;
-        return std::array<float, 2>{centre_x + (radius * std::cos(angle)),
-                                    centre_y + (radius * std::sin(angle))};
+        return std::array<float, 2>{centre_x + ((inner_x + grow) * std::cos(angle)),
+                                    centre_y + ((inner_y + grow) * std::sin(angle))};
     };
     for (int slice = 0; slice < kRadarSegments; ++slice) {
-        const std::array<float, 2> in_a = rim(inner, slice);
-        const std::array<float, 2> in_b = rim(inner, slice + 1);
-        const std::array<float, 2> out_a = rim(outer, slice);
-        const std::array<float, 2> out_b = rim(outer, slice + 1);
+        const std::array<float, 2> in_a = rim(0.0F, slice);
+        const std::array<float, 2> in_b = rim(0.0F, slice + 1);
+        const std::array<float, 2> out_a = rim(kRadarBorderPixels, slice);
+        const std::array<float, 2> out_b = rim(kRadarBorderPixels, slice + 1);
         emit_quad(out, at(border_at, out_a.at(0), out_a.at(1)),
                   at(border_at, out_b.at(0), out_b.at(1)), at(border_at, in_b.at(0), in_b.at(1)),
                   at(border_at, in_a.at(0), in_a.at(1)), kBorder);
     }
     for (int slice = 0; slice < kRadarSegments; ++slice) {
-        const std::array<float, 2> a = rim(inner, slice);
-        const std::array<float, 2> b = rim(inner, slice + 1);
+        const std::array<float, 2> a = rim(0.0F, slice);
+        const std::array<float, 2> b = rim(0.0F, slice + 1);
         emit_triangle(out, at(face_at, centre_x, centre_y), at(face_at, a.at(0), a.at(1)),
                       at(face_at, b.at(0), b.at(1)), kFace);
     }
