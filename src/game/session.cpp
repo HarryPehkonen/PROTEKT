@@ -87,6 +87,12 @@ const cmd::Selection& Session::selection() const noexcept { return interaction_.
 
 bool Session::go_armed() const noexcept { return interaction_.go_armed(); }
 
+bool Session::attack_armed() const noexcept { return interaction_.attack_armed(); }
+
+const std::vector<TargetRow>& Session::attack_targets() const noexcept {
+    return interaction_.attack_targets();
+}
+
 std::string_view Session::message() const noexcept {
     if (!destroyed_message_.empty()) {
         return destroyed_message_;

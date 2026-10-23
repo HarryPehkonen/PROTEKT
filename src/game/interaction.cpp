@@ -1,5 +1,6 @@
 #include "protekt/game/interaction.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdint>
@@ -10,6 +11,7 @@
 #include "protekt/cmd/command.hpp"
 #include "protekt/game/nav_marks.hpp"
 #include "protekt/game/pick.hpp"
+#include "protekt/game/radar.hpp"
 #include "protekt/game/roster.hpp"
 #include "protekt/input/bindings.hpp"
 #include "protekt/math/math.hpp"
@@ -154,6 +156,7 @@ void Interaction::handle(const input::InputFrame& frame, const sim::Sim& sim,
             }
         } else if (click.button == input::MouseButton::Right) {
             go_armed_ = false; // a right-click order is the answer to "go where?", by hand
+            disarm_attack();   // and to "attack which?"
             if (selection_.empty()) {
                 refuse("Nothing is selected to give an order to.");
                 continue;
@@ -193,6 +196,19 @@ void Interaction::handle(const input::InputFrame& frame, const sim::Sim& sim,
             go_armed_ = false;
             if (const int mark = input::mark_digit(key); mark >= 0) {
                 send_to_mark(mark, options);
+                continue;
+            }
+            if (key.scancode == input::kKeyEscape) {
+                continue;
+            }
+        }
+        if (attack_armed_) {
+            // T is waiting on the attack list, and it settles exactly as G does. The digit is a ROW
+            // key (the list's numbering is mark_digit's: 1-9, then 0), never N2's roster key.
+            const std::vector<TargetRow> rows = std::move(targets_);
+            disarm_attack();
+            if (const int row = input::mark_digit(key); row >= 0) {
+                attack_row(rows, row);
                 continue;
             }
             if (key.scancode == input::kKeyEscape) {
@@ -245,7 +261,8 @@ void Interaction::handle(const input::InputFrame& frame, const sim::Sim& sim,
                 continue;
             }
             if (!hit_is_hostile) {
-                refuse("Aim at an enemy to attack it.");
+                // Nothing hostile under the crosshair: T offers the nearest ones by number instead.
+                arm_attack_list(sim);
                 continue;
             }
             const std::vector<sim::Order> orders = cmd::attack(roster, hit->id);
@@ -317,6 +334,10 @@ std::vector<sim::Order> Interaction::take_orders() noexcept {
 bool Interaction::take_shot_voice() noexcept { return std::exchange(shot_voice_, false); }
 
 bool Interaction::go_armed() const noexcept { return go_armed_; }
+
+bool Interaction::attack_armed() const noexcept { return attack_armed_; }
+
+const std::vector<TargetRow>& Interaction::attack_targets() const noexcept { return targets_; }
 
 const cmd::Selection& Interaction::selection() const noexcept { return selection_; }
 
@@ -473,6 +494,66 @@ void Interaction::send_to_mark(int number, const SceneOptions& options) {
     if (roster.size() < selection_.units().size()) {
         message_ = "Sent the rest to the mark; you are driving that one, so it stays put.";
     }
+}
+
+void Interaction::arm_attack_list(const sim::Sim& sim) {
+    // Captured once, here: the numbers on the screen are the numbers the next key means, however
+    // the board moves in between. The driven tank is the centre, as it is the radar's.
+    std::vector<TargetRow> rows
+        = nearest_enemies(sim, sim::Side::Player, driven_, kRadarRadiusTiles);
+    if (rows.empty()) {
+        refuse("no enemies within radar range.");
+        return;
+    }
+    // No need to clear the G arming here: the only way in is T, and a G arming eats the T that
+    // would have got here (interaction.cpp's go_armed_ block runs first).
+    targets_ = std::move(rows);
+    attack_armed_ = true;
+}
+
+void Interaction::disarm_attack() noexcept {
+    attack_armed_ = false;
+    targets_.clear();
+}
+
+void Interaction::attack_row(const std::vector<TargetRow>& rows, int key) {
+    // Words for each key, static because the message is a view.
+    static constexpr std::array<std::string_view, kAttackListRows> kNoTarget{
+        "no target 0 in the list.", "no target 1 in the list.", "no target 2 in the list.",
+        "no target 3 in the list.", "no target 4 in the list.", "no target 5 in the list.",
+        "no target 6 in the list.", "no target 7 in the list.", "no target 8 in the list.",
+        "no target 9 in the list."};
+    static constexpr std::array<std::string_view, kAttackListRows> kAttacking{
+        "attacking the target in row 0.", "attacking the target in row 1.",
+        "attacking the target in row 2.", "attacking the target in row 3.",
+        "attacking the target in row 4.", "attacking the target in row 5.",
+        "attacking the target in row 6.", "attacking the target in row 7.",
+        "attacking the target in row 8.", "attacking the target in row 9."};
+    const auto row = std::find_if(rows.begin(), rows.end(), [key](const TargetRow& candidate) {
+        return candidate.key == key;
+    });
+    if (row == rows.end()) {
+        refuse(kNoTarget.at(static_cast<std::size_t>(key)));
+        return;
+    }
+    // The selection is read afresh: a unit may have died since T armed the list.
+    if (selection_.empty()) {
+        refuse("Nothing is selected to give an order to.");
+        return;
+    }
+    const std::vector<sim::UnitId> roster = orderable();
+    if (roster.empty()) {
+        refuse("You are driving that one; select another unit to give orders.");
+        return;
+    }
+    const std::vector<sim::Order> orders = cmd::attack(roster, row->id);
+    if (orders.empty()) {
+        refuse("That order cannot be carried out.");
+        return;
+    }
+    remember(orders);
+    pending_.insert(pending_.end(), orders.begin(), orders.end());
+    message_ = kAttacking.at(static_cast<std::size_t>(key));
 }
 
 void Interaction::select_roster_key(const sim::Sim& sim, int digit) {

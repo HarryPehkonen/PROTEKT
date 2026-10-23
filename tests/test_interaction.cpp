@@ -737,7 +737,7 @@ TEST(Interaction, TWithNothingSelectedIsRefusedAndSaysWhy) {
     EXPECT_EQ(player.message(), "Nothing is selected to give an order to.");
 }
 
-TEST(Interaction, TOffAHostileIsRefused) {
+TEST(Interaction, TOffAHostileArmsTheListInsteadOfRefusing) {
     Rig rig = make_rig();
     Interaction player{rig.tank_a};
     choose(rig, player, rig.tank_b);
@@ -745,12 +745,13 @@ TEST(Interaction, TOffAHostileIsRefused) {
     static_cast<void>(ground_click(rig));
     player.handle(with_key(input::kKeyT), rig.sim, rig.options);
     EXPECT_TRUE(player.take_orders().empty()) << "ground";
-    EXPECT_FALSE(player.message().empty());
+    // BZ2A-1: no longer a refusal -- with hostiles about, T offers them by number instead.
+    EXPECT_TRUE(player.attack_armed());
 
     static_cast<void>(at(rig, rig.turret));
     player.handle(with_key(input::kKeyT), rig.sim, rig.options);
     EXPECT_TRUE(player.take_orders().empty()) << "own unit";
-    EXPECT_FALSE(player.message().empty());
+    EXPECT_TRUE(player.attack_armed());
     EXPECT_EQ(selected(player), (std::vector<sim::UnitId>{rig.tank_b}));
 }
 

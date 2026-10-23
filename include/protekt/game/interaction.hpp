@@ -8,6 +8,7 @@
 #include "protekt/audio/mixer.hpp"
 #include "protekt/cmd/selection.hpp"
 #include "protekt/game/scene.hpp"
+#include "protekt/game/targets.hpp"
 #include "protekt/game/weapon.hpp"
 #include "protekt/input/input.hpp"
 #include "protekt/sim/orders.hpp"
@@ -73,6 +74,9 @@ public:
     ///    arming up; Escape cancels it (and is spent doing so: the selection stays); any other key
     ///    cancels it and then does its own job; a right-click order cancels it. A mouse click that
     ///    is not an order (the trigger) leaves it armed.
+    ///  * T with a hostile under the mark: Attack it, as above. T with none: arm the attack list of
+    ///    the driven tank's nearest hostiles within the radar's radius (`nearest_enemies`), unless
+    ///    there are none (refused). The next 0-9 attacks that row for the selection.
     ///  * Tab or Escape: clear the selection
     ///  * Q (bare -- Ctrl+Q is the quit): bring up the next weapon of `kDrivenWeapons`, wrapping.
     ///    Never refused; it orders nothing and the trigger still fires today's shot (M1).
@@ -119,6 +123,14 @@ public:
     /// G has been pressed and the digit that names its mark has not: the next 0-9 is a MARK number
     /// (N3), and the HUD shows `kGoPrompt` for as long as this is true.
     [[nodiscard]] bool go_armed() const noexcept;
+    /// T has been pressed with no hostile under the crosshair and the key that names a row has not:
+    /// the next 0-9 is a ROW of `attack_targets()` (BZ2A), and the HUD shows the list for as long
+    /// as this is true. Settled like G: a digit uses it up, Escape cancels it (and is spent doing
+    /// so), any other key cancels it and then does its own job, a right-click order cancels it.
+    [[nodiscard]] bool attack_armed() const noexcept;
+    /// The rows the armed list offers, nearest first, captured when T armed it so the numbers
+    /// cannot shift under the player's finger. Empty whenever the list is not armed.
+    [[nodiscard]] const std::vector<TargetRow>& attack_targets() const noexcept;
 
     /// Why the last input was refused, for the HUD. Empty when it was carried out. Cleared at the
     /// start of every `handle`, so a message describes the frame that just happened and nothing
@@ -138,6 +150,13 @@ private:
     void select_roster_key(const sim::Sim& sim, int digit);
     /// G then a digit: MoveTo the tile of mark `number` for every orderable selected unit (N3).
     void send_to_mark(int number, const SceneOptions& options);
+    /// T with nothing hostile under the crosshair: capture the nearest hostiles and arm the list,
+    /// or refuse when there are none. A refusal leaves nothing armed.
+    void arm_attack_list(const sim::Sim& sim);
+    void disarm_attack() noexcept;
+    /// The key that settles the armed list: Attack the row it names for every orderable selected
+    /// unit, or refuse when no row has that key.
+    void attack_row(const std::vector<TargetRow>& rows, int key);
     void select_only(sim::UnitId id) noexcept;
     void toggle(sim::UnitId id) noexcept;
     void refuse(std::string_view why) noexcept;
@@ -154,6 +173,8 @@ private:
     std::vector<sim::Order> pending_;
     bool shot_voice_{false};
     bool go_armed_{false};
+    bool attack_armed_{false};
+    std::vector<TargetRow> targets_{};
     bool has_fired_{false};
     sim::Tick last_shot_tick_{};
     std::string_view message_;
