@@ -14,7 +14,7 @@ namespace protekt::game {
 
 enum class Weapon : std::uint8_t { Gun, Rocket, Mortar, Bouncer };
 
-/// THE CARRIED SET: what the player's craft carries, in the order the switch key walks it. The
+/// THE CARRIED SET: what the player's craft carries, in the order the right button walks it. The
 /// craft is whatever the player is driving -- the scenario's first player tank, presented as the
 /// hover tank -- so the set belongs to the DRIVEN vehicle, not to a sim kind, and an X swap keeps
 /// it.
@@ -22,12 +22,9 @@ inline constexpr std::array<Weapon, 4> kDrivenWeapons{Weapon::Gun, Weapon::Rocke
                                                       Weapon::Bouncer};
 
 /// The weapon after `current` in `kDrivenWeapons`, wrapping at the end; one not in the set gives
-/// the first.
+/// the first. The right button's one step: a weapon change is a click, and the wheel and `Q` that
+/// used to do this were removed on the owner's call (2026-10-23).
 [[nodiscard]] Weapon next_weapon(Weapon current) noexcept;
-
-/// The weapon before `current` in `kDrivenWeapons`, wrapping at the start; one not in the set gives
-/// the first. The wheel-up step (M2): `next_weapon`'s inverse.
-[[nodiscard]] Weapon previous_weapon(Weapon current) noexcept;
 
 /// The HUD's name for a weapon: GUN, ROCKET, MORTAR, BOUNCER.
 [[nodiscard]] std::string_view weapon_name(Weapon weapon) noexcept;

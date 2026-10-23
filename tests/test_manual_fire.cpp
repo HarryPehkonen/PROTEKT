@@ -114,6 +114,16 @@ void look(Rig& rig, float yaw, float pitch) {
     return frame;
 }
 
+/// Select `weapon` the way a player does now: one RIGHT CLICK per step of the wrap (2026-10-23).
+void switch_to(Rig& rig, Interaction& player, Weapon weapon) {
+    for (int step = 0; step < 8 && player.weapon() != weapon; ++step) {
+        InputFrame click{};
+        click.clicks.push_back(input::Click{0, 0, input::MouseButton::Right, true, false});
+        player.handle(click, rig.sim, rig.options);
+    }
+    ASSERT_EQ(player.weapon(), weapon);
+}
+
 [[nodiscard]] InputFrame wheel(int notches) {
     InputFrame frame{};
     frame.wheel = notches;
@@ -132,9 +142,7 @@ struct Flight {
 [[nodiscard]] Flight fire_along_x(Rig& rig, Weapon weapon, float pitch) {
     Flight flight;
     Interaction player{rig.tank};
-    const int notches = weapon == Weapon::Gun ? 0 : (weapon == Weapon::Rocket ? 1 : 2);
-    player.handle(wheel(-notches), rig.sim, rig.options);
-    EXPECT_EQ(player.weapon(), weapon);
+    switch_to(rig, player, weapon);
     look(rig, kHalfPi, pitch);
     player.handle(trigger(), rig.sim, rig.options);
     flight.orders = player.take_orders();
@@ -181,54 +189,51 @@ TEST(PitchLimit, TheLadderReachesTheMortarsWholeRangeAtTheLimit) {
     EXPECT_EQ(mortar_rung(kLookPitchLimit), kMortarRungCount - 1);
 }
 
-// --- the wheel ---------------------------------------------------------------------------------
+// --- the wheel (RETIRED 2026-10-23: the right button changes weapons, the wheel does not) -------
 
 [[nodiscard]] Weapon after_wheel(Weapon start, int notches) {
     Rig rig = make_rig();
     Interaction player{rig.tank};
-    // Walk to `start` the way a player does: by the same key Q.
-    while (player.weapon() != start) {
-        InputFrame q{};
-        q.keys.push_back(input::KeyEvent{input::kKeyQ, true, false, false, false});
-        player.handle(q, rig.sim, rig.options);
+    // Walk to `start` the way a player does -- a right click -- BOUNDED, so a switch that stops
+    // working fails the assertion instead of hanging the suite.
+    for (int step = 0; step < 8 && player.weapon() != start; ++step) {
+        InputFrame click{};
+        click.clicks.push_back(input::Click{0, 0, input::MouseButton::Right, true, false});
+        player.handle(click, rig.sim, rig.options);
     }
+    EXPECT_EQ(player.weapon(), start) << "the right click still walks the wrap";
     player.handle(wheel(notches), rig.sim, rig.options);
     return player.weapon();
 }
 
-TEST(Wheel, DownCyclesGunRocketMortarAndUpReverses) {
-    EXPECT_EQ(after_wheel(Weapon::Gun, -1), Weapon::Rocket);
-    EXPECT_EQ(after_wheel(Weapon::Rocket, -1), Weapon::Mortar);
-    EXPECT_EQ(after_wheel(Weapon::Mortar, +1), Weapon::Rocket);
-    EXPECT_EQ(after_wheel(Weapon::Rocket, +1), Weapon::Gun);
-}
-
-TEST(Wheel, WrapsTheWayQDoes) {
-    EXPECT_EQ(after_wheel(Weapon::Bouncer, -1), next_weapon(Weapon::Bouncer));
-    EXPECT_EQ(after_wheel(Weapon::Bouncer, -1), Weapon::Gun);
-    EXPECT_EQ(after_wheel(Weapon::Gun, +1), previous_weapon(Weapon::Gun));
-    EXPECT_EQ(after_wheel(Weapon::Gun, +1), Weapon::Bouncer);
-    EXPECT_EQ(after_wheel(Weapon::Mortar, -1), Weapon::Bouncer) << "one detent, one step";
-}
-
-TEST(Wheel, OneNotchIsExactlyOneStepAndAFlickIsOneStepPerNotch) {
+TEST(Wheel, NoLongerSwitchesTheWeaponInEitherDirection) {
     for (const Weapon start : kDrivenWeapons) {
-        EXPECT_EQ(after_wheel(start, -1), next_weapon(start)) << "one notch, one step";
-        EXPECT_EQ(after_wheel(start, +1), previous_weapon(start));
-        EXPECT_EQ(after_wheel(start, 0), start);
-        EXPECT_EQ(after_wheel(start, -2), next_weapon(next_weapon(start)))
-            << "a flick of two notches is two steps, not three or one";
+        EXPECT_EQ(after_wheel(start, -1), start) << "the wheel is not a weapon control any more";
+        EXPECT_EQ(after_wheel(start, +1), start);
+        EXPECT_EQ(after_wheel(start, -2), start) << "a flick is not a step per notch either";
+        EXPECT_EQ(after_wheel(start, +3), start);
     }
 }
 
-TEST(Wheel, ASeparateFrameIsASeparateNotch) {
+TEST(Wheel, OneNotchIsStillOneNotchOfNothing) {
+    // The frame still carries the wheel (the window reports it); the game has no use for it now, so
+    // zero notches, one notch and many notches are all the same weapon.
+    EXPECT_EQ(after_wheel(Weapon::Mortar, 0), Weapon::Mortar);
+    EXPECT_EQ(after_wheel(Weapon::Mortar, 5), Weapon::Mortar);
+    EXPECT_EQ(after_wheel(Weapon::Bouncer, -5), Weapon::Bouncer);
+}
+
+TEST(Wheel, ASeparateFrameIsStillNoNotchWorthOfSwitch) {
+    // The notch used to be read one frame at a time (`ASeparateFrameIsASeparateNotch`): now a frame
+    // of wheel, however many of them, leaves the weapon where it was and the trigger as it was.
     Rig rig = make_rig();
     Interaction player{rig.tank};
-    player.handle(wheel(-1), rig.sim, rig.options);
-    player.handle(InputFrame{}, rig.sim, rig.options);
-    EXPECT_EQ(player.weapon(), Weapon::Rocket) << "a frame with no notch changes nothing";
-    player.handle(wheel(-1), rig.sim, rig.options);
-    EXPECT_EQ(player.weapon(), Weapon::Mortar);
+    for (int frame = 0; frame < 3; ++frame) {
+        player.handle(wheel(-1), rig.sim, rig.options);
+        player.handle(trigger(), rig.sim, rig.options);
+        static_cast<void>(player.take_orders()); // the trigger still fires; the wheel does not pick
+    }
+    EXPECT_EQ(player.weapon(), Weapon::Gun) << "three frames of a notch each switched nothing";
 }
 
 // --- manual fire -------------------------------------------------------------------------------
@@ -317,7 +322,7 @@ TEST(ManualFire, ATargetUnderTheMarkDoesNotBendTheShell) {
     // intent and the shell still flies the barrel.
     Rig rig = make_rig();
     Interaction player{rig.tank};
-    player.handle(wheel(-2), rig.sim, rig.options);
+    switch_to(rig, player, Weapon::Mortar);
     look(rig, kHalfPi, 0.5F);
     const sim::Unit* enemy = rig.sim.find(rig.enemy);
     const Projected p = project(rig.options.camera, kExtent, as_float(enemy->x) * kMetresPerTile,
@@ -366,7 +371,7 @@ TEST(ManualFire, TheMortarShellGoesThroughTheSameProjectilePathAsAnyShot) {
     Rig rig = make_rig();
     const std::uint64_t before = rig.sim.state_hash();
     Interaction player{rig.tank};
-    player.handle(wheel(-2), rig.sim, rig.options);
+    switch_to(rig, player, Weapon::Mortar);
     look(rig, kHalfPi, 0.6F);
     player.handle(trigger(), rig.sim, rig.options);
     for (const Order& order : player.take_orders()) {
@@ -385,7 +390,7 @@ TEST(ManualFire, TwoSameSeedRunsAreByteIdentical) {
         Rig rig = make_rig();
         std::vector<std::uint64_t> hashes;
         Interaction player{rig.tank};
-        player.handle(wheel(-2), rig.sim, rig.options);
+        switch_to(rig, player, Weapon::Mortar);
         look(rig, kHalfPi, 1.1F);
         for (int tick = 0; tick < 120; ++tick) {
             if (tick % 50 == 0) {

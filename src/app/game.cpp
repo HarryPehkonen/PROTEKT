@@ -70,8 +70,9 @@ struct Options {
     /// did it. The same family as `--cursor`: a scripted frame of input, so what happened is
     /// repeatable.
     std::int32_t press_scancode{-1};
-    /// `--switch N`: the weapon key (Q) pressed once on each of the first N frames, so a capture
-    /// can show the gun (0), the rocket (1) or the mortar (2) with nobody at the keyboard.
+    /// `--switch N`: the weapon switched once on each of the first N frames -- a right CLICK, which
+    /// is the only thing that changes weapons since 2026-10-23 -- so a capture can show the gun
+    /// (0), the rocket (1) or the mortar (2) with nobody at the mouse.
     std::uint32_t switches{0};
     /// `--look-up N`: the view tilted up N hundredths of a radian on the first frame, and
     /// `--fire N`: the trigger pulled on frame N (1-based; 0 is never), so a capture can show a
@@ -497,7 +498,9 @@ void script_hands(const Options& options, std::uint32_t frame, input::InputFrame
                                              options.press_ctrl, options.press_alt});
     }
     if (frame < options.switches) {
-        hands.keys.push_back(input::KeyEvent{input::kKeyQ, true, false});
+        // The weapon switch is a right CLICK now, so a scripted switch is a real click: the aim
+        // point is what the interaction reads, and the pixel is not.
+        hands.clicks.push_back(input::Click{0, 0, input::MouseButton::Right, true, false});
     }
     if (frame == 0 && options.look_up_centirad > 0) {
         hands.mouse_dy

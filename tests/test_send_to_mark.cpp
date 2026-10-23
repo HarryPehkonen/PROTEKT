@@ -104,12 +104,6 @@ void drop_marks(Rig& rig) {
     rig.marks.press(54, 52);
 }
 
-[[nodiscard]] InputFrame right_click() {
-    InputFrame frame{};
-    frame.clicks.push_back(input::Click{640, 360, input::MouseButton::Right, true, false});
-    return frame;
-}
-
 void expect_move_to(const sim::Order& order, UnitId unit, int x, int y) {
     EXPECT_EQ(order.unit, unit);
     const auto* move = std::get_if<sim::orders::MoveTo>(&order.payload);
@@ -193,20 +187,22 @@ TEST(SendToMark, AnyOtherKeyDisarmsAndStillDoesItsOwnJob) {
     Interaction player{rig.own.at(0)};
     select_second(rig, player);
     player.handle(key_frame(input::kKeyG), rig.sim, rig.options);
-    player.handle(key_frame(input::kKeyQ), rig.sim, rig.options);
+    // Tab is the "other key" now: `Q` stopped being a weapon control on 2026-10-23, so the key
+    // whose own job this test leans on is the one that clears the selection.
+    player.handle(key_frame(input::kKeyTab), rig.sim, rig.options);
     EXPECT_FALSE(player.go_armed());
-    EXPECT_EQ(player.weapon(), Weapon::Rocket);
+    EXPECT_TRUE(player.selection().empty()) << "the key did its own job as well";
     player.handle(digit(0), rig.sim, rig.options);
     EXPECT_TRUE(player.take_orders().empty());
 }
 
-TEST(SendToMark, ARightClickOrderDisarmsTheGo) {
+TEST(SendToMark, AnOrderByKeyDisarmsTheGo) {
     Rig rig = make_rig();
     drop_marks(rig);
     Interaction player{rig.own.at(0)};
     select_second(rig, player);
     player.handle(key_frame(input::kKeyG), rig.sim, rig.options);
-    player.handle(right_click(), rig.sim, rig.options);
+    player.handle(key_frame(input::kKeyM), rig.sim, rig.options); // an order, by hand
     EXPECT_FALSE(player.go_armed());
     for (const sim::Order& order : player.take_orders()) {
         EXPECT_NE(order.unit, rig.own.at(0));
@@ -438,13 +434,13 @@ TEST(AttackList, AnyOtherKeyCancelsAndStillDoesItsOwnJob) {
     EXPECT_NE(std::get_if<sim::orders::MoveTo>(&orders.at(0).payload), nullptr);
 }
 
-TEST(AttackList, ARightClickOrderCancelsIt) {
+TEST(AttackList, AnOrderByKeyCancelsIt) {
     Rig rig = make_listing_rig();
     Interaction player{rig.own.at(0)};
     select_second(rig, player);
     player.handle(key_frame(input::kKeyT), rig.sim, rig.options);
     ASSERT_TRUE(player.attack_armed());
-    player.handle(right_click(), rig.sim, rig.options);
+    player.handle(key_frame(input::kKeyM), rig.sim, rig.options); // an order, by hand
     EXPECT_FALSE(player.attack_armed());
 }
 

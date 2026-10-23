@@ -57,29 +57,26 @@ public:
     ///    the path. The shot is also to be heard (`take_shot_voice`). It never changes the
     ///    selection.
     ///  * Space / Shift-Space: select the own unit under the mark / toggle it
-    ///  * right click on the ground with a selection: MoveTo that tile, for every selected unit
-    ///  that
-    ///    is not the driven one
-    ///  * right click on a hostile unit with a selection: Attack it, same roster rule
-    ///  * right click with nothing selected, or with only the driven unit selected: refused
+    ///  * right click: THE WEAPON SWITCH, one step of `next_weapon`'s wrap. It needs no mark, and
+    ///    it is the ONLY switch since 2026-10-23 (`Q` and the mouse wheel stopped switching). The
+    ///    orders this button used to give -- MoveTo the ground, Attack a hostile -- live on `M`,
+    ///    `T` and `G` below
     ///  * M with a selection: MoveTo the ground under the mark for every selected unit that is not
     ///    the driven one, even with a unit under the mark; nothing selected: refused
     ///  * X: swap the driven tank to the own tank under the mark; the vacated one is told to Stop
     ///  * 1-9: select the own unit holding that number in spawn order, on screen or not (the
     ///    roster strip, `game/roster.hpp`); a destroyed or never-existing number selects nothing,
     ///    leaves the selection as it was, and says so
-    ///  * G, then 0-9 (N3): send the selection to that nav mark's tile -- the same MoveTo a right
-    ///    click makes. G arms; the next key settles it. A digit is then a MARK number, never N2's
+    ///  * G, then 0-9 (N3): send the selection to that nav mark's tile -- the same MoveTo `M`
+    ///    makes. G arms; the next key settles it. A digit is then a MARK number, never N2's
     ///    selection key: a number with no mark is refused and orders nothing. Any digit uses the
     ///    arming up; Escape cancels it (and is spent doing so: the selection stays); any other key
-    ///    cancels it and then does its own job; a right-click order cancels it. A mouse click that
-    ///    is not an order (the trigger) leaves it armed.
+    ///    cancels it and then does its own job; an order by key (`M`) cancels it. The trigger
+    ///    leaves it armed, and so does a weapon click: neither is an order.
     ///  * T with a hostile under the mark: Attack it, as above. T with none: arm the attack list of
     ///    the driven tank's nearest hostiles within the radar's radius (`nearest_enemies`), unless
     ///    there are none (refused). The next 0-9 attacks that row for the selection.
     ///  * Tab or Escape: clear the selection
-    ///  * Q (bare -- Ctrl+Q is the quit): bring up the next weapon of `kDrivenWeapons`, wrapping.
-    ///    Never refused; it orders nothing and the trigger still fires today's shot (M1).
     ///
     /// Refusals never throw and never half-apply: either the whole intent is carried out or none of
     /// it is, and `message()` says why.

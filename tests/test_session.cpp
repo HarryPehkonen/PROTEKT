@@ -137,6 +137,15 @@ struct ScreenPoint {
 }
 
 /// Select with the keyboard: the mark on `unit`, then Space (the left button is the trigger now).
+/// The ground under the mark, plus the `M` key: the order a player gives a selection now that the
+/// right button changes weapons and nothing else (2026-10-23).
+[[nodiscard]] InputFrame move_key_on_ground(Rig& rig) {
+    static_cast<void>(ground_click(rig)); // the mark goes to the ground; the KEY does the ordering
+    InputFrame frame{};
+    frame.keys.push_back(KeyEvent{input::kKeyM, true, false});
+    return frame;
+}
+
 [[nodiscard]] InputFrame space_on(Rig& rig, sim::UnitId unit) {
     static_cast<void>(click_on(rig, unit, MouseButton::Left));
     InputFrame frame{};
@@ -365,28 +374,28 @@ TEST(Session, TheDrivenTankGetsOneOrderPerFrameWhileDriving) {
 
 // ---------------------------------------------------------------- commanding
 
-TEST(Session, AClickSelectsAndARightClickOrdersAnotherTank) {
+TEST(Session, SpaceSelectsAndTheMoveKeyOrdersAnotherTank) {
     Rig rig = make_rig();
     Session session{rig.tank_a};
-    // One frame at a time, because the MARK moves between the two clicks and moving it is what
-    // building the click does: building both frames up front would leave both of them aimed at
+    // One frame at a time, because the MARK moves between the selection and the order and moving it
+    // is what building the click does: building both frames up front would leave both aimed at
     // wherever the mark ended up last.
     run_frames(rig, session, {space_on(rig, rig.tank_b)});
-    run_frames(rig, session, {with_click(ground_click(rig))});
+    run_frames(rig, session, {move_key_on_ground(rig)});
 
     EXPECT_EQ(rig.sim.find(rig.tank_b)->stance, Stance::MoveTo)
-        << "the commanded tank should be driving to the tile that was clicked";
+        << "the commanded tank should be driving to the tile under the mark";
 }
 
-TEST(Session, TheDrivenTankIsNeverGivenAClickOrder) {
+TEST(Session, TheDrivenTankIsNeverGivenAMoveOrder) {
     Rig rig = make_rig();
     Session session{rig.tank_a};
-    // Select the driven tank, then right click the ground. The only order for it must be the one
-    // the throttle produces -- the click has to be refused, not quietly obeyed.
+    // Select the driven tank, then move the selection to the ground under the mark. The only order
+    // for it must be the one the throttle produces -- the order has to be refused, not obeyed.
     std::vector<Order> orders;
     session.frame(space_on(rig, rig.tank_a), rig.sim, rig.options, orders);
     orders.clear();
-    session.frame(with_click(ground_click(rig)), rig.sim, rig.options, orders);
+    session.frame(move_key_on_ground(rig), rig.sim, rig.options, orders);
 
     int for_driven = 0;
     for (const Order& order : orders) {

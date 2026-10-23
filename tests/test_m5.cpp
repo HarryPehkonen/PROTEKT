@@ -129,10 +129,13 @@ void make_rig(Rig& rig, Weapon weapon, float pitch) {
     rig.options.viewer_unit = rig.tank;
     rig.options.weapon = weapon;
     look(rig, pitch);
-    const int notches = weapon == Weapon::Gun ? 0 : (weapon == Weapon::Rocket ? 1 : 2);
-    InputFrame wheel{};
-    wheel.wheel = -notches;
-    rig.player.handle(wheel, rig.sim, rig.options);
+    // The weapon is picked the way a player picks it now: one right CLICK per step of the wrap
+    // (2026-10-23 -- `Q` and the wheel stopped switching).
+    for (int step = 0; step < 8 && rig.player.weapon() != weapon; ++step) {
+        InputFrame click{};
+        click.clicks.push_back(input::Click{0, 0, input::MouseButton::Right, true, false});
+        rig.player.handle(click, rig.sim, rig.options);
+    }
     ASSERT_EQ(rig.player.weapon(), weapon);
 }
 

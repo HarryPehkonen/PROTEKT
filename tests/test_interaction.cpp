@@ -560,14 +560,17 @@ TEST(Trigger, TheTimerLimitsTheButtonForOrdersToo) {
 }
 
 TEST(Trigger, TheTimerDoesNotTouchOtherInput) {
-    // A right click or a key right after a shot is not a shot.
+    // The shot timer limits the TRIGGER and nothing else: an order given right after a shot still
+    // goes through. (What the right button does right after a shot is in the RightClick suite: it
+    // switches the weapon, fires nothing.)
     Rig rig = make_rig();
     Interaction player{rig.tank_a};
     choose(rig, player, rig.tank_b);
     player.handle(with_click(ground_click(rig)), rig.sim, rig.options);
     static_cast<void>(player.take_shot_voice());
-    player.handle(with_click(ground_click(rig, true)), rig.sim, rig.options);
-    EXPECT_EQ(player.take_orders().size(), 1U);
+    static_cast<void>(ground_click(rig));
+    player.handle(with_key(input::kKeyM), rig.sim, rig.options);
+    EXPECT_EQ(player.take_orders().size(), 1U) << "the move order went through anyway";
 }
 
 TEST(Interaction, LeftClickOnAHostileNamesItAndKeepsTheSelection) {
@@ -686,19 +689,24 @@ TEST(Interaction, SpaceOverGroundHostileOrNothingLeavesTheSelectionAlone) {
     EXPECT_TRUE(player.take_orders().empty());
 }
 
-TEST(HoverTank, SpaceSelectsItAndRightClickOrdersItLikeATank) {
+TEST(HoverTank, SpaceSelectsItAndTheMarkKeysOrderItLikeATank) {
+    // The orders belong to the KEYS since 2026-10-23 -- `M` to move, `T` to attack -- because the
+    // right button changes weapons and nothing else now. What a hover tank still has to prove is
+    // that the keys treat it like any other tank.
     Rig rig = make_rig(UnitKind::HoverTank);
     Interaction player{rig.tank_a};
     choose(rig, player, rig.tank_b);
     EXPECT_EQ(selected(player), (std::vector<sim::UnitId>{rig.tank_b}));
 
-    player.handle(with_click(ground_click(rig, true)), rig.sim, rig.options);
+    static_cast<void>(ground_click(rig));
+    player.handle(with_key(input::kKeyM), rig.sim, rig.options);
     const std::vector<Order> moved = player.take_orders();
     ASSERT_EQ(moved.size(), 1U);
     EXPECT_EQ(moved.at(0).unit, rig.tank_b);
     EXPECT_EQ(moved.at(0).kind(), OrderKind::MoveTo);
 
-    player.handle(with_click(at(rig, rig.enemy, MouseButton::Right)), rig.sim, rig.options);
+    static_cast<void>(at(rig, rig.enemy));
+    player.handle(with_key(input::kKeyT), rig.sim, rig.options);
     const std::vector<Order> attack = player.take_orders();
     ASSERT_EQ(attack.size(), 1U);
     EXPECT_EQ(attack.at(0).unit, rig.tank_b);
@@ -797,18 +805,49 @@ TEST(Interaction, EscapeClearsTheSelection) {
 
 // ---------------------------------------------------------------- orders
 
-TEST(Interaction, RightClickOnTheGroundMovesTheSelectionThere) {
+// ---------------------------------------------------------------- the right button (the switch)
+
+TEST(RightClick, CyclesTheWeaponAndGivesNoOrderEvenWithASelection) {
     Rig rig = make_rig();
     Interaction player{rig.tank_a};
     choose(rig, player, rig.tank_b);
-    player.handle(with_click(ground_click(rig, true)), rig.sim, rig.options);
+    ASSERT_EQ(player.weapon(), Weapon::Gun);
 
-    const std::vector<Order> orders = player.take_orders();
-    ASSERT_EQ(orders.size(), 1U);
-    EXPECT_EQ(orders.front().kind(), OrderKind::MoveTo);
-    EXPECT_EQ(orders.front().unit, rig.tank_b);
-    EXPECT_GT(std::get<sim::orders::MoveTo>(orders.front().payload).y.raw, 0)
-        << "the order carries the tile the click landed on";
+    player.handle(with_click(ground_click(rig, true)), rig.sim, rig.options);
+    EXPECT_EQ(player.weapon(), Weapon::Rocket) << "the right button is the weapon switch now";
+    EXPECT_TRUE(player.take_orders().empty()) << "and it orders nothing";
+    EXPECT_TRUE(player.message().empty()) << "there is nothing left to refuse";
+
+    player.handle(with_click(at(rig, rig.enemy, MouseButton::Right)), rig.sim, rig.options);
+    EXPECT_EQ(player.weapon(), Weapon::Mortar) << "the same click, over a hostile";
+    EXPECT_TRUE(player.take_orders().empty());
+    EXPECT_EQ(selected(player), (std::vector<sim::UnitId>{rig.tank_b}))
+        << "a weapon change is not a selection change";
+}
+
+TEST(RightClick, SwitchesTheWeaponWithNoMarkAndNothingSelected) {
+    // A weapon change is not a shot: it needs no crosshair on anything, and no selection either.
+    Rig rig = make_rig();
+    Interaction player{rig.tank_a};
+    rig.options.aim.reset();
+    player.handle(with_click(Click{640, 700, MouseButton::Right, true, false}), rig.sim,
+                  rig.options);
+    EXPECT_EQ(player.weapon(), Weapon::Rocket);
+    EXPECT_TRUE(player.selection().empty());
+}
+
+TEST(RightClick, WrapsBackToTheGunAndLeavesTheSelectionAlone) {
+    Rig rig = make_rig();
+    Interaction player{rig.tank_a};
+    choose(rig, player, rig.tank_b);
+    // Every click of the wrap, not just the last one: "four clicks land back on the gun" is also
+    // true of a button that does nothing at all (found by sabotaging the switch).
+    const std::array<Weapon, 4> want{Weapon::Rocket, Weapon::Mortar, Weapon::Bouncer, Weapon::Gun};
+    for (std::size_t click = 0; click < want.size(); ++click) {
+        player.handle(with_click(ground_click(rig, true)), rig.sim, rig.options);
+        EXPECT_EQ(player.weapon(), want.at(click)) << "click " << click;
+    }
+    EXPECT_EQ(selected(player), (std::vector<sim::UnitId>{rig.tank_b}));
 }
 
 TEST(MoveKey, MOrdersEverySelectedUnitToTheGroundUnderTheMark) {
@@ -959,57 +998,33 @@ TEST(FollowKey, FWithNoMarkIssuesNoOrders) {
     EXPECT_TRUE(player.take_orders().empty());
 }
 
-TEST(Interaction, TheDrivenTankIsNeverOrderedByAClick) {
+TEST(Interaction, TheDrivenTankIsNeverOrderedByAKey) {
     Rig rig = make_rig();
     Interaction player{rig.tank_a};
     select_and_drive(rig, player, rig.tank_b);
     choose(rig, player, rig.tank_a);
     ASSERT_EQ(player.selection().size(), 2U);
 
-    player.handle(with_click(ground_click(rig, true)), rig.sim, rig.options);
+    static_cast<void>(ground_click(rig));
+    player.handle(with_key(input::kKeyM), rig.sim, rig.options);
     const std::vector<Order> orders = player.take_orders();
     ASSERT_EQ(orders.size(), 1U) << "only the unit the player is not sitting in may be ordered";
     EXPECT_EQ(orders.front().unit, rig.tank_a);
 }
 
-TEST(Interaction, RightClickWithOnlyTheDrivenTankSelectedIsRefused) {
-    Rig rig = make_rig();
-    Interaction player{rig.tank_a};
-    choose(rig, player, rig.tank_a);
-    player.handle(with_click(ground_click(rig, true)), rig.sim, rig.options);
-    EXPECT_TRUE(player.take_orders().empty());
-    EXPECT_FALSE(player.message().empty())
-        << "the player must be told that he is driving that one, not left guessing";
-}
-
-TEST(Interaction, RightClickOnAHostileOrdersAnAttack) {
-    Rig rig = make_rig();
-    Interaction player{rig.tank_a};
-    choose(rig, player, rig.tank_b);
-    player.handle(with_click(at(rig, rig.enemy, MouseButton::Right)), rig.sim, rig.options);
-
-    const std::vector<Order> orders = player.take_orders();
-    ASSERT_EQ(orders.size(), 1U);
-    EXPECT_EQ(orders.front().kind(), OrderKind::Attack);
-    EXPECT_EQ(orders.front().unit, rig.tank_b);
-    EXPECT_EQ(std::get<sim::orders::Attack>(orders.front().payload).target, rig.enemy);
-}
-
-TEST(Interaction, RightClickWithNothingSelectedIsRefused) {
-    Rig rig = make_rig();
-    Interaction player{rig.tank_a};
-    player.handle(with_click(ground_click(rig, true)), rig.sim, rig.options);
-    EXPECT_TRUE(player.take_orders().empty());
-    EXPECT_FALSE(player.message().empty());
-}
+// The three right-click ORDER tests that used to live here -- move on the ground, attack a hostile,
+// and the two refusals -- went with the order itself (2026-10-23). What the button does instead is
+// the RightClick suite above; the orders it used to give are covered by MoveKey, AttackKey and
+// GoKey, which is where a player reaches them now.
 
 TEST(Interaction, OrdersAreDrainedOnce) {
     Rig rig = make_rig();
     Interaction player{rig.tank_a};
     choose(rig, player, rig.tank_b);
-    player.handle(with_click(ground_click(rig, true)), rig.sim, rig.options);
+    static_cast<void>(ground_click(rig));
+    player.handle(with_key(input::kKeyM), rig.sim, rig.options);
     EXPECT_EQ(player.take_orders().size(), 1U);
-    EXPECT_TRUE(player.take_orders().empty()) << "the same click must not be applied twice";
+    EXPECT_TRUE(player.take_orders().empty()) << "one press must not be applied twice";
 }
 
 TEST(Interaction, ADeadUnitLeavesTheSelection) {
@@ -1060,7 +1075,8 @@ TEST(Interaction, TheSameInputProducesTheSameOrders) {
         Interaction player{rig.tank_a};
         choose(rig, player, rig.tank_b);
         choose(rig, player, rig.turret, true);
-        player.handle(with_click(ground_click(rig, true)), rig.sim, rig.options);
+        static_cast<void>(ground_click(rig));
+        player.handle(with_key(input::kKeyM), rig.sim, rig.options);
         return player.take_orders();
     };
     const std::vector<Order> first = play();
@@ -1217,9 +1233,8 @@ TEST(Swap, AfterASwapTheNewTankIsNotOrderableAndTheOldOneIs) {
     ASSERT_EQ(player.selection().size(), 2U);
     static_cast<void>(player.take_orders());
 
-    static_cast<void>(ground_click(rig, true));
-    player.handle(with_click(Click{640, 700, MouseButton::Right, true, false}), rig.sim,
-                  rig.options);
+    static_cast<void>(ground_click(rig));
+    player.handle(with_key(input::kKeyM), rig.sim, rig.options);
     const std::vector<Order> orders = player.take_orders();
     ASSERT_EQ(orders.size(), 1U) << "only the vacated tank takes the order";
     EXPECT_EQ(orders.at(0).unit, rig.tank_a);
@@ -1256,12 +1271,13 @@ constexpr std::int32_t kHomeY = 12;
     return observation;
 }
 
-/// Select `unit` and right-click `target` with the mark on it: the unit is ordered to attack it.
+/// Select `unit` and press `T` with the mark on `target`: the unit is ordered to attack it.
 void order_attack(Rig& rig, Interaction& player, sim::UnitId unit, sim::UnitId target) {
     if (!player.selection().contains(unit)) { // Space toggles: a second press would deselect it
         choose(rig, player, unit);
     }
-    player.handle(with_click(at(rig, target, MouseButton::Right)), rig.sim, rig.options);
+    static_cast<void>(at(rig, target));
+    player.handle(with_key(input::kKeyT), rig.sim, rig.options);
     ASSERT_EQ(player.take_orders().size(), 1U);
 }
 
@@ -1330,7 +1346,8 @@ TEST(Retreat, AHealedTankWithNoRememberedOrderStaysIdleAndCommandable) {
     static_cast<void>(player.take_orders());
     player.tend(seen(rig, rig.tank_b, 90));
     EXPECT_TRUE(player.take_orders().empty());
-    player.handle(with_click(ground_click(rig, true)), rig.sim, rig.options);
+    static_cast<void>(ground_click(rig));
+    player.handle(with_key(input::kKeyM), rig.sim, rig.options);
     EXPECT_EQ(player.take_orders().size(), 1U) << "still orderable";
 }
 
@@ -1467,7 +1484,8 @@ TEST(Defend, AStandingMoveOrderKeepsMovingAndNothingIsEmitted) {
     Rig rig = make_rig();
     Interaction player(rig.tank_a);
     choose(rig, player, rig.tank_b);
-    player.handle(with_click(ground_click(rig, true)), rig.sim, rig.options);
+    static_cast<void>(ground_click(rig));
+    player.handle(with_key(input::kKeyM), rig.sim, rig.options);
     ASSERT_EQ(player.take_orders().size(), 1U);
     player.tend(guarding(rig, {{rig.enemy, 50, 41}}));
     EXPECT_TRUE(player.take_orders().empty());
@@ -1537,28 +1555,49 @@ namespace {
 
 } // namespace
 
-TEST(WeaponKey, QCyclesGunRocketMortarBouncerAndWrapsToTheGun) {
+TEST(WeaponClick, TheRightButtonCyclesGunRocketMortarBouncerAndWrapsToTheGun) {
     Rig rig = make_rig();
     Interaction player{rig.tank_a};
     EXPECT_EQ(player.weapon(), Weapon::Gun) << "the craft starts with the gun up";
     const std::array<Weapon, 5> expected{Weapon::Rocket, Weapon::Mortar, Weapon::Bouncer,
                                          Weapon::Gun, Weapon::Rocket};
     for (const Weapon want : expected) {
-        player.handle(with_key(input::kKeyQ), rig.sim, rig.options);
+        player.handle(with_click(ground_click(rig, true)), rig.sim, rig.options);
         EXPECT_EQ(player.weapon(), want);
         EXPECT_TRUE(player.message().empty()) << "the switch refuses nothing";
         EXPECT_TRUE(player.take_orders().empty()) << "choosing a weapon orders nothing";
     }
 }
 
-TEST(WeaponKey, CtrlQIsTheQuitAndNotASwitch) {
+TEST(WeaponClick, TheKeyQNoLongerSwitchesAndNeitherDoesTheWheel) {
+    Rig rig = make_rig();
+    Interaction player{rig.tank_a};
+    for (const Weapon start : kDrivenWeapons) {
+        // Walk to `start` the way a player does, by right-clicking -- BOUNDED, so a switch that
+        // stops working hangs nothing: it fails the assertion below instead.
+        for (int step = 0; step < 8 && player.weapon() != start; ++step) {
+            player.handle(with_click(ground_click(rig, true)), rig.sim, rig.options);
+        }
+        ASSERT_EQ(player.weapon(), start) << "the right click still walks the whole wrap";
+        player.handle(with_key(input::kKeyQ), rig.sim, rig.options);
+        EXPECT_EQ(player.weapon(), start) << "Q is not a weapon control any more";
+        InputFrame roll{};
+        roll.wheel = -2;
+        player.handle(roll, rig.sim, rig.options);
+        EXPECT_EQ(player.weapon(), start) << "and the wheel is not either";
+        player.handle(roll, rig.sim, rig.options);
+        EXPECT_EQ(player.weapon(), start);
+    }
+}
+
+TEST(WeaponClick, CtrlQIsStillTheQuitAndNotASwitch) {
     Rig rig = make_rig();
     Interaction player{rig.tank_a};
     player.handle(with_ctrl_key(input::kKeyQ), rig.sim, rig.options);
     EXPECT_EQ(player.weapon(), Weapon::Gun);
 }
 
-TEST(WeaponKey, AReleaseOrAnotherKeyDoesNotSwitch) {
+TEST(WeaponClick, AReleaseOrAnotherKeyDoesNotSwitch) {
     Rig rig = make_rig();
     Interaction player{rig.tank_a};
     InputFrame release{};
@@ -1568,11 +1607,21 @@ TEST(WeaponKey, AReleaseOrAnotherKeyDoesNotSwitch) {
     EXPECT_EQ(player.weapon(), Weapon::Gun);
 }
 
-TEST(WeaponKey, TheChoiceSurvivesASwapBecauseTheCraftCarriesIt) {
+TEST(WeaponClick, TheLeftButtonFiresAndLeavesTheWeaponAlone) {
     Rig rig = make_rig();
     Interaction player{rig.tank_a};
-    player.handle(with_key(input::kKeyQ), rig.sim, rig.options);
-    player.handle(with_key(input::kKeyQ), rig.sim, rig.options);
+    choose(rig, player, rig.tank_b);
+    static_cast<void>(player.take_orders());
+    player.handle(with_click(ground_click(rig)), rig.sim, rig.options);
+    EXPECT_FALSE(player.take_orders().empty()) << "the trigger still fires";
+    EXPECT_EQ(player.weapon(), Weapon::Gun) << "and the weapon is where it was";
+}
+
+TEST(WeaponClick, TheChoiceSurvivesASwapBecauseTheCraftCarriesIt) {
+    Rig rig = make_rig();
+    Interaction player{rig.tank_a};
+    player.handle(with_click(ground_click(rig, true)), rig.sim, rig.options);
+    player.handle(with_click(ground_click(rig, true)), rig.sim, rig.options);
     ASSERT_EQ(player.weapon(), Weapon::Mortar);
     select_and_drive(rig, player, rig.tank_b);
     EXPECT_EQ(player.weapon(), Weapon::Mortar);

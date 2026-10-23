@@ -20,8 +20,7 @@ You are one tank. Everything else you command.
 | `E` (**held**) | boost: lift the hull, and settle back down when you let go |
 | `C` | toggle the colour calibration view: three red/green/blue bars, a check on the display path |
 | **left click** | **fire**, wherever the mark is (see below) |
-| `Q` | switch weapon: gun -> rocket -> mortar -> bouncer -> gun. The crosshair and the label beside it change; the mortar's crosshair is a range ladder, each rung the distance in tiles a shell fired at that view pitch lands on level ground, the lit rung being where you look now. The trigger fires the gun's and the rocket's auto-aimed shot as ever; with the mortar up it lobs a shell along your own view (heading and pitch, no aim-assist, no lead): point up, fire, and the rung you lit is where it lands. The bouncer is lobbed the same way, by hand, and fires a bouncing round instead of a contact one |
-| mouse wheel | switch weapon, one per notch: wheel up = previous, wheel down = next, the same wrap as `Q` |
+| **right click** | switch weapon: gun -> rocket -> mortar -> bouncer -> gun. The right button is the ONLY switch (2026-10-23: `Q` and the mouse wheel stopped doing this, and the button no longer gives orders -- the orders are on `G`, `M`, `T` and `F`). The crosshair and the label beside it change; the mortar's crosshair is a range ladder, each rung the distance in tiles a shell fired at that view pitch lands on level ground, the lit rung being where you look now. The trigger fires the gun's and the rocket's auto-aimed shot as ever; with the mortar up it lobs a shell along your own view (heading and pitch, no aim-assist, no lead): point up, fire, and the rung you lit is where it lands. The bouncer is lobbed the same way, by hand, and fires a bouncing round instead of a contact one |
 | `Space`, mark on an own unit | add it to the selection, or remove it if it is already in (`Shift`+`Space` does the same); ground, enemies and the tank you drive are ignored |
 | `F1`-`F10` | select every unit of one KIND you own: the function keys are dealt from a pool in spawn order, and a kind that loses its last unit returns its key to the pool (so a wipe can move a kind down a key); the strip along the top shows each kind's key, name, count and health. The digit row no longer selects vehicles: digits answer `G`, `T` and the attack list |
 | `X`, mark on an own armed unit | swap: drive that unit instead; the one you leave stops, and becomes an ordinary unit you can command. Any of your tanks, hover tanks, turrets, mortars and rockets can be driven. It refuses an enemy unit, your factory (unarmed and immobile, so nothing to drive), a dead unit, the unit you are already driving, and an empty mark |
@@ -34,8 +33,6 @@ You are one tank. Everything else you command.
 | `R` | open or close the map: the radar's view switches to the whole world as a square, north up, in the ground's own colours, with your units and buildings (the one you drive ringed in white) and your nav marks with their numbers. R again brings the radar back. It shows everything EXCEPT the enemy assets: the map is the view of what is yours, the radar is the view of what is near. It is only a picture: it gives no orders and cannot be clicked (a click still acts on the world behind it). `O` is BZ2's objectives key and does nothing yet |
 | `F11` or `Alt`+`Enter` | full screen, and back again |
 | `Ctrl`+`Q` | quit from anywhere |
-| **right click**, mark on the ground | order every selected unit there |
-| **right click**, mark on a hostile | order every selected unit to attack it |
 
 Your other tanks retreat to your factory for repairs on their own (at 20 hp or less) and return to
 their last order when healed (80 hp); the tank you are driving never does.

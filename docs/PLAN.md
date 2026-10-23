@@ -113,7 +113,7 @@ the same orders through the same interface; a utility AI that advances, engages 
 commands its mortars and rockets by role; a trigger that chooses a target; **deterministic A\* routes**
 (`sim/route.hpp`) that take units round craters and rims, with the local detour kept as the fallback
 for a goal that cannot be reached; six unit kinds (tank, hover tank, mortar, rocket, turret,
-factory), four player weapons (gun, rocket, mortar, bouncer on `Q` or the wheel), and any armed unit
+factory), four player weapons (gun, rocket, mortar, bouncer, switched by the right button), and any armed unit
 drivable with `X`; `F` follow, nav marks (`N`, then `G` and a digit to send a selection there), the
 roster strip (`1`-`9`) and the world map (`O`); a radar in the corner of the frame that shows what is
 within 40 tiles of the tank and nothing beyond it; **on-screen feedback**: HUD text (weapon name,

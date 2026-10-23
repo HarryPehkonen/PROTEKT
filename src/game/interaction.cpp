@@ -78,19 +78,24 @@ void Interaction::handle(const input::InputFrame& frame, const sim::Sim& sim,
         return unit != nullptr && unit->alive && unit->side == sim::Side::Player;
     });
 
-    // The wheel: ONE weapon per notch, up = previous, down = next, the wrap Q has. Scrolled before
-    // the clicks are read, so a flick and a click in one frame fires the weapon the flick chose.
-    for (int notch = 0; notch < std::abs(frame.wheel); ++notch) {
-        weapon_ = frame.wheel > 0 ? previous_weapon(weapon_) : next_weapon(weapon_);
-    }
-
     for (const input::Click& click : frame.clicks) {
         if (!click.pressed) {
             continue;
         }
+        if (click.button == input::MouseButton::Right) {
+            // THE WEAPON SWITCH, and it is the ONLY thing that changes weapons now: `Q` and the
+            // mouse wheel used to do it as well and were removed on the owner's call (2026-10-23).
+            // It needs no mark, so it is settled before the aim is consulted -- a weapon change is
+            // the same click whether the crosshair is on a tank or on the sky. The orders this
+            // button used to give live on the keys: `G` (send to a mark), `M` (move to the ground
+            // under the mark), `T` (attack what the mark is on), `F` (follow). A weapon change
+            // cancels nothing, so a pending `G` or `T` stays armed across it.
+            weapon_ = next_weapon(weapon_);
+            continue;
+        }
         if (!options.aim.has_value()) {
-            // No mark, no click: a click with nothing to point at has nothing it could mean. A
-            // headless or scripted frame has no aim, and no clicks either.
+            // No mark, no shot: a left click with nothing to point at has nothing it could mean. A
+            // headless or scripted frame has no aim, and no left clicks either.
             continue;
         }
         // The AIM POINT, not the click's own pixel: the shot leaves the middle of the screen, so
@@ -154,34 +159,6 @@ void Interaction::handle(const input::InputFrame& frame, const sim::Sim& sim,
                 message_ = hit_is_hostile ? "engaging the target under the crosshair."
                                           : "firing on your own unit.";
             }
-        } else if (click.button == input::MouseButton::Right) {
-            go_armed_ = false; // a right-click order is the answer to "go where?", by hand
-            disarm_attack();   // and to "attack which?"
-            if (selection_.empty()) {
-                refuse("Nothing is selected to give an order to.");
-                continue;
-            }
-            const std::vector<sim::UnitId> roster = orderable();
-            if (roster.empty()) {
-                refuse("You are driving that one; select another unit to give orders.");
-                continue;
-            }
-            std::vector<sim::Order> orders;
-            if (hit_is_hostile) {
-                orders = cmd::attack(roster, hit->id);
-            } else if (picked.has_tile()) {
-                orders = cmd::move_to(roster, sim::Fixed::from_int(picked.tile_x),
-                                      sim::Fixed::from_int(picked.tile_y));
-            } else {
-                refuse("There is no ground there to send anyone to.");
-                continue;
-            }
-            if (orders.empty()) {
-                refuse("That order cannot be carried out.");
-                continue;
-            }
-            remember(orders);
-            pending_.insert(pending_.end(), orders.begin(), orders.end());
         }
     }
 
@@ -222,8 +199,6 @@ void Interaction::handle(const input::InputFrame& frame, const sim::Sim& sim,
         } else if (key.scancode == input::kKeyEscape || key.scancode == input::kKeyTab) {
             // Tab clears, as Escape does.
             selection_.clear();
-        } else if (key.scancode == input::kKeyQ && !key.ctrl) {
-            weapon_ = next_weapon(weapon_);
         } else if (key.scancode == input::kKeyX) {
             swap_to_crosshair(sim, options);
         } else if (key.scancode == input::kKeyM) {

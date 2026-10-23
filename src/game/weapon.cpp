@@ -22,15 +22,6 @@ Weapon next_weapon(Weapon current) noexcept {
     return kDrivenWeapons.front();
 }
 
-Weapon previous_weapon(Weapon current) noexcept {
-    for (std::size_t i = 0; i < kDrivenWeapons.size(); ++i) {
-        if (kDrivenWeapons.at(i) == current) {
-            return kDrivenWeapons.at((i + kDrivenWeapons.size() - 1) % kDrivenWeapons.size());
-        }
-    }
-    return kDrivenWeapons.front();
-}
-
 std::string_view weapon_name(Weapon weapon) noexcept {
     switch (weapon) {
     case Weapon::Gun:

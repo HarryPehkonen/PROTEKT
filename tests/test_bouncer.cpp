@@ -373,14 +373,12 @@ TEST(Bouncer, TwoSameSeedRunsAreByteIdentical) {
 
 // --- the fourth weapon ------------------------------------------------------------------------
 
-TEST(Bouncer, IsTheFourthDrivenWeaponAndQAndTheWheelWrapOverIt) {
+TEST(Bouncer, IsTheFourthDrivenWeaponAndTheRightClickWrapsOverIt) {
     using game::Weapon;
     ASSERT_EQ(game::kDrivenWeapons.size(), 4U);
     EXPECT_EQ(game::kDrivenWeapons.at(3), Weapon::Bouncer);
     EXPECT_EQ(game::next_weapon(Weapon::Mortar), Weapon::Bouncer);
-    EXPECT_EQ(game::next_weapon(Weapon::Bouncer), Weapon::Gun) << "Q wraps";
-    EXPECT_EQ(game::previous_weapon(Weapon::Gun), Weapon::Bouncer) << "the wheel wraps";
-    EXPECT_EQ(game::previous_weapon(Weapon::Bouncer), Weapon::Mortar);
+    EXPECT_EQ(game::next_weapon(Weapon::Bouncer), Weapon::Gun) << "the right click wraps";
     EXPECT_EQ(game::weapon_name(Weapon::Bouncer), "BOUNCER");
     const game::ReticleShape shape = game::reticle_for(Weapon::Bouncer, 0.6F);
     EXPECT_EQ(shape.kind, game::ReticleKind::Ladder);
