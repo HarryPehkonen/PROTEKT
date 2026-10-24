@@ -21,6 +21,7 @@
 #include "protekt/app/player_view.hpp"
 #include "protekt/app/time_accumulator.hpp"
 #include "protekt/game/aim.hpp"
+#include "protekt/game/menu.hpp"
 #include "protekt/game/nav_marks.hpp"
 #include "protekt/game/player.hpp"
 #include "protekt/game/scene.hpp"
@@ -432,6 +433,13 @@ public:
         scene_options.reticle_pulse = options_.pulse_percent >= 0
                                           ? static_cast<float>(options_.pulse_percent) / 100.0F
                                           : hit_mark_.level(sim_.tick());
+        // The rows live in a NAMED LOCAL that outlives the build below: SceneOptions holds a
+        // pointer and nothing owned, so pointing it at a temporary would leave a dangling menu in
+        // the frame.
+        const std::vector<game::MenuRow> menu
+            = menu_for(sim_, session_, scene_options, session_.attack_armed());
+        scene_options.show_menu = true;
+        scene_options.menu = menu.empty() ? nullptr : &menu;
         return calibration_ ? game::build_calibration_scene(scene_options)
                             : game::build_scene(sim_, scene_options, session_.selection().units());
     }

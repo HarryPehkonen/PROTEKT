@@ -5,15 +5,19 @@
 
 #include <gtest/gtest.h>
 
+#include <cmath>
 #include <cstdint>
 #include <optional>
+#include <span>
 #include <vector>
 
+#include "protekt/game/menu.hpp"
 #include "protekt/game/pick.hpp"
 #include "protekt/game/scene.hpp"
 #include "protekt/game/session.hpp"
 #include "protekt/input/input.hpp"
 #include "protekt/sim/scenario.hpp"
+#include "protekt/sim/scrap.hpp"
 #include "protekt/sim/sim.hpp"
 
 namespace protekt::app {
@@ -104,6 +108,206 @@ TEST(PlayerView, AfterASwapTheListenerAndTheHitFlashAreTheNewTank) {
     EXPECT_FLOAT_EQ(frame.listener.x, camera.x);
     EXPECT_FLOAT_EQ(frame.listener.z, camera.z);
     EXPECT_TRUE(frame.player_alive_now);
+}
+
+// ------------------------------------------------------------------------ the command menu
+
+using game::MenuDim;
+using game::MenuSubject;
+using game::MenuTarget;
+
+/// A base with one of everything the menu knows, tanks to drive and to fight, an enemy to look at,
+/// and a wrecked-tank skirmish the hauler can bank scrap from. Unit 0 is the factory, 1 the
+/// scavenger, 2 the turret, 3 and 4 the player's tanks, 5 the enemy's.
+sim::Scenario base_scenario() {
+    sim::Scenario s;
+    s.seed = kSeed;
+    s.spawns = {sim::Spawn{UnitKind::Factory, Side::Player, 52, 45},
+                sim::Spawn{UnitKind::Scavenger, Side::Player, 58, 40},
+                sim::Spawn{UnitKind::Turret, Side::Player, 58, 45},
+                sim::Spawn{UnitKind::Tank, Side::Player, 50, 41},
+                sim::Spawn{UnitKind::Tank, Side::Player, 58, 41},
+                sim::Spawn{UnitKind::Tank, Side::Enemy, 57, 43}};
+    return s;
+}
+
+sim::UnitId unit_id(const sim::Sim& sim, std::size_t index) { return sim.units().at(index).id; }
+
+/// The camera on the driven tank, turned to face `id`, and the aim on it: the mark sits on the
+/// unit.
+void aim_at(Rig& rig, const Session& session, sim::UnitId id) {
+    rig.options.camera = camera_for(rig.sim, session, kSeed, std::nullopt);
+    const sim::Unit* unit = rig.sim.find(id);
+    const float x = static_cast<float>(unit->x.raw) / 65536.0F * game::kMetresPerTile;
+    const float z = static_cast<float>(unit->y.raw) / 65536.0F * game::kMetresPerTile;
+    rig.options.camera.yaw = std::atan2(x - rig.options.camera.x, z - rig.options.camera.z);
+    const float ground = game::height_metres(kSeed, unit->x.floor_int(), unit->y.floor_int());
+    const game::Projected p = game::project(rig.options.camera, kExtent, x, ground + 0.9F, z);
+    rig.options.aim = game::Aim{p.x, p.y};
+}
+
+/// A rig on `base_scenario`, driving tank 3.
+Rig make_base_rig() {
+    Rig rig{};
+    rig.sim = sim::Sim::create(base_scenario());
+    rig.options.seed = kSeed;
+    rig.options.extent = kExtent;
+    return rig;
+}
+
+/// SPACE over `id`, which selects it: the only way a session's selection is made from one unit.
+void select_with_space(Rig& rig, Session& session, sim::UnitId id) {
+    aim_at(rig, session, id);
+    input::InputFrame space;
+    space.keys.push_back(input::KeyEvent{input::kKeySpace, true, false});
+    std::vector<sim::Order> out;
+    session.frame(space, rig.sim, rig.options, out);
+}
+
+TEST(PlayerView, ASelectedFactoryAsksForTheBuildList) {
+    const Rig rig = make_base_rig();
+    const std::vector<sim::UnitId> selected{unit_id(rig.sim, 0)};
+    EXPECT_EQ(menu_subject_of(rig.sim, selected), MenuSubject::Deployment);
+}
+
+TEST(PlayerView, ASelectedScavengerAsksForTheHarvesterMenu) {
+    const Rig rig = make_base_rig();
+    const std::vector<sim::UnitId> selected{unit_id(rig.sim, 1)};
+    EXPECT_EQ(menu_subject_of(rig.sim, selected), MenuSubject::Harvester);
+}
+
+TEST(PlayerView, ASelectedTurretAsksForTheTurretMenu) {
+    const Rig rig = make_base_rig();
+    const std::vector<sim::UnitId> selected{unit_id(rig.sim, 2)};
+    EXPECT_EQ(menu_subject_of(rig.sim, selected), MenuSubject::Turret);
+}
+
+TEST(PlayerView, ATankAsksForNoMenuAtAll) {
+    const Rig rig = make_base_rig();
+    const std::vector<sim::UnitId> selected{unit_id(rig.sim, 3), unit_id(rig.sim, 4)};
+    EXPECT_EQ(menu_subject_of(rig.sim, selected), MenuSubject::None)
+        << "a tank's menu was never captured, and a menu must not be invented for it";
+}
+
+TEST(PlayerView, TwoKindsSelectedAtOnceAskForNoMenu) {
+    const Rig rig = make_base_rig();
+    const std::vector<sim::UnitId> selected{unit_id(rig.sim, 0), unit_id(rig.sim, 1)};
+    EXPECT_EQ(menu_subject_of(rig.sim, selected), MenuSubject::None)
+        << "there is one subject per menu";
+}
+
+TEST(PlayerView, NothingSelectedAsksForNoMenu) {
+    const Rig rig = make_base_rig();
+    EXPECT_EQ(menu_subject_of(rig.sim, std::span<const sim::UnitId>{}), MenuSubject::None);
+    const std::vector<sim::UnitId> unknown{sim::UnitId{9999}};
+    EXPECT_EQ(menu_subject_of(rig.sim, unknown), MenuSubject::None)
+        << "an id that is not in the sim is not selected";
+}
+
+TEST(PlayerView, TheCursorOverYourOwnCraftOffersSelect) {
+    Rig rig = make_base_rig();
+    const Session session{unit_id(rig.sim, 3)};
+    aim_at(rig, session, unit_id(rig.sim, 4));
+    ASSERT_EQ(game::pick(rig.sim, rig.options, rig.options.aim->x, rig.options.aim->y).unit,
+              unit_id(rig.sim, 4))
+        << "the rig must be aimed at the tank";
+    EXPECT_EQ(menu_target_of(rig.sim, rig.options), MenuTarget::Selectable);
+}
+
+TEST(PlayerView, TheCursorOverAnEnemyNamesNoSelect) {
+    Rig rig = make_base_rig();
+    const Session session{unit_id(rig.sim, 3)};
+    aim_at(rig, session, unit_id(rig.sim, 5));
+    ASSERT_EQ(game::pick(rig.sim, rig.options, rig.options.aim->x, rig.options.aim->y).unit,
+              unit_id(rig.sim, 5))
+        << "the rig must be aimed at the enemy";
+    EXPECT_EQ(menu_target_of(rig.sim, rig.options), MenuTarget::Hostile);
+}
+
+TEST(PlayerView, TheCursorOverBareGroundNamesNothing) {
+    Rig rig = make_base_rig();
+    rig.options.camera = camera_for(rig.sim, Session{unit_id(rig.sim, 3)}, kSeed, std::nullopt);
+    rig.options.camera.yaw = -1.5707964F;        // -x, away from every other unit
+    rig.options.aim = game::Aim{640.0F, 650.0F}; // low on the screen, below every unit
+    const game::Pick picked
+        = game::pick(rig.sim, rig.options, rig.options.aim->x, rig.options.aim->y);
+    ASSERT_FALSE(picked.has_unit());
+    ASSERT_TRUE(picked.has_tile()) << "the rig must be aimed at ground";
+    EXPECT_EQ(menu_target_of(rig.sim, rig.options), MenuTarget::Ground);
+}
+
+TEST(PlayerView, WithNoCursorAtAllTheStateRowNamesNothing) {
+    Rig rig = make_base_rig();
+    rig.options.aim.reset();
+    EXPECT_EQ(menu_target_of(rig.sim, rig.options), MenuTarget::None);
+}
+
+TEST(PlayerView, AnArmedAttackListTakesTheSlotTheMenuWouldUse) {
+    Rig rig = make_base_rig();
+    Session session{unit_id(rig.sim, 3)};
+    select_with_space(rig, session, unit_id(rig.sim, 0));
+    ASSERT_FALSE(session.selection().empty()) << "the rig must have selected the factory";
+    EXPECT_FALSE(menu_for(rig.sim, session, rig.options, false).empty());
+    EXPECT_TRUE(menu_for(rig.sim, session, rig.options, true).empty());
+}
+
+TEST(PlayerView, TheMenuWeighsTheScrapTheSimHasBanked) {
+    Rig rig = make_base_rig();
+    Session session{unit_id(rig.sim, 3)};
+    select_with_space(rig, session, unit_id(rig.sim, 0));
+    ASSERT_EQ(menu_subject_of(rig.sim, session.selection().units()), MenuSubject::Deployment);
+    ASSERT_EQ(rig.sim.ore(Side::Player), 0);
+
+    // With nothing banked every build row is out of reach.
+    int build_rows = 0;
+    for (const game::MenuRow& row : menu_for(rig.sim, session, rig.options, false)) {
+        if (row.key.size() == 1 && row.key.front() >= '1' && row.key.front() <= '7') {
+            ++build_rows;
+            EXPECT_FALSE(row.enabled) << row.key << " " << row.verb;
+            EXPECT_EQ(row.reason, MenuDim::Unaffordable) << row.key << " " << row.verb;
+        }
+    }
+    EXPECT_EQ(build_rows, 7);
+
+    // The hauler banks the wreck of a fight: the ledger now reads kScrapPerWreck, and the rows
+    // cheap enough for it come alive while the dear ones stay dim.
+    int ticks = 0;
+    while (rig.sim.ore(Side::Player) < sim::kScrapPerWreck && ticks++ < 6000) {
+        rig.sim.step();
+    }
+    ASSERT_GE(rig.sim.ore(Side::Player), sim::kScrapPerWreck) << "the hauler never banked";
+    int live = 0;
+    int dim = 0;
+    for (const game::MenuRow& row : menu_for(rig.sim, session, rig.options, false)) {
+        if (row.key.size() == 1 && row.key.front() >= '1' && row.key.front() <= '7') {
+            (row.enabled ? live : dim) += 1;
+        }
+    }
+    EXPECT_GT(live, 0) << "scrap is banked and nothing on the list is affordable";
+    EXPECT_GT(dim, 0) << "four loads do not buy everything on the list";
+}
+
+TEST(PlayerView, ADeadUnitsIdIsNotWhatTheMenuIsAbout) {
+    // A corpse is not a selection. The sim does not ERASE a dead unit -- the wreckage is drawn from
+    // the scrap list and the unit itself stays in the table with `alive` false -- and nothing
+    // prunes a selection when a selected unit dies (only TAB and ESCAPE clear it). So a dead
+    // factory's id can still sit in the player's selection, and without `menu_subject_of`'s alive
+    // filter the menu would offer a build list for a wreck.
+    Rig rig{};
+    rig.sim = sim::Sim::create(sim::Scenario{
+        kSeed, {{UnitKind::Factory, Side::Player, 40, 40}, {UnitKind::Tank, Side::Enemy, 43, 40}}});
+    rig.options.seed = kSeed;
+    rig.options.extent = kExtent;
+    const sim::UnitId factory = unit_id(rig.sim, 0);
+    int ticks = 0;
+    while (ticks++ < 30000 && rig.sim.find(factory)->alive) {
+        rig.sim.step();
+    }
+    // The ANCHOR: if the sim ever starts erasing the dead, this test stops testing anything.
+    ASSERT_NE(rig.sim.find(factory), nullptr) << "a dead unit must still be in the sim's table";
+    ASSERT_FALSE(rig.sim.find(factory)->alive) << "the enemy never killed the factory";
+    const std::vector<sim::UnitId> selection{factory};
+    EXPECT_EQ(menu_subject_of(rig.sim, selection), MenuSubject::None);
 }
 
 } // namespace

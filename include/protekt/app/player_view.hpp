@@ -2,8 +2,11 @@
 
 #include <cstdint>
 #include <optional>
+#include <span>
+#include <vector>
 
 #include "protekt/app/audio_pipeline.hpp"
+#include "protekt/game/menu.hpp"
 #include "protekt/game/scene.hpp"
 #include "protekt/game/session.hpp"
 #include "protekt/sim/sim.hpp"
@@ -31,5 +34,25 @@ namespace protekt::app {
 [[nodiscard]] AudioFrame audio_frame_for(const sim::Sim& sim, const game::Session& session,
                                          const game::Camera& camera, bool trigger_pulled,
                                          bool player_alive_before);
+
+/// What the command menu is about, from the selection. Ids that are not in the sim, or not alive,
+/// are ignored: a selection is the living ones. Every living selected unit must be the SAME kind
+/// and that kind must have a captured menu (a Factory, a Scavenger or a Turret); a mixed selection,
+/// an empty one and every other kind get `MenuSubject::None`, because a menu is never invented.
+[[nodiscard]] game::MenuSubject menu_subject_of(const sim::Sim& sim,
+                                                std::span<const sim::UnitId> selected);
+
+/// What is under the cursor, for the menu's state row: a living unit of the player's side is
+/// `Selectable`, a living enemy `Hostile`, bare ground `Ground`, and no cursor, sky or the far side
+/// of the horizon `None`. It asks `game::pick`; there is no second picker.
+[[nodiscard]] game::MenuTarget menu_target_of(const sim::Sim& sim,
+                                              const game::SceneOptions& options);
+
+/// The menu rows for this frame. Nothing is armed yet (arming is RB2), so the state row and
+/// `TAB CLOSE MENU` read only what is already true. Empty when `attack_armed`: the attack list and
+/// the menu share one slot under the notice, and one panel at a time is the rule.
+[[nodiscard]] std::vector<game::MenuRow> menu_for(const sim::Sim& sim, const game::Session& session,
+                                                  const game::SceneOptions& options,
+                                                  bool attack_armed);
 
 } // namespace protekt::app
