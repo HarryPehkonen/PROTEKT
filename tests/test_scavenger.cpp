@@ -400,3 +400,45 @@ TEST(Scavenger, TheHaulerIsNeverLeftDrivingAtAPieceItCannotReach) {
     EXPECT_EQ(sim.ore(Side::Player), protekt::sim::kScrapPerWreck);
     EXPECT_EQ(sim.units().at(1).stance, Stance::Idle) << "nothing left to fetch: it stands";
 }
+
+/// C8 -- THE WAR CAN END. C4 gave the sim an end (a factory replaces a lost gun and never rearms)
+/// and nothing ever asked whether a side was past saving; `side_has_lost` answers exactly that, and
+/// it CALLS the production beat's own condition rather than restating it, so the verdict and the
+/// factory cannot drift apart.
+TEST(Outcome, ASideIsLostOnlyWhenItsLastGunDiesAndItCannotBuildAnother) {
+    // One gun against four, so the lone side loses it -- and that side has no factory, so nothing
+    // can replace it. That is what makes the loss final rather than a setback.
+    Scenario s;
+    s.seed = 20261023;
+    s.spawns
+        = {Spawn{UnitKind::Tank, Side::Player, 60, 50}, Spawn{UnitKind::Tank, Side::Enemy, 62, 50},
+           Spawn{UnitKind::Tank, Side::Enemy, 62, 51}, Spawn{UnitKind::Tank, Side::Enemy, 61, 51},
+           Spawn{UnitKind::Tank, Side::Enemy, 61, 50}};
+    Sim sim = Sim::create(s);
+    EXPECT_FALSE(sim.side_has_lost(Side::Player)) << "it still has its gun";
+    for (int i = 0; i < 6000 && !sim.side_has_lost(Side::Player); ++i) {
+        sim.step();
+    }
+    EXPECT_TRUE(sim.side_has_lost(Side::Player))
+        << "its only gun is dead and it has no factory to make another";
+
+    // A side that still has a living gun is never lost, whatever the ledger says.
+    if (armed_alive(sim, Side::Enemy) > 0) {
+        EXPECT_FALSE(sim.side_has_lost(Side::Enemy)) << "the winner is not the loser";
+    }
+}
+
+TEST(Outcome, ASideThatWasNeverGivenAGunHasNotLostAnything) {
+    // A scenario with one armed side and one that is only a factory and a hauler. The unarmed side
+    // can never field a gun -- so the build rule can never make it one -- but it was never fighting
+    // either, so it has not LOST. Reading that as a defeat is what put a verdict over every scene
+    // whose rig spawned a lone tank and no enemy.
+    Scenario s;
+    s.seed = 1;
+    s.spawns = {Spawn{UnitKind::Tank, Side::Player, 60, 50},
+                Spawn{UnitKind::Factory, Side::Enemy, 70, 50},
+                Spawn{UnitKind::Scavenger, Side::Enemy, 72, 50}};
+    const Sim sim = Sim::create(s);
+    EXPECT_FALSE(sim.side_has_lost(Side::Enemy)) << "no guns, but no war lost either";
+    EXPECT_FALSE(sim.side_has_lost(Side::Player)) << "and the side with the gun is fine";
+}

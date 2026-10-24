@@ -551,6 +551,10 @@ struct SceneOptions {
     /// it; the shared test rigs turn it off, the same way they already do for the ship instrument,
     /// because a HUD layer that always draws becomes the tail of every vertex list.
     bool show_ledger{true};
+    /// The verdict (C8): the one line that says the war is over, drawn only once a side has lost
+    /// and emitting NOTHING while it is undecided -- so a battle still being fought is
+    /// byte-identical to one that never heard of this field.
+    bool show_outcome{true};
 };
 
 /// Triangles for the terrain mesh (two per tile, painted by `Terrain`) followed by one box per

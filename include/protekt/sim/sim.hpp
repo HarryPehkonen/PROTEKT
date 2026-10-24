@@ -130,6 +130,15 @@ public:
     /// How many A* route plans this battle has run. Output, not state: a cost meter, not hashed.
     [[nodiscard]] std::uint32_t route_plans() const noexcept;
 
+    /// C8: HAS THIS SIDE LOST? A side with no living GUN and no way to make another one -- no
+    /// living factory, or not enough banked to pay for a tank, or nothing missing from the strength
+    /// it started with -- can never fight again, so the war is over for it. DERIVED, never stored
+    /// and never hashed: it is a read over the unit table and the ledger, it CALLS the production
+    /// beat's own predicate (`short_and_affordable`) rather than restating it, and a battle that is
+    /// still undecided produces exactly the state it did before this existed. Whether the game
+    /// shows the verdict, and how, is the game layer's business: the sim only answers the question.
+    [[nodiscard]] bool side_has_lost(Side side) const noexcept;
+
     /// A hash of the ENTIRE simulation state that can be replayed (units, projectiles and tick).
     /// The determinism oracle: a replay must reproduce it exactly, on any machine.
     [[nodiscard]] std::uint64_t state_hash() const noexcept;

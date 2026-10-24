@@ -2256,6 +2256,91 @@ void append_ledger(std::vector<SceneVertex>& out, const SceneOptions& options,
     draw(reading, number_left);
 }
 
+/// THE VERDICT (C8). C4 gave the war an end -- a side with no gun left and no factory able to make
+/// one can never fight again -- and nothing announced it, so a player could lose without being told
+/// and win without noticing. This draws the one line that says which happened.
+///
+/// EMITS NOTHING while the war is undecided (`Sim::side_has_lost` false for both sides), which is
+/// what keeps the layer free for every frame of a battle still being fought: the vertex list, and
+/// so the tail that other tests read, is exactly what it was. The verdict is read from the sim's
+/// own accessor, never re-derived here, so the banner cannot disagree with the war it describes.
+///
+/// The cell is the HUD's own 2.0 at the 720 reference like every other element; the banner is made
+/// to stand out by its opaque plate, its centring and its colour, never by a bigger cell.
+constexpr std::array<float, 3> kOutcomePlate{0.0F, 0.0F, 0.0F};
+constexpr std::array<float, 3> kOutcomeWonInk{0.35F, 1.0F, 0.40F};
+constexpr std::array<float, 3> kOutcomeLostInk{1.0F, 0.30F, 0.25F};
+constexpr float kOutcomeCell = 2.0F;
+/// Where the banner's top sits, as a fraction of the frame's height: high enough to clear the
+/// driving view's centre and the crosshair, low enough to be read without leaving the fight.
+constexpr float kOutcomeTopFraction = 0.18F;
+
+void append_outcome(std::vector<SceneVertex>& out, const SceneOptions& options,
+                    const sim::Sim& sim) {
+    if (!options.show_outcome) {
+        return;
+    }
+    const sim::Side foe
+        = options.viewer_side == sim::Side::Player ? sim::Side::Enemy : sim::Side::Player;
+    const bool viewer_lost = sim.side_has_lost(options.viewer_side);
+    const bool enemy_lost = sim.side_has_lost(foe);
+    if (!viewer_lost && !enemy_lost) {
+        return; // the war is still undecided: there is nothing to announce
+    }
+    // The viewer's own loss is the message he most needs; a mutual annihilation reads as a loss.
+    const std::vector<std::string_view> words
+        = viewer_lost ? std::vector<std::string_view>{"YOU", "HAVE", "LOST"}
+                      : std::vector<std::string_view>{"ENEMY", "DEFEATED"};
+    const std::array<float, 3>& ink = viewer_lost ? kOutcomeLostInk : kOutcomeWonInk;
+
+    const float px = static_cast<float>(options.extent.height) * kHudPerFrameHeight;
+    const float marks_at = math::kNearPlane * kHudClearance * corner_ray_length(options.extent);
+    const auto rect = [&](float distance, float ax, float ay, float bx, float by,
+                          const std::array<float, 3>& rgb) {
+        const auto at = [&](float x, float y) {
+            const RayPoint point = ray_point(options.camera, options.extent, x, y, distance);
+            return Vec3{point.x, point.y, point.z};
+        };
+        emit_quad(out, at(ax, ay), at(bx, ay), at(bx, by), at(ax, by), rgb);
+    };
+    const auto word_width = [](std::string_view word, float cell) {
+        return ((static_cast<float>(word.size()) * 6.0F) - 1.0F) * cell;
+    };
+    const float cell = kOutcomeCell * px;
+    const float gap = cell;
+    float total = 0.0F;
+    for (std::size_t i = 0; i < words.size(); ++i) {
+        total += word_width(words.at(i), cell);
+        if (i + 1 < words.size()) {
+            total += gap;
+        }
+    }
+    const float pad = cell;
+    const float text_h = 5.0F * cell;
+    const float left = (static_cast<float>(options.extent.width) * 0.5F) - (total * 0.5F);
+    const float top = static_cast<float>(options.extent.height) * kOutcomeTopFraction;
+    rect(marks_at * kHudBorderRatio, left - pad, top - pad, left + total + pad, top + text_h + pad,
+         kOutcomePlate);
+    float pen = left;
+    for (const std::string_view word : words) {
+        for (std::size_t index = 0; index < word.size(); ++index) {
+            const std::array<std::uint8_t, 5> rows = mount_glyph(word.at(index));
+            const float glyph_left = pen + (static_cast<float>(index) * 6.0F * cell);
+            for (std::size_t row = 0; row < rows.size(); ++row) {
+                for (int col = 0; col < 5; ++col) {
+                    if (((rows.at(row) >> (4 - col)) & 1U) == 0U) {
+                        continue;
+                    }
+                    const float x = glyph_left + (static_cast<float>(col) * cell);
+                    const float y = top + (static_cast<float>(row) * cell);
+                    rect(marks_at, x, y, x + cell, y + cell, ink);
+                }
+            }
+        }
+        pen += word_width(word, cell) + gap;
+    }
+}
+
 void append_hud_panels(std::vector<SceneVertex>& out, const SceneOptions& options,
                        const sim::Sim& sim, std::span<const sim::UnitId> selected) {
     const bool wants_list = options.attack_list != nullptr && !options.attack_list->empty();
@@ -3013,6 +3098,7 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
     append_weapon_hud(scene.vertices, options);
     append_hud_panels(scene.vertices, options, sim, selected);
     append_ledger(scene.vertices, options, sim);
+    append_outcome(scene.vertices, options, sim);
     append_reticle(scene.vertices, options, sim, aimed);
     append_world_map(scene.vertices, options, sim);
 

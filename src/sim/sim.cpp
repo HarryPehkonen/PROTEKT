@@ -358,6 +358,16 @@ void update_route(Unit& unit, Fixed goal_x, Fixed goal_y, const WorldGround& gro
 /// "armed": a zero range means it never fires and is never a threat.
 bool armed_kind(UnitKind kind) noexcept { return spec_of(kind).range.raw > 0; }
 
+/// IS THIS SIDE SHORT A GUN AND ABLE TO PAY FOR ONE? The condition C4's production beat enacts and
+/// C8's verdict about the war asks about, written ONCE. A side at its starting strength does not
+/// build (a factory replaces a loss, it never rearms), and a side that cannot afford a tank does
+/// not either. Two callers reading one function is what stops the outcome from disagreeing with the
+/// factory that enacts it.
+[[nodiscard]] bool short_and_affordable(int armed_living, int armed_started,
+                                        std::uint16_t ore) noexcept {
+    return armed_living < armed_started && ore >= kTankOreCost;
+}
+
 /// Where a factory's new tank appears: the factory's own tile when nothing is standing on it,
 /// otherwise the first free passable tile on growing square rings, to `kBuildSpawnRadiusTiles`.
 /// `{-1, -1}` means the yard is full: no build, and no ore spent.
@@ -908,7 +918,8 @@ void Sim::step() {
                 continue;
             }
             const auto side = static_cast<std::size_t>(factory.side);
-            if (armed_living.at(side) >= armed_started.at(side) || ore_.at(side) < kTankOreCost) {
+            if (!short_and_affordable(armed_living.at(side), armed_started.at(side),
+                                      ore_.at(side))) {
                 continue;
             }
             const Coord spot = builder_spot(scenario_.seed, units_, factory.x, factory.y);
@@ -929,6 +940,42 @@ void Sim::step() {
 std::uint32_t Sim::tick() const noexcept { return tick_; }
 
 std::uint32_t Sim::route_plans() const noexcept { return route_plans_; }
+
+bool Sim::side_has_lost(Side side) const noexcept {
+    const auto which = static_cast<std::size_t>(side);
+    // The strength the side was given, counted the way the production beat counts it.
+    int armed_started = 0;
+    for (const Spawn& spawn : scenario_.spawns) {
+        if (spawn.side == side && armed_kind(spawn.kind)) {
+            ++armed_started;
+        }
+    }
+    if (armed_started == 0) {
+        // A side that was never given a gun was never in the fight, so it cannot have lost it. This
+        // is not a technicality: it is what keeps a scenario with a lone unarmed hauler, or a test
+        // rig with one tank, from reading as a defeated army on tick zero.
+        return false;
+    }
+    int armed_living = 0;
+    bool has_factory = false;
+    for (const Unit& unit : units_) {
+        if (!unit.alive || unit.side != side) {
+            continue;
+        }
+        if (armed_kind(unit.kind)) {
+            ++armed_living;
+        }
+        if (unit.kind == UnitKind::Factory) {
+            has_factory = true;
+        }
+    }
+    if (armed_living > 0) {
+        return false; // it still has a gun, whatever the ledger says
+    }
+    // No gun left: the side is only still in the war if its factory can make one, on the same terms
+    // the production beat would use.
+    return !(has_factory && short_and_affordable(armed_living, armed_started, ore_.at(which)));
+}
 
 std::uint64_t Sim::seed() const noexcept { return scenario_.seed; }
 

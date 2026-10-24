@@ -5234,6 +5234,27 @@ TEST(ShipGauge, FourRowsFitAtTheSmallestWindow) {
 /// property that lets every other frame in this suite (and every frame of a battle that has not yet
 /// lost a unit) stay byte-identical to what it drew before this layer existed.
 
+/// C8's rig: one player gun against four enemy tanks, close enough that the fight starts at once.
+/// The player's side has NO factory, so when its gun dies nothing can replace it and the war is
+/// over for it. Two tests build this same battle and must agree about it, so the seed is named.
+constexpr std::uint64_t kOutcomeSeed = 20261023;
+
+protekt::sim::Scenario an_outcome_battle() {
+    protekt::sim::Scenario scenario;
+    scenario.seed = kOutcomeSeed;
+    scenario.spawns.push_back(
+        protekt::sim::Spawn{protekt::sim::UnitKind::Tank, protekt::sim::Side::Player, 60, 50});
+    scenario.spawns.push_back(
+        protekt::sim::Spawn{protekt::sim::UnitKind::Tank, protekt::sim::Side::Enemy, 62, 50});
+    scenario.spawns.push_back(
+        protekt::sim::Spawn{protekt::sim::UnitKind::Tank, protekt::sim::Side::Enemy, 62, 51});
+    scenario.spawns.push_back(
+        protekt::sim::Spawn{protekt::sim::UnitKind::Tank, protekt::sim::Side::Enemy, 61, 51});
+    scenario.spawns.push_back(
+        protekt::sim::Spawn{protekt::sim::UnitKind::Tank, protekt::sim::Side::Enemy, 61, 50});
+    return scenario;
+}
+
 /// A fight that ENDS: three tanks of one side against a lone one on open ground, so one side loses
 /// a unit and the other does not. The same rig `test_scrap.cpp` uses to get litter on the field.
 protekt::sim::Sim a_battle_that_leaves_litter() {
@@ -5423,4 +5444,37 @@ TEST(Scene, TheWreckageIsDrawnWhereThePiecesLie) {
         }
         EXPECT_TRUE(at_a_piece) << "a wreckage plate drawn off the ground, or off its piece";
     }
+}
+
+TEST(Scene, TheVerdictIsDrawnOnlyWhenTheWarIsOver) {
+    // C8's verdict, on the screen. Two claims, and the first is the one that protects every other
+    // test in this file: while the war is still being fought the layer adds NOT ONE VERTEX, so no
+    // rig that reads the vertex tail can be disturbed by it. The second is that once the war ends,
+    // the line is actually there.
+    //
+    // The comparison is against the same scene with the layer switched OFF rather than counting a
+    // colour, because the banner's ink is a red the radar's hostile marks already use.
+    SceneOptions options = options_at(0.0F, 0.0F, kOutcomeSeed, 40);
+    options.show_ledger = false;
+
+    const protekt::sim::Sim fighting = protekt::sim::Sim::create(an_outcome_battle());
+    options.show_outcome = true;
+    const std::size_t undecided = build_scene(fighting, options).vertices.size();
+    options.show_outcome = false;
+    const std::size_t without = build_scene(fighting, options).vertices.size();
+    EXPECT_EQ(undecided, without) << "the verdict drew while the war was still being fought";
+
+    // The same battle played to its end: the player's only gun is gone and no factory can replace
+    // it.
+    protekt::sim::Sim decided = protekt::sim::Sim::create(an_outcome_battle());
+    for (int i = 0; i < 6000 && !decided.side_has_lost(protekt::sim::Side::Player); ++i) {
+        decided.step();
+    }
+    ASSERT_TRUE(decided.side_has_lost(protekt::sim::Side::Player))
+        << "the rig must reach a verdict";
+    options.show_outcome = true;
+    const std::size_t banner = build_scene(decided, options).vertices.size();
+    options.show_outcome = false;
+    const std::size_t bare = build_scene(decided, options).vertices.size();
+    EXPECT_GT(banner, bare) << "the war ended and the HUD said nothing";
 }
