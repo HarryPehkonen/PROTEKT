@@ -64,28 +64,6 @@ namespace {
     return best;
 }
 
-/// The menu the selection owns: its kind's subject when every selected unit is of one kind, and
-/// `None` for an empty or mixed selection. The same rule as the app's `menu_subject_of`, which the
-/// frame draws from -- the game layer cannot call up into the app, so the rule is written here too
-/// and tests/test_player_view.cpp pins the two together.
-[[nodiscard]] MenuSubject subject_of_selection(const sim::Sim& sim,
-                                               const cmd::Selection& selection) noexcept {
-    bool any = false;
-    sim::UnitKind kind{};
-    for (const sim::UnitId id : selection.units()) {
-        const sim::Unit* unit = sim.find(id);
-        if (unit == nullptr || !unit->alive) {
-            continue;
-        }
-        if (any && unit->kind != kind) {
-            return MenuSubject::None;
-        }
-        kind = unit->kind;
-        any = true;
-    }
-    return any ? menu_subject_of_kind(kind) : MenuSubject::None;
-}
-
 /// How far Space will reach to select a unit: 80% of the radar's 40-tile radius. Beyond that the
 /// unit is on the radar but too far to pick out by eye, so Space leaves the selection alone.
 constexpr float kSpaceSelectRangeTiles = 0.8F * static_cast<float>(kRadarRadiusTiles);
@@ -495,7 +473,7 @@ void Interaction::follow_crosshair_unit(const sim::Sim& sim, const SceneOptions&
 }
 
 void Interaction::menu_digit(const sim::Sim& sim, int digit) {
-    const MenuInput in{subject_of_selection(sim, selection_), sim::Side::Player, ArmedCommand{},
+    const MenuInput in{menu_subject_of(sim, selection_.units()), sim::Side::Player, ArmedCommand{},
                        MenuTarget::None, static_cast<int>(sim.ore(sim::Side::Player))};
     const std::vector<MenuRow> rows = menu_rows(in);
     const char label = static_cast<char>('0' + digit);

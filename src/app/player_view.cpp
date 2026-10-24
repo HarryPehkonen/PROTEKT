@@ -4,32 +4,6 @@
 
 namespace protekt::app {
 
-namespace {
-
-/// The menu a kind of unit owns. The sim's `Factory` plays BattleZone II's DEPLOYED recycler: it is
-/// the base that builds, and the build rule is its, so `Deployment` is exact and not a stretch.
-/// Every kind whose menu was never captured is `None`.
-game::MenuSubject subject_of_kind(sim::UnitKind kind) {
-    switch (kind) {
-    case sim::UnitKind::Factory:
-        return game::MenuSubject::Deployment;
-    case sim::UnitKind::Recycler:
-        return game::MenuSubject::Recycler;
-    case sim::UnitKind::Scavenger:
-        return game::MenuSubject::Harvester;
-    case sim::UnitKind::Turret:
-        return game::MenuSubject::Turret;
-    case sim::UnitKind::Tank:
-    case sim::UnitKind::HoverTank:
-    case sim::UnitKind::Mortar:
-    case sim::UnitKind::Rocket:
-        break;
-    }
-    return game::MenuSubject::None;
-}
-
-} // namespace
-
 bool is_alive(const sim::Sim& sim, sim::UnitId id) {
     for (const sim::Unit& unit : sim.units()) {
         if (unit.id == id) {
@@ -71,23 +45,6 @@ AudioFrame audio_frame_for(const sim::Sim& sim, const game::Session& session,
                       session.driven()};
 }
 
-game::MenuSubject menu_subject_of(const sim::Sim& sim, std::span<const sim::UnitId> selected) {
-    bool any = false;
-    sim::UnitKind kind{};
-    for (const sim::UnitId id : selected) {
-        const sim::Unit* unit = sim.find(id);
-        if (unit == nullptr || !unit->alive) {
-            continue;
-        }
-        if (any && unit->kind != kind) {
-            return game::MenuSubject::None; // one subject per menu
-        }
-        kind = unit->kind;
-        any = true;
-    }
-    return any ? subject_of_kind(kind) : game::MenuSubject::None;
-}
-
 game::MenuTarget menu_target_of(const sim::Sim& sim, const game::SceneOptions& options) {
     if (!options.aim.has_value()) {
         return game::MenuTarget::None;
@@ -109,8 +66,8 @@ std::vector<game::MenuRow> menu_for(const sim::Sim& sim, const game::Session& se
     if (attack_armed) {
         return {};
     }
-    const game::MenuInput in{menu_subject_of(sim, session.selection().units()), sim::Side::Player,
-                             game::ArmedCommand{}, menu_target_of(sim, options),
+    const game::MenuInput in{game::menu_subject_of(sim, session.selection().units()),
+                             sim::Side::Player, game::ArmedCommand{}, menu_target_of(sim, options),
                              static_cast<int>(sim.ore(sim::Side::Player))};
     return game::menu_rows(in);
 }

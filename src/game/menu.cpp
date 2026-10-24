@@ -134,6 +134,23 @@ MenuSubject menu_subject_of_kind(sim::UnitKind kind) noexcept {
     return MenuSubject::None;
 }
 
+MenuSubject menu_subject_of(const sim::Sim& sim, std::span<const sim::UnitId> selected) noexcept {
+    bool any = false;
+    sim::UnitKind kind{};
+    for (const sim::UnitId id : selected) {
+        const sim::Unit* unit = sim.find(id);
+        if (unit == nullptr || !unit->alive) {
+            continue;
+        }
+        if (any && unit->kind != kind) {
+            return MenuSubject::None; // one subject per menu
+        }
+        kind = unit->kind;
+        any = true;
+    }
+    return any ? menu_subject_of_kind(kind) : MenuSubject::None;
+}
+
 std::vector<MenuRow> menu_rows(const MenuInput& in) {
     std::vector<MenuRow> rows;
     // Nothing selected: no menu, so nothing is drawn and a frame without a menu stays

@@ -7,6 +7,7 @@
 #include <utility>
 #include <vector>
 
+#include "protekt/sim/sim.hpp"
 #include "protekt/sim/units.hpp"
 
 /// THE NUMBERED COMMAND MENU (RB0): the rows along the left of the frame, as a pure function of
@@ -159,9 +160,18 @@ inline constexpr std::string_view kVerbHold{"HOLD"};
 
 /// The menu a kind of unit owns, or `None` when its menu was never captured. The sim's `Factory`
 /// plays BattleZone II's DEPLOYED recycler (it is the base that builds), so `Deployment` is exact
-/// and not a stretch. This is the kind half of the mapping from a selection to a subject; the
-/// selection half (one kind, or no menu) lives with its callers.
+/// and not a stretch. This is the kind half of the mapping from a selection to a subject;
+/// `menu_subject_of` is the selection half.
 [[nodiscard]] MenuSubject menu_subject_of_kind(sim::UnitKind kind) noexcept;
+
+/// What the command menu is about, from the selection: the ONE rule from selection to subject, for
+/// the frame that draws the menu and the layer that routes its digits alike. Ids that are not in
+/// the sim, or not alive, are ignored: a selection is the living ones. Every living selected unit
+/// must be the SAME kind and that kind must have a captured menu (a Factory, a Recycler, a
+/// Scavenger or a Turret); a mixed selection, an empty one and every other kind get
+/// `MenuSubject::None`, because a menu is never invented.
+[[nodiscard]] MenuSubject menu_subject_of(const sim::Sim& sim,
+                                          std::span<const sim::UnitId> selected) noexcept;
 
 /// The menu a player sees for `in`, from the state row down. Empty when nothing is selected, so a
 /// layer that draws these rows draws NOTHING in the state a frame without a menu is in.

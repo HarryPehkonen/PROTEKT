@@ -643,5 +643,54 @@ TEST(Menu, DrawnADimmedRowIsADimmerInkWhateverTheReason) {
     }
 }
 
+TEST(Menu, ASelectionOwnsTheSubjectOfTheLivingKindItHolds) {
+    // The ONE rule from selection to subject (`menu_subject_of`). Covered where the app's frame
+    // draws it, in tests/test_player_view.cpp: a lone Factory, Scavenger, Recycler and Turret, a
+    // lone tank, a mixed pair, an empty selection, an id that is not in the sim on its own, and a
+    // lone dead unit. Pinned HERE: every kind on its own (the table, once per kind), and the two
+    // ways a selection can hold something that is not part of it.
+    constexpr sim::Side kPlayer = sim::Side::Player;
+    constexpr sim::Side kEnemy = sim::Side::Enemy;
+    std::vector<sim::Spawn> spawns;
+    for (int kind = 0; kind < sim::kUnitKindCount; ++kind) {
+        spawns.push_back(sim::Spawn{static_cast<sim::UnitKind>(kind), kPlayer, 20 + kind, 20});
+    }
+    const sim::Sim every_kind = sim::Sim::create(sim::Scenario{1, spawns});
+    ASSERT_EQ(every_kind.units().size(), static_cast<std::size_t>(sim::kUnitKindCount));
+    for (const sim::Unit& unit : every_kind.units()) {
+        const std::vector<sim::UnitId> alone{unit.id};
+        EXPECT_EQ(menu_subject_of(every_kind, alone), menu_subject_of_kind(unit.kind))
+            << "kind " << static_cast<int>(unit.kind);
+    }
+
+    // A tank that dies, beside a harvester that does not: the corpse is not part of the selection,
+    // so the selection is a HARVESTER one and not a mixed one. The tank is shot by a pair of
+    // enemy tanks and the sim keeps it in its table with `alive` false.
+    sim::Sim sim = sim::Sim::create(sim::Scenario{1,
+                                                  {{sim::UnitKind::Tank, kPlayer, 40, 40},
+                                                   {sim::UnitKind::Scavenger, kPlayer, 120, 120},
+                                                   {sim::UnitKind::Tank, kEnemy, 43, 40},
+                                                   {sim::UnitKind::Tank, kEnemy, 43, 42}}});
+    const sim::UnitId tank = sim.units()[0].id;
+    const sim::UnitId harvester = sim.units()[1].id;
+    const std::vector<sim::UnitId> both{tank, harvester};
+    ASSERT_EQ(menu_subject_of(sim, both), MenuSubject::None)
+        << "alive, a tank and a harvester together are a mixed selection";
+    int ticks = 0;
+    while (ticks++ < 30000 && sim.find(tank)->alive) {
+        sim.step();
+    }
+    // The ANCHOR: the dead stay in the table, and the harvester is still there to be selected.
+    ASSERT_NE(sim.find(tank), nullptr);
+    ASSERT_FALSE(sim.find(tank)->alive) << "the enemy never killed the tank";
+    ASSERT_TRUE(sim.find(harvester)->alive) << "the harvester must outlive the tank";
+    EXPECT_EQ(menu_subject_of(sim, both), MenuSubject::Harvester);
+
+    // An id that is not in the sim is skipped the same way, beside a living unit.
+    const std::vector<sim::UnitId> with_stranger{sim::UnitId{9999}, harvester};
+    ASSERT_EQ(sim.find(sim::UnitId{9999}), nullptr);
+    EXPECT_EQ(menu_subject_of(sim, with_stranger), MenuSubject::Harvester);
+}
+
 } // namespace
 } // namespace protekt::game

@@ -2,7 +2,6 @@
 
 #include <cstdint>
 #include <optional>
-#include <span>
 #include <vector>
 
 #include "protekt/app/audio_pipeline.hpp"
@@ -34,13 +33,6 @@ namespace protekt::app {
 [[nodiscard]] AudioFrame audio_frame_for(const sim::Sim& sim, const game::Session& session,
                                          const game::Camera& camera, bool trigger_pulled,
                                          bool player_alive_before);
-
-/// What the command menu is about, from the selection. Ids that are not in the sim, or not alive,
-/// are ignored: a selection is the living ones. Every living selected unit must be the SAME kind
-/// and that kind must have a captured menu (a Factory, a Scavenger or a Turret); a mixed selection,
-/// an empty one and every other kind get `MenuSubject::None`, because a menu is never invented.
-[[nodiscard]] game::MenuSubject menu_subject_of(const sim::Sim& sim,
-                                                std::span<const sim::UnitId> selected);
 
 /// What is under the cursor, for the menu's state row: a living unit of the player's side is
 /// `Selectable`, a living enemy `Hostile`, bare ground `Ground`, and no cursor, sky or the far side

@@ -168,13 +168,13 @@ void select_with_space(Rig& rig, Session& session, sim::UnitId id) {
 TEST(PlayerView, ASelectedFactoryAsksForTheBuildList) {
     const Rig rig = make_base_rig();
     const std::vector<sim::UnitId> selected{unit_id(rig.sim, 0)};
-    EXPECT_EQ(menu_subject_of(rig.sim, selected), MenuSubject::Deployment);
+    EXPECT_EQ(game::menu_subject_of(rig.sim, selected), MenuSubject::Deployment);
 }
 
 TEST(PlayerView, ASelectedScavengerAsksForTheHarvesterMenu) {
     const Rig rig = make_base_rig();
     const std::vector<sim::UnitId> selected{unit_id(rig.sim, 1)};
-    EXPECT_EQ(menu_subject_of(rig.sim, selected), MenuSubject::Harvester);
+    EXPECT_EQ(game::menu_subject_of(rig.sim, selected), MenuSubject::Harvester);
 }
 
 TEST(PlayerView, ASelectedRecyclerAsksForTheRecyclerMenu) {
@@ -185,10 +185,10 @@ TEST(PlayerView, ASelectedRecyclerAsksForTheRecyclerMenu) {
     const sim::UnitId recycler = unit_id(rig.sim, 6);
     ASSERT_EQ(rig.sim.find(recycler)->kind, UnitKind::Recycler);
     const std::vector<sim::UnitId> selected{recycler};
-    ASSERT_EQ(menu_subject_of(rig.sim, selected), MenuSubject::Recycler);
+    ASSERT_EQ(game::menu_subject_of(rig.sim, selected), MenuSubject::Recycler);
 
     game::MenuInput in;
-    in.subject = menu_subject_of(rig.sim, selected);
+    in.subject = game::menu_subject_of(rig.sim, selected);
     const std::vector<game::MenuRow> rows = game::menu_rows(in);
     ASSERT_EQ(rows.size(), 6U) << "SPACE, TAB, ~, then 1 FOLLOW ME, 2 GO TO NAV, 3 DEPLOY";
     EXPECT_EQ(rows.at(3).verb, "FOLLOW ME");
@@ -212,7 +212,7 @@ TEST(PlayerView, TheSkirmishRecyclerIsLabelledRecyclerAndAsksForTheSixRowMenu) {
 
     const std::vector<sim::UnitId> selected{group.units.front()};
     game::MenuInput in;
-    in.subject = menu_subject_of(sim, selected);
+    in.subject = game::menu_subject_of(sim, selected);
     ASSERT_EQ(in.subject, game::MenuSubject::Recycler);
     const std::vector<game::MenuRow> rows = game::menu_rows(in);
     ASSERT_EQ(rows.size(), 6U) << "SPACE, TAB, ~, then 1 FOLLOW ME, 2 GO TO NAV, 3 DEPLOY";
@@ -223,44 +223,28 @@ TEST(PlayerView, TheSkirmishRecyclerIsLabelledRecyclerAndAsksForTheSixRowMenu) {
 TEST(PlayerView, ASelectedTurretAsksForTheTurretMenu) {
     const Rig rig = make_base_rig();
     const std::vector<sim::UnitId> selected{unit_id(rig.sim, 2)};
-    EXPECT_EQ(menu_subject_of(rig.sim, selected), MenuSubject::Turret);
-}
-
-// RB-DIGITS: the game layer cannot call up into the app, so the digit router keeps its own copy of
-// the kind -> menu mapping. This is the thing that stops the two drifting.
-TEST(PlayerView, TheGameLayersKindMappingAgreesWithTheAppsForEveryKind) {
-    std::vector<sim::Spawn> spawns;
-    for (int kind = 0; kind < sim::kUnitKindCount; ++kind) {
-        spawns.push_back(sim::Spawn{static_cast<UnitKind>(kind), Side::Player, 20 + kind, 20});
-    }
-    const sim::Sim sim = sim::Sim::create(sim::Scenario{kSeed, spawns});
-    ASSERT_EQ(sim.units().size(), static_cast<std::size_t>(sim::kUnitKindCount));
-    for (const sim::Unit& unit : sim.units()) {
-        const std::vector<sim::UnitId> selected{unit.id};
-        EXPECT_EQ(menu_subject_of(sim, selected), game::menu_subject_of_kind(unit.kind))
-            << "kind " << static_cast<int>(unit.kind);
-    }
+    EXPECT_EQ(game::menu_subject_of(rig.sim, selected), MenuSubject::Turret);
 }
 
 TEST(PlayerView, ATankAsksForNoMenuAtAll) {
     const Rig rig = make_base_rig();
     const std::vector<sim::UnitId> selected{unit_id(rig.sim, 3), unit_id(rig.sim, 4)};
-    EXPECT_EQ(menu_subject_of(rig.sim, selected), MenuSubject::None)
+    EXPECT_EQ(game::menu_subject_of(rig.sim, selected), MenuSubject::None)
         << "a tank's menu was never captured, and a menu must not be invented for it";
 }
 
 TEST(PlayerView, TwoKindsSelectedAtOnceAskForNoMenu) {
     const Rig rig = make_base_rig();
     const std::vector<sim::UnitId> selected{unit_id(rig.sim, 0), unit_id(rig.sim, 1)};
-    EXPECT_EQ(menu_subject_of(rig.sim, selected), MenuSubject::None)
+    EXPECT_EQ(game::menu_subject_of(rig.sim, selected), MenuSubject::None)
         << "there is one subject per menu";
 }
 
 TEST(PlayerView, NothingSelectedAsksForNoMenu) {
     const Rig rig = make_base_rig();
-    EXPECT_EQ(menu_subject_of(rig.sim, std::span<const sim::UnitId>{}), MenuSubject::None);
+    EXPECT_EQ(game::menu_subject_of(rig.sim, std::span<const sim::UnitId>{}), MenuSubject::None);
     const std::vector<sim::UnitId> unknown{sim::UnitId{9999}};
-    EXPECT_EQ(menu_subject_of(rig.sim, unknown), MenuSubject::None)
+    EXPECT_EQ(game::menu_subject_of(rig.sim, unknown), MenuSubject::None)
         << "an id that is not in the sim is not selected";
 }
 
@@ -315,7 +299,7 @@ TEST(PlayerView, TheMenuWeighsTheScrapTheSimHasBanked) {
     Rig rig = make_base_rig();
     Session session{unit_id(rig.sim, 3)};
     select_with_space(rig, session, unit_id(rig.sim, 0));
-    ASSERT_EQ(menu_subject_of(rig.sim, session.selection().units()), MenuSubject::Deployment);
+    ASSERT_EQ(game::menu_subject_of(rig.sim, session.selection().units()), MenuSubject::Deployment);
     ASSERT_EQ(rig.sim.ore(Side::Player), 0);
 
     // With nothing banked every build row is out of reach.
@@ -367,7 +351,7 @@ TEST(PlayerView, ADeadUnitsIdIsNotWhatTheMenuIsAbout) {
     ASSERT_NE(rig.sim.find(factory), nullptr) << "a dead unit must still be in the sim's table";
     ASSERT_FALSE(rig.sim.find(factory)->alive) << "the enemy never killed the factory";
     const std::vector<sim::UnitId> selection{factory};
-    EXPECT_EQ(menu_subject_of(rig.sim, selection), MenuSubject::None);
+    EXPECT_EQ(game::menu_subject_of(rig.sim, selection), MenuSubject::None);
 }
 
 } // namespace
