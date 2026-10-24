@@ -226,6 +226,22 @@ TEST(PlayerView, ASelectedTurretAsksForTheTurretMenu) {
     EXPECT_EQ(menu_subject_of(rig.sim, selected), MenuSubject::Turret);
 }
 
+// RB-DIGITS: the game layer cannot call up into the app, so the digit router keeps its own copy of
+// the kind -> menu mapping. This is the thing that stops the two drifting.
+TEST(PlayerView, TheGameLayersKindMappingAgreesWithTheAppsForEveryKind) {
+    std::vector<sim::Spawn> spawns;
+    for (int kind = 0; kind < sim::kUnitKindCount; ++kind) {
+        spawns.push_back(sim::Spawn{static_cast<UnitKind>(kind), Side::Player, 20 + kind, 20});
+    }
+    const sim::Sim sim = sim::Sim::create(sim::Scenario{kSeed, spawns});
+    ASSERT_EQ(sim.units().size(), static_cast<std::size_t>(sim::kUnitKindCount));
+    for (const sim::Unit& unit : sim.units()) {
+        const std::vector<sim::UnitId> selected{unit.id};
+        EXPECT_EQ(menu_subject_of(sim, selected), game::menu_subject_of_kind(unit.kind))
+            << "kind " << static_cast<int>(unit.kind);
+    }
+}
+
 TEST(PlayerView, ATankAsksForNoMenuAtAll) {
     const Rig rig = make_base_rig();
     const std::vector<sim::UnitId> selected{unit_id(rig.sim, 3), unit_id(rig.sim, 4)};

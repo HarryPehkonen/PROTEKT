@@ -150,6 +150,19 @@ struct BuildItem {
 /// capture that never showed them. A deployment on the enemy side therefore draws no build rows.
 [[nodiscard]] std::span<const BuildItem> build_items(sim::Side side) noexcept;
 
+/// The verbs of the rows that ACT today (RB-DIGITS), written once so the table that draws them
+/// (`menu.cpp`) and the layer that routes their digit (`Interaction`) cannot drift apart: a row is
+/// identified by its verb, because the same KEY names a different verb on another subject (`1` is
+/// FOLLOW ME on a recycler and HARVESTER on a deployment).
+inline constexpr std::string_view kVerbFollowMe{"FOLLOW ME"};
+inline constexpr std::string_view kVerbHold{"HOLD"};
+
+/// The menu a kind of unit owns, or `None` when its menu was never captured. The sim's `Factory`
+/// plays BattleZone II's DEPLOYED recycler (it is the base that builds), so `Deployment` is exact
+/// and not a stretch. This is the kind half of the mapping from a selection to a subject; the
+/// selection half (one kind, or no menu) lives with its callers.
+[[nodiscard]] MenuSubject menu_subject_of_kind(sim::UnitKind kind) noexcept;
+
 /// The menu a player sees for `in`, from the state row down. Empty when nothing is selected, so a
 /// layer that draws these rows draws NOTHING in the state a frame without a menu is in.
 ///

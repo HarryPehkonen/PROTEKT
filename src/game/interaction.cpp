@@ -5,10 +5,13 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
+#include <string_view>
 #include <utility>
+#include <vector>
 
 #include "protekt/ai/utility.hpp"
 #include "protekt/cmd/command.hpp"
+#include "protekt/game/menu.hpp"
 #include "protekt/game/nav_marks.hpp"
 #include "protekt/game/pick.hpp"
 #include "protekt/game/radar.hpp"
@@ -59,6 +62,28 @@ namespace {
         best_d2 = d2;
     }
     return best;
+}
+
+/// The menu the selection owns: its kind's subject when every selected unit is of one kind, and
+/// `None` for an empty or mixed selection. The same rule as the app's `menu_subject_of`, which the
+/// frame draws from -- the game layer cannot call up into the app, so the rule is written here too
+/// and tests/test_player_view.cpp pins the two together.
+[[nodiscard]] MenuSubject subject_of_selection(const sim::Sim& sim,
+                                               const cmd::Selection& selection) noexcept {
+    bool any = false;
+    sim::UnitKind kind{};
+    for (const sim::UnitId id : selection.units()) {
+        const sim::Unit* unit = sim.find(id);
+        if (unit == nullptr || !unit->alive) {
+            continue;
+        }
+        if (any && unit->kind != kind) {
+            return MenuSubject::None;
+        }
+        kind = unit->kind;
+        any = true;
+    }
+    return any ? menu_subject_of_kind(kind) : MenuSubject::None;
 }
 
 /// How far Space will reach to select a unit: 80% of the radar's 40-tile radius. Beyond that the
@@ -203,6 +228,9 @@ void Interaction::handle(const input::InputFrame& frame, const sim::Sim& sim,
         } else if (key.scancode == input::kKeyEscape || key.scancode == input::kKeyTab) {
             // Tab clears, as Escape does.
             selection_.clear();
+        } else if (const int digit = input::mark_digit(key); digit >= 0) {
+            // Reached only with no prompt open: G and T settle a digit above and `continue`.
+            menu_digit(sim, digit);
         } else if (key.scancode == input::kKeyX) {
             swap_to_crosshair(sim, options);
         } else if (key.scancode == input::kKeyM) {
@@ -464,6 +492,75 @@ void Interaction::follow_crosshair_unit(const sim::Sim& sim, const SceneOptions&
     remember(orders);
     pending_.insert(pending_.end(), orders.begin(), orders.end());
     message_ = "shadowing that unit.";
+}
+
+void Interaction::menu_digit(const sim::Sim& sim, int digit) {
+    const MenuInput in{subject_of_selection(sim, selection_), sim::Side::Player, ArmedCommand{},
+                       MenuTarget::None, static_cast<int>(sim.ore(sim::Side::Player))};
+    const std::vector<MenuRow> rows = menu_rows(in);
+    const char label = static_cast<char>('0' + digit);
+    const auto row = std::find_if(rows.begin(), rows.end(), [&label](const MenuRow& candidate) {
+        return candidate.key == std::string_view{&label, 1};
+    });
+    // A row the model dims, or draws no digit for, is not a command: the digit does nothing, as it
+    // did before the menu was routed. Only the rows below can act yet; the rest stay inert.
+    if (row == rows.end() || !row->enabled) {
+        return;
+    }
+    if (row->verb == kVerbFollowMe) {
+        follow_driven(sim);
+    } else if (row->verb == kVerbHold) {
+        hold_selection(sim);
+    }
+}
+
+void Interaction::follow_driven(const sim::Sim& sim) {
+    const sim::Unit* craft = sim.find(driven_);
+    if (craft == nullptr || !craft->alive) {
+        refuse("You have no craft to follow.");
+        return;
+    }
+    const std::vector<sim::UnitId> roster = orderable();
+    if (roster.empty()) {
+        refuse("You are driving that one; select another unit to give orders.");
+        return;
+    }
+    const std::vector<sim::Order> orders = cmd::follow(roster, driven_);
+    if (orders.empty()) {
+        refuse("That order cannot be carried out.");
+        return;
+    }
+    remember(orders);
+    pending_.insert(pending_.end(), orders.begin(), orders.end());
+    message_ = "following you.";
+}
+
+void Interaction::hold_selection(const sim::Sim& sim) {
+    std::vector<sim::UnitId> roster = orderable();
+    if (roster.empty()) {
+        refuse("You are driving that one; select another unit to give orders.");
+        return;
+    }
+    // GuardAt takes ONE point for its whole roster and each unit stands somewhere else, so it is
+    // built a unit at a time -- in ascending id order, as every cmd:: verb emits.
+    std::sort(roster.begin(), roster.end());
+    std::vector<sim::Order> orders;
+    for (const sim::UnitId id : roster) {
+        const sim::Unit* unit = sim.find(id);
+        if (unit == nullptr) {
+            continue;
+        }
+        const std::vector<sim::UnitId> one{id};
+        const std::vector<sim::Order> post = cmd::guard_at(one, unit->x, unit->y);
+        orders.insert(orders.end(), post.begin(), post.end());
+    }
+    if (orders.empty()) {
+        refuse("That order cannot be carried out.");
+        return;
+    }
+    remember(orders);
+    pending_.insert(pending_.end(), orders.begin(), orders.end());
+    message_ = "holding here.";
 }
 
 void Interaction::send_to_mark(int number, const SceneOptions& options) {

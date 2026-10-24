@@ -10,6 +10,7 @@
 #include "protekt/game/interaction.hpp"
 #include "protekt/game/nav_marks.hpp"
 #include "protekt/game/pick.hpp"
+#include "protekt/game/roster.hpp"
 #include "protekt/game/scene.hpp"
 #include "protekt/input/bindings.hpp"
 #include "protekt/input/input.hpp"
@@ -501,6 +502,306 @@ TEST(AttackList, ArmingEitherClearsTheOther) {
     EXPECT_TRUE(player.go_armed());
     EXPECT_FALSE(player.attack_armed());
     EXPECT_TRUE(player.attack_targets().empty());
+}
+
+// RB-DIGITS: with no prompt open a digit is a row of the selected subject's menu. Two rows act --
+// `1 FOLLOW ME` and `4 HOLD` -- and every other row stays exactly as inert as it was.
+
+/// The driven tank, a recycler, two harvesters and one hostile far off. One unit of each own kind
+/// except the harvesters, which come in a pair: a group key that selects TWO of the same kind.
+struct MenuRig {
+    sim::Sim sim;
+    SceneOptions options;
+    UnitId tank;
+    UnitId recycler;
+    UnitId harvester_a;
+    UnitId harvester_b;
+};
+
+[[nodiscard]] MenuRig make_menu_rig() {
+    MenuRig rig{};
+    rig.sim = sim::Sim::create(sim::Scenario{kSeed,
+                                             {{UnitKind::Tank, Side::Player, 40, 40},
+                                              {UnitKind::Recycler, Side::Player, 44, 41},
+                                              {UnitKind::Scavenger, Side::Player, 46, 42},
+                                              {UnitKind::Scavenger, Side::Player, 48, 43},
+                                              {UnitKind::Factory, Side::Player, 30, 30},
+                                              {UnitKind::Tank, Side::Enemy, 38, 60}}});
+    for (const sim::Unit& unit : rig.sim.units()) {
+        if (unit.kind == UnitKind::Tank && unit.side == Side::Player) {
+            rig.tank = unit.id;
+        } else if (unit.kind == UnitKind::Recycler) {
+            rig.recycler = unit.id;
+        } else if (unit.kind == UnitKind::Scavenger) {
+            (rig.harvester_a.valid() ? rig.harvester_b : rig.harvester_a) = unit.id;
+        }
+    }
+    rig.options.seed = kSeed;
+    rig.options.extent = kExtent;
+    rig.options.camera = Camera{80.0F, height_metres(kSeed, 40, 40) + 3.0F, 60.0F, 0.0F, -0.12F};
+    rig.options.aim = Aim{640.0F, 700.0F}; // bare ground: no hostile under the mark
+    return rig;
+}
+
+/// F-key the whole group of `kind`: the roster's way to select every unit of one kind.
+void select_kind(MenuRig& rig, Interaction& player, UnitKind kind) {
+    const Roster roster = roster_of(rig.sim, Side::Player);
+    for (const RosterGroup& group : roster.groups) {
+        if (group.kind == kind) {
+            player.handle(fkey(group.key), rig.sim, rig.options);
+            return;
+        }
+    }
+    FAIL() << "no group of that kind";
+}
+
+/// The mark on `unit`, as the rig's camera sees it.
+void aim_menu(MenuRig& rig, UnitId unit) {
+    const sim::Unit* u = rig.sim.find(unit);
+    const float x
+        = static_cast<float>(u->x.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile;
+    const float z
+        = static_cast<float>(u->y.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile;
+    const float ground = height_metres(kSeed, u->x.floor_int(), u->y.floor_int());
+    const Projected p = project(rig.options.camera, kExtent, x, ground + 0.9F, z);
+    rig.options.aim = Aim{p.x, p.y};
+}
+
+TEST(MenuDigit, OneOnARecyclerOrdersItToFollowTheDrivenCraft) {
+    MenuRig rig = make_menu_rig();
+    Interaction player{rig.tank};
+    select_kind(rig, player, UnitKind::Recycler);
+    ASSERT_EQ(selected(player), (std::vector<UnitId>{rig.recycler}));
+    player.handle(digit(1), rig.sim, rig.options);
+    const std::vector<sim::Order> orders = player.take_orders();
+    ASSERT_EQ(orders.size(), 1U);
+    EXPECT_EQ(orders.at(0).unit, rig.recycler);
+    const auto* follow = std::get_if<sim::orders::Follow>(&orders.at(0).payload);
+    ASSERT_NE(follow, nullptr) << "FOLLOW ME is a Follow order";
+    EXPECT_EQ(follow->target, rig.tank) << "and the one it shadows is the craft the player drives";
+    EXPECT_EQ(selected(player), (std::vector<UnitId>{rig.recycler}))
+        << "a command keeps the selection";
+}
+
+TEST(MenuDigit, OneFollowsTheCraftTheXSwapMovedTheDrivingTo) {
+    MenuRig rig = make_menu_rig();
+    Interaction player{rig.tank};
+    select_kind(rig, player, UnitKind::Scavenger);
+    // Drive the second harvester: the mark on it, then X.
+    aim_menu(rig, rig.harvester_b);
+    player.handle(key_frame(input::kKeyX), rig.sim, rig.options);
+    ASSERT_EQ(player.driven(), rig.harvester_b);
+    static_cast<void>(player.take_orders()); // the vacated tank's Stop
+    player.handle(digit(1), rig.sim, rig.options);
+    const std::vector<sim::Order> orders = player.take_orders();
+    ASSERT_EQ(orders.size(), 1U) << "the driven harvester is selected but is not ordered";
+    EXPECT_EQ(orders.at(0).unit, rig.harvester_a);
+    const auto* follow = std::get_if<sim::orders::Follow>(&orders.at(0).payload);
+    ASSERT_NE(follow, nullptr);
+    EXPECT_EQ(follow->target, rig.harvester_b);
+}
+
+TEST(MenuDigit, FourOnHarvestersPostsEachWhereItStandsInAscendingIdOrder) {
+    MenuRig rig = make_menu_rig();
+    Interaction player{rig.tank};
+    select_kind(rig, player, UnitKind::Scavenger);
+    ASSERT_EQ(selected(player).size(), 2U);
+    player.handle(digit(4), rig.sim, rig.options);
+    const std::vector<sim::Order> orders = player.take_orders();
+    ASSERT_EQ(orders.size(), 2U);
+    ASSERT_LT(orders.at(0).unit.value, orders.at(1).unit.value);
+    for (const sim::Order& order : orders) {
+        const auto* post = std::get_if<sim::orders::GuardAt>(&order.payload);
+        ASSERT_NE(post, nullptr) << "HOLD is a GuardAt: a Stop does not hold a harvester";
+        const sim::Unit* unit = rig.sim.find(order.unit);
+        EXPECT_EQ(post->x, unit->x) << "each at its OWN position, not one shared point";
+        EXPECT_EQ(post->y, unit->y);
+    }
+    EXPECT_NE(rig.sim.find(orders.at(0).unit)->x, rig.sim.find(orders.at(1).unit)->x)
+        << "the two stand apart, so a shared post would be a wrong one";
+}
+
+TEST(MenuDigit, AHeldHarvesterIsStillHeldAfterTheSimHasRunOn) {
+    MenuRig rig = make_menu_rig();
+    Interaction player{rig.tank};
+    select_kind(rig, player, UnitKind::Scavenger);
+    player.handle(digit(4), rig.sim, rig.options);
+    for (const sim::Order& order : player.take_orders()) {
+        rig.sim.enqueue(order);
+    }
+    const sim::Unit before = *rig.sim.find(rig.harvester_a);
+    for (int tick = 0; tick < 90; ++tick) {
+        rig.sim.step();
+    }
+    const sim::Unit* after = rig.sim.find(rig.harvester_a);
+    EXPECT_EQ(after->stance, sim::Stance::GuardAt);
+    EXPECT_EQ(after->x, before.x);
+    EXPECT_EQ(after->y, before.y);
+}
+
+TEST(MenuDigit, FourWithTheDrivenHarvesterSelectedHoldsOnlyTheOthers) {
+    MenuRig rig = make_menu_rig();
+    Interaction player{rig.harvester_b}; // driving the harvester
+    select_kind(rig, player, UnitKind::Scavenger);
+    ASSERT_EQ(selected(player).size(), 2U) << "the driven craft may be in the selection";
+    player.handle(digit(4), rig.sim, rig.options);
+    const std::vector<sim::Order> orders = player.take_orders();
+    ASSERT_EQ(orders.size(), 1U);
+    EXPECT_EQ(orders.at(0).unit, rig.harvester_a)
+        << "ordering the driven craft would fight its driver";
+    player.handle(digit(1), rig.sim, rig.options);
+    const std::vector<sim::Order> follow = player.take_orders();
+    ASSERT_EQ(follow.size(), 1U);
+    EXPECT_EQ(follow.at(0).unit, rig.harvester_a);
+}
+
+TEST(MenuDigit, OnlyTheDrivenHarvesterSelectedIsRefusedAndOrdersNothing) {
+    MenuRig rig = make_menu_rig();
+    Interaction player{rig.tank};
+    // Select the harvester by Space, then drive it with X: it is then selected AND driven.
+    aim_menu(rig, rig.harvester_b);
+    player.handle(key_frame(input::kKeySpace), rig.sim, rig.options);
+    player.handle(key_frame(input::kKeyX), rig.sim, rig.options);
+    ASSERT_EQ(player.driven(), rig.harvester_b);
+    ASSERT_EQ(selected(player), (std::vector<UnitId>{rig.harvester_b}));
+    static_cast<void>(player.take_orders()); // the vacated tank's Stop
+    for (const int key : {1, 4}) {
+        player.handle(digit(key), rig.sim, rig.options);
+        EXPECT_TRUE(player.take_orders().empty()) << "digit " << key;
+        EXPECT_EQ(player.message(),
+                  "You are driving that one; select another unit to give orders.");
+    }
+}
+
+TEST(MenuDigit, AnArmedGoStillOwnsTheDigit) {
+    MenuRig rig = make_menu_rig();
+    NavMarks marks;
+    marks.press(50, 50);
+    marks.press(52, 50); // marks 0 and 1
+    rig.options.nav_marks = &marks;
+    Interaction player{rig.tank};
+    select_kind(rig, player, UnitKind::Recycler);
+    player.handle(key_frame(input::kKeyG), rig.sim, rig.options);
+    ASSERT_TRUE(player.go_armed());
+    player.handle(digit(1), rig.sim, rig.options);
+    const std::vector<sim::Order> orders = player.take_orders();
+    ASSERT_EQ(orders.size(), 1U);
+    expect_move_to(orders.at(0), rig.recycler, 52, 50);
+    EXPECT_FALSE(player.go_armed());
+    // The prompt is spent, so the very next `1` is the menu's.
+    player.handle(digit(1), rig.sim, rig.options);
+    const std::vector<sim::Order> next = player.take_orders();
+    ASSERT_EQ(next.size(), 1U);
+    EXPECT_NE(std::get_if<sim::orders::Follow>(&next.at(0).payload), nullptr);
+}
+
+TEST(MenuDigit, AnArmedGoWithNoMarkRefusesAndIssuesNoFollowOrHold) {
+    MenuRig rig = make_menu_rig();
+    NavMarks marks;
+    rig.options.nav_marks = &marks;
+    Interaction player{rig.tank};
+    select_kind(rig, player, UnitKind::Scavenger);
+    for (const int key : {1, 4}) {
+        player.handle(key_frame(input::kKeyG), rig.sim, rig.options);
+        player.handle(digit(key), rig.sim, rig.options);
+        EXPECT_TRUE(player.take_orders().empty()) << "digit " << key << " answered the G prompt";
+        EXPECT_FALSE(player.go_armed());
+    }
+}
+
+TEST(MenuDigit, AnArmedAttackListStillOwnsTheDigit) {
+    MenuRig rig = make_menu_rig();
+    Interaction player{rig.tank};
+    select_kind(rig, player, UnitKind::Recycler);
+    player.handle(key_frame(input::kKeyT), rig.sim, rig.options);
+    ASSERT_TRUE(player.attack_armed());
+    ASSERT_FALSE(player.attack_targets().empty());
+    player.handle(digit(1), rig.sim, rig.options);
+    const std::vector<sim::Order> orders = player.take_orders();
+    ASSERT_EQ(orders.size(), 1U);
+    EXPECT_NE(std::get_if<sim::orders::Attack>(&orders.at(0).payload), nullptr)
+        << "row 1 of the list, not FOLLOW ME";
+    EXPECT_FALSE(player.attack_armed());
+}
+
+TEST(MenuDigit, EveryRowThatCannotActYetDoesNothingAndTheSimIsUntouched) {
+    struct Case {
+        UnitKind kind;
+        std::vector<int> digits;
+    };
+    // The recycler has no 4 (HOLD is the harvester's row); GO TO NAV and DEPLOY/SCAVENGE wait on
+    // rulings and RB3; PICK ME UP, BAILOUT and RECYCLE are not built; a deployment's digits are
+    // its build list (RB5); a lone tank has no menu at all.
+    const std::vector<Case> cases{{UnitKind::Recycler, {0, 2, 3, 4, 5, 9}},
+                                  {UnitKind::Scavenger, {0, 2, 3, 5, 9}},
+                                  {UnitKind::Factory, {0, 1, 2, 3, 4, 5, 6, 7, 8, 9}},
+                                  {UnitKind::Tank, {0, 1, 2, 3, 4, 5, 9}}};
+    for (const Case& c : cases) {
+        MenuRig rig = make_menu_rig();
+        Interaction player{rig.tank};
+        select_kind(rig, player, c.kind);
+        ASSERT_FALSE(player.selection().empty()) << "no selection means nothing is proved";
+        const std::uint64_t hash = rig.sim.state_hash();
+        for (const int key : c.digits) {
+            player.handle(digit(key), rig.sim, rig.options);
+            EXPECT_TRUE(player.take_orders().empty())
+                << "digit " << key << " on kind " << static_cast<int>(c.kind);
+            EXPECT_TRUE(player.message().empty());
+        }
+        EXPECT_EQ(rig.sim.state_hash(), hash);
+    }
+}
+
+TEST(MenuDigit, NothingSelectedMeansNoMenuAndNoOrder) {
+    MenuRig rig = make_menu_rig();
+    Interaction player{rig.tank};
+    for (const int key : {1, 4}) {
+        player.handle(digit(key), rig.sim, rig.options);
+        EXPECT_TRUE(player.take_orders().empty());
+        EXPECT_TRUE(player.message().empty());
+    }
+}
+
+TEST(MenuDigit, AHoldNeverReachesADeadUnit) {
+    // Three hostile tanks beside harvester A; harvester B is far away and untouched.
+    sim::Sim sim = sim::Sim::create(sim::Scenario{kSeed,
+                                                  {{UnitKind::Tank, Side::Player, 40, 40},
+                                                   {UnitKind::Scavenger, Side::Player, 20, 20},
+                                                   {UnitKind::Scavenger, Side::Player, 100, 100},
+                                                   {UnitKind::Tank, Side::Enemy, 20, 21},
+                                                   {UnitKind::Tank, Side::Enemy, 21, 20},
+                                                   {UnitKind::Tank, Side::Enemy, 19, 20}}});
+    UnitId doomed{};
+    UnitId safe{};
+    for (const sim::Unit& unit : sim.units()) {
+        if (unit.kind == UnitKind::Scavenger) {
+            (unit.x.floor_int() == 20 ? doomed : safe) = unit.id;
+        }
+    }
+    SceneOptions options{};
+    options.seed = kSeed;
+    options.extent = kExtent;
+    Interaction player{sim.units().front().id};
+    const Roster roster = roster_of(sim, Side::Player);
+    int key = 0;
+    for (const RosterGroup& group : roster.groups) {
+        if (group.kind == UnitKind::Scavenger) {
+            key = group.key;
+        }
+    }
+    player.handle(fkey(key), sim, options);
+    ASSERT_EQ(selected(player).size(), 2U);
+    int ticks = 0;
+    while (ticks < 6000 && sim.find(doomed)->alive) {
+        sim.step();
+        ++ticks;
+    }
+    ASSERT_FALSE(sim.find(doomed)->alive) << "the harvester never died, so nothing is proved";
+    ASSERT_TRUE(sim.find(safe)->alive);
+    player.handle(digit(4), sim, options);
+    const std::vector<sim::Order> orders = player.take_orders();
+    ASSERT_EQ(orders.size(), 1U);
+    EXPECT_EQ(orders.at(0).unit, safe);
 }
 
 } // namespace

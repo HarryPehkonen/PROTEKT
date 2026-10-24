@@ -76,6 +76,13 @@ public:
     ///  * T with a hostile under the mark: Attack it, as above. T with none: arm the attack list of
     ///    the driven tank's nearest hostiles within the radar's radius (`nearest_enemies`), unless
     ///    there are none (refused). The next 0-9 attacks that row for the selection.
+    ///  * a digit with NO prompt open (RB-DIGITS): the row of the selected subject's command menu
+    ///    that key names, but only the rows that can act yet, and only when `menu_rows` says the
+    ///    row is enabled. `FOLLOW ME` orders the selection to follow the craft being driven;
+    ///    `HOLD` posts each selected unit where it stands (GuardAt at its own position -- a bare
+    ///    Stop would not hold a harvester, whose fetch starts again the same tick). Every other
+    ///    row, and every digit with no menu, does nothing. A `G` or `T` prompt, armed, swallows
+    ///    the digit before the menu sees it.
     ///  * Tab or Escape: clear the selection
     ///
     /// Refusals never throw and never half-apply: either the whole intent is carried out or none of
@@ -145,6 +152,14 @@ private:
     void follow_crosshair_unit(const sim::Sim& sim, const SceneOptions& options);
     /// 1-9: select the own unit that holds that number, wherever it is (N2).
     void select_roster_key(const sim::Sim& sim, int digit);
+    /// A digit with no prompt open: the menu row it names, if that row acts and the model says it
+    /// is enabled; otherwise nothing at all (RB-DIGITS).
+    void menu_digit(const sim::Sim& sim, int digit);
+    /// `1 FOLLOW ME`: every orderable selected unit follows the driven craft. Refused when there is
+    /// no living craft, or nothing but that craft is selected.
+    void follow_driven(const sim::Sim& sim);
+    /// `4 HOLD`: every orderable selected unit is posted where it stands, one GuardAt each.
+    void hold_selection(const sim::Sim& sim);
     /// G then a digit: MoveTo the tile of mark `number` for every orderable selected unit (N3).
     void send_to_mark(int number, const SceneOptions& options);
     /// T with nothing hostile under the crosshair: capture the nearest hostiles and arm the list,

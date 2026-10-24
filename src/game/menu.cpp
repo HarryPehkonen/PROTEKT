@@ -28,7 +28,7 @@ constexpr std::string_view kCloseMenu{"CLOSE MENU"};
 /// to rotate.
 constexpr std::array kRecyclerRows{
     FixedRow{kTilde, "ROTATE BUILDINGS", MenuDim::DoesNotApply},
-    FixedRow{"1", "FOLLOW ME", MenuDim::None},
+    FixedRow{"1", kVerbFollowMe, MenuDim::None},
     FixedRow{"2", "GO TO NAV", MenuDim::None},
     FixedRow{"3", "DEPLOY", MenuDim::None},
 };
@@ -40,10 +40,10 @@ constexpr std::array kRecyclerRows{
 /// the same as a build row that is merely too expensive, and only `MenuDim` tells them apart.
 constexpr std::array kHarvesterRows{
     FixedRow{kTilde, "SELECT UNIT", MenuDim::DoesNotApply},
-    FixedRow{"1", "FOLLOW ME", MenuDim::None},
+    FixedRow{"1", kVerbFollowMe, MenuDim::None},
     FixedRow{"2", "GO TO NAV", MenuDim::None},
     FixedRow{"3", "SCAVENGE", MenuDim::None},
-    FixedRow{"4", "HOLD", MenuDim::None},
+    FixedRow{"4", kVerbHold, MenuDim::None},
     FixedRow{"5", "PICK ME UP", MenuDim::DoesNotApply},
     // 6, 7, 8: the gap.
     FixedRow{"9", "BAILOUT", MenuDim::None},
@@ -113,6 +113,25 @@ void append_build_list(std::vector<MenuRow>& rows, const MenuInput& in) {
 std::span<const BuildItem> build_items(sim::Side side) noexcept {
     return side == sim::Side::Player ? std::span<const BuildItem>{kPlayerBuildList}
                                      : std::span<const BuildItem>{};
+}
+
+MenuSubject menu_subject_of_kind(sim::UnitKind kind) noexcept {
+    switch (kind) {
+    case sim::UnitKind::Factory:
+        return MenuSubject::Deployment;
+    case sim::UnitKind::Recycler:
+        return MenuSubject::Recycler;
+    case sim::UnitKind::Scavenger:
+        return MenuSubject::Harvester;
+    case sim::UnitKind::Turret:
+        return MenuSubject::Turret;
+    case sim::UnitKind::Tank:
+    case sim::UnitKind::HoverTank:
+    case sim::UnitKind::Mortar:
+    case sim::UnitKind::Rocket:
+        break;
+    }
+    return MenuSubject::None;
 }
 
 std::vector<MenuRow> menu_rows(const MenuInput& in) {

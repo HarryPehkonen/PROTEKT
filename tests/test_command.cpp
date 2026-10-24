@@ -90,6 +90,30 @@ TEST(Command, StopEmitsStopForEveryUnit) {
     }
 }
 
+// HOLD (RB-DIGITS) is this verb applied one unit at a time at that unit's own tile, because
+// GuardAt carries ONE post for its whole roster.
+TEST(Command, GuardAtOneUnitAtATimeIsOneOrderAtThatUnitsOwnPost) {
+    const std::vector<UnitId> ids = shuffled_roster();
+    for (const UnitId unit : ids) {
+        const Fixed x = tiles(static_cast<int>(unit.value) + 3);
+        const Fixed y = tiles(static_cast<int>(unit.value) + 4);
+        const std::vector<UnitId> one{unit};
+        const std::vector<Order> orders = protekt::cmd::guard_at(one, x, y);
+        ASSERT_EQ(orders.size(), 1U);
+        EXPECT_EQ(orders.at(0).unit, unit);
+        const auto* post = std::get_if<protekt::sim::orders::GuardAt>(&orders.at(0).payload);
+        ASSERT_NE(post, nullptr);
+        EXPECT_EQ(post->x, x);
+        EXPECT_EQ(post->y, y);
+    }
+}
+
+TEST(Command, GuardAtDropsAPostOffTheMapRatherThanRepairingIt) {
+    const std::vector<UnitId> one{id(4)};
+    EXPECT_TRUE(protekt::cmd::guard_at(one, tiles(-1), tiles(5)).empty());
+    EXPECT_TRUE(protekt::cmd::guard_at(one, tiles(5), tiles(protekt::sim::kMapTiles)).empty());
+}
+
 TEST(Command, AnEmptyRosterEmitsNothing) {
     const std::vector<UnitId> nobody;
     EXPECT_TRUE(protekt::cmd::move_to(nobody, tiles(1), tiles(2)).empty());
