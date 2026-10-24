@@ -6,9 +6,10 @@ namespace protekt::sim {
 
 namespace {
 
-/// The scatter square's side, in tiles: the wreck's own tile plus `kScrapScatterRadius` each way.
-inline constexpr int kSpan = (2 * kScrapScatterRadius) + 1;
-inline constexpr int kSpanTiles = kSpan * kSpan;
+/// How many tiles the scatter square holds. The SIDE of that square is `kScrapSpan`, defined once
+/// in the header beside `kScrapScatterRadius`; this is only the square's area, so the span itself
+/// still lives in exactly one place.
+inline constexpr int kSpanTiles = kScrapSpan * kScrapSpan;
 
 struct Offset {
     int dx{};
