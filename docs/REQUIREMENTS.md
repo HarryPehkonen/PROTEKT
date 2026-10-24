@@ -481,7 +481,7 @@ pixels at a 720-high frame, and a glyph is 5 cells tall.
 | Floating unit bars | over each living field unit in view | a 20 by 4 px bar, green yours and red hostile; not on the factory or a turret, and none on the viewer's own tank | [SHIPPED 7dfc67d] |
 | `DEPLOYING` plate | over an own turret that is not yet mounted | a yellow plate; a mounted or hostile turret shows nothing | [SHIPPED 3398f08] |
 | Hit flash | whole frame | red, fading over 0.4 s when the driven unit is hit | [SHIPPED 3c7070c] |
-| Verdict banner | above the crosshair | `YOU HAVE LOST` in red or `ENEMY DEFEATED` in green; nothing while the war is undecided (section 10) | [SHIPPED e23dec8] |
+| Verdict banner | above the crosshair | `YOU HAVE LOST` in red or `ENEMY DEFEATED` in green; nothing while the war is undecided (section 10) | [SHIPPED e23dec8, retargeted onto the recycler by c5eb877] |
 | Colour calibration view | whole frame, `C` | three bars, red, green, blue | [SHIPPED 3c7070c] |
 | Wreckage | on the ground | each scrap piece a small dark plate lying on the terrain | [SHIPPED 62a948f] |
 
@@ -547,7 +547,7 @@ Ruling: a factory REPLACES A LOST GUN. It does not spend when rich.
 
 - [SHIPPED e23dec8] The condition is one function, `short_and_affordable(armed_living, armed_started,
   ore)`: the side's living armed units are fewer than the armed units it started with, and it holds at
-  least `kTankOreCost` (4) loads. Both the production beat and the war's verdict (section 10) call it, so
+  least `kTankOreCost` (4) loads. The production beat calls it, so
   they cannot disagree.
 - [SHIPPED e653f16] "Armed" is any kind with a nonzero range: tank, hover tank, turret, mortar, rocket.
   A side starts with 8 of them. A full yard builds nothing and spends nothing
@@ -603,30 +603,44 @@ PROVENANCE: `include/protekt/sim/units.hpp:51`, `include/protekt/game/menu.hpp:9
 
 - [DECIDED — not built] Winning and losing are a LIST of conditions, never one hard-coded rule. Harri
   2026-10-24 (brief).
-- [DECIDED — not built] Destroying the enemy's production building wins instantly and totally. Losing
-  your own loses the game. Harri 2026-10-24 (brief).
+- [SHIPPED c5eb877] Destroying the enemy's production building wins instantly and totally. Losing your own
+  loses the game. The condition is written on the RECYCLER, which the scenario now spawns one of per side
+  (`a584683`): the enemy's recycler -- the alien team's matriarch -- dead means the player has won
+  whatever else the enemy still has, and the player's own dead means the player has lost. Both dead reads
+  as a LOSS (the reading the old banner used for mutual annihilation). Harri 2026-10-24 (brief).
 - [DECIDED — not built] A mission scripts its own conditions, for example "escort an APC; fail if it
   dies". Harri 2026-10-24 (brief). `docs/PLAN.md:600-605` says "There are no missions yet", and no mission
-  data type is in the tree.
-- [DECIDED — not built] The earlier attrition verdict is RETIRED by Harri, 2026-10-24 (brief). Nobody
-  should keep two meanings of "the war is over".
+  data type is in the tree. The predicate it would be written in exists (`kind_wiped_out`, below); the
+  DATA does not.
+- [SHIPPED c5eb877] The earlier attrition verdict is RETIRED by Harri, 2026-10-24. Nobody should keep two
+  meanings of "the war is over", and the code no longer does: `Sim::side_has_lost` and its rule are
+  DELETED, not merely unused.
 
-What is in the tree instead:
+What is in the tree:
 
-- [SHIPPED e23dec8] `Sim::side_has_lost(side)` is the attrition verdict this ruling retires. A side has
-  lost when it has no living armed unit and cannot make one: no living factory, or fewer than 4 loads, or
-  nothing missing from the strength it started with. It is derived, never stored, never hashed. A side that
-  started with no gun has not lost. The HUD banner reads it.
-- [SHIPPED e23dec8] Destroying the factory does NOT end the game in the code. A side with any living
-  armed unit has not lost, whatever happens to its factory. A single unescorted tank can destroy an
-  undefended factory and the game carries on.
-- [INTENDED — status unverified] Which unit the "production building" is. In the tree the factory is the
-  only unit that builds, and the only one the menu treats as a deployed recycler. The brief does not say
-  the two are the same (section 14).
+- [SHIPPED c5eb877] `Sim::kind_wiped_out(side, kind)` is the one named predicate the conditions are
+  written in: true when the side was given at least one `kind` and none of them is alive now. A dead unit
+  stays in the table, so "had one" needs no second record, and a side that NEVER HAD the kind has not lost
+  one -- which is what keeps a rig whose scenario spawns no recycler from reading as a defeat on tick zero.
+  Derived, never stored, never hashed.
+- [SHIPPED c5eb877] `Sim::war_outcome()` asks that predicate about each side's recycler and returns
+  `Undecided`, `PlayerWon` or `PlayerLost`. A battle nobody asks about produces exactly the state it did
+  before this existed.
+- [SHIPPED c5eb877] The HUD banner reads `war_outcome()`, emits nothing while undecided (so the vertex
+  tail is unchanged for a battle still being fought), and is stated from the player's chair, so a viewer on
+  the enemy side reads it reversed.
+- [SHIPPED c5eb877] Destroying the FACTORY does not end the game, and now that is by design rather than
+  by omission: the factory is not the unit the ruling's condition names. A factory can be razed and the war
+  carries on until a recycler dies.
+- [INTENDED — status unverified] Whether the "production building" of the ruling IS the factory. The
+  condition is on the recycler today, which is what the scenario places and what BZ2's deployed recycler
+  becomes; the brief does not say the factory and the deployed recycler are the same thing (section 14,
+  question 2 of 14.1).
 
-PROVENANCE: `src/sim/sim.cpp:361-369,944-978`, `include/protekt/sim/sim.hpp:133-140`,
-`src/game/scene.cpp:2268-2351`, `tests/test_scavenger.cpp:408-440`, `docs/PLAN.md:494-495,600-605`,
-commit message of `e23dec8`, Harri 2026-10-24 (brief).
+PROVENANCE: `src/sim/sim.cpp:944-967` (the two predicates),
+`include/protekt/sim/outcome.hpp:1-11`, `include/protekt/sim/sim.hpp:143-162`,
+`src/game/scene.cpp:2318-2360`, `tests/test_scavenger.cpp:406-520`, `tests/test_scene.cpp:5253-5560`,
+`docs/PLAN.md:494-495,600-605`, commit messages of `e23dec8` and `c5eb877`, Harri 2026-10-24 (brief).
 
 ## 11. Sound
 
@@ -773,8 +787,9 @@ a document and the code, and places where the documents contradict each other. N
 
 ### 14.3 Drift: a ruling against the code
 
-19. **The retired verdict is the shipped one.** `Sim::side_has_lost` and the HUD banner implement
-    the attrition rule that Harri retired on 2026-10-24. Section 10.
+19. ~~**The retired verdict is the shipped one.**~~ **CLOSED by `c5eb877` (OBJ-a)**: `side_has_lost`
+    and its attrition rule are deleted, and the banner reads `war_outcome()`. Kept here as the record of
+    what the register found. Section 10.
 20. **One build per beat in total, not per side.** `sim.cpp:932-934`. Section 8.3.
 21. **`buildable` is false for every kind, yet the factory builds a `Tank`.** `spec.hpp:36` and
     `test_roster.cpp:106` against `sim.cpp:929`, whose comment calls the tank "the only `buildable` kind".
