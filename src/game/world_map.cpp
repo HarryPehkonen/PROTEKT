@@ -7,6 +7,7 @@
 #include <cstdint>
 
 #include "protekt/game/atlas.hpp"
+#include "protekt/game/radar.hpp" // radar_panel: the map takes the oval's own major diameter
 #include "protekt/game/scene.hpp"
 
 namespace protekt::game {
@@ -61,13 +62,14 @@ constexpr float kReferenceHeight = 720.0F;
 } // namespace
 
 WorldMapLayout world_map_layout(Extent extent) noexcept {
-    const float width = static_cast<float>(extent.width);
     const float height = static_cast<float>(extent.height);
     // The corner inset is a fixed 24 px of the 720-high frame the UI was drawn at, so it scales
-    // with the frame height like the roster strip; the square itself is BZ2's minimap footprint, a
-    // fraction of the frame WIDTH, and the height only caps it on a frame too short to hold it.
+    // with the frame height like the roster strip. The square's side is the RADAR'S MAJOR DIAMETER:
+    // the two views swap into the same corner, so the map takes the elliptical display's long axis
+    // rather than a fraction of its own (the owner's call, see world_map.hpp). The frame HEIGHT
+    // only caps it on a frame too short to hold the square.
     const float margin = kPanelMarginPixels * (height / kReferenceHeight);
-    const float side = std::min(width * kWorldMapWidthFraction, height - (2.0F * margin));
+    const float side = std::min(radar_panel(extent).width, height - (2.0F * margin));
     const float per_tile = std::max(side / static_cast<float>(kWorldMapTiles),
                                     1.0F / static_cast<float>(kWorldMapTiles));
     const float size = per_tile * static_cast<float>(kWorldMapTiles);
@@ -156,6 +158,26 @@ WorldMap world_map(const sim::Sim& sim, Extent extent, sim::Side own, sim::UnitI
         }
     }
     return map;
+}
+
+std::array<MapPoint, 4> map_heading_needle(const MapAsset& asset, float heading_radians) noexcept {
+    // The sim's heading drives a tank forward as world (sin h, cos h); the map's y is flipped into
+    // the frame's y, so the needle points along (sin h, -cos h) in screen space. See world_map.hpp.
+    const float dir_x = std::sin(heading_radians);
+    const float dir_y = -std::cos(heading_radians);
+    // The needle's length and width grow with the blip it belongs to, so the 3 mm reference length
+    // stays 3 mm only at the reference blip size and the needle always reads as the blip's own.
+    const float blip_scale = asset.half / kMapUnitHalf;
+    const float from = asset.half;
+    const float to = asset.half + (kMapHeadingLinePixels * blip_scale);
+    const float wing = kMapHeadingLineHalfPixels * blip_scale;
+    const auto at = [&](float along, float across) {
+        return MapPoint{asset.px + (dir_x * along) - (dir_y * across),
+                        asset.py + (dir_y * along) + (dir_x * across)};
+    };
+    // The four corners of the thin quad: base-left, base-right, tip-right, tip-left. Order matches
+    // emit_quad's winding so the face points at the camera on the map's HUD layer.
+    return std::array<MapPoint, 4>{at(from, wing), at(from, -wing), at(to, -wing), at(to, wing)};
 }
 
 } // namespace protekt::game

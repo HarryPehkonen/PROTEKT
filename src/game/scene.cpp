@@ -2419,14 +2419,15 @@ void append_reticle(std::vector<SceneVertex>& out, const SceneOptions& options, 
 
 /// THE WORLD MAP (N4), on the radar's HUD layers and through the same pixel-to-world function: the
 /// ground first (one quad per run of tiles of the same terrain along a row), then YOUR assets as
-/// dark-edged squares, the driven one ringed in white, then the nav marks as cyan plates with their
-/// digit in black. Everything comes from `world_map`, which has no enemy in it.
+/// dark-edged squares, the driven one a white blip with a heading needle, then the nav marks as
+/// cyan plates with their digit in black. Everything comes from `world_map`, which has no enemy in
+/// it.
 constexpr float kMapTerrainRatio = 2.4F;
 constexpr float kMapFrameRatio = 2.8F;
 constexpr float kMapRowStep = 0.0005F; ///< each row a hair further than the one below it
 constexpr std::size_t kWorldMapSide = static_cast<std::size_t>(kWorldMapTiles);
 constexpr float kMapEdgePixels = 3.0F;
-constexpr std::string_view kMapCaption = "WORLD MAP - O CLOSES";
+constexpr std::string_view kMapCaption = "WORLD MAP - R CLOSES";
 
 void append_world_map(std::vector<SceneVertex>& out, const SceneOptions& options,
                       const sim::Sim& sim) {
@@ -2490,21 +2491,44 @@ void append_world_map(std::vector<SceneVertex>& out, const SceneOptions& options
         }
     }
 
-    // Your assets: a black edge, then the green square; the driven unit is ringed in white and
-    // drawn white-centred, so it is found at a glance. Buildings are the larger squares.
+    // Your assets: a black edge, then the green square. Buildings are the larger squares. The
+    // DRIVEN unit is NOT ringed: it is the same blip every tank gets, in white, plus a 3 mm needle
+    // showing which way it is travelling. The owner's call, 2026-10-23: the old big white ring read
+    // as "a large white square", and he asked for "a white dot the size of a tank ... with a 3mm
+    // line pointing straight ahead". The needle takes the SAME scale as the blip it belongs to
+    // (asset.half over kMapUnitHalf), so the two keep their proportion at any frame size.
     for (const MapAsset& asset : map.assets) {
         const float h = asset.half;
-        if (asset.driven) {
-            const float ring = kMapDrivenRingHalf * scale;
-            rect(1.04F, asset.px - ring, asset.py - ring, asset.px + ring, asset.py + ring,
-                 kDriven);
-            rect(1.03F, asset.px - ring + (2.0F * scale), asset.py - ring + (2.0F * scale),
-                 asset.px + ring - (2.0F * scale), asset.py + ring - (2.0F * scale), kInk);
-        }
         rect(1.02F, asset.px - h - scale, asset.py - h - scale, asset.px + h + scale,
              asset.py + h + scale, kInk);
         rect(1.0F, asset.px - h, asset.py - h, asset.px + h, asset.py + h,
              asset.driven ? kDriven : kOwn);
+        if (!asset.driven || options.headings == nullptr) {
+            continue;
+        }
+        // WHICH WAY YOU ARE GOING. The presentation's own heading for this unit -- its velocity
+        // while it moves, the last one it had while it stands -- drawn as a thin white needle from
+        // the blip's edge outward. Map y grows DOWN, so north, yaw 0, is (0, -1).
+        const sim::Unit* you = nullptr;
+        for (const sim::Unit& unit : sim.units()) {
+            if (unit.id == asset.id) {
+                you = &unit;
+                break;
+            }
+        }
+        if (you == nullptr) {
+            continue;
+        }
+        const std::array<MapPoint, 4> needle
+            = map_heading_needle(asset, options.headings->of(*you));
+        // A hair in front of the blip's fill, so the needle is never buried by it.
+        const float needle_at = marks_at * 0.995F;
+        const auto at_needle = [&](const MapPoint& p) {
+            const RayPoint point = ray_point(options.camera, options.extent, p.x, p.y, needle_at);
+            return Vec3{point.x, point.y, point.z};
+        };
+        emit_quad(out, at_needle(needle.at(0)), at_needle(needle.at(1)), at_needle(needle.at(2)),
+                  at_needle(needle.at(3)), kDriven);
     }
 
     // The nav marks, over the units: cyan plate, black outline, black digit.
