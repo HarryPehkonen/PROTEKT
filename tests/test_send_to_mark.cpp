@@ -222,21 +222,20 @@ TEST(SendToMark, NothingSelectedIsAMessageAndNoOrder) {
     EXPECT_FALSE(player.go_armed());
 }
 
-TEST(SendToMark, TheDrivenUnitIsSkippedAndTheRestStillGoToTheMark) {
+TEST(SendToMark, ANonDrivenUnitGoesToTheMark) {
+    // U3: a selection comes from a function key (a whole group) or from Space over one vehicle,
+    // not from repeated Space presses. The rig has one unit per kind, so fkey(2) selects the hover
+    // tank group. The driven tank is not in this selection; the hover tank takes the order.
     Rig rig = make_rig();
     drop_marks(rig);
     Interaction player{rig.own.at(0)};
-    player.handle(fkey(1), rig.sim, rig.options); // the driven tank
-    aim_at_unit(rig, rig.own.at(1));
-    player.handle(key_frame(input::kKeySpace), rig.sim, rig.options); // adds own[1]
-    ASSERT_EQ(selected(player), (std::vector<UnitId>{rig.own.at(0), rig.own.at(1)}));
+    player.handle(fkey(2), rig.sim, rig.options); // the hover tank group
+    ASSERT_EQ(selected(player), (std::vector<UnitId>{rig.own.at(1)}));
     player.handle(key_frame(input::kKeyG), rig.sim, rig.options);
     player.handle(digit(1), rig.sim, rig.options);
     const std::vector<sim::Order> orders = player.take_orders();
     ASSERT_EQ(orders.size(), 1U);
     expect_move_to(orders.at(0), rig.own.at(1), 52, 50);
-    EXPECT_EQ(player.message(),
-              "Sent the rest to the mark; you are driving that one, so it stays put.");
 }
 
 TEST(SendToMark, OnlyTheDrivenUnitSelectedIsRefused) {
@@ -334,11 +333,10 @@ TEST(AttackList, TWithAHostileUnderTheCrosshairAttacksItAndDoesNotArm) {
 TEST(AttackList, TWithNothingUnderTheCrosshairArmsAndADigitAttacksThatRow) {
     Rig rig = make_listing_rig();
     Interaction player{rig.own.at(0)};
-    player.handle(fkey(1), rig.sim, rig.options); // the driven tank
-    aim_at_unit(rig, rig.own.at(1));
-    player.handle(key_frame(input::kKeySpace), rig.sim, rig.options); // adds the hover tank
+    // U3: fkey(2) selects the hover tank group; the driven tank is not in this selection.
+    player.handle(fkey(2), rig.sim, rig.options);
     rig.options.aim = Aim{640.0F, 360.0F};
-    ASSERT_EQ(selected(player), (std::vector<UnitId>{rig.own.at(0), rig.own.at(1)}));
+    ASSERT_EQ(selected(player), (std::vector<UnitId>{rig.own.at(1)}));
     const UnitId under = pick(rig.sim, rig.options, 640.0F, 360.0F).unit;
     ASSERT_TRUE(!under.valid() || rig.sim.find(under)->side == Side::Player)
         << "nothing hostile may be under the crosshair, or T would attack it";
@@ -361,11 +359,11 @@ TEST(AttackList, TWithNothingUnderTheCrosshairArmsAndADigitAttacksThatRow) {
 
     player.handle(digit(3), rig.sim, rig.options);
     const std::vector<sim::Order> orders = player.take_orders();
-    ASSERT_EQ(orders.size(), 1U) << "the driven tank is not ordered";
+    ASSERT_EQ(orders.size(), 1U) << "the hover tank takes the order";
     expect_attack(orders.at(0), rig.own.at(1), kFarTank);
     EXPECT_EQ(player.message(), "attacking the target in row 3.");
     EXPECT_FALSE(player.attack_armed());
-    EXPECT_EQ(selected(player), (std::vector<UnitId>{rig.own.at(0), rig.own.at(1)}))
+    EXPECT_EQ(selected(player), (std::vector<UnitId>{rig.own.at(1)}))
         << "the digit was the list's, not a roster key";
 }
 

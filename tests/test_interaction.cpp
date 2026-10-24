@@ -157,15 +157,17 @@ void select_and_drive(Rig& rig, Interaction& player, sim::UnitId unit) {
 
 // ---------------------------------------------------------------- selection
 
-TEST(Interaction, ShiftSpaceStillAddsAndRemoves) {
+TEST(Interaction, ShiftSpaceDoesNotAddToTheSelection) {
+    // U3: there is no Shift+Space "add one" gesture. Space is the selector and Shift+Space is the
+    // same selector: a selection comes from a function key (a whole group) or from Space over one
+    // vehicle starting from empty. The shift modifier changes nothing.
     Rig rig = make_rig();
     Interaction player{rig.tank_a};
     choose(rig, player, rig.tank_b, true);
     EXPECT_EQ(selected(player), (std::vector<sim::UnitId>{rig.tank_b}));
     choose(rig, player, rig.turret, true);
-    EXPECT_EQ(selected(player), (std::vector<sim::UnitId>{rig.tank_b, rig.turret}));
-    choose(rig, player, rig.tank_b, true);
-    EXPECT_EQ(selected(player), (std::vector<sim::UnitId>{rig.turret}));
+    EXPECT_EQ(selected(player), (std::vector<sim::UnitId>{rig.tank_b}))
+        << "Shift+Space over a turret does not add it to the selection";
 }
 
 // ---------------------------------------------------------------- the trigger
@@ -596,8 +598,8 @@ TEST(Interaction, LeftClickOnAHostileNamesItAndKeepsTheSelection) {
 TEST(Interaction, TabClearsTheSelection) {
     Rig rig = make_rig();
     Interaction player{rig.tank_a};
-    choose(rig, player, rig.tank_b);
-    choose(rig, player, rig.turret, true);
+    // F1 selects the tank group: tank_a (driven) and tank_b.
+    player.handle(with_key(input::kKeyF1), rig.sim, rig.options);
     ASSERT_EQ(player.selection().size(), 2U);
     player.handle(with_key(input::kKeyTab), rig.sim, rig.options);
     EXPECT_TRUE(player.selection().empty());
@@ -605,68 +607,77 @@ TEST(Interaction, TabClearsTheSelection) {
 
 // ---------------------------------------------------------------- space and T
 
-TEST(Interaction, SpaceTogglesTheUnitUnderTheCrosshairWithOrWithoutShift) {
+TEST(Interaction, SpaceSelectsAFriendlyUnitWhenNothingIsSelected) {
+    // U3: Space is the SELECTOR. With nothing selected, over your own tank within 80% of the
+    // radar's range (32 tiles), it selects that single unit. It never ADDS to a selection: a
+    // group comes from a function key, or from Space over one vehicle starting from empty.
     Rig rig = make_rig();
     Interaction player{rig.tank_a};
     static_cast<void>(at(rig, rig.tank_b));
     player.handle(with_key(input::kKeySpace), rig.sim, rig.options);
     EXPECT_EQ(selected(player), (std::vector<sim::UnitId>{rig.tank_b}));
 
-    static_cast<void>(at(rig, rig.turret));
-    player.handle(with_key(input::kKeySpace, true), rig.sim, rig.options);
-    EXPECT_EQ(selected(player), (std::vector<sim::UnitId>{rig.tank_b, rig.turret}));
-
-    player.handle(with_key(input::kKeySpace, true), rig.sim, rig.options);
-    EXPECT_EQ(selected(player), (std::vector<sim::UnitId>{rig.tank_b}))
-        << "shift-space on a selected unit toggles it out";
-
+    // Over a turret with a selection up: turret is neither a tank (follow) nor hostile (attack),
+    // so Space does nothing and the selection is untouched.
     static_cast<void>(at(rig, rig.turret));
     player.handle(with_key(input::kKeySpace), rig.sim, rig.options);
-    EXPECT_EQ(selected(player), (std::vector<sim::UnitId>{rig.tank_b, rig.turret}))
-        << "plain space adds, as shift-space does";
+    EXPECT_EQ(selected(player), (std::vector<sim::UnitId>{rig.tank_b}))
+        << "Space does not add a turret to the selection";
     EXPECT_TRUE(player.message().empty());
+
+    // Over the already-selected tank: Space follows it (it is a tank), and the selection stays.
+    static_cast<void>(at(rig, rig.tank_b));
+    player.handle(with_key(input::kKeySpace), rig.sim, rig.options);
+    EXPECT_EQ(selected(player), (std::vector<sim::UnitId>{rig.tank_b}))
+        << "Space on an already-selected tank follows it, does not toggle it out";
+    EXPECT_FALSE(player.message().empty());
 }
 
-TEST(Interaction, PlainSpaceOnAnUnselectedOwnTankAddsItToTheSelection) {
+TEST(Interaction, PlainSpaceSelectsTheUnitUnderTheCrosshair) {
+    // U3: with nothing selected, Space selects the single unit under the crosshair.
     Rig rig = make_rig();
     Interaction player{rig.tank_a};
     choose(rig, player, rig.tank_b);
-    choose(rig, player, rig.turret);
-    EXPECT_EQ(selected(player), (std::vector<sim::UnitId>{rig.tank_b, rig.turret}))
-        << "no shift needed to build a group";
+    EXPECT_EQ(selected(player), (std::vector<sim::UnitId>{rig.tank_b}));
 }
 
-TEST(Interaction, PlainSpaceOnASelectedTankRemovesIt) {
+TEST(Interaction, PlainSpaceOnAnAlreadySelectedTankKeepsItSelected) {
+    // U3: Space does not toggle a unit out of the selection. On an already-selected tank it
+    // follows it; the selection stays exactly as it was.
     Rig rig = make_rig();
     Interaction player{rig.tank_a};
     choose(rig, player, rig.tank_b);
-    choose(rig, player, rig.turret);
     choose(rig, player, rig.tank_b);
-    EXPECT_EQ(selected(player), (std::vector<sim::UnitId>{rig.turret}));
+    EXPECT_EQ(selected(player), (std::vector<sim::UnitId>{rig.tank_b}))
+        << "Space on a selected tank follows it, does not remove it";
 }
 
 TEST(Interaction, TwoSpacesOnTheSameTankAreNetNothing) {
+    // U3: Space on an already-selected tank follows it; the selection is unchanged.
     Rig rig = make_rig();
     Interaction player{rig.tank_a};
-    choose(rig, player, rig.turret);
+    choose(rig, player, rig.tank_b);
     const std::vector<sim::UnitId> before = selected(player);
     choose(rig, player, rig.tank_b);
     choose(rig, player, rig.tank_b);
     EXPECT_EQ(selected(player), before);
 }
 
-TEST(Interaction, SpaceOnTheDrivenTankLeavesTheSelectionAlone) {
+TEST(Interaction, SpaceOnTheDrivenTankFollowsIt) {
+    // U3: with a selection up, Space over the driven tank follows it (it is a tank), and the
+    // selection is unchanged. Following the driven tank is the point: after an X-swap the wingman
+    // still shadows the old hull.
     Rig rig = make_rig();
     Interaction player{rig.tank_a};
     choose(rig, player, rig.tank_b);
     const std::vector<sim::UnitId> before = selected(player);
     choose(rig, player, rig.tank_a);
-    choose(rig, player, rig.tank_a, true);
-    EXPECT_EQ(selected(player), before);
-    EXPECT_TRUE(player.message().empty());
+    EXPECT_EQ(selected(player), before) << "following does not change the selection";
+    EXPECT_FALSE(player.message().empty()) << "it says it is following";
 }
 
-TEST(Interaction, SpaceOverGroundHostileOrNothingLeavesTheSelectionAlone) {
+TEST(Interaction, SpaceOverGroundOrNothingLeavesTheSelectionAlone) {
+    // U3: ground and no-aim are ignored (not refused); a hostile with a selection is attacked.
     Rig rig = make_rig();
     Interaction player{rig.tank_a};
     choose(rig, player, rig.tank_b);
@@ -677,11 +688,7 @@ TEST(Interaction, SpaceOverGroundHostileOrNothingLeavesTheSelectionAlone) {
     player.handle(with_key(input::kKeySpace), rig.sim, rig.options);
     EXPECT_EQ(selected(player), before) << "ground";
     EXPECT_TRUE(player.message().empty()) << "ignored, not refused";
-
-    static_cast<void>(at(rig, rig.enemy));
-    player.handle(with_key(input::kKeySpace), rig.sim, rig.options);
-    EXPECT_EQ(selected(player), before) << "hostile";
-    EXPECT_TRUE(player.message().empty());
+    EXPECT_TRUE(player.take_orders().empty());
 
     rig.options.aim.reset();
     player.handle(with_key(input::kKeySpace), rig.sim, rig.options);
@@ -717,23 +724,18 @@ TEST(Interaction, TOrdersAnAttackFromEverySelectedUnitAndKeepsTheSelection) {
     Rig rig = make_rig();
     Interaction player{rig.tank_a};
     select_and_drive(rig, player, rig.tank_b);
-    choose(rig, player, rig.turret);
-    choose(rig, player, rig.tank_a);
-    const std::vector<sim::UnitId> before = selected(player);
-    ASSERT_EQ(before.size(), 3U);
+    // F1 selects the tank group: tank_a (now ordinary) and tank_b (driven).
+    player.handle(with_key(input::kKeyF1), rig.sim, rig.options);
+    ASSERT_EQ(player.selection().size(), 2U);
 
     static_cast<void>(at(rig, rig.enemy));
     player.handle(with_key(input::kKeyT), rig.sim, rig.options);
 
     const std::vector<Order> orders = player.take_orders();
-    ASSERT_EQ(orders.size(), 2U) << "the driven tank is not ordered";
-    EXPECT_LT(orders.at(0).unit, orders.at(1).unit) << "ascending id order";
-    for (const Order& order : orders) {
-        EXPECT_EQ(order.kind(), OrderKind::Attack);
-        EXPECT_NE(order.unit, rig.tank_b);
-        EXPECT_EQ(std::get<sim::orders::Attack>(order.payload).target, rig.enemy);
-    }
-    EXPECT_EQ(selected(player), before);
+    ASSERT_EQ(orders.size(), 1U) << "the driven tank is not ordered";
+    EXPECT_EQ(orders.front().unit, rig.tank_a);
+    EXPECT_EQ(orders.front().kind(), OrderKind::Attack);
+    EXPECT_EQ(std::get<sim::orders::Attack>(orders.front().payload).target, rig.enemy);
 }
 
 TEST(Interaction, TWithNothingSelectedIsRefusedAndSaysWhy) {
@@ -851,25 +853,24 @@ TEST(RightClick, WrapsBackToTheGunAndLeavesTheSelectionAlone) {
 }
 
 TEST(MoveKey, MOrdersEverySelectedUnitToTheGroundUnderTheMark) {
+    // U3: a selection comes from a function key (a whole group) or from Space over one vehicle.
+    // F1 selects the tank group: tank_a (driven) and tank_b. The order must go to tank_b only.
     Rig rig = make_rig();
     Interaction player{rig.tank_a};
-    choose(rig, player, rig.tank_b);
-    choose(rig, player, rig.turret);
+    player.handle(with_key(input::kKeyF1), rig.sim, rig.options);
+    ASSERT_EQ(player.selection().size(), 2U);
     rig.options.aim = Aim{640.0F, 700.0F};
     const Pick ground = pick(rig.sim, rig.options, 640.0F, 700.0F);
     ASSERT_TRUE(ground.has_tile());
 
     player.handle(with_key(input::kKeyM), rig.sim, rig.options);
     const std::vector<Order> orders = player.take_orders();
-    ASSERT_EQ(orders.size(), 2U);
-    for (const Order& order : orders) {
-        ASSERT_EQ(order.kind(), OrderKind::MoveTo);
-        const auto& move = std::get<sim::orders::MoveTo>(order.payload);
-        EXPECT_EQ(move.x, sim::Fixed::from_int(ground.tile_x));
-        EXPECT_EQ(move.y, sim::Fixed::from_int(ground.tile_y));
-    }
-    EXPECT_EQ(orders.at(0).unit, rig.tank_b);
-    EXPECT_EQ(orders.at(1).unit, rig.turret);
+    ASSERT_EQ(orders.size(), 1U) << "the driven tank is not ordered";
+    ASSERT_EQ(orders.front().kind(), OrderKind::MoveTo);
+    const auto& move = std::get<sim::orders::MoveTo>(orders.front().payload);
+    EXPECT_EQ(move.x, sim::Fixed::from_int(ground.tile_x));
+    EXPECT_EQ(move.y, sim::Fixed::from_int(ground.tile_y));
+    EXPECT_EQ(orders.front().unit, rig.tank_b);
 }
 
 TEST(MoveKey, SpaceSelectsAPlayerTurretAndMMovesIt) {
@@ -938,10 +939,11 @@ TEST(MoveKey, MWithNoMarkIssuesNoOrders) {
 }
 
 TEST(FollowKey, FOrdersEverySelectedUnitToFollowTheUnitUnderTheMark) {
+    // U3: F1 selects the tank group (tank_a driven + tank_b); the order goes to tank_b only.
     Rig rig = make_rig();
     Interaction player{rig.tank_a};
-    choose(rig, player, rig.tank_b);
-    choose(rig, player, rig.turret);
+    player.handle(with_key(input::kKeyF1), rig.sim, rig.options);
+    ASSERT_EQ(player.selection().size(), 2U);
     static_cast<void>(at(rig, rig.tank_a)); // the mark on the driven tank: the wingman case
     const Aim aim = mark_of(rig);
     const Pick picked = pick(rig.sim, rig.options, aim.x, aim.y);
@@ -949,13 +951,10 @@ TEST(FollowKey, FOrdersEverySelectedUnitToFollowTheUnitUnderTheMark) {
 
     player.handle(with_key(input::kKeyF), rig.sim, rig.options);
     const std::vector<Order> orders = player.take_orders();
-    ASSERT_EQ(orders.size(), 2U);
-    for (const Order& order : orders) {
-        EXPECT_EQ(order.kind(), OrderKind::Follow);
-        EXPECT_EQ(std::get<sim::orders::Follow>(order.payload).target, rig.tank_a);
-    }
-    EXPECT_EQ(orders.at(0).unit, rig.tank_b);
-    EXPECT_EQ(orders.at(1).unit, rig.turret);
+    ASSERT_EQ(orders.size(), 1U) << "the driven tank is not ordered";
+    EXPECT_EQ(orders.front().kind(), OrderKind::Follow);
+    EXPECT_EQ(std::get<sim::orders::Follow>(orders.front().payload).target, rig.tank_a);
+    EXPECT_EQ(orders.front().unit, rig.tank_b);
 }
 
 TEST(FollowKey, FOnAHostileIssuesFollowOrdersToo) {
@@ -1002,7 +1001,8 @@ TEST(Interaction, TheDrivenTankIsNeverOrderedByAKey) {
     Rig rig = make_rig();
     Interaction player{rig.tank_a};
     select_and_drive(rig, player, rig.tank_b);
-    choose(rig, player, rig.tank_a);
+    // F1 selects the tank group: tank_a (ordinary) and tank_b (driven).
+    player.handle(with_key(input::kKeyF1), rig.sim, rig.options);
     ASSERT_EQ(player.selection().size(), 2U);
 
     static_cast<void>(ground_click(rig));
@@ -1073,8 +1073,8 @@ TEST(Interaction, TheSameInputProducesTheSameOrders) {
     const auto play = [] {
         Rig rig = make_rig();
         Interaction player{rig.tank_a};
-        choose(rig, player, rig.tank_b);
-        choose(rig, player, rig.turret, true);
+        // F1 selects the tank group; the driven tank is excluded from the order.
+        player.handle(with_key(input::kKeyF1), rig.sim, rig.options);
         static_cast<void>(ground_click(rig));
         player.handle(with_key(input::kKeyM), rig.sim, rig.options);
         return player.take_orders();
@@ -1082,7 +1082,7 @@ TEST(Interaction, TheSameInputProducesTheSameOrders) {
     const std::vector<Order> first = play();
     const std::vector<Order> second = play();
     ASSERT_EQ(first.size(), second.size());
-    ASSERT_EQ(first.size(), 2U) << "both selected units get the order, in ascending id order";
+    ASSERT_EQ(first.size(), 1U) << "the tank group's orderable unit gets the order";
     for (std::size_t i = 0; i < first.size(); ++i) {
         EXPECT_EQ(first.at(i).unit, second.at(i).unit);
         EXPECT_EQ(first.at(i).kind(), second.at(i).kind());
@@ -1226,10 +1226,12 @@ TEST(Swap, TheVacatedTankIsToldToStopAndEndsWithZeroVelocity) {
 }
 
 TEST(Swap, AfterASwapTheNewTankIsNotOrderableAndTheOldOneIs) {
+    // U3: after the swap tank_b is driven. F1 selects the tank group (tank_a ordinary, tank_b
+    // driven); the move order goes to tank_a only.
     Rig rig = make_rig();
     Interaction player(rig.tank_a);
     select_and_drive(rig, player, rig.tank_b);
-    choose(rig, player, rig.tank_a); // the vacated tank is selectable again
+    player.handle(with_key(input::kKeyF1), rig.sim, rig.options);
     ASSERT_EQ(player.selection().size(), 2U);
     static_cast<void>(player.take_orders());
 

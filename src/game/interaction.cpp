@@ -61,6 +61,10 @@ namespace {
     return best;
 }
 
+/// How far Space will reach to select a unit: 80% of the radar's 40-tile radius. Beyond that the
+/// unit is on the radar but too far to pick out by eye, so Space leaves the selection alone.
+constexpr float kSpaceSelectRangeTiles = 0.8F * static_cast<float>(kRadarRadiusTiles);
+
 } // namespace
 
 audio::Voice shot_voice() noexcept { return audio::Voice{audio::SoundKind::YourShot, 1.0F, 0.0F}; }
@@ -217,12 +221,44 @@ void Interaction::handle(const input::InputFrame& frame, const sim::Sim& sim,
                 = hit != nullptr && hit->alive && hit->side != sim::Side::Player;
 
             if (key.scancode == input::kKeySpace) {
-                // Space TOGGLES the own unit under the mark in or out of the selection, so a
-                // group is built one press at a time with no modifier (Shift-Space still does
-                // the same). Ground, sky, hostiles and the driven tank (nothing to order) are
-                // not refused, they are ignored: a stray press never clears the selection.
-                if (hit_is_ours && hit->id != driven_) {
-                    toggle(hit->id);
+                // Space is the SELECTOR, and its meaning depends on what is already selected and
+                // what the mark is on. The menu on the left tells the player which one is live.
+                // It never ADDS to a selection: a selection comes from a function key (a whole
+                // group) or from Space over one vehicle starting from empty.
+                if (selection_.empty()) {
+                    // Nothing selected: select the single own unit under the mark, within 80% of
+                    // the radar's range (32 of its 40 tiles). Ground, sky, hostiles and the
+                    // driven tank (nothing to order) are ignored: a stray press does nothing.
+                    if (hit_is_ours && hit->id != driven_
+                        && picked.distance_tiles <= kSpaceSelectRangeTiles) {
+                        selection_.clear();
+                        selection_.add(hit->id);
+                        message_ = "SPACE Select";
+                    }
+                    continue;
+                }
+                // Something is selected: follow a vehicle under the mark, or attack a hostile one.
+                if (hit != nullptr && hit->alive) {
+                    if (sim::is_tank(hit->kind)) {
+                        follow_crosshair_unit(sim, options);
+                        message_ = "SPACE Follow";
+                        continue;
+                    }
+                    if (hit_is_hostile) {
+                        const std::vector<sim::UnitId> roster = orderable();
+                        if (roster.empty()) {
+                            refuse("You are driving that one; select another unit to give orders.");
+                            continue;
+                        }
+                        const std::vector<sim::Order> orders = cmd::attack(roster, hit->id);
+                        if (orders.empty()) {
+                            refuse("That order cannot be carried out.");
+                            continue;
+                        }
+                        remember(orders);
+                        pending_.insert(pending_.end(), orders.begin(), orders.end());
+                        message_ = "SPACE Attack";
+                    }
                 }
                 continue;
             }
