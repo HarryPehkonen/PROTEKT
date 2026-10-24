@@ -164,7 +164,15 @@ std::vector<BattleEvent> events_between(const UnitSnapshot& before, const Sim& s
     // the same table.
     std::vector<BattleEvent> events;
     const std::vector<Unit>& after = sim.units();
-    if (before.size() != after.size()) {
+    // A BUILD ADDS A UNIT (C4): the table GROWS by one on the production beat, so a size mismatch
+    // is NOT proof of a foreign snapshot. Swallowing that tick's events (which is what this guard
+    // did while the table was append-only by assumption) dropped every shot and kill of a build
+    // tick out of the replay log and the sound. Only a table that SHRANK is foreign: the sim
+    // appends and never removes a unit. Reading `before[index]` is still safe on a grown table --
+    // the appended unit is the LAST entry, so every index below `before.size()` names the unit it
+    // always did, and a unit built this tick cannot have been fired at by a shot resolved earlier
+    // in it.
+    if (after.size() < before.size()) {
         return events;
     }
     for (const Impact& impact : sim.impacts()) {

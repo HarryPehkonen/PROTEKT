@@ -424,4 +424,60 @@ TEST(ObserverPacking, AKindPastTheTableIsPrintedUnknownNotCrashed) {
     EXPECT_STREQ(to_string(static_cast<UnitKind>(63)), "unknown");
 }
 
+/// A BUILD GROWS THE UNIT TABLE (C4). `events_between` returned NOTHING whenever the two sizes
+/// disagreed, on the written assumption that the sim never resizes its table -- an assumption C4's
+/// build made false the moment a factory started appending tanks, so every shot and kill of a build
+/// tick was silently dropped out of the replay log and out of the sound. A table that GREW is the
+/// same battle with one more unit on the END; only a table that SHRANK is a snapshot of something
+/// else.
+TEST(Observer, AGrownTableIsStillTheSameBattleAndItsEventsAreReported) {
+    // A tank firing at a hostile factory, with an unarmed hauler parked far away and spawned LAST:
+    // the last entry of the unit table is then a unit no shot or impact of the fight mentions,
+    // which is what makes a shorter snapshot safe to diff -- dropping the last entry shortens the
+    // table exactly the way a build lengthens it, without moving any other unit's index.
+    protekt::sim::Scenario scenario;
+    scenario.seed = 7;
+    scenario.spawns.push_back(Spawn{UnitKind::Tank, Side::Player, 108, 100});
+    scenario.spawns.push_back(Spawn{UnitKind::Factory, Side::Enemy, 112, 101});
+    scenario.spawns.push_back(Spawn{UnitKind::Scavenger, Side::Player, 20, 20});
+    Sim sim = Sim::create(scenario);
+    const UnitId shooter = sim.units().at(0).id;
+    const UnitId mark = sim.units().at(1).id;
+    const UnitId parked = sim.units().back().id;
+
+    bool checked = false;
+    for (int i = 0; i < 900 && !checked; ++i) {
+        const UnitSnapshot before = sim.units();
+        // The tank is ordered onto the factory every tick: in range, the order arms a shot, which
+        // is how this rig gets a tick with something to report.
+        const Unit* target = sim.find(mark);
+        ASSERT_NE(target, nullptr);
+        sim.enqueue(Order{shooter, orders::FireTowards{target->x, target->y}});
+        sim.step();
+        const std::vector<BattleEvent> events = events_between(before, sim, sim.tick());
+        if (events.empty()) {
+            continue;
+        }
+        bool mentions_parked = false;
+        for (const BattleEvent& e : events) {
+            if (e.actor == parked || e.subject == parked) {
+                mentions_parked = true;
+            }
+        }
+        if (mentions_parked) {
+            continue;
+        }
+        UnitSnapshot grown = before;
+        grown.pop_back();
+        // The same events, not none: the guard must not swallow a tick just because a build added a
+        // unit to the end of the table on it.
+        const std::vector<BattleEvent> after_the_build = events_between(grown, sim, sim.tick());
+        EXPECT_FALSE(after_the_build.empty())
+            << "a tick whose table grew (a build) must still report its events";
+        EXPECT_EQ(after_the_build.size(), events.size());
+        checked = true;
+    }
+    ASSERT_TRUE(checked) << "the rig must produce a tick with events that ignore the parked hauler";
+}
+
 } // namespace

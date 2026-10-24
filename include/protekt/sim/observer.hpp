@@ -31,8 +31,11 @@ struct BattleEvent {
 using UnitSnapshot = std::vector<Unit>;
 
 /// The HitTaken, Killed and Fired events of the step that took `before` to `after`, in ascending
-/// shooter id, stamped `tick`. Empty when the two tables disagree in size (the sim never resizes
-/// its table, so that is a snapshot of some other battle, not a tick with nothing in it). This is
+/// shooter id, stamped `tick`. Empty when the table SHRANK -- the sim appends a unit (C4's build)
+/// but never removes one, so a shorter table is a snapshot of some other battle, not a tick with
+/// nothing in it. A table that grew IS this battle with a new unit on the end (a build happened on
+/// this tick), and its events are reported as usual; swallowing them dropped every shot and kill of
+/// a build tick out of the replay log and the sound. This is
 /// the ONE place the diff is written: the replay log and the game's sound both read it, so they
 /// cannot disagree about who shot whom.
 [[nodiscard]] std::vector<BattleEvent> events_between(const UnitSnapshot& before, const Sim& after,
