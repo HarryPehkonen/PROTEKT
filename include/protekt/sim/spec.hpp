@@ -99,6 +99,12 @@ inline constexpr std::array<UnitSpec, static_cast<std::size_t>(kUnitKindCount)> 
     // wreckage, not fast enough to outrun what killed it.
     {"scavenger", kScavengerHp, Fixed::from_raw(kScavengerSpeedRaw), Fixed::zero(), 0, 0,
      Fixed::zero(), Fixed::zero(), kBoltTravel, Fixed::zero(), Fixed::zero(), false},
+    // The recycler: unarmed like the scavenger (`range` zero, and the ballistics block with it).
+    // Its hp and speed are BORROWED, not designed: the tank's hull, so a base does not die too
+    // easily, and the hauler's speed, so it can reach a deploy site. Its own numbers are Harri's to
+    // set in a balance pass.
+    {"recycler", kTankHp, Fixed::from_raw(kScavengerSpeedRaw), Fixed::zero(), 0, 0, Fixed::zero(),
+     Fixed::zero(), kBoltTravel, Fixed::zero(), Fixed::zero(), false},
 }};
 
 [[nodiscard]] constexpr const UnitSpec& spec_of(UnitKind kind) noexcept {

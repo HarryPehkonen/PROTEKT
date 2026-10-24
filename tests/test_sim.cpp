@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "protekt/sim/sim.hpp"
+#include "protekt/sim/spec.hpp"
 #include "protekt/world/world.hpp"
 
 namespace {
@@ -84,13 +85,30 @@ TEST(Sim, TheScavengerIsUnarmedAndMobile) {
     EXPECT_LT(scav.max_speed.raw, profile(UnitKind::Tank).max_speed.raw) << "slower than a tank";
     EXPECT_GT(scav.hp, 0) << "light, but not a one-shot";
     // Appended last, so no existing kind's index -- nor any hashed kind value -- moved.
-    EXPECT_EQ(static_cast<int>(UnitKind::Scavenger), kUnitKindCount - 1);
+    EXPECT_EQ(static_cast<int>(UnitKind::Scavenger), static_cast<int>(UnitKind::Recycler) - 1);
     EXPECT_TRUE(is_drivable(UnitKind::Scavenger));
     EXPECT_FALSE(is_tank(UnitKind::Scavenger)) << "the tank rules skip a hauler";
 }
 
+TEST(Sim, TheRecyclerIsAppendedLastAndIsDrivableButNotATank) {
+    // Appended, never inserted: the kind is hashed, packed and replayed, so every earlier index
+    // has to stay where it was.
+    EXPECT_EQ(static_cast<int>(UnitKind::Recycler), kUnitKindCount - 1);
+    EXPECT_EQ(static_cast<int>(UnitKind::Recycler), 7);
+    EXPECT_TRUE(is_drivable(UnitKind::Recycler)) << "it moves: only the factory does not";
+    EXPECT_FALSE(is_tank(UnitKind::Recycler)) << "the tank rules assume a gun, and it has none";
+}
+
+TEST(Sim, TheRecyclerNeverFiresAndIsNothingToFear) {
+    const UnitSpec& spec = spec_of(UnitKind::Recycler);
+    EXPECT_EQ(spec.range.raw, 0) << "range zero is what makes a kind unarmed everywhere";
+    EXPECT_EQ(spec.damage, 0);
+    EXPECT_EQ(spec.cooldown, 0);
+    EXPECT_GT(spec.max_speed.raw, 0) << "it has to be able to reach a deploy site";
+}
+
 TEST(Sim, TheHoverTankHasTheTanksProfileExactly) {
-    EXPECT_EQ(kUnitKindCount, 7);
+    EXPECT_EQ(kUnitKindCount, 8);
     EXPECT_EQ(static_cast<int>(UnitKind::HoverTank), 3);
     const UnitProfile tank = profile(UnitKind::Tank);
     const UnitProfile hover = profile(UnitKind::HoverTank);

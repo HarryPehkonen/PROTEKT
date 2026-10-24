@@ -29,9 +29,13 @@ enum class UnitKind : std::uint8_t {
     Rocket = 5, ///< slow, heavy, single-target
     /// Appended after Rocket so every kind's index -- and every hash, replay and observation that
     /// carries one -- is unchanged by its arrival. Unarmed: it hauls wreckage, and never shoots.
-    Scavenger = 6
+    Scavenger = 6,
+    /// Appended after Scavenger for the same reason: the kind is hashed, packed into observations
+    /// and serialised in replays, so inserting it anywhere else would move every recorded value.
+    /// Unarmed, and it MOVES: each side's one recycler, which deploys into the factory's base.
+    Recycler = 7
 };
-inline constexpr int kUnitKindCount = 7;
+inline constexpr int kUnitKindCount = 8;
 
 /// Tanks and hover tanks: every rule written "for a tank" (orders, retreat, defend, swap, the AI's
 /// hunters) takes both. The hover tank has the tank's profile and, until it is drivable, its
@@ -43,7 +47,8 @@ inline constexpr int kUnitKindCount = 7;
 /// Every ARMED kind can be driven (swapped into): the tanks, the mortar, the rocket and the
 /// turret. The factory is unarmed and cannot move, so there is nothing to drive. The scavenger is
 /// unarmed too, but it DOES move, so it can be driven -- an order from the player outranks the
-/// fetch it would otherwise run (see `Unit::fetching`).
+/// fetch it would otherwise run (see `Unit::fetching`). The recycler is the same case: unarmed, and
+/// it moves (it has to reach the site it deploys at), so it is driven like the hauler.
 [[nodiscard]] constexpr bool is_drivable(UnitKind kind) noexcept {
     return kind != UnitKind::Factory;
 }

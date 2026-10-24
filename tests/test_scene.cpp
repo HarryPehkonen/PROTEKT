@@ -3914,6 +3914,17 @@ TEST(FactoryShape, TheFactoryIsExactlyItsSevenPrisms) {
     EXPECT_EQ(protekt::game::kFactoryVertices, std::size_t{252});
 }
 
+// The model chain's `else` draws a FACTORY, so a kind with no branch of its own is a
+// factory-shaped bug. The same spot, drawn as each, must come out different.
+TEST(RecyclerShape, ARecyclerIsNotDrawnAsAFactoryNorAsATank) {
+    const auto recycler = unit_box_of(UnitKind::Recycler);
+    const auto factory = unit_box_of(UnitKind::Factory);
+    ASSERT_EQ(factory.size(), protekt::game::kFactoryVertices) << "the anchor: the factory's count";
+    EXPECT_FALSE(recycler.empty()) << "a new kind must not be an invisible one";
+    EXPECT_NE(recycler.size(), factory.size()) << "the fallback drew a factory";
+    EXPECT_NE(recycler.size(), kTankVertices) << "the recycler borrowed the tank's turret model";
+}
+
 TEST(FactorySkyline, TheStackRisesWellOverTheHallRoofInsideTheFootprint) {
     const auto factory = unit_box_of(UnitKind::Factory);
     const auto hall = factory_span(factory, kHallPart, 1);

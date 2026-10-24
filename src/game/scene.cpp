@@ -701,6 +701,56 @@ void build_scavenger(std::vector<SceneVertex>& out, std::uint64_t seed, const si
                     ground + kCabRoof + kRoofThickness, colour, panel_tile);
 }
 
+/// THE RECYCLER. A wide, low slab of a hull on the tank's own tracks, with a tall raised cab set
+/// toward the front and a flat roof panel on it -- the silhouette of a vehicle that is carrying a
+/// base around inside it, and clearly neither the tank's turret-bearing one nor the factory's hall.
+/// Nothing on it aims, so it is turned by `heading` alone. A PLACEHOLDER, deliberately plain: the
+/// recycler's real look is a later art slice, and this exists so a new kind is not an invisible
+/// one, nor a factory by default.
+void build_recycler(std::vector<SceneVertex>& out, std::uint64_t seed, const sim::Unit& unit,
+                    Mark mark, float lift_z, bool lifted, float heading) {
+    const float x
+        = static_cast<float>(unit.x.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile;
+    const float z
+        = static_cast<float>(unit.y.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile;
+    const float ground = lifted ? lift_z : ground_metres(seed, unit.x, unit.y);
+    const AtlasManifest& atlas = atlas_manifest();
+    const UvRect hull_tile
+        = atlas.rect(kTeamHullNames.at(static_cast<std::size_t>(unit.side))
+                         .at(static_cast<std::size_t>(hull_variant(seed, unit.id.value))));
+    const UvRect tracks_tile = atlas.rect("tank_tracks");
+    const UvRect panel_tile = atlas.rect("tank_turret");
+    constexpr float kDeckHalfAcross = 0.5F; ///< wider than the tank's deck: a broad, low slab
+    constexpr float kDeckBack = -0.9F;      ///< along the hull from its centre
+    constexpr float kDeckFront = 0.7F;
+    constexpr float kDeckBase = 0.75F; ///< above the ground: the tracks it stands on
+    constexpr float kDeckTop = 1.0F;
+    constexpr float kCabHalfAcross = 0.38F;
+    constexpr float kCabBack = -0.7F;
+    constexpr float kCabFront = 0.2F;
+    constexpr float kCabRoof = kDeckTop + 0.55F; ///< the model's highest point
+    constexpr float kRoofThickness = 0.03F;
+
+    Vec3 colour = side_colour(unit.side);
+    if (mark == Mark::Selected) {
+        colour = highlight(colour);
+    } else if (mark != Mark::None) {
+        colour = aim_tint(colour, mark == Mark::AimedOwn);
+    }
+    Vec3 camo_colour = colour;
+    for (float& channel : camo_colour) {
+        channel += (1.0F - channel) * kHullPaleMix;
+    }
+
+    emit_tank_hull(out, x, z, ground, heading, colour, camo_colour, hull_tile, tracks_tile);
+    emit_turned_box(out, x, z, heading, kDeckHalfAcross, kDeckBack, kDeckFront, ground + kDeckBase,
+                    ground + kDeckTop, camo_colour, hull_tile);
+    emit_turned_box(out, x, z, heading, kCabHalfAcross, kCabBack, kCabFront, ground + kDeckTop,
+                    ground + kCabRoof, camo_colour, hull_tile);
+    emit_turned_box(out, x, z, heading, kCabHalfAcross, kCabBack, kCabFront, ground + kCabRoof,
+                    ground + kCabRoof + kRoofThickness, colour, panel_tile);
+}
+
 /// THE HOVER TANK, built to read as NOT a tank at a glance: no track skirts at all, a low wedge
 /// that tapers in plan to a narrow nose and slopes down to it in profile, riding on a bright band
 /// of lift -- the skirt -- with a gap of air under it. A small turret sits on the deck ahead of
@@ -3099,6 +3149,10 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
                 // borrow the tank's turret. Nothing on a scavenger aims.
                 build_scavenger(scene.vertices, options.seed, unit, mark, lift_z, hovering,
                                 heading);
+            } else if (unit.kind == sim::UnitKind::Recycler) {
+                // Beside the scavenger's, and before the tank fallback: a driven recycler is FACED
+                // too, and must neither borrow the tank's turret nor fall through to a factory.
+                build_recycler(scene.vertices, options.seed, unit, mark, lift_z, hovering, heading);
             } else if (faced || unit.kind == sim::UnitKind::Tank) {
                 build_facing_tank(scene.vertices, options.seed, unit, mark, lift_z, hovering,
                                   heading, turret);

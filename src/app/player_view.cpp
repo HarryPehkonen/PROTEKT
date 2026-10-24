@@ -13,6 +13,8 @@ game::MenuSubject subject_of_kind(sim::UnitKind kind) {
     switch (kind) {
     case sim::UnitKind::Factory:
         return game::MenuSubject::Deployment;
+    case sim::UnitKind::Recycler:
+        return game::MenuSubject::Recycler;
     case sim::UnitKind::Scavenger:
         return game::MenuSubject::Harvester;
     case sim::UnitKind::Turret:

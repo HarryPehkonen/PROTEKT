@@ -176,6 +176,26 @@ TEST(PlayerView, ASelectedScavengerAsksForTheHarvesterMenu) {
     EXPECT_EQ(menu_subject_of(rig.sim, selected), MenuSubject::Harvester);
 }
 
+TEST(PlayerView, ASelectedRecyclerAsksForTheRecyclerMenu) {
+    sim::Scenario s = base_scenario();
+    s.spawns.push_back(sim::Spawn{UnitKind::Recycler, Side::Player, 54, 41});
+    Rig rig{};
+    rig.sim = sim::Sim::create(s);
+    const sim::UnitId recycler = unit_id(rig.sim, 6);
+    ASSERT_EQ(rig.sim.find(recycler)->kind, UnitKind::Recycler);
+    const std::vector<sim::UnitId> selected{recycler};
+    ASSERT_EQ(menu_subject_of(rig.sim, selected), MenuSubject::Recycler);
+
+    game::MenuInput in;
+    in.subject = menu_subject_of(rig.sim, selected);
+    const std::vector<game::MenuRow> rows = game::menu_rows(in);
+    ASSERT_EQ(rows.size(), 6U) << "SPACE, TAB, ~, then 1 FOLLOW ME, 2 GO TO NAV, 3 DEPLOY";
+    EXPECT_EQ(rows.at(3).verb, "FOLLOW ME");
+    EXPECT_EQ(rows.at(4).verb, "GO TO NAV");
+    EXPECT_EQ(rows.at(5).key, "3");
+    EXPECT_EQ(rows.at(5).verb, "DEPLOY");
+}
+
 TEST(PlayerView, ASelectedTurretAsksForTheTurretMenu) {
     const Rig rig = make_base_rig();
     const std::vector<sim::UnitId> selected{unit_id(rig.sim, 2)};

@@ -209,6 +209,10 @@ TEST(RosterStrip, TheLabelsAreTheShortNames) {
     EXPECT_EQ(kind_label(UnitKind::Factory), "FACTORY");
 }
 
+TEST(RosterStrip, TheRecyclerIsLabelledRecycler) {
+    EXPECT_EQ(kind_label(UnitKind::Recycler), "RECYCLER");
+}
+
 TEST(RosterStrip, TheGroupsHitPointsFollowDamage) {
     // Two enemy tanks beside the second own tank: it takes damage before anything else does.
     Rig rig
