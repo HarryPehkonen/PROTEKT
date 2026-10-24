@@ -103,6 +103,15 @@ struct Options {
         int digit{};
     };
     std::vector<DigitPress> digit_presses{};
+    /// `--key FRAME NAME` (repeatable): SPACE, TAB or F1-F10 pressed on that frame (1-based). The
+    /// digits cannot make a selection -- they are mark and menu-row keys -- so this is the scripted
+    /// selection (`--key 1 f3` picks the factory group), and a capture can show the command menu
+    /// with nobody at the keyboard.
+    struct KeyPress {
+        std::uint32_t frame{};
+        std::int32_t scancode{};
+    };
+    std::vector<KeyPress> key_presses{};
     bool press_ctrl{false};
     bool press_alt{false};
     /// Turn the radar off, for comparing two frames pixel by pixel. The game always has one.
@@ -116,6 +125,25 @@ struct Options {
     /// so it changes nothing but what the speakers do.
     bool no_sound{false};
 };
+
+/// The scancode `--key` names: `space`, `tab`, `f1` to `f10`, in lower case and nothing else.
+bool parse_key_name(std::string_view name, std::int32_t& scancode) {
+    if (name == "space") {
+        scancode = input::kKeySpace;
+        return true;
+    }
+    if (name == "tab") {
+        scancode = input::kKeyTab;
+        return true;
+    }
+    int number = 0;
+    if (name.size() < 2 || name.front() != 'f' || !parse_number(name.substr(1), number)
+        || number < 1 || number > 10 || name.size() != (number == 10 ? 3U : 2U)) {
+        return false;
+    }
+    scancode = input::kKeyF1 + number - 1;
+    return true;
+}
 
 /// Returns 0 on success, or 2 after printing why the command line was refused.
 int parse_args(std::span<const std::string_view> args, Options& options, std::ostream& err) {
@@ -208,6 +236,16 @@ int parse_args(std::span<const std::string_view> args, Options& options, std::os
                 return 2;
             }
             options.digit_presses.push_back(press);
+        } else if (arg == "--key") {
+            std::string_view name;
+            Options::KeyPress press;
+            if (!next(value) || !next(name) || !parse_number(value, press.frame) || press.frame == 0
+                || !parse_key_name(name, press.scancode)) {
+                err << "protekt-game: --key wants a frame number (1-based) and one of space, tab, "
+                       "f1, f2, f3, f4, f5, f6, f7, f8, f9, f10\n";
+                return 2;
+            }
+            options.key_presses.push_back(press);
         } else if (arg == "--fullscreen") {
             if (options.headless) {
                 err << "protekt-game: --fullscreen needs a window; --headless has none\n";
@@ -499,6 +537,11 @@ void script_hands(const Options& options, std::uint32_t frame, input::InputFrame
         if (press.frame == frame + 1) {
             hands.keys.push_back(input::KeyEvent{
                 press.digit == 0 ? input::kKey0 : input::kKey1 + press.digit - 1, true, false});
+        }
+    }
+    for (const Options::KeyPress& press : options.key_presses) {
+        if (press.frame == frame + 1) {
+            hands.keys.push_back(input::KeyEvent{press.scancode, true, false});
         }
     }
     if (options.press_scancode >= 0) {

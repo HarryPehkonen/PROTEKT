@@ -4,6 +4,7 @@
 // the window itself is testable here -- on a machine with no display and no GPU.
 #include <gtest/gtest.h>
 
+#include <cctype>
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
@@ -157,6 +158,163 @@ TEST_F(GameCliTest, RejectsAnUnknownFlag) {
     const std::vector<std::string_view> args{"--headless", "--wat"};
     EXPECT_EQ(run(args, err), 2);
     EXPECT_NE(err.find("--wat"), std::string::npos) << err;
+}
+
+TEST_F(GameCliTest, ARefusedKeyNameNamesTheAcceptedOnes) {
+    // `--key` takes space, tab and f1-f10, in lower case: anything else is a refusal that says so.
+    for (const std::string_view bad : {"f11", "f0", "f01", "F3", "enter", "3"}) {
+        std::string err;
+        EXPECT_EQ(run({"--headless", "--key", "1", bad}, err), 2) << bad;
+        EXPECT_NE(err.find("space, tab, f1"), std::string::npos) << bad << ": " << err;
+    }
+    std::string err;
+    EXPECT_EQ(run({"--headless", "--key", "0", "f3"}, err), 2) << "frames are 1-based";
+    EXPECT_EQ(run({"--headless", "--key", "1"}, err), 2) << "a key with no name";
+    EXPECT_EQ(run({"--headless", "--key"}, err), 2) << "a key with nothing at all";
+}
+
+TEST_F(GameCliTest, AScriptedKeyReachesTheFrameAndLeavesTheSimAlone) {
+    if (kUnderThreadSanitizer) {
+        GTEST_SKIP() << kTsanReason;
+    }
+    // F3 selects the factory group: the roster strip lights it and the command menu opens. Both
+    // are drawing, so the picture must change while the state hash does not move.
+    const std::string before = temp_path("before.ppm");
+    const std::string after = temp_path("after.ppm");
+    std::string before_err;
+    std::string after_err;
+    std::string before_out;
+    std::string after_out;
+    ASSERT_EQ(run({"--headless", "--seed", "42", "--frames", "6", "--capture", before}, before_err,
+                  &before_out),
+              0)
+        << before_err;
+    ASSERT_EQ(
+        run({"--headless", "--seed", "42", "--frames", "6", "--key", "1", "f3", "--capture", after},
+            after_err, &after_out),
+        0)
+        << after_err;
+    ASSERT_NE(before_out.find("hash"), std::string::npos) << before_out;
+    EXPECT_EQ(before_out.substr(before_out.find("hash")), after_out.substr(after_out.find("hash")))
+        << "selecting is drawing: it must not move the sim";
+    EXPECT_NE(slurp(before), slurp(after)) << "--key emitted nothing the frame could show";
+}
+
+/// The PPM the harness writes: "P6", the size, 255, then three bytes a pixel.
+struct Frame {
+    int width{};
+    int height{};
+    std::vector<unsigned char> rgb{};
+};
+
+[[nodiscard]] Frame read_ppm(const std::string& path) {
+    std::ifstream in(path, std::ios::binary);
+    std::ostringstream buffer;
+    buffer << in.rdbuf();
+    const std::string bytes = buffer.str();
+    std::size_t at = 0;
+    const auto token = [&]() {
+        while (at < bytes.size() && std::isspace(static_cast<unsigned char>(bytes.at(at))) != 0) {
+            ++at;
+        }
+        const std::size_t start = at;
+        while (at < bytes.size() && std::isspace(static_cast<unsigned char>(bytes.at(at))) == 0) {
+            ++at;
+        }
+        return bytes.substr(start, at - start);
+    };
+    Frame frame;
+    EXPECT_EQ(token(), "P6");
+    frame.width = std::stoi(token());
+    frame.height = std::stoi(token());
+    EXPECT_EQ(token(), "255");
+    ++at; // the one whitespace byte after the maximum, then the pixels
+    frame.rgb.assign(bytes.begin() + static_cast<std::ptrdiff_t>(at), bytes.end());
+    EXPECT_EQ(frame.rgb.size(),
+              static_cast<std::size_t>(frame.width) * static_cast<std::size_t>(frame.height) * 3U);
+    return frame;
+}
+
+/// How many ROWS of text a frame draws down its left side, and how many of them are the dim ink.
+///
+/// A row is a run of inked scanlines: one row of text is ten-odd lines of ink and the gap to the
+/// next row is blank. Only the left 40% of the frame is searched -- that is where the command menu
+/// lives -- and a pixel counts as ink if it is the LIVE ink (all three channels at 235 or above) or
+/// the DIM ink: one grey, the channels equal within a step of each other and around 102. The dim
+/// ink is what RB0.5 draws an unaffordable or inapplicable row in, so it has to be counted here or
+/// a menu of dimmed build rows reads as no menu at all.
+struct MenuRows {
+    int live{};
+    int dim{};
+    [[nodiscard]] int total() const { return live + dim; }
+};
+
+[[nodiscard]] MenuRows menu_rows_in_band(const Frame& frame, double top_fraction,
+                                         double bottom_fraction) {
+    const int top = static_cast<int>(top_fraction * static_cast<double>(frame.height));
+    const int bottom = static_cast<int>(bottom_fraction * static_cast<double>(frame.height));
+    const int limit = static_cast<int>(0.4 * static_cast<double>(frame.width));
+    MenuRows rows;
+    bool was_live = false;
+    bool was_dim = false;
+    for (int y = top; y < bottom; ++y) {
+        bool live_here = false;
+        bool dim_here = false;
+        for (int x = 0; x < limit; ++x) {
+            const std::size_t at
+                = (static_cast<std::size_t>(y) * static_cast<std::size_t>(frame.width)
+                   + static_cast<std::size_t>(x))
+                  * 3U;
+            const int r = frame.rgb.at(at);
+            const int g = frame.rgb.at(at + 1U);
+            const int b = frame.rgb.at(at + 2U);
+            if (r >= 235 && g >= 235 && b >= 235) {
+                live_here = true;
+            } else if (std::abs(r - g) <= 2 && std::abs(g - b) <= 2 && r >= 95 && r <= 110) {
+                dim_here = true;
+            }
+        }
+        if (live_here && !was_live) {
+            ++rows.live;
+        }
+        if (dim_here && !was_dim) {
+            ++rows.dim;
+        }
+        was_live = live_here;
+        was_dim = dim_here;
+    }
+    return rows;
+}
+
+TEST_F(GameCliTest, TheMenuIsOnScreenWhenTheRosterSelectsAFactory) {
+    if (kUnderThreadSanitizer) {
+        GTEST_SKIP() << kTsanReason;
+    }
+    // F3 selects the factory group, and that selection's command menu is drawn down the left of the
+    // frame. Scrap is 0 at seed 42, so all SEVEN build rows are unaffordable and drawn in the dim
+    // ink while the state row, TAB CLOSE MENU and ~ DROP OFF stay live: ten rows, three of them
+    // live, and not one of them before the key is pressed. RB5 fills the build list, and this count
+    // changes with it.
+    const std::string before = temp_path("menu-before.ppm");
+    const std::string after = temp_path("menu-after.ppm");
+    std::string err;
+    ASSERT_EQ(run({"--headless", "--seed", "42", "--frames", "6", "--capture", before}, err), 0)
+        << err;
+    ASSERT_EQ(
+        run({"--headless", "--seed", "42", "--frames", "6", "--key", "1", "f3", "--capture", after},
+            err),
+        0)
+        << err;
+
+    // The band the menu lives in: below the roster strip and the notice, above the SCRAP label and
+    // the radar. Both frames are measured the same way, which is what makes the pair a proof.
+    constexpr double kTopFraction = 45.0 / 720.0;
+    constexpr double kBottomFraction = 560.0 / 720.0;
+    const MenuRows empty = menu_rows_in_band(read_ppm(before), kTopFraction, kBottomFraction);
+    const MenuRows menu = menu_rows_in_band(read_ppm(after), kTopFraction, kBottomFraction);
+    EXPECT_EQ(empty.total(), 0) << "a frame with no menu must draw no rows in that band";
+    EXPECT_EQ(menu.live, 3) << "the state row, TAB CLOSE MENU and ~ DROP OFF are the live rows";
+    EXPECT_EQ(menu.dim, 7) << "no scrap is banked, so every build row is dim";
 }
 
 TEST_F(GameCliTest, FailsWithAReasonWhenTheNamedGpuDoesNotExist) {
