@@ -431,6 +431,19 @@ inline constexpr std::size_t kUnitBarVertexCount = 18;
 inline constexpr float kAmmoPlaceholderFraction = 1.0F;
 [[nodiscard]] constexpr std::string_view ammo_placeholder_percent() noexcept { return "100"; }
 
+/// A PIECE OF WRECKAGE, DRAWN (C5). C1 scatters four pieces of a dead unit's hull on the ground
+/// around it and settles them onto ground a vehicle can stand on -- and until now nothing drew
+/// them, so a battle that littered the field looked exactly like one that had not. The mark is a
+/// small dark plate lying flat on the terrain, deliberately SMALLER than the footprint of the tank
+/// that died (that hull is `kMetresPerTile * 0.3` either side) so a field of them reads as debris
+/// and never as units. It is lifted a few centimetres clear of the ground so it does not fight the
+/// terrain it lies on.
+inline constexpr float kScrapHalfMetres = 0.30F;
+inline constexpr float kScrapLiftMetres = 0.05F;
+inline constexpr math::Vec3 kScrapColour{0.30F, 0.28F, 0.26F};
+/// A scrap mark is one quad, so six vertices, and it emits NONE when the field holds no litter.
+inline constexpr std::size_t kScrapVertexCount = 6U;
+
 struct SceneOptions {
     std::uint64_t seed{};
     Camera camera{};
@@ -528,6 +541,11 @@ struct SceneOptions {
     /// so the frame price of the dial is a number rather than a guess. The default is the shipped
     /// look.
     int radar_mesh_step_tiles{kRadarMeshStepTiles};
+    /// The wreckage on the ground (C5): C1's litter, drawn as a small dark plate where each piece
+    /// lies, so a player can SEE where the fighting has been. ON by default, because the game draws
+    /// it -- but the layer emits NOTHING while `Sim::scraps()` is empty, so a battle that has lost
+    /// no unit is byte-identical to one that never heard of this field.
+    bool show_scrap{true};
 };
 
 /// Triangles for the terrain mesh (two per tile, painted by `Terrain`) followed by one box per

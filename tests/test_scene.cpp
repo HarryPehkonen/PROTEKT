@@ -5219,4 +5219,106 @@ TEST(ShipGauge, FourRowsFitAtTheSmallestWindow) {
         << "the longest name should reach past the ring, or this test is measuring the ring";
 }
 
+/// C5 -- THE WRECKAGE IS DRAWN. C1 has scattered a dead unit's hull on the ground since the economy
+/// landed and nothing ever drew it, so the litter was invisible to the player. The layer is pinned
+/// three ways below: one quad per piece and no more, each plate lying ON THE GROUND at the piece's
+/// own tile, and NOTHING AT ALL in the wreckage's colour while the field is clean -- which is the
+/// property that lets every other frame in this suite (and every frame of a battle that has not yet
+/// lost a unit) stay byte-identical to what it drew before this layer existed.
+
+/// A fight that ENDS: three tanks of one side against a lone one on open ground, so one side loses
+/// a unit and the other does not. The same rig `test_scrap.cpp` uses to get litter on the field.
+protekt::sim::Sim a_battle_that_leaves_litter() {
+    protekt::sim::Scenario scenario;
+    scenario.seed = 20261023;
+    scenario.spawns.push_back(
+        protekt::sim::Spawn{protekt::sim::UnitKind::Tank, protekt::sim::Side::Player, 57, 41});
+    scenario.spawns.push_back(
+        protekt::sim::Spawn{protekt::sim::UnitKind::Tank, protekt::sim::Side::Player, 58, 41});
+    scenario.spawns.push_back(
+        protekt::sim::Spawn{protekt::sim::UnitKind::Tank, protekt::sim::Side::Player, 59, 41});
+    scenario.spawns.push_back(
+        protekt::sim::Spawn{protekt::sim::UnitKind::Tank, protekt::sim::Side::Enemy, 57, 43});
+    protekt::sim::Sim sim = protekt::sim::Sim::create(scenario);
+    for (int i = 0; i < 900 && sim.scraps().empty(); ++i) {
+        sim.step();
+    }
+    return sim;
+}
+
+/// How many vertices a frame draws in the wreckage's own colour. A colour only this layer emits is
+/// how a layer's absence is proved: a vertex count or "the bytes differ" would not say which.
+std::size_t wreckage_vertices(const Scene& scene) {
+    std::size_t count = 0;
+    for (const auto& vertex : scene.vertices) {
+        if (std::abs(vertex.colour.at(0) - protekt::game::kScrapColour[0]) < kTolerance
+            && std::abs(vertex.colour.at(1) - protekt::game::kScrapColour[1]) < kTolerance
+            && std::abs(vertex.colour.at(2) - protekt::game::kScrapColour[2]) < kTolerance) {
+            ++count;
+        }
+    }
+    return count;
+}
+
 } // namespace
+
+TEST(Scene, TheWreckageIsDrawnWhereThePiecesLie) {
+    const protekt::sim::Sim sim = a_battle_that_leaves_litter();
+    ASSERT_FALSE(sim.scraps().empty()) << "the rig must leave litter, or this test proves nothing";
+
+    // Look from just beside the first piece, close enough that the whole field of litter is inside
+    // the meshed radius (so no piece is culled and the count below is exact).
+    const auto tile_of = [](const protekt::sim::Scrap& piece, float metres) {
+        return static_cast<float>(piece.x.raw) / static_cast<float>(protekt::sim::Fixed::kOne)
+               * metres;
+    };
+    const protekt::sim::Scrap& first = sim.scraps().front();
+    SceneOptions options
+        = options_at(tile_of(first, kMetresPerTile),
+                     static_cast<float>(first.y.raw) / static_cast<float>(protekt::sim::Fixed::kOne)
+                         * kMetresPerTile,
+                     sim.seed(), 40);
+
+    const Scene with = build_scene(sim, options);
+    SceneOptions hidden = options;
+    hidden.show_scrap = false;
+    const Scene without = build_scene(sim, hidden);
+
+    const std::size_t expected = protekt::game::kScrapVertexCount * sim.scraps().size();
+    EXPECT_EQ(with.vertices.size() - without.vertices.size(), expected)
+        << "one quad per piece of wreckage, and no other vertex moved";
+    EXPECT_EQ(wreckage_vertices(with), expected) << "counted by the layer's own colour";
+    EXPECT_EQ(wreckage_vertices(without), 0U) << "with the layer off, not one vertex of it";
+
+    // Every plate lies ON THE GROUND at a piece's own tile: within one plate's half-width of a
+    // piece's centre horizontally, and at exactly that tile's terrain height plus the lift -- so a
+    // plate can never float over the field or bury itself in the ground.
+    for (const auto& vertex : with.vertices) {
+        const bool is_wreckage
+            = std::abs(vertex.colour.at(0) - protekt::game::kScrapColour[0]) < kTolerance
+              && std::abs(vertex.colour.at(1) - protekt::game::kScrapColour[1]) < kTolerance
+              && std::abs(vertex.colour.at(2) - protekt::game::kScrapColour[2]) < kTolerance;
+        if (!is_wreckage) {
+            continue;
+        }
+        bool at_a_piece = false;
+        for (const protekt::sim::Scrap& piece : sim.scraps()) {
+            const float px = tile_of(piece, kMetresPerTile);
+            const float pz = static_cast<float>(piece.y.raw)
+                             / static_cast<float>(protekt::sim::Fixed::kOne) * kMetresPerTile;
+            const float ground = protekt::game::ground_metres(sim.seed(), px / kMetresPerTile,
+                                                              pz / kMetresPerTile);
+            const bool inside
+                = std::abs(vertex.position[0] - px) <= protekt::game::kScrapHalfMetres + kTolerance
+                  && std::abs(vertex.position[2] - pz)
+                         <= protekt::game::kScrapHalfMetres + kTolerance;
+            if (inside
+                && std::abs(vertex.position[1] - (ground + protekt::game::kScrapLiftMetres))
+                       < kTolerance) {
+                at_a_piece = true;
+                break;
+            }
+        }
+        EXPECT_TRUE(at_a_piece) << "a wreckage plate drawn off the ground, or off its piece";
+    }
+}

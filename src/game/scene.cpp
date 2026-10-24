@@ -1105,6 +1105,42 @@ void append_landing_marks(std::vector<SceneVertex>& out, const SceneOptions& opt
     }
 }
 
+/// THE WRECKAGE ON THE GROUND (C5). C1 scatters four pieces of a dead unit's hull around it and
+/// settles each onto ground a vehicle can stand on; until this layer existed nothing drew them, so
+/// the litter the sim has been keeping was invisible to the player. Each piece is a small dark
+/// plate lying flat on the terrain (`kScrapHalfMetres`, smaller than the footprint of the tank that
+/// died), lifted `kScrapLiftMetres` clear so it does not fight the ground beneath it.
+///
+/// EMITS NOTHING while the field holds no litter, which is what keeps this layer free for every
+/// frame that has never lost a unit: the vertex list -- and so the tail that other tests read -- is
+/// exactly what it was. Culled to the meshed radius like the units and the beacons, so a piece
+/// never floats over bare void.
+void append_scrap(std::vector<SceneVertex>& out, const SceneOptions& options, const sim::Sim& sim) {
+    if (!options.show_scrap) {
+        return;
+    }
+    for (const sim::Scrap& piece : sim.scraps()) {
+        const int dx
+            = piece.x.floor_int() - static_cast<int>(std::floor(options.camera.x / kMetresPerTile));
+        const int dy
+            = piece.y.floor_int() - static_cast<int>(std::floor(options.camera.z / kMetresPerTile));
+        if (std::abs(dx) > options.radius_tiles || std::abs(dy) > options.radius_tiles) {
+            continue;
+        }
+        const float tile_x = static_cast<float>(piece.x.raw) / static_cast<float>(sim::Fixed::kOne);
+        const float tile_y = static_cast<float>(piece.y.raw) / static_cast<float>(sim::Fixed::kOne);
+        const float cx = tile_x * kMetresPerTile;
+        const float cz = tile_y * kMetresPerTile;
+        const float ground = ground_metres(options.seed, tile_x, tile_y) + kScrapLiftMetres;
+        // The same corner order the terrain mesh uses, for consistency rather than necessity:
+        // the pipeline culls nothing.
+        emit_quad(out, Vec3{cx - kScrapHalfMetres, ground, cz - kScrapHalfMetres},
+                  Vec3{cx + kScrapHalfMetres, ground, cz - kScrapHalfMetres},
+                  Vec3{cx + kScrapHalfMetres, ground, cz + kScrapHalfMetres},
+                  Vec3{cx - kScrapHalfMetres, ground, cz + kScrapHalfMetres}, kScrapColour);
+    }
+}
+
 /// THE NAV BEACON (N1): a slim vertical bar of `kNavColour` standing on the mark's tile, turned to
 /// face the camera, tall enough to see over the terrain from a distance and thin enough not to
 /// fill the view up close. No number: that belongs to the radar. It is drawn only where the
@@ -2888,6 +2924,7 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
 
     append_projectiles(scene.vertices, options, sim);
     append_landing_marks(scene.vertices, options, sim.tick());
+    append_scrap(scene.vertices, options, sim);
     append_nav_beacons(scene.vertices, options);
     // The map and the radar share the bottom-left corner: BZ2's R turns one into the other rather
     // than stacking them, so the radar (and the hull bar it carries) is not drawn while the map is
