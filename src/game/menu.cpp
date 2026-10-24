@@ -2,6 +2,7 @@
 
 #include <array>
 #include <cstddef>
+#include <utility>
 
 namespace protekt::game {
 namespace {
@@ -88,13 +89,12 @@ constexpr std::array kPlayerBuildList{
 
 /// The row everything else hangs under: always first, always live, never dimmed.
 [[nodiscard]] MenuRow state_row(const MenuInput& in) {
-    return MenuRow{std::string{kSpace}, state_verb(in), true, MenuDim::None};
+    return MenuRow{kSpace, state_verb(in), true, MenuDim::None};
 }
 
 void append_fixed(std::vector<MenuRow>& rows, std::span<const FixedRow> fixed) {
     for (const FixedRow& row : fixed) {
-        rows.push_back(MenuRow{std::string{row.key}, std::string{row.verb},
-                               row.dim == MenuDim::None, row.dim});
+        rows.push_back(MenuRow{row.key, std::string{row.verb}, row.dim == MenuDim::None, row.dim});
     }
 }
 
@@ -103,7 +103,7 @@ void append_fixed(std::vector<MenuRow>& rows, std::span<const FixedRow> fixed) {
 void append_build_list(std::vector<MenuRow>& rows, const MenuInput& in) {
     for (const BuildItem& item : build_items(in.side)) {
         const bool affordable = in.ore >= item.cost;
-        rows.push_back(MenuRow{std::string{item.key}, named_cost(item.label, item.cost), affordable,
+        rows.push_back(MenuRow{item.key, named_cost(item.label, item.cost), affordable,
                                affordable ? MenuDim::None : MenuDim::Unaffordable});
     }
 }
@@ -128,7 +128,7 @@ std::vector<MenuRow> menu_rows(const MenuInput& in) {
     if (in.subject == MenuSubject::Turret) {
         return rows;
     }
-    rows.push_back(MenuRow{std::string{kTab}, std::string{kCloseMenu}, true, MenuDim::None});
+    rows.push_back(MenuRow{kTab, std::string{kCloseMenu}, true, MenuDim::None});
     switch (in.subject) {
     case MenuSubject::Recycler:
         append_fixed(rows, kRecyclerRows);

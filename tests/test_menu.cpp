@@ -60,7 +60,7 @@ const MenuRow* row_for(std::vector<MenuRow>&& rows, std::string_view key) = dele
     std::vector<std::string> keys;
     keys.reserve(rows.size());
     for (const MenuRow& row : rows) {
-        keys.push_back(row.key);
+        keys.push_back(std::string{row.key});
     }
     return keys;
 }

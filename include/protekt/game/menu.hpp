@@ -4,6 +4,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #include "protekt/sim/units.hpp"
@@ -110,16 +111,29 @@ enum class MenuDim : std::uint8_t {
 /// One row of the menu, as drawn: the key pressed and the verb it names, side by side.
 struct MenuRow {
     /// The KEY COLUMN, exactly as it is drawn: "SPACE", "TAB", "~", "1".."9", "0". A label, not a
-    /// scancode -- `input/bindings.hpp` owns keys and this model routes none of them.
-    std::string key{};
+    /// scancode -- `input/bindings.hpp` owns keys and this model routes none of them -- and a VIEW
+    /// rather than an owned string: every key is a literal or a `BuildItem`'s own key, both static,
+    /// so a drawn row owns nothing it could dangle from.
+    std::string_view key{};
     /// The VERB COLUMN, exactly as it is drawn. A build row carries its cost here ("SCOUT 45"),
-    /// because the cost is drawn on the row. Empty is a real state: the state row with nothing to
-    /// name shows the key alone.
+    /// because the cost is drawn on the row: the name and the number are composed once, in the
+    /// model, so the renderer draws two columns of text and never formats a price. Owned, because
+    /// that one string IS composed -- it is the only row text that does not come from a table.
+    /// Empty is a real state: the state row with nothing to name shows the key alone.
     std::string verb{};
     /// False is the dim ink. Exactly `reason != MenuDim::None`.
     bool enabled{true};
     /// Why it is dimmed. `MenuDim::None` exactly when `enabled`.
     MenuDim reason{MenuDim::None};
+
+    MenuRow() = default;
+    MenuRow(std::string_view key_in, std::string verb_in, bool enabled_in, MenuDim reason_in)
+        : key(key_in), verb(std::move(verb_in)), enabled(enabled_in), reason(reason_in) {}
+    /// `MenuRow{std::string{...}, ...}` reads fine and is a view into a temporary that dies at the
+    /// semicolon -- which the compiler will not mention, because the conversion to `string_view` is
+    /// as ordinary as anything. Deleted so it is a COMPILE error instead: every key is a literal or
+    /// a `BuildItem`'s own key, and both outlive the row.
+    MenuRow(std::string&&, std::string, bool, MenuDim) = delete;
 };
 
 /// One row of a deployed recycler's build list. The cost is scrap, the same currency the factory
