@@ -314,8 +314,9 @@ meaning, and those are in section 14.
 | `C` | toggle the colour calibration view (red, green, blue bars) | [SHIPPED 3c7070c] |
 | `F11` or `Alt`+`Enter` | toggle full screen | [SHIPPED 47ba745] |
 | `Ctrl`+`Q` | quit from anywhere; deliberately a modified key | [SHIPPED 47ba745] |
-| digits `1`–`9`, `0` in normal play | answer `G`, `T` and the attack list only; they select nothing | [SHIPPED 160dec4] |
-| digits in a command menu | would be the menu's verbs | [INTENDED — unconfirmed] — `menu.hpp:40-43`, see section 6 |
+| digits `1`–`9`, `0`, no prompt open | act on the selected subject's command menu, for the two rows that can act: `1 FOLLOW ME` (the selection follows the craft you are driving) and `4 HOLD` (each unit guards its own position with `GuardAt`). A digit the menu has no row for, a row the model dims, or a subject with no menu does nothing at all — and the recycler's menu has no `4` | [SHIPPED d80ce95] |
+| digits `1`–`9`, `0`, a prompt open | answer `G`, `T` and the attack list exactly as before: the prompt swallows the digit first, and the menu never sees it | [SHIPPED 160dec4, precedence pinned d80ce95] |
+| digits in a command menu, rows that cannot act yet | inert, with no message: `2 GO TO NAV` (which mark it means is unruled), `3 SCAVENGE` (the fetch is automatic), `3 DEPLOY` (RB3), `5 PICK ME UP`, `9 BAILOUT`, `0 RECYCLE`, `~`, and the factory's seven build rows (RB5) | [SHIPPED d80ce95] |
 
 Selection and orders, the rules behind the rows:
 
@@ -327,6 +328,12 @@ Selection and orders, the rules behind the rows:
 - [SHIPPED 3404ba9] `Space` never ADDS to a selection and there is no `Shift`+`Space` gesture. A
   selection comes from a function key or from `Space` over one unit starting from empty. Harri's
   directive, 2026-10-23 (U3 commit).
+- [SHIPPED d80ce95] A digit with no prompt open is a row of the selection's menu, and neither routed row
+  ever orders the craft you are driving — `1` and `4` order the rest of the selection and refuse when that
+  is all there is, exactly as the verbs above do. `HOLD` is `GuardAt` built one unit at a time at that
+  unit's OWN position, in ascending id order, and deliberately not `Stop`: `Stop` idles a unit, and a
+  harvester's fetch re-picks scrap on the same tick, so it would hold nothing, while `GuardAt` is an order
+  stance the fetch leaves alone. No new command builder was needed.
 - [SHIPPED 87cf06f] `Follow` is a standing order: closes when outside 4 tiles, stands still inside,
   fires at what is in range, never leaves the radius to chase, lapses if the target dies. Any living
   unit of either side may be followed except the follower itself.
@@ -431,11 +438,20 @@ What is built, what is not:
 - [SHIPPED 61298d2] Affordability reads the sim's real ledger (`Sim::ore`). The test steps the sim until
   a scavenger banks a wreck and asserts live and dim rows.
 - [SHIPPED 3e799a0] `TAB CLOSE MENU` is the second row of every menu except the turret's.
-- [INTENDED — unconfirmed] **A menu is a MODE.** Inside it the digits are the verbs; in normal mode they
-  address buildings (`1` recycler, `2` factory, `3` armory) once those exist. This is written in
-  `menu.hpp:40-43` as a property of the reference menu. No code routes the digits: today the menu is
-  a display, `Tab` clears the selection (which makes the menu disappear), and digits stay the `G`, `T` and
-  attack-list answers. Whether PROTEKT adopts the mode is not ruled anywhere I can find (section 14).
+- [SHIPPED d80ce95] **The digits are the menu's verbs, for the rows that can act.** With no prompt open,
+  `1` is `FOLLOW ME` and `4` is `HOLD` on a selection whose subject owns a menu. The digit is looked up in
+  the MODEL's own rows (`menu_rows`) and only an ENABLED row acts, so a dimmed row and a digit with no row
+  do nothing — exactly as they did before anything was routed. Section 7's key table lists which rows act
+  and which are inert, and why each inert one cannot act yet.
+- [SHIPPED d80ce95] The PROMPTS still win, and that is deliberate: `G`, `T` and the attack list settle a
+  digit above the menu in `Interaction::handle` and `continue`, so the menu branch is only reached with no
+  prompt open. This is the conservative reading of the next bullet, not the next bullet.
+- [INTENDED — unconfirmed] **A menu is a MODE that SUSPENDS the prompts.** What is still unruled is whether
+  opening the menu takes the digits away from `G`/`T`/the attack list: the layout says the menu is opened and
+  closed (`TAB CLOSE MENU`), but `Tab` clears the selection and nothing suspends anything. In normal mode the
+  digits would address buildings (`1` recycler, `2` factory, `3` armory) once those exist. `menu.hpp:40-43`
+  writes the mode as a property of the reference menu; whether PROTEKT adopts it is not ruled anywhere I can
+  find (section 14, the first of the rules 14.1 could not classify).
 - [SHIPPED 61298d2] The menu and the attack list share one slot under the notice, one panel at a time:
   the attack list wins.
 - [SHIPPED be3afb4] With no menu rows, a frame is byte-identical to one that never heard of the menu layer (`Menu.DrawnWithNoRowsItEmitsNothingAndEveryFrameIsByteIdentical`).
@@ -794,8 +810,11 @@ a document and the code, and places where the documents contradict each other. N
 21. **`buildable` is false for every kind, yet the factory builds a `Tank`.** `spec.hpp:36` and
     `test_roster.cpp:106` against `sim.cpp:929`, whose comment calls the tank "the only `buildable` kind".
 22. **No scavenger in the skirmish.** The economy is inert in the playable game. Section 8.4.
-23. **The menu's `Recycler` subject is unreachable**, and every live-looking digit row (`3 SCAVENGE`,
-    `0 RECYCLE`, …) does nothing. Section 6.
+23. ~~**The menu's `Recycler` subject is unreachable**, and every live-looking digit row (`3 SCAVENGE`,
+    `0 RECYCLE`, …) does nothing.~~ **CLOSED in two steps**: the subject became reachable when the recycler
+    kind and its spawn landed (`ddc6423`, `a584683`), and the rows that CAN act now act (`d80ce95` — `1`
+    and `4`). The rows still inert are inert because the SIM has nothing for them to do (`3 DEPLOY` awaits
+    RB3, the build rows await RB5, `2 GO TO NAV` awaits a ruling), not because no code routes the digits.
 24. **Names are not keyed by team**, and `HARVESTER` and `SCAVENGER` both appear on the player's side.
     Section 9.
 25. **Menu costs are on another scale from the sim's.** The menu quotes HARVESTER 20 to SERVICE POD 2;
