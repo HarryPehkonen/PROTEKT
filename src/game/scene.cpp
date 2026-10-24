@@ -2185,6 +2185,77 @@ constexpr std::array<float, 3> kStripSelected{1.0F, 0.85F, 0.10F};
 /// panel can measure the column before it draws it.
 [[nodiscard]] std::string target_metres(int metres) { return std::to_string(metres) + "m"; }
 
+/// THE LEDGER (C6). C3 keeps a per-side count of the loads a hauler has banked and C4 spends it: it
+/// is the war's only currency, and until this layer nothing showed it, so the player could not see
+/// how the build the factory was making got paid for. This draws the word and the side's own count
+/// on a black plate just above the bottom-left panel, so the reading sits with the map and the
+/// command area rather than on the ship instrument.
+///
+/// The cell is 2.0 at the 720 reference -- the HUD's ONE type scale, which is BZ2's measured glyph
+/// height. A fresh element joins that scale like every other one; "make it obvious" buys a brighter
+/// ink and an opaque plate, never a bigger cell.
+constexpr std::array<float, 3> kLedgerPlate{0.0F, 0.0F, 0.0F};
+/// Amber, deliberately unlike the HUD's white: it is a resource reading, not a label.
+constexpr std::array<float, 3> kLedgerInk{1.0F, 0.85F, 0.30F};
+constexpr std::string_view kLedgerWord = "SCRAP";
+constexpr float kLedgerCell = 2.0F;
+
+void append_ledger(std::vector<SceneVertex>& out, const SceneOptions& options,
+                   const sim::Sim& sim) {
+    if (!options.show_ledger) {
+        return;
+    }
+    const float px = static_cast<float>(options.extent.height) * kHudPerFrameHeight;
+    const float marks_at = math::kNearPlane * kHudClearance * corner_ray_length(options.extent);
+    const auto rect = [&](float distance, float ax, float ay, float bx, float by,
+                          const std::array<float, 3>& rgb) {
+        const auto at = [&](float x, float y) {
+            const RayPoint point = ray_point(options.camera, options.extent, x, y, distance);
+            return Vec3{point.x, point.y, point.z};
+        };
+        emit_quad(out, at(ax, ay), at(bx, ay), at(bx, by), at(ax, by), rgb);
+    };
+    const auto word_width = [](std::string_view word, float cell) {
+        return ((static_cast<float>(word.size()) * 6.0F) - 1.0F) * cell;
+    };
+    const std::string reading = std::to_string(sim.ore(options.viewer_side));
+    const float cell = kLedgerCell * px;
+    const float pad = cell;
+    const float text_h = 5.0F * cell;
+    // Above whichever view holds the bottom-left corner: R swaps the radar and the map, so the
+    // ledger clears the TALLER of the two rather than the one that happens to be up.
+    const float panel_x = radar_panel(options.extent).x;
+    const float panel_top = options.show_world_map ? world_map_layout(options.extent).y
+                                                   : radar_panel(options.extent).y;
+    const float top = panel_top - text_h - (3.0F * pad);
+    const float left = panel_x;
+    // The word, a cell's gap, then the number: the same walk `append_hud_panels` uses, over the
+    // same 5x5 cell font, so the ledger cannot drift into a second type scale.
+    const float word_left = left + pad;
+    const float number_left = word_left + word_width(kLedgerWord, cell) + cell;
+    const float right = number_left + word_width(reading, cell) + pad;
+    const float bottom = top + text_h + (2.0F * pad);
+    const auto draw = [&](std::string_view text, float start) {
+        for (std::size_t index = 0; index < text.size(); ++index) {
+            const std::array<std::uint8_t, 5> rows = mount_glyph(text.at(index));
+            const float glyph_left = start + (static_cast<float>(index) * 6.0F * cell);
+            for (std::size_t row = 0; row < rows.size(); ++row) {
+                for (int col = 0; col < 5; ++col) {
+                    if (((rows.at(row) >> (4 - col)) & 1U) == 0U) {
+                        continue;
+                    }
+                    const float x = glyph_left + (static_cast<float>(col) * cell);
+                    const float y = top + pad + (static_cast<float>(row) * cell);
+                    rect(marks_at, x, y, x + cell, y + cell, kLedgerInk);
+                }
+            }
+        }
+    };
+    rect(marks_at * kHudBorderRatio, left, top, right, bottom, kLedgerPlate);
+    draw(kLedgerWord, word_left);
+    draw(reading, number_left);
+}
+
 void append_hud_panels(std::vector<SceneVertex>& out, const SceneOptions& options,
                        const sim::Sim& sim, std::span<const sim::UnitId> selected) {
     const bool wants_list = options.attack_list != nullptr && !options.attack_list->empty();
@@ -2941,6 +3012,7 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
     append_unit_bars(scene.vertices, options, sim);
     append_weapon_hud(scene.vertices, options);
     append_hud_panels(scene.vertices, options, sim, selected);
+    append_ledger(scene.vertices, options, sim);
     append_reticle(scene.vertices, options, sim, aimed);
     append_world_map(scene.vertices, options, sim);
 

@@ -58,6 +58,9 @@ SceneOptions options_at(float x, float z, std::uint64_t seed = 42, int radius = 
     // on), but here its HUD vertices are the tail of the vertex list in every scene with no radar,
     // no reticle and no roster, and these tests read that tail as a tank, a bolt or the reticle.
     o.show_ship_gauge = false;
+    // The same for the ledger (C6): the game draws it, the rigs must not, or every tail read here
+    // would be reading a scrap count.
+    o.show_ledger = false;
     return o;
 }
 
@@ -1252,6 +1255,7 @@ TEST(RadarDraws, AHostileInRangeIsDrawnRedAndOneOutOfRangeIsNotDrawnAtAll) {
         // The radar is found as "everything past the common prefix", so nothing but the radar
         // may follow it here: the ship instrument is off, as in the other radar rigs.
         plain.show_ship_gauge = false;
+        plain.show_ledger = false;
         SceneOptions watched = plain;
         watched.viewer_unit = player;
         return radar_vertices(protekt::game::build_scene(sim, watched),
@@ -1389,6 +1393,7 @@ SceneOptions battle_options() {
     // radar while nothing after it is drawn from these options: the ship instrument is off here
     // for the same reason it is off in `options_at`.
     plain.show_ship_gauge = false;
+    plain.show_ledger = false;
     return plain;
 }
 
@@ -3316,6 +3321,9 @@ BarBattle bar_battle() {
     options.camera.y = 14.0F;
     options.camera.yaw = 0.0F;
     options.camera.pitch = -0.4F;
+    // The bars are found by walking BACK from the end of the vertex list, so nothing else may be
+    // drawn after them: the ledger (C6) is off here for the same reason it is off in `options_at`.
+    options.show_ledger = false;
     return BarBattle{std::move(sim), viewer, options};
 }
 
@@ -5260,7 +5268,101 @@ std::size_t wreckage_vertices(const Scene& scene) {
     return count;
 }
 
+/// C6 -- THE LEDGER ON THE HUD. C3 banks a count of the loads a hauler delivers and C4 spends it;
+/// nothing showed it before this layer, so the currency the factory builds on was invisible. The
+/// test pins that the reading is drawn from the first frame, that the layer being off means not one
+/// vertex of it, that it sits above the bottom-left panel, and -- the assertion that matters --
+/// that it is the SIM'S NUMBER and not a constant: two battles with different ledgers draw
+/// different readings. Colours here are literals on purpose, as in the radar tests: comparing
+/// against the constant the code draws with would pass whatever that constant was.
+
+/// A battle that can bank a load: a factory, a hauler and three tanks of one side, three enemy
+/// tanks forward. The enemy wrecks land near the front and the hauler banks them. The same rig
+/// `test_scavenger.cpp` uses to get ore on the ledger.
+protekt::sim::Sim bankable_battle() {
+    using protekt::sim::Side;
+    using protekt::sim::Spawn;
+    using protekt::sim::UnitKind;
+    protekt::sim::Scenario scenario;
+    scenario.seed = 20261023;
+    scenario.spawns = {Spawn{UnitKind::Factory, Side::Player, 52, 45},
+                       Spawn{UnitKind::Scavenger, Side::Player, 48, 47},
+                       Spawn{UnitKind::Turret, Side::Player, 58, 45},
+                       Spawn{UnitKind::Tank, Side::Player, 50, 45},
+                       Spawn{UnitKind::Tank, Side::Player, 51, 45},
+                       Spawn{UnitKind::Tank, Side::Player, 52, 46},
+                       Spawn{UnitKind::Tank, Side::Enemy, 60, 45},
+                       Spawn{UnitKind::Tank, Side::Enemy, 60, 46},
+                       Spawn{UnitKind::Tank, Side::Enemy, 61, 46}};
+    return protekt::sim::Sim::create(scenario);
+}
+
+/// How many vertices a frame draws in the ledger's ink. The reading's amber is unlike anything else
+/// in a frame with no radar, so counting it counts exactly the layer.
+std::size_t ledger_ink_vertices(const Scene& scene) {
+    std::size_t count = 0;
+    for (const auto& vertex : scene.vertices) {
+        if (std::abs(vertex.colour.at(0) - 1.0F) < kTolerance
+            && std::abs(vertex.colour.at(1) - 0.85F) < kTolerance
+            && std::abs(vertex.colour.at(2) - 0.30F) < kTolerance) {
+            ++count;
+        }
+    }
+    return count;
+}
+
+/// The world rig with the ledger turned ON: `options_at` turns it off because the tests around it
+/// read the vertex list's tail, and this test is the one that wants the reading.
+SceneOptions ledger_options() {
+    SceneOptions options = options_at(60.0F, 60.0F, 42, 8);
+    options.show_ledger = true;
+    return options;
+}
+
 } // namespace
+
+TEST(Scene, TheLedgerIsDrawnAndItIsTheSimsOwnNumber) {
+    const SceneOptions options = ledger_options();
+
+    const protekt::sim::Sim empty = bankable_battle();
+    ASSERT_EQ(empty.ore(protekt::sim::Side::Player), 0) << "the rig starts with an empty ledger";
+    const Scene first = build_scene(empty, options);
+    const std::size_t when_empty = ledger_ink_vertices(first);
+    EXPECT_GT(when_empty, 0U)
+        << "the ledger is drawn from the first frame, so the player can see the currency exists";
+
+    SceneOptions hidden = options;
+    hidden.show_ledger = false;
+    EXPECT_EQ(ledger_ink_vertices(build_scene(empty, hidden)), 0U)
+        << "with the layer off, not one vertex of the reading";
+
+    // Every stroke of the reading is the same height and sits ABOVE the bottom-left panel, clear of
+    // the radar and the map that share that corner.
+    const protekt::game::RadarPanel panel = protekt::game::radar_panel(options.extent);
+    for (const auto& vertex : first.vertices) {
+        if (std::abs(vertex.colour.at(0) - 1.0F) >= kTolerance
+            || std::abs(vertex.colour.at(1) - 0.85F) >= kTolerance) {
+            continue;
+        }
+        const protekt::game::Projected p
+            = protekt::game::project(options.camera, options.extent, vertex.position[0],
+                                     vertex.position[1], vertex.position[2]);
+        EXPECT_LT(p.y, panel.y) << "the ledger belongs above the panel, not over it";
+        EXPECT_GT(p.y, 0.0F);
+    }
+
+    // THE ASSERTION THAT MATTERS: the reading is the sim's number, not a fixed string. A battle
+    // whose hauler has banked a load draws a different reading from one that has banked nothing.
+    protekt::sim::Sim banked = bankable_battle();
+    for (int i = 0; i < 4000 && banked.ore(protekt::sim::Side::Player) == 0; ++i) {
+        banked.step();
+    }
+    ASSERT_GT(banked.ore(protekt::sim::Side::Player), 0)
+        << "the rig must bank a load, or this proves nothing about the reading being live";
+    const std::size_t when_banked = ledger_ink_vertices(build_scene(banked, options));
+    EXPECT_NE(when_banked, when_empty)
+        << "the reading must come from Sim::ore(), not from a constant";
+}
 
 TEST(Scene, TheWreckageIsDrawnWhereThePiecesLie) {
     const protekt::sim::Sim sim = a_battle_that_leaves_litter();

@@ -546,6 +546,11 @@ struct SceneOptions {
     /// it -- but the layer emits NOTHING while `Sim::scraps()` is empty, so a battle that has lost
     /// no unit is byte-identical to one that never heard of this field.
     bool show_scrap{true};
+    /// The ledger (C6): C3's per-side count of banked loads, drawn as a small labelled reading on
+    /// the HUD, so the player can see the currency C4 spends. ON by default, because the game draws
+    /// it; the shared test rigs turn it off, the same way they already do for the ship instrument,
+    /// because a HUD layer that always draws becomes the tail of every vertex list.
+    bool show_ledger{true};
 };
 
 /// Triangles for the terrain mesh (two per tile, painted by `Terrain`) followed by one box per
