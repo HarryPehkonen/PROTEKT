@@ -2436,7 +2436,7 @@ void append_world_map(std::vector<SceneVertex>& out, const SceneOptions& options
     const WorldMap map = world_map(sim, options.extent, options.viewer_side, options.viewer_unit,
                                    options.nav_marks);
     const WorldMapLayout& layout = map.layout;
-    const float scale = static_cast<float>(options.extent.height) * kHudPerFrameHeight;
+    const float scale = map_furniture_scale(layout);
     const float marks_at = math::kNearPlane * kHudClearance * corner_ray_length(options.extent);
     const auto rect = [&](float ratio, float ax, float ay, float bx, float by,
                           const std::array<float, 3>& rgb) {
@@ -2529,11 +2529,13 @@ void append_world_map(std::vector<SceneVertex>& out, const SceneOptions& options
         }
     }
 
-    // The caption under the map says what this is and how to close it.
+    // The caption says what this is and how to close it. The map now sits in the bottom-left corner
+    // (BZ2's minimap footprint), so the caption goes ABOVE it: below it there is only the frame's
+    // margin, and the text would run off the bottom of the screen.
     const float cell = 2.0F * scale;
     const float width = ((static_cast<float>(kMapCaption.size()) * 6.0F) - 1.0F) * cell;
     const float left = layout.x + ((layout.size - width) * 0.5F);
-    const float top = layout.y + layout.size + edge + (4.0F * scale);
+    const float top = layout.y - edge - (17.0F * scale);
     rect(0.9F, left - (4.0F * scale), top - (3.0F * scale), left + width + (4.0F * scale),
          top + (13.0F * scale), kInk);
     for (std::size_t index = 0; index < kMapCaption.size(); ++index) {

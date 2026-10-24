@@ -17,8 +17,6 @@ namespace {
 /// cell that starts there; float rounding must not tip it into the one before.
 constexpr float kCellSlack = 1.0e-3F;
 constexpr float kReferenceHeight = 720.0F;
-constexpr float kMapTopReservePixels = 62.0F;    ///< the roster strip, and its notice line
-constexpr float kMapBottomReservePixels = 30.0F; ///< the caption
 
 [[nodiscard]] float tiles(const sim::Fixed& value) noexcept {
     return static_cast<float>(value.raw) / static_cast<float>(sim::Fixed::kOne);
@@ -65,16 +63,22 @@ constexpr float kMapBottomReservePixels = 30.0F; ///< the caption
 WorldMapLayout world_map_layout(Extent extent) noexcept {
     const float width = static_cast<float>(extent.width);
     const float height = static_cast<float>(extent.height);
-    const float scale = height / kReferenceHeight;
-    // The strip along the top and the caption under the map keep their own bands, so the square
-    // is never half hidden behind the strip: it takes what is left, and what is left is square.
-    const float top = kMapTopReservePixels * scale;
-    const float room = std::max(height - top - (kMapBottomReservePixels * scale), height * 0.3F);
-    const float side = std::min(width, room) * kWorldMapFraction;
+    // The corner inset is a fixed 24 px of the 720-high frame the UI was drawn at, so it scales
+    // with the frame height like the roster strip; the square itself is BZ2's minimap footprint, a
+    // fraction of the frame WIDTH, and the height only caps it on a frame too short to hold it.
+    const float margin = kPanelMarginPixels * (height / kReferenceHeight);
+    const float side = std::min(width * kWorldMapWidthFraction, height - (2.0F * margin));
     const float per_tile = std::max(side / static_cast<float>(kWorldMapTiles),
                                     1.0F / static_cast<float>(kWorldMapTiles));
     const float size = per_tile * static_cast<float>(kWorldMapTiles);
-    return WorldMapLayout{(width - size) * 0.5F, top + ((room - size) * 0.5F), size, per_tile};
+    // Bottom-left, where BZ2 puts its minimap and where the radar also sits: the two views swap
+    // into the same corner rather than each claiming its own.
+    return WorldMapLayout{margin, height - margin - size, size, per_tile};
+}
+
+float map_furniture_scale(const WorldMapLayout& layout) noexcept {
+    const float ratio = layout.size / kWorldMapReferencePixels;
+    return std::clamp(ratio, kMapMinFurnitureScale, kMapMaxFurnitureScale);
 }
 
 MapPoint map_point(const WorldMapLayout& layout, float tile_x, float tile_y) noexcept {

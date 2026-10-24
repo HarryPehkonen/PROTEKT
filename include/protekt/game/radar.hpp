@@ -32,7 +32,8 @@
 namespace protekt::game {
 
 inline constexpr int kRadarRadiusTiles = 40;
-inline constexpr float kRadarMarginPixels = 24.0F;
+/// The corner inset is shared with the world map, which swaps into this panel: see
+/// `kPanelMarginPixels` in `scene_data.hpp`.
 /// The panel is BZ2's wide shallow oval: a circular ground disc seen from `kRadarElevationRadians`
 /// (21 degrees) above, so its height is `kRadarAspect` (= sin 21 degrees) of its width. Both, and
 /// the 0.258 of the frame it spans, were pixel-counted off BZCC screenshots.

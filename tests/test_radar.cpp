@@ -105,8 +105,8 @@ float ellipse_value(const RadarPanel& panel, float px, float py, float inset = 0
 
 TEST(RadarPanel, SitsInTheBottomLeftCornerWithAMargin) {
     const RadarPanel panel = radar_panel(Extent{1280, 720});
-    EXPECT_FLOAT_EQ(panel.x, protekt::game::kRadarMarginPixels);
-    EXPECT_FLOAT_EQ(panel.y + panel.height + protekt::game::kRadarMarginPixels, 720.0F);
+    EXPECT_FLOAT_EQ(panel.x, protekt::game::kPanelMarginPixels);
+    EXPECT_FLOAT_EQ(panel.y + panel.height + protekt::game::kPanelMarginPixels, 720.0F);
     EXPECT_GT(panel.width, 100.0F);
 }
 

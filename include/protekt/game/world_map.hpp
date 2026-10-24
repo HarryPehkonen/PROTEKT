@@ -35,19 +35,36 @@ struct WorldMapLayout {
     float pixels_per_tile{};
 };
 
-/// The fraction of the room the square takes (room: the width, and the height under the roster
-/// strip and above the caption), centred.
-inline constexpr float kWorldMapFraction = 0.96F;
+/// The footprint BZ2 gives its minimap, pixel-counted off Harri's screenshot: a SQUARE of this
+/// fraction of the frame's WIDTH, in the bottom-left corner of the frame, inset by the panel margin
+/// (`kPanelMarginPixels`, shared with the radar -- the two swap into the same corner). The frame
+/// HEIGHT only limits it: on a frame too short for the square, it shrinks to fit.
+inline constexpr float kWorldMapWidthFraction = 0.127F;
 
-/// Marks and dots are a FIXED size in pixels of a 720-high frame (they scale with the frame height
-/// like the roster strip), so they read the same at any map scale.
+/// The panel size the furniture constants below were drawn for: the minimap's square at 1280 wide.
+inline constexpr float kWorldMapReferencePixels = 162.56F;
+
+/// Furniture scales with the PANEL, not the frame: its size is the constant below times
+/// `map_furniture_scale(layout)`. The floor keeps a unit's dot visible in a small window's panel,
+/// the ceiling keeps a 4K panel's blobs blobs rather than slabs.
+inline constexpr float kMapMinFurnitureScale = 0.6F;
+inline constexpr float kMapMaxFurnitureScale = 1.6F;
+
+/// Marks and dots at the REFERENCE panel size; multiply by `map_furniture_scale(layout)`. So they
+/// keep their share of the map when the panel grows or shrinks, instead of staying fixed in frame
+/// pixels and overwhelming a small minimap.
 inline constexpr float kMapUnitHalf = 3.0F;
 inline constexpr float kMapBuildingHalf = 5.0F;
 inline constexpr float kMapDrivenRingHalf = 8.0F;
 inline constexpr float kMapMarkHalf = 6.5F; ///< a mark's plate: 13 px square
 inline constexpr float kMapMarkCell = 2.0F; ///< a digit is 5x5 cells, so 10 px tall (BZ2's size)
 
+/// The square's geometry: bottom-left corner at the panel margin, `size` = the width fraction.
 [[nodiscard]] WorldMapLayout world_map_layout(Extent extent) noexcept;
+
+/// How much to multiply the furniture constants by for this panel: the panel's size against the
+/// reference, clamped to the readable band above.
+[[nodiscard]] float map_furniture_scale(const WorldMapLayout& layout) noexcept;
 
 /// A point in the frame, in pixels from the left and from the top.
 struct MapPoint {

@@ -211,12 +211,44 @@ TEST(WorldMap, TheMapIsSquareWhateverTheAspectOfTheScreen) {
         const MapPoint one_north = map_point(layout, 0.0F, 1.0F);
         EXPECT_NEAR(one_east.x - origin.x, origin.y - one_north.y, 1e-3F);
         EXPECT_GT(layout.pixels_per_tile, 0.0F);
-        // And it fits inside the frame, centred.
-        EXPECT_GE(layout.x, 0.0F);
+        // It fits inside the frame, in the BOTTOM-LEFT corner: BZ2's minimap footprint, where the
+        // radar also sits (the two swap into the same corner).
+        const float margin
+            = protekt::game::kPanelMarginPixels * (static_cast<float>(extent.height) / 720.0F);
+        EXPECT_NEAR(layout.x, margin, 0.01F);
+        EXPECT_NEAR(layout.y + layout.size, static_cast<float>(extent.height) - margin, 0.01F);
         EXPECT_GE(layout.y, 0.0F);
         EXPECT_LE(layout.x + layout.size, static_cast<float>(extent.width) + 0.01F);
-        EXPECT_LE(layout.y + layout.size, static_cast<float>(extent.height) + 0.01F);
     }
+}
+
+TEST(WorldMap, TheSquareIsBZ2sMinimapFootprintOfTheFrameWidth) {
+    // 12.7% of the frame width, pixel-counted off Harri's BZ2 screenshot; the frame's height only
+    // caps it when the window is too short to hold the square.
+    for (const Extent extent : {Extent{1280, 720}, Extent{1920, 1080}, Extent{2560, 1440}}) {
+        const WorldMapLayout layout = world_map_layout(extent);
+        EXPECT_NEAR(layout.size, static_cast<float>(extent.width) * 0.127F, 0.01F)
+            << extent.width << "x" << extent.height;
+    }
+    // A frame too short for the square shrinks it to fit between the two margins, not off the top.
+    const WorldMapLayout short_frame = world_map_layout(Extent{2400, 200});
+    EXPECT_LE(short_frame.size, 200.0F);
+    EXPECT_GE(short_frame.y, 0.0F);
+}
+
+TEST(WorldMap, FurnitureScalesWithThePanelNotTheFrame) {
+    // The furniture constants are drawn for the reference panel (the square at 1280 wide), so a
+    // 1280-wide frame gets a factor of ~1 and a larger frame's blobs grow in proportion.
+    const float reference = map_furniture_scale(world_map_layout(Extent{1280, 720}));
+    EXPECT_NEAR(reference, 1.0F, 0.01F);
+    const float bigger = map_furniture_scale(world_map_layout(Extent{1920, 1080}));
+    EXPECT_GT(bigger, reference);
+    // The floor and ceiling keep the dots readable and the blobs blobs at the extremes.
+    const float tiny = map_furniture_scale(world_map_layout(Extent{640, 360}));
+    EXPECT_GE(tiny, protekt::game::kMapMinFurnitureScale);
+    EXPECT_LE(tiny, 1.0F);
+    const float huge = map_furniture_scale(world_map_layout(Extent{3840, 2160}));
+    EXPECT_LE(huge, protekt::game::kMapMaxFurnitureScale);
 }
 
 TEST(WorldMap, NoEnemyAssetIsEverDrawn) {

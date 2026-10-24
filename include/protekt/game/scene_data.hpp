@@ -13,6 +13,11 @@ struct Extent {
     std::uint32_t height{};
 };
 
+/// The inset of the bottom-left panel corner, in pixels of a 720-high frame. The radar and the
+/// world map both live in that corner and swap places in it, so they share one margin rather than
+/// each carrying its own.
+inline constexpr float kPanelMarginPixels = 24.0F;
+
 /// One vertex of a scene: position in world metres, a flat colour, an alpha, then a texture
 /// coordinate. The layout is part of the contract because the vertex buffer is uploaded verbatim.
 /// The fragment stage multiplies the texel at (u, v) by the colour and outputs the alpha, so a quad

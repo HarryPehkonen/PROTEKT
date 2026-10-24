@@ -31,12 +31,12 @@ RadarPanel radar_panel(Extent extent) noexcept {
     const float height = static_cast<float>(extent.height);
     // Sized from the width, so the panel keeps its place in the layout at any resolution -- but
     // never taller than the window can hold with its margin, which is what a small window is.
-    const float room = std::max(height - (2.0F * kRadarMarginPixels), 32.0F);
+    const float room = std::max(height - (2.0F * kPanelMarginPixels), 32.0F);
     const float size
         = std::min(std::clamp(width * kRadarWidthFraction, kRadarMinPixels, kRadarMaxPixels),
                    room / kRadarAspect);
     const float tall = size * kRadarAspect;
-    return RadarPanel{kRadarMarginPixels, height - kRadarMarginPixels - tall, size, tall};
+    return RadarPanel{kPanelMarginPixels, height - kPanelMarginPixels - tall, size, tall};
 }
 
 RadarPoint radar_project(const RadarPanel& panel, float u, float v, int radius_tiles,
