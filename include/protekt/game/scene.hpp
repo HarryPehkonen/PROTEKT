@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "protekt/game/atlas.hpp"
+#include "protekt/game/menu.hpp"
 #include "protekt/game/scene_data.hpp"
 #include "protekt/game/targets.hpp"
 #include "protekt/game/terrain_cache.hpp"
@@ -522,6 +523,14 @@ struct SceneOptions {
     /// nothing, so a frame that never heard of it is byte-identical -- the same discipline as
     /// `nav_marks`. NOT owned.
     const std::vector<TargetRow>* attack_list{nullptr};
+    /// The numbered command menu (RB0.5): `menu_rows`'s rows drawn down the left of the frame,
+    /// under the strip and the notice line, in the order given -- the gap where 6, 7 and 8 would
+    /// be is the data and stays open. Off by default, so a frame that never heard of it is
+    /// unchanged.
+    bool show_menu{false};
+    /// The rows `show_menu` draws. Null or empty draws nothing, so a frame that never heard of it
+    /// is byte-identical -- the same discipline as `attack_list`. NOT owned.
+    const std::vector<MenuRow>* menu{nullptr};
     /// The world map (N4), drawn last over everything: the whole world as a square, your own
     /// assets and your nav marks. Off by default, so a frame that never heard of it is unchanged.
     bool show_world_map{false};

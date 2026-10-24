@@ -1693,6 +1693,8 @@ std::array<std::uint8_t, 5> mount_glyph(char glyph) {
         return {0b00000, 0b00000, 0b00000, 0b01100, 0b01100};
     case '+':
         return {0b00100, 0b00100, 0b11111, 0b00100, 0b00100};
+    case '~': // the command menu's tilde key (RB0.5); no other drawn string carries one
+        return {0b00000, 0b01000, 0b10101, 0b00010, 0b00000};
     default:
         return {};
     }
@@ -2180,6 +2182,13 @@ constexpr float kHudCornerPixels = 5.0F;
 constexpr float kHudPanelAlpha = 0.65F;
 constexpr std::array<float, 3> kStripFrame{0.95F, 0.95F, 0.95F};
 constexpr std::array<float, 3> kStripSelected{1.0F, 0.85F, 0.10F};
+/// THE COMMAND MENU (RB0.5): `menu_rows`'s rows, key then verb, down the left margin in the row
+/// under the notice -- the same reserved slot the attack list takes, so neither panel moves. Ink
+/// only, no plate: the key column sits ON the strip's margin. A live row is the strip's white; a
+/// dimmed row is one darker ink whatever the reason, because `MenuRow::reason` is for the code and
+/// the look is the same for both. The HUD's one type scale, like every other element.
+constexpr float kMenuCell = 2.0F;
+constexpr std::array<float, 3> kMenuDimInk{0.40F, 0.40F, 0.40F};
 
 /// A distance as the attack list shows it: whole metres and the unit, "132m". Built here so the
 /// panel can measure the column before it draws it.
@@ -2344,7 +2353,8 @@ void append_outcome(std::vector<SceneVertex>& out, const SceneOptions& options,
 void append_hud_panels(std::vector<SceneVertex>& out, const SceneOptions& options,
                        const sim::Sim& sim, std::span<const sim::UnitId> selected) {
     const bool wants_list = options.attack_list != nullptr && !options.attack_list->empty();
-    if (!options.show_roster && !wants_list) {
+    const bool wants_menu = options.show_menu && options.menu != nullptr && !options.menu->empty();
+    if (!options.show_roster && !wants_list && !wants_menu) {
         return;
     }
     const float px = static_cast<float>(options.extent.height) * kHudPerFrameHeight;
@@ -2542,6 +2552,29 @@ void append_hud_panels(std::vector<SceneVertex>& out, const SceneOptions& option
             ink_text(std::string_view{&key, 1}, key_left, row_top, cell, kStripFrame);
             ink_text(kind_label(rows.at(index).kind), label_left, row_top, cell, kStripFrame);
             ink_text(target_metres(rows.at(index).metres), metres_left, row_top, cell, kStripFrame);
+        }
+    }
+    // THE COMMAND MENU, in the order it was handed: never sorted, never renumbered, and the key is
+    // drawn as the label it is ("SPACE", "~", "9"), so the harvester's missing 6, 7 and 8 stay a
+    // visible gap. The verb column clears the WIDEST key by a blank column -- one glyph and a blank
+    // column for a digit, exactly the attack list's rule, and past SPACE when SPACE is a row.
+    if (wants_menu) {
+        const std::vector<MenuRow>& rows = *options.menu;
+        const float cell = kMenuCell * px;
+        const float pitch = 6.0F * cell; // a 5-cell glyph and one blank row between rows
+        const float key_left = kStripMarginPixels * px;
+        float key_width = 0.0F;
+        for (const MenuRow& row : rows) {
+            key_width = std::max(key_width, word_width(row.key, cell));
+        }
+        const float verb_left = key_left + key_width + (2.0F * cell);
+        const float menu_top = notice_top + (5.0F * cell) + (2.0F * pad);
+        for (std::size_t index = 0; index < rows.size(); ++index) {
+            const MenuRow& row = rows.at(index);
+            const float row_top = menu_top + (static_cast<float>(index) * pitch);
+            const std::array<float, 3>& ink = row.enabled ? kStripFrame : kMenuDimInk;
+            ink_text(row.key, key_left, row_top, cell, ink);
+            ink_text(row.verb, verb_left, row_top, cell, ink);
         }
     }
 }
