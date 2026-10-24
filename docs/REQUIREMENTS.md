@@ -1,0 +1,810 @@
+# PROTEKT — requirements
+
+What the game IS and MUST BE, with the status of every part. Written against tree base `b3b153d`.
+
+## 0. How to read this
+
+`docs/PLAN.md` owns WHEN: the order of the work and the decisions behind it. This document owns WHAT:
+the rules the game has, or is meant to have. `README.md` is the player's manual and
+`CODING_STANDARDS.md` is how the code is written. None of the three is restated here beyond what a
+rule needs.
+
+Every rule, feature or behaviour carries exactly one status marker.
+
+| marker | meaning |
+|---|---|
+| `[SHIPPED <commit>]` | In the code today, and read there. The commit is the first one that introduced the named symbol (`git log -S`); the `file:line` in the provenance line is where it lives now. Where no commit could be pinned, a `file:line` stands in and says so. |
+| `[DECIDED — not built]` | A ruling of Harri's that no slice has built. It names who decided and when. A few rulings are about process and have no code at all; they carry this marker and say "process". |
+| `[INTENDED — unconfirmed]` | Reads like a plan or an assumption, and nobody has ruled on it. |
+| `[INTENDED — status unverified]` | Could not be classified from the tree or the documents. Each one is listed in section 14. |
+
+Rules for the provenance lines:
+
+- Every section ends with a `PROVENANCE:` line. A reader can check any claim against it.
+- `Harri <date>` is a ruling that appears in a repo document or a code comment, and the citation
+  says where. `Harri <date> (brief)` is a ruling that appears in no repo document: it comes from the
+  brief that commissioned this file. Section 14 asks Harri to confirm each one so it can be cited
+  from the repo next time.
+- `BZ2 capture 2026-10-24` means the screenshots Harri took of BattleZone II, as quoted by
+  `include/protekt/game/menu.hpp` and `tests/test_menu.cpp`.
+- Line numbers are against `b3b153d`.
+
+Terms. The sim's unit kind is `Scavenger`. Code comments call the same unit a "hauler", and BZ2 calls
+it a harvester. This document says "scavenger" for the kind and quotes the other words only when it
+quotes code. Section 9 records the team-naming ruling. The sim's ledger of delivered loads is called
+`ore` in code (`Sim::ore`, `kTankOreCost`), "SCRAP" on the HUD and "scrap" for the pieces on the
+ground; they are one currency.
+
+PROVENANCE: `docs/PLAN.md:1-11`, `README.md:1-9`, `CODING_STANDARDS.md:1-5`,
+`include/protekt/game/menu.hpp:46-50`, `include/protekt/sim/sim.hpp:108`.
+
+## 1. The game
+
+PROTEKT is a solo, first-person hover-tank game in the manner of Battlezone and Battlezone II:
+Combat Commander, with a real-time-strategy command layer on top. One tank is driven. Everything else
+is commanded.
+
+- [SHIPPED 029a7b1] The player drives one unit with the keyboard and mouse: `W`/`S` throttle,
+  `A`/`D` turn (or strafe, for a hover tank), the mouse looks. At the start the driven unit is the
+  first player `Tank` in spawn order.
+- [SHIPPED b865ac1] The player commands the rest through a selection and the order verbs `move_to`,
+  `attack`, `follow`, plus the stances the sim understands (section 5).
+- [SHIPPED 1b64326] The simulation is a deterministic, fixed-step core in Q16.16 integers with no
+  floating point, no clock and no unseeded randomness. It knows nothing about windows, GPUs, audio or
+  keyboards.
+- [SHIPPED f4998a4] The world is a pure function of `(seed, chunk)`. The same seed gives the same
+  world bit for bit on any machine.
+- [SHIPPED e5469a2] The renderer, the text log, the sound, the AI and the player's hands are clients
+  of the sim. They read its state and issue orders through the same `OrderSink`. A build test reads
+  the sources and fails if a lower layer includes a higher one.
+- [SHIPPED 94f0acc] The playable game runs one enemy commander, `ai::ScriptedCommander`, on the
+  enemy side. See section 14 for what that means for the AI described in the README.
+
+Why the sim being a client-independent core is a REQUIREMENT and not a preference (rationale; each
+reason is cited, and the requirement itself is the status-marked bullets above):
+
+1. A save, a bug report and a replay are all "a seed plus the order log". They only work if the same
+   inputs always give the same battle. (`docs/PLAN.md:58-59`, decision D2.)
+2. The gate machine has no GPU. Everything between a keystroke and the simulation has to be testable
+   headless, or it is not tested. (`docs/PLAN.md:49-51`, `docs/PLAN.md:189-191`.)
+3. The human and the AI must issue the same orders through the same interface, or "the AI is an
+   enhancement, not a dependency" (D3) is not true. (`docs/PLAN.md:47-52`.)
+4. A windowed frame and a headless frame of the same seed and tick count must be the same bytes. That
+   is the only way "what you see is what the suite checks" holds. (`docs/PLAN.md:207-210`,
+   `docs/PLAN.md:543-562`.)
+5. [SHIPPED 029a7b1] One windowed run in eight once disagreed because a stray real key reached the sim.
+   That bug is why a scripted run (`--autodrive`) drops real input. (`docs/PLAN.md:543-558`.)
+
+- [SHIPPED e5469a2] The floating-point rule (`CODING_STANDARDS.md` rule 13) and the layering rule
+  (rule 14) are enforced by `tests/test_layering.cpp`, which reads the sources.
+
+PROVENANCE: `README.md:3-13`, `docs/PLAN.md:30-75`, `CODING_STANDARDS.md:7-21`,
+`src/app/game.cpp:374,503,574-580`, `src/game/session.cpp:38-47`, `tests/test_layering.cpp`,
+`include/protekt/sim/units.hpp:16-34`.
+
+## 2. Scope
+
+### 2.1 The decisions of 2026-10-16
+
+| # | Requirement | Status |
+|---|---|---|
+| D1 | Solo only. Scripted scenarios and AI opponents. No networking. | [SHIPPED 1b64326] — a search of `src/`, `include/`, `fuzz/`, `tools/` and `CMakeLists.txt` for socket, asio, enet, gamepad and joystick finds one match, an incidental substring in a comment at `src/sim/projectile.cpp:129` |
+| D2 | Same seed, same world, bit for bit. "The primary engineering requirement, not a feature." | [SHIPPED f4998a4] — `region_hash` is the oracle; the golden values are in the suite |
+| D3a | The sim and its tests need no AI module. | [SHIPPED e5469a2] — `sim/` never includes `ai/`, and `--commander none` is a legal `protekt-sim` mode |
+| D3b | The *game* is complete with zero AI modules loaded. | [INTENDED — status unverified] — `src/app/game.cpp:374` calls the enemy commander unconditionally, and no flag removes it; see section 14 |
+| D4 | Keyboard and mouse. No gamepad, no touch. | [SHIPPED 029a7b1] — `include/protekt/input/input.hpp` has keys, clicks and mouse deltas only |
+| D5 | Unlicense, on GitHub (`HarryPehkonen/PROTEKT`). | [SHIPPED d79f923] — `LICENSE` is in the first commit; `origin` is `git@github.com:HarryPehkonen/PROTEKT.git` |
+| D6 | MVP first, one reviewable step at a time. Harri reviews and redirects after each milestone. | [DECIDED — not built] — Harri 2026-10-16, `docs/PLAN.md:20` (process; no code) |
+| D7 | C++ to the Core Guidelines, a self-hosted gate (`tools/ci.sh`), no external CI. | [SHIPPED d79f923] — the gate and hooks are in the scaffold commit; there is no `.github/` |
+| D8 | Claude Code writes most of it; Haiku implements, a stronger model plans. | [DECIDED — not built] — Harri 2026-10-16, `docs/PLAN.md:21`, `docs/PLAN.md:609-632` (process; no code) |
+
+### 2.2 Standing scope rules
+
+- [SHIPPED CMakeLists.txt:131] Vulkan and SDL3 are optional at build time (`find_package(... QUIET)`, lines 131 and 162). Without them the game builds and runs
+  headless, and that is how the gate tests it.
+- [SHIPPED 67ea954] A machine with no sound device, or `--no-sound`, runs silent.
+- [DECIDED — not built] No LLM anywhere near the tick loop. Harri 2026-10-17, `docs/PLAN.md:339-342`
+  and `docs/PLAN.md:564-566`. Nothing to build: it is a prohibition.
+- [SHIPPED 1b64326] A factory is unarmed on purpose; defence is what turrets are for. Harri
+  2026-10-17, `docs/PLAN.md:497-500`; `kUnitSpecs` gives the factory range zero.
+- [DECIDED — not built] Shields are a future ENERGY concept and not a factory armour tweak. Harri
+  2026-10-17, parked, `docs/PLAN.md:502-506`.
+- [DECIDED — not built] If a factory ever gets defences of its own they are turrets on the structure
+  and not a new kind of building weapon. Harri 2026-10-17, parked, `docs/PLAN.md:507-510`.
+- [DECIDED — not built] Saving a game mid-battle is a snapshot of the sim, not a replay. It carries a
+  format version and the state hash it was written with, and it is refused mid-tick or in a mission
+  that declares itself no-save. Harri 2026-10-17, `docs/PLAN.md:570-607`.
+- [INTENDED — status unverified] "Strategic controllers": the player places a controller with a
+  standing intent and it posts turrets and calls targets. Harri's sketch, 2026-10-17,
+  `docs/PLAN.md:309-345`. The module was deleted unwired (`8e247e2`); whether the sketch is a
+  requirement is not stated.
+- [SHIPPED 67ea954] Audio exists. `docs/PLAN.md:11` and `docs/PLAN.md:661` list audio as a non-goal;
+  that is stale (section 14).
+
+### 2.3 Platform and toolchain
+
+- [SHIPPED d79f923] CMake 3.20 or newer, C++20, clang or gcc, GoogleTest. `clang-format` and
+  `clang-tidy` for the full gate.
+
+PROVENANCE: `docs/PLAN.md:15-26`, `docs/PLAN.md:11`, `docs/PLAN.md:659-665`, `README.md:206-211`,
+`CMakeLists.txt:7,22,131,162`, `src/app/game.cpp:167`, `include/protekt/sim/sim.hpp`, Harri 2026-10-17
+as cited.
+
+## 3. The world
+
+- [SHIPPED f4998a4] The world is `f(seed, chunk_coord)`: generated on demand, never stored. A chunk is
+  64 by 64 tiles. The playable world is 256 by 256 tiles (`kMapTiles`), which is 4 by 4 chunks.
+- [SHIPPED 1b64326] A tile is whole. It has an integer height in `[-512, 512]` and a terrain, one of
+  `Flat`, `Rough`, `Ridge`, `Crater`. There is no floating point in generation.
+- [SHIPPED 1b64326] Passability is the terrain's speed factor: `Flat` 1, `Rough` 3/4, `Ridge` 1/2,
+  `Crater` 0. A factor of zero means a unit cannot enter. The map edge also blocks. `tile_passable`
+  answers the question for a caller that is not the mover.
+- [SHIPPED 0eb1986] Units plan routes over the tile grid with a deterministic integer A\*: eight
+  connected, no corner cutting, ties broken by lowest f, h, x, y. A goal that cannot be reached gets
+  no route and the unit steers straight at it.
+- [SHIPPED fc0d91d] Ground height matters to guns. A gun does not shoot a hill: a target with no line
+  to it is not a target, costs no bolt and is not reported as fired, except the one the player's
+  trigger named.
+- [SHIPPED include/protekt/game/scene.hpp:31] A tile is 2 metres in the renderer (`kMetresPerTile`). The sim works in tiles.
+- [SHIPPED e2a5be0] Both sides spawn on passable ground. The player starts in the low-coordinate
+  quadrant and the enemy in the high one, and the enemy base is the candidate with the fewest blocked
+  tiles on the straight lines from the player's tanks. The scenario is a pure function of the seed.
+- [SHIPPED 029a7b1] The player's tank is turned at spawn toward the longest clear run
+  (`clearest_heading`, 64 directions), so it does not start facing a wall.
+
+The two views of the world, and the rule about what each shows:
+
+| view | key | shows | does not show | status |
+|---|---|---|---|---|
+| Radar | always on | everything alive within 40 tiles of the driven unit, yours and theirs; your factory as an arrow at the rim when it is out of range; your nav marks | any hostile beyond 40 tiles — not dimmed, not on the rim, not hinted at | [SHIPPED f8e65de] |
+| World map | `R` toggles | the whole 256 by 256 world, north up, in the ground's own colours; your living units and buildings, the driven one in white with a heading needle; your nav marks with their numbers | **any enemy asset, ever** | [SHIPPED 5458ec4] |
+
+- [SHIPPED 5458ec4] The rule is one loop: `world_map` copies only the viewer's side's living units,
+  and there is no other path from a unit to the map. A test scans the result by id.
+- [SHIPPED 5458ec4] The map is a picture. It issues no order and cannot be clicked.
+- [SHIPPED 20f224e] The map takes the radar's corner. While the map is up the radar is not drawn.
+- [SHIPPED f8e65de] The radar is heading-up: the panel turns with the tank. N, E, S, W sit on the ring
+  for the true directions (`83d29ac`).
+- [SHIPPED include/protekt/game/radar.hpp:125-137] The radar is range-based, not line-of-sight. A hostile behind a hill inside 40
+  tiles is on it. README calls this the version to play before adding occlusion.
+
+PROVENANCE: `include/protekt/world/world.hpp:9-24,37-52`, `include/protekt/sim/units.hpp:16-18`,
+`src/sim/sim.cpp:22-35,982-985`, `src/sim/scenario.cpp:62-94,120-162`, `include/protekt/sim/sim.hpp:73-76`,
+`include/protekt/game/scene.hpp:31`, `include/protekt/game/radar.hpp:12-31,125-137`,
+`include/protekt/game/world_map.hpp:1-20`, `src/game/world_map.cpp:135-146`,
+`src/game/session.cpp:17-26`, `docs/PLAN.md:478-487`, `README.md:90-108,201`, `README.md:33`.
+
+## 4. Units and the roster
+
+### 4.1 The seven kinds and their measured numbers
+
+The spec table is `kUnitSpecs` in `include/protekt/sim/spec.hpp:77-102`. The sim runs at 30 ticks a
+second. Speeds are tiles per tick in the table and are shown per second here. Ranges are in tiles.
+
+| kind | index | what it is for | hp | speed (tiles/s) | range | damage | cooldown (ticks) | status |
+|---|---|---|---|---|---|---|---|---|
+| `Tank` | 0 | the main combat unit; fires on the move | 100 | 6.0 | 12 | 8 | 15 | [SHIPPED 1b64326] |
+| `Turret` | 1 | a deployable defence: crawls unmounted, fires only when mounted | 150 | 1.5 | 16 | 12 | 20 | [SHIPPED e15935e] |
+| `Factory` | 2 | the base: repairs units near it and builds tanks; unarmed and immobile | 400 | 0 | none | 0 | 0 | [SHIPPED 1b64326] |
+| `HoverTank` | 3 | a tank's numbers, driven differently (A/D strafe, the mouse turns the hull) | 100 | 6.0 | 12 | 8 | 15 | [SHIPPED 6812c57] |
+| `Mortar` | 4 | lobs a splashing shell over hills; outranged by a turret | 75 | 3.0 | 14 | 16 | 45 | [SHIPPED 564c1b2] |
+| `Rocket` | 5 | slow, heavy, single target | 100 | 6.0 | 15 | 24 | 75 | [SHIPPED 564c1b2] |
+| `Scavenger` | 6 | unarmed hauler: carries wreckage home to its own factory | 60 | 4.5 | none | 0 | 0 | [SHIPPED e653f16] |
+
+Derived and exact values behind the table:
+
+- [SHIPPED 1b64326] Tank speed is 13107 raw Q16.16 per tick (0.2 tiles/tick). A turret's is a quarter
+  of that, a mortar's a half, a scavenger's three quarters. A tank shot costs a factory 8 hit points.
+- [SHIPPED be02c32] Weapons are data. Every armed kind's bolt flies at 16 tiles a second with a
+  climb ceiling of 2.0. The mortar's bolt speed is half, the rocket's three quarters. Bolts fizzle after
+  16 tiles.
+- [SHIPPED 564c1b2] The mortar's shell has gravity 2.25 height units per tick squared, an arc cap of
+  4.0 and a 1.5 tile splash that hurts every living unit in radius, either side.
+- [SHIPPED fd58977] The bouncer is a *round*, not a unit: it leaves the barrel with the mortar's
+  ballistics, bounces up to 3 times, rests 90 ticks spinning, and pulses shrapnel every 15 ticks
+  (12 damage at the centre, falling linearly to zero at 3 tiles).
+- [SHIPPED a79e7bf] A turret is mounted after 90 ticks (3 s) of unbroken stillness. A mounted turret
+  told to move spends 90 ticks unmounting first (`720b7fd`). Harri 2026-10-17 set the mount time at
+  3 seconds; the unmount time is the same figure (section 14).
+- [SHIPPED 1b64326] Every tile's speed factor multiplies a unit's speed (section 3).
+- [SHIPPED 720b7fd] Every kind but the factory can be driven (`is_drivable`), which includes the
+  unarmed scavenger. An order from the player outranks the scavenger's fetch.
+- [SHIPPED e653f16] `UnitSpec::buildable` is false for every kind, and `tests/test_roster.cpp:106`
+  (`Roster.NoKindIsBuildableYet`) pins that. A factory nevertheless builds a `Tank` (section 8 and
+  section 14).
+
+### 4.2 Who starts with what
+
+- [SHIPPED 0effaea] `side_roster(side)` returns the kinds a side spawns with, in spawn order. Both sides
+  carry the same list: 3 `Tank`, 1 `HoverTank`, 1 `Factory`, 2 `Turret`, 1 `Mortar`, 1 `Rocket`.
+  Nine a side, eighteen in all. Ids ascend in spawn order. Pinned by
+  `Scenario.BothSidesGetTheFrozenComposition`.
+- [SHIPPED a67233b] The enemy mirrors the player slot for slot, including the hover tank.
+- [SHIPPED e653f16] No `Scavenger` is in `side_roster`. Neither side starts with one (section 8).
+
+### 4.3 The key pool
+
+- [SHIPPED 609fd67] A function key binds to a KIND, not to a unit. Pressing it selects every living
+  unit of that kind you own, wherever they are. The strip draws one plate per kind with living units.
+- [SHIPPED 609fd67] Keys come out of a pool. Walking the living units in spawn order, the first kind
+  seen takes the lowest free key. A kind with no living unit holds no key, and that returns its key to
+  the pool. The keys in use are always `F1..Fn` with no gap.
+- [SHIPPED 609fd67] Harri 2026-10-24 (brief): a key is reassigned when its kind loses its last living
+  unit, which supersedes "a key binds for life" (N2's old invariant). The code does exactly this, so the
+  ruling is built. `roster.hpp:19-21` dates the same rule 2026-10-22 (section 14).
+- [SHIPPED 160dec4] The pool's keys are `F1`..`F10` (`kRosterKeys = 10`). The digit row selects
+  nothing.
+- [SHIPPED 609fd67] A surviving kind moves DOWN into a freed key. Wipe every tank and the turrets that
+  were on `F2` take `F1`. The pool keeps no memory.
+- [SHIPPED 160dec4] Pressing a key no group holds is refused with `You have no group F<n>.` and leaves
+  the selection alone.
+
+### 4.4 Death
+
+- [DECIDED — not built] Harri 2026-10-24 (brief): a dead unit explodes and vanishes. There are no
+  greyed-out rows and no ghost slots in any roster or HUD.
+- [SHIPPED src/game/scene.cpp:3059] The roster strip, the radar, the world map, the unit bars and the draw
+  loop each skip a unit with `alive == false` (`src/game/roster.cpp:19`, `src/game/radar.cpp:253`,
+  `src/game/world_map.cpp:142`, `src/game/scene.cpp:3059-3061`). A dead unit has no row, no mark and no
+  mesh.
+- [SHIPPED 67ea954] The "explode" half is a sound: a dead unit of yours is heard at full volume, and
+  anyone else's within 90 tiles. There is no explosion *visual* in `scene.cpp`.
+- [SHIPPED e653f16] A dead unit leaves four pieces of wreckage (section 8).
+- [SHIPPED 61298d2] The corpse stays in the sim's unit table with `alive == false` (the commit's
+  `ADeadUnitsIdIsNotWhatTheMenuIsAbout` test anchors on it), so ids are never reused and every consumer
+  has to filter on `alive`.
+
+### 4.5 Retreat and repair
+
+- [SHIPPED 18eef6f] A living friendly factory mends every living non-factory unit of its side within 6
+  tiles, 1 hp every 6 ticks, up to the kind's maximum. It applies to both sides and costs nothing.
+- [SHIPPED 7f681fb] The player's other tanks and hover tanks (never the one being driven) retreat to a
+  living own factory at 20 hp or less and return to their remembered last order at 80 hp or more. With no
+  factory they keep fighting. The thresholds are `UtilityTuning::retreat_hp` and `return_hp`; the
+  player-side rule reads the same numbers.
+- [SHIPPED bf4ec55] A wounded tank at its own factory stays until it reaches the return threshold.
+- [SHIPPED 2e0c9b8] An idle own tank with no standing order defends in place: every 15 ticks it fires on
+  the nearest hostile in range, never over a player order, never when retreating or driven.
+- [SHIPPED fe6eb9a] `ai::UtilityCommander` withdraws a hurt tank on the same 20/80 numbers. The
+  playable game's enemy does not use it: `ai::ScriptedCommander` reads no hit points
+  (`src/ai/scripted_commander.cpp`, 44 lines).
+- [DECIDED — not built] 0 RECYCLE is parked. Harri 2026-10-22 (brief) asked to hold off but keep it in
+  the plan. The harvester menu draws a live `0 RECYCLE` row (section 6) and nothing is behind it.
+- [SHIPPED 87cf06f] The follow radius is 4 tiles (`kFollowRadiusTiles`). Harri 2026-10-17 (brief).
+
+PROVENANCE: `include/protekt/sim/spec.hpp:13-102`, `include/protekt/sim/units.hpp:36-49,120-172`,
+`include/protekt/sim/scenario.hpp:10-24`, `src/sim/scenario.cpp:34-60`, `tests/test_scenario.cpp:28-44`,
+`tests/test_roster.cpp:25,106`, `include/protekt/game/roster.hpp:9-34,53-70`,
+`src/game/roster.cpp:14-38`, `tests/test_roster_strip.cpp:238-296`, `src/sim/sim.cpp:849-867`,
+`src/game/interaction.cpp:291-326`, `include/protekt/ai/utility.hpp:44-51`,
+`src/ai/utility.cpp:78-113` (`role_of`, `threat_of`), `src/game/sounds.cpp:121-136`, `README.md:37-38`,
+Harri 2026-10-17 (brief), Harri 2026-10-22 (brief), Harri 2026-10-24 (brief).
+
+## 5. The player's verbs
+
+### 5.1 The control map
+
+`include/protekt/input/bindings.hpp` owns the movement and command predicates and
+`include/protekt/input/input.hpp` the scancodes; `src/game/interaction.cpp` owns what the clicks and
+command keys mean. The README table and the bindings agree on every key. Where they disagree is on
+meaning, and those are in section 14.
+
+| input | what it does | status |
+|---|---|---|
+| `W` / `S` | throttle forward / back; the driven tank always drives the way its body points | [SHIPPED 029a7b1] |
+| `A` / `D` | turn the body, on the spot or while driving (a driven *hover tank* strafes instead) | [SHIPPED 029a7b1] |
+| mouse | turn the turret relative to the body; the crosshair is always screen centre; 0.0025 rad per pixel; pitch limited to 1.3 rad | [SHIPPED 491a3ec] |
+| `E` (held) | boost: lifts the hull; presentation only, not counted as "driving" | [SHIPPED 3c7070c] |
+| left click | the trigger: one bolt along the crosshair; rate-limited to one every 8 ticks | [SHIPPED 826b1e6] |
+| right click | switch weapon, gun → rocket → mortar → bouncer → gun; the ONLY weapon switch | [SHIPPED a2400a9] |
+| `Space`, nothing selected | select the one own unit under the mark, within 32 tiles (80% of the radar's 40); ground, hostiles and the driven tank are ignored | [SHIPPED 3404ba9] |
+| `Space`, something selected, a tank under the mark | the selection follows it | [SHIPPED 3404ba9] |
+| `Space`, something selected, a hostile under the mark | the selection attacks it | [SHIPPED 3404ba9] |
+| `F1`–`F10` | select every unit of the kind that holds that key | [SHIPPED 160dec4] |
+| `Tab` or `Escape` | clear the selection (and cancel a pending `G` or `T`) | [SHIPPED 029a7b1] |
+| `X`, mark on an own drivable unit | swap: drive that unit; the one you leave gets a `Stop` and becomes an ordinary unit | [SHIPPED c76d8cf] |
+| `F`, mark on a living unit | the selection follows that unit, holding within 4 tiles | [SHIPPED 6e09100] |
+| `M` | the selection moves to the ground under the mark, even when a unit is in front of it | [SHIPPED 86a0261] |
+| `T`, hostile under the mark | the selection attacks it directly | [SHIPPED 029a7b1] |
+| `T`, no hostile under the mark | arm the attack list: the nearest enemies within radar range, numbered `1`–`9` then `0`; the next digit attacks that row | [SHIPPED bbe4650] |
+| `N` | drop a numbered nav mark `0`–`9` under the crosshair, or clear the one aimed at; ten is the limit | [SHIPPED 4594cec] |
+| `G`, then `0`–`9` | send the selection to that nav mark as a move order; `Escape` cancels; any other key cancels and then acts | [SHIPPED 30b618c] |
+| `R` | toggle the world map in the radar's corner | [SHIPPED 20f224e] |
+| `O` | BZ2's objectives key; unbound until objectives exist | [SHIPPED 20f224e] |
+| `C` | toggle the colour calibration view (red, green, blue bars) | [SHIPPED 3c7070c] |
+| `F11` or `Alt`+`Enter` | toggle full screen | [SHIPPED 47ba745] |
+| `Ctrl`+`Q` | quit from anywhere; deliberately a modified key | [SHIPPED 47ba745] |
+| digits `1`–`9`, `0` in normal play | answer `G`, `T` and the attack list only; they select nothing | [SHIPPED 160dec4] |
+| digits in a command menu | would be the menu's verbs | [INTENDED — unconfirmed] — `menu.hpp:40-43`, see section 6 |
+
+Selection and orders, the rules behind the rows:
+
+- [SHIPPED 029a7b1] A selection is a set, sorted ascending and unique, bounded, and drops the dead.
+  A replay of human play cannot see the order the player selected in. (`b865ac1` for `cmd::Selection`.)
+- [SHIPPED 029a7b1] The tank you are sitting in is never moved by an order. It is selectable, and the
+  one thing an order may do to it is fire: `FocusFire`. Orders given to a selection that includes it go
+  to the other units; "You are driving that one" is the refusal when the driven tank is all there is.
+- [SHIPPED 3404ba9] `Space` never ADDS to a selection and there is no `Shift`+`Space` gesture. A
+  selection comes from a function key or from `Space` over one unit starting from empty. Harri's
+  directive, 2026-10-23 (U3 commit).
+- [SHIPPED 87cf06f] `Follow` is a standing order: closes when outside 4 tiles, stands still inside,
+  fires at what is in range, never leaves the radius to chase, lapses if the target dies. Any living
+  unit of either side may be followed except the follower itself.
+- [SHIPPED c76d8cf] A swap refuses an enemy unit, the factory, a dead unit, the unit already driven and
+  an empty mark.
+- [SHIPPED 1b64326] The sim's order vocabulary is `MoveTo`, `GuardAt`, `Patrol`, `Attack`, `Stop`,
+  `FocusFire`, `FireTowards`, `Strafe`, `Follow`, `FireLob` (`OrderKind`, ten values). `GuardAt`,
+  `Patrol` and a bare `Stop` have no player key today; the AI uses them.
+- [SHIPPED 029a7b1] Shooting never costs the selection. Only `Tab` and `Escape` clear it.
+
+### 5.2 The mark and the shot
+
+- [SHIPPED c9caf78] The mark is the crosshair, fixed at screen centre. White means nothing is under it,
+  green means one of yours, red means a hostile. The unit under it is tinted too, amber for yours and
+  salmon for a hostile.
+- [SHIPPED be6da0a] The shot goes where the crosshair points and nothing aims for it. A unit under the
+  mark is intent only: it decides whom the shot may hurt, not where it goes.
+- [SHIPPED 7a225e7] The shot leaves the muzzle and crosses the reticle where the reticle is drawn.
+- [SHIPPED 60b21a5] A click fires one shot. The bolt is a real projectile that takes time to arrive,
+  inherits the shooter's velocity, keeps flying if its target dies, and fizzles after 16 tiles.
+- [SHIPPED 3c7070c] Friendly fire is on purpose. Auto-engagement only ever picks a hostile; an explicit
+  order or a named trigger shot can hurt your own. A unit may never name itself
+  (`FriendlyFire.AUnitCannotTargetItself`).
+- [SHIPPED 27f24f6] With the mortar or bouncer up, the trigger lobs a shell along the view's own
+  heading and pitch, with no aim assist and no lead.
+- [SHIPPED fd58977] The bouncer is lobbed the same way and fires a bouncing round.
+- [SHIPPED 9ee8354] Each weapon has its own reticle and HUD label; the mortar's reticle is a range
+  ladder of eight rungs (`kMortarRungPitches`), the lit one being where the view's pitch lands.
+- [SHIPPED ad39a68] The reticle spreads for 6 ticks when your shot damages an enemy, and is shaded
+  while the gun reloads.
+
+PROVENANCE: `include/protekt/input/bindings.hpp:16-156`, `include/protekt/input/input.hpp:22-39`,
+`src/game/interaction.cpp:85-287,291-326,378-586`, `src/game/session.cpp:38-47`,
+`src/game/player.cpp:69-136`, `include/protekt/game/player.hpp:30-35`, `include/protekt/game/weapon.hpp:13-58`,
+`include/protekt/sim/orders.hpp:26-134`, `tests/test_roster_strip.cpp:119-134`,
+`tests/test_friendly_fire.cpp:69-140`, `README.md:15-88`, commit message of `3404ba9`
+("The owner's directive") and `a2400a9`.
+
+## 6. The command menu
+
+The numbered menu down the left of the frame. Its model is `include/protekt/game/menu.hpp` and its
+rows are in `src/game/menu.cpp`.
+
+**What the rows are.** [DECIDED — not built] The rows, the verbs and the per-item costs are a
+QUOTATION from Harri's BattleZone II captures of 2026-10-24. The slice that replaces them with real
+per-item identity and per-item costs is RB5. Harri 2026-10-24 (brief); `include/protekt/game/menu.hpp:46-50`,
+`src/game/menu.cpp:59-62`, `tests/test_menu.cpp:1-10`.
+
+What is built, what is not:
+
+- [SHIPPED 3e799a0] The row model: a pure function `menu_rows(MenuInput)` from what is selected, whose
+  it is, what is armed, what is under the cursor and how much scrap is banked, to the rows to draw. It
+  routes no input and touches no sim.
+- [SHIPPED be3afb4] The rows are drawn down the left margin, key column then verb column, in the order
+  handed over, never sorted or renumbered. A `~` glyph was added for the key column.
+- [SHIPPED 61298d2] The menu reaches the frame. It appears whenever the selection is made of living
+  units of one kind that has a captured menu: `Factory` → `Deployment`, `Scavenger` → `Harvester`,
+  `Turret` → `Turret`. A mixed selection, an empty one and every other kind get no menu.
+- [SHIPPED b3b153d] A scripted key press (`--key FRAME NAME`, `space`, `tab`, `f1`–`f10`) puts the menu on
+  screen headless, and `GameCliTest.TheMenuIsOnScreenWhenTheRosterSelectsAFactory` proves it by pixels.
+- [INTENDED — unconfirmed] Arming a command from the menu is RB2 (`3` arms the deploy, the player
+  points, `SPACE` places it). `player_view.hpp:51` says "nothing is armed yet (arming is RB2)", and
+  `menu.hpp:60-63` describes the flow. No ruling of Harri's names it.
+- [INTENDED — unconfirmed] The unit kinds and per-side item names that give the build rows their
+  meaning arrive with "the R3 roster" and RB5 (`menu.hpp:147-151`). No ruling of Harri's names the
+  roster slice.
+
+### 6.1 What opens the menu, and the rows per selection
+
+| selection | subject | rows, top to bottom | status |
+|---|---|---|---|
+| a `Factory` | Deployment | `SPACE` state row; `TAB CLOSE MENU`; `~ DROP OFF`; then 7 build rows `1 HARVESTER 20`, `2 SCOUT 45`, `3 GUARDIAN 40`, `4 HAULER 30`, `5 BUILDER 40`, `6 HEALER 50`, `7 SERVICE POD 2` | [SHIPPED 3e799a0] |
+| a `Scavenger` | Harvester | `SPACE`; `TAB CLOSE MENU`; `~ SELECT UNIT` (dim); `1 FOLLOW ME`; `2 GO TO NAV`; `3 SCAVENGE`; `4 HOLD`; `5 PICK ME UP` (dim); *gap where 6, 7, 8 would be*; `9 BAILOUT`; `0 RECYCLE` | [SHIPPED 3e799a0] |
+| a `Turret` | Turret | the `SPACE` state row alone — not even `TAB CLOSE MENU` | [SHIPPED 3e799a0] |
+| a recycler / matriarch, not deployed | Recycler | `SPACE`; `TAB CLOSE MENU`; `~ ROTATE BUILDINGS` (dim); `1 FOLLOW ME`; `2 GO TO NAV`; `3 DEPLOY` | [SHIPPED 3e799a0] — modelled and tested, but no `UnitKind` maps to it, so no selection can reach it (`app/player_view.cpp:12-27`) |
+| a `Tank`, `HoverTank`, `Mortar`, `Rocket`, or nothing | None | no menu, no rows | [SHIPPED 61298d2] |
+
+- [SHIPPED 3e799a0] The enemy side's build list is EMPTY. A per-side item name and a per-kind cost is
+  RB5's and the R3 roster's, and inventing a list "would put names in the mouth of a capture that never
+  showed them". A deployment on the enemy side draws no build rows
+  (`Menu.TheEnemyBuildListIsNotInvented`).
+- [SHIPPED 3e799a0] `~ DROP OFF` is drawn as the reference draws it and means nothing yet; no behaviour
+  is invented behind it (`Menu.TheDeploymentKeepsTheDropOffStringItCannotExplain`).
+
+### 6.2 The structural rules
+
+- [SHIPPED 3e799a0] A row is a `{key, verb}` pair. The keys are NOT contiguous: the harvester's menu
+  reads 1 2 3 4 5, a visible gap, then 9 and 0. Numbering by position is wrong, and the drawn order is not
+  key order (`Menu.TheKeysAreNotContiguousAndTheGapIsDrawn`, `Menu.TheRowOrderIsNotKeyOrder`).
+- [SHIPPED 3e799a0] A key's verb depends on the selection: `3` is `DEPLOY`, `SCAVENGE` or
+  `GUARDIAN 40` (`Menu.TheThreeKeyMeansWhateverTheSelectionMakesIt`).
+- [SHIPPED 3e799a0] **The top row is a live readout, not a binding.** It is `SPACE SELECT` when
+  something of yours is under the cursor, `SPACE DEPLOY` once `3` has armed the deploy, `SPACE <item>`
+  once a build row has armed that item, and a bare `SPACE` otherwise. It is never dimmed, and pressing
+  `SPACE` does whatever the row currently names. Arming does not rewrite the row that armed it
+  (`Menu.TheTopRowIsLiveStateNotABinding`, `Menu.ArmingDoesNotRewriteTheBindingThatArmedIt`).
+- [SHIPPED 3e799a0] **A row is dim for one of two reasons, under one look.** A build row is dim because
+  it is `Unaffordable` (the cost exceeds the banked scrap). An action row such as `SELECT UNIT` or
+  `PICK ME UP` is dim because it `DoesNotApply` to this selection. `MenuRow::reason` carries which, and
+  `enabled` is exactly `reason == None`. The look is the same ink (`kMenuDimInk`, 0.40 grey)
+  whatever the reason (`Menu.ADimmedRowCarriesTheReasonItIsDimmed`, `Menu.NoRowIsEverDimmedForTheWrongReason`).
+- [SHIPPED 61298d2] Affordability reads the sim's real ledger (`Sim::ore`). The test steps the sim until
+  a scavenger banks a wreck and asserts live and dim rows.
+- [SHIPPED 3e799a0] `TAB CLOSE MENU` is the second row of every menu except the turret's.
+- [INTENDED — unconfirmed] **A menu is a MODE.** Inside it the digits are the verbs; in normal mode they
+  address buildings (`1` recycler, `2` factory, `3` armory) once those exist. This is written in
+  `menu.hpp:40-43` as a property of the reference menu. No code routes the digits: today the menu is
+  a display, `Tab` clears the selection (which makes the menu disappear), and digits stay the `G`, `T` and
+  attack-list answers. Whether PROTEKT adopts the mode is not ruled anywhere I can find (section 14).
+- [SHIPPED 61298d2] The menu and the attack list share one slot under the notice, one panel at a time:
+  the attack list wins.
+- [SHIPPED be3afb4] With no menu rows, a frame is byte-identical to one that never heard of the menu layer (`Menu.DrawnWithNoRowsItEmitsNothingAndEveryFrameIsByteIdentical`).
+
+PROVENANCE: `include/protekt/game/menu.hpp:12-159`, `src/game/menu.cpp:10-149`, `tests/test_menu.cpp:74-640`,
+`include/protekt/app/player_view.hpp:38-56`, `src/app/player_view.cpp:9-114`,
+`src/game/scene.cpp:2185-2191,2557-2579`, `tests/test_game_cli.cpp:163-318`,
+`tests/test_player_view.cpp`, commit messages of `61298d2` and `b3b153d`, BZ2 capture 2026-10-24,
+Harri 2026-10-24 (brief).
+
+## 7. The HUD
+
+All HUD text is the built-in 5 by 5 block font (`mount_glyph`). A "cell" is one square of that grid, in
+pixels at a 720-high frame, and a glyph is 5 cells tall.
+
+**The type scale.**
+
+- [DECIDED — not built] HUD text follows BattleZone II's MEASURED fixed glyph height of about 10 px:
+  cell 2.0 on the 5 by 5 grid at a 720-high frame. BZ2's text is a fixed pixel font that ignores the
+  resolution, counted at 10 px in the 800 by 600 originals and still about 10 px in a 1280 by 730
+  screenshot of the remaster. "Make it bigger for my eyesight" is an argument Harri has retired, 2026-10-24 (brief). "Make it obvious" buys a brighter ink and an opaque plate, never a bigger cell
+  (`scene.cpp:2203-2205`).
+- [SHIPPED bd32f0b] These elements are at cell 2.0: the roster strip, the notice line, the attack list,
+  the command menu, the scrap ledger and the verdict banner.
+- [SHIPPED src/game/scene.cpp:1778] These are not: the weapon label (cell 4.8, `scene.cpp:1778`), the mortar rung digits
+  (cell 4.0, `scene.cpp:1797`), the ship instrument's readings (cell 3.0, `scene.cpp:1924`) and the
+  `DEPLOYING` plate (cell 3.0 at 450 px, `scene.cpp:1615`). Whether they are exempt is not stated
+  (section 14).
+
+### 7.1 The elements
+
+| element | where | what it reads | status |
+|---|---|---|---|
+| Roster strip | top left, 6 px margin | one plate per kind with living units, in key order: the key (`F1`…), the count as `x<n>`, the kind's short name, and a 3 px bar of the group's summed hp over summed maximum (green above 60%, yellow above 30%, red below). The frame is yellow when any unit of the group is selected, white otherwise. A plate is 88 by 34 px | [SHIPPED 609fd67] |
+| Notice line | under the strip, yellow | the last refusal or confirmation, held for `kNoticeTicks` of sim time; the `go where? 0-9 for a mark.` prompt while `G` waits | [SHIPPED d81b8cf] |
+| Attack list | under the notice | after `T` with no hostile under the mark: one row per nearest enemy within the radar, `key  kind  metres`, keys `1`–`9` then `0`; the row's meaning is fixed when `T` was pressed | [SHIPPED eff1299] |
+| Command menu | the left margin, in the attack list's slot | section 6 | [SHIPPED be3afb4] |
+| Radar | bottom left | a wide shallow oval, 40 tile radius, heading-up; the driven unit a triangle at the middle, yours squares, hostiles red squares, your base an outline, nav marks, a rim arrow to your base; terrain relief in a wireframe mesh | [SHIPPED f8e65de] |
+| World map | bottom left, replaces the radar | section 3 | [SHIPPED 5458ec4] |
+| Scrap ledger | above whichever view holds the bottom-left corner | the word `SCRAP` and the viewer's own `Sim::ore` count, amber on an opaque black plate | [SHIPPED d0ffee1] |
+| Ship instrument | bottom right | a C-shaped ring of 12 + 12 segments: the upper arc is hull in green (the driven unit's hp over its spec's maximum), the lower arc is ammo in blue. The two readings sit in the opening. Beside it, the four carried weapons, the active one lit green | [SHIPPED 341fbb3] |
+| Reticle | screen centre | section 5.2: four ticks round an open centre and a dot, colour by what is under it, spread on a hit, shaded while reloading; the weapon's name beside it | [SHIPPED ad39a68] |
+| Floating unit bars | over each living field unit in view | a 20 by 4 px bar, green yours and red hostile; not on the factory or a turret, and none on the viewer's own tank | [SHIPPED 7dfc67d] |
+| `DEPLOYING` plate | over an own turret that is not yet mounted | a yellow plate; a mounted or hostile turret shows nothing | [SHIPPED 3398f08] |
+| Hit flash | whole frame | red, fading over 0.4 s when the driven unit is hit | [SHIPPED 3c7070c] |
+| Verdict banner | above the crosshair | `YOU HAVE LOST` in red or `ENEMY DEFEATED` in green; nothing while the war is undecided (section 10) | [SHIPPED e23dec8] |
+| Colour calibration view | whole frame, `C` | three bars, red, green, blue | [SHIPPED 3c7070c] |
+| Wreckage | on the ground | each scrap piece a small dark plate lying on the terrain | [SHIPPED 62a948f] |
+
+- [SHIPPED e653f16] The radar's hull bar is retired. Harri 2026-10-23, quoted at `scene.cpp:1433`:
+  "Retire radar's hull bar. It's replaced by the health bar at the bottom right." The README's "health
+  bar" section is stale (section 14).
+- [SHIPPED 341fbb3] **The ammo reading is a named placeholder.** The ship instrument's blue arc is always
+  full and its number is always the string `100`. It is the constant `kAmmoPlaceholderFraction` and
+  `ammo_placeholder_percent()`, never a number the sim computed, because the sim has no magazine.
+  Harri 2026-10-23: "For now, we can keep the ammo capacity always at 100%. When we add capacity, we can
+  change that." The slice that replaces it is AMMO-2.
+- [DECIDED — not built] Real ammo capacity. Harri 2026-10-23, `scene.hpp:425-431` (AMMO-2).
+- [SHIPPED bd32f0b] HUD panels are rounded (5 px corners at 720) with a 65% translucent face and an
+  opaque frame and ink, like BZ2's.
+- [SHIPPED 341fbb3] The ship instrument's hull reading is the driven unit's hp, from the sim. With no
+  driven unit it draws no number at all, because "a number the sim never produced is the lie the ammo
+  placeholder exists to avoid".
+
+PROVENANCE: `src/game/scene.cpp:1527-1541,1609-1615,1775-1800,1894-1962,1996-2025,2145-2351,2353-2580,2586-2643,2645-2655`,
+`include/protekt/game/scene.hpp:420-433`, `include/protekt/game/radar.hpp:32-48`,
+`include/protekt/game/world_map.hpp`, `src/app/game.cpp:383-384,467-469`,
+`include/protekt/game/interaction.hpp:29`, `README.md:110-148`, commit messages of `bd32f0b`,
+`d0ffee1`, `e653f16`, Harri 2026-10-23 and 2026-10-24 (brief).
+
+## 8. The economy
+
+- [DECIDED — not built] Scrap is THE resource. Harri 2026-10-16 (brief); the D-list in `docs/PLAN.md`
+  does not contain it (section 14). The closest text is `docs/PLAN.md:8`, "a resource you physically
+  harvest".
+
+### 8.1 Wreckage, the hauler and the ledger
+
+- [SHIPPED e653f16] A destroyed unit scatters four pieces of wreckage (`kScrapPerWreck`) within two
+  tiles (`kScrapScatterRadius`), each at the centre of a tile. The position is a pure function of
+  `(seed, dead unit id, piece index)`, so a replay scatters the same field. The ground holds at most 512
+  pieces.
+- [SHIPPED e653f16] A piece that lands on ground no vehicle can enter (a crater) settles onto the
+  nearest tile one can, and never onto a tile another piece of the same wreck already holds.
+  `Scrap.WreckageNeverRestsOnGroundAVehicleCannotStandOn`.
+- [SHIPPED 62a948f] Wreckage is drawn. Harri's complaint was that the litter was invisible.
+- [SHIPPED e653f16] The scavenger (hp 60, unarmed) with no orders of its own walks to the nearest piece,
+  takes one load (within 1 tile), and carries it to its own side's lowest-id living factory, handing it
+  over within 2 tiles. Any order replaces the fetch. Pick-up and hand-over happen wherever the scavenger
+  *is*, even under a player's own driving.
+- [SHIPPED e653f16] The ledger is one counter per side of delivered loads, `Sim::ore(side)`, hashed
+  only while non-zero so a battle with no scavenger hashes as it always did.
+- [SHIPPED d0ffee1] The ledger is on the HUD as `SCRAP`.
+
+### 8.2 What is free
+
+- [DECIDED — not built] Harri 2026-10-23 (brief): scrap is spent only when a factory builds a NEW item.
+  Repair, energy and ammo are ALWAYS free. Never gate repair, replenishment or firing on scrap.
+- [SHIPPED 18eef6f] Repair is free. `Ledger.RepairHappensAndTheLedgerPaysForNothing`
+  (`tests/test_scavenger.cpp:359`) pins it, and the repair loop reads no ledger.
+- [SHIPPED 1b64326] Firing is free. The firing loop (`sim.cpp` step 4) reads no ledger and no ammo.
+- [DECIDED — not built] Energy and ammo as quantities. The sim has neither: "nothing counts rounds and
+  nothing ever runs dry" (`scene.hpp:425-427`). The rule that they stay free binds the slice that adds
+  them.
+
+### 8.3 The build rule
+
+Ruling: a factory REPLACES A LOST GUN. It does not spend when rich.
+
+- [SHIPPED e23dec8] The condition is one function, `short_and_affordable(armed_living, armed_started,
+  ore)`: the side's living armed units are fewer than the armed units it started with, and it holds at
+  least `kTankOreCost` (4) loads. Both the production beat and the war's verdict (section 10) call it, so
+  they cannot disagree.
+- [SHIPPED e653f16] "Armed" is any kind with a nonzero range: tank, hover tank, turret, mortar, rocket.
+  A side starts with 8 of them. A full yard builds nothing and spends nothing
+  (`Build.NoLossIsNoBuild`).
+- [SHIPPED e653f16] The beat is global, every 150 ticks (5 s). A building factory makes a `Tank`
+  whatever kind was lost.
+- [SHIPPED e653f16] The new tank appears on the factory's own tile when it is free, else on the nearest
+  free passable tile within 3 tiles (`kBuildSpawnRadiusTiles`). A yard with no room builds nothing and
+  spends nothing.
+- [SHIPPED e653f16] The cost is `kTankOreCost = 4` loads, "one wreck's worth, so one kill pays for one
+  tank".
+- [SHIPPED e653f16] The code makes ONE build per beat in total, not one per side: the loop ends after
+  the first factory builds (`sim.cpp:932-934`). The ruling says one per side per beat. Both sides'
+  factories are in the same loop, the player's has the lower id, so the enemy builds only on a beat the
+  player's factory did not (section 14). **The wording of that ruling comes from a brief rather than from
+  any repo document, so which is wanted — one build per side, or one build in a beat — is Harri's to
+  confirm.**
+
+### 8.4 The hauler in the skirmish
+
+- [SHIPPED e653f16] No scavenger spawns in `skirmish(seed)` (`side_roster` has none), and neither
+  commander orders one to be built. In the playable game, therefore, no load is ever banked, the ledger
+  stays at zero, and no factory ever builds. The economy is complete in the sim and exercised by tests that
+  spawn a scavenger by hand; it is inert in the shipped scenario.
+- [DECIDED — not built] Per-item identity and per-item costs (HARVESTER 20, SCOUT 45, and so on) replace
+  `kTankOreCost` and the menu's quotation in RB5. Harri 2026-10-24 (brief).
+
+PROVENANCE: `include/protekt/sim/scrap.hpp:12-41`, `include/protekt/sim/units.hpp:140-172`,
+`src/sim/sim.cpp:361-531,849-936`, `include/protekt/sim/sim.hpp:100-109`, `src/sim/scenario.cpp:34-44`,
+`tests/test_scavenger.cpp:137-436`, `tests/test_scrap.cpp:81-207`, `include/protekt/game/scene.hpp:425-433`,
+`src/game/menu.cpp:59-67`, commit messages of `e653f16`, `62a948f`, `d0ffee1`, `e23dec8`,
+Harri 2026-10-16, 2026-10-23, 2026-10-24 (brief).
+
+## 9. The teams
+
+- [DECIDED — not built] Harri 2026-10-24 (brief): there is a human team and an alien team, and the
+  player chooses which to play.
+- [DECIDED — not built] A scavenger and a harvester are the SAME vehicle, identical in function. They
+  differ only in name and appearance, and the difference follows the TEAM, not who is the player.
+- [SHIPPED 1b64326] The sim has no faction concept. The only partition is `sim::Side::Player` and
+  `sim::Side::Enemy` (`units.hpp:51`), and both sides spawn the same kinds.
+- [SHIPPED 3e799a0] Today's names are not keyed by team. The unit-kind label is `SCAVENGER`
+  (`roster.cpp:63`) and the player's build list says `HARVESTER` (`menu.cpp:64`), both on the one side.
+  `menu.hpp:93-95` already says "the same kind is a HARVESTER on one side and a Scavenger on the other",
+  so the model expects per-side naming and the table does not provide it.
+- [DECIDED — not built] Per-team naming is re-keyed when factions exist. Until then no code should
+  treat `Side` as the team, and no new string should be added that assumes the player is human.
+
+PROVENANCE: `include/protekt/sim/units.hpp:51`, `include/protekt/game/menu.hpp:90-96`,
+`src/game/roster.cpp:49-67`, `src/game/menu.cpp:63-67`, Harri 2026-10-24 (brief).
+
+## 10. Winning and losing
+
+- [DECIDED — not built] Winning and losing are a LIST of conditions, never one hard-coded rule. Harri
+  2026-10-24 (brief).
+- [DECIDED — not built] Destroying the enemy's production building wins instantly and totally. Losing
+  your own loses the game. Harri 2026-10-24 (brief).
+- [DECIDED — not built] A mission scripts its own conditions, for example "escort an APC; fail if it
+  dies". Harri 2026-10-24 (brief). `docs/PLAN.md:600-605` says "There are no missions yet", and no mission
+  data type is in the tree.
+- [DECIDED — not built] The earlier attrition verdict is RETIRED by Harri, 2026-10-24 (brief). Nobody
+  should keep two meanings of "the war is over".
+
+What is in the tree instead:
+
+- [SHIPPED e23dec8] `Sim::side_has_lost(side)` is the attrition verdict this ruling retires. A side has
+  lost when it has no living armed unit and cannot make one: no living factory, or fewer than 4 loads, or
+  nothing missing from the strength it started with. It is derived, never stored, never hashed. A side that
+  started with no gun has not lost. The HUD banner reads it.
+- [SHIPPED e23dec8] Destroying the factory does NOT end the game in the code. A side with any living
+  armed unit has not lost, whatever happens to its factory. A single unescorted tank can destroy an
+  undefended factory and the game carries on.
+- [INTENDED — status unverified] Which unit the "production building" is. In the tree the factory is the
+  only unit that builds, and the only one the menu treats as a deployed recycler. The brief does not say
+  the two are the same (section 14).
+
+PROVENANCE: `src/sim/sim.cpp:361-369,944-978`, `include/protekt/sim/sim.hpp:133-140`,
+`src/game/scene.cpp:2268-2351`, `tests/test_scavenger.cpp:408-440`, `docs/PLAN.md:494-495,600-605`,
+commit message of `e23dec8`, Harri 2026-10-24 (brief).
+
+## 11. Sound
+
+- [SHIPPED 67ea954] Every sound is synthesised from arithmetic: a seeded noise, a decay and a sine. There
+  are no assets and nothing to license. Three sounds exist: `YourShot`, `HitTaken`, `Explosion`.
+- [SHIPPED 67ea954] **What is heard is driven by the sim's report of what happened.** The pipeline
+  diffs the sim's unit table before and after each tick (`events_between`) and a pure rule,
+  `sounds_for`, turns the events into voices. The sim never learns sound exists.
+- [SHIPPED 67ea954] The trigger is no exception: pulling it raises a flag and the pipeline judges it
+  against the sim's own `Shot` record. A trigger the sim declines (still reloading, turret not
+  mounted) is silent and the notice says why (`audio_pipeline.cpp:41-54`).
+- [SHIPPED 67ea954] Your own gun is full volume, dead centre. A friend's is the same while within
+  60 tiles.
+- [SHIPPED 3c7070c] Being hit is a full-volume low thud with a sharp attack, dead centre, whichever way the
+  shot came, because the thing hurting you is not something to locate.
+- [SHIPPED 67ea954] A hostile shot that hurt nobody of yours is heard as a gun, quieter with distance
+  and panned left or right. Dead ahead and dead behind sound alike.
+- [SHIPPED 67ea954] A death is an explosion: yours at full volume, anyone else's quieter with distance
+  and carrying 90 tiles.
+- [SHIPPED 67ea954] **Beyond earshot, nothing.** 60 tiles for a shot and 90 for a death: not quiet,
+  absent. It is the radar's promise made to the ears: a battle you cannot perceive must not be audible.
+  Gain falls with the square of distance to exactly zero at the earshot.
+- [SHIPPED 67ea954] No sound device, or `--no-sound`, runs silent; a missing device is reported on one line
+  (`src/app/game.cpp:638-645`).
+
+PROVENANCE: `include/protekt/game/sounds.hpp:11-38`, `src/game/sounds.cpp:42-142`,
+`src/app/audio_pipeline.cpp:25-82`, `include/protekt/audio/synth.hpp:20-25`, `src/app/game.cpp:167`,
+`README.md:150-172`.
+
+## 12. Matching BattleZone II
+
+- [DECIDED — not built] PROTEKT follows BattleZone II in controls and in look and feel. Harri, standing
+  (brief). Anything about BZ2 is MEASURED from Harri's captures, never remembered.
+
+What has been measured, and what is ours:
+
+| subject | the number | measured against | status |
+|---|---|---|---|
+| HUD glyph height | about 10 px; cell 2.0 on a 5 by 5 grid at 720 high | BZ2 originals at 800 by 600 and a 1280 by 730 remaster screenshot, counted (`scene.cpp:2152-2154`) | [SHIPPED bd32f0b] |
+| Radar geometry | a wide shallow oval; a ground disc seen from 21° above, so height is sin 21° = 0.358 of width; width 0.258 of the frame | "pixel-counted off BZCC screenshots" (`radar.hpp:37-39`) | [SHIPPED f8e65de] |
+| Radar size clamp | 200 to 480 px | no measurement cited; ours | [SHIPPED f8e65de] |
+| Radar radius | 40 tiles | ours; no BZ2 figure cited | [SHIPPED include/protekt/game/radar.hpp:34] |
+| World map footprint | the radar's major diameter | Harri 2026-10-23, quoted at `world_map.hpp:35-40`; it replaced an earlier 12.7% of frame width taken from BZ2's minimap | [SHIPPED 43c1807] |
+| World map key | `R`; `O` is the objectives key | BZ2's own keys (`bindings.hpp:143-146`) | [SHIPPED 20f224e] |
+| Function-key pool | keys return to the pool when a kind's last unit dies | "how BattleZone works", Harri 2026-10-22 (`roster.hpp:19-21`) | [SHIPPED 609fd67] |
+| Command menu | rows, verbs, costs, the gap, the top readout, the dimming | BZ2 capture 2026-10-24; a quotation (section 6) | [SHIPPED 3e799a0] |
+| Ship instrument | a segmented C ring with hull and ammo, weapons beside it | BZ2's gauge; one fraction the brief gave "measured wrong" and was corrected (`scene.cpp:1928-1935`) | [SHIPPED 341fbb3] |
+| Roster strip plate | 88 by 34 px, 6 px apart, 5 px corners | no measurement cited beyond the glyph height; ours | [SHIPPED bd32f0b] |
+| Panel translucency | 0.65 alpha face | "which is how BZ2's panels read"; no figure measured | [SHIPPED bd32f0b] |
+| Control scheme as a whole | WASD plus mouse look, right click weapon switch, number and function keys | not recorded as measured anywhere in the tree | [INTENDED — status unverified] |
+
+PROVENANCE: `include/protekt/game/radar.hpp:34-48`, `include/protekt/game/world_map.hpp:34-48`,
+`include/protekt/input/bindings.hpp:143-146`, `include/protekt/game/roster.hpp:9-34`,
+`src/game/scene.cpp:1928-1935,2145-2183`, `tests/test_menu.cpp:1-10`, commit message of `bd32f0b`,
+`README.md:3-4`, Harri standing (brief).
+
+## 13. The build
+
+- [SHIPPED d79f923] `tools/ci.sh` is the single definition of green. It has two tiers, and the hooks
+  name a tier instead of repeating its stages.
+  - **fast** (`pre-commit`): `format build tests`.
+  - **full** (`pre-push`): `--require-clean tree format kitprobes build tests release version asan tsan
+    tidy pristine`.
+- [SHIPPED d79f923] There is no external CI. The hooks are armed once per clone with
+  `git config core.hooksPath .githooks`. Per-machine settings go in `.ci.env`, which is gitignored.
+- [SHIPPED d79f923] `pristine` builds a clean clone of what git actually carries, the only way to catch a
+  file that passes only because it is on disk.
+- [SHIPPED d79f923] Edits to `tools/ci.sh` must be explained in `INCIDENTS.md` (its header says so).
+- [SHIPPED d79f923] The toolchain floor is CMake 3.20, C++20, clang or gcc, GoogleTest. `clang-format`
+  and `clang-tidy` for the full tier. Vulkan and SDL3 optional.
+- [SHIPPED d79f923] Code is written to `CODING_STANDARDS.md`: C++20, `-Wall -Wextra -Wpedantic -Werror`, no
+  raw owning pointers, TDD, fuzz targets are clients, measure before claiming, and the determinism and
+  layering rules. This document points there rather than restating it.
+- [SHIPPED 2ea1cef] The honest gap: GUI tests are fragile. The window itself cannot be exercised on the
+  gate box, which has no display. The loop, the world view and the player commander are tested headless
+  and byte-compared, but the window, the swapchain hand-off and the real device are verified by hand on the
+  play machine. One display-path fault (red and blue swapped) passed the whole suite
+  (`README.md:127-136`), which is why the `C` calibration view exists.
+- [SHIPPED 3c7070c] Vulkan tests are skipped under ThreadSanitizer because lavapipe races inside itself
+  (`docs/PLAN.md:233-236`).
+- [DECIDED — not built] The laptop sync is retired: the laptop is pulled and built by Harri, not synced. Harri
+  2026-10-24 (brief). Process; no code.
+
+PROVENANCE: `tools/ci.sh:1-40`, `.githooks/pre-commit`, `.githooks/pre-push`, `README.md:293-307`,
+`CODING_STANDARDS.md:23-66`, `INCIDENTS.md:1-20`, `docs/PLAN.md:228-236`, `CMakeLists.txt:7,22`,
+Harri 2026-10-24 (brief).
+
+## 14. Status questions
+
+This section is a deliverable. Three kinds of entry: rules whose status I could not verify, drift between
+a document and the code, and places where the documents contradict each other. Nothing here is fixed.
+
+### 14.1 Rules I could not classify
+
+1. **D3b — is the game complete with no AI loaded?** The sim is (no `ai/` include below `app/`). The
+   playable game builds `ai::ScriptedCommander enemy_` and calls it every frame
+   (`src/app/game.cpp:374,503`); no flag removes it. Is D3 a rule about the sim only, or about the game?
+2. **"A menu is a MODE."** `menu.hpp:40-43` states it as a property of the reference menu. Nothing routes
+   the digits, and `Tab` clears the selection rather than closing a mode. Do you want the mode, and if so
+   is it RB2?
+3. **Which building is the "production building"** whose destruction wins (section 10)? The factory is the
+   only unit that builds, and the menu treats it as the deployed recycler. Is that the same thing, and is
+   a second kind of building coming?
+4. **Strategic controllers** (`docs/PLAN.md:309-345`) are called a "design sketch" and the module was
+   deleted. Requirement, or parked idea?
+5. **Which HUD elements are exempt from the 10 px type scale?** The weapon label (4.8), the mortar ladder
+   digits (4.0), the ship readings (3.0) and the `DEPLOYING` plate (3.0 at 450) are larger than cell 2.0.
+6. **The roster-key ruling has two wordings.** `roster.hpp:19-21` records "when the last unit dies, the
+   function key space gets returned to the pool" as Harri's of 2026-10-22; the brief gives 2026-10-24 for
+   "a key returns to the pool". Is the later one a restatement or a new ruling? The code satisfies both.
+7. **Mount and unmount time.** Harri 2026-10-17 (brief) gave 3 seconds for the mount. The unmount is also
+   90 ticks in code (`720b7fd`), but the ruling as given covers only the mount.
+8. **BZ2 control scheme as a whole.** Only the map key, the function-key pool and the objectives key are
+   recorded as taken from BZ2. Are the remaining bindings (WASD, right-click weapon switch) also matched
+   to a capture?
+9. **Rulings that appear in no repo document.** Teams, free repair/energy/ammo, the build rule's wording,
+   the key pool's 2026-10-24 date, dead units vanishing, the win/lose conditions, the 10 px rule, the menu
+   quotation, the parked RECYCLE, follow radius and mount time, the laptop sync, and "scrap is the
+   resource" dated 2026-10-16. The D-list of `docs/PLAN.md` has no scrap entry. Each is cited here as
+   `(brief)`; please confirm or correct the date.
+
+### 14.2 Drift: a document against the code
+
+| # | document says | the code does |
+|---|---|---|
+| 1 | `README.md:24`: `Space` adds a unit to the selection or removes it; `Shift`+`Space` does the same | `Space` never adds; with nothing selected it selects one unit, with something selected it follows a tank or attacks a hostile (`interaction.cpp:223-264`, `3404ba9`) |
+| 2 | `README.md:31,143`: `T` with the mark on one of your own units orders an attack on it | `T` with no hostile under the mark arms the attack list, own unit or not (`interaction.cpp:274-278`); only a hostile is attacked directly. The trigger can still hurt your own (`README.md:62`) |
+| 3 | `README.md:19`: `A`/`D` turn the body | for a driven `HoverTank` they strafe and the mouse turns the hull (`player.cpp:69-136`, `6023fd2`) |
+| 4 | `README.md:45-48`: "`Escape` and Stop are how you hold fire" | `Escape` clears the selection and cancels `G` and `T`; there is no Stop key (`interaction.cpp:203-205`). A unit under a `Stop` order still fires |
+| 5 | `README.md:92-93`: the radar is round, a disc with a ring border | it is a wide shallow oval (`radar.hpp:37-44`, `f8e65de`) |
+| 6 | `README.md:103`: a nav mark is a "numbered plate" on the radar | `bd32f0b` changed the radar's nav indicator to a 9 px plus (commit message; not re-read in `radar.cpp`) |
+| 7 | `README.md:116-125`: a health bar sits above the radar | retired by Harri 2026-10-23 (`scene.cpp:1433`); the hull is in the ship instrument |
+| 8 | `README.md:112-114`: the top strip shows "key, kind and hit points" | it shows key, count `x<n>`, kind and a group bar (`scene.cpp:2148-2158`) |
+| 9 | `README.md:193-194`: "No economy", "No way to win or lose"; `docs/PLAN.md:347-353`: the economy is not built | scrap, the scavenger, the ledger, the build and the C8 verdict are built (`e653f16`, `e23dec8`); the README gap table and the PLAN's "still owed" are stale |
+| 10 | `README.md:181`: "the enemy commander advances, engages and withdraws" | the playable game's enemy is `ScriptedCommander`, which reads no hit points and does not retreat; the utility commander is wired only into the CLI tools |
+| 11 | `docs/PLAN.md:114-115`: six unit kinds | seven; `Scavenger` is the seventh (`units.hpp:23-34`) |
+| 12 | `docs/PLAN.md:117-118`: roster strip `1`–`9` and world map `O` | `F1`–`F10` and `R`; `O` is unbound (`bindings.hpp:111-154`) |
+| 13 | `docs/PLAN.md:11,661-663`: audio is a non-goal and out of scope, and there is no pathfinding beyond steering | audio shipped (`67ea954`) and A\* shipped (`0eb1986`); PLAN §5 already says so, §8 and the header do not |
+| 14 | `docs/PLAN.md:661`: no save-game serialisation beyond seed plus order log | `docs/PLAN.md:570-607` records Harri's call to plan a save. The two are in the same file |
+| 15 | `docs/PLAN.md:634-655`: "Open decision (blocks M3 only)": which machine plays | M3 is done and the play machine is named at `docs/PLAN.md:207` |
+| 16 | `docs/PLAN.md:258` calls the build menu and the resource loop "later"; `:270` says "M4a, M4b and M4 done" | the economy is built; the build menu is only a drawn quotation |
+| 17 | `include/protekt/input/bindings.hpp:7` says "Movement only" | the file holds the command predicates too (`quit_requested` and others) |
+| 18 | `README.md:26` and the refusal in `interaction.cpp:390` say `X` swaps only into your own *armed* units | `is_drivable` is every kind but the factory, so an unarmed scavenger can be swapped into (`units.hpp:47-49`) |
+
+### 14.3 Drift: a ruling against the code
+
+19. **The retired verdict is the shipped one.** `Sim::side_has_lost` and the HUD banner implement
+    the attrition rule that Harri retired on 2026-10-24. Section 10.
+20. **One build per beat in total, not per side.** `sim.cpp:932-934`. Section 8.3.
+21. **`buildable` is false for every kind, yet the factory builds a `Tank`.** `spec.hpp:36` and
+    `test_roster.cpp:106` against `sim.cpp:929`, whose comment calls the tank "the only `buildable` kind".
+22. **No scavenger in the skirmish.** The economy is inert in the playable game. Section 8.4.
+23. **The menu's `Recycler` subject is unreachable**, and every live-looking digit row (`3 SCAVENGE`,
+    `0 RECYCLE`, …) does nothing. Section 6.
+24. **Names are not keyed by team**, and `HARVESTER` and `SCAVENGER` both appear on the player's side.
+    Section 9.
+25. **Menu costs are on another scale from the sim's.** The menu quotes HARVESTER 20 to SERVICE POD 2;
+    the sim spends 4 loads on a tank. RB5 replaces them (`menu.cpp:59-62`).
+26. **"Explode and vanish."** A dead unit vanishes, and is heard exploding, but nothing is *seen*
+    exploding. Say if the visual is part of the ruling.
+
+27. **The menu's top row does not know about a live selection.** §6.2 takes the row from the capture
+    (`SPACE SELECT` when something of yours is under the cursor), but the code's `Space` means SELECT
+    only from an EMPTY selection: with something already selected it FOLLOWS a vehicle or ATTACKS a
+    hostile, and says so in the notice (`interaction.cpp:223-264`). The row therefore reads
+    `SPACE SELECT` in a state where pressing `Space` would not select. Closing it needs a `MenuInput`
+    field that says whether the selection is empty, and the two extra verbs — that is RB2's territory.
+
+### 14.4 What I could not determine
+
+- Whether `radar.cpp` draws the nav mark as a plus (drift 6) — I read the commit message only.
+- The BZ2-capture basis for each menu row beyond `tests/test_menu.cpp`'s own statement that they are
+  quotations; I have no access to the captures.
+- Whether `scripted_commander.cpp` is meant to be the long-term enemy. It includes `utility.hpp` for
+  helpers, and I did not trace it past its 44 lines.
+- The wording of any ruling marked `(brief)`: I have the brief's paraphrase, not Harri's own sentence,
+  except where a code comment quotes it (the ammo placeholder, the hull bar, the radar-diameter call).
+
+PROVENANCE: every item above names its own `file:line`; the documents are `README.md`,
+`docs/PLAN.md`, `include/protekt/input/bindings.hpp`, `include/protekt/game/menu.hpp` and
+`include/protekt/game/roster.hpp`.
