@@ -19,13 +19,14 @@ namespace {
 constexpr std::size_t kHoverSlot = 3;
 constexpr std::size_t kMortarSlot = 7;
 constexpr std::size_t kRocketSlot = 8;
-constexpr std::size_t kRosterSize = 9;
+constexpr std::size_t kRosterSize = 10;
 
 // Updated (R3b2): the mortar and the rocket join both rosters, after the turrets.
 TEST(Roster, BothSidesListTheSameKindsInSpawnOrder) {
     const std::vector<UnitKind> want{UnitKind::Tank,      UnitKind::Tank,    UnitKind::Tank,
                                      UnitKind::HoverTank, UnitKind::Factory, UnitKind::Turret,
-                                     UnitKind::Turret,    UnitKind::Mortar,  UnitKind::Rocket};
+                                     UnitKind::Turret,    UnitKind::Mortar,  UnitKind::Rocket,
+                                     UnitKind::Recycler};
     for (const Side side : {Side::Player, Side::Enemy}) {
         const std::span<const UnitKind> roster = side_roster(side);
         ASSERT_EQ(roster.size(), want.size());
@@ -38,7 +39,7 @@ TEST(Roster, BothSidesListTheSameKindsInSpawnOrder) {
     }
 }
 
-// Updated (R3b2): nine per side, so the enemy's group starts at index 9.
+// Updated (RB1b): ten per side, so the enemy's group starts at index 10.
 TEST(Roster, TheEnemyHoverTankSpawnsInThePlayersSlotOfItsOwnGroup) {
     for (const std::uint64_t seed : {1ULL, 7ULL, 42ULL, 777ULL}) {
         const Scenario s = skirmish(seed);
@@ -54,7 +55,7 @@ TEST(Roster, TheEnemyHoverTankSpawnsInThePlayersSlotOfItsOwnGroup) {
     }
 }
 
-// Updated (R3b2): the enemy's hover tank is index 12 now; its tile, and the player's, did not move.
+// Updated (RB1b): the enemy's hover tank is index 13 now; its tile, and the player's, did not move.
 TEST(Roster, HoverTankPositionsArePinnedAtSeed42) {
     // The player's hover tank wished for +5,+5 of its factory (25,45) and was nudged one tile off
     // the unpassable ground; the enemy's wished for -5,-5 of its factory (147,166) and got it.

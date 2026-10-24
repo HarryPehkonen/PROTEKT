@@ -2,11 +2,15 @@
 // self-describing and every determinism guarantee downstream is void.
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <cstdlib>
 #include <limits>
 #include <set>
 #include <vector>
 
+#include "protekt/sim/observer.hpp"
 #include "protekt/sim/scenario.hpp"
+#include "protekt/sim/spec.hpp"
 #include "protekt/world/world.hpp"
 
 namespace {
@@ -24,11 +28,12 @@ int count_of(const Scenario& s, Side side, UnitKind kind) {
     return n;
 }
 
-// Updated (R3b2): nine a side -- the mortar and the rocket joined.
+// Updated (RB1b): ten a side -- the recycler joined.
 TEST(Scenario, BothSidesGetTheFrozenComposition) {
     const Scenario s = skirmish(42);
     EXPECT_EQ(s.seed, 42U);
-    ASSERT_EQ(s.spawns.size(), 18U) << "9 units a side, the hover tank, mortar and rocket included";
+    ASSERT_EQ(s.spawns.size(), 20U) << "10 units a side, the hover tank, mortar, rocket and "
+                                       "recycler included";
     EXPECT_EQ(count_of(s, Side::Player, UnitKind::HoverTank), 1);
     EXPECT_EQ(count_of(s, Side::Enemy, UnitKind::HoverTank), 1);
     EXPECT_EQ(s.spawns.at(3).kind, UnitKind::HoverTank) << "the player's fourth unit";
@@ -39,15 +44,16 @@ TEST(Scenario, BothSidesGetTheFrozenComposition) {
         EXPECT_EQ(count_of(s, side, UnitKind::Turret), 2);
         EXPECT_EQ(count_of(s, side, UnitKind::Mortar), 1);
         EXPECT_EQ(count_of(s, side, UnitKind::Rocket), 1);
+        EXPECT_EQ(count_of(s, side, UnitKind::Recycler), 1);
     }
 }
 
-// Updated (R3b2): 18 spawns now; the hover tank is still the player's fourth.
+// Updated (RB1b): 20 spawns now; the hover tank is still the player's fourth.
 TEST(Scenario, ThePlayersFourthUnitIsAHoverTankDeterministicallyFromTheSeed) {
     for (const std::uint64_t seed : {7ULL, 42ULL}) {
         const Scenario a = skirmish(seed);
         const Scenario b = skirmish(seed);
-        ASSERT_EQ(a.spawns.size(), 18U);
+        ASSERT_EQ(a.spawns.size(), 20U);
         EXPECT_EQ(a.spawns.at(3).kind, UnitKind::HoverTank);
         EXPECT_EQ(a.spawns.at(3).side, Side::Player);
         EXPECT_EQ(a.spawns.at(3).tile_x, b.spawns.at(3).tile_x);
@@ -91,10 +97,10 @@ TEST(Scenario, IsAPureFunctionOfTheSeed) {
     EXPECT_TRUE(differs) << "two seeds must not produce the same battlefield run for run";
 }
 
-// Updated (R3b2): 18 units.
+// Updated (RB1b): 20 units.
 TEST(Scenario, IdsAreAscendingAndUnique) {
     Sim sim = Sim::create(skirmish(42));
-    ASSERT_EQ(sim.units().size(), 18U);
+    ASSERT_EQ(sim.units().size(), 20U);
     std::set<std::uint32_t> seen;
     for (const Unit& u : sim.units()) {
         EXPECT_TRUE(u.id.valid());
@@ -121,6 +127,83 @@ TEST(Scenario, TheTwoSidesStartWellApart) {
         }
     }
     EXPECT_GT(closest, 100 * 100) << "there must be ground to cross before the fight starts";
+}
+
+// RB1b: the recycler is one per side, ever -- and the LAST id on each side, because the newest
+// kind is appended so nothing before it moves.
+TEST(Scenario, EachSideSpawnsExactlyOneRecyclerAndItIsTheLastOfItsSide) {
+    for (const std::uint64_t seed : {1ULL, 42ULL, 777ULL}) {
+        const Scenario s = skirmish(seed);
+        for (const Side side : {Side::Player, Side::Enemy}) {
+            EXPECT_EQ(count_of(s, side, UnitKind::Recycler), 1) << "seed " << seed;
+            const Spawn* last = nullptr;
+            for (const Spawn& sp : s.spawns) {
+                if (sp.side == side) {
+                    last = &sp;
+                }
+            }
+            ASSERT_NE(last, nullptr);
+            EXPECT_EQ(last->kind, UnitKind::Recycler) << "seed " << seed;
+        }
+        EXPECT_EQ(s.spawns.at(9).kind, UnitKind::Recycler) << "the player's tenth unit";
+        EXPECT_EQ(s.spawns.at(19).kind, UnitKind::Recycler) << "the enemy's tenth unit";
+    }
+}
+
+// RB1b: the recycler is the base on wheels: it stands on its own half, close to the base.
+TEST(Scenario, TheRecyclerStartsOnItsOwnHalfWithinTheBaseCluster) {
+    for (const std::uint64_t seed : {1ULL, 42ULL, 777ULL}) {
+        const Scenario s = skirmish(seed);
+        const Spawn& player_factory = s.spawns.at(4);
+        const Spawn& enemy_factory = s.spawns.at(14);
+        ASSERT_EQ(player_factory.kind, UnitKind::Factory);
+        ASSERT_EQ(enemy_factory.kind, UnitKind::Factory);
+        for (const Spawn& sp : s.spawns) {
+            if (sp.kind != UnitKind::Recycler) {
+                continue;
+            }
+            const Spawn& factory = sp.side == Side::Player ? player_factory : enemy_factory;
+            const int dx = sp.tile_x - factory.tile_x;
+            const int dy = sp.tile_y - factory.tile_y;
+            EXPECT_LE(std::max(std::abs(dx), std::abs(dy)), 8) << "seed " << seed;
+            EXPECT_FALSE(dx == 0 && dy == 0) << "not on the factory's tile";
+            // The rear: away from the other side, as the support weapons stand.
+            if (sp.side == Side::Player) {
+                EXPECT_LT(sp.tile_x + sp.tile_y, factory.tile_x + factory.tile_y);
+                EXPECT_LT(sp.tile_x + sp.tile_y, kMapTiles) << "the low half";
+            } else {
+                EXPECT_GT(sp.tile_x + sp.tile_y, factory.tile_x + factory.tile_y);
+                EXPECT_GT(sp.tile_x + sp.tile_y, kMapTiles) << "the high half";
+            }
+        }
+    }
+}
+
+// RB1b: the recycler is unarmed, so its arrival changes no side's armed count: the AI's threat list
+// and the build rule's armed_started count the same units as before.
+TEST(Scenario, TheRecyclerIsUnarmedSoTheArmedCountPerSideIsUnchanged) {
+    const Scenario s = skirmish(42);
+    for (const Side side : {Side::Player, Side::Enemy}) {
+        int armed = 0;
+        for (const Spawn& sp : s.spawns) {
+            if (sp.side == side && spec_of(sp.kind).range.raw > 0) {
+                ++armed;
+            }
+        }
+        EXPECT_EQ(armed, 8) << "3 tanks, the hover tank, 2 turrets, the mortar and the rocket "
+                               "(the recycler adds none)";
+    }
+    EXPECT_EQ(spec_of(UnitKind::Recycler).range.raw, 0);
+}
+
+// RB1b: a battle with a recycler on each side is still a pure function of the seed.
+TEST(Scenario, ABattleWithRecyclersInItIsDeterministic) {
+    const Scenario scenario = skirmish(42);
+    const BattleLog a = run_battle(scenario, {}, 300, nullptr, nullptr);
+    const BattleLog b = run_battle(scenario, {}, 300, nullptr, nullptr);
+    EXPECT_NE(a.final_hash, 0U);
+    EXPECT_EQ(a.final_hash, b.final_hash);
+    EXPECT_EQ(a.to_text(60), b.to_text(60));
 }
 
 } // namespace
