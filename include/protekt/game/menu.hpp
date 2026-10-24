@@ -1,0 +1,147 @@
+#pragma once
+
+#include <cstdint>
+#include <span>
+#include <string>
+#include <string_view>
+#include <vector>
+
+#include "protekt/sim/units.hpp"
+
+/// THE NUMBERED COMMAND MENU (RB0): the rows along the left of the frame, as a pure function of
+/// what is selected and what is armed.
+///
+/// This is the MODEL and nothing else. It draws nothing, reads no input, and never touches the sim:
+/// the caller says what it knows -- which thing is selected, whose it is, what command is armed,
+/// what the cursor is over and how much scrap is banked -- and gets back the rows to draw. So the
+/// table is unit-tested on a machine with no window, and the renderer's rigs stay cheap.
+///
+/// Three things about the real menu are structural, and this model exists to keep them from being
+/// flattened into a list of strings:
+///
+///  * A row is a {key, verb} PAIR, and the keys are NOT CONTIGUOUS. The harvester's menu reads
+///    1 2 3 4 5, then a visible GAP where 6, 7 and 8 would be, then 9 and 0. Numbering rows by
+///    their position in the list is therefore wrong, and the row order is not key order.
+///  * A key's verb is CONTEXT-DEPENDENT: `3` is DEPLOY on a recycler, SCAVENGE on a harvester and
+///    GUARDIAN on a deployed recycler's build list. One key, three verbs -- so the rows cannot be
+///    a table indexed by key either.
+///  * The TOP row is LIVE STATE, not a binding. It is recomputed every time the menu is built from
+///    what is armed and what the cursor is over: `SPACE SELECT` when a command is armed on
+///    something selectable, `SPACE DEPLOY` once `3` has armed the deploy, and just `SPACE` when
+///    neither applies. It is a READOUT -- pressing SPACE does whatever the row currently names --
+///    and it is never a second binding for an action that also has a key of its own.
+///
+/// The dimming carries two meanings under one look, which is why a row carries the reason and not
+/// just a flag: a build row dims because it is UNAFFORDABLE (there is not enough scrap banked for
+/// it), and an action row like `SELECT UNIT` or `PICK ME UP` dims because it DOES NOT APPLY to this
+/// selection. Same ink, two causes, and a test can tell them apart only if the model says which.
+///
+/// A menu is a MODE. Inside it the digits are the verbs; in normal mode they address buildings
+/// (`1` recycler, `2` factory, `3` armory) once those exist. RB0 routes no input and knows nothing
+/// about the mode -- it hands back rows, and whether they are drawn is the caller's question --
+/// so the two meanings of a digit can never be conflated in one place.
+namespace protekt::game {
+
+/// What the menu is about: the thing that is selected.
+///
+/// Only the subjects whose menus have been READ off the reference (the user's own BattleZone II
+/// captures, 2026-10-24) exist here. A thing with no verbs of its own -- a lone deployed turret --
+/// still gets a menu, but it collapses to the state row alone (see `menu_rows`). A subject that is
+/// not listed is `None`: no menu at all, which is what a selection-less frame must get.
+enum class MenuSubject : std::uint8_t {
+    None = 0,   ///< nothing is selected: no menu, and no rows
+    Recycler,   ///< a recycler / matriarch that is not yet deployed
+    Harvester,  ///< a harvester / scavenger
+    Deployment, ///< a DEPLOYED recycler: the build list (and `~ DROP OFF`)
+    Turret,     ///< a lone deployed turret: the state row alone
+};
+
+/// The command that is currently armed, if any. Arming is a two-key flow: the menu's own row picks
+/// the command, and SPACE confirms it -- `3` arms the deploy, the player points at a good spot,
+/// SPACE places it. So the armed command is an INPUT to the model (the state row names it) and
+/// never a verb of its own.
+enum class MenuCommand : std::uint8_t {
+    None = 0, ///< nothing armed: SPACE selects, or does nothing
+    Deploy,   ///< `3 DEPLOY` is armed: SPACE places the recycler
+    Build,    ///< a build row is armed (see `ArmedCommand::item`): SPACE places that item
+};
+
+/// What is armed, and -- for a build row -- the item it named.
+struct ArmedCommand {
+    MenuCommand command{MenuCommand::None};
+    /// `MenuCommand::Build` only: the item the pressed build row named, as drawn on that row. The
+    /// state row then names what SPACE will place, the same rule as DEPLOY. The user's capture
+    /// resolved the key and the state there but not the wording, so the row re-reads the item the
+    /// player just pressed rather than inventing a word for it. Ignored for every other command.
+    std::string_view item{};
+};
+
+/// What is under the cursor, which is what the state row reads when no command is armed.
+enum class MenuTarget : std::uint8_t {
+    None = 0,   ///< nothing at all
+    Ground,     ///< bare ground: a left click would fire, SPACE would not select
+    Selectable, ///< something of your own that SPACE can select
+    Hostile,    ///< an enemy: the TRIGGER is what a mark there is for, not SPACE
+};
+
+/// Everything the rows are a function of. No file, no clock, no sim: the caller derives each field
+/// from what it already holds (the selection, `Interaction`'s armed state, the banked scrap and
+/// what the cursor is over).
+struct MenuInput {
+    MenuSubject subject{MenuSubject::None};
+    /// Whose selection it is. It picks the build list's item names: the same kind is a HARVESTER on
+    /// one side and a Scavenger on the other, so a single table of strings cannot serve both.
+    sim::Side side{sim::Side::Player};
+    ArmedCommand armed{};
+    MenuTarget target{MenuTarget::None};
+    /// Scrap banked, in the loads C3 counts and C4 spends. Weighed against each build row's own
+    /// cost; nothing else in the menu reads it.
+    int ore{};
+};
+
+/// WHY a row is dimmed. The three values are exhaustive on purpose: `None` means the row is NOT
+/// dimmed, so `enabled` and `reason` can never disagree.
+enum class MenuDim : std::uint8_t {
+    None = 0,     ///< not dimmed: the row is live
+    Unaffordable, ///< a build row whose cost is more than is banked
+    DoesNotApply, ///< an action row that this selection cannot do
+};
+
+/// One row of the menu, as drawn: the key pressed and the verb it names, side by side.
+struct MenuRow {
+    /// The KEY COLUMN, exactly as it is drawn: "SPACE", "TAB", "~", "1".."9", "0". A label, not a
+    /// scancode -- `input/bindings.hpp` owns keys and this model routes none of them.
+    std::string key{};
+    /// The VERB COLUMN, exactly as it is drawn. A build row carries its cost here ("SCOUT 45"),
+    /// because the cost is drawn on the row. Empty is a real state: the state row with nothing to
+    /// name shows the key alone.
+    std::string verb{};
+    /// False is the dim ink. Exactly `reason != MenuDim::None`.
+    bool enabled{true};
+    /// Why it is dimmed. `MenuDim::None` exactly when `enabled`.
+    MenuDim reason{MenuDim::None};
+};
+
+/// One row of a deployed recycler's build list. The cost is scrap, the same currency the factory
+/// spends (`kTankOreCost` is the tank's), and it is what affordability is weighed against.
+struct BuildItem {
+    std::string_view key{};   ///< the key pressed to choose it, "1".."7"
+    std::string_view label{}; ///< the item's name as drawn
+    int cost{};               ///< scrap it spends when it is built
+};
+
+/// A side's build list, in key order. The PLAYER's is the one the reference capture shows, with its
+/// costs; the enemy's is EMPTY until RB5 and the R3 roster fill it, because a per-side item name
+/// and a per-kind cost are that slice's and inventing a list here would put names in the mouth of a
+/// capture that never showed them. A deployment on the enemy side therefore draws no build rows.
+[[nodiscard]] std::span<const BuildItem> build_items(sim::Side side) noexcept;
+
+/// The menu a player sees for `in`, from the state row down. Empty when nothing is selected, so a
+/// layer that draws these rows draws NOTHING in the state a frame without a menu is in.
+///
+/// The rows are in DRAWN order, which is not key order and not even ascending by key: the state row
+/// and `TAB CLOSE MENU` come first, then the selection's own rows in the reference's order, in
+/// which `9` and `0` sit below `5` with the gap above them left open.
+[[nodiscard]] std::vector<MenuRow> menu_rows(const MenuInput& in);
+
+} // namespace protekt::game
