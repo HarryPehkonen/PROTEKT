@@ -941,40 +941,29 @@ std::uint32_t Sim::tick() const noexcept { return tick_; }
 
 std::uint32_t Sim::route_plans() const noexcept { return route_plans_; }
 
-bool Sim::side_has_lost(Side side) const noexcept {
-    const auto which = static_cast<std::size_t>(side);
-    // The strength the side was given, counted the way the production beat counts it.
-    int armed_started = 0;
-    for (const Spawn& spawn : scenario_.spawns) {
-        if (spawn.side == side && armed_kind(spawn.kind)) {
-            ++armed_started;
-        }
-    }
-    if (armed_started == 0) {
-        // A side that was never given a gun was never in the fight, so it cannot have lost it. This
-        // is not a technicality: it is what keeps a scenario with a lone unarmed hauler, or a test
-        // rig with one tank, from reading as a defeated army on tick zero.
-        return false;
-    }
-    int armed_living = 0;
-    bool has_factory = false;
+bool Sim::kind_wiped_out(Side side, UnitKind kind) const noexcept {
+    bool had_one = false;
     for (const Unit& unit : units_) {
-        if (!unit.alive || unit.side != side) {
+        if (unit.side != side || unit.kind != kind) {
             continue;
         }
-        if (armed_kind(unit.kind)) {
-            ++armed_living;
+        if (unit.alive) {
+            return false;
         }
-        if (unit.kind == UnitKind::Factory) {
-            has_factory = true;
-        }
+        had_one = true; // a dead unit stays in the table, so "had one" needs no second record
     }
-    if (armed_living > 0) {
-        return false; // it still has a gun, whatever the ledger says
+    return had_one;
+}
+
+WarOutcome Sim::war_outcome() const noexcept {
+    // The player's loss is checked first, so a recycler pair that dies together reads as a loss.
+    if (kind_wiped_out(Side::Player, UnitKind::Recycler)) {
+        return WarOutcome::PlayerLost;
     }
-    // No gun left: the side is only still in the war if its factory can make one, on the same terms
-    // the production beat would use.
-    return !(has_factory && short_and_affordable(armed_living, armed_started, ore_.at(which)));
+    if (kind_wiped_out(Side::Enemy, UnitKind::Recycler)) {
+        return WarOutcome::PlayerWon;
+    }
+    return WarOutcome::Undecided;
 }
 
 std::uint64_t Sim::seed() const noexcept { return scenario_.seed; }

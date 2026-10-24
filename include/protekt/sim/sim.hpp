@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "protekt/sim/orders.hpp"
+#include "protekt/sim/outcome.hpp"
 #include "protekt/sim/projectile.hpp"
 #include "protekt/sim/scrap.hpp"
 #include "protekt/sim/units.hpp"
@@ -130,14 +131,26 @@ public:
     /// How many A* route plans this battle has run. Output, not state: a cost meter, not hashed.
     [[nodiscard]] std::uint32_t route_plans() const noexcept;
 
-    /// C8: HAS THIS SIDE LOST? A side with no living GUN and no way to make another one -- no
-    /// living factory, or not enough banked to pay for a tank, or nothing missing from the strength
-    /// it started with -- can never fight again, so the war is over for it. DERIVED, never stored
-    /// and never hashed: it is a read over the unit table and the ledger, it CALLS the production
-    /// beat's own predicate (`short_and_affordable`) rather than restating it, and a battle that is
-    /// still undecided produces exactly the state it did before this existed. Whether the game
-    /// shows the verdict, and how, is the game layer's business: the sim only answers the question.
-    [[nodiscard]] bool side_has_lost(Side side) const noexcept;
+    /// HAS THIS SIDE LOST EVERY UNIT OF THIS KIND? True when the side was given at least one `kind`
+    /// and none of them is alive now. The one predicate the war's conditions are written in:
+    /// `war_outcome` asks it about each side's recycler, and a mission's own conditions (an
+    /// escort's APC, say) are meant to ask it about theirs rather than restate it. DERIVED, never
+    /// stored and never hashed: a read over the unit table, in which a dead unit stays as an entry.
+    ///
+    /// A side that NEVER HAD a unit of the kind has not lost one, so this is false for it. That
+    /// guard is what keeps a test rig whose scenario spawns no recycler from reading as a defeat on
+    /// tick zero.
+    [[nodiscard]] bool kind_wiped_out(Side side, UnitKind kind) const noexcept;
+
+    /// HOW THE WAR STANDS. The player WINS when the enemy's recycler (the alien team's matriarch)
+    /// is dead, whatever else the enemy has left, and LOSES when the player's own is dead, whatever
+    /// else the player has left: instantly and completely. If both are dead the player has lost.
+    /// Anything else, including a battle in which no recycler was ever spawned, is Undecided.
+    /// DERIVED, never stored and never hashed: a battle that nobody asks produces exactly the
+    /// state it did before this existed. This REPLACES C8's attrition verdict (no gun and no
+    /// factory able to build one), which Harri retired on 2026-10-24. Whether the game shows the
+    /// outcome, and how, is the game layer's business: the sim only answers the question.
+    [[nodiscard]] WarOutcome war_outcome() const noexcept;
 
     /// A hash of the ENTIRE simulation state that can be replayed (units, projectiles and tick).
     /// The determinism oracle: a replay must reproduce it exactly, on any machine.

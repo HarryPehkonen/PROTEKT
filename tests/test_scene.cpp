@@ -25,6 +25,8 @@
 #include "protekt/game/weapon.hpp"
 #include "protekt/input/bindings.hpp"
 #include "protekt/render/renderer.hpp"
+#include "protekt/sim/orders.hpp"
+#include "protekt/sim/outcome.hpp"
 #include "protekt/sim/projectile.hpp"
 #include "protekt/sim/scenario.hpp"
 #include "protekt/sim/sim.hpp"
@@ -5245,9 +5247,11 @@ TEST(ShipGauge, FourRowsFitAtTheSmallestWindow) {
 /// property that lets every other frame in this suite (and every frame of a battle that has not yet
 /// lost a unit) stay byte-identical to what it drew before this layer existed.
 
-/// C8's rig: one player gun against four enemy tanks, close enough that the fight starts at once.
-/// The player's side has NO factory, so when its gun dies nothing can replace it and the war is
-/// over for it. Two tests build this same battle and must agree about it, so the seed is named.
+/// The verdict's rig: one player gun against four enemy tanks, close enough that the fight starts
+/// at once, and one recycler per side parked well away from it. The war is won and lost on the
+/// recyclers (OBJ-a), so the player's gun can die here and decide NOTHING: that is the retirement
+/// of C8's attrition rule, as a battle. Tests build this same battle and must agree about it, so
+/// the seed is named.
 constexpr std::uint64_t kOutcomeSeed = 20261023;
 
 protekt::sim::Scenario an_outcome_battle() {
@@ -5263,7 +5267,44 @@ protekt::sim::Scenario an_outcome_battle() {
         protekt::sim::Spawn{protekt::sim::UnitKind::Tank, protekt::sim::Side::Enemy, 61, 51});
     scenario.spawns.push_back(
         protekt::sim::Spawn{protekt::sim::UnitKind::Tank, protekt::sim::Side::Enemy, 61, 50});
+    scenario.spawns.push_back(
+        protekt::sim::Spawn{protekt::sim::UnitKind::Recycler, protekt::sim::Side::Player, 20, 20});
+    scenario.spawns.push_back(
+        protekt::sim::Spawn{protekt::sim::UnitKind::Recycler, protekt::sim::Side::Enemy, 120, 120});
     return scenario;
+}
+
+/// The living armed units a side has: the count the retired attrition rule looked at.
+int armed_alive_in(const protekt::sim::Sim& sim, protekt::sim::Side side) {
+    int n = 0;
+    for (const protekt::sim::Unit& unit : sim.units()) {
+        if (unit.alive && unit.side == side && protekt::sim::spec_of(unit.kind).range.raw > 0) {
+            ++n;
+        }
+    }
+    return n;
+}
+
+/// A player gun beside the enemy's recycler, with the enemy's one tank far across the map, played
+/// until the recycler is dead: the moment the player has won, with an armed enemy still alive.
+protekt::sim::Sim a_battle_where_the_enemy_recycler_just_died() {
+    protekt::sim::Scenario scenario;
+    scenario.seed = kOutcomeSeed;
+    scenario.spawns.push_back(
+        protekt::sim::Spawn{protekt::sim::UnitKind::Tank, protekt::sim::Side::Player, 60, 50});
+    scenario.spawns.push_back(
+        protekt::sim::Spawn{protekt::sim::UnitKind::Recycler, protekt::sim::Side::Player, 20, 20});
+    scenario.spawns.push_back(
+        protekt::sim::Spawn{protekt::sim::UnitKind::Recycler, protekt::sim::Side::Enemy, 62, 50});
+    scenario.spawns.push_back(
+        protekt::sim::Spawn{protekt::sim::UnitKind::Tank, protekt::sim::Side::Enemy, 120, 120});
+    protekt::sim::Sim sim = protekt::sim::Sim::create(scenario);
+    const protekt::sim::UnitId target = sim.units().at(2).id;
+    sim.enqueue(protekt::sim::Order{sim.units().front().id, protekt::sim::orders::Attack{target}});
+    for (int i = 0; i < 3000 && sim.find(target)->alive; ++i) {
+        sim.step();
+    }
+    return sim;
 }
 
 /// A fight that ENDS: three tanks of one side against a lone one on open ground, so one side loses
@@ -5457,35 +5498,42 @@ TEST(Scene, TheWreckageIsDrawnWhereThePiecesLie) {
     }
 }
 
-TEST(Scene, TheVerdictIsDrawnOnlyWhenTheWarIsOver) {
-    // C8's verdict, on the screen. Two claims, and the first is the one that protects every other
-    // test in this file: while the war is still being fought the layer adds NOT ONE VERTEX, so no
-    // rig that reads the vertex tail can be disturbed by it. The second is that once the war ends,
-    // the line is actually there.
+TEST(Scene, TheVerdictIsDrawnOnlyWhenARecyclerHasDied) {
+    // The verdict, on the screen. Claim one protects every other test in this file: while no
+    // recycler has died the layer adds NOT ONE VERTEX, so no rig that reads the vertex tail can be
+    // disturbed by it. Claim two is the RETIREMENT of C8's attrition rule: a side that has lost
+    // every gun but keeps its recycler has lost nothing, and the HUD says nothing. Claim three is
+    // that the line is there once the enemy recycler is dead.
     //
     // The comparison is against the same scene with the layer switched OFF rather than counting a
     // colour, because the banner's ink is a red the radar's hostile marks already use.
     SceneOptions options = options_at(0.0F, 0.0F, kOutcomeSeed, 40);
     options.show_ledger = false;
+    const auto banner_adds = [&](const protekt::sim::Sim& sim) {
+        options.show_outcome = true;
+        const std::size_t with = build_scene(sim, options).vertices.size();
+        options.show_outcome = false;
+        const std::size_t without = build_scene(sim, options).vertices.size();
+        return with - without;
+    };
 
     const protekt::sim::Sim fighting = protekt::sim::Sim::create(an_outcome_battle());
-    options.show_outcome = true;
-    const std::size_t undecided = build_scene(fighting, options).vertices.size();
-    options.show_outcome = false;
-    const std::size_t without = build_scene(fighting, options).vertices.size();
-    EXPECT_EQ(undecided, without) << "the verdict drew while the war was still being fought";
+    EXPECT_EQ(banner_adds(fighting), 0U) << "the verdict drew while the war was still being fought";
 
-    // The same battle played to its end: the player's only gun is gone and no factory can replace
-    // it.
-    protekt::sim::Sim decided = protekt::sim::Sim::create(an_outcome_battle());
-    for (int i = 0; i < 6000 && !decided.side_has_lost(protekt::sim::Side::Player); ++i) {
-        decided.step();
+    // The player's only gun is dead and both recyclers live: C8 called that a defeat, and the
+    // ruling retires it.
+    protekt::sim::Sim attrited = protekt::sim::Sim::create(an_outcome_battle());
+    for (int i = 0; i < 6000 && armed_alive_in(attrited, protekt::sim::Side::Player) > 0; ++i) {
+        attrited.step();
     }
-    ASSERT_TRUE(decided.side_has_lost(protekt::sim::Side::Player))
-        << "the rig must reach a verdict";
-    options.show_outcome = true;
-    const std::size_t banner = build_scene(decided, options).vertices.size();
-    options.show_outcome = false;
-    const std::size_t bare = build_scene(decided, options).vertices.size();
-    EXPECT_GT(banner, bare) << "the war ended and the HUD said nothing";
+    ASSERT_EQ(armed_alive_in(attrited, protekt::sim::Side::Player), 0)
+        << "the rig must lose the gun";
+    ASSERT_EQ(attrited.war_outcome(), protekt::sim::WarOutcome::Undecided);
+    EXPECT_EQ(banner_adds(attrited), 0U) << "a side with no guns but a recycler was declared lost";
+
+    const protekt::sim::Sim won = a_battle_where_the_enemy_recycler_just_died();
+    ASSERT_EQ(won.war_outcome(), protekt::sim::WarOutcome::PlayerWon);
+    ASSERT_GT(armed_alive_in(won, protekt::sim::Side::Enemy), 0)
+        << "a win by attrition proves nothing";
+    EXPECT_GT(banner_adds(won), 0U) << "the enemy recycler died and the HUD said nothing";
 }

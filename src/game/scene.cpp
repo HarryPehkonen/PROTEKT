@@ -2315,14 +2315,16 @@ void append_ledger(std::vector<SceneVertex>& out, const SceneOptions& options,
     draw(reading, number_left);
 }
 
-/// THE VERDICT (C8). C4 gave the war an end -- a side with no gun left and no factory able to make
-/// one can never fight again -- and nothing announced it, so a player could lose without being told
-/// and win without noticing. This draws the one line that says which happened.
+/// THE VERDICT (C8, retargeted by OBJ-a). The war is won and lost on recyclers: destroy the
+/// enemy's and you have won, lose yours and you have lost, instantly and whatever else either side
+/// has left. Nothing announced that, so a player could lose without being told and win without
+/// noticing. This draws the one line that says which happened.
 ///
-/// EMITS NOTHING while the war is undecided (`Sim::side_has_lost` false for both sides), which is
-/// what keeps the layer free for every frame of a battle still being fought: the vertex list, and
-/// so the tail that other tests read, is exactly what it was. The verdict is read from the sim's
-/// own accessor, never re-derived here, so the banner cannot disagree with the war it describes.
+/// EMITS NOTHING while the war is undecided (`Sim::war_outcome` is `Undecided`), which is what
+/// keeps the layer free for every frame of a battle still being fought: the vertex list, and so the
+/// tail that other tests read, is exactly what it was. The outcome is read from the sim's own
+/// accessor, never re-derived here, so the banner cannot disagree with the war it describes. It is
+/// stated from the player's chair, so a viewer on the enemy side reads it reversed.
 ///
 /// The cell is the HUD's own 2.0 at the 720 reference like every other element; the banner is made
 /// to stand out by its opaque plate, its centring and its colour, never by a bigger cell.
@@ -2339,14 +2341,15 @@ void append_outcome(std::vector<SceneVertex>& out, const SceneOptions& options,
     if (!options.show_outcome) {
         return;
     }
-    const sim::Side foe
-        = options.viewer_side == sim::Side::Player ? sim::Side::Enemy : sim::Side::Player;
-    const bool viewer_lost = sim.side_has_lost(options.viewer_side);
-    const bool enemy_lost = sim.side_has_lost(foe);
-    if (!viewer_lost && !enemy_lost) {
-        return; // the war is still undecided: there is nothing to announce
+    const sim::WarOutcome outcome = sim.war_outcome();
+    if (outcome == sim::WarOutcome::Undecided) {
+        return; // no recycler has died: there is nothing to announce
     }
-    // The viewer's own loss is the message he most needs; a mutual annihilation reads as a loss.
+    const bool viewer_lost
+        = outcome
+          == (options.viewer_side == sim::Side::Player ? sim::WarOutcome::PlayerLost
+                                                       : sim::WarOutcome::PlayerWon);
+    // The viewer's own loss is the message he most needs. (Both recyclers dead is a player loss.)
     const std::vector<std::string_view> words
         = viewer_lost ? std::vector<std::string_view>{"YOU", "HAVE", "LOST"}
                       : std::vector<std::string_view>{"ENEMY", "DEFEATED"};

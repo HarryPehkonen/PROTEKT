@@ -6,6 +6,7 @@
 #include <gtest/gtest.h>
 
 #include "protekt/sim/orders.hpp"
+#include "protekt/sim/outcome.hpp"
 #include "protekt/sim/scenario.hpp"
 #include "protekt/sim/scrap.hpp"
 #include "protekt/sim/sim.hpp"
@@ -25,6 +26,7 @@ using protekt::sim::Stance;
 using protekt::sim::Unit;
 using protekt::sim::UnitId;
 using protekt::sim::UnitKind;
+using protekt::sim::WarOutcome;
 
 constexpr std::uint64_t kSeed = 20261023;
 /// A skirmish that ENDS with wreckage on the ground and nothing left to fight: the player's three
@@ -401,44 +403,114 @@ TEST(Scavenger, TheHaulerIsNeverLeftDrivingAtAPieceItCannotReach) {
     EXPECT_EQ(sim.units().at(1).stance, Stance::Idle) << "nothing left to fetch: it stands";
 }
 
-/// C8 -- THE WAR CAN END. C4 gave the sim an end (a factory replaces a lost gun and never rearms)
-/// and nothing ever asked whether a side was past saving; `side_has_lost` answers exactly that, and
-/// it CALLS the production beat's own condition rather than restating it, so the verdict and the
-/// factory cannot drift apart.
-TEST(Outcome, ASideIsLostOnlyWhenItsLastGunDiesAndItCannotBuildAnother) {
-    // One gun against four, so the lone side loses it -- and that side has no factory, so nothing
-    // can replace it. That is what makes the loss final rather than a setback.
+/// OBJ-a -- THE WAR IS WON AND LOST ON RECYCLERS. C8 shipped an attrition verdict (no gun and no
+/// factory able to build one); Harri retired it: destroy the enemy's recycler and you WIN, whatever
+/// they have left; lose yours and you LOSE, instantly and completely. `war_outcome` is the one
+/// place the rule lives, and it is derived, never stored and never hashed.
+///
+/// The rig: each side has a recycler and a gun, the player's gun two tiles from the enemy's
+/// recycler and the enemy's gun far across the map, so the recycler can die with every other
+/// enemy unit alive and armed.
+Scenario a_recycler_war() {
+    Scenario s;
+    s.seed = 20261023;
+    s.spawns = {Spawn{UnitKind::Tank, Side::Player, 60, 50},
+                Spawn{UnitKind::Recycler, Side::Player, 55, 50},
+                Spawn{UnitKind::Tank, Side::Enemy, 120, 120},
+                Spawn{UnitKind::Recycler, Side::Enemy, 62, 50}};
+    return s;
+}
+
+UnitId first_of(const Sim& sim, Side side, UnitKind kind) {
+    for (const Unit& unit : sim.units()) {
+        if (unit.side == side && unit.kind == kind) {
+            return unit.id;
+        }
+    }
+    return UnitId{};
+}
+
+TEST(Outcome, KillingTheEnemyRecyclerWinsAtOnceWhateverTheEnemyHasLeft) {
+    Sim sim = Sim::create(a_recycler_war());
+    EXPECT_EQ(sim.war_outcome(), WarOutcome::Undecided) << "both recyclers alive";
+    const UnitId target = first_of(sim, Side::Enemy, UnitKind::Recycler);
+    sim.enqueue(
+        Order{first_of(sim, Side::Player, UnitKind::Tank), protekt::sim::orders::Attack{target}});
+    ASSERT_TRUE(step_until(sim, 3000, [&](const Sim& s) { return !s.find(target)->alive; }))
+        << "the rig must kill the enemy recycler";
+    EXPECT_EQ(armed_alive(sim, Side::Enemy), 1)
+        << "the enemy's gun is alive: this is not attrition";
+    EXPECT_EQ(sim.war_outcome(), WarOutcome::PlayerWon);
+}
+
+TEST(Outcome, LosingYourRecyclerLosesAtOnceWithYourGunsStillFiring) {
+    Scenario s = a_recycler_war();
+    // Mirror the fight: the enemy's gun is at the player's recycler, the player's gun is far away.
+    s.spawns = {Spawn{UnitKind::Tank, Side::Player, 120, 120},
+                Spawn{UnitKind::Recycler, Side::Player, 62, 50},
+                Spawn{UnitKind::Tank, Side::Enemy, 60, 50},
+                Spawn{UnitKind::Recycler, Side::Enemy, 130, 130}};
+    Sim sim = Sim::create(s);
+    const UnitId mine = first_of(sim, Side::Player, UnitKind::Recycler);
+    sim.enqueue(
+        Order{first_of(sim, Side::Enemy, UnitKind::Tank), protekt::sim::orders::Attack{mine}});
+    ASSERT_TRUE(step_until(sim, 3000, [&](const Sim& w) { return !w.find(mine)->alive; }));
+    EXPECT_EQ(armed_alive(sim, Side::Player), 1) << "the player still has a gun";
+    EXPECT_EQ(sim.war_outcome(), WarOutcome::PlayerLost);
+}
+
+TEST(Outcome, ASideWithNoGunAndNoFactoryHasNotLostWhileItsRecyclerLives) {
+    // The direct retirement of the attrition rule: the player has only a recycler, the enemy only
+    // a recycler and a gun. Under C8 the player read as lost; now nothing is decided.
+    Scenario s;
+    s.seed = 1;
+    s.spawns = {Spawn{UnitKind::Recycler, Side::Player, 60, 50},
+                Spawn{UnitKind::Recycler, Side::Enemy, 120, 120},
+                Spawn{UnitKind::Tank, Side::Enemy, 125, 120}};
+    const Sim sim = Sim::create(s);
+    ASSERT_EQ(armed_alive(sim, Side::Player), 0);
+    EXPECT_EQ(sim.war_outcome(), WarOutcome::Undecided);
+}
+
+TEST(Outcome, ARigThatNeverGaveAnyoneARecyclerIsUndecidedForEver) {
+    // The guard C8 taught: a side that never HAD a recycler has not lost one. Without it every rig
+    // whose scenario spawns none reads as a defeat on tick zero -- and as a victory, for the other.
     Scenario s;
     s.seed = 20261023;
     s.spawns
         = {Spawn{UnitKind::Tank, Side::Player, 60, 50}, Spawn{UnitKind::Tank, Side::Enemy, 62, 50},
-           Spawn{UnitKind::Tank, Side::Enemy, 62, 51}, Spawn{UnitKind::Tank, Side::Enemy, 61, 51},
-           Spawn{UnitKind::Tank, Side::Enemy, 61, 50}};
+           Spawn{UnitKind::Tank, Side::Enemy, 62, 51}, Spawn{UnitKind::Tank, Side::Enemy, 61, 51}};
     Sim sim = Sim::create(s);
-    EXPECT_FALSE(sim.side_has_lost(Side::Player)) << "it still has its gun";
-    for (int i = 0; i < 6000 && !sim.side_has_lost(Side::Player); ++i) {
+    EXPECT_EQ(sim.war_outcome(), WarOutcome::Undecided);
+    for (int i = 0; i < 3000; ++i) {
         sim.step();
     }
-    EXPECT_TRUE(sim.side_has_lost(Side::Player))
-        << "its only gun is dead and it has no factory to make another";
-
-    // A side that still has a living gun is never lost, whatever the ledger says.
-    if (armed_alive(sim, Side::Enemy) > 0) {
-        EXPECT_FALSE(sim.side_has_lost(Side::Enemy)) << "the winner is not the loser";
-    }
+    ASSERT_EQ(armed_alive(sim, Side::Player), 0) << "the player's gun must have died";
+    EXPECT_EQ(sim.war_outcome(), WarOutcome::Undecided)
+        << "annihilated, yet no recycler was ever lost";
 }
 
-TEST(Outcome, ASideThatWasNeverGivenAGunHasNotLostAnything) {
-    // A scenario with one armed side and one that is only a factory and a hauler. The unarmed side
-    // can never field a gun -- so the build rule can never make it one -- but it was never fighting
-    // either, so it has not LOST. Reading that as a defeat is what put a verdict over every scene
-    // whose rig spawned a lone tank and no enemy.
+TEST(Outcome, AOneSidedRecyclerRigOnlyDecidesForTheSideThatHadOne) {
+    // Only the player was given a recycler: its enemy never had one, so cannot be "won against".
     Scenario s;
     s.seed = 1;
-    s.spawns = {Spawn{UnitKind::Tank, Side::Player, 60, 50},
-                Spawn{UnitKind::Factory, Side::Enemy, 70, 50},
-                Spawn{UnitKind::Scavenger, Side::Enemy, 72, 50}};
-    const Sim sim = Sim::create(s);
-    EXPECT_FALSE(sim.side_has_lost(Side::Enemy)) << "no guns, but no war lost either";
-    EXPECT_FALSE(sim.side_has_lost(Side::Player)) << "and the side with the gun is fine";
+    s.spawns = {Spawn{UnitKind::Recycler, Side::Player, 60, 50},
+                Spawn{UnitKind::Tank, Side::Enemy, 120, 120}};
+    EXPECT_EQ(Sim::create(s).war_outcome(), WarOutcome::Undecided);
+}
+
+TEST(Outcome, TheOutcomeIsDerivedNotHashedAndAskingChangesNothing) {
+    Sim asked = Sim::create(a_recycler_war());
+    Sim silent = Sim::create(a_recycler_war());
+    for (int i = 0; i < 400; ++i) {
+        const WarOutcome first = asked.war_outcome();
+        EXPECT_EQ(asked.war_outcome(), first) << "two reads disagree";
+        asked.step();
+        silent.step();
+    }
+    EXPECT_EQ(asked.state_hash(), silent.state_hash());
+}
+
+TEST(Outcome, AnEmptyBattleIsUndecided) {
+    EXPECT_EQ(Sim::create(Scenario{}).war_outcome(), WarOutcome::Undecided);
 }
