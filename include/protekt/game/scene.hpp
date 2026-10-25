@@ -301,7 +301,7 @@ inline constexpr std::size_t kLandingMarkVertexCount = 60;
 inline constexpr float kLandingMarkHeight = 4.0F;
 
 class NavMarks;
-class RowState;
+struct RowState;
 
 class LandingMarks {
 public:
