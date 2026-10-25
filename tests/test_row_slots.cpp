@@ -362,6 +362,9 @@ TEST(RowSlots, TheGroupsHitPointsFollowDamage) {
     const UnitId hurt = rig.own.at(1);
     const std::optional<SlotReading> first = read_slot(rig.sim, rig.row.slots.at(group_slot(2)));
     ASSERT_TRUE(first.has_value());
+    if (!first.has_value()) {
+        return; // unreachable once the ASSERT above has passed: for the analyzer, not the test
+    }
     bool lower = false;
     for (int tick = 0; tick < 600 && !lower; ++tick) {
         rig.sim.step();
@@ -517,15 +520,21 @@ constexpr float kPadPx = 3.0F;
         return out;
     }
     const std::size_t added = with.vertices.size() - base.vertices.size();
+    // Members, not bytes: SceneVertex has padding, so its object representation is not unique and a
+    // memcmp of ONE vertex is unsound (clang-tidy's suspicious-memory-comparison -- which the
+    // repo's buffer-wide memcmps in test_scene.cpp do not trigger, because the check matches a
+    // single object's size).
+    const auto same_vertex = [](const SceneVertex& a, const SceneVertex& b) {
+        return a.position == b.position && a.colour == b.colour && a.alpha == b.alpha && a.u == b.u
+               && a.v == b.v;
+    };
     std::size_t first = 0;
     while (first < base.vertices.size()
-           && std::memcmp(&base.vertices.at(first), &with.vertices.at(first), sizeof(SceneVertex))
-                  == 0) {
+           && same_vertex(base.vertices.at(first), with.vertices.at(first))) {
         ++first;
     }
     for (std::size_t i = first + added; i < with.vertices.size(); ++i) {
-        EXPECT_EQ(
-            std::memcmp(&base.vertices.at(i - added), &with.vertices.at(i), sizeof(SceneVertex)), 0)
+        EXPECT_TRUE(same_vertex(base.vertices.at(i - added), with.vertices.at(i)))
             << "the row's vertices are one contiguous run";
     }
     for (std::size_t i = first; i < first + added; ++i) {
@@ -660,6 +669,9 @@ TEST(RowDrawing, TheBarIsTheGroupsHitPointsOverItsCeiling) {
         rig.sim.step();
         const std::optional<SlotReading> now = read_slot(rig.sim, rig.row.slots.at(group_slot(1)));
         ASSERT_TRUE(now.has_value());
+        if (!now.has_value()) {
+            return; // unreachable once the ASSERT above has passed: for the analyzer, not the test
+        }
         fraction = static_cast<float>(now->hp) / static_cast<float>(now->max_hp);
     }
     ASSERT_LT(fraction, 1.0F) << "nothing was hurt, so nothing is proved";
