@@ -850,3 +850,413 @@ a document and the code, and places where the documents contradict each other. N
 PROVENANCE: every item above names its own `file:line`; the documents are `README.md`,
 `docs/PLAN.md`, `include/protekt/input/bindings.hpp`, `include/protekt/game/menu.hpp` and
 `include/protekt/game/row.hpp`.
+
+## Part B — the reference, per entity and per menu
+
+Section 0 to section 14 above are **Part A**: the numbered requirements and the drift findings, written
+against `b3b153d`. Everything below is **Part B**: the REFERENCE behind them — what each entity is and what
+each key and each menu row does, from the owner's own rulings and from the code. Part A is not restated,
+renumbered or amended here; where the two touch, the Part A section is named rather than repeated. The
+status markers, the provenance rule and the terms of section 0 apply to Part B unchanged, and every section
+below ends with its own `PROVENANCE:` line. Line numbers in Part B are against `dc90293`.
+
+Every entry says who a fact came from. A fact in the owner's words is quoted and dated. A fact read out of
+the code names the commit that first carried it. A passage that the sources themselves mark as the
+assistant's reading, or as waiting on the owner to confirm, is carried across as
+`[INTENDED — unconfirmed]` and is never promoted to a ruling; section B.8 lists the ones deliberately kept
+out of the sections above it for that reason.
+
+PROVENANCE: `~/.hermes-workspace/.hermes/plans/protekt-hud-and-power.md` (the 2026-10-24 capture, the
+command row and the POWER rulings), `~/.hermes-workspace/.hermes/plans/protekt-open-questions.md` (the
+entries marked ANSWERED on 2026-10-24), `/home/harri/hermes-workspace/protekt-plan/slices.json` (the RECY,
+OBJ, RB0-RB6, ROW-SLOTS, ROW-MOVE and BAR-LOOK notes), and the code read at `dc90293`.
+
+### B.1 The command row
+
+The top strip is fourteen keys — `~`, `1`, `2`, `3`, then `F1`..`F10` — and every one of them sits in the
+same spot on the screen for the whole game: slot index 4 is `F1` and slot 13 is `F10`, fixed forever. The
+row is the HUD's copy of a Battlezone: Combat Commander capture. HIS RULING, 2026-10-24:
+*"Then ~ is for Nav locations that the player has set. 1 recycler, 2 factory, 3 armory, and then f1 to f10.
+All of those keys are always in the same spot on the screen!"* [SHIPPED a15a059]
+
+- [SHIPPED a15a059] `~` is the nav locations the player has set. It is drawn once at least one mark exists,
+  labelled `NAVS` with the number of marks; it carries no hit points and no bar. `RowState::occupied` returns
+  true for slot 0 only when `nav_marks > 0`, and the marks themselves are the game layer's `NavMarks`.
+- [SHIPPED a15a059] `1` recycler, `2` factory, `3` armory are the reserved BUILDING keys, one per building
+  KIND. In the tree today only `2` can ever fill — the `Factory` kind exists — and `1` (the deployed
+  recycler) and `3` (the armory) have no kind yet, so those two keys are empty and therefore not drawn. That
+  is the ruled behaviour, not a stub.
+- [SHIPPED a15a059] `F1`..`F10` hold groups of VEHICLES, not kinds. One kind may hold several keys at once
+  (his capture: turrets on `F1`, `F3` and `F4`; tanks on `F5` and `F10`), and one key may hold a single
+  vehicle (a lone constructor on `F6`, `F7`, `F8`). Today every vehicle is its own one-unit group, because
+  nothing builds a batch yet; `row.hpp:31-33` leaves the batch seam as a comment and not as scaffolding.
+- [SHIPPED a15a059] A key that holds nothing is NOT drawn — no dim ink, no placeholder, no zero — and the row
+  does NOT close up. His own example: turrets under `F2` wiped out leave `F1` tanks, a blank space at `F2`
+  ("now available for the next vehicles that you want to build") and `F3` scavengers. The slot keeps its
+  index; the space stays blank.
+- [SHIPPED a15a059] A freed key is reused by the next units built, filling a gap in the middle before
+  anything after it: a vehicle not seen before takes the first empty group slot, lowest index first. His
+  words: *"If all tanks under F3 get destroyed, and I then build turrets, and F3 is the first available slot,
+  that's where they go."* A unit already assigned keeps its slot, and loses it only when its whole group is
+  gone.
+- [DECIDED — not built] A shift-built batch shares ONE key, while each lone build takes its own. HIS RULING,
+  confirmed by him in as many words on 2026-10-24: *"Your inference is CORRECT: shift-built batch shares one
+  [F key] while a lone build takes its own [F key]."* It needs a batch id that the sim does not record yet;
+  `row.hpp:31-33` is where it will arrive.
+- [SHIPPED a15a059] No buildings ever under an `F` key. HIS RULING, 2026-10-24: *"There are never any
+  buildings under F keys. They are always vehicles."* Buildings live on the numbered keys alone, and only
+  `1`, `2` and `3` carry a number — *"the OTHER buildings don't carry a number, such as barracks and air
+  hanger."* Barracks and a hangar do not exist in the tree; they are [DECIDED — not built].
+- [SHIPPED a15a059] An UNDEPLOYED recycler may sit under any `F` key, because it is still a vehicle: HIS
+  RULING, 2026-10-24 — *"An un-deployed recycler can sit under any F key. It doesn't matter. In the official
+  games, they seem to have always put them under F1."* So there is no display rule for it. The shipped spawn
+  appends it last on each side (`a584683`), so it lands on `F7` today.
+- [DECIDED — not built] On deploy the recycler leaves the `F` row and moves to key `1`. HIS RULING, read as
+  the recycler and confirmed by him the same day: *"when a [recycler] is deployed, it must move from F1 to
+  1"*. Until the deploy sequence exists (RB3) the recycler stays a vehicle in the `F` row, which is what
+  `row.hpp:18-19` records.
+- [SHIPPED a15a059] A drawn key shows the kind's name, how many vehicles the group holds (as `x<n>`), and one
+  health bar: the group's summed hit points over its summed ceilings, filled in proportion and tinted green
+  above 60 per cent, yellow above 30, red below. The ink is the group's, not a unit's.
+- [DECIDED — not built] HIS RULING, 2026-10-24, CHANGES that bar: *"Under each function key, there is one
+  health bar for each individual vehicle. They vary in COLOUR, not length. Bright green is completely
+  healthy, then yellow, red, and black, the lower the health. When a vehicle is destroyed, its health bar is
+  removed."* So a key holding three tanks shows three bars, each bar a band colour rather than a shrinking
+  length, and a dead vehicle's bar is gone rather than drawn black or empty. The shipped bar (above) is a
+  single varying-length group bar, so this is a model change as well as a drawing change; `SlotReading`
+  exposes only the two sums today. The band cut-points are UNRULED — the default on record is green above
+  two-thirds, yellow above one-third, red above zero, black at the lowest living band — and the bar order
+  under a key is the group's own spawn order, left to right. That is BAR-LOOK.
+- [DECIDED — not built] SHIFT-MOVE BETWEEN KEYS (ROW-MOVE). HIS RULING, 2026-10-24: with a selection in hand,
+  shift and a function key MOVES the selected vehicles into that key — the target keeps its units and gains
+  them, the source key goes blank if it is emptied, and nothing else in the row moves. A target already
+  holding a DIFFERENT kind is REFUSED: *"Yes, refuse if not the same type of vehicle."* The refusal belongs on
+  the notice line under the strip, which already prints the last refusal. Within a key, order stays spawn
+  order. Two consequences on record, neither a blocker: the row stops being a pure function of the sim, so an
+  observer needs the input stream to reconstruct the player's grouping (replays carry input, so replay
+  fidelity survives); and the slice needs the unit-to-slot assignment to be mutable state, which it is.
+- [SHIPPED a15a059] The memory is in the GAME layer (`RowState`): the sim has no new field, no tick reads it
+  and no hash depends on it, so the measure output is byte-identical to what it was before the row changed.
+- [INTENDED — unconfirmed] The row's PLACE on the screen is not settled. His capture carries the whole row as
+  one TOP bar, while PROTEKT's HUD draws the command menu down the LEFT; only one of those can be the target,
+  and the source records it "so the HUD layout pass asks rather than assumes". No ruling of his picks one.
+
+PROVENANCE: `protekt-hud-and-power.md` sections 4, 5, 6 and 7 (Harri 2026-10-24, quoted; section 7 is his
+ruling that changes ROW-SLOTS's drawing); `protekt-open-questions.md` Q6, Q6.1, Q6.3 (answered 2026-10-24);
+`slices.json` ROW-SLOTS, ROW-MOVE, BAR-LOOK; code plus commit — `a15a059` (`include/protekt/game/row.hpp:12-92`,
+`src/game/row.cpp:22-113`, `src/game/scene.cpp:2537-2606`), `1832d55`, `dc90293`, and `a584683` for the
+recycler's spawn order.
+
+### B.2 The recycler
+
+The mobile producer that deploys into your base — the alien one is the MATRIARCH, a name now and a look
+later. His ruling, 2026-10-24: ONE recycler per side, EVER [DECIDED — not built].
+
+- [SHIPPED ddc6423] `UnitKind::Recycler` is the sim's eighth kind, APPENDED (value 7) so that every kind's
+  index, and every hash, replay and observation that carries one, is unchanged by its arrival. It is
+  unarmed (range zero, and the whole ballistics block with it) and it is drivable: it is the same case as the
+  hauler, unarmed but it moves, so an order from the player outranks anything it would otherwise do. It is
+  labelled `RECYCLER` in the row, and a selected recycler asks for `MenuSubject::Recycler` — the subject that
+  was modelled in RB0 and that no kind could reach until this landed.
+- [SHIPPED ddc6423] Its hp and speed are BORROWED and not designed: the tank's hull, so a base does not die
+  too easily, and the hauler's speed, so it can reach a deploy site. Its own numbers are Harri's to set in a
+  balance pass; `spec.hpp:102-107` says so in the table.
+- [SHIPPED a584683] Each side spawns exactly one, the LAST id on its side: appended last to the roster and
+  the spawn offsets at `{-3,-3}` from that side's base centre and mirrored for the enemy. At seed 42 that is
+  the player's `(22,42)` and the enemy's `(150,169)`, neither on the factory's tile.
+- [SHIPPED c5eb877] Its death is the LOSE CONDITION: an enemy recycler dead means the player has won whatever
+  else the enemy still has, and the player's own dead means the player has lost. The condition is the derived
+  predicate `Sim::kind_wiped_out(side, kind)`, read through `Sim::war_outcome()`; destroying the factory does
+  NOT end the game. See Part A section 10. A dead recycler's tie with a dead one of the enemy's — both dead —
+  reads as a LOSS, which is the executor's choice and NOT covered by any sentence of his; it stays open.
+- [SHIPPED a584683, c5eb877] It STARTS AS A VEHICLE and must deploy: a vehicle in the `F` row, drivable,
+  unarmed, one per side, whose destruction decides the war. The enemy's starts the same way and deploys by
+  script — a scripted opening behaviour, not something emergent.
+- [DECIDED — not built] The DEPLOYED form is a NEW KIND, not a flag on the recycler. HIS RULING, 2026-10-24:
+  *"If I was the one doing the programming, I think I would make everything easier on myself by making a
+  deployed recycler a new kind of entity, different from a non-deployed recycler. A non-deployed recycler is
+  a vehicle. A deployed recycler is a building. Plus, those two look different. So no flag. A new kind."*
+  The kind is named `DeployedRecycler`, APPENDED (8). The reason is a CATEGORY change, vehicle to building,
+  and the models differ too; it also settles the key question by construction, because the reserved keys are
+  per kind and a building is not a vehicle. The sim has eight kinds today and `Recycler = 7` is the latest.
+- [DECIDED — not built] The deploy flow is the F1 -> 3 -> SPACE gesture: select the recycler (its function
+  key, or point at it and press SPACE), press `3 DEPLOY` from its menu to ARM the deploy, point at a good
+  spot, then press SPACE to CONFIRM. `3` is not a second binding for SPACE: it arms, SPACE confirms, and the
+  menu's top row becomes a live readout of the armed step. Of that menu only `1 FOLLOW ME` and `4 HOLD` route
+  today (RB-DIGITS); `3 DEPLOY` is inert and says why.
+- [SHIPPED 3e799a0, ddc6423] The undeployed recycler's menu is six rows, in drawn order: `SPACE` (the state
+  row), `TAB CLOSE MENU`, `~ ROTATE BUILDINGS` (dim — it does not apply until there are buildings to rotate),
+  `1 FOLLOW ME`, `2 GO TO NAV`, `3 DEPLOY`.
+- [DECIDED — not built] Its deploy site: deployable ground is a TERRAIN TYPE and not a slope — his words,
+  *"turn one of the ground types to 'flat enough for deploying on'"* — delegated to the executor and decided
+  as `terrain == Flat` behind ONE predicate, so the ghost's green and red, the sim's deploy gate, the
+  builder's site check and the turret gate all read the same function, and a real `Deployable` terrain value
+  is a one-line change plus art later. That is RB2; the ghost that draws it is RB4.
+- [DECIDED — not built] 10 SECONDS to deploy, and the deploy time is a per-entity CONSTANT with no global
+  number. HIS RULING, 2026-10-24: *"I'm thinking 10 seconds to deploy. It should probably be different for
+  different entities. Recycler, turrets, scavengers over a biometal pool, factories, armories... I think they
+  should all have their own specific constants for how long it takes to deploy one."* So the recycler's is
+  10 s (300 ticks at the sim's 30 ticks a second), and the turret, the scavenger over a biometal pool, the
+  factory and the armory each carry their own — the shape `spec.hpp` already has for hp, speed and range, so
+  it costs a table and not a mechanism.
+- [DECIDED — not built] Ruling-adjacent, from the same answer: factories and armories are raised by the
+  BUILDER on the alien side and the CONSTRUCTOR on the human side; more buildings are coming (barracks, and
+  maybe an air hangar); and buildings carry no control numbers of their own — they only unlock things.
+
+PROVENANCE: `protekt-open-questions.md` Q5, Q5b, Q6, Q6.1, Q6.3 and the Q5 caveat (all Harri 2026-10-24,
+quoted); `protekt-hud-and-power.md` sections 4, 5 and 7; `slices.json` RECY, RB0, RB2, RB3, RB4, RB5, OBJ;
+code plus commit — `ddc6423` (`include/protekt/sim/units.hpp:23-38`, `spec.hpp:102-107`,
+`src/game/menu.cpp:118-135`), `a584683` (`src/sim/scenario.cpp:36-64`), `c5eb877` (Part A section 10),
+`3e799a0`, `d80ce95`.
+
+### B.3 The scavenger / harvester
+
+One sim KIND with per-faction names and looks: a scavenger and a harvester are the SAME vehicle, identical
+in function, differing only in name and appearance — and the difference follows the FACTION, never the
+player or the enemy side. HIS RULING, 2026-10-24 (Part A section 9) [DECIDED — not built].
+
+- [SHIPPED e653f16] `UnitKind::Scavenger` is the sim's seventh kind (value 6, appended, so no recorded value
+  moved). It is unarmed — range zero is what makes it unarmed everywhere in the sim, in firing, targeting
+  and the AI's threat list — and light on purpose: three fifths of a tank's hit points and three quarters of
+  its speed, because a hauler is meant to be worth escorting, not worth arming.
+- [SHIPPED e653f16] With no orders of its own it runs the fetch: walk to the nearest piece of wreckage, take
+  one load within 1 tile, carry it to its own side's lowest-id living factory, hand it over within 2 tiles.
+  Any order from the player or an AI replaces the fetch. Pick-up and hand-over happen wherever it is, even
+  under the player's own driving.
+- [DECIDED — not built] Its name and its appearance are PER FACTION: `HARVESTER` on the alien side,
+  `SCAVENGER` on the human side. The name follows the faction and not the side, so the sim's one kind wears
+  two names. Today the code is not keyed by faction at all: the kind's label is `SCAVENGER`
+  (`src/game/row.cpp:94-95`) and the one shipped build list says `HARVESTER` (`src/game/menu.cpp:63-67`),
+  both on the player's side. Part A section 9 records the drift.
+- [DECIDED — not built] A DEPLOYED scavenger is selectable by NO key at all. HIS CORRECTION, 2026-10-24:
+  *"When a scavenger is deployed, as opposed to a recycler, there is no key that can select the deployed
+  scavenger."* Its first sentence had said "scavenger" where he meant the recycler, and he confirmed the
+  recycler reading — so the deployed RECYCLER owns key `1` while the deployed SCAVENGER owns no key.
+- [DECIDED — not built] The scavenger's deploy site is a BIOMETAL POOL, not level ground: it is one of the
+  entities Q6.1 names as carrying its own deploy constant, and the same answer puts the recycler on level
+  ground and the scavenger over a pool. So the deploy SITE predicate is per kind, and only the gesture is
+  shared. The pool itself is BZ2's resource node; nothing in the tree resembles it.
+- [DECIDED — not built] Sources: *"Scavengers may collect the scrap for re-use"* — and each power building
+  provides 3 units of power and taking one away costs 3 (B.5).
+- [SHIPPED 3e799a0, d80ce95] Its menu (subject `Harvester`) is drawn in this order, keys not contiguous:
+  `SPACE` (the state row), `TAB CLOSE MENU`, `~ SELECT UNIT` (dim — it does not apply to this selection),
+  `1 FOLLOW ME`, `2 GO TO NAV`, `3 SCAVENGE`, `4 HOLD`, `5 PICK ME UP` (dim), a visible GAP where 6, 7 and 8
+  would be, `9 BAILOUT`, `0 RECYCLE`. Of these only `1` and `4` act today; every other row is inert and says
+  why (`3 SCAVENGE` because the fetch is automatic, `0 RECYCLE` because it is parked).
+- [SHIPPED d80ce95] `4 HOLD` is `GuardAt` at each unit's OWN position, and deliberately not `Stop`: `Stop`
+  idles a unit and a harvester's fetch re-picks scrap on the same tick, so it would hold nothing.
+
+PROVENANCE: `protekt-open-questions.md` Q6.1 and Q6.2 (Harri 2026-10-24, quoted);
+`protekt-hud-and-power.md` section 3 item 0 (his correction) and section 5; `slices.json` RECY, RB5;
+`src/game/menu.cpp:41-51,63-67,118-135`, `src/game/row.cpp:80-100`, and commits `e653f16` (the kind and its
+fetch), `3e799a0` (the row model and the menu), `d80ce95` (`FOLLOW ME` and `HOLD` route).
+
+### B.4 The factions and the production lists
+
+Two factions, HUMAN and ALIEN, and the player chooses which to play. HIS RULING, 2026-10-24: with the map,
+*"They may also want to choose the side, either the human side or the alien side."* Side choice and map
+choice are menu and setup concerns; the C-series HUD has no map or side picker. [DECIDED — not built]
+
+- [DECIDED — not built] The production lists, per FACTION, keys 1 to 7, exactly as he gave them on
+  2026-10-24: *"On the alien side, harvester: 20, scout 45, guardian 40, hauler 30, builder 40, healer 50,
+  service pod 2. On the human side, scavenger 20, scout 50, turret 40, tug 45, constructor 40, service truck
+  50, service pod 2. Those are the correct names for each side! I just got them from screenshots that I made.
+  I haven't shared them with you, but I will if you want. Of course the keys go from 1 to 7."*
+- [DECIDED — not built] His list ORDER IS THE ROW ORDER — read back to him for confirmation, because a
+  mis-ordered menu is a real bug.
+
+  | key | alien | cost | human | cost |
+  |---|---|---|---|---|
+  | 1 | harvester | 20 | scavenger | 20 |
+  | 2 | scout | 45 | scout | 50 |
+  | 3 | guardian | 40 | turret | 40 |
+  | 4 | hauler | 30 | tug | 45 |
+  | 5 | builder | 40 | constructor | 40 |
+  | 6 | healer | 50 | service truck | 50 |
+  | 7 | service pod | 2 | service pod | 2 |
+
+- [DECIDED — not built] The SAME ROLE differs across the sides in name and sometimes in cost: the scout is
+  45 alien and 50 human; the hauler is 30 alien and the tug 45 human; the harvester is the alien scavenger
+  and the human turret is the alien guardian. `service pod` at 2 is the only item both sides name
+  identically.
+- [DECIDED — not built] The NAME FOLLOWS THE FACTION, never the player or the enemy side. This also settles
+  which faction an earlier capture was playing: it showed `HARVESTER 20`, and harvester is the ALIEN name,
+  so that capture was the alien side. So the shipping code's list is not keyed by faction (below).
+- [SHIPPED 3e799a0] What the code has today: ONE build list, and it is handed out by `Side::Player`
+  (`build_items`), i.e. the alien list of seven rows — `1 HARVESTER 20`, `2 SCOUT 45`, `3 GUARDIAN 40`,
+  `4 HAULER 30`, `5 BUILDER 40`, `6 HEALER 50`, `7 SERVICE POD 2` — drawn as a QUOTATION of the reference
+  capture, with the cost composed onto the row and weighed against the sim's real ledger. Because both the
+  numbers and the faction keying differ from the ruling above, this table is exactly what RB5 and the
+  per-side roster replace.
+- [SHIPPED 3e799a0] The ENEMY side's build list is EMPTY, and deliberately so: inventing one "would put names
+  in the mouth of a capture that never showed them". A deployment on the enemy side therefore draws no build
+  rows.
+- [SHIPPED 3e799a0 for the table; DECIDED — not built for the data] There is no per-kind cost in the tree.
+  `UnitSpec::buildable` is false for every kind and has no consumer; the only price in the sim is
+  `kTankOreCost` (4 loads), on another scale entirely from HARVESTER 20 and SERVICE POD 2. A build menu needs
+  `cost` as per-kind DATA and the item NAMES as per-faction DATA — an added field plus the R3 roster, and
+  neither exists yet.
+- [DECIDED — not built] From the same answer as the deploy durations: factories and armories are raised by
+  the BUILDER (alien) and the CONSTRUCTOR (human), and buildings carry no control numbers of their own; they
+  only unlock things, such as new vehicles that can be built.
+
+PROVENANCE: `protekt-open-questions.md` Q6.2 and Q6.1 (Harri 2026-10-24, quoted, with the read-back table);
+`slices.json` RB5, RECY; code plus commit — `3e799a0` (`include/protekt/game/menu.hpp:90-96,140-152`,
+`src/game/menu.cpp:59-67,113-116`), `include/protekt/sim/spec.hpp:35-36,110-112`, and Part A sections 6 and 9
+for the drift.
+
+### B.5 Power
+
+A new subsystem: a cost of the BUILT world, counted in units of 3 per provider, spent by buildings that
+need it, and clawed back when the provider dies. Nothing in the sim has anything like it: a case-sensitive
+search for `power` over `src/` and `include/` finds nothing at `dc90293`, the one case-insensitive hit being
+an unrelated comment about equal-power panning in the audio mixer. It must not be bolted onto the scrap
+ledger. [DECIDED — not built]
+
+- [DECIDED — not built] HIS RULING, 2026-10-24: *"The first one that looks like a lightning is the number of
+  'Power' units that the player has available. To get power units, the player must build power buildings.
+  Each power building provides 3 units of power. If a power building is destroyed, you lose the 3 power
+  units. Power units are required to power some buildings like gun towers or gun spires. I'll verify the
+  names later..."* So: EACH POWER BUILDING PROVIDES 3 UNITS OF POWER, and LOSING THE BUILDING COSTS THE 3
+  back.
+- [DECIDED — not built] The number on the screen is the SURPLUS, and consumers draw DIFFERENT amounts. HIS
+  RULING, the same day, which retires the earlier `+1` puzzle: *"At that point in the game, I had built
+  several power buildings and several buildings that consume the power. The buildings that consume power may
+  consume different amounts of power. For example, if I have +3 of power available, and I build a new
+  guntower, I will then have +2 of power left. The only relationship between scrap and power is that it takes
+  scrap to BUILD a power building. When any building is destroyed, scrap is scattered in the vicinity.
+  Scavengers may collect the scrap for re-use."* Read as: surplus = capacity from providers minus draw from
+  consumers; `+1` on the capture was consistent all along, and the note that it failed to reconcile with
+  "3 per building" was the assistant's error, not the capture's.
+- [DECIDED — not built] Scrap is needed only to BUILD a provider. Power and scrap touch at construction time
+  and nowhere else, and a destroyed BUILDING, like a destroyed vehicle, scatters scrap on the ground for a
+  scavenger to collect (Part A section 8.1 has the wreckage rules).
+- [INTENDED — unconfirmed] That power is a CAPACITY (`providers grant`, `consumers draw`) rather than a
+  currency spent once, and therefore needs its own slice rather than an extension of the scrap ledger, is the
+  assistant's consequence from his ruling and not a sentence of his. The provider and consumer names are his
+  to verify, as he said: the power buildings, the gun towers and the gun spires. Which icon is which
+  building is unread (only `R` and `A` are legible in the capture), and whether the powered buildings carry
+  per-faction names too is the assistant's guess from the production-list pattern — not a ruling.
+
+PROVENANCE: `protekt-hud-and-power.md` section 1 (his ruling, quoted and dated 2026-10-24) and section 5
+(his clarification, quoted, which retires section 3 item 2's puzzle); section 3 items 1, 3 and 4 are the
+unconfirmed readings carried into B.8. No code: `search_files` for "power" over `src/` and `include/` is
+empty at `dc90293`.
+
+### B.6 The economy and the two modes
+
+Scrap is THE resource (Part A section 8). Two game modes are ruled [DECIDED — not built], and Instant
+Action is the specification of what is being built.
+
+- [DECIDED — not built] 40 SCRAP PER FACTION, ALWAYS, IN INSTANT ACTION. HIS RULING, 2026-10-24: *"Yes to
+  the 40 of scrap for each faction. Let's keep that as always for Instant Action mode. Story mode depends on
+  the mission, which may sometimes have none."* The consequence on record: 40 is an INSTANT-ACTION scenario
+  constant and not a sim constant, because Story mode must be able to pass a different number through the
+  same seam the objective uses — including zero. The sim's ledger (`Sim::ore`) starts at 0 today, so this is
+  exactly the 40 the HUD does not yet read.
+- [SHIPPED a584683, in part; DECIDED — not built, in part] INSTANT ACTION, his words: *"In instant action,
+  it's always the same: each side gets a non-deployed recycler, some scrap, some vehicles. Instant action
+  games take place in one of several maps. The player chooses the map. They may also want to choose the side,
+  either the human side or the alien side. The game is played until one side loses their recycler."* What is
+  built is the fixed shape of the sides: both spawn one non-deployed recycler and the same nine other
+  vehicles, the scenario a pure function of the seed. What is NOT built is "some scrap" (the ledger starts at
+  0), the map choice and the side choice.
+- [DECIDED — not built] STORY MODE, his words: *"In story-mode, there is a series of games played in
+  sequence. Each game has a mission. A mission can be defeating the enemy, escorting a vehicle without it
+  being destroyed by the enemy, etc. Let's have story-mode closer to the very end, but keep it in mind so
+  that we don't lock ourselves out of the possibility of implementing it easily. Right now we are
+  concentrating on the instant action mode."* So Story mode is deliberately LAST, and nothing built in the
+  meantime may assume mission scripting exists or lock the possibility out. Part A section 10 records that
+  the DATA type and its consumer do not exist yet.
+- [SHIPPED c5eb877, the seam] The objective is mission-level and not sim-level: the sim should end up
+  answering "is this objective met", with Instant Action passing in the recycler objective. HIS RULING, from
+  Q5's caveat: *"If we are in story-mode, there may or may not be a recycler in any form -- it depends on the
+  mission."* So the win condition cannot be a hardcoded recycler rule forever; today it does not need to be,
+  because `war_outcome` is DERIVED from the units and never stored, and a mission can supply its own
+  objective through that same seam. That door is open and must stay open.
+- [DECIDED — not built] Win and lose are a LIST of conditions, not one hard-coded rule, and "the enemy
+  recycler is dead" is one entry in that data list. HIS RULING, 2026-10-24 (Part A section 10, and OBJ). The
+  predicate the entries are written in is shipped; the data is not.
+- [DECIDED — not built] The ENEMY DEPLOYS ITS OWN UNITS AUTOMATICALLY in an Instant Action game, via a
+  scripted opening behaviour rather than something emergent. Its recycler starts as a vehicle like the
+  player's and deploys by script.
+- [DECIDED — not built] A destroyed BUILDING scatters scrap, exactly as a destroyed vehicle does, and
+  scavengers may collect it (B.5). On record beside it: scrap is spent only when a factory builds a NEW item
+  — repair, energy and ammo are always free and must never be gated on scrap (Part A section 8.2).
+- [INTENDED — unconfirmed] "Do NOT hardcode another game-ending rule into the sim before the mission seam
+  exists" is the assistant's design consequence of the ruling above, not a sentence of his. The seam it
+  speaks of (`war_outcome`, `kind_wiped_out`) does exist.
+
+PROVENANCE: `protekt-open-questions.md` Q5, Q5b and Q9 (Harri 2026-10-24, quoted); `protekt-hud-and-power.md`
+section 5 (the scrap-and-buildings sentence); `slices.json` OBJ and RECY; code plus commit — `a584683`
+(`src/sim/scenario.cpp:36-64`), `c5eb877` (Part A section 10), `include/protekt/sim/sim.hpp` (`war_outcome`,
+`kind_wiped_out`).
+
+### B.7 The build queue
+
+One press is one unit; holding SHIFT while pressing a build key queues one more per press, up to ten; the
+queue drains one at a time, gated by build time and scrap. [DECIDED — not built]
+
+- [DECIDED — not built] HIS RULING, 2026-10-24: *"if I select the recycler and hit 1 for scavengers, I only
+  build one scavenger. If, instead, I select the recycler, press the shift key and keep it down while I press
+  1 one to ten times, the recycler builds the one to ten scavengers, one at a time. Each one takes a finite
+  time to build, and also depends on how much scrap I have."* So one press is ONE unit; shift held queues one
+  MORE per press, to a ceiling of TEN; the queue drains ONE AT A TIME; build time AND the scrap balance gate
+  it. Nothing in the sim queues builds today.
+- [DECIDED — not built] Build TIME is per kind — 10 s for a scavenger, 30 s for a tank — so it belongs in
+  the spec table beside the cost, which is the same shape as the per-entity DEPLOY time (B.2). The tick
+  figures that accompany those seconds elsewhere in the source are written as 600 and 1800, which is 60 ticks
+  a second; the sim runs at 30 (`kTicksPerSecond`), so take the SECONDS as the ruling and the tick figures as
+  a stale conversion.
+- [DECIDED — not built] A queue PAUSES when the scrap runs out and resumes when it returns; scrap is deducted
+  as each unit completes, not when it is ordered.
+- [DECIDED — not built] A shift-built batch that finishes shares ONE function key, and each finished vehicle
+  joins its batch's group; a lone build takes its own key (B.1). Each vehicle in a key draws its own health
+  bar, in colour and not length, and a destroyed one's bar is removed (B.1, BAR-LOOK).
+- [SHIPPED e653f16] What exists instead, in the sim: the C4 PRODUCTION BEAT. Every 150 ticks (5 s), globally,
+  a living factory whose side has fewer living ARMED units than it started with and which can afford
+  `kTankOreCost` (4 loads, one wreck's worth) builds one `Tank`, on its own tile or the nearest free passable
+  one within 3 tiles. That is the only build path in the tree; it is not a queue, it is not per-item, and
+  Part A section 8.3 records both the rule and the one-build-per-beat-in-total drift.
+
+PROVENANCE: `protekt-hud-and-power.md` section 5 (the shift-build ruling, quoted) and section 6;
+`slices.json` RB5 (build times, the pause-and-resume rule, the batch ceiling) and ROW-SLOTS; code plus commit
+— `e653f16` (`include/protekt/sim/units.hpp:148-154`, `src/sim/sim.cpp:849-936`), `include/protekt/sim/spec.hpp:35-36`.
+
+### B.8 Carried across as unconfirmed, not as rulings
+
+The sources mark these as the assistant's readings, or as waiting on the owner. They are kept here so a
+reader can see what they are, and none of them is a rule the code may be built from.
+
+- [INTENDED — unconfirmed] The capture's F-ROW reading that every slot carries a building-or-vehicle icon and
+  a bar, and that the F-row "mixes buildings and units". It is an eye-witness reading of pixels, and it is
+  contradicted by his later ruling: *"There are never any buildings under F keys. They are always vehicles."*
+- [INTENDED — unconfirmed] The capture reading that a crystal or tower-like icon on `F2` "would fit" a power
+  plant. A guess at an icon; the power plant does not exist.
+- [INTENDED — unconfirmed] The names of the power buildings, the gun towers and the gun spires. He said
+  himself that he would verify the names later, so no name may be taken from the capture reading.
+- [INTENDED — unconfirmed] Whether the powered buildings he named are per-FACTION names too. The guess is
+  "probably, by the production-list pattern"; the pattern is ruled, the inference is not.
+- [INTENDED — unconfirmed] Which icon on the command bar is which building. Only `R` under `1` and `A` under
+  `3` are legible in the capture.
+- [INTENDED — unconfirmed] The `+1` reading on the power icon. It was retired by his own clarification of the
+  surplus (B.5), so no number from that note is to be implemented.
+- [INTENDED — unconfirmed] That power "must NOT be bolted onto the scrap ledger" because its shape is a
+  capacity rather than a currency. A design consequence drawn from his ruling, not his sentence.
+- [INTENDED — unconfirmed] The layout note that his capture carries the whole command row as one TOP bar
+  while PROTEKT draws the command menu on the LEFT. Recorded so the layout pass asks rather than assumes.
+- [INTENDED — unconfirmed] The half-remembered "each scavenger deployed over a pool raises the available
+  scrap by 20". His answer to Q9 confirmed the 40 per faction and nothing else; the 20 was never said in this
+  thread and was not confirmed, so it may not be built on. It is kept here only so it is not mistaken for a
+  ruling later.
+- [INTENDED — unconfirmed] "A menu is a MODE that SUSPENDS the prompts" (`menu.hpp:40-43`). It is written as
+  a property of the REFERENCE menu; whether PROTEKT adopts the mode is ruled nowhere (Part A section 14.1,
+  question 2). The shipped behaviour is the conservative reading: the `G`, `T` and attack-list prompts settle
+  a digit before the menu sees it.
+- [INTENDED — unconfirmed] The recycler's `F1` placement. He ruled that an undeployed recycler may sit under
+  ANY function key and that "it doesn't matter", so there is no display rule; the shipped spawn appends it
+  last and it lands on `F7`. Whether `F1` is wanted anyway is his to say (Q6.3).
+
+PROVENANCE: `protekt-hud-and-power.md` sections 2, 3 (items 1-4) and the layout note in section 4;
+`protekt-open-questions.md` Q9 (the unconfirmed 20) and Q6.3 (the `F1` placement);
+`include/protekt/game/menu.hpp:40-44`.
