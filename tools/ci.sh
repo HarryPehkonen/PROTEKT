@@ -87,6 +87,12 @@ CI_FAST_STAGES=${CI_FAST_STAGES:-"format build tests"}
 CI_FULL_STAGES=${CI_FULL_STAGES:-"tree format kitprobes build tests release version asan tsan tidy pristine"}
 CI_DEFAULT_STAGES=${CI_DEFAULT_STAGES:-$CI_FULL_STAGES}
 CI_TIDY_BASELINE=${CI_TIDY_BASELINE:-.ci/tidy-baseline.txt}
+# tidy analyses what a change can reach instead of every source, because a finding in one
+# translation unit can only be caused by that TU's own code or by a header it includes (see
+# ci_tidy_scope). MEASURED 2026-10-25: 618s for all 119 TUs, against ~5s for a test-only
+# change, nothing at all for a docs-only one, and ~190-220s for a change touching a widely
+# included header. 0 = analyse everything, which is what the baseline writer needs.
+CI_TIDY_SCOPE=${CI_TIDY_SCOPE:-1}
 CI_BUILD_TYPE=${CI_BUILD_TYPE:-Debug}
 # The SECOND configuration, built and tested by the `release` stage. A gate whose every
 # stage builds one build type cannot see the class the other one produces (a `warning:`
@@ -240,6 +246,78 @@ ci_tidy_sources() {
     # shellcheck disable=SC2086
     eval "git ls-files --cached --others --exclude-standard -- $CI_SOURCE_GLOBS" \
         | grep -E '\.(cpp|cc|cxx)$' | sort -u
+}
+
+# The translation units a change can reach: the version of the list above that makes "only NEW
+# findings" cheap without making it a lie. A finding in one TU can only be caused by that TU's
+# own code or by a header it includes, so the reachable set is the changed .cpp files plus
+# every TU whose compiler-written depfile names a changed header. clang-tidy has no
+# incremental mode; the compiler's own dependency information (build/**/*.o.d, written by
+# every compile) is what makes this exact rather than a guess.
+#
+# Prints the set and returns 0. Prints nothing and returns 1 when the change touches nothing
+# tidy reads, so the stage can SKIP rather than analyse 119 TUs to learn that. Returns 2 when
+# the set cannot be computed — no base commit to diff against, or no depfiles on disk yet — so
+# the caller analyses everything instead of trusting a number that is smaller than the truth.
+depfile_source() {  # depfile_source <file.o.d> -> the repo-relative source it was built from
+    local first
+    first=$(tr -d '\\\n' < "$1" | sed -e 's/^[^:]*://' -e 's/^ *//')
+    printf '%s\n' "${first%% *}" | sed "s|^$REPO_ROOT/||"
+}
+
+ci_tidy_scope() {
+    local base
+    base=$(git merge-base origin/main HEAD 2>/dev/null) || base=""
+    if [ -z "$base" ]; then
+        base=$(git rev-parse HEAD~1 2>/dev/null) || base=""
+    fi
+    [ -n "$base" ] || return 2
+
+    # A rename counts (its new path is what the compiler includes); a deletion cannot produce a
+    # finding in code that is still there. Uncommitted and untracked files count too, so a
+    # by-hand run sees what a commit would.
+    local -a changed=() universe=() scope=() headers=() depfiles=() out=()
+    mapfile -t changed < <(
+        { git diff --name-only --diff-filter=ACMR "$base" 2>/dev/null
+          git ls-files --others --exclude-standard 2>/dev/null
+        } | sort -u
+    )
+    mapfile -t universe < <(ci_tidy_sources)
+    [ "${#universe[@]}" -gt 0 ] || return 2
+
+    local c h
+    for c in "${changed[@]}"; do
+        case "$c" in
+            *.cpp|*.cc|*.cxx) scope+=("$c") ;;
+            *.hpp|*.hh|*.h)   headers+=("$c") ;;
+        esac
+    done
+
+    if [ "${#headers[@]}" -gt 0 ]; then
+        mapfile -t depfiles < <(find "$CI_BUILD_DIR" -name '*.o.d' 2>/dev/null)
+        [ "${#depfiles[@]}" -gt 0 ] || return 2
+        local src dep
+        for h in "${headers[@]}"; do
+            while IFS= read -r dep; do
+                src=$(depfile_source "$dep")
+                [ -n "$src" ] && scope+=("$src")
+            done < <(grep -lF "/$h" "${depfiles[@]}" 2>/dev/null)
+        done
+    fi
+
+    # Keep only paths the universe above holds, so this is that same list with fewer members and
+    # never a different one.
+    local -A keep=() s
+    for s in "${universe[@]}"; do keep["$s"]=1; done
+    for s in "${scope[@]}"; do
+        [ -n "${keep[$s]:-}" ] && out+=("$s")
+    done
+    # 0 with empty output = "computed, and the change reaches nothing" -> the caller SKIPs.
+    # 2 = "could not compute" -> the caller falls back to the whole universe. A non-zero
+    # exit here used to mean both, so a clean tree was analysed in full instead of skipped:
+    # exit status is the only channel that separates them.
+    [ "${#out[@]}" -gt 0 ] || return 0
+    printf '%s\n' "${out[@]}" | sort -u
 }
 
 # The comparable form of a clang-tidy finding — applied to BOTH sides of the baseline
@@ -635,10 +713,34 @@ stage_tidy() {
     if [ ! -f "$CI_BUILD_DIR/compile_commands.json" ]; then
         ci_fail tidy "no $CI_BUILD_DIR/compile_commands.json — configure with -DCMAKE_EXPORT_COMPILE_COMMANDS=ON (the build stage does) before tidy can say anything"
     fi
-    local -a sources=()
-    mapfile -t sources < <(ci_tidy_sources)
-    if [ "${#sources[@]}" -eq 0 ]; then
+    local -a universe=() sources=()
+    mapfile -t universe < <(ci_tidy_sources)
+    if [ "${#universe[@]}" -eq 0 ]; then
         ci_fail tidy "no sources matched $CI_SOURCE_GLOBS — tidy would analyse nothing and still pass"
+    fi
+
+    # tidy has no incremental mode, so the list is narrowed to what this change can reach
+    # before it runs (see ci_tidy_scope). Three outcomes, and each one is stated: a smaller
+    # list, a SKIP when the change touches nothing tidy reads (a docs-only push), or the whole
+    # list when the set cannot be computed reliably — a set smaller than the truth would be a
+    # lie, and the universe is the only honest answer when the reach is unknown.
+    if [ "$CI_TIDY_SCOPE" = "1" ]; then
+        local scoped_out=""
+        if scoped_out=$(ci_tidy_scope); then
+            if [ -z "$scoped_out" ]; then
+                ci_skip tidy "nothing this change can reach — no .cpp and no included header was touched"
+                return 0
+            fi
+            mapfile -t sources <<< "$scoped_out"
+            printf '    scoped: %s of %s translation units (the changed .cpp files, plus every TU whose depfile names a changed header)\n' \
+                "${#sources[@]}" "${#universe[@]}"
+        else
+            printf '    scoping unavailable (no base commit, or no depfile from a build yet) — analysing all %s sources\n' \
+                "${#universe[@]}"
+            sources=("${universe[@]}")
+        fi
+    else
+        sources=("${universe[@]}")
     fi
 
     # A compile database that exists is not a compile database that covers this repo:
@@ -689,7 +791,10 @@ write_tidy_baseline() {
     printf '\n\033[1m==> write the tidy baseline\033[0m (%s)\n' "$CI_TIDY_BASELINE"
     printf '    running the real build + tidy stages (build first: tidy refuses to run without\n'
     printf '    %s/compile_commands.json; treat the tidy failure below as expected)\n\n' "$CI_BUILD_DIR"
-    bash "$0" build tidy > "$CI_LOG_DIR/write-baseline.log" 2>&1
+    # CI_TIDY_SCOPE=0: the baseline must hold EVERY finding in the repo, or the scoped runs
+    # would capture only the ones in the TUs that happened to change and every later run would
+    # report the rest as new. A baseline written from a scope is a baseline that lies.
+    CI_TIDY_SCOPE=0 bash "$0" build tidy > "$CI_LOG_DIR/write-baseline.log" 2>&1
     if [ ! -f "$CI_LOG_DIR/tidy.log" ]; then
         printf 'no %s was written, so there is nothing to capture — the run stopped before the tidy stage:\n' "$CI_LOG_DIR/tidy.log" >&2
         tail -n 20 "$CI_LOG_DIR/write-baseline.log" | sed 's/^/      /' >&2
