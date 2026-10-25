@@ -252,8 +252,11 @@ TEST(PlayerView, TheCursorOverYourOwnCraftOffersSelect) {
     Rig rig = make_base_rig();
     const Session session{unit_id(rig.sim, 3)};
     aim_at(rig, session, unit_id(rig.sim, 4));
-    ASSERT_EQ(game::pick(rig.sim, rig.options, rig.options.aim->x, rig.options.aim->y).unit,
-              unit_id(rig.sim, 4))
+    // `aim_at` above engaged the aim; clang-tidy cannot see through the helper call, so the
+    // goal is read through value() -- checked access, not the bare dereference the tidy
+    // check forbids (line 277 needs neither: its aim is assigned two lines above).
+    const game::Aim aim = rig.options.aim.value();
+    ASSERT_EQ(game::pick(rig.sim, rig.options, aim.x, aim.y).unit, unit_id(rig.sim, 4))
         << "the rig must be aimed at the tank";
     EXPECT_EQ(menu_target_of(rig.sim, rig.options), MenuTarget::Selectable);
 }
@@ -262,8 +265,11 @@ TEST(PlayerView, TheCursorOverAnEnemyNamesNoSelect) {
     Rig rig = make_base_rig();
     const Session session{unit_id(rig.sim, 3)};
     aim_at(rig, session, unit_id(rig.sim, 5));
-    ASSERT_EQ(game::pick(rig.sim, rig.options, rig.options.aim->x, rig.options.aim->y).unit,
-              unit_id(rig.sim, 5))
+    // `aim_at` above engaged the aim; clang-tidy cannot see through the helper call, so the
+    // goal is read through value() -- checked access, not the bare dereference the tidy
+    // check forbids (line 277 needs neither: its aim is assigned two lines above).
+    const game::Aim aim = rig.options.aim.value();
+    ASSERT_EQ(game::pick(rig.sim, rig.options, aim.x, aim.y).unit, unit_id(rig.sim, 5))
         << "the rig must be aimed at the enemy";
     EXPECT_EQ(menu_target_of(rig.sim, rig.options), MenuTarget::Hostile);
 }

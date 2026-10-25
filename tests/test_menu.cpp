@@ -652,6 +652,7 @@ TEST(Menu, ASelectionOwnsTheSubjectOfTheLivingKindItHolds) {
     constexpr sim::Side kPlayer = sim::Side::Player;
     constexpr sim::Side kEnemy = sim::Side::Enemy;
     std::vector<sim::Spawn> spawns;
+    spawns.reserve(static_cast<std::size_t>(sim::kUnitKindCount)); // one spawn per kind, exactly
     for (int kind = 0; kind < sim::kUnitKindCount; ++kind) {
         spawns.push_back(sim::Spawn{static_cast<sim::UnitKind>(kind), kPlayer, 20 + kind, 20});
     }
