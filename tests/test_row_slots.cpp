@@ -252,6 +252,7 @@ TEST(RowSlots, TheNextNewUnitFillsTheMiddleGapBeforeAnythingAfterIt) {
 
 TEST(RowSlots, AnUnseenUnitWithEveryGroupSlotFullIsLeftOutNotLost) {
     std::vector<Spawn> spawns;
+    spawns.reserve(11); // eleven spawning units, one per slot: what the loop below makes
     for (int i = 0; i < 11; ++i) {
         spawns.push_back({UnitKind::Tank, Side::Player, 10 + (3 * i), 10});
     }
@@ -320,7 +321,10 @@ TEST(RowSlots, TheRecyclerStaysAVehicleInTheFRowUntilDeployExists) {
     ASSERT_TRUE(row.occupied(2)) << "the skirmish has a factory";
     EXPECT_EQ(sim.find(row.slots.at(2).units.front())->kind, UnitKind::Factory);
     const std::optional<SlotReading> last = read_slot(sim, row.slots.at(group_slot(9)));
-    ASSERT_TRUE(last.has_value());
+    ASSERT_TRUE(last.has_value()) << "F9 holds the recycler";
+    if (!last.has_value()) {
+        return; // unreachable once the ASSERT above has passed: for the analyzer, not the test
+    }
     EXPECT_EQ(last->kind, UnitKind::Recycler);
     EXPECT_FALSE(row.occupied(group_slot(10)));
 }
@@ -340,7 +344,10 @@ TEST(RowSlots, AReadingCountsTheLivingUnitsAndSumsTheirHitPoints) {
     // A batch of the first two tanks under F1 (arranged by hand: nothing builds a batch yet).
     rig.row.slots.at(group_slot(1)).units = {rig.own.at(0), rig.own.at(1)};
     const std::optional<SlotReading> reading = read_slot(rig.sim, rig.row.slots.at(group_slot(1)));
-    ASSERT_TRUE(reading.has_value());
+    ASSERT_TRUE(reading.has_value()) << "F1 holds the batch";
+    if (!reading.has_value()) {
+        return; // unreachable once the ASSERT above has passed: for the analyzer, not the test
+    }
     EXPECT_EQ(reading->kind, UnitKind::Tank);
     EXPECT_EQ(reading->count, 2U);
     EXPECT_EQ(reading->max_hp, 2 * sim::profile(UnitKind::Tank).hp);

@@ -208,7 +208,10 @@ TEST(PlayerView, TheSkirmishRecyclerIsLabelledRecyclerAndAsksForTheSixRowMenu) {
     const game::RowSlot& group = row.slots.at(game::group_slot(9));
     ASSERT_EQ(group.units.size(), 1U);
     const std::optional<game::SlotReading> reading = game::read_slot(sim, group);
-    ASSERT_TRUE(reading.has_value());
+    ASSERT_TRUE(reading.has_value()) << "F9 holds the recycler";
+    if (!reading.has_value()) {
+        return; // unreachable once the ASSERT above has passed: for the analyzer, not the test
+    }
     ASSERT_EQ(reading->kind, UnitKind::Recycler);
     EXPECT_EQ(game::kind_label(reading->kind), "RECYCLER");
     EXPECT_FALSE(row.occupied(game::group_slot(10))) << "F10 is the next free slot";
