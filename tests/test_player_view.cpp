@@ -252,11 +252,17 @@ TEST(PlayerView, TheCursorOverYourOwnCraftOffersSelect) {
     Rig rig = make_base_rig();
     const Session session{unit_id(rig.sim, 3)};
     aim_at(rig, session, unit_id(rig.sim, 4));
-    // `aim_at` above engaged the aim; clang-tidy cannot see through the helper call, so the
-    // goal is read through value() -- checked access, not the bare dereference the tidy
-    // check forbids (line 277 needs neither: its aim is assigned two lines above).
-    const game::Aim aim = rig.options.aim.value();
-    ASSERT_EQ(game::pick(rig.sim, rig.options, aim.x, aim.y).unit, unit_id(rig.sim, 4))
+    // `aim_at` above engaged the aim, but it does so through a reference parameter, so the
+    // analyzer cannot see the assignment and treats every later read as unchecked -- including
+    // through value(), which is safe at run time and invisible to it. So bind the optional,
+    // check it in the form the analyzer follows, and read through the binding. The other test
+    // in this file needs none of this: it assigns its own aim directly, two lines above its read.
+    const auto& aim = rig.options.aim;
+    ASSERT_TRUE(aim.has_value()) << "the rig must be aimed";
+    if (!aim.has_value()) {
+        return; // unreachable once the ASSERT above has passed: for the analyzer, not the test
+    }
+    ASSERT_EQ(game::pick(rig.sim, rig.options, aim->x, aim->y).unit, unit_id(rig.sim, 4))
         << "the rig must be aimed at the tank";
     EXPECT_EQ(menu_target_of(rig.sim, rig.options), MenuTarget::Selectable);
 }
@@ -265,11 +271,17 @@ TEST(PlayerView, TheCursorOverAnEnemyNamesNoSelect) {
     Rig rig = make_base_rig();
     const Session session{unit_id(rig.sim, 3)};
     aim_at(rig, session, unit_id(rig.sim, 5));
-    // `aim_at` above engaged the aim; clang-tidy cannot see through the helper call, so the
-    // goal is read through value() -- checked access, not the bare dereference the tidy
-    // check forbids (line 277 needs neither: its aim is assigned two lines above).
-    const game::Aim aim = rig.options.aim.value();
-    ASSERT_EQ(game::pick(rig.sim, rig.options, aim.x, aim.y).unit, unit_id(rig.sim, 5))
+    // `aim_at` above engaged the aim, but it does so through a reference parameter, so the
+    // analyzer cannot see the assignment and treats every later read as unchecked -- including
+    // through value(), which is safe at run time and invisible to it. So bind the optional,
+    // check it in the form the analyzer follows, and read through the binding. The other test
+    // in this file needs none of this: it assigns its own aim directly, two lines above its read.
+    const auto& aim = rig.options.aim;
+    ASSERT_TRUE(aim.has_value()) << "the rig must be aimed";
+    if (!aim.has_value()) {
+        return; // unreachable once the ASSERT above has passed: for the analyzer, not the test
+    }
+    ASSERT_EQ(game::pick(rig.sim, rig.options, aim->x, aim->y).unit, unit_id(rig.sim, 5))
         << "the rig must be aimed at the enemy";
     EXPECT_EQ(menu_target_of(rig.sim, rig.options), MenuTarget::Hostile);
 }
