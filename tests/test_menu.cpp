@@ -453,13 +453,13 @@ TEST(Menu, ALoneTurretCollapsesToTheStateRow) {
 }
 
 /// The player's command row over that skirmish: the strip the menu is drawn under.
-[[nodiscard]] const RowState& skirmish_row() {
-    static const RowState kRow = [] {
+[[nodiscard]] RowState& skirmish_row() {
+    static RowState shared = [] {
         RowState row;
         row.update(skirmish_sim(), sim::Side::Player, 0);
         return row;
     }();
-    return kRow;
+    return shared;
 }
 
 /// Every vertex the same, field by field -- the strict form of "byte-identical".

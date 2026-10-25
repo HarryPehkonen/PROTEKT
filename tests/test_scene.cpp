@@ -4650,7 +4650,7 @@ protekt::game::RowState row_of(const protekt::sim::Sim& sim) {
 TEST(SceneAttackList, TheListIsDrawnOnlyWhenAskedAndNeverTouchesTheSim) {
     const auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(42));
     SceneOptions options = options_at(60.0F, 60.0F);
-    const protekt::game::RowState row = row_of(sim);
+    protekt::game::RowState row = row_of(sim);
     options.row = &row;
     const std::uint64_t hash = sim.state_hash();
     const Scene without = build_scene(sim, options);
@@ -4674,7 +4674,7 @@ TEST(SceneAttackList, TheListIsDrawnOnlyWhenAskedAndNeverTouchesTheSim) {
 TEST(SceneAttackList, AnEmptyListDrawsNothing) {
     const auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(42));
     SceneOptions options = options_at(60.0F, 60.0F);
-    const protekt::game::RowState row = row_of(sim);
+    protekt::game::RowState row = row_of(sim);
     options.row = &row;
     const Scene without = build_scene(sim, options);
     const std::vector<protekt::game::TargetRow> none;
@@ -4689,7 +4689,7 @@ TEST(SceneAttackList, AnEmptyListDrawsNothing) {
 TEST(SceneAttackList, TwoSameSeedBuildsWithAListAreByteIdentical) {
     const auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(42));
     SceneOptions options = options_at(60.0F, 60.0F);
-    const protekt::game::RowState row = row_of(sim);
+    protekt::game::RowState row = row_of(sim);
     options.row = &row;
     const std::vector<protekt::game::TargetRow> rows = two_rows(sim);
     options.attack_list = &rows;
@@ -4704,7 +4704,7 @@ TEST(SceneAttackList, TwoSameSeedBuildsWithAListAreByteIdentical) {
 TEST(SceneAttackList, EveryRowIsDrawnSoMoreRowsMakeMoreVertices) {
     const auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(42));
     SceneOptions options = options_at(60.0F, 60.0F);
-    const protekt::game::RowState row = row_of(sim);
+    protekt::game::RowState row = row_of(sim);
     options.row = &row;
     std::vector<protekt::game::TargetRow> rows = two_rows(sim);
     options.attack_list = &rows;
@@ -4719,7 +4719,7 @@ TEST(SceneAttackList, EveryRowIsDrawnSoMoreRowsMakeMoreVertices) {
 TEST(SceneAttackList, ThePanelSitsBelowTheRosterStrip) {
     const auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(42));
     SceneOptions options = options_at(60.0F, 60.0F);
-    const protekt::game::RowState row = row_of(sim);
+    protekt::game::RowState row = row_of(sim);
     options.row = &row;
     const Scene without = build_scene(sim, options);
     const std::vector<protekt::game::TargetRow> rows = two_rows(sim);

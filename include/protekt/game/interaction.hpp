@@ -69,6 +69,11 @@ public:
     ///    that holds nothing is refused with one message. A key belongs to a group of vehicles,
     ///    not a kind (ROW-SLOTS); digits do not select -- they are the mark row, the attack-list
     ///    row, and -- with no prompt open -- the command menu's rows
+    ///  * Shift + F1-F10 (ROW-MOVE): MOVE the selected units into that key. The key keeps its own
+    ///    units and gains them; a key emptied goes blank; nothing else in the row moves; the
+    ///    selection is unchanged and the key is NOT selected. Refused, on the notice line, for an
+    ///    empty selection, a selection of more than one kind, and a key holding a different kind.
+    ///    The only writer of the row, through `SceneOptions::row`
     ///  * G, then 0-9 (N3): send the selection to that nav mark's tile -- the same MoveTo `M`
     ///    makes. G arms; the next key settles it. A digit is then a MARK number, never N2's
     ///    selection key: a number with no mark is refused and orders nothing. Any digit uses the
@@ -155,6 +160,9 @@ private:
     /// F1-F10: select the whole group the command row holds under that key (`options.row`). A key
     /// that holds nothing, or a frame with no row, is refused with `empty_key_message`.
     void select_roster_key(const SceneOptions& options, int group_key);
+    /// Shift + F1-F10: move the selection into the key through `options.row`; a refusal (or a
+    /// frame with no row) says why on the notice line, and then nothing has changed.
+    void move_selection_to_key(const sim::Sim& sim, const SceneOptions& options, int group_key);
     /// A digit with no prompt open: the menu row it names, if that row acts and the model says it
     /// is enabled; otherwise nothing at all (RB-DIGITS).
     void menu_digit(const sim::Sim& sim, int digit);

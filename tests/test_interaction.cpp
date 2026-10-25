@@ -1649,4 +1649,66 @@ TEST(WeaponClick, TheChoiceSurvivesASwapBecauseTheCraftCarriesIt) {
     EXPECT_EQ(player.weapon(), Weapon::Mortar);
 }
 
+// ---------------------------------------------------------------- ROW-MOVE
+
+TEST(Interaction, ShiftFKeyMovesTheSelectionAndDoesNotSelect) {
+    Rig rig = make_rig();
+    Interaction player{rig.tank_a};
+    player.handle(with_key(input::kKeyF1 + 1), rig.sim, rig.options); // F2: tank_b
+    ASSERT_EQ(selected(player), (std::vector<sim::UnitId>{rig.tank_b}));
+    ASSERT_EQ(rig.row.slots.at(group_slot(1)).units, (std::vector<sim::UnitId>{rig.tank_a}));
+
+    player.handle(with_key(input::kKeyF1, true), rig.sim, rig.options); // shift + F1
+
+    EXPECT_EQ(rig.row.slots.at(group_slot(1)).units,
+              (std::vector<sim::UnitId>{rig.tank_a, rig.tank_b}))
+        << "the selected tank moved into F1, after the one F1 held";
+    EXPECT_FALSE(rig.row.occupied(group_slot(2))) << "and F2 went blank";
+    EXPECT_EQ(selected(player), (std::vector<sim::UnitId>{rig.tank_b}))
+        << "the press moved the selection's units and did not select the group";
+}
+
+TEST(Interaction, BareFKeyStillSelectsTheGroup) {
+    Rig rig = make_rig();
+    Interaction player{rig.tank_a};
+    player.handle(with_key(input::kKeyF1 + 1), rig.sim, rig.options); // F2: tank_b
+    const RowState before = rig.row;
+
+    player.handle(with_key(input::kKeyF1), rig.sim, rig.options); // bare F1: tank_a
+
+    EXPECT_EQ(selected(player), (std::vector<sim::UnitId>{rig.tank_a}));
+    EXPECT_EQ(rig.row.slots, before.slots) << "a bare press never moves anything";
+}
+
+TEST(Interaction, RefusalReachesTheNoticeLine) {
+    Rig rig = make_rig();
+    Interaction player{rig.tank_a};
+    player.handle(with_key(input::kKeyF1 + 2), rig.sim, rig.options); // F3: the turret
+    ASSERT_EQ(selected(player), (std::vector<sim::UnitId>{rig.turret}));
+    const RowState before = rig.row;
+
+    player.handle(with_key(input::kKeyF1, true), rig.sim, rig.options); // shift + F1: the tanks
+
+    EXPECT_EQ(player.message(), move_refusal_message(RowMove::DifferentKind));
+    EXPECT_NE(player.message(), empty_key_message(1)) << "F1 is not empty; the kinds differ";
+    EXPECT_EQ(rig.row.slots, before.slots);
+    EXPECT_EQ(selected(player), (std::vector<sim::UnitId>{rig.turret}));
+}
+
+TEST(Interaction, ShiftFKeyWithNothingSelectedOrNoRowIsRefused) {
+    Rig rig = make_rig();
+    Interaction player{rig.tank_a};
+    const RowState before = rig.row;
+
+    player.handle(with_key(input::kKeyF1 + 7, true), rig.sim, rig.options);
+    EXPECT_EQ(player.message(), move_refusal_message(RowMove::NothingToMove));
+    EXPECT_EQ(rig.row.slots, before.slots);
+
+    player.handle(with_key(input::kKeyF1 + 1), rig.sim, rig.options); // F2 selects tank_b
+    rig.options.row = nullptr;
+    player.handle(with_key(input::kKeyF1 + 7, true), rig.sim, rig.options);
+    EXPECT_EQ(player.message(), move_refusal_message(RowMove::NothingToMove));
+    EXPECT_EQ(rig.row.slots, before.slots);
+}
+
 } // namespace protekt::game

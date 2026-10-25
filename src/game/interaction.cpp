@@ -201,6 +201,9 @@ void Interaction::handle(const input::InputFrame& frame, const sim::Sim& sim,
         }
         if (key.scancode == input::kKeyG && !key.ctrl && !key.alt) {
             go_armed_ = true;
+        } else if (const int target = input::shift_function_key(key); target != 0) {
+            // Tested BEFORE the bare F-key: `function_key` answers a shifted press too.
+            move_selection_to_key(sim, options, target);
         } else if (const int group = input::function_key(key); group != 0) {
             select_roster_key(options, group);
         } else if (key.scancode == input::kKeyEscape || key.scancode == input::kKeyTab) {
@@ -655,6 +658,18 @@ void Interaction::select_roster_key(const SceneOptions& options, int group_key) 
     selection_.clear();
     for (const sim::UnitId id : options.row->slots.at(group_slot(group_key)).units) {
         selection_.add(id);
+    }
+}
+
+void Interaction::move_selection_to_key(const sim::Sim& sim, const SceneOptions& options,
+                                        int group_key) {
+    // Only a refusal speaks: the row redraws, so the moved key is its own feedback. The selection
+    // is left as it is -- the units are the same units, they just sit under another key.
+    const RowMove outcome = options.row == nullptr
+                                ? RowMove::NothingToMove
+                                : options.row->move_into(sim, selection_.units(), group_key);
+    if (outcome != RowMove::Moved) {
+        refuse(move_refusal_message(outcome));
     }
 }
 

@@ -108,14 +108,22 @@ inline void apply(HeldKeys& keys, const KeyEvent& event) noexcept {
     return key.scancode - kKey1 + 1;
 }
 
-/// The command-row group an F-key event asks for, 1-10, or 0 for any other key. Bare only:
-/// Ctrl/Alt+F1 are not the row's. F1..F10 are the vehicle groups' keys; the digit row is the
+/// The command-row group an F-key event asks for, 1-10, or 0 for any other key. Takes a BARE
+/// press: Ctrl/Alt+F1 are not the row's. It does not look at Shift, so a shifted press answers
+/// too; the shifted press means something else (a move), and that is `shift_function_key`, which
+/// the caller must test first. F1..F10 are the vehicle groups' keys; the digit row is the
 /// command/mark row.
 [[nodiscard]] inline int function_key(const KeyEvent& key) noexcept {
     if (!key.pressed || key.ctrl || key.alt || key.scancode < kKeyF1 || key.scancode > kKeyF1 + 9) {
         return 0;
     }
     return key.scancode - kKeyF1 + 1;
+}
+
+/// The command-row group a SHIFT + F-key event asks to move the selection into, 1-10, or 0 for any
+/// other key, and for an F-key with no Shift. The shifted sibling of `function_key`.
+[[nodiscard]] inline int shift_function_key(const KeyEvent& key) noexcept {
+    return key.shift ? function_key(key) : 0;
 }
 
 /// The mark number 0-9 a key event is, or -1. Bare only. "0" follows "9" in the HID table, so it

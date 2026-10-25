@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <span>
 #include <string_view>
 #include <vector>
 
@@ -58,6 +59,17 @@ inline constexpr int kRowGroups = static_cast<int>(kRowSlots - kRowFirstGroup); 
 struct RowSlot {
     /// The living units held here, in spawn order. Empty means the key is not drawn.
     std::vector<sim::UnitId> units{};
+
+    [[nodiscard]] bool operator==(const RowSlot&) const = default;
+};
+
+/// What `RowState::move_into` did. Anything but `Moved` changed NOTHING, and says why.
+enum class RowMove : std::uint8_t {
+    Moved,         ///< the units are in the key now
+    NothingToMove, ///< the selection is empty, or none of it is a living unit the row holds
+    MixedKinds,    ///< the selection spans more than one kind, and a key holds one
+    DifferentKind, ///< the target key holds a different kind from the moved units
+    NoSuchKey,     ///< not F1..F10
 };
 
 struct RowState {
@@ -67,10 +79,26 @@ struct RowState {
     /// Fold in this frame's world: prune the dead, hand every vehicle `side` has not had before the
     /// first empty group slot, and refill the building keys. `nav_marks` is how many marks the
     /// player has set; `~` is on the screen when there is at least one.
+    ///
+    /// The group keys are therefore not a function of the sim alone: they remember where the
+    /// player put things (`move_into`), and `update` keeps those places -- it only prunes the dead
+    /// and seats newcomers in the gaps.
     void update(const sim::Sim& sim, sim::Side side, std::size_t marks);
 
     /// Whether the key at `index` is on the screen: it holds something.
     [[nodiscard]] bool occupied(std::size_t index) const;
+
+    /// SHIFT + F`group_key`: move `units` (a selection) into function key `group_key` (1-10). The
+    /// target keeps its units and gains the moved ones AFTER them, in the order given (a
+    /// selection's is spawn order); every group slot that held a moved unit loses it, and one
+    /// emptied goes blank where it stands. Nothing else in the row moves, and the target may be
+    /// empty. A unit moves only if it is alive and a group slot holds it, so an enemy, a building
+    /// key's occupant, an id the row has never seen and a corpse are all skipped. A unit already
+    /// in the target stays where it is rather than going to the back.
+    ///
+    /// Refused, and then NOTHING changes: no unit to move; the units are of more than one kind (a
+    /// key holds one); the target holds a different kind. `Moved` otherwise.
+    RowMove move_into(const sim::Sim& sim, std::span<const sim::UnitId> units, int group_key);
 };
 
 /// What a drawn unit-holding slot reads, at this tick: its living units and their hit points.
@@ -90,5 +118,8 @@ struct SlotReading {
 
 /// What pressing F`key` says when its slot holds nothing. A literal, because a message is a view.
 [[nodiscard]] std::string_view empty_key_message(int key) noexcept;
+
+/// What a refused move says on the notice line, or empty for `Moved` and `NoSuchKey`. Literals.
+[[nodiscard]] std::string_view move_refusal_message(RowMove outcome) noexcept;
 
 } // namespace protekt::game

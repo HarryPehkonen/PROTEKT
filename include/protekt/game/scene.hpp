@@ -515,8 +515,9 @@ struct SceneOptions {
     /// The command row (ROW-SLOTS) along the top of the frame: `~`, `1`, `2`, `3`, `F1`..`F10`,
     /// each in its own fixed spot, with only the keys that hold something drawn. Null draws none,
     /// so a frame that never heard of it is unchanged -- the same discipline as `nav_marks`. Also
-    /// what F1-F10 select from (`Interaction`). NOT owned.
-    const RowState* row{nullptr};
+    /// what F1-F10 select from and Shift+F1-F10 rearrange (`Interaction`). NOT owned. Non-const
+    /// for that one writer; the scene only reads it.
+    RowState* row{nullptr};
     /// One line under the row, for what a function key just said ("Unit 4 is destroyed."). Empty
     /// draws none. The app holds it for a few seconds; the scene only draws it.
     std::string notice{};

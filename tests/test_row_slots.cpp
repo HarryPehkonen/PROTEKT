@@ -509,7 +509,7 @@ constexpr float kPadPx = 3.0F;
 /// without. The HUD block is contiguous, so the added vertices are one run.
 [[nodiscard]] std::vector<Px> row_pixels(const sim::Sim& sim, SceneOptions options,
                                          std::span<const UnitId> chosen = {}) {
-    const RowState* row = options.row;
+    RowState* row = options.row;
     options.row = nullptr;
     const Scene base = build_scene(sim, options, chosen);
     options.row = row;
@@ -584,7 +584,7 @@ TEST(RowDrawing, TheRowIsNotDrawnWithoutOne) {
 TEST(RowDrawing, AnEmptyRowDrawsNothingAtAll) {
     // No dim ink, no placeholder, no zero: not one vertex differs from a frame with no row.
     Rig rig = make_rig();
-    const RowState empty;
+    RowState empty;
     rig.options.row = &empty;
     const Scene with_empty = build_scene(rig.sim, rig.options);
     rig.options.row = nullptr;

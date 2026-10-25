@@ -125,5 +125,23 @@ TEST(CommandKeys, CPressedTogglesCalibrationAndNothingElseDoes) {
     EXPECT_FALSE(calibration_toggled(InputFrame{}));
 }
 
+TEST(Bindings, ShiftFunctionKeyIsItsOwnHelper) {
+    const KeyEvent bare{kKeyF1 + 2, true};
+    const KeyEvent shifted{kKeyF1 + 2, true, true};
+
+    EXPECT_EQ(shift_function_key(bare), 0) << "a bare press is not the move's";
+    EXPECT_EQ(shift_function_key(shifted), 3);
+    EXPECT_EQ(shift_function_key(KeyEvent{kKeyF1, true, true}), 1);
+    EXPECT_EQ(shift_function_key(KeyEvent{kKeyF1 + 9, true, true}), 10);
+    EXPECT_EQ(shift_function_key(KeyEvent{kKeyF1 + 2, false, true}), 0) << "a release is nothing";
+    EXPECT_EQ(shift_function_key(KeyEvent{kKeyF1 + 2, true, true, true}), 0) << "Ctrl+Shift+F3";
+    EXPECT_EQ(shift_function_key(KeyEvent{kKeyF1 + 2, true, true, false, true}), 0) << "Alt+Shift";
+
+    // The OLD helper is unchanged, and still answers for both: the caller tests the shifted one
+    // first. Pinned, so a change to its contract cannot go unnoticed.
+    EXPECT_EQ(function_key(bare), 3);
+    EXPECT_EQ(function_key(shifted), 3);
+}
+
 } // namespace
 } // namespace protekt::input
