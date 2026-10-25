@@ -15,7 +15,7 @@
 #include "protekt/game/nav_marks.hpp"
 #include "protekt/game/pick.hpp"
 #include "protekt/game/radar.hpp"
-#include "protekt/game/roster.hpp"
+#include "protekt/game/row.hpp"
 #include "protekt/input/bindings.hpp"
 #include "protekt/math/math.hpp"
 #include "protekt/sim/projectile.hpp"
@@ -202,7 +202,7 @@ void Interaction::handle(const input::InputFrame& frame, const sim::Sim& sim,
         if (key.scancode == input::kKeyG && !key.ctrl && !key.alt) {
             go_armed_ = true;
         } else if (const int group = input::function_key(key); group != 0) {
-            select_roster_key(sim, group);
+            select_roster_key(options, group);
         } else if (key.scancode == input::kKeyEscape || key.scancode == input::kKeyTab) {
             // Tab clears, as Escape does.
             selection_.clear();
@@ -642,20 +642,18 @@ void Interaction::attack_row(const std::vector<TargetRow>& rows, int key) {
     message_ = kAttacking.at(static_cast<std::size_t>(key));
 }
 
-void Interaction::select_roster_key(const sim::Sim& sim, int group_key) {
-    // The roster's key belongs to a KIND now (game/roster.hpp): pressing its F-key selects the
-    // whole group, wherever its units are, and replaces whatever the mouse had built. A key no
-    // group holds is FREE -- the pool keeps no memory of the group that returned it -- so one
-    // message covers "that group is gone" and "you never had that group" alike. Digits no longer
-    // select: they are the mark and attack-list row keys, and the command row K2 will build on.
-    const Roster roster = roster_of(sim, sim::Side::Player);
-    const RosterGroup* group = group_for_key(roster, group_key);
-    if (group == nullptr) {
+void Interaction::select_roster_key(const SceneOptions& options, int group_key) {
+    // The key names the group the command row holds under it, and replaces whatever the mouse had
+    // built. A key whose group is gone and a key that never held one are the same empty slot, so
+    // one message covers both. Digits do not select: they are the mark and attack-list row keys
+    // and the command menu's.
+    if (options.row == nullptr || group_key < 1 || group_key > kRowGroups
+        || !options.row->occupied(group_slot(group_key))) {
         refuse(empty_key_message(group_key));
         return;
     }
     selection_.clear();
-    for (const sim::UnitId id : group->units) {
+    for (const sim::UnitId id : options.row->slots.at(group_slot(group_key)).units) {
         selection_.add(id);
     }
 }

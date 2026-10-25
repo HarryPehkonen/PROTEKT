@@ -2,6 +2,8 @@
 // are MARK numbers, not N2's selection keys; the order is the same MoveTo a right click makes.
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <string>
 #include <variant>
@@ -10,7 +12,7 @@
 #include "protekt/game/interaction.hpp"
 #include "protekt/game/nav_marks.hpp"
 #include "protekt/game/pick.hpp"
-#include "protekt/game/roster.hpp"
+#include "protekt/game/row.hpp"
 #include "protekt/game/scene.hpp"
 #include "protekt/input/bindings.hpp"
 #include "protekt/input/input.hpp"
@@ -51,6 +53,7 @@ struct Rig {
     SceneOptions options;
     NavMarks marks;
     std::vector<UnitId> own;
+    RowState row; ///< the command row over `sim`: F1 is the first vehicle, F2 the second...
 };
 
 [[nodiscard]] Rig make_rig() {
@@ -73,6 +76,8 @@ struct Rig {
     rig.options.viewer_unit = rig.own.at(0);
     rig.options.aim = Aim{640.0F, 360.0F};
     rig.options.nav_marks = &rig.marks;
+    rig.row.update(rig.sim, Side::Player, 0);
+    rig.options.row = &rig.row;
     return rig;
 }
 
@@ -298,6 +303,8 @@ TEST(SendToMark, TwoSameSeedRunsProduceByteIdenticalOrders) {
     rig.options.viewer_unit = rig.own.at(0);
     rig.options.aim = Aim{640.0F, 360.0F};
     rig.options.nav_marks = &rig.marks;
+    rig.row.update(rig.sim, Side::Player, 0);
+    rig.options.row = &rig.row;
     return rig;
 }
 
@@ -479,6 +486,8 @@ TEST(AttackList, RefusalsNameTheirReasonAndLeaveTheModeUnarmed) {
             = Camera{80.0F, height_metres(kSeed, 40, 40) + 3.0F, 60.0F, 0.0F, -0.12F};
         rig.options.viewer_unit = rig.own.at(0);
         rig.options.aim = Aim{640.0F, 360.0F};
+        rig.row.update(rig.sim, Side::Player, 0);
+        rig.options.row = &rig.row;
         Interaction player{rig.own.at(0)};
         select_second(rig, player);
         player.handle(key_frame(input::kKeyT), rig.sim, rig.options);
@@ -516,6 +525,7 @@ struct MenuRig {
     UnitId recycler;
     UnitId harvester_a;
     UnitId harvester_b;
+    RowState row;
 };
 
 [[nodiscard]] MenuRig make_menu_rig() {
@@ -525,7 +535,7 @@ struct MenuRig {
                                               {UnitKind::Recycler, Side::Player, 44, 41},
                                               {UnitKind::Scavenger, Side::Player, 46, 42},
                                               {UnitKind::Scavenger, Side::Player, 48, 43},
-                                              {UnitKind::Factory, Side::Player, 30, 30},
+                                              {UnitKind::Factory, Side::Player, 36, 50},
                                               {UnitKind::Tank, Side::Enemy, 38, 60}}});
     for (const sim::Unit& unit : rig.sim.units()) {
         if (unit.kind == UnitKind::Tank && unit.side == Side::Player) {
@@ -540,19 +550,19 @@ struct MenuRig {
     rig.options.extent = kExtent;
     rig.options.camera = Camera{80.0F, height_metres(kSeed, 40, 40) + 3.0F, 60.0F, 0.0F, -0.12F};
     rig.options.aim = Aim{640.0F, 700.0F}; // bare ground: no hostile under the mark
-    return rig;
-}
-
-/// F-key the whole group of `kind`: the roster's way to select every unit of one kind.
-void select_kind(MenuRig& rig, Interaction& player, UnitKind kind) {
-    const Roster roster = roster_of(rig.sim, Side::Player);
-    for (const RosterGroup& group : roster.groups) {
-        if (group.kind == kind) {
-            player.handle(fkey(group.key), rig.sim, rig.options);
-            return;
+    rig.row.update(rig.sim, Side::Player, 0);
+    // The pair shares one key, as a shift-built batch would: no batch exists yet, so it is arranged
+    // by hand.
+    for (RowSlot& slot : rig.row.slots) {
+        std::erase(slot.units, rig.harvester_b);
+    }
+    for (RowSlot& slot : rig.row.slots) {
+        if (!slot.units.empty() && slot.units.front() == rig.harvester_a) {
+            slot.units.push_back(rig.harvester_b);
         }
     }
-    FAIL() << "no group of that kind";
+    rig.options.row = &rig.row;
+    return rig;
 }
 
 /// The mark on `unit`, as the rig's camera sees it.
@@ -565,6 +575,27 @@ void aim_menu(MenuRig& rig, UnitId unit) {
     const float ground = height_metres(kSeed, u->x.floor_int(), u->y.floor_int());
     const Projected p = project(rig.options.camera, kExtent, x, ground + 0.9F, z);
     rig.options.aim = Aim{p.x, p.y};
+}
+
+/// Select the first own unit of `kind` the way the player would: its F key when the row holds it
+/// (a vehicle), the crosshair and Space when it does not (the factory is a building, so it has no
+/// F key).
+void select_kind(MenuRig& rig, Interaction& player, UnitKind kind) {
+    for (std::size_t index = kRowFirstGroup; index < kRowSlots; ++index) {
+        const RowSlot& slot = rig.row.slots.at(index);
+        if (!slot.units.empty() && rig.sim.find(slot.units.front())->kind == kind) {
+            player.handle(fkey(static_cast<int>(index - kRowFirstGroup) + 1), rig.sim, rig.options);
+            return;
+        }
+    }
+    for (const sim::Unit& unit : rig.sim.units()) {
+        if (unit.kind == kind && unit.side == Side::Player) {
+            aim_menu(rig, unit.id);
+            player.handle(key_frame(input::kKeySpace), rig.sim, rig.options);
+            return;
+        }
+    }
+    FAIL() << "no unit of that kind";
 }
 
 TEST(MenuDigit, OneOnARecyclerOrdersItToFollowTheDrivenCraft) {
@@ -782,13 +813,19 @@ TEST(MenuDigit, AHoldNeverReachesADeadUnit) {
     options.seed = kSeed;
     options.extent = kExtent;
     Interaction player{sim.units().front().id};
-    const Roster roster = roster_of(sim, Side::Player);
-    int key = 0;
-    for (const RosterGroup& group : roster.groups) {
-        if (group.kind == UnitKind::Scavenger) {
-            key = group.key;
+    // The two harvesters share one key, as a shift-built batch would: no batch exists yet.
+    RowState row;
+    row.update(sim, Side::Player, 0);
+    for (RowSlot& slot : row.slots) {
+        std::erase(slot.units, safe);
+    }
+    for (RowSlot& slot : row.slots) {
+        if (!slot.units.empty() && slot.units.front() == doomed) {
+            slot.units.push_back(safe);
         }
     }
+    options.row = &row;
+    const int key = 2; // F2: the tank is F1, the first harvester F2
     player.handle(fkey(key), sim, options);
     ASSERT_EQ(selected(player).size(), 2U);
     int ticks = 0;

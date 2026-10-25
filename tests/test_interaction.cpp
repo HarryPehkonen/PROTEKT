@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "protekt/game/pick.hpp"
+#include "protekt/game/row.hpp"
 #include "protekt/game/scene.hpp"
 #include "protekt/game/sounds.hpp"
 #include "protekt/game/weapon.hpp"
@@ -44,6 +45,7 @@ struct Rig {
     sim::UnitId turret{}; ///< at tile (40,42)
     sim::UnitId enemy{};  ///< at tile (38,44)
     sim::UnitId enemy2{}; ///< at tile (46,44): a second target, clear of every other unit's line
+    RowState row;         ///< the command row over the rig's sim, as the app would hold it
 };
 
 /// A known layout, so a click test knows which pixel belongs to which unit.
@@ -79,7 +81,18 @@ struct Rig {
     rig.options.seed = kSeed;
     rig.options.extent = kExtent;
     rig.options.camera = Camera{80.0F, ground + 3.0F, 60.0F, 0.0F, -0.12F};
+    rig.row.update(rig.sim, Side::Player, 0);
+    rig.options.row = &rig.row;
     return rig;
+}
+
+/// Both of the rig's tanks under F1, as if they had been built as one shift batch. Every unit the
+/// sim can produce today is its own group, so a multi-unit group is arranged here by hand: this is
+/// what the row will hold once batches exist, and the selection and the orders do not care how it
+/// came to be.
+void batch_tanks(Rig& rig) {
+    rig.row.slots.at(group_slot(1)).units = {rig.tank_a, rig.tank_b};
+    rig.row.slots.at(group_slot(2)).units.clear();
 }
 
 /// The rig's mark; a rig without one has it at the origin, which no test here relies on.
@@ -599,6 +612,7 @@ TEST(Interaction, TabClearsTheSelection) {
     Rig rig = make_rig();
     Interaction player{rig.tank_a};
     // F1 selects the tank group: tank_a (driven) and tank_b.
+    batch_tanks(rig);
     player.handle(with_key(input::kKeyF1), rig.sim, rig.options);
     ASSERT_EQ(player.selection().size(), 2U);
     player.handle(with_key(input::kKeyTab), rig.sim, rig.options);
@@ -725,6 +739,7 @@ TEST(Interaction, TOrdersAnAttackFromEverySelectedUnitAndKeepsTheSelection) {
     Interaction player{rig.tank_a};
     select_and_drive(rig, player, rig.tank_b);
     // F1 selects the tank group: tank_a (now ordinary) and tank_b (driven).
+    batch_tanks(rig);
     player.handle(with_key(input::kKeyF1), rig.sim, rig.options);
     ASSERT_EQ(player.selection().size(), 2U);
 
@@ -857,6 +872,7 @@ TEST(MoveKey, MOrdersEverySelectedUnitToTheGroundUnderTheMark) {
     // F1 selects the tank group: tank_a (driven) and tank_b. The order must go to tank_b only.
     Rig rig = make_rig();
     Interaction player{rig.tank_a};
+    batch_tanks(rig);
     player.handle(with_key(input::kKeyF1), rig.sim, rig.options);
     ASSERT_EQ(player.selection().size(), 2U);
     rig.options.aim = Aim{640.0F, 700.0F};
@@ -942,6 +958,7 @@ TEST(FollowKey, FOrdersEverySelectedUnitToFollowTheUnitUnderTheMark) {
     // U3: F1 selects the tank group (tank_a driven + tank_b); the order goes to tank_b only.
     Rig rig = make_rig();
     Interaction player{rig.tank_a};
+    batch_tanks(rig);
     player.handle(with_key(input::kKeyF1), rig.sim, rig.options);
     ASSERT_EQ(player.selection().size(), 2U);
     static_cast<void>(at(rig, rig.tank_a)); // the mark on the driven tank: the wingman case
@@ -1002,6 +1019,7 @@ TEST(Interaction, TheDrivenTankIsNeverOrderedByAKey) {
     Interaction player{rig.tank_a};
     select_and_drive(rig, player, rig.tank_b);
     // F1 selects the tank group: tank_a (ordinary) and tank_b (driven).
+    batch_tanks(rig);
     player.handle(with_key(input::kKeyF1), rig.sim, rig.options);
     ASSERT_EQ(player.selection().size(), 2U);
 
@@ -1074,6 +1092,7 @@ TEST(Interaction, TheSameInputProducesTheSameOrders) {
         Rig rig = make_rig();
         Interaction player{rig.tank_a};
         // F1 selects the tank group; the driven tank is excluded from the order.
+        batch_tanks(rig);
         player.handle(with_key(input::kKeyF1), rig.sim, rig.options);
         static_cast<void>(ground_click(rig));
         player.handle(with_key(input::kKeyM), rig.sim, rig.options);
@@ -1231,6 +1250,7 @@ TEST(Swap, AfterASwapTheNewTankIsNotOrderableAndTheOldOneIs) {
     Rig rig = make_rig();
     Interaction player(rig.tank_a);
     select_and_drive(rig, player, rig.tank_b);
+    batch_tanks(rig);
     player.handle(with_key(input::kKeyF1), rig.sim, rig.options);
     ASSERT_EQ(player.selection().size(), 2U);
     static_cast<void>(player.take_orders());

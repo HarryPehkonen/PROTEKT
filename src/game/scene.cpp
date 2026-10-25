@@ -4,7 +4,7 @@
 #include "protekt/game/nav_marks.hpp"
 #include "protekt/game/pick.hpp"
 #include "protekt/game/radar.hpp"
-#include "protekt/game/roster.hpp"
+#include "protekt/game/row.hpp"
 #include "protekt/game/weapon.hpp"
 #include "protekt/game/world_map.hpp"
 #include "protekt/math/math.hpp"
@@ -2195,17 +2195,19 @@ void append_ship_gauge(std::vector<SceneVertex>& out, const SceneOptions& option
 /// THE HUD PANELS along the top left of the frame, in frame pixels on the HUD layer, scaled by the
 /// frame's height (the px below are at 720).
 ///
-/// THE ROSTER STRIP (K1): one plate per KIND that has living units, left to right in key order, so
-/// a kind with a hundred units is still one plate and the strip is never longer than the kinds a
-/// side can field. A plate is 88 px wide and 34 tall on a black plate with a 2 px frame (yellow
-/// when any unit of the group is selected, white otherwise), 6 px from the top and 6 px apart.
-/// Every glyph in the strip is 10 px tall (cell 2.0), which is BZ2's own HUD text height, counted
-/// rather than guessed: its text is 10 px in the 800x600 originals and still ~10 px in a 1280x730
-/// screenshot of the remaster, so it is a fixed pixel font that ignores the resolution. Top row:
-/// the key, and how many units the group holds beside it; then the kind (cell 2.0, FACTORY is 82 of
-/// the 82 px inside); then a 3 px bar, green over yellow over red, showing the GROUP's fraction --
-/// a group has no single hit-point figure, so the count takes the number's place and the bar
-/// carries the health. Under the strip, `options.notice` in 10 px yellow capitals.
+/// THE COMMAND ROW (ROW-SLOTS): `~`, `1`, `2`, `3`, `F1`..`F10`, fourteen plates each in its own
+/// fixed spot, left to right. A key that holds nothing is not drawn and the row does not close up:
+/// its space stays blank for what is built next. A plate is at most 88 px wide (it narrows so the
+/// fourteen fit a narrow frame) and 34 tall on a black plate with a 2 px frame (yellow when any
+/// unit of the group is selected, white otherwise), 6 px from the top and 6 px apart. Every glyph
+/// is 10 px tall (cell 2.0), which is BZ2's own HUD text height, counted rather than guessed: its
+/// text is 10 px in the 800x600 originals and still ~10 px in a 1280x730 screenshot of the
+/// remaster, so it is a fixed pixel font that ignores the resolution. Top row: the key, and how
+/// many vehicles the group holds beside it; then the kind (cell 2.0, or smaller for a name that
+/// would not fit the plate's inside); then a 3 px bar, green over yellow over red, showing the
+/// GROUP's fraction -- the sum of its hit points over the sum of its ceilings. `~` says how many
+/// nav marks there are and has no bar; the building on `2` has a bar and no count. Under the row,
+/// `options.notice` in 10 px yellow capitals.
 ///
 /// THE ATTACK LIST (BZ2A): the nearest enemies T offered, by the same plate and the same type, one
 /// row per enemy. It sits in the row BELOW the notice, which is reserved whether or not there is a
@@ -2407,7 +2409,7 @@ void append_hud_panels(std::vector<SceneVertex>& out, const SceneOptions& option
                        const sim::Sim& sim, std::span<const sim::UnitId> selected) {
     const bool wants_list = options.attack_list != nullptr && !options.attack_list->empty();
     const bool wants_menu = options.show_menu && options.menu != nullptr && !options.menu->empty();
-    if (!options.show_roster && !wants_list && !wants_menu) {
+    if (options.row == nullptr && !wants_list && !wants_menu) {
         return;
     }
     const float px = static_cast<float>(options.extent.height) * kHudPerFrameHeight;
@@ -2518,47 +2520,82 @@ void append_hud_panels(std::vector<SceneVertex>& out, const SceneOptions& option
         }
     };
 
-    // An empty roster when the strip is off, so nothing but the list below can draw: it is the one
-    // caller that wants this function for something other than the strip.
-    const Roster roster = options.show_roster ? roster_of(sim, options.viewer_side) : Roster{};
     const float top = kStripMarginPixels * px;
-    const float slot_w = kStripSlotWidthPixels * px;
+    const float gap = kStripSlotGapPixels * px;
+    // Fourteen fixed positions have to fit the frame whatever its aspect, so the slot narrows
+    // before it would run off the right edge; it never grows past its design width.
+    const float frame_width = static_cast<float>(options.extent.width);
+    const float slot_w = std::min(
+        kStripSlotWidthPixels * px,
+        ((frame_width - (2.0F * kStripMarginPixels * px) + gap) / static_cast<float>(kRowSlots))
+            - gap);
     const float slot_h = kStripSlotHeightPixels * px;
     const float pad = kStripPadPixels * px;
     // The notice's row, reserved whether or not there is a notice: the attack list is drawn under
     // it, and a panel that moves when a notice appears or expires is a panel that gets misread.
     const float notice_top = top + slot_h + (kStripMarginPixels * px) + pad;
-    float left = kStripMarginPixels * px;
-    for (const RosterGroup& group : roster.groups) {
-        // Lit when ANY unit of the group is selected: the old per-unit rule, generalised. Pressing
-        // the key selects the whole group, so a lit row means "you have some of these".
+    // THE COMMAND ROW. Every key has its own spot, by index, and a key that holds nothing is
+    // skipped without moving the ones after it: its space stays blank for what is built next.
+    for (std::size_t index = 0; options.row != nullptr && index < kRowSlots; ++index) {
+        if (!options.row->occupied(index)) {
+            continue;
+        }
+        const RowSlot& slot = options.row->slots.at(index);
+        const bool is_navs = row_slot_kind(index) == RowSlotKind::Navs;
+        const bool is_group = row_slot_kind(index) == RowSlotKind::Group;
+        std::string label = "NAVS";
+        std::size_t count = options.row->nav_marks;
+        std::uint16_t hp = 0;
+        std::uint16_t max_hp = 0;
+        if (!is_navs) {
+            const std::optional<SlotReading> reading = read_slot(sim, slot);
+            if (!reading.has_value()) {
+                continue; // everything in it died since the row was last updated
+            }
+            label = std::string(kind_label(reading->kind));
+            count = reading->count;
+            hp = reading->hp;
+            max_hp = reading->max_hp;
+        }
+        const float left = (kStripMarginPixels * px) + (static_cast<float>(index) * (slot_w + gap));
+        // Lit when ANY unit of the group is selected: pressing the key selects the whole group,
+        // so a lit slot means "you have some of these".
         const bool chosen
-            = std::any_of(group.units.begin(), group.units.end(), [selected](sim::UnitId id) {
+            = std::any_of(slot.units.begin(), slot.units.end(), [selected](sim::UnitId id) {
                   return std::find(selected.begin(), selected.end(), id) != selected.end();
               });
-        plate(left, top, left + slot_w, top + slot_h, chosen ? kStripSelected : kStripFrame);
-        // The key the player presses, not its number: the pool's keys are the function row now.
-        const std::string key = "F" + std::to_string(group.key);
+        const std::array<float, 3>& frame = chosen ? kStripSelected : kStripFrame;
+        plate(left, top, left + slot_w, top + slot_h, frame);
         const float key_cell = kStripKeyCell * px;
         const float count_cell = kStripHpCell * px;
-        ink_text(key, left + pad, top + pad, key_cell, chosen ? kStripSelected : kStripFrame);
+        ink_text(row_key_label(index), left + pad, top + pad, key_cell, frame);
         // How many, not how hurt. The "x" is what keeps a bare digit from reading as hit points.
-        const std::string count = "x" + std::to_string(group.units.size());
-        const float count_left = left + slot_w - pad - word_width(count, count_cell);
-        ink_text(count, count_left, top + pad + (2.5F * key_cell) - (2.5F * count_cell), count_cell,
-                 kStripFrame);
+        // A building is one thing, not a head count, so only `~` and the vehicle groups say it.
+        if (is_navs || is_group) {
+            const std::string text = "x" + std::to_string(count);
+            const float count_left = left + slot_w - pad - word_width(text, count_cell);
+            ink_text(text, count_left, top + pad + (2.5F * key_cell) - (2.5F * count_cell),
+                     count_cell, kStripFrame);
+        }
+        // The label takes the largest cell that fits the slot's inside, up to the design size:
+        // the longest names would run out of a narrow slot at full size.
         const float kind_top = top + pad + (5.0F * key_cell) + pad;
-        ink_text(kind_label(group.kind), left + pad, kind_top, kStripKindCell * px, kStripFrame);
+        const float kind_cell
+            = std::min(kStripKindCell * px,
+                       (slot_w - (2.0F * pad)) / static_cast<float>((label.size() * 6) - 1));
+        ink_text(label, left + pad, kind_top, kind_cell, kStripFrame);
+        if (is_navs) {
+            continue; // marks have no hit points: no bar
+        }
         // The bar: a dark track the width of the slot's inside, the fill in proportion. Summed
         // totals give the group's fraction exactly, because every unit of a kind shares its max.
         const float bar_top = top + slot_h - pad - (kStripBarPixels * px) + (2.0F * px);
         const float bar_left = left + pad;
         const float bar_width = slot_w - (2.0F * pad);
         const float fraction
-            = group.max_hp == 0
+            = max_hp == 0
                   ? 0.0F
-                  : std::clamp(static_cast<float>(group.hp) / static_cast<float>(group.max_hp),
-                               0.0F, 1.0F);
+                  : std::clamp(static_cast<float>(hp) / static_cast<float>(max_hp), 0.0F, 1.0F);
         const std::array<float, 3> fill = fraction > 0.6F ? std::array<float, 3>{0.1F, 0.85F, 0.2F}
                                           : fraction > 0.3F
                                               ? std::array<float, 3>{1.0F, 0.85F, 0.1F}
@@ -2567,7 +2604,6 @@ void append_hud_panels(std::vector<SceneVertex>& out, const SceneOptions& option
              bar_top + (kStripBarPixels * px), {0.25F, 0.25F, 0.25F});
         rect(marks_at, bar_left, bar_top, bar_left + (bar_width * fraction),
              bar_top + (kStripBarPixels * px), fill);
-        left += slot_w + (kStripSlotGapPixels * px);
     }
     if (!options.notice.empty()) {
         const float cell = kStripNoticeCell * px;

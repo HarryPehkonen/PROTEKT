@@ -177,8 +177,9 @@ TEST_F(GameCliTest, AScriptedKeyReachesTheFrameAndLeavesTheSimAlone) {
     if (kUnderThreadSanitizer) {
         GTEST_SKIP() << kTsanReason;
     }
-    // F3 selects the factory group: the roster strip lights it and the command menu opens. Both
-    // are drawing, so the picture must change while the state hash does not move.
+    // F3 selects the third vehicle: the command row lights its key and, for a unit with a menu, the
+    // command menu opens. Both are drawing, so the picture must change while the state hash does
+    // not move.
     const std::string before = temp_path("before.ppm");
     const std::string after = temp_path("after.ppm");
     std::string before_err;
@@ -286,22 +287,22 @@ struct MenuRows {
     return rows;
 }
 
-TEST_F(GameCliTest, TheMenuIsOnScreenWhenTheRosterSelectsAFactory) {
+TEST_F(GameCliTest, TheMenuIsOnScreenWhenTheRowSelectsTheRecycler) {
     if (kUnderThreadSanitizer) {
         GTEST_SKIP() << kTsanReason;
     }
-    // F3 selects the factory group, and that selection's command menu is drawn down the left of the
-    // frame. Scrap is 0 at seed 42, so all SEVEN build rows are unaffordable and drawn in the dim
-    // ink while the state row, TAB CLOSE MENU and ~ DROP OFF stay live: ten rows, three of them
-    // live, and not one of them before the key is pressed. RB5 fills the build list, and this count
-    // changes with it.
+    // F9 selects the recycler (the ninth vehicle; the factory is a building and sits on key 2, not
+    // under an F key), and that selection's command menu is drawn down the left of the frame: six
+    // rows, five of them live (SPACE, TAB, ~, 1 FOLLOW ME, 2 GO TO NAV) and the sixth, 3 DEPLOY,
+    // dim because deploying does not exist yet (RB3) -- and not one of them before the key is
+    // pressed.
     const std::string before = temp_path("menu-before.ppm");
     const std::string after = temp_path("menu-after.ppm");
     std::string err;
     ASSERT_EQ(run({"--headless", "--seed", "42", "--frames", "6", "--capture", before}, err), 0)
         << err;
     ASSERT_EQ(
-        run({"--headless", "--seed", "42", "--frames", "6", "--key", "1", "f3", "--capture", after},
+        run({"--headless", "--seed", "42", "--frames", "6", "--key", "1", "f9", "--capture", after},
             err),
         0)
         << err;
@@ -313,8 +314,8 @@ TEST_F(GameCliTest, TheMenuIsOnScreenWhenTheRosterSelectsAFactory) {
     const MenuRows empty = menu_rows_in_band(read_ppm(before), kTopFraction, kBottomFraction);
     const MenuRows menu = menu_rows_in_band(read_ppm(after), kTopFraction, kBottomFraction);
     EXPECT_EQ(empty.total(), 0) << "a frame with no menu must draw no rows in that band";
-    EXPECT_EQ(menu.live, 3) << "the state row, TAB CLOSE MENU and ~ DROP OFF are the live rows";
-    EXPECT_EQ(menu.dim, 7) << "no scrap is banked, so every build row is dim";
+    EXPECT_EQ(menu.live, 5) << "SPACE, TAB, ~, 1 FOLLOW ME and 2 GO TO NAV are the live rows";
+    EXPECT_EQ(menu.dim, 1) << "3 DEPLOY is dim: nothing deploys yet";
 }
 
 TEST_F(GameCliTest, FailsWithAReasonWhenTheNamedGpuDoesNotExist) {

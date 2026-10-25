@@ -22,6 +22,7 @@
 #include <vector>
 
 #include "protekt/game/pick.hpp"
+#include "protekt/game/row.hpp"
 #include "protekt/game/scene.hpp"
 #include "protekt/sim/scenario.hpp"
 #include "protekt/sim/sim.hpp"
@@ -451,6 +452,16 @@ TEST(Menu, ALoneTurretCollapsesToTheStateRow) {
     return kSim;
 }
 
+/// The player's command row over that skirmish: the strip the menu is drawn under.
+[[nodiscard]] const RowState& skirmish_row() {
+    static const RowState kRow = [] {
+        RowState row;
+        row.update(skirmish_sim(), sim::Side::Player, 0);
+        return row;
+    }();
+    return kRow;
+}
+
 /// Every vertex the same, field by field -- the strict form of "byte-identical".
 void expect_same_frame(const Scene& want, const Scene& got, std::string_view what) {
     ASSERT_EQ(got.vertices.size(), want.vertices.size()) << what;
@@ -501,7 +512,7 @@ TEST(Menu, DrawnWithNoRowsItEmitsNothingAndEveryFrameIsByteIdentical) {
     const std::vector<MenuRow> rows{row_of("1", "HOLD")};
     for (const bool roster : {false, true}) {
         SceneOptions base = menu_rig();
-        base.show_roster = roster;
+        base.row = roster ? &skirmish_row() : nullptr;
         // A notice on a roster-less frame is NOT drawn today: `append_hud_panels` returns before
         // it. So the menu's term in that early-return guard is load-bearing -- if a menu with no
         // rows got past the guard, the notice would appear and this frame would change.
@@ -589,7 +600,7 @@ TEST(Menu, DrawnDownTheLeftMarginUnderTheStripAndTheNotice) {
     // Measured by projecting each vertex the menu added back to frame pixels -- the attack list's
     // own method in test_scene.cpp -- over the two longest real menus, with the strip on.
     SceneOptions options = menu_rig();
-    options.show_roster = true;
+    options.row = &skirmish_row();
     const float scale = static_cast<float>(options.extent.height) / 720.0F;
     // The strip's bottom edge (6 px margin, 34 px plate), and the bottom of the notice row's plate
     // under it (the row is reserved whether or not a notice is up): the menu clears both.

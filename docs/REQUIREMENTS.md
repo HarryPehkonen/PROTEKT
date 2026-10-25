@@ -222,29 +222,37 @@ Derived and exact values behind the table:
 - [SHIPPED a67233b] The enemy mirrors the player slot for slot, including the hover tank.
 - [SHIPPED e653f16] No `Scavenger` is in `side_roster`. Neither side starts with one (section 8).
 
-### 4.3 The key pool
+### 4.3 The command row
 
-- [SHIPPED 609fd67] A function key binds to a KIND, not to a unit. Pressing it selects every living
-  unit of that kind you own, wherever they are. The strip draws one plate per kind with living units.
-- [SHIPPED 609fd67] Keys come out of a pool. Walking the living units in spawn order, the first kind
-  seen takes the lowest free key. A kind with no living unit holds no key, and that returns its key to
-  the pool. The keys in use are always `F1..Fn` with no gap.
-- [SHIPPED 609fd67] Harri 2026-10-24 (brief): a key is reassigned when its kind loses its last living
-  unit, which supersedes "a key binds for life" (N2's old invariant). The code does exactly this, so the
-  ruling is built. `roster.hpp:19-21` dates the same rule 2026-10-22 (section 14).
-- [SHIPPED 160dec4] The pool's keys are `F1`..`F10` (`kRosterKeys = 10`). The digit row selects
-  nothing.
-- [SHIPPED 609fd67] A surviving kind moves DOWN into a freed key. Wipe every tank and the turrets that
-  were on `F2` take `F1`. The pool keeps no memory.
-- [SHIPPED 160dec4] Pressing a key no group holds is refused with `You have no group F<n>.` and leaves
-  the selection alone.
+- [BUILT, ROW-SLOTS] The row is `~`, `1` (recycler), `2` (factory), `3` (armory), then `F1`..`F10`: fourteen
+  keys, each in the same spot on the screen for the whole game (`row.hpp`: slot 4 is `F1`, slot 13 `F10`).
+  Harri 2026-10-24, from a Battlezone: Combat Commander capture.
+- [BUILT, ROW-SLOTS] A key that holds nothing is not drawn, and the row does not close up: a wiped-out
+  group leaves a blank space for the next vehicles built. No dim ink, no placeholder, no zero.
+- [BUILT, ROW-SLOTS] Buildings are only on the numbered keys; `F1`..`F10` hold groups of VEHICLES, not
+  kinds. One kind may hold several keys; one key may hold a single vehicle. Today only `2` (the
+  factory) has a kind; `1` and `3` are empty and so not drawn. `~` is drawn when a nav mark exists.
+- [BUILT, ROW-SLOTS] A vehicle not seen before takes the first empty `F` slot, lowest first, filling a
+  gap in the middle before anything after it. A unit keeps its slot until its whole group is gone.
+  Every vehicle is its own group for now; a shift-built batch will share one key while a lone build takes
+  its own (Harri 2026-10-24), and needs a batch id the sim does not yet record.
+- [BUILT, ROW-SLOTS] An undeployed recycler may sit under any `F` key. Until deploying exists (RB3) it
+  stays a vehicle in the F-row; on deploy it will move to `1`.
+- [BUILT, ROW-SLOTS] A drawn key shows the kind's name, how many vehicles the group holds, and a health
+  bar: the group's summed hit points over its summed ceilings.
+- [BUILT, ROW-SLOTS] The memory is in the game layer (`RowState`); the sim has no new field and no hash
+  depends on it.
+- [BUILT, ROW-SLOTS] The digit row selects nothing. Pressing an `F` key whose slot is empty is refused
+  with `You have no group F<n>.` and leaves the selection alone.
+- [SUPERSEDED, ROW-SLOTS] K1's key pool (a key per kind, dealt in spawn order, survivors moving down into
+  a freed key, `F1..Fn` with no gap) is gone: it is the opposite of the ruling above.
 
 ### 4.4 Death
 
 - [DECIDED — not built] Harri 2026-10-24 (brief): a dead unit explodes and vanishes. There are no
   greyed-out rows and no ghost slots in any roster or HUD.
 - [SHIPPED src/game/scene.cpp:3059] The roster strip, the radar, the world map, the unit bars and the draw
-  loop each skip a unit with `alive == false` (`src/game/roster.cpp:19`, `src/game/radar.cpp:253`,
+  loop each skip a unit with `alive == false` (`src/game/row.cpp:19`, `src/game/radar.cpp:253`,
   `src/game/world_map.cpp:142`, `src/game/scene.cpp:3059-3061`). A dead unit has no row, no mark and no
   mesh.
 - [SHIPPED 67ea954] The "explode" half is a sound: a dead unit of yours is heard at full volume, and
@@ -274,8 +282,8 @@ Derived and exact values behind the table:
 
 PROVENANCE: `include/protekt/sim/spec.hpp:13-102`, `include/protekt/sim/units.hpp:36-49,120-172`,
 `include/protekt/sim/scenario.hpp:10-24`, `src/sim/scenario.cpp:34-60`, `tests/test_scenario.cpp:28-44`,
-`tests/test_roster.cpp:25,106`, `include/protekt/game/roster.hpp:9-34,53-70`,
-`src/game/roster.cpp:14-38`, `tests/test_roster_strip.cpp:238-296`, `src/sim/sim.cpp:849-867`,
+`tests/test_roster.cpp:25,106`, `include/protekt/game/row.hpp:9-34,53-70`,
+`src/game/row.cpp:14-38`, `tests/test_row_slots.cpp:238-296`, `src/sim/sim.cpp:849-867`,
 `src/game/interaction.cpp:291-326`, `include/protekt/ai/utility.hpp:44-51`,
 `src/ai/utility.cpp:78-113` (`role_of`, `threat_of`), `src/game/sounds.cpp:121-136`, `README.md:37-38`,
 Harri 2026-10-17 (brief), Harri 2026-10-22 (brief), Harri 2026-10-24 (brief).
@@ -368,7 +376,7 @@ Selection and orders, the rules behind the rows:
 PROVENANCE: `include/protekt/input/bindings.hpp:16-156`, `include/protekt/input/input.hpp:22-39`,
 `src/game/interaction.cpp:85-287,291-326,378-586`, `src/game/session.cpp:38-47`,
 `src/game/player.cpp:69-136`, `include/protekt/game/player.hpp:30-35`, `include/protekt/game/weapon.hpp:13-58`,
-`include/protekt/sim/orders.hpp:26-134`, `tests/test_roster_strip.cpp:119-134`,
+`include/protekt/sim/orders.hpp:26-134`, `tests/test_row_slots.cpp:119-134`,
 `tests/test_friendly_fire.cpp:69-140`, `README.md:15-88`, commit message of `3404ba9`
 ("The owner's directive") and `a2400a9`.
 
@@ -613,7 +621,7 @@ Harri 2026-10-16, 2026-10-23, 2026-10-24 (brief).
   treat `Side` as the team, and no new string should be added that assumes the player is human.
 
 PROVENANCE: `include/protekt/sim/units.hpp:51`, `include/protekt/game/menu.hpp:90-96`,
-`src/game/roster.cpp:49-67`, `src/game/menu.cpp:63-67`, Harri 2026-10-24 (brief).
+`src/game/row.cpp:49-67`, `src/game/menu.cpp:63-67`, Harri 2026-10-24 (brief).
 
 ## 10. Winning and losing
 
@@ -701,7 +709,7 @@ What has been measured, and what is ours:
 | Radar radius | 40 tiles | ours; no BZ2 figure cited | [SHIPPED include/protekt/game/radar.hpp:34] |
 | World map footprint | the radar's major diameter | Harri 2026-10-23, quoted at `world_map.hpp:35-40`; it replaced an earlier 12.7% of frame width taken from BZ2's minimap | [SHIPPED 43c1807] |
 | World map key | `R`; `O` is the objectives key | BZ2's own keys (`bindings.hpp:143-146`) | [SHIPPED 20f224e] |
-| Function-key pool | keys return to the pool when a kind's last unit dies | "how BattleZone works", Harri 2026-10-22 (`roster.hpp:19-21`) | [SHIPPED 609fd67] |
+| Command row | fixed key spots; an empty key is not drawn and nothing closes up; `F` keys hold vehicle groups | BZ2 capture, Harri 2026-10-24 (`row.hpp`); it replaced the 2026-10-22 key pool | [BUILT, ROW-SLOTS] |
 | Command menu | rows, verbs, costs, the gap, the top readout, the dimming | BZ2 capture 2026-10-24; a quotation (section 6) | [SHIPPED 3e799a0] |
 | Ship instrument | a segmented C ring with hull and ammo, weapons beside it | BZ2's gauge; one fraction the brief gave "measured wrong" and was corrected (`scene.cpp:1928-1935`) | [SHIPPED 341fbb3] |
 | Roster strip plate | 88 by 34 px, 6 px apart, 5 px corners | no measurement cited beyond the glyph height; ours | [SHIPPED bd32f0b] |
@@ -709,7 +717,7 @@ What has been measured, and what is ours:
 | Control scheme as a whole | WASD plus mouse look, right click weapon switch, number and function keys | not recorded as measured anywhere in the tree | [INTENDED — status unverified] |
 
 PROVENANCE: `include/protekt/game/radar.hpp:34-48`, `include/protekt/game/world_map.hpp:34-48`,
-`include/protekt/input/bindings.hpp:143-146`, `include/protekt/game/roster.hpp:9-34`,
+`include/protekt/input/bindings.hpp:143-146`, `include/protekt/game/row.hpp:9-34`,
 `src/game/scene.cpp:1928-1935,2145-2183`, `tests/test_menu.cpp:1-10`, commit message of `bd32f0b`,
 `README.md:3-4`, Harri standing (brief).
 
@@ -764,7 +772,7 @@ a document and the code, and places where the documents contradict each other. N
    deleted. Requirement, or parked idea?
 5. **Which HUD elements are exempt from the 10 px type scale?** The weapon label (4.8), the mortar ladder
    digits (4.0), the ship readings (3.0) and the `DEPLOYING` plate (3.0 at 450) are larger than cell 2.0.
-6. **The roster-key ruling has two wordings.** `roster.hpp:19-21` records "when the last unit dies, the
+6. **(Moot since ROW-SLOTS: the pool is gone.) The roster-key ruling had two wordings.** `roster.hpp` (now `row.hpp`) records "when the last unit dies, the
    function key space gets returned to the pool" as Harri's of 2026-10-22; the brief gives 2026-10-24 for
    "a key returns to the pool". Is the later one a restatement or a new ruling? The code satisfies both.
 7. **Mount and unmount time.** Harri 2026-10-17 (brief) gave 3 seconds for the mount. The unmount is also
@@ -841,4 +849,4 @@ a document and the code, and places where the documents contradict each other. N
 
 PROVENANCE: every item above names its own `file:line`; the documents are `README.md`,
 `docs/PLAN.md`, `include/protekt/input/bindings.hpp`, `include/protekt/game/menu.hpp` and
-`include/protekt/game/roster.hpp`.
+`include/protekt/game/row.hpp`.

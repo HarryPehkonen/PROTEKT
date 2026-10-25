@@ -108,8 +108,9 @@ inline void apply(HeldKeys& keys, const KeyEvent& event) noexcept {
     return key.scancode - kKey1 + 1;
 }
 
-/// The roster group an F-key event asks for, 1-10, or 0 for any other key. Bare only: Ctrl/Alt+F1
-/// are not the roster's. F1..F10 are the pool's keys now; the digit row is the command/mark row.
+/// The command-row group an F-key event asks for, 1-10, or 0 for any other key. Bare only:
+/// Ctrl/Alt+F1 are not the row's. F1..F10 are the vehicle groups' keys; the digit row is the
+/// command/mark row.
 [[nodiscard]] inline int function_key(const KeyEvent& key) noexcept {
     if (!key.pressed || key.ctrl || key.alt || key.scancode < kKeyF1 || key.scancode > kKeyF1 + 9) {
         return 0;

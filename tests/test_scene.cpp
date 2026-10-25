@@ -21,6 +21,7 @@
 #include "protekt/game/atlas.hpp"
 #include "protekt/game/pick.hpp"
 #include "protekt/game/radar.hpp"
+#include "protekt/game/row.hpp"
 #include "protekt/game/scene.hpp"
 #include "protekt/game/weapon.hpp"
 #include "protekt/input/bindings.hpp"
@@ -4637,12 +4638,20 @@ std::vector<protekt::game::TargetRow> two_rows(const protekt::sim::Sim& sim) {
             {2, sim.units().at(1).kind, sim.units().at(1).id, 40}};
 }
 
+/// The player's command row over `sim`, as the app would hold it: the strip the panels sit under.
+protekt::game::RowState row_of(const protekt::sim::Sim& sim) {
+    protekt::game::RowState row;
+    row.update(sim, protekt::sim::Side::Player, 0);
+    return row;
+}
+
 } // namespace
 
 TEST(SceneAttackList, TheListIsDrawnOnlyWhenAskedAndNeverTouchesTheSim) {
     const auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(42));
     SceneOptions options = options_at(60.0F, 60.0F);
-    options.show_roster = true;
+    const protekt::game::RowState row = row_of(sim);
+    options.row = &row;
     const std::uint64_t hash = sim.state_hash();
     const Scene without = build_scene(sim, options);
 
@@ -4654,7 +4663,7 @@ TEST(SceneAttackList, TheListIsDrawnOnlyWhenAskedAndNeverTouchesTheSim) {
 
     // The field's default draws nothing at all, so a frame that never heard of it is unchanged.
     SceneOptions plain = options_at(60.0F, 60.0F);
-    plain.show_roster = true;
+    plain.row = &row;
     const Scene untouched = build_scene(sim, plain);
     ASSERT_EQ(untouched.vertices.size(), without.vertices.size());
     EXPECT_EQ(std::memcmp(untouched.vertices.data(), without.vertices.data(),
@@ -4665,7 +4674,8 @@ TEST(SceneAttackList, TheListIsDrawnOnlyWhenAskedAndNeverTouchesTheSim) {
 TEST(SceneAttackList, AnEmptyListDrawsNothing) {
     const auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(42));
     SceneOptions options = options_at(60.0F, 60.0F);
-    options.show_roster = true;
+    const protekt::game::RowState row = row_of(sim);
+    options.row = &row;
     const Scene without = build_scene(sim, options);
     const std::vector<protekt::game::TargetRow> none;
     options.attack_list = &none;
@@ -4679,7 +4689,8 @@ TEST(SceneAttackList, AnEmptyListDrawsNothing) {
 TEST(SceneAttackList, TwoSameSeedBuildsWithAListAreByteIdentical) {
     const auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(42));
     SceneOptions options = options_at(60.0F, 60.0F);
-    options.show_roster = true;
+    const protekt::game::RowState row = row_of(sim);
+    options.row = &row;
     const std::vector<protekt::game::TargetRow> rows = two_rows(sim);
     options.attack_list = &rows;
     const Scene a = build_scene(sim, options);
@@ -4693,7 +4704,8 @@ TEST(SceneAttackList, TwoSameSeedBuildsWithAListAreByteIdentical) {
 TEST(SceneAttackList, EveryRowIsDrawnSoMoreRowsMakeMoreVertices) {
     const auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(42));
     SceneOptions options = options_at(60.0F, 60.0F);
-    options.show_roster = true;
+    const protekt::game::RowState row = row_of(sim);
+    options.row = &row;
     std::vector<protekt::game::TargetRow> rows = two_rows(sim);
     options.attack_list = &rows;
     const Scene two = build_scene(sim, options);
@@ -4707,7 +4719,8 @@ TEST(SceneAttackList, EveryRowIsDrawnSoMoreRowsMakeMoreVertices) {
 TEST(SceneAttackList, ThePanelSitsBelowTheRosterStrip) {
     const auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(42));
     SceneOptions options = options_at(60.0F, 60.0F);
-    options.show_roster = true;
+    const protekt::game::RowState row = row_of(sim);
+    options.row = &row;
     const Scene without = build_scene(sim, options);
     const std::vector<protekt::game::TargetRow> rows = two_rows(sim);
     options.attack_list = &rows;

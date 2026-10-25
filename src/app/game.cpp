@@ -24,6 +24,7 @@
 #include "protekt/game/menu.hpp"
 #include "protekt/game/nav_marks.hpp"
 #include "protekt/game/player.hpp"
+#include "protekt/game/row.hpp"
 #include "protekt/game/scene.hpp"
 #include "protekt/game/session.hpp"
 #include "protekt/game/sounds.hpp"
@@ -342,7 +343,9 @@ public:
           // 30 Hz is the rate the sim is designed and balanced at: 6 tiles/s at 30 ticks/s is the
           // 12 m/s hover tank in docs/PLAN.md. A stall is capped at 250 ms of catch-up.
           play_clock_(std::chrono::nanoseconds{1'000'000'000LL / 30},
-                      std::chrono::nanoseconds{250'000'000LL}, TimeAccumulator::Clock::now()) {}
+                      std::chrono::nanoseconds{250'000'000LL}, TimeAccumulator::Clock::now()) {
+        refresh_row();
+    }
 
     [[nodiscard]] sim::Tick tick() const { return sim_.tick(); }
     [[nodiscard]] std::uint64_t state_hash() const { return sim_.state_hash(); }
@@ -362,6 +365,7 @@ public:
         scene_options.aim = game::aim_from(hands, extent);
         scene_options.viewer_unit = radar_viewer(session_, options_.no_radar);
         scene_options.nav_marks = &nav_marks_; // G-then-a-number reads the marks
+        scene_options.row = &row_;             // F1-F10 select what the row holds
         player_alive_before_ = is_alive(sim_, session_.driven());
 
         std::vector<sim::Order> orders;
@@ -420,6 +424,7 @@ public:
         for (const AdvanceResult::Touchdown& down : result.touchdowns) {
             landing_marks_.land(down.tick, down.landing.tile_x, down.landing.tile_y);
         }
+        refresh_row();
     }
 
     /// The frame, as of now. The hover advances once per tick the sim has run, off the sim's own
@@ -454,7 +459,7 @@ public:
         scene_options.reloading = game::weapon_reloading(sim_, driven);
         scene_options.landing_marks = &landing_marks_;
         scene_options.nav_marks = &nav_marks_;
-        scene_options.show_roster = true;
+        scene_options.row = &row_;
         scene_options.show_radar_mesh = !options_.no_radar_mesh;
         scene_options.show_world_map = world_map_;
         if (session_.attack_armed()) {
@@ -509,6 +514,11 @@ private:
     static constexpr sim::Tick kNoticeTicks = 3 * sim::kTicksPerSecond;
     std::string notice_;
     sim::Tick notice_until_{0};
+    /// The command row (ROW-SLOTS): which key holds which units. Refreshed once per frame, right
+    /// after the sim steps, so the input of the next frame and the picture of this one agree.
+    game::RowState row_;
+
+    void refresh_row() { row_.update(sim_, sim::Side::Player, nav_marks_.marks().size()); }
 };
 
 /// The keys and pointer a run puts in the player's hands on its own, for a frame nobody is

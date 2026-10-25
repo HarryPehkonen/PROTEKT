@@ -13,7 +13,7 @@
 
 #include "protekt/game/menu.hpp"
 #include "protekt/game/pick.hpp"
-#include "protekt/game/roster.hpp"
+#include "protekt/game/row.hpp"
 #include "protekt/game/scene.hpp"
 #include "protekt/game/session.hpp"
 #include "protekt/input/input.hpp"
@@ -198,17 +198,20 @@ TEST(PlayerView, ASelectedRecyclerAsksForTheRecyclerMenu) {
 }
 
 // RB1b: the recycler the skirmish now spawns, selected, is the recycler's menu on screen -- six
-// rows, the third numbered one `3 DEPLOY` -- and the roster strip names it RECYCLER on the last
-// free key.
+// rows, the third numbered one `3 DEPLOY` -- and the command row names it RECYCLER on the last
+// vehicle key. It stays a vehicle in the F-row until deploying exists (RB3).
 TEST(PlayerView, TheSkirmishRecyclerIsLabelledRecyclerAndAsksForTheSixRowMenu) {
     const sim::Sim sim = sim::Sim::create(sim::skirmish(kSeed));
-    const game::Roster roster = game::roster_of(sim, Side::Player);
-    ASSERT_EQ(roster.groups.size(), 7U) << "tank, hover, factory, turret, mortar, rocket, recycler";
-    const game::RosterGroup& group = roster.groups.back();
-    ASSERT_EQ(group.kind, UnitKind::Recycler);
-    EXPECT_EQ(game::kind_label(group.kind), "RECYCLER");
-    EXPECT_EQ(group.key, 7) << "F7: the last free key in id order, nothing reordered";
+    game::RowState row;
+    row.update(sim, Side::Player, 0);
+    // Nine vehicles in id order (the factory sits on `2`, not under an F key): F9 is the last.
+    const game::RowSlot& group = row.slots.at(game::group_slot(9));
     ASSERT_EQ(group.units.size(), 1U);
+    const std::optional<game::SlotReading> reading = game::read_slot(sim, group);
+    ASSERT_TRUE(reading.has_value());
+    ASSERT_EQ(reading->kind, UnitKind::Recycler);
+    EXPECT_EQ(game::kind_label(reading->kind), "RECYCLER");
+    EXPECT_FALSE(row.occupied(game::group_slot(10))) << "F10 is the next free slot";
 
     const std::vector<sim::UnitId> selected{group.units.front()};
     game::MenuInput in;

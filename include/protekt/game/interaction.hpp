@@ -64,12 +64,11 @@ public:
     ///  * M with a selection: MoveTo the ground under the mark for every selected unit that is not
     ///    the driven one, even with a unit under the mark; nothing selected: refused
     ///  * X: swap the driven tank to the own tank under the mark; the vacated one is told to Stop
-    ///  * F1-F10: select the whole roster GROUP that key belongs to, wherever its units are, on
-    ///    screen or not (the roster strip, `game/roster.hpp`), replacing whatever the mouse had
-    ///    built; a key no group holds is FREE -- the pool keeps no memory of a returned key -- and
-    ///    one message covers "that group is gone" and "you never had that group" alike. The key is
-    ///    a GROUP's, not a unit's (N2); digits stopped selecting in 160dec4 and are now the mark
-    ///    row, the attack-list row, and -- with no prompt open -- the command menu's rows
+    ///  * F1-F10: select the whole GROUP the command row (`game/row.hpp`) holds under that key,
+    ///    wherever its units are, on screen or not, replacing whatever the mouse had built; a key
+    ///    that holds nothing is refused with one message. A key belongs to a group of vehicles,
+    ///    not a kind (ROW-SLOTS); digits do not select -- they are the mark row, the attack-list
+    ///    row, and -- with no prompt open -- the command menu's rows
     ///  * G, then 0-9 (N3): send the selection to that nav mark's tile -- the same MoveTo `M`
     ///    makes. G arms; the next key settles it. A digit is then a MARK number, never N2's
     ///    selection key: a number with no mark is refused and orders nothing. Any digit uses the
@@ -153,9 +152,9 @@ private:
     void swap_to_crosshair(const sim::Sim& sim, const SceneOptions& options);
     void move_to_crosshair_ground(const sim::Sim& sim, const SceneOptions& options);
     void follow_crosshair_unit(const sim::Sim& sim, const SceneOptions& options);
-    /// F1-F10: select the whole roster group that key belongs to (N2). The key names a GROUP, not a
-    /// unit, and a key no group holds is refused with `empty_key_message`.
-    void select_roster_key(const sim::Sim& sim, int group_key);
+    /// F1-F10: select the whole group the command row holds under that key (`options.row`). A key
+    /// that holds nothing, or a frame with no row, is refused with `empty_key_message`.
+    void select_roster_key(const SceneOptions& options, int group_key);
     /// A digit with no prompt open: the menu row it names, if that row acts and the model says it
     /// is enabled; otherwise nothing at all (RB-DIGITS).
     void menu_digit(const sim::Sim& sim, int digit);
