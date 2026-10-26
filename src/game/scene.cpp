@@ -2204,9 +2204,13 @@ void append_ship_gauge(std::vector<SceneVertex>& out, const SceneOptions& option
 /// text is 10 px in the 800x600 originals and still ~10 px in a 1280x730 screenshot of the
 /// remaster, so it is a fixed pixel font that ignores the resolution. Top row: the key, and how
 /// many vehicles the group holds beside it; then the kind (cell 2.0, or smaller for a name that
-/// would not fit the plate's inside); then a 3 px bar, green over yellow over red, showing the
-/// GROUP's fraction -- the sum of its hit points over the sum of its ceilings. `~` says how many
-/// nav marks there are and has no bar; the building on `2` has a bar and no count. Under the row,
+/// would not fit the plate's inside); then a 3 px bar with ONE SEGMENT PER LIVING VEHICLE, in
+/// the group's spawn order, 1 px apart (BAR-LOOK, HIS RULING 2026-10-24: "They vary in COLOUR, not
+/// length"). The segments divide the slot's inside equally and never shorten with damage; each is
+/// coloured by its own vehicle's hit points on `bar_segments`'s ramp, bright green through yellow
+/// and red to a near-black that still reads against the black plate. A vehicle that dies takes
+/// its segment with it and the rest re-divide the same width. `~` says how many nav marks there
+/// are and has no bar; the building on `2` has one segment and no count. Under the row,
 /// `options.notice` in 10 px yellow capitals.
 ///
 /// THE ATTACK LIST (BZ2A): the nearest enemies T offered, by the same plate and the same type, one
@@ -2223,6 +2227,7 @@ constexpr float kStripKeyCell = 2.0F;
 constexpr float kStripHpCell = 2.0F;
 constexpr float kStripKindCell = 2.0F;
 constexpr float kStripBarPixels = 3.0F;
+constexpr float kStripSegmentGapPixels = 1.0F;
 constexpr float kStripNoticeCell = 2.0F;
 /// The corner radius of a HUD panel, at 720p. Panels are rounded like BZ2's rather than square, and
 /// the frame ring clamps the radius to at least its own width so the face inside it can never be
@@ -2545,8 +2550,7 @@ void append_hud_panels(std::vector<SceneVertex>& out, const SceneOptions& option
         const bool is_group = row_slot_kind(index) == RowSlotKind::Group;
         std::string label = "NAVS";
         std::size_t count = options.row->nav_marks;
-        std::uint16_t hp = 0;
-        std::uint16_t max_hp = 0;
+        std::vector<float> fractions;
         if (!is_navs) {
             const std::optional<SlotReading> reading = read_slot(sim, slot);
             if (!reading.has_value()) {
@@ -2554,8 +2558,13 @@ void append_hud_panels(std::vector<SceneVertex>& out, const SceneOptions& option
             }
             label = std::string(kind_label(reading->kind));
             count = reading->count;
-            hp = reading->hp;
-            max_hp = reading->max_hp;
+            // A vehicle key has a segment per living vehicle; a building key is one thing, so one.
+            fractions = is_group
+                            ? reading->fractions
+                            : std::vector<float>{reading->max_hp == 0
+                                                     ? 0.0F
+                                                     : static_cast<float>(reading->hp)
+                                                           / static_cast<float>(reading->max_hp)};
         }
         const float left = (kStripMarginPixels * px) + (static_cast<float>(index) * (slot_w + gap));
         // Lit when ANY unit of the group is selected: pressing the key selects the whole group,
@@ -2587,23 +2596,32 @@ void append_hud_panels(std::vector<SceneVertex>& out, const SceneOptions& option
         if (is_navs) {
             continue; // marks have no hit points: no bar
         }
-        // The bar: a dark track the width of the slot's inside, the fill in proportion. Summed
-        // totals give the group's fraction exactly, because every unit of a kind shares its max.
+        // The bar: a dark track the width of the slot's inside, then one segment per vehicle,
+        // 1 px apart, dividing that width equally whatever their health -- COLOUR says how hurt a
+        // vehicle is, never length -- with the last taking the whole pixels left over. A group too
+        // big for that gets 1 px segments, left to right, until the bar's right edge.
         const float bar_top = top + slot_h - pad - (kStripBarPixels * px) + (2.0F * px);
+        const float bar_bottom = bar_top + (kStripBarPixels * px);
         const float bar_left = left + pad;
         const float bar_width = slot_w - (2.0F * pad);
-        const float fraction
-            = max_hp == 0
-                  ? 0.0F
-                  : std::clamp(static_cast<float>(hp) / static_cast<float>(max_hp), 0.0F, 1.0F);
-        const std::array<float, 3> fill = fraction > 0.6F ? std::array<float, 3>{0.1F, 0.85F, 0.2F}
-                                          : fraction > 0.3F
-                                              ? std::array<float, 3>{1.0F, 0.85F, 0.1F}
-                                              : std::array<float, 3>{1.0F, 0.15F, 0.1F};
-        rect(marks_at * kHudFaceRatio * 0.999F, bar_left, bar_top, bar_left + bar_width,
-             bar_top + (kStripBarPixels * px), {0.25F, 0.25F, 0.25F});
-        rect(marks_at, bar_left, bar_top, bar_left + (bar_width * fraction),
-             bar_top + (kStripBarPixels * px), fill);
+        const float bar_right = bar_left + bar_width;
+        rect(marks_at * kHudFaceRatio * 0.999F, bar_left, bar_top, bar_right, bar_bottom,
+             {0.25F, 0.25F, 0.25F});
+        const std::vector<BarSegment> segments = bar_segments(fractions);
+        const float segment_gap = kStripSegmentGapPixels * px;
+        const float n = std::max(1.0F, static_cast<float>(segments.size()));
+        const float segment_w
+            = std::max(px, std::floor((bar_width - ((n - 1.0F) * segment_gap)) / n));
+        float segment_left = bar_left;
+        for (std::size_t i = 0; i < segments.size(); ++i) {
+            if (segment_left + segment_w > bar_right + (0.01F * px)) {
+                break; // no room left: an absurd group shows as many as fit, never overlapping
+            }
+            const float segment_right
+                = i + 1 == segments.size() ? bar_right : segment_left + segment_w;
+            rect(marks_at, segment_left, bar_top, segment_right, bar_bottom, segments.at(i).rgb);
+            segment_left = segment_right + segment_gap;
+        }
     }
     if (!options.notice.empty()) {
         const float cell = kStripNoticeCell * px;

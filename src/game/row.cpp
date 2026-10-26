@@ -2,7 +2,9 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <optional>
 #include <span>
 #include <vector>
@@ -135,13 +137,42 @@ std::optional<SlotReading> read_slot(const sim::Sim& sim, const RowSlot& slot) {
             continue;
         }
         if (!reading.has_value()) {
-            reading = SlotReading{unit->kind, 0, 0, 0};
+            reading = SlotReading{unit->kind, 0, 0, 0, {}};
         }
+        const std::uint16_t ceiling = sim::profile(unit->kind).hp;
         ++reading->count;
         reading->hp = static_cast<std::uint16_t>(reading->hp + unit->hp);
-        reading->max_hp = static_cast<std::uint16_t>(reading->max_hp + sim::profile(unit->kind).hp);
+        reading->max_hp = static_cast<std::uint16_t>(reading->max_hp + ceiling);
+        reading->fractions.push_back(
+            ceiling == 0 ? 0.0F : static_cast<float>(unit->hp) / static_cast<float>(ceiling));
     }
     return reading;
+}
+
+std::vector<BarSegment> bar_segments(std::span<const float> fractions) {
+    // The ramp's anchors, lowest first: near-black, red, yellow, bright green.
+    constexpr std::array<float, 4> kAt{0.0F, 0.33F, 0.66F, 1.0F};
+    constexpr std::array<std::array<float, 3>, 4> kRgb{{{0.12F, 0.05F, 0.05F},
+                                                        {1.00F, 0.15F, 0.10F},
+                                                        {1.00F, 0.85F, 0.10F},
+                                                        {0.15F, 0.95F, 0.25F}}};
+    std::vector<BarSegment> segments;
+    segments.reserve(fractions.size());
+    for (const float raw : fractions) {
+        const float fraction = std::clamp(raw, 0.0F, 1.0F);
+        std::size_t upper = 1;
+        while (upper + 1 < kAt.size() && fraction > kAt.at(upper)) {
+            ++upper;
+        }
+        const float t = (fraction - kAt.at(upper - 1)) / (kAt.at(upper) - kAt.at(upper - 1));
+        BarSegment segment{fraction, {}};
+        for (std::size_t c = 0; c < 3; ++c) {
+            // std::lerp is exact at both ends, so an anchor reads as exactly its own colour.
+            segment.rgb.at(c) = std::lerp(kRgb.at(upper - 1).at(c), kRgb.at(upper).at(c), t);
+        }
+        segments.push_back(segment);
+    }
+    return segments;
 }
 
 std::string_view row_key_label(std::size_t index) noexcept {

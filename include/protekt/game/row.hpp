@@ -107,7 +107,24 @@ struct SlotReading {
     std::size_t count{};    ///< living units
     std::uint16_t hp{};     ///< summed over them
     std::uint16_t max_hp{}; ///< summed over them
+    /// One per living unit, in slot order (spawn order, until a move appends to the key): its hit
+    /// points over its kind's ceiling.
+    /// A corpse contributes none, so `fractions.size() == count`.
+    std::vector<float> fractions{};
 };
+
+/// One vehicle's piece of a key's health bar (BAR-LOOK). HIS RULING, 2026-10-24: one bar per
+/// vehicle, varying in COLOUR, not length -- bright green when whole, then yellow, red and black.
+struct BarSegment {
+    float fraction{};           ///< the vehicle's, clamped to 0..1
+    std::array<float, 3> rgb{}; ///< `fraction` on the ramp
+};
+
+/// One segment per fraction, in the order given, coloured on a continuous ramp through four
+/// anchors: 1.0 bright green, 0.66 yellow, 0.33 red, 0.0 near-black. The floor is deliberately not
+/// pure black: the plate behind the bar is black, and a vehicle about to die must still read as a
+/// bar rather than as no vehicle. Pure, so the look is pinned by tests and not by eye.
+[[nodiscard]] std::vector<BarSegment> bar_segments(std::span<const float> fractions);
 
 /// The slot read against the sim as it is now, or nullopt when none of its units is alive -- so a
 /// frame drawn before the row is next updated still never shows a dead key.
