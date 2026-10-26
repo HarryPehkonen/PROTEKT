@@ -1099,8 +1099,22 @@ choice are menu and setup concerns; the C-series HUD has no map or side picker. 
 - [DECIDED — not built] From the same answer as the deploy durations: factories and armories are raised by
   the BUILDER (alien) and the CONSTRUCTOR (human), and buildings carry no control numbers of their own; they
   only unlock things, such as new vehicles that can be built.
+- [DECIDED — not built] The BUILDING NAMES follow the faction too, as the vehicle names do. HIS INFO,
+  2026-10-25, relayed from a Gemini lookup of Battlezone II sources: the alien team's mobile producer is the
+  MATRIARCH and keeps that name when deployed, exactly as the human RECYCLER does; its production building is
+  the KILN; its armory is the DOWER; its power provider is the POWER LUNG; its comm tower is the ANTENNA
+  MOUND; its gun tower is the GUN SPIRE. The human team's equivalents are Recycler, Factory, Armory, Power
+  Generator, Comm Tower and Gun Tower. So "foundry" is not a Battlezone II name and should not be used.
+- [INTENDED — unconfirmed] Two alien buildings upgrade in place: the Kiln into the FORGE and the Antenna Mound
+  into the OVERSEER ARRAY. PROTEKT has no building-upgrade mechanism — no cost, time, key or changed
+  behaviour — so this is reference carried across, not a ruling. If upgrades are wanted, they are their own
+  slice.
+- [DECIDED — not built] The name table is keyed by (kind, faction), matching the vehicle-name rule in
+  section 9. The matriarch is the recycler's ALIEN NAME, not a separate kind.
 
 PROVENANCE: `protekt-open-questions.md` Q6.2 and Q6.1 (Harri 2026-10-24, quoted, with the read-back table);
+Harri 2026-10-25 (relayed Battlezone II reference: Matriarch, Kiln/Forge, Dower, Power Lung, Antenna
+Mound/Overseer Array, Gun Spire);
 `slices.json` RB5, RECY; code plus commit — `3e799a0` (`include/protekt/game/menu.hpp:90-96,140-152`,
 `src/game/menu.cpp:59-67,113-116`), `include/protekt/sim/spec.hpp:35-36,110-112`, and Part A sections 6 and 9
 for the drift.
