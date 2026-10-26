@@ -293,6 +293,9 @@ TEST_F(GameCliTest, LogSpawnsPrintsTheCompositionInTheBattleLogGrammar) {
 }
 
 TEST_F(GameCliTest, WithoutTheFlagNoSpawnLinesArePrinted) {
+    if (kUnderThreadSanitizer) {
+        GTEST_SKIP() << kTsanReason;
+    }
     std::string err;
     std::string out;
     EXPECT_EQ(run({"--headless", "--frames", "1", "--width", "32", "--height", "24"}, err, &out), 0)
@@ -301,6 +304,9 @@ TEST_F(GameCliTest, WithoutTheFlagNoSpawnLinesArePrinted) {
 }
 
 TEST_F(GameCliTest, LogSpawnsPrintsTheSameCompositionTwiceForTheSameSeed) {
+    if (kUnderThreadSanitizer) {
+        GTEST_SKIP() << kTsanReason;
+    }
     std::string err;
     std::string first;
     std::string second;
