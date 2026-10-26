@@ -1,10 +1,9 @@
 #include "protekt/sim/scenario.hpp"
 
 #include <algorithm>
-#include <array>
 #include <cstddef>
 #include <cstdlib>
-#include <span>
+#include <vector>
 
 #include "protekt/rng.hpp"
 #include "protekt/world/world.hpp"
@@ -22,46 +21,6 @@ constexpr int kEdge = 24;
 constexpr int kEnemyEdge = 144;
 constexpr int kJitter = 24;
 constexpr int kBaseAttempts = 32; ///< enemy base candidates tried per seed
-
-struct Offset {
-    int dx;
-    int dy;
-};
-
-/// The roster's kinds, in spawn order (creation order is id order): tanks, the hover tank, the
-/// factory, the turrets, the support weapons -- the mortar and the rocket -- then the recycler.
-/// Both sides spawn the same list. The support weapons come last so every unit before them keeps
-/// its id and tile; the newest kind is appended after them for the same reason, and so that the
-/// recycler is the last id on each side.
-constexpr std::array<UnitKind, 10> kRoster{{
-    UnitKind::Tank,
-    UnitKind::Tank,
-    UnitKind::Tank,
-    UnitKind::HoverTank,
-    UnitKind::Factory,
-    UnitKind::Turret,
-    UnitKind::Turret,
-    UnitKind::Mortar,
-    UnitKind::Rocket,
-    UnitKind::Recycler,
-}};
-
-/// Offsets from the side's base centre, parallel to kRoster; mirrored for the enemy so the two
-/// sides face each other. +x,+y is toward the enemy: the tanks lead, the turrets flank the factory,
-/// and the mortar and rocket stand BEHIND it, at the rear of the cluster, where the tanks screen
-/// them. The recycler, the base on wheels, stands at the rear beside the factory.
-constexpr std::array<Offset, 10> kOffsets{{
-    {8, 2},
-    {8, 8},
-    {2, 8},
-    {5, 5},
-    {0, 0},
-    {5, -3},
-    {-3, 5},
-    {-4, -1},
-    {-1, -4},
-    {-3, -3},
-}};
 
 bool passable(std::uint64_t seed, int x, int y) {
     return x >= 0 && y >= 0 && x < kMapTiles && y < kMapTiles
@@ -119,9 +78,37 @@ int blocked_tiles(std::uint64_t seed, int x0, int y0, int x1, int y1) {
 
 } // namespace
 
-std::span<const UnitKind> side_roster(Side /*side*/) noexcept { return kRoster; }
+ScenarioData default_data() {
+    // In spawn order (creation order is id order): tanks, the hover tank, the factory, the turrets,
+    // the support weapons -- the mortar and the rocket -- then the recycler. The support weapons
+    // come last so every unit before them keeps its id and tile; the newest kind is appended after
+    // them for the same reason, and so that the recycler is the last id on each side. Offsets are
+    // from the side's base centre and mirrored for the enemy so the two sides face each other:
+    // the tanks lead, the turrets flank the factory, and the mortar and rocket stand BEHIND it, at
+    // the rear of the cluster, where the tanks screen them. The recycler, the base on wheels,
+    // stands at the rear beside the factory.
+    ScenarioData data;
+    data.groups = {
+        {UnitKind::Tank, 1, 8, 2},     {UnitKind::Tank, 1, 8, 8},
+        {UnitKind::Tank, 1, 2, 8},     {UnitKind::HoverTank, 1, 5, 5},
+        {UnitKind::Factory, 1, 0, 0},  {UnitKind::Turret, 1, 5, -3},
+        {UnitKind::Turret, 1, -3, 5},  {UnitKind::Mortar, 1, -4, -1},
+        {UnitKind::Rocket, 1, -1, -4}, {UnitKind::Recycler, 1, -3, -3},
+    };
+    return data;
+}
 
-Scenario skirmish(std::uint64_t seed) {
+std::vector<UnitKind> side_roster(const ScenarioData& data, Side /*side*/) {
+    std::vector<UnitKind> roster;
+    for (const Group& group : data.groups) {
+        roster.insert(roster.end(), static_cast<std::size_t>(group.count), group.kind);
+    }
+    return roster;
+}
+
+Scenario skirmish(std::uint64_t seed) { return skirmish(seed, default_data()); }
+
+Scenario skirmish(std::uint64_t seed, const ScenarioData& data) {
     rng::SplitMix64 stream(rng::stream_seed(seed, kScenarioStream));
     const int jitter = static_cast<int>(kJitter);
     const int player_x = kEdge + static_cast<int>(stream.bounded(jitter));
@@ -129,12 +116,11 @@ Scenario skirmish(std::uint64_t seed) {
 
     Scenario scenario{};
     scenario.seed = seed;
-    scenario.spawns.reserve(2 * kRoster.size());
-    const std::span<const UnitKind> player_roster = side_roster(Side::Player);
-    for (std::size_t i = 0; i < player_roster.size(); ++i) {
-        scenario.spawns.push_back(place(seed, scenario.spawns, player_roster[i], Side::Player,
-                                        player_x + kOffsets.at(i).dx,
-                                        player_y + kOffsets.at(i).dy));
+    for (const Group& group : data.groups) {
+        for (int i = 0; i < group.count; ++i) {
+            scenario.spawns.push_back(place(seed, scenario.spawns, group.kind, Side::Player,
+                                            player_x + group.dx, player_y + group.dy));
+        }
     }
 
     // The enemy base: the candidate (drawn from the same seeded stream) whose straight lines from
@@ -157,10 +143,11 @@ Scenario skirmish(std::uint64_t seed) {
             enemy_y = cy;
         }
     }
-    const std::span<const UnitKind> enemy_roster = side_roster(Side::Enemy);
-    for (std::size_t i = 0; i < enemy_roster.size(); ++i) {
-        scenario.spawns.push_back(place(seed, scenario.spawns, enemy_roster[i], Side::Enemy,
-                                        enemy_x - kOffsets.at(i).dx, enemy_y - kOffsets.at(i).dy));
+    for (const Group& group : data.groups) {
+        for (int i = 0; i < group.count; ++i) {
+            scenario.spawns.push_back(place(seed, scenario.spawns, group.kind, Side::Enemy,
+                                            enemy_x - group.dx, enemy_y - group.dy));
+        }
     }
     return scenario;
 }

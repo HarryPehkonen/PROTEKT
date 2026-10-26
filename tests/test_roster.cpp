@@ -28,7 +28,7 @@ TEST(Roster, BothSidesListTheSameKindsInSpawnOrder) {
                                      UnitKind::Turret,    UnitKind::Mortar,  UnitKind::Rocket,
                                      UnitKind::Recycler};
     for (const Side side : {Side::Player, Side::Enemy}) {
-        const std::span<const UnitKind> roster = side_roster(side);
+        const std::vector<UnitKind> roster = side_roster(default_data(), side);
         ASSERT_EQ(roster.size(), want.size());
         for (std::size_t i = 0; i < want.size(); ++i) {
             EXPECT_EQ(roster[i], want[i]) << "slot " << i;
@@ -47,8 +47,9 @@ TEST(Roster, TheEnemyHoverTankSpawnsInThePlayersSlotOfItsOwnGroup) {
         for (std::size_t i = 0; i < kRosterSize; ++i) {
             EXPECT_EQ(s.spawns.at(i).side, Side::Player);
             EXPECT_EQ(s.spawns.at(kRosterSize + i).side, Side::Enemy);
-            EXPECT_EQ(s.spawns.at(i).kind, side_roster(Side::Player)[i]);
-            EXPECT_EQ(s.spawns.at(kRosterSize + i).kind, side_roster(Side::Enemy)[i]);
+            EXPECT_EQ(s.spawns.at(i).kind, side_roster(default_data(), Side::Player)[i]);
+            EXPECT_EQ(s.spawns.at(kRosterSize + i).kind,
+                      side_roster(default_data(), Side::Enemy)[i]);
         }
         EXPECT_EQ(s.spawns.at(kRosterSize + kHoverSlot).kind, UnitKind::HoverTank);
         EXPECT_EQ(s.spawns.at(kRosterSize + kHoverSlot).side, Side::Enemy);

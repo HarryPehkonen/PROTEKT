@@ -19,6 +19,7 @@
 #include "protekt/app/audio_pipeline.hpp"
 #include "protekt/app/game_presenter.hpp"
 #include "protekt/app/player_view.hpp"
+#include "protekt/app/scenario_toml.hpp"
 #include "protekt/app/time_accumulator.hpp"
 #include "protekt/game/aim.hpp"
 #include "protekt/game/menu.hpp"
@@ -125,6 +126,9 @@ struct Options {
     /// same family as `--no-radar`, a flag for verification. Sound never touches the simulation,
     /// so it changes nothing but what the speakers do.
     bool no_sound{false};
+    /// `--scenario FILE`: the composition to play, in place of the built-in one. Empty means the
+    /// built-in; there is no search path, so a named file is the only way another one is read.
+    std::string scenario{};
 };
 
 /// The scancode `--key` names: `space`, `tab`, `f1` to `f10`, in lower case and nothing else.
@@ -300,6 +304,11 @@ int parse_args(std::span<const std::string_view> args, Options& options, std::os
                 err << "protekt-game: --pulse wants a percentage from 0 to 100\n";
                 return 2;
             }
+        } else if (arg == "--scenario") {
+            if (!next(value)) {
+                return 2;
+            }
+            options.scenario = std::string(value);
         } else if (arg == "--capture") {
             if (!next(value)) {
                 return 2;
@@ -633,6 +642,18 @@ int run_game_cli(std::span<const std::string_view> args, std::ostream& out, std:
         return code;
     }
 
+    // A named scenario that cannot be read or parsed refuses to start, before any window opens: a
+    // bad data file must never quietly play a different game.
+    sim::ScenarioData scenario_data = sim::default_data();
+    if (!options.scenario.empty()) {
+        ScenarioParse parsed = load_scenario_file(options.scenario);
+        if (!parsed.ok) {
+            err << "protekt-game: --scenario " << options.scenario << ": " << parsed.error << "\n";
+            return 2;
+        }
+        scenario_data = std::move(parsed.data);
+    }
+
     PresenterOptions presenter_options;
     presenter_options.extent = game::Extent{options.width, options.height};
     presenter_options.gpu = options.gpu;
@@ -660,7 +681,7 @@ int run_game_cli(std::span<const std::string_view> args, std::ostream& out, std:
         audio_sink.emplace(*audio_out);
     }
 
-    sim::Sim sim = sim::Sim::create(sim::skirmish(options.seed));
+    sim::Sim sim = sim::Sim::create(sim::skirmish(options.seed, scenario_data));
     const sim::UnitId player_id = player_tank(sim);
     if (!player_id.valid()) {
         err << "protekt-game: the scenario has no player tank to drive\n";

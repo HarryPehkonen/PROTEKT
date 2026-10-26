@@ -1,26 +1,58 @@
 #pragma once
 
 #include <cstdint>
-#include <span>
+#include <vector>
 
 #include "protekt/sim/sim.hpp"
 
 namespace protekt::sim {
 
-/// The kinds a side spawns with, in spawn order. Both sides carry the same list: the enemy mirrors
-/// the player, hover tank, mortar and rocket included, each in the same slot.
-[[nodiscard]] std::span<const UnitKind> side_roster(Side side) noexcept;
+/// A batch of `count` units of one kind, wished onto the tile (dx, dy) from the side's base
+/// centre. +x,+y is toward the enemy; the enemy's side mirrors the offsets. Units of one batch
+/// share the wish, and the placement rule nudges each to the nearest free passable tile.
+struct Group {
+    UnitKind kind{};
+    int count{1};
+    int dx{};
+    int dy{};
+};
 
-/// The standard skirmish for a seed: each side gets the same complement, placed on passable
-/// ground in opposite corners. A PURE FUNCTION OF THE SEED, which is what makes a replay
-/// self-describing -- a seed plus a command list is the entire battle, so no scenario file and no
-/// stored world are ever needed.
+/// The composition of a skirmish: groups in SPAWN ORDER, the same list for both sides (per-side
+/// lists are a deliberate non-goal). Spawn order is unit id order and function-key order, so the
+/// order of the groups is the order of the F-row.
 ///
-/// Composition, both sides identical (see side_roster): 3 tanks, 1 hover tank, 1 factory,
-/// 2 turrets, 1 mortar, 1 rocket -- nine a side, eighteen in all.
+/// Plain data, no I/O: the sim reads no file. The bounds below are enforced by the parser that
+/// builds one from text, not by skirmish(), which trusts a ScenarioData it is handed.
+struct ScenarioData {
+    std::vector<Group> groups{};
+};
+
+inline constexpr int kMaxGroupCount = 64; ///< units in one group, at least 1
+inline constexpr int kMaxSideUnits = 64;  ///< units a side spawns with, over all its groups
+inline constexpr int kMaxOffset = 32;     ///< |dx| and |dy| of a group, in tiles
+
+/// The built-in composition, and what a game started with no scenario file plays: 3 tanks, 1 hover
+/// tank, 1 factory, 2 turrets, 1 mortar, 1 rocket and 1 recycler -- ten a side, as ten groups of
+/// one, because the three tanks and the two turrets each stand at their own offset.
+[[nodiscard]] ScenarioData default_data();
+
+/// The kinds a side spawns with, in spawn order, each group expanded to `count` entries. Both
+/// sides carry the same list: the enemy mirrors the player slot for slot.
+[[nodiscard]] std::vector<UnitKind> side_roster(const ScenarioData& data, Side side);
+
+/// The skirmish for a seed and a composition: each side gets the composition, placed on passable
+/// ground in opposite corners. A PURE FUNCTION OF THE SEED AND THE DATA. The seed owns the terrain,
+/// the player's base position and the choice of the enemy's base; the data owns what stands there.
+/// A seed plus a command list is the whole battle ONLY for the built-in composition: a battle on
+/// any other is a seed, a ScenarioData and a command list, and a replay of it must record the data
+/// too. The replay format records the seed alone today, so it replays the built-in one.
+///
 /// Player starts in the low-coordinate quadrant, enemy in the high one, at least 100 tiles apart.
 /// Every spawn is nudged to passable ground using world::sample() before it is handed back, so a
 /// unit never starts inside a crater.
+[[nodiscard]] Scenario skirmish(std::uint64_t seed, const ScenarioData& data);
+
+/// The standard skirmish for a seed: skirmish(seed, default_data()).
 [[nodiscard]] Scenario skirmish(std::uint64_t seed);
 
 } // namespace protekt::sim

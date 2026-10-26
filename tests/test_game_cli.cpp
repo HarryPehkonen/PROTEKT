@@ -4,6 +4,7 @@
 // the window itself is testable here -- on a machine with no display and no GPU.
 #include <gtest/gtest.h>
 
+#include <array>
 #include <cctype>
 #include <chrono>
 #include <cstdint>
@@ -158,6 +159,80 @@ TEST_F(GameCliTest, RejectsAnUnknownFlag) {
     const std::vector<std::string_view> args{"--headless", "--wat"};
     EXPECT_EQ(run(args, err), 2);
     EXPECT_NE(err.find("--wat"), std::string::npos) << err;
+}
+
+// --- --scenario: the composition from a file ----------------------------------------------------
+
+TEST_F(GameCliTest, AScenarioFileThatCannotBeReadRefusesToStart) {
+    std::string err;
+    const std::string path = temp_path("missing.toml");
+    EXPECT_EQ(run({"--headless", "--frames", "1", "--scenario", path}, err), 2);
+    EXPECT_NE(err.find(path), std::string::npos) << err;
+}
+
+TEST_F(GameCliTest, ABadScenarioFileRefusesToStartAndNamesTheLine) {
+    const std::string path = temp_path("bad.toml");
+    {
+        std::ofstream file(path);
+        file << "[[group]]\nkind = \"tank\"\ncount = 0\ndx = 0\ndy = 0\n";
+    }
+    std::string err;
+    std::string out;
+    EXPECT_EQ(run({"--headless", "--frames", "1", "--scenario", path}, err, &out), 2);
+    EXPECT_NE(err.find("--scenario " + path), std::string::npos) << err;
+    EXPECT_NE(err.find("line 3"), std::string::npos) << err;
+    EXPECT_TRUE(out.empty()) << "no game was played: " << out;
+}
+
+TEST_F(GameCliTest, AScenarioFileChangesTheBattleAndNoFlagPlaysTheBuiltInOne) {
+    if (kUnderThreadSanitizer) {
+        GTEST_SKIP() << kTsanReason;
+    }
+    const std::string path = temp_path("two_tanks.toml");
+    {
+        std::ofstream file(path);
+        file << "[[group]]\nkind = \"tank\"\ncount = 2\ndx = 8\ndy = 2\n\n"
+                "[[group]]\nkind = \"factory\"\ncount = 1\ndx = 0\ndy = 0\n";
+    }
+    const std::string builtin = temp_path("builtin.toml");
+    {
+        // The built-in composition written out: a file that says what the default says plays it.
+        std::ofstream file(builtin);
+        struct Row {
+            const char* kind;
+            int dx;
+            int dy;
+        };
+        const std::array<Row, 10> rows{{{"tank", 8, 2},
+                                        {"tank", 8, 8},
+                                        {"tank", 2, 8},
+                                        {"hover_tank", 5, 5},
+                                        {"factory", 0, 0},
+                                        {"turret", 5, -3},
+                                        {"turret", -3, 5},
+                                        {"mortar", -4, -1},
+                                        {"rocket", -1, -4},
+                                        {"recycler", -3, -3}}};
+        for (const Row& row : rows) {
+            file << "[[group]]\nkind = \"" << row.kind << "\"\ncount = 1\ndx = " << row.dx
+                 << "\ndy = " << row.dy << "\n\n";
+        }
+    }
+    const std::string frame = temp_path("frame.ppm");
+    const auto hash_of = [&](std::vector<std::string_view> args) {
+        args.insert(args.begin(), {"--headless", "--frames", "40", "--width", "64", "--height",
+                                   "48", "--capture", frame});
+        std::string err;
+        std::string out;
+        EXPECT_EQ(run(args, err, &out), 0) << err;
+        EXPECT_NE(out.find("hash"), std::string::npos) << out;
+        return out.substr(out.find("hash"));
+    };
+    const std::string plain = hash_of({});
+    EXPECT_EQ(hash_of({"--scenario", builtin}), plain)
+        << "the default, spelled out, is the default";
+    EXPECT_NE(hash_of({"--scenario", path}), plain)
+        << "a different composition is a different battle";
 }
 
 TEST_F(GameCliTest, ARefusedKeyNameNamesTheAcceptedOnes) {

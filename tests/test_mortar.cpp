@@ -125,7 +125,7 @@ TEST(Mortar, EachRosterCarriesExactlyOneOfEachNewKind) {
     for (const Side side : {Side::Player, Side::Enemy}) {
         int mortars = 0;
         int rockets = 0;
-        for (const UnitKind kind : side_roster(side)) {
+        for (const UnitKind kind : side_roster(default_data(), side)) {
             mortars += kind == UnitKind::Mortar ? 1 : 0;
             rockets += kind == UnitKind::Rocket ? 1 : 0;
         }
