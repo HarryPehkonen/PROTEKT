@@ -803,7 +803,13 @@ struct ArmedDeploy {
     out.player = Interaction{out.rig.tank};
     select_kind(out.rig, out.player, UnitKind::Recycler);
     out.player.handle(digit(3), out.rig.sim, out.rig.options);
-    out.ground = pick(out.rig.sim, out.rig.options, out.rig.options.aim->x, out.rig.options.aim->y);
+    const auto& aim = out.rig.options.aim;
+    if (!aim.has_value()) {
+        ADD_FAILURE() << "the rig must be aimed to have a site to deploy on";
+        return out; // for the analyzer, not the test: an ASSERT is illegal in a function that
+                    // returns
+    }
+    out.ground = pick(out.rig.sim, out.rig.options, aim->x, aim->y);
     return out;
 }
 
@@ -883,8 +889,12 @@ TEST(DeployGesture, SpaceOffTheGroundDeploysNothingAndTheArmingSurvives) {
     ArmedDeploy a = arm_deploy();
     a.rig.options.camera.y += 500.0F; // well above every hill, looking up: no ground in range
     a.rig.options.camera.pitch = 0.3F;
-    ASSERT_FALSE(
-        pick(a.rig.sim, a.rig.options, a.rig.options.aim->x, a.rig.options.aim->y).has_tile());
+    const auto& aim = a.rig.options.aim;
+    ASSERT_TRUE(aim.has_value()) << "the frame still has a reticle to aim with";
+    if (!aim.has_value()) {
+        return; // unreachable once the ASSERT above has passed: for the analyzer, not the test
+    }
+    ASSERT_FALSE(pick(a.rig.sim, a.rig.options, aim->x, aim->y).has_tile());
     a.player.handle(key_frame(input::kKeySpace), a.rig.sim, a.rig.options);
     EXPECT_TRUE(a.player.take_orders().empty());
     EXPECT_TRUE(a.player.deploy_armed()) << "it waits for the reticle to come back to the ground";
@@ -899,7 +909,12 @@ TEST(DeployGesture, ASiteTheSimWouldRefuseIsRefusedHereAndTheArmingStays) {
         {UnitKind::Recycler, Side::Player, 44, 41},
         {UnitKind::DeployedRecycler, Side::Enemy, a.ground.tile_x, a.ground.tile_y}};
     const sim::Sim crowded = sim::Sim::create(sim::Scenario{kSeed, spawns});
-    const Pick there = pick(crowded, a.rig.options, a.rig.options.aim->x, a.rig.options.aim->y);
+    const auto& aim = a.rig.options.aim;
+    ASSERT_TRUE(aim.has_value()) << "the rig must be aimed to aim the same shot at the board";
+    if (!aim.has_value()) {
+        return; // unreachable once the ASSERT above has passed: for the analyzer, not the test
+    }
+    const Pick there = pick(crowded, a.rig.options, aim->x, aim->y);
     ASSERT_TRUE(there.has_tile());
     ASSERT_FALSE(sim::deploy_site_ok(kSeed, crowded.units(), there.tile_x, there.tile_y));
     a.player.handle(key_frame(input::kKeySpace), crowded, a.rig.options);
