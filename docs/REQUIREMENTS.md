@@ -1280,10 +1280,12 @@ reader can see what they are, and none of them is a rule the code may be built f
   a property of the REFERENCE menu; whether PROTEKT adopts the mode is ruled nowhere (Part A section 14.1,
   question 2). The shipped behaviour is the conservative reading: the `G`, `T` and attack-list prompts settle
   a digit before the menu sees it.
-- [INTENDED — unconfirmed] The recycler's `F1` placement. He ruled that an undeployed recycler may sit under
-  ANY function key and that "it doesn't matter", so there is no display rule; the shipped spawn appends it
-  last and it lands on `F7`. Whether `F1` is wanted anyway is his to say (Q6.3).
+- [CLOSED by his ruling, 2026-10-26] The recycler's key. HIS WORDS: *"A deployed recycler is not under any
+  function key. It's under the 1 key. Only an un-deployed recycler is under a function key. The deployment
+  process turns it into a building, and it becomes 1. Always 1."* So there is no `F1` display rule and no
+  spawn-order change: an undeployed recycler may sit under any `F` key (the shipped spawn puts it on `F7`),
+  and on deploy the building takes key `1`, always. Q6.3 is answered; RB3 and RB5 read this.
 
 PROVENANCE: `protekt-hud-and-power.md` sections 2, 3 (items 1-4) and the layout note in section 4;
-`protekt-open-questions.md` Q9 (the unconfirmed 20) and Q6.3 (the `F1` placement);
+`protekt-open-questions.md` Q9 (the unconfirmed 20; Q6.3 is answered — the CLOSED entry above);
 `include/protekt/game/menu.hpp:40-44`.
