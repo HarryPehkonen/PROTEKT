@@ -85,4 +85,9 @@ struct BattleLog {
 [[nodiscard]] const char* to_string(Stance stance) noexcept;
 [[nodiscard]] const char* to_string(OrderKind kind) noexcept;
 
+/// Q16.16 raw -> tiles with ONE decimal digit (e.g. 24.0), truncated towards -infinity with
+/// integer arithmetic only. The one place this formatting rule lives: `BattleLog::to_text` and
+/// the CLI's `--log-spawns` both print positions through it.
+void append_tiles(std::string& out, std::int32_t raw);
+
 } // namespace protekt::sim

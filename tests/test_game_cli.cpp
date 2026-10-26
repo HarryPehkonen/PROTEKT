@@ -235,6 +235,82 @@ TEST_F(GameCliTest, AScenarioFileChangesTheBattleAndNoFlagPlaysTheBuiltInOne) {
         << "a different composition is a different battle";
 }
 
+// --- --log-spawns: the composition, read back ------------------------------------------------
+
+TEST_F(GameCliTest, LogSpawnsPrintsTheCompositionInTheBattleLogGrammar) {
+    if (kUnderThreadSanitizer) {
+        GTEST_SKIP() << kTsanReason;
+    }
+    const std::string path = temp_path("log_two_tanks.toml");
+    {
+        std::ofstream file(path);
+        file << "[[group]]\nkind = \"tank\"\ncount = 2\ndx = 8\ndy = 2\n\n"
+                "[[group]]\nkind = \"factory\"\ncount = 1\ndx = 0\ndy = 0\n";
+    }
+    std::string err;
+    std::string out;
+    EXPECT_EQ(run({"--headless", "--frames", "1", "--width", "32", "--height", "24", "--scenario",
+                   path, "--log-spawns"},
+                  err, &out),
+              0)
+        << err;
+
+    // One frozen line per spawned unit: "tick 0 status unit <id> <kind> side <side> pos <x> <y>
+    // hp <hp> stance <stance>". The file names two tanks and one factory per side, so six units.
+    std::vector<std::string> spawns;
+    std::istringstream lines(out);
+    std::string line;
+    while (std::getline(lines, line)) {
+        if (line.rfind("tick 0 status unit ", 0) == 0) {
+            spawns.push_back(line);
+        }
+    }
+    EXPECT_EQ(spawns.size(), 6U) << "one line per spawned unit: " << out;
+    for (const std::string& spawn : spawns) {
+        EXPECT_NE(spawn.find(" side "), std::string::npos) << spawn;
+        EXPECT_NE(spawn.find(" pos "), std::string::npos) << spawn;
+        EXPECT_NE(spawn.find(" hp "), std::string::npos) << spawn;
+        EXPECT_NE(spawn.find(" stance "), std::string::npos) << spawn;
+        // A position prints as tiles with one decimal digit, e.g. "24.0" -- never a raw Q16.16.
+        const std::size_t pos = spawn.find(" pos ");
+        const std::size_t hp = spawn.find(" hp ", pos);
+        ASSERT_NE(pos, std::string::npos);
+        ASSERT_NE(hp, std::string::npos);
+        const std::string position = spawn.substr(pos + 5, hp - (pos + 5));
+        const std::size_t space = position.find(' ');
+        ASSERT_NE(space, std::string::npos) << position;
+        for (const std::string_view value : {std::string_view(position).substr(0, space),
+                                             std::string_view(position).substr(space + 1)}) {
+            const std::size_t dot = value.find('.');
+            ASSERT_NE(dot, std::string::npos) << value;
+            EXPECT_EQ(value.size() - dot, 2U) << "one decimal digit: " << value;
+        }
+    }
+    EXPECT_NE(out.find("tank"), std::string::npos) << out;
+    EXPECT_NE(out.find("factory"), std::string::npos) << out;
+    EXPECT_NE(out.find("player"), std::string::npos) << out;
+    EXPECT_NE(out.find("enemy"), std::string::npos) << out;
+}
+
+TEST_F(GameCliTest, WithoutTheFlagNoSpawnLinesArePrinted) {
+    std::string err;
+    std::string out;
+    EXPECT_EQ(run({"--headless", "--frames", "1", "--width", "32", "--height", "24"}, err, &out), 0)
+        << err;
+    EXPECT_EQ(out.find("tick 0 status unit "), std::string::npos) << out;
+}
+
+TEST_F(GameCliTest, LogSpawnsPrintsTheSameCompositionTwiceForTheSameSeed) {
+    std::string err;
+    std::string first;
+    std::string second;
+    const std::vector<std::string_view> args{"--headless", "--frames", "1",  "--width",
+                                             "32",         "--height", "24", "--log-spawns"};
+    EXPECT_EQ(run(args, err, &first), 0) << err;
+    EXPECT_EQ(run(args, err, &second), 0) << err;
+    EXPECT_EQ(first, second) << "the spawn log is a pure function of the seed and the scenario";
+}
+
 TEST_F(GameCliTest, ARefusedKeyNameNamesTheAcceptedOnes) {
     // `--key` takes space, tab and f1-f10, in lower case: anything else is a refusal that says so.
     for (const std::string_view bad : {"f11", "f0", "f01", "F3", "enter", "3"}) {

@@ -99,18 +99,6 @@ void command_phase(Sim& sim, sim::ICommander* commander, Side side, std::vector<
 
 void append_number(std::string& out, std::uint64_t value) { out += std::to_string(value); }
 
-/// Q16.16 raw -> tiles with one decimal digit (truncated towards -infinity), integers only.
-void append_tiles(std::string& out, std::int32_t raw) {
-    std::int64_t tenths = (static_cast<std::int64_t>(raw) * 10) >> Fixed::kShift;
-    if (tenths < 0) {
-        out += '-';
-        tenths = -tenths;
-    }
-    append_number(out, static_cast<std::uint64_t>(tenths / 10));
-    out += '.';
-    out += static_cast<char>('0' + tenths % 10);
-}
-
 void append_status_lines(std::string& out, Tick tick,
                          const std::map<std::uint32_t, UnitState>& units) {
     for (const auto& [id, s] : units) {
@@ -138,6 +126,17 @@ void append_status_lines(std::string& out, Tick tick,
 }
 
 } // namespace
+
+void append_tiles(std::string& out, std::int32_t raw) {
+    std::int64_t tenths = (static_cast<std::int64_t>(raw) * 10) >> Fixed::kShift;
+    if (tenths < 0) {
+        out += '-';
+        tenths = -tenths;
+    }
+    append_number(out, static_cast<std::uint64_t>(tenths / 10));
+    out += '.';
+    out += static_cast<char>('0' + tenths % 10);
+}
 
 std::uint16_t pack_unit_attrs(UnitKind kind, Side side, Stance stance) noexcept {
     return static_cast<std::uint16_t>((static_cast<unsigned>(kind) & kKindMask)

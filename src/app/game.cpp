@@ -129,6 +129,10 @@ struct Options {
     /// `--scenario FILE`: the composition to play, in place of the built-in one. Empty means the
     /// built-in; there is no search path, so a named file is the only way another one is read.
     std::string scenario{};
+    /// `--log-spawns`: print every unit the scenario spawned, once, after the world is built and
+    /// before the first frame. A verification flag: it changes nothing in the simulation, only
+    /// what the run prints.
+    bool log_spawns{false};
 };
 
 /// The scancode `--key` names: `space`, `tab`, `f1` to `f10`, in lower case and nothing else.
@@ -309,6 +313,8 @@ int parse_args(std::span<const std::string_view> args, Options& options, std::os
                 return 2;
             }
             options.scenario = std::string(value);
+        } else if (arg == "--log-spawns") {
+            options.log_spawns = true;
         } else if (arg == "--capture") {
             if (!next(value)) {
                 return 2;
@@ -686,6 +692,32 @@ int run_game_cli(std::span<const std::string_view> args, std::ostream& out, std:
     if (!player_id.valid()) {
         err << "protekt-game: the scenario has no player tank to drive\n";
         return 1;
+    }
+
+    // `--log-spawns`: one line per spawned unit, after the world is built and before the first
+    // frame, in the same frozen grammar the battle log prints on tick 0, so a scenario file's
+    // composition can be read back without asserting on how the battle turns out. Positions print
+    // through sim::append_tiles -- the ONE place that formatting rule lives. Nothing here touches
+    // the simulation; it only prints what the scenario produced.
+    if (options.log_spawns) {
+        for (const sim::Unit& unit : sim.units()) {
+            std::string line = "tick 0 status unit ";
+            line += std::to_string(unit.id.value);
+            line += ' ';
+            line += sim::to_string(unit.kind);
+            line += " side ";
+            line += sim::to_string(unit.side);
+            line += " pos ";
+            sim::append_tiles(line, unit.x.raw);
+            line += ' ';
+            sim::append_tiles(line, unit.y.raw);
+            line += " hp ";
+            line += std::to_string(unit.hp);
+            line += " stance ";
+            line += sim::to_string(unit.stance);
+            line += '\n';
+            out << line;
+        }
     }
 
     // Checked here rather than at parse time so that a SPECIFIC request error -- a device name that

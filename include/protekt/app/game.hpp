@@ -8,7 +8,7 @@ namespace protekt::app {
 
 ///   protekt-game [--seed N] [--frames N] [--capture FILE.ppm] [--headless]
 ///                [--width N] [--height N] [--gpu NAME] [--ticks-per-frame N]
-///                [--scenario FILE.toml]
+///                [--scenario FILE.toml] [--log-spawns]
 ///
 /// The game loop. With `--headless` it renders each frame offscreen through `render::Renderer`
 /// and needs no display; without it, through a real window and swapchain. The loop itself does
