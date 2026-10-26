@@ -406,6 +406,11 @@ inline constexpr std::size_t kTurretVertices = std::size_t{4} * 36U;
 /// annex, the stack and the band near its top.
 inline constexpr std::size_t kFactoryVertices = std::size_t{7} * 36U;
 
+/// A drawn recycler: a track assembly each side (the track, six road wheels, the skirt), the
+/// belly, the side panel and its strip, the body, its spine, two grilles, the rear bumper, the
+/// plow and its slit, the cab and its vision band, the radiator, and the crane arm's four parts.
+inline constexpr std::size_t kRecyclerVertices = std::size_t{33} * 36U;
+
 /// A drawn mortar: a low wide base turned by its heading, then a mount, a short stubby tube angled
 /// up and the collar at its mouth, all three turned by `gun_yaw`.
 inline constexpr std::size_t kMortarVertices = std::size_t{4} * 36U;

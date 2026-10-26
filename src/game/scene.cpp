@@ -329,6 +329,23 @@ void emit_turned_box(std::vector<SceneVertex>& out, float x, float z, float angl
                       Prism{-across, across, back, back, front, front, y0, y1, y1}, colour, tile);
 }
 
+/// A prism whose top is `inset` narrower than its base on each side, so its long sides lean in --
+/// an armour plate's chamfer, which a `Prism` (upright sides) cannot be. The base is `s` as given,
+/// the top's corners are those of `s` drawn `inset` in from `left` and `right`.
+void emit_turned_chamfer(std::vector<SceneVertex>& out, float x, float z, float angle,
+                         const Prism& s, float inset, const Vec3& colour, const UvRect& tile,
+                         const UvRect& top_tile) {
+    std::array<Vec3, 8> p = prism_corners(x, z, angle, s);
+    Prism top = s;
+    top.left += inset;
+    top.right -= inset;
+    const std::array<Vec3, 8> q = prism_corners(x, z, angle, top);
+    for (const std::size_t corner : {2U, 3U, 6U, 7U}) {
+        p.at(corner) = q.at(corner);
+    }
+    emit_shaded_solid(out, p, colour, tile, top_tile);
+}
+
 /// The part of a wall tile from texel column `c0` to `c1` and texel row `r0` (top) to `r1`, stood
 /// UPRIGHT: a side face hands its ground edge the rect's v0 (see `emit_shaded_solid`), so v0 here
 /// is the part's BOTTOM row and the tile's eaves land at the top of the wall. Edges on the tile's
@@ -701,12 +718,28 @@ void build_scavenger(std::vector<SceneVertex>& out, std::uint64_t seed, const si
                     ground + kCabRoof + kRoofThickness, colour, panel_tile);
 }
 
-/// THE RECYCLER. A wide, low slab of a hull on the tank's own tracks, with a tall raised cab set
-/// toward the front and a flat roof panel on it -- the silhouette of a vehicle that is carrying a
-/// base around inside it, and clearly neither the tank's turret-bearing one nor the factory's hall.
-/// Nothing on it aims, so it is turned by `heading` alone. A PLACEHOLDER, deliberately plain: the
-/// recycler's real look is a later art slice, and this exists so a new kind is not an invisible
-/// one, nor a factory by default.
+/// THE RECYCLER, after Battlezone II's ISDF recycler: a heavy tracked factory on the move -- broad,
+/// low, blocky and faceted, its cab the highest thing on it -- held inside the tank's footprint
+/// (0.3 tile either side of the unit, 1.3 m fore and aft). BZ2's is about 1.7 times as long as it
+/// is wide; at the fleet's half-width this one is slenderer, about 2.2, rather than overhanging.
+/// Nothing on it aims, so every part is turned by `heading` alone. From the ground up, in emission
+/// order:
+/// - a TRACK ASSEMBLY each side, left then right: the track, its run longer on top than on the
+///   ground so its ends rake; six silver ROAD WHEELS standing off its outer face; and a SKIRT over
+///   its upper half, ends sloped, whose top is the fender line the body sits on;
+/// - a dark BELLY between the tracks, and on the right flank a dark SIDE PANEL on the skirt with a
+///   thin team-colour STRIP along it, where BZ2's is lit red;
+/// - the BODY, the rear two-thirds: chamfered sides, a rear face leaning out into an overhanging
+///   deck, a raised silver SPINE down its middle, a louvred GRILLE either side of the spine and a
+///   checkered BUMPER under the overhang;
+/// - a silver PLOW wedge low at the front with a team-colour SLIT across its face;
+/// - the CAB: a tall chamfered block toward the front, its face raked back, a dark VISION BAND
+///   wrapped round it and a hatch on its roof;
+/// - on the right flank, on the fender line behind the cab, a ribbed RADIATOR and the folded crane
+///   ARM stowed flush: the lower boom, a hose, the elbow and the upper boom folded back over them.
+/// The armour wears the team's camo in the pale tint, as the tank's does; the silver is that tint
+/// on the metal tiles, the dark parts the track tile; the strip, the slit and the grilles' lit
+/// slots are the full side colour, the fleet's saturated accent.
 void build_recycler(std::vector<SceneVertex>& out, std::uint64_t seed, const sim::Unit& unit,
                     Mark mark, float lift_z, bool lifted, float heading) {
     const float x
@@ -719,17 +752,121 @@ void build_recycler(std::vector<SceneVertex>& out, std::uint64_t seed, const sim
         = atlas.rect(kTeamHullNames.at(static_cast<std::size_t>(unit.side))
                          .at(static_cast<std::size_t>(hull_variant(seed, unit.id.value))));
     const UvRect tracks_tile = atlas.rect("tank_tracks");
-    const UvRect panel_tile = atlas.rect("tank_turret");
-    constexpr float kDeckHalfAcross = 0.5F; ///< wider than the tank's deck: a broad, low slab
-    constexpr float kDeckBack = -0.9F;      ///< along the hull from its centre
-    constexpr float kDeckFront = 0.7F;
-    constexpr float kDeckBase = 0.75F; ///< above the ground: the tracks it stands on
-    constexpr float kDeckTop = 1.0F;
-    constexpr float kCabHalfAcross = 0.38F;
-    constexpr float kCabBack = -0.7F;
-    constexpr float kCabFront = 0.2F;
-    constexpr float kCabRoof = kDeckTop + 0.55F; ///< the model's highest point
-    constexpr float kRoofThickness = 0.03F;
+    const UvRect silver_tile = atlas.rect("tank_turret");
+    const UvRect steel_tile = atlas.rect("tank_barrel");
+    const UvRect roof_tile = atlas.rect("factory_roof");
+    const UvRect hatch_tile = atlas.rect("turret_body");
+    // Strips of tiles, in their texels: the roof tile's ribs and one of its louvred vents, the
+    // turret tile's checker band and the round hatch above it.
+    const UvRect ribs = upright_part(roof_tile, 0, 18, 64, 21);
+    const UvRect vent = upright_part(roof_tile, 6, 4, 24, 18);
+    const UvRect checker = upright_part(hatch_tile, 0, 52, 64, 62);
+    const UvRect hatch = upright_part(hatch_tile, 0, 12, 64, 44);
+
+    // Across is from the centre line, along from the unit's centre (+ is the front), up from the
+    // ground.
+    const float half_width = kMetresPerTile * 0.3F; ///< the footprint, every part inside it
+    constexpr float kHalfLength = 1.3F;             ///< the tank's, fore and aft
+    constexpr float kTrackInner = 0.36F;
+    constexpr float kTrackOuter = 0.55F;
+    constexpr float kTrackGround = 0.98F; ///< half the run on the ground
+    constexpr float kTrackRun = 1.12F;    ///< half the run on top: the ends rake
+    constexpr float kTrackTop = 0.5F;
+    constexpr int kWheels = 6; ///< road wheels a side
+    constexpr float kWheelPitch = 0.32F;
+    constexpr float kWheelHalfLength = 0.075F;
+    constexpr float kWheelOuter = 0.565F; ///< hubs standing off the track's outer face
+    constexpr float kWheelBottom = 0.1F;
+    constexpr float kWheelTop = 0.24F; ///< under the skirt
+    constexpr float kSkirtInner = 0.33F;
+    constexpr float kSkirtOuter = 0.58F;
+    constexpr float kSkirtFoot = 1.22F;     ///< half its length at the bottom, past the track's run
+    constexpr float kSkirtShoulder = 1.04F; ///< and at the top: the ends slope
+    constexpr float kSkirtBottom = 0.28F;
+    constexpr float kFender = 0.72F; ///< the skirts' top
+    constexpr float kBellyHalfAcross = 0.37F;
+    constexpr float kBellyBack = -1.05F;
+    constexpr float kBellyFront = 0.98F; ///< behind the plow, under the cab's face
+    constexpr float kBellyBottom = 0.14F;
+    constexpr float kPanelInner = 0.56F;
+    constexpr float kPanelOuter = 0.59F; ///< just proud of the skirt
+    constexpr float kPanelBack = -0.98F;
+    constexpr float kPanelFront = 0.12F;
+    constexpr float kPanelBottom = 0.36F;
+    constexpr float kPanelTop = 0.66F;
+    constexpr float kStripInner = 0.585F;
+    constexpr float kStripInset = 0.04F; ///< in from the panel's ends
+    constexpr float kStripBottom = 0.56F;
+    constexpr float kStripTop = 0.6F;
+    constexpr float kBodyHalfAcross = 0.5F;
+    constexpr float kBodyChamfer = 0.04F;
+    constexpr float kBodyBack
+        = -1.15F; ///< at its foot; the deck overhangs it to the footprint's end
+    constexpr float kBodyFront = 0.25F; ///< tucked into the cab
+    constexpr float kBodyBottom = 0.5F;
+    constexpr float kDeck = 0.92F;
+    constexpr float kSpineHalfAcross = 0.2F;
+    constexpr float kSpineBack = -1.1F;
+    constexpr float kSpineRake = 0.1F;
+    constexpr float kSpineFront = 0.24F;
+    constexpr float kSpineTop = 1.04F;
+    constexpr float kGrilleInner = 0.25F;
+    constexpr float kGrilleOuter = 0.42F;
+    constexpr float kGrilleBack = -1.0F;
+    constexpr float kGrilleFront = -0.3F;
+    constexpr float kGrilleThickness = 0.02F; ///< standing just proud of the deck
+    constexpr float kBumperHalfAcross = 0.5F;
+    constexpr float kBumperFront = -1.0F; ///< into the belly and the skirts
+    constexpr float kBumperBottom = 0.28F;
+    constexpr float kBumperTop = 0.46F;
+    constexpr float kPlowHalfAcross = 0.5F;
+    constexpr float kPlowBack = 1.0F;
+    constexpr float kPlowFoot = kHalfLength; ///< its face leans back from here to its brow
+    constexpr float kPlowBrow = 1.18F;
+    constexpr float kPlowBottom = 0.12F;
+    constexpr float kPlowTop = 0.42F;
+    constexpr float kSlitHalfAcross = 0.36F;
+    constexpr float kSlitBottom = 0.24F;
+    constexpr float kSlitTop = 0.29F;
+    constexpr float kProud = 0.012F;        ///< how far a strip on a raked face stands off it
+    constexpr float kCabHalfAcross = 0.52F; ///< at its foot, most of the width
+    constexpr float kCabChamfer = 0.07F;
+    constexpr float kCabBack = 0.15F;
+    constexpr float kCabBackTop = 0.22F;
+    constexpr float kCabFoot = 1.02F; ///< its face leans back from here to the roof
+    constexpr float kCabBrow = 0.66F;
+    constexpr float kCabBottom = 0.5F;
+    constexpr float kCabRoof = 1.25F;        ///< the model's highest point
+    constexpr float kBandHalfAcross = 0.49F; ///< just proud of the cab's sides: it wraps round
+    constexpr float kBandBack = 0.4F;
+    constexpr float kBandBottom = 0.95F;
+    constexpr float kBandTop = 1.07F;
+    constexpr float kRadiatorInner = 0.44F;
+    constexpr float kRadiatorOuter = 0.59F; ///< projecting a little past the skirt
+    constexpr float kRadiatorBack = -1.08F;
+    constexpr float kRadiatorFront = -0.7F;
+    constexpr float kRadiatorTop = 0.98F;
+    constexpr float kBoomInner = 0.5F;
+    constexpr float kBoomOuter = 0.58F;
+    constexpr float kBoomBack = -0.64F;
+    constexpr float kBoomFront = 0.04F;
+    constexpr float kBoomTop = 0.8F;
+    constexpr float kHoseInner = 0.52F;
+    constexpr float kHoseOuter = 0.565F;
+    constexpr float kHoseBack = -0.5F;
+    constexpr float kHoseFront = -0.06F;
+    constexpr float kHoseTop = 0.86F;
+    constexpr float kElbowInner = 0.49F;
+    constexpr float kElbowOuter = 0.595F;
+    constexpr float kElbowBack = 0.0F;
+    constexpr float kElbowFront = 0.12F; ///< short of the cab's back
+    constexpr float kElbowTop = 0.95F;
+    constexpr float kUpperInner = 0.51F;
+    constexpr float kUpperOuter = 0.57F;
+    constexpr float kUpperTip = -0.52F; ///< its tool end, raked to `kUpperTipTop`
+    constexpr float kUpperTipTop = -0.44F;
+    constexpr float kUpperBottom = 0.86F;
+    constexpr float kUpperTop = 0.93F;
 
     Vec3 colour = side_colour(unit.side);
     if (mark == Mark::Selected) {
@@ -737,18 +874,106 @@ void build_recycler(std::vector<SceneVertex>& out, std::uint64_t seed, const sim
     } else if (mark != Mark::None) {
         colour = aim_tint(colour, mark == Mark::AimedOwn);
     }
-    Vec3 camo_colour = colour;
-    for (float& channel : camo_colour) {
+    Vec3 pale = colour;
+    for (float& channel : pale) {
         channel += (1.0F - channel) * kHullPaleMix;
     }
 
-    emit_tank_hull(out, x, z, ground, heading, colour, camo_colour, hull_tile, tracks_tile);
-    emit_turned_box(out, x, z, heading, kDeckHalfAcross, kDeckBack, kDeckFront, ground + kDeckBase,
-                    ground + kDeckTop, camo_colour, hull_tile);
-    emit_turned_box(out, x, z, heading, kCabHalfAcross, kCabBack, kCabFront, ground + kDeckTop,
-                    ground + kCabRoof, camo_colour, hull_tile);
-    emit_turned_box(out, x, z, heading, kCabHalfAcross, kCabBack, kCabFront, ground + kCabRoof,
-                    ground + kCabRoof + kRoofThickness, colour, panel_tile);
+    const auto plate = [&](float l, float r, float back_bottom, float back_top, float front_bottom,
+                           float front_top, float y0, float y1) {
+        return Prism{l,         r,           back_bottom, back_top,   front_bottom,
+                     front_top, ground + y0, ground + y1, ground + y1};
+    };
+    const auto box = [&](float l, float r, float back, float front, float y0, float y1) {
+        return plate(l, r, back, back, front, front, y0, y1);
+    };
+    const auto part = [&](const Prism& s, const Vec3& tint, const UvRect& tile) {
+        emit_turned_prism(out, x, z, heading, s, tint, tile);
+    };
+    // Where a raked face from (`foot`, `bottom`) back to (`brow`, `top`) is at height `y`.
+    const auto raked = [](float foot, float brow, float bottom, float top, float y) {
+        return foot - ((foot - brow) * (y - bottom) / (top - bottom));
+    };
+
+    // `inner` to `outer` from the centre line on the `side` (-1 left, +1 right) flank, as a span.
+    const auto flank = [](float side, float inner, float outer) {
+        return std::array<float, 2>{std::min(side * inner, side * outer),
+                                    std::max(side * inner, side * outer)};
+    };
+
+    for (const float side : {-1.0F, 1.0F}) {
+        const auto track = flank(side, kTrackInner, kTrackOuter);
+        part(plate(track[0], track[1], -kTrackGround, -kTrackRun, kTrackGround, kTrackRun, 0.0F,
+                   kTrackTop),
+             colour, tracks_tile);
+        const auto hub = flank(side, kTrackOuter, kWheelOuter);
+        for (int wheel = 0; wheel < kWheels; ++wheel) {
+            const float centre
+                = (static_cast<float>(wheel) - (static_cast<float>(kWheels - 1) * 0.5F))
+                  * kWheelPitch;
+            part(box(hub[0], hub[1], centre - kWheelHalfLength, centre + kWheelHalfLength,
+                     kWheelBottom, kWheelTop),
+                 pale, steel_tile);
+        }
+        const auto skirt = flank(side, kSkirtInner, kSkirtOuter);
+        part(plate(skirt[0], skirt[1], -kSkirtFoot, -kSkirtShoulder, kSkirtFoot, kSkirtShoulder,
+                   kSkirtBottom, kFender),
+             pale, hull_tile);
+    }
+    part(box(-kBellyHalfAcross, kBellyHalfAcross, kBellyBack, kBellyFront, kBellyBottom, kTrackTop),
+         colour, tracks_tile);
+    part(box(kPanelInner, kPanelOuter, kPanelBack, kPanelFront, kPanelBottom, kPanelTop), colour,
+         tracks_tile);
+    part(box(kStripInner, half_width, kPanelBack + kStripInset, kPanelFront - kStripInset,
+             kStripBottom, kStripTop),
+         colour, silver_tile);
+
+    // The body: its rear face leans out from its foot to the deck's overhang.
+    emit_turned_chamfer(out, x, z, heading,
+                        plate(-kBodyHalfAcross, kBodyHalfAcross, kBodyBack, -kHalfLength,
+                              kBodyFront, kBodyFront, kBodyBottom, kDeck),
+                        kBodyChamfer, pale, hull_tile, hull_tile);
+    part(plate(-kSpineHalfAcross, kSpineHalfAcross, kSpineBack, kSpineBack + kSpineRake,
+               kSpineFront, kSpineFront, kDeck, kSpineTop),
+         pale, silver_tile);
+    for (const float side : {-1.0F, 1.0F}) {
+        const auto grille = flank(side, kGrilleInner, kGrilleOuter);
+        part(box(grille[0], grille[1], kGrilleBack, kGrilleFront, kDeck, kDeck + kGrilleThickness),
+             colour, vent);
+    }
+    part(box(-kBumperHalfAcross, kBumperHalfAcross, -kHalfLength, kBumperFront, kBumperBottom,
+             kBumperTop),
+         pale, checker);
+
+    part(plate(-kPlowHalfAcross, kPlowHalfAcross, kPlowBack, kPlowBack, kPlowFoot, kPlowBrow,
+               kPlowBottom, kPlowTop),
+         pale, silver_tile);
+    part(plate(-kSlitHalfAcross, kSlitHalfAcross, kPlowBack, kPlowBack,
+               raked(kPlowFoot, kPlowBrow, kPlowBottom, kPlowTop, kSlitBottom) + kProud,
+               raked(kPlowFoot, kPlowBrow, kPlowBottom, kPlowTop, kSlitTop) + kProud, kSlitBottom,
+               kSlitTop),
+         colour, silver_tile);
+
+    emit_turned_chamfer(out, x, z, heading,
+                        plate(-kCabHalfAcross, kCabHalfAcross, kCabBack, kCabBackTop, kCabFoot,
+                              kCabBrow, kCabBottom, kCabRoof),
+                        kCabChamfer, pale, hull_tile, hatch);
+    part(plate(-kBandHalfAcross, kBandHalfAcross, kBandBack, kBandBack,
+               raked(kCabFoot, kCabBrow, kCabBottom, kCabRoof, kBandBottom) + kProud,
+               raked(kCabFoot, kCabBrow, kCabBottom, kCabRoof, kBandTop) + kProud, kBandBottom,
+               kBandTop),
+         colour, tracks_tile);
+
+    part(box(kRadiatorInner, kRadiatorOuter, kRadiatorBack, kRadiatorFront, kFender, kRadiatorTop),
+         pale, ribs);
+    part(box(kBoomInner, kBoomOuter, kBoomBack, kBoomFront, kFender, kBoomTop), pale, silver_tile);
+    part(box(kHoseInner, kHoseOuter, kHoseBack, kHoseFront, kBoomTop, kHoseTop), colour,
+         tracks_tile);
+    part(box(kElbowInner, kElbowOuter, kElbowBack, kElbowFront, kFender, kElbowTop), pale,
+         steel_tile);
+    part(plate(kUpperInner, kUpperOuter, kUpperTip, kUpperTipTop, kElbowBack, kElbowBack,
+               kUpperBottom, kUpperTop),
+         pale, silver_tile);
 }
 
 /// THE HOVER TANK, built to read as NOT a tank at a glance: no track skirts at all, a low wedge

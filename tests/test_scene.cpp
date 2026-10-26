@@ -3928,6 +3928,97 @@ TEST(RecyclerShape, ARecyclerIsNotDrawnAsAFactoryNorAsATank) {
     EXPECT_NE(recycler.size(), kTankVertices) << "the recycler borrowed the tank's turret model";
 }
 
+/// The recycler's prisms, in emission order. A fresh player recycler is not turned, so its local
+/// across is world X and its front world +Z.
+constexpr std::size_t kLeftTrackAssembly = 0;  ///< the track, its six wheels, its skirt
+constexpr std::size_t kRightTrackAssembly = 8; ///< the same on the right
+constexpr std::size_t kTrackAssemblyParts = 8;
+constexpr std::size_t kRecyclerCab = 26;
+
+/// The [lo, hi] of `axis` (0 X, 1 up, 2 Z) over the prisms [first, last) of a drawn model.
+std::array<float, 2> parts_span(const std::vector<SceneVertex>& model, std::size_t first,
+                                std::size_t last, std::size_t axis) {
+    float lo = 1e9F;
+    float hi = -1e9F;
+    for (std::size_t i = first * 36U; i < last * 36U; ++i) {
+        lo = std::min(lo, model.at(i).position.at(axis));
+        hi = std::max(hi, model.at(i).position.at(axis));
+    }
+    return {lo, hi};
+}
+
+// Re-pinned DELIBERATELY (RECYCLER-ART): the placeholder was the tank's hull and three boxes.
+TEST(RecyclerShape, TheRecyclerIsExactlyItsThirtyThreePrisms) {
+    EXPECT_EQ(unit_box_of(UnitKind::Recycler).size(), std::size_t{1188})
+        << "thirty-three prisms of 36; the placeholder's ten (360) before RECYCLER-ART";
+    EXPECT_EQ(protekt::game::kRecyclerVertices, std::size_t{1188});
+}
+
+TEST(RecyclerShape, ItIsLongerThanItIsWideAndStaysInsideTheFootprint) {
+    const auto recycler = unit_box_of(UnitKind::Recycler);
+    ASSERT_EQ(recycler.size(), protekt::game::kRecyclerVertices);
+    const std::size_t all = protekt::game::kRecyclerVertices / 36U;
+    const auto across = parts_span(recycler, 0, all, 0);
+    const auto along = parts_span(recycler, 0, all, 2);
+    const auto up = parts_span(recycler, 0, all, 1);
+    EXPECT_GT(along[1] - along[0], 1.5F * (across[1] - across[0])) << "a long vehicle, not a block";
+    EXPECT_LT(up[1] - up[0], 0.5F * (along[1] - along[0])) << "and a low one";
+    // The placeholder's envelope (unit at tile 100, 100): 0.3 tile across, the tank's 1.3 m along,
+    // and under the picker's 1.8 m box.
+    constexpr float kCentre = 100.0F * kMetresPerTile;
+    for (const SceneVertex& v : recycler) {
+        EXPECT_LE(std::abs(v.position[0] - kCentre), (0.3F * kMetresPerTile) + kTolerance);
+        EXPECT_LE(std::abs(v.position[2] - kCentre), 1.3F + kTolerance);
+        EXPECT_LE(v.position[1] - up[0], 1.8F);
+    }
+}
+
+TEST(RecyclerShape, TheCabIsTheTallestPartAndSitsTowardTheFront) {
+    const auto recycler = unit_box_of(UnitKind::Recycler);
+    ASSERT_EQ(recycler.size(), protekt::game::kRecyclerVertices);
+    const std::size_t all = protekt::game::kRecyclerVertices / 36U;
+    const float ground = parts_span(recycler, 0, all, 1)[0];
+    const float roof = parts_span(recycler, kRecyclerCab, kRecyclerCab + 1, 1)[1];
+    for (std::size_t part = 0; part < all; ++part) {
+        if (part != kRecyclerCab) {
+            EXPECT_LT(parts_span(recycler, part, part + 1, 1)[1], roof - 0.15F)
+                << "part " << part << " stands as tall as the cab";
+        }
+    }
+    // The cab roof is about 1.7 times the fender line, as BZ2's is.
+    const float fender = parts_span(recycler, kTrackAssemblyParts - 1, kTrackAssemblyParts, 1)[1];
+    EXPECT_NEAR((roof - ground) / (fender - ground), 1.7F, 0.1F);
+    constexpr float kCentre = 100.0F * kMetresPerTile;
+    const auto cab = parts_span(recycler, kRecyclerCab, kRecyclerCab + 1, 2);
+    EXPECT_GT(cab[0], kCentre) << "the whole cab is in the front half";
+    EXPECT_GT(cab[1] - cab[0], 0.6F) << "and it is a big block, not a hatch";
+}
+
+TEST(RecyclerShape, ItRunsOnTwoSeparateTrackAssemblies) {
+    const auto recycler = unit_box_of(UnitKind::Recycler);
+    ASSERT_EQ(recycler.size(), protekt::game::kRecyclerVertices);
+    constexpr float kCentre = 100.0F * kMetresPerTile;
+    const auto left
+        = parts_span(recycler, kLeftTrackAssembly, kLeftTrackAssembly + kTrackAssemblyParts, 0);
+    const auto right
+        = parts_span(recycler, kRightTrackAssembly, kRightTrackAssembly + kTrackAssemblyParts, 0);
+    EXPECT_LT(left[1], kCentre - 0.3F) << "the left assembly keeps to its side";
+    EXPECT_GT(right[0], kCentre + 0.3F) << "and the right to its own: not one central slab";
+    const auto along = parts_span(recycler, 0, protekt::game::kRecyclerVertices / 36U, 2);
+    const float length = along[1] - along[0];
+    for (const std::size_t first : {kLeftTrackAssembly, kRightTrackAssembly}) {
+        // The track itself is the first of its assembly and runs most of the length.
+        const auto track = parts_span(recycler, first, first + 1, 2);
+        EXPECT_GT(track[1] - track[0], 0.8F * length) << "assembly " << first;
+        // Its six road wheels sit under the skirt, and down at the ground.
+        const float skirt_bottom = parts_span(recycler, first + 7, first + 8, 1)[0];
+        for (std::size_t wheel = first + 1; wheel < first + 7; ++wheel) {
+            EXPECT_LE(parts_span(recycler, wheel, wheel + 1, 1)[1], skirt_bottom + kTolerance)
+                << "wheel " << wheel;
+        }
+    }
+}
+
 TEST(FactorySkyline, TheStackRisesWellOverTheHallRoofInsideTheFootprint) {
     const auto factory = unit_box_of(UnitKind::Factory);
     const auto hall = factory_span(factory, kHallPart, 1);
