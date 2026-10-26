@@ -1,5 +1,6 @@
 // N4 + BZ2R: the square world map. R turns the radar into a square map of the whole world, your own
-// assets and your nav marks on it and NOTHING of the enemy's, and it is a pure view.
+// assets and your nav marks on it (drawn as the radar draws them) and NOTHING of the enemy's, and
+// it is a pure view.
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -177,14 +178,14 @@ TEST(WorldMap, TheTransformPutsTheFirstLastAndMiddleTilesInTheirExactCells) {
 TEST(WorldMap, AnAssetAndAMarkLandInTheCellOfTheirOwnTile) {
     Rig rig = make_rig();
     NavMarks marks;
-    ASSERT_EQ(marks.press(0, 0).outcome, NavMarks::Outcome::Dropped);
-    ASSERT_EQ(marks.press(255, 255).outcome, NavMarks::Outcome::Dropped);
-    ASSERT_EQ(marks.press(128, 77).outcome, NavMarks::Outcome::Dropped);
+    ASSERT_EQ(marks.place(0, 0).outcome, NavMarks::Outcome::Placed);
+    ASSERT_EQ(marks.place(255, 255).outcome, NavMarks::Outcome::Placed);
+    ASSERT_EQ(marks.place(128, 77).outcome, NavMarks::Outcome::Placed);
     const WorldMap map = map_of(rig, &marks);
     const std::vector<NavMarks::Mark> dropped = marks.marks();
     ASSERT_EQ(map.marks.size(), 3U);
     for (std::size_t i = 0; i < dropped.size(); ++i) {
-        EXPECT_EQ(map.marks.at(i).number, dropped.at(i).number);
+        EXPECT_EQ(map.marks.at(i).slot, dropped.at(i).slot);
         // A mark's centre is its cell, whatever the cell: even the first and last are not clipped.
         EXPECT_EQ(map_cell(map.layout, MapPoint{map.marks.at(i).px, map.marks.at(i).py}),
                   (MapCell{dropped.at(i).tile_x, dropped.at(i).tile_y}));
@@ -259,7 +260,7 @@ TEST(WorldMap, NoEnemyAssetIsEverDrawn) {
     ASSERT_GE(rig.enemy.size(), 3U) << "enemies certainly exist on this seed";
     ASSERT_GE(rig.own.size(), 3U);
     NavMarks marks;
-    (void)marks.press(60, 60);
+    (void)marks.place(60, 60);
     const WorldMap map = map_of(rig, &marks);
     for (const MapAsset& asset : map.assets) {
         EXPECT_EQ(std::count(rig.enemy.begin(), rig.enemy.end(), asset.id), 0)
@@ -317,49 +318,55 @@ TEST(WorldMap, OwnUnitsAreDrawnTheDrivenOneIsMarkedApartAndADeadOneStops) {
     EXPECT_EQ(map.assets.size(), alive);
 }
 
-TEST(WorldMap, MarksAppearWithTheirNumbersAndAClearedOneDisappears) {
+TEST(WorldMap, MarksAppearInSlotOrderWithTheirHighlightAndAnOverwriteMovesOne) {
     Rig rig = make_rig();
     NavMarks marks;
-    EXPECT_TRUE(map_of(rig, &marks).marks.empty()) << "no phantom marks before any is dropped";
+    EXPECT_TRUE(map_of(rig, &marks).marks.empty()) << "no phantom marks before any is placed";
     EXPECT_TRUE(map_of(rig, nullptr).marks.empty());
-    ASSERT_EQ(marks.press(10, 20).number, 0);
-    ASSERT_EQ(marks.press(30, 40).number, 1);
-    ASSERT_EQ(marks.press(50, 60).number, 2);
+    ASSERT_EQ(marks.place(10, 20).slot, 0);
+    ASSERT_EQ(marks.place(30, 40).slot, 1);
+    ASSERT_EQ(marks.place(50, 60).slot, 2);
+    ASSERT_TRUE(marks.toggle(1));
     WorldMap map = map_of(rig, &marks);
     ASSERT_EQ(map.marks.size(), 3U);
-    EXPECT_EQ(map.marks.at(0).number, 0);
-    EXPECT_EQ(map.marks.at(1).number, 1);
-    EXPECT_EQ(map.marks.at(2).number, 2);
-    ASSERT_EQ(marks.press(30, 40).outcome, NavMarks::Outcome::Cleared);
+    EXPECT_EQ(map.marks.at(0).slot, 0);
+    EXPECT_EQ(map.marks.at(1).slot, 1);
+    EXPECT_EQ(map.marks.at(2).slot, 2);
+    EXPECT_FALSE(map.marks.at(0).highlighted);
+    EXPECT_TRUE(map.marks.at(1).highlighted);
+    EXPECT_FALSE(map.marks.at(2).highlighted);
+    // Seven more fill the table, and the eleventh overwrites slot 0: still ten, one moved.
+    for (int p = 4; p <= 11; ++p) {
+        (void)marks.place(p * 10, 5);
+    }
     map = map_of(rig, &marks);
-    ASSERT_EQ(map.marks.size(), 2U);
-    EXPECT_EQ(map.marks.at(0).number, 0);
-    EXPECT_EQ(map.marks.at(1).number, 2);
-    // The drawn marks add vertices: the numbers are in the scene, and one fewer mark is fewer.
+    ASSERT_EQ(map.marks.size(), 10U);
+    EXPECT_EQ(map_cell(map.layout, MapPoint{map.marks.at(0).px, map.marks.at(0).py}),
+              (MapCell{110, 5}));
+    // The drawn marks add vertices, and one more mark is more.
     SceneOptions open = rig.options;
     open.show_world_map = true;
+    NavMarks two;
+    (void)two.place(10, 20);
+    (void)two.place(30, 40);
     const std::size_t none = build_scene(rig.sim, open).vertices.size();
-    open.nav_marks = &marks;
-    const std::size_t two = build_scene(rig.sim, open).vertices.size();
-    (void)marks.press(70, 80);
-    const std::size_t three = build_scene(rig.sim, open).vertices.size();
-    EXPECT_GT(two, none);
-    EXPECT_GT(three, two);
+    open.nav_marks = &two;
+    const std::size_t with_two = build_scene(rig.sim, open).vertices.size();
+    (void)two.place(70, 80);
+    const std::size_t with_three = build_scene(rig.sim, open).vertices.size();
+    EXPECT_GT(with_two, none);
+    EXPECT_GT(with_three, with_two);
 }
 
-TEST(WorldMap, TheNumbersAreBigEnoughToRead) {
+TEST(WorldMap, AMarkIsTheRadarsSize) {
+    // His ruling, 2026-10-26: the mark is "EXACTLY the same as in the radar" -- the plus has no
+    // number on the map either, and its size is the radar's own.
     Rig rig = make_rig();
     NavMarks marks;
-    (void)marks.press(100, 100);
+    (void)marks.place(100, 100);
     const WorldMap map = map_of(rig, &marks);
     ASSERT_EQ(map.marks.size(), 1U);
-    // A digit is 5 cells across, so 2.0 px a cell is 10 px. That is BZ2's own HUD text height,
-    // measured by counting pixels: 10 px in its 800x600 originals and still ~10 px in a 1280x730
-    // screenshot of the remaster, so it is a fixed pixel font that ignores the resolution. The
-    // user's instruction is to match BZ2, and the plainer floor this replaced (15 px, chosen for
-    // arm's-length reading on a laptop) is not BZ2's. The plate is 13 px round the 10 px digit.
-    EXPECT_GE(map.marks.at(0).cell, 2.0F);
-    EXPECT_GE(map.marks.at(0).half, 6.5F);
+    EXPECT_FLOAT_EQ(map.marks.at(0).half, radar_nav_half(radar_panel(kExtent)));
 }
 
 TEST(WorldMap, ThePaletteIsTheGroundsOwn) {
@@ -378,9 +385,10 @@ TEST(WorldMap, TheMapIsAPureViewAndTwoRunsAreByteIdentical) {
     const auto run = [] {
         Rig rig = make_rig();
         NavMarks marks;
-        (void)marks.press(60, 60);
-        (void)marks.press(0, 0);
-        (void)marks.press(255, 255);
+        (void)marks.place(60, 60);
+        (void)marks.place(0, 0);
+        (void)marks.place(255, 255);
+        (void)marks.toggle(1);
         SceneOptions open = rig.options;
         open.show_world_map = true;
         open.nav_marks = &marks;

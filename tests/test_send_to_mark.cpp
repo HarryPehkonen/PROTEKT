@@ -1,5 +1,6 @@
-// N3: G arms a go, the next digit 0-9 sends the selection to that nav mark. While armed the digits
-// are MARK numbers, not N2's selection keys; the order is the same MoveTo a right click makes.
+// N3: G arms a go, the next digit 0-9 sends the selection to the nav mark the nav menu numbers so
+// (1-9, then 0 for the tenth). While armed the digits are MARK numbers, not N2's selection keys;
+// the order is the same MoveTo a right click makes.
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -103,11 +104,12 @@ void select_second(Rig& rig, Interaction& player) {
     ASSERT_EQ(selected(player), (std::vector<UnitId>{rig.own.at(1)}));
 }
 
-/// Mark 0 at (50,50), mark 1 at (52,50), mark 2 at (54,52): numbered by the lowest free slot.
+/// Mark 1 at (50,50), mark 2 at (52,50), mark 3 at (54,52): the first three slots of the cycle,
+/// which the nav menu numbers 1, 2, 3 (MENU-NAV: 1-9, then 0 for the tenth).
 void drop_marks(Rig& rig) {
-    rig.marks.press(50, 50);
-    rig.marks.press(52, 50);
-    rig.marks.press(54, 52);
+    rig.marks.place(50, 50);
+    rig.marks.place(52, 50);
+    rig.marks.place(54, 52);
 }
 
 void expect_move_to(const sim::Order& order, UnitId unit, int x, int y) {
@@ -129,20 +131,22 @@ TEST(SendToMark, GThenTwoSendsTheSelectionToMarkTwosTile) {
     player.handle(digit(2), rig.sim, rig.options);
     const std::vector<sim::Order> orders = player.take_orders();
     ASSERT_EQ(orders.size(), 1U);
-    expect_move_to(orders.at(0), rig.own.at(1), 54, 52);
+    expect_move_to(orders.at(0), rig.own.at(1), 52, 50);
     EXPECT_FALSE(player.go_armed()) << "used up";
 }
 
-TEST(SendToMark, ZeroIsAMarkNumberToo) {
+TEST(SendToMark, ZeroIsTheTenthMark) {
     Rig rig = make_rig();
-    drop_marks(rig);
+    for (int p = 1; p <= kNavSlots; ++p) {
+        rig.marks.place(60 + p, 70);
+    }
     Interaction player{rig.own.at(0)};
     select_second(rig, player);
     player.handle(key_frame(input::kKeyG), rig.sim, rig.options);
     player.handle(digit(0), rig.sim, rig.options);
     const std::vector<sim::Order> orders = player.take_orders();
     ASSERT_EQ(orders.size(), 1U);
-    expect_move_to(orders.at(0), rig.own.at(1), 50, 50);
+    expect_move_to(orders.at(0), rig.own.at(1), 70, 70);
 }
 
 TEST(SendToMark, ADigitWithNoMarkIsRefusedAndOrdersNothing) {
@@ -164,8 +168,8 @@ TEST(SendToMark, WhileArmedADigitIsAMarkNumberAndNeverChangesTheSelection) {
     Interaction player{rig.own.at(0)};
     select_second(rig, player);
     player.handle(key_frame(input::kKeyG), rig.sim, rig.options);
-    player.handle(digit(3), rig.sim,
-                  rig.options); // G eats the digit as mark 3; mark 3 does not exist
+    player.handle(digit(4), rig.sim,
+                  rig.options); // G eats the digit as mark 4; mark 4 does not exist
     EXPECT_EQ(selected(player), (std::vector<UnitId>{rig.own.at(1)}));
     // And the very next key, with the arming used up, selects a group again: F3.
     player.handle(fkey(3), rig.sim, rig.options);
@@ -241,7 +245,7 @@ TEST(SendToMark, ANonDrivenUnitGoesToTheMark) {
     player.handle(digit(1), rig.sim, rig.options);
     const std::vector<sim::Order> orders = player.take_orders();
     ASSERT_EQ(orders.size(), 1U);
-    expect_move_to(orders.at(0), rig.own.at(1), 52, 50);
+    expect_move_to(orders.at(0), rig.own.at(1), 50, 50);
 }
 
 TEST(SendToMark, OnlyTheDrivenUnitSelectedIsRefused) {
@@ -250,7 +254,7 @@ TEST(SendToMark, OnlyTheDrivenUnitSelectedIsRefused) {
     Interaction player{rig.own.at(0)};
     player.handle(fkey(1), rig.sim, rig.options);
     player.handle(key_frame(input::kKeyG), rig.sim, rig.options);
-    player.handle(digit(0), rig.sim, rig.options);
+    player.handle(digit(1), rig.sim, rig.options);
     EXPECT_TRUE(player.take_orders().empty());
     EXPECT_EQ(player.message(), "You are driving that one; select another unit to give orders.");
 }
@@ -707,8 +711,8 @@ TEST(MenuDigit, OnlyTheDrivenHarvesterSelectedIsRefusedAndOrdersNothing) {
 TEST(MenuDigit, AnArmedGoStillOwnsTheDigit) {
     MenuRig rig = make_menu_rig();
     NavMarks marks;
-    marks.press(50, 50);
-    marks.press(52, 50); // marks 0 and 1
+    marks.place(50, 50);
+    marks.place(52, 50); // marks 1 and 2
     rig.options.nav_marks = &marks;
     Interaction player{rig.tank};
     select_kind(rig, player, UnitKind::Recycler);
@@ -717,7 +721,7 @@ TEST(MenuDigit, AnArmedGoStillOwnsTheDigit) {
     player.handle(digit(1), rig.sim, rig.options);
     const std::vector<sim::Order> orders = player.take_orders();
     ASSERT_EQ(orders.size(), 1U);
-    expect_move_to(orders.at(0), rig.recycler, 52, 50);
+    expect_move_to(orders.at(0), rig.recycler, 50, 50);
     EXPECT_FALSE(player.go_armed());
     // The prompt is spent, so the very next `1` is the menu's.
     player.handle(digit(1), rig.sim, rig.options);

@@ -296,6 +296,8 @@ std::vector<RadarMark> radar_marks(std::span<const sim::Unit> units, sim::UnitId
     return marks;
 }
 
+float radar_nav_half(const RadarPanel& panel) noexcept { return panel.width * kNavHalfFraction; }
+
 std::vector<RadarNav> radar_nav_marks(std::span<const sim::Unit> units, sim::UnitId viewer_unit,
                                       std::span<const NavMarks::Mark> marks, float yaw_radians,
                                       const RadarPanel& panel, int radius_tiles) {
@@ -312,7 +314,7 @@ std::vector<RadarNav> radar_nav_marks(std::span<const sim::Unit> units, sim::Uni
     if (viewer == nullptr) {
         return shown;
     }
-    const float half = panel.width * kNavHalfFraction;
+    const float half = radar_nav_half(panel);
     // The plate stays wholly on the face: its centre never goes past the oval inset by this much.
     const float inset = (kNavRimFraction * panel.width) + (1.5F * half);
     const float sine = std::sin(yaw_radians);
@@ -335,7 +337,7 @@ std::vector<RadarNav> radar_nav_marks(std::span<const sim::Unit> units, sim::Uni
             v *= scale;
         }
         const RadarPoint at = pin_inside(panel, radar_project(panel, u, v, radius_tiles), inset);
-        shown.push_back(RadarNav{at.px, at.py, half, mark.number, !in_range});
+        shown.push_back(RadarNav{at.px, at.py, half, mark.slot, mark.highlighted, !in_range});
     }
     return shown;
 }

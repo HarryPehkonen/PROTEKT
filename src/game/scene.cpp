@@ -1416,10 +1416,11 @@ void append_scrap(std::vector<SceneVertex>& out, const SceneOptions& options, co
     }
 }
 
-/// THE NAV BEACON (N1): a slim vertical bar of `kNavColour` standing on the mark's tile, turned to
-/// face the camera, tall enough to see over the terrain from a distance and thin enough not to
-/// fill the view up close. No number: that belongs to the radar. It is drawn only where the
-/// terrain is (the same radius the units use), so it never floats over bare void.
+/// THE NAV BEACON (N1): a slim vertical bar in the mark's own colour (`nav_colour`: green, yellow
+/// while highlighted) standing on the mark's tile, turned to face the camera, tall enough to see
+/// over the terrain from a distance and thin enough not to fill the view up close. No number: that
+/// belongs to the nav menu. It is drawn only where the terrain is (the same radius the units use),
+/// so it never floats over bare void.
 constexpr float kNavBeaconHeight = 8.0F;
 constexpr float kNavBeaconWidthPerMetre = 0.012F;
 constexpr float kNavBeaconMinHalfWidth = 0.12F;
@@ -1431,8 +1432,8 @@ void append_nav_beacons(std::vector<SceneVertex>& out, const SceneOptions& optio
     }
     const int camera_tile_x = static_cast<int>(std::floor(options.camera.x / kMetresPerTile));
     const int camera_tile_y = static_cast<int>(std::floor(options.camera.z / kMetresPerTile));
-    const std::array<float, 3> rgb{kNavColour[0], kNavColour[1], kNavColour[2]};
     for (const NavMarks::Mark& mark : options.nav_marks->marks()) {
+        const math::Vec3& rgb = nav_colour(mark.highlighted);
         if (std::abs(mark.tile_x - camera_tile_x) > options.radius_tiles
             || std::abs(mark.tile_y - camera_tile_y) > options.radius_tiles) {
             continue;
@@ -1592,21 +1593,47 @@ const std::array<std::uint8_t, 5>& letter_rows(char glyph) {
     }
 }
 
-/// The digits 0-9 in the same 5x5 cell grid as the compass letters, one row per byte.
-const std::array<std::uint8_t, 5>& digit_rows(int digit) {
-    static constexpr std::array<std::array<std::uint8_t, 5>, 10> kDigits{{
-        {0b01110, 0b10001, 0b10001, 0b10001, 0b01110},
-        {0b00100, 0b01100, 0b00100, 0b00100, 0b01110},
-        {0b01110, 0b10001, 0b00110, 0b01000, 0b11111},
-        {0b11110, 0b00001, 0b01110, 0b00001, 0b11110},
-        {0b00110, 0b01010, 0b10010, 0b11111, 0b00010},
-        {0b11111, 0b10000, 0b11110, 0b00001, 0b11110},
-        {0b01110, 0b10000, 0b11110, 0b10001, 0b01110},
-        {0b11111, 0b00001, 0b00010, 0b00100, 0b00100},
-        {0b01110, 0b10001, 0b01110, 0b10001, 0b01110},
-        {0b01110, 0b10001, 0b01111, 0b00001, 0b01110},
-    }};
-    return kDigits.at(static_cast<std::size_t>(std::clamp(digit, 0, 9)));
+/// A NAV MARK as the radar and the world map both draw it (MENU-NAV; his ruling, 2026-10-26:
+/// "EXACTLY the same as in the radar ... I don't see any difference in the appearance"): a plus of
+/// two crossed bars a pixel thick each way, green; highlighted, the same plus in yellow with a thin
+/// yellow diamond round it. His BZ2 capture measured that diamond at about 15x12 px -- a thin
+/// outline round the plus, not a bigger marker -- so its corners sit `kNavDiamondReach` plus-halves
+/// out, just clear of the plus's tips. ONE function for both surfaces, so the two cannot drift
+/// apart. `distance` is the HUD layer it is drawn on.
+constexpr float kNavBarHalfPixels = 1.0F;
+constexpr float kNavDiamondReach = 1.5F;
+constexpr float kNavDiamondHalfPixels = 0.6F; ///< half the diamond line's width
+
+void append_nav_glyph(std::vector<SceneVertex>& out, const SceneOptions& options, float distance,
+                      float cx, float cy, float half, bool highlighted) {
+    const math::Vec3& rgb = nav_colour(highlighted);
+    const auto at = [&](float x, float y) {
+        const RayPoint point = ray_point(options.camera, options.extent, x, y, distance);
+        return Vec3{point.x, point.y, point.z};
+    };
+    const auto rect = [&](float ax, float ay, float bx, float by) {
+        emit_quad(out, at(ax, ay), at(bx, ay), at(bx, by), at(ax, by), rgb);
+    };
+    rect(cx - half, cy - kNavBarHalfPixels, cx + half, cy + kNavBarHalfPixels);
+    rect(cx - kNavBarHalfPixels, cy - half, cx + kNavBarHalfPixels, cy + half);
+    if (!highlighted) {
+        return;
+    }
+    const float reach = half * kNavDiamondReach;
+    const std::array<std::array<float, 2>, 4> corners{
+        {{cx, cy - reach}, {cx + reach, cy}, {cx, cy + reach}, {cx - reach, cy}}};
+    for (std::size_t i = 0; i < corners.size(); ++i) {
+        const std::array<float, 2>& a = corners.at(i);
+        const std::array<float, 2>& b = corners.at((i + 1) % corners.size());
+        const float dx = b.at(0) - a.at(0);
+        const float dy = b.at(1) - a.at(1);
+        const float length = std::hypot(dx, dy);
+        // The edge's normal, a line's half-width long: each side is one thin quad along it.
+        const float nx = -dy / length * kNavDiamondHalfPixels;
+        const float ny = dx / length * kNavDiamondHalfPixels;
+        emit_quad(out, at(a.at(0) + nx, a.at(1) + ny), at(b.at(0) + nx, b.at(1) + ny),
+                  at(b.at(0) - nx, b.at(1) - ny), at(a.at(0) - nx, a.at(1) - ny), rgb);
+    }
 }
 
 /// The radar, drawn in PANEL PIXELS: every corner goes through `ray_point`, the same pixel-to-world
@@ -1775,26 +1802,16 @@ void append_radar(std::vector<SceneVertex>& out, const SceneOptions& options, co
         out.push_back(SceneVertex{at(marks_at, side_b.at(0), side_b.at(1)), rgb});
     }
 
-    // THE NAV MARKS (N1): a small cyan plus, nearer than the compass so a mark pinned to the rim is
-    // not hidden by a letter. BZ2 shows a placed nav point as a tiny plus in its radar, and the
-    // user asked for ours to be no bigger than the unit blips, so the plate and its number are gone
-    // from the radar: the number still rides on the world map, which is where a mark has to be
-    // named to order a unit to it. Two crossed bars, a pixel thick each way, so the mark is lighter
-    // than a blip of the same span.
+    // THE NAV MARKS: `append_nav_glyph`'s plus, nearer than the compass so a mark pinned to the rim
+    // is not hidden by a letter. BZ2 shows a placed nav point as a tiny plus in its radar, no
+    // bigger than the unit blips, and no number: the numbers are the nav menu's (`~`).
     if (options.nav_marks != nullptr) {
-        const std::array<float, 3> plate_rgb{kNavColour[0], kNavColour[1], kNavColour[2]};
-        constexpr float kPlateRatio = 0.87F;
-        constexpr float kBarHalf = 1.0F;
+        constexpr float kNavRatio = 0.87F;
         for (const RadarNav& nav :
              radar_nav_marks(sim.units(), options.viewer_unit, options.nav_marks->marks(),
                              options.camera.yaw, panel)) {
-            const float cx = panel.x + nav.px;
-            const float cy = panel.y + nav.py;
-            const float half = nav.half;
-            rect(marks_at * kPlateRatio, cx - half, cy - kBarHalf, cx + half, cy + kBarHalf,
-                 plate_rgb);
-            rect(marks_at * kPlateRatio, cx - kBarHalf, cy - half, cx + kBarHalf, cy + half,
-                 plate_rgb);
+            append_nav_glyph(out, options, marks_at * kNavRatio, panel.x + nav.px, panel.y + nav.py,
+                             nav.half, nav.highlighted);
         }
     }
 }
@@ -2900,6 +2917,13 @@ void append_hud_panels(std::vector<SceneVertex>& out, const SceneOptions& option
             key_width = std::max(key_width, word_width(row.key, cell));
         }
         const float verb_left = key_left + key_width + (2.0F * cell);
+        // The right column (a nav row's metres) clears the WIDEST verb by a blank column, the
+        // attack list's rule for its metres, so the distances read down the panel.
+        float verb_width = 0.0F;
+        for (const MenuRow& row : rows) {
+            verb_width = std::max(verb_width, word_width(row.verb, cell));
+        }
+        const float right_left = verb_left + verb_width + (2.0F * cell);
         const float menu_top = notice_top + (5.0F * cell) + (2.0F * pad);
         for (std::size_t index = 0; index < rows.size(); ++index) {
             const MenuRow& row = rows.at(index);
@@ -2907,6 +2931,7 @@ void append_hud_panels(std::vector<SceneVertex>& out, const SceneOptions& option
             const std::array<float, 3>& ink = row.enabled ? kStripFrame : kMenuDimInk;
             ink_text(row.key, key_left, row_top, cell, ink);
             ink_text(row.verb, verb_left, row_top, cell, ink);
+            ink_text(row.right, right_left, row_top, cell, ink);
         }
     }
 }
@@ -2977,8 +3002,8 @@ void append_reticle(std::vector<SceneVertex>& out, const SceneOptions& options, 
 /// THE WORLD MAP (N4), on the radar's HUD layers and through the same pixel-to-world function: the
 /// ground first (one quad per run of tiles of the same terrain along a row), then YOUR assets as
 /// dark-edged squares, the driven one a white blip with a heading needle, then the nav marks as
-/// cyan plates with their digit in black. Everything comes from `world_map`, which has no enemy in
-/// it.
+/// the radar draws them (`append_nav_glyph`). Everything comes from `world_map`, which has no
+/// enemy in it.
 constexpr float kMapTerrainRatio = 2.4F;
 constexpr float kMapFrameRatio = 2.8F;
 constexpr float kMapRowStep = 0.0005F; ///< each row a hair further than the one below it
@@ -3088,26 +3113,10 @@ void append_world_map(std::vector<SceneVertex>& out, const SceneOptions& options
                   at_needle(needle.at(3)), kDriven);
     }
 
-    // The nav marks, over the units: cyan plate, black outline, black digit.
-    const std::array<float, 3> plate_rgb{kNavColour[0], kNavColour[1], kNavColour[2]};
+    // The nav marks, over the units, exactly as the radar draws them.
     for (const MapMark& mark : map.marks) {
-        rect(0.90F, mark.px - mark.half - (2.0F * scale), mark.py - mark.half - (2.0F * scale),
-             mark.px + mark.half + (2.0F * scale), mark.py + mark.half + (2.0F * scale), kInk);
-        rect(0.89F, mark.px - mark.half, mark.py - mark.half, mark.px + mark.half,
-             mark.py + mark.half, plate_rgb);
-        const std::array<std::uint8_t, 5>& rows = digit_rows(mark.number);
-        for (std::size_t row = 0; row < rows.size(); ++row) {
-            for (int col = 0; col < 5; ++col) {
-                if (((rows.at(row) >> (4 - col)) & 1U) == 0U) {
-                    continue;
-                }
-                const float x
-                    = mark.px - (2.5F * mark.cell) + (static_cast<float>(col) * mark.cell);
-                const float y
-                    = mark.py - (2.5F * mark.cell) + (static_cast<float>(row) * mark.cell);
-                rect(0.88F, x, y, x + mark.cell, y + mark.cell, kInk);
-            }
-        }
+        append_nav_glyph(out, options, marks_at * 0.89F, mark.px, mark.py, mark.half,
+                         mark.highlighted);
     }
 
     // The caption says what this is and how to close it. The map now sits in the bottom-left corner

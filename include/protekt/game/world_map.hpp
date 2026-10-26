@@ -14,7 +14,7 @@
 /// A PURE VIEW. Opening it changes no state, issues no order and cannot be clicked; it is drawn
 /// over the frame and the game underneath carries on exactly as it was. What it shows is the
 /// ground (every tile in the colour of its own terrain, taken from the ground's atlas tiles so the
-/// two cannot disagree), YOUR assets, and your nav marks with their numbers.
+/// two cannot disagree), YOUR assets, and your nav marks, drawn as the radar draws them.
 ///
 /// IT NEVER SHOWS AN ENEMY ASSET. `world_map` takes the side whose map it is and copies only that
 /// side's living units into `assets`; there is no other path from a unit to the map, so the one
@@ -71,8 +71,6 @@ inline constexpr float kMapHeadingLinePixels = 11.34F;
 /// Half the direction line's width, in the same reference pixels: 1.8 px wide, a needle not a
 /// wedge.
 inline constexpr float kMapHeadingLineHalfPixels = 0.9F;
-inline constexpr float kMapMarkHalf = 6.5F; ///< a mark's plate: 13 px square
-inline constexpr float kMapMarkCell = 2.0F; ///< a digit is 5x5 cells, so 10 px tall (BZ2's size)
 
 /// The square's geometry: bottom-left corner at the panel margin, `size` = the width fraction.
 [[nodiscard]] WorldMapLayout world_map_layout(Extent extent) noexcept;
@@ -126,13 +124,14 @@ struct MapAsset {
     bool driven{false};
 };
 
-/// A nav mark: the centre of its tile, a plate `half` out from it, its digit in `cell`-pixel cells.
+/// A nav mark: the centre of its tile and the plus's half-size, which is the radar's own
+/// (`radar_nav_half`) -- his ruling, 2026-10-26: the mark is "EXACTLY the same as in the radar".
 struct MapMark {
-    int number{};
+    int slot{};
     float px{};
     float py{};
     float half{};
-    float cell{};
+    bool highlighted{false};
 };
 
 /// The driven unit's direction needle: the four corners of a thin white quad running from the
@@ -159,7 +158,7 @@ struct WorldMap {
 };
 
 /// Everything the map draws apart from the ground, for the side `own` and the unit `driven`.
-/// `marks` may be null. Only living units of `own` are included; marks only if dropped.
+/// `marks` may be null. Only living units of `own` are included; marks only if placed.
 [[nodiscard]] WorldMap world_map(const sim::Sim& sim, Extent extent, sim::Side own,
                                  sim::UnitId driven, const NavMarks* marks);
 

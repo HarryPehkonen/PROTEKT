@@ -32,6 +32,8 @@ inline constexpr std::int32_t kKeyT = 23;
 inline constexpr std::int32_t kKeyEscape = 41;
 inline constexpr std::int32_t kKeyTab = 43;
 inline constexpr std::int32_t kKeySpace = 44;
+/// The key left of "1" on a US board (grave / `~`): the command row's `~` cell, the nav menu.
+inline constexpr std::int32_t kKeyGrave = 53;
 inline constexpr std::int32_t kKeyEnter = 40;
 /// F1..F10 select the command row's vehicle groups: F1 is group 1, F10 is group 10. F2..F10 follow
 /// F1 in the HID table (59-67), and F11 (68) stays the full-screen key.

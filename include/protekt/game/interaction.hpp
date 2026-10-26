@@ -78,7 +78,8 @@ public:
     ///    empty selection, a selection of more than one kind, and a key holding a different kind.
     ///    The only writer of the row, through `SceneOptions::row`
     ///  * G, then 0-9 (N3): send the selection to that nav mark's tile -- the same MoveTo `M`
-    ///    makes. G arms; the next key settles it. A digit is then a MARK number, never N2's
+    ///    makes. G arms; the next key settles it. A digit is then a MARK's digit as the nav menu
+    ///    numbers it (`nav_slot_digit`: 1-9, then 0 for the tenth slot), never N2's
     ///    selection key: a number with no mark is refused and orders nothing. Any digit uses the
     ///    arming up; Escape cancels it (and is spent doing so: the selection stays); any other key
     ///    cancels it and then does its own job; an order by key (`M`) cancels it. The trigger
@@ -174,7 +175,8 @@ private:
     void follow_driven(const sim::Sim& sim);
     /// `4 HOLD`: every orderable selected unit is posted where it stands, one GuardAt each.
     void hold_selection(const sim::Sim& sim);
-    /// G then a digit: MoveTo the tile of mark `number` for every orderable selected unit (N3).
+    /// G then a digit: MoveTo the tile of the mark drawn as `number` for every orderable selected
+    /// unit (N3).
     void send_to_mark(int number, const SceneOptions& options);
     /// T with nothing hostile under the crosshair: capture the nearest hostiles and arm the list,
     /// or refuse when there are none. A refusal leaves nothing armed.

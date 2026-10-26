@@ -168,18 +168,23 @@ inline constexpr float kRadarMeshLinePixels = 1.0F;
                                                    int radius_tiles = kRadarRadiusTiles,
                                                    int step_tiles = kRadarMeshStepTiles);
 
-/// One navigational mark on the radar, in panel pixels like `RadarMark`: the centre of its plate,
-/// `half` the plate's half-size. The plate carries the mark's number.
+/// One navigational mark on the radar, in panel pixels like `RadarMark`: the centre of its plus,
+/// `half` the plus's half-size (`radar_nav_half`). No number is drawn: the slot is for the caller.
 struct RadarNav {
     float px{};
     float py{};
     float half{};
-    int number{};
-    bool at_rim{false}; ///< outside the radius: pinned to the rim, in the direction to turn
+    int slot{};
+    bool highlighted{false}; ///< yellow inside a yellow diamond, not the plain green
+    bool at_rim{false};      ///< outside the radius: pinned to the rim, in the direction to turn
 };
 
-/// The nav marks for one frame, in ascending number, one per mark given -- a number that was never
-/// dropped is not in `marks`, so it is not here. Inside `radius_tiles` a mark is where its tile is;
+/// A nav mark's plus, half its span, in the frame's pixels: the ONE size, which the world map
+/// draws its marks at too, so the two surfaces show the same mark.
+[[nodiscard]] float radar_nav_half(const RadarPanel& panel) noexcept;
+
+/// The nav marks for one frame, in slot order, one per mark given -- a slot that was never written
+/// is not in `marks`, so it is not here. Inside `radius_tiles` a mark is where its tile is;
 /// outside it is pinned to the rim in its direction, the way your own base is: a mark exists so you
 /// can find your way back to it, and a mark that vanished when you drove away would be no use. With
 /// no viewer unit there is no centre and so no marks.

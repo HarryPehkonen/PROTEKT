@@ -7,7 +7,7 @@
 #include <cstdint>
 
 #include "protekt/game/atlas.hpp"
-#include "protekt/game/radar.hpp" // radar_panel: the map takes the oval's own major diameter
+#include "protekt/game/radar.hpp" // radar_panel, radar_nav_half: the oval's diameter, its mark
 #include "protekt/game/scene.hpp"
 
 namespace protekt::game {
@@ -150,11 +150,11 @@ WorldMap world_map(const sim::Sim& sim, Extent extent, sim::Side own, sim::UnitI
                                       unit.id == driven});
     }
     if (marks != nullptr) {
+        const float half = radar_nav_half(radar_panel(extent));
         for (const NavMarks::Mark& mark : marks->marks()) {
             const MapPoint at = map_point(map.layout, static_cast<float>(mark.tile_x) + 0.5F,
                                           static_cast<float>(mark.tile_y) + 0.5F);
-            map.marks.push_back(
-                MapMark{mark.number, at.x, at.y, kMapMarkHalf * scale, kMapMarkCell * scale});
+            map.marks.push_back(MapMark{mark.slot, at.x, at.y, half, mark.highlighted});
         }
     }
     return map;

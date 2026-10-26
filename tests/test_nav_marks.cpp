@@ -1,5 +1,7 @@
-// N1: navigational marks. N drops a numbered mark on the ground under the crosshair, N on a mark
-// clears it, the radar lists the marks, and none of it touches the sim.
+// N1, corrected by MENU-NAV: navigational marks. Ten slots filled round-robin (drawn 1-9, then 0),
+// an overwrite destroys the occupant, nothing ever deletes a mark, and every slot carries a
+// highlight toggle. `n` arms placing, SPACE places, `~` opens the nav menu, and SPACE over a mark
+// and the mark's digit are the same toggle. None of it touches the sim.
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -11,6 +13,7 @@
 
 #include "protekt/game/aim.hpp"
 #include "protekt/game/interaction.hpp"
+#include "protekt/game/menu.hpp"
 #include "protekt/game/nav_marks.hpp"
 #include "protekt/game/pick.hpp"
 #include "protekt/game/radar.hpp"
@@ -72,119 +75,427 @@ void to_the_sky(Rig& rig) {
     rig.options.camera.pitch = 0.6F;
 }
 
+/// A press of `scancode`, bare.
+[[nodiscard]] input::KeyEvent press(std::int32_t scancode) {
+    return input::KeyEvent{scancode, true};
+}
+
+/// The digit key `n` (0-9) as the window reports it: HID 30 is "1" ... 38 is "9", 39 is "0".
+[[nodiscard]] input::KeyEvent digit(int n) {
+    return press(n == 0 ? input::kKey0 : input::kKey1 + n - 1);
+}
+
+/// A reticle on the ground at `tile`, `metres` away.
+[[nodiscard]] NavAim on(int tile_x, int tile_y, int metres = 17) {
+    return NavAim{tile_x, tile_y, metres};
+}
+
 /// A frame's scene with the nav marks as given.
-[[nodiscard]] Scene scene_with(const Rig& rig, const NavMarks* marks) {
+[[nodiscard]] Scene scene_with(const Rig& rig, const NavMarks* marks, bool map = false) {
     SceneOptions options = rig.options;
     options.nav_marks = marks;
+    options.show_world_map = map;
     return build_scene(rig.sim, options);
 }
 
-[[nodiscard]] bool is_beacon(const SceneVertex& v) {
-    return v.colour[0] == kNavColour[0] && v.colour[1] == kNavColour[1]
-           && v.colour[2] == kNavColour[2];
+[[nodiscard]] bool has_colour(const SceneVertex& v, const math::Vec3& rgb) {
+    return v.colour[0] == rgb[0] && v.colour[1] == rgb[1] && v.colour[2] == rgb[2];
 }
 
-[[nodiscard]] std::size_t beacon_vertices(const Scene& scene) {
+[[nodiscard]] std::size_t vertices_in(const Scene& scene, const math::Vec3& rgb) {
     return static_cast<std::size_t>(
         std::count_if(scene.vertices.begin(), scene.vertices.end(),
-                      [](const SceneVertex& v) { return is_beacon(v); }));
+                      [&rgb](const SceneVertex& v) { return has_colour(v, rgb); }));
 }
 
-TEST(NavMarks, NDropsAMarkOnTheTileTheCrosshairRayMeets) {
-    Rig rig = make_rig();
-    const Pick ray = ray_tile(rig, 640.0F, 560.0F);
-    ASSERT_TRUE(ray.has_tile()) << "the test needs a ray that reaches the ground";
-    aim_at_pixel(rig, 640.0F, 560.0F);
+/// The tiles of placements 1..`count`, each its own: placement p is at (100 + p, 7).
+[[nodiscard]] NavMarks placed(int count) {
     NavMarks marks;
-    const std::string said = nav_press(marks, rig.sim, rig.options);
-    const std::vector<NavMarks::Mark> got = marks.marks();
-    ASSERT_EQ(got.size(), 1U);
-    EXPECT_EQ(got.at(0).tile_x, ray.tile_x);
-    EXPECT_EQ(got.at(0).tile_y, ray.tile_y);
-    EXPECT_EQ(got.at(0).number, 0);
-    EXPECT_EQ(said, "Nav mark 0 dropped.");
-}
-
-TEST(NavMarks, NumbersAreTheLowestFreeSlotAndAClearedNumberIsReused) {
-    NavMarks marks;
-    EXPECT_EQ(marks.press(10, 10).number, 0);
-    EXPECT_EQ(marks.press(11, 10).number, 1);
-    EXPECT_EQ(marks.press(12, 10).number, 2);
-    const NavMarks::Result cleared = marks.press(10, 10);
-    EXPECT_EQ(cleared.outcome, Outcome::Cleared);
-    EXPECT_EQ(cleared.number, 0);
-    const NavMarks::Result again = marks.press(20, 20);
-    EXPECT_EQ(again.outcome, Outcome::Dropped);
-    EXPECT_EQ(again.number, 0) << "the freed 0 is the lowest free number";
-    EXPECT_EQ(marks.press(21, 20).number, 3);
-}
-
-TEST(NavMarks, TheEleventhDropIsRefusedWithAMessageAndTouchesNothing) {
-    Rig rig = make_rig();
-    NavMarks marks;
-    for (int i = 0; i < kNavSlots; ++i) {
-        ASSERT_EQ(marks.press(10 + i, 10).outcome, Outcome::Dropped);
+    for (int p = 1; p <= count; ++p) {
+        EXPECT_EQ(marks.place(100 + p, 7).outcome, Outcome::Placed);
     }
+    return marks;
+}
+
+// --- the model: slots, the wrap, the highlight ---------------------------------------------------
+
+TEST(NavMarks, TheSlotsAreDrawnOneToNineThenZero) {
+    for (int slot = 0; slot < kNavSlots; ++slot) {
+        EXPECT_EQ(nav_slot_digit(slot), slot == 9 ? 0 : slot + 1);
+        EXPECT_EQ(nav_digit_slot(nav_slot_digit(slot)), slot);
+    }
+}
+
+TEST(NavMarks, PlacementPLandsInSlotPMinusOneModTen) {
+    NavMarks marks;
+    for (int p = 1; p <= 25; ++p) {
+        const NavMarks::Result result = marks.place(100 + p, 7);
+        ASSERT_EQ(result.outcome, Outcome::Placed);
+        EXPECT_EQ(result.slot, (p - 1) % kNavSlots) << "placement " << p;
+    }
+}
+
+TEST(NavMarks, TheEleventhLandsInSlotOneAndTheFirstIsGone) {
+    NavMarks marks = placed(10);
+    ASSERT_EQ(marks.marks().size(), 10U);
+    const NavMarks::Result eleventh = marks.place(111, 7);
+    EXPECT_EQ(eleventh.outcome, Outcome::Placed) << "a full table is not a refusal";
+    EXPECT_EQ(nav_slot_digit(eleventh.slot), 1);
+    const std::vector<NavMarks::Mark> now = marks.marks();
+    ASSERT_EQ(now.size(), 10U);
+    EXPECT_EQ(now.at(0).tile_x, 111);
+    for (const NavMarks::Mark& mark : now) {
+        EXPECT_NE(mark.tile_x, 101) << "the first placement is gone from every slot";
+    }
+}
+
+TEST(NavMarks, TwelvePlacementsAreHisWorkedExample) {
+    // "1 = 11th, 2 = 12th, 3 = 3rd, ... 0 = 10th. The first and second nav beacon have disappeared
+    // completely from any record."
+    const NavMarks marks = placed(12);
+    const std::vector<NavMarks::Mark> now = marks.marks();
+    ASSERT_EQ(now.size(), 10U);
+    const std::array<int, kNavSlots> placement{11, 12, 3, 4, 5, 6, 7, 8, 9, 10};
+    for (int slot = 0; slot < kNavSlots; ++slot) {
+        const NavMarks::Mark& mark = now.at(static_cast<std::size_t>(slot));
+        EXPECT_EQ(mark.slot, slot) << "listed in slot order";
+        EXPECT_EQ(mark.tile_x, 100 + placement.at(static_cast<std::size_t>(slot)))
+            << "row " << nav_slot_digit(slot);
+    }
+}
+
+TEST(NavMarks, AnOverwriteDestroysTheOccupantAndItsHighlight) {
+    NavMarks marks = placed(10);
+    ASSERT_TRUE(marks.toggle(0));
+    ASSERT_TRUE(marks.marks().at(0).highlighted);
+    static_cast<void>(marks.place(55, 66));
+    const NavMarks::Mark fresh = marks.marks().at(0);
+    EXPECT_EQ(fresh.tile_x, 55);
+    EXPECT_EQ(fresh.tile_y, 66);
+    EXPECT_FALSE(fresh.highlighted) << "a freshly placed mark is always plain";
+    EXPECT_EQ(marks.slot_at(101, 7), -1) << "the old occupant is nowhere";
+}
+
+TEST(NavMarks, AFreshMarkIsNeverHighlighted) {
+    NavMarks marks;
+    for (int p = 1; p <= 23; ++p) {
+        const NavMarks::Result result = marks.place(p, p);
+        for (const NavMarks::Mark& mark : marks.marks()) {
+            if (mark.slot == result.slot) {
+                EXPECT_FALSE(mark.highlighted) << "placement " << p;
+            }
+        }
+        marks.toggle(result.slot); // so the slot the wrap comes back to is highlighted
+    }
+}
+
+TEST(NavMarks, AToggleFlipsOnlyItsOwnSlotAndSeveralCoexist) {
+    NavMarks marks = placed(5);
+    ASSERT_TRUE(marks.toggle(1));
+    ASSERT_TRUE(marks.toggle(3));
+    for (const NavMarks::Mark& mark : marks.marks()) {
+        EXPECT_EQ(mark.highlighted, mark.slot == 1 || mark.slot == 3) << "slot " << mark.slot;
+    }
+    ASSERT_TRUE(marks.toggle(1));
+    for (const NavMarks::Mark& mark : marks.marks()) {
+        EXPECT_EQ(mark.highlighted, mark.slot == 3) << "slot " << mark.slot;
+    }
+}
+
+TEST(NavMarks, ToggleOnAnEmptySlotChangesNothing) {
+    NavMarks marks = placed(2);
     const std::vector<NavMarks::Mark> before = marks.marks();
-    ASSERT_EQ(before.size(), 10U);
-    aim_at_pixel(rig, 640.0F, 560.0F);
-    ASSERT_TRUE(ray_tile(rig, 640.0F, 560.0F).has_tile());
-    const std::string said = nav_press(marks, rig.sim, rig.options);
-    EXPECT_EQ(said, "All ten nav marks are in use -- aim at one and press N to clear it first.");
+    EXPECT_FALSE(marks.toggle(2));
+    EXPECT_FALSE(marks.toggle(-1));
+    EXPECT_FALSE(marks.toggle(kNavSlots));
     const std::vector<NavMarks::Mark> after = marks.marks();
     ASSERT_EQ(after.size(), before.size());
-    for (std::size_t i = 0; i < before.size(); ++i) {
-        EXPECT_EQ(after.at(i).number, before.at(i).number);
-        EXPECT_EQ(after.at(i).tile_x, before.at(i).tile_x);
-        EXPECT_EQ(after.at(i).tile_y, before.at(i).tile_y);
+    for (std::size_t i = 0; i < after.size(); ++i) {
+        EXPECT_EQ(after.at(i).highlighted, before.at(i).highlighted);
     }
 }
 
-TEST(NavMarks, NAimedAtAMarkClearsItAndFreesTheSlot) {
+TEST(NavMarks, NoGroundNeverPlacesAndDoesNotTurnTheCycle) {
+    NavMarks marks;
+    EXPECT_EQ(marks.place(-1, -1).outcome, Outcome::NoGround);
+    EXPECT_EQ(marks.place(5, -1).outcome, Outcome::NoGround);
+    EXPECT_TRUE(marks.marks().empty());
+    EXPECT_EQ(marks.place(5, 5).slot, 0) << "the refusal spent no slot";
+}
+
+TEST(NavMarks, AimingAtAMarkNeverRemovesIt) {
+    // R2: the shipped "N on a mark clears it" is gone. The same tile placed twice is two marks.
+    NavMarks marks;
+    static_cast<void>(marks.place(10, 10));
+    static_cast<void>(marks.place(10, 10));
+    const std::vector<NavMarks::Mark> now = marks.marks();
+    ASSERT_EQ(now.size(), 2U);
+    EXPECT_EQ(now.at(0).tile_x, 10);
+    EXPECT_EQ(now.at(1).tile_x, 10);
+    // And through the keys: SPACE while placing, aimed at a mark, is a placement too.
+    NavMenu menu;
+    const std::array keys{press(input::kKeyN), press(input::kKeySpace)};
+    static_cast<void>(menu.handle(keys, marks, on(10, 10), true));
+    EXPECT_EQ(marks.marks().size(), 3U);
+}
+
+// --- the keys: `top menu -> n`, `top menu -> ~` --------------------------------------------------
+
+TEST(NavMenu, NArmsPlacingOnlyFromTheTopMenu) {
+    NavMarks marks;
+    NavMenu menu;
+    const std::array n{press(input::kKeyN)};
+    EXPECT_TRUE(menu.handle(n, marks, on(5, 5), false).empty()) << "n is the nav's key";
+    EXPECT_EQ(menu.state(), NavState::Closed) << "another left menu is open";
+    static_cast<void>(menu.handle(n, marks, on(5, 5), true));
+    EXPECT_EQ(menu.state(), NavState::Placing);
+    EXPECT_TRUE(marks.marks().empty()) << "n only arms; nothing is placed yet";
+}
+
+TEST(NavMenu, PlacingIsOneRowGetNavWithTheLiveDistance) {
+    NavMarks marks;
+    NavMenu menu;
+    static_cast<void>(menu.handle(std::array{press(input::kKeyN)}, marks, on(5, 5), true));
+    const std::vector<MenuRow> rows = nav_menu_rows(menu.state(), marks, on(5, 5, 17), Camera{});
+    ASSERT_EQ(rows.size(), 1U);
+    EXPECT_EQ(rows.at(0).key, "SPACE");
+    EXPECT_EQ(rows.at(0).verb, "GET NAV");
+    EXPECT_EQ(rows.at(0).right, "17m");
+    EXPECT_EQ(nav_menu_rows(menu.state(), marks, on(5, 5, 42), Camera{}).at(0).right, "42m")
+        << "live";
+}
+
+TEST(NavMenu, SpacePlacesUnderTheReticleAndCloses) {
+    NavMarks marks;
+    NavMenu menu;
+    const std::array keys{press(input::kKeyN), press(input::kKeySpace)};
+    EXPECT_TRUE(menu.handle(keys, marks, on(12, 34), true).empty());
+    ASSERT_EQ(marks.marks().size(), 1U);
+    EXPECT_EQ(marks.marks().at(0).tile_x, 12);
+    EXPECT_EQ(marks.marks().at(0).tile_y, 34);
+    EXPECT_EQ(menu.state(), NavState::Closed);
+    EXPECT_EQ(menu.message(), "Nav 1 placed.");
+}
+
+TEST(NavMenu, OffTheGroundPlacingIsDrawnAsNothingAndSurvives) {
+    NavMarks marks;
+    NavMenu menu;
+    static_cast<void>(menu.handle(std::array{press(input::kKeyN)}, marks, on(5, 5), true));
+    const NavAim sky{};
+    EXPECT_TRUE(nav_menu_rows(menu.state(), marks, sky, Camera{}).empty())
+        << "no menu, no distance, no trace";
+    static_cast<void>(menu.handle(std::array{press(input::kKeySpace)}, marks, sky, true));
+    EXPECT_TRUE(marks.marks().empty()) << "a ray that meets no ground never places";
+    EXPECT_EQ(menu.state(), NavState::Placing) << "the arming survives being hidden";
+    EXPECT_EQ(nav_menu_rows(menu.state(), marks, on(5, 5), Camera{}).size(), 1U)
+        << "and returns unchanged with the reticle back on the ground";
+    static_cast<void>(menu.handle(std::array{press(input::kKeySpace)}, marks, on(5, 5), true));
+    EXPECT_EQ(marks.marks().size(), 1U);
+}
+
+TEST(NavMenu, TabClosesPlacingWithoutPlacing) {
+    NavMarks marks;
+    NavMenu menu;
+    const std::array keys{press(input::kKeyN), press(input::kKeyTab), press(input::kKeySpace)};
+    const std::vector<input::KeyEvent> rest = menu.handle(keys, marks, on(5, 5), true);
+    EXPECT_TRUE(marks.marks().empty());
+    EXPECT_EQ(menu.state(), NavState::Closed);
+    ASSERT_EQ(rest.size(), 1U) << "once closed, SPACE is the session's selector again";
+    EXPECT_EQ(rest.at(0).scancode, input::kKeySpace);
+}
+
+TEST(NavMenu, TildeOpensTheNavMenuOnlyFromTheTopMenuAndOnlyWithAMark) {
+    NavMarks marks;
+    NavMenu menu;
+    const std::array tilde{press(input::kKeyGrave)};
+    static_cast<void>(menu.handle(tilde, marks, on(5, 5), true));
+    EXPECT_EQ(menu.state(), NavState::Closed) << "no mark, no ~";
+    static_cast<void>(marks.place(5, 5));
+    static_cast<void>(menu.handle(tilde, marks, on(5, 5), false));
+    EXPECT_EQ(menu.state(), NavState::Closed) << "another left menu is open";
+    static_cast<void>(menu.handle(tilde, marks, on(5, 5), true));
+    EXPECT_EQ(menu.state(), NavState::Menu);
+    static_cast<void>(menu.handle(std::array{press(input::kKeyTab)}, marks, on(5, 5), true));
+    EXPECT_EQ(menu.state(), NavState::Closed);
+}
+
+TEST(NavMenu, TheNavMenuRowsAreSpaceTabThenEverySlotInSlotOrder) {
+    NavMarks marks = placed(12);
+    Camera from{};
+    from.x = (101.5F * kMetresPerTile);
+    from.z = (7.5F * kMetresPerTile);
+    const std::vector<MenuRow> rows = nav_menu_rows(NavState::Menu, marks, NavAim{}, from);
+    ASSERT_EQ(rows.size(), 12U);
+    EXPECT_EQ(rows.at(0).key, "SPACE");
+    EXPECT_EQ(rows.at(0).verb, "") << "the reticle is on no mark";
+    EXPECT_EQ(rows.at(1).key, "TAB");
+    EXPECT_EQ(rows.at(1).verb, "CLOSE MENU");
+    const std::array<std::string_view, kNavSlots> keys{"1", "2", "3", "4", "5",
+                                                       "6", "7", "8", "9", "0"};
+    const std::array<int, kNavSlots> placement{11, 12, 3, 4, 5, 6, 7, 8, 9, 10};
+    for (std::size_t i = 0; i < keys.size(); ++i) {
+        const MenuRow& row = rows.at(i + 2);
+        EXPECT_EQ(row.key, keys.at(i));
+        EXPECT_EQ(row.verb, "NAV");
+        // Placement p sits at tile 100 + p, two metres a tile from tile 101.
+        EXPECT_EQ(row.right, std::to_string((placement.at(i) - 1) * 2) + "m") << "row " << i;
+    }
+}
+
+TEST(NavMenu, SelectReadsOnlyWithTheReticleOverAMark) {
+    NavMarks marks = placed(3);
+    EXPECT_EQ(nav_menu_rows(NavState::Menu, marks, on(102, 7), Camera{}).at(0).verb, "SELECT");
+    EXPECT_EQ(nav_menu_rows(NavState::Menu, marks, on(150, 7), Camera{}).at(0).verb, "");
+    EXPECT_EQ(nav_menu_rows(NavState::Menu, marks, NavAim{}, Camera{}).at(0).verb, "");
+}
+
+TEST(NavMenu, SpaceOverAMarkAndItsDigitAreTheSameToggle) {
+    const auto open = [](NavMarks& marks, NavMenu& menu) {
+        static_cast<void>(menu.handle(std::array{press(input::kKeyGrave)}, marks, NavAim{}, true));
+        ASSERT_EQ(menu.state(), NavState::Menu);
+    };
+    // The mark of placement 3 is slot 2, drawn as `3`, at tile (103, 7).
+    NavMarks by_space = placed(5);
+    NavMarks by_digit = placed(5);
+    NavMenu a;
+    NavMenu b;
+    open(by_space, a);
+    open(by_digit, b);
+    static_cast<void>(a.handle(std::array{press(input::kKeySpace)}, by_space, on(103, 7), true));
+    static_cast<void>(b.handle(std::array{digit(3)}, by_digit, NavAim{}, true));
+    for (NavMarks* marks : {&by_space, &by_digit}) {
+        for (const NavMarks::Mark& mark : marks->marks()) {
+            EXPECT_EQ(mark.highlighted, mark.slot == 2) << "slot " << mark.slot;
+        }
+    }
+    EXPECT_EQ(a.message(), "Nav 3 highlighted.");
+    EXPECT_EQ(b.message(), a.message());
+    // Each verb undoes the other: one press per mark, no other state.
+    static_cast<void>(a.handle(std::array{digit(3)}, by_space, NavAim{}, true));
+    static_cast<void>(b.handle(std::array{press(input::kKeySpace)}, by_digit, on(103, 7), true));
+    for (NavMarks* marks : {&by_space, &by_digit}) {
+        for (const NavMarks::Mark& mark : marks->marks()) {
+            EXPECT_FALSE(mark.highlighted) << "slot " << mark.slot;
+        }
+    }
+    EXPECT_EQ(a.message(), "Nav 3 plain.");
+    EXPECT_EQ(a.state(), NavState::Menu) << "the menu stays open";
+}
+
+TEST(NavMenu, ZeroIsTheTenthSlotAndADigitWithNoMarkDoesNothing) {
+    NavMarks marks = placed(10);
+    NavMenu menu;
+    static_cast<void>(
+        menu.handle(std::array{press(input::kKeyGrave), digit(0)}, marks, NavAim{}, true));
+    EXPECT_TRUE(marks.marks().at(9).highlighted);
+    NavMarks few = placed(2);
+    NavMenu other;
+    static_cast<void>(
+        other.handle(std::array{press(input::kKeyGrave), digit(7)}, few, NavAim{}, true));
+    for (const NavMarks::Mark& mark : few.marks()) {
+        EXPECT_FALSE(mark.highlighted);
+    }
+    EXPECT_TRUE(other.message().empty());
+}
+
+TEST(NavMenu, WhileOpenTheTopMenuIsShutOutAndTheRestPasses) {
+    NavMarks marks = placed(2);
+    for (const std::int32_t opener : {input::kKeyN, input::kKeyGrave}) {
+        NavMenu menu;
+        static_cast<void>(menu.handle(std::array{press(opener)}, marks, NavAim{}, true));
+        ASSERT_NE(menu.state(), NavState::Closed);
+        input::KeyEvent shifted_f2 = press(input::kKeyF1 + 1);
+        shifted_f2.shift = true;
+        const std::array shut{press(input::kKeyF1),
+                              shifted_f2,
+                              press(input::kKeyG),
+                              press(input::kKeyT),
+                              press(input::kKeyN),
+                              press(input::kKeyGrave),
+                              digit(1),
+                              digit(0)};
+        EXPECT_TRUE(menu.handle(shut, marks, NavAim{}, true).empty());
+        EXPECT_NE(menu.state(), NavState::Closed) << "none of those closes it";
+        const std::array pass{press(input::kKeyW), press(input::kKeyR), press(input::kKeyX),
+                              press(input::kKeyM), input::KeyEvent{input::kKeySpace, false}};
+        const std::vector<input::KeyEvent> rest = menu.handle(pass, marks, NavAim{}, true);
+        ASSERT_EQ(rest.size(), pass.size());
+        for (std::size_t i = 0; i < pass.size(); ++i) {
+            EXPECT_EQ(rest.at(i).scancode, pass.at(i).scancode);
+            EXPECT_EQ(rest.at(i).pressed, pass.at(i).pressed);
+        }
+    }
+}
+
+TEST(NavMenu, ClosedItTakesOnlyNAndTilde) {
+    NavMarks marks = placed(2);
+    NavMenu menu;
+    const std::array keys{press(input::kKeySpace), digit(1), press(input::kKeyF1),
+                          press(input::kKeyTab), press(input::kKeyG)};
+    const std::vector<input::KeyEvent> rest = menu.handle(keys, marks, on(101, 7), true);
+    ASSERT_EQ(rest.size(), keys.size());
+    EXPECT_EQ(menu.state(), NavState::Closed);
+    for (const NavMarks::Mark& mark : marks.marks()) {
+        EXPECT_FALSE(mark.highlighted) << "SPACE in the top menu is the session's, not a toggle";
+    }
+}
+
+// --- the reticle, through the real picker -------------------------------------------------------
+
+TEST(NavAim, IsTheTileTheCrosshairRayMeetsAndItsDistance) {
     Rig rig = make_rig();
     aim_at_pixel(rig, 640.0F, 560.0F);
-    NavMarks marks;
-    EXPECT_EQ(nav_press(marks, rig.sim, rig.options), "Nav mark 0 dropped.");
-    ASSERT_EQ(marks.marks().size(), 1U);
-    EXPECT_EQ(nav_press(marks, rig.sim, rig.options), "Nav mark 0 cleared.");
-    EXPECT_TRUE(marks.marks().empty());
-    EXPECT_EQ(nav_press(marks, rig.sim, rig.options), "Nav mark 0 dropped.")
-        << "the slot is free again";
-}
-
-TEST(NavMarks, NWithNoGroundInRangeIsRefusedAndCreatesNothing) {
-    Rig rig = make_rig();
+    const Pick ray = ray_tile(rig, 640.0F, 560.0F);
+    ASSERT_TRUE(ray.has_tile()) << "the test needs a ray that reaches the ground";
+    const NavAim aim = nav_aim(rig.sim, rig.options);
+    EXPECT_EQ(aim.tile_x, ray.tile_x);
+    EXPECT_EQ(aim.tile_y, ray.tile_y);
+    EXPECT_EQ(aim.metres, nav_metres(rig.options.camera, ray.tile_x, ray.tile_y));
+    EXPECT_GT(aim.metres, 0);
     to_the_sky(rig);
-    ASSERT_FALSE(ray_tile(rig, 640.0F, 360.0F).has_tile());
-    NavMarks marks;
-    const std::string said = nav_press(marks, rig.sim, rig.options);
-    EXPECT_EQ(said, "No ground under the crosshair in range -- no nav mark dropped.");
-    EXPECT_TRUE(marks.marks().empty());
+    EXPECT_FALSE(nav_aim(rig.sim, rig.options).on_ground());
 }
 
-TEST(NavMarks, TheKeyIsAPlainNPress) {
-    input::InputFrame frame{};
-    EXPECT_FALSE(input::nav_mark_pressed(frame));
-    frame.keys.push_back(input::KeyEvent{input::kKeyN, false});
-    EXPECT_FALSE(input::nav_mark_pressed(frame)) << "a release is not a press";
-    frame.keys.push_back(input::KeyEvent{input::kKeyN, true});
-    EXPECT_TRUE(input::nav_mark_pressed(frame));
+TEST(NavAim, MetresAreTheHorizontalDistanceToTheTilesMiddle) {
+    Camera from{};
+    from.x = 40.5F * kMetresPerTile;
+    from.z = 40.5F * kMetresPerTile;
+    EXPECT_EQ(nav_metres(from, 40, 40), 0);
+    EXPECT_EQ(nav_metres(from, 50, 40), 20);
+    EXPECT_EQ(nav_metres(from, 43, 44), 10); // a 3-4-5 triangle of tiles
 }
 
-TEST(NavMarksRadar, ListsExactlyTheDroppedMarksWithTheirNumbers) {
+// --- the keys themselves
+// --------------------------------------------------------------------------
+
+TEST(NavKeys, NAndTildeArePlainPresses) {
+    EXPECT_TRUE(input::nav_arm_pressed(press(input::kKeyN)));
+    EXPECT_FALSE(input::nav_arm_pressed(input::KeyEvent{input::kKeyN, false}))
+        << "a release is not a press";
+    EXPECT_FALSE(input::nav_arm_pressed(input::KeyEvent{input::kKeyN, true, false, true, false}));
+    EXPECT_TRUE(input::nav_menu_pressed(press(input::kKeyGrave)));
+    EXPECT_FALSE(input::nav_menu_pressed(press(input::kKeyN)));
+}
+
+// --- the radar and the world map
+// --------------------------------------------------------------------
+
+TEST(NavMarksRadar, ListsExactlyThePlacedMarksInSlotOrder) {
     Rig rig = make_rig();
     NavMarks marks;
-    marks.press(44, 40);
-    marks.press(36, 40);
-    marks.press(40, 44);
-    marks.press(36, 40); // clear number 1
+    marks.place(44, 40);
+    marks.place(40, 44);
+    marks.toggle(1);
     const RadarPanel panel = radar_panel(kExtent);
     const std::vector<RadarNav> shown
         = radar_nav_marks(rig.sim.units(), rig.tank_a, marks.marks(), 0.0F, panel);
     ASSERT_EQ(shown.size(), 2U);
-    EXPECT_EQ(shown.at(0).number, 0);
-    EXPECT_EQ(shown.at(1).number, 2);
+    EXPECT_EQ(shown.at(0).slot, 0);
+    EXPECT_EQ(shown.at(1).slot, 1);
+    EXPECT_FALSE(shown.at(0).highlighted);
+    EXPECT_TRUE(shown.at(1).highlighted);
     EXPECT_FALSE(shown.at(0).at_rim);
+    EXPECT_FLOAT_EQ(shown.at(0).half, radar_nav_half(panel));
     // Heading-up at yaw 0: east of the tank is to the right of the centre, north of it is above.
     const float middle = panel.width * 0.5F;
     const float middle_y = panel.height * 0.5F;
@@ -196,7 +507,7 @@ TEST(NavMarksRadar, ListsExactlyTheDroppedMarksWithTheirNumbers) {
 TEST(NavMarksRadar, AMarkBeyondTheRadiusIsPinnedToTheRimInItsDirection) {
     Rig rig = make_rig();
     NavMarks marks;
-    marks.press(40 + (3 * kRadarRadiusTiles), 40);
+    marks.place(40 + (3 * kRadarRadiusTiles), 40);
     const RadarPanel panel = radar_panel(kExtent);
     const std::vector<RadarNav> shown
         = radar_nav_marks(rig.sim.units(), rig.tank_a, marks.marks(), 0.0F, panel);
@@ -208,7 +519,7 @@ TEST(NavMarksRadar, AMarkBeyondTheRadiusIsPinnedToTheRimInItsDirection) {
     EXPECT_LE(shown.at(0).px + shown.at(0).half, panel.width);
 }
 
-TEST(NavMarksRadar, EveryMarkPlateLiesInsideTheOvalAtAnyBearing) {
+TEST(NavMarksRadar, EveryMarkLiesInsideTheOvalAtAnyBearing) {
     Rig rig = make_rig();
     const RadarPanel panel = radar_panel(kExtent);
     for (const std::array<int, 2>& tile : {std::array<int, 2>{40, 140},
@@ -221,7 +532,7 @@ TEST(NavMarksRadar, EveryMarkPlateLiesInsideTheOvalAtAnyBearing) {
                                            {40, 1},
                                            {1, 40}}) {
         NavMarks marks;
-        marks.press(tile.at(0), tile.at(1));
+        marks.place(tile.at(0), tile.at(1));
         const std::vector<RadarNav> shown
             = radar_nav_marks(rig.sim.units(), rig.tank_a, marks.marks(), 0.4F, panel);
         ASSERT_EQ(shown.size(), 1U);
@@ -239,48 +550,111 @@ TEST(NavMarksRadar, EveryMarkPlateLiesInsideTheOvalAtAnyBearing) {
 TEST(NavMarksRadar, NoViewerMeansNoMarks) {
     Rig rig = make_rig();
     NavMarks marks;
-    marks.press(44, 40);
+    marks.place(44, 40);
     EXPECT_TRUE(
         radar_nav_marks(rig.sim.units(), sim::UnitId{}, marks.marks(), 0.0F, radar_panel(kExtent))
             .empty());
 }
 
-TEST(NavMarksWorld, AMarkDrawsABeaconAndNoMarkDrawsNone) {
+/// R6, on both surfaces: a plain mark is a green plus and nothing yellow; the same mark highlighted
+/// is a yellow plus with a yellow diamond and nothing green. The mark is 30 tiles from the camera,
+/// past the scene's 24-tile radius, so no world beacon shares its colours with the surface's mark.
+void expect_highlight_is_drawn_differently(bool map) {
     Rig rig = make_rig();
     NavMarks marks;
-    EXPECT_EQ(beacon_vertices(scene_with(rig, &marks)), 0U);
-    EXPECT_EQ(beacon_vertices(scene_with(rig, nullptr)), 0U);
-    // The radar plate and digit for the mark are drawn too, so count the world's share alone by
-    // looking for vertices above the ground at the tile.
-    marks.press(40, 50);
-    const Scene with = scene_with(rig, &marks);
-    EXPECT_GT(beacon_vertices(with), 0U);
-    const float cx = 40.5F * kMetresPerTile;
-    const float cz = 50.5F * kMetresPerTile;
-    bool standing = false;
-    for (const SceneVertex& v : with.vertices) {
-        const bool beacon = is_beacon(v);
-        if (beacon && std::abs(v.position[0] - cx) < 1.0F && std::abs(v.position[2] - cz) < 1.0F
-            && v.position[1] > height_metres(kSeed, 40, 50) + 3.0F) {
-            standing = true;
+    static_cast<void>(marks.place(70, 30));
+    const Scene plain = scene_with(rig, &marks, map);
+    marks.toggle(0);
+    const Scene lit = scene_with(rig, &marks, map);
+    const std::size_t plus = vertices_in(plain, kNavPlainColour);
+    EXPECT_EQ(plus, 12U) << "two crossed bars";
+    EXPECT_EQ(vertices_in(plain, kNavHighlightColour), 0U);
+    EXPECT_EQ(vertices_in(lit, kNavPlainColour), 0U);
+    EXPECT_EQ(vertices_in(lit, kNavHighlightColour), plus + 24U)
+        << "the plus and four diamond sides";
+    EXPECT_EQ(plain.vertices.size() + 24U, lit.vertices.size()) << "nothing else moved";
+}
+
+TEST(NavMarksRadar, AHighlightedMarkIsAYellowPlusInADiamond) {
+    expect_highlight_is_drawn_differently(false);
+}
+
+TEST(NavMarksMap, AHighlightedMarkIsAYellowPlusInADiamond) {
+    expect_highlight_is_drawn_differently(true);
+}
+
+TEST(NavMarksMap, TheMapsMarkIsTheRadarsMark) {
+    // "It's EXACTLY the same as in the radar": the same glyph at the same size, only placed
+    // elsewhere. Every vertex of the map's mark is the radar's, shifted by one offset.
+    Rig rig = make_rig();
+    NavMarks marks;
+    static_cast<void>(marks.place(70, 30));
+    marks.toggle(0);
+    const auto glyph = [&](bool map) {
+        std::vector<SceneVertex> out;
+        for (const SceneVertex& v : scene_with(rig, &marks, map).vertices) {
+            if (has_colour(v, kNavHighlightColour)) {
+                const Projected p = project(rig.options.camera, kExtent, v.position[0],
+                                            v.position[1], v.position[2]);
+                out.push_back(SceneVertex{{p.x, p.y, 0.0F}, v.colour});
+            }
         }
+        return out;
+    };
+    const std::vector<SceneVertex> radar = glyph(false);
+    const std::vector<SceneVertex> map = glyph(true);
+    ASSERT_EQ(radar.size(), map.size());
+    ASSERT_FALSE(radar.empty());
+    const float dx = map.at(0).position[0] - radar.at(0).position[0];
+    const float dy = map.at(0).position[1] - radar.at(0).position[1];
+    // A quarter of a pixel: the two layers sit at different depths, and a float round trip through
+    // `ray_point` and `project` is good to a few hundredths of a pixel there, not to zero.
+    constexpr float kPixel = 0.25F;
+    for (std::size_t i = 0; i < radar.size(); ++i) {
+        EXPECT_NEAR(map.at(i).position[0] - radar.at(i).position[0], dx, kPixel) << i;
+        EXPECT_NEAR(map.at(i).position[1] - radar.at(i).position[1], dy, kPixel) << i;
     }
-    EXPECT_TRUE(standing) << "a beacon stands at the tile, well above the ground";
+}
+
+TEST(NavMarksWorld, AMarkDrawsABeaconInItsOwnColourAndNoMarkDrawsNone) {
+    Rig rig = make_rig();
+    NavMarks marks;
+    EXPECT_EQ(vertices_in(scene_with(rig, &marks), kNavPlainColour), 0U);
+    EXPECT_EQ(vertices_in(scene_with(rig, nullptr), kNavPlainColour), 0U);
+    marks.place(40, 50);
+    const auto standing = [&](const Scene& scene, const math::Vec3& rgb) {
+        const float cx = 40.5F * kMetresPerTile;
+        const float cz = 50.5F * kMetresPerTile;
+        for (const SceneVertex& v : scene.vertices) {
+            if (has_colour(v, rgb) && std::abs(v.position[0] - cx) < 1.0F
+                && std::abs(v.position[2] - cz) < 1.0F
+                && v.position[1] > height_metres(kSeed, 40, 50) + 3.0F) {
+                return true;
+            }
+        }
+        return false;
+    };
+    EXPECT_TRUE(standing(scene_with(rig, &marks), kNavPlainColour))
+        << "a green beacon stands at the tile, well above the ground";
+    marks.toggle(0);
+    EXPECT_TRUE(standing(scene_with(rig, &marks), kNavHighlightColour)) << "yellow, highlighted";
 }
 
 TEST(NavMarksSurvive, ATickACameraMoveAndAnXSwap) {
     Rig rig = make_rig();
     NavMarks marks;
-    marks.press(44, 40);
-    marks.press(30, 30);
+    marks.place(44, 40);
+    marks.place(30, 30);
+    marks.toggle(1);
     const std::vector<NavMarks::Mark> before = marks.marks();
     const auto same = [&] {
         const std::vector<NavMarks::Mark> now = marks.marks();
         ASSERT_EQ(now.size(), before.size());
         for (std::size_t i = 0; i < now.size(); ++i) {
-            EXPECT_EQ(now.at(i).number, before.at(i).number);
+            EXPECT_EQ(now.at(i).slot, before.at(i).slot);
             EXPECT_EQ(now.at(i).tile_x, before.at(i).tile_x);
             EXPECT_EQ(now.at(i).tile_y, before.at(i).tile_y);
+            EXPECT_EQ(now.at(i).highlighted, before.at(i).highlighted);
         }
     };
     for (int i = 0; i < 30; ++i) {
@@ -308,21 +682,31 @@ TEST(NavMarksSurvive, ATickACameraMoveAndAnXSwap) {
     same();
 }
 
+/// `n`, then SPACE, at three spots under the crosshair, the second one highlighted.
+void place_three(Rig& rig, NavMarks& marks) {
+    NavMenu menu;
+    for (const float y : {500.0F, 560.0F, 640.0F}) {
+        aim_at_pixel(rig, 640.0F, y);
+        const std::array keys{press(input::kKeyN), press(input::kKeySpace)};
+        static_cast<void>(menu.handle(keys, marks, nav_aim(rig.sim, rig.options), true));
+        rig.sim.step();
+    }
+    static_cast<void>(menu.handle(std::array{press(input::kKeyGrave), digit(2)}, marks,
+                                  nav_aim(rig.sim, rig.options), true));
+}
+
 [[nodiscard]] std::vector<std::uint8_t> run_once() {
     Rig rig = make_rig();
     NavMarks marks;
-    for (const float y : {500.0F, 560.0F, 640.0F}) {
-        aim_at_pixel(rig, 640.0F, y);
-        static_cast<void>(nav_press(marks, rig.sim, rig.options));
-        rig.sim.step();
-    }
+    place_three(rig, marks);
     const Scene scene = scene_with(rig, &marks);
     std::vector<std::uint8_t> bytes(scene.vertices.size() * sizeof(SceneVertex));
     std::memcpy(bytes.data(), scene.vertices.data(), bytes.size());
     for (const NavMarks::Mark& m : marks.marks()) {
-        bytes.push_back(static_cast<std::uint8_t>(m.number));
+        bytes.push_back(static_cast<std::uint8_t>(m.slot));
         bytes.push_back(static_cast<std::uint8_t>(m.tile_x));
         bytes.push_back(static_cast<std::uint8_t>(m.tile_y));
+        bytes.push_back(static_cast<std::uint8_t>(m.highlighted ? 1 : 0));
     }
     return bytes;
 }
@@ -334,13 +718,16 @@ TEST(NavMarksDeterminism, TwoSameSeedRunsAreByteIdentical) {
     EXPECT_EQ(a, b);
 }
 
-TEST(NavMarksSim, DroppingMarksDoesNotChangeTheSimHash) {
+TEST(NavMarksSim, PlacingAndHighlightingDoNotChangeTheSimHash) {
     Rig with = make_rig();
     Rig without = make_rig();
     NavMarks marks;
-    aim_at_pixel(with, 640.0F, 560.0F);
-    static_cast<void>(nav_press(marks, with.sim, with.options));
-    ASSERT_EQ(marks.marks().size(), 1U);
+    place_three(with, marks);
+    ASSERT_EQ(marks.marks().size(), 3U);
+    ASSERT_TRUE(marks.marks().at(1).highlighted);
+    for (int i = 0; i < 3; ++i) {
+        without.sim.step();
+    }
     for (int i = 0; i < 20; ++i) {
         with.sim.step();
         without.sim.step();

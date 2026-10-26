@@ -318,11 +318,12 @@ TEST_F(GameCliTest, LogSpawnsPrintsTheSameCompositionTwiceForTheSameSeed) {
 }
 
 TEST_F(GameCliTest, ARefusedKeyNameNamesTheAcceptedOnes) {
-    // `--key` takes space, tab and f1-f10, in lower case: anything else is a refusal that says so.
-    for (const std::string_view bad : {"f11", "f0", "f01", "F3", "enter", "3"}) {
+    // `--key` takes space, tab, tilde and f1-f10, in lower case: anything else is a refusal that
+    // says so.
+    for (const std::string_view bad : {"f11", "f0", "f01", "F3", "enter", "3", "~", "grave"}) {
         std::string err;
         EXPECT_EQ(run({"--headless", "--key", "1", bad}, err), 2) << bad;
-        EXPECT_NE(err.find("space, tab, f1"), std::string::npos) << bad << ": " << err;
+        EXPECT_NE(err.find("space, tab, tilde, f1"), std::string::npos) << bad << ": " << err;
     }
     std::string err;
     EXPECT_EQ(run({"--headless", "--key", "0", "f3"}, err), 2) << "frames are 1-based";
@@ -356,6 +357,35 @@ TEST_F(GameCliTest, AScriptedKeyReachesTheFrameAndLeavesTheSimAlone) {
     EXPECT_EQ(before_out.substr(before_out.find("hash")), after_out.substr(after_out.find("hash")))
         << "selecting is drawing: it must not move the sim";
     EXPECT_NE(slurp(before), slurp(after)) << "--key emitted nothing the frame could show";
+}
+
+TEST_F(GameCliTest, TheNavChainPlacesAndHighlightsAndLeavesTheSimAlone) {
+    if (kUnderThreadSanitizer) {
+        GTEST_SKIP() << kTsanReason;
+    }
+    // MENU-NAV end to end: `n` arms, SPACE places on the ground under the reticle, `~` opens the
+    // nav menu and `1` toggles the first slot's highlight. The marks are the app's, never the
+    // sim's, so the state hash is the one a run with no keys at all ends on.
+    const std::string plain = temp_path("plain.ppm");
+    const std::string navs = temp_path("navs.ppm");
+    std::string err;
+    std::string plain_out;
+    std::string navs_out;
+    ASSERT_EQ(
+        run({"--headless", "--seed", "42", "--frames", "5", "--capture", plain}, err, &plain_out),
+        0)
+        << err;
+    ASSERT_EQ(run({"--headless", "--seed", "42", "--frames", "5", "--nav", "1", "--key", "2",
+                   "space", "--key", "3", "tilde", "--digit", "4", "1", "--capture", navs},
+                  err, &navs_out),
+              0)
+        << err;
+    EXPECT_NE(navs_out.find("Nav 1 placed."), std::string::npos) << navs_out;
+    EXPECT_NE(navs_out.find("Nav 1 highlighted."), std::string::npos) << navs_out;
+    ASSERT_NE(plain_out.find("hash"), std::string::npos) << plain_out;
+    EXPECT_EQ(plain_out.substr(plain_out.find("hash")), navs_out.substr(navs_out.find("hash")))
+        << "a nav mark must not move the sim";
+    EXPECT_NE(slurp(plain), slurp(navs));
 }
 
 /// The PPM the harness writes: "P6", the size, 255, then three bytes a pixel.

@@ -85,8 +85,9 @@ struct Options {
     /// `--look-level N`: on frame N (1-based; 0 is never) the view comes back down by exactly what
     /// `--look-up` raised it, so a capture can watch where a high lob landed.
     std::uint32_t level_frame{0};
-    /// `--nav FRAME` (repeatable): N pressed on that frame (1-based), so a capture can show nav
-    /// marks with nobody at the keyboard. The same family as `--fire`.
+    /// `--nav FRAME` (repeatable): N pressed on that frame (1-based), which arms nav placement; a
+    /// `--key FRAME space` on a later frame places the mark, so a capture can show nav marks with
+    /// nobody at the keyboard. The same family as `--fire`.
     std::vector<std::uint32_t> nav_frames{};
     /// `--digit FRAME N` (repeatable): the number key N (0-9) pressed on that frame (1-based), so
     /// a capture can show a roster selection, or a dead key, with nobody at the keyboard.
@@ -105,10 +106,10 @@ struct Options {
         int digit{};
     };
     std::vector<DigitPress> digit_presses{};
-    /// `--key FRAME NAME` (repeatable): SPACE, TAB or F1-F10 pressed on that frame (1-based). The
-    /// digits cannot make a selection -- they are mark and menu-row keys -- so this is the scripted
-    /// selection (`--key 1 f3` picks the factory group), and a capture can show the command menu
-    /// with nobody at the keyboard.
+    /// `--key FRAME NAME` (repeatable): SPACE, TAB, `~` or F1-F10 pressed on that frame (1-based).
+    /// The digits cannot make a selection -- they are mark and menu-row keys -- so this is the
+    /// scripted selection (`--key 1 f3` picks the factory group), and a capture can show the
+    /// command menu with nobody at the keyboard.
     struct KeyPress {
         std::uint32_t frame{};
         std::int32_t scancode{};
@@ -135,7 +136,8 @@ struct Options {
     bool log_spawns{false};
 };
 
-/// The scancode `--key` names: `space`, `tab`, `f1` to `f10`, in lower case and nothing else.
+/// The scancode `--key` names: `space`, `tab`, `tilde`, `f1` to `f10`, in lower case and nothing
+/// else.
 bool parse_key_name(std::string_view name, std::int32_t& scancode) {
     if (name == "space") {
         scancode = input::kKeySpace;
@@ -143,6 +145,10 @@ bool parse_key_name(std::string_view name, std::int32_t& scancode) {
     }
     if (name == "tab") {
         scancode = input::kKeyTab;
+        return true;
+    }
+    if (name == "tilde") {
+        scancode = input::kKeyGrave;
         return true;
     }
     int number = 0;
@@ -251,7 +257,7 @@ int parse_args(std::span<const std::string_view> args, Options& options, std::os
             if (!next(value) || !next(name) || !parse_number(value, press.frame) || press.frame == 0
                 || !parse_key_name(name, press.scancode)) {
                 err << "protekt-game: --key wants a frame number (1-based) and one of space, tab, "
-                       "f1, f2, f3, f4, f5, f6, f7, f8, f9, f10\n";
+                       "tilde, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10\n";
                 return 2;
             }
             options.key_presses.push_back(press);
@@ -383,20 +389,28 @@ public:
         scene_options.row = &row_;             // F1-F10 select what the row holds
         player_alive_before_ = is_alive(sim_, session_.driven());
 
-        std::vector<sim::Order> orders;
-        session_.frame(hands, sim_, scene_options, orders);
-        if (input::nav_mark_pressed(hands)) {
-            // The player's own pin, held here and never given to the sim.
-            const std::string said = game::nav_press(nav_marks_, sim_, scene_options);
-            out << "protekt-game: " << said << '\n';
+        // THE NAV CHAIN (MENU-NAV) sees the keys first: while its left menu is open it owns SPACE,
+        // TAB and the digits and shuts the top menu out, and it may only open from the top menu --
+        // no selection menu, no G prompt, no attack list. The marks are the player's own pins,
+        // held here and never given to the sim.
+        const bool top_menu
+            = !session_.go_armed() && !session_.attack_armed()
+              && menu_for(sim_, session_, scene_options, session_.attack_armed()).empty();
+        input::InputFrame rest = hands;
+        rest.keys = nav_menu_.handle(hands.keys, nav_marks_, game::nav_aim(sim_, scene_options),
+                                     top_menu);
+        if (!nav_menu_.message().empty()) {
+            out << "protekt-game: " << nav_menu_.message() << '\n';
         }
+        std::vector<sim::Order> orders;
+        session_.frame(rest, sim_, scene_options, orders);
         enemy_.think(sim::observe(sim_, sim::Side::Enemy), orders);
         for (const sim::Order& order : orders) {
             sim_.enqueue(order);
         }
         // A roster key the roster refused: keep its sentence on screen a few seconds, since the
         // session's own message lasts one frame.
-        for (const input::KeyEvent& key : hands.keys) {
+        for (const input::KeyEvent& key : rest.keys) {
             if ((input::function_key(key) != 0 || input::mark_digit(key) >= 0)
                 && !session_.message().empty()) {
                 notice_ = std::string(session_.message());
@@ -493,9 +507,13 @@ public:
                                           : hit_mark_.level(sim_.tick());
         // The rows live in a NAMED LOCAL that outlives the build below: SceneOptions holds a
         // pointer and nothing owned, so pointing it at a temporary would leave a dangling menu in
-        // the frame.
+        // the frame. An open nav chain is the left menu; it can only have opened from the top
+        // menu, so no selection menu is shown with it.
         const std::vector<game::MenuRow> menu
-            = menu_for(sim_, session_, scene_options, session_.attack_armed());
+            = nav_menu_.state() != game::NavState::Closed
+                  ? game::nav_menu_rows(nav_menu_.state(), nav_marks_,
+                                        game::nav_aim(sim_, scene_options), scene_options.camera)
+                  : menu_for(sim_, session_, scene_options, session_.attack_armed());
         scene_options.show_menu = true;
         scene_options.menu = menu.empty() ? nullptr : &menu;
         return calibration_ ? game::build_calibration_scene(scene_options)
@@ -511,6 +529,7 @@ private:
     game::HitMark hit_mark_;
     game::LandingMarks landing_marks_;
     game::NavMarks nav_marks_;
+    game::NavMenu nav_menu_; ///< `top menu -> n` and `top menu -> ~`: app-side, like the marks
     game::Headings headings_;
     /// The world's per-tile answers for this session's seed, remembered (game/terrain_cache.hpp):
     /// the terrain mesh asks the world five times a tile and is rebuilt every frame, so this is the

@@ -16,12 +16,8 @@ struct FixedRow {
     MenuDim dim;
 };
 
-/// The key column's three words, written once: the state row is the only row whose verb moves.
-constexpr std::string_view kSpace{"SPACE"};
-constexpr std::string_view kTab{"TAB"};
+/// The key column's `~`, written once; `SPACE` and `TAB` are shared with the nav chain (menu.hpp).
 constexpr std::string_view kTilde{"~"};
-
-constexpr std::string_view kCloseMenu{"CLOSE MENU"};
 
 /// A recycler / matriarch that has not been deployed: it can be told where to go and where to
 /// deploy there, and the turret-rotation verb is drawn but does not apply until it has buildings
@@ -84,12 +80,12 @@ constexpr std::array kPlayerBuildList{
     case MenuCommand::None:
         break;
     }
-    return in.target == MenuTarget::Selectable ? std::string{"SELECT"} : std::string{};
+    return in.target == MenuTarget::Selectable ? std::string{kVerbSelect} : std::string{};
 }
 
 /// The row everything else hangs under: always first, always live, never dimmed.
 [[nodiscard]] MenuRow state_row(const MenuInput& in) {
-    return MenuRow{kSpace, state_verb(in), true, MenuDim::None};
+    return MenuRow{kRowKeySpace, state_verb(in), true, MenuDim::None};
 }
 
 void append_fixed(std::vector<MenuRow>& rows, std::span<const FixedRow> fixed) {
@@ -164,7 +160,7 @@ std::vector<MenuRow> menu_rows(const MenuInput& in) {
     if (in.subject == MenuSubject::Turret) {
         return rows;
     }
-    rows.push_back(MenuRow{kTab, std::string{kCloseMenu}, true, MenuDim::None});
+    rows.push_back(MenuRow{kRowKeyTab, std::string{kVerbCloseMenu}, true, MenuDim::None});
     switch (in.subject) {
     case MenuSubject::Recycler:
         append_fixed(rows, kRecyclerRows);

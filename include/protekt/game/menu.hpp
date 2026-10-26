@@ -126,6 +126,10 @@ struct MenuRow {
     bool enabled{true};
     /// Why it is dimmed. `MenuDim::None` exactly when `enabled`.
     MenuDim reason{MenuDim::None};
+    /// The RIGHT COLUMN, exactly as it is drawn: a distance in metres ("17m") on the nav chain's
+    /// rows (MENU-NAV), in a column of its own past the widest verb. Empty on every other row, and
+    /// then nothing is drawn there.
+    std::string right{};
 
     MenuRow() = default;
     MenuRow(std::string_view key_in, std::string verb_in, bool enabled_in, MenuDim reason_in)
@@ -157,6 +161,13 @@ struct BuildItem {
 /// FOLLOW ME on a recycler and HARVESTER on a deployment).
 inline constexpr std::string_view kVerbFollowMe{"FOLLOW ME"};
 inline constexpr std::string_view kVerbHold{"HOLD"};
+
+/// The words every left menu shares, written once for the selection menus here and the nav chain
+/// (`nav_marks.hpp`): the state row's key, its `SELECT`, and the `TAB CLOSE MENU` row.
+inline constexpr std::string_view kRowKeySpace{"SPACE"};
+inline constexpr std::string_view kRowKeyTab{"TAB"};
+inline constexpr std::string_view kVerbSelect{"SELECT"};
+inline constexpr std::string_view kVerbCloseMenu{"CLOSE MENU"};
 
 /// The menu a kind of unit owns, or `None` when its menu was never captured. The sim's `Factory`
 /// plays BattleZone II's DEPLOYED recycler (it is the base that builds), so `Deployment` is exact

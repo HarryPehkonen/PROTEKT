@@ -115,7 +115,9 @@ commands its mortars and rockets by role; a trigger that chooses a target; **det
 (`sim/route.hpp`) that take units round craters and rims, with the local detour kept as the fallback
 for a goal that cannot be reached; eight unit kinds (tank, hover tank, mortar, rocket, turret,
 factory, scavenger, recycler), four player weapons (gun, rocket, mortar, bouncer, switched by the right button), and any armed unit
-drivable with `X`; `F` follow, nav marks (`N`, then `G` and a digit to send a selection there), the
+drivable with `X`; `F` follow, nav marks (`N` arms one and `SPACE` places it, ten slots filled in turn
+and wrapping over the oldest slot; `~` opens the nav menu, whose digits toggle a mark's yellow highlight;
+`G` and a digit sends a selection there), the
 roster strip (`F1`-`F10`) and the world map (`R`; `O` is unbound); a radar in the corner of the frame that shows what is
 within 40 tiles of the tank and nothing beyond it; **on-screen feedback**: HUD text (weapon name,
 roster strip, range ladder, notice line), the reticle's hit pulse when your shot damages an enemy,

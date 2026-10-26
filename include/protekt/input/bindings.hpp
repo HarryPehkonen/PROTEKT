@@ -6,7 +6,7 @@
 
 /// Which keys are down, and what they mean. Two things live here: the held movement keys (SDL
 /// scancodes in, a set of held keys out), and the command predicates that say which key event is
-/// which request (quit, full screen, calibration view, nav mark, world map, and the roster,
+/// which request (quit, full screen, calibration view, the nav keys, world map, and the roster,
 /// function-key and mark-digit decoders). What a command then DOES is elsewhere: the clicks and
 /// the other command keys are in `game/interaction.cpp`, and the throttle rule is in
 /// `game/session.cpp`, because "W means go forward" is a game rule, not an input rule. The
@@ -141,14 +141,19 @@ inline void apply(HeldKeys& keys, const KeyEvent& event) noexcept {
     return roster != 0 ? roster : -1;
 }
 
-/// N: drop a navigational mark under the crosshair, or clear the one aimed at. Asks once per press.
-[[nodiscard]] inline bool nav_mark_pressed(const InputFrame& frame) noexcept {
-    for (const KeyEvent& key : frame.keys) {
-        if (key.pressed && !key.ctrl && !key.alt && key.scancode == kKeyN) {
-            return true;
-        }
-    }
-    return false;
+/// Whether `key` is a bare press of `scancode`: Ctrl/Alt+key is not the key.
+[[nodiscard]] inline bool bare_press(const KeyEvent& key, std::int32_t scancode) noexcept {
+    return key.pressed && !key.ctrl && !key.alt && key.scancode == scancode;
+}
+
+/// N: arm nav placement (`top menu -> n`). What it then does is `game::NavMenu`'s.
+[[nodiscard]] inline bool nav_arm_pressed(const KeyEvent& key) noexcept {
+    return bare_press(key, kKeyN);
+}
+
+/// `~`: open the nav menu (`top menu -> ~`). What it then does is `game::NavMenu`'s.
+[[nodiscard]] inline bool nav_menu_pressed(const KeyEvent& key) noexcept {
+    return bare_press(key, kKeyGrave);
 }
 
 /// R: toggle the map view (N4, BZ2R -- BZ2 puts the map on R). Bare only; a pure view, so the

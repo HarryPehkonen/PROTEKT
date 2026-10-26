@@ -555,7 +555,7 @@ void Interaction::send_to_mark(int number, const SceneOptions& options) {
     const std::vector<NavMarks::Mark> marks
         = options.nav_marks != nullptr ? options.nav_marks->marks() : std::vector<NavMarks::Mark>{};
     for (const NavMarks::Mark& mark : marks) {
-        if (mark.number == number) {
+        if (nav_slot_digit(mark.slot) == number) {
             target = &mark;
         }
     }
