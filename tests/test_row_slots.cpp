@@ -313,8 +313,11 @@ TEST(RowSlots, TheBuildingKeysAppearOnlyWhenTheThingExists) {
     EXPECT_FALSE(rig.row.occupied(3)) << "the armory has no kind yet";
 }
 
-TEST(RowSlots, TheRecyclerStaysAVehicleInTheFRowUntilDeployExists) {
-    const sim::Sim sim = sim::Sim::create(sim::skirmish(kSeed));
+TEST(RowSlots, TheRecyclerIsAVehicleOnItsFKeyUntilItDeploysThenItsKeyGoesBlankAndOneShowsIt) {
+    // DEPLOY flips what ROW-SLOTS could only promise: the recycler sits on an F key while it is a
+    // vehicle, and the moment it is a building that key goes blank IN PLACE -- nothing re-packs --
+    // and key 1 shows it. The skirmish's recycler is the player's ninth vehicle: F9.
+    sim::Sim sim = sim::Sim::create(sim::skirmish(kSeed));
     RowState row;
     row.update(sim, Side::Player, 0);
     EXPECT_FALSE(row.occupied(1)) << "key 1 is for the DEPLOYED recycler";
@@ -327,6 +330,60 @@ TEST(RowSlots, TheRecyclerStaysAVehicleInTheFRowUntilDeployExists) {
     }
     EXPECT_EQ(last->kind, UnitKind::Recycler);
     EXPECT_FALSE(row.occupied(group_slot(10)));
+    const UnitId recycler = row.slots.at(group_slot(9)).units.front();
+    std::array<RowSlot, kRowSlots> before = row.slots;
+
+    // Deployed where it stands: its position is the centre of the square to its north-west.
+    const sim::Unit* vehicle = sim.find(recycler);
+    const int corner_x = vehicle->x.floor_int() - 1;
+    const int corner_y = vehicle->y.floor_int() - 1;
+    ASSERT_TRUE(sim::deploy_site_ok(kSeed, sim.units(), corner_x, corner_y))
+        << "the skirmish recycler can deploy where it was spawned";
+    sim.enqueue(sim::Order{recycler, sim::orders::Deploy{corner_x, corner_y}});
+    for (int tick = 0; tick + 1 < sim::kDeployTicks; ++tick) {
+        sim.step();
+    }
+    row.update(sim, Side::Player, 0);
+    EXPECT_EQ(sim.find(recycler)->kind, UnitKind::Recycler) << "one tick short";
+    EXPECT_EQ(row.slots, before) << "still on F9, and key 1 still blank";
+
+    sim.step();
+    row.update(sim, Side::Player, 0);
+    ASSERT_EQ(sim.find(recycler)->kind, UnitKind::DeployedRecycler);
+    EXPECT_FALSE(row.occupied(group_slot(9))) << "its F key is blank";
+    ASSERT_TRUE(row.occupied(1)) << "and key 1 shows the deployed recycler";
+    EXPECT_EQ(row.slots.at(1).units, (std::vector<UnitId>{recycler}));
+    for (std::size_t index = kRowFirstGroup; index < kRowSlots; ++index) {
+        if (index != group_slot(9)) {
+            EXPECT_EQ(row.slots.at(index), before.at(index))
+                << row_key_label(index) << ": nothing else moved, nothing re-packed";
+        }
+    }
+    EXPECT_EQ(row.slots.at(2), before.at(2)) << "the factory keeps key 2";
+}
+
+TEST(RowSlots, ADeployedRecyclerIsNeverSeatedInAnFGroup) {
+    // Spawned already deployed, beside a vehicle: key 1 holds it, and no F key ever does -- however
+    // many frames the row is updated, and however many group slots stand empty.
+    sim::Sim sim
+        = sim::Sim::create(sim::Scenario{kSeed,
+                                         {{UnitKind::DeployedRecycler, Side::Player, 40, 40},
+                                          {UnitKind::Tank, Side::Player, 46, 40}}});
+    RowState row;
+    for (int frame = 0; frame < 3; ++frame) {
+        row.update(sim, Side::Player, 0);
+        sim.step();
+    }
+    const UnitId building = sim.units().front().id;
+    EXPECT_EQ(row.slots.at(1).units, (std::vector<UnitId>{building}));
+    for (std::size_t index = kRowFirstGroup; index < kRowSlots; ++index) {
+        EXPECT_EQ(std::count(row.slots.at(index).units.begin(), row.slots.at(index).units.end(),
+                             building),
+                  0)
+            << row_key_label(index);
+    }
+    ASSERT_TRUE(row.occupied(group_slot(1))) << "the tank took F1, the first empty group";
+    EXPECT_EQ(sim.find(row.slots.at(group_slot(1)).units.front())->kind, UnitKind::Tank);
 }
 
 TEST(RowSlots, TheNavKeyIsOnTheScreenExactlyWhenThereIsAMark) {

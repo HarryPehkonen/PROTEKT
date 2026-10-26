@@ -764,9 +764,10 @@ TEST(MenuDigit, EveryRowThatCannotActYetDoesNothingAndTheSimIsUntouched) {
         UnitKind kind;
         std::vector<int> digits;
     };
-    // The recycler has no 4 (HOLD is the harvester's row); GO TO NAV and DEPLOY/SCAVENGE wait on
-    // rulings and RB3; PICK ME UP, BAILOUT and RECYCLE are not built; a deployment's digits are
-    // its build list (RB5); a lone tank has no menu at all.
+    // The recycler has no 4 (HOLD is the harvester's row); GO TO NAV and SCAVENGE wait on rulings
+    // and RB3, and the recycler's 3 only ARMS the deploy (DEPLOY: no order until SPACE); PICK ME
+    // UP, BAILOUT and RECYCLE are not built; a deployment's digits are its build list (RB5); a lone
+    // tank has no menu at all.
     const std::vector<Case> cases{{UnitKind::Recycler, {0, 2, 3, 4, 5, 9}},
                                   {UnitKind::Scavenger, {0, 2, 3, 5, 9}},
                                   {UnitKind::Factory, {0, 1, 2, 3, 4, 5, 6, 7, 8, 9}},
@@ -785,6 +786,154 @@ TEST(MenuDigit, EveryRowThatCannotActYetDoesNothingAndTheSimIsUntouched) {
         }
         EXPECT_EQ(rig.sim.state_hash(), hash);
     }
+}
+
+// DEPLOY: `un-deployed recycler menu -> 3` ARMS the deploy; the reticle picks the ground, `~`
+// rotates a preview that a square cannot visibly turn, TAB cancels and SPACE orders it.
+
+/// The rig with the recycler selected and the deploy armed, and the ground tile under the mark.
+struct ArmedDeploy {
+    MenuRig rig;
+    Interaction player;
+    Pick ground;
+};
+
+[[nodiscard]] ArmedDeploy arm_deploy() {
+    ArmedDeploy out{make_menu_rig(), Interaction{UnitId{}}, Pick{}};
+    out.player = Interaction{out.rig.tank};
+    select_kind(out.rig, out.player, UnitKind::Recycler);
+    out.player.handle(digit(3), out.rig.sim, out.rig.options);
+    out.ground = pick(out.rig.sim, out.rig.options, out.rig.options.aim->x, out.rig.options.aim->y);
+    return out;
+}
+
+TEST(DeployGesture, ThreeOnARecyclerArmsTheDeployAndOrdersNothingYet) {
+    ArmedDeploy a = arm_deploy();
+    EXPECT_TRUE(a.player.deploy_armed());
+    EXPECT_TRUE(a.player.take_orders().empty()) << "3 arms; SPACE is what initiates";
+    EXPECT_EQ(selected(a.player), (std::vector<UnitId>{a.rig.recycler}));
+}
+
+TEST(DeployGesture, SpaceOverTheGroundOrdersTheRecyclerToDeployThereAndDisarms) {
+    ArmedDeploy a = arm_deploy();
+    ASSERT_TRUE(a.ground.has_tile()) << "the rig's mark is on bare ground";
+    ASSERT_TRUE(sim::deploy_site_ok(kSeed, a.rig.sim.units(), a.ground.tile_x, a.ground.tile_y));
+    a.player.handle(key_frame(input::kKeySpace), a.rig.sim, a.rig.options);
+    const std::vector<sim::Order> orders = a.player.take_orders();
+    ASSERT_EQ(orders.size(), 1U);
+    EXPECT_EQ(orders.at(0).unit, a.rig.recycler);
+    const auto* deploy = std::get_if<sim::orders::Deploy>(&orders.at(0).payload);
+    ASSERT_NE(deploy, nullptr) << "SPACE is the Deploy order";
+    EXPECT_EQ(deploy->tile_x, a.ground.tile_x) << "at the tile the reticle picks";
+    EXPECT_EQ(deploy->tile_y, a.ground.tile_y);
+    EXPECT_FALSE(a.player.deploy_armed()) << "initiated: the arming is spent";
+    a.rig.sim.enqueue(orders.at(0));
+    EXPECT_EQ(a.rig.sim.command_log().size(), 1U) << "and the sim accepts it";
+}
+
+TEST(DeployGesture, TabCancelsAndTheRecyclerStaysAVehicle) {
+    ArmedDeploy a = arm_deploy();
+    const std::uint64_t hash = a.rig.sim.state_hash();
+    a.player.handle(key_frame(input::kKeyTab), a.rig.sim, a.rig.options);
+    EXPECT_FALSE(a.player.deploy_armed());
+    EXPECT_TRUE(a.player.take_orders().empty());
+    EXPECT_TRUE(a.player.selection().empty()) << "TAB closes the menu, as it always does";
+    a.player.handle(key_frame(input::kKeySpace), a.rig.sim, a.rig.options);
+    for (const sim::Order& order : a.player.take_orders()) {
+        EXPECT_EQ(std::get_if<sim::orders::Deploy>(&order.payload), nullptr)
+            << "a cancelled deploy is not initiated by the next SPACE";
+    }
+    EXPECT_EQ(a.rig.sim.state_hash(), hash);
+    EXPECT_EQ(a.rig.sim.find(a.rig.recycler)->kind, UnitKind::Recycler);
+}
+
+TEST(DeployGesture, TildeRotatesASquareIntoItselfAndKeepsTheArming) {
+    ArmedDeploy a = arm_deploy();
+    a.player.handle(key_frame(input::kKeyGrave), a.rig.sim, a.rig.options);
+    EXPECT_TRUE(a.player.deploy_armed()) << "the deployment menu's own key";
+    EXPECT_TRUE(a.player.take_orders().empty());
+    a.player.handle(key_frame(input::kKeySpace), a.rig.sim, a.rig.options);
+    const std::vector<sim::Order> orders = a.player.take_orders();
+    ASSERT_EQ(orders.size(), 1U);
+    const auto* deploy = std::get_if<sim::orders::Deploy>(&orders.at(0).payload);
+    ASSERT_NE(deploy, nullptr);
+    EXPECT_EQ(deploy->tile_x, a.ground.tile_x) << "a turned 2x2 is the same 2x2 on the same tiles";
+    EXPECT_EQ(deploy->tile_y, a.ground.tile_y);
+}
+
+TEST(DeployGesture, TheTopMenuIsShownButNotReachableWhileArmed) {
+    ArmedDeploy a = arm_deploy();
+    const RowState row = a.rig.row;
+    for (const std::int32_t scancode :
+         {input::kKeyF1, input::kKeyF1 + 2, input::kKeyG, input::kKeyT}) {
+        a.player.handle(key_frame(scancode), a.rig.sim, a.rig.options);
+        EXPECT_TRUE(a.player.deploy_armed()) << "scancode " << scancode;
+        EXPECT_EQ(selected(a.player), (std::vector<UnitId>{a.rig.recycler})) << scancode;
+        EXPECT_FALSE(a.player.go_armed());
+        EXPECT_FALSE(a.player.attack_armed());
+        EXPECT_TRUE(a.player.take_orders().empty());
+    }
+    InputFrame shifted = fkey(5);
+    shifted.keys.front().shift = true;
+    a.player.handle(shifted, a.rig.sim, a.rig.options);
+    EXPECT_EQ(a.rig.row.slots, row.slots) << "Shift+F moves nothing while a left menu is open";
+}
+
+TEST(DeployGesture, SpaceOffTheGroundDeploysNothingAndTheArmingSurvives) {
+    ArmedDeploy a = arm_deploy();
+    a.rig.options.camera.y += 500.0F; // well above every hill, looking up: no ground in range
+    a.rig.options.camera.pitch = 0.3F;
+    ASSERT_FALSE(
+        pick(a.rig.sim, a.rig.options, a.rig.options.aim->x, a.rig.options.aim->y).has_tile());
+    a.player.handle(key_frame(input::kKeySpace), a.rig.sim, a.rig.options);
+    EXPECT_TRUE(a.player.take_orders().empty());
+    EXPECT_TRUE(a.player.deploy_armed()) << "it waits for the reticle to come back to the ground";
+}
+
+TEST(DeployGesture, ASiteTheSimWouldRefuseIsRefusedHereAndTheArmingStays) {
+    ArmedDeploy a = arm_deploy();
+    ASSERT_TRUE(a.ground.has_tile());
+    // The same board with a building already standing on the tile under the mark.
+    std::vector<Spawn> spawns{
+        {UnitKind::Tank, Side::Player, 40, 40},
+        {UnitKind::Recycler, Side::Player, 44, 41},
+        {UnitKind::DeployedRecycler, Side::Enemy, a.ground.tile_x, a.ground.tile_y}};
+    const sim::Sim crowded = sim::Sim::create(sim::Scenario{kSeed, spawns});
+    const Pick there = pick(crowded, a.rig.options, a.rig.options.aim->x, a.rig.options.aim->y);
+    ASSERT_TRUE(there.has_tile());
+    ASSERT_FALSE(sim::deploy_site_ok(kSeed, crowded.units(), there.tile_x, there.tile_y));
+    a.player.handle(key_frame(input::kKeySpace), crowded, a.rig.options);
+    EXPECT_TRUE(a.player.take_orders().empty());
+    EXPECT_EQ(a.player.message(), "There is no room to deploy there.");
+    EXPECT_TRUE(a.player.deploy_armed());
+}
+
+TEST(DeployGesture, TheArmingLapsesOnceTheSelectionIsNoLongerAnUndeployedRecycler) {
+    ArmedDeploy a = arm_deploy();
+    ASSERT_TRUE(a.ground.has_tile());
+    a.player.handle(key_frame(input::kKeySpace), a.rig.sim, a.rig.options);
+    for (const sim::Order& order : a.player.take_orders()) {
+        a.rig.sim.enqueue(order);
+    }
+    a.player.handle(digit(3), a.rig.sim, a.rig.options); // armed again, on the way there
+    ASSERT_TRUE(a.player.deploy_armed());
+    for (int tick = 0; tick < 600 && a.rig.sim.find(a.rig.recycler)->kind == UnitKind::Recycler;
+         ++tick) {
+        a.rig.sim.step();
+    }
+    ASSERT_EQ(a.rig.sim.find(a.rig.recycler)->kind, UnitKind::DeployedRecycler);
+    a.player.handle(InputFrame{}, a.rig.sim, a.rig.options);
+    EXPECT_FALSE(a.player.deploy_armed()) << "a building has nothing left to deploy";
+}
+
+TEST(DeployGesture, OnlyTheDrivenRecyclerSelectedIsRefused) {
+    MenuRig rig = make_menu_rig();
+    Interaction player{rig.recycler}; // driving the recycler
+    select_kind(rig, player, UnitKind::Recycler);
+    ASSERT_EQ(selected(player), (std::vector<UnitId>{rig.recycler}));
+    player.handle(digit(3), rig.sim, rig.options);
+    EXPECT_FALSE(player.deploy_armed());
+    EXPECT_EQ(player.message(), "You are driving that one; select another unit to give orders.");
 }
 
 TEST(MenuDigit, NothingSelectedMeansNoMenuAndNoOrder) {

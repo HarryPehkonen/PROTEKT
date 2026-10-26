@@ -70,6 +70,9 @@ void expect_same_order(const Order& got, const Order& want) {
             } else if constexpr (std::is_same_v<P, orders::Attack>
                                  || std::is_same_v<P, orders::FocusFire>) {
                 EXPECT_EQ(g.target, w.target);
+            } else if constexpr (std::is_same_v<P, orders::Deploy>) {
+                EXPECT_EQ(g.tile_x, w.tile_x);
+                EXPECT_EQ(g.tile_y, w.tile_y);
             }
         },
         want.payload);
@@ -149,6 +152,7 @@ TEST(Replay, EveryOrderKindSurvivesARoundTripAndNoneIsDropped) {
         Command{9, Order{UnitId{3}, orders::Follow{UnitId{4}}}},
         Command{10, Order{UnitId{5}, orders::FireLob{Fixed::from_raw(65536), Fixed::zero(),
                                                      UnitId{6}, Fixed::from_raw(131072)}}},
+        Command{11, Order{UnitId{6}, orders::Deploy{12, 255}}},
     };
     ASSERT_EQ(r.commands.size(), kOrderKindCount) << "this test must cover every kind";
     for (std::size_t i = 0; i < r.commands.size(); ++i) {
@@ -163,6 +167,8 @@ TEST(Replay, EveryOrderKindSurvivesARoundTripAndNoneIsDropped) {
     EXPECT_NE(text.find("6 focusfire 7 11\n"), std::string::npos) << text;
     EXPECT_NE(text.find("7 firetowards 8 -65536 46341 -23170 9\n"), std::string::npos) << text;
     EXPECT_NE(text.find("9 follow 3 4\n"), std::string::npos) << text;
+    EXPECT_NE(text.find("11 deploy 6 786432 16711680\n"), std::string::npos)
+        << "the tile is written as a whole-tile position: " << text;
 
     const Replay again = must_parse(text);
     ASSERT_EQ(again.commands.size(), r.commands.size());

@@ -358,7 +358,12 @@ ledger (C3), and a factory spends the ledger to replace a lost gun with a tank (
 when a side's recycler is destroyed (`Sim::war_outcome`, which replaced the retired C8 attrition
 verdict). It changed the simulation's state and so every recorded hash, which is why it was its own
 milestone with its own re-recording. **Still owed:** the player's build menu (the menu is a drawn
-quotation of BZ2's rows and builds nothing) and a scavenger in the default army. One decision is open
+quotation of BZ2's rows and builds nothing) and a scavenger in the default army. **Since this was
+written, the deploy half has LANDED (DEPLOY, 2026-10-26):** an un-deployed recycler can be armed with
+`3`, sent to a tile, and after ten seconds standing there becomes `UnitKind::DeployedRecycler` -- a
+still, unarmed building on key `1` with the hull it arrived with, standing on a 2x2 footprint no unit
+may enter or be spawned inside. Two rows of the deployment menu (`FOLLOW ME`, `GO TO NAV`) and the
+meaning of the menu's highlight colours are still unruled and therefore not built. One decision is open
 on `UnitSpec`: its `buildable` flag is false for every kind and never read, while the factory builds a
 tank anyway — wire it or delete it (Harri's call, held as a question).
 

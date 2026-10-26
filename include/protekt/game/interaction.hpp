@@ -94,6 +94,16 @@ public:
     ///    Stop would not hold a harvester, whose fetch starts again the same tick). Every other
     ///    row, and every digit with no menu, does nothing. A `G` or `T` prompt, armed, swallows
     ///    the digit before the menu sees it.
+    ///  * `3 DEPLOY` on an un-deployed recycler ARMS the deploy (DEPLOY; `deploy_armed`). While it
+    ///    is armed the reticle picks the ground, SPACE orders the selected recycler -- the lowest
+    ///    id, if several are selected: one site holds one building -- to `Deploy` there and
+    ///    disarms, and Tab or Escape cancels it (and clears the selection, as they always do). A
+    ///    site the sim would refuse (`sim::deploy_site_ok`) is refused here, out loud, and the
+    ///    arming stays; so does a SPACE with the reticle off the ground. `~` ROTATES the preview,
+    ///    which for a 2x2 footprint is the identity, so it is taken and changes nothing. The top
+    ///    menu is visible but inaccessible meanwhile: F1-F10 (shifted or not), G and T do nothing.
+    ///    The arming lapses on its own once the selection is no longer one un-deployed recycler of
+    ///    the player's.
     ///  * Tab or Escape: clear the selection
     ///
     /// Refusals never throw and never half-apply: either the whole intent is carried out or none of
@@ -146,6 +156,10 @@ public:
     /// The rows the armed list offers, nearest first, captured when T armed it so the numbers
     /// cannot shift under the player's finger. Empty whenever the list is not armed.
     [[nodiscard]] const std::vector<TargetRow>& attack_targets() const noexcept;
+    /// `un-deployed recycler menu -> 3`: the deploy is armed, and the next SPACE over the ground
+    /// deploys the selected recycler there. The state row reads `SPACE DEPLOY <distance>` and the
+    /// footprint is previewed on the ground for exactly as long as this is true.
+    [[nodiscard]] bool deploy_armed() const noexcept;
 
     /// Why the last input was refused, for the HUD. Empty when it was carried out. Cleared at the
     /// start of every `handle`, so a message describes the frame that just happened and nothing
@@ -175,6 +189,14 @@ private:
     void follow_driven(const sim::Sim& sim);
     /// `4 HOLD`: every orderable selected unit is posted where it stands, one GuardAt each.
     void hold_selection(const sim::Sim& sim);
+    /// `3 DEPLOY`: arm the deploy, or refuse when only the driven craft is selected.
+    void arm_deploy();
+    /// A key pressed while the deploy is armed. True when the deployment menu took it and nothing
+    /// else may act on it; false lets it through to its usual meaning.
+    bool deploy_key(const input::KeyEvent& key, const sim::Sim& sim, const SceneOptions& options);
+    /// SPACE with the deploy armed: order the selected recycler to deploy at the ground tile under
+    /// the reticle, or refuse and stay armed.
+    void deploy_at_crosshair(const sim::Sim& sim, const SceneOptions& options);
     /// G then a digit: MoveTo the tile of the mark drawn as `number` for every orderable selected
     /// unit (N3).
     void send_to_mark(int number, const SceneOptions& options);
@@ -202,6 +224,7 @@ private:
     bool shot_voice_{false};
     bool go_armed_{false};
     bool attack_armed_{false};
+    bool deploy_armed_{false};
     std::vector<TargetRow> targets_{};
     bool has_fired_{false};
     sim::Tick last_shot_tick_{};

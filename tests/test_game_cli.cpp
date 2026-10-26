@@ -480,9 +480,9 @@ TEST_F(GameCliTest, TheMenuIsOnScreenWhenTheRowSelectsTheRecycler) {
     }
     // F9 selects the recycler (the ninth vehicle; the factory is a building and sits on key 2, not
     // under an F key), and that selection's command menu is drawn down the left of the frame: six
-    // rows, five of them live (SPACE, TAB, ~, 1 FOLLOW ME, 2 GO TO NAV) and the sixth, 3 DEPLOY,
-    // dim because deploying does not exist yet (RB3) -- and not one of them before the key is
-    // pressed.
+    // rows: five live (SPACE, TAB, 1 FOLLOW ME, 2 GO TO NAV, 3 DEPLOY) and `~ ROTATE BUILDINGS`
+    // dim, because a recycler that has not deployed has nothing to rotate -- and not one row before
+    // the key is pressed.
     const std::string before = temp_path("menu-before.ppm");
     const std::string after = temp_path("menu-after.ppm");
     std::string err;
@@ -502,7 +502,7 @@ TEST_F(GameCliTest, TheMenuIsOnScreenWhenTheRowSelectsTheRecycler) {
     const MenuRows menu = menu_rows_in_band(read_ppm(after), kTopFraction, kBottomFraction);
     EXPECT_EQ(empty.total(), 0) << "a frame with no menu must draw no rows in that band";
     EXPECT_EQ(menu.live, 5) << "SPACE, TAB, ~, 1 FOLLOW ME and 2 GO TO NAV are the live rows";
-    EXPECT_EQ(menu.dim, 1) << "3 DEPLOY is dim: nothing deploys yet";
+    EXPECT_EQ(menu.dim, 1) << "`~` is dim: an undeployed recycler has nothing to rotate";
 }
 
 TEST_F(GameCliTest, FailsWithAReasonWhenTheNamedGpuDoesNotExist) {

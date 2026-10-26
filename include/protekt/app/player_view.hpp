@@ -40,9 +40,10 @@ namespace protekt::app {
 [[nodiscard]] game::MenuTarget menu_target_of(const sim::Sim& sim,
                                               const game::SceneOptions& options);
 
-/// The menu rows for this frame. Nothing is armed yet (arming is RB2), so the state row and
-/// `TAB CLOSE MENU` read only what is already true. Empty when `attack_armed`: the attack list and
-/// the menu share one slot under the notice, and one panel at a time is the rule.
+/// The menu rows for this frame. The one command that arms is the deploy (DEPLOY): while it is
+/// armed the state row reads `SPACE DEPLOY` and, with the reticle on the ground, the distance to
+/// it. Empty when `attack_armed`: the attack list and the menu share one slot under the notice, and
+/// one panel at a time is the rule.
 [[nodiscard]] std::vector<game::MenuRow> menu_for(const sim::Sim& sim, const game::Session& session,
                                                   const game::SceneOptions& options,
                                                   bool attack_armed);

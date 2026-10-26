@@ -1,5 +1,6 @@
 #include "protekt/app/player_view.hpp"
 
+#include "protekt/game/nav_marks.hpp"
 #include "protekt/game/pick.hpp"
 
 namespace protekt::app {
@@ -66,9 +67,17 @@ std::vector<game::MenuRow> menu_for(const sim::Sim& sim, const game::Session& se
     if (attack_armed) {
         return {};
     }
-    const game::MenuInput in{game::menu_subject_of(sim, session.selection().units()),
-                             sim::Side::Player, game::ArmedCommand{}, menu_target_of(sim, options),
-                             static_cast<int>(sim.ore(sim::Side::Player))};
+    game::MenuInput in{game::menu_subject_of(sim, session.selection().units()), sim::Side::Player,
+                       game::ArmedCommand{}, menu_target_of(sim, options),
+                       static_cast<int>(sim.ore(sim::Side::Player))};
+    if (session.deploy_armed()) {
+        // `un-deployed recycler menu -> 3`: the state row names the deploy and reads the distance
+        // to the ground under the reticle, by the nav chain's own rule (`nav_metres`).
+        in.armed = game::ArmedCommand{game::MenuCommand::Deploy};
+        if (const game::NavAim aim = game::nav_aim(sim, options); aim.on_ground()) {
+            in.metres = aim.metres;
+        }
+    }
     return game::menu_rows(in);
 }
 

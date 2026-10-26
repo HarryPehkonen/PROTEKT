@@ -5496,6 +5496,46 @@ SceneOptions ledger_options() {
     return options;
 }
 
+// DEPLOY: the armed deploy's footprint, drawn lying on the ground as its 2x2 tile grid in green.
+TEST(Scene, TheDeployPreviewDrawsTheFootprintsTileGridOnTheGroundAndNothingWhenAbsent) {
+    using protekt::sim::Footprint;
+    using protekt::sim::kBuildingFootprintTiles;
+    const auto sim = protekt::sim::Sim::create(protekt::sim::Scenario{
+        42, {{protekt::sim::UnitKind::Tank, protekt::sim::Side::Player, 60, 60}}});
+    SceneOptions plain = options_at(60.0F * kMetresPerTile, 60.0F * kMetresPerTile);
+    SceneOptions previewed = plain;
+    const Footprint site{63, 58};
+    previewed.deploy_preview = site;
+    const Scene without = protekt::game::build_scene(sim, plain);
+    const Scene with = protekt::game::build_scene(sim, previewed);
+    ASSERT_EQ(with.vertices.size(),
+              without.vertices.size() + protekt::game::kDeployPreviewVertexCount)
+        << "three lines each way, two tile edges long: twelve strokes";
+    // Everything after the nav beacons is HUD the rig turns off, so the preview is the tail.
+    const std::size_t first = without.vertices.size();
+    const float stroke = protekt::game::kDeployPreviewHalfStrokeMetres;
+    for (std::size_t i = first; i < with.vertices.size(); ++i) {
+        const auto& v = with.vertices.at(i);
+        EXPECT_EQ(v.colour, protekt::game::kDeployPreviewColour) << i;
+        EXPECT_GE(v.position[0], static_cast<float>(site.x) * kMetresPerTile - stroke - kTolerance);
+        EXPECT_LE(v.position[0],
+                  static_cast<float>(site.x + kBuildingFootprintTiles) * kMetresPerTile + stroke
+                      + kTolerance);
+        EXPECT_GE(v.position[2], static_cast<float>(site.y) * kMetresPerTile - stroke - kTolerance);
+        EXPECT_LE(v.position[2],
+                  static_cast<float>(site.y + kBuildingFootprintTiles) * kMetresPerTile + stroke
+                      + kTolerance);
+        const float tile_x = v.position[0] / kMetresPerTile;
+        const float tile_y = v.position[2] / kMetresPerTile;
+        EXPECT_GT(v.position[1], protekt::game::ground_metres(42, tile_x, tile_y) - 1.0F)
+            << "it lies on the ground, not in the sky";
+    }
+    for (std::size_t i = 0; i < first; ++i) {
+        ASSERT_EQ(with.vertices.at(i).position, without.vertices.at(i).position)
+            << "the preview adds a layer and changes nothing under it";
+    }
+}
+
 } // namespace
 
 TEST(Scene, TheLedgerIsDrawnAndItIsTheSimsOwnNumber) {

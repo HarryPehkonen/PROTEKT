@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <array>
 #include <cstddef>
+#include <span>
 #include <type_traits>
 #include <variant>
 
@@ -90,10 +91,17 @@ const UnitId* order_target(const Order& order) noexcept {
     return nullptr;
 }
 
-bool order_is_valid(const std::vector<Unit>& units, const Order& order) noexcept {
+bool order_is_valid(const std::vector<Unit>& units, const Order& order,
+                    std::uint64_t seed) noexcept {
     const Unit* unit = find_const(units, order.unit);
     if (unit == nullptr || !unit->alive) {
         return false;
+    }
+    if (const auto* deploy = std::get_if<orders::Deploy>(&order.payload)) {
+        // Only a recycler deploys -- which is also what refuses a second deploy, since the first
+        // turned it into a `DeployedRecycler` -- and only onto a site it can stand on.
+        return unit->kind == UnitKind::Recycler
+               && deploy_site_ok(seed, units, deploy->tile_x, deploy->tile_y);
     }
     if (const UnitId* id = order_target(order)) {
         const Unit* target = find_const(units, *id);
@@ -106,16 +114,34 @@ bool order_is_valid(const std::vector<Unit>& units, const Order& order) noexcept
     return true;
 }
 
-/// The world as the mover sees it: one question, answered from the seed. A designed map answers the
-/// same question from its own tiles, and a route planner asks it many times, without the sim
-/// caring.
+/// The world as the mover sees it: one question, answered from the seed and from the buildings
+/// standing on it. A designed map answers the same question from its own tiles, and a route planner
+/// asks it many times, without the sim caring. A building's footprint cannot be entered, exactly as
+/// a crater cannot (`building_blocks`); the terrain's own answer is unchanged.
 struct WorldGround {
     std::uint64_t seed;
+    std::span<const Unit> units;
+    /// Whether any unit in `units` stands on a footprint. While none does -- every battle until
+    /// something deploys -- `building_blocks` is "no" for every tile, and asking it per tile anyway
+    /// cost the route planner a fifth of its time (protekt-measure 2400: 99.6 s without the
+    /// question, 122.2 s asking it of every tile). `ground_of` reads it off the units.
+    bool buildings;
     [[nodiscard]] std::int64_t factor(int tile_x, int tile_y) const noexcept {
+        if (buildings && building_blocks(units, tile_x, tile_y)) {
+            return 0;
+        }
         const world::Tile tile = world::sample(seed, tile_x, tile_y);
         return terrain_speed_factor(tile.terrain).raw;
     }
 };
+
+/// The ground as the mover sees it now, with `WorldGround::buildings` read off the units.
+[[nodiscard]] WorldGround ground_of(std::uint64_t seed, std::span<const Unit> units) noexcept {
+    const bool buildings = std::any_of(units.begin(), units.end(), [](const Unit& unit) {
+        return unit.alive && has_footprint(unit.kind);
+    });
+    return WorldGround{seed, units, buildings};
+}
 
 /// Where a position-bearing order sends the unit; unused points are the origin, as they always
 /// were.
@@ -138,7 +164,7 @@ void apply_posted(Unit& unit, Stance stance, Fixed x, Fixed y, Fixed x2, Fixed y
 /// (Fixed::kOne); its direction is where. A full-length vector therefore gives exactly 3/4 of the
 /// unit's speed, as it always did -- which is why a commander that sends one (the AI) behaves
 /// exactly as before. Integer parts only, and a zero length returns before any division.
-void apply_strafe(Unit& unit, const orders::Strafe& strafe, std::uint64_t seed) noexcept {
+void apply_strafe(Unit& unit, const orders::Strafe& strafe, const WorldGround& ground) noexcept {
     const UnitProfile prof = profile(unit.kind);
     const std::int64_t length = isqrt(static_cast<std::int64_t>(strafe.dx.raw) * strafe.dx.raw
                                       + static_cast<std::int64_t>(strafe.dy.raw) * strafe.dy.raw);
@@ -156,7 +182,7 @@ void apply_strafe(Unit& unit, const orders::Strafe& strafe, std::uint64_t seed) 
     request.want_dx = strafe.dx.raw * speed / length;
     request.want_dy = strafe.dy.raw * speed / length;
     request.speed = speed;
-    const StepPlan plan = plan_step(request, WorldGround{seed});
+    const StepPlan plan = plan_step(request, ground);
     if (!plan.moved) {
         return;
     }
@@ -170,7 +196,7 @@ void apply_strafe(Unit& unit, const orders::Strafe& strafe, std::uint64_t seed) 
 void apply_order(std::vector<Unit>& units, std::vector<Projectile>& projectiles,
                  std::vector<Sim::Shot>& shots, const Order& order, std::uint64_t seed) noexcept {
     // Re-validated here: the unit may have died between enqueue and the tick it takes effect.
-    if (!order_is_valid(units, order)) {
+    if (!order_is_valid(units, order, seed)) {
         return;
     }
     Unit& unit = *find_mut(units, order.unit);
@@ -225,7 +251,17 @@ void apply_order(std::vector<Unit>& units, std::vector<Projectile>& projectiles,
         break;
     case OrderKind::Strafe:
         if (const auto* o = std::get_if<orders::Strafe>(&order.payload)) {
-            apply_strafe(unit, *o, seed);
+            apply_strafe(unit, *o, ground_of(seed, units));
+        }
+        break;
+    case OrderKind::Deploy:
+        if (const auto* o = std::get_if<orders::Deploy>(&order.payload)) {
+            // Off to the site's centre, as a MoveTo would go; the countdown starts once it is there
+            // (`deploy_step`). A new deploy order starts the count again from nothing.
+            const Footprint site = footprint_at(o->tile_x, o->tile_y);
+            apply_posted(unit, Stance::Deploy, Fixed::from_int(site.centre_x()),
+                         Fixed::from_int(site.centre_y()), Fixed{}, Fixed{});
+            unit.deploy_ticks = 0;
         }
         break;
     case OrderKind::FireLob:
@@ -274,27 +310,49 @@ struct Coord {
     int y;
 };
 
-// The spawn tile itself when passable; otherwise the first passable tile found scanning square
-// rings of growing radius in row-major order, so a unit never starts inside a crater.
-Coord nearest_passable(std::uint64_t seed, int x, int y) noexcept {
-    auto passable = [seed](int tx, int ty) {
-        return tx >= 0 && ty >= 0 && tx < kMapTiles && ty < kMapTiles
-               && terrain_speed_factor(world::sample(seed, tx, ty).terrain).raw != 0;
-    };
-    if (passable(x, y)) {
+// The tile itself when `ok` accepts it; otherwise the first tile `ok` accepts scanning square rings
+// of growing radius in row-major order. The wish itself when nothing anywhere is acceptable.
+template <class Ok> Coord nearest_where(int x, int y, Ok ok) noexcept {
+    if (ok(x, y)) {
         return Coord{x, y};
     }
     for (int r = 1; r < kMapTiles; ++r) {
         for (int dy = -r; dy <= r; ++dy) {
             const int step = (dy == -r || dy == r) ? 1 : 2 * r;
             for (int dx = -r; dx <= r; dx += step) {
-                if (passable(x + dx, y + dy)) {
+                if (ok(x + dx, y + dy)) {
                     return Coord{x + dx, y + dy};
                 }
             }
         }
     }
     return Coord{x, y};
+}
+
+// A tile a unit may stand on: passable terrain (`tile_passable`, which is on the map and not a
+// crater) and no building's footprint (`building_blocks`).
+bool standable(std::uint64_t seed, std::span<const Unit> units, int tx, int ty) noexcept {
+    return tile_passable(seed, tx, ty) && !building_blocks(units, tx, ty);
+}
+
+// The nearest tile a unit may stand on (`standable`), so a unit never starts inside a crater or a
+// building.
+Coord nearest_passable(std::uint64_t seed, std::span<const Unit> units, int x, int y) noexcept {
+    return nearest_where(x, y,
+                         [seed, units](int tx, int ty) { return standable(seed, units, tx, ty); });
+}
+
+// Whether a building may be PLACED with its north-west tile here: the site is one a deploy could
+// use (`deploy_site_ok`), and no living unit is standing inside it -- a building is never spawned
+// on top of a unit, as a unit is never spawned inside a building.
+bool building_fits(std::uint64_t seed, std::span<const Unit> units, int tx, int ty) noexcept {
+    if (!deploy_site_ok(seed, units, tx, ty)) {
+        return false;
+    }
+    const Footprint site = footprint_at(tx, ty);
+    return std::none_of(units.begin(), units.end(), [&site](const Unit& unit) {
+        return unit.alive && site.covers(unit.x.floor_int(), unit.y.floor_int());
+    });
 }
 
 // Sets unit.vx/vy for this tick from the unit's stance. Pure integer steering: head straight at
@@ -375,7 +433,7 @@ Coord builder_spot(std::uint64_t seed, const std::vector<Unit>& units, Fixed fx,
                    Fixed fy) noexcept {
     const TileXY home = tile_of(fx, fy);
     const auto free_tile = [seed, &units](int tx, int ty) {
-        if (!tile_passable(seed, tx, ty)) {
+        if (!standable(seed, units, tx, ty)) {
             return false;
         }
         for (const Unit& unit : units) {
@@ -443,11 +501,13 @@ std::size_t nearest_scrap(const std::vector<Scrap>& scraps, Fixed x, Fixed y) no
 /// the same wreck already holds. Deterministic, like the scatter itself: the same battle settles
 /// the same way. Without this a piece can lie in a crater where the only way to it is a tile the
 /// hauler cannot stand on, and a scavenger drives at the crater rim forever.
-void settle_litter(std::vector<Scrap>& scraps, std::size_t first, std::uint64_t seed) noexcept {
+void settle_litter(std::vector<Scrap>& scraps, std::size_t first, std::uint64_t seed,
+                   std::span<const Unit> units) noexcept {
     for (std::size_t i = first; i < scraps.size(); ++i) {
         TileXY at = tile_of(scraps.at(i).x, scraps.at(i).y);
-        if (!tile_passable(seed, at.x, at.y)) {
-            const Coord spot = nearest_passable(seed, at.x, at.y);
+        // A building's footprint is no more reachable than a crater: a piece never settles in one.
+        if (!standable(seed, units, at.x, at.y)) {
+            const Coord spot = nearest_passable(seed, units, at.x, at.y);
             at = TileXY{static_cast<std::uint8_t>(spot.x), static_cast<std::uint8_t>(spot.y)};
         }
         // One tile, one piece of this wreck: step east (a standable tile, the same way every time)
@@ -461,7 +521,7 @@ void settle_litter(std::vector<Scrap>& scraps, std::size_t first, std::uint64_t 
             if (!taken) {
                 break;
             }
-            const Coord next = nearest_passable(seed, static_cast<int>(at.x) + 1, at.y);
+            const Coord next = nearest_passable(seed, units, static_cast<int>(at.x) + 1, at.y);
             at = TileXY{static_cast<std::uint8_t>(next.x), static_cast<std::uint8_t>(next.y)};
         }
         scraps.at(i) = Scrap{tile_center(at.x), tile_center(at.y)};
@@ -530,6 +590,53 @@ void fetch_step(std::vector<Unit>& units, std::vector<Scrap>& scraps,
     unit.stance = Stance::Fetch;
 }
 
+/// DEPLOY (R2). Called for every living recycler before it is steered. Returns true when the
+/// recycler is not to be steered this tick: it is standing at its site counting, it has just become
+/// a building, or its order has just failed.
+///
+/// The countdown is a matter of being AT the site: inside the arrive radius of its centre, the
+/// radius a MoveTo stops in. Away from it the recycler is steered there like a MoveTo and the count
+/// is zero. The site is re-checked every tick, so one that stops being usable (another building has
+/// been deployed over it) ends the order whole: the recycler stands, idle, still a `Recycler` --
+/// there is no half-deployed state to be left in.
+bool deploy_step(const std::vector<Unit>& units, Unit& unit, std::uint64_t seed) noexcept {
+    if (unit.stance != Stance::Deploy) {
+        unit.deploy_ticks = 0; // a countdown never outlives the order that started it
+        return false;
+    }
+    const Footprint site = footprint_around(unit.guard_x, unit.guard_y);
+    if (!deploy_site_ok(seed, units, site.x, site.y)) {
+        unit.stance = Stance::Idle;
+        unit.deploy_ticks = 0;
+        unit.route = Route{};
+        unit.vx = Fixed::zero();
+        unit.vy = Fixed::zero();
+        return true;
+    }
+    constexpr std::int64_t kArrive = kArriveRadiusRaw; // the radius a MoveTo stops in
+    if (dist2(unit.x, unit.y, unit.guard_x, unit.guard_y) >= kArrive * kArrive) {
+        unit.deploy_ticks = 0;
+        return false; // on its way: steered like a MoveTo
+    }
+    unit.vx = Fixed::zero();
+    unit.vy = Fixed::zero();
+    ++unit.deploy_ticks;
+    if (unit.deploy_ticks < kDeployTicks) {
+        return true;
+    }
+    // The transformation, IN PLACE: the same entry in the table, so the same id, and the hit points
+    // it has now -- deploying neither heals nor wounds it. It settles on the site's centre, which
+    // is what puts its footprint on the site's four tiles.
+    unit.kind = UnitKind::DeployedRecycler;
+    unit.x = unit.guard_x;
+    unit.y = unit.guard_y;
+    unit.stance = Stance::Idle;
+    unit.deploy_ticks = 0;
+    unit.route = Route{};
+    unit.detour = Detour{};
+    return true;
+}
+
 void steer(std::vector<Unit>& units, Unit& unit, const UnitProfile& prof, const WorldGround& ground,
            std::uint32_t& plans) noexcept {
     unit.vx = Fixed::zero();
@@ -543,6 +650,8 @@ void steer(std::vector<Unit>& units, Unit& unit, const UnitProfile& prof, const 
     case Stance::Patrol:
     // The fetch steers at whatever goal `fetch_step` wrote into guard_x/guard_y this tick.
     case Stance::Fetch:
+    // A deploy drives to its site's centre, which the order wrote into guard_x/guard_y.
+    case Stance::Deploy:
         break;
     case Stance::Attack: {
         const Unit* target = find_const(units, unit.target);
@@ -710,9 +819,21 @@ Sim Sim::create(const Scenario& scenario) {
     sim.units_.reserve(scenario.spawns.size());
     for (const Spawn& spawn : scenario.spawns) {
         // Out-of-range spawns are clamped onto the map rather than rejected: total, not UB.
-        const Coord tile
-            = nearest_passable(scenario.seed, std::clamp(spawn.tile_x, 0, kMapTiles - 1),
-                               std::clamp(spawn.tile_y, 0, kMapTiles - 1));
+        const int x = std::clamp(spawn.tile_x, 0, kMapTiles - 1);
+        const int y = std::clamp(spawn.tile_y, 0, kMapTiles - 1);
+        const std::span<const Unit> placed{sim.units_};
+        Coord tile{};
+        if (has_footprint(spawn.kind)) {
+            // A building is placed whole: its north-west tile is the wish, or the nearest one whose
+            // square is clear, and it stands at that square's centre.
+            const Coord corner = nearest_where(x, y, [&scenario, placed](int tx, int ty) {
+                return building_fits(scenario.seed, placed, tx, ty);
+            });
+            const Footprint site = footprint_at(corner.x, corner.y);
+            tile = Coord{site.centre_x(), site.centre_y()};
+        } else {
+            tile = nearest_passable(scenario.seed, placed, x, y);
+        }
         sim.units_.push_back(fresh_unit(sim.next_id_++, spawn.kind, spawn.side, tile));
     }
     return sim;
@@ -722,7 +843,7 @@ void Sim::enqueue(const Order& order) {
     // The generic command channel: the human's input layer, a replay being replayed, and an AI all
     // arrive here. The sim has no idea WHO is issuing, so it must not filter by side -- ownership
     // is the commander's responsibility. Filtering here silently killed the enemy commander.
-    if (!order_is_valid(units_, order)) {
+    if (!order_is_valid(units_, order, scenario_.seed)) {
         return;
     }
     pending_.push_back(order);
@@ -747,11 +868,18 @@ void Sim::step() {
 
     // 2. movement, ascending id (units_ is stored in id order).
     const std::uint64_t seed = scenario_.seed;
-    const WorldGround ground{seed};
     for (Unit& unit : units_) {
         if (!unit.alive) {
             continue;
         }
+        // The deploy, before the mover: it may stand the recycler still, or turn it into a
+        // building that does not move at all.
+        if (unit.kind == UnitKind::Recycler && deploy_step(units_, unit, seed)) {
+            continue;
+        }
+        // Asked afresh for each unit, so a recycler that deployed earlier in this very loop is
+        // already in the way of every unit after it.
+        const WorldGround ground = ground_of(seed, units_);
         const UnitProfile prof = profile(unit.kind);
         // The fetch, before the mover: it writes the goal the mover is about to steer at (C2).
         if (unit.kind == UnitKind::Scavenger) {
@@ -887,7 +1015,7 @@ void Sim::step() {
                 scatter(scraps_, scenario_.seed, id, dead->x, dead->y);
                 // The pieces land where the hash says; then they settle where a hauler can reach
                 // them (and where a second piece of the same wreck is not already lying).
-                settle_litter(scraps_, first, scenario_.seed);
+                settle_litter(scraps_, first, scenario_.seed, units_);
             }
         }
     }
@@ -941,10 +1069,13 @@ std::uint32_t Sim::tick() const noexcept { return tick_; }
 
 std::uint32_t Sim::route_plans() const noexcept { return route_plans_; }
 
-bool Sim::kind_wiped_out(Side side, UnitKind kind) const noexcept {
+namespace {
+
+/// `kind_wiped_out` for every kind `is_one` accepts: the side had at least one, and none is alive.
+template <class Is> bool wiped_out(const std::vector<Unit>& units, Side side, Is is_one) noexcept {
     bool had_one = false;
-    for (const Unit& unit : units_) {
-        if (unit.side != side || unit.kind != kind) {
+    for (const Unit& unit : units) {
+        if (unit.side != side || !is_one(unit.kind)) {
             continue;
         }
         if (unit.alive) {
@@ -955,12 +1086,25 @@ bool Sim::kind_wiped_out(Side side, UnitKind kind) const noexcept {
     return had_one;
 }
 
+/// The two forms a side's recycler takes: the vehicle, and the building it deploys into. Deploying
+/// changes the KIND of the same unit, so a war that asked about `Recycler` alone would forget a
+/// deployed one: its death would decide nothing.
+bool is_recycler(UnitKind kind) noexcept {
+    return kind == UnitKind::Recycler || kind == UnitKind::DeployedRecycler;
+}
+
+} // namespace
+
+bool Sim::kind_wiped_out(Side side, UnitKind kind) const noexcept {
+    return wiped_out(units_, side, [kind](UnitKind k) { return k == kind; });
+}
+
 WarOutcome Sim::war_outcome() const noexcept {
     // The player's loss is checked first, so a recycler pair that dies together reads as a loss.
-    if (kind_wiped_out(Side::Player, UnitKind::Recycler)) {
+    if (wiped_out(units_, Side::Player, is_recycler)) {
         return WarOutcome::PlayerLost;
     }
-    if (kind_wiped_out(Side::Enemy, UnitKind::Recycler)) {
+    if (wiped_out(units_, Side::Enemy, is_recycler)) {
         return WarOutcome::PlayerWon;
     }
     return WarOutcome::Undecided;
@@ -971,6 +1115,29 @@ std::uint64_t Sim::seed() const noexcept { return scenario_.seed; }
 bool tile_passable(std::uint64_t seed, int tile_x, int tile_y) noexcept {
     return tile_x >= 0 && tile_y >= 0 && tile_x < kMapTiles && tile_y < kMapTiles
            && terrain_speed_factor(world::sample(seed, tile_x, tile_y).terrain).raw != 0;
+}
+
+bool building_blocks(std::span<const Unit> units, int tile_x, int tile_y) noexcept {
+    return std::any_of(units.begin(), units.end(), [tile_x, tile_y](const Unit& unit) {
+        return unit.alive && has_footprint(unit.kind)
+               && footprint_around(unit.x, unit.y).covers(tile_x, tile_y);
+    });
+}
+
+bool deploy_site_ok(std::uint64_t seed, std::span<const Unit> units, int tile_x,
+                    int tile_y) noexcept {
+    if (tile_x < 0 || tile_y < 0 || tile_x >= kMapTiles || tile_y >= kMapTiles) {
+        return false; // aimed off the map: refused, never clipped back onto it
+    }
+    const Footprint site = footprint_at(tile_x, tile_y);
+    for (int dy = 0; dy < kBuildingFootprintTiles; ++dy) {
+        for (int dx = 0; dx < kBuildingFootprintTiles; ++dx) {
+            if (!standable(seed, units, site.x + dx, site.y + dy)) {
+                return false;
+            }
+        }
+    }
+    return true;
 }
 
 const std::vector<Unit>& Sim::units() const noexcept { return units_; }
@@ -1027,6 +1194,10 @@ std::uint64_t Sim::state_hash() const noexcept {
         h.u64(u.alive ? 1 : 0);
         if (u.cargo != 0) {
             h.u64(u.cargo); // only when set, like unmount_ticks: a haul-less sim hashes as before
+        }
+        if (u.deploy_ticks != 0) {
+            h.u64(
+                u.deploy_ticks); // only when set too: a battle that never deploys hashes as before
         }
         // The route: the goal it serves, the leg it is on, and every waypoint.
         h.u64(u.route.has_goal ? 1 : 0);

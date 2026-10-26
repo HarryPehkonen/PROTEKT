@@ -489,6 +489,13 @@ public:
         scene_options.landing_marks = &landing_marks_;
         scene_options.nav_marks = &nav_marks_;
         scene_options.row = &row_;
+        if (session_.deploy_armed()) {
+            // The footprint the armed deploy would build, where the reticle meets the ground: the
+            // same tile SPACE would deploy at, clipped onto the map the way the sim clips it.
+            if (const game::NavAim aim = game::nav_aim(sim_, scene_options); aim.on_ground()) {
+                scene_options.deploy_preview = sim::footprint_at(aim.tile_x, aim.tile_y);
+            }
+        }
         scene_options.show_radar_mesh = !options_.no_radar_mesh;
         scene_options.show_world_map = world_map_;
         if (session_.attack_armed()) {

@@ -108,11 +108,21 @@ struct Strafe {
     Fixed dy{};
 };
 
+/// DEPLOY a recycler at a site: drive to it, stand there `kDeployTicks`, and become a
+/// `DeployedRecycler` in place (see `Sim`'s tick order). The tile is the footprint's NORTH-WEST
+/// corner as aimed (`footprint_at` clips it so the whole square is on the map). Refused for any
+/// kind but a `Recycler`, which is also what refuses deploying twice, and for a site that is off
+/// the map, on ground no unit may enter, or inside another building's footprint (`deploy_site_ok`).
+struct Deploy {
+    std::int32_t tile_x{};
+    std::int32_t tile_y{};
+};
+
 } // namespace orders
 
 using OrderPayload = std::variant<orders::MoveTo, orders::GuardAt, orders::Patrol, orders::Attack,
                                   orders::Stop, orders::FocusFire, orders::FireTowards,
-                                  orders::Strafe, orders::Follow, orders::FireLob>;
+                                  orders::Strafe, orders::Follow, orders::FireLob, orders::Deploy>;
 
 /// How each payload alternative is named and reported. This is the payload's index, in the
 /// payload's order, and the assertions below make that true rather than intended.
@@ -127,9 +137,10 @@ enum class OrderKind : std::uint8_t {
     Strafe = 7,
     Follow = 8,
     FireLob = 9,
+    Deploy = 10,
 };
 
-inline constexpr std::size_t kOrderKindCount = static_cast<std::size_t>(OrderKind::FireLob) + 1;
+inline constexpr std::size_t kOrderKindCount = static_cast<std::size_t>(OrderKind::Deploy) + 1;
 
 static_assert(std::variant_size_v<OrderPayload> == kOrderKindCount,
               "every alternative needs a kind, and every kind an alternative");
@@ -150,6 +161,7 @@ static_assert(std::is_same_v<PayloadOf<OrderKind::FireTowards>, orders::FireTowa
 static_assert(std::is_same_v<PayloadOf<OrderKind::Strafe>, orders::Strafe>);
 static_assert(std::is_same_v<PayloadOf<OrderKind::Follow>, orders::Follow>);
 static_assert(std::is_same_v<PayloadOf<OrderKind::FireLob>, orders::FireLob>);
+static_assert(std::is_same_v<PayloadOf<OrderKind::Deploy>, orders::Deploy>);
 
 /// The kind is the payload's own index. There is no second field that can disagree with it, which
 /// is precisely what the flat record could not promise.
@@ -219,6 +231,11 @@ struct OrderFields {
     } else if (const auto* p = std::get_if<orders::Strafe>(&payload)) {
         out.positions[0] = p->dx;
         out.positions[1] = p->dy;
+        out.position_count = 2;
+    } else if (const auto* p = std::get_if<orders::Deploy>(&payload)) {
+        // The tile as a position, a whole tile: a replay reads it back with `floor_int`.
+        out.positions[0] = Fixed::from_int(p->tile_x);
+        out.positions[1] = Fixed::from_int(p->tile_y);
         out.position_count = 2;
     }
     // Stop carries nothing, and neither does anything else that reaches here.

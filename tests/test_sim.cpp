@@ -2,6 +2,8 @@
 // the balance constants in units.hpp) -- never of whatever the implementation chose.
 #include <gtest/gtest.h>
 
+#include <cstdlib>
+#include <utility>
 #include <vector>
 
 #include "protekt/sim/sim.hpp"
@@ -90,10 +92,9 @@ TEST(Sim, TheScavengerIsUnarmedAndMobile) {
     EXPECT_FALSE(is_tank(UnitKind::Scavenger)) << "the tank rules skip a hauler";
 }
 
-TEST(Sim, TheRecyclerIsAppendedLastAndIsDrivableButNotATank) {
+TEST(Sim, TheRecyclerKeepsIndexSevenAndIsDrivableButNotATank) {
     // Appended, never inserted: the kind is hashed, packed and replayed, so every earlier index
-    // has to stay where it was.
-    EXPECT_EQ(static_cast<int>(UnitKind::Recycler), kUnitKindCount - 1);
+    // has to stay where it was -- its own included, now that the deployed recycler follows it.
     EXPECT_EQ(static_cast<int>(UnitKind::Recycler), 7);
     EXPECT_TRUE(is_drivable(UnitKind::Recycler)) << "it moves: only the factory does not";
     EXPECT_FALSE(is_tank(UnitKind::Recycler)) << "the tank rules assume a gun, and it has none";
@@ -107,8 +108,39 @@ TEST(Sim, TheRecyclerNeverFiresAndIsNothingToFear) {
     EXPECT_GT(spec.max_speed.raw, 0) << "it has to be able to reach a deploy site";
 }
 
+TEST(Sim, TheDeployedRecyclerIsAppendedAfterTheRecyclerAndNoEarlierIndexMoved) {
+    // DEPLOY. Every value below is hashed, packed into observations and written into replays: a
+    // kind inserted anywhere but the end would move all of them.
+    EXPECT_EQ(static_cast<int>(UnitKind::Tank), 0);
+    EXPECT_EQ(static_cast<int>(UnitKind::Turret), 1);
+    EXPECT_EQ(static_cast<int>(UnitKind::Factory), 2);
+    EXPECT_EQ(static_cast<int>(UnitKind::HoverTank), 3);
+    EXPECT_EQ(static_cast<int>(UnitKind::Mortar), 4);
+    EXPECT_EQ(static_cast<int>(UnitKind::Rocket), 5);
+    EXPECT_EQ(static_cast<int>(UnitKind::Scavenger), 6);
+    EXPECT_EQ(static_cast<int>(UnitKind::Recycler), 7);
+    EXPECT_EQ(static_cast<int>(UnitKind::DeployedRecycler), 8);
+    EXPECT_EQ(kUnitKindCount, 9);
+    EXPECT_EQ(static_cast<int>(UnitKind::DeployedRecycler), kUnitKindCount - 1) << "appended last";
+}
+
+TEST(Sim, TheDeployedRecyclerIsAStillUnarmedBuildingWithTheRecyclersHull) {
+    const UnitSpec& spec = spec_of(UnitKind::DeployedRecycler);
+    EXPECT_EQ(spec.max_speed.raw, 0) << "a building never moves";
+    EXPECT_EQ(spec.range.raw, 0) << "unarmed";
+    EXPECT_EQ(spec.damage, 0);
+    EXPECT_EQ(spec.cooldown, 0);
+    EXPECT_EQ(spec.hp, spec_of(UnitKind::Recycler).hp) << "the recycler's hull, by default";
+    EXPECT_EQ(kDeployedRecyclerHp, kRecyclerHp);
+    EXPECT_FALSE(profile(UnitKind::DeployedRecycler).mobile);
+    EXPECT_FALSE(is_drivable(UnitKind::DeployedRecycler)) << "nothing to drive";
+    EXPECT_TRUE(has_footprint(UnitKind::DeployedRecycler));
+    EXPECT_FALSE(has_footprint(UnitKind::Recycler)) << "a vehicle has no footprint";
+    EXPECT_FALSE(has_footprint(UnitKind::Factory)) << "DEPLOY gives the factory none";
+}
+
 TEST(Sim, TheHoverTankHasTheTanksProfileExactly) {
-    EXPECT_EQ(kUnitKindCount, 8);
+    EXPECT_EQ(kUnitKindCount, 9);
     EXPECT_EQ(static_cast<int>(UnitKind::HoverTank), 3);
     const UnitProfile tank = profile(UnitKind::Tank);
     const UnitProfile hover = profile(UnitKind::HoverTank);
@@ -820,6 +852,381 @@ TEST(SimRepair, TheSameScenarioHashesTheSame) {
         return sim.state_hash();
     };
     EXPECT_EQ(run(), run());
+}
+
+// DEPLOY: a recycler drives to a site, stands there kDeployTicks, and becomes a DeployedRecycler in
+// place -- same id, same hit points -- on a 2x2 footprint nothing may enter or be spawned inside.
+
+constexpr std::uint64_t kDeploySeed = 42;
+
+/// The north-west tile of a 2x2 site with `margin` tiles of passable ground all round it, the first
+/// found scanning rows from (`from`, `from`). Every deploy test stands on one, so a failure is the
+/// rule's and never the terrain's.
+Footprint open_site(std::uint64_t seed, int from, int margin) {
+    for (int y = from; y < kMapTiles - from; ++y) {
+        for (int x = from; x < kMapTiles - from; ++x) {
+            bool open = true;
+            for (int ty = y - margin; ty < y + kBuildingFootprintTiles + margin && open; ++ty) {
+                for (int tx = x - margin; tx < x + kBuildingFootprintTiles + margin && open; ++tx) {
+                    open = tile_passable(seed, tx, ty);
+                }
+            }
+            if (open) {
+                return Footprint{x, y};
+            }
+        }
+    }
+    return Footprint{-1, -1};
+}
+
+/// A sim of `spawns` on the deploy seed.
+Sim deploy_sim(std::vector<Spawn> spawns) {
+    return Sim::create(Scenario{kDeploySeed, std::move(spawns)});
+}
+
+/// The first unit of `kind`, whatever it is now.
+UnitId first_of_kind(const Sim& sim, UnitKind kind) {
+    for (const Unit& u : sim.units()) {
+        if (u.kind == kind) {
+            return u.id;
+        }
+    }
+    return UnitId{};
+}
+
+void step_n(Sim& sim, int ticks) {
+    for (int t = 0; t < ticks; ++t) {
+        sim.step();
+    }
+}
+
+/// His two numeric rulings, pinned to the NUMBERS and not to a name: the recycler takes ten
+/// seconds to deploy (30 ticks a second) and a building stands on a 2x2 square. Every other deploy
+/// test is written against `kDeployTicks` and `kBuildingFootprintTiles`, so without this test
+/// either value could be changed to anything and the whole suite would still pass.
+TEST(Deploy, TheRuledNumbersAreTenSecondsAndATwoByTwoBuilding) {
+    EXPECT_EQ(kDeployTicks, 10 * kTicksPerSecond) << "ten seconds at 30 ticks a second";
+    EXPECT_EQ(kBuildingFootprintTiles, 2) << "2x2 tiles, his ruling 2026-10-26";
+}
+
+TEST(Deploy, CompletesAtExactlyDeployTicksNotOneTickEarlierOrLater) {
+    const Footprint site = open_site(kDeploySeed, 40, 2);
+    ASSERT_GE(site.x, 0);
+    // Standing on the site's centre already, so the count starts on the very first tick.
+    Sim sim = deploy_sim({{UnitKind::Recycler, Side::Player, site.centre_x(), site.centre_y()}});
+    const UnitId id = first_of_kind(sim, UnitKind::Recycler);
+    ASSERT_EQ(sim.find(id)->x, Fixed::from_int(site.centre_x()));
+    sim.enqueue(Order{id, orders::Deploy{site.x, site.y}});
+    ASSERT_EQ(sim.command_log().size(), 1U) << "a good site is accepted";
+
+    step_n(sim, kDeployTicks - 1);
+    const Unit before = *sim.find(id);
+    EXPECT_EQ(before.kind, UnitKind::Recycler) << "one tick early, it is still a vehicle";
+    EXPECT_EQ(before.stance, Stance::Deploy);
+    EXPECT_EQ(before.deploy_ticks, kDeployTicks - 1);
+
+    sim.step();
+    const Unit* after = sim.find(id);
+    ASSERT_NE(after, nullptr) << "the same id still names it";
+    EXPECT_EQ(after->kind, UnitKind::DeployedRecycler) << "on exactly the kDeployTicks-th tick";
+    EXPECT_EQ(sim.tick(), kDeployTicks);
+    EXPECT_EQ(after->stance, Stance::Idle);
+    EXPECT_EQ(after->deploy_ticks, 0) << "no countdown is left behind";
+    EXPECT_EQ(after->x, Fixed::from_int(site.centre_x())) << "it stands on its site's centre";
+    EXPECT_EQ(after->y, Fixed::from_int(site.centre_y()));
+    EXPECT_EQ(sim.units().size(), 1U) << "in place: no unit was added, none removed";
+
+    step_n(sim, 30);
+    EXPECT_EQ(sim.find(id)->kind, UnitKind::DeployedRecycler) << "and it stays one";
+    EXPECT_EQ(sim.find(id)->x, after->x) << "a building never moves";
+}
+
+TEST(Deploy, TheCountdownStartsOnlyOnceTheRecyclerHasReachedItsSite) {
+    const Footprint site = open_site(kDeploySeed, 40, 8);
+    ASSERT_GE(site.x, 0);
+    Sim sim = deploy_sim({{UnitKind::Recycler, Side::Player, site.x - 6, site.centre_y()}});
+    const UnitId id = first_of_kind(sim, UnitKind::Recycler);
+    sim.enqueue(Order{id, orders::Deploy{site.x, site.y}});
+    int driving = 0;
+    while (sim.find(id)->deploy_ticks == 0 && driving < 600) {
+        sim.step();
+        ++driving;
+    }
+    ASSERT_GT(driving, 1) << "it had to drive there first";
+    ASSERT_EQ(sim.find(id)->deploy_ticks, 1);
+    step_n(sim, kDeployTicks - 2);
+    EXPECT_EQ(sim.find(id)->kind, UnitKind::Recycler) << "the drive does not count";
+    sim.step();
+    EXPECT_EQ(sim.find(id)->kind, UnitKind::DeployedRecycler);
+    EXPECT_EQ(sim.tick(), static_cast<Tick>(driving - 1 + kDeployTicks));
+}
+
+TEST(Deploy, HitPointsSurviveTheTransformationWhetherWholeOrDamaged) {
+    const Footprint site = open_site(kDeploySeed, 40, 4);
+    ASSERT_GE(site.x, 0);
+    {
+        Sim sim
+            = deploy_sim({{UnitKind::Recycler, Side::Player, site.centre_x(), site.centre_y()}});
+        const UnitId id = first_of_kind(sim, UnitKind::Recycler);
+        sim.enqueue(Order{id, orders::Deploy{site.x, site.y}});
+        step_n(sim, kDeployTicks);
+        ASSERT_EQ(sim.find(id)->kind, UnitKind::DeployedRecycler);
+        EXPECT_EQ(sim.find(id)->hp, kRecyclerHp) << "whole in, whole out";
+    }
+    // Wounded first, by its own side's gun (friendly fire is a FireTowards that names it), with no
+    // factory anywhere to mend it: the deploy must neither heal nor wound it.
+    Sim sim = deploy_sim({{UnitKind::Recycler, Side::Player, site.centre_x(), site.centre_y()},
+                          {UnitKind::Tank, Side::Player, site.centre_x() - 3, site.centre_y()}});
+    const UnitId id = first_of_kind(sim, UnitKind::Recycler);
+    const UnitId gun = first_of_kind(sim, UnitKind::Tank);
+    step_n(sim, kTankCooldownTicks); // a fresh gun starts reloading
+    sim.enqueue(
+        Order{gun, orders::FireTowards{Fixed::from_int(1), Fixed::zero(), id, Fixed::zero()}});
+    for (int t = 0; t < 60 && sim.find(id)->hp == kRecyclerHp; ++t) {
+        sim.step();
+    }
+    const std::uint16_t wounded = sim.find(id)->hp;
+    ASSERT_LT(wounded, kRecyclerHp) << "the shot must land, or this proves nothing";
+    ASSERT_GT(wounded, 0);
+    sim.enqueue(Order{id, orders::Deploy{site.x, site.y}});
+    step_n(sim, kDeployTicks);
+    ASSERT_EQ(sim.find(id)->kind, UnitKind::DeployedRecycler);
+    EXPECT_EQ(sim.find(id)->hp, wounded) << "deploying does not heal it";
+}
+
+TEST(Deploy, TheFootprintIsImpassableToMovementAndTheTilesJustOutsideAreNot) {
+    const Footprint site = open_site(kDeploySeed, 40, 6);
+    ASSERT_GE(site.x, 0);
+    Sim sim = deploy_sim({{UnitKind::Recycler, Side::Player, site.centre_x(), site.centre_y()},
+                          {UnitKind::Tank, Side::Player, site.x - 4, site.y}});
+    const UnitId recycler = first_of_kind(sim, UnitKind::Recycler);
+    const UnitId tank = first_of_kind(sim, UnitKind::Tank);
+    sim.enqueue(Order{recycler, orders::Deploy{site.x, site.y}});
+    step_n(sim, kDeployTicks);
+    ASSERT_EQ(sim.find(recycler)->kind, UnitKind::DeployedRecycler);
+
+    for (int ty = site.y - 1; ty <= site.y + kBuildingFootprintTiles; ++ty) {
+        for (int tx = site.x - 1; tx <= site.x + kBuildingFootprintTiles; ++tx) {
+            const bool inside = site.covers(tx, ty);
+            EXPECT_EQ(building_blocks(sim.units(), tx, ty), inside) << tx << "," << ty;
+            EXPECT_TRUE(tile_passable(kDeploySeed, tx, ty))
+                << "the terrain answer is unchanged by a building: " << tx << "," << ty;
+        }
+    }
+
+    // Straight through the building's row, then into the building itself: never inside it.
+    const auto drive = [&](int goal_x, int goal_y, int ticks) {
+        sim.enqueue(Order{tank, orders::MoveTo{Fixed::from_int(goal_x), Fixed::from_int(goal_y)}});
+        for (int t = 0; t < ticks; ++t) {
+            sim.step();
+            const Unit* u = sim.find(tank);
+            ASSERT_FALSE(site.covers(u->x.floor_int(), u->y.floor_int()))
+                << "tick " << sim.tick() << " at " << u->x.floor_int() << "," << u->y.floor_int();
+        }
+    };
+    drive(site.x + 5, site.y, 200);
+    const Unit* past = sim.find(tank);
+    EXPECT_LE(std::abs(past->x.floor_int() - (site.x + 5)), 1) << "it went round, and arrived";
+    EXPECT_LE(std::abs(past->y.floor_int() - site.y), 1);
+    drive(site.centre_x(), site.centre_y(), 200);
+}
+
+TEST(Deploy, NoSpawnIsPlacedInsideAFootprintAndTheTilesJustOutsideStillHostOne) {
+    const Footprint site = open_site(kDeploySeed, 40, 4);
+    ASSERT_GE(site.x, 0);
+    // The building first, then a tank wished onto each of its tiles and onto the tile east of it.
+    std::vector<Spawn> spawns{{UnitKind::DeployedRecycler, Side::Player, site.x, site.y}};
+    for (int dy = 0; dy < kBuildingFootprintTiles; ++dy) {
+        for (int dx = 0; dx < kBuildingFootprintTiles; ++dx) {
+            spawns.push_back({UnitKind::Tank, Side::Player, site.x + dx, site.y + dy});
+        }
+    }
+    spawns.push_back({UnitKind::Tank, Side::Enemy, site.x + kBuildingFootprintTiles, site.y});
+    const Sim sim = deploy_sim(spawns);
+    const Unit& building = sim.units().front();
+    EXPECT_EQ(building.x, Fixed::from_int(site.centre_x())) << "a building stands at its centre";
+    EXPECT_EQ(building.y, Fixed::from_int(site.centre_y()));
+    for (const Unit& u : sim.units()) {
+        if (u.kind == UnitKind::Tank) {
+            EXPECT_FALSE(site.covers(u.x.floor_int(), u.y.floor_int()))
+                << "unit " << u.id.value << " was placed inside the building";
+        }
+    }
+    const Unit& outside = sim.units().back();
+    EXPECT_EQ(outside.x.floor_int(), site.x + kBuildingFootprintTiles) << "just outside: exactly";
+    EXPECT_EQ(outside.y.floor_int(), site.y);
+
+    // The other way round: a building is never placed over a unit already standing there.
+    const Sim later = deploy_sim({{UnitKind::Tank, Side::Player, site.x + 1, site.y + 1},
+                                  {UnitKind::DeployedRecycler, Side::Player, site.x, site.y}});
+    const Unit& tank = later.units().front();
+    EXPECT_FALSE(footprint_around(later.units().back().x, later.units().back().y)
+                     .covers(tank.x.floor_int(), tank.y.floor_int()));
+}
+
+TEST(Deploy, AnEdgeTileIsClippedSoTheWholeSquareIsOnTheMap) {
+    EXPECT_EQ(footprint_at(10, 20).x, 10) << "an inland tile is the north-west corner itself";
+    EXPECT_EQ(footprint_at(10, 20).y, 20);
+    EXPECT_EQ(footprint_at(kMapTiles - 1, 7).x, kMapTiles - kBuildingFootprintTiles);
+    EXPECT_EQ(footprint_at(7, kMapTiles - 1).y, kMapTiles - kBuildingFootprintTiles);
+    EXPECT_EQ(footprint_at(kMapTiles - 1, kMapTiles - 1).centre_x(), kMapTiles - 1)
+        << "the centre of the last square is still on the map";
+}
+
+TEST(Deploy, AimedOffTheMapIsRefusedAndLeavesAWorkingRecycler) {
+    const Footprint site = open_site(kDeploySeed, 40, 4);
+    Sim sim = deploy_sim({{UnitKind::Recycler, Side::Player, site.centre_x(), site.centre_y()}});
+    const UnitId id = first_of_kind(sim, UnitKind::Recycler);
+    for (const auto& [x, y] : std::vector<std::pair<int, int>>{
+             {-1, site.y}, {site.x, -1}, {kMapTiles, site.y}, {site.x, kMapTiles}}) {
+        EXPECT_FALSE(deploy_site_ok(kDeploySeed, sim.units(), x, y)) << x << "," << y;
+        sim.enqueue(Order{id, orders::Deploy{x, y}});
+    }
+    EXPECT_TRUE(sim.command_log().empty()) << "every one refused";
+    step_n(sim, kDeployTicks);
+    EXPECT_EQ(sim.find(id)->kind, UnitKind::Recycler);
+    EXPECT_EQ(sim.find(id)->stance, Stance::Idle);
+    // Still a working vehicle: it drives, and it can still deploy where there is room.
+    sim.enqueue(Order{id, orders::MoveTo{Fixed::from_int(site.x - 2), Fixed::from_int(site.y)}});
+    step_n(sim, 30);
+    EXPECT_NE(sim.find(id)->x, Fixed::from_int(site.centre_x())) << "it moved";
+    sim.enqueue(Order{id, orders::Deploy{site.x, site.y}});
+    step_n(sim, 120 + kDeployTicks);
+    EXPECT_EQ(sim.find(id)->kind, UnitKind::DeployedRecycler);
+}
+
+TEST(Deploy, OntoImpassableGroundIsRefusedAndLeavesAWorkingRecycler) {
+    // A crater, and a tile whose square has a crater in it though the tile itself is fine.
+    int crater_x = -1;
+    int crater_y = -1;
+    for (int y = 40; y < 200 && crater_x < 0; ++y) {
+        for (int x = 40; x < 200 && crater_x < 0; ++x) {
+            if (!tile_passable(kDeploySeed, x, y) && tile_passable(kDeploySeed, x - 1, y - 1)) {
+                crater_x = x;
+                crater_y = y;
+            }
+        }
+    }
+    ASSERT_GE(crater_x, 0) << "the seed has a crater with open ground to its north-west";
+    const Footprint site = open_site(kDeploySeed, 40, 4);
+    Sim sim = deploy_sim({{UnitKind::Recycler, Side::Player, site.centre_x(), site.centre_y()}});
+    const UnitId id = first_of_kind(sim, UnitKind::Recycler);
+    sim.enqueue(Order{id, orders::Deploy{crater_x, crater_y}});
+    sim.enqueue(Order{id, orders::Deploy{crater_x - 1, crater_y - 1}});
+    EXPECT_TRUE(sim.command_log().empty()) << "no square with a crater in it is a site";
+    step_n(sim, kDeployTicks);
+    EXPECT_EQ(sim.find(id)->kind, UnitKind::Recycler);
+    sim.enqueue(Order{id, orders::Deploy{site.x, site.y}});
+    step_n(sim, kDeployTicks);
+    EXPECT_EQ(sim.find(id)->kind, UnitKind::DeployedRecycler) << "and it still deploys";
+}
+
+TEST(Deploy, IntoAnotherBuildingsFootprintIsRefusedAndLeavesAWorkingRecycler) {
+    const Footprint site = open_site(kDeploySeed, 40, 6);
+    Sim sim = deploy_sim({{UnitKind::Recycler, Side::Player, site.centre_x(), site.centre_y()},
+                          {UnitKind::Recycler, Side::Enemy, site.x + 4, site.centre_y()}});
+    const UnitId first = sim.units().front().id;
+    const UnitId second = sim.units().back().id;
+    sim.enqueue(Order{first, orders::Deploy{site.x, site.y}});
+    step_n(sim, kDeployTicks);
+    ASSERT_EQ(sim.find(first)->kind, UnitKind::DeployedRecycler);
+    const std::size_t logged = sim.command_log().size();
+    // Every square that shares a tile with the building.
+    for (int dy = -1; dy <= 1; ++dy) {
+        for (int dx = -1; dx <= 1; ++dx) {
+            sim.enqueue(Order{second, orders::Deploy{site.x + dx, site.y + dy}});
+        }
+    }
+    EXPECT_EQ(sim.command_log().size(), logged) << "an overlapping site is refused";
+    sim.enqueue(Order{second, orders::Deploy{site.x + kBuildingFootprintTiles, site.y}});
+    EXPECT_EQ(sim.command_log().size(), logged + 1) << "the square right beside it is not";
+    step_n(sim, 60 + kDeployTicks);
+    EXPECT_EQ(sim.find(second)->kind, UnitKind::DeployedRecycler);
+}
+
+TEST(Deploy, ASiteTakenDuringTheCountdownFailsCleanlyAndLeavesAWorkingRecycler) {
+    // Two recyclers count down on squares that share a column. The lower id deploys first, on the
+    // same tick, and the other's site is then inside its footprint.
+    const Footprint site = open_site(kDeploySeed, 40, 6);
+    const Footprint overlap{site.x + 1, site.y};
+    Sim sim
+        = deploy_sim({{UnitKind::Recycler, Side::Player, site.centre_x(), site.centre_y()},
+                      {UnitKind::Recycler, Side::Enemy, overlap.centre_x(), overlap.centre_y()}});
+    const UnitId first = sim.units().front().id;
+    const UnitId second = sim.units().back().id;
+    sim.enqueue(Order{first, orders::Deploy{site.x, site.y}});
+    sim.enqueue(Order{second, orders::Deploy{overlap.x, overlap.y}});
+    ASSERT_EQ(sim.command_log().size(), 2U) << "both sites are free when the orders are given";
+    step_n(sim, kDeployTicks - 1);
+    ASSERT_EQ(sim.find(second)->deploy_ticks, kDeployTicks - 1) << "both were counting";
+    sim.step();
+    EXPECT_EQ(sim.find(first)->kind, UnitKind::DeployedRecycler);
+    const Unit* loser = sim.find(second);
+    EXPECT_EQ(loser->kind, UnitKind::Recycler) << "never half-deployed";
+    EXPECT_EQ(loser->stance, Stance::Idle) << "the order failed whole";
+    EXPECT_EQ(loser->deploy_ticks, 0);
+    step_n(sim, 30);
+    EXPECT_EQ(sim.find(second)->kind, UnitKind::Recycler);
+    // And it still works: it deploys on the next square along.
+    sim.enqueue(Order{second, orders::Deploy{site.x + kBuildingFootprintTiles, site.y}});
+    step_n(sim, 60 + kDeployTicks);
+    EXPECT_EQ(sim.find(second)->kind, UnitKind::DeployedRecycler);
+}
+
+TEST(Deploy, IsRefusedASecondTimeAndForEveryOtherKind) {
+    const Footprint site = open_site(kDeploySeed, 40, 6);
+    std::vector<Spawn> spawns{{UnitKind::Recycler, Side::Player, site.centre_x(), site.centre_y()}};
+    for (int kind = 0; kind < kUnitKindCount; ++kind) {
+        if (static_cast<UnitKind>(kind) != UnitKind::Recycler) {
+            spawns.push_back(
+                {static_cast<UnitKind>(kind), Side::Player, site.x - 4, site.y + kind});
+        }
+    }
+    Sim sim = deploy_sim(spawns);
+    for (const Unit& u : sim.units()) {
+        if (u.kind != UnitKind::Recycler) {
+            sim.enqueue(Order{u.id, orders::Deploy{site.x + 4, site.y}});
+        }
+    }
+    EXPECT_TRUE(sim.command_log().empty()) << "only a recycler deploys";
+    const UnitId id = first_of_kind(sim, UnitKind::Recycler);
+    sim.enqueue(Order{id, orders::Deploy{site.x, site.y}});
+    step_n(sim, kDeployTicks);
+    ASSERT_EQ(sim.find(id)->kind, UnitKind::DeployedRecycler);
+    const std::size_t logged = sim.command_log().size();
+    sim.enqueue(Order{id, orders::Deploy{site.x, site.y}});
+    sim.enqueue(Order{id, orders::Deploy{site.x + 4, site.y}});
+    EXPECT_EQ(sim.command_log().size(), logged) << "a deployed recycler does not deploy again";
+}
+
+TEST(Deploy, ABattleThatDeploysIsDeterministic) {
+    const auto run = [] {
+        const Footprint site = open_site(kDeploySeed, 40, 8);
+        Sim sim = deploy_sim({{UnitKind::Recycler, Side::Player, site.x - 6, site.y},
+                              {UnitKind::Tank, Side::Player, site.x - 5, site.y + 3}});
+        sim.enqueue(Order{sim.units().front().id, orders::Deploy{site.x, site.y}});
+        step_n(sim, 150);
+        const std::uint64_t counting = sim.state_hash();
+        step_n(sim, kDeployTicks);
+        return std::pair{counting, sim.state_hash()};
+    };
+    EXPECT_EQ(run(), run());
+}
+
+TEST(Deploy, ADeployedRecyclerStillDecidesTheWar) {
+    // Deploying changes the kind of the same unit: the war must still know it is the recycler.
+    const Footprint site = open_site(kDeploySeed, 40, 6);
+    Sim sim = deploy_sim({{UnitKind::DeployedRecycler, Side::Player, site.x, site.y},
+                          {UnitKind::Recycler, Side::Enemy, site.x + 120, site.y + 120},
+                          {UnitKind::Tank, Side::Enemy, site.x + 5, site.y},
+                          {UnitKind::Tank, Side::Enemy, site.x - 4, site.y + 1},
+                          {UnitKind::Tank, Side::Enemy, site.x + 1, site.y + 5}});
+    EXPECT_EQ(sim.war_outcome(), WarOutcome::Undecided) << "a living deployed recycler";
+    for (int t = 0; t < 3000 && sim.war_outcome() == WarOutcome::Undecided; ++t) {
+        sim.step();
+    }
+    EXPECT_FALSE(sim.units().front().alive);
+    EXPECT_EQ(sim.war_outcome(), WarOutcome::PlayerLost);
 }
 
 } // namespace

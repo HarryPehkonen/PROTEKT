@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -64,7 +65,7 @@ enum class MenuSubject : std::uint8_t {
 /// never a verb of its own.
 enum class MenuCommand : std::uint8_t {
     None = 0, ///< nothing armed: SPACE selects, or does nothing
-    Deploy,   ///< `3 DEPLOY` is armed: SPACE places the recycler
+    Deploy,   ///< `3 DEPLOY` is armed: SPACE deploys the recycler at the ground under the reticle
     Build,    ///< a build row is armed (see `ArmedCommand::item`): SPACE places that item
 };
 
@@ -99,6 +100,10 @@ struct MenuInput {
     /// Scrap banked, in the loads C3 counts and C4 spends. Weighed against each build row's own
     /// cost; nothing else in the menu reads it.
     int ore{};
+    /// The armed command's distance to the ground under the reticle, whole metres (`nav_metres`),
+    /// drawn at the state row's right: `SPACE DEPLOY 68m`. Absent -- nothing armed, or the reticle
+    /// off the ground -- draws nothing there.
+    std::optional<int> metres{};
 };
 
 /// WHY a row is dimmed. The three values are exhaustive on purpose: `None` means the row is NOT
@@ -161,6 +166,12 @@ struct BuildItem {
 /// FOLLOW ME on a recycler and HARVESTER on a deployment).
 inline constexpr std::string_view kVerbFollowMe{"FOLLOW ME"};
 inline constexpr std::string_view kVerbHold{"HOLD"};
+/// `3 DEPLOY` on an un-deployed recycler, and the state row's verb once it has armed the deploy.
+inline constexpr std::string_view kVerbDeploy{"DEPLOY"};
+
+/// A distance as a row's RIGHT column draws it: whole metres and an `m`, "68m". The one spelling,
+/// for the nav chain's rows, the armed deploy's state row and the attack list alike.
+[[nodiscard]] std::string metres_text(int metres);
 
 /// The words every left menu shares, written once for the selection menus here and the nav chain
 /// (`nav_marks.hpp`): the state row's key, its `SELECT`, and the `TAB CLOSE MENU` row.

@@ -451,6 +451,15 @@ inline constexpr math::Vec3 kScrapColour{0.30F, 0.28F, 0.26F};
 /// A scrap mark is one quad, so six vertices, and it emits NONE when the field holds no litter.
 inline constexpr std::size_t kScrapVertexCount = 6U;
 
+/// The deploy preview's green (BZ2's placement wireframe), and how its lines sit on the ground: a
+/// stroke this many metres either side of the tile edge, lifted this far clear of the terrain.
+inline constexpr math::Vec3 kDeployPreviewColour{0.10F, 1.0F, 0.20F};
+inline constexpr float kDeployPreviewHalfStrokeMetres = 0.08F;
+inline constexpr float kDeployPreviewLiftMetres = 0.06F;
+/// One stroke per tile edge of the footprint's grid: (side + 1) lines each way, `side` tiles long.
+inline constexpr std::size_t kDeployPreviewVertexCount
+    = std::size_t{2} * (sim::kBuildingFootprintTiles + 1) * sim::kBuildingFootprintTiles * 6U;
+
 struct SceneOptions {
     std::uint64_t seed{};
     Camera camera{};
@@ -517,6 +526,10 @@ struct SceneOptions {
     /// The player's navigational marks (N1), drawn as a slim beacon at each tile. Null draws none.
     /// Not owned.
     const NavMarks* nav_marks{nullptr};
+    /// DEPLOY's preview: the footprint the armed deploy would build where the reticle meets the
+    /// ground, drawn lying on the terrain as its tile grid in `kDeployPreviewColour`. ABSENT draws
+    /// nothing, so a frame that is not deploying is byte-identical to one that never heard of it.
+    std::optional<sim::Footprint> deploy_preview{};
     /// The command row (ROW-SLOTS) along the top of the frame: `~`, `1`, `2`, `3`, `F1`..`F10`,
     /// each in its own fixed spot, with only the keys that hold something drawn. Null draws none,
     /// so a frame that never heard of it is unchanged -- the same discipline as `nav_marks`. Also

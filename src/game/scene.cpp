@@ -1416,6 +1416,43 @@ void append_scrap(std::vector<SceneVertex>& out, const SceneOptions& options, co
     }
 }
 
+/// THE DEPLOY PREVIEW (DEPLOY): the footprint the armed deploy would build, as its tile grid lying
+/// on the terrain -- the outline and the lines between its tiles, so it reads as the 2x2 it is.
+/// Each stroke runs one tile edge, from corner height to corner height, so it follows the ground.
+/// There is no rotation to draw: the footprint is a square, and a square turned a quarter is
+/// itself.
+void append_deploy_preview(std::vector<SceneVertex>& out, const SceneOptions& options) {
+    if (!options.deploy_preview.has_value()) {
+        return;
+    }
+    const sim::Footprint site = *options.deploy_preview;
+    const auto corner = [&](int tile_x, int tile_y) {
+        const auto x = static_cast<float>(tile_x);
+        const auto y = static_cast<float>(tile_y);
+        return Vec3{x * kMetresPerTile,
+                    ground_metres(options.seed, x, y) + kDeployPreviewLiftMetres,
+                    y * kMetresPerTile};
+    };
+    // A flat stroke from one tile corner to the next, `across` being the horizontal offset to its
+    // edges: x for a stroke that runs along z, z for one that runs along x.
+    const auto stroke = [&](const Vec3& a, const Vec3& b, float across_x, float across_z) {
+        emit_quad(out, Vec3{a.at(0) - across_x, a.at(1), a.at(2) - across_z},
+                  Vec3{b.at(0) - across_x, b.at(1), b.at(2) - across_z},
+                  Vec3{b.at(0) + across_x, b.at(1), b.at(2) + across_z},
+                  Vec3{a.at(0) + across_x, a.at(1), a.at(2) + across_z}, kDeployPreviewColour);
+    };
+    constexpr int kSide = sim::kBuildingFootprintTiles;
+    for (int line = 0; line <= kSide; ++line) {
+        for (int step = 0; step < kSide; ++step) {
+            // Along x at y = line, then along z at x = line.
+            stroke(corner(site.x + step, site.y + line), corner(site.x + step + 1, site.y + line),
+                   0.0F, kDeployPreviewHalfStrokeMetres);
+            stroke(corner(site.x + line, site.y + step), corner(site.x + line, site.y + step + 1),
+                   kDeployPreviewHalfStrokeMetres, 0.0F);
+        }
+    }
+}
+
 /// THE NAV BEACON (N1): a slim vertical bar in the mark's own colour (`nav_colour`: green, yellow
 /// while highlighted) standing on the mark's tile, turned to face the camera, tall enough to see
 /// over the terrain from a distance and thin enough not to fill the view up close. No number: that
@@ -2489,10 +2526,6 @@ constexpr std::array<float, 3> kStripSelected{1.0F, 0.85F, 0.10F};
 constexpr float kMenuCell = 2.0F;
 constexpr std::array<float, 3> kMenuDimInk{0.40F, 0.40F, 0.40F};
 
-/// A distance as the attack list shows it: whole metres and the unit, "132m". Built here so the
-/// panel can measure the column before it draws it.
-[[nodiscard]] std::string target_metres(int metres) { return std::to_string(metres) + "m"; }
-
 /// THE LEDGER (C6). C3 keeps a per-side count of the loads a hauler has banked and C4 spends it: it
 /// is the war's only currency, and until this layer nothing showed it, so the player could not see
 /// how the build the factory was making got paid for. This draws the word and the side's own count
@@ -2887,7 +2920,7 @@ void append_hud_panels(std::vector<SceneVertex>& out, const SceneOptions& option
         float metres_width = 0.0F;
         for (const TargetRow& row : rows) {
             label_width = std::max(label_width, word_width(kind_label(row.kind), cell));
-            metres_width = std::max(metres_width, word_width(target_metres(row.metres), cell));
+            metres_width = std::max(metres_width, word_width(metres_text(row.metres), cell));
         }
         const float metres_left = label_left + label_width + (2.0F * cell);
         const float list_top = notice_top + (5.0F * cell) + (2.0F * pad);
@@ -2900,7 +2933,7 @@ void append_hud_panels(std::vector<SceneVertex>& out, const SceneOptions& option
             const char key = static_cast<char>('0' + rows.at(index).key);
             ink_text(std::string_view{&key, 1}, key_left, row_top, cell, kStripFrame);
             ink_text(kind_label(rows.at(index).kind), label_left, row_top, cell, kStripFrame);
-            ink_text(target_metres(rows.at(index).metres), metres_left, row_top, cell, kStripFrame);
+            ink_text(metres_text(rows.at(index).metres), metres_left, row_top, cell, kStripFrame);
         }
     }
     // THE COMMAND MENU, in the order it was handed: never sorted, never renumbered, and the key is
@@ -3440,9 +3473,12 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
                 // borrow the tank's turret. Nothing on a scavenger aims.
                 build_scavenger(scene.vertices, options.seed, unit, mark, lift_z, hovering,
                                 heading);
-            } else if (unit.kind == sim::UnitKind::Recycler) {
+            } else if (unit.kind == sim::UnitKind::Recycler
+                       || unit.kind == sim::UnitKind::DeployedRecycler) {
                 // Beside the scavenger's, and before the tank fallback: a driven recycler is FACED
-                // too, and must neither borrow the tank's turret nor fall through to a factory.
+                // too, and must neither borrow the tank's turret nor fall through to a factory. A
+                // DEPLOYED one is drawn as the hull that drove there, parked on its site: the
+                // building has no look of its own yet, and DEPLOY adds no art.
                 build_recycler(scene.vertices, options.seed, unit, mark, lift_z, hovering, heading);
             } else if (faced || unit.kind == sim::UnitKind::Tank) {
                 build_facing_tank(scene.vertices, options.seed, unit, mark, lift_z, hovering,
@@ -3460,6 +3496,7 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
     append_landing_marks(scene.vertices, options, sim.tick());
     append_scrap(scene.vertices, options, sim);
     append_nav_beacons(scene.vertices, options);
+    append_deploy_preview(scene.vertices, options);
     // The map and the radar share the bottom-left corner: BZ2's R turns one into the other rather
     // than stacking them, so the radar (and the hull bar it carries) is not drawn while the map is
     // up. Hiding the radar must not change the sim, and it does not: this is a view.

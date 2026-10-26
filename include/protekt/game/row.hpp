@@ -16,8 +16,9 @@
 /// The ruler's rules (2026-10-24, from a Battlezone: Combat Commander capture):
 ///  * A key that holds nothing is not drawn, and the row does not close up: its space stays blank.
 ///    A slot's index is fixed forever -- slot 4 is F1, slot 13 is F10.
-///  * `2` is the factory; `1` (the deployed recycler) and `3` (the armory) have no kind yet, so
-///    they are empty. `~` is the nav marks.
+///  * `1` is the deployed recycler (DEPLOY) and `2` the factory; `3` (the armory) has no kind yet,
+///    so it is empty. `~` is the nav marks. A recycler that deploys leaves its F key blank, in
+///    place, and appears on `1`.
 ///  * Buildings sit on the numbered keys only. F1..F10 hold GROUPS OF VEHICLES, not kinds: one
 ///    kind may hold several keys, and a key may hold a single vehicle.
 ///  * A unit not seen before takes the FIRST EMPTY group slot, lowest index first. A slot whose

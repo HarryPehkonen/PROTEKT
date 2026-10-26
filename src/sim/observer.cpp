@@ -360,6 +360,8 @@ const char* to_string(Stance stance) noexcept {
         return "follow";
     case Stance::Fetch:
         return "fetch";
+    case Stance::Deploy:
+        return "deploy";
     }
     return "unknown";
 }
@@ -386,6 +388,8 @@ const char* to_string(OrderKind kind) noexcept {
         return "follow";
     case OrderKind::FireLob:
         return "firelob";
+    case OrderKind::Deploy:
+        return "deploy";
     }
     return "unknown";
 }

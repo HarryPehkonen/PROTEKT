@@ -118,14 +118,15 @@ TEST(ScenarioToml, EveryKindIsNamedInLowerCaseWithUnderscores) {
         const char* name;
         UnitKind kind;
     };
-    const std::array<Named, 8> kinds{{{"tank", UnitKind::Tank},
+    const std::array<Named, 9> kinds{{{"tank", UnitKind::Tank},
                                       {"turret", UnitKind::Turret},
                                       {"factory", UnitKind::Factory},
                                       {"hover_tank", UnitKind::HoverTank},
                                       {"mortar", UnitKind::Mortar},
                                       {"rocket", UnitKind::Rocket},
                                       {"scavenger", UnitKind::Scavenger},
-                                      {"recycler", UnitKind::Recycler}}};
+                                      {"recycler", UnitKind::Recycler},
+                                      {"deployed_recycler", UnitKind::DeployedRecycler}}};
     for (const Named& entry : kinds) {
         const std::string text
             = std::string("[[group]]\nkind = \"") + entry.name + "\"\ncount = 1\ndx = 0\ndy = 0\n";

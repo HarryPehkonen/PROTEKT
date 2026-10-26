@@ -30,8 +30,6 @@ static_assert(
 constexpr std::string_view kVerbGetNav{"GET NAV"};
 constexpr std::string_view kVerbNav{"NAV"};
 
-[[nodiscard]] std::string metres_text(int metres) { return std::to_string(metres) + "m"; }
-
 [[nodiscard]] std::string nav_name(int slot) {
     return "Nav " + std::string{kSlotKeys.at(static_cast<std::size_t>(slot))};
 }

@@ -84,6 +84,11 @@ void Interaction::handle(const input::InputFrame& frame, const sim::Sim& sim,
         const sim::Unit* unit = sim.find(id);
         return unit != nullptr && unit->alive && unit->side == sim::Side::Player;
     });
+    // The deploy is armed on a recycler: once the selection is not one any more (it died, it
+    // deployed, the selection went), there is nothing left to deploy and the arming goes with it.
+    if (deploy_armed_ && menu_subject_of(sim, selection_.units()) != MenuSubject::Recycler) {
+        deploy_armed_ = false;
+    }
 
     for (const input::Click& click : frame.clicks) {
         if (!click.pressed) {
@@ -171,6 +176,9 @@ void Interaction::handle(const input::InputFrame& frame, const sim::Sim& sim,
 
     for (const input::KeyEvent& key : frame.keys) {
         if (!key.pressed) {
+            continue;
+        }
+        if (deploy_armed_ && deploy_key(key, sim, options)) {
             continue;
         }
         if (go_armed_) {
@@ -357,6 +365,8 @@ bool Interaction::go_armed() const noexcept { return go_armed_; }
 
 bool Interaction::attack_armed() const noexcept { return attack_armed_; }
 
+bool Interaction::deploy_armed() const noexcept { return deploy_armed_; }
+
 const std::vector<TargetRow>& Interaction::attack_targets() const noexcept { return targets_; }
 
 const cmd::Selection& Interaction::selection() const noexcept { return selection_; }
@@ -492,7 +502,68 @@ void Interaction::menu_digit(const sim::Sim& sim, int digit) {
         follow_driven(sim);
     } else if (row->verb == kVerbHold) {
         hold_selection(sim);
+    } else if (row->verb == kVerbDeploy) {
+        arm_deploy();
     }
+}
+
+void Interaction::arm_deploy() {
+    if (orderable().empty()) {
+        refuse("You are driving that one; select another unit to give orders.");
+        return;
+    }
+    deploy_armed_ = true;
+}
+
+bool Interaction::deploy_key(const input::KeyEvent& key, const sim::Sim& sim,
+                             const SceneOptions& options) {
+    if (key.ctrl || key.alt) {
+        return false;
+    }
+    if (key.scancode == input::kKeySpace) {
+        deploy_at_crosshair(sim, options);
+        return true;
+    }
+    if (key.scancode == input::kKeyTab || key.scancode == input::kKeyEscape) {
+        deploy_armed_ = false;
+        return false; // and on to its usual job: the selection, and so the menu, closes
+    }
+    if (key.scancode == input::kKeyGrave) {
+        // `~ ROTATE BUILDINGS`. The footprint is a 2x2 square about its own centre, and a square
+        // turned a quarter is the same square on the same four tiles: there is nothing to rotate
+        // yet, so no rotation is kept. The key is the deployment menu's, and it does nothing else.
+        return true;
+    }
+    // The top menu is shown but not reachable while this left menu is open (MENU-NAV's rule): the
+    // F keys, shifted or not, and the G and T prompts, which would open panels of their own.
+    return input::function_key(key) != 0 || key.scancode == input::kKeyG
+           || key.scancode == input::kKeyT;
+}
+
+void Interaction::deploy_at_crosshair(const sim::Sim& sim, const SceneOptions& options) {
+    if (!options.aim.has_value()) {
+        return; // no reticle, no ground: the arming waits for one
+    }
+    const Pick picked = pick(sim, options, options.aim->x, options.aim->y);
+    if (!picked.has_tile()) {
+        return; // the reticle is off the ground: SPACE deploys nothing, and the arming survives
+    }
+    if (!sim::deploy_site_ok(sim.seed(), sim.units(), picked.tile_x, picked.tile_y)) {
+        refuse("There is no room to deploy there.");
+        return;
+    }
+    std::vector<sim::UnitId> roster = orderable();
+    if (roster.empty()) {
+        refuse("You are driving that one; select another unit to give orders.");
+        return;
+    }
+    std::sort(roster.begin(), roster.end());
+    const std::vector<sim::Order> orders{
+        sim::Order{roster.front(), sim::orders::Deploy{picked.tile_x, picked.tile_y}}};
+    remember(orders);
+    pending_.insert(pending_.end(), orders.begin(), orders.end());
+    deploy_armed_ = false;
+    message_ = "deploying.";
 }
 
 void Interaction::follow_driven(const sim::Sim& sim) {

@@ -27,19 +27,42 @@ bool passable(std::uint64_t seed, int x, int y) {
            && terrain_speed_factor(world::sample(seed, x, y).terrain).raw != 0;
 }
 
+/// Whether a spawn already placed stands on the tile: a unit on its own tile, a building (its
+/// spawn tile is its footprint's north-west corner, as `Sim::create` reads it) on any tile of its
+/// footprint -- so nothing is placed inside a building.
 bool taken(const std::vector<Spawn>& spawns, int x, int y) {
-    return std::any_of(spawns.begin(), spawns.end(),
-                       [x, y](const Spawn& s) { return s.tile_x == x && s.tile_y == y; });
+    return std::any_of(spawns.begin(), spawns.end(), [x, y](const Spawn& s) {
+        return has_footprint(s.kind) ? footprint_at(s.tile_x, s.tile_y).covers(x, y)
+                                     : s.tile_x == x && s.tile_y == y;
+    });
 }
 
 /// The wanted tile if free and passable, otherwise the first one found on growing square rings in
-/// row-major order. Falls back to the clamped wish if the whole map is somehow blocked.
+/// row-major order. Falls back to the clamped wish if the whole map is somehow blocked. A building
+/// needs its whole footprint free and passable, so it never covers a unit placed before it either.
 Spawn place(std::uint64_t seed, const std::vector<Spawn>& spawns, UnitKind kind, Side side, int x,
             int y) {
     x = std::clamp(x, 0, kMapTiles - 1);
     y = std::clamp(y, 0, kMapTiles - 1);
-    const auto ok
+    const auto free
         = [&](int tx, int ty) { return passable(seed, tx, ty) && !taken(spawns, tx, ty); };
+    const auto ok = [&](int tx, int ty) {
+        if (!has_footprint(kind)) {
+            return free(tx, ty);
+        }
+        if (tx < 0 || ty < 0 || tx >= kMapTiles || ty >= kMapTiles) {
+            return false;
+        }
+        const Footprint site = footprint_at(tx, ty);
+        for (int dy = 0; dy < kBuildingFootprintTiles; ++dy) {
+            for (int dx = 0; dx < kBuildingFootprintTiles; ++dx) {
+                if (!free(site.x + dx, site.y + dy)) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    };
     if (ok(x, y)) {
         return Spawn{kind, side, x, y};
     }

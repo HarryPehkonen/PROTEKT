@@ -89,6 +89,8 @@ bool Session::go_armed() const noexcept { return interaction_.go_armed(); }
 
 bool Session::attack_armed() const noexcept { return interaction_.attack_armed(); }
 
+bool Session::deploy_armed() const noexcept { return interaction_.deploy_armed(); }
+
 const std::vector<TargetRow>& Session::attack_targets() const noexcept {
     return interaction_.attack_targets();
 }

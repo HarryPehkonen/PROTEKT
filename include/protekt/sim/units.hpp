@@ -32,10 +32,15 @@ enum class UnitKind : std::uint8_t {
     Scavenger = 6,
     /// Appended after Scavenger for the same reason: the kind is hashed, packed into observations
     /// and serialised in replays, so inserting it anywhere else would move every recorded value.
-    /// Unarmed, and it MOVES: each side's one recycler, which deploys into the factory's base.
-    Recycler = 7
+    /// Unarmed, and it MOVES: each side's one recycler, the base on wheels, before it deploys.
+    Recycler = 7,
+    /// The recycler once a `Deploy` order has run its countdown (DEPLOY): the SAME unit -- the same
+    /// `UnitId`, the same entry in the unit table, the hit points it had -- turned into a building.
+    /// Appended after Recycler, never inserted, for the reason every kind above was. It never moves
+    /// and never fires, and it stands on a `kBuildingFootprintTiles` square no unit may enter.
+    DeployedRecycler = 8
 };
-inline constexpr int kUnitKindCount = 8;
+inline constexpr int kUnitKindCount = 9;
 
 /// Tanks and hover tanks: every rule written "for a tank" (orders, retreat, defend, swap, the AI's
 /// hunters) takes both. The hover tank has the tank's profile and, until it is drivable, its
@@ -48,9 +53,16 @@ inline constexpr int kUnitKindCount = 8;
 /// turret. The factory is unarmed and cannot move, so there is nothing to drive. The scavenger is
 /// unarmed too, but it DOES move, so it can be driven -- an order from the player outranks the
 /// fetch it would otherwise run (see `Unit::fetching`). The recycler is the same case: unarmed, and
-/// it moves (it has to reach the site it deploys at), so it is driven like the hauler.
+/// it moves (it has to reach the site it deploys at), so it is driven like the hauler. Once
+/// deployed it is a building, like the factory, and there is nothing to drive.
 [[nodiscard]] constexpr bool is_drivable(UnitKind kind) noexcept {
-    return kind != UnitKind::Factory;
+    return kind != UnitKind::Factory && kind != UnitKind::DeployedRecycler;
+}
+
+/// A kind that stands on a FOOTPRINT (see `Footprint`): only the deployed recycler today. The
+/// factory is a building in the game's eyes but has never had one, and DEPLOY does not give it one.
+[[nodiscard]] constexpr bool has_footprint(UnitKind kind) noexcept {
+    return kind == UnitKind::DeployedRecycler;
 }
 
 enum class Side : std::uint8_t { Player = 0, Enemy = 1 };
@@ -67,7 +79,11 @@ enum class Stance : std::uint8_t {
     /// The fetch (C2), appended for the same reason. Not an order: nothing a commander can issue
     /// sets it -- the sim sets it on an unarmed scavenger with no orders of its own, and any order
     /// the player or an AI gives replaces it (see `fetch_step`).
-    Fetch = 7
+    Fetch = 7,
+    /// A recycler under a `Deploy` order (DEPLOY), appended for the same reason: it drives to the
+    /// site's centre (`guard_x`/`guard_y`) and, once there, counts `Unit::deploy_ticks` up to
+    /// `kDeployTicks`. Any other order replaces it, and the count with it.
+    Deploy = 8
 };
 
 struct UnitId {
@@ -119,6 +135,10 @@ struct Unit {
     /// bigger hold is a number and not a new field. Hashed only when non-zero, so a battle with
     /// no scavenger anywhere in it hashes exactly as it did before the fetch existed.
     std::uint16_t cargo{};
+    /// DEPLOY: ticks this recycler has stood at its site under a `Deploy` order, counting up to
+    /// `kDeployTicks`; zero whenever it is not standing there under one. Hashed only when non-zero,
+    /// like `cargo`, so a battle in which nothing deploys hashes exactly as it did before.
+    std::uint16_t deploy_ticks{};
     bool alive{true};
 };
 
@@ -175,6 +195,56 @@ inline constexpr std::int32_t kScavengerSpeedRaw = kTankSpeedRaw * 3 / 4;
 /// factory to hand the load over. Both are radii, not tiles: the mover stops inside them.
 inline constexpr int kFetchRadiusTiles = 1;
 inline constexpr int kDeliverRadiusTiles = 2;
+
+/// The recycler's hull, and the deployed recycler's. The recycler's is BORROWED from the tank (see
+/// its spec entry). The deployed recycler's equals it -- a building that heals or wounds itself by
+/// deploying would make the countdown a repair bay -- and it is a DEFAULT, Harri's to change: it is
+/// named here, beside the recycler's, so that change is this one line and nothing else.
+inline constexpr std::uint16_t kRecyclerHp = kTankHp;
+inline constexpr std::uint16_t kDeployedRecyclerHp = kRecyclerHp;
+
+/// DEPLOY: how many ticks a recycler stands at its site before it becomes a `DeployedRecycler` --
+/// 300, ten seconds at `kTicksPerSecond`. The one number to change for a faster or slower deploy.
+inline constexpr std::uint16_t kDeployTicks = 300;
+
+/// A building's footprint is a square this many tiles on a side (his ruling, 2026-10-26: "2x2
+/// tiles -- a building should not be the same size as a tank").
+inline constexpr int kBuildingFootprintTiles = 2;
+
+/// The tiles a building stands on: the square of `kBuildingFootprintTiles` whose NORTH-WEST (lowest
+/// x, lowest y) tile is (`x`, `y`). The building itself stands at the square's centre, which for an
+/// even side is the corner its middle tiles share -- a whole-tile position, like a spawn's.
+struct Footprint {
+    int x{};
+    int y{};
+    [[nodiscard]] constexpr bool covers(int tile_x, int tile_y) const noexcept {
+        return tile_x >= x && tile_x < x + kBuildingFootprintTiles && tile_y >= y
+               && tile_y < y + kBuildingFootprintTiles;
+    }
+    /// The building's position, in whole tiles: the square's centre.
+    [[nodiscard]] constexpr int centre_x() const noexcept {
+        return x + kBuildingFootprintTiles / 2;
+    }
+    [[nodiscard]] constexpr int centre_y() const noexcept {
+        return y + kBuildingFootprintTiles / 2;
+    }
+};
+
+/// The footprint a deploy aimed at tile (`tile_x`, `tile_y`) builds: that tile is its north-west
+/// corner, moved in from the east and south edges just far enough that the whole square is on the
+/// map. Only a tile ON the map is clipped: a deploy aimed off it is refused (`deploy_site_ok`)
+/// before this is asked, never pulled back onto the map.
+[[nodiscard]] constexpr Footprint footprint_at(int tile_x, int tile_y) noexcept {
+    constexpr int kLast = kMapTiles - kBuildingFootprintTiles; ///< the last north-west tile
+    return Footprint{tile_x > kLast ? kLast : tile_x, tile_y > kLast ? kLast : tile_y};
+}
+
+/// The footprint of a building standing at (`x`, `y`): the square centred there (the inverse of
+/// `Footprint::centre_x`/`centre_y`).
+[[nodiscard]] constexpr Footprint footprint_around(Fixed x, Fixed y) noexcept {
+    return Footprint{x.floor_int() - kBuildingFootprintTiles / 2,
+                     y.floor_int() - kBuildingFootprintTiles / 2};
+}
 
 /// Per-kind constants, exposed so that the tests (and later the balance pass) can assert on
 /// them instead of restating them.

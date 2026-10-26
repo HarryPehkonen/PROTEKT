@@ -12,7 +12,25 @@
 namespace protekt::game {
 namespace {
 
-constexpr std::size_t kFactorySlot = 2;
+/// The building key a kind sits on, if it is one: `1` the deployed recycler, `2` the factory. Every
+/// other kind is a vehicle, and vehicles sit only on F1..F10.
+[[nodiscard]] std::optional<std::size_t> building_slot(sim::UnitKind kind) noexcept {
+    switch (kind) {
+    case sim::UnitKind::DeployedRecycler:
+        return 1;
+    case sim::UnitKind::Factory:
+        return 2;
+    case sim::UnitKind::Tank:
+    case sim::UnitKind::Turret:
+    case sim::UnitKind::HoverTank:
+    case sim::UnitKind::Mortar:
+    case sim::UnitKind::Rocket:
+    case sim::UnitKind::Scavenger:
+    case sim::UnitKind::Recycler:
+        break;
+    }
+    return std::nullopt;
+}
 
 /// Whether any slot already holds `id`.
 bool is_held(const std::array<RowSlot, kRowSlots>& slots, sim::UnitId id) {
@@ -33,20 +51,24 @@ bool is_held_in_group(const std::array<RowSlot, kRowSlots>& slots, sim::UnitId i
 
 void RowState::update(const sim::Sim& sim, sim::Side side, std::size_t marks) {
     nav_marks = marks;
+    // A group key loses its dead, and a vehicle that has become a building (a recycler that has
+    // deployed): its F key goes blank where it stands and is never re-packed.
     for (RowSlot& slot : slots) {
         std::erase_if(slot.units, [&sim](sim::UnitId id) {
             const sim::Unit* unit = sim.find(id);
-            return unit == nullptr || !unit->alive;
+            return unit == nullptr || !unit->alive || building_slot(unit->kind).has_value();
         });
     }
     // The building keys are not remembered: they hold whatever of the thing is alive.
-    slots.at(kFactorySlot).units.clear();
+    for (std::size_t index = 0; index < kRowFirstGroup; ++index) {
+        slots.at(index).units.clear();
+    }
     for (const sim::Unit& unit : sim.units()) {
         if (unit.side != side || !unit.alive) {
             continue;
         }
-        if (unit.kind == sim::UnitKind::Factory) {
-            slots.at(kFactorySlot).units.push_back(unit.id);
+        if (const std::optional<std::size_t> key = building_slot(unit.kind); key.has_value()) {
+            slots.at(*key).units.push_back(unit.id);
             continue;
         }
         // Units come in id order, so a slot's occupants stay in spawn order. A unit that finds
@@ -198,6 +220,7 @@ std::string_view kind_label(sim::UnitKind kind) noexcept {
     case sim::UnitKind::Scavenger:
         return "SCAVENGER";
     case sim::UnitKind::Recycler:
+    case sim::UnitKind::DeployedRecycler:
         return "RECYCLER";
     }
     return "UNIT";

@@ -100,10 +100,14 @@ inline constexpr std::array<UnitSpec, static_cast<std::size_t>(kUnitKindCount)> 
     {"scavenger", kScavengerHp, Fixed::from_raw(kScavengerSpeedRaw), Fixed::zero(), 0, 0,
      Fixed::zero(), Fixed::zero(), kBoltTravel, Fixed::zero(), Fixed::zero(), false},
     // The recycler: unarmed like the scavenger (`range` zero, and the ballistics block with it).
-    // Its hp and speed are BORROWED, not designed: the tank's hull, so a base does not die too
-    // easily, and the hauler's speed, so it can reach a deploy site. Its own numbers are Harri's to
-    // set in a balance pass.
-    {"recycler", kTankHp, Fixed::from_raw(kScavengerSpeedRaw), Fixed::zero(), 0, 0, Fixed::zero(),
+    // Its hp and speed are BORROWED, not designed: the tank's hull (`kRecyclerHp`), so a base does
+    // not die too easily, and the hauler's speed, so it can reach a deploy site. Its own numbers
+    // are Harri's to set in a balance pass.
+    {"recycler", kRecyclerHp, Fixed::from_raw(kScavengerSpeedRaw), Fixed::zero(), 0, 0,
+     Fixed::zero(), Fixed::zero(), kBoltTravel, Fixed::zero(), Fixed::zero(), false},
+    // The deployed recycler (DEPLOY): a building. Speed zero (it never moves), unarmed (no range,
+    // damage or cooldown), and the recycler's hull, `kDeployedRecyclerHp`, a default of his.
+    {"deployedrecycler", kDeployedRecyclerHp, Fixed::zero(), Fixed::zero(), 0, 0, Fixed::zero(),
      Fixed::zero(), kBoltTravel, Fixed::zero(), Fixed::zero(), false},
 }};
 

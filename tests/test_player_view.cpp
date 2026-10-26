@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "protekt/game/menu.hpp"
+#include "protekt/game/nav_marks.hpp"
 #include "protekt/game/pick.hpp"
 #include "protekt/game/row.hpp"
 #include "protekt/game/scene.hpp"
@@ -199,7 +200,7 @@ TEST(PlayerView, ASelectedRecyclerAsksForTheRecyclerMenu) {
 
 // RB1b: the recycler the skirmish now spawns, selected, is the recycler's menu on screen -- six
 // rows, the third numbered one `3 DEPLOY` -- and the command row names it RECYCLER on the last
-// vehicle key. It stays a vehicle in the F-row until deploying exists (RB3).
+// vehicle key. It stays a vehicle in the F-row until it deploys (DEPLOY: see test_row_slots.cpp).
 TEST(PlayerView, TheSkirmishRecyclerIsLabelledRecyclerAndAsksForTheSixRowMenu) {
     const sim::Sim sim = sim::Sim::create(sim::skirmish(kSeed));
     game::RowState row;
@@ -224,6 +225,35 @@ TEST(PlayerView, TheSkirmishRecyclerIsLabelledRecyclerAndAsksForTheSixRowMenu) {
     ASSERT_EQ(rows.size(), 6U) << "SPACE, TAB, ~, then 1 FOLLOW ME, 2 GO TO NAV, 3 DEPLOY";
     EXPECT_EQ(rows.at(5).key, "3");
     EXPECT_EQ(rows.at(5).verb, "DEPLOY");
+}
+
+TEST(PlayerView, AnArmedDeployReadsSpaceDeployAndTheDistanceToTheGroundUnderTheReticle) {
+    // `un-deployed recycler menu -> 3`, as the frame draws it: SPACE DEPLOY 68m.
+    sim::Scenario s = base_scenario();
+    s.spawns.push_back(sim::Spawn{UnitKind::Recycler, Side::Player, 54, 41});
+    Rig rig{};
+    rig.sim = sim::Sim::create(s);
+    rig.options.seed = kSeed;
+    rig.options.extent = kExtent;
+    const sim::UnitId recycler = unit_id(rig.sim, 6);
+    Session session{unit_id(rig.sim, 3)};
+    select_with_space(rig, session, recycler);
+    ASSERT_FALSE(menu_for(rig.sim, session, rig.options, false).empty());
+    EXPECT_TRUE(menu_for(rig.sim, session, rig.options, false).front().right.empty())
+        << "nothing armed: no distance";
+    input::InputFrame three;
+    three.keys.push_back(input::KeyEvent{input::kKey1 + 2, true, false});
+    std::vector<sim::Order> out;
+    session.frame(three, rig.sim, rig.options, out);
+    ASSERT_TRUE(session.deploy_armed());
+    const std::vector<game::MenuRow> rows = menu_for(rig.sim, session, rig.options, false);
+    ASSERT_FALSE(rows.empty());
+    EXPECT_EQ(rows.front().key, "SPACE");
+    EXPECT_EQ(rows.front().verb, "DEPLOY");
+    const game::NavAim aim = game::nav_aim(rig.sim, rig.options);
+    ASSERT_TRUE(aim.on_ground());
+    EXPECT_EQ(rows.front().right, game::metres_text(aim.metres))
+        << "the live distance, at the right";
 }
 
 TEST(PlayerView, ASelectedTurretAsksForTheTurretMenu) {

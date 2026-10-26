@@ -53,6 +53,9 @@ public:
     /// The attack list is armed and waiting for its row key (BZ2A), and the rows it offers.
     [[nodiscard]] bool attack_armed() const noexcept;
     [[nodiscard]] const std::vector<TargetRow>& attack_targets() const noexcept;
+    /// `3 DEPLOY` has armed the deploy on the selected recycler (DEPLOY): the menu reads
+    /// `SPACE DEPLOY <distance>` and the footprint is previewed while it is.
+    [[nodiscard]] bool deploy_armed() const noexcept;
     [[nodiscard]] const input::HeldKeys& keys() const noexcept;
     /// True once the driven tank has been destroyed: the view is a spectator's from then on.
     [[nodiscard]] bool destroyed() const noexcept;

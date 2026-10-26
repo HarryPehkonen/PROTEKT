@@ -3,6 +3,7 @@
 #include <array>
 #include <cstdint>
 #include <optional>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -49,9 +50,22 @@ protected:
     OrderSink& operator=(OrderSink&&) = default;
 };
 
-/// True when a unit may stand on the tile: inside the map and not a crater. The question the mover
-/// asks, answered for a caller that is not the mover.
+/// True when the TERRAIN lets a unit stand on the tile: inside the map and not a crater. The
+/// ground's half of the question the mover asks, answered for a caller that is not the mover; a
+/// building's footprint is the other half (`building_blocks`), and it is never folded in here.
 [[nodiscard]] bool tile_passable(std::uint64_t seed, int tile_x, int tile_y) noexcept;
+
+/// True when a living deployed building of either side stands on the tile (its `Footprint` covers
+/// it). THE one answer to "is a building in the way": the mover, the route planner, every spawn and
+/// the deploy site's own check all ask it, so no unit walks through, or is placed inside, one.
+[[nodiscard]] bool building_blocks(std::span<const Unit> units, int tile_x, int tile_y) noexcept;
+
+/// Whether a deploy aimed at tile (`tile_x`, `tile_y`) has somewhere to stand: the tile is on the
+/// map, and every tile of `footprint_at(tile_x, tile_y)` is ground a unit may enter
+/// (`tile_passable`) and inside no other building's footprint (`building_blocks`). Asked when the
+/// order is enqueued, when it is applied, and on every tick of its countdown.
+[[nodiscard]] bool deploy_site_ok(std::uint64_t seed, std::span<const Unit> units, int tile_x,
+                                  int tile_y) noexcept;
 
 /// The simulation. Deterministic by construction: no floating point, no unseeded randomness,
 /// no time, no iteration over unordered storage.
@@ -62,9 +76,13 @@ protected:
 ///      dropped without effect;
 ///   2. units act in ascending unit-id order: a scavenger fetches (it is sent to the nearest
 ///      wreckage, or home with a load aboard, and picks up or hands over anything it is standing
-///      next to -- C2; an order outranks it, always), then a mobile unit with a MoveTo/GuardAt/
-///      Patrol/Fetch stance steers towards its goal, then every unit's position moves by its
-///      velocity; map bounds clamp, and a unit may not enter an impassable tile;
+///      next to -- C2; an order outranks it, always); a recycler under a Deploy order whose site
+///      has stopped being usable (`deploy_site_ok`) drops the order and stands, an idle recycler,
+///      and one that is standing at its site counts one tick and, on the `kDeployTicks`th, becomes
+///      a `DeployedRecycler` where the site's centre is -- same id, same hit points -- and does not
+///      move; then a mobile unit with a MoveTo/GuardAt/Patrol/Fetch/Deploy stance steers towards
+///      its goal, then every unit's position moves by its velocity; map bounds clamp, and a unit
+///      may not enter an impassable tile -- a crater or a building's footprint;
 ///   3. every projectile already in the air advances, in spawn order; one that reaches a living
 ///      hostile lands its damage there (see advance_projectiles), so a unit killed here does not
 ///      fire this tick;
@@ -133,8 +151,10 @@ public:
 
     /// HAS THIS SIDE LOST EVERY UNIT OF THIS KIND? True when the side was given at least one `kind`
     /// and none of them is alive now. The one predicate the war's conditions are written in:
-    /// `war_outcome` asks it about each side's recycler, and a mission's own conditions (an
-    /// escort's APC, say) are meant to ask it about theirs rather than restate it. DERIVED, never
+    /// `war_outcome` asks the same question about each side's recycler -- counting the vehicle and
+    /// the building it deploys into as one, because deploying changes the kind of the same unit --
+    /// and a mission's own conditions (an escort's APC, say) are meant to ask it about theirs
+    /// rather than restate it. DERIVED, never
     /// stored and never hashed: a read over the unit table, in which a dead unit stays as an entry.
     ///
     /// A side that NEVER HAD a unit of the kind has not lost one, so this is false for it. That
@@ -142,8 +162,9 @@ public:
     /// tick zero.
     [[nodiscard]] bool kind_wiped_out(Side side, UnitKind kind) const noexcept;
 
-    /// HOW THE WAR STANDS. The player WINS when the enemy's recycler (the alien team's matriarch)
-    /// is dead, whatever else the enemy has left, and LOSES when the player's own is dead, whatever
+    /// HOW THE WAR STANDS. The player WINS when the enemy's recycler (the alien team's matriarch),
+    /// deployed or not, is dead, whatever else the enemy has left, and LOSES when the player's own
+    /// is dead, whatever
     /// else the player has left: instantly and completely. If both are dead the player has lost.
     /// Anything else, including a battle in which no recycler was ever spawned, is Undecided.
     /// DERIVED, never stored and never hashed: a battle that nobody asks produces exactly the

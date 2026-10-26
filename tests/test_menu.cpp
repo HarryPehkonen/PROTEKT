@@ -125,6 +125,18 @@ TEST(Menu, TheTopRowIsLiveStateNotABinding) {
         EXPECT_EQ(menu_rows(armed).front().verb, "DEPLOY") << "target " << static_cast<int>(target);
     }
 
+    // Case 3b: the armed deploy reads its distance at the right -- `SPACE DEPLOY 68m` -- and only
+    // while it has one to read: off the ground there is none, and nothing armed reads none.
+    MenuInput far = query(MenuSubject::Recycler);
+    far.armed = ArmedCommand{MenuCommand::Deploy, {}};
+    far.metres = 68;
+    EXPECT_EQ(menu_rows(far).front().right, "68m");
+    far.metres.reset();
+    EXPECT_TRUE(menu_rows(far).front().right.empty()) << "the reticle is off the ground";
+    MenuInput unarmed = query(MenuSubject::Recycler);
+    unarmed.metres = 68;
+    EXPECT_TRUE(menu_rows(unarmed).front().right.empty()) << "a distance belongs to an armed verb";
+
     // Case 4: a build row armed -> SPACE names the item it will place.
     MenuInput building = deployed(500);
     building.armed = ArmedCommand{MenuCommand::Build, "SCOUT"};

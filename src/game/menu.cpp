@@ -26,7 +26,7 @@ constexpr std::array kRecyclerRows{
     FixedRow{kTilde, "ROTATE BUILDINGS", MenuDim::DoesNotApply},
     FixedRow{"1", kVerbFollowMe, MenuDim::None},
     FixedRow{"2", "GO TO NAV", MenuDim::None},
-    FixedRow{"3", "DEPLOY", MenuDim::None},
+    FixedRow{"3", kVerbDeploy, MenuDim::None},
 };
 
 /// A harvester / scavenger. Note what is NOT here: 6, 7 and 8 are missing on purpose and the gap is
@@ -74,7 +74,7 @@ constexpr std::array kPlayerBuildList{
 [[nodiscard]] std::string state_verb(const MenuInput& in) {
     switch (in.armed.command) {
     case MenuCommand::Deploy:
-        return "DEPLOY";
+        return std::string{kVerbDeploy};
     case MenuCommand::Build:
         return std::string{in.armed.item};
     case MenuCommand::None:
@@ -83,9 +83,14 @@ constexpr std::array kPlayerBuildList{
     return in.target == MenuTarget::Selectable ? std::string{kVerbSelect} : std::string{};
 }
 
-/// The row everything else hangs under: always first, always live, never dimmed.
+/// The row everything else hangs under: always first, always live, never dimmed. An armed command
+/// reads its distance at the right, when there is one to read.
 [[nodiscard]] MenuRow state_row(const MenuInput& in) {
-    return MenuRow{kRowKeySpace, state_verb(in), true, MenuDim::None};
+    MenuRow row{kRowKeySpace, state_verb(in), true, MenuDim::None};
+    if (in.armed.command != MenuCommand::None && in.metres.has_value()) {
+        row.right = metres_text(*in.metres);
+    }
+    return row;
 }
 
 void append_fixed(std::vector<MenuRow>& rows, std::span<const FixedRow> fixed) {
@@ -106,6 +111,8 @@ void append_build_list(std::vector<MenuRow>& rows, const MenuInput& in) {
 
 } // namespace
 
+std::string metres_text(int metres) { return std::to_string(metres) + "m"; }
+
 std::span<const BuildItem> build_items(sim::Side side) noexcept {
     return side == sim::Side::Player ? std::span<const BuildItem>{kPlayerBuildList}
                                      : std::span<const BuildItem>{};
@@ -114,6 +121,7 @@ std::span<const BuildItem> build_items(sim::Side side) noexcept {
 MenuSubject menu_subject_of_kind(sim::UnitKind kind) noexcept {
     switch (kind) {
     case sim::UnitKind::Factory:
+    case sim::UnitKind::DeployedRecycler: // `top menu -> 1`: the deployed recycler's own menu
         return MenuSubject::Deployment;
     case sim::UnitKind::Recycler:
         return MenuSubject::Recycler;
