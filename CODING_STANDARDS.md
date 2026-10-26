@@ -20,6 +20,10 @@ error handling — the "no exceptions" jet standards (JSF/MISRA) are rejected de
     defined in the AI's translation unit. Enforced by `tests/test_layering.cpp`, which reads the sources
     on disk -- a rule nobody can check is a rule that decays.
 
+15. **A slice that changes what the player sees or presses updates the documents in the same commit.**
+    Player-visible behaviour or the control set changes `README.md` and `docs/PLAN.md` with it, or the
+    slice is not done. No slice used to, and the drift refilled each time it was cleaned.
+
 ## Rules
 
 1. **C++20.** No compiler extensions; `-Wall -Wextra -Wpedantic -Werror` on every target.

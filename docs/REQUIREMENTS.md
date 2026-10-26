@@ -790,24 +790,37 @@ a document and the code, and places where the documents contradict each other. N
 
 | # | document says | the code does |
 |---|---|---|
-| 1 | `README.md:24`: `Space` adds a unit to the selection or removes it; `Shift`+`Space` does the same | `Space` never adds; with nothing selected it selects one unit, with something selected it follows a tank or attacks a hostile (`interaction.cpp:223-264`, `3404ba9`) |
-| 2 | `README.md:31,143`: `T` with the mark on one of your own units orders an attack on it | `T` with no hostile under the mark arms the attack list, own unit or not (`interaction.cpp:274-278`); only a hostile is attacked directly. The trigger can still hurt your own (`README.md:62`) |
-| 3 | `README.md:19`: `A`/`D` turn the body | for a driven `HoverTank` they strafe and the mouse turns the hull (`player.cpp:69-136`, `6023fd2`) |
-| 4 | `README.md:45-48`: "`Escape` and Stop are how you hold fire" | `Escape` clears the selection and cancels `G` and `T`; there is no Stop key (`interaction.cpp:203-205`). A unit under a `Stop` order still fires |
-| 5 | `README.md:92-93`: the radar is round, a disc with a ring border | it is a wide shallow oval (`radar.hpp:37-44`, `f8e65de`) |
-| 6 | `README.md:103`: a nav mark is a "numbered plate" on the radar | `bd32f0b` changed the radar's nav indicator to a 9 px plus (commit message; not re-read in `radar.cpp`) |
-| 7 | `README.md:116-125`: a health bar sits above the radar | retired by Harri 2026-10-23 (`scene.cpp:1433`); the hull is in the ship instrument |
-| 8 | `README.md:112-114`: the top strip shows "key, kind and hit points" | it shows key, count `x<n>`, kind and a group bar (`scene.cpp:2148-2158`) |
-| 9 | `README.md:193-194`: "No economy", "No way to win or lose"; `docs/PLAN.md:347-353`: the economy is not built | scrap, the scavenger, the ledger, the build and the C8 verdict are built (`e653f16`, `e23dec8`); the README gap table and the PLAN's "still owed" are stale |
-| 10 | `README.md:181`: "the enemy commander advances, engages and withdraws" | the playable game's enemy is `ScriptedCommander`, which reads no hit points and does not retreat; the utility commander is wired only into the CLI tools |
-| 11 | `docs/PLAN.md:114-115`: six unit kinds | seven; `Scavenger` is the seventh (`units.hpp:23-34`) |
-| 12 | `docs/PLAN.md:117-118`: roster strip `1`–`9` and world map `O` | `F1`–`F10` and `R`; `O` is unbound (`bindings.hpp:111-154`) |
-| 13 | `docs/PLAN.md:11,661-663`: audio is a non-goal and out of scope, and there is no pathfinding beyond steering | audio shipped (`67ea954`) and A\* shipped (`0eb1986`); PLAN §5 already says so, §8 and the header do not |
-| 14 | `docs/PLAN.md:661`: no save-game serialisation beyond seed plus order log | `docs/PLAN.md:570-607` records Harri's call to plan a save. The two are in the same file |
-| 15 | `docs/PLAN.md:634-655`: "Open decision (blocks M3 only)": which machine plays | M3 is done and the play machine is named at `docs/PLAN.md:207` |
-| 16 | `docs/PLAN.md:258` calls the build menu and the resource loop "later"; `:270` says "M4a, M4b and M4 done" | the economy is built; the build menu is only a drawn quotation |
-| 17 | `include/protekt/input/bindings.hpp:7` says "Movement only" | the file holds the command predicates too (`quit_requested` and others) |
-| 18 | `README.md:26` and the refusal in `interaction.cpp:390` say `X` swaps only into your own *armed* units | `is_drivable` is every kind but the factory, so an unarmed scavenger can be swapped into (`units.hpp:47-49`) |
+| 1 **CLOSED** | `README.md:24`: `Space` adds a unit to the selection or removes it; `Shift`+`Space` does the same | `Space` never adds; with nothing selected it selects one unit, with something selected it follows a tank or attacks a hostile (`interaction.cpp:223-264`, `3404ba9`) |
+| 2 **CLOSED** | `README.md:31,143`: `T` with the mark on one of your own units orders an attack on it | `T` with no hostile under the mark arms the attack list, own unit or not (`interaction.cpp:274-278`); only a hostile is attacked directly. The trigger can still hurt your own (`README.md:62`) |
+| 3 **CLOSED** | `README.md:19`: `A`/`D` turn the body | for a driven `HoverTank` they strafe and the mouse turns the hull (`player.cpp:69-136`, `6023fd2`) |
+| 4 **CLOSED** | `README.md:45-48`: "`Escape` and Stop are how you hold fire" | `Escape` clears the selection and cancels `G` and `T`; there is no Stop key (`interaction.cpp:203-205`). A unit under a `Stop` order still fires |
+| 5 **CLOSED** | `README.md:92-93`: the radar is round, a disc with a ring border | it is a wide shallow oval (`radar.hpp:37-44`, `f8e65de`) |
+| 6 **CLOSED; this row was wrong** | `README.md:103`: a nav mark is a "numbered plate" on the radar | the radar's nav indicator IS a 9 px plus, two crossed bars with no number; the number appears only on the world map (`scene.cpp`, verified in the DOCDRIFT pass) |
+| 7 **CLOSED** | `README.md:116-125`: a health bar sits above the radar | retired by Harri 2026-10-23 (`scene.cpp:1433`); the hull is in the ship instrument |
+| 8 **CLOSED** | `README.md:112-114`: the top strip shows "key, kind and hit points" | it shows key, count `x<n>`, kind and a group bar (`scene.cpp:2148-2158`) |
+| 9 **CLOSED** | `README.md:193-194`: "No economy", "No way to win or lose"; `docs/PLAN.md:347-353`: the economy is not built | scrap, the scavenger, the ledger, the build and the C8 verdict are built (`e653f16`, `e23dec8`); the README gap table and the PLAN's "still owed" are stale |
+| 10 **CLOSED** | `README.md:181`: "the enemy commander advances, engages and withdraws" | the playable game's enemy is `ScriptedCommander`, which reads no hit points and does not retreat; the utility commander is wired only into the CLI tools |
+| 11 **CLOSED; this row was wrong** | `docs/PLAN.md:114-115`: six unit kinds | **eight**; `Scavenger` is the seventh and `Recycler` the eighth (`units.hpp:23-34`) |
+| 12 **CLOSED** | `docs/PLAN.md:117-118`: roster strip `1`–`9` and world map `O` | `F1`–`F10` and `R`; `O` is unbound (`bindings.hpp:111-154`) |
+| 13 **CLOSED** | `docs/PLAN.md:11,661-663`: audio is a non-goal and out of scope, and there is no pathfinding beyond steering | audio shipped (`67ea954`) and A\* shipped (`0eb1986`); PLAN §5 already says so, §8 and the header do not |
+| 14 **CLOSED** | `docs/PLAN.md:661`: no save-game serialisation beyond seed plus order log | `docs/PLAN.md:570-607` records Harri's call to plan a save. The two are in the same file |
+| 15 **CLOSED** | `docs/PLAN.md:634-655`: "Open decision (blocks M3 only)": which machine plays | M3 is done and the play machine is named at `docs/PLAN.md:207` |
+| 16 **CLOSED** | `docs/PLAN.md:258` calls the build menu and the resource loop "later"; `:270` says "M4a, M4b and M4 done" | the economy is built; the build menu is only a drawn quotation |
+| 17 **CLOSED** | `include/protekt/input/bindings.hpp:7` says "Movement only" | the file holds the command predicates too (`quit_requested` and others) |
+| 18 **PARTLY CLOSED** | `README.md:26` and the refusal in `interaction.cpp:390` say `X` swaps only into your own *armed* units | `is_drivable` is every kind but the factory, so an unarmed scavenger can be swapped into (`units.hpp:47-49`) |
+
+**Status: CLOSED by the DOCDRIFT commit (`git log --grep DOCDRIFT`).** Every row was re-checked
+against the code before the document was touched. Rows 1-5, 7-10 and 12-17 were right and are closed.
+**Two rows were themselves wrong.** Row 6: the radar's nav mark *is* a plus (`scene.cpp` draws two
+crossed bars, about 9 px, no number), but the README said "numbered plate" and the number appears only on
+the world map; the README now says plus. Row 11: there are **eight** unit kinds, not seven (`Recycler`
+is the eighth, `units.hpp`); PLAN now says eight. Row 9's "C8 verdict" is stale as well: C8's attrition
+verdict was retired (`c5eb877`) and the war ends on a recycler's death (`Sim::war_outcome`); the
+documents say that. Row 9 also now says the default army spawns no scavenger. Row 4 is stronger than
+the table: there is no hold-fire at all (auto-fire never reads stance). **Row 18 is only partly closed:**
+the README and the `interaction.hpp` doc comment now say every kind but the factory, but the runtime
+refusal string at `interaction.cpp` (`swap_to_crosshair`, "...only swap into your own armed units.")
+is shown to the player and was left alone: it is Harri's call, held as a question.
 
 ### 14.3 Drift: a ruling against the code
 

@@ -4,11 +4,13 @@
 
 #include "protekt/input/input.hpp"
 
-/// Which keys are down, and what they mean. Movement only: the clicks and the command keys are in
-/// `game/interaction.cpp`, the throttle rule in `game/session.cpp`, and the player-facing table in
-/// README.md, "How to play". The first half is here (SDL scancodes in, a set of held
-/// keys out); the second half lives in `game/session.cpp`, because "W means go forward" is a game
-/// rule, not an input rule.
+/// Which keys are down, and what they mean. Two things live here: the held movement keys (SDL
+/// scancodes in, a set of held keys out), and the command predicates that say which key event is
+/// which request (quit, full screen, calibration view, nav mark, world map, and the roster,
+/// function-key and mark-digit decoders). What a command then DOES is elsewhere: the clicks and
+/// the other command keys are in `game/interaction.cpp`, and the throttle rule is in
+/// `game/session.cpp`, because "W means go forward" is a game rule, not an input rule. The
+/// player-facing table is README.md, "How to play".
 namespace protekt::input {
 
 /// USB HID usage codes, which is what SDL scancodes are. Named so the game, the tests and the

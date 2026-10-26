@@ -56,14 +56,17 @@ public:
     ///    turret's aim: a unit under the mark is named in `aimed_at` as intent and does not bend
     ///    the path. The shot is also to be heard (`take_shot_voice`). It never changes the
     ///    selection.
-    ///  * Space / Shift-Space: select the own unit under the mark / toggle it
+    ///  * Space (Shift-Space is the same): the selector. Nothing selected: select the own unit
+    ///    under the mark. Something selected: follow a tank under the mark, or attack a hostile
+    ///    that is not a tank. It never adds to a selection
     ///  * right click: THE WEAPON SWITCH, one step of `next_weapon`'s wrap. It needs no mark, and
     ///    it is the ONLY switch since 2026-10-23 (`Q` and the mouse wheel stopped switching). The
     ///    orders this button used to give -- MoveTo the ground, Attack a hostile -- live on `M`,
     ///    `T` and `G` below
     ///  * M with a selection: MoveTo the ground under the mark for every selected unit that is not
     ///    the driven one, even with a unit under the mark; nothing selected: refused
-    ///  * X: swap the driven tank to the own tank under the mark; the vacated one is told to Stop
+    ///  * X: swap the driven unit to the own drivable unit under the mark (any kind but the
+    ///    factory); the vacated one is told to Stop
     ///  * F1-F10: select the whole GROUP the command row (`game/row.hpp`) holds under that key,
     ///    wherever its units are, on screen or not, replacing whatever the mouse had built; a key
     ///    that holds nothing is refused with one message. A key belongs to a group of vehicles,

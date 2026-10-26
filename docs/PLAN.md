@@ -8,7 +8,8 @@ Battlezone II: *you* drive one vehicle, command base units and turrets, build fr
 resource you physically harvest, against a scripted or AI opponent — on a world that is
 reproducible from a seed.
 
-**Non-goal (v1):** multiplayer, networking, mod support, asset pipeline, audio.
+**Non-goal (v1):** multiplayer, networking, mod support, asset pipeline. (Audio was a non-goal when
+this was written and has shipped: synthesised from arithmetic, no assets; see §5.)
 
 ---
 
@@ -112,10 +113,10 @@ replay; a Vulkan client that draws it, headless or in a window — full screen i
 the same orders through the same interface; a utility AI that advances, engages and withdraws, and
 commands its mortars and rockets by role; a trigger that chooses a target; **deterministic A\* routes**
 (`sim/route.hpp`) that take units round craters and rims, with the local detour kept as the fallback
-for a goal that cannot be reached; six unit kinds (tank, hover tank, mortar, rocket, turret,
-factory), four player weapons (gun, rocket, mortar, bouncer, switched by the right button), and any armed unit
+for a goal that cannot be reached; eight unit kinds (tank, hover tank, mortar, rocket, turret,
+factory, scavenger, recycler), four player weapons (gun, rocket, mortar, bouncer, switched by the right button), and any armed unit
 drivable with `X`; `F` follow, nav marks (`N`, then `G` and a digit to send a selection there), the
-roster strip (`1`-`9`) and the world map (`O`); a radar in the corner of the frame that shows what is
+roster strip (`F1`-`F10`) and the world map (`R`; `O` is unbound); a radar in the corner of the frame that shows what is
 within 40 tiles of the tank and nothing beyond it; **on-screen feedback**: HUD text (weapon name,
 roster strip, range ladder, notice line), the reticle's hit pulse when your shot damages an enemy,
 mortar landing marks, and the red flash when you are hit; **rendering depth**: textured ground (six
@@ -127,9 +128,11 @@ is not quiet but absent. A machine with no sound device runs silent.
 
 **What is next, in order.**
 
-1. **Economy and objectives: the unpaid half of M4.** Resources, a harvester, building, and a way for a
-   match to end. This is what gives turret placement a point, and the A\* it was waiting on is built.
-   Nothing in the tree has it yet: a factory is a 400 hp target, and nothing ends a match.
+1. **Economy and objectives: the unpaid half of M4 -- built, not finished.** Scrap, the scavenger that
+   hauls it, the ledger and the factory's build are in the sim, and the match ends when a recycler dies
+   (`Sim::war_outcome`). What is not there: the built-in default army spawns no scavenger (ore flows
+   only when a scenario file adds one), the player has no working build menu, and turret placement
+   from the player's own hand is still owed.
 2. **Strategic controllers** (below), the slow layer that decides what to defend. Still a design
    sketch: the module was deleted unwired and is recoverable from history.
 
@@ -255,8 +258,10 @@ Split in two: the order interface first, the economy second.
 
 26 new tests, red against stubs, with the 134 existing tests still green as a regression guard.
 
-**M4b (later) — the build menu, the resource loop** (harvest → build → fight), turret placement
-from the player's own hand, and click-to-attack.
+**M4b — the resource loop is built; the build menu is not.** The loop (scrap → scavenger → ledger →
+the factory's tank) is in the sim, and click-to-attack has become `T` and `Space`.
+Still owed: the build menu, which is only a drawn quotation of BZ2's rows, and turret placement from
+the player's own hand.
 
 **Known issue, measured, deliberately not fixed yet.** `scenario.cpp` places a unit on the first
 passable tile, which guarantees ground to stand on but not a way out of it: at seed 42 the player's
@@ -345,12 +350,15 @@ scripted opponent get through? N seeds, headless, win/loss counted -- the same h
 everything else here.
 
 ### M4 — still owed, named so it is not silently dropped
-**The economy was M4's second half in this plan and is NOT built.** There is no resource field, no
-harvester, no `Build` order and no production; a factory is a 400 hp target and nothing more. It is
-deliberately not being rushed in behind the commander layer: it changes the simulation's state (a
-side's pool, a unit's cargo) and therefore every recorded hash, so it wants its own milestone with
-its own re-recording rather than a pile of re-recorded goldens from an evening's work. The plan's
-sequencing stands, and the item is open rather than done.
+**The economy was M4's second half in this plan, and it has since been built in part.** Scrap lies
+where units die (C1), a scavenger carries it home (C2), a delivered load is counted on a per-side
+ledger (C3), and a factory spends the ledger to replace a lost gun with a tank (C4); the match ends
+when a side's recycler is destroyed (`Sim::war_outcome`, which replaced the retired C8 attrition
+verdict). It changed the simulation's state and so every recorded hash, which is why it was its own
+milestone with its own re-recording. **Still owed:** the player's build menu (the menu is a drawn
+quotation of BZ2's rows and builds nothing) and a scavenger in the default army. One decision is open
+on `UnitSpec`: its `buildable` flag is false for every kind and never read, while the factory builds a
+tank anyway — wire it or delete it (Harri's call, held as a question).
 
 ### M5 — AI opponent
 A utility/behaviour-based `ICommander` (perception → decision → orders, on a slower tick than
@@ -631,9 +639,10 @@ only when neither will do — he considers them overkill for this work.** So:
 
 ---
 
-## 7. Open decision (blocks M3 only)
+## 7. Decision (resolved: it blocked M3 only)
 
-**Which machine plays the game?** Measured on the Debian box (`hermes`, MacBookPro9,2,
+**Which machine plays the game?** Settled when M3 landed: the play machine is the laptop with the
+GTX 1060 Max-Q, on Vulkan (§5, M3). The question and the measurement that raised it are kept below. Measured on the Debian box (`hermes`, MacBookPro9,2,
 Intel HD 4000 / Ivy Bridge):
 
 ```
@@ -658,10 +667,11 @@ Nothing above M3 changes either way, which is why M1 is not blocked by this.
 
 ## 8. What this plan deliberately does NOT do
 
-No ECS framework, no scripting language, no networking, no save-game serialisation beyond
-seed + order log, no asset importer, no audio, no shadow/lighting system beyond flat shading,
-no pathfinding beyond steering until terrain proves it necessary, no Vulkan abstraction layer
-beyond the renderer interface. Each of these is a real answer to a question nobody has asked
+No ECS framework, no scripting language, no networking, no asset importer, no shadow/lighting
+system beyond one sun and no shadows, no Vulkan abstraction layer beyond the renderer interface.
+Save games are *planned, not built*: today there is no save beyond seed + order log, and the plan
+for a snapshot save is in §5, "Saving a game mid-battle". Audio and pathfinding used to be on this
+list and have both shipped (synthesised sound; deterministic A\*, §5). Each of these is a real answer to a question nobody has asked
 yet, and each is cheap to add when it is asked.
 
 ---

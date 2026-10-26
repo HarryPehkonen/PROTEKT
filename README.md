@@ -15,20 +15,20 @@ You are one tank. Everything else you command.
 | input | what it does |
 |---|---|
 | `W` / `S` | throttle forward / back |
-| **mouse** | turn the turret, relative to the body: the pointer is captured, and the crosshair is always the centre of the screen, where the turret points |
-| `A` / `D` | turn the body of the tank left / right, on the spot or while driving; the turret goes round with it |
+| **mouse** | turn the turret, relative to the body: the pointer is captured, and the crosshair is always the centre of the screen, where the turret points. In a hover tank the mouse turns the hull itself and the turret stays on the centre line |
+| `A` / `D` | in a plain tank (which you start in): turn the body left / right, on the spot or while driving; the turret goes round with it. In a hover tank: strafe left / right, and the mouse turns the hull |
 | `E` (**held**) | boost: lift the hull, and settle back down when you let go |
 | `C` | toggle the colour calibration view: three red/green/blue bars, a check on the display path |
 | **left click** | **fire**, wherever the mark is (see below) |
 | **right click** | switch weapon: gun -> rocket -> mortar -> bouncer -> gun. The right button is the ONLY switch (2026-10-23: `Q` and the mouse wheel stopped doing this, and the button no longer gives orders -- the orders are on `G`, `M`, `T` and `F`). The crosshair and the label beside it change; the mortar's crosshair is a range ladder, each rung the distance in tiles a shell fired at that view pitch lands on level ground, the lit rung being where you look now. The trigger fires the gun's and the rocket's auto-aimed shot as ever; with the mortar up it lobs a shell along your own view (heading and pitch, no aim-assist, no lead): point up, fire, and the rung you lit is where it lands. The bouncer is lobbed the same way, by hand, and fires a bouncing round instead of a contact one |
-| `Space`, mark on an own unit | add it to the selection, or remove it if it is already in (`Shift`+`Space` does the same); ground, enemies and the tank you drive are ignored |
-| `F1`-`F10` | select the group of vehicles under that key, wherever they are. The command row along the top (`~`, `1` `2` `3`, then `F1`-`F10`) keeps every key in the same spot: a new vehicle takes the first empty `F` key, a group that is wiped out leaves its key blank (nothing moves up), and a key that holds nothing is not drawn. Each drawn key shows the name, the count and a health bar; `2` is the factory, `~` the nav marks. Today every vehicle is its own group, because nothing builds a batch yet. The digit row does not select: digits answer `G`, `T` and the attack list |
-| `X`, mark on an own armed unit | swap: drive that unit instead; the one you leave stops, and becomes an ordinary unit you can command. Any of your tanks, hover tanks, turrets, mortars and rockets can be driven. It refuses an enemy unit, your factory (unarmed and immobile, so nothing to drive), a dead unit, the unit you are already driving, and an empty mark |
+| `Space` | the selector; what it does depends on what you already hold (`Shift`+`Space` is the same key). **Nothing selected:** select the one unit of yours under the mark, if it is within 32 tiles; ground, enemies and the tank you drive are ignored. **Something selected:** a tank under the mark, yours or theirs, is followed by the selection (so a hostile tank is followed, not attacked); a hostile of any other kind is attacked; anything else does nothing. It never adds to a selection: a selection of several comes from an `F` key |
+| `F1`-`F10` | select the group of vehicles under that key, wherever they are. The command row along the top (`~`, `1` `2` `3`, then `F1`-`F10`) keeps every key in the same spot: a new vehicle takes the first empty `F` key, a group that is wiped out leaves its key blank (nothing moves up), and a key that holds nothing is not drawn. Each drawn key shows the key, the count, the kind and a group bar (one segment per living vehicle, coloured by its hit points); `2` is the factory, `~` the nav marks. Today every vehicle is its own group, because nothing builds a batch yet. The digit row does not select: digits answer `G`, `T` and the attack list |
+| `X`, mark on an own unit | swap: drive that unit instead; the one you leave stops, and becomes an ordinary unit you can command. Every kind of yours can be driven except the factory: tanks, hover tanks, turrets, mortars, rockets, and also the unarmed scavenger and recycler. It refuses an enemy unit, your factory (immobile, so nothing to drive), a dead unit, the unit you are already driving, and an empty mark |
 | `F`, mark on a unit | every selected unit follows that unit: it holds within 4 tiles of it, closing when it is further and standing still inside, and its gun fires at whatever is in range meanwhile. Any living unit of either side may be followed (so a wingman can shadow the hull you left after `X`), but not the follower itself. It refuses with nothing selected, with nothing living under the mark, or when you are driving the only selected unit |
-| `N` | drop a numbered nav mark (0-9) on the ground under the crosshair, or clear the one you are aiming at. Marks are your own annotation: the sim never sees them, they show on the radar and the world map with their numbers, and ten is the limit |
+| `N` | drop a numbered nav mark (0-9) on the ground under the crosshair, or clear the one you are aiming at. Marks are your own annotation: the sim never sees them, they show on the radar as a small plus and on the world map with their numbers, and ten is the limit |
 | `G`, then `0`-`9` | send every selected unit to that nav mark, as a move order. `G` waits for one key: a digit answers it, `Escape` cancels, and any other key cancels and then does its own job. It refuses when that number is not placed, or with nothing selected |
 | `M` | order every selected unit to move to the ground under the mark, even when a unit is in front of it |
-| `T` | order every selected unit to attack the unit under the mark -- a hostile, or one of your own. With nothing hostile under the mark, arm the attack list instead: the nearest enemies within radar range are numbered 1-9 and 0, and the next digit attacks that row. A hostile under the mark is always attacked directly |
+| `T` | order every selected unit to attack the hostile under the mark. With no hostile under the mark -- ground, sky or one of your own units -- arm the attack list instead: the nearest enemies within radar range are numbered 1-9 and 0, and the next digit attacks that row. It refuses with nothing selected |
 | `Tab` or `Escape` | clear the selection |
 | `R` | open or close the map: the radar's view switches to the whole world as a square, north up, in the ground's own colours, with your units and buildings (the one you drive ringed in white) and your nav marks with their numbers. R again brings the radar back. It shows everything EXCEPT the enemy assets: the map is the view of what is yours, the radar is the view of what is near. It is only a picture: it gives no orders and cannot be clicked (a click still acts on the world behind it). `O` is BZ2's objectives key and does nothing yet |
 | `F11` or `Alt`+`Enter` | full screen, and back again |
@@ -40,17 +40,19 @@ their last order when healed (80 hp); the tank you are driving never does.
 The tank you are sitting in is **never** moved by a click. It is driven by `W`/`S` and `A`/`D`
 every tick, so an order from the mouse would fight your own hands: the tank always drives the way its
 body points, and looking around with the mouse never changes where it goes. Selecting it is
-fine, and firing is the one thing a click may tell it to do — one bolt, and nothing else. Looking keeps working after the tank is destroyed, and the radar and health bar stay up.
+fine, and firing is the one thing a click may tell it to do — one bolt, and nothing else. Looking keeps working after the tank is destroyed, and the radar stays up.
 
 Your gun also fires on its own at any hostile within twelve tiles. **A click fires one shot**, and
-keeping the button going keeps firing; the gun is back to the nearest hostile in between. `Escape`
-and Stop are how you hold fire. It will **not** fire on your own units on
-its own -- only an order crosses that line (see Display/HUD below).
+keeping the button going keeps firing; the gun is back to the nearest hostile in between. There is
+no way to hold fire: there is no Stop key and no hold-fire stance, and `Escape` only clears the
+selection (and cancels a pending `G` or `T`). A unit that has been told to Stop (the one you leave
+behind on `X`) still fires at what comes into range. It will **not** fire on your own units on
+its own -- only an order crosses that line (see Friendly fire below).
 
 Selected units are drawn brighter than the rest of their side, so you can see what you have hold of.
 
 **The mark is the gun.** It is the crosshair, fixed at the centre of the screen, and you aim by
-**looking**: the mouse swings the turret, and turning the body with `A`/`D` carries the turret round with it. **The shot goes where the
+**looking**: the mouse swings the turret, and turning the body with `A`/`D` (in a plain tank) carries the turret round with it. **The shot goes where the
 crosshair points and nothing aims for you.** A click on a unit means "that is what I am shooting at",
 not "fly to it": it decides whom the shot may hurt (your own units included), never where it goes.
 Bring the crosshair onto the target, and lead a moving one yourself. The mark's colour says what is
@@ -89,8 +91,9 @@ turns the turret — so the crosshair is both where you look and where your clic
 
 ## The radar
 
-Bottom-left corner, and it is a **radar, not a map** -- and **round**, a disc with a ring border, so the
-corners of the square it sits in are not painted. It is centred on the tank you are sitting in
+Bottom-left corner, and it is a **radar, not a map** -- drawn as BZ2's **wide shallow oval**: a circular
+ground disc seen from 21 degrees above, so it is about a third as tall as it is wide, with a light border.
+It is centred on the tank you are sitting in
 and reaches **40 tiles** in every direction, and what is inside that radius is all it will ever show
 you. A hostile beyond it is not dimmed, not on the rim and not hinted at: outside the radius you know
 nothing, which is the entire reason the radius exists.
@@ -100,7 +103,7 @@ nothing, which is the entire reason the radius exists.
 - **green square** — one of your units, in range.
 - **red square** — a hostile, in range. The only way a hostile ever appears.
 - **green outline** — your base, in range: a shape as well as a colour, so it reads at a glance.
-- **numbered plate** — one of your nav marks, with its number, in range or pinned to the rim.
+- **cyan plus** — one of your nav marks, a small cross about 9 px across with no number on it, in range or pinned to the rim. The number is on the world map (`R`).
 - **green arrow at the rim** — your base, out of range. Your own base is the one thing you are never
   lost about, so it is always drawn or always pointed at. Enemy assets get no arrow, ever.
 
@@ -111,18 +114,23 @@ sized to be read rather than to be exact.
 
 The panel above is most of the HUD. Beyond it the screen carries a small amount of text, in a built-in
 five-by-five block font: the weapon's name beside the crosshair, the mortar ladder's range in tiles
-on each rung, a strip along the top with each living unit's key, kind and hit points, a
-`DEPLOYING` plate over one of your turrets that is not yet mounted, and a notice line for a
-refused roster or nav-mark key. The health bar below, and the radar, are colour and length only.
+on each rung, a strip along the top with a plate for each key that holds something -- its key, the
+count `x<n>` beside it, the kind, and a group bar -- a `DEPLOYING` plate over one of your turrets
+that is not yet mounted, and a notice line for a refused roster or nav-mark key. The radar is colour
+and length only. The ship instrument below carries two numbers.
 
-### The health bar
+### The group bar and the ship instrument
 
-Directly above the panel, the same width as it: **the hull you are sitting in, and only yours.** A dark
-track with a fill from the left -- **green** from half health up, **amber** from a fifth, **red** below.
-The length is the proportion and the colour says which band you are in, so it reads at a glance while you
-are being shot at. It takes the hull's hit points against its profile's maximum, the same numbers the sim
-fights with, so it cannot drift from the truth. A hull at zero has no bar at all rather than an empty one,
-because a dead unit is not on the screen to read.
+The bar on each top-strip plate has **one segment per living vehicle** of the group, side by side and
+all the same length however hurt they are: a segment's **colour** says how hurt its vehicle is, bright
+green through yellow and red to near-black. A vehicle that dies takes its segment with it. The nav
+mark plate (`~`) has no bar.
+
+There is no health bar above the radar (retired 2026-10-23). The hull you are sitting in is read off the
+**ship instrument**, bottom right: a C-shaped ring of segments, its upper arc the hull in green and its
+lower arc the ammunition in blue, the two readings as numbers in the ring's opening, and the four
+weapons beside it with the one you have up lit. A small bar also floats over every other
+field unit in view (not factories or turrets), green for yours and red for a hostile.
 
 ### The colour calibration view
 
@@ -139,10 +147,12 @@ verification run.
 
 **Your units will not fire on your own side on their own initiative.** Auto-engagement only ever picks a
 hostile: a unit with nothing but friendlies in range holds fire. An explicit order is the one thing that
-crosses the line -- `T` with the mark on one of your own units orders an attack on it, and so does an
-explicit Attack order on a friendly. That is deliberate: it means you can destroy your own tank or your
-own factory if you mean to, without your units ever turning on each other without being told. A unit may
-never name *itself*, though, so an accidental order cannot make a tank shoot itself.
+crosses the line -- your own trigger with the green mark on one of your own units fires at it, and the
+sim accepts an explicit Attack order on a friendly. (`T` is not one of these: with no hostile under the
+mark it arms the attack list instead, and the keyboard has no key that names a friendly.) That is
+deliberate: it means you can destroy your own tank or your own factory if you mean to, without your units
+ever turning on each other without being told. A unit may never name *itself*, though, so an accidental
+order cannot make a tank shoot itself.
 
 The mark still warns you: **amber** over one of your own units ("do not shoot this"), **salmon** over a
 hostile. The warning is on the unit itself as well as on the mark.
@@ -177,9 +187,10 @@ where the enemy is.
 check is decoration:
 
 **Works.** Drive the tank over a seed-generated world; select units and give orders; units fight, take
-damage and die; a shot is a real projectile that takes time to arrive, leads its target, is carried by
-the velocity of the tank that fired it and is drawn in flight; the enemy commander advances, engages
-and withdraws; the whole simulation is
+damage and die; a shot is a real projectile that takes time to arrive, is aimed with a lead on a moving target, is carried by
+the velocity of the tank that fired it and is drawn in flight; the enemy commander (the scripted one the
+game plays against) advances on the nearest of your units and engages it, and never withdraws or
+reads its own hit points; the whole simulation is
 deterministic (a seed plus its orders replays byte-for-byte); the window and the headless renderer
 produce byte-identical frames **and the same world state** — for a scripted run, because `--autodrive`
 drops real input: a stray key arriving at a window that has just taken focus must not be able to
@@ -190,9 +201,9 @@ change a verification run.
 | gap | what it means when you play |
 |---|---|
 | **Unreachable goals are not planned for** | a move order is planned as a route over the tile grid (deterministic A*), so units go round craters and rims and out of pockets. A goal that cannot be reached at all gets no route: the unit steers straight at it and may stop against what is in the way. `tests/test_routing.cpp` pins the plan, `tests/test_navigation.cpp` and `tests/test_steering.cpp` the local detour it falls back on |
-| **No economy** | no resources, no harvester, no building. A factory is a 400 hp target and nothing more |
-| **No way to win or lose** | nothing ends a match. An undefended factory can be destroyed by a single tank — factories are unarmed on purpose and defence is what turrets are for — but there is no objective beyond that |
-| **Most refusals are on the console, not the screen** | text is drawn (see Display/HUD), but only a refused roster F-key or nav-mark digit puts its sentence on screen; every other refusal ("that order would move the tank you are in") goes to the console. The radar and the health bar carry no text, and nothing marks the unit your gun is engaging |
+| **The economy is built, but not playable end to end** | wreckage (scrap) lies where units die, a scavenger carries it to its side's factory, each delivered load is counted on a ledger, and a factory with loads to spend replaces a lost gun with a tank. There is no build menu: the factory decides when to build and the player orders nothing of it. The built-in default army has **no scavenger**, so nothing hauls and the ledger stays at zero unless a scenario file adds one |
+| **The war can end, and the HUD says so** | it is lost when your recycler is destroyed and won when the enemy's is. A factory is still a 400 hp target that a single tank can destroy — factories are unarmed on purpose and defence is what turrets are for — but only the recycler decides the match |
+| **Most refusals are on the console, not the screen** | text is drawn (see Display/HUD), but only a refused roster F-key or nav-mark digit puts its sentence on screen; every other refusal ("that order would move the tank you are in") goes to the console. The radar carries no text, and nothing marks the unit your gun is engaging |
 | **Little feedback that YOUR shot happened** | the bolt is drawn, your gun is heard, the reticle spreads for 0.2 seconds when your shot damages an enemy and a mortar shell leaves a landing mark. There is no muzzle flash and no recoil, and a shot that misses gives no reticle response |
 | **No positional audio beyond left and right** | a sound is placed on a line between the speakers: no front or back, no height, no echo or occlusion. A shot behind a hill sounds exactly like one in the open |
 | **Sounds are generated, not recorded** | they are made of noise and sine waves and sound like it. A recording would sound better and bring files, licences and a loader; that trade has not been made |
