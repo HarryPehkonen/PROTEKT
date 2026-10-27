@@ -2032,6 +2032,59 @@ std::array<std::uint8_t, 5> mount_glyph(char glyph) {
     }
 }
 
+} // namespace
+
+// The overlaps are taken in integers: across, the mask is scaled by `cols` and the pixels by 5, so
+// mask cell c spans [c*cols, (c+1)*cols) and pixel j spans [5j, 5j+5); down, likewise with `rows`.
+// Every edge is then a whole number, a pixel's area is exactly 25, and a fully covered pixel is
+// exactly 1 rather than a float sum that lands a hair short of it.
+std::vector<float> glyph_coverage(char glyph, int rows, int cols) {
+    const std::array<std::uint8_t, 5> mask
+        = mount_glyph(static_cast<char>(std::toupper(static_cast<unsigned char>(glyph))));
+    if (rows <= 0 || cols <= 0
+        || std::all_of(mask.begin(), mask.end(), [](std::uint8_t bits) { return bits == 0U; })) {
+        return {};
+    }
+    constexpr int kMask = 5;
+    std::vector<float> coverage(static_cast<std::size_t>(rows) * static_cast<std::size_t>(cols));
+    for (int i = 0; i < rows; ++i) {
+        for (int j = 0; j < cols; ++j) {
+            int area = 0;
+            for (int mr = 0; mr < kMask; ++mr) {
+                const int dy
+                    = std::min((i + 1) * kMask, (mr + 1) * rows) - std::max(i * kMask, mr * rows);
+                if (dy <= 0) {
+                    continue;
+                }
+                for (int mc = 0; mc < kMask; ++mc) {
+                    const int dx = std::min((j + 1) * kMask, (mc + 1) * cols)
+                                   - std::max(j * kMask, mc * cols);
+                    if (dx > 0
+                        && ((mask.at(static_cast<std::size_t>(mr)) >> (4 - mc)) & 1U) != 0U) {
+                        area += dx * dy;
+                    }
+                }
+            }
+            coverage.at((static_cast<std::size_t>(i) * static_cast<std::size_t>(cols))
+                        + static_cast<std::size_t>(j))
+                = static_cast<float>(area) / static_cast<float>(kMask * kMask);
+        }
+    }
+    return coverage;
+}
+
+MenuGlyphGrid menu_glyph_grid(char glyph, int cap) noexcept {
+    if (std::islower(static_cast<unsigned char>(glyph)) == 0) {
+        return {cap, cap};
+    }
+    constexpr float kLowercase = 0.71F; // BZ2's 5 px lowercase over its 7 px capitals
+    const int side
+        = std::max(1, static_cast<int>(std::lround(kLowercase * static_cast<float>(cap))));
+    return {side, side};
+}
+
+namespace {
+
 void append_mount_plates(std::vector<SceneVertex>& out, const SceneOptions& options,
                          const sim::Sim& sim) {
     if (!options.viewer_unit.valid()) {
@@ -2529,11 +2582,18 @@ constexpr std::array<float, 3> kStripSelected{1.0F, 0.85F, 0.10F};
 /// slice out of the background (the user's correction, 2026-10-27). A live row is the strip's white
 /// on a blue face that fades top to bottom; a dimmed row is grey on a flat dark face whatever the
 /// reason, because `MenuRow::reason` is for the code and the look is the same for both. The glyphs
-/// gain weight from a 1 px black outline, never from a bigger cell: this is the HUD's one type
-/// scale, like every other element, and BZ2's own menu text measures smaller than it.
+/// gain weight from a 1 px black outline, never from a bigger cell.
+///
+/// `kMenuCell` is the LAYOUT cell: every bar is measured in it, the HUD's 2 px. The TYPE is drawn
+/// at `kMenuTypeCell`, smaller, inside the same bars (MENU-FONT): the user's "only the font would
+/// be smaller while the menu item background shape would remain the same size", which makes the
+/// menu's type scale its own and the one deliberate exception to the HUD's single one. Its glyphs
+/// are the 5x5 masks box-filtered onto whole pixels (`glyph_coverage`), drawn one quad per covered
+/// pixel at its coverage, so their edges are antialiased; lowercase is small capitals.
 constexpr float kMenuCell = 2.0F;
+constexpr float kMenuTypeCell = 1.5F;
 constexpr std::array<float, 3> kMenuDimInk{0.67F, 0.67F, 0.67F};
-/// The geometry, in glyph cells (2 px at the 720 reference): a 13-cell bar every 15.5 cells, the
+/// The geometry, in layout cells (2 px at the 720 reference): a 13-cell bar every 15.5 cells, the
 /// key padded 3.5 cells either side and the verb 4, a 4-cell gutter between the two columns with a
 /// 1-cell line down its middle. Measured off the user's capture in pixels; see `menu_layout`.
 constexpr float kMenuBarCells = 13.0F;
@@ -2559,8 +2619,8 @@ constexpr float kMenuUnlitAlpha = 0.74F;
 constexpr std::array<float, 3> kMenuRing{0.82F, 0.90F, 1.0F};
 constexpr float kMenuRingAlpha = 0.55F;
 constexpr float kMenuRingCells = 0.5F;
-/// The glyphs' outline is each lit cell grown by half a cell all round, in black, drawn between the
-/// face and the ink so the ink always wins.
+/// The glyphs' outline is their coverage grown by half a layout cell (1 px) all round, in black at
+/// that grown coverage, drawn between the face and the ink so the ink always wins.
 constexpr float kMenuOutlineCells = 0.5F;
 constexpr float kMenuOutlineRatio = 1.3F;
 
@@ -3046,16 +3106,62 @@ void append_hud_panels(std::vector<SceneVertex>& out, const SceneOptions& option
                     kMenuRing, kMenuRingAlpha);
             }
         };
-        // The glyphs, each lit cell first grown by half a cell in black and then inked over: a
-        // 1 px outline on all four sides for twice the quads.
-        const auto outlined = [&](std::string_view word, float left, float top,
-                                  const std::array<float, 3>& ink) {
+        // THE TYPE, in the smaller text cell on whole frame pixels: a capital is `cap` px square, a
+        // lowercase letter its capital at `menu_glyph_grid`'s size on the same baseline, and glyphs
+        // are a text cell apart. Each glyph is its coverage, one quad per covered pixel at that
+        // coverage as alpha, so an edge pixel blends with the face and nothing is drawn where
+        // nothing is covered. The outline goes first: the same coverage grown by `grow` px, each
+        // pixel black at the most coverage within that reach.
+        const float type = kMenuTypeCell * px;
+        const int cap = std::max(1, static_cast<int>(std::lround(5.0F * type)));
+        const int gap = std::max(1, static_cast<int>(std::lround(type)));
+        const int grow = std::max(1, static_cast<int>(std::lround(kMenuOutlineCells * cell)));
+        const auto run_width = [&](std::string_view word) {
+            int width = 0;
+            for (const char glyph : word) {
+                width += menu_glyph_grid(glyph, cap).cols + gap;
+            }
+            return static_cast<float>(word.empty() ? 0 : width - gap);
+        };
+        // `word` from `left`, its capitals' tops on `top`, both already whole pixels.
+        const auto smooth = [&](std::string_view word, float left, float top,
+                                const std::array<float, 3>& ink) {
             constexpr std::array<float, 3> kOutline{0.0F, 0.0F, 0.0F};
-            const float grow = kMenuOutlineCells * cell;
-            glyph_cells(word, left, top, cell, [&](float x, float y) {
-                rect(outline_at, x - grow, y - grow, x + cell + grow, y + cell + grow, kOutline);
-            });
-            ink_text(word, left, top, cell, ink);
+            for (const bool inking : {false, true}) {
+                float x = left;
+                for (const char glyph : word) {
+                    const MenuGlyphGrid grid = menu_glyph_grid(glyph, cap);
+                    const std::vector<float> coverage = glyph_coverage(glyph, grid.rows, grid.cols);
+                    const auto covered = [&](int i, int j) {
+                        if (i < 0 || j < 0 || i >= grid.rows || j >= grid.cols) {
+                            return 0.0F;
+                        }
+                        return coverage.at(
+                            (static_cast<std::size_t>(i) * static_cast<std::size_t>(grid.cols))
+                            + static_cast<std::size_t>(j));
+                    };
+                    const float y = top + static_cast<float>(cap - grid.rows);
+                    const int reach = coverage.empty() || inking ? 0 : grow;
+                    for (int i = -reach; !coverage.empty() && i < grid.rows + reach; ++i) {
+                        for (int j = -reach; j < grid.cols + reach; ++j) {
+                            float alpha = covered(i, j);
+                            for (int di = -reach; di <= reach; ++di) {
+                                for (int dj = -reach; dj <= reach; ++dj) {
+                                    alpha = std::max(alpha, covered(i + di, j + dj));
+                                }
+                            }
+                            if (alpha <= 0.0F) {
+                                continue;
+                            }
+                            const float cx = x + static_cast<float>(j);
+                            const float cy = y + static_cast<float>(i);
+                            rect(inking ? marks_at : outline_at, cx, cy, cx + 1.0F, cy + 1.0F,
+                                 inking ? ink : kOutline, alpha);
+                        }
+                    }
+                    x += static_cast<float>(grid.cols + gap);
+                }
+            }
         };
         for (std::size_t index = 0; index < rows.size(); ++index) {
             const MenuRow& row = rows.at(index);
@@ -3065,9 +3171,15 @@ void append_hud_panels(std::vector<SceneVertex>& out, const SceneOptions& option
                 bar(placed.verb_left, placed.verb_right, placed, false);
             }
             const std::array<float, 3>& ink = row.enabled ? kStripFrame : kMenuDimInk;
-            outlined(row.key, placed.key_text, placed.text_top, ink);
-            outlined(row.verb, placed.verb_text, placed.text_top, ink);
-            outlined(row.right, placed.right_left, placed.text_top, ink);
+            // The capitals centred down the layout's text slot; the key still ends on its pad and
+            // the verb and the right column still start on theirs, so the room the smaller type
+            // leaves is on each bar's rounded end.
+            const float top
+                = std::round(placed.text_top + (((5.0F * cell) - static_cast<float>(cap)) * 0.5F));
+            const float key_end = placed.key_right - (kMenuKeyPadCells * cell);
+            smooth(row.key, std::round(key_end - run_width(row.key)), top, ink);
+            smooth(row.verb, std::round(placed.verb_text), top, ink);
+            smooth(row.right, std::round(placed.right_left), top, ink);
         }
         // THE LEADER LINE, in the ledger's amber, after every bar so it is never drawn under one:
         // one straight segment down the gutter, constant x through every row's band, as BZ2 draws

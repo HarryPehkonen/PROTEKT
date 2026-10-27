@@ -425,13 +425,16 @@ struct Frame {
 
 /// How many ROWS of text a frame draws down its left side, and how many of them are the dim ink.
 ///
-/// A row is a run of inked scanlines: one row of text is ten-odd lines of ink and the gap to the
+/// A row is a run of inked scanlines: one row of text is eight-odd lines of ink and the gap to the
 /// next row is blank. Only the left 40% of the frame is searched -- that is where the command menu
 /// lives -- and a pixel counts as ink if it is the LIVE ink (all three channels at 235 or above) or
 /// the DIM ink: one grey, the channels equal within a step of each other and around 171 (MENU-READ
 /// raised it from 102, which vanished into the unlit row's dark bar). The dim ink is what RB0.5
 /// draws an unaffordable or inapplicable row in, so it has to be counted here or a menu of dimmed
-/// build rows reads as no menu at all.
+/// build rows reads as no menu at all. A row is LIVE if any of its pixels is the live ink and DIM
+/// if its ink is only ever the dim grey: since MENU-FONT antialiases the menu's glyphs, a live
+/// glyph's edge blends white over its black outline through that very grey, so a pixel of it alone
+/// no longer says which row it is in.
 struct MenuRows {
     int live{};
     int dim{};
@@ -444,8 +447,15 @@ struct MenuRows {
     const int bottom = static_cast<int>(bottom_fraction * static_cast<double>(frame.height));
     const int limit = static_cast<int>(0.4 * static_cast<double>(frame.width));
     MenuRows rows;
-    bool was_live = false;
-    bool was_dim = false;
+    bool in_row = false;
+    bool row_live = false;
+    const auto close_row = [&] {
+        if (in_row) {
+            ++(row_live ? rows.live : rows.dim);
+        }
+        in_row = false;
+        row_live = false;
+    };
     for (int y = top; y < bottom; ++y) {
         bool live_here = false;
         bool dim_here = false;
@@ -463,15 +473,14 @@ struct MenuRows {
                 dim_here = true;
             }
         }
-        if (live_here && !was_live) {
-            ++rows.live;
+        if (!live_here && !dim_here) {
+            close_row();
+            continue;
         }
-        if (dim_here && !was_dim) {
-            ++rows.dim;
-        }
-        was_live = live_here;
-        was_dim = dim_here;
+        in_row = true;
+        row_live = row_live || live_here;
     }
+    close_row();
     return rows;
 }
 

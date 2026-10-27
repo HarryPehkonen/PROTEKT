@@ -370,7 +370,11 @@ may enter or be spawned inside. Two rows of the deployment menu (`FOLLOW ME`, `G
 meaning of the menu's highlight colours are still unruled and therefore not built. The menu now WEARS
 BZ2's look (MENU-READ, 2026-10-27): blue gradient bars per key and verb, a right-aligned key column,
 and the amber leader line down the gutter between them; the line's turn along the radar and its dot
-on the selected unit's blip are the next slice, and BZ2's mixed-case font is unruled. One decision is open
+on the selected unit's blip are the next slice. Its TYPE is now its own (MENU-FONT, 2026-10-27): a 1.5 px text cell inside the
+unchanged 2 px-cell bars, antialiased by box-filtering the 5x5 masks onto whole pixels, with
+lowercase drawn as 0.71-scale small capitals -- the one deliberate exception to the HUD's single
+type scale, at the user's request. Which casing the menu's own strings take is not yet ruled.
+One decision is open
 on `UnitSpec`: its `buildable` flag is false for every kind and never read, while the factory builds a
 tank anyway — wire it or delete it (Harri's call, held as a question).
 

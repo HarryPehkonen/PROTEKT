@@ -509,6 +509,24 @@ inline constexpr int kMenuFaceBands = 8;
 /// is one flat dark colour with no gradient at all.
 [[nodiscard]] std::array<float, 3> menu_face_colour(bool enabled, int band) noexcept;
 
+/// The glyph's 5x5 mask -- the HUD's own, a lowercase letter reading its capital's -- box-filtered
+/// onto a `rows` x `cols` grid of target pixels: rows*cols coverage values in 0..1, row-major. A
+/// value is the exact share of that pixel's area the mask's lit cells cover, so a stem's interior
+/// is 1 and a pixel straddling an edge is strictly between; that IS the menu's antialiasing, with
+/// no smoothing pass after it. Empty if the glyph is unmapped (a space, a letter with no mask).
+[[nodiscard]] std::vector<float> glyph_coverage(char glyph, int rows, int cols);
+
+/// The pixel grid a menu glyph is drawn on when its capitals are `cap` px each way.
+struct MenuGlyphGrid {
+    int rows{};
+    int cols{};
+};
+
+/// A capital, digit or sign fills `cap` x `cap`. A lowercase letter is its capital's mask at 0.71
+/// of that on BOTH axes, rounded to whole pixels: small capitals, the user's ruling (MENU-FONT),
+/// measured off BZ2's 7 px capitals and 5 px lowercase. It sits on the capitals' baseline.
+[[nodiscard]] MenuGlyphGrid menu_glyph_grid(char glyph, int cap) noexcept;
+
 struct SceneOptions {
     std::uint64_t seed{};
     Camera camera{};

@@ -534,13 +534,26 @@ constexpr std::array<float, 3> kOutline{0.0F, 0.0F, 0.0F};
     return menu_layout(rows, 6.0F * scale, 0.0F, 2.0F * scale);
 }
 
-/// A bar vertex is the only kind the menu draws see-through: the glyphs, their outline and the
-/// line are all opaque.
-[[nodiscard]] bool is_bar(const SceneVertex& v) { return v.alpha < 1.0F; }
+/// The two inks a glyph is drawn in: the strip's white on a live row, the grey on a dimmed one.
+constexpr std::array<float, 3> kLiveInk{0.95F, 0.95F, 0.95F};
+constexpr std::array<float, 3> kDimInk{0.67F, 0.67F, 0.67F};
 
-/// Opaque, and neither the outline's black nor the line's amber: a glyph's ink.
+/// A glyph's ink: either ink colour, at whatever coverage the pixel has.
 [[nodiscard]] bool is_ink(const SceneVertex& v) {
-    return !is_bar(v) && v.colour != kOutline && v.colour != kLedgerInk;
+    return v.colour == kLiveInk || v.colour == kDimInk;
+}
+
+/// A bar vertex is a face or a ring: neither a glyph's ink, nor its outline's black, nor the line's
+/// amber. Read by colour, because a glyph's antialiased edge is as see-through as a bar is.
+[[nodiscard]] bool is_bar(const SceneVertex& v) {
+    return !is_ink(v) && v.colour != kOutline && v.colour != kLedgerInk;
+}
+
+/// The menu's capitals, in frame pixels each way: five cells of its 1.5 px text cell at the 720
+/// reference (MENU-FONT), whole pixels because every glyph quad is one.
+[[nodiscard]] int menu_cap(const SceneOptions& options) {
+    return static_cast<int>(
+        std::lround(5.0F * 1.5F * static_cast<float>(options.extent.height) / 720.0F));
 }
 
 /// The face band `colour` is on an `enabled` row, or -1 when it is none of them (a ring).
@@ -695,7 +708,6 @@ TEST(Menu, DrawnADimmedRowIsADimmerInkWhateverTheReason) {
     std::copy_if(dim_all.begin(), dim_all.end(), std::back_inserter(dim), is_ink);
     ASSERT_FALSE(lit.empty());
     ASSERT_EQ(dim.size(), lit.size()) << "dimming changes the ink, never the glyphs";
-    constexpr std::array<float, 3> kLiveInk{0.95F, 0.95F, 0.95F};
     for (std::size_t i = 0; i < lit.size(); ++i) {
         ASSERT_EQ(dim.at(i).position, lit.at(i).position) << "vertex " << i;
         EXPECT_EQ(lit.at(i).colour, kLiveInk) << "a live row is the strip's white, vertex " << i;
@@ -807,6 +819,191 @@ TEST(Menu, LaidOutTheLeaderLineIsOneStraightSegmentDownTheGutter) {
     // A lone row has no gutter to lead down.
     const std::vector<MenuRow> lone{rows.front()};
     EXPECT_FALSE(menu_layout(lone, 6.0F, 65.0F, kCell).has_line);
+}
+
+TEST(Menu, LaidOutTheBarsDidNotMoveWhenTheTypeShrank) {
+    // MENU-FONT made the TYPE smaller and left every bar where it was: "only the font would be
+    // smaller while the menu item background shape would remain the same size". These are the
+    // rectangles `menu_layout` produced at 8884bc3, before the font changed, at the HUD's 2 px
+    // layout cell from the 6 px margin.
+    const std::vector<MenuRow> rows = column_rows();
+    constexpr float kCell = 2.0F;
+    const MenuLayout layout = menu_layout(rows, 6.0F, 65.0F, kCell);
+    struct Pinned {
+        float key_left;
+        float key_right;
+        float verb_left;
+        float verb_right;
+        float top;
+    };
+    constexpr std::array<Pinned, 5> kBefore{{
+        {6.0F, 78.0F, 86.0F, 172.0F, 65.0F},   // SPACE  SELECT
+        {30.0F, 78.0F, 86.0F, 220.0F, 96.0F},  // TAB    CLOSE MENU
+        {54.0F, 78.0F, 86.0F, 232.0F, 127.0F}, // ~      SELECT UNIT
+        {54.0F, 78.0F, 86.0F, 208.0F, 158.0F}, // 1      FOLLOW ME
+        {54.0F, 78.0F, 86.0F, 184.0F, 189.0F}, // 9      BAILOUT
+    }};
+    ASSERT_EQ(layout.rows.size(), kBefore.size());
+    for (std::size_t i = 0; i < kBefore.size(); ++i) {
+        const MenuRowLayout& at = layout.rows.at(i);
+        EXPECT_FLOAT_EQ(at.key_left, kBefore.at(i).key_left) << "row " << i;
+        EXPECT_FLOAT_EQ(at.key_right, kBefore.at(i).key_right) << "row " << i;
+        EXPECT_FLOAT_EQ(at.verb_left, kBefore.at(i).verb_left) << "row " << i;
+        EXPECT_FLOAT_EQ(at.verb_right, kBefore.at(i).verb_right) << "row " << i;
+        EXPECT_FLOAT_EQ(at.top, kBefore.at(i).top) << "row " << i;
+        // 13 layout cells tall at a 15.5-cell pitch, in the LAYOUT cell -- not the text's.
+        EXPECT_FLOAT_EQ(at.height, 13.0F * kCell) << "row " << i;
+        if (i > 0) {
+            EXPECT_FLOAT_EQ(at.top - layout.rows.at(i - 1).top, 15.5F * kCell) << "row " << i;
+        }
+    }
+    EXPECT_FLOAT_EQ(layout.line_left, 81.0F);
+    EXPECT_FLOAT_EQ(layout.line_right, 83.0F);
+    EXPECT_FLOAT_EQ(layout.line_top, 93.0F);
+    EXPECT_FLOAT_EQ(layout.line_bottom, 217.0F);
+}
+
+// THE MENU'S TYPE (MENU-FONT): the 5x5 masks box-filtered onto real pixels, so an edge is a
+// coverage between 0 and 1 drawn as alpha, and a lowercase letter is its capital's mask, smaller.
+
+TEST(Menu, AGlyphsStemIsFullyCoveredAndItsCornerIsOnlyPartlyCovered) {
+    // At 5x5 the grid IS the mask: coverage is the bits, nothing invented.
+    const std::vector<float> exact = glyph_coverage('L', 5, 5);
+    ASSERT_EQ(exact.size(), 25U);
+    for (int row = 0; row < 5; ++row) {
+        for (int col = 0; col < 5; ++col) {
+            const bool lit = col == 0 || row == 4;
+            EXPECT_EQ(exact.at(static_cast<std::size_t>((row * 5) + col)), lit ? 1.0F : 0.0F)
+                << "row " << row << " col " << col;
+        }
+    }
+    // At the menu's 8 px capital each pixel is 5/8 of a mask cell. L's stem is the mask's first
+    // column, so pixel column 0 lies wholly inside it: exactly 1, not nearly.
+    constexpr int kCap = 8;
+    const std::vector<float> ell = glyph_coverage('L', kCap, kCap);
+    ASSERT_EQ(ell.size(), static_cast<std::size_t>(kCap * kCap));
+    EXPECT_EQ(ell.at(static_cast<std::size_t>(3 * kCap)), 1.0F) << "the stem's interior";
+    // O's corner: the mask's top-left cell is blank and both its neighbours are lit, so the pixel
+    // straddling all three is partly covered -- the edge a 1-bit glyph cannot draw.
+    const std::vector<float> oh = glyph_coverage('O', kCap, kCap);
+    ASSERT_EQ(oh.size(), static_cast<std::size_t>(kCap * kCap));
+    EXPECT_EQ(oh.at(0), 0.0F) << "the blank corner cell's own pixel";
+    const float corner = oh.at(static_cast<std::size_t>(kCap) + 1U);
+    EXPECT_GT(corner, 0.0F);
+    EXPECT_LT(corner, 1.0F);
+    for (const float c : oh) {
+        EXPECT_GE(c, 0.0F);
+        EXPECT_LE(c, 1.0F);
+    }
+    // A space and a letter the HUD has no mask for are no grid at all.
+    EXPECT_TRUE(glyph_coverage(' ', kCap, kCap).empty());
+    EXPECT_TRUE(glyph_coverage('Q', kCap, kCap).empty());
+}
+
+TEST(Menu, ALowercaseLetterIsItsCapitalAtSevenTenthsOnBothAxes) {
+    // The user's ruling: lowercase looks EXACTLY like uppercase, slightly smaller in width and
+    // height -- small capitals, 0.71 of the capital, measured off BZ2 (7 px capitals, 5 px lower).
+    for (const int cap : {8, 11, 15}) {
+        const MenuGlyphGrid upper = menu_glyph_grid('F', cap);
+        const MenuGlyphGrid lower = menu_glyph_grid('f', cap);
+        EXPECT_EQ(upper.rows, cap);
+        EXPECT_EQ(upper.cols, cap);
+        EXPECT_EQ(lower.rows, static_cast<int>(std::lround(0.71F * static_cast<float>(cap))));
+        EXPECT_EQ(lower.cols, lower.rows) << "the width shrinks with the height";
+        EXPECT_LT(lower.rows, upper.rows) << "cap " << cap;
+        // Digits and signs have no lowercase: they stay capital size.
+        EXPECT_EQ(menu_glyph_grid('7', cap).rows, cap);
+        EXPECT_EQ(menu_glyph_grid('~', cap).cols, cap);
+        // Both grids hold the SAME shape: the lowercase f is the F's mask, never a blank.
+        const std::vector<float> big = glyph_coverage('F', upper.rows, upper.cols);
+        const std::vector<float> small = glyph_coverage('f', lower.rows, lower.cols);
+        ASSERT_EQ(big.size(), static_cast<std::size_t>(upper.rows * upper.cols));
+        ASSERT_EQ(small.size(), static_cast<std::size_t>(lower.rows * lower.cols));
+        EXPECT_EQ(small, glyph_coverage('F', lower.rows, lower.cols));
+        EXPECT_GT(std::count_if(small.begin(), small.end(), [](float c) { return c > 0.0F; }), 0);
+    }
+}
+
+TEST(Menu, DrawnAGlyphIsOneQuadPerCoveredPixelAndNoneWhereNothingIsCovered) {
+    const SceneOptions options = menu_rig();
+    const int cap = menu_cap(options);
+    // Mixed case on purpose: a capital, lowercase letters and a digit.
+    const std::vector<MenuRow> rows{row_of("1", "Hold")};
+    std::size_t covered = 0;
+    float partial = 0.0F;
+    for (const std::string_view word : {std::string_view{"1"}, std::string_view{"Hold"}}) {
+        for (const char glyph : word) {
+            const MenuGlyphGrid grid = menu_glyph_grid(glyph, cap);
+            for (const float c : glyph_coverage(glyph, grid.rows, grid.cols)) {
+                covered += c > 0.0F ? 1U : 0U;
+                partial = std::max(partial, c < 1.0F ? c : 0.0F);
+            }
+        }
+    }
+    ASSERT_GT(partial, 0.0F) << "the text has no edge pixel to antialias";
+    std::vector<SceneVertex> ink;
+    for (const SceneVertex& v : menu_vertices(rows)) {
+        if (is_ink(v)) {
+            ink.push_back(v);
+        }
+    }
+    ASSERT_EQ(ink.size() % 6U, 0U);
+    // ONE quad per pixel with any coverage, and none for a pixel with none.
+    EXPECT_EQ(ink.size() / 6U, covered) << "an ink quad is not one covered pixel";
+    const MenuRowLayout at = rig_layout(rows).rows.front();
+    const float gutter = (at.key_right + at.verb_left) * 0.5F;
+    struct Box {
+        float left{std::numeric_limits<float>::max()};
+        float top{std::numeric_limits<float>::max()};
+        float bottom{std::numeric_limits<float>::lowest()};
+    };
+    std::vector<Box> verb; // one box per ink quad of "Hold", in drawing order
+    float softest = 1.0F;
+    for (std::size_t q = 0; q < ink.size(); q += 6U) {
+        float left = std::numeric_limits<float>::max();
+        float right = std::numeric_limits<float>::lowest();
+        float top = std::numeric_limits<float>::max();
+        float bottom = std::numeric_limits<float>::lowest();
+        for (std::size_t i = q; i < q + 6U; ++i) {
+            const Projected p = on_screen(options, ink.at(i));
+            left = std::min(left, p.x);
+            right = std::max(right, p.x);
+            top = std::min(top, p.y);
+            bottom = std::max(bottom, p.y);
+            EXPECT_GT(ink.at(i).alpha, 0.0F) << "a quad for a pixel with no coverage";
+            EXPECT_LE(ink.at(i).alpha, 1.0F);
+            softest = std::min(softest, ink.at(i).alpha);
+        }
+        // One frame pixel, on the pixel grid, to the projection's round trip.
+        constexpr float kTol = 0.05F;
+        EXPECT_NEAR(right - left, 1.0F, kTol) << "quad " << q / 6U;
+        EXPECT_NEAR(bottom - top, 1.0F, kTol) << "quad " << q / 6U;
+        EXPECT_NEAR(left, std::round(left), kTol) << "quad " << q / 6U;
+        EXPECT_NEAR(top, std::round(top), kTol) << "quad " << q / 6U;
+        if (left > gutter) {
+            verb.push_back({left, top, bottom});
+        }
+    }
+    EXPECT_LT(softest, 1.0F) << "every pixel is fully covered: the edges are hard";
+
+    // The capital H is the verb's first `cap` columns; "old" after it is lowercase, which sits on
+    // the H's baseline and stands 0.71 of its height -- smaller, not floating, not centred.
+    ASSERT_FALSE(verb.empty());
+    float verb_left = std::numeric_limits<float>::max();
+    for (const Box& b : verb) {
+        verb_left = std::min(verb_left, b.left);
+    }
+    Box capital;
+    Box lower;
+    for (const Box& b : verb) {
+        Box& into = b.left < verb_left + static_cast<float>(cap) ? capital : lower;
+        into.top = std::min(into.top, b.top);
+        into.bottom = std::max(into.bottom, b.bottom);
+    }
+    EXPECT_NEAR(capital.bottom - capital.top, static_cast<float>(cap), 0.05F);
+    EXPECT_NEAR(lower.bottom, capital.bottom, 0.05F) << "lowercase is off the baseline";
+    EXPECT_NEAR(lower.bottom - lower.top, static_cast<float>(menu_glyph_grid('o', cap).rows),
+                0.05F);
 }
 
 TEST(Menu, AFaceIsABlueGradientWhereRedHoldsAndOnlyGreenAndBlueFade) {
@@ -1035,16 +1232,21 @@ TEST(Menu, DrawnEveryGlyphSitsWhereTheLayoutPutsIt) {
             (p.x < gutter ? key : verb).grow(p);
         }
     }
-    constexpr float kTol = 0.05F;
-    // Right-aligned in its bar, 3.5 cells short of the column edge; the verb 4 cells into its bar.
-    EXPECT_NEAR(key.left, at.key_text, kTol);
-    EXPECT_NEAR(key.right, at.key_right - (3.5F * cell), kTol);
-    EXPECT_NEAR(verb.left, at.verb_left + (4.0F * cell), kTol);
-    EXPECT_NEAR(verb.right, at.verb_right - (4.0F * cell), kTol);
-    // Centred down the bar: 4 cells of bar above the 5-cell glyphs and 4 below.
+    // Every glyph starts on a whole pixel, so an anchor is met to within half of one.
+    constexpr float kSnap = 0.51F;
+    // The key right-aligned in its bar, 3.5 cells short of the column edge; the verb 4 cells into
+    // its bar. The bars are sized for the 2 px layout cell and the type is smaller (MENU-FONT), so
+    // the text ends short of the far pad and the spare room is on the bar's rounded end.
+    EXPECT_NEAR(key.right, at.key_right - (3.5F * cell), kSnap);
+    EXPECT_GE(key.left, at.key_text - kSnap);
+    EXPECT_NEAR(verb.left, at.verb_left + (4.0F * cell), kSnap);
+    EXPECT_LT(verb.right, at.verb_right - (4.0F * cell));
+    // Smaller than the layout's 5-cell slot, and centred down the bar within a pixel.
+    const float cap = static_cast<float>(menu_cap(options));
+    EXPECT_LT(cap, 5.0F * cell) << "the type did not get smaller";
     for (const Box* text : {&key, &verb}) {
-        EXPECT_NEAR(text->top - bar.top, 4.0F * cell, kTol);
-        EXPECT_NEAR(bar.bottom - text->bottom, 4.0F * cell, kTol);
+        EXPECT_NEAR(text->bottom - text->top, cap, 0.05F);
+        EXPECT_NEAR(text->top - bar.top, bar.bottom - text->bottom, 1.05F);
     }
 }
 
@@ -1074,9 +1276,12 @@ TEST(Menu, DrawnEveryGlyphIsOutlinedInBlackOnAllFourSides) {
         }
     }
     ASSERT_GT(ink, 0U);
-    // One black cell under every ink cell -- twice the quads, never five times.
-    EXPECT_EQ(outline, ink) << "not every glyph cell has its outline cell";
-    // Each outline cell is the ink cell grown by half a cell all round: 1 px at the 720 reference.
+    // The outline is the ink's coverage grown by a pixel: every inked pixel has black under it,
+    // plus the ring round the outside, and never five quads per pixel.
+    EXPECT_GT(outline, ink) << "the outline does not reach past the ink";
+    EXPECT_LT(outline, 3U * ink) << "the outline is drawn per neighbour, not per pixel";
+    // The outline's box is the ink's grown by half a layout cell all round: 1 px at the 720
+    // reference.
     EXPECT_NEAR(outline_box.at(0), ink_box.at(0) - half_cell, 0.05F);
     EXPECT_NEAR(outline_box.at(1), ink_box.at(1) - half_cell, 0.05F);
     EXPECT_NEAR(outline_box.at(2), ink_box.at(2) + half_cell, 0.05F);

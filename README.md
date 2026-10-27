@@ -131,7 +131,9 @@ close to its verb and a wide key (`SPACE`, `TAB`) grows to the left; between the
 verb bars runs one straight **amber line** (the `SCRAP` label's colour) from below the state row
 past the last row. The bars are rounded on their outer ends and square where the line runs. A row
 that does not apply, or that you cannot afford, keeps its place and its key on a flat dark bar in
-grey. The text is the HUD's one size, the same as every other label.
+grey. The menu's text is smaller than the rest of the HUD's and smooth-edged (antialiased) inside
+bars of the same size; a lowercase letter, where a row has one (the `m` of `17m`), is drawn as a
+smaller capital on the same baseline.
 
 ### The group bar and the ship instrument
 
