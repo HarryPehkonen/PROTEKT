@@ -204,8 +204,24 @@ TEST(Projectile, KeepsFlyingWhenItsTargetDiesBeforeItArrives) {
     const TileAt row = found.value_or(TileAt{});
     std::vector<Place> places{{Side::Player, UnitKind::Tank, row.x, row.y},
                               {Side::Enemy, UnitKind::Tank, row.x + 12, row.y}};
-    for (int i = 0; i < 13; ++i) {
-        places.push_back({Side::Player, UnitKind::Tank, row.x + 13 + i % 3, row.y + 3 + i / 3});
+    // The thirteen stand on a ring round the target, no two on one bearing from it and none on the
+    // watcher's line to it: a bolt hits a friendly in its way (friendly fire), so a block of tanks
+    // in file would shield each other and the volley would not kill in time.
+    constexpr std::array<std::array<int, 2>, 13> kRing = {{{3, 2},
+                                                           {2, 2},
+                                                           {2, -2},
+                                                           {0, 3},
+                                                           {0, -3},
+                                                           {1, 3},
+                                                           {1, -3},
+                                                           {3, 1},
+                                                           {3, -1},
+                                                           {-1, 3},
+                                                           {-1, -3},
+                                                           {-2, 3},
+                                                           {-2, -3}}};
+    for (const auto& at : kRing) {
+        places.push_back({Side::Player, UnitKind::Tank, row.x + 12 + at[0], row.y + at[1]});
     }
     Sim sim = make(places);
     const UnitId watcher = kFirst;
@@ -326,8 +342,9 @@ TEST(Projectile, AStationaryTankSendsOnlyTheFiredComponent) {
     EXPECT_NEAR(static_cast<double>(shot.vx.raw), static_cast<double>(kProjectileSpeedRaw), 2.0);
 }
 
-TEST(Projectile, PassesThroughItsOwnSide) {
-    // Our factory stands in the line of fire, four tiles out; the enemy factory is eight.
+TEST(Projectile, HitsItsOwnSideWhenItIsInTheWay) {
+    // Friendly fire (Harri's ruling): our factory stands in the line of fire, four tiles out; the
+    // enemy factory is eight. The bolt is stopped by the nearer, and the one behind is shielded.
     Sim sim = make({{Side::Player, UnitKind::Tank, 100, 100},
                     {Side::Player, UnitKind::Factory, 104, 100},
                     {Side::Enemy, UnitKind::Factory, 108, 100}});
@@ -337,9 +354,9 @@ TEST(Projectile, PassesThroughItsOwnSide) {
     const std::uint16_t enemy_hp = sim.find(enemy)->hp;
     for (int step = 0; step < 120; ++step) {
         sim.step();
-        EXPECT_EQ(sim.find(friendly)->hp, friendly_hp) << "the bolt hurt its own side";
     }
-    EXPECT_LT(sim.find(enemy)->hp, enemy_hp) << "the bolt did not get through to the enemy";
+    EXPECT_LT(sim.find(friendly)->hp, friendly_hp) << "the bolt passed through its own side";
+    EXPECT_EQ(sim.find(enemy)->hp, enemy_hp) << "the friendly in the way shields what is behind";
 }
 
 TEST(Projectile, TheSameBattleGivesTheSameBoltsAndTheSameHash) {
@@ -621,18 +638,21 @@ TEST(Projectile, ABoltFiredAtNothingStillHitsWhatIsInItsPath) {
     }
 }
 
-TEST(Projectile, ABoltFiredAtNothingPassesThroughItsOwnSide) {
-    Sim world = make(
-        {{Side::Player, UnitKind::Tank, 100, 100}, {Side::Player, UnitKind::Factory, 106, 100}});
+TEST(Projectile, ABoltFiredAtNothingHitsAFriendlyInItsWay) {
+    const std::optional<TileAt> found = find_level_row(18, 4); // level: only the friendly stops it
+    ASSERT_TRUE(found.has_value());
+    const TileAt row = found.value_or(TileAt{});
+    Sim world = make({{Side::Player, UnitKind::Tank, row.x, row.y},
+                      {Side::Player, UnitKind::Factory, row.x + 6, row.y}});
     std::vector<Unit> units = world.units();
     const std::uint16_t full = units.at(1).hp;
     std::vector<Impact> impacts;
     const Projectile bolt = launch_towards(units.at(0), Fixed::from_int(1), Fixed::zero(),
                                            Fixed::zero(), UnitId{}, kTankDamage, kSeed);
     fly_until_gone(bolt, units, impacts);
-    EXPECT_EQ(units.at(1).hp, full)
-        << "no aimed_at, so nothing excuses it from friendly pass-through";
-    EXPECT_TRUE(impacts.empty());
+    EXPECT_LT(units.at(1).hp, full)
+        << "friendly fire: naming a target is no longer what excuses it";
+    EXPECT_EQ(impacts.size(), 1U);
 }
 
 TEST(Projectile, ABoltFiredAtNothingFizzlesAtRange) {
@@ -771,7 +791,8 @@ TEST(Projectile, ABoltAimedAtAFriendlyHitsIt) {
     };
     const int full = profile(UnitKind::Factory).hp;
     EXPECT_EQ(friendly_hp(kSecond), full - kTankDamage) << "aimed at it, aimed along it: it is hit";
-    EXPECT_EQ(friendly_hp(UnitId{}), full) << "the same shot at nothing passes through";
+    EXPECT_EQ(friendly_hp(UnitId{}), full - kTankDamage)
+        << "naming nothing changes nothing: the rule is the rule, and a friendly in the way is hit";
 }
 
 TEST(Projectile, ATriggerShotNeverMayHitItsOwnShooter) {

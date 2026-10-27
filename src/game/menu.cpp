@@ -148,7 +148,8 @@ MenuSubject menu_subject_of_kind(sim::UnitKind kind) noexcept {
     case sim::UnitKind::HoverTank:
     case sim::UnitKind::Mortar:
     case sim::UnitKind::Rocket:
-    case sim::UnitKind::Scout: // the reference's tank and scout captures share ONE table
+    case sim::UnitKind::Scout:   // the reference's tank and scout captures share ONE table
+    case sim::UnitKind::Shotgun: // a vehicle like the rest; the compiler demands a case, no more
         return MenuSubject::Vehicle;
     }
     return MenuSubject::None;

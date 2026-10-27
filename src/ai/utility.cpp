@@ -80,7 +80,8 @@ Role role_of(sim::UnitKind kind) noexcept {
     case sim::UnitKind::Tank:
     case sim::UnitKind::HoverTank:
     case sim::UnitKind::Rocket:
-    case sim::UnitKind::Scout: // armed, and it fights: a light gun is still a gun at the front
+    case sim::UnitKind::Scout:   // armed, and it fights: a light gun is still a gun at the front
+    case sim::UnitKind::Shotgun: // armed and short-ranged: it must close in, so the front
         return Role::Frontline;
     case sim::UnitKind::Mortar:
         return Role::Standoff;
@@ -102,6 +103,7 @@ int threat_of(sim::UnitKind kind) noexcept {
     case sim::UnitKind::HoverTank:
     case sim::UnitKind::Mortar:
     case sim::UnitKind::Rocket:
+    case sim::UnitKind::Shotgun: // seven pellets at point-blank outweigh any one bolt
         return 3;
     case sim::UnitKind::Turret:
     case sim::UnitKind::Scout: // a light raider: armed, but outgunned by any tank's 3

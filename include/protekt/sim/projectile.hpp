@@ -57,9 +57,9 @@ struct Projectile {
     Fixed vz{}; ///< height units per tick
     UnitId shooter{};
     Side side{};
-    /// The unit the gun was aimed at when it fired. A bolt passes through its own side, EXCEPT this
-    /// one: an explicit order to shoot a friendly (friendly fire) has to be able to land. The bolt
-    /// does not follow it -- this names who it may hurt, not where it flies.
+    /// The unit the gun was aimed at when it fired, whose miss it measures. A bolt hurts any living
+    /// unit it meets, its own side included (friendly fire, Harri's ruling); this does not name
+    /// who it may hurt, only whose approach to track. It never bends the path.
     UnitId aimed_at{};
     /// Height units per tick squared that `vz` loses every tick, Q16.16. Zero is a straight flight;
     /// a mortar shell's is not, and its launch solved `vz` so the parabola ends at the aim point.
@@ -137,7 +137,7 @@ void retarget_aim(Unit& shooter, UnitId target) noexcept;
 /// so that there is one place the lead comes from; the caller calls `retarget_aim` first, so the
 /// estimate is about this target. Plus the shooter's own velocity, so a moving gun sends its shot
 /// sideways as a real one goes. The bolt then free-flies: it does not track. Starts at the
-/// shooter's position, age zero; `aimed_at` names who it may hurt and whose miss it measures.
+/// shooter's position, age zero; `aimed_at` names whose miss it measures.
 ///
 /// It leaves the gun at kMuzzleHeight above the ground under it and is aimed vertically at the
 /// middle of a body standing on the ground under the aim point: the target's REAL height. A
@@ -166,13 +166,22 @@ void retarget_aim(Unit& shooter, UnitId target) noexcept;
 /// (map x, map y, height), so a pitch of p is (sin yaw cos p, cos yaw cos p, sin p) and the total
 /// speed does not depend on it. A zero direction has none to normalise and goes due east, level, as
 /// `launch` does. The bolt leaves at kMuzzleHeight above the ground under the shooter. There is no
-/// lead and no centring: `aimed_at` is carried onto the bolt as INTENT -- it lets the bolt hurt
-/// that unit even on the shooter's own side -- and never bends the path, so a bolt aimed at a unit
-/// it is not pointing at misses it. An invalid `aimed_at` passes through its own side. It never
-/// follows anything.
+/// lead and no centring: `aimed_at` is carried onto the bolt as INTENT and never bends the path,
+/// so a bolt aimed at a unit it is not pointing at misses it. Friendly fire is the flight's rule,
+/// not the intent's: the bolt hurts its own side's units in its way, named or not. It never follows
+/// anything.
 [[nodiscard]] Projectile launch_towards(const Unit& shooter, Fixed dir_x, Fixed dir_y, Fixed dir_z,
                                         UnitId aimed_at, std::uint16_t damage,
                                         std::uint64_t seed) noexcept;
+
+/// Appends the pellets of one shot to `into`: for a kind whose spec has more than one pellet, the
+/// aimed `bolt` is replaced by `pellets` copies of it, each turned about the map plane to its
+/// place in the cone (`pellet_fan`) at the same horizontal speed, with the same climb, damage and
+/// range; for any other kind, `bolt` itself, untouched. A pure function of the bolt and the kind's
+/// spec -- no RNG, no state -- so a replay fires the same pellets byte for byte. Pellets do not
+/// `learn`: seven simultaneous misses would teach the shooter's aim estimate seven lessons, and a
+/// scatter gun is not aimed with lead. Order is the fan's, left to right of the aim.
+void fan_out(const Projectile& bolt, UnitKind kind, std::vector<Projectile>& into) noexcept;
 
 /// THE MORTAR'S CLIMB, the one place it is computed: the vertical speed (height units a tick) of a
 /// mortar shell that rises `rise` over a horizontal run of `run` (both Q16.16, any common scale;

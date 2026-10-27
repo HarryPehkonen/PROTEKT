@@ -27,8 +27,14 @@ struct PelletFan {
     int count{};
 };
 
-/// The pellet pattern of a shot along `aim`: `count` directions fanned symmetrically about it,
-/// pellet i pushed sideways by `lateral_step * (i - (count - 1) / 2)`.
+/// The pellet pattern of a shot along `aim`, in one sentence: `count` directions fanned evenly
+/// across a cone about it, pellet i leaning sideways by `half_tan * (2i - (count - 1)) / (count -
+/// 1)` tiles per tile flown, so the first and last sit exactly on the cone's edge and a lone pellet
+/// flies straight.
+///
+/// WHY the cone is the argument and not a step: the half-angle is the spec's data (as a tangent,
+/// since the sim has no trigonometry), and every lean is a fraction of it no greater than one in
+/// magnitude. A pellet outside the cone is impossible by construction, whatever `count` is.
 ///
 /// WHY a fixed fan and not a random draw: the sim has no RNG and a replay must reproduce byte for
 /// byte, so the pattern is a pure function of the aim direction and the two numbers above. The
@@ -45,7 +51,7 @@ struct PelletFan {
 /// `count` is clamped to [1, kMaxPellets]: a shot with no pellets is not a shot, and the array is
 /// the bound. With count == 1 the offset is exactly zero, so the single pellet IS the normalised
 /// aim -- the same code path, not a special case.
-[[nodiscard]] inline PelletFan pellet_fan(Fixed2D aim, int count, Fixed lateral_step) noexcept {
+[[nodiscard]] inline PelletFan pellet_fan(Fixed2D aim, int count, Fixed half_tan) noexcept {
     PelletFan fan{};
     if (count < 1) {
         count = 1;
@@ -61,12 +67,13 @@ struct PelletFan {
     const Fixed2D perp{fixed_sub(Fixed::zero(), aim.y), aim.x};
 
     for (int i = 0; i < count; ++i) {
-        // (i - (count - 1) / 2) in Q16.16, exactly: the numerator is doubled so that the half step
-        // of an even count is representable rather than truncated away.
-        const int half_steps = 2 * i - (count - 1);
-        const Fixed steps
-            = Fixed::from_raw(static_cast<std::int32_t>(half_steps * (Fixed::kOne / 2)));
-        const Fixed lateral = fixed_mul(lateral_step, steps);
+        // The lean: half_tan times a fraction in [-1, 1]. Integer division truncates toward zero,
+        // so |lean| <= |half_tan| for every i: this line is what keeps the pellet in the cone. A
+        // negative half_tan is a mirrored cone, not a wider one. (count == 1 leans by nothing.)
+        const std::int64_t across = 2 * i - (count - 1);
+        const std::int64_t lean64
+            = count > 1 ? static_cast<std::int64_t>(half_tan.raw) * across / (count - 1) : 0;
+        const Fixed lateral = Fixed::from_raw(static_cast<std::int32_t>(lean64));
         const Fixed2D raw{fixed_add(aim.x, fixed_mul(perp.x, lateral)),
                           fixed_add(aim.y, fixed_mul(perp.y, lateral))};
 
@@ -76,13 +83,13 @@ struct PelletFan {
         const std::int64_t dy = raw.y.raw;
         const std::int64_t len = isqrt(dx * dx + dy * dy);
         if (len == 0) {
-            fan.dir[static_cast<std::size_t>(i)] = Fixed2D{};
+            fan.dir.at(static_cast<std::size_t>(i)) = Fixed2D{};
             continue;
         }
         // Scale each component to a magnitude of kOne. Integer division truncates towards zero, so
         // (-a) / b == -(a / b): a fan symmetric about the aim stays EXACTLY symmetric here. The
         // quotient cannot leave int32: |dx| <= len, so |dx * kOne / len| <= kOne.
-        fan.dir[static_cast<std::size_t>(i)]
+        fan.dir.at(static_cast<std::size_t>(i))
             = Fixed2D{Fixed::from_raw(static_cast<std::int32_t>(dx * Fixed::kOne / len)),
                       Fixed::from_raw(static_cast<std::int32_t>(dy * Fixed::kOne / len))};
     }

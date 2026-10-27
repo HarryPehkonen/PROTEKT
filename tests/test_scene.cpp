@@ -5464,6 +5464,8 @@ std::size_t wreckage_vertices(const Scene& scene) {
 /// A battle that can bank a load: a factory, a hauler and three tanks of one side, three enemy
 /// tanks forward. The enemy wrecks land near the front and the hauler banks them. The same rig
 /// `test_scavenger.cpp` uses to get ore on the ledger.
+// The player's tanks stand off each other's lines of fire and the factory's: a bolt hits a friendly
+// in its way (friendly fire), so the old file along row 45 shot itself and the factory.
 protekt::sim::Sim bankable_battle() {
     using protekt::sim::Side;
     using protekt::sim::Spawn;
@@ -5473,9 +5475,9 @@ protekt::sim::Sim bankable_battle() {
     scenario.spawns = {Spawn{UnitKind::Factory, Side::Player, 52, 45},
                        Spawn{UnitKind::Scavenger, Side::Player, 48, 47},
                        Spawn{UnitKind::Turret, Side::Player, 58, 45},
-                       Spawn{UnitKind::Tank, Side::Player, 50, 45},
-                       Spawn{UnitKind::Tank, Side::Player, 51, 45},
-                       Spawn{UnitKind::Tank, Side::Player, 52, 46},
+                       Spawn{UnitKind::Tank, Side::Player, 50, 46},
+                       Spawn{UnitKind::Tank, Side::Player, 51, 47},
+                       Spawn{UnitKind::Tank, Side::Player, 52, 49},
                        Spawn{UnitKind::Tank, Side::Enemy, 60, 45},
                        Spawn{UnitKind::Tank, Side::Enemy, 60, 46},
                        Spawn{UnitKind::Tank, Side::Enemy, 61, 46}};

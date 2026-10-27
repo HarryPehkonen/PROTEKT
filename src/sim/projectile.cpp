@@ -1,5 +1,6 @@
 #include "protekt/sim/projectile.hpp"
 
+#include "protekt/sim/pellets.hpp"
 #include "protekt/sim/spec.hpp"
 
 #include <algorithm>
@@ -383,6 +384,42 @@ Projectile launch_towards(const Unit& shooter, Fixed dir_x, Fixed dir_y, Fixed d
     return bolt;
 }
 
+namespace {
+
+constexpr bool pellet_counts_fit() noexcept {
+    for (const UnitSpec& spec : kUnitSpecs) {
+        if (spec.pellets > kMaxPellets) {
+            return false;
+        }
+    }
+    return true;
+}
+static_assert(pellet_counts_fit(), "a spec asks for more pellets than the fan has room for");
+
+} // namespace
+
+void fan_out(const Projectile& bolt, UnitKind kind, std::vector<Projectile>& into) noexcept {
+    const UnitSpec& weapon = spec_of(kind);
+    if (weapon.pellets <= 1) {
+        into.push_back(bolt);
+        return;
+    }
+    const std::int64_t hspeed = isqrt(static_cast<std::int64_t>(bolt.vx.raw) * bolt.vx.raw
+                                      + static_cast<std::int64_t>(bolt.vy.raw) * bolt.vy.raw);
+    const PelletFan fan
+        = pellet_fan(Fixed2D{bolt.vx, bolt.vy}, weapon.pellets, weapon.cone_half_tan);
+    for (int i = 0; i < fan.count; ++i) {
+        const Fixed2D dir = fan.dir.at(static_cast<std::size_t>(i));
+        Projectile pellet = bolt;
+        // dir is about kOne long, so dir * speed / kOne keeps the horizontal speed; vz is the
+        // aimed bolt's own, so every pellet climbs as the aim does and stays as flat as it is.
+        pellet.vx = Fixed::from_raw(static_cast<std::int32_t>(dir.x.raw * hspeed / Fixed::kOne));
+        pellet.vy = Fixed::from_raw(static_cast<std::int32_t>(dir.y.raw * hspeed / Fixed::kOne));
+        pellet.learns = false;
+        into.push_back(pellet);
+    }
+}
+
 std::int64_t mortar_climb(std::int64_t run, std::int64_t rise) noexcept {
     const UnitSpec& mortar = spec_of(UnitKind::Mortar);
     const std::int64_t across = mortar.bolt_speed.raw;
@@ -562,9 +599,20 @@ void advance_projectiles(std::vector<Projectile>& projectiles, std::vector<Unit>
         Unit* hit = nullptr;
         std::int64_t hit_d2 = radius2 + 1;
         for (Unit& unit : units) { // ascending id, so a tie keeps the lowest
-            if (!unit.alive || (unit.side == bolt.side && unit.id != bolt.aimed_at)
-                || unit.id == bolt.bounced_off) {
+            // Dead units and the unit a bouncer last glanced off are skipped; a unit of the bolt's
+            // OWN side is not (friendly fire: the rule is the rule, for every weapon). The one
+            // addition: a bolt still leaving its own gun -- its step starts inside the hit radius
+            // of the shooter's centre -- passes through the gun that fired it, because it is born
+            // on top of it and would otherwise hit its shooter on its first tick.
+            if (!unit.alive || unit.id == bolt.bounced_off) {
                 continue;
+            }
+            if (unit.id == bolt.shooter) {
+                const std::int64_t gx = unit.x.raw - from_x;
+                const std::int64_t gy = unit.y.raw - from_y;
+                if (gx * gx + gy * gy <= radius2) {
+                    continue;
+                }
             }
             const Point c
                 = nearest_on_segment(from_x, from_y, step_x, step_y, unit.x.raw, unit.y.raw);

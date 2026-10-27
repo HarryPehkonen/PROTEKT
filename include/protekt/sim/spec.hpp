@@ -39,6 +39,13 @@ struct UnitSpec {
     std::uint16_t cost{};
     /// Ticks spent building.
     std::uint16_t build_ticks{};
+    /// Pellets in one shot (the shotgun's shape, with `cone_half_tan` and `damage`, which is
+    /// PER PELLET). Zero or one is an ordinary single bolt. At most `kMaxPellets`.
+    std::uint8_t pellets{};
+    /// The cone's half-angle as a TANGENT, Q16.16 (no trigonometry in the sim): the outermost
+    /// pellet leaves at this many tiles of sideways drift per tile flown. `pellet_fan` derives
+    /// every pellet from it, so no pellet can leave the cone.
+    Fixed cone_half_tan{};
 };
 
 /// Every armed kind today shoots at kProjectileSpeedRaw with a climb ceiling of 2.0.
@@ -81,42 +88,63 @@ inline constexpr std::int32_t kRocketRangeRaw = 15 << 16;
 /// The scout: a minigun's reach, 10 tiles, below the tank's 12 (`kTankRangeRaw`).
 inline constexpr std::int32_t kScoutRangeRaw = kTankRangeRaw * 5 / 6;
 
+/// THE SHOTGUN (Harri's ruling, 2026-10-27: "the amount of damage depends on vicinity and aim"),
+/// all of it data. Seven pellets in a cone whose half-angle has tangent 1/4 (~14 degrees), so
+/// neighbouring pellets drift 1/12 of a tile apart per tile flown. A tank is struck by a pellet
+/// passing within half a tile of its centre: all seven at 2 tiles, three at 6, one at 8. Vicinity
+/// IS the pellet count, with no falloff curve to double-count it. Range 6 is where the fan is
+/// still a few tiles wide; `max_travel` 8 is the "shortness of range", not a new mechanic.
+/// Per-pellet damage 3 (21 point-blank against a tank bolt's 8). FLAT (gravity zero) so a hill
+/// eats its pellets. Hull and speed are the tank's and the reload is tripled (a shot is seven
+/// bolts). All provisional: its own numbers are Harri's to set in a balance pass. Not buildable.
+inline constexpr std::int32_t kShotgunRangeRaw = 6 << 16;
+inline constexpr std::int32_t kShotgunTravelRaw = 8 << 16;
+inline constexpr std::int32_t kShotgunConeRaw = Fixed::kOne / 4;
+inline constexpr std::uint16_t kShotgunPellets = 7;
+inline constexpr std::uint16_t kShotgunPelletDamage = 3;
+
 /// Indexed by the value of `UnitKind`, which stays the index type; the order below is the enum's.
 inline constexpr std::array<UnitSpec, static_cast<std::size_t>(kUnitKindCount)> kUnitSpecs{{
     {"tank", kTankHp, Fixed::from_raw(kTankSpeedRaw), Fixed::from_raw(kTankRangeRaw), kTankDamage,
      kTankCooldownTicks, Fixed::from_raw(kProjectileSpeedRaw), Fixed::from_raw(kBoltArcRaw),
-     kBoltTravel, Fixed::zero(), Fixed::zero(), false, 40, 900},
+     kBoltTravel, Fixed::zero(), Fixed::zero(), false, 40, 900, 0, Fixed::zero()},
     {"turret", kTurretHp, Fixed::from_raw(kTurretSpeedRaw), Fixed::from_raw(kTurretRangeRaw),
      kTurretDamage, kTurretCooldownTicks, Fixed::from_raw(kProjectileSpeedRaw),
-     Fixed::from_raw(kBoltArcRaw), kBoltTravel, Fixed::zero(), Fixed::zero(), false, 0, 0},
+     Fixed::from_raw(kBoltArcRaw), kBoltTravel, Fixed::zero(), Fixed::zero(), false, 0, 0, 0,
+     Fixed::zero()},
     {"factory", kFactoryHp, Fixed::zero(), Fixed::zero(), 0, 0, Fixed::zero(), Fixed::zero(),
-     kBoltTravel, Fixed::zero(), Fixed::zero(), false, 0, 0},
+     kBoltTravel, Fixed::zero(), Fixed::zero(), false, 0, 0, 0, Fixed::zero()},
     // The hover tank has the tank's numbers: the look and the controls differ, not the stats.
     {"hovertank", kTankHp, Fixed::from_raw(kTankSpeedRaw), Fixed::from_raw(kTankRangeRaw),
      kTankDamage, kTankCooldownTicks, Fixed::from_raw(kProjectileSpeedRaw),
-     Fixed::from_raw(kBoltArcRaw), kBoltTravel, Fixed::zero(), Fixed::zero(), false, 0, 0},
+     Fixed::from_raw(kBoltArcRaw), kBoltTravel, Fixed::zero(), Fixed::zero(), false, 0, 0, 0,
+     Fixed::zero()},
     {"mortar", kTankHp * 3 / 4, Fixed::from_raw(kTankSpeedRaw / 2),
      Fixed::from_raw(kMortarRangeRaw), kTankDamage * 2, kTankCooldownTicks * 3,
      Fixed::from_raw(kProjectileSpeedRaw / 2), Fixed::from_raw(kMortarArcRaw), kBoltTravel,
-     Fixed::from_raw(kMortarSplashRaw), Fixed::from_raw(kMortarGravityRaw), false, 0, 0},
+     Fixed::from_raw(kMortarSplashRaw), Fixed::from_raw(kMortarGravityRaw), false, 0, 0, 0,
+     Fixed::zero()},
     {"rocket", kTankHp, Fixed::from_raw(kTankSpeedRaw), Fixed::from_raw(kRocketRangeRaw),
      kTankDamage * 3, kTankCooldownTicks * 5, Fixed::from_raw(kProjectileSpeedRaw * 3 / 4),
-     Fixed::from_raw(kBoltArcRaw), kBoltTravel, Fixed::zero(), Fixed::zero(), false, 0, 0},
+     Fixed::from_raw(kBoltArcRaw), kBoltTravel, Fixed::zero(), Fixed::zero(), false, 0, 0, 0,
+     Fixed::zero()},
     // The scavenger (C2): no gun, no range, no damage -- `range` zero is what makes it unarmed
     // everywhere in the sim (fire, targeting, the AI's threat list). It is fast ENOUGH to reach
     // wreckage, not fast enough to outrun what killed it.
     {"scavenger", kScavengerHp, Fixed::from_raw(kScavengerSpeedRaw), Fixed::zero(), 0, 0,
-     Fixed::zero(), Fixed::zero(), kBoltTravel, Fixed::zero(), Fixed::zero(), false, 20, 300},
+     Fixed::zero(), Fixed::zero(), kBoltTravel, Fixed::zero(), Fixed::zero(), false, 20, 300, 0,
+     Fixed::zero()},
     // The recycler: unarmed like the scavenger (`range` zero, and the ballistics block with it).
     // Its hp and speed are BORROWED, not designed: the tank's hull (`kRecyclerHp`), so a base does
     // not die too easily, and the hauler's speed, so it can reach a deploy site. Its own numbers
     // are Harri's to set in a balance pass.
     {"recycler", kRecyclerHp, Fixed::from_raw(kScavengerSpeedRaw), Fixed::zero(), 0, 0,
-     Fixed::zero(), Fixed::zero(), kBoltTravel, Fixed::zero(), Fixed::zero(), false, 0, 0},
+     Fixed::zero(), Fixed::zero(), kBoltTravel, Fixed::zero(), Fixed::zero(), false, 0, 0, 0,
+     Fixed::zero()},
     // The deployed recycler (DEPLOY): a building. Speed zero (it never moves), unarmed (no range,
     // damage or cooldown), and the recycler's hull, `kDeployedRecyclerHp`, a default of his.
     {"deployedrecycler", kDeployedRecyclerHp, Fixed::zero(), Fixed::zero(), 0, 0, Fixed::zero(),
-     Fixed::zero(), kBoltTravel, Fixed::zero(), Fixed::zero(), false, 0, 0},
+     Fixed::zero(), kBoltTravel, Fixed::zero(), Fixed::zero(), false, 0, 0, 0, Fixed::zero()},
     // The scout (VIS): light armour and fast, with the tank's bolt as a minigun -- half the tank's
     // hp, half again its speed (the fastest vehicle here: it has to scout), a 10-tile reach, half
     // the damage rounded up, a third of the cooldown, and the tank's straight single-target bolt.
@@ -125,7 +153,12 @@ inline constexpr std::array<UnitSpec, static_cast<std::size_t>(kUnitKindCount)> 
     // menu (RB3) is what fills that flag, and its display-only `SCOUT` row does not.
     {"scout", kTankHp / 2, Fixed::from_raw(kTankSpeedRaw * 3 / 2), Fixed::from_raw(kScoutRangeRaw),
      (kTankDamage + 1) / 2, kTankCooldownTicks / 3, Fixed::from_raw(kProjectileSpeedRaw),
-     Fixed::from_raw(kBoltArcRaw), kBoltTravel, Fixed::zero(), Fixed::zero(), false, 45, 900},
+     Fixed::from_raw(kBoltArcRaw), kBoltTravel, Fixed::zero(), Fixed::zero(), false, 45, 900, 0,
+     Fixed::zero()},
+    {"shotgun", kTankHp, Fixed::from_raw(kTankSpeedRaw), Fixed::from_raw(kShotgunRangeRaw),
+     kShotgunPelletDamage, kTankCooldownTicks * 3, Fixed::from_raw(kProjectileSpeedRaw),
+     Fixed::from_raw(kBoltArcRaw), Fixed::from_raw(kShotgunTravelRaw), Fixed::zero(), Fixed::zero(),
+     false, 0, 0, kShotgunPellets, Fixed::from_raw(kShotgunConeRaw)},
 }};
 
 [[nodiscard]] constexpr const UnitSpec& spec_of(UnitKind kind) noexcept {

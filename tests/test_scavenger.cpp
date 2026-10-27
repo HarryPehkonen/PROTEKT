@@ -58,15 +58,17 @@ Scenario walk_battle() {
 /// enemy tanks, its two tanks back at (50, 45)/(51, 45), and the hauler held out of the fight at
 /// (48, 47) until it is over. The enemy's wrecks land near the front, the hauler banks them, and a
 /// side that has lost a gun and can afford a tank gets one built.
+// The player's tanks stand off each other's lines of fire and the factory's: a bolt hits a friendly
+// in its way (friendly fire), so the old file along row 45 shot itself and the factory.
 Scenario build_battle() {
     Scenario s;
     s.seed = kSeed;
     s.spawns = {Spawn{UnitKind::Factory, Side::Player, 52, 45},
                 Spawn{UnitKind::Scavenger, Side::Player, 48, 47},
                 Spawn{UnitKind::Turret, Side::Player, 58, 45},
-                Spawn{UnitKind::Tank, Side::Player, 50, 45},
-                Spawn{UnitKind::Tank, Side::Player, 51, 45},
-                Spawn{UnitKind::Tank, Side::Player, 52, 46},
+                Spawn{UnitKind::Tank, Side::Player, 50, 46},
+                Spawn{UnitKind::Tank, Side::Player, 51, 47},
+                Spawn{UnitKind::Tank, Side::Player, 52, 49},
                 Spawn{UnitKind::Tank, Side::Enemy, 60, 45},
                 Spawn{UnitKind::Tank, Side::Enemy, 60, 46},
                 Spawn{UnitKind::Tank, Side::Enemy, 61, 46}};

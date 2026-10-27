@@ -21,22 +21,24 @@ struct Field {
 };
 
 /// Player tank at (100,100); a player factory three tiles east; and, when `with_hostile`, an enemy
-/// factory five tiles east. All inside the tank's weapon range.
+/// factory five tiles east and four south -- off the line to the friendly, because a bolt now hits
+/// a friendly in its way and one standing between would shield the hostile. All inside the tank's
+/// weapon range.
 [[nodiscard]] Field field(bool with_hostile) {
     Scenario scenario{};
     scenario.seed = 42;
-    const auto add = [&](Side side, UnitKind kind, int tile_x) {
+    const auto add = [&](Side side, UnitKind kind, int tile_x, int tile_y = 100) {
         Spawn spawn{};
         spawn.side = side;
         spawn.kind = kind;
         spawn.tile_x = tile_x;
-        spawn.tile_y = 100;
+        spawn.tile_y = tile_y;
         scenario.spawns.push_back(spawn);
     };
     add(Side::Player, UnitKind::Tank, 100);
     add(Side::Player, UnitKind::Factory, 103);
     if (with_hostile) {
-        add(Side::Enemy, UnitKind::Factory, 105);
+        add(Side::Enemy, UnitKind::Factory, 105, 104);
     }
     Field out{};
     out.sim = Sim::create(scenario);
