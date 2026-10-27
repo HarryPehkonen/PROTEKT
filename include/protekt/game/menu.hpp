@@ -25,18 +25,18 @@
 ///  * A row is a {key, verb} PAIR, and the keys are NOT CONTIGUOUS. The harvester's menu reads
 ///    1 2 3 4 5, then a visible GAP where 6, 7 and 8 would be, then 9 and 0. Numbering rows by
 ///    their position in the list is therefore wrong, and the row order is not key order.
-///  * A key's verb is CONTEXT-DEPENDENT: `3` is DEPLOY on a recycler, SCAVENGE on a harvester and
+///  * A key's verb is CONTEXT-DEPENDENT: `3` is Deploy on a recycler, Scavenge on a harvester and
 ///    GUARDIAN on a deployed recycler's build list. One key, three verbs -- so the rows cannot be
 ///    a table indexed by key either.
 ///  * The TOP row is LIVE STATE, not a binding. It is recomputed every time the menu is built from
 ///    what is armed and what the cursor is over: `SPACE SELECT` when a command is armed on
-///    something selectable, `SPACE DEPLOY` once `3` has armed the deploy, and just `SPACE` when
+///    something selectable, `SPACE Deploy` once `3` has armed the deploy, and just `SPACE` when
 ///    neither applies. It is a READOUT -- pressing SPACE does whatever the row currently names --
 ///    and it is never a second binding for an action that also has a key of its own.
 ///
 /// The dimming carries two meanings under one look, which is why a row carries the reason and not
 /// just a flag: a build row dims because it is UNAFFORDABLE (there is not enough scrap banked for
-/// it), and an action row like `SELECT UNIT` or `PICK ME UP` dims because it DOES NOT APPLY to this
+/// it), and an action row like `Select Unit` or `Pick Me Up` dims because it DOES NOT APPLY to this
 /// selection. Same ink, two causes, and a test can tell them apart only if the model says which.
 ///
 /// A menu is a MODE. Inside it the digits are the verbs; in normal mode they address buildings
@@ -69,7 +69,7 @@ enum class MenuSubject : std::uint8_t {
 /// never a verb of its own.
 enum class MenuCommand : std::uint8_t {
     None = 0, ///< nothing armed: SPACE selects, or does nothing
-    Deploy,   ///< `3 DEPLOY` is armed: SPACE deploys the recycler at the ground under the reticle
+    Deploy,   ///< `3 Deploy` is armed: SPACE deploys the recycler at the ground under the reticle
     Build,    ///< a build row is armed (see `ArmedCommand::item`): SPACE places that item
 };
 
@@ -96,7 +96,7 @@ enum class MenuTarget : std::uint8_t {
 /// what the cursor is over).
 struct MenuInput {
     MenuSubject subject{MenuSubject::None};
-    /// Whose selection it is. It picks the build list's item names: the same kind is a HARVESTER on
+    /// Whose selection it is. It picks the build list's item names: the same kind is a Harvester on
     /// one side and a Scavenger on the other, so a single table of strings cannot serve both.
     sim::Side side{sim::Side::Player};
     ArmedCommand armed{};
@@ -109,7 +109,7 @@ struct MenuInput {
     /// off the ground -- draws nothing there.
     std::optional<int> metres{};
     /// Whether MORE THAN ONE unit is selected. It decides one row's ink and nothing else: `~
-    /// SELECT UNIT` applies to a group and not to a lone unit (the plan's measured dim rule), so a
+    /// Select Unit` applies to a group and not to a lone unit (the plan's measured dim rule), so a
     /// single selection draws it dimmed. Defaulted, so a caller that does not know still compiles.
     bool group{false};
 };
@@ -171,35 +171,35 @@ struct BuildItem {
 /// The verbs of the rows that ACT today (RB-DIGITS), written once so the table that draws them
 /// (`menu.cpp`) and the layer that routes their digit (`Interaction`) cannot drift apart: a row is
 /// identified by its verb, because the same KEY names a different verb on another subject (`1` is
-/// FOLLOW ME on a recycler and HARVESTER on a deployment).
-inline constexpr std::string_view kVerbFollowMe{"FOLLOW ME"};
-inline constexpr std::string_view kVerbHold{"HOLD"};
-/// `3 DEPLOY` on an un-deployed recycler, and the state row's verb once it has armed the deploy.
-inline constexpr std::string_view kVerbDeploy{"DEPLOY"};
+/// Follow Me on a recycler and Harvester on a deployment).
+inline constexpr std::string_view kVerbFollowMe{"Follow Me"};
+inline constexpr std::string_view kVerbHold{"Hold"};
+/// `3 Deploy` on an un-deployed recycler, and the state row's verb once it has armed the deploy.
+inline constexpr std::string_view kVerbDeploy{"Deploy"};
 /// The selected-vehicle rows that act (RECYCLE and its neighbours), written once so the table and
 /// the layer that routes a digit cannot drift apart.
-inline constexpr std::string_view kVerbGoToNav{"GO TO NAV"};
-inline constexpr std::string_view kVerbAttack{"ATTACK"};
-inline constexpr std::string_view kVerbRecycle{"RECYCLE"};
+inline constexpr std::string_view kVerbGoToNav{"Go to Nav"};
+inline constexpr std::string_view kVerbAttack{"Attack"};
+inline constexpr std::string_view kVerbRecycle{"Recycle"};
 /// Drawn on a vehicle's menu and inert in this slice: the row is the reference's, the behaviour is
 /// not built. Written here so the table reads as one list and not a run of literals.
-inline constexpr std::string_view kVerbSelectUnit{"SELECT UNIT"};
-inline constexpr std::string_view kVerbPickMeUp{"PICK ME UP"};
-inline constexpr std::string_view kVerbBailout{"BAILOUT"};
-inline constexpr std::string_view kVerbScavenge{"SCAVENGE"};
-inline constexpr std::string_view kVerbRotateBuildings{"ROTATE BUILDINGS"};
-inline constexpr std::string_view kVerbDropOff{"DROP OFF"};
+inline constexpr std::string_view kVerbSelectUnit{"Select Unit"};
+inline constexpr std::string_view kVerbPickMeUp{"Pick Me Up"};
+inline constexpr std::string_view kVerbBailout{"Bailout"};
+inline constexpr std::string_view kVerbScavenge{"Scavenge"};
+inline constexpr std::string_view kVerbRotateBuildings{"Rotate Buildings"};
+inline constexpr std::string_view kVerbDropOff{"Drop Off"};
 
 /// A distance as a row's RIGHT column draws it: whole metres and an `m`, "68m". The one spelling,
 /// for the nav chain's rows, the armed deploy's state row and the attack list alike.
 [[nodiscard]] std::string metres_text(int metres);
 
 /// The words every left menu shares, written once for the selection menus here and the nav chain
-/// (`nav_marks.hpp`): the state row's key, its `SELECT`, and the `TAB CLOSE MENU` row.
+/// (`nav_marks.hpp`): the state row's key, its `Select`, and the `TAB Close Menu` row.
 inline constexpr std::string_view kRowKeySpace{"SPACE"};
 inline constexpr std::string_view kRowKeyTab{"TAB"};
-inline constexpr std::string_view kVerbSelect{"SELECT"};
-inline constexpr std::string_view kVerbCloseMenu{"CLOSE MENU"};
+inline constexpr std::string_view kVerbSelect{"Select"};
+inline constexpr std::string_view kVerbCloseMenu{"Close Menu"};
 
 /// The menu a kind of unit owns, or `None` when its menu was never captured. The sim's `Factory`
 /// plays BattleZone II's DEPLOYED recycler (it is the base that builds), so `Deployment` is exact
@@ -220,7 +220,7 @@ inline constexpr std::string_view kVerbCloseMenu{"CLOSE MENU"};
 /// layer that draws these rows draws NOTHING in the state a frame without a menu is in.
 ///
 /// The rows are in DRAWN order, which is not key order and not even ascending by key: the state row
-/// and `TAB CLOSE MENU` come first, then the selection's own rows in the reference's order, in
+/// and `TAB Close Menu` come first, then the selection's own rows in the reference's order, in
 /// which `9` and `0` sit below `5` with the gap above them left open.
 [[nodiscard]] std::vector<MenuRow> menu_rows(const MenuInput& in);
 

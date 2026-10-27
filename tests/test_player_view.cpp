@@ -192,10 +192,10 @@ TEST(PlayerView, ASelectedRecyclerAsksForTheRecyclerMenu) {
     in.subject = game::menu_subject_of(rig.sim, selected);
     const std::vector<game::MenuRow> rows = game::menu_rows(in);
     ASSERT_EQ(rows.size(), 6U) << "SPACE, TAB, ~, then 1 FOLLOW ME, 2 GO TO NAV, 3 DEPLOY";
-    EXPECT_EQ(rows.at(3).verb, "FOLLOW ME");
-    EXPECT_EQ(rows.at(4).verb, "GO TO NAV");
+    EXPECT_EQ(rows.at(3).verb, "Follow Me");
+    EXPECT_EQ(rows.at(4).verb, "Go to Nav");
     EXPECT_EQ(rows.at(5).key, "3");
-    EXPECT_EQ(rows.at(5).verb, "DEPLOY");
+    EXPECT_EQ(rows.at(5).verb, "Deploy");
 }
 
 // RB1b: the recycler the skirmish now spawns, selected, is the recycler's menu on screen -- six
@@ -224,7 +224,7 @@ TEST(PlayerView, TheSkirmishRecyclerIsLabelledRecyclerAndAsksForTheSixRowMenu) {
     const std::vector<game::MenuRow> rows = game::menu_rows(in);
     ASSERT_EQ(rows.size(), 6U) << "SPACE, TAB, ~, then 1 FOLLOW ME, 2 GO TO NAV, 3 DEPLOY";
     EXPECT_EQ(rows.at(5).key, "3");
-    EXPECT_EQ(rows.at(5).verb, "DEPLOY");
+    EXPECT_EQ(rows.at(5).verb, "Deploy");
 }
 
 TEST(PlayerView, AnArmedDeployReadsSpaceDeployAndTheDistanceToTheGroundUnderTheReticle) {
@@ -249,7 +249,7 @@ TEST(PlayerView, AnArmedDeployReadsSpaceDeployAndTheDistanceToTheGroundUnderTheR
     const std::vector<game::MenuRow> rows = menu_for(rig.sim, session, rig.options, false);
     ASSERT_FALSE(rows.empty());
     EXPECT_EQ(rows.front().key, "SPACE");
-    EXPECT_EQ(rows.front().verb, "DEPLOY");
+    EXPECT_EQ(rows.front().verb, "Deploy");
     const game::NavAim aim = game::nav_aim(rig.sim, rig.options);
     ASSERT_TRUE(aim.on_ground());
     EXPECT_EQ(rows.front().right, game::metres_text(aim.metres))

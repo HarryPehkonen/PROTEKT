@@ -277,7 +277,7 @@ Derived and exact values behind the table:
   playable game's enemy does not use it: `ai::ScriptedCommander` reads no hit points
   (`src/ai/scripted_commander.cpp`, 44 lines).
 - [DECIDED — not built] 0 RECYCLE is parked. Harri 2026-10-22 (brief) asked to hold off but keep it in
-  the plan. The harvester menu draws a live `0 RECYCLE` row (section 6) and nothing is behind it.
+  the plan. The harvester menu draws a live `0 Recycle` row (section 6) and nothing is behind it.
 - [SHIPPED 87cf06f] The follow radius is 4 tiles (`kFollowRadiusTiles`). Harri 2026-10-17 (brief).
 
 PROVENANCE: `include/protekt/sim/spec.hpp:13-102`, `include/protekt/sim/units.hpp:36-49,120-172`,
@@ -322,9 +322,9 @@ meaning, and those are in section 14.
 | `C` | toggle the colour calibration view (red, green, blue bars) | [SHIPPED 3c7070c] |
 | `F11` or `Alt`+`Enter` | toggle full screen | [SHIPPED 47ba745] |
 | `Ctrl`+`Q` | quit from anywhere; deliberately a modified key | [SHIPPED 47ba745] |
-| digits `1`–`9`, `0`, no prompt open | act on the selected subject's command menu, for the two rows that can act: `1 FOLLOW ME` (the selection follows the craft you are driving) and `4 HOLD` (each unit guards its own position with `GuardAt`). A digit the menu has no row for, a row the model dims, or a subject with no menu does nothing at all — and the recycler's menu has no `4` | [SHIPPED d80ce95] |
+| digits `1`–`9`, `0`, no prompt open | act on the selected subject's command menu, for the two rows that can act: `1 Follow Me` (the selection follows the craft you are driving) and `4 Hold` (each unit guards its own position with `GuardAt`). A digit the menu has no row for, a row the model dims, or a subject with no menu does nothing at all — and the recycler's menu has no `4` | [SHIPPED d80ce95] |
 | digits `1`–`9`, `0`, a prompt open | answer `G`, `T` and the attack list exactly as before: the prompt swallows the digit first, and the menu never sees it | [SHIPPED 160dec4, precedence pinned d80ce95] |
-| digits in a command menu, rows that cannot act yet | inert, with no message: `2 GO TO NAV` (which mark it means is unruled), `3 SCAVENGE` (the fetch is automatic), `3 DEPLOY` (RB3), `5 PICK ME UP`, `9 BAILOUT`, `0 RECYCLE`, `~`, and the factory's seven build rows (RB5) | [SHIPPED d80ce95] |
+| digits in a command menu, rows that cannot act yet | inert, with no message: `2 Go to Nav` (which mark it means is unruled), `3 Scavenge` (the fetch is automatic), `3 Deploy` (RB3), `5 Pick Me Up`, `9 Bailout`, `0 Recycle`, `~`, and the factory's seven build rows (RB5) | [SHIPPED d80ce95] |
 
 Selection and orders, the rules behind the rows:
 
@@ -338,7 +338,7 @@ Selection and orders, the rules behind the rows:
   directive, 2026-10-23 (U3 commit).
 - [SHIPPED d80ce95] A digit with no prompt open is a row of the selection's menu, and neither routed row
   ever orders the craft you are driving — `1` and `4` order the rest of the selection and refuse when that
-  is all there is, exactly as the verbs above do. `HOLD` is `GuardAt` built one unit at a time at that
+  is all there is, exactly as the verbs above do. `Hold` is `GuardAt` built one unit at a time at that
   unit's OWN position, in ascending id order, and deliberately not `Stop`: `Stop` idles a unit, and a
   harvester's fetch re-picks scrap on the same tick, so it would hold nothing, while `GuardAt` is an order
   stance the fetch leaves alone. No new command builder was needed.
@@ -413,17 +413,17 @@ What is built, what is not:
 
 | selection | subject | rows, top to bottom | status |
 |---|---|---|---|
-| a `Factory` | Deployment | `SPACE` state row; `TAB CLOSE MENU`; `~ DROP OFF`; then 7 build rows `1 HARVESTER 20`, `2 SCOUT 45`, `3 GUARDIAN 40`, `4 HAULER 30`, `5 BUILDER 40`, `6 HEALER 50`, `7 SERVICE POD 2` | [SHIPPED 3e799a0] |
-| a `Scavenger` | Harvester | `SPACE`; `TAB CLOSE MENU`; `~ SELECT UNIT` (dim); `1 FOLLOW ME`; `2 GO TO NAV`; `3 SCAVENGE`; `4 HOLD`; `5 PICK ME UP` (dim); *gap where 6, 7, 8 would be*; `9 BAILOUT`; `0 RECYCLE` | [SHIPPED 3e799a0] |
-| a `Turret` | Turret | the `SPACE` state row alone — not even `TAB CLOSE MENU` | [SHIPPED 3e799a0] |
-| a recycler / matriarch, not deployed | Recycler | `SPACE`; `TAB CLOSE MENU`; `~ ROTATE BUILDINGS` (dim); `1 FOLLOW ME`; `2 GO TO NAV`; `3 DEPLOY` | [SHIPPED 3e799a0] — modelled and tested, but no `UnitKind` maps to it, so no selection can reach it (`app/player_view.cpp:12-27`) |
+| a `Factory` | Deployment | `SPACE` state row; `TAB Close Menu`; `~ Drop Off`; then 7 build rows `1 Harvester 20`, `2 Scout 45`, `3 Guardian 40`, `4 Hauler 30`, `5 Builder 40`, `6 Healer 50`, `7 Service Pod 2` | [SHIPPED 3e799a0] |
+| a `Scavenger` | Harvester | `SPACE`; `TAB Close Menu`; `~ Select Unit` (dim); `1 Follow Me`; `2 Go to Nav`; `3 Scavenge`; `4 Hold`; `5 Pick Me Up` (dim); *gap where 6, 7, 8 would be*; `9 Bailout`; `0 Recycle` | [SHIPPED 3e799a0] |
+| a `Turret` | Turret | the `SPACE` state row alone — not even `TAB Close Menu` | [SHIPPED 3e799a0] |
+| a recycler / matriarch, not deployed | Recycler | `SPACE`; `TAB Close Menu`; `~ Rotate Buildings` (dim); `1 Follow Me`; `2 Go to Nav`; `3 Deploy` | [SHIPPED 3e799a0] — modelled and tested, but no `UnitKind` maps to it, so no selection can reach it (`app/player_view.cpp:12-27`) |
 | a `Tank`, `HoverTank`, `Mortar`, `Rocket`, or nothing | None | no menu, no rows | [SHIPPED 61298d2] |
 
 - [SHIPPED 3e799a0] The enemy side's build list is EMPTY. A per-side item name and a per-kind cost is
   RB5's and the R3 roster's, and inventing a list "would put names in the mouth of a capture that never
   showed them". A deployment on the enemy side draws no build rows
   (`Menu.TheEnemyBuildListIsNotInvented`).
-- [SHIPPED 3e799a0] `~ DROP OFF` is drawn as the reference draws it and means nothing yet; no behaviour
+- [SHIPPED 3e799a0] `~ Drop Off` is drawn as the reference draws it and means nothing yet; no behaviour
   is invented behind it (`Menu.TheDeploymentKeepsTheDropOffStringItCannotExplain`).
 
 ### 6.2 The structural rules
@@ -431,23 +431,23 @@ What is built, what is not:
 - [SHIPPED 3e799a0] A row is a `{key, verb}` pair. The keys are NOT contiguous: the harvester's menu
   reads 1 2 3 4 5, a visible gap, then 9 and 0. Numbering by position is wrong, and the drawn order is not
   key order (`Menu.TheKeysAreNotContiguousAndTheGapIsDrawn`, `Menu.TheRowOrderIsNotKeyOrder`).
-- [SHIPPED 3e799a0] A key's verb depends on the selection: `3` is `DEPLOY`, `SCAVENGE` or
-  `GUARDIAN 40` (`Menu.TheThreeKeyMeansWhateverTheSelectionMakesIt`).
-- [SHIPPED 3e799a0] **The top row is a live readout, not a binding.** It is `SPACE SELECT` when
-  something of yours is under the cursor, `SPACE DEPLOY` once `3` has armed the deploy, `SPACE <item>`
+- [SHIPPED 3e799a0] A key's verb depends on the selection: `3` is `Deploy`, `Scavenge` or
+  `Guardian 40` (`Menu.TheThreeKeyMeansWhateverTheSelectionMakesIt`).
+- [SHIPPED 3e799a0] **The top row is a live readout, not a binding.** It is `SPACE Select` when
+  something of yours is under the cursor, `SPACE Deploy` once `3` has armed the deploy, `SPACE <item>`
   once a build row has armed that item, and a bare `SPACE` otherwise. It is never dimmed, and pressing
   `SPACE` does whatever the row currently names. Arming does not rewrite the row that armed it
   (`Menu.TheTopRowIsLiveStateNotABinding`, `Menu.ArmingDoesNotRewriteTheBindingThatArmedIt`).
 - [SHIPPED 3e799a0] **A row is dim for one of two reasons, under one look.** A build row is dim because
-  it is `Unaffordable` (the cost exceeds the banked scrap). An action row such as `SELECT UNIT` or
-  `PICK ME UP` is dim because it `DoesNotApply` to this selection. `MenuRow::reason` carries which, and
+  it is `Unaffordable` (the cost exceeds the banked scrap). An action row such as `Select Unit` or
+  `Pick Me Up` is dim because it `DoesNotApply` to this selection. `MenuRow::reason` carries which, and
   `enabled` is exactly `reason == None`. The look is the same ink (`kMenuDimInk`, 0.40 grey)
   whatever the reason (`Menu.ADimmedRowCarriesTheReasonItIsDimmed`, `Menu.NoRowIsEverDimmedForTheWrongReason`).
 - [SHIPPED 61298d2] Affordability reads the sim's real ledger (`Sim::ore`). The test steps the sim until
   a scavenger banks a wreck and asserts live and dim rows.
-- [SHIPPED 3e799a0] `TAB CLOSE MENU` is the second row of every menu except the turret's.
+- [SHIPPED 3e799a0] `TAB Close Menu` is the second row of every menu except the turret's.
 - [SHIPPED d80ce95] **The digits are the menu's verbs, for the rows that can act.** With no prompt open,
-  `1` is `FOLLOW ME` and `4` is `HOLD` on a selection whose subject owns a menu. The digit is looked up in
+  `1` is `Follow Me` and `4` is `Hold` on a selection whose subject owns a menu. The digit is looked up in
   the MODEL's own rows (`menu_rows`) and only an ENABLED row acts, so a dimmed row and a digit with no row
   do nothing — exactly as they did before anything was routed. Section 7's key table lists which rows act
   and which are inert, and why each inert one cannot act yet.
@@ -456,7 +456,7 @@ What is built, what is not:
   prompt open. This is the conservative reading of the next bullet, not the next bullet.
 - [INTENDED — unconfirmed] **A menu is a MODE that SUSPENDS the prompts.** What is still unruled is whether
   opening the menu takes the digits away from `G`/`T`/the attack list: the layout says the menu is opened and
-  closed (`TAB CLOSE MENU`), but `Tab` clears the selection and nothing suspends anything. In normal mode the
+  closed (`TAB Close Menu`), but `Tab` clears the selection and nothing suspends anything. In normal mode the
   digits would address buildings (`1` recycler, `2` factory, `3` armory) once those exist. `menu.hpp:40-43`
   writes the mode as a property of the reference menu; whether PROTEKT adopts it is not ruled anywhere I can
   find (section 14, the first of the rules 14.1 could not classify).
@@ -614,7 +614,7 @@ Harri 2026-10-16, 2026-10-23, 2026-10-24 (brief).
 - [SHIPPED 1b64326] The sim has no faction concept. The only partition is `sim::Side::Player` and
   `sim::Side::Enemy` (`units.hpp:51`), and both sides spawn the same kinds.
 - [SHIPPED 3e799a0] Today's names are not keyed by team. The unit-kind label is `SCAVENGER`
-  (`roster.cpp:63`) and the player's build list says `HARVESTER` (`menu.cpp:64`), both on the one side.
+  (`roster.cpp:63`) and the player's build list says `Harvester` (`menu.cpp:64`), both on the one side.
   `menu.hpp:93-95` already says "the same kind is a HARVESTER on one side and a Scavenger on the other",
   so the model expects per-side naming and the table does not provide it.
 - [DECIDED — not built] Per-team naming is re-keyed when factions exist. Until then no code should
@@ -831,12 +831,12 @@ is shown to the player and was left alone: it is Harri's call, held as a questio
 21. **`buildable` is false for every kind, yet the factory builds a `Tank`.** `spec.hpp:36` and
     `test_roster.cpp:106` against `sim.cpp:929`, whose comment calls the tank "the only `buildable` kind".
 22. **No scavenger in the skirmish.** The economy is inert in the playable game. Section 8.4.
-23. ~~**The menu's `Recycler` subject is unreachable**, and every live-looking digit row (`3 SCAVENGE`,
-    `0 RECYCLE`, …) does nothing.~~ **CLOSED in two steps**: the subject became reachable when the recycler
+23. ~~**The menu's `Recycler` subject is unreachable**, and every live-looking digit row (`3 Scavenge`,
+    `0 Recycle`, …) does nothing.~~ **CLOSED in two steps**: the subject became reachable when the recycler
     kind and its spawn landed (`ddc6423`, `a584683`), and the rows that CAN act now act (`d80ce95` — `1`
-    and `4`). The rows still inert are inert because the SIM has nothing for them to do (`3 DEPLOY` awaits
-    RB3, the build rows await RB5, `2 GO TO NAV` awaits a ruling), not because no code routes the digits.
-24. **Names are not keyed by team**, and `HARVESTER` and `SCAVENGER` both appear on the player's side.
+    and `4`). The rows still inert are inert because the SIM has nothing for them to do (`3 Deploy` awaits
+    RB3, the build rows await RB5, `2 Go to Nav` awaits a ruling), not because no code routes the digits.
+24. **Names are not keyed by team**, and `Harvester` and `SCAVENGER` both appear on the player's side.
     Section 9.
 25. **Menu costs are on another scale from the sim's.** The menu quotes HARVESTER 20 to SERVICE POD 2;
     the sim spends 4 loads on a tank. RB5 replaces them (`menu.cpp:59-62`).
@@ -844,10 +844,10 @@ is shown to the player and was left alone: it is Harri's call, held as a questio
     exploding. Say if the visual is part of the ruling.
 
 27. **The menu's top row does not know about a live selection.** §6.2 takes the row from the capture
-    (`SPACE SELECT` when something of yours is under the cursor), but the code's `Space` means SELECT
+    (`SPACE Select` when something of yours is under the cursor), but the code's `Space` means SELECT
     only from an EMPTY selection: with something already selected it FOLLOWS a vehicle or ATTACKS a
     hostile, and says so in the notice (`interaction.cpp:223-264`). The row therefore reads
-    `SPACE SELECT` in a state where pressing `Space` would not select. Closing it needs a `MenuInput`
+    `SPACE Select` in a state where pressing `Space` would not select. Closing it needs a `MenuInput`
     field that says whether the selection is empty, and the two extra verbs — that is RB2's territory.
 
 ### 14.4 What I could not determine
@@ -993,13 +993,13 @@ later. His ruling, 2026-10-24: ONE recycler per side, EVER [DECIDED — not buil
   and the models differ too; it also settles the key question by construction, because the reserved keys are
   per kind and a building is not a vehicle. The sim has eight kinds today and `Recycler = 7` is the latest.
 - [DECIDED — not built] The deploy flow is the F1 -> 3 -> SPACE gesture: select the recycler (its function
-  key, or point at it and press SPACE), press `3 DEPLOY` from its menu to ARM the deploy, point at a good
+  key, or point at it and press SPACE), press `3 Deploy` from its menu to ARM the deploy, point at a good
   spot, then press SPACE to CONFIRM. `3` is not a second binding for SPACE: it arms, SPACE confirms, and the
-  menu's top row becomes a live readout of the armed step. Of that menu only `1 FOLLOW ME` and `4 HOLD` route
-  today (RB-DIGITS); `3 DEPLOY` is inert and says why.
+  menu's top row becomes a live readout of the armed step. Of that menu only `1 Follow Me` and `4 Hold` route
+  today (RB-DIGITS); `3 Deploy` is inert and says why.
 - [SHIPPED 3e799a0, ddc6423] The undeployed recycler's menu is six rows, in drawn order: `SPACE` (the state
-  row), `TAB CLOSE MENU`, `~ ROTATE BUILDINGS` (dim — it does not apply until there are buildings to rotate),
-  `1 FOLLOW ME`, `2 GO TO NAV`, `3 DEPLOY`.
+  row), `TAB Close Menu`, `~ Rotate Buildings` (dim — it does not apply until there are buildings to rotate),
+  `1 Follow Me`, `2 Go to Nav`, `3 Deploy`.
 - [DECIDED — not built] Its deploy site: deployable ground is a TERRAIN TYPE and not a slope — his words,
   *"turn one of the ground types to 'flat enough for deploying on'"* — delegated to the executor and decided
   as `terrain == Flat` behind ONE predicate, so the ghost's green and red, the sim's deploy gate, the
@@ -1036,10 +1036,10 @@ player or the enemy side. HIS RULING, 2026-10-24 (Part A section 9) [DECIDED —
   one load within 1 tile, carry it to its own side's lowest-id living factory, hand it over within 2 tiles.
   Any order from the player or an AI replaces the fetch. Pick-up and hand-over happen wherever it is, even
   under the player's own driving.
-- [DECIDED — not built] Its name and its appearance are PER FACTION: `HARVESTER` on the alien side,
+- [DECIDED — not built] Its name and its appearance are PER FACTION: `Harvester` on the alien side,
   `SCAVENGER` on the human side. The name follows the faction and not the side, so the sim's one kind wears
   two names. Today the code is not keyed by faction at all: the kind's label is `SCAVENGER`
-  (`src/game/row.cpp:94-95`) and the one shipped build list says `HARVESTER` (`src/game/menu.cpp:63-67`),
+  (`src/game/row.cpp:94-95`) and the one shipped build list says `Harvester` (`src/game/menu.cpp:63-67`),
   both on the player's side. Part A section 9 records the drift.
 - [DECIDED — not built] A DEPLOYED scavenger is selectable by NO key at all. HIS CORRECTION, 2026-10-24:
   *"When a scavenger is deployed, as opposed to a recycler, there is no key that can select the deployed
@@ -1052,17 +1052,17 @@ player or the enemy side. HIS RULING, 2026-10-24 (Part A section 9) [DECIDED —
 - [DECIDED — not built] Sources: *"Scavengers may collect the scrap for re-use"* — and each power building
   provides 3 units of power and taking one away costs 3 (B.5).
 - [SHIPPED 3e799a0, d80ce95] Its menu (subject `Harvester`) is drawn in this order, keys not contiguous:
-  `SPACE` (the state row), `TAB CLOSE MENU`, `~ SELECT UNIT` (dim — it does not apply to this selection),
-  `1 FOLLOW ME`, `2 GO TO NAV`, `3 SCAVENGE`, `4 HOLD`, `5 PICK ME UP` (dim), a visible GAP where 6, 7 and 8
-  would be, `9 BAILOUT`, `0 RECYCLE`. Of these only `1` and `4` act today; every other row is inert and says
-  why (`3 SCAVENGE` because the fetch is automatic, `0 RECYCLE` because it is parked).
-- [SHIPPED d80ce95] `4 HOLD` is `GuardAt` at each unit's OWN position, and deliberately not `Stop`: `Stop`
+  `SPACE` (the state row), `TAB Close Menu`, `~ Select Unit` (dim — it does not apply to this selection),
+  `1 Follow Me`, `2 Go to Nav`, `3 Scavenge`, `4 Hold`, `5 Pick Me Up` (dim), a visible GAP where 6, 7 and 8
+  would be, `9 Bailout`, `0 Recycle`. Of these only `1` and `4` act today; every other row is inert and says
+  why (`3 Scavenge` because the fetch is automatic, `0 Recycle` because it is parked).
+- [SHIPPED d80ce95] `4 Hold` is `GuardAt` at each unit's OWN position, and deliberately not `Stop`: `Stop`
   idles a unit and a harvester's fetch re-picks scrap on the same tick, so it would hold nothing.
 
 PROVENANCE: `protekt-open-questions.md` Q6.1 and Q6.2 (Harri 2026-10-24, quoted);
 `protekt-hud-and-power.md` section 3 item 0 (his correction) and section 5; `slices.json` RECY, RB5;
 `src/game/menu.cpp:41-51,63-67,118-135`, `src/game/row.cpp:80-100`, and commits `e653f16` (the kind and its
-fetch), `3e799a0` (the row model and the menu), `d80ce95` (`FOLLOW ME` and `HOLD` route).
+fetch), `3e799a0` (the row model and the menu), `d80ce95` (`Follow Me` and `Hold` route).
 
 ### B.4 The factions and the production lists
 
@@ -1093,11 +1093,11 @@ choice are menu and setup concerns; the C-series HUD has no map or side picker. 
   and the human turret is the alien guardian. `service pod` at 2 is the only item both sides name
   identically.
 - [DECIDED — not built] The NAME FOLLOWS THE FACTION, never the player or the enemy side. This also settles
-  which faction an earlier capture was playing: it showed `HARVESTER 20`, and harvester is the ALIEN name,
+  which faction an earlier capture was playing: it showed `Harvester 20`, and harvester is the ALIEN name,
   so that capture was the alien side. So the shipping code's list is not keyed by faction (below).
 - [SHIPPED 3e799a0] What the code has today: ONE build list, and it is handed out by `Side::Player`
-  (`build_items`), i.e. the alien list of seven rows — `1 HARVESTER 20`, `2 SCOUT 45`, `3 GUARDIAN 40`,
-  `4 HAULER 30`, `5 BUILDER 40`, `6 HEALER 50`, `7 SERVICE POD 2` — drawn as a QUOTATION of the reference
+  (`build_items`), i.e. the alien list of seven rows — `1 Harvester 20`, `2 Scout 45`, `3 Guardian 40`,
+  `4 Hauler 30`, `5 Builder 40`, `6 Healer 50`, `7 Service Pod 2` — drawn as a QUOTATION of the reference
   capture, with the cost composed onto the row and weighed against the sim's real ledger. Because both the
   numbers and the faction keying differ from the ruling above, this table is exactly what RB5 and the
   per-side roster replace.

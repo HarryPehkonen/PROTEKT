@@ -32,7 +32,7 @@ constexpr std::array kRecyclerRows{
 /// A harvester / scavenger. Note what is NOT here: 6, 7 and 8 are missing on purpose and the gap is
 /// drawn, because the reference shows a visible one -- keys are a pair of {key, verb}, never a
 /// position in a list, and the free keys are left free for whatever fills them later. `~ SELECT
-/// UNIT` and `5 PICK ME UP` are dimmed because they do not apply to this selection; their ink is
+/// UNIT` and `5 Pick Me Up` are dimmed because they do not apply to this selection; their ink is
 /// the same as a build row that is merely too expensive, and only `MenuDim` tells them apart.
 constexpr std::array kHarvesterRows{
     FixedRow{kTilde, kVerbSelectUnit, MenuDim::DoesNotApply},
@@ -48,7 +48,7 @@ constexpr std::array kHarvesterRows{
 
 /// A selected VEHICLE -- a tank, hover tank, mortar, rocket or scout. The same ten rows as the
 /// reference's tank and scout captures (2026-10-26); only the state row's default verb differs
-/// between them, and the model leaves that to the caller. `~ SELECT UNIT` is NOT here because its
+/// between them, and the model leaves that to the caller. `~ Select Unit` is NOT here because its
 /// ink depends on the selection size: `menu_rows` draws it first, dimmed for a lone unit.
 constexpr std::array kVehicleRows{
     FixedRow{"1", kVerbFollowMe, MenuDim::None},
@@ -72,9 +72,9 @@ constexpr std::array kDeploymentRows{
 /// `kTankOreCost` -- and the R3 roster owns the item names; this table is the reference's reading
 /// of them, kept in one place so the two later slices have exactly one thing to replace.
 constexpr std::array kPlayerBuildList{
-    BuildItem{"1", "HARVESTER", 20},  BuildItem{"2", "SCOUT", 45},   BuildItem{"3", "GUARDIAN", 40},
-    BuildItem{"4", "HAULER", 30},     BuildItem{"5", "BUILDER", 40}, BuildItem{"6", "HEALER", 50},
-    BuildItem{"7", "SERVICE POD", 2},
+    BuildItem{"1", "Harvester", 20},  BuildItem{"2", "Scout", 45},   BuildItem{"3", "Guardian", 40},
+    BuildItem{"4", "Hauler", 30},     BuildItem{"5", "Builder", 40}, BuildItem{"6", "Healer", 50},
+    BuildItem{"7", "Service Pod", 2},
 };
 
 /// The item's name and the cost the row shows, as one string: the cost is drawn ON the build row,
@@ -180,7 +180,7 @@ std::vector<MenuRow> menu_rows(const MenuInput& in) {
     }
     rows.push_back(state_row(in));
     // A lone deployed turret has no verbs of its own: the reference collapses its menu to the state
-    // row, so there is nothing under it -- not even CLOSE MENU.
+    // row, so there is nothing under it -- not even Close Menu.
     if (in.subject == MenuSubject::Turret) {
         return rows;
     }
@@ -197,7 +197,7 @@ std::vector<MenuRow> menu_rows(const MenuInput& in) {
         append_build_list(rows, in);
         break;
     case MenuSubject::Vehicle:
-        // `~ SELECT UNIT` first: the reference's row order, and the one row whose ink depends on
+        // `~ Select Unit` first: the reference's row order, and the one row whose ink depends on
         // the selection size. A lone unit cannot select within itself, so the row is dim for one.
         rows.push_back(MenuRow{kTilde, std::string{kVerbSelectUnit}, in.group,
                                in.group ? MenuDim::None : MenuDim::DoesNotApply});

@@ -100,7 +100,7 @@ TEST(Menu, TheTopRowIsLiveStateNotABinding) {
     const std::vector<MenuRow> selectable = menu_rows(idle);
     ASSERT_FALSE(selectable.empty());
     EXPECT_EQ(selectable.front().key, "SPACE");
-    EXPECT_EQ(selectable.front().verb, "SELECT");
+    EXPECT_EQ(selectable.front().verb, "Select");
     EXPECT_TRUE(selectable.front().enabled);
     EXPECT_EQ(selectable.front().reason, MenuDim::None);
 
@@ -124,7 +124,7 @@ TEST(Menu, TheTopRowIsLiveStateNotABinding) {
     armed.armed = ArmedCommand{MenuCommand::Deploy, {}};
     for (const MenuTarget target : kEveryTarget) {
         armed.target = target;
-        EXPECT_EQ(menu_rows(armed).front().verb, "DEPLOY") << "target " << static_cast<int>(target);
+        EXPECT_EQ(menu_rows(armed).front().verb, "Deploy") << "target " << static_cast<int>(target);
     }
 
     // Case 3b: the armed deploy reads its distance at the right -- `SPACE DEPLOY 68m` -- and only
@@ -141,8 +141,8 @@ TEST(Menu, TheTopRowIsLiveStateNotABinding) {
 
     // Case 4: a build row armed -> SPACE names the item it will place.
     MenuInput building = deployed(500);
-    building.armed = ArmedCommand{MenuCommand::Build, "SCOUT"};
-    EXPECT_EQ(menu_rows(building).front().verb, "SCOUT");
+    building.armed = ArmedCommand{MenuCommand::Build, "Scout"};
+    EXPECT_EQ(menu_rows(building).front().verb, "Scout");
 
     // The state row is the first row of every menu that exists, and it is never `enabled == false`.
     for (const MenuSubject subject : kEverySubject) {
@@ -172,10 +172,10 @@ TEST(Menu, ArmingDoesNotRewriteTheBindingThatArmedIt) {
     const std::vector<MenuRow> after = menu_rows(armed_in);
 
     ASSERT_EQ(before.size(), after.size());
-    EXPECT_EQ(before.front().verb, "SELECT");
-    EXPECT_EQ(after.front().verb, "DEPLOY") << "SPACE did not pick up the armed command";
-    EXPECT_EQ(row_for(before, "3")->verb, "DEPLOY");
-    EXPECT_EQ(row_for(after, "3")->verb, "DEPLOY")
+    EXPECT_EQ(before.front().verb, "Select");
+    EXPECT_EQ(after.front().verb, "Deploy") << "SPACE did not pick up the armed command";
+    EXPECT_EQ(row_for(before, "3")->verb, "Deploy");
+    EXPECT_EQ(row_for(after, "3")->verb, "Deploy")
         << "arming changed the row that armed it: it is a binding, not a readout";
     EXPECT_EQ(after.at(5).key, "3") << "arming moved rows around";
 }
@@ -186,7 +186,7 @@ TEST(Menu, TheSecondRowClosesTheMenu) {
         const std::vector<MenuRow> rows = menu_rows(query(subject));
         ASSERT_GT(rows.size(), 2U) << "subject " << static_cast<int>(subject);
         EXPECT_EQ(rows.at(1).key, "TAB");
-        EXPECT_EQ(rows.at(1).verb, "CLOSE MENU");
+        EXPECT_EQ(rows.at(1).verb, "Close Menu");
         EXPECT_TRUE(rows.at(1).enabled);
     }
     // The lone turret is the exception, and it is not drawn a TAB row it would have nothing to
@@ -232,7 +232,7 @@ TEST(Menu, TheRowOrderIsNotKeyOrder) {
     const std::vector<MenuRow> recycler = menu_rows(query(MenuSubject::Recycler));
     ASSERT_EQ(recycler.size(), 6U);
     EXPECT_EQ(recycler.at(5).key, "3");
-    EXPECT_EQ(recycler.at(5).verb, "DEPLOY");
+    EXPECT_EQ(recycler.at(5).verb, "Deploy");
     EXPECT_EQ(recycler.at(3).key, "1")
         << "row 3 is key 1: an implementation that numbered rows by position would put `3` here";
 }
@@ -245,20 +245,20 @@ TEST(Menu, TheThreeKeyMeansWhateverTheSelectionMakesIt) {
     ASSERT_NE(row_for(recycler, "3"), nullptr);
     ASSERT_NE(row_for(harvester, "3"), nullptr);
     ASSERT_NE(row_for(deployment, "3"), nullptr);
-    EXPECT_EQ(row_for(recycler, "3")->verb, "DEPLOY");
-    EXPECT_EQ(row_for(harvester, "3")->verb, "SCAVENGE");
-    EXPECT_EQ(row_for(deployment, "3")->verb, "GUARDIAN 40");
+    EXPECT_EQ(row_for(recycler, "3")->verb, "Deploy");
+    EXPECT_EQ(row_for(harvester, "3")->verb, "Scavenge");
+    EXPECT_EQ(row_for(deployment, "3")->verb, "Guardian 40");
 
     // The verbs the capture verified, in the order it draws them -- the rest of both menus.
     ASSERT_NE(row_for(harvester, "9"), nullptr);
-    EXPECT_EQ(row_for(harvester, "9")->verb, "BAILOUT");
-    EXPECT_EQ(row_for(harvester, "0")->verb, "RECYCLE");
-    EXPECT_EQ(row_for(harvester, "4")->verb, "HOLD");
-    EXPECT_EQ(row_for(recycler, "1")->verb, "FOLLOW ME");
-    EXPECT_EQ(row_for(harvester, "2")->verb, "GO TO NAV");
-    EXPECT_EQ(row_for(recycler, "~")->verb, "ROTATE BUILDINGS");
-    EXPECT_EQ(row_for(harvester, "~")->verb, "SELECT UNIT");
-    EXPECT_EQ(row_for(harvester, "5")->verb, "PICK ME UP");
+    EXPECT_EQ(row_for(harvester, "9")->verb, "Bailout");
+    EXPECT_EQ(row_for(harvester, "0")->verb, "Recycle");
+    EXPECT_EQ(row_for(harvester, "4")->verb, "Hold");
+    EXPECT_EQ(row_for(recycler, "1")->verb, "Follow Me");
+    EXPECT_EQ(row_for(harvester, "2")->verb, "Go to Nav");
+    EXPECT_EQ(row_for(recycler, "~")->verb, "Rotate Buildings");
+    EXPECT_EQ(row_for(harvester, "~")->verb, "Select Unit");
+    EXPECT_EQ(row_for(harvester, "5")->verb, "Pick Me Up");
 }
 
 TEST(Menu, ADimmedRowCarriesTheReasonItIsDimmed) {
@@ -285,7 +285,7 @@ TEST(Menu, ADimmedRowCarriesTheReasonItIsDimmed) {
     ASSERT_NE(scout, nullptr);
     EXPECT_FALSE(scout->enabled);
     EXPECT_EQ(scout->reason, MenuDim::Unaffordable);
-    EXPECT_EQ(scout->verb, "SCOUT 45");
+    EXPECT_EQ(scout->verb, "Scout 45");
 }
 
 TEST(Menu, NoRowIsEverDimmedForTheWrongReason) {
@@ -302,7 +302,7 @@ TEST(Menu, NoRowIsEverDimmedForTheWrongReason) {
                         MenuInput in = query(subject);
                         in.side = side;
                         in.target = target;
-                        in.armed = ArmedCommand{command, "SCOUT"};
+                        in.armed = ArmedCommand{command, "Scout"};
                         in.ore = ore;
                         const std::vector<MenuRow> rows = menu_rows(in);
                         const std::string where
@@ -322,13 +322,13 @@ TEST(Menu, NoRowIsEverDimmedForTheWrongReason) {
                         // not leak into a DEPLOY row, and DEPLOY must not leak into a build row.
                         switch (command) {
                         case MenuCommand::Deploy:
-                            EXPECT_EQ(rows.front().verb, "DEPLOY") << where;
+                            EXPECT_EQ(rows.front().verb, "Deploy") << where;
                             break;
                         case MenuCommand::Build:
-                            EXPECT_EQ(rows.front().verb, "SCOUT") << where;
+                            EXPECT_EQ(rows.front().verb, "Scout") << where;
                             break;
                         case MenuCommand::None:
-                            EXPECT_TRUE(rows.front().verb.empty() || rows.front().verb == "SELECT")
+                            EXPECT_TRUE(rows.front().verb.empty() || rows.front().verb == "Select")
                                 << where;
                             break;
                         }
@@ -371,21 +371,21 @@ TEST(Menu, ABuildRowDrawsItsCostAndDimsWhenItIsUnaffordable) {
         EXPECT_TRUE(row->enabled) << "with 999 banked, " << item.label << " is affordable";
     }
     // And the captured names and costs themselves, as the quotation they are.
-    EXPECT_EQ(row_for(rich, "1")->verb, "HARVESTER 20");
-    EXPECT_EQ(row_for(rich, "3")->verb, "GUARDIAN 40");
-    EXPECT_EQ(row_for(rich, "4")->verb, "HAULER 30");
-    EXPECT_EQ(row_for(rich, "5")->verb, "BUILDER 40");
-    EXPECT_EQ(row_for(rich, "6")->verb, "HEALER 50");
-    EXPECT_EQ(row_for(rich, "7")->verb, "SERVICE POD 2");
+    EXPECT_EQ(row_for(rich, "1")->verb, "Harvester 20");
+    EXPECT_EQ(row_for(rich, "3")->verb, "Guardian 40");
+    EXPECT_EQ(row_for(rich, "4")->verb, "Hauler 30");
+    EXPECT_EQ(row_for(rich, "5")->verb, "Builder 40");
+    EXPECT_EQ(row_for(rich, "6")->verb, "Healer 50");
+    EXPECT_EQ(row_for(rich, "7")->verb, "Service Pod 2");
 
     // 44 scrap buys the 20-scrap harvester and the 2-scrap service pod and nothing else here: the
     // user's reading of the dim rows is exactly this comparison.
     const std::vector<MenuRow> poor = menu_rows(deployed(44));
     ASSERT_EQ(poor.size(), 10U);
     EXPECT_TRUE(row_for(poor, "1")->enabled);
-    EXPECT_FALSE(row_for(poor, "2")->enabled) << "SCOUT 45 was affordable on 44 scrap";
+    EXPECT_FALSE(row_for(poor, "2")->enabled) << "Scout 45 was affordable on 44 scrap";
     EXPECT_EQ(row_for(poor, "2")->reason, MenuDim::Unaffordable);
-    EXPECT_FALSE(row_for(poor, "6")->enabled) << "HEALER 50 was affordable on 44 scrap";
+    EXPECT_FALSE(row_for(poor, "6")->enabled) << "Healer 50 was affordable on 44 scrap";
     EXPECT_TRUE(row_for(poor, "7")->enabled);
 
     // Exactly the price is affordable: 45 buys the 45-scrap scout.
@@ -405,8 +405,8 @@ TEST(Menu, TheEnemyBuildListIsNotInvented) {
     const std::vector<MenuRow> rows = menu_rows(in);
     ASSERT_EQ(rows.size(), 3U) << "the enemy deployment grew rows nobody has seen";
     EXPECT_EQ(rows.at(0).key, "SPACE");
-    EXPECT_EQ(rows.at(1).verb, "CLOSE MENU");
-    EXPECT_EQ(rows.at(2).verb, "DROP OFF");
+    EXPECT_EQ(rows.at(1).verb, "Close Menu");
+    EXPECT_EQ(rows.at(2).verb, "Drop Off");
     for (const std::string_view absent : {"1", "2", "3", "4", "5", "6", "7"}) {
         EXPECT_EQ(row_for(rows, absent), nullptr) << "key " << absent << " invented a build row";
     }
@@ -419,13 +419,13 @@ TEST(Menu, TheDeploymentKeepsTheDropOffStringItCannotExplain) {
     const std::vector<MenuRow> rows = menu_rows(deployed(999));
     const MenuRow* drop_off = row_for(rows, "~");
     ASSERT_NE(drop_off, nullptr) << "the deployment lost its tilde row";
-    EXPECT_EQ(drop_off->verb, "DROP OFF");
+    EXPECT_EQ(drop_off->verb, "Drop Off");
     EXPECT_TRUE(drop_off->enabled);
     EXPECT_EQ(drop_off->reason, MenuDim::None);
     // The tilde row is drawn ABOVE the build list on every deployment, banked scrap or not.
     const std::vector<MenuRow> broke = menu_rows(deployed(0));
     ASSERT_FALSE(broke.empty());
-    EXPECT_EQ(row_for(broke, "~")->verb, "DROP OFF") << "affordability reached the tilde row";
+    EXPECT_EQ(row_for(broke, "~")->verb, "Drop Off") << "affordability reached the tilde row";
     EXPECT_TRUE(row_for(broke, "~")->enabled);
 }
 
@@ -437,7 +437,7 @@ TEST(Menu, ALoneTurretCollapsesToTheStateRow) {
     const std::vector<MenuRow> rows = menu_rows(in);
     ASSERT_EQ(rows.size(), 1U);
     EXPECT_EQ(rows.at(0).key, "SPACE");
-    EXPECT_EQ(rows.at(0).verb, "SELECT");
+    EXPECT_EQ(rows.at(0).verb, "Select");
     EXPECT_TRUE(rows.at(0).enabled);
     EXPECT_EQ(rows.at(0).reason, MenuDim::None);
 }
@@ -568,7 +568,7 @@ constexpr std::array<float, 3> kDimInk{0.67F, 0.67F, 0.67F};
 
 TEST(Menu, DrawnWithNoRowsItEmitsNothingAndEveryFrameIsByteIdentical) {
     const std::vector<MenuRow> empty;
-    const std::vector<MenuRow> rows{row_of("1", "HOLD")};
+    const std::vector<MenuRow> rows{row_of("1", "Hold")};
     for (const bool roster : {false, true}) {
         SceneOptions base = menu_rig();
         base.row = roster ? &skirmish_row() : nullptr;
@@ -599,8 +599,8 @@ TEST(Menu, DrawnWithNoRowsItEmitsNothingAndEveryFrameIsByteIdentical) {
 }
 
 TEST(Menu, DrawnEveryRowInTheOrderItWasHanded) {
-    const std::vector<MenuRow> bailout{row_of("9", "BAILOUT")};
-    const std::vector<MenuRow> follow{row_of("1", "FOLLOW ME")};
+    const std::vector<MenuRow> bailout{row_of("9", "Bailout")};
+    const std::vector<MenuRow> follow{row_of("1", "Follow Me")};
     const std::vector<SceneVertex> one = menu_vertices(bailout);
     ASSERT_FALSE(one.empty()) << "a row must reach the frame";
     EXPECT_EQ(one.size() % 6U, 0U) << "a menu is quads: six vertices each";
@@ -694,9 +694,9 @@ TEST(Menu, DrawnDownTheLeftMarginUnderTheStripAndTheNotice) {
 }
 
 TEST(Menu, DrawnADimmedRowIsADimmerInkWhateverTheReason) {
-    const std::vector<MenuRow> live{row_of("1", "HOLD")};
-    const std::vector<MenuRow> moot{row_of("1", "HOLD", MenuDim::DoesNotApply)};
-    const std::vector<MenuRow> broke{row_of("1", "HOLD", MenuDim::Unaffordable)};
+    const std::vector<MenuRow> live{row_of("1", "Hold")};
+    const std::vector<MenuRow> moot{row_of("1", "Hold", MenuDim::DoesNotApply)};
+    const std::vector<MenuRow> broke{row_of("1", "Hold", MenuDim::Unaffordable)};
     const std::vector<SceneVertex> lit_all = menu_vertices(live);
     const std::vector<SceneVertex> dim_all = menu_vertices(moot);
     // Two causes, ONE look: the reason is for the code, so the two frames are the same frame.
@@ -727,9 +727,9 @@ TEST(Menu, DrawnADimmedRowIsADimmerInkWhateverTheReason) {
 
 /// The vehicle menu's keys, widest first, then the narrow ones the gutter must still hug.
 [[nodiscard]] std::vector<MenuRow> column_rows() {
-    return {row_of("SPACE", "SELECT"), row_of("TAB", "CLOSE MENU"),
-            row_of("~", "SELECT UNIT", MenuDim::DoesNotApply), row_of("1", "FOLLOW ME"),
-            row_of("9", "BAILOUT")};
+    return {row_of("SPACE", "Select"), row_of("TAB", "Close Menu"),
+            row_of("~", "Select Unit", MenuDim::DoesNotApply), row_of("1", "Follow Me"),
+            row_of("9", "Bailout")};
 }
 
 [[nodiscard]] float text_width(std::string_view text, float cell) {
@@ -1048,7 +1048,7 @@ TEST(Menu, DrawnTheFaceRunsTheGradientTopToBottomAndAnUnlitRowIsFlat) {
     const SceneOptions options = menu_rig();
     for (const bool enabled : {true, false}) {
         const std::vector<MenuRow> rows{
-            row_of("1", "HOLD", enabled ? MenuDim::None : MenuDim::DoesNotApply)};
+            row_of("1", "Hold", enabled ? MenuDim::None : MenuDim::DoesNotApply)};
         const std::vector<SceneVertex> drawn = menu_vertices(rows);
         float top_y = std::numeric_limits<float>::max();
         float bottom_y = std::numeric_limits<float>::lowest();
@@ -1096,7 +1096,7 @@ TEST(Menu, DrawnTheFaceRunsTheGradientTopToBottomAndAnUnlitRowIsFlat) {
 TEST(Menu, DrawnABarIsSquareOnTheGutterSideAndRoundOnItsOuterEnd) {
     const SceneOptions options = menu_rig();
     const float scale = static_cast<float>(options.extent.height) / 720.0F;
-    const std::vector<MenuRow> rows{row_of("1", "HOLD")};
+    const std::vector<MenuRow> rows{row_of("1", "Hold")};
     const MenuLayout layout = rig_layout(rows);
     ASSERT_EQ(layout.rows.size(), 1U);
     const MenuRowLayout& at = layout.rows.front();
@@ -1204,7 +1204,7 @@ TEST(Menu, DrawnEveryGlyphSitsWhereTheLayoutPutsIt) {
     // their rightmost, and the H in its top and bottom rows, so the ink's box IS the text's box.
     const SceneOptions options = menu_rig();
     const float cell = 2.0F * static_cast<float>(options.extent.height) / 720.0F;
-    const std::vector<MenuRow> rows{row_of("TAB", "HOLD")};
+    const std::vector<MenuRow> rows{row_of("TAB", "Hold")};
     const MenuLayout layout = rig_layout(rows);
     ASSERT_EQ(layout.rows.size(), 1U);
     const MenuRowLayout& at = layout.rows.front();
@@ -1253,7 +1253,7 @@ TEST(Menu, DrawnEveryGlyphSitsWhereTheLayoutPutsIt) {
 TEST(Menu, DrawnEveryGlyphIsOutlinedInBlackOnAllFourSides) {
     const SceneOptions options = menu_rig();
     const float half_cell = 0.5F * 2.0F * static_cast<float>(options.extent.height) / 720.0F;
-    const std::vector<MenuRow> rows{row_of("1", "HOLD")};
+    const std::vector<MenuRow> rows{row_of("1", "Hold")};
     const std::vector<SceneVertex> drawn = menu_vertices(rows);
     std::size_t ink = 0;
     std::size_t outline = 0;

@@ -329,7 +329,7 @@ TEST(NavMenu, TheNavMenuRowsAreSpaceTabThenEverySlotInSlotOrder) {
     EXPECT_EQ(rows.at(0).key, "SPACE");
     EXPECT_EQ(rows.at(0).verb, "") << "the reticle is on no mark";
     EXPECT_EQ(rows.at(1).key, "TAB");
-    EXPECT_EQ(rows.at(1).verb, "CLOSE MENU");
+    EXPECT_EQ(rows.at(1).verb, "Close Menu");
     const std::array<std::string_view, kNavSlots> keys{"1", "2", "3", "4", "5",
                                                        "6", "7", "8", "9", "0"};
     const std::array<int, kNavSlots> placement{11, 12, 3, 4, 5, 6, 7, 8, 9, 10};
@@ -344,7 +344,7 @@ TEST(NavMenu, TheNavMenuRowsAreSpaceTabThenEverySlotInSlotOrder) {
 
 TEST(NavMenu, SelectReadsOnlyWithTheReticleOverAMark) {
     NavMarks marks = placed(3);
-    EXPECT_EQ(nav_menu_rows(NavState::Menu, marks, on(102, 7), Camera{}).at(0).verb, "SELECT");
+    EXPECT_EQ(nav_menu_rows(NavState::Menu, marks, on(102, 7), Camera{}).at(0).verb, "Select");
     EXPECT_EQ(nav_menu_rows(NavState::Menu, marks, on(150, 7), Camera{}).at(0).verb, "");
     EXPECT_EQ(nav_menu_rows(NavState::Menu, marks, NavAim{}, Camera{}).at(0).verb, "");
 }
