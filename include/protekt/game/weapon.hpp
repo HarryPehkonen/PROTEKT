@@ -12,21 +12,21 @@
 /// along the barrel (M2, `sim::orders::FireLob`).
 namespace protekt::game {
 
-enum class Weapon : std::uint8_t { Gun, Rocket, Mortar, Bouncer };
+enum class Weapon : std::uint8_t { Gun, Rocket, Mortar, Bouncer, Shotgun };
 
 /// THE CARRIED SET: what the player's craft carries, in the order the right button walks it. The
 /// craft is whatever the player is driving -- the scenario's first player tank, presented as the
 /// hover tank -- so the set belongs to the DRIVEN vehicle, not to a sim kind, and an X swap keeps
 /// it.
-inline constexpr std::array<Weapon, 4> kDrivenWeapons{Weapon::Gun, Weapon::Rocket, Weapon::Mortar,
-                                                      Weapon::Bouncer};
+inline constexpr std::array<Weapon, 5> kDrivenWeapons{Weapon::Gun, Weapon::Rocket, Weapon::Mortar,
+                                                      Weapon::Bouncer, Weapon::Shotgun};
 
 /// The weapon after `current` in `kDrivenWeapons`, wrapping at the end; one not in the set gives
 /// the first. The right button's one step: a weapon change is a click, and the wheel and `Q` that
 /// used to do this were removed on the owner's call (2026-10-23).
 [[nodiscard]] Weapon next_weapon(Weapon current) noexcept;
 
-/// The HUD's name for a weapon: GUN, ROCKET, MORTAR, BOUNCER.
+/// The HUD's name for a weapon: GUN, ROCKET, MORTAR, BOUNCER, SHOTGUN.
 [[nodiscard]] std::string_view weapon_name(Weapon weapon) noexcept;
 
 /// THE MORTAR'S RANGE LADDER. Its rungs are pitch bands of the view (`view_pitch`, radians, up is
@@ -61,7 +61,8 @@ inline constexpr std::array<float, kMortarRungCount> kMortarRungPitches{0.0F, 0.
 [[nodiscard]] std::string_view trigger_refusal(Weapon weapon, const sim::Unit& unit) noexcept;
 
 /// The reticle a weapon draws.
-///  * FourTicks: E12's four ticks and dot, unchanged -- the gun.
+///  * FourTicks: E12's four ticks and dot, unchanged -- the gun, and the shotgun's (a scatter
+///    gun is aimed the same way; its cone is the shot's, not the sight's).
 ///  * Heavy: the same family, a centre dot 3.3x as big, ticks 0.4 long instead of 0.65 and nearly
 ///    twice as thick -- the rocket, one heavy hit.
 ///  * Ladder: the centre dot alone, with the mortar's range ladder under it -- the mortar's, and

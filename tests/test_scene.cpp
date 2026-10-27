@@ -5036,10 +5036,10 @@ TEST(ShipGauge, AlwaysDrawsTheRingAndFourRows) {
 }
 
 TEST(ShipGauge, TheActiveWeaponMovesTheHighlightAndNothingElse) {
-    // The four rows, in `kDrivenWeapons` order: gun, rocket, mortar, bouncer.
-    const std::array<protekt::game::Weapon, 4> kRows{
+    // The five rows, in `kDrivenWeapons` order: gun, rocket, mortar, bouncer, shotgun.
+    const std::array<protekt::game::Weapon, 5> kRows{
         protekt::game::Weapon::Gun, protekt::game::Weapon::Rocket, protekt::game::Weapon::Mortar,
-        protekt::game::Weapon::Bouncer};
+        protekt::game::Weapon::Bouncer, protekt::game::Weapon::Shotgun};
     const Damaged d = factory_down_to(400);
     const std::array<float, 2> centre = gauge_centre(gauge_options(d, kRows.at(0)));
     std::vector<Scene> frames;
@@ -5048,13 +5048,15 @@ TEST(ShipGauge, TheActiveWeaponMovesTheHighlightAndNothingElse) {
         const Scene scene = build_scene(d.sim, options);
         frames.push_back(scene);
         const float scale = static_cast<float>(options.extent.height);
-        // ONE bar of six vertices, on the row of the weapon that is up: row i of four is pitched
-        // (i - 1.5) rows from the ring's centre line, and the bar is six cells of the font tall.
+        // ONE bar of six vertices, on the row of the weapon that is up: row i of five is pitched
+        // (i - 2.0) rows from the ring's centre line, and the bar is six cells of the font tall.
         std::array<float, 4> bar{};
         ASSERT_TRUE(active_bar_rect(options, scene, bar))
             << "the frame must hold exactly one highlight bar, row " << row;
         const float want
-            = centre.at(1) + ((static_cast<float>(row) - 1.5F) * kGaugeRowPitch * scale);
+            = centre.at(1)
+              + ((static_cast<float>(row) - (static_cast<float>(kRows.size()) - 1.0F) * 0.5F)
+                 * kGaugeRowPitch * scale);
         EXPECT_NEAR((bar.at(2) + bar.at(3)) * 0.5F, want, 0.5F) << "row " << row;
         EXPECT_NEAR(bar.at(3) - bar.at(2), 6.0F * kGaugeCell * scale, 0.5F)
             << "the bar is six cells tall, row " << row;
@@ -5068,6 +5070,7 @@ TEST(ShipGauge, TheActiveWeaponMovesTheHighlightAndNothingElse) {
     EXPECT_FALSE(same_bytes(frames.at(0), frames.at(1)));
     EXPECT_FALSE(same_bytes(frames.at(1), frames.at(2)));
     EXPECT_FALSE(same_bytes(frames.at(2), frames.at(3)));
+    EXPECT_FALSE(same_bytes(frames.at(3), frames.at(4)));
     EXPECT_FALSE(same_bytes(frames.at(0), frames.at(2)));
 }
 

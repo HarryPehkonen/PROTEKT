@@ -89,19 +89,45 @@ inline constexpr std::int32_t kRocketRangeRaw = 15 << 16;
 inline constexpr std::int32_t kScoutRangeRaw = kTankRangeRaw * 5 / 6;
 
 /// THE SHOTGUN (Harri's ruling, 2026-10-27: "the amount of damage depends on vicinity and aim"),
-/// all of it data. Seven pellets in a cone whose half-angle has tangent 1/4 (~14 degrees), so
-/// neighbouring pellets drift 1/12 of a tile apart per tile flown. A tank is struck by a pellet
-/// passing within half a tile of its centre: all seven at 2 tiles, three at 6, one at 8. Vicinity
-/// IS the pellet count, with no falloff curve to double-count it. Range 6 is where the fan is
-/// still a few tiles wide; `max_travel` 8 is the "shortness of range", not a new mechanic.
-/// Per-pellet damage 3 (21 point-blank against a tank bolt's 8). FLAT (gravity zero) so a hill
-/// eats its pellets. Hull and speed are the tank's and the reload is tripled (a shot is seven
-/// bolts). All provisional: its own numbers are Harri's to set in a balance pass. Not buildable.
-inline constexpr std::int32_t kShotgunRangeRaw = 6 << 16;
+/// a CARRIED WEAPON's numbers rather than a unit kind's (A): it rides the driven craft like the
+/// rocket and the mortar, fired through `orders::FireFan`. Seven pellets in a cone whose
+/// half-angle has tangent 1/4 (~14 degrees), so neighbouring pellets drift 1/12 of a tile apart
+/// per tile flown. A tank is struck by a pellet passing within half a tile of its centre: all
+/// seven at 2 tiles, three at 6, one at 8. Vicinity IS the pellet count, with no falloff curve to
+/// double-count it. Range 6 is where the fan is still a few tiles wide; travel 8 is the
+/// "shortness of range", not a new mechanic. Per-pellet damage 3 (21 point-blank against a tank
+/// bolt's 8). FLAT (gravity zero) so a hill eats its pellets. The reload is tripled because a shot
+/// is seven bolts. All provisional: its own numbers are Harri's to set in a balance pass. B turns
+/// these constants into a weapon table keyed by a weapon id.
 inline constexpr std::int32_t kShotgunTravelRaw = 8 << 16;
 inline constexpr std::int32_t kShotgunConeRaw = Fixed::kOne / 4;
 inline constexpr std::uint16_t kShotgunPellets = 7;
 inline constexpr std::uint16_t kShotgunPelletDamage = 3;
+/// Ticks the shotgun reloads for: a shot is seven bolts, so three times the tank's cooldown.
+inline constexpr std::uint16_t kShotgunReloadTicks = kTankCooldownTicks * 3;
+
+/// THE SHOTGUN AS DATA (A): a weapon's spec, not a unit kind's. It is NOT a row in `kUnitSpecs`
+/// and has no `UnitKind`: it belongs to the carried weapon axis, and an order that fires it
+/// (`orders::FireFan`) reads this row. Its `range` is 6 tiles for the AI's engagement test; the
+/// pellets themselves fly `kShotgunTravelRaw` (8) before they fizzle. Hull and speed are the
+/// tank's because the SHOTGUN does not decide them -- the vehicle carrying it does; B moves these
+/// rows into a per-vehicle weapon table.
+inline constexpr UnitSpec kShotgunSpec{"shotgun",
+                                       kTankHp,
+                                       Fixed::from_raw(kTankSpeedRaw),
+                                       Fixed::from_raw(6 << 16),
+                                       kShotgunPelletDamage,
+                                       kShotgunReloadTicks,
+                                       Fixed::from_raw(kProjectileSpeedRaw),
+                                       Fixed::from_raw(kBoltArcRaw),
+                                       Fixed::from_raw(kShotgunTravelRaw),
+                                       Fixed::zero(),
+                                       Fixed::zero(),
+                                       false,
+                                       0,
+                                       0,
+                                       kShotgunPellets,
+                                       Fixed::from_raw(kShotgunConeRaw)};
 
 /// Indexed by the value of `UnitKind`, which stays the index type; the order below is the enum's.
 inline constexpr std::array<UnitSpec, static_cast<std::size_t>(kUnitKindCount)> kUnitSpecs{{
@@ -155,10 +181,6 @@ inline constexpr std::array<UnitSpec, static_cast<std::size_t>(kUnitKindCount)> 
      (kTankDamage + 1) / 2, kTankCooldownTicks / 3, Fixed::from_raw(kProjectileSpeedRaw),
      Fixed::from_raw(kBoltArcRaw), kBoltTravel, Fixed::zero(), Fixed::zero(), false, 45, 900, 0,
      Fixed::zero()},
-    {"shotgun", kTankHp, Fixed::from_raw(kTankSpeedRaw), Fixed::from_raw(kShotgunRangeRaw),
-     kShotgunPelletDamage, kTankCooldownTicks * 3, Fixed::from_raw(kProjectileSpeedRaw),
-     Fixed::from_raw(kBoltArcRaw), Fixed::from_raw(kShotgunTravelRaw), Fixed::zero(), Fixed::zero(),
-     false, 0, 0, kShotgunPellets, Fixed::from_raw(kShotgunConeRaw)},
 }};
 
 [[nodiscard]] constexpr const UnitSpec& spec_of(UnitKind kind) noexcept {

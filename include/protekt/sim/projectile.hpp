@@ -8,6 +8,11 @@
 
 namespace protekt::sim {
 
+/// Forward-declared: a launch may take a WEAPON's spec row (`spec.hpp`) instead of its shooter's
+/// kind's. Declared here as an incomplete type so this header does not have to include the spec
+/// table, which includes this header.
+struct UnitSpec;
+
 /// Whole tiles per second. Chosen so that a shot at the outer edge of the longest weapon range (a
 /// turret's 16 tiles) takes one second to arrive; a tank's 12 tiles takes three quarters of one.
 inline constexpr std::int32_t kProjectileSpeed = 16;
@@ -174,14 +179,25 @@ void retarget_aim(Unit& shooter, UnitId target) noexcept;
                                         UnitId aimed_at, std::uint16_t damage,
                                         std::uint64_t seed) noexcept;
 
-/// Appends the pellets of one shot to `into`: for a kind whose spec has more than one pellet, the
-/// aimed `bolt` is replaced by `pellets` copies of it, each turned about the map plane to its
-/// place in the cone (`pellet_fan`) at the same horizontal speed, with the same climb, damage and
-/// range; for any other kind, `bolt` itself, untouched. A pure function of the bolt and the kind's
-/// spec -- no RNG, no state -- so a replay fires the same pellets byte for byte. Pellets do not
-/// `learn`: seven simultaneous misses would teach the shooter's aim estimate seven lessons, and a
-/// scatter gun is not aimed with lead. Order is the fan's, left to right of the aim.
-void fan_out(const Projectile& bolt, UnitKind kind, std::vector<Projectile>& into) noexcept;
+/// The same launch with the WEAPON's spec instead of the shooter's kind's: the ballistics, gravity,
+/// splash and travel all come from `spec`, so a carried weapon's shot does not inherit the hull's
+/// numbers. This is what `orders::FireFan` fires with (`kShotgunSpec`); the overload above is the
+/// old path, `spec_of(shooter.kind)`.
+[[nodiscard]] Projectile launch_towards(const Unit& shooter, Fixed dir_x, Fixed dir_y, Fixed dir_z,
+                                        UnitId aimed_at, std::uint16_t damage, std::uint64_t seed,
+                                        const UnitSpec& spec) noexcept;
+
+/// Appends the pellets of one shot to `into`: when `pellets` is more than one, the aimed `bolt` is
+/// replaced by that many copies of it, each turned about the map plane to its place in the cone
+/// (`pellet_fan`) at the same horizontal speed, with the same climb, damage and range; otherwise
+/// `bolt` itself, untouched. The numbers are passed rather than looked up by kind, because a
+/// carried weapon's fan belongs to the WEAPON (`kShotgunSpec`), not to the hull that carries it.
+/// A pure function of the bolt and those two numbers -- no RNG, no state -- so a replay fires the
+/// same pellets byte for byte. Pellets do not `learn`: simultaneous misses would teach the
+/// shooter's aim estimate one lesson each, and a scatter gun is not aimed with lead. Order is the
+/// fan's, left to right of the aim.
+void fan_out(const Projectile& bolt, std::uint8_t pellets, Fixed cone_half_tan,
+             std::vector<Projectile>& into) noexcept;
 
 /// THE MORTAR'S CLIMB, the one place it is computed: the vertical speed (height units a tick) of a
 /// mortar shell that rises `rise` over a horizontal run of `run` (both Q16.16, any common scale;

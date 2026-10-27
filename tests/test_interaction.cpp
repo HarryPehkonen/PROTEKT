@@ -857,9 +857,10 @@ TEST(RightClick, WrapsBackToTheGunAndLeavesTheSelectionAlone) {
     Rig rig = make_rig();
     Interaction player{rig.tank_a};
     choose(rig, player, rig.tank_b);
-    // Every click of the wrap, not just the last one: "four clicks land back on the gun" is also
+    // Every click of the wrap, not just the last one: "the clicks land back on the gun" is also
     // true of a button that does nothing at all (found by sabotaging the switch).
-    const std::array<Weapon, 4> want{Weapon::Rocket, Weapon::Mortar, Weapon::Bouncer, Weapon::Gun};
+    const std::array<Weapon, 5> want{Weapon::Rocket, Weapon::Mortar, Weapon::Bouncer,
+                                     Weapon::Shotgun, Weapon::Gun};
     for (std::size_t click = 0; click < want.size(); ++click) {
         player.handle(with_click(ground_click(rig, true)), rig.sim, rig.options);
         EXPECT_EQ(player.weapon(), want.at(click)) << "click " << click;
@@ -1577,12 +1578,12 @@ namespace {
 
 } // namespace
 
-TEST(WeaponClick, TheRightButtonCyclesGunRocketMortarBouncerAndWrapsToTheGun) {
+TEST(WeaponClick, TheRightButtonCyclesGunRocketMortarBouncerShotgunAndWrapsToTheGun) {
     Rig rig = make_rig();
     Interaction player{rig.tank_a};
     EXPECT_EQ(player.weapon(), Weapon::Gun) << "the craft starts with the gun up";
     const std::array<Weapon, 5> expected{Weapon::Rocket, Weapon::Mortar, Weapon::Bouncer,
-                                         Weapon::Gun, Weapon::Rocket};
+                                         Weapon::Shotgun, Weapon::Gun};
     for (const Weapon want : expected) {
         player.handle(with_click(ground_click(rig, true)), rig.sim, rig.options);
         EXPECT_EQ(player.weapon(), want);

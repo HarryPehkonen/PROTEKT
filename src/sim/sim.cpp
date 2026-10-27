@@ -318,13 +318,32 @@ void apply_order(std::vector<Unit>& units, std::vector<Projectile>& projectiles,
                 const UnitId aimed_at = o->aimed_at == unit.id ? UnitId{} : o->aimed_at;
                 fan_out(
                     launch_towards(unit, o->dir_x, o->dir_y, o->dir_z, aimed_at, prof.damage, seed),
-                    unit.kind, projectiles);
+                    spec_of(unit.kind).pellets, spec_of(unit.kind).cone_half_tan, projectiles);
                 // The rule: the sim reports `Fired` for the shots it decided to make (gun fire); a
                 // player's manual shot is the app's to announce, with its own sound. So the Shot is
                 // recorded with NO target whatever `aimed_at` says -- a valid target here is what
                 // the observer turns into a Fired event, and the player would hear it twice.
                 shots.push_back(Sim::Shot{unit.id, UnitId{}});
                 unit.cooldown = prof.cooldown_ticks;
+            }
+        }
+        break;
+    case OrderKind::FireFan:
+        if (const auto* o = std::get_if<orders::FireFan>(&order.payload)) {
+            // THE SHOTGUN'S TRIGGER (A): FireTowards' rules -- armed, mounted, reloaded, no naming
+            // oneself, no Fired event -- with the WEAPON's own numbers from `kShotgunSpec`: its
+            // per-pellet damage, its pellet count and cone, its flat flight and its tripled reload.
+            // The order carries the aim only; the balance numbers are the spec row's, so retuning
+            // the gun does not change what a recorded battle meant (as with FireLob and the
+            // mortar).
+            const UnitSpec& gun = kShotgunSpec;
+            if (gun.damage > 0 && gun.pellets > 1 && unit.cooldown == 0 && is_mounted(unit)) {
+                const UnitId aimed_at = o->aimed_at == unit.id ? UnitId{} : o->aimed_at;
+                fan_out(launch_towards(unit, o->dir_x, o->dir_y, o->dir_z, aimed_at, gun.damage,
+                                       seed, gun),
+                        gun.pellets, gun.cone_half_tan, projectiles);
+                shots.push_back(Sim::Shot{unit.id, UnitId{}});
+                unit.cooldown = gun.cooldown;
             }
         }
         break;
@@ -1027,7 +1046,8 @@ void Sim::step() {
             continue;
         }
         retarget_aim(unit, best->id);
-        fan_out(launch(unit, *best, prof.damage, seed), unit.kind, projectiles_);
+        fan_out(launch(unit, *best, prof.damage, seed), spec_of(unit.kind).pellets,
+                spec_of(unit.kind).cone_half_tan, projectiles_);
         shots_.push_back(Shot{unit.id, best->id});
         unit.cooldown = prof.cooldown_ticks;
         // The focus is spent by the shot it names: one click, one bolt. Whoever it was fired at,

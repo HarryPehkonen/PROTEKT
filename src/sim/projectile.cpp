@@ -345,7 +345,14 @@ bool has_line(const Unit& shooter, const Unit& target, std::uint64_t seed) noexc
 
 Projectile launch_towards(const Unit& shooter, Fixed dir_x, Fixed dir_y, Fixed dir_z,
                           UnitId aimed_at, std::uint16_t damage, std::uint64_t seed) noexcept {
-    const std::int64_t bolt_speed = spec_of(shooter.kind).bolt_speed.raw;
+    return launch_towards(shooter, dir_x, dir_y, dir_z, aimed_at, damage, seed,
+                          spec_of(shooter.kind));
+}
+
+Projectile launch_towards(const Unit& shooter, Fixed dir_x, Fixed dir_y, Fixed dir_z,
+                          UnitId aimed_at, std::uint16_t damage, std::uint64_t seed,
+                          const UnitSpec& spec) noexcept {
+    const std::int64_t bolt_speed = spec.bolt_speed.raw;
     std::int64_t dx = dir_x.raw;
     std::int64_t dy = dir_y.raw;
     std::int64_t dz = dir_z.raw;
@@ -374,9 +381,9 @@ Projectile launch_towards(const Unit& shooter, Fixed dir_x, Fixed dir_y, Fixed d
     bolt.vx = Fixed::from_raw(static_cast<std::int32_t>(aim_x + shooter.vx.raw));
     bolt.vy = Fixed::from_raw(static_cast<std::int32_t>(aim_y + shooter.vy.raw));
     bolt.vz = Fixed::from_raw(static_cast<std::int32_t>(aim_z));
-    bolt.gravity = spec_of(shooter.kind).gravity;
-    bolt.splash_radius = spec_of(shooter.kind).splash_radius;
-    bolt.max_travel = spec_of(shooter.kind).max_travel;
+    bolt.gravity = spec.gravity;
+    bolt.splash_radius = spec.splash_radius;
+    bolt.max_travel = spec.max_travel;
     bolt.shooter = shooter.id;
     bolt.side = shooter.side;
     bolt.aimed_at = aimed_at; // intent only: the velocity above never looked at it
@@ -398,16 +405,15 @@ static_assert(pellet_counts_fit(), "a spec asks for more pellets than the fan ha
 
 } // namespace
 
-void fan_out(const Projectile& bolt, UnitKind kind, std::vector<Projectile>& into) noexcept {
-    const UnitSpec& weapon = spec_of(kind);
-    if (weapon.pellets <= 1) {
+void fan_out(const Projectile& bolt, std::uint8_t pellets, Fixed cone_half_tan,
+             std::vector<Projectile>& into) noexcept {
+    if (pellets <= 1) {
         into.push_back(bolt);
         return;
     }
     const std::int64_t hspeed = isqrt(static_cast<std::int64_t>(bolt.vx.raw) * bolt.vx.raw
                                       + static_cast<std::int64_t>(bolt.vy.raw) * bolt.vy.raw);
-    const PelletFan fan
-        = pellet_fan(Fixed2D{bolt.vx, bolt.vy}, weapon.pellets, weapon.cone_half_tan);
+    const PelletFan fan = pellet_fan(Fixed2D{bolt.vx, bolt.vy}, pellets, cone_half_tan);
     for (int i = 0; i < fan.count; ++i) {
         const Fixed2D dir = fan.dir.at(static_cast<std::size_t>(i));
         Projectile pellet = bolt;

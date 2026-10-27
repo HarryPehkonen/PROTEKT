@@ -43,13 +43,9 @@ enum class UnitKind : std::uint8_t {
     /// after DeployedRecycler, never inserted, for the reason every kind above was: the kind is
     /// hashed, packed into observations and serialised in replays. What it is FOR is the game
     /// layer's: its radar reaches twice as far as any other kind's (`viewer_radar_radius`).
-    Scout = 9,
-    /// The scatter gun: a fan of flat pellets in a cone, short of reach. Appended after Scout,
-    /// never inserted, for the reason every kind above was: the kind is hashed, packed into
-    /// observations and serialised in replays. Its shape is data in `kUnitSpecs`.
-    Shotgun = 10
+    Scout = 9
 };
-inline constexpr int kUnitKindCount = 11;
+inline constexpr int kUnitKindCount = 10;
 
 /// Tanks and hover tanks: every rule written "for a tank" (orders, retreat, defend, swap, the AI's
 /// hunters) takes both. The hover tank has the tank's profile and, until it is drivable, its

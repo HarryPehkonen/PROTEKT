@@ -2327,7 +2327,7 @@ constexpr float kShipGaugeAmmoNumberBelow = 0.012F; ///< the ammo number, below 
 /// band by 2.3 px (its plate still tucks 0.6 px under the arc, where the arc covers it).
 constexpr float kShipGaugeNumberRight = 0.030F; ///< both right-aligned to centre + this
 
-/// THE WEAPON LIST: the four carried weapons beside the ring, top to bottom in `kDrivenWeapons`
+/// THE WEAPON LIST: the carried weapons beside the ring, top to bottom in `kDrivenWeapons`
 /// order, one row each, the active one on a green bar. row_y(i) = cy + (i - 1.5) * pitch, so the
 /// four rows straddle the ring's own centre line, two above it and two below.
 constexpr float kShipGaugeRowPitchCells = 8.0F;
@@ -2348,11 +2348,12 @@ constexpr std::array<float, 3> kShipGaugeActiveBar{0.16F, 0.42F, 0.18F};
 /// (weapon.hpp:75), so the reticle's SHAPE stays the shape cue and this disc is only a second,
 /// coarser cue beside the name. Indexed by the row's position in `kDrivenWeapons`, never by the
 /// enum's own value, so the table and the list can never fall out of step.
-constexpr std::array<std::array<float, 3>, 4> kShipGaugeIconColour{
+constexpr std::array<std::array<float, 3>, 5> kShipGaugeIconColour{
     {{{0.55F, 0.90F, 0.55F}},   // gun
      {{0.95F, 0.55F, 0.25F}},   // rocket
      {{0.95F, 0.85F, 0.30F}},   // mortar
-     {{0.45F, 0.70F, 0.95F}}}}; // bouncer
+     {{0.45F, 0.70F, 0.95F}},   // bouncer
+     {{0.90F, 0.45F, 0.80F}}}}; // shotgun
 
 void append_ship_gauge(std::vector<SceneVertex>& out, const SceneOptions& options,
                        const sim::Sim& sim) {
@@ -2507,7 +2508,12 @@ void append_ship_gauge(std::vector<SceneVertex>& out, const SceneOptions& option
     const float icon_radius = kShipGaugeIconRadiusFraction * frame_h;
     const float bar_half = kShipGaugeActiveBarHeightCells * 0.5F * cell;
     for (std::size_t row = 0; row < kDrivenWeapons.size(); ++row) {
-        const float row_y = cy + ((static_cast<float>(row) - 1.5F) * pitch);
+        // Centred on the ring: the list's middle row sits at the ring's own centre. With an even
+        // count the centre falls between two rows; with an odd one it lands on a row.
+        const float row_y = cy
+                            + ((static_cast<float>(row)
+                                - (static_cast<float>(kDrivenWeapons.size()) - 1.0F) * 0.5F)
+                               * pitch);
         const bool active = kDrivenWeapons.at(row) == options.weapon;
         const std::string_view name = weapon_name(kDrivenWeapons.at(row));
         const float name_width = text_width(name.size());

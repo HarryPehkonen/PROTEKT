@@ -159,6 +159,15 @@ void Interaction::handle(const input::InputFrame& frame, const sim::Sim& sim,
                                          named ? hit->id : sim::UnitId{}, to_fixed(barrel.at(1)),
                                          weapon_ == Weapon::Bouncer ? sim::Round::Bounce
                                                                     : sim::Round::Contact}});
+            } else if (weapon_ == Weapon::Shotgun) {
+                // THE SCATTER GUN (A): the same aim as the gun's trigger, a different shot -- the
+                // sim reads `kShotgunSpec` for the pellet count, cone and per-pellet damage. It is
+                // aimed along the same ray as the gun's (shot_direction), so a shotgun and a gun
+                // hit the same point at the same pitch; only the fan about that point differs.
+                pending_.push_back(sim::Order{
+                    driven_,
+                    sim::orders::FireFan{to_fixed(dir.at(0)), to_fixed(dir.at(2)),
+                                         named ? hit->id : sim::UnitId{}, to_fixed(dir.at(1))}});
             } else {
                 pending_.push_back(sim::Order{
                     driven_, sim::orders::FireTowards{to_fixed(dir.at(0)), to_fixed(dir.at(2)),

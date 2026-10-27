@@ -122,15 +122,18 @@ TEST(Shotgun, AWiderCountDoesNotWidenTheCone) {
 
 constexpr std::uint64_t kSeed = 42;
 
-TEST(Shotgun, TheSpecRowIsAFlatShortRangedFan) {
-    const UnitSpec& s = spec_of(UnitKind::Shotgun);
-    EXPECT_EQ(static_cast<int>(UnitKind::Shotgun), 10) << "appended: no earlier index moves";
+TEST(Shotgun, TheWeaponSpecIsAFlatShortRangedFan) {
+    // A is the carried weapon's row: `kShotgunSpec`, NOT a row in `kUnitSpecs`. It is not a kind,
+    // so there is no index to pin; the numbers are the tank's hull around a scatter gun's shot.
+    const UnitSpec& s = kShotgunSpec;
     EXPECT_EQ(s.gravity.raw, 0) << "flat, or a hill cannot eat its pellets";
     EXPECT_GT(s.pellets, 1);
     EXPECT_LE(s.pellets, kMaxPellets);
     EXPECT_GT(s.cone_half_tan.raw, 0);
     EXPECT_GT(s.max_travel.raw, s.range.raw) << "a stray pellet outlives the aim, as a bolt does";
     EXPECT_LT(s.max_travel.raw, spec_of(UnitKind::Tank).max_travel.raw) << "short of reach";
+    EXPECT_EQ(s.damage, static_cast<std::uint16_t>(kShotgunPelletDamage))
+        << "damage is PER PELLET, not the hull's 8";
 }
 
 struct Level {
@@ -187,8 +190,8 @@ struct Volley {
     std::vector<Projectile> bolts;
     const Projectile aimed
         = launch_towards(v.units[0], Fixed::from_int(1), Fixed::zero(), Fixed::zero(), UnitId{},
-                         spec_of(UnitKind::Shotgun).damage, kSeed);
-    fan_out(aimed, UnitKind::Shotgun, bolts);
+                         kShotgunSpec.damage, kSeed, kShotgunSpec);
+    fan_out(aimed, kShotgunSpec.pellets, kShotgunSpec.cone_half_tan, bolts);
     v.pellets = bolts.size();
     for (int tick = 0; tick < 400 && !bolts.empty(); ++tick) {
         advance_projectiles(bolts, v.units, v.impacts, v.landings, kSeed);
@@ -203,18 +206,18 @@ struct Volley {
 TEST(Shotgun, AShotIsAsManyPelletsAsTheSpecSays) {
     const Level at = find_level_row(12);
     ASSERT_TRUE(at.found);
-    const Volley v = fire_east({make_unit(1, UnitKind::Shotgun, Side::Player, at, 0, 0)});
-    EXPECT_EQ(v.pellets, static_cast<std::size_t>(spec_of(UnitKind::Shotgun).pellets));
+    const Volley v = fire_east({make_unit(1, UnitKind::Tank, Side::Player, at, 0, 0)});
+    EXPECT_EQ(v.pellets, static_cast<std::size_t>(kShotgunSpec.pellets));
 }
 
 TEST(Shotgun, ATargetInsideTheConeAtCloseRangeTakesDamageAndFarOutOfReachDoesNot) {
     const Level at = find_level_row(12);
     ASSERT_TRUE(at.found);
-    const Volley close = fire_east({make_unit(1, UnitKind::Shotgun, Side::Player, at, 0, 0),
+    const Volley close = fire_east({make_unit(1, UnitKind::Tank, Side::Player, at, 0, 0),
                                     make_unit(2, UnitKind::Tank, Side::Enemy, at, 2 * kTile, 0)});
-    const Volley medium = fire_east({make_unit(1, UnitKind::Shotgun, Side::Player, at, 0, 0),
+    const Volley medium = fire_east({make_unit(1, UnitKind::Tank, Side::Player, at, 0, 0),
                                      make_unit(2, UnitKind::Tank, Side::Enemy, at, 6 * kTile, 0)});
-    const Volley far = fire_east({make_unit(1, UnitKind::Shotgun, Side::Player, at, 0, 0),
+    const Volley far = fire_east({make_unit(1, UnitKind::Tank, Side::Player, at, 0, 0),
                                   make_unit(2, UnitKind::Tank, Side::Enemy, at, 11 * kTile, 0)});
     EXPECT_GT(lost(close, 1), 0);
     EXPECT_GT(lost(medium, 1), 0);
@@ -228,11 +231,11 @@ TEST(Shotgun, ATargetOffTheAxisButInsideTheConeIsHitAndOneOutsideIsNot) {
     ASSERT_TRUE(at.found);
     // Four tiles out, 0.7 tiles north: a tangent of 0.175, inside the 0.25 cone.
     const Volley inside
-        = fire_east({make_unit(1, UnitKind::Shotgun, Side::Player, at, 0, 0),
+        = fire_east({make_unit(1, UnitKind::Tank, Side::Player, at, 0, 0),
                      make_unit(2, UnitKind::Tank, Side::Enemy, at, 4 * kTile, kTile * 7 / 10)});
     // The same distance, 2.5 tiles north: a tangent of 0.625, far outside it.
     const Volley outside
-        = fire_east({make_unit(1, UnitKind::Shotgun, Side::Player, at, 0, 0),
+        = fire_east({make_unit(1, UnitKind::Tank, Side::Player, at, 0, 0),
                      make_unit(2, UnitKind::Tank, Side::Enemy, at, 4 * kTile, kTile * 5 / 2)});
     EXPECT_GT(lost(inside, 1), 0) << "you need not aim exactly at the target";
     EXPECT_EQ(lost(outside, 1), 0);
@@ -267,7 +270,7 @@ TEST(Shotgun, ATargetOffTheAxisButInsideTheConeIsHitAndOneOutsideIsNot) {
 TEST(Shotgun, AHillBetweenShooterAndTargetEatsEveryPellet) {
     const Level at = find_hill_between(6);
     ASSERT_TRUE(at.found) << "seed 42 offers no hill to hide behind in six tiles";
-    const Volley v = fire_east({make_unit(1, UnitKind::Shotgun, Side::Player, at, 0, 0),
+    const Volley v = fire_east({make_unit(1, UnitKind::Tank, Side::Player, at, 0, 0),
                                 make_unit(2, UnitKind::Tank, Side::Enemy, at, 6 * kTile, 0)});
     EXPECT_EQ(lost(v, 1), 0);
     EXPECT_TRUE(v.impacts.empty()) << "pellets stopped by ground report no impact";
@@ -276,10 +279,10 @@ TEST(Shotgun, AHillBetweenShooterAndTargetEatsEveryPellet) {
 TEST(Shotgun, ALargeFriendlyInThePathTakesThePelletsAndShieldsTheEnemyBehindIt) {
     const Level at = find_level_row(12);
     ASSERT_TRUE(at.found);
-    const Volley open = fire_east({make_unit(1, UnitKind::Shotgun, Side::Player, at, 0, 0),
+    const Volley open = fire_east({make_unit(1, UnitKind::Tank, Side::Player, at, 0, 0),
                                    make_unit(2, UnitKind::Tank, Side::Enemy, at, 5 * kTile, 0)});
     const Volley shielded
-        = fire_east({make_unit(1, UnitKind::Shotgun, Side::Player, at, 0, 0),
+        = fire_east({make_unit(1, UnitKind::Tank, Side::Player, at, 0, 0),
                      make_unit(2, UnitKind::Tank, Side::Enemy, at, 5 * kTile, 0),
                      make_unit(3, UnitKind::Factory, Side::Player, at, 3 * kTile, 0)});
     ASSERT_GT(lost(open, 1), 0) << "the control: unshielded, the enemy is hit";
@@ -332,7 +335,7 @@ TEST(Shotgun, ABoltNeverHitsADeadUnitOrItsOwnShooter) {
         spawn.tile_y = 100;
         scenario.spawns.push_back(spawn);
     };
-    add(Side::Player, UnitKind::Shotgun, 100);
+    add(Side::Player, UnitKind::Tank, 100);
     add(Side::Enemy, UnitKind::Factory, 103);
     return Sim::create(scenario);
 }
@@ -349,7 +352,7 @@ TEST(Shotgun, TheSameShotFromTheSameStateHasTheSameImpactsAndHash) {
         ASSERT_EQ(a.impacts().size(), b.impacts().size());
         any_impact = any_impact || !a.impacts().empty();
     }
-    EXPECT_TRUE(any_impact) << "the duel must actually fire pellets";
+    EXPECT_TRUE(any_impact) << "the duel must actually fire";
 }
 
 TEST(Shotgun, ASimWithNoShotgunHashesAsItDidBeforeTheKindExisted) {

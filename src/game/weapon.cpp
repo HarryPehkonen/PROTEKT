@@ -32,6 +32,8 @@ std::string_view weapon_name(Weapon weapon) noexcept {
         return "MORTAR";
     case Weapon::Bouncer:
         return "BOUNCER";
+    case Weapon::Shotgun:
+        return "SHOTGUN";
     }
     return "GUN";
 }
@@ -95,6 +97,8 @@ std::string_view trigger_refusal(Weapon weapon, const sim::Unit& unit) noexcept 
         return "the mortar is reloading.";
     case Weapon::Bouncer:
         return "the bouncer is reloading.";
+    case Weapon::Shotgun:
+        return "the shotgun is reloading.";
     }
     return "the weapon is reloading.";
 }
@@ -102,6 +106,7 @@ std::string_view trigger_refusal(Weapon weapon, const sim::Unit& unit) noexcept 
 ReticleShape reticle_for(Weapon weapon, float pitch) noexcept {
     switch (weapon) {
     case Weapon::Gun:
+    case Weapon::Shotgun:
         return ReticleShape{ReticleKind::FourTicks, 0};
     case Weapon::Rocket:
         return ReticleShape{ReticleKind::Heavy, 0};

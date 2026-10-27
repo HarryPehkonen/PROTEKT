@@ -373,12 +373,15 @@ TEST(Bouncer, TwoSameSeedRunsAreByteIdentical) {
 
 // --- the fourth weapon ------------------------------------------------------------------------
 
-TEST(Bouncer, IsTheFourthDrivenWeaponAndTheRightClickWrapsOverIt) {
+TEST(Bouncer, IsTheFourthOfFiveDrivenWeaponsAndTheRightClickWrapsPastIt) {
     using game::Weapon;
-    ASSERT_EQ(game::kDrivenWeapons.size(), 4U);
+    // A made the shotgun a carried weapon too, so the set is five; the bouncer keeps its slot
+    // (fourth, index 3) and the click now walks on to the shotgun before wrapping to the gun.
+    ASSERT_EQ(game::kDrivenWeapons.size(), 5U);
     EXPECT_EQ(game::kDrivenWeapons.at(3), Weapon::Bouncer);
     EXPECT_EQ(game::next_weapon(Weapon::Mortar), Weapon::Bouncer);
-    EXPECT_EQ(game::next_weapon(Weapon::Bouncer), Weapon::Gun) << "the right click wraps";
+    EXPECT_EQ(game::next_weapon(Weapon::Bouncer), Weapon::Shotgun);
+    EXPECT_EQ(game::next_weapon(Weapon::Shotgun), Weapon::Gun) << "the right click wraps";
     EXPECT_EQ(game::weapon_name(Weapon::Bouncer), "BOUNCER");
     const game::ReticleShape shape = game::reticle_for(Weapon::Bouncer, 0.6F);
     EXPECT_EQ(shape.kind, game::ReticleKind::Ladder);

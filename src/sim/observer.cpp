@@ -394,6 +394,8 @@ const char* to_string(OrderKind kind) noexcept {
         return "deploy";
     case OrderKind::Recycle:
         return "recycle";
+    case OrderKind::FireFan:
+        return "firefan";
     }
     return "unknown";
 }
