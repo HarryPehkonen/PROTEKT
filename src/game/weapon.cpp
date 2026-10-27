@@ -22,6 +22,20 @@ Weapon next_weapon(Weapon current) noexcept {
     return kDrivenWeapons.front();
 }
 
+Weapon next_weapon(sim::UnitKind kind, Weapon current) noexcept {
+    const WeaponLineup lineup = weapon_lineup(kind);
+    if (lineup.count == 0) {
+        return kDrivenWeapons.front(); // unreachable while the static_assert below holds
+    }
+    for (std::size_t i = 0; i < lineup.count; ++i) {
+        if (lineup.weapons.at(i) == current) {
+            return lineup.weapons.at((i + 1) % lineup.count);
+        }
+    }
+    // A weapon this kind does not carry (a stale selection after a swap) gives the first it does.
+    return lineup.weapons.front();
+}
+
 std::string_view weapon_name(Weapon weapon) noexcept {
     switch (weapon) {
     case Weapon::Gun:
@@ -116,5 +130,19 @@ ReticleShape reticle_for(Weapon weapon, float pitch) noexcept {
     }
     return ReticleShape{};
 }
+
+// THE LINEUP CAN NEVER BE EMPTY. A block row that denied every weapon would leave a drivable hull
+// with nothing to fire, and the right button with nothing to walk. The table is checked at compile
+// time, so the first row that does it fails the build rather than the game.
+static_assert(
+    [] {
+        for (int kind = 0; kind < sim::kUnitKindCount; ++kind) {
+            if (weapon_lineup(static_cast<sim::UnitKind>(kind)).count == 0) {
+                return false;
+            }
+        }
+        return true;
+    }(),
+    "every unit kind must keep at least one carried weapon");
 
 } // namespace protekt::game

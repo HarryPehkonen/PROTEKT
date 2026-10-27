@@ -2508,6 +2508,12 @@ void append_ship_gauge(std::vector<SceneVertex>& out, const SceneOptions& option
     const float icon_radius = kShipGaugeIconRadiusFraction * frame_h;
     const float bar_half = kShipGaugeActiveBarHeightCells * 0.5F * cell;
     for (std::size_t row = 0; row < kDrivenWeapons.size(); ++row) {
+        // B: a hull blocked from a weapon never offers it. The row keeps its slot in the pitch
+        // ladder rather than the list re-centring, so a block leaves a gap instead of moving every
+        // row the player has learned. Nothing is blocked today; the check is the seam.
+        if (viewer != nullptr && !weapon_allowed(viewer->kind, kDrivenWeapons.at(row))) {
+            continue;
+        }
         // Centred on the ring: the list's middle row sits at the ring's own centre. With an even
         // count the centre falls between two rows; with an odd one it lands on a row.
         const float row_y = cy

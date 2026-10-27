@@ -105,7 +105,12 @@ void Interaction::handle(const input::InputFrame& frame, const sim::Sim& sim,
             // button used to give live on the keys: `G` (send to a mark), `M` (move to the ground
             // under the mark), `T` (attack what the mark is on), `F` (follow). A weapon change
             // cancels nothing, so a pending `G` or `T` stays armed across it.
-            weapon_ = next_weapon(weapon_);
+            // A carried weapon belongs to the HULL, so the click walks the DRIVEN kind's lineup
+            // (B): a hull that is blocked from a weapon never offers it. With no hull in hand --
+            // a headless frame or nothing driven -- it walks the whole set, which every kind
+            // carries today anyway.
+            const sim::Unit* driven = sim.find(driven_);
+            weapon_ = driven != nullptr ? next_weapon(driven->kind, weapon_) : next_weapon(weapon_);
             continue;
         }
         if (!options.aim.has_value()) {
@@ -432,6 +437,12 @@ void Interaction::swap_to_crosshair(const sim::Sim& sim, const SceneOptions& opt
         remembered_.erase(vacated); // a Stop forgets; remember() skips the driven tank, as it was
         pending_.insert(pending_.end(), stop.begin(), stop.end());
         driven_ = hit->id;
+        // A hull may be blocked from the weapon the old one had up: the selection must never name
+        // a weapon this kind cannot carry, so it falls to the first the new kind allows. Nothing is
+        // blocked today, so this is a no-op until the first row lands in `kWeaponBlocks`.
+        if (!weapon_allowed(hit->kind, weapon_)) {
+            weapon_ = weapon_lineup(hit->kind).weapons.front();
+        }
         message_ = "swapped -- you are driving the unit you were looking at.";
     }
 }

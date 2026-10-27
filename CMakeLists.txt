@@ -307,6 +307,7 @@ if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
                                         tests/test_command.cpp
                                         tests/test_pick.cpp tests/test_input.cpp
                                         tests/test_interaction.cpp tests/test_bindings.cpp
+                                        tests/test_weapon_lineup.cpp
                                         tests/test_session.cpp tests/test_navigate.cpp
                                         tests/test_utility.cpp tests/test_time_accumulator.cpp
                                         tests/test_audio_pipeline.cpp tests/test_m5.cpp tests/test_nav_marks.cpp tests/test_send_to_mark.cpp tests/test_row_slots.cpp tests/test_row_move.cpp tests/test_targets.cpp tests/test_world_map.cpp tests/test_player_view.cpp tests/test_game_presenter.cpp

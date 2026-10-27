@@ -3,6 +3,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <span>
 #include <string_view>
 
 #include "protekt/sim/sim.hpp"
@@ -25,6 +26,72 @@ inline constexpr std::array<Weapon, 5> kDrivenWeapons{Weapon::Gun, Weapon::Rocke
 /// the first. The right button's one step: a weapon change is a click, and the wheel and `Q` that
 /// used to do this were removed on the owner's call (2026-10-23).
 [[nodiscard]] Weapon next_weapon(Weapon current) noexcept;
+
+/// A VEHICLE'S WEAPON LINEUP (B). Harri's rule: every weapon is available to every vehicle, except
+/// that he eventually wants to block some vehicles from some weapons. So the default is the whole
+/// carried set, and a row here takes weapons AWAY from one kind. A row cannot add a weapon the game
+/// does not carry; it can only express "not this hull". An empty table means every kind carries
+/// everything, which is the state today.
+///
+/// This is configuration only -- the sim still knows nothing about which weapon a hull carries. The
+/// trigger sends the order for the weapon that is up (`FireFan` for the shotgun, `FireLob` for the
+/// mortar and bouncer, `FireTowards` otherwise), so a lineup decides what a player can SELECT, and
+/// the order decides what the sim FIRES. Armory pickups (C) are what will make the sim track it.
+struct WeaponBlock {
+    sim::UnitKind kind{};
+    std::span<const Weapon> denied{};
+};
+
+/// No vehicle is blocked from any weapon today. Rows go here as balance asks for them, e.g.
+/// `{sim::UnitKind::Scout, kScoutBlocked}` where `kScoutBlocked` names the weapons it may not take.
+inline constexpr std::array<WeaponBlock, 0> kWeaponBlocks{};
+
+/// A kind's lineup, in the order the right button walks it: `kDrivenWeapons` without what the kind
+/// is blocked from. Returned BY VALUE (five entries at most) so a caller can iterate it without a
+/// lifetime trap and without a second table to drift from `kDrivenWeapons`.
+struct WeaponLineup {
+    std::array<Weapon, kDrivenWeapons.size()> weapons{};
+    std::size_t count{};
+};
+
+/// May `kind` carry `weapon`? True for every kind and weapon while `kWeaponBlocks` is empty.
+/// Defined here rather than in weapon.cpp so every translation unit that asks has the definition
+/// (a constexpr function cannot be declared here and defined in one .cpp).
+[[nodiscard]] constexpr bool weapon_allowed(sim::UnitKind kind, Weapon weapon) noexcept {
+    // A block row names one hull and the weapons it may NOT take. No row today: every kind carries
+    // everything. A row cannot add a weapon, only remove one, so `kDrivenWeapons` stays the single
+    // definition of what the game carries at all.
+    for (const WeaponBlock& block : kWeaponBlocks) {
+        if (block.kind != kind) {
+            continue;
+        }
+        for (const Weapon denied : block.denied) {
+            if (denied == weapon) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+/// The weapons `kind` may carry, in click order. Never empty: the block table cannot deny every
+/// weapon without failing its own check (`static_assert` in weapon.cpp).
+[[nodiscard]] constexpr WeaponLineup weapon_lineup(sim::UnitKind kind) noexcept {
+    WeaponLineup lineup{};
+    for (const Weapon weapon : kDrivenWeapons) {
+        if (weapon_allowed(kind, weapon)) {
+            lineup.weapons.at(lineup.count) = weapon;
+            ++lineup.count;
+        }
+    }
+    return lineup;
+}
+
+/// The next weapon THIS KIND may carry, wrapping at the end of its own lineup; a weapon the kind is
+/// blocked from (or one it no longer carries) gives the first it may carry. This is the click the
+/// player's right button makes. The kind-free overload above stays for callers with no hull in
+/// hand.
+[[nodiscard]] Weapon next_weapon(sim::UnitKind kind, Weapon current) noexcept;
 
 /// The HUD's name for a weapon: GUN, ROCKET, MORTAR, BOUNCER, SHOTGUN.
 [[nodiscard]] std::string_view weapon_name(Weapon weapon) noexcept;
