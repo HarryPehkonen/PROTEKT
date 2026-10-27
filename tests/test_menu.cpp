@@ -24,6 +24,7 @@
 #include <vector>
 
 #include "protekt/game/pick.hpp"
+#include "protekt/game/radar.hpp"
 #include "protekt/game/row.hpp"
 #include "protekt/game/scene.hpp"
 #include "protekt/sim/scenario.hpp"
@@ -521,8 +522,12 @@ void expect_same_frame(const Scene& want, const Scene& got, std::string_view wha
     return project(options.camera, options.extent, v.position[0], v.position[1], v.position[2]);
 }
 
-/// The leader line is one quad.
+/// The leader line is one quad in a frame with no radar to lead to (the menu rig has no viewer).
 constexpr std::size_t kLineVertices = 6U;
+/// With a radar and a selected unit it is three (down, along, down) and a dot: a fan of eight
+/// triangles round the blip, whose FIRST vertex is always the centre.
+constexpr std::size_t kLegVertices = 3U * kLineVertices;
+constexpr std::size_t kDotVertices = std::size_t{8} * 3U;
 constexpr std::array<float, 3> kOutline{0.0F, 0.0F, 0.0F};
 
 /// What `append_hud_panels` lays the menu out with, in this rig's frame pixels: the strip's 6 px
@@ -1197,6 +1202,214 @@ TEST(Menu, DrawnTheLeaderLineIsTheLedgerAmberDrawnOverTheBars) {
     }
     EXPECT_GT(top, state_row_bottom) << "the line starts inside the state row";
     EXPECT_LT(top, second_row_top) << "the line starts below the second row";
+}
+
+// THE LEG (MENU-LEG): the line leaves the menu, runs along the radar's top edge and lands on the
+// selected unit's blip. The blip is the RADAR's: these tests ask `radar_marks` -- the call the
+// radar itself makes -- where the unit is, so a leader that projected the unit on its own would
+// miss.
+
+TEST(Menu, LaidOutTheLeaderTurnsSquareAlongTheRadarsTopAndEndsOnTheBlip) {
+    const MenuLayout layout = menu_layout(column_rows(), 6.0F, 65.0F, 2.0F);
+    ASSERT_TRUE(layout.has_line);
+    const float gutter = (layout.line_left + layout.line_right) * 0.5F;
+    constexpr float kRadarTop = 578.0F;
+    using Point = std::array<float, 2>;
+    for (const Point blip : {Point{200.0F, 640.0F}, Point{gutter - 9.0F, 600.0F}}) {
+        // Down the gutter without a jog, along the top edge (right, or left for a blip left of the
+        // gutter), down onto the blip: three straight segments, and the dot on the last corner.
+        const MenuLeader led = menu_leader(layout, kRadarTop, blip);
+        ASSERT_EQ(led.points.size(), 4U);
+        EXPECT_TRUE(led.dot);
+        EXPECT_EQ(led.points.at(0), (Point{gutter, layout.line_top}));
+        EXPECT_EQ(led.points.at(1), (Point{gutter, kRadarTop}));
+        EXPECT_EQ(led.points.at(2), (Point{blip.at(0), kRadarTop}));
+        EXPECT_EQ(led.points.at(3), blip);
+    }
+    // Nothing selected: down to the radar's top edge, and it stops there. No dot.
+    const MenuLeader bare = menu_leader(layout, kRadarTop, std::nullopt);
+    ASSERT_EQ(bare.points.size(), 2U);
+    EXPECT_FALSE(bare.dot);
+    EXPECT_EQ(bare.points.back(), (Point{gutter, kRadarTop}));
+    // No radar (the world map is up, or there is no viewer): MENU-READ's line, ending a cell under
+    // the last row, whatever is selected.
+    const MenuLeader menu_only = menu_leader(layout, std::nullopt, Point{200.0F, 640.0F});
+    ASSERT_EQ(menu_only.points.size(), 2U);
+    EXPECT_FALSE(menu_only.dot);
+    EXPECT_EQ(menu_only.points.back(), (Point{gutter, layout.line_bottom}));
+    // A lone row has no line to extend.
+    const std::vector<MenuRow> lone{column_rows().front()};
+    EXPECT_TRUE(menu_leader(menu_layout(lone, 6.0F, 65.0F, 2.0F), kRadarTop, Point{200.0F, 640.0F})
+                    .points.empty());
+}
+
+/// The menu rig with a radar: centred on the player's first tank, and one of the player's other
+/// units -- one the radar marks as a dot -- selected.
+struct LegRig {
+    SceneOptions options{menu_rig()};
+    std::vector<sim::UnitId> selected;
+};
+
+/// The radar's marks for `rig`'s frame, by the call `append_radar` makes.
+[[nodiscard]] std::vector<RadarMark> rig_marks(const SceneOptions& options) {
+    const sim::Sim& sim = skirmish_sim();
+    return radar_marks(sim.units(), options.viewer_unit, options.camera.yaw,
+                       radar_panel(options.extent), viewer_radar_radius(sim, options.viewer_unit));
+}
+
+[[nodiscard]] LegRig leg_rig() {
+    LegRig rig;
+    for (const sim::Unit& unit : skirmish_sim().units()) {
+        if (unit.alive && unit.side == sim::Side::Player && unit.kind == sim::UnitKind::Tank) {
+            rig.options.viewer_unit = unit.id;
+            break;
+        }
+    }
+    for (const RadarMark& mark : rig_marks(rig.options)) {
+        if (mark.shape == RadarShape::Square && mark.tone == RadarTone::Yours) {
+            rig.selected.push_back(mark.unit);
+            break;
+        }
+    }
+    return rig;
+}
+
+/// What the menu adds to `rig`'s frame, with its selection: the tail, as `menu_vertices` takes it.
+[[nodiscard]] std::vector<SceneVertex> leg_vertices(const std::vector<MenuRow>& rows,
+                                                    const LegRig& rig) {
+    const Scene without = build_scene(skirmish_sim(), rig.options, rig.selected);
+    SceneOptions options = rig.options;
+    options.show_menu = true;
+    options.menu = &rows;
+    const Scene with = build_scene(skirmish_sim(), options, rig.selected);
+    EXPECT_GE(with.vertices.size(), without.vertices.size());
+    if (with.vertices.size() < without.vertices.size()) {
+        return {};
+    }
+    return {with.vertices.begin() + static_cast<std::ptrdiff_t>(without.vertices.size()),
+            with.vertices.end()};
+}
+
+TEST(Menu, DrawnTheWholeLeaderAndItsDotAreTheLedgerAmberDrawnLast) {
+    const LegRig rig = leg_rig();
+    ASSERT_TRUE(rig.options.viewer_unit.valid());
+    ASSERT_EQ(rig.selected.size(), 1U) << "the radar marks none of the player's units as a dot";
+    ASSERT_TRUE(rig.selected.front().valid()) << "the radar's mark does not say whose it is";
+    const std::vector<SceneVertex> drawn = leg_vertices(column_rows(), rig);
+    std::vector<std::size_t> amber;
+    for (std::size_t i = 0; i < drawn.size(); ++i) {
+        if (drawn.at(i).colour == kLedgerInk) {
+            amber.push_back(i);
+            EXPECT_EQ(drawn.at(i).alpha, 1.0F) << "vertex " << i;
+        }
+    }
+    // Three segments and the dot, every vertex in the SCRAP label's own constant, and nothing else
+    // in that run: the leg is the menu's last word, over every bar and glyph.
+    ASSERT_EQ(amber.size(), kLegVertices + kDotVertices) << "the leg is not 3 quads and a dot";
+    EXPECT_EQ(amber.back() - amber.front() + 1U, amber.size()) << "the leg is interrupted";
+    EXPECT_EQ(amber.back() + 1U, drawn.size()) << "something is drawn over the leg";
+}
+
+TEST(Menu, DrawnTheLeadersDotLandsOnTheRadarsOwnMarkForTheSelectedUnit) {
+    const LegRig rig = leg_rig();
+    ASSERT_EQ(rig.selected.size(), 1U) << "the radar marks none of the player's units as a dot";
+    ASSERT_TRUE(rig.selected.front().valid()) << "the radar's mark does not say whose it is";
+    const std::vector<RadarMark> marks = rig_marks(rig.options);
+    const auto mark = std::find_if(marks.begin(), marks.end(), [&](const RadarMark& m) {
+        return m.unit == rig.selected.front();
+    });
+    ASSERT_NE(mark, marks.end());
+    const RadarPanel panel = radar_panel(rig.options.extent);
+    const float blip_x = panel.x + mark->px;
+    const float blip_y = panel.y + mark->py;
+
+    std::vector<Projected> leg;
+    for (const SceneVertex& v : leg_vertices(column_rows(), rig)) {
+        if (v.colour == kLedgerInk) {
+            leg.push_back(on_screen(rig.options, v));
+        }
+    }
+    ASSERT_EQ(leg.size(), kLegVertices + kDotVertices);
+    // A twentieth of a pixel, the round trip through the camera; a leg that placed the unit by
+    // arithmetic of its own would be whole pixels out, or the panel's corner out.
+    constexpr float kTol = 0.05F;
+    const float scale = static_cast<float>(rig.options.extent.height) / 720.0F;
+    // The dot: every triangle's first vertex is ON the radar's mark, and the rim is 2 px out.
+    for (std::size_t i = kLegVertices; i < leg.size(); ++i) {
+        const Projected& p = leg.at(i);
+        const float reach = std::hypot(p.x - blip_x, p.y - blip_y);
+        if ((i - kLegVertices) % 3U == 0U) {
+            EXPECT_NEAR(p.x, blip_x, kTol) << "the dot's centre is off the blip, vertex " << i;
+            EXPECT_NEAR(p.y, blip_y, kTol) << "the dot's centre is off the blip, vertex " << i;
+        } else {
+            EXPECT_NEAR(reach, 2.0F * scale, kTol) << "the dot's rim, vertex " << i;
+        }
+    }
+    // The last segment comes straight down onto the blip from the radar's top edge, in its x.
+    float bottom = std::numeric_limits<float>::lowest();
+    float top = std::numeric_limits<float>::max();
+    float left = std::numeric_limits<float>::max();
+    float right = std::numeric_limits<float>::lowest();
+    for (std::size_t i = kLegVertices - kLineVertices; i < kLegVertices; ++i) {
+        bottom = std::max(bottom, leg.at(i).y);
+        top = std::min(top, leg.at(i).y);
+        left = std::min(left, leg.at(i).x);
+        right = std::max(right, leg.at(i).x);
+    }
+    EXPECT_NEAR(bottom, blip_y, kTol);
+    EXPECT_NEAR((left + right) * 0.5F, blip_x, kTol);
+    EXPECT_NEAR(right - left, 2.0F * scale, kTol) << "the line is not 2 px wide at 720";
+    EXPECT_NEAR(top, panel.y - scale, kTol) << "the last segment does not start at the elbow";
+}
+
+TEST(Menu, DrawnTheLeadersDotIsInFrontOfTheBlipItMarks) {
+    // MENU-LEG's first capture had no dot at all: drawn at the radar marks' own distance, it lost
+    // the depth test to the blip under it. Every HUD layer sits a distance along its pixel's ray,
+    // so "in front" is each vertex's distance from the eye.
+    const LegRig rig = leg_rig();
+    ASSERT_EQ(rig.selected.size(), 1U) << "the radar marks none of the player's units as a dot";
+    ASSERT_TRUE(rig.selected.front().valid()) << "the radar's mark does not say whose it is";
+    const std::vector<RadarMark> marks = rig_marks(rig.options);
+    const auto mark = std::find_if(marks.begin(), marks.end(), [&](const RadarMark& m) {
+        return m.unit == rig.selected.front();
+    });
+    ASSERT_NE(mark, marks.end());
+    const RadarPanel panel = radar_panel(rig.options.extent);
+    const float blip_x = panel.x + mark->px;
+    const float blip_y = panel.y + mark->py;
+    const float scale = static_cast<float>(rig.options.extent.height) / 720.0F;
+
+    SceneOptions options = rig.options;
+    const std::vector<MenuRow> rows = column_rows();
+    options.show_menu = true;
+    options.menu = &rows;
+    const Scene frame = build_scene(skirmish_sim(), options, rig.selected);
+    const auto from_eye = [&](const SceneVertex& v) {
+        return std::hypot(v.position[0] - options.camera.x, v.position[1] - options.camera.y,
+                          v.position[2] - options.camera.z);
+    };
+    constexpr float kTol = 0.05F;
+    float dot_farthest = std::numeric_limits<float>::lowest();
+    float blip_nearest = std::numeric_limits<float>::max();
+    std::size_t corners = 0;
+    for (const SceneVertex& v : frame.vertices) {
+        const Projected p = on_screen(options, v);
+        if (v.colour == kLedgerInk) {
+            if (std::hypot(p.x - blip_x, p.y - blip_y) <= (2.0F * scale) + kTol) {
+                dot_farthest = std::max(dot_farthest, from_eye(v));
+            }
+            continue;
+        }
+        // The blip's own square: a vertex on one of its four corners.
+        if (std::fabs(std::fabs(p.x - blip_x) - mark->half) < kTol
+            && std::fabs(std::fabs(p.y - blip_y) - mark->half) < kTol) {
+            ++corners;
+            blip_nearest = std::min(blip_nearest, from_eye(v));
+        }
+    }
+    ASSERT_GT(corners, 0U) << "the radar drew no square for the selected unit";
+    ASSERT_GT(dot_farthest, 0.0F) << "no dot";
+    EXPECT_LT(dot_farthest, blip_nearest) << "the dot is behind the blip it marks";
 }
 
 TEST(Menu, DrawnEveryGlyphSitsWhereTheLayoutPutsIt) {

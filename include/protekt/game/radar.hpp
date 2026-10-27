@@ -80,6 +80,9 @@ struct RadarMark {
     float angle{};
     RadarShape shape{RadarShape::Square};
     RadarTone tone{RadarTone::Yours};
+    /// Whose mark this is, so a layer that has to point AT one unit's blip (the command menu's
+    /// leader line) finds it here rather than projecting the unit a second time.
+    sim::UnitId unit{};
 };
 
 /// The panel's bounding rectangle in the frame, with the y as the frame's y: from the top. The face

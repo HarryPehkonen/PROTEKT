@@ -461,8 +461,9 @@ inline constexpr std::size_t kDeployPreviewVertexCount
     = std::size_t{2} * (sim::kBuildingFootprintTiles + 1) * sim::kBuildingFootprintTiles * 6U;
 
 /// The ledger's amber (C6), the `SCRAP` label's ink. Public because the command menu's leader line
-/// is drawn in this exact colour -- the HUD's own, chosen by the user over a measured green -- and
-/// a test that pins the line to it must be able to name it rather than copy its numbers.
+/// and its dot are drawn in this exact colour -- the HUD's own, chosen by the user over a measured
+/// green -- and a test that pins the line to it must be able to name it rather than copy its
+/// numbers.
 inline constexpr std::array<float, 3> kLedgerInk{1.0F, 0.85F, 0.30F};
 
 /// THE COMMAND MENU'S LAYOUT (MENU-READ), in frame pixels, as a pure function of the rows, so the
@@ -499,6 +500,21 @@ struct MenuLayout {
 /// `rows` laid out from the menu's top-left corner (`left`, `top`) at a glyph cell of `cell` px.
 [[nodiscard]] MenuLayout menu_layout(std::span<const MenuRow> rows, float left, float top,
                                      float cell);
+
+/// THE LEADER LINE'S WHOLE PATH (MENU-LEG), in frame pixels along the line's centre: down the
+/// gutter from `line_top`, along the radar's top edge, and down onto the selected unit's blip, with
+/// square elbows. At most four corners, so three segments, and the dot is on the last one.
+struct MenuLeader {
+    std::vector<std::array<float, 2>> points;
+    bool dot{false}; ///< the last point is a blip, and a filled dot is drawn on it
+};
+
+/// The path for `layout`. With no radar drawn (`radar_top` absent) it is MENU-READ's one segment
+/// down the gutter; with a radar and no `blip` it runs down the gutter to the radar's top edge and
+/// stops there. A layout with no line has no path. `blip` is the selected unit's radar mark in
+/// FRAME pixels, as the radar drew it -- this never projects a unit itself.
+[[nodiscard]] MenuLeader menu_leader(const MenuLayout& layout, std::optional<float> radar_top,
+                                     std::optional<std::array<float, 2>> blip);
 
 /// A menu bar's face is drawn as this many horizontal bands, top to bottom, one quad each.
 inline constexpr int kMenuFaceBands = 8;

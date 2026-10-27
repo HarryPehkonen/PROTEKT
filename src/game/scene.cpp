@@ -1673,6 +1673,15 @@ void append_nav_glyph(std::vector<SceneVertex>& out, const SceneOptions& options
     }
 }
 
+/// The radar's marks for this frame, in panel pixels: the ONE call both the radar and the command
+/// menu's leader line make, so the line's dot lands on the blip the radar drew and not on a second
+/// opinion of where the unit is.
+[[nodiscard]] std::vector<RadarMark> frame_radar_marks(const SceneOptions& options,
+                                                       const sim::Sim& sim) {
+    return radar_marks(sim.units(), options.viewer_unit, options.camera.yaw,
+                       radar_panel(options.extent), viewer_radar_radius(sim, options.viewer_unit));
+}
+
 /// The radar, drawn in PANEL PIXELS: every corner goes through `ray_point`, the same pixel-to-world
 /// function the picker uses, so the panel is exactly where its pixels are and a mark can never sit
 /// somewhere other than its own place on the panel. Three metres of nothing, a dark face so the
@@ -1686,8 +1695,7 @@ void append_radar(std::vector<SceneVertex>& out, const SceneOptions& options, co
     // The reach is the driven unit's (a scout sees twice as far), and every layer below -- marks,
     // mesh and nav marks -- is drawn at that ONE radius, or they would disagree about the scale.
     const int reach = viewer_radar_radius(sim, options.viewer_unit);
-    const std::vector<RadarMark> marks
-        = radar_marks(sim.units(), options.viewer_unit, options.camera.yaw, panel, reach);
+    const std::vector<RadarMark> marks = frame_radar_marks(options, sim);
     if (marks.empty()) {
         return; // no such unit: there is nothing for the radar to be centred on
     }
@@ -2602,6 +2610,16 @@ constexpr float kMenuKeyPadCells = 3.5F;
 constexpr float kMenuVerbPadCells = 4.0F;
 constexpr float kMenuGutterCells = 4.0F;
 constexpr float kMenuLineCells = 1.0F;
+/// The filled dot the line ends on, over the selected unit's radar blip (MENU-LEG): its radius in
+/// pixels at the 720 reference, and the slices of its fan.
+constexpr float kMenuDotPixels = 2.0F;
+constexpr int kMenuDotSlices = 8;
+/// The leader line and its dot are drawn this much NEARER than the HUD's marks layer, on the same
+/// rays. `ray_point` puts a pixel on the same spot of the screen at any distance, so this moves
+/// nothing sideways; but at the marks' own distance the dot lost the depth test to the very blip
+/// it marks and was not drawn at all (MENU-LEG's first capture). Farther than the radar's nav
+/// marks (0.87), so a nav plus still reads over a line that crosses it.
+constexpr float kMenuLeaderRatio = 0.95F;
 /// The right column (a nav row's metres) clears the widest verb bar by this much.
 constexpr float kMenuRightGapCells = 2.0F;
 /// The face, measured down a key bar in the user's capture -- (65,92,145) at the top to (63,66,85)
@@ -3182,11 +3200,55 @@ void append_hud_panels(std::vector<SceneVertex>& out, const SceneOptions& option
             smooth(row.right, std::round(placed.right_left), top, ink);
         }
         // THE LEADER LINE, in the ledger's amber, after every bar so it is never drawn under one:
-        // one straight segment down the gutter, constant x through every row's band, as BZ2 draws
-        // it. (Its turn to the radar and the dot on the unit's blip are a later slice.)
-        if (layout.has_line) {
-            rect(marks_at, layout.line_left, layout.line_top, layout.line_right, layout.line_bottom,
-                 kLedgerInk);
+        // down the gutter at one x through every row's band, as BZ2 draws it, then on to the radar
+        // (MENU-LEG): along its top edge and down onto the selected unit's blip. The blip is the
+        // radar's OWN mark, from the call `append_radar` makes, so the dot is where the radar drew
+        // the unit and nowhere else. No radar, no leg: the world map has taken its corner.
+        const std::vector<RadarMark> marks
+            = options.show_world_map ? std::vector<RadarMark>{} : frame_radar_marks(options, sim);
+        std::optional<float> radar_top;
+        std::optional<std::array<float, 2>> blip;
+        if (!marks.empty()) {
+            const RadarPanel panel = radar_panel(options.extent);
+            radar_top = panel.y;
+            const auto mark
+                = std::find_if(marks.begin(), marks.end(), [&](const RadarMark& candidate) {
+                      return !selected.empty() && candidate.unit == selected.front();
+                  });
+            if (mark != marks.end()) {
+                blip = std::array<float, 2>{panel.x + mark->px, panel.y + mark->py};
+            }
+        }
+        const MenuLeader leader = menu_leader(layout, radar_top, blip);
+        // One quad per segment: the box round it, grown half the line's width each way so that
+        // every elbow is filled square. The path starts and ends on vertical segments, so the
+        // first's top and the last's bottom are the path's own ends and are NOT grown: the line
+        // starts under the state row and stops on the radar's edge or the blip.
+        const float half = (layout.line_right - layout.line_left) * 0.5F;
+        const float leader_at = marks_at * kMenuLeaderRatio;
+        for (std::size_t i = 1; i < leader.points.size(); ++i) {
+            const std::array<float, 2>& a = leader.points.at(i - 1);
+            const std::array<float, 2>& b = leader.points.at(i);
+            const float upper = i == 1 ? a.at(1) : std::min(a.at(1), b.at(1)) - half;
+            const float lower
+                = i + 1 == leader.points.size() ? b.at(1) : std::max(a.at(1), b.at(1)) + half;
+            rect(leader_at, std::min(a.at(0), b.at(0)) - half, upper,
+                 std::max(a.at(0), b.at(0)) + half, lower, kLedgerInk);
+        }
+        // The dot: filled, a fan round the blip's centre, on the line's own layer.
+        if (leader.dot) {
+            const float cx = leader.points.back().at(0);
+            const float cy = leader.points.back().at(1);
+            const float radius = kMenuDotPixels * px;
+            const auto rim = [&](int slice) {
+                const float angle
+                    = (2.0F * kPi * static_cast<float>(slice)) / static_cast<float>(kMenuDotSlices);
+                return at(leader_at, cx + (radius * std::cos(angle)),
+                          cy + (radius * std::sin(angle)));
+            };
+            for (int slice = 0; slice < kMenuDotSlices; ++slice) {
+                emit_triangle(out, at(leader_at, cx, cy), rim(slice), rim(slice + 1), kLedgerInk);
+            }
         }
     }
 }
@@ -3451,6 +3513,29 @@ MenuLayout menu_layout(std::span<const MenuRow> rows, float left, float top, flo
         layout.line_bottom = layout.rows.back().top + height + cell;
     }
     return layout;
+}
+
+MenuLeader menu_leader(const MenuLayout& layout, std::optional<float> radar_top,
+                       std::optional<std::array<float, 2>> blip) {
+    MenuLeader leader;
+    if (!layout.has_line) {
+        return leader;
+    }
+    // One x down the gutter, from the menu all the way to the radar: the line never jogs. A radar
+    // that is not below the menu (a window too short to hold both) has nothing to lead down to.
+    const float x = (layout.line_left + layout.line_right) * 0.5F;
+    if (!radar_top.has_value() || *radar_top <= layout.line_bottom) {
+        leader.points = {{x, layout.line_top}, {x, layout.line_bottom}};
+        return leader;
+    }
+    leader.points = {{x, layout.line_top}, {x, *radar_top}};
+    if (blip.has_value()) {
+        // Along the top edge to the blip's x, whichever side of the gutter that is, then down.
+        leader.points.push_back({blip->at(0), *radar_top});
+        leader.points.push_back(*blip);
+        leader.dot = true;
+    }
+    return leader;
 }
 
 std::array<float, 3> menu_face_colour(bool enabled, int band) noexcept {

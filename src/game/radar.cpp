@@ -253,7 +253,7 @@ std::vector<RadarMark> radar_marks(std::span<const sim::Unit> units, sim::UnitId
     // You: at the middle, always pointing up, because the panel turns with you.
     const RadarPoint middle = radar_project(panel, 0.0F, 0.0F, radius_tiles);
     marks.push_back(RadarMark{middle.px, middle.py, panel.width * kViewerHalfFraction, 0.0F,
-                              RadarShape::Triangle, RadarTone::You});
+                              RadarShape::Triangle, RadarTone::You, viewer->id});
 
     for (const sim::Unit& unit : units) {
         if (!unit.alive || unit.id == viewer->id) {
@@ -279,9 +279,9 @@ std::vector<RadarMark> radar_marks(std::span<const sim::Unit> units, sim::UnitId
                   * (unit.kind == sim::UnitKind::Factory ? kBaseHalfFraction : kDotHalfFraction);
             const RadarPoint at
                 = fit_box(panel, radar_project(panel, right, forward, radius_tiles), half);
-            marks.push_back(
-                RadarMark{at.px, at.py, half, 0.0F, base ? RadarShape::Hollow : RadarShape::Square,
-                          unit.side == viewer->side ? RadarTone::Yours : RadarTone::Hostile});
+            marks.push_back(RadarMark{
+                at.px, at.py, half, 0.0F, base ? RadarShape::Hollow : RadarShape::Square,
+                unit.side == viewer->side ? RadarTone::Yours : RadarTone::Hostile, unit.id});
             continue;
         }
         // Your own base, out of range: a mark at the rim, pointing the way to turn. The arrow
@@ -297,7 +297,7 @@ std::vector<RadarMark> radar_marks(std::span<const sim::Unit> units, sim::UnitId
                                     ground_y * static_cast<float>(radius_tiles), radius_tiles),
                       half);
         marks.push_back(RadarMark{at.px, at.py, half, std::atan2(ground_x, ground_y),
-                                  RadarShape::Arrow, RadarTone::Yours});
+                                  RadarShape::Arrow, RadarTone::Yours, unit.id});
     }
     return marks;
 }
