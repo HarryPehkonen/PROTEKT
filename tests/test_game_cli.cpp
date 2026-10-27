@@ -428,9 +428,10 @@ struct Frame {
 /// A row is a run of inked scanlines: one row of text is ten-odd lines of ink and the gap to the
 /// next row is blank. Only the left 40% of the frame is searched -- that is where the command menu
 /// lives -- and a pixel counts as ink if it is the LIVE ink (all three channels at 235 or above) or
-/// the DIM ink: one grey, the channels equal within a step of each other and around 102. The dim
-/// ink is what RB0.5 draws an unaffordable or inapplicable row in, so it has to be counted here or
-/// a menu of dimmed build rows reads as no menu at all.
+/// the DIM ink: one grey, the channels equal within a step of each other and around 171 (MENU-READ
+/// raised it from 102, which vanished into the unlit row's dark bar). The dim ink is what RB0.5
+/// draws an unaffordable or inapplicable row in, so it has to be counted here or a menu of dimmed
+/// build rows reads as no menu at all.
 struct MenuRows {
     int live{};
     int dim{};
@@ -458,7 +459,7 @@ struct MenuRows {
             const int b = frame.rgb.at(at + 2U);
             if (r >= 235 && g >= 235 && b >= 235) {
                 live_here = true;
-            } else if (std::abs(r - g) <= 2 && std::abs(g - b) <= 2 && r >= 95 && r <= 110) {
+            } else if (std::abs(r - g) <= 2 && std::abs(g - b) <= 2 && r >= 164 && r <= 178) {
                 dim_here = true;
             }
         }

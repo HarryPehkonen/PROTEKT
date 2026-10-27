@@ -2521,13 +2521,48 @@ constexpr float kHudCornerPixels = 5.0F;
 constexpr float kHudPanelAlpha = 0.65F;
 constexpr std::array<float, 3> kStripFrame{0.95F, 0.95F, 0.95F};
 constexpr std::array<float, 3> kStripSelected{1.0F, 0.85F, 0.10F};
-/// THE COMMAND MENU (RB0.5): `menu_rows`'s rows, key then verb, down the left margin in the row
-/// under the notice -- the same reserved slot the attack list takes, so neither panel moves. Ink
-/// only, no plate: the key column sits ON the strip's margin. A live row is the strip's white; a
-/// dimmed row is one darker ink whatever the reason, because `MenuRow::reason` is for the code and
-/// the look is the same for both. The HUD's one type scale, like every other element.
+/// THE COMMAND MENU (RB0.5, the look MENU-READ): `menu_rows`'s rows, key then verb, down the left
+/// margin in the row under the notice -- the same reserved slot the attack list takes, so neither
+/// panel moves. Each row is two of BZ2's translucent blue bars, laid out by `menu_layout`: a key
+/// bar right-aligned on one column edge and a verb bar a gutter past it, rounded on their OUTER
+/// ends and square where they face the gutter, so the amber leader line down it reads as cutting a
+/// slice out of the background (the user's correction, 2026-10-27). A live row is the strip's white
+/// on a blue face that fades top to bottom; a dimmed row is grey on a flat dark face whatever the
+/// reason, because `MenuRow::reason` is for the code and the look is the same for both. The glyphs
+/// gain weight from a 1 px black outline, never from a bigger cell: this is the HUD's one type
+/// scale, like every other element, and BZ2's own menu text measures smaller than it.
 constexpr float kMenuCell = 2.0F;
-constexpr std::array<float, 3> kMenuDimInk{0.40F, 0.40F, 0.40F};
+constexpr std::array<float, 3> kMenuDimInk{0.67F, 0.67F, 0.67F};
+/// The geometry, in glyph cells (2 px at the 720 reference): a 13-cell bar every 15.5 cells, the
+/// key padded 3.5 cells either side and the verb 4, a 4-cell gutter between the two columns with a
+/// 1-cell line down its middle. Measured off the user's capture in pixels; see `menu_layout`.
+constexpr float kMenuBarCells = 13.0F;
+constexpr float kMenuPitchCells = 15.5F;
+constexpr float kMenuKeyPadCells = 3.5F;
+constexpr float kMenuVerbPadCells = 4.0F;
+constexpr float kMenuGutterCells = 4.0F;
+constexpr float kMenuLineCells = 1.0F;
+/// The right column (a nav row's metres) clears the widest verb bar by this much.
+constexpr float kMenuRightGapCells = 2.0F;
+/// The face, measured down a key bar in the user's capture -- (65,92,145) at the top to (63,66,85)
+/// at the bottom over a world of ~(72,67,60) -- and solved for the bar's own colour at 0.68 alpha.
+/// RED HOLDS and only green and blue fade: a blue light, never a lighter card. The first band is
+/// the brighter top edge the capture shows over its top tenth.
+constexpr std::array<float, 3> kMenuFaceHighlight{0.255F, 0.471F, 0.843F};
+constexpr std::array<float, 3> kMenuFaceTop{0.243F, 0.404F, 0.710F};
+constexpr std::array<float, 3> kMenuFaceBottom{0.231F, 0.251F, 0.376F};
+constexpr float kMenuFaceAlpha = 0.68F;
+/// A dimmed row's face: flat, dark, a little more opaque so the grey ink still reads on it.
+constexpr std::array<float, 3> kMenuUnlitFace{0.055F, 0.063F, 0.086F};
+constexpr float kMenuUnlitAlpha = 0.74F;
+/// The pale ring round a live bar's rounded end, half a cell (1 px) wide. A dimmed bar has none.
+constexpr std::array<float, 3> kMenuRing{0.82F, 0.90F, 1.0F};
+constexpr float kMenuRingAlpha = 0.55F;
+constexpr float kMenuRingCells = 0.5F;
+/// The glyphs' outline is each lit cell grown by half a cell all round, in black, drawn between the
+/// face and the ink so the ink always wins.
+constexpr float kMenuOutlineCells = 0.5F;
+constexpr float kMenuOutlineRatio = 1.3F;
 
 /// THE LEDGER (C6). C3 keeps a per-side count of the loads a hauler has banked and C4 spends it: it
 /// is the war's only currency, and until this layer nothing showed it, so the player could not see
@@ -2539,8 +2574,8 @@ constexpr std::array<float, 3> kMenuDimInk{0.40F, 0.40F, 0.40F};
 /// height. A fresh element joins that scale like every other one; "make it obvious" buys a brighter
 /// ink and an opaque plate, never a bigger cell.
 constexpr std::array<float, 3> kLedgerPlate{0.0F, 0.0F, 0.0F};
-/// Amber, deliberately unlike the HUD's white: it is a resource reading, not a label.
-constexpr std::array<float, 3> kLedgerInk{1.0F, 0.85F, 0.30F};
+// The ink is `kLedgerInk` (scene.hpp): amber, deliberately unlike the HUD's white, because it is a
+// resource reading and not a label. The command menu's leader line shares it.
 constexpr std::string_view kLedgerWord = "SCRAP";
 constexpr float kLedgerCell = 2.0F;
 
@@ -2706,24 +2741,29 @@ void append_hud_panels(std::vector<SceneVertex>& out, const SceneOptions& option
         emit_quad(out, at(ax, ay), at(bx, ay), at(bx, by), at(ax, by), rgb, alpha);
     };
     constexpr std::array<float, 3> kPlate{0.0F, 0.0F, 0.0F};
+    // Every lit cell of `word`'s glyphs, by its top-left corner.
+    const auto glyph_cells
+        = [](std::string_view word, float left, float top, float cell, auto&& emit) {
+              for (std::size_t index = 0; index < word.size(); ++index) {
+                  const std::array<std::uint8_t, 5> rows = mount_glyph(
+                      static_cast<char>(std::toupper(static_cast<unsigned char>(word.at(index)))));
+                  const float glyph_left = left + (static_cast<float>(index) * 6.0F * cell);
+                  for (std::size_t row = 0; row < rows.size(); ++row) {
+                      for (int col = 0; col < 5; ++col) {
+                          if (((rows.at(row) >> (4 - col)) & 1U) == 0U) {
+                              continue;
+                          }
+                          emit(glyph_left + (static_cast<float>(col) * cell),
+                               top + (static_cast<float>(row) * cell));
+                      }
+                  }
+              }
+          };
     // Ink only; the plate under it is the caller's.
     const auto ink_text = [&](std::string_view word, float left, float top, float cell,
                               const std::array<float, 3>& ink) {
-        for (std::size_t index = 0; index < word.size(); ++index) {
-            const std::array<std::uint8_t, 5> rows = mount_glyph(
-                static_cast<char>(std::toupper(static_cast<unsigned char>(word.at(index)))));
-            const float glyph_left = left + (static_cast<float>(index) * 6.0F * cell);
-            for (std::size_t row = 0; row < rows.size(); ++row) {
-                for (int col = 0; col < 5; ++col) {
-                    if (((rows.at(row) >> (4 - col)) & 1U) == 0U) {
-                        continue;
-                    }
-                    const float x = glyph_left + (static_cast<float>(col) * cell);
-                    const float y = top + (static_cast<float>(row) * cell);
-                    rect(marks_at, x, y, x + cell, y + cell, ink);
-                }
-            }
-        }
+        glyph_cells(word, left, top, cell,
+                    [&](float x, float y) { rect(marks_at, x, y, x + cell, y + cell, ink); });
     };
     const auto word_width = [](std::string_view word, float cell) {
         return ((static_cast<float>(word.size()) * 6.0F) - 1.0F) * cell;
@@ -2941,33 +2981,100 @@ void append_hud_panels(std::vector<SceneVertex>& out, const SceneOptions& option
     }
     // THE COMMAND MENU, in the order it was handed: never sorted, never renumbered, and the key is
     // drawn as the label it is ("SPACE", "~", "9"), so the harvester's missing 6, 7 and 8 stay a
-    // visible gap. The verb column clears the WIDEST key by a blank column -- one glyph and a blank
-    // column for a digit, exactly the attack list's rule, and past SPACE when SPACE is a row.
+    // visible gap. `menu_layout` places every bar; this draws them, then the glyphs, then the line.
     if (wants_menu) {
         const std::vector<MenuRow>& rows = *options.menu;
         const float cell = kMenuCell * px;
-        const float pitch = 6.0F * cell; // a 5-cell glyph and one blank row between rows
-        const float key_left = kStripMarginPixels * px;
-        float key_width = 0.0F;
-        for (const MenuRow& row : rows) {
-            key_width = std::max(key_width, word_width(row.key, cell));
-        }
-        const float verb_left = key_left + key_width + (2.0F * cell);
-        // The right column (a nav row's metres) clears the WIDEST verb by a blank column, the
-        // attack list's rule for its metres, so the distances read down the panel.
-        float verb_width = 0.0F;
-        for (const MenuRow& row : rows) {
-            verb_width = std::max(verb_width, word_width(row.verb, cell));
-        }
-        const float right_left = verb_left + verb_width + (2.0F * cell);
         const float menu_top = notice_top + (5.0F * cell) + (2.0F * pad);
+        const MenuLayout layout = menu_layout(rows, kStripMarginPixels * px, menu_top, cell);
+        const float face_at = marks_at * kHudFaceRatio;
+        const float ring_at = marks_at * kHudBorderRatio;
+        const float outline_at = marks_at * kMenuOutlineRatio;
+        const auto at = [&](float distance, float x, float y) {
+            const RayPoint point = ray_point(options.camera, options.extent, x, y, distance);
+            return Vec3{point.x, point.y, point.z};
+        };
+        // One bar: a half-disc on its OUTER end and square on its inner one, where the gutter is.
+        // The face is horizontal bands, one quad each, whose outer corners sit on the half-disc, so
+        // the gradient and the rounding are the same quads. A live bar's face stops a ring's width
+        // short of the rim and the ring fills the rest, so the two never blend over each other.
+        const auto bar = [&](float left, float right, const MenuRowLayout& row, bool round_left) {
+            const float top = row.top;
+            const float bottom = row.top + row.height;
+            const float radius = row.height * 0.5F;
+            const float ring = row.enabled ? kMenuRingCells * cell : 0.0F;
+            const float face_radius = radius - ring;
+            const float cx = round_left ? left + radius : right - radius;
+            const float cy = (top + bottom) * 0.5F;
+            const float outward = round_left ? -1.0F : 1.0F;
+            const float inner = round_left ? right : left;
+            const auto rim_x = [&](float y) {
+                const float dy = y - cy;
+                return cx
+                       + (outward
+                          * std::sqrt(std::max(0.0F, (face_radius * face_radius) - (dy * dy))));
+            };
+            const float alpha = row.enabled ? kMenuFaceAlpha : kMenuUnlitAlpha;
+            for (int band = 0; band < kMenuFaceBands; ++band) {
+                const float y0 = top
+                                 + (row.height * static_cast<float>(band)
+                                    / static_cast<float>(kMenuFaceBands));
+                const float y1 = top
+                                 + (row.height * static_cast<float>(band + 1)
+                                    / static_cast<float>(kMenuFaceBands));
+                emit_quad(out, at(face_at, rim_x(y0), y0), at(face_at, inner, y0),
+                          at(face_at, inner, y1), at(face_at, rim_x(y1), y1),
+                          menu_face_colour(row.enabled, band), alpha);
+            }
+            if (!row.enabled) {
+                return; // an unlit bar is flat: no ring
+            }
+            // The ring round the outer end only: a half annulus, bottom to top on the left end and
+            // top to bottom on the right, as short arcs like the plates' corners.
+            const float from = round_left ? kPi * 0.5F : -kPi * 0.5F;
+            constexpr int kSlices = 2 * kCornerSlices;
+            for (int slice = 0; slice < kSlices; ++slice) {
+                const float a
+                    = from + (kPi * static_cast<float>(slice) / static_cast<float>(kSlices));
+                const float b
+                    = from + (kPi * static_cast<float>(slice + 1) / static_cast<float>(kSlices));
+                emit_quad(
+                    out, at(ring_at, cx + (radius * std::cos(a)), cy + (radius * std::sin(a))),
+                    at(ring_at, cx + (radius * std::cos(b)), cy + (radius * std::sin(b))),
+                    at(ring_at, cx + (face_radius * std::cos(b)), cy + (face_radius * std::sin(b))),
+                    at(ring_at, cx + (face_radius * std::cos(a)), cy + (face_radius * std::sin(a))),
+                    kMenuRing, kMenuRingAlpha);
+            }
+        };
+        // The glyphs, each lit cell first grown by half a cell in black and then inked over: a
+        // 1 px outline on all four sides for twice the quads.
+        const auto outlined = [&](std::string_view word, float left, float top,
+                                  const std::array<float, 3>& ink) {
+            constexpr std::array<float, 3> kOutline{0.0F, 0.0F, 0.0F};
+            const float grow = kMenuOutlineCells * cell;
+            glyph_cells(word, left, top, cell, [&](float x, float y) {
+                rect(outline_at, x - grow, y - grow, x + cell + grow, y + cell + grow, kOutline);
+            });
+            ink_text(word, left, top, cell, ink);
+        };
         for (std::size_t index = 0; index < rows.size(); ++index) {
             const MenuRow& row = rows.at(index);
-            const float row_top = menu_top + (static_cast<float>(index) * pitch);
+            const MenuRowLayout& placed = layout.rows.at(index);
+            bar(placed.key_left, placed.key_right, placed, true);
+            if (!row.verb.empty()) {
+                bar(placed.verb_left, placed.verb_right, placed, false);
+            }
             const std::array<float, 3>& ink = row.enabled ? kStripFrame : kMenuDimInk;
-            ink_text(row.key, key_left, row_top, cell, ink);
-            ink_text(row.verb, verb_left, row_top, cell, ink);
-            ink_text(row.right, right_left, row_top, cell, ink);
+            outlined(row.key, placed.key_text, placed.text_top, ink);
+            outlined(row.verb, placed.verb_text, placed.text_top, ink);
+            outlined(row.right, placed.right_left, placed.text_top, ink);
+        }
+        // THE LEADER LINE, in the ledger's amber, after every bar so it is never drawn under one:
+        // one straight segment down the gutter, constant x through every row's band, as BZ2 draws
+        // it. (Its turn to the radar and the dot on the unit's blip are a later slice.)
+        if (layout.has_line) {
+            rect(marks_at, layout.line_left, layout.line_top, layout.line_right, layout.line_bottom,
+                 kLedgerInk);
         }
     }
 }
@@ -3181,6 +3288,76 @@ void append_world_map(std::vector<SceneVertex>& out, const SceneOptions& options
 }
 
 } // namespace
+
+MenuLayout menu_layout(std::span<const MenuRow> rows, float left, float top, float cell) {
+    const auto width = [cell](std::string_view text) {
+        return text.empty() ? 0.0F : ((static_cast<float>(text.size()) * 6.0F) - 1.0F) * cell;
+    };
+    const float key_pad = kMenuKeyPadCells * cell;
+    const float verb_pad = kMenuVerbPadCells * cell;
+    const float height = kMenuBarCells * cell;
+    const float pitch = kMenuPitchCells * cell;
+    // The widest key's bar starts ON the margin and fixes the column's right edge; every other key
+    // ends there too, so a narrow key sits a gutter from its verb and a wide one grows left.
+    float widest = 0.0F;
+    for (const MenuRow& row : rows) {
+        widest = std::max(widest, width(row.key));
+    }
+    const float key_right = left + widest + (2.0F * key_pad);
+    const float verb_left = key_right + (kMenuGutterCells * cell);
+    MenuLayout layout;
+    layout.rows.reserve(rows.size());
+    float verbs_right = verb_left;
+    for (std::size_t index = 0; index < rows.size(); ++index) {
+        const MenuRow& row = rows[index];
+        MenuRowLayout at;
+        at.key_right = key_right;
+        at.key_text = key_right - key_pad - width(row.key);
+        at.key_left = at.key_text - key_pad;
+        at.verb_left = verb_left;
+        at.verb_text = verb_left + verb_pad;
+        at.verb_right = row.verb.empty() ? verb_left : at.verb_text + width(row.verb) + verb_pad;
+        at.top = top + (static_cast<float>(index) * pitch);
+        at.height = height;
+        at.text_top = at.top + ((kMenuBarCells - 5.0F) * 0.5F * cell);
+        at.enabled = row.enabled;
+        verbs_right = std::max(verbs_right, at.verb_right);
+        layout.rows.push_back(at);
+    }
+    // The right column reads down the panel, clear of the widest verb bar.
+    for (MenuRowLayout& at : layout.rows) {
+        at.right_left = verbs_right + (kMenuRightGapCells * cell);
+    }
+    // The line leads from the menu's rows, not from the state row: it starts a cell under the state
+    // row's bar and ends a cell under the last one, in the gaps between bars.
+    layout.has_line = rows.size() >= 2;
+    if (layout.has_line) {
+        const float centre = key_right + (kMenuGutterCells * 0.5F * cell);
+        layout.line_left = centre - (kMenuLineCells * 0.5F * cell);
+        layout.line_right = centre + (kMenuLineCells * 0.5F * cell);
+        layout.line_top = layout.rows.front().top + height + cell;
+        layout.line_bottom = layout.rows.back().top + height + cell;
+    }
+    return layout;
+}
+
+std::array<float, 3> menu_face_colour(bool enabled, int band) noexcept {
+    if (!enabled) {
+        return kMenuUnlitFace;
+    }
+    const int clamped = std::clamp(band, 0, kMenuFaceBands - 1);
+    if (clamped == 0) {
+        return kMenuFaceHighlight;
+    }
+    // The rest run from the top colour to the bottom one, ending on it exactly.
+    const float t = static_cast<float>(clamped - 1) / static_cast<float>(kMenuFaceBands - 2);
+    std::array<float, 3> colour{};
+    for (std::size_t channel = 0; channel < colour.size(); ++channel) {
+        colour.at(channel) = kMenuFaceTop.at(channel)
+                             + ((kMenuFaceBottom.at(channel) - kMenuFaceTop.at(channel)) * t);
+    }
+    return colour;
+}
 
 int hull_variant(std::uint64_t seed, std::uint32_t unit_id) noexcept {
     // splitmix64 over the pair: sequential ids land far apart before the modulo.

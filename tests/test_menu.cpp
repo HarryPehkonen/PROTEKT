@@ -15,7 +15,9 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstddef>
+#include <iterator>
 #include <limits>
 #include <string>
 #include <string_view>
@@ -519,6 +521,38 @@ void expect_same_frame(const Scene& want, const Scene& got, std::string_view wha
     return project(options.camera, options.extent, v.position[0], v.position[1], v.position[2]);
 }
 
+/// The leader line is one quad.
+constexpr std::size_t kLineVertices = 6U;
+constexpr std::array<float, 3> kOutline{0.0F, 0.0F, 0.0F};
+
+/// What `append_hud_panels` lays the menu out with, in this rig's frame pixels: the strip's 6 px
+/// margin and the HUD's 2 px cell, both scaled by the frame's height. Only the X positions are
+/// read from it -- the menu's top is the notice row's business, not this slice's.
+[[nodiscard]] MenuLayout rig_layout(const std::vector<MenuRow>& rows,
+                                    const SceneOptions& options = menu_rig()) {
+    const float scale = static_cast<float>(options.extent.height) / 720.0F;
+    return menu_layout(rows, 6.0F * scale, 0.0F, 2.0F * scale);
+}
+
+/// A bar vertex is the only kind the menu draws see-through: the glyphs, their outline and the
+/// line are all opaque.
+[[nodiscard]] bool is_bar(const SceneVertex& v) { return v.alpha < 1.0F; }
+
+/// Opaque, and neither the outline's black nor the line's amber: a glyph's ink.
+[[nodiscard]] bool is_ink(const SceneVertex& v) {
+    return !is_bar(v) && v.colour != kOutline && v.colour != kLedgerInk;
+}
+
+/// The face band `colour` is on an `enabled` row, or -1 when it is none of them (a ring).
+[[nodiscard]] int face_band(const std::array<float, 3>& colour, bool enabled) {
+    for (int band = 0; band < kMenuFaceBands; ++band) {
+        if (menu_face_colour(enabled, band) == colour) {
+            return band;
+        }
+    }
+    return -1;
+}
+
 TEST(Menu, DrawnWithNoRowsItEmitsNothingAndEveryFrameIsByteIdentical) {
     const std::vector<MenuRow> empty;
     const std::vector<MenuRow> rows{row_of("1", "HOLD")};
@@ -558,17 +592,18 @@ TEST(Menu, DrawnEveryRowInTheOrderItWasHanded) {
     ASSERT_FALSE(one.empty()) << "a row must reach the frame";
     EXPECT_EQ(one.size() % 6U, 0U) << "a menu is quads: six vertices each";
 
-    // The same row twice is twice the vertices: a row's quad count is its glyphs', nothing shared
-    // and nothing collapsed.
+    // The same row twice is twice the vertices plus the leader line: a row's quads are its own
+    // bars and glyphs, nothing collapsed, and the ONE thing shared is the line down the gutter,
+    // which a lone row has no second row to lead to.
     const std::vector<MenuRow> twice{bailout.front(), bailout.front()};
-    EXPECT_EQ(menu_vertices(twice).size(), 2U * one.size());
+    EXPECT_EQ(menu_vertices(twice).size(), (2U * one.size()) + kLineVertices);
 
     // DESCENDING keys, so a renderer that sorted by key would swap them. Row 0 is drawn first,
     // byte-for-byte where it is drawn alone; the row handed in LAST is drawn LOWEST.
     const std::vector<MenuRow> handed{bailout.front(), follow.front()};
     const std::vector<SceneVertex> drawn = menu_vertices(handed);
     const std::size_t second = menu_vertices(follow).size();
-    ASSERT_EQ(drawn.size(), one.size() + second);
+    ASSERT_EQ(drawn.size(), one.size() + second + kLineVertices);
     for (std::size_t i = 0; i < one.size(); ++i) {
         ASSERT_EQ(drawn.at(i).position, one.at(i).position)
             << "the first row handed in is not the first row drawn (vertex " << i << ")";
@@ -583,8 +618,9 @@ TEST(Menu, DrawnEveryRowInTheOrderItWasHanded) {
             << "the last row handed in is not below the first";
     }
 
-    // The harvester's real menu, gap and all: exactly the sum of its rows drawn one by one, so no
-    // row is dropped, added or renumbered into the gap where 6, 7 and 8 would be.
+    // The harvester's real menu, gap and all: exactly the sum of its rows drawn one by one, and
+    // the one line, so no row is dropped, added or renumbered into the gap where 6, 7 and 8 would
+    // be.
     MenuInput harvester;
     harvester.subject = MenuSubject::Harvester;
     const std::vector<MenuRow> menu = menu_rows(harvester);
@@ -592,16 +628,16 @@ TEST(Menu, DrawnEveryRowInTheOrderItWasHanded) {
     for (const MenuRow& row : menu) {
         sum += menu_vertices(std::vector<MenuRow>{row}).size();
     }
-    EXPECT_EQ(menu_vertices(menu).size(), sum);
+    EXPECT_EQ(menu_vertices(menu).size(), sum + kLineVertices);
 
     // The state row naming nothing draws its key alone: some ink, and none past the key column.
     const std::vector<MenuRow> bare{row_of("SPACE", "")};
     const std::vector<SceneVertex> key_only = menu_vertices(bare);
     ASSERT_FALSE(key_only.empty()) << "SPACE with no verb must still draw SPACE";
     const float scale = static_cast<float>(options.extent.height) / 720.0F;
-    // The key column: the 6 px margin plus SPACE's width, five glyphs of 6 cells less the trailing
-    // blank, at the 2 px cell.
-    const float key_right = (6.0F + (29.0F * 2.0F)) * scale;
+    // The key column's right edge: the 6 px margin, then SPACE's bar -- five glyphs of 6 cells less
+    // the trailing blank, and 3.5 cells of bar either side of them -- at the 2 px cell.
+    const float key_right = (6.0F + (29.0F * 2.0F) + (7.0F * 2.0F)) * scale;
     for (const SceneVertex& v : key_only) {
         EXPECT_LE(on_screen(options, v).x, key_right + 0.05F)
             << "a verb was drawn for an empty one";
@@ -637,8 +673,9 @@ TEST(Menu, DrawnDownTheLeftMarginUnderTheStripAndTheNotice) {
                 << "the menu ran down into the radar's corner";
             left = std::min(left, p.x);
         }
-        // The key column starts ON the strip's 6 px margin: the SPACE row's S has ink in its
-        // leftmost column.
+        // The key column starts ON the strip's 6 px margin: the widest key's bar (SPACE, the state
+        // row's) has its rounded outer end there, and every narrower key ends at the same right
+        // edge and so starts further in.
         EXPECT_NEAR(left, 6.0F * scale, 0.05F) << "subject " << static_cast<int>(subject);
     }
 }
@@ -647,12 +684,17 @@ TEST(Menu, DrawnADimmedRowIsADimmerInkWhateverTheReason) {
     const std::vector<MenuRow> live{row_of("1", "HOLD")};
     const std::vector<MenuRow> moot{row_of("1", "HOLD", MenuDim::DoesNotApply)};
     const std::vector<MenuRow> broke{row_of("1", "HOLD", MenuDim::Unaffordable)};
-    const std::vector<SceneVertex> lit = menu_vertices(live);
-    const std::vector<SceneVertex> dim = menu_vertices(moot);
-    const std::vector<SceneVertex> poor = menu_vertices(broke);
+    const std::vector<SceneVertex> lit_all = menu_vertices(live);
+    const std::vector<SceneVertex> dim_all = menu_vertices(moot);
+    // Two causes, ONE look: the reason is for the code, so the two frames are the same frame.
+    expect_same_frame(Scene{dim_all, {}}, Scene{menu_vertices(broke), {}},
+                      "an unaffordable row and a row that does not apply look different");
+    std::vector<SceneVertex> lit;
+    std::vector<SceneVertex> dim;
+    std::copy_if(lit_all.begin(), lit_all.end(), std::back_inserter(lit), is_ink);
+    std::copy_if(dim_all.begin(), dim_all.end(), std::back_inserter(dim), is_ink);
     ASSERT_FALSE(lit.empty());
     ASSERT_EQ(dim.size(), lit.size()) << "dimming changes the ink, never the glyphs";
-    ASSERT_EQ(poor.size(), lit.size());
     constexpr std::array<float, 3> kLiveInk{0.95F, 0.95F, 0.95F};
     for (std::size_t i = 0; i < lit.size(); ++i) {
         ASSERT_EQ(dim.at(i).position, lit.at(i).position) << "vertex " << i;
@@ -660,10 +702,385 @@ TEST(Menu, DrawnADimmedRowIsADimmerInkWhateverTheReason) {
         for (std::size_t channel = 0; channel < 3; ++channel) {
             EXPECT_LT(dim.at(i).colour.at(channel), lit.at(i).colour.at(channel))
                 << "the dimmed row is not darker in channel " << channel << ", vertex " << i;
+            // ...and still READS: the old 0.40 grey vanished into the dark unlit bar.
+            EXPECT_GT(dim.at(i).colour.at(channel), 0.6F)
+                << "the dimmed ink is too dark to read on its bar, channel " << channel;
         }
-        // Two causes, ONE look: the reason is for the code, the ink is the same.
-        EXPECT_EQ(poor.at(i).colour, dim.at(i).colour) << "vertex " << i;
     }
+}
+
+// THE MENU'S LOOK (MENU-READ): BZ2's blue bars, read off the user's own captures. The layout is a
+// pure function, so its geometry is pinned without a frame; the drawn tests then hold the frame to
+// that layout, the gradient's order, the line's colour and the outline.
+
+/// The vehicle menu's keys, widest first, then the narrow ones the gutter must still hug.
+[[nodiscard]] std::vector<MenuRow> column_rows() {
+    return {row_of("SPACE", "SELECT"), row_of("TAB", "CLOSE MENU"),
+            row_of("~", "SELECT UNIT", MenuDim::DoesNotApply), row_of("1", "FOLLOW ME"),
+            row_of("9", "BAILOUT")};
+}
+
+[[nodiscard]] float text_width(std::string_view text, float cell) {
+    return ((static_cast<float>(text.size()) * 6.0F) - 1.0F) * cell;
+}
+
+TEST(Menu, LaidOutTheKeyColumnIsRightAlignedSoADigitHugsItsVerb) {
+    const std::vector<MenuRow> rows = column_rows();
+    constexpr float kLeft = 6.0F;
+    for (const float cell : {2.0F, 3.0F}) {
+        const MenuLayout layout = menu_layout(rows, kLeft, 0.0F, cell);
+        ASSERT_EQ(layout.rows.size(), rows.size());
+        const float key_right = layout.rows.front().key_right;
+        for (std::size_t i = 0; i < rows.size(); ++i) {
+            const MenuRowLayout& at = layout.rows.at(i);
+            const std::string key{rows.at(i).key};
+            // ONE right edge for the whole key column, whatever the key's width.
+            EXPECT_FLOAT_EQ(at.key_right, key_right) << key;
+            // The bar hugs its own key, 3.5 cells either side, so a wide key grows LEFT.
+            EXPECT_FLOAT_EQ(at.key_text, at.key_left + (3.5F * cell)) << key;
+            EXPECT_FLOAT_EQ(at.key_text + text_width(rows.at(i).key, cell),
+                            at.key_right - (3.5F * cell))
+                << key;
+            // The gutter: the verb bar starts 4 cells past the key bar, every row alike, and its
+            // text 4 cells into it.
+            EXPECT_FLOAT_EQ(at.verb_left, key_right + (4.0F * cell)) << key;
+            EXPECT_FLOAT_EQ(at.verb_text, at.verb_left + (4.0F * cell)) << key;
+            EXPECT_FLOAT_EQ(at.verb_right,
+                            at.verb_text + text_width(rows.at(i).verb, cell) + (4.0F * cell))
+                << key;
+            EXPECT_EQ(at.enabled, rows.at(i).enabled) << key;
+        }
+        // The widest key, SPACE, starts ON the margin; a digit's bar starts far in from it, so the
+        // digit sits the same gutter from its verb as SPACE does instead of in a column sized for
+        // SPACE.
+        EXPECT_FLOAT_EQ(layout.rows.at(0).key_left, kLeft);
+        const MenuRowLayout& digit = layout.rows.at(3);
+        const MenuRowLayout& space = layout.rows.at(0);
+        EXPECT_FLOAT_EQ(digit.verb_text - (digit.key_text + text_width("1", cell)),
+                        space.verb_text - (space.key_text + text_width("SPACE", cell)))
+            << "a digit is further from its verb than SPACE is";
+        EXPECT_GT(digit.key_left, space.key_left + text_width("SPA", cell));
+    }
+}
+
+TEST(Menu, LaidOutBarsAreThirteenCellsTallAtAFifteenAndAHalfCellPitch) {
+    const std::vector<MenuRow> rows = column_rows();
+    for (const float cell : {2.0F, 3.0F}) {
+        constexpr float kTop = 65.0F;
+        const MenuLayout layout = menu_layout(rows, 6.0F, kTop, cell);
+        ASSERT_EQ(layout.rows.size(), rows.size());
+        EXPECT_FLOAT_EQ(layout.rows.front().top, kTop);
+        for (std::size_t i = 0; i < rows.size(); ++i) {
+            const MenuRowLayout& at = layout.rows.at(i);
+            EXPECT_FLOAT_EQ(at.height, 13.0F * cell) << "row " << i;
+            // The 5-cell glyphs sit in the middle of the bar: 4 cells above, 4 below.
+            EXPECT_FLOAT_EQ(at.text_top, at.top + (4.0F * cell)) << "row " << i;
+            if (i > 0) {
+                EXPECT_FLOAT_EQ(at.top - layout.rows.at(i - 1).top, 15.5F * cell) << "row " << i;
+            }
+        }
+    }
+}
+
+TEST(Menu, LaidOutTheLeaderLineIsOneStraightSegmentDownTheGutter) {
+    const std::vector<MenuRow> rows = column_rows();
+    constexpr float kCell = 2.0F;
+    const MenuLayout layout = menu_layout(rows, 6.0F, 65.0F, kCell);
+    ASSERT_TRUE(layout.has_line);
+    const MenuRowLayout& state = layout.rows.front();
+    const MenuRowLayout& second = layout.rows.at(1);
+    const MenuRowLayout& last = layout.rows.back();
+    // One cell wide, centred 2 cells past the key column: the middle of the 4-cell gutter, so it
+    // touches neither the key bars' square ends nor the verb bars'.
+    EXPECT_FLOAT_EQ(layout.line_right - layout.line_left, kCell);
+    EXPECT_FLOAT_EQ((layout.line_left + layout.line_right) * 0.5F,
+                    state.key_right + (2.0F * kCell));
+    EXPECT_GT(layout.line_left, state.key_right);
+    EXPECT_LT(layout.line_right, state.verb_left);
+    // It starts BELOW the state row (it leads from the menu, not from what SPACE does) and ends
+    // just below the last row, inside the gaps between bars.
+    EXPECT_GT(layout.line_top, state.top + state.height);
+    EXPECT_LT(layout.line_top, second.top);
+    EXPECT_GT(layout.line_bottom, last.top + last.height);
+    EXPECT_LT(layout.line_bottom, last.top + (15.5F * kCell));
+
+    // A lone row has no gutter to lead down.
+    const std::vector<MenuRow> lone{rows.front()};
+    EXPECT_FALSE(menu_layout(lone, 6.0F, 65.0F, kCell).has_line);
+}
+
+TEST(Menu, AFaceIsABlueGradientWhereRedHoldsAndOnlyGreenAndBlueFade) {
+    const std::array<float, 3> top = menu_face_colour(true, 0);
+    const std::array<float, 3> bottom = menu_face_colour(true, kMenuFaceBands - 1);
+    const float red_drift = std::fabs(top.at(0) - bottom.at(0));
+    const float green_drop = top.at(1) - bottom.at(1);
+    const float blue_drop = top.at(2) - bottom.at(2);
+    // BLUE light: blue leads at the top, and loses more than half of itself down the bar...
+    EXPECT_GT(top.at(2), top.at(1));
+    EXPECT_GT(top.at(1), top.at(0));
+    EXPECT_LT(bottom.at(2), 0.5F * top.at(2)) << "blue does not fall by more than half";
+    EXPECT_GT(green_drop, 0.0F) << "green does not fade";
+    // ...while red barely moves. Fading all three together reads as a lighter CARD, not blue.
+    EXPECT_LT(red_drift, 0.25F * blue_drop) << "red fades with blue: a grey card, not BZ2's blue";
+    EXPECT_LT(red_drift, 0.25F * green_drop) << "red fades with green: a grey card";
+    // The top edge is a HIGHLIGHT, brighter than the fade alone would make it: the first band
+    // steps down to the second by more than twice the fade's own step.
+    const std::array<float, 3> second = menu_face_colour(true, 1);
+    const std::array<float, 3> third = menu_face_colour(true, 2);
+    EXPECT_GT(top.at(2) - second.at(2), 2.0F * (second.at(2) - third.at(2)))
+        << "the bar has no highlight along its top edge";
+    // And it fades one way, top to bottom, band by band.
+    for (int band = 1; band < kMenuFaceBands; ++band) {
+        const std::array<float, 3> above = menu_face_colour(true, band - 1);
+        const std::array<float, 3> here = menu_face_colour(true, band);
+        EXPECT_LE(here.at(2), above.at(2)) << "band " << band;
+        EXPECT_LE(here.at(1), above.at(1)) << "band " << band;
+    }
+
+    // An unavailable row is FLAT: no gradient at all, and darker than the lit bar's darkest band.
+    const std::array<float, 3> flat = menu_face_colour(false, 0);
+    for (int band = 0; band < kMenuFaceBands; ++band) {
+        EXPECT_EQ(menu_face_colour(false, band), flat) << "the unlit face has a gradient";
+    }
+    for (std::size_t channel = 0; channel < 3; ++channel) {
+        EXPECT_LT(flat.at(channel), bottom.at(channel)) << "channel " << channel;
+    }
+}
+
+TEST(Menu, DrawnTheFaceRunsTheGradientTopToBottomAndAnUnlitRowIsFlat) {
+    const SceneOptions options = menu_rig();
+    for (const bool enabled : {true, false}) {
+        const std::vector<MenuRow> rows{
+            row_of("1", "HOLD", enabled ? MenuDim::None : MenuDim::DoesNotApply)};
+        const std::vector<SceneVertex> drawn = menu_vertices(rows);
+        float top_y = std::numeric_limits<float>::max();
+        float bottom_y = std::numeric_limits<float>::lowest();
+        int top_band = -1;
+        int bottom_band = -1;
+        std::size_t rings = 0;
+        std::vector<std::array<float, 3>> colours;
+        for (std::size_t i = 0; i < drawn.size(); ++i) {
+            const SceneVertex& v = drawn.at(i);
+            if (!is_bar(v)) {
+                continue;
+            }
+            if (std::find(colours.begin(), colours.end(), v.colour) == colours.end()) {
+                colours.push_back(v.colour);
+            }
+            const int band = face_band(v.colour, enabled);
+            if (band < 0) {
+                ++rings;
+                continue;
+            }
+            // Each band is drawn as quads of its own: a band's highest point names it.
+            const float y = on_screen(options, v).y;
+            if (y < top_y - 0.01F) {
+                top_y = y;
+                top_band = band;
+            }
+            if (y > bottom_y + 0.01F) {
+                bottom_y = y;
+                bottom_band = band;
+            }
+        }
+        if (enabled) {
+            EXPECT_EQ(top_band, 0) << "the bar's top is not the gradient's first band";
+            EXPECT_EQ(bottom_band, kMenuFaceBands - 1) << "the bar's bottom is not its last band";
+            EXPECT_GT(rings, 0U) << "a lit bar has a ring round its outer end";
+        } else {
+            EXPECT_GE(top_band, 0) << "the unlit face is not the flat colour";
+            EXPECT_EQ(rings, 0U) << "an unlit bar has no ring";
+            // Flat, read off the frame itself: every see-through vertex is one colour.
+            EXPECT_EQ(colours.size(), 1U) << "the unlit bar is not one flat colour";
+        }
+    }
+}
+
+TEST(Menu, DrawnABarIsSquareOnTheGutterSideAndRoundOnItsOuterEnd) {
+    const SceneOptions options = menu_rig();
+    const float scale = static_cast<float>(options.extent.height) / 720.0F;
+    const std::vector<MenuRow> rows{row_of("1", "HOLD")};
+    const MenuLayout layout = rig_layout(rows);
+    ASSERT_EQ(layout.rows.size(), 1U);
+    const MenuRowLayout& at = layout.rows.front();
+    const float radius = 6.5F * 2.0F * scale; // half the 13-cell bar
+    const float gutter = (at.key_right + at.verb_left) * 0.5F;
+    struct Bar {
+        float left{std::numeric_limits<float>::max()};
+        float right{std::numeric_limits<float>::lowest()};
+        float top{std::numeric_limits<float>::max()};
+        float bottom{std::numeric_limits<float>::lowest()};
+        std::vector<std::array<float, 2>> points;
+    };
+    std::array<Bar, 2> bars; // the key's, then the verb's
+    for (const SceneVertex& v : menu_vertices(rows)) {
+        if (!is_bar(v)) {
+            continue;
+        }
+        const Projected p = on_screen(options, v);
+        Bar& bar = bars.at(p.x < gutter ? 0 : 1);
+        bar.left = std::min(bar.left, p.x);
+        bar.right = std::max(bar.right, p.x);
+        bar.top = std::min(bar.top, p.y);
+        bar.bottom = std::max(bar.bottom, p.y);
+        bar.points.push_back({p.x, p.y});
+    }
+    constexpr float kTol = 0.05F;
+    EXPECT_NEAR(bars.at(0).left, at.key_left, kTol);
+    EXPECT_NEAR(bars.at(0).right, at.key_right, kTol);
+    EXPECT_NEAR(bars.at(1).left, at.verb_left, kTol);
+    EXPECT_NEAR(bars.at(1).right, at.verb_right, kTol);
+    for (std::size_t side = 0; side < bars.size(); ++side) {
+        const Bar& bar = bars.at(side);
+        EXPECT_NEAR(bar.bottom - bar.top, 13.0F * 2.0F * scale, kTol) << "bar " << side;
+        const float inner = side == 0 ? bar.right : bar.left;
+        const float outer = side == 0 ? bar.left : bar.right;
+        bool inner_top = false;
+        bool inner_bottom = false;
+        float outer_reach_at_edge = 0.0F; // how close to the outer end a top/bottom point gets
+        float outer_y = 0.0F;             // the height at which the outer end is reached
+        for (const std::array<float, 2>& point : bar.points) {
+            const bool on_edge = std::fabs(point.at(1) - bar.top) < kTol
+                                 || std::fabs(point.at(1) - bar.bottom) < kTol;
+            if (std::fabs(point.at(0) - inner) < kTol) {
+                inner_top = inner_top || std::fabs(point.at(1) - bar.top) < kTol;
+                inner_bottom = inner_bottom || std::fabs(point.at(1) - bar.bottom) < kTol;
+            }
+            if (on_edge) {
+                outer_reach_at_edge
+                    = std::max(outer_reach_at_edge, radius - std::fabs(point.at(0) - outer));
+            }
+            if (std::fabs(point.at(0) - outer) < kTol) {
+                outer_y = point.at(1);
+            }
+        }
+        // SQUARE where the line runs: the inner edge has a corner at the top AND the bottom.
+        EXPECT_TRUE(inner_top && inner_bottom) << "bar " << side << "'s inner edge is not square";
+        // ROUND outside: no point on the top or bottom edge comes within the radius of the outer
+        // end, and the outer end is reached at the bar's middle height.
+        EXPECT_LE(outer_reach_at_edge, kTol) << "bar " << side << "'s outer end has a corner";
+        EXPECT_NEAR(outer_y, (bar.top + bar.bottom) * 0.5F, kTol) << "bar " << side;
+    }
+}
+
+TEST(Menu, DrawnTheLeaderLineIsTheLedgerAmberDrawnOverTheBars) {
+    const SceneOptions options = menu_rig();
+    const std::vector<MenuRow> rows = column_rows();
+    const MenuLayout layout = rig_layout(rows);
+    const std::vector<SceneVertex> drawn = menu_vertices(rows);
+    std::vector<std::size_t> line;
+    std::size_t last_bar = 0;
+    float first_row_top = std::numeric_limits<float>::max();
+    for (std::size_t i = 0; i < drawn.size(); ++i) {
+        if (drawn.at(i).colour == kLedgerInk) {
+            line.push_back(i);
+        }
+        if (is_bar(drawn.at(i))) {
+            last_bar = i;
+            const float y = on_screen(options, drawn.at(i)).y;
+            first_row_top = std::min(first_row_top, y);
+        }
+    }
+    // ONE segment, in the ledger's own amber, emitted after every bar so it crosses over them.
+    ASSERT_EQ(line.size(), kLineVertices) << "the line is not one quad of kLedgerInk";
+    EXPECT_EQ(line.back() - line.front() + 1U, kLineVertices) << "the line's quad is split";
+    EXPECT_GT(line.front(), last_bar) << "a bar is drawn over the line";
+    const float scale = static_cast<float>(options.extent.height) / 720.0F;
+    const float state_row_bottom = first_row_top + (13.0F * 2.0F * scale);
+    const float second_row_top = first_row_top + (15.5F * 2.0F * scale);
+    float top = std::numeric_limits<float>::max();
+    for (const std::size_t i : line) {
+        const Projected p = on_screen(options, drawn.at(i));
+        EXPECT_EQ(drawn.at(i).alpha, 1.0F);
+        // Constant x: the gutter, all the way down.
+        const bool on_left = std::fabs(p.x - layout.line_left) < 0.05F;
+        const bool on_right = std::fabs(p.x - layout.line_right) < 0.05F;
+        EXPECT_TRUE(on_left || on_right) << "the line left the gutter at x " << p.x;
+        top = std::min(top, p.y);
+    }
+    EXPECT_GT(top, state_row_bottom) << "the line starts inside the state row";
+    EXPECT_LT(top, second_row_top) << "the line starts below the second row";
+}
+
+TEST(Menu, DrawnEveryGlyphSitsWhereTheLayoutPutsIt) {
+    // `TAB` and `HOLD`: the T and the H have ink in their leftmost column, the B and the D in
+    // their rightmost, and the H in its top and bottom rows, so the ink's box IS the text's box.
+    const SceneOptions options = menu_rig();
+    const float cell = 2.0F * static_cast<float>(options.extent.height) / 720.0F;
+    const std::vector<MenuRow> rows{row_of("TAB", "HOLD")};
+    const MenuLayout layout = rig_layout(rows);
+    ASSERT_EQ(layout.rows.size(), 1U);
+    const MenuRowLayout& at = layout.rows.front();
+    const float gutter = (at.key_right + at.verb_left) * 0.5F;
+    struct Box {
+        float left{std::numeric_limits<float>::max()};
+        float right{std::numeric_limits<float>::lowest()};
+        float top{std::numeric_limits<float>::max()};
+        float bottom{std::numeric_limits<float>::lowest()};
+        void grow(const Projected& p) {
+            left = std::min(left, p.x);
+            right = std::max(right, p.x);
+            top = std::min(top, p.y);
+            bottom = std::max(bottom, p.y);
+        }
+    };
+    Box bar;
+    Box key;
+    Box verb;
+    for (const SceneVertex& v : menu_vertices(rows)) {
+        const Projected p = on_screen(options, v);
+        if (is_bar(v)) {
+            bar.grow(p);
+        } else if (is_ink(v)) {
+            (p.x < gutter ? key : verb).grow(p);
+        }
+    }
+    constexpr float kTol = 0.05F;
+    // Right-aligned in its bar, 3.5 cells short of the column edge; the verb 4 cells into its bar.
+    EXPECT_NEAR(key.left, at.key_text, kTol);
+    EXPECT_NEAR(key.right, at.key_right - (3.5F * cell), kTol);
+    EXPECT_NEAR(verb.left, at.verb_left + (4.0F * cell), kTol);
+    EXPECT_NEAR(verb.right, at.verb_right - (4.0F * cell), kTol);
+    // Centred down the bar: 4 cells of bar above the 5-cell glyphs and 4 below.
+    for (const Box* text : {&key, &verb}) {
+        EXPECT_NEAR(text->top - bar.top, 4.0F * cell, kTol);
+        EXPECT_NEAR(bar.bottom - text->bottom, 4.0F * cell, kTol);
+    }
+}
+
+TEST(Menu, DrawnEveryGlyphIsOutlinedInBlackOnAllFourSides) {
+    const SceneOptions options = menu_rig();
+    const float half_cell = 0.5F * 2.0F * static_cast<float>(options.extent.height) / 720.0F;
+    const std::vector<MenuRow> rows{row_of("1", "HOLD")};
+    const std::vector<SceneVertex> drawn = menu_vertices(rows);
+    std::size_t ink = 0;
+    std::size_t outline = 0;
+    std::array<float, 4> ink_box{
+        std::numeric_limits<float>::max(), std::numeric_limits<float>::max(),
+        std::numeric_limits<float>::lowest(), std::numeric_limits<float>::lowest()};
+    std::array<float, 4> outline_box = ink_box;
+    const auto grow = [&](std::array<float, 4>& box, const SceneVertex& v) {
+        const Projected p = on_screen(options, v);
+        box = {std::min(box.at(0), p.x), std::min(box.at(1), p.y), std::max(box.at(2), p.x),
+               std::max(box.at(3), p.y)};
+    };
+    for (const SceneVertex& v : drawn) {
+        if (is_ink(v)) {
+            ++ink;
+            grow(ink_box, v);
+        } else if (!is_bar(v) && v.colour == kOutline) {
+            ++outline;
+            grow(outline_box, v);
+        }
+    }
+    ASSERT_GT(ink, 0U);
+    // One black cell under every ink cell -- twice the quads, never five times.
+    EXPECT_EQ(outline, ink) << "not every glyph cell has its outline cell";
+    // Each outline cell is the ink cell grown by half a cell all round: 1 px at the 720 reference.
+    EXPECT_NEAR(outline_box.at(0), ink_box.at(0) - half_cell, 0.05F);
+    EXPECT_NEAR(outline_box.at(1), ink_box.at(1) - half_cell, 0.05F);
+    EXPECT_NEAR(outline_box.at(2), ink_box.at(2) + half_cell, 0.05F);
+    EXPECT_NEAR(outline_box.at(3), ink_box.at(3) + half_cell, 0.05F);
 }
 
 TEST(Menu, ASelectionOwnsTheSubjectOfTheLivingKindItHolds) {

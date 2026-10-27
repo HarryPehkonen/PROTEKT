@@ -367,7 +367,10 @@ written, the deploy half has LANDED (DEPLOY, 2026-10-26):** an un-deployed recyc
 `3`, sent to a tile, and after ten seconds standing there becomes `UnitKind::DeployedRecycler` -- a
 still, unarmed building on key `1` with the hull it arrived with, standing on a 2x2 footprint no unit
 may enter or be spawned inside. Two rows of the deployment menu (`FOLLOW ME`, `GO TO NAV`) and the
-meaning of the menu's highlight colours are still unruled and therefore not built. One decision is open
+meaning of the menu's highlight colours are still unruled and therefore not built. The menu now WEARS
+BZ2's look (MENU-READ, 2026-10-27): blue gradient bars per key and verb, a right-aligned key column,
+and the amber leader line down the gutter between them; the line's turn along the radar and its dot
+on the selected unit's blip are the next slice, and BZ2's mixed-case font is unruled. One decision is open
 on `UnitSpec`: its `buildable` flag is false for every kind and never read, while the factory builds a
 tank anyway — wire it or delete it (Harri's call, held as a question).
 

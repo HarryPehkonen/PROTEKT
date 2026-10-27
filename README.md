@@ -122,6 +122,17 @@ count `x<n>` beside it, the kind, and a group bar -- a `DEPLOYING` plate over on
 that is not yet mounted, and a notice line for a refused roster or nav-mark key. The radar is colour
 and length only. The ship instrument below carries two numbers.
 
+### The command menu
+
+The menu down the left (a selection's rows, the nav menu, an armed `N`) is drawn as BZ2 draws it:
+each row is two translucent **blue bars**, the key's and the verb's, lit from the top and fading
+down, with white text outlined in black. The keys are right-aligned on one edge, so a digit sits
+close to its verb and a wide key (`SPACE`, `TAB`) grows to the left; between the key bars and the
+verb bars runs one straight **amber line** (the `SCRAP` label's colour) from below the state row
+past the last row. The bars are rounded on their outer ends and square where the line runs. A row
+that does not apply, or that you cannot afford, keeps its place and its key on a flat dark bar in
+grey. The text is the HUD's one size, the same as every other label.
+
 ### The group bar and the ship instrument
 
 The bar on each top-strip plate has **one segment per living vehicle** of the group, side by side and

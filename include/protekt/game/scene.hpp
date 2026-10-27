@@ -460,6 +460,55 @@ inline constexpr float kDeployPreviewLiftMetres = 0.06F;
 inline constexpr std::size_t kDeployPreviewVertexCount
     = std::size_t{2} * (sim::kBuildingFootprintTiles + 1) * sim::kBuildingFootprintTiles * 6U;
 
+/// The ledger's amber (C6), the `SCRAP` label's ink. Public because the command menu's leader line
+/// is drawn in this exact colour -- the HUD's own, chosen by the user over a measured green -- and
+/// a test that pins the line to it must be able to name it rather than copy its numbers.
+inline constexpr std::array<float, 3> kLedgerInk{1.0F, 0.85F, 0.30F};
+
+/// THE COMMAND MENU'S LAYOUT (MENU-READ), in frame pixels, as a pure function of the rows, so the
+/// geometry is tested without a frame. Every row is two bars side by side, a KEY bar hugging its
+/// key and a VERB bar hugging its verb. The key column is RIGHT-aligned: every key bar ends at the
+/// same x, so a digit sits a gutter away from its own verb whatever the widest key is, and a wide
+/// key (`SPACE`, `TAB`) grows to the LEFT. The leader line runs down that gutter.
+struct MenuRowLayout {
+    float key_left{};   ///< the key bar's OUTER (rounded) end
+    float key_right{};  ///< the key bar's INNER (square) edge: one x for every row
+    float key_text{};   ///< where the key's first glyph starts
+    float verb_left{};  ///< the verb bar's INNER (square) edge
+    float verb_right{}; ///< the verb bar's OUTER (rounded) end; `verb_left` when there is no verb
+    float verb_text{};  ///< where the verb's first glyph starts
+    float right_left{}; ///< where the right column's text (a nav row's metres) starts
+    float top{};        ///< the bars' top edge
+    float height{};     ///< the bars' height
+    float text_top{};   ///< every glyph's top on this row
+    bool enabled{true}; ///< `MenuRow::enabled`: false draws the flat, unlit bar
+};
+
+/// The rows, and the one straight leader line down the gutter between the key and verb columns.
+/// The line starts below the state row (row 0) and ends below the last row; a menu of one row has
+/// no gutter to mark and `has_line` is false.
+struct MenuLayout {
+    std::vector<MenuRowLayout> rows;
+    bool has_line{false};
+    float line_left{};
+    float line_right{};
+    float line_top{};
+    float line_bottom{};
+};
+
+/// `rows` laid out from the menu's top-left corner (`left`, `top`) at a glyph cell of `cell` px.
+[[nodiscard]] MenuLayout menu_layout(std::span<const MenuRow> rows, float left, float top,
+                                     float cell);
+
+/// A menu bar's face is drawn as this many horizontal bands, top to bottom, one quad each.
+inline constexpr int kMenuFaceBands = 8;
+
+/// The colour of face band `band` (0 at the top) of a bar on an `enabled` row or not. An enabled
+/// face is BZ2's blue highlight, measured off the user's capture: red stays nearly constant and
+/// only green and blue fade, so it reads as blue light and not as a lighter card. A disabled face
+/// is one flat dark colour with no gradient at all.
+[[nodiscard]] std::array<float, 3> menu_face_colour(bool enabled, int band) noexcept;
+
 struct SceneOptions {
     std::uint64_t seed{};
     Camera camera{};
