@@ -57,6 +57,10 @@ enum class MenuSubject : std::uint8_t {
     Harvester,  ///< a harvester / scavenger
     Deployment, ///< a DEPLOYED recycler: the build list (and `~ DROP OFF`)
     Turret,     ///< a lone deployed turret: the state row alone
+    /// A selected VEHICLE -- a tank, hover tank, mortar, rocket or scout. The plan's measured shape
+    /// (2026-10-26) is ONE table for every vehicle kind: only the state row's default verb differs
+    /// between a tank and a scout, and this model leaves that to the caller's target readout.
+    Vehicle,
 };
 
 /// The command that is currently armed, if any. Arming is a two-key flow: the menu's own row picks
@@ -104,6 +108,10 @@ struct MenuInput {
     /// drawn at the state row's right: `SPACE DEPLOY 68m`. Absent -- nothing armed, or the reticle
     /// off the ground -- draws nothing there.
     std::optional<int> metres{};
+    /// Whether MORE THAN ONE unit is selected. It decides one row's ink and nothing else: `~
+    /// SELECT UNIT` applies to a group and not to a lone unit (the plan's measured dim rule), so a
+    /// single selection draws it dimmed. Defaulted, so a caller that does not know still compiles.
+    bool group{false};
 };
 
 /// WHY a row is dimmed. The three values are exhaustive on purpose: `None` means the row is NOT
@@ -168,6 +176,19 @@ inline constexpr std::string_view kVerbFollowMe{"FOLLOW ME"};
 inline constexpr std::string_view kVerbHold{"HOLD"};
 /// `3 DEPLOY` on an un-deployed recycler, and the state row's verb once it has armed the deploy.
 inline constexpr std::string_view kVerbDeploy{"DEPLOY"};
+/// The selected-vehicle rows that act (RECYCLE and its neighbours), written once so the table and
+/// the layer that routes a digit cannot drift apart.
+inline constexpr std::string_view kVerbGoToNav{"GO TO NAV"};
+inline constexpr std::string_view kVerbAttack{"ATTACK"};
+inline constexpr std::string_view kVerbRecycle{"RECYCLE"};
+/// Drawn on a vehicle's menu and inert in this slice: the row is the reference's, the behaviour is
+/// not built. Written here so the table reads as one list and not a run of literals.
+inline constexpr std::string_view kVerbSelectUnit{"SELECT UNIT"};
+inline constexpr std::string_view kVerbPickMeUp{"PICK ME UP"};
+inline constexpr std::string_view kVerbBailout{"BAILOUT"};
+inline constexpr std::string_view kVerbScavenge{"SCAVENGE"};
+inline constexpr std::string_view kVerbRotateBuildings{"ROTATE BUILDINGS"};
+inline constexpr std::string_view kVerbDropOff{"DROP OFF"};
 
 /// A distance as a row's RIGHT column draws it: whole metres and an `m`, "68m". The one spelling,
 /// for the nav chain's rows, the armed deploy's state row and the attack list alike.

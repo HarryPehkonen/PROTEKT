@@ -182,8 +182,9 @@ private:
     /// frame with no row) says why on the notice line, and then nothing has changed.
     void move_selection_to_key(const sim::Sim& sim, const SceneOptions& options, int group_key);
     /// A digit with no prompt open: the menu row it names, if that row acts and the model says it
-    /// is enabled; otherwise nothing at all (RB-DIGITS).
-    void menu_digit(const sim::Sim& sim, int digit);
+    /// is enabled; otherwise nothing at all (RB-DIGITS). `options` is read only by the rows that
+    /// need the world outside the sim -- `2 GO TO NAV` reads the highlighted nav mark from it.
+    void menu_digit(const sim::Sim& sim, const SceneOptions& options, int digit);
     /// `1 FOLLOW ME`: every orderable selected unit follows the driven craft. Refused when there is
     /// no living craft, or nothing but that craft is selected.
     void follow_driven(const sim::Sim& sim);
@@ -191,6 +192,15 @@ private:
     void hold_selection(const sim::Sim& sim);
     /// `3 DEPLOY`: arm the deploy, or refuse when only the driven craft is selected.
     void arm_deploy();
+    /// `2 GO TO NAV`: MoveTo the highlighted nav mark for every orderable selected unit. Refused
+    /// when no mark is highlighted, or when nothing but the driven craft is selected.
+    void go_to_highlighted_mark(const SceneOptions& options);
+    /// `3 ATTACK`: open the attack list T opens with no hostile under the crosshair. The next digit
+    /// names the row to attack.
+    void attack_from_menu(const sim::Sim& sim);
+    /// `0 RECYCLE`: order every orderable selected unit to the side's own recycler. Refused when
+    /// the side has no living recycler, or when nothing but the driven craft is selected.
+    void recycle_selection(const sim::Sim& sim);
     /// A key pressed while the deploy is armed. True when the deployment menu took it and nothing
     /// else may act on it; false lets it through to its usual meaning.
     bool deploy_key(const input::KeyEvent& key, const sim::Sim& sim, const SceneOptions& options);

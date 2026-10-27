@@ -362,6 +362,8 @@ const char* to_string(Stance stance) noexcept {
         return "fetch";
     case Stance::Deploy:
         return "deploy";
+    case Stance::Recycle:
+        return "recycle";
     }
     return "unknown";
 }
@@ -390,6 +392,8 @@ const char* to_string(OrderKind kind) noexcept {
         return "firelob";
     case OrderKind::Deploy:
         return "deploy";
+    case OrderKind::Recycle:
+        return "recycle";
     }
     return "unknown";
 }

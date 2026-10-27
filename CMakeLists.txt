@@ -283,6 +283,7 @@ if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
         tests/test_sim.cpp
         tests/test_projectile.cpp
         tests/test_scrap.cpp
+        tests/test_recycle.cpp
         tests/test_scavenger.cpp
         tests/test_ai_aim.cpp
         tests/test_scenario.cpp

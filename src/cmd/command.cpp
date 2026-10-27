@@ -71,6 +71,13 @@ std::vector<sim::Order> follow(std::span<const sim::UnitId> roster, sim::UnitId 
     return make(roster, sim::orders::Follow{target});
 }
 
+std::vector<sim::Order> recycle(std::span<const sim::UnitId> roster, sim::UnitId recycler) {
+    if (!recycler.valid()) {
+        return {};
+    }
+    return make(roster, sim::orders::Recycle{recycler});
+}
+
 std::vector<sim::Order> focus_fire(sim::UnitId shooter, sim::UnitId target) {
     if (!shooter.valid() || !target.valid() || shooter == target) {
         return {};

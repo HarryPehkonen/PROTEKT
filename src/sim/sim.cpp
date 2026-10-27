@@ -103,6 +103,17 @@ bool order_is_valid(const std::vector<Unit>& units, const Order& order,
         return unit->kind == UnitKind::Recycler
                && deploy_site_ok(seed, units, deploy->tile_x, deploy->tile_y);
     }
+    if (const auto* recycle = std::get_if<orders::Recycle>(&order.payload)) {
+        // A RECYCLE goes into a LIVING recycler of the unit's OWN side: the base is the side's, and
+        // recycling into the enemy's would hand it the scrap. A unit may not name itself (the
+        // recycler cannot recycle itself), and the target must be a recycler kind -- the vehicle or
+        // the building, since "the recycler" means the base either way.
+        const Unit* target = find_const(units, recycle->recycler);
+        return target != nullptr && target->alive && target->id != unit->id
+               && target->side == unit->side
+               && (target->kind == UnitKind::Recycler
+                   || target->kind == UnitKind::DeployedRecycler);
+    }
     if (const UnitId* id = order_target(order)) {
         const Unit* target = find_const(units, *id);
         // Any live unit is a legal explicit target, the issuer's own side included: the player may
@@ -252,6 +263,20 @@ void apply_order(std::vector<Unit>& units, std::vector<Projectile>& projectiles,
     case OrderKind::Strafe:
         if (const auto* o = std::get_if<orders::Strafe>(&order.payload)) {
             apply_strafe(unit, *o, ground_of(seed, units));
+        }
+        break;
+    case OrderKind::Recycle:
+        if (const auto* o = std::get_if<orders::Recycle>(&order.payload)) {
+            // Drive to the recycler's CURRENT position; `recycle_step` re-aims every tick, so a
+            // recycler still on wheels is followed rather than chased to where it used to be.
+            const Unit* target = find_const(units, o->recycler);
+            if (target != nullptr) {
+                unit.stance = Stance::Recycle;
+                unit.target = o->recycler;
+                unit.guard_x = target->x;
+                unit.guard_y = target->y;
+                unit.route.age = kRouteAgeFresh;
+            }
         }
         break;
     case OrderKind::Deploy:
@@ -637,6 +662,40 @@ bool deploy_step(const std::vector<Unit>& units, Unit& unit, std::uint64_t seed)
     return true;
 }
 
+/// RECYCLE. Called for every living unit before it is steered. Returns true when the unit is not to
+/// be steered this tick: it is standing at its recycler and has just been consumed into the ledger.
+/// Away from it the unit chases the recycler's CURRENT position -- an undeployed recycler can drive
+/// -- so the goal is re-written every tick and a moving base is followed, not missed. The unit is
+/// set !alive WITHOUT an Impact, which is what keeps step 6 from scattering a wreck: its value goes
+/// to the ledger, and the ground gets nothing.
+bool recycle_step(std::vector<Unit>& units, Unit& unit,
+                  std::array<std::uint16_t, 2>& ore) noexcept {
+    if (unit.stance != Stance::Recycle) {
+        return false;
+    }
+    const Unit* target = find_const(units, unit.target);
+    if (target == nullptr || !target->alive) {
+        unit.stance = Stance::Idle; // the recycler is gone: stand down, still a unit
+        unit.target = UnitId{};
+        return true;
+    }
+    constexpr std::int64_t kArrive = kArriveRadiusRaw; // the radius a MoveTo stops in
+    if (dist2(unit.x, unit.y, target->x, target->y) >= kArrive * kArrive) {
+        unit.guard_x = target->x;
+        unit.guard_y = target->y;
+        return false; // on its way: steered like a MoveTo
+    }
+    unit.vx = Fixed::zero();
+    unit.vy = Fixed::zero();
+    unit.alive = false;
+    unit.stance = Stance::Dead;
+    unit.target = UnitId{};
+    const auto side = static_cast<std::size_t>(unit.side);
+    const int next = static_cast<int>(ore.at(side)) + static_cast<int>(kRecycleOre);
+    ore.at(side) = static_cast<std::uint16_t>(std::min(next, 0xFFFF));
+    return true;
+}
+
 void steer(std::vector<Unit>& units, Unit& unit, const UnitProfile& prof, const WorldGround& ground,
            std::uint32_t& plans) noexcept {
     unit.vx = Fixed::zero();
@@ -652,6 +711,9 @@ void steer(std::vector<Unit>& units, Unit& unit, const UnitProfile& prof, const 
     case Stance::Fetch:
     // A deploy drives to its site's centre, which the order wrote into guard_x/guard_y.
     case Stance::Deploy:
+    // A recycle drives at its recycler, whose CURRENT position `recycle_step` writes into
+    // guard_x/y.
+    case Stance::Recycle:
         break;
     case Stance::Attack: {
         const Unit* target = find_const(units, unit.target);
@@ -875,6 +937,9 @@ void Sim::step() {
         // The deploy, before the mover: it may stand the recycler still, or turn it into a
         // building that does not move at all.
         if (unit.kind == UnitKind::Recycler && deploy_step(units_, unit, seed)) {
+            continue;
+        }
+        if (recycle_step(units_, unit, ore_)) {
             continue;
         }
         // Asked afresh for each unit, so a recycler that deployed earlier in this very loop is

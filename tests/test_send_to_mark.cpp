@@ -804,14 +804,14 @@ TEST(MenuDigit, EveryRowThatCannotActYetDoesNothingAndTheSimIsUntouched) {
         UnitKind kind;
         std::vector<int> digits;
     };
-    // The recycler has no 4 (HOLD is the harvester's row); GO TO NAV and SCAVENGE wait on rulings
-    // and RB3, and the recycler's 3 only ARMS the deploy (DEPLOY: no order until SPACE); PICK ME
-    // UP, BAILOUT and RECYCLE are not built; a deployment's digits are its build list (RB5); a lone
-    // tank has no menu at all.
-    const std::vector<Case> cases{{UnitKind::Recycler, {0, 2, 3, 4, 5, 9}},
-                                  {UnitKind::Scavenger, {0, 2, 3, 5, 9}},
-                                  {UnitKind::Factory, {0, 1, 2, 3, 4, 5, 6, 7, 8, 9}},
-                                  {UnitKind::Tank, {0, 1, 2, 3, 4, 5, 9}}};
+    // The digits that name NO row, or a row the model dims: the recycler has no 4/5/9/0 (its table
+    // is ~,1,2,3); the harvester's 5 PICK ME UP is dim and 6/7/8 are the drawn gap; a deployment's
+    // digits are its build list and 8/9/0 name no row; a lone vehicle's 5 PICK ME UP is dim and
+    // 6/7/8 are the gap. The acting rows are proved by their own tests below.
+    const std::vector<Case> cases{{UnitKind::Recycler, {4, 5, 9, 0}},
+                                  {UnitKind::Scavenger, {5, 6, 7, 8}},
+                                  {UnitKind::Factory, {0, 8, 9}},
+                                  {UnitKind::Tank, {5, 6, 7, 8}}};
     for (const Case& c : cases) {
         MenuRig rig = make_menu_rig();
         Interaction player{rig.tank};
@@ -825,6 +825,65 @@ TEST(MenuDigit, EveryRowThatCannotActYetDoesNothingAndTheSimIsUntouched) {
             EXPECT_TRUE(player.message().empty());
         }
         EXPECT_EQ(rig.sim.state_hash(), hash);
+    }
+}
+
+// RECYCLE and its neighbours (2026-10-26): the four digits the owner asked to work on a selected
+// vehicle -- FOLLOW ME, GO TO NAV, ATTACK, RECYCLE -- plus the refusals each of them owes when its
+// precondition is not met.
+
+TEST(MenuDigit, TwoOnARecyclerGoesToTheHighlightedNavPoint) {
+    MenuRig rig = make_menu_rig();
+    NavMarks marks;
+    static_cast<void>(marks.place(50, 50)); // the first mark takes slot 0
+    marks.toggle(0);                        // ...and only a HIGHLIGHTED one is a destination
+    rig.options.nav_marks = &marks;
+    ASSERT_EQ(marks.marks().size(), 1U);
+    EXPECT_EQ(marks.marks().at(0).tile_x, 50);
+    EXPECT_EQ(marks.marks().at(0).tile_y, 50);
+    EXPECT_TRUE(marks.marks().at(0).highlighted);
+    Interaction player{rig.tank};
+    select_kind(rig, player, UnitKind::Recycler);
+    player.handle(digit(2), rig.sim, rig.options);
+    const std::vector<sim::Order> orders = player.take_orders();
+    ASSERT_EQ(orders.size(), 1U) << "message: " << player.message();
+    expect_move_to(orders.at(0), rig.recycler, 50, 50);
+}
+
+TEST(MenuDigit, TwoWithNoHighlightedNavPointRefusesAndOrdersNothing) {
+    MenuRig rig = make_menu_rig();
+    NavMarks marks;
+    static_cast<void>(marks.place(50, 50)); // placed, never highlighted
+    rig.options.nav_marks = &marks;
+    Interaction player{rig.tank};
+    select_kind(rig, player, UnitKind::Recycler);
+    player.handle(digit(2), rig.sim, rig.options);
+    EXPECT_TRUE(player.take_orders().empty());
+    EXPECT_EQ(player.message(), "No nav point is highlighted.");
+}
+
+TEST(MenuDigit, ThreeOnAVehicleOpensTheAttackList) {
+    MenuRig rig = make_menu_rig();
+    Interaction player{rig.tank};
+    select_kind(rig, player, UnitKind::Tank); // the driven craft: the list is centred on it
+    player.handle(digit(3), rig.sim, rig.options);
+    EXPECT_TRUE(player.attack_armed());
+    EXPECT_FALSE(player.attack_targets().empty());
+    EXPECT_TRUE(player.message().empty()) << "arming the list is not a refusal";
+}
+
+TEST(MenuDigit, ZeroOnHarvestersSendsThemToTheRecycler) {
+    MenuRig rig = make_menu_rig();
+    Interaction player{rig.tank};
+    select_kind(rig, player, UnitKind::Scavenger);
+    ASSERT_EQ(selected(player).size(), 2U);
+    player.handle(digit(0), rig.sim, rig.options);
+    const std::vector<sim::Order> orders = player.take_orders();
+    ASSERT_EQ(orders.size(), 2U);
+    for (const sim::Order& order : orders) {
+        const auto* recycle = std::get_if<sim::orders::Recycle>(&order.payload);
+        ASSERT_NE(recycle, nullptr) << "0 RECYCLE is a Recycle order";
+        EXPECT_EQ(recycle->recycler, rig.recycler) << "at the side's own recycler";
     }
 }
 

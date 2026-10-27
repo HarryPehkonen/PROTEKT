@@ -222,7 +222,7 @@ void Interaction::handle(const input::InputFrame& frame, const sim::Sim& sim,
             selection_.clear();
         } else if (const int digit = input::mark_digit(key); digit >= 0) {
             // Reached only with no prompt open: G and T settle a digit above and `continue`.
-            menu_digit(sim, digit);
+            menu_digit(sim, options, digit);
         } else if (key.scancode == input::kKeyX) {
             swap_to_crosshair(sim, options);
         } else if (key.scancode == input::kKeyM) {
@@ -490,9 +490,12 @@ void Interaction::follow_crosshair_unit(const sim::Sim& sim, const SceneOptions&
     message_ = "shadowing that unit.";
 }
 
-void Interaction::menu_digit(const sim::Sim& sim, int digit) {
-    const MenuInput in{menu_subject_of(sim, selection_.units()), sim::Side::Player, ArmedCommand{},
-                       MenuTarget::None, static_cast<int>(sim.ore(sim::Side::Player))};
+void Interaction::menu_digit(const sim::Sim& sim, const SceneOptions& options, int digit) {
+    MenuInput in;
+    in.subject = menu_subject_of(sim, selection_.units());
+    in.side = sim::Side::Player;
+    in.ore = static_cast<int>(sim.ore(sim::Side::Player));
+    in.group = selection_.units().size() > 1;
     const std::vector<MenuRow> rows = menu_rows(in);
     const char label = static_cast<char>('0' + digit);
     const auto row = std::find_if(rows.begin(), rows.end(), [&label](const MenuRow& candidate) {
@@ -509,6 +512,12 @@ void Interaction::menu_digit(const sim::Sim& sim, int digit) {
         hold_selection(sim);
     } else if (row->verb == kVerbDeploy) {
         arm_deploy();
+    } else if (row->verb == kVerbGoToNav) {
+        go_to_highlighted_mark(options);
+    } else if (row->verb == kVerbAttack) {
+        attack_from_menu(sim);
+    } else if (row->verb == kVerbRecycle) {
+        recycle_selection(sim);
     }
 }
 
@@ -618,6 +627,97 @@ void Interaction::hold_selection(const sim::Sim& sim) {
     remember(orders);
     pending_.insert(pending_.end(), orders.begin(), orders.end());
     message_ = "holding here.";
+}
+
+void Interaction::go_to_highlighted_mark(const SceneOptions& options) {
+    if (options.nav_marks == nullptr) {
+        refuse("No nav point is highlighted.");
+        return;
+    }
+    // `marks()` returns its list BY VALUE, so a pointer to one of its elements outlives nothing:
+    // the temporary is gone by the time the order below reads the tile. Copy the mark instead --
+    // the pointer version read freed memory and ordered moves to whatever tile happened to be
+    // there.
+    std::optional<NavMarks::Mark> target;
+    for (const NavMarks::Mark& mark : options.nav_marks->marks()) {
+        if (mark.highlighted) {
+            target = mark;
+            break;
+        }
+    }
+    if (!target.has_value()) {
+        refuse("No nav point is highlighted.");
+        return;
+    }
+    if (selection_.empty()) {
+        refuse("Nothing is selected to give an order to.");
+        return;
+    }
+    const std::vector<sim::UnitId> roster = orderable();
+    if (roster.empty()) {
+        refuse("You are driving that one; select another unit to give orders.");
+        return;
+    }
+    const std::vector<sim::Order> orders = cmd::move_to(
+        roster, sim::Fixed::from_int(target->tile_x), sim::Fixed::from_int(target->tile_y));
+    if (orders.empty()) {
+        refuse("That order cannot be carried out.");
+        return;
+    }
+    remember(orders);
+    pending_.insert(pending_.end(), orders.begin(), orders.end());
+    message_ = "moving to the highlighted nav point.";
+}
+
+void Interaction::attack_from_menu(const sim::Sim& sim) {
+    // The same door T opens with no hostile under the crosshair: the list appears and the next
+    // digit names the row to attack. Reusing it keeps ONE target list and one numbering.
+    arm_attack_list(sim);
+}
+
+void Interaction::recycle_selection(const sim::Sim& sim) {
+    const std::vector<sim::UnitId> roster = orderable();
+    if (roster.empty()) {
+        refuse("You are driving that one; select another unit to give orders.");
+        return;
+    }
+    // The side's own recycler: the deployed base first (a side has one ever), else one still on
+    // wheels. Lowest id wins if a test rig somehow has several.
+    sim::UnitId recycler{};
+    for (const sim::Unit& unit : sim.units()) {
+        if (!unit.alive || unit.side != sim::Side::Player) {
+            continue;
+        }
+        if (unit.kind == sim::UnitKind::DeployedRecycler) {
+            recycler = unit.id;
+            break;
+        }
+        if (unit.kind == sim::UnitKind::Recycler && !recycler.valid()) {
+            recycler = unit.id;
+        }
+    }
+    if (!recycler.valid()) {
+        refuse("There is no recycler to recycle at.");
+        return;
+    }
+    std::vector<sim::UnitId> units_to_recycle;
+    for (const sim::UnitId id : roster) {
+        if (id != recycler) {
+            units_to_recycle.push_back(id);
+        }
+    }
+    if (units_to_recycle.empty()) {
+        refuse("The recycler cannot recycle itself.");
+        return;
+    }
+    const std::vector<sim::Order> orders = cmd::recycle(units_to_recycle, recycler);
+    if (orders.empty()) {
+        refuse("That order cannot be carried out.");
+        return;
+    }
+    remember(orders);
+    pending_.insert(pending_.end(), orders.begin(), orders.end());
+    message_ = "returning to the recycler.";
 }
 
 void Interaction::send_to_mark(int number, const SceneOptions& options) {

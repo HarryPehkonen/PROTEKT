@@ -262,11 +262,12 @@ TEST(PlayerView, ASelectedTurretAsksForTheTurretMenu) {
     EXPECT_EQ(game::menu_subject_of(rig.sim, selected), MenuSubject::Turret);
 }
 
-TEST(PlayerView, ATankAsksForNoMenuAtAll) {
+TEST(PlayerView, ATankSquadAsksForTheVehicleMenu) {
+    // The 2026-10-26 captures measured ONE ten-row table shared by a tank squad and a lone scout;
+    // the menu is drawn for a selected vehicle now, not invented for it.
     const Rig rig = make_base_rig();
     const std::vector<sim::UnitId> selected{unit_id(rig.sim, 3), unit_id(rig.sim, 4)};
-    EXPECT_EQ(game::menu_subject_of(rig.sim, selected), MenuSubject::None)
-        << "a tank's menu was never captured, and a menu must not be invented for it";
+    EXPECT_EQ(game::menu_subject_of(rig.sim, selected), MenuSubject::Vehicle);
 }
 
 TEST(PlayerView, TwoKindsSelectedAtOnceAskForNoMenu) {

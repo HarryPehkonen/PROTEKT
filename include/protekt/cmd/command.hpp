@@ -44,6 +44,12 @@ namespace protekt::cmd {
 [[nodiscard]] std::vector<sim::Order> follow(std::span<const sim::UnitId> roster,
                                              sim::UnitId target);
 
+/// Every unit in the roster drives to `recycler` and is consumed there into its side's scrap
+/// reserve. Refuses an invalid recycler for the same reason attack refuses an invalid target; the
+/// sim additionally refuses a recycler of the other side, or the unit itself.
+[[nodiscard]] std::vector<sim::Order> recycle(std::span<const sim::UnitId> roster,
+                                              sim::UnitId recycler);
+
 /// `shooter` shoots `target` and does nothing else: no stance, no destination, no velocity.
 ///
 /// This is the TRIGGER, and it is deliberately not `attack`. `attack` gives a unit a hunting

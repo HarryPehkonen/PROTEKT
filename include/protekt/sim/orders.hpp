@@ -118,11 +118,20 @@ struct Deploy {
     std::int32_t tile_y{};
 };
 
+/// RECYCLE a unit: drive to the named recycler -- the side's own, deployed or still on wheels --
+/// and, on arrival, be consumed there into that side's scrap reserve. The unit leaves NO wreckage:
+/// its value goes to the ledger instead of onto the ground. Refused for a target that is not a
+/// living recycler of the unit's own side, and for a unit naming itself (see `order_is_valid`).
+struct Recycle {
+    UnitId recycler{};
+};
+
 } // namespace orders
 
-using OrderPayload = std::variant<orders::MoveTo, orders::GuardAt, orders::Patrol, orders::Attack,
-                                  orders::Stop, orders::FocusFire, orders::FireTowards,
-                                  orders::Strafe, orders::Follow, orders::FireLob, orders::Deploy>;
+using OrderPayload
+    = std::variant<orders::MoveTo, orders::GuardAt, orders::Patrol, orders::Attack, orders::Stop,
+                   orders::FocusFire, orders::FireTowards, orders::Strafe, orders::Follow,
+                   orders::FireLob, orders::Deploy, orders::Recycle>;
 
 /// How each payload alternative is named and reported. This is the payload's index, in the
 /// payload's order, and the assertions below make that true rather than intended.
@@ -138,9 +147,10 @@ enum class OrderKind : std::uint8_t {
     Follow = 8,
     FireLob = 9,
     Deploy = 10,
+    Recycle = 11,
 };
 
-inline constexpr std::size_t kOrderKindCount = static_cast<std::size_t>(OrderKind::Deploy) + 1;
+inline constexpr std::size_t kOrderKindCount = static_cast<std::size_t>(OrderKind::Recycle) + 1;
 
 static_assert(std::variant_size_v<OrderPayload> == kOrderKindCount,
               "every alternative needs a kind, and every kind an alternative");
@@ -162,6 +172,7 @@ static_assert(std::is_same_v<PayloadOf<OrderKind::Strafe>, orders::Strafe>);
 static_assert(std::is_same_v<PayloadOf<OrderKind::Follow>, orders::Follow>);
 static_assert(std::is_same_v<PayloadOf<OrderKind::FireLob>, orders::FireLob>);
 static_assert(std::is_same_v<PayloadOf<OrderKind::Deploy>, orders::Deploy>);
+static_assert(std::is_same_v<PayloadOf<OrderKind::Recycle>, orders::Recycle>);
 
 /// The kind is the payload's own index. There is no second field that can disagree with it, which
 /// is precisely what the flat record could not promise.
@@ -237,6 +248,11 @@ struct OrderFields {
         out.positions[0] = Fixed::from_int(p->tile_x);
         out.positions[1] = Fixed::from_int(p->tile_y);
         out.position_count = 2;
+    } else if (const auto* p = std::get_if<orders::Recycle>(&payload)) {
+        // The recycler as the target and nothing else: the destination is read from the unit when
+        // the order is applied, so a recycler that drives away is followed rather than missed.
+        out.has_target = true;
+        out.target = p->recycler;
     }
     // Stop carries nothing, and neither does anything else that reaches here.
     return out;

@@ -88,7 +88,10 @@ enum class Stance : std::uint8_t {
     /// A recycler under a `Deploy` order (DEPLOY), appended for the same reason: it drives to the
     /// site's centre (`guard_x`/`guard_y`) and, once there, counts `Unit::deploy_ticks` up to
     /// `kDeployTicks`. Any other order replaces it, and the count with it.
-    Deploy = 8
+    Deploy = 8,
+    /// A RECYCLE order (RECYCLE): drive to the named recycler and, on arrival, be consumed there
+    /// into the side's scrap reserve. Appended for the same reason as every value above.
+    Recycle = 9
 };
 
 struct UnitId {
@@ -175,6 +178,13 @@ inline constexpr int kRepairTickInterval = 6; ///< ...by 1 hp every this many ti
 /// runs on one. The spot it appears on is its own tile or the nearest free one within
 /// `kBuildSpawnRadiusTiles`; a yard with no room builds nothing and spends nothing.
 inline constexpr std::uint16_t kTankOreCost = 4;
+/// RECYCLE. What one recycled unit returns to its side's scrap reserve, in the same delivered loads
+/// the ledger counts. PROVISIONAL: the sim has no per-kind cost table yet (RB5 owns where the
+/// menu's costs really come from), so one flat number is refunded for every kind. Half a tank is a
+/// number chosen to be tunable in one place, not a designed economy; when RB5 lands, this is what
+/// it replaces. A recycled unit leaves NO wreckage -- its value goes to the ledger instead of onto
+/// the ground -- so a recycle is not a second harvest of the same hull.
+inline constexpr std::uint16_t kRecycleOre = kTankOreCost / 2;
 inline constexpr int kBuildIntervalTicks = 150; ///< 5 s: an unhurried production line
 inline constexpr int kBuildSpawnRadiusTiles = 3;
 inline constexpr std::uint16_t kTankDamage = 8;

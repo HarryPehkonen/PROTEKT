@@ -23,9 +23,9 @@ constexpr std::string_view kTilde{"~"};
 /// deploy there, and the turret-rotation verb is drawn but does not apply until it has buildings
 /// to rotate.
 constexpr std::array kRecyclerRows{
-    FixedRow{kTilde, "ROTATE BUILDINGS", MenuDim::DoesNotApply},
+    FixedRow{kTilde, kVerbRotateBuildings, MenuDim::DoesNotApply},
     FixedRow{"1", kVerbFollowMe, MenuDim::None},
-    FixedRow{"2", "GO TO NAV", MenuDim::None},
+    FixedRow{"2", kVerbGoToNav, MenuDim::None},
     FixedRow{"3", kVerbDeploy, MenuDim::None},
 };
 
@@ -35,21 +35,36 @@ constexpr std::array kRecyclerRows{
 /// UNIT` and `5 PICK ME UP` are dimmed because they do not apply to this selection; their ink is
 /// the same as a build row that is merely too expensive, and only `MenuDim` tells them apart.
 constexpr std::array kHarvesterRows{
-    FixedRow{kTilde, "SELECT UNIT", MenuDim::DoesNotApply},
+    FixedRow{kTilde, kVerbSelectUnit, MenuDim::DoesNotApply},
     FixedRow{"1", kVerbFollowMe, MenuDim::None},
-    FixedRow{"2", "GO TO NAV", MenuDim::None},
-    FixedRow{"3", "SCAVENGE", MenuDim::None},
+    FixedRow{"2", kVerbGoToNav, MenuDim::None},
+    FixedRow{"3", kVerbScavenge, MenuDim::None},
     FixedRow{"4", kVerbHold, MenuDim::None},
-    FixedRow{"5", "PICK ME UP", MenuDim::DoesNotApply},
+    FixedRow{"5", kVerbPickMeUp, MenuDim::DoesNotApply},
     // 6, 7, 8: the gap.
-    FixedRow{"9", "BAILOUT", MenuDim::None},
-    FixedRow{"0", "RECYCLE", MenuDim::None},
+    FixedRow{"9", kVerbBailout, MenuDim::None},
+    FixedRow{"0", kVerbRecycle, MenuDim::None},
+};
+
+/// A selected VEHICLE -- a tank, hover tank, mortar, rocket or scout. The same ten rows as the
+/// reference's tank and scout captures (2026-10-26); only the state row's default verb differs
+/// between them, and the model leaves that to the caller. `~ SELECT UNIT` is NOT here because its
+/// ink depends on the selection size: `menu_rows` draws it first, dimmed for a lone unit.
+constexpr std::array kVehicleRows{
+    FixedRow{"1", kVerbFollowMe, MenuDim::None},
+    FixedRow{"2", kVerbGoToNav, MenuDim::None},
+    FixedRow{"3", kVerbAttack, MenuDim::None},
+    FixedRow{"4", kVerbHold, MenuDim::None},
+    FixedRow{"5", kVerbPickMeUp, MenuDim::DoesNotApply},
+    // 6, 7, 8: the gap.
+    FixedRow{"9", kVerbBailout, MenuDim::None},
+    FixedRow{"0", kVerbRecycle, MenuDim::None},
 };
 
 /// A DEPLOYED recycler, above its build list. `~ DROP OFF` is drawn as the reference draws it and
 /// means nothing to us yet: the string is rendered, no behaviour is invented behind it.
 constexpr std::array kDeploymentRows{
-    FixedRow{kTilde, "DROP OFF", MenuDim::None},
+    FixedRow{kTilde, kVerbDropOff, MenuDim::None},
 };
 
 /// The player's build list, in key order, with the costs the reference capture draws on the rows.
@@ -133,8 +148,8 @@ MenuSubject menu_subject_of_kind(sim::UnitKind kind) noexcept {
     case sim::UnitKind::HoverTank:
     case sim::UnitKind::Mortar:
     case sim::UnitKind::Rocket:
-    case sim::UnitKind::Scout: // a plain vehicle, like the tanks: no command menu of its own
-        break;
+    case sim::UnitKind::Scout: // the reference's tank and scout captures share ONE table
+        return MenuSubject::Vehicle;
     }
     return MenuSubject::None;
 }
@@ -180,6 +195,13 @@ std::vector<MenuRow> menu_rows(const MenuInput& in) {
     case MenuSubject::Deployment:
         append_fixed(rows, kDeploymentRows);
         append_build_list(rows, in);
+        break;
+    case MenuSubject::Vehicle:
+        // `~ SELECT UNIT` first: the reference's row order, and the one row whose ink depends on
+        // the selection size. A lone unit cannot select within itself, so the row is dim for one.
+        rows.push_back(MenuRow{kTilde, std::string{kVerbSelectUnit}, in.group,
+                               in.group ? MenuDim::None : MenuDim::DoesNotApply});
+        append_fixed(rows, kVehicleRows);
         break;
     case MenuSubject::None:
     case MenuSubject::Turret:

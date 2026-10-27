@@ -153,6 +153,7 @@ TEST(Replay, EveryOrderKindSurvivesARoundTripAndNoneIsDropped) {
         Command{10, Order{UnitId{5}, orders::FireLob{Fixed::from_raw(65536), Fixed::zero(),
                                                      UnitId{6}, Fixed::from_raw(131072)}}},
         Command{11, Order{UnitId{6}, orders::Deploy{12, 255}}},
+        Command{12, Order{UnitId{7}, orders::Recycle{UnitId{8}}}},
     };
     ASSERT_EQ(r.commands.size(), kOrderKindCount) << "this test must cover every kind";
     for (std::size_t i = 0; i < r.commands.size(); ++i) {
@@ -169,6 +170,8 @@ TEST(Replay, EveryOrderKindSurvivesARoundTripAndNoneIsDropped) {
     EXPECT_NE(text.find("9 follow 3 4\n"), std::string::npos) << text;
     EXPECT_NE(text.find("11 deploy 6 786432 16711680\n"), std::string::npos)
         << "the tile is written as a whole-tile position: " << text;
+    EXPECT_NE(text.find("12 recycle 7 8\n"), std::string::npos)
+        << "a recycle names its recycler as the target: " << text;
 
     const Replay again = must_parse(text);
     ASSERT_EQ(again.commands.size(), r.commands.size());
