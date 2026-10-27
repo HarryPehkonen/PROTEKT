@@ -20,6 +20,7 @@ using protekt::game::Extent;
 using protekt::game::kRadarAspect;
 using protekt::game::kRadarElevationRadians;
 using protekt::game::kRadarRadiusTiles;
+using protekt::game::kScoutRadarRadiusTiles;
 using protekt::game::radar_compass;
 using protekt::game::radar_marks;
 using protekt::game::radar_panel;
@@ -30,8 +31,12 @@ using protekt::game::RadarPanel;
 using protekt::game::RadarPoint;
 using protekt::game::RadarShape;
 using protekt::game::RadarTone;
+using protekt::game::viewer_radar_radius;
 using protekt::sim::Fixed;
+using protekt::sim::Scenario;
 using protekt::sim::Side;
+using protekt::sim::Sim;
+using protekt::sim::Spawn;
 using protekt::sim::Unit;
 using protekt::sim::UnitId;
 using protekt::sim::UnitKind;
@@ -768,6 +773,83 @@ TEST(RadarMesh, TheLineWidthScalesWithTheFrame) {
     // fatten on a 1080 window. This pins the constant's own value and its stated reference height.
     EXPECT_FLOAT_EQ(kRadarMeshLinePixels, 1.0F);
     EXPECT_EQ(kRadarMeshStepTiles, 2);
+}
+
+// ---------------------------------------------------------------- the reach is the driven kind's
+
+/// The scout's whole reason to exist (VIS): its radar reaches 80 tiles, every other kind's 40.
+constexpr std::uint64_t kReachSeed = 42;
+constexpr int kReachX = 20; ///< seed 42: this row is clear of craters at +3, +45, +79 and +81
+constexpr int kReachY = 40;
+
+/// A sim holding exactly a player `viewer` at (kReachX, kReachY) and one enemy tank `east` tiles
+/// due east of it -- or the viewer alone for `east` 0. The positions are asserted, not assumed:
+/// the sim moves a spawn off a crater, and a 79 that became an 81 would test nothing.
+Sim reach_sim(UnitKind viewer, int east) {
+    std::vector<Spawn> spawns{{viewer, Side::Player, kReachX, kReachY}};
+    if (east > 0) {
+        spawns.push_back({UnitKind::Tank, Side::Enemy, kReachX + east, kReachY});
+    }
+    Sim sim = Sim::create(Scenario{kReachSeed, spawns});
+    EXPECT_EQ(sim.units().at(0).x, Fixed::from_int(kReachX)) << "the viewer was not moved";
+    EXPECT_EQ(sim.units().at(0).y, Fixed::from_int(kReachY));
+    if (east > 0) {
+        EXPECT_EQ(sim.units().at(1).x, Fixed::from_int(kReachX + east))
+            << "the enemy was not moved";
+        EXPECT_EQ(sim.units().at(1).y, Fixed::from_int(kReachY));
+    }
+    return sim;
+}
+
+/// The hostile blips a `viewer` sees of an enemy `east` tiles away, at the reach the game layer
+/// gives the driven unit -- `viewer_radar_radius`, as the scene draws it -- and not a number typed
+/// in here.
+int hostile_blips(UnitKind viewer, int east) {
+    const Sim sim = reach_sim(viewer, east);
+    const UnitId you = sim.units().at(0).id;
+    const std::vector<RadarMark> marks
+        = radar_marks(sim.units(), you, 0.0F, kPanel, viewer_radar_radius(sim, you));
+    return static_cast<int>(std::count_if(marks.begin(), marks.end(), [](const RadarMark& mark) {
+        return mark.tone == RadarTone::Hostile;
+    }));
+}
+
+TEST(RadarReach, AScoutSeesEightyTilesAndEveryOtherKindForty) {
+    EXPECT_EQ(kRadarRadiusTiles, 40) << "the default every projection is calibrated against";
+    EXPECT_EQ(kScoutRadarRadiusTiles, 80);
+    const Sim scout = reach_sim(UnitKind::Scout, 0);
+    EXPECT_EQ(viewer_radar_radius(scout, scout.units().at(0).id), kScoutRadarRadiusTiles);
+    const Sim tank = reach_sim(UnitKind::Tank, 0);
+    EXPECT_EQ(viewer_radar_radius(tank, tank.units().at(0).id), kRadarRadiusTiles);
+    EXPECT_EQ(viewer_radar_radius(scout, UnitId{}), kRadarRadiusTiles) << "no viewer";
+    EXPECT_EQ(viewer_radar_radius(scout, UnitId{99}), kRadarRadiusTiles) << "a missing viewer";
+}
+
+TEST(RadarReach, ADeadScoutsRadarFallsBackToForty) {
+    // The radar stays up after death; it must not go on claiming the scout's reach.
+    Sim sim = Sim::create(Scenario{kReachSeed,
+                                   {{UnitKind::Scout, Side::Player, kReachX, kReachY},
+                                    {UnitKind::Tank, Side::Enemy, kReachX + 3, kReachY},
+                                    {UnitKind::Tank, Side::Enemy, kReachX, kReachY + 3}}});
+    const UnitId scout = sim.units().at(0).id;
+    ASSERT_EQ(viewer_radar_radius(sim, scout), kScoutRadarRadiusTiles);
+    for (int t = 0; t < 900 && sim.find(scout)->alive; ++t) {
+        sim.step();
+    }
+    ASSERT_FALSE(sim.find(scout)->alive) << "two tanks at point blank kill a scout";
+    EXPECT_EQ(viewer_radar_radius(sim, scout), kRadarRadiusTiles);
+}
+
+TEST(RadarReach, AScoutsRadarShowsAHostileAtSeventyNineTilesAndNotAtEightyOne) {
+    EXPECT_EQ(hostile_blips(UnitKind::Scout, 45), 1);
+    EXPECT_EQ(hostile_blips(UnitKind::Scout, 79), 1) << "the wider view";
+    EXPECT_EQ(hostile_blips(UnitKind::Scout, 81), 0) << "and still a radius, not a map";
+}
+
+TEST(RadarReach, ATankInTheSameSeatSeesNoneOfThem) {
+    EXPECT_EQ(hostile_blips(UnitKind::Tank, 45), 0) << "past a tank's 40";
+    EXPECT_EQ(hostile_blips(UnitKind::Tank, 79), 0);
+    EXPECT_EQ(hostile_blips(UnitKind::Tank, 81), 0);
 }
 
 } // namespace

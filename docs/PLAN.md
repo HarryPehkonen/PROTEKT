@@ -113,13 +113,13 @@ replay; a Vulkan client that draws it, headless or in a window — full screen i
 the same orders through the same interface; a utility AI that advances, engages and withdraws, and
 commands its mortars and rockets by role; a trigger that chooses a target; **deterministic A\* routes**
 (`sim/route.hpp`) that take units round craters and rims, with the local detour kept as the fallback
-for a goal that cannot be reached; eight unit kinds (tank, hover tank, mortar, rocket, turret,
-factory, scavenger, recycler), four player weapons (gun, rocket, mortar, bouncer, switched by the right button), and any armed unit
+for a goal that cannot be reached; ten unit kinds (tank, hover tank, mortar, rocket, turret,
+factory, scavenger, recycler, deployed recycler, scout), four player weapons (gun, rocket, mortar, bouncer, switched by the right button), and any armed unit
 drivable with `X`; `F` follow, nav marks (`N` arms one and `SPACE` places it, ten slots filled in turn
 and wrapping over the oldest slot; `~` opens the nav menu, whose digits toggle a mark's yellow highlight;
 `G` and a digit sends a selection there), the
 roster strip (`F1`-`F10`) and the world map (`R`; `O` is unbound); a radar in the corner of the frame that shows what is
-within 40 tiles of the tank and nothing beyond it; **on-screen feedback**: HUD text (weapon name,
+within 40 tiles of the unit you drive (80 in a scout) and nothing beyond it; **on-screen feedback**: HUD text (weapon name,
 roster strip, range ladder, notice line), the reticle's hit pulse when your shot damages an enemy,
 mortar landing marks, and the red flash when you are hit; **rendering depth**: textured ground (six
 variants of each terrain type, eight orientations), one directional sun, multi-prism unit models;
@@ -137,6 +137,10 @@ is not quiet but absent. A machine with no sound device runs silent.
    from the player's own hand is still owed.
 2. **Strategic controllers** (below), the slow layer that decides what to defend. Still a design
    sketch: the module was deleted unwired and is recoverable from history.
+3. **VIS (Harri's ruling, 2026-10-26) -- built in part.** The scout (`UnitKind::Scout`, appended as
+   kind 9) is BUILT: fast, lightly armoured, with a short-range rapid-fire gun, and its radar reaches
+   80 tiles where every other kind's reaches 40. Its numbers are provisional and it is not buildable
+   yet (the build menu, RB3). Still owed for VIS: a genuinely blind AI, and exploration.
 
 Shipped from this list since it was written, and no longer next: on-screen hit feedback, deterministic
 A\* (navigation option 2), and rendering depth (textures, lighting, unit shapes). What the rendering

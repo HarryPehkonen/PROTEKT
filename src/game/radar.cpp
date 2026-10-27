@@ -26,6 +26,12 @@ constexpr float kNavRimFraction = 0.02F;
 
 } // namespace
 
+int viewer_radar_radius(const sim::Sim& sim, sim::UnitId viewer) noexcept {
+    const sim::Unit* unit = sim.find(viewer);
+    const bool scout = unit != nullptr && unit->alive && unit->kind == sim::UnitKind::Scout;
+    return scout ? kScoutRadarRadiusTiles : kRadarRadiusTiles;
+}
+
 RadarPanel radar_panel(Extent extent) noexcept {
     const float width = static_cast<float>(extent.width);
     const float height = static_cast<float>(extent.height);

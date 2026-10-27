@@ -31,7 +31,18 @@
 /// horizontally, so a click can never land on the radar.
 namespace protekt::game {
 
+/// The radar's reach, in tiles, for every kind but the scout -- and the default every projection
+/// below is calibrated against.
 inline constexpr int kRadarRadiusTiles = 40;
+/// The scout's reach (VIS): twice everyone else's. The wider view is the whole point of the unit.
+inline constexpr int kScoutRadarRadiusTiles = 80;
+
+/// The reach of the radar centred on `viewer`: `kScoutRadarRadiusTiles` for a living scout,
+/// `kRadarRadiusTiles` for anything else -- including a viewer that is missing or dead, because the
+/// radar stays up after death and must not go on claiming a reach nothing alive is giving it. Every
+/// reader of the driven unit's reach (the panel, its mesh and nav marks, Space's pick and the
+/// attack list) asks this, so they cannot disagree about how far the player can see.
+[[nodiscard]] int viewer_radar_radius(const sim::Sim& sim, sim::UnitId viewer) noexcept;
 /// The corner inset is shared with the world map, which swaps into this panel: see
 /// `kPanelMarginPixels` in `scene_data.hpp`.
 /// The panel is BZ2's wide shallow oval: a circular ground disc seen from `kRadarElevationRadians`

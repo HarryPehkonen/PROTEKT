@@ -3928,6 +3928,14 @@ TEST(RecyclerShape, ARecyclerIsNotDrawnAsAFactoryNorAsATank) {
     EXPECT_NE(recycler.size(), kTankVertices) << "the recycler borrowed the tank's turret model";
 }
 
+// VIS: the scout has no art of its own yet and borrows the tank's body, rather than falling to the
+// chain's factory `else`.
+TEST(ScoutShape, AScoutIsDrawnAsATankAndNotAsAFactory) {
+    const auto scout = unit_box_of(UnitKind::Scout);
+    EXPECT_EQ(scout.size(), kTankVertices) << "the tank's body, until it has its own";
+    EXPECT_NE(scout.size(), protekt::game::kFactoryVertices) << "the fallback drew a factory";
+}
+
 /// The recycler's prisms, in emission order. A fresh player recycler is not turned, so its local
 /// across is world X and its front world +Z.
 constexpr std::size_t kLeftTrackAssembly = 0;  ///< the track, its six wheels, its skirt

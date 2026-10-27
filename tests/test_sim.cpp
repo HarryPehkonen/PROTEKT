@@ -108,9 +108,9 @@ TEST(Sim, TheRecyclerNeverFiresAndIsNothingToFear) {
     EXPECT_GT(spec.max_speed.raw, 0) << "it has to be able to reach a deploy site";
 }
 
-TEST(Sim, TheDeployedRecyclerIsAppendedAfterTheRecyclerAndNoEarlierIndexMoved) {
-    // DEPLOY. Every value below is hashed, packed into observations and written into replays: a
-    // kind inserted anywhere but the end would move all of them.
+TEST(Sim, TheScoutIsAppendedAfterTheDeployedRecyclerAndNoEarlierIndexMoved) {
+    // DEPLOY, then VIS. Every value below is hashed, packed into observations and written into
+    // replays: a kind inserted anywhere but the end would move all of them.
     EXPECT_EQ(static_cast<int>(UnitKind::Tank), 0);
     EXPECT_EQ(static_cast<int>(UnitKind::Turret), 1);
     EXPECT_EQ(static_cast<int>(UnitKind::Factory), 2);
@@ -120,8 +120,22 @@ TEST(Sim, TheDeployedRecyclerIsAppendedAfterTheRecyclerAndNoEarlierIndexMoved) {
     EXPECT_EQ(static_cast<int>(UnitKind::Scavenger), 6);
     EXPECT_EQ(static_cast<int>(UnitKind::Recycler), 7);
     EXPECT_EQ(static_cast<int>(UnitKind::DeployedRecycler), 8);
-    EXPECT_EQ(kUnitKindCount, 9);
-    EXPECT_EQ(static_cast<int>(UnitKind::DeployedRecycler), kUnitKindCount - 1) << "appended last";
+    EXPECT_EQ(static_cast<int>(UnitKind::Scout), 9);
+    EXPECT_EQ(kUnitKindCount, 10);
+    EXPECT_EQ(static_cast<int>(UnitKind::Scout), kUnitKindCount - 1) << "appended last";
+}
+
+TEST(Sim, TheScoutIsALightFastArmedVehicleThatCanBeDriven) {
+    const UnitSpec& scout = spec_of(UnitKind::Scout);
+    const UnitSpec& tank = spec_of(UnitKind::Tank);
+    EXPECT_GT(scout.range.raw, 0) << "armed: it can shoot back";
+    EXPECT_GT(scout.damage, 0);
+    EXPECT_GT(scout.cooldown, 0);
+    EXPECT_GT(scout.max_speed.raw, 0) << "mobile";
+    EXPECT_LT(scout.hp, tank.hp) << "light armour";
+    EXPECT_GT(scout.max_speed.raw, tank.max_speed.raw) << "it has to scout";
+    EXPECT_TRUE(is_drivable(UnitKind::Scout));
+    EXPECT_FALSE(scout.buildable) << "the build menu (RB3) fills that flag, not this slice";
 }
 
 TEST(Sim, TheDeployedRecyclerIsAStillUnarmedBuildingWithTheRecyclersHull) {
@@ -140,7 +154,7 @@ TEST(Sim, TheDeployedRecyclerIsAStillUnarmedBuildingWithTheRecyclersHull) {
 }
 
 TEST(Sim, TheHoverTankHasTheTanksProfileExactly) {
-    EXPECT_EQ(kUnitKindCount, 9);
+    EXPECT_EQ(kUnitKindCount, 10);
     EXPECT_EQ(static_cast<int>(UnitKind::HoverTank), 3);
     const UnitProfile tank = profile(UnitKind::Tank);
     const UnitProfile hover = profile(UnitKind::HoverTank);

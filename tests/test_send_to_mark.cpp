@@ -379,6 +379,46 @@ TEST(AttackList, TWithNothingUnderTheCrosshairArmsAndADigitAttacksThatRow) {
         << "the digit was the list's, not a roster key";
 }
 
+/// The attack list's reach is the DRIVEN unit's radar (VIS): a hostile 79 tiles out is listed from
+/// a scout's seat, and not from a tank's in the same place.
+[[nodiscard]] std::size_t listed_at_79(UnitKind driven) {
+    Rig rig{};
+    // Seed 42: (20,40), (24,41) and (99,40) are all clear of craters, so nothing is moved.
+    const std::vector<Spawn> spawns{{driven, Side::Player, 20, 40},
+                                    {UnitKind::HoverTank, Side::Player, 24, 41},
+                                    {UnitKind::Tank, Side::Enemy, 20 + 79, 40}};
+    rig.sim = sim::Sim::create(sim::Scenario{kSeed, spawns});
+    EXPECT_EQ(rig.sim.units().at(0).x, sim::Fixed::from_int(20)) << "the driven unit was not moved";
+    EXPECT_EQ(rig.sim.units().at(2).x, sim::Fixed::from_int(20 + 79)) << "the enemy was not moved";
+    EXPECT_EQ(rig.sim.units().at(2).y, sim::Fixed::from_int(40));
+    for (const sim::Unit& unit : rig.sim.units()) {
+        if (unit.side == Side::Player) {
+            rig.own.push_back(unit.id);
+        }
+    }
+    rig.options.seed = kSeed;
+    rig.options.extent = kExtent;
+    rig.options.camera = Camera{40.0F, height_metres(kSeed, 20, 40) + 3.0F, 60.0F, 0.0F, -0.12F};
+    rig.options.viewer_unit = rig.own.at(0);
+    rig.options.aim = Aim{640.0F, 360.0F};
+    rig.options.nav_marks = &rig.marks;
+    rig.row.update(rig.sim, Side::Player, 0);
+    rig.options.row = &rig.row;
+    Interaction player{rig.own.at(0)};
+    player.handle(fkey(2), rig.sim, rig.options);
+    EXPECT_EQ(selected(player), (std::vector<UnitId>{rig.own.at(1)}));
+    const UnitId under = pick(rig.sim, rig.options, 640.0F, 360.0F).unit;
+    EXPECT_TRUE(!under.valid() || rig.sim.find(under)->side == Side::Player)
+        << "nothing hostile may be under the crosshair, or T would attack it";
+    player.handle(key_frame(input::kKeyT), rig.sim, rig.options);
+    return player.attack_targets().size();
+}
+
+TEST(AttackList, FromAScoutsSeatTheListReachesAHostileSeventyNineTilesOut) {
+    EXPECT_EQ(listed_at_79(UnitKind::Scout), 1U);
+    EXPECT_EQ(listed_at_79(UnitKind::Tank), 0U) << "a tank's radar is 40 tiles";
+}
+
 TEST(AttackList, TheListIsCapturedAtArmingAndDoesNotShiftUnderTheFinger) {
     Rig rig = make_listing_rig();
     Interaction player{rig.own.at(0)};

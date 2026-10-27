@@ -133,6 +133,7 @@ MenuSubject menu_subject_of_kind(sim::UnitKind kind) noexcept {
     case sim::UnitKind::HoverTank:
     case sim::UnitKind::Mortar:
     case sim::UnitKind::Rocket:
+    case sim::UnitKind::Scout: // a plain vehicle, like the tanks: no command menu of its own
         break;
     }
     return MenuSubject::None;

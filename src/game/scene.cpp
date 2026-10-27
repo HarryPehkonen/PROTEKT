@@ -1683,8 +1683,11 @@ void append_radar(std::vector<SceneVertex>& out, const SceneOptions& options, co
         return;
     }
     const RadarPanel panel = radar_panel(options.extent);
+    // The reach is the driven unit's (a scout sees twice as far), and every layer below -- marks,
+    // mesh and nav marks -- is drawn at that ONE radius, or they would disagree about the scale.
+    const int reach = viewer_radar_radius(sim, options.viewer_unit);
     const std::vector<RadarMark> marks
-        = radar_marks(sim.units(), options.viewer_unit, options.camera.yaw, panel);
+        = radar_marks(sim.units(), options.viewer_unit, options.camera.yaw, panel, reach);
     if (marks.empty()) {
         return; // no such unit: there is nothing for the radar to be centred on
     }
@@ -1749,8 +1752,8 @@ void append_radar(std::vector<SceneVertex>& out, const SceneOptions& options, co
         const float viewer_x = static_cast<float>(viewer->x.raw) / kOne;
         const float viewer_z = static_cast<float>(viewer->y.raw) / kOne;
         for (const RadarSegment& segment :
-             radar_mesh(options.seed, viewer_x, viewer_z, options.camera.yaw, panel,
-                        kRadarRadiusTiles, options.radar_mesh_step_tiles)) {
+             radar_mesh(options.seed, viewer_x, viewer_z, options.camera.yaw, panel, reach,
+                        options.radar_mesh_step_tiles)) {
             const float ax = panel.x + segment.a.px;
             const float ay = panel.y + segment.a.py;
             const float bx = panel.x + segment.b.px;
@@ -1846,7 +1849,7 @@ void append_radar(std::vector<SceneVertex>& out, const SceneOptions& options, co
         constexpr float kNavRatio = 0.87F;
         for (const RadarNav& nav :
              radar_nav_marks(sim.units(), options.viewer_unit, options.nav_marks->marks(),
-                             options.camera.yaw, panel)) {
+                             options.camera.yaw, panel, reach)) {
             append_nav_glyph(out, options, marks_at * kNavRatio, panel.x + nav.px, panel.y + nav.py,
                              nav.half, nav.highlighted);
         }
@@ -3480,7 +3483,10 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
                 // DEPLOYED one is drawn as the hull that drove there, parked on its site: the
                 // building has no look of its own yet, and DEPLOY adds no art.
                 build_recycler(scene.vertices, options.seed, unit, mark, lift_z, hovering, heading);
-            } else if (faced || unit.kind == sim::UnitKind::Tank) {
+            } else if (faced || unit.kind == sim::UnitKind::Tank
+                       || unit.kind == sim::UnitKind::Scout) {
+                // The scout borrows the tank's body until it has art of its own (VIS adds none):
+                // left to the final branch it would be drawn as a factory.
                 build_facing_tank(scene.vertices, options.seed, unit, mark, lift_z, hovering,
                                   heading, turret);
             } else if (unit.kind == sim::UnitKind::Turret) {

@@ -27,6 +27,7 @@ namespace {
     case sim::UnitKind::Rocket:
     case sim::UnitKind::Scavenger:
     case sim::UnitKind::Recycler:
+    case sim::UnitKind::Scout:
         break;
     }
     return std::nullopt;
@@ -219,6 +220,8 @@ std::string_view kind_label(sim::UnitKind kind) noexcept {
         return "FACTORY";
     case sim::UnitKind::Scavenger:
         return "SCAVENGER";
+    case sim::UnitKind::Scout:
+        return "SCOUT";
     case sim::UnitKind::Recycler:
     case sim::UnitKind::DeployedRecycler:
         return "RECYCLER";

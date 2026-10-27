@@ -64,9 +64,12 @@ namespace {
     return best;
 }
 
-/// How far Space will reach to select a unit: 80% of the radar's 40-tile radius. Beyond that the
-/// unit is on the radar but too far to pick out by eye, so Space leaves the selection alone.
-constexpr float kSpaceSelectRangeTiles = 0.8F * static_cast<float>(kRadarRadiusTiles);
+/// How far Space will reach to select a unit: 80% of the driven unit's radar radius
+/// (`viewer_radar_radius`). Beyond that the unit is on the radar but too far to pick out by eye, so
+/// Space leaves the selection alone.
+[[nodiscard]] float space_select_range_tiles(int radar_radius_tiles) noexcept {
+    return 0.8F * static_cast<float>(radar_radius_tiles);
+}
 
 } // namespace
 
@@ -244,10 +247,12 @@ void Interaction::handle(const input::InputFrame& frame, const sim::Sim& sim,
                 // group) or from Space over one vehicle starting from empty.
                 if (selection_.empty()) {
                     // Nothing selected: select the single own unit under the mark, within 80% of
-                    // the radar's range (32 of its 40 tiles). Ground, sky, hostiles and the
-                    // driven tank (nothing to order) are ignored: a stray press does nothing.
+                    // the radar's range (32 of a tank's 40 tiles, 64 of a scout's 80). Ground, sky,
+                    // hostiles and the driven tank (nothing to order) are ignored: a stray press
+                    // does nothing.
                     if (hit_is_ours && hit->id != driven_
-                        && picked.distance_tiles <= kSpaceSelectRangeTiles) {
+                        && picked.distance_tiles
+                               <= space_select_range_tiles(viewer_radar_radius(sim, driven_))) {
                         selection_.clear();
                         selection_.add(hit->id);
                         message_ = "SPACE Select";
@@ -658,9 +663,10 @@ void Interaction::send_to_mark(int number, const SceneOptions& options) {
 
 void Interaction::arm_attack_list(const sim::Sim& sim) {
     // Captured once, here: the numbers on the screen are the numbers the next key means, however
-    // the board moves in between. The driven tank is the centre, as it is the radar's.
+    // the board moves in between. The driven tank is the centre, as it is the radar's, and the
+    // reach is the radar's too.
     std::vector<TargetRow> rows
-        = nearest_enemies(sim, sim::Side::Player, driven_, kRadarRadiusTiles);
+        = nearest_enemies(sim, sim::Side::Player, driven_, viewer_radar_radius(sim, driven_));
     if (rows.empty()) {
         refuse("no enemies within radar range.");
         return;

@@ -73,6 +73,9 @@ inline constexpr BouncerSpec kBouncer{Fixed::from_raw(Fixed::kOne / 2),
 /// three quarters of the bolt speed, a straight flight, no splash.
 inline constexpr std::int32_t kRocketRangeRaw = 15 << 16;
 
+/// The scout: a minigun's reach, 10 tiles, below the tank's 12 (`kTankRangeRaw`).
+inline constexpr std::int32_t kScoutRangeRaw = kTankRangeRaw * 5 / 6;
+
 /// Indexed by the value of `UnitKind`, which stays the index type; the order below is the enum's.
 inline constexpr std::array<UnitSpec, static_cast<std::size_t>(kUnitKindCount)> kUnitSpecs{{
     {"tank", kTankHp, Fixed::from_raw(kTankSpeedRaw), Fixed::from_raw(kTankRangeRaw), kTankDamage,
@@ -109,6 +112,15 @@ inline constexpr std::array<UnitSpec, static_cast<std::size_t>(kUnitKindCount)> 
     // damage or cooldown), and the recycler's hull, `kDeployedRecyclerHp`, a default of his.
     {"deployedrecycler", kDeployedRecyclerHp, Fixed::zero(), Fixed::zero(), 0, 0, Fixed::zero(),
      Fixed::zero(), kBoltTravel, Fixed::zero(), Fixed::zero(), false},
+    // The scout (VIS): light armour and fast, with the tank's bolt as a minigun -- half the tank's
+    // hp, half again its speed (the fastest vehicle here: it has to scout), a 10-tile reach, half
+    // the damage rounded up, a third of the cooldown, and the tank's straight single-target bolt.
+    // Outgunned by any tank, but it shoots back. Every number is DERIVED from the tank's and is
+    // provisional: its own numbers are Harri's to set in a balance pass. Not buildable: the build
+    // menu (RB3) is what fills that flag, and its display-only `SCOUT` row does not.
+    {"scout", kTankHp / 2, Fixed::from_raw(kTankSpeedRaw * 3 / 2), Fixed::from_raw(kScoutRangeRaw),
+     (kTankDamage + 1) / 2, kTankCooldownTicks / 3, Fixed::from_raw(kProjectileSpeedRaw),
+     Fixed::from_raw(kBoltArcRaw), kBoltTravel, Fixed::zero(), Fixed::zero(), false},
 }};
 
 [[nodiscard]] constexpr const UnitSpec& spec_of(UnitKind kind) noexcept {

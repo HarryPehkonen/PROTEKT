@@ -38,9 +38,14 @@ enum class UnitKind : std::uint8_t {
     /// `UnitId`, the same entry in the unit table, the hit points it had -- turned into a building.
     /// Appended after Recycler, never inserted, for the reason every kind above was. It never moves
     /// and never fires, and it stands on a `kBuildingFootprintTiles` square no unit may enter.
-    DeployedRecycler = 8
+    DeployedRecycler = 8,
+    /// The fast, lightly armoured recon vehicle (VIS), with a short-range rapid-fire gun. Appended
+    /// after DeployedRecycler, never inserted, for the reason every kind above was: the kind is
+    /// hashed, packed into observations and serialised in replays. What it is FOR is the game
+    /// layer's: its radar reaches twice as far as any other kind's (`viewer_radar_radius`).
+    Scout = 9
 };
-inline constexpr int kUnitKindCount = 9;
+inline constexpr int kUnitKindCount = 10;
 
 /// Tanks and hover tanks: every rule written "for a tank" (orders, retreat, defend, swap, the AI's
 /// hunters) takes both. The hover tank has the tank's profile and, until it is drivable, its
