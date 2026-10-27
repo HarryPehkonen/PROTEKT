@@ -22,3 +22,4 @@ fuzz/crash-*
 fuzz/leak-*
 fuzz/timeout-*
 fuzz/oom-*
+.aider*
