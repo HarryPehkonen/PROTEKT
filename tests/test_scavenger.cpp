@@ -1,12 +1,15 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
+#include <optional>
 #include <vector>
 
 #include <gtest/gtest.h>
 
 #include "protekt/sim/orders.hpp"
 #include "protekt/sim/outcome.hpp"
+#include "protekt/sim/replay.hpp"
 #include "protekt/sim/scenario.hpp"
 #include "protekt/sim/scrap.hpp"
 #include "protekt/sim/sim.hpp"
@@ -827,4 +830,297 @@ TEST(ScrapField, ACompositionThatAsksForNoScrapStillGetsNone) {
     bare.scrap_per_side = 0;
     EXPECT_TRUE(sim::skirmish(42, bare).scrap.empty());
     EXPECT_TRUE(Scenario{}.scrap.empty()) << "a hand-built battle starts clean";
+}
+
+// ------------------------------------------------------------------------------- the build queue
+
+namespace {
+
+namespace sim = protekt::sim;
+
+/// A player's factory at (52, 45) with three haulers and `pieces` loads of wreckage laid out in a
+/// block west of it, and nothing else: no enemy, so nothing shoots, and no armed unit, so the
+/// factory's own tank-replacement beat (C4) has nothing to replace. The ledger therefore rises by
+/// the haulers' deliveries alone, which is the only way a test can put scrap in the bank.
+Scenario queue_battle(int pieces) {
+    Scenario s;
+    s.seed = kSeed;
+    s.objectives = {};
+    s.spawns = {Spawn{UnitKind::Factory, Side::Player, 52, 45},
+                Spawn{UnitKind::Scavenger, Side::Player, 48, 47},
+                Spawn{UnitKind::Scavenger, Side::Player, 48, 48},
+                Spawn{UnitKind::Scavenger, Side::Player, 48, 49}};
+    const sim::Fixed half = sim::Fixed::from_raw(sim::Fixed::kOne / 2);
+    for (int i = 0; i < pieces; ++i) {
+        s.scrap.push_back(Scrap{sim::fixed_add(sim::Fixed::from_int(42 + (i % 10)), half),
+                                sim::fixed_add(sim::Fixed::from_int(36 + (i / 10)), half)});
+    }
+    return s;
+}
+
+/// The player's factory in `sim`.
+UnitId factory_of(const Sim& sim) {
+    for (const Unit& unit : sim.units()) {
+        if (unit.kind == UnitKind::Factory && unit.side == Side::Player) {
+            return unit.id;
+        }
+    }
+    return UnitId{};
+}
+
+/// A build order for `producer`; batch 0 is a lone build.
+Order build(UnitId producer, UnitKind kind, std::uint32_t batch = 0) {
+    return Order{producer, sim::orders::Build{kind, batch}};
+}
+
+/// Every unit with an id past `first`, in the order the sim made them: what the queue built.
+std::vector<const Unit*> built_since(const Sim& sim, UnitId first) {
+    std::vector<const Unit*> out;
+    for (const Unit& unit : sim.units()) {
+        if (unit.id.value > first.value) {
+            out.push_back(&unit);
+        }
+    }
+    return out;
+}
+
+UnitId last_id(const Sim& sim) { return sim.units().back().id; }
+
+constexpr int kQueueLimit = 20000; ///< ticks a queue test may spend waiting for the haulers
+
+} // namespace
+
+TEST(BuildQueue, AnEntryPaysItsKindsCostWhenItStartsAndTakesItsKindsTicks) {
+    Sim sim = Sim::create(queue_battle(30));
+    const UnitId factory = factory_of(sim);
+    const UnitId first = last_id(sim);
+    const auto& spec = sim::spec_of(UnitKind::Scavenger);
+    sim.enqueue(build(factory, UnitKind::Scavenger));
+
+    // The entry waits for its scrap and pays NOTHING until it can pay it all: the bank only rises.
+    std::uint16_t before = 0;
+    ASSERT_TRUE(step_until(sim, kQueueLimit, [&before, factory](const Sim& s) {
+        const bool started = s.find(factory)->queue.left > 0;
+        if (!started) {
+            before = s.ore(Side::Player);
+        }
+        return started;
+    })) << "an affordable entry never started";
+    EXPECT_EQ(before, spec.cost - 1)
+        << "it must start on the very tick the bank reached its cost, not before and not later";
+    EXPECT_EQ(sim.ore(Side::Player), 0)
+        << "it pays its cost when it STARTS: the whole " << spec.cost << " leaves the one bank";
+
+    // And it takes exactly its kind's ticks: nothing is built before, a hauler is built on the
+    // tick the countdown ends.
+    const sim::Tick started_at = sim.tick();
+    ASSERT_TRUE(built_since(sim, first).empty()) << "nothing arrives on the tick it starts";
+    ASSERT_TRUE(step_until(sim, 2 * spec.build_ticks,
+                           [first](const Sim& s) { return !built_since(s, first).empty(); }));
+    EXPECT_EQ(sim.tick() - started_at, spec.build_ticks) << "ten seconds for a scavenger, no less";
+    const auto made = built_since(sim, first);
+    ASSERT_EQ(made.size(), 1U);
+    EXPECT_EQ(made.front()->kind, UnitKind::Scavenger);
+    EXPECT_EQ(made.front()->side, Side::Player);
+    EXPECT_EQ(sim.find(factory)->queue.count, 0U) << "the item leaves the queue when it is done";
+}
+
+TEST(BuildQueue, AQueueOfThreeDrainsInOrderOneAtATime) {
+    Sim sim = Sim::create(queue_battle(90));
+    const UnitId factory = factory_of(sim);
+    const UnitId first = last_id(sim);
+    sim.enqueue(build(factory, UnitKind::Scavenger));
+    sim.enqueue(build(factory, UnitKind::Tank));
+    sim.enqueue(build(factory, UnitKind::Scavenger));
+
+    std::vector<UnitKind> kinds;
+    std::vector<sim::Tick> arrived;
+    for (int tick = 0; tick < 3 * kQueueLimit && kinds.size() < 3; ++tick) {
+        sim.step();
+        const auto made = built_since(sim, first);
+        if (made.size() > kinds.size()) {
+            ASSERT_EQ(made.size(), kinds.size() + 1) << "two units arrived on one tick";
+            kinds.push_back(made.back()->kind);
+            arrived.push_back(sim.tick());
+        }
+    }
+    ASSERT_EQ(kinds.size(), 3U) << "the queue never finished";
+    EXPECT_EQ(kinds.at(0), UnitKind::Scavenger) << "first in, first out";
+    EXPECT_EQ(kinds.at(1), UnitKind::Tank);
+    EXPECT_EQ(kinds.at(2), UnitKind::Scavenger);
+    EXPECT_GE(arrived.at(1) - arrived.at(0), sim::spec_of(UnitKind::Tank).build_ticks)
+        << "the tank's countdown starts only once the hauler before it has arrived";
+    EXPECT_GE(arrived.at(2) - arrived.at(1), sim::spec_of(UnitKind::Scavenger).build_ticks)
+        << "one entry at a time: the second hauler's countdown waits for the tank";
+}
+
+TEST(BuildQueue, AnEntryWithNoScrapPausesAndResumesTheTickTheScrapReturns) {
+    // THE RULING: a queue that runs short of scrap PAUSES, it does not cancel. The bank starts at
+    // nothing and climbs one load at a time; the entry must sit untouched all the way up and begin
+    // on the very step the twentieth load lands.
+    Sim sim = Sim::create(queue_battle(30));
+    const UnitId factory = factory_of(sim);
+    const auto cost = sim::spec_of(UnitKind::Scavenger).cost;
+    sim.enqueue(build(factory, UnitKind::Scavenger));
+
+    std::uint16_t held_at = 0;
+    std::uint16_t before_start = 0;
+    bool started = false;
+    for (int tick = 0; tick < kQueueLimit && !started; ++tick) {
+        before_start = sim.ore(Side::Player);
+        sim.step();
+        const sim::Unit& producer = *sim.find(factory);
+        if (producer.queue.left > 0) {
+            started = true;
+            break;
+        }
+        ASSERT_EQ(producer.queue.count, 1U) << "a short queue must not cancel its entry";
+        ASSERT_EQ(producer.queue.left, 0U) << "a short queue must not count down";
+        held_at = std::max(held_at, sim.ore(Side::Player));
+    }
+    ASSERT_TRUE(started);
+    EXPECT_GT(held_at, 0) << "the entry watched real scrap arrive and still held: nothing is "
+                             "spent in part";
+    EXPECT_LT(held_at, cost);
+    EXPECT_EQ(before_start, cost - 1) << "it resumed on the tick the scrap was there";
+    EXPECT_EQ(sim.ore(Side::Player), 0);
+}
+
+TEST(BuildQueue, TheEleventhEntryIsRefusedAtTheCapOfTen) {
+    Sim sim = Sim::create(queue_battle(0));
+    const UnitId factory = factory_of(sim);
+    for (std::uint32_t press = 0; press < 11; ++press) {
+        sim.enqueue(build(factory, UnitKind::Scavenger, 7));
+    }
+    sim.step();
+    EXPECT_EQ(sim.find(factory)->queue.count, sim::kBuildQueueDepth)
+        << "ten shift-presses queue ten, and the eleventh is not an eleventh entry";
+    EXPECT_EQ(sim::kBuildQueueDepth, 10U);
+
+    const std::size_t logged = sim.command_log().size();
+    sim.enqueue(build(factory, UnitKind::Scavenger, 7));
+    EXPECT_EQ(sim.command_log().size(), logged)
+        << "a press at the cap is refused at the door, so a replay never sees it";
+}
+
+TEST(BuildQueue, AnOrderThatNamesNothingBuildableOrNoProducerIsRefused) {
+    Sim sim = Sim::create(queue_battle(0));
+    const UnitId factory = factory_of(sim);
+    const UnitId hauler = sim.units().at(1).id;
+    sim.enqueue(build(factory, UnitKind::Turret)); // no cost, no time: not buildable
+    sim.enqueue(build(factory, UnitKind::Factory));
+    sim.enqueue(build(hauler, UnitKind::Scavenger)); // a hauler is not a producer
+    sim.enqueue(build(factory, static_cast<UnitKind>(sim::kUnitKindCount)));   // not a kind at all
+    sim.enqueue(build(factory, UnitKind::Scavenger, sim::kMaxBatchToken + 1)); // not a token
+    EXPECT_TRUE(sim.command_log().empty())
+        << "a refused order must not reach the log, or a replay would carry it";
+    sim.enqueue(build(factory, UnitKind::Scavenger, sim::kMaxBatchToken));
+    EXPECT_EQ(sim.command_log().size(), 1U) << "the largest token the order can carry is fine";
+}
+
+TEST(BuildQueue, ALoneBuildAndABatchMakeTheSameKindsUnderDifferentBatchIds) {
+    // Three haulers: two shift-queued under one token, one lone. They are the same kind; what
+    // differs is the batch each arrives in, which is what a function key will group by.
+    Sim sim = Sim::create(queue_battle(90));
+    const UnitId factory = factory_of(sim);
+    const UnitId first = last_id(sim);
+    sim.enqueue(build(factory, UnitKind::Scavenger, 9));
+    sim.enqueue(build(factory, UnitKind::Scavenger, 9));
+    sim.enqueue(build(factory, UnitKind::Scavenger));
+    ASSERT_TRUE(step_until(sim, 3 * kQueueLimit,
+                           [first](const Sim& s) { return built_since(s, first).size() == 3; }));
+    const auto made = built_since(sim, first);
+    for (const Unit* unit : made) {
+        EXPECT_EQ(unit->kind, UnitKind::Scavenger);
+    }
+    EXPECT_EQ(made.at(0)->batch, 9U) << "a shift-queued run carries the order's shared token";
+    EXPECT_EQ(made.at(1)->batch, 9U) << "...on every member, or the row cannot group them";
+    EXPECT_NE(made.at(2)->batch, 0U) << "a lone build is a batch of one: it has an id of its own";
+    EXPECT_NE(made.at(2)->batch, 9U) << "...which is not the batch's";
+    EXPECT_EQ(sim.units().at(1).batch, 0U) << "a unit the scenario placed belongs to no batch";
+}
+
+TEST(BuildQueue, TwoLoneBuildsGetTwoDifferentBatchesAndNeitherIsAShiftToken) {
+    Sim sim = Sim::create(queue_battle(0));
+    const UnitId factory = factory_of(sim);
+    sim.enqueue(build(factory, UnitKind::Scavenger));
+    sim.enqueue(build(factory, UnitKind::Scavenger));
+    sim.step();
+    const sim::BuildQueue& queue = sim.find(factory)->queue;
+    ASSERT_EQ(queue.count, 2U);
+    EXPECT_NE(queue.entries.at(0).batch, queue.entries.at(1).batch)
+        << "each lone press is a batch of its own";
+    EXPECT_GT(queue.entries.at(0).batch, sim::kMaxBatchToken)
+        << "the sim's own ids live above every token an order can carry, so they cannot collide";
+    EXPECT_GT(queue.entries.at(1).batch, sim::kMaxBatchToken);
+}
+
+TEST(BuildQueue, AUnitIsBuiltOnGroundBesideADeployedRecyclerNeverInsideItsFootprint) {
+    Scenario scenario = queue_battle(30);
+    scenario.spawns.push_back(Spawn{UnitKind::DeployedRecycler, Side::Player, 60, 45});
+    Sim sim = Sim::create(scenario);
+    UnitId producer{};
+    for (const Unit& unit : sim.units()) {
+        if (unit.kind == UnitKind::DeployedRecycler) {
+            producer = unit.id;
+        }
+    }
+    ASSERT_TRUE(producer.valid());
+    const UnitId first = last_id(sim);
+    sim.enqueue(build(producer, UnitKind::Scavenger));
+    ASSERT_TRUE(step_until(sim, 2 * kQueueLimit, [first](const Sim& s) {
+        return !built_since(s, first).empty();
+    })) << "a deployed recycler is a producer too";
+    const Unit& made = *built_since(sim, first).front();
+    EXPECT_FALSE(sim::building_blocks(sim.units(), made.x.floor_int(), made.y.floor_int()))
+        << "a unit is never spawned inside a building's footprint";
+    EXPECT_LE(std::abs(made.x.floor_int() - 60), sim::kBuildSpawnRadiusTiles);
+    EXPECT_LE(std::abs(made.y.floor_int() - 45), sim::kBuildSpawnRadiusTiles);
+}
+
+TEST(BuildQueue, AQueueThatNeverStartsHashesAsAnEmptyOneAndAQueuedEntryMovesTheHash) {
+    Sim idle = Sim::create(queue_battle(5));
+    Sim queued = Sim::create(queue_battle(5));
+    const std::uint64_t at_start = idle.state_hash();
+    EXPECT_EQ(queued.state_hash(), at_start);
+    queued.enqueue(build(factory_of(queued), UnitKind::Scavenger, 3));
+    queued.step();
+    idle.step();
+    EXPECT_NE(queued.state_hash(), idle.state_hash())
+        << "a queued entry changes what the next tick does, so it is state";
+}
+
+TEST(BuildQueue, AReplayThatQueuesBuildsReproducesTickForTick) {
+    Sim live = Sim::create(queue_battle(40));
+    const UnitId factory = factory_of(live);
+    live.enqueue(build(factory, UnitKind::Scavenger, 4));
+    live.enqueue(build(factory, UnitKind::Scavenger, 4));
+    std::vector<std::uint64_t> hashes;
+    for (int tick = 0; tick < 3000; ++tick) {
+        if (tick == 600) {
+            live.enqueue(build(factory, UnitKind::Scavenger));
+        }
+        live.step();
+        hashes.push_back(live.state_hash());
+    }
+    ASSERT_GT(live.units().size(), 4U) << "the live battle must have BUILT something to reproduce";
+
+    sim::Replay replay;
+    replay.seed = live.seed();
+    replay.commands = live.command_log();
+    const std::optional<sim::Replay> text = sim::parse(sim::to_text(replay), nullptr);
+    ASSERT_TRUE(text.has_value()) << "a queued build must survive the replay text";
+    ASSERT_EQ(text->commands.size(), 3U);
+
+    Sim again = Sim::create(queue_battle(40));
+    std::size_t next = 0;
+    for (int tick = 0; tick < 3000; ++tick) {
+        while (next < text->commands.size() && text->commands.at(next).tick == again.tick()) {
+            again.enqueue(text->commands.at(next).order);
+            ++next;
+        }
+        again.step();
+        ASSERT_EQ(again.state_hash(), hashes.at(static_cast<std::size_t>(tick)))
+            << "diverged at tick " << tick;
+    }
 }

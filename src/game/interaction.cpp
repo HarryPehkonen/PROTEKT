@@ -5,6 +5,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
+#include <span>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -206,6 +207,11 @@ void Interaction::handle(const input::InputFrame& frame, const sim::Sim& sim,
         if (!key.pressed) {
             continue;
         }
+        // A shift gesture is a run of digit presses: any other key ends it (a digit that is not a
+        // build row ends it in `menu_digit`).
+        if (input::mark_digit(key) < 0) {
+            shift_batch_ = 0;
+        }
         if (deploy_armed_ && deploy_key(key, sim, options)) {
             continue;
         }
@@ -253,7 +259,7 @@ void Interaction::handle(const input::InputFrame& frame, const sim::Sim& sim,
             if (selection_.empty()) {
                 bring_up_building(sim, digit);
             } else {
-                menu_digit(sim, options, digit);
+                menu_digit(sim, options, digit, key.shift);
             }
         } else if (key.scancode == input::kKeyX) {
             swap_to_crosshair(sim, options);
@@ -506,7 +512,8 @@ void Interaction::follow_crosshair_unit(const sim::Sim& sim, const SceneOptions&
     message_ = "shadowing that unit.";
 }
 
-void Interaction::menu_digit(const sim::Sim& sim, const SceneOptions& options, int digit) {
+void Interaction::menu_digit(const sim::Sim& sim, const SceneOptions& options, int digit,
+                             bool shift) {
     MenuInput in;
     in.subject = menu_subject_of(sim, selection_.units());
     in.side = sim::Side::Player;
@@ -517,6 +524,21 @@ void Interaction::menu_digit(const sim::Sim& sim, const SceneOptions& options, i
     const auto row = std::find_if(rows.begin(), rows.end(), [&label](const MenuRow& candidate) {
         return candidate.key == std::string_view{&label, 1};
     });
+    // A build row acts whether or not the model dims it: Unaffordable only says the bank is short
+    // NOW, and a queue that runs short of scrap pauses and resumes -- it is never refused for it.
+    // So this runs before the enabled test below, which every other row is held to.
+    if (in.subject == MenuSubject::Deployment && row != rows.end()) {
+        const std::span<const BuildItem> items = build_items(in.side);
+        const auto item
+            = std::find_if(items.begin(), items.end(), [&row](const BuildItem& candidate) {
+                  return candidate.key == row->key;
+              });
+        if (item != items.end()) {
+            queue_build(sim, *item, shift);
+            return;
+        }
+    }
+    shift_batch_ = 0; // a digit that is not a build row ends a shift gesture
     // A row the model dims, or draws no digit for, is not a command: the digit does nothing, as it
     // did before the menu was routed. Only the rows below can act yet; the rest stay inert.
     if (row == rows.end() || !row->enabled) {
@@ -535,6 +557,48 @@ void Interaction::menu_digit(const sim::Sim& sim, const SceneOptions& options, i
     } else if (row->verb == kVerbRecycle) {
         recycle_selection(sim);
     }
+}
+
+void Interaction::queue_build(const sim::Sim& sim, const BuildItem& item, bool shift) {
+    // The producer is chosen by KIND among the selection (the lowest id, as a deploy's recycler
+    // is), never as "the factory": a side may have several, and each queue is its own.
+    const std::span<const sim::UnitId> held = selection_.units();
+    std::vector<sim::UnitId> chosen(held.begin(), held.end());
+    std::sort(chosen.begin(), chosen.end());
+    const sim::Unit* producer = nullptr;
+    for (const sim::UnitId id : chosen) {
+        const sim::Unit* unit = sim.find(id);
+        if (unit != nullptr && unit->alive && unit->side == sim::Side::Player
+            && sim::is_producer(unit->kind)) {
+            producer = unit;
+            break;
+        }
+    }
+    if (producer == nullptr || !item.kind.has_value()) {
+        shift_batch_ = 0; // an item no kind names is drawn and does nothing
+        return;
+    }
+    // The queue as the sim will find it: what it holds, and what this frame has already asked for.
+    const auto asked = static_cast<std::size_t>(
+        std::count_if(pending_.begin(), pending_.end(), [producer](const sim::Order& order) {
+            return order.unit == producer->id && order.kind() == sim::OrderKind::Build;
+        }));
+    if (producer->queue.count + asked >= sim::kBuildQueueDepth) {
+        refuse("The build queue is full.");
+        return;
+    }
+    std::uint32_t batch = 0; // a bare press is a lone build: the sim numbers it
+    if (shift) {
+        if (shift_batch_ == 0 || shift_producer_ != producer->id) {
+            batch_tokens_ = batch_tokens_ % sim::kMaxBatchToken + 1;
+            shift_batch_ = batch_tokens_;
+            shift_producer_ = producer->id;
+        }
+        batch = shift_batch_;
+    } else {
+        shift_batch_ = 0;
+    }
+    pending_.push_back(sim::Order{producer->id, sim::orders::Build{*item.kind, batch}});
 }
 
 void Interaction::bring_up_building(const sim::Sim& sim, int key) {

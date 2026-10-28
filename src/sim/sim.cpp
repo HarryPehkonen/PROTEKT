@@ -103,6 +103,14 @@ bool order_is_valid(const std::vector<Unit>& units, const Order& order,
         return unit->kind == UnitKind::Recycler
                && deploy_site_ok(seed, units, deploy->tile_x, deploy->tile_y);
     }
+    if (const auto* build = std::get_if<orders::Build>(&order.payload)) {
+        // A BUILD goes to a producer, by KIND (a side may have several), with room in its queue,
+        // for a kind that has a price and a time, under a token an order can carry. The same
+        // check runs when the order is applied, so the eleventh of eleven orders enqueued in one
+        // tick is dropped there, with the queue as the ten before it left it.
+        return is_producer(unit->kind) && is_queueable(build->kind)
+               && build->batch <= kMaxBatchToken && unit->queue.count < kBuildQueueDepth;
+    }
     if (const auto* recycle = std::get_if<orders::Recycle>(&order.payload)) {
         // A RECYCLE goes into a LIVING recycler of the unit's OWN side: the base is the side's, and
         // recycling into the enemy's would hand it the scrap. A unit may not name itself (the
@@ -205,8 +213,8 @@ void apply_strafe(Unit& unit, const orders::Strafe& strafe, const WorldGround& g
 }
 
 void apply_order(std::vector<Unit>& units, std::vector<Projectile>& projectiles,
-                 std::vector<Sim::Shot>& shots, UnitId& driven, const Order& order,
-                 std::uint64_t seed) noexcept {
+                 std::vector<Sim::Shot>& shots, UnitId& driven, std::uint32_t& lone_batches,
+                 const Order& order, std::uint64_t seed) noexcept {
     // Re-validated here: the unit may have died between enqueue and the tick it takes effect.
     if (!order_is_valid(units, order, seed)) {
         return;
@@ -363,6 +371,15 @@ void apply_order(std::vector<Unit>& units, std::vector<Projectile>& projectiles,
                 shots.push_back(Sim::Shot{unit.id, UnitId{}});
                 unit.cooldown = gun.cooldown;
             }
+        }
+        break;
+    case OrderKind::Build:
+        if (const auto* o = std::get_if<orders::Build>(&order.payload)) {
+            // Joins the back of the producer's queue. A lone build (batch 0) takes the next id of
+            // the sim's own, above every token an order can carry; a shift run keeps its token.
+            const std::uint32_t batch = o->batch != 0 ? o->batch : kFirstLoneBatch + lone_batches++;
+            unit.queue.entries.at(unit.queue.count) = BuildEntry{o->kind, batch};
+            ++unit.queue.count;
         }
         break;
     case OrderKind::TakeControl:
@@ -548,6 +565,53 @@ Unit fresh_unit(std::uint32_t id, UnitKind kind, Side side, Coord tile) noexcept
     unit.stance = Stance::Idle;
     unit.alive = true;
     return unit;
+}
+
+/// THE QUEUE (BUILD-QUEUE). One producer's line for one tick: the front entry waits for its scrap,
+/// pays the whole cost on the tick it starts, counts its build time down, and on the tick the count
+/// ends its unit appears beside the producer and the entry leaves the queue.
+///
+/// SCRAP SHORT PAUSES; it never cancels. A front entry the bank cannot pay for holds exactly where
+/// it is -- nothing spent, nothing counted -- and starts on the first tick the bank can. A producer
+/// that has died builds nothing and charges nothing (what its current entry paid is gone with it).
+/// The spot is `builder_spot`'s, the factory's own placer, so a unit is never put inside a
+/// building's footprint; a yard with no room holds the finished unit and tries again next tick.
+///
+/// Takes the producer by INDEX: the arrival appends to `units`, which invalidates a reference.
+void production_step(std::vector<Unit>& units, std::array<std::uint16_t, 2>& ore,
+                     std::uint32_t& next_id, std::uint64_t seed, std::size_t index) noexcept {
+    BuildQueue& queue = units.at(index).queue;
+    if (!units.at(index).alive || queue.count == 0) {
+        return;
+    }
+    const BuildEntry front = queue.entries.at(0);
+    const UnitSpec& spec = spec_of(front.kind);
+    const Side side = units.at(index).side;
+    std::uint16_t& bank = ore.at(static_cast<std::size_t>(side));
+    if (queue.left == 0) {
+        if (bank < spec.cost) {
+            return; // paused: the bank is short, so nothing is spent and nothing runs
+        }
+        bank = static_cast<std::uint16_t>(bank - spec.cost);
+        queue.left = spec.build_ticks;
+        return;
+    }
+    if (--queue.left > 0) {
+        return;
+    }
+    const Coord spot = builder_spot(seed, units, units.at(index).x, units.at(index).y);
+    if (spot.x < 0) {
+        queue.left = 1; // no room to put it: it is finished, and arrives the first tick there is
+        return;
+    }
+    for (std::size_t i = 1; i < queue.count; ++i) {
+        queue.entries.at(i - 1) = queue.entries.at(i);
+    }
+    --queue.count;
+    queue.entries.at(queue.count) = BuildEntry{};
+    Unit made = fresh_unit(next_id++, front.kind, side, spot);
+    made.batch = front.batch;
+    units.push_back(made);
 }
 
 /// The nearest piece of wreckage, ties broken by the order the pieces were made in -- which is the
@@ -973,7 +1037,7 @@ void Sim::step() {
         }
     }
     for (const Order& order : pending_) {
-        apply_order(units_, projectiles_, shots_, driven_, order, scenario_.seed);
+        apply_order(units_, projectiles_, shots_, driven_, lone_batches_, order, scenario_.seed);
     }
     pending_.clear();
 
@@ -1177,6 +1241,13 @@ void Sim::step() {
             break;
         }
     }
+    // 8. THE QUEUES (BUILD-QUEUE). Every producer's line runs, in ascending id. After the C4 beat,
+    //    so the two never both pay out of the same load in one tick in an order that depends on
+    //    which was written first; and over the producers that existed when the tick began, because
+    //    an arrival appends to the table and a new unit is nobody's producer yet.
+    for (std::size_t i = 0, n = units_.size(); i < n; ++i) {
+        production_step(units_, ore_, next_id_, scenario_.seed, i);
+    }
     ++tick_;
 }
 
@@ -1317,6 +1388,17 @@ std::uint64_t Sim::state_hash() const noexcept {
             h.u64(
                 u.deploy_ticks); // only when set too: a battle that never deploys hashes as before
         }
+        // The batch a unit was built in, and a producer's queue: only for a unit that has either,
+        // so a battle that queues nothing hashes exactly as it did before the queue existed.
+        if (u.batch != 0 || u.queue.count != 0) {
+            h.u64(u.batch);
+            h.u64(u.queue.count);
+            h.u64(u.queue.left);
+            for (std::size_t i = 0; i < u.queue.count; ++i) {
+                h.u64(static_cast<std::uint64_t>(u.queue.entries.at(i).kind));
+                h.u64(u.queue.entries.at(i).batch);
+            }
+        }
         // The route: the goal it serves, the leg it is on, and every waypoint.
         h.u64(u.route.has_goal ? 1 : 0);
         h.u64(u.route.partial ? 1 : 0);
@@ -1384,6 +1466,10 @@ std::uint64_t Sim::state_hash() const noexcept {
     if (ore_.at(0) != 0 || ore_.at(1) != 0) {
         h.u64(ore_.at(0));
         h.u64(ore_.at(1));
+    }
+    // How many lone builds have been numbered: the next one's id depends on it. Only once one has.
+    if (lone_batches_ != 0) {
+        h.u64(lone_batches_);
     }
     // Orders accepted but not yet applied are part of the state: they will change the next tick.
     h.u64(pending_.size());

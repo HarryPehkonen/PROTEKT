@@ -110,7 +110,11 @@ protected:
 ///   6. every unit this tick's damage killed leaves its wreckage on the ground (C1): scrap pieces
 ///      around the tile it stood on, in ascending victim id, so the litter is a function of the
 ///      battle and not of the order the bolts happened to fly in;
-///   7. the tick counter advances.
+///   7. every PRODUCER's build queue runs, in ascending id (BUILD-QUEUE): the front entry waits for
+///      its scrap -- the one `ore` bank, paused and never cancelled while it is short -- pays its
+///      whole cost on the tick it starts, counts its build time down, and on the last tick its
+///      unit appears beside the producer, never inside a building's footprint;
+///   8. the tick counter advances.
 class Sim final : public OrderSink {
 public:
     [[nodiscard]] static Sim create(const Scenario& scenario);
@@ -207,6 +211,9 @@ private:
     /// and the skip tests `unit.id == driven_` only for a living unit, so a dead helm excludes no
     /// one.
     UnitId driven_{};
+    /// How many lone builds have been given a batch id (BUILD-QUEUE): the next is
+    /// `kFirstLoneBatch + lone_batches_`. Hashed only once non-zero.
+    std::uint32_t lone_batches_{};
     std::uint32_t tick_{};
     std::uint32_t next_id_{1};
     std::uint32_t route_plans_{};

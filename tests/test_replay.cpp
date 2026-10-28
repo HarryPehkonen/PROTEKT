@@ -73,6 +73,9 @@ void expect_same_order(const Order& got, const Order& want) {
             } else if constexpr (std::is_same_v<P, orders::Deploy>) {
                 EXPECT_EQ(g.tile_x, w.tile_x);
                 EXPECT_EQ(g.tile_y, w.tile_y);
+            } else if constexpr (std::is_same_v<P, orders::Build>) {
+                EXPECT_EQ(g.kind, w.kind);
+                EXPECT_EQ(g.batch, w.batch) << "a replay that drops the batch ungroups the row";
             }
         },
         want.payload);
@@ -160,6 +163,7 @@ TEST(Replay, EveryOrderKindSurvivesARoundTripAndNoneIsDropped) {
                 Order{UnitId{9}, orders::FireRocket{Fixed::from_raw(65536), Fixed::from_raw(32768),
                                                     UnitId{10}, Fixed::from_raw(-65536)}}},
         Command{15, Order{UnitId{4}, orders::TakeControl{}}},
+        Command{16, Order{UnitId{2}, orders::Build{UnitKind::Scout, 12}}},
     };
     ASSERT_EQ(r.commands.size(), kOrderKindCount) << "this test must cover every kind";
     for (std::size_t i = 0; i < r.commands.size(); ++i) {
@@ -183,6 +187,9 @@ TEST(Replay, EveryOrderKindSurvivesARoundTripAndNoneIsDropped) {
         << "the rocket records the aim, not its balance numbers: " << text;
     EXPECT_NE(text.find("15 takecontrol 4\n"), std::string::npos)
         << "taking the helm carries a unit and nothing else: " << text;
+    EXPECT_NE(text.find("16 build 2 589824 786432\n"), std::string::npos)
+        << "a build is its kind and its batch as whole-number positions, like a deploy's tile: "
+        << text;
 
     const Replay again = must_parse(text);
     ASSERT_EQ(again.commands.size(), r.commands.size());

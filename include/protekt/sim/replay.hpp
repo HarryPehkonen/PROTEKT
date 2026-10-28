@@ -39,6 +39,7 @@ struct Replay {
 ///       strafe <unit> <dx> <dy>
 ///       firetowards <unit> <dir_x> <dir_y> <dir_z> <aimed_at>
 ///       firelob <unit> <dir_x> <dir_y> <dir_z> <round> <aimed_at>
+///       build <unit> <kind> <batch>
 ///     (`<round>` is a raw number: 0 a contact round, 1 the bouncer's. The positions are
 ///     the order's fields in `fields_of`, written in that order, then the target.)
 ///   - numbers are decimal. Ticks, units and targets are plain integers. POSITIONS have two

@@ -19,6 +19,7 @@
 #include <cstddef>
 #include <iterator>
 #include <limits>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -29,6 +30,7 @@
 #include "protekt/game/scene.hpp"
 #include "protekt/sim/scenario.hpp"
 #include "protekt/sim/sim.hpp"
+#include "protekt/sim/spec.hpp"
 
 namespace protekt::game {
 namespace {
@@ -392,6 +394,26 @@ TEST(Menu, ABuildRowDrawsItsCostAndDimsWhenItIsUnaffordable) {
     // Exactly the price is affordable: 45 buys the 45-scrap scout.
     const std::vector<MenuRow> exact = menu_rows(deployed(45));
     EXPECT_TRUE(row_for(exact, "2")->enabled);
+}
+
+TEST(Menu, ABuildRowThatNamesAKindDrawsTheScrapTheSimWillCharge) {
+    // The row and the queue must be one number, not two that agree today: a row that says 45 while
+    // the sim charges 50 would leave the player with a queue that pauses on a price he was never
+    // shown. A row with no kind (the Hauler and the rest) has no sim price to disagree with.
+    int with_kind = 0;
+    for (const BuildItem& item : build_items(sim::Side::Player)) {
+        if (item.kind.has_value()) {
+            ++with_kind;
+            EXPECT_EQ(item.cost, sim::spec_of(*item.kind).cost) << item.label;
+            EXPECT_GT(sim::spec_of(*item.kind).build_ticks, 0) << item.label;
+        }
+    }
+    EXPECT_EQ(with_kind, 3) << "the harvester, the scout and the guardian";
+    const std::span<const BuildItem> items = build_items(sim::Side::Player);
+    EXPECT_EQ(items[0].kind, sim::UnitKind::Scavenger);
+    EXPECT_EQ(items[1].kind, sim::UnitKind::Scout);
+    EXPECT_EQ(items[2].kind, sim::UnitKind::Tank);
+    EXPECT_FALSE(items[3].kind.has_value()) << "no UnitKind is the hauler yet";
 }
 
 TEST(Menu, TheEnemyBuildListIsNotInvented) {

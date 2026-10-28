@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <map>
 #include <set>
 #include <string_view>
@@ -32,6 +33,8 @@ inline constexpr std::string_view kGoPrompt = "go where? 0-9 for a mark.";
 /// this sound, whatever it was aimed at, because the sim reports no `Fired` event for a shot the
 /// player asked for. The same voice `sounds_for` gives a shot the sim fires from the player's side.
 [[nodiscard]] audio::Voice shot_voice() noexcept;
+
+struct BuildItem;
 
 /// The player's hands, as a pure function of input and what he can see.
 ///
@@ -190,7 +193,14 @@ private:
     /// A digit with no prompt open: the menu row it names, if that row acts and the model says it
     /// is enabled; otherwise nothing at all (RB-DIGITS). `options` is read only by the rows that
     /// need the world outside the sim -- `2 GO TO NAV` reads the highlighted nav mark from it.
-    void menu_digit(const sim::Sim& sim, const SceneOptions& options, int digit);
+    void menu_digit(const sim::Sim& sim, const SceneOptions& options, int digit, bool shift);
+    /// A build row of the selected producer's menu (BUILD-QUEUE): queue one `item` at the lowest-id
+    /// selected producer. Taken whether or not the row is affordable -- a queue short of scrap
+    /// pauses, it does not refuse. A bare press is a lone build (batch 0); a shifted press carries
+    /// the token shared by the presses of one gesture, and is refused, aloud, once the producer's
+    /// queue (the sim's entries plus the orders already made this frame) holds
+    /// `sim::kBuildQueueDepth`.
+    void queue_build(const sim::Sim& sim, const BuildItem& item, bool shift);
     /// `1 FOLLOW ME`: every orderable selected unit follows the driven craft. Refused when there is
     /// no living craft, or nothing but that craft is selected.
     void follow_driven(const sim::Sim& sim);
@@ -247,6 +257,12 @@ private:
     bool go_armed_{false};
     bool attack_armed_{false};
     bool deploy_armed_{false};
+    /// The token of the shift gesture under way, or zero when there is none (BUILD-QUEUE). A
+    /// gesture is the run of shifted build presses at one producer: any other key press ends it, so
+    /// the next shifted press takes a fresh token and so a function key of its own.
+    std::uint32_t shift_batch_{0};
+    sim::UnitId shift_producer_{};
+    std::uint32_t batch_tokens_{0}; ///< the last token handed out, 1..sim::kMaxBatchToken, wrapping
     std::vector<TargetRow> targets_{};
     bool has_fired_{false};
     sim::Tick last_shot_tick_{};

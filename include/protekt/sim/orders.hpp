@@ -163,13 +163,27 @@ struct Recycle {
     UnitId recycler{};
 };
 
+/// QUEUE one unit of `kind` at the producer this order addresses: a living `Factory` or
+/// `DeployedRecycler`, with room in its queue (`kBuildQueueDepth`), and a kind that has a price and
+/// a build time (`spec_of(kind).cost` and `.build_ticks`, both non-zero -- that is what buildable
+/// means). It carries a kind and a batch rather than coordinates or a target.
+///
+/// `batch` is chosen by whoever ISSUES the order, never by the sim, so it is part of the replayed
+/// command log: zero is a lone build, for which the sim assigns a fresh id of its own; a non-zero
+/// token, at most `kMaxBatchToken`, is shared by the presses of one shift gesture and rides every
+/// unit of that run to the one function key.
+struct Build {
+    UnitKind kind{};
+    std::uint32_t batch{};
+};
+
 } // namespace orders
 
 using OrderPayload
     = std::variant<orders::MoveTo, orders::GuardAt, orders::Patrol, orders::Attack, orders::Stop,
                    orders::FocusFire, orders::FireTowards, orders::Strafe, orders::Follow,
                    orders::FireLob, orders::Deploy, orders::Recycle, orders::FireFan,
-                   orders::FireRocket, orders::TakeControl>;
+                   orders::FireRocket, orders::TakeControl, orders::Build>;
 
 /// How each payload alternative is named and reported. This is the payload's index, in the
 /// payload's order, and the assertions below make that true rather than intended.
@@ -193,9 +207,11 @@ enum class OrderKind : std::uint8_t {
     /// Appended after FireRocket, never inserted, for the reason every value above was: the number
     /// is what a replay and an observation carry.
     TakeControl = 14,
+    /// Appended after TakeControl, never inserted, for the reason every value above was.
+    Build = 15,
 };
 
-inline constexpr std::size_t kOrderKindCount = static_cast<std::size_t>(OrderKind::TakeControl) + 1;
+inline constexpr std::size_t kOrderKindCount = static_cast<std::size_t>(OrderKind::Build) + 1;
 
 static_assert(std::variant_size_v<OrderPayload> == kOrderKindCount,
               "every alternative needs a kind, and every kind an alternative");
@@ -221,6 +237,7 @@ static_assert(std::is_same_v<PayloadOf<OrderKind::Recycle>, orders::Recycle>);
 static_assert(std::is_same_v<PayloadOf<OrderKind::FireFan>, orders::FireFan>);
 static_assert(std::is_same_v<PayloadOf<OrderKind::FireRocket>, orders::FireRocket>);
 static_assert(std::is_same_v<PayloadOf<OrderKind::TakeControl>, orders::TakeControl>);
+static_assert(std::is_same_v<PayloadOf<OrderKind::Build>, orders::Build>);
 
 /// The kind is the payload's own index. There is no second field that can disagree with it, which
 /// is precisely what the flat record could not promise.
@@ -312,6 +329,12 @@ struct OrderFields {
         out.position_count = 3;
         out.has_target = true;
         out.target = p->aimed_at;
+    } else if (const auto* p = std::get_if<orders::Build>(&payload)) {
+        // Two whole numbers, as a Deploy's tile is: the kind's index and the batch, each a position
+        // a replay reads back with `floor_int`. The fixed shape of the hashed stream is unchanged.
+        out.positions[0] = Fixed::from_int(static_cast<std::int32_t>(p->kind));
+        out.positions[1] = Fixed::from_int(static_cast<std::int32_t>(p->batch));
+        out.position_count = 2;
     } else if (const auto* p = std::get_if<orders::Recycle>(&payload)) {
         // The recycler as the target and nothing else: the destination is read from the unit when
         // the order is applied, so a recycler that drives away is followed rather than missed.

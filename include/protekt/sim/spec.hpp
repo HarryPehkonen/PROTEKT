@@ -226,4 +226,14 @@ inline constexpr std::array<UnitSpec, static_cast<std::size_t>(kUnitKindCount)> 
     return kUnitSpecs.at(static_cast<std::size_t>(kind));
 }
 
+/// Whether a producer's queue may take this kind: it has a scrap cost AND a build time. Zero in
+/// either means not buildable -- the signal the queue reads, so a kind with no ruled price is never
+/// queued for nothing. A value that is not a kind at all (an order off the wire) is not queueable
+/// either, rather than an out-of-range read of the table.
+[[nodiscard]] constexpr bool is_queueable(UnitKind kind) noexcept {
+    const auto index = static_cast<std::size_t>(kind);
+    return index < kUnitSpecs.size() && kUnitSpecs.at(index).cost != 0
+           && kUnitSpecs.at(index).build_ticks != 0;
+}
+
 } // namespace protekt::sim

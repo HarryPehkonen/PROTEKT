@@ -1,5 +1,7 @@
 #pragma once
 
+#include <array>
+#include <cstddef>
 #include <cstdint>
 
 #include "protekt/sim/fixed.hpp"
@@ -54,6 +56,12 @@ inline constexpr int kUnitKindCount = 10;
     return kind == UnitKind::Tank || kind == UnitKind::HoverTank;
 }
 
+/// The kinds that build: the factory, and the recycler once it has deployed. Chosen BY KIND, never
+/// as "the one building" -- a side may have several, and each has a queue of its own.
+[[nodiscard]] constexpr bool is_producer(UnitKind kind) noexcept {
+    return kind == UnitKind::Factory || kind == UnitKind::DeployedRecycler;
+}
+
 /// Every ARMED kind can be driven (swapped into): the tanks, the mortar, the rocket and the
 /// turret. The factory is unarmed and cannot move, so there is nothing to drive. The scavenger is
 /// unarmed too, but it DOES move, so it can be driven -- an order from the player outranks the
@@ -102,6 +110,36 @@ struct UnitId {
 [[nodiscard]] constexpr bool operator!=(UnitId a, UnitId b) noexcept { return a.value != b.value; }
 [[nodiscard]] constexpr bool operator<(UnitId a, UnitId b) noexcept { return a.value < b.value; }
 
+/// THE BUILD QUEUE (BUILD-QUEUE). A producer builds one unit at a time, in the order they were
+/// asked for, and holds at most this many entries -- one per shift-press.
+inline constexpr std::size_t kBuildQueueDepth = 10;
+
+/// The largest batch token an ORDER can carry. A token rides in an order as a whole-number
+/// position (`Fixed::from_int`), so it is bounded by what that holds. The sim's own batch ids, the
+/// ones it gives a lone build, are all ABOVE this, so a token and an id can never be the same
+/// number.
+inline constexpr std::uint32_t kMaxBatchToken = 32767;
+
+/// The first id the sim gives a LONE build's batch; each further lone build takes the next. Above
+/// `kMaxBatchToken`, so it can never be a token an order carried.
+inline constexpr std::uint32_t kFirstLoneBatch = kMaxBatchToken + 1;
+
+/// What one entry of a queue names: the kind to build and the batch it will arrive in.
+struct BuildEntry {
+    UnitKind kind{};
+    std::uint32_t batch{};
+};
+
+/// A producer's queue: the entries in order, and the front entry's countdown. `left` is zero while
+/// the front entry has not started (it is waiting for its scrap) and the ticks still to run once it
+/// has; the entry pays its cost on the tick it starts, so a non-zero `left` IS "paid for". A plain
+/// count of ticks, never a time: the sim has no clock.
+struct BuildQueue {
+    std::array<BuildEntry, kBuildQueueDepth> entries{};
+    std::uint8_t count{}; ///< entries held, 0..kBuildQueueDepth
+    std::uint16_t left{}; ///< ticks until the front entry's unit arrives; 0 = not started
+};
+
 struct Unit {
     UnitId id{};
     UnitKind kind{};
@@ -147,6 +185,14 @@ struct Unit {
     /// `kDeployTicks`; zero whenever it is not standing there under one. Hashed only when non-zero,
     /// like `cargo`, so a battle in which nothing deploys hashes exactly as it did before.
     std::uint16_t deploy_ticks{};
+    /// The batch this unit was BUILT in (BUILD-QUEUE): the id its queue entry carried. Zero for a
+    /// unit the scenario placed, which belongs to no batch; a lone build gets an id of its own, so
+    /// a built unit's is never zero. The row groups by it. Hashed only when non-zero, like `cargo`,
+    /// so a battle that builds nothing hashes exactly as it did before there was a queue.
+    std::uint32_t batch{};
+    /// This unit's build queue, if it is a producer (see `is_producer`). Hashed only when it holds
+    /// an entry, for the same reason.
+    BuildQueue queue{};
     bool alive{true};
 };
 

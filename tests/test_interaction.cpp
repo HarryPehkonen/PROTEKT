@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstdint>
 #include <iostream>
+#include <utility>
 #include <variant>
 #include <vector>
 
@@ -19,6 +20,7 @@
 #include "protekt/math/math.hpp"
 #include "protekt/sim/observer.hpp"
 #include "protekt/sim/sim.hpp"
+#include "protekt/sim/spec.hpp"
 
 namespace protekt::game {
 namespace {
@@ -1733,6 +1735,137 @@ TEST(Interaction, ShiftFKeyWithNothingSelectedOrNoRowIsRefused) {
     player.handle(with_key(input::kKeyF1 + 7, true), rig.sim, rig.options);
     EXPECT_EQ(player.message(), move_refusal_message(RowMove::NothingToMove));
     EXPECT_EQ(rig.row.slots, before.slots);
+}
+
+// --------------------------------------------------------------------------------- build queue
+
+namespace {
+
+/// A tank to drive and a factory to build from, and nothing else. The factory is brought up with
+/// the top menu's own `2`, so a test goes through the same door the player does.
+struct BuildRig {
+    sim::Sim sim;
+    SceneOptions options;
+    sim::UnitId tank;
+    sim::UnitId factory;
+    Interaction player;
+};
+
+[[nodiscard]] BuildRig make_build_rig() {
+    sim::Sim sim = sim::Sim::create(Scenario{
+        kSeed,
+        {{UnitKind::Tank, Side::Player, 40, 40}, {UnitKind::Factory, Side::Player, 46, 41}}});
+    const sim::UnitId tank = sim.units().at(0).id;
+    const sim::UnitId factory = sim.units().at(1).id;
+    BuildRig rig{std::move(sim), SceneOptions{}, tank, factory, Interaction{tank}};
+    rig.options.seed = kSeed;
+    rig.options.extent = kExtent;
+    rig.player.handle(with_key(input::kKey1 + 1), rig.sim, rig.options); // 2: the factory
+    return rig;
+}
+
+/// The digit key for build row `row` (1-7), shifted or not.
+[[nodiscard]] InputFrame build_key(int row, bool shift) {
+    return with_key(input::kKey1 + row - 1, shift);
+}
+
+[[nodiscard]] const sim::orders::Build* build_of(const Order& order) {
+    return std::get_if<sim::orders::Build>(&order.payload);
+}
+
+/// One frame of the app, as the loop runs it: the key is handled, the orders go to the sim, the sim
+/// steps. Returns the orders that frame made.
+[[nodiscard]] std::vector<Order> press(BuildRig& rig, int row, bool shift) {
+    rig.player.handle(build_key(row, shift), rig.sim, rig.options);
+    std::vector<Order> orders = rig.player.take_orders();
+    for (const Order& order : orders) {
+        rig.sim.enqueue(order);
+    }
+    rig.sim.step();
+    return orders;
+}
+
+} // namespace
+
+TEST(Interaction, APlainBuildKeyOrdersOneLoneBuildEvenWhenTheBankIsEmpty) {
+    // The row is dimmed for want of scrap, and that must NOT stop the order: a queue that runs
+    // short of scrap pauses, it is not refused. Row 1 is the Harvester, a scavenger.
+    BuildRig rig = make_build_rig();
+    ASSERT_EQ(rig.sim.ore(Side::Player), 0);
+    ASSERT_EQ(selected(rig.player), (std::vector<sim::UnitId>{rig.factory}));
+    const std::vector<Order> orders = press(rig, 1, false);
+    ASSERT_EQ(orders.size(), 1U);
+    EXPECT_EQ(orders.front().unit, rig.factory) << "the producer is the selected building";
+    const auto* build = build_of(orders.front());
+    ASSERT_NE(build, nullptr);
+    EXPECT_EQ(build->kind, UnitKind::Scavenger);
+    EXPECT_EQ(build->batch, 0U) << "a lone build asks the sim for a batch of its own";
+    EXPECT_TRUE(rig.player.message().empty());
+    EXPECT_EQ(rig.sim.find(rig.factory)->queue.count, 1U) << "and it is in the factory's queue";
+}
+
+TEST(Interaction, ShiftBuildKeysOfOneGestureShareOneTokenAndABarePressBreaksTheGesture) {
+    BuildRig rig = make_build_rig();
+    std::vector<Order> orders;
+    const auto keep = [&orders](const std::vector<Order>& made) {
+        orders.insert(orders.end(), made.begin(), made.end());
+    };
+    for (int n = 0; n < 3; ++n) {
+        keep(press(rig, 1, true));
+    }
+    keep(press(rig, 1, false)); // a bare press: a lone build again
+    for (int n = 0; n < 2; ++n) {
+        keep(press(rig, 2, true)); // a second gesture
+    }
+    ASSERT_EQ(orders.size(), 6U);
+    std::vector<std::uint32_t> batches;
+    for (const Order& order : orders) {
+        const auto* build = build_of(order);
+        ASSERT_NE(build, nullptr);
+        batches.push_back(build->batch);
+    }
+    EXPECT_NE(batches.at(0), 0U) << "a shift-queued run carries a shared, non-zero token";
+    EXPECT_EQ(batches.at(1), batches.at(0));
+    EXPECT_EQ(batches.at(2), batches.at(0));
+    EXPECT_EQ(batches.at(3), 0U) << "the bare press is a lone build again";
+    EXPECT_NE(batches.at(4), 0U);
+    EXPECT_EQ(batches.at(5), batches.at(4));
+    EXPECT_NE(batches.at(4), batches.at(0)) << "two gestures must not share one function key";
+    EXPECT_LE(batches.at(0), sim::kMaxBatchToken) << "an order can only carry so large a token";
+    EXPECT_EQ(build_of(orders.at(4))->kind, UnitKind::Scout) << "row 2 is the Scout";
+}
+
+TEST(Interaction, TheEleventhShiftPressIsRefusedAloudAndOrdersNothing) {
+    BuildRig rig = make_build_rig();
+    for (std::size_t n = 1; n <= sim::kBuildQueueDepth; ++n) {
+        ASSERT_EQ(press(rig, 1, true).size(), 1U) << "press " << n << " is within the cap";
+        ASSERT_TRUE(rig.player.message().empty());
+    }
+    ASSERT_EQ(rig.sim.find(rig.factory)->queue.count, sim::kBuildQueueDepth);
+    EXPECT_TRUE(press(rig, 1, true).empty()) << "ten fill the queue; the eleventh is not an entry";
+    EXPECT_FALSE(rig.player.message().empty()) << "a refused press says why on the notice line";
+    EXPECT_EQ(rig.sim.find(rig.factory)->queue.count, sim::kBuildQueueDepth);
+}
+
+TEST(Interaction, ElevenShiftPressesInOneFrameStillMakeTenOrders) {
+    // The sim has not seen the first ten yet, so the cap has to count the orders made earlier in
+    // the same frame as well as the entries the queue already holds.
+    BuildRig rig = make_build_rig();
+    InputFrame frame{};
+    for (int n = 0; n < 11; ++n) {
+        frame.keys.push_back(KeyEvent{input::kKey1, true, true});
+    }
+    rig.player.handle(frame, rig.sim, rig.options);
+    EXPECT_EQ(rig.player.take_orders().size(), sim::kBuildQueueDepth);
+    EXPECT_FALSE(rig.player.message().empty());
+}
+
+TEST(Interaction, ABuildRowThatNamesNoKindOrdersNothing) {
+    // Row 4 is the Hauler, which no UnitKind is yet: the key is drawn and does not act.
+    BuildRig rig = make_build_rig();
+    EXPECT_TRUE(press(rig, 4, false).empty());
+    EXPECT_TRUE(press(rig, 4, true).empty());
+    EXPECT_EQ(rig.sim.find(rig.factory)->queue.count, 0U);
 }
 
 } // namespace protekt::game

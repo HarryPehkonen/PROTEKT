@@ -2,7 +2,10 @@
 
 #include <array>
 #include <cstddef>
+#include <optional>
 #include <utility>
+
+#include "protekt/sim/spec.hpp"
 
 namespace protekt::game {
 namespace {
@@ -67,14 +70,24 @@ constexpr std::array kDeploymentRows{
     FixedRow{kTilde, kVerbDropOff, MenuDim::None},
 };
 
+/// A build row that names a unit kind: its cost is the SIM's price for that kind
+/// (`UnitSpec::cost`), read from the one table, so the number drawn on the row is the number the
+/// queue charges.
+[[nodiscard]] constexpr BuildItem kinded(std::string_view key, std::string_view label,
+                                         sim::UnitKind kind) {
+    return BuildItem{key, label, sim::spec_of(kind).cost, kind};
+}
+
 /// The player's build list, in key order, with the costs the reference capture draws on the rows.
-/// RB5 owns where these costs really come from -- there is no per-kind cost in the sim today, only
-/// `kTankOreCost` -- and the R3 roster owns the item names; this table is the reference's reading
-/// of them, kept in one place so the two later slices have exactly one thing to replace.
+/// The three rows that name a kind the sim has (Harvester is the scavenger, Guardian the tank)
+/// take their cost from the spec table; the rest keep the reference's literal cost and name no
+/// kind, because no `UnitKind` is a Hauler, a Builder, a Healer or a Service Pod yet. The R3 roster
+/// owns the item names; this table is the reference's reading of them.
 constexpr std::array kPlayerBuildList{
-    BuildItem{"1", "Harvester", 20},  BuildItem{"2", "Scout", 45},   BuildItem{"3", "Guardian", 40},
-    BuildItem{"4", "Hauler", 30},     BuildItem{"5", "Builder", 40}, BuildItem{"6", "Healer", 50},
-    BuildItem{"7", "Service Pod", 2},
+    kinded("1", "Harvester", sim::UnitKind::Scavenger), kinded("2", "Scout", sim::UnitKind::Scout),
+    kinded("3", "Guardian", sim::UnitKind::Tank),       BuildItem{"4", "Hauler", 30, std::nullopt},
+    BuildItem{"5", "Builder", 40, std::nullopt},        BuildItem{"6", "Healer", 50, std::nullopt},
+    BuildItem{"7", "Service Pod", 2, std::nullopt},
 };
 
 /// The item's name and the cost the row shows, as one string: the cost is drawn ON the build row,

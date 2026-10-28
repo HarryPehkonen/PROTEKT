@@ -165,6 +165,11 @@ struct BuildItem {
     std::string_view key{};   ///< the key pressed to choose it, "1".."7"
     std::string_view label{}; ///< the item's name as drawn
     int cost{};               ///< scrap it spends when it is built
+    /// The unit kind the row builds, or none for an item no `UnitKind` is yet (the Hauler, Builder,
+    /// Healer and Service Pod): such a row is drawn and its key does nothing. A row that names a
+    /// kind takes its `cost` FROM the sim's spec table, so the price drawn and the price charged
+    /// are one number.
+    std::optional<sim::UnitKind> kind{};
 };
 
 /// A side's build list, in key order. The PLAYER's is the one the reference capture shows, with its
