@@ -955,6 +955,41 @@ TEST(BuildQueue, AnEntryWithNoScrapPausesAndResumesTheTickTheScrapReturns) {
     EXPECT_EQ(sim.ore(Side::Player), 0);
 }
 
+TEST(BuildQueue, ABatchIsQueuedOnADryBankAndEachUnitPaysOnItsOwnStart) {
+    // Harri, 2026-10-28: "I must have the scrap to create the first, but I can add to the batch at
+    // will after that. Each build started at the exact same time as the scrap cost is deducted from
+    // my reserve." So the door never asks the bank: three can be ordered on a reserve that holds
+    // nothing, NOTHING is paid at the order, and each unit pays its own cost on the tick it starts.
+    // Scrap is on the GROUND and the reserve is empty: the batch is queued against a dry bank and
+    // drains as the haulers deliver, which is the state this clause is about.
+    Sim sim = Sim::create(queue_battle(90));
+    const UnitId factory = factory_of(sim);
+    const auto cost = sim::spec_of(UnitKind::Scavenger).cost;
+    const UnitId before = last_id(sim);
+    ASSERT_EQ(sim.ore(Side::Player), 0)
+        << "the reserve starts dry: the scrap is still on the ground";
+    sim.enqueue(build(factory, UnitKind::Scavenger, 5));
+    sim.enqueue(build(factory, UnitKind::Scavenger, 5));
+    sim.enqueue(build(factory, UnitKind::Scavenger, 5));
+    sim.step();
+    EXPECT_EQ(sim.find(factory)->queue.count, 3U)
+        << "adding to a batch never asks the bank: the door took all three on an empty reserve";
+    EXPECT_EQ(sim.ore(Side::Player), 0) << "nothing is paid when a batch is ordered";
+
+    ASSERT_TRUE(
+        step_until(sim, 20 * sim::spec_of(UnitKind::Scavenger).build_ticks,
+                   [&before, factory](const Sim& s) { return built_since(s, before).size() == 3; }))
+        << "the batch never drained: queue " << sim.find(factory)->queue.count << " left "
+        << sim.find(factory)->queue.left << " ore " << sim.ore(Side::Player) << " made "
+        << built_since(sim, before).size();
+    const auto made = built_since(sim, before);
+    for (const Unit* unit : made) {
+        EXPECT_EQ(unit->batch, 5U) << "every unit of the batch carries its token";
+    }
+    EXPECT_LT(sim.ore(Side::Player), cost)
+        << "each unit took its own cost as it started, so the bank is under one cost at the end";
+}
+
 TEST(BuildQueue, TheEleventhEntryIsRefusedAtTheCapOfTen) {
     Sim sim = Sim::create(queue_battle(0));
     const UnitId factory = factory_of(sim);

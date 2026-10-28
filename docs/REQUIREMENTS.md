@@ -1267,8 +1267,13 @@ at a time, gated by build time and scrap. [DECIDED — not built]
   figures that accompany those seconds elsewhere in the source are written as 600 and 1800, which is 60 ticks
   a second; the sim runs at 30 (`kTicksPerSecond`), so take the SECONDS as the ruling and the tick figures as
   a stale conversion.
-- [DECIDED — not built] A queue PAUSES when the scrap runs out and resumes when it returns; scrap is deducted
-  as each unit completes, not when it is ordered.
+- [RULED 2026-10-28] A queue PAUSES when the scrap runs out and resumes when it returns. The bank is
+  touched only when a unit STARTS to build, and then for that unit's own cost: "I must have the scrap to
+  create the first, but I can add to the batch at will after that. Each build started at the exact same
+  time as the scrap cost is deducted from my reserve." So the door never asks the bank — a batch may be
+  queued on an empty reserve, and its later entries hold until the scrap arrives — and nothing is paid
+  when a batch is ordered. (This corrects the earlier wording, which said the deduction happened as each
+  unit completed.)
 - [DECIDED — not built] A shift-built batch that finishes shares ONE function key, and each finished vehicle
   joins its batch's group; a lone build takes its own key (B.1). Each vehicle in a key draws its own health
   bar, in colour and not length, and a destroyed one's bar is removed (B.1, BAR-LOOK).
