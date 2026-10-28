@@ -19,14 +19,17 @@ namespace {
 constexpr std::size_t kHoverSlot = 3;
 constexpr std::size_t kMortarSlot = 7;
 constexpr std::size_t kRocketSlot = 8;
-constexpr std::size_t kRosterSize = 10;
+constexpr std::size_t kScavengerSlot = 9;
+constexpr std::size_t kRosterSize = 11;
 
-// Updated (R3b2): the mortar and the rocket join both rosters, after the turrets.
+// Updated (HAULER): a scavenger joins both rosters -- it is the one vehicle that makes the
+// economy playable, and until it spawned nothing could harvest in the game the player plays.
+// It sits BEFORE the recycler, so the recycler stays the last id on each side (RB1b's rule).
 TEST(Roster, BothSidesListTheSameKindsInSpawnOrder) {
     const std::vector<UnitKind> want{UnitKind::Tank,      UnitKind::Tank,    UnitKind::Tank,
                                      UnitKind::HoverTank, UnitKind::Factory, UnitKind::Turret,
                                      UnitKind::Turret,    UnitKind::Mortar,  UnitKind::Rocket,
-                                     UnitKind::Recycler};
+                                     UnitKind::Scavenger, UnitKind::Recycler};
     for (const Side side : {Side::Player, Side::Enemy}) {
         const std::vector<UnitKind> roster = side_roster(default_data(), side);
         ASSERT_EQ(roster.size(), want.size());
@@ -36,6 +39,7 @@ TEST(Roster, BothSidesListTheSameKindsInSpawnOrder) {
         EXPECT_EQ(roster[kHoverSlot], UnitKind::HoverTank);
         EXPECT_EQ(roster[kMortarSlot], UnitKind::Mortar);
         EXPECT_EQ(roster[kRocketSlot], UnitKind::Rocket);
+        EXPECT_EQ(roster[kScavengerSlot], UnitKind::Scavenger);
     }
 }
 

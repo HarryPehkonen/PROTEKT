@@ -112,11 +112,12 @@ ScenarioData default_data() {
     // stands at the rear beside the factory.
     ScenarioData data;
     data.groups = {
-        {UnitKind::Tank, 1, 8, 2},     {UnitKind::Tank, 1, 8, 8},
-        {UnitKind::Tank, 1, 2, 8},     {UnitKind::HoverTank, 1, 5, 5},
-        {UnitKind::Factory, 1, 0, 0},  {UnitKind::Turret, 1, 5, -3},
-        {UnitKind::Turret, 1, -3, 5},  {UnitKind::Mortar, 1, -4, -1},
-        {UnitKind::Rocket, 1, -1, -4}, {UnitKind::Recycler, 1, -3, -3},
+        {UnitKind::Tank, 1, 8, 2},       {UnitKind::Tank, 1, 8, 8},
+        {UnitKind::Tank, 1, 2, 8},       {UnitKind::HoverTank, 1, 5, 5},
+        {UnitKind::Factory, 1, 0, 0},    {UnitKind::Turret, 1, 5, -3},
+        {UnitKind::Turret, 1, -3, 5},    {UnitKind::Mortar, 1, -4, -1},
+        {UnitKind::Rocket, 1, -1, -4},   {UnitKind::Scavenger, 1, 1, -3},
+        {UnitKind::Recycler, 1, -3, -3},
     };
     return data;
 }

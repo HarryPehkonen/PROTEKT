@@ -28,12 +28,12 @@ int count_of(const Scenario& s, Side side, UnitKind kind) {
     return n;
 }
 
-// Updated (RB1b): ten a side -- the recycler joined.
+// Updated (HAULER): eleven a side -- the scavenger joined, before the recycler.
 TEST(Scenario, BothSidesGetTheFrozenComposition) {
     const Scenario s = skirmish(42);
     EXPECT_EQ(s.seed, 42U);
-    ASSERT_EQ(s.spawns.size(), 20U) << "10 units a side, the hover tank, mortar, rocket and "
-                                       "recycler included";
+    ASSERT_EQ(s.spawns.size(), 22U) << "11 units a side, the hover tank, mortar, rocket, "
+                                       "scavenger and recycler included";
     EXPECT_EQ(count_of(s, Side::Player, UnitKind::HoverTank), 1);
     EXPECT_EQ(count_of(s, Side::Enemy, UnitKind::HoverTank), 1);
     EXPECT_EQ(s.spawns.at(3).kind, UnitKind::HoverTank) << "the player's fourth unit";
@@ -48,12 +48,12 @@ TEST(Scenario, BothSidesGetTheFrozenComposition) {
     }
 }
 
-// Updated (RB1b): 20 spawns now; the hover tank is still the player's fourth.
+// Updated (HAULER): 22 spawns now; the hover tank is still the player's fourth.
 TEST(Scenario, ThePlayersFourthUnitIsAHoverTankDeterministicallyFromTheSeed) {
     for (const std::uint64_t seed : {7ULL, 42ULL}) {
         const Scenario a = skirmish(seed);
         const Scenario b = skirmish(seed);
-        ASSERT_EQ(a.spawns.size(), 20U);
+        ASSERT_EQ(a.spawns.size(), 22U);
         EXPECT_EQ(a.spawns.at(3).kind, UnitKind::HoverTank);
         EXPECT_EQ(a.spawns.at(3).side, Side::Player);
         EXPECT_EQ(a.spawns.at(3).tile_x, b.spawns.at(3).tile_x);
@@ -97,10 +97,10 @@ TEST(Scenario, IsAPureFunctionOfTheSeed) {
     EXPECT_TRUE(differs) << "two seeds must not produce the same battlefield run for run";
 }
 
-// Updated (RB1b): 20 units.
+// Updated (HAULER): 22 units.
 TEST(Scenario, IdsAreAscendingAndUnique) {
     Sim sim = Sim::create(skirmish(42));
-    ASSERT_EQ(sim.units().size(), 20U);
+    ASSERT_EQ(sim.units().size(), 22U);
     std::set<std::uint32_t> seen;
     for (const Unit& u : sim.units()) {
         EXPECT_TRUE(u.id.valid());
@@ -145,8 +145,8 @@ TEST(Scenario, EachSideSpawnsExactlyOneRecyclerAndItIsTheLastOfItsSide) {
             ASSERT_NE(last, nullptr);
             EXPECT_EQ(last->kind, UnitKind::Recycler) << "seed " << seed;
         }
-        EXPECT_EQ(s.spawns.at(9).kind, UnitKind::Recycler) << "the player's tenth unit";
-        EXPECT_EQ(s.spawns.at(19).kind, UnitKind::Recycler) << "the enemy's tenth unit";
+        EXPECT_EQ(s.spawns.at(10).kind, UnitKind::Recycler) << "the player's eleventh unit";
+        EXPECT_EQ(s.spawns.at(21).kind, UnitKind::Recycler) << "the enemy's eleventh unit";
     }
 }
 
@@ -155,7 +155,7 @@ TEST(Scenario, TheRecyclerStartsOnItsOwnHalfWithinTheBaseCluster) {
     for (const std::uint64_t seed : {1ULL, 42ULL, 777ULL}) {
         const Scenario s = skirmish(seed);
         const Spawn& player_factory = s.spawns.at(4);
-        const Spawn& enemy_factory = s.spawns.at(14);
+        const Spawn& enemy_factory = s.spawns.at(15);
         ASSERT_EQ(player_factory.kind, UnitKind::Factory);
         ASSERT_EQ(enemy_factory.kind, UnitKind::Factory);
         for (const Spawn& sp : s.spawns) {
@@ -204,6 +204,27 @@ TEST(Scenario, ABattleWithRecyclersInItIsDeterministic) {
     EXPECT_NE(a.final_hash, 0U);
     EXPECT_EQ(a.final_hash, b.final_hash);
     EXPECT_EQ(a.to_text(60), b.to_text(60));
+}
+
+// HAULER: the roster the game plays carries the harvester. Until it did, the fetch loop
+// test_scavenger.cpp exercises in hand-built battles had no vehicle in a real skirmish to drive --
+// the harvester menu was wired and unreachable, and the economy could not be played at all.
+TEST(Scenario, BothSidesSpawnOneHarvesterAndItIsInsideTheBaseCluster) {
+    const Scenario s = skirmish(42);
+    EXPECT_EQ(count_of(s, Side::Player, UnitKind::Scavenger), 1);
+    EXPECT_EQ(count_of(s, Side::Enemy, UnitKind::Scavenger), 1);
+    EXPECT_TRUE(is_drivable(UnitKind::Scavenger)) << "the player must be able to drive it";
+    const Spawn& player_factory = s.spawns.at(4);
+    ASSERT_EQ(player_factory.kind, UnitKind::Factory);
+    for (const Spawn& sp : s.spawns) {
+        if (sp.kind != UnitKind::Scavenger) {
+            continue;
+        }
+        const Spawn& factory = sp.side == Side::Player ? player_factory : s.spawns.at(15);
+        EXPECT_LE(
+            std::max(std::abs(sp.tile_x - factory.tile_x), std::abs(sp.tile_y - factory.tile_y)), 8)
+            << "a hauler starts with the base it hauls to";
+    }
 }
 
 } // namespace

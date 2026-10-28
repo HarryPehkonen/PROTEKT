@@ -205,17 +205,19 @@ TEST(PlayerView, TheSkirmishRecyclerIsLabelledRecyclerAndAsksForTheSixRowMenu) {
     const sim::Sim sim = sim::Sim::create(sim::skirmish(kSeed));
     game::RowState row;
     row.update(sim, Side::Player, 0);
-    // Nine vehicles in id order (the factory sits on `2`, not under an F key): F9 is the last.
-    const game::RowSlot& group = row.slots.at(game::group_slot(9));
+    // Ten vehicles in id order (the factory sits on `2`, not under an F key): F10 is the last --
+    // HAULER put the scavenger on F9.
+    const game::RowSlot& group = row.slots.at(game::group_slot(10));
     ASSERT_EQ(group.units.size(), 1U);
     const std::optional<game::SlotReading> reading = game::read_slot(sim, group);
-    ASSERT_TRUE(reading.has_value()) << "F9 holds the recycler";
+    ASSERT_TRUE(reading.has_value()) << "F10 holds the recycler";
     if (!reading.has_value()) {
         return; // unreachable once the ASSERT above has passed: for the analyzer, not the test
     }
     ASSERT_EQ(reading->kind, UnitKind::Recycler);
     EXPECT_EQ(game::kind_label(reading->kind), "RECYCLER");
-    EXPECT_FALSE(row.occupied(game::group_slot(10))) << "F10 is the next free slot";
+    // HAULER: the player's ten vehicles fill the row's ten group keys exactly; F10 is the last.
+    EXPECT_EQ(game::group_slot(10) + 1, game::kRowSlots) << "F10 is the row's last group key";
 
     const std::vector<sim::UnitId> selected{group.units.front()};
     game::MenuInput in;
@@ -407,6 +409,25 @@ TEST(PlayerView, ADeadUnitsIdIsNotWhatTheMenuIsAbout) {
     ASSERT_FALSE(rig.sim.find(factory)->alive) << "the enemy never killed the factory";
     const std::vector<sim::UnitId> selection{factory};
     EXPECT_EQ(game::menu_subject_of(rig.sim, selection), MenuSubject::None);
+}
+
+// HAULER: the skirmish's own scavenger -- the vehicle that makes the economy playable -- is a
+// harvester as far as the game layer is concerned. F9 is its key: the recycler moved to F10.
+TEST(PlayerView, TheSkirmishScavengerIsLabelledScavengerAndAsksForTheHarvesterMenu) {
+    const sim::Sim sim = sim::Sim::create(sim::skirmish(kSeed));
+    game::RowState row;
+    row.update(sim, Side::Player, 0);
+    const game::RowSlot& group = row.slots.at(game::group_slot(9));
+    ASSERT_EQ(group.units.size(), 1U) << "F9 holds the skirmish's scavenger";
+    const std::optional<game::SlotReading> reading = game::read_slot(sim, group);
+    ASSERT_TRUE(reading.has_value());
+    if (!reading.has_value()) {
+        return; // unreachable once the ASSERT above has passed: for the analyzer, not the test
+    }
+    ASSERT_EQ(reading->kind, UnitKind::Scavenger);
+    EXPECT_EQ(game::kind_label(reading->kind), "SCAVENGER");
+    const std::vector<sim::UnitId> selected{group.units.front()};
+    EXPECT_EQ(game::menu_subject_of(sim, selected), MenuSubject::Harvester);
 }
 
 } // namespace

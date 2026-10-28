@@ -53,13 +53,16 @@ dy = -3
 
 TEST(ScenarioData, DefaultIsUnchanged) {
     // Today's roster and offsets, entry for entry: tanks lead, the hover tank, the factory at the
-    // base centre, the turrets flank it, the mortar and the rocket behind, the recycler last.
+    // base centre, the turrets flank it, the mortar and the rocket behind, the scavenger beside
+    // the recycler, and the recycler last (HAULER: the scavenger spawns, so the economy can be
+    // played; it sits before the recycler to keep RB1b's "recycler is the last id" rule).
     const std::vector<Group> want{
-        {UnitKind::Tank, 1, 8, 2},     {UnitKind::Tank, 1, 8, 8},
-        {UnitKind::Tank, 1, 2, 8},     {UnitKind::HoverTank, 1, 5, 5},
-        {UnitKind::Factory, 1, 0, 0},  {UnitKind::Turret, 1, 5, -3},
-        {UnitKind::Turret, 1, -3, 5},  {UnitKind::Mortar, 1, -4, -1},
-        {UnitKind::Rocket, 1, -1, -4}, {UnitKind::Recycler, 1, -3, -3},
+        {UnitKind::Tank, 1, 8, 2},       {UnitKind::Tank, 1, 8, 8},
+        {UnitKind::Tank, 1, 2, 8},       {UnitKind::HoverTank, 1, 5, 5},
+        {UnitKind::Factory, 1, 0, 0},    {UnitKind::Turret, 1, 5, -3},
+        {UnitKind::Turret, 1, -3, 5},    {UnitKind::Mortar, 1, -4, -1},
+        {UnitKind::Rocket, 1, -1, -4},   {UnitKind::Scavenger, 1, 1, -3},
+        {UnitKind::Recycler, 1, -3, -3},
     };
     const ScenarioData data = default_data();
     ASSERT_EQ(data.groups.size(), want.size());
@@ -76,7 +79,7 @@ TEST(ScenarioData, SkirmishWithoutDataIsSkirmishWithTheDefault) {
         const Scenario a = skirmish(seed);
         const Scenario b = skirmish(seed, default_data());
         EXPECT_EQ(a.seed, b.seed);
-        ASSERT_EQ(a.spawns.size(), 20U) << "seed " << seed;
+        ASSERT_EQ(a.spawns.size(), 22U) << "seed " << seed;
         ASSERT_EQ(a.spawns.size(), b.spawns.size()) << "seed " << seed;
         for (std::size_t i = 0; i < a.spawns.size(); ++i) {
             EXPECT_EQ(a.spawns.at(i).kind, b.spawns.at(i).kind) << "seed " << seed << " #" << i;

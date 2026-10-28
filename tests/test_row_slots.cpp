@@ -316,21 +316,24 @@ TEST(RowSlots, TheBuildingKeysAppearOnlyWhenTheThingExists) {
 TEST(RowSlots, TheRecyclerIsAVehicleOnItsFKeyUntilItDeploysThenItsKeyGoesBlankAndOneShowsIt) {
     // DEPLOY flips what ROW-SLOTS could only promise: the recycler sits on an F key while it is a
     // vehicle, and the moment it is a building that key goes blank IN PLACE -- nothing re-packs --
-    // and key 1 shows it. The skirmish's recycler is the player's ninth vehicle: F9.
+    // and key 1 shows it. The skirmish's recycler is the player's tenth vehicle: F10 (HAULER: the
+    // scavenger took the ninth).
     sim::Sim sim = sim::Sim::create(sim::skirmish(kSeed));
     RowState row;
     row.update(sim, Side::Player, 0);
     EXPECT_FALSE(row.occupied(1)) << "key 1 is for the DEPLOYED recycler";
     ASSERT_TRUE(row.occupied(2)) << "the skirmish has a factory";
     EXPECT_EQ(sim.find(row.slots.at(2).units.front())->kind, UnitKind::Factory);
-    const std::optional<SlotReading> last = read_slot(sim, row.slots.at(group_slot(9)));
-    ASSERT_TRUE(last.has_value()) << "F9 holds the recycler";
+    const std::optional<SlotReading> last = read_slot(sim, row.slots.at(group_slot(10)));
+    ASSERT_TRUE(last.has_value()) << "F10 holds the recycler";
     if (!last.has_value()) {
         return; // unreachable once the ASSERT above has passed: for the analyzer, not the test
     }
     EXPECT_EQ(last->kind, UnitKind::Recycler);
-    EXPECT_FALSE(row.occupied(group_slot(10)));
-    const UnitId recycler = row.slots.at(group_slot(9)).units.front();
+    // HAULER: ten vehicles and ten group keys -- the row is exactly full, and F10 is the last key
+    // there is, so the recycler sits on the row's final slot.
+    EXPECT_EQ(group_slot(10) + 1, kRowSlots) << "F10 is the row's last group key";
+    const UnitId recycler = row.slots.at(group_slot(10)).units.front();
     std::array<RowSlot, kRowSlots> before = row.slots;
 
     // Deployed where it stands: its position is the centre of the square to its north-west.
@@ -345,16 +348,16 @@ TEST(RowSlots, TheRecyclerIsAVehicleOnItsFKeyUntilItDeploysThenItsKeyGoesBlankAn
     }
     row.update(sim, Side::Player, 0);
     EXPECT_EQ(sim.find(recycler)->kind, UnitKind::Recycler) << "one tick short";
-    EXPECT_EQ(row.slots, before) << "still on F9, and key 1 still blank";
+    EXPECT_EQ(row.slots, before) << "still on F10, and key 1 still blank";
 
     sim.step();
     row.update(sim, Side::Player, 0);
     ASSERT_EQ(sim.find(recycler)->kind, UnitKind::DeployedRecycler);
-    EXPECT_FALSE(row.occupied(group_slot(9))) << "its F key is blank";
+    EXPECT_FALSE(row.occupied(group_slot(10))) << "its F key is blank";
     ASSERT_TRUE(row.occupied(1)) << "and key 1 shows the deployed recycler";
     EXPECT_EQ(row.slots.at(1).units, (std::vector<UnitId>{recycler}));
     for (std::size_t index = kRowFirstGroup; index < kRowSlots; ++index) {
-        if (index != group_slot(9)) {
+        if (index != group_slot(10)) {
             EXPECT_EQ(row.slots.at(index), before.at(index))
                 << row_key_label(index) << ": nothing else moved, nothing re-packed";
         }

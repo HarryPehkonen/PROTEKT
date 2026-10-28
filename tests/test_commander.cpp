@@ -26,8 +26,8 @@ TEST(Commander, ObserveSplitsOwnFromEnemyAndOnlyLivingUnits) {
     Sim sim = Sim::create(skirmish(42));
     const Observation obs = observe(sim, Side::Player);
     EXPECT_EQ(obs.tick, 0U);
-    EXPECT_EQ(obs.own.size(), 10U);
-    EXPECT_EQ(obs.enemy.size(), 10U);
+    EXPECT_EQ(obs.own.size(), 11U); // HAULER: the scavenger joined the roster.
+    EXPECT_EQ(obs.enemy.size(), 11U);
     for (const UnitView& v : obs.own) {
         EXPECT_EQ(v.side, Side::Player);
     }
