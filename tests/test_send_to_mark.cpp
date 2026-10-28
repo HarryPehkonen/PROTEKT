@@ -304,6 +304,9 @@ TEST(SendToMark, TwoSameSeedRunsProduceByteIdenticalOrders) {
     rig.options.seed = kSeed;
     rig.options.extent = kExtent;
     rig.options.camera = Camera{80.0F, height_metres(kSeed, 40, 40) + 3.0F, 60.0F, 0.0F, -0.12F};
+    // The list names only what the world view draws (VIS); the camera sits 10 tiles behind the
+    // tank, so a longer view than the default 24 is what puts these hostiles in it.
+    rig.options.radius_tiles = 40;
     rig.options.viewer_unit = rig.own.at(0);
     rig.options.aim = Aim{640.0F, 360.0F};
     rig.options.nav_marks = &rig.marks;
@@ -404,6 +407,8 @@ TEST(AttackList, TWithNothingUnderTheCrosshairArmsAndADigitAttacksThatRow) {
     rig.options.seed = kSeed;
     rig.options.extent = kExtent;
     rig.options.camera = Camera{40.0F, height_metres(kSeed, 20, 40) + 3.0F, 60.0F, 0.0F, -0.12F};
+    // Drawn far enough to hold the hostile 79 tiles out: the radar reach is the limit under test.
+    rig.options.radius_tiles = 100;
     rig.options.viewer_unit = rig.own.at(0);
     rig.options.aim = Aim{640.0F, 360.0F};
     rig.options.nav_marks = &rig.marks;
@@ -598,6 +603,9 @@ struct MenuRig {
     rig.options.seed = kSeed;
     rig.options.extent = kExtent;
     rig.options.camera = Camera{80.0F, height_metres(kSeed, 40, 40) + 3.0F, 60.0F, 0.0F, -0.12F};
+    // The list names only what the world view draws (VIS); the camera sits 10 tiles behind the
+    // tank, so a longer view than the default 24 is what puts these hostiles in it.
+    rig.options.radius_tiles = 40;
     rig.options.aim = Aim{640.0F, 700.0F}; // bare ground: no hostile under the mark
     rig.row.update(rig.sim, Side::Player, 0);
     // The pair shares one key, as a shift-built batch would: no batch exists yet, so it is arranged

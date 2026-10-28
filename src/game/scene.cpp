@@ -1431,43 +1431,15 @@ void append_scrap(std::vector<SceneVertex>& out, const SceneOptions& options, co
     }
 }
 
-/// VIS: a HOSTILE unit farther from the viewer than the viewer's radar reaches is not in the world
-/// view at all -- hull, shadow, bar and readout all ask this. Your own side is never hidden,
-/// wherever it stands. The boundary is INSIDE (`<=`), exactly as `radar_marks` has it, and in the
-/// same float arithmetic, so a blip and a hull appear and vanish on the same tile. With no viewer
-/// (an observer frame) there is no radar to be limited by, and nothing is hidden. A pure function
-/// of `(sim, options)`: the sim is read, never touched.
-[[nodiscard]] bool hidden_by_reach(const sim::Sim& sim, const SceneOptions& options,
-                                   const sim::Unit& unit) {
-    if (unit.side == options.viewer_side) {
-        return false;
-    }
-    const sim::Unit* viewer = sim.find(options.viewer_unit);
-    if (viewer == nullptr) {
-        return false;
-    }
-    const auto tiles = [](const sim::Fixed& value) {
-        return static_cast<float>(value.raw) / static_cast<float>(sim::Fixed::kOne);
-    };
-    const float distance
-        = std::hypot(tiles(unit.x) - tiles(viewer->x), tiles(unit.y) - tiles(viewer->y));
-    return distance > static_cast<float>(viewer_radar_radius(sim, options.viewer_unit));
-}
-
 /// CONTACT SHADOWS (see `kShadowInk`): one flat translucent quad per LIVING unit, at the unit's own
 /// x/y and the terrain height there, sized by `kShadowHalfMetres` (the hull drawn above it). The
 /// viewer's own hull gets one too: it is not drawn in first person, and the patch is the cue left.
 /// Culled to the meshed radius exactly as the unit emission is. Drawn BEFORE the hulls and the
 /// bars, so it reads as ground under them.
 void append_unit_shadows(std::vector<SceneVertex>& out, const SceneOptions& options,
-                         const sim::Sim& sim, int centre_x, int centre_y) {
+                         const sim::Sim& sim) {
     for (const sim::Unit& unit : sim.units()) {
-        if (!unit.alive || hidden_by_reach(sim, options, unit)) {
-            continue;
-        }
-        const int dx = unit.x.floor_int() - centre_x;
-        const int dy = unit.y.floor_int() - centre_y;
-        if (std::abs(dx) > options.radius_tiles || std::abs(dy) > options.radius_tiles) {
+        if (!unit.alive || !available_to_viewer(sim, options, unit)) {
             continue;
         }
         const float tile_x = static_cast<float>(unit.x.raw) / static_cast<float>(sim::Fixed::kOne);
@@ -2073,8 +2045,6 @@ void append_unit_bars(std::vector<SceneVertex>& out, const SceneOptions& options
     constexpr std::array<float, 3> kOutline{0.0F, 0.0F, 0.0F};
     constexpr std::array<float, 3> kPlate{0.10F, 0.10F, 0.12F};
 
-    const int centre_x = static_cast<int>(std::floor(options.camera.x / kMetresPerTile));
-    const int centre_y = static_cast<int>(std::floor(options.camera.z / kMetresPerTile));
     for (const sim::Unit& unit : sim.units()) {
         // Every unit in the field wears one -- tank, hover tank, mortar, rocket alike. The
         // structures do not: the factory is the base, and a turret wears its DEPLOYING plate there.
@@ -2085,8 +2055,7 @@ void append_unit_bars(std::vector<SceneVertex>& out, const SceneOptions& options
             continue;
         }
         // Only a unit that is drawn gets a bar: the same terrain window the units use.
-        if (std::abs(unit.x.floor_int() - centre_x) > options.radius_tiles
-            || std::abs(unit.y.floor_int() - centre_y) > options.radius_tiles) {
+        if (outside_drawn_radius(options, unit)) {
             continue;
         }
         const bool hovering = options.hover.has_value() && options.hover->unit == unit.id;
@@ -2289,15 +2258,12 @@ void append_mount_plates(std::vector<SceneVertex>& out, const SceneOptions& opti
     };
     constexpr std::array<float, 3> kInk{0.0F, 0.0F, 0.0F};
 
-    const int centre_x = static_cast<int>(std::floor(options.camera.x / kMetresPerTile));
-    const int centre_y = static_cast<int>(std::floor(options.camera.z / kMetresPerTile));
     for (const sim::Unit& unit : sim.units()) {
         if (!unit.alive || unit.kind != sim::UnitKind::Turret || unit.side != options.viewer_side
             || sim::is_mounted(unit)) {
             continue;
         }
-        if (std::abs(unit.x.floor_int() - centre_x) > options.radius_tiles
-            || std::abs(unit.y.floor_int() - centre_y) > options.radius_tiles) {
+        if (outside_drawn_radius(options, unit)) {
             continue;
         }
         const Projected top = project(
@@ -4135,17 +4101,16 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
         aimed = pick(sim, options, options.aim->x, options.aim->y);
     }
 
-    append_unit_shadows(scene.vertices, options, sim, centre_x, centre_y);
+    append_unit_shadows(scene.vertices, options, sim);
 
     for (const sim::Unit& unit : sim.units()) {
-        if (!unit.alive || hidden_by_reach(sim, options, unit)) {
+        // Only draw units the player could pick: inside the terrain that was actually meshed (a
+        // unit far outside the rendered radius has no ground to stand on in this scene) and not
+        // beyond the radar's reach. `available_to_viewer` is the rule the pick asks too.
+        if (!unit.alive) {
             continue;
         }
-        // Only draw units within the terrain that was actually meshed: a unit far outside the
-        // rendered radius has no ground to stand on in this scene.
-        const int dx = unit.x.floor_int() - centre_x;
-        const int dy = unit.y.floor_int() - centre_y;
-        if (std::abs(dx) <= options.radius_tiles && std::abs(dy) <= options.radius_tiles) {
+        if (available_to_viewer(sim, options, unit)) {
             const bool is_selected
                 = std::find(selected.begin(), selected.end(), unit.id) != selected.end();
             Mark mark = Mark::None;

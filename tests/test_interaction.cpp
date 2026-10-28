@@ -517,6 +517,7 @@ TEST(Parallax, TheBoltLandsOnTheMarkAtOneHundredMetres) {
     reload(rig.sim);
     // Look at the enemy, as the player does: pitch the camera until the middle of the screen is on
     // the enemy's body.
+    rig.options.radius_tiles = 100; // the enemy stands 50 tiles out: draw it, so it can be picked
     eye_over(rig, tank, 0.0F, 0.0F);
     const float to_x = as_float(target->x) * kMetresPerTile - rig.options.camera.x;
     const float to_z = as_float(target->y) * kMetresPerTile - rig.options.camera.z;
@@ -1970,6 +1971,139 @@ TEST(Interaction, ABuildRowThatNamesNoKindOrdersNothing) {
     EXPECT_TRUE(press(rig, 4, false).empty());
     EXPECT_TRUE(press(rig, 4, true).empty());
     EXPECT_EQ(rig.sim.find(rig.factory)->queue.count, 0U);
+}
+
+// ---------------------------------------------------------------- VIS: what can be picked is what
+// is drawn
+
+namespace {
+
+/// A rig for the availability rule: the VIEWER at tile (40,40) with the camera over its tile, a
+/// second own tank beside it to hold a selection, one hostile and one far own tank where the test
+/// puts them, and `radius_tiles` as the test sets it. Nothing else stands in any ray.
+struct VisRig {
+    sim::Sim sim;
+    SceneOptions options;
+    sim::UnitId viewer{};
+    sim::UnitId wingman{};
+    sim::UnitId hostile{};
+    sim::UnitId far_own{};
+};
+
+[[nodiscard]] VisRig make_vis_rig(UnitKind viewer_kind, int hostile_x, int hostile_y, int far_x,
+                                  int far_y, int radius_tiles) {
+    VisRig rig{};
+    rig.sim = sim::Sim::create(Scenario{kSeed,
+                                        {{viewer_kind, Side::Player, 40, 40},
+                                         {UnitKind::Tank, Side::Player, 36, 41},
+                                         {UnitKind::Tank, Side::Enemy, hostile_x, hostile_y},
+                                         {UnitKind::Tank, Side::Player, far_x, far_y}}});
+    rig.viewer = rig.sim.units().at(0).id;
+    rig.wingman = rig.sim.units().at(1).id;
+    rig.hostile = rig.sim.units().at(2).id;
+    rig.far_own = rig.sim.units().at(3).id;
+    rig.options.seed = kSeed;
+    rig.options.extent = kExtent;
+    rig.options.radius_tiles = radius_tiles;
+    rig.options.viewer_unit = rig.viewer;
+    rig.options.viewer_side = Side::Player;
+    // Over the viewer's own tile, so "N tiles" from the camera is N tiles from the viewer.
+    rig.options.camera = Camera{80.0F, height_metres(kSeed, 40, 40) + 3.0F, 80.0F, 0.0F, -0.12F};
+    return rig;
+}
+
+/// The mark on `unit`, and what `pick` answers there.
+[[nodiscard]] Pick aim_at(VisRig& rig, sim::UnitId unit) {
+    const sim::Unit* u = rig.sim.find(unit);
+    const float x
+        = static_cast<float>(u->x.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile;
+    const float z
+        = static_cast<float>(u->y.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile;
+    const float ground = height_metres(kSeed, u->x.floor_int(), u->y.floor_int());
+    const Projected p = project(rig.options.camera, kExtent, x, ground + 0.9F, z);
+    rig.options.aim = Aim{p.x, p.y};
+    return pick(rig.sim, rig.options, p.x, p.y);
+}
+
+[[nodiscard]] std::vector<sim::UnitId> named_by_t(VisRig& rig) {
+    Interaction player{rig.viewer};
+    // Select the wingman by aiming at it, then open the list.
+    static_cast<void>(aim_at(rig, rig.wingman));
+    player.handle(with_key(input::kKeySpace), rig.sim, rig.options);
+    player.handle(with_key(input::kKeyT), rig.sim, rig.options);
+    std::vector<sim::UnitId> ids;
+    for (const TargetRow& row : player.attack_targets()) {
+        ids.push_back(row.id);
+    }
+    return ids;
+}
+
+} // namespace
+
+TEST(Availability, AHostileJustBeyondTheDrawnRadiusCannotBePickedMarkedOrNamed) {
+    // 25 tiles out, against a 24-tile drawn radius and a 40-tile radar: the world draws nothing
+    // there, so the pick, the reticle's mark and the attack list must not know it is there.
+    VisRig rig = make_vis_rig(UnitKind::Tank, 44, 65, 36, 44, 24);
+    const Pick picked = aim_at(rig, rig.hostile);
+    EXPECT_FALSE(picked.has_unit()) << "nothing is picked over a hostile that is not drawn";
+
+    EXPECT_TRUE(named_by_t(rig).empty()) << "the attack list does not name what is not drawn";
+
+    Interaction player{rig.viewer};
+    static_cast<void>(aim_at(rig, rig.wingman));
+    player.handle(with_key(input::kKeySpace), rig.sim, rig.options); // selects the wingman
+    static_cast<void>(aim_at(rig, rig.hostile));
+    player.handle(with_key(input::kKeySpace), rig.sim, rig.options);
+    EXPECT_TRUE(player.take_orders().empty()) << "Space over the undrawn hostile orders no attack";
+}
+
+TEST(Availability, TheSameHostileAtTwentyTilesIsPickedAndNamedAsBefore) {
+    VisRig rig = make_vis_rig(UnitKind::Tank, 44, 60, 36, 44, 24);
+    EXPECT_EQ(aim_at(rig, rig.hostile).unit, rig.hostile);
+    EXPECT_EQ(named_by_t(rig), (std::vector<sim::UnitId>{rig.hostile}));
+
+    Interaction player{rig.viewer};
+    static_cast<void>(aim_at(rig, rig.wingman));
+    player.handle(with_key(input::kKeySpace), rig.sim, rig.options);
+    static_cast<void>(aim_at(rig, rig.hostile));
+    player.handle(with_key(input::kKeySpace), rig.sim, rig.options);
+    const std::vector<Order> orders = player.take_orders();
+    ASSERT_EQ(orders.size(), 1U);
+    EXPECT_EQ(orders.front().kind(), OrderKind::Attack);
+}
+
+TEST(Availability, TheReachBindsWhenTheDrawnRadiusIsLonger) {
+    // A drawn radius of 100 draws everything here; the radar reach is then the binding limit. A
+    // hostile 45 tiles out is beyond a tank's 40 and inside a scout's 80.
+    {
+        VisRig tank = make_vis_rig(UnitKind::Tank, 44, 85, 36, 44, 100);
+        EXPECT_FALSE(aim_at(tank, tank.hostile).has_unit()) << "a tank's reach is 40";
+        EXPECT_TRUE(named_by_t(tank).empty());
+    }
+    {
+        VisRig scout = make_vis_rig(UnitKind::Scout, 44, 85, 36, 44, 100);
+        EXPECT_EQ(aim_at(scout, scout.hostile).unit, scout.hostile) << "a scout's reach is 80";
+        EXPECT_EQ(named_by_t(scout), (std::vector<sim::UnitId>{scout.hostile}));
+    }
+}
+
+TEST(Availability, YourOwnUnitBeyondTheDrawnRadiusIsNotPickableEither) {
+    // 30 tiles out of a 24-tile drawn radius: no ground under it, so nothing to pick or select.
+    VisRig rig = make_vis_rig(UnitKind::Tank, 44, 60, 44, 70, 24);
+    EXPECT_FALSE(aim_at(rig, rig.far_own).has_unit());
+    Interaction player{rig.viewer};
+    static_cast<void>(aim_at(rig, rig.far_own));
+    player.handle(with_key(input::kKeySpace), rig.sim, rig.options);
+    EXPECT_TRUE(player.selection().empty());
+
+    // The same unit with a drawn radius that reaches it: your own side is never hidden by the
+    // radar's reach, so it is pickable and selectable even past 40 tiles.
+    VisRig wide = make_vis_rig(UnitKind::Tank, 44, 60, 44, 90, 100);
+    EXPECT_EQ(aim_at(wide, wide.far_own).unit, wide.far_own);
+    Interaction wide_player{wide.viewer};
+    static_cast<void>(aim_at(wide, wide.far_own));
+    wide_player.handle(with_key(input::kKeySpace), wide.sim, wide.options);
+    EXPECT_EQ(selected(wide_player), (std::vector<sim::UnitId>{wide.far_own}));
 }
 
 } // namespace protekt::game

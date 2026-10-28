@@ -307,7 +307,7 @@ meaning, and those are in section 14.
 | `E` (held) | boost: lifts the hull; presentation only, not counted as "driving" | [SHIPPED 3c7070c] |
 | left click | the trigger: one bolt along the crosshair; rate-limited to one every 8 ticks | [SHIPPED 826b1e6] |
 | right click | switch weapon, gun → rocket → mortar → bouncer → gun; the ONLY weapon switch | [SHIPPED a2400a9] |
-| `Space`, nothing selected | select the one own unit under the mark, within 32 tiles (80% of the radar's 40); ground, hostiles and the driven tank are ignored | [SHIPPED 3404ba9] |
+| `Space`, nothing selected | select the one own unit under the mark, if the world view draws it (inside the drawn radius); ground, hostiles and the driven tank are ignored. The mark, Space and the `T` list only ever reach what the world view draws: inside the drawn radius, and for a hostile also inside the viewer's radar reach (40 tiles, a scout's 80) | [SHIPPED 3404ba9] |
 | `Space`, something selected, a tank under the mark | the selection follows it | [SHIPPED 3404ba9] |
 | `Space`, something selected, a hostile under the mark | the selection attacks it | [SHIPPED 3404ba9] |
 | `F1`–`F10` | select every unit of the kind that holds that key | [SHIPPED 160dec4] |

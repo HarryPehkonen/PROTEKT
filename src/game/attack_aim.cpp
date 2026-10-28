@@ -63,7 +63,8 @@ sim::UnitId attack_target(const sim::Sim& sim, const SceneOptions& options,
     sim::UnitId best{};
     float best_cos = -1.0F;
     for (const sim::Unit& unit : sim.units()) {
-        if (!unit.alive || unit.side == sim::Side::Player) {
+        if (!unit.alive || unit.side == sim::Side::Player
+            || !available_to_viewer(sim, options, unit)) {
             continue;
         }
         const std::array<float, 3> at = world_middle(options, unit);

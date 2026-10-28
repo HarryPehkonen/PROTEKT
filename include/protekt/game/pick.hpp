@@ -21,6 +21,25 @@ inline constexpr float kPickUnitRadiusTiles = 0.75F;
 /// box and `attack_point`'s middle both read this, so they are the same unit's same body.
 [[nodiscard]] float unit_box_height_metres(sim::UnitKind kind) noexcept;
 
+/// THE AVAILABILITY RULE (VIS), the one place it lives. A unit is available to the player -- to
+/// the pick, the reticle's mark, Space and the attack list -- only if the world view would DRAW it:
+/// inside the camera's drawn radius (`options.radius_tiles`, a box about the camera's tile, the one
+/// every draw path culls at) AND not hidden by the viewer's radar reach. The scene's draw paths and
+/// the interaction both ask these, so they cannot drift apart.
+///
+/// A HOSTILE farther from the viewer than `viewer_radar_radius` is hidden; your own side never is,
+/// wherever it stands. The boundary is INSIDE (`<=`), in the same float arithmetic as
+/// `radar_marks`. With no viewer unit in `options` (an observer frame) there is no radar to be
+/// limited by, and nothing is hidden. Pure functions of `(sim, options, unit)`.
+[[nodiscard]] bool hidden_by_reach(const sim::Sim& sim, const SceneOptions& options,
+                                   const sim::Unit& unit);
+/// True when the unit stands outside the meshed box about the camera's tile: no ground under it.
+[[nodiscard]] bool outside_drawn_radius(const SceneOptions& options,
+                                        const sim::Unit& unit) noexcept;
+/// Both conditions: alive is the caller's business, this is only about where the unit stands.
+[[nodiscard]] bool available_to_viewer(const sim::Sim& sim, const SceneOptions& options,
+                                       const sim::Unit& unit);
+
 struct Pick {
     /// The unit under the cursor, if any. `valid()` is false for a click on the ground or sky.
     sim::UnitId unit{};

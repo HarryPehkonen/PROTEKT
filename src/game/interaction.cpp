@@ -66,13 +66,6 @@ namespace {
     return best;
 }
 
-/// How far Space will reach to select a unit: 80% of the driven unit's radar radius
-/// (`viewer_radar_radius`). Beyond that the unit is on the radar but too far to pick out by eye, so
-/// Space leaves the selection alone.
-[[nodiscard]] float space_select_range_tiles(int radar_radius_tiles) noexcept {
-    return 0.8F * static_cast<float>(radar_radius_tiles);
-}
-
 } // namespace
 
 audio::Voice shot_voice() noexcept { return audio::Voice{audio::SoundKind::YourShot, 1.0F, 0.0F}; }
@@ -279,7 +272,7 @@ void Interaction::handle(const input::InputFrame& frame, const sim::Sim& sim,
                 refuse("You are driving that one; select another unit to give orders.");
                 continue;
             }
-            arm_attack_list(sim);
+            arm_attack_list(sim, options);
         } else if (key.scancode == input::kKeySpace) {
             if (!options.aim.has_value()) {
                 continue; // no mark, nothing to point at; see the click loop
@@ -294,13 +287,11 @@ void Interaction::handle(const input::InputFrame& frame, const sim::Sim& sim,
             // It never ADDS to a selection: a selection comes from a function key (a whole
             // group) or from Space over one vehicle starting from empty.
             if (selection_.empty()) {
-                // Nothing selected: select the single own unit under the mark, within 80% of
-                // the radar's range (32 of a tank's 40 tiles, 64 of a scout's 80). Ground, sky,
+                // Nothing selected: select the single own unit under the mark. What the mark can
+                // be on is already settled by `pick` (the drawn radius, VIS). Ground, sky,
                 // hostiles and the driven tank (nothing to order) are ignored: a stray press
                 // does nothing.
-                if (hit_is_ours && hit->id != driven_
-                    && picked.distance_tiles
-                           <= space_select_range_tiles(viewer_radar_radius(sim, driven_))) {
+                if (hit_is_ours && hit->id != driven_) {
                     selection_.clear();
                     selection_.add(hit->id);
                     message_ = "SPACE Select";
@@ -553,7 +544,7 @@ void Interaction::menu_digit(const sim::Sim& sim, const SceneOptions& options, i
     } else if (row->verb == kVerbGoToNav) {
         go_to_highlighted_mark(options);
     } else if (row->verb == kVerbAttack) {
-        attack_from_menu(sim);
+        attack_from_menu(sim, options);
     } else if (row->verb == kVerbRecycle) {
         recycle_selection(sim);
     }
@@ -799,10 +790,10 @@ void Interaction::go_to_highlighted_mark(const SceneOptions& options) {
     message_ = "moving to the highlighted nav point.";
 }
 
-void Interaction::attack_from_menu(const sim::Sim& sim) {
+void Interaction::attack_from_menu(const sim::Sim& sim, const SceneOptions& options) {
     // The same door T opens with no hostile under the crosshair: the list appears and the next
     // digit names the row to attack. Reusing it keeps ONE target list and one numbering.
-    arm_attack_list(sim);
+    arm_attack_list(sim, options);
 }
 
 void Interaction::recycle_selection(const sim::Sim& sim) {
@@ -891,12 +882,12 @@ void Interaction::send_to_mark(int number, const SceneOptions& options) {
     }
 }
 
-void Interaction::arm_attack_list(const sim::Sim& sim) {
+void Interaction::arm_attack_list(const sim::Sim& sim, const SceneOptions& options) {
     // Captured once, here: the numbers on the screen are the numbers the next key means, however
     // the board moves in between. The driven tank is the centre, as it is the radar's, and the
-    // reach is the radar's too.
-    std::vector<TargetRow> rows
-        = nearest_enemies(sim, sim::Side::Player, driven_, viewer_radar_radius(sim, driven_));
+    // reach is the radar's too -- and nothing the world view does not draw is named (VIS).
+    std::vector<TargetRow> rows = nearest_enemies(sim, sim::Side::Player, driven_,
+                                                  viewer_radar_radius(sim, driven_), &options);
     if (rows.empty()) {
         refuse("no enemies within radar range.");
         return;

@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstdint>
 
+#include "protekt/game/pick.hpp"
 #include "protekt/game/scene.hpp"
 #include "protekt/sim/fixed.hpp"
 
@@ -18,7 +19,7 @@ struct Candidate {
 } // namespace
 
 std::vector<TargetRow> nearest_enemies(const sim::Sim& sim, sim::Side from, sim::UnitId centre,
-                                       int radius_tiles) {
+                                       int radius_tiles, const SceneOptions* view) {
     const sim::Unit* origin = sim.find(centre);
     if (origin == nullptr || !origin->alive || origin->side != from) {
         return {}; // nothing to measure from: not the camera, not the map centre, not the origin
@@ -28,7 +29,8 @@ std::vector<TargetRow> nearest_enemies(const sim::Sim& sim, sim::Side from, sim:
     const std::int64_t reach = static_cast<std::int64_t>(radius_tiles) * sim::Fixed::kOne;
     std::vector<Candidate> found;
     for (const sim::Unit& unit : sim.units()) {
-        if (!unit.alive || unit.side == from) {
+        if (!unit.alive || unit.side == from
+            || (view != nullptr && !available_to_viewer(sim, *view, unit))) {
             continue;
         }
         const std::int64_t dx = static_cast<std::int64_t>(unit.x.raw) - origin->x.raw;

@@ -221,7 +221,7 @@ private:
     void bring_up_building(const sim::Sim& sim, int key);
     /// `3 ATTACK`: open the attack list T opens with no hostile under the crosshair. The next digit
     /// names the row to attack.
-    void attack_from_menu(const sim::Sim& sim);
+    void attack_from_menu(const sim::Sim& sim, const SceneOptions& options);
     /// `0 RECYCLE`: order every orderable selected unit to the side's own recycler. Refused when
     /// the side has no living recycler, or when nothing but the driven craft is selected.
     void recycle_selection(const sim::Sim& sim);
@@ -236,7 +236,7 @@ private:
     void send_to_mark(int number, const SceneOptions& options);
     /// T (and `3 ATTACK`): capture the nearest hostiles and arm the list,
     /// or refuse when there are none. A refusal leaves nothing armed.
-    void arm_attack_list(const sim::Sim& sim);
+    void arm_attack_list(const sim::Sim& sim, const SceneOptions& options);
     void disarm_attack() noexcept;
     /// The key that settles the armed list: Attack the row it names for every orderable selected
     /// unit, or refuse when no row has that key.

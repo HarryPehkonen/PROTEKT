@@ -1,10 +1,12 @@
 #include "protekt/game/pick.hpp"
 
+#include "protekt/game/radar.hpp"
 #include "protekt/math/math.hpp"
 
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdlib>
 
 namespace protekt::game {
 
@@ -71,6 +73,33 @@ float hit_box(const Ray& ray, const std::array<float, 3>& lo, const std::array<f
 
 } // namespace
 
+bool hidden_by_reach(const sim::Sim& sim, const SceneOptions& options, const sim::Unit& unit) {
+    if (unit.side == options.viewer_side) {
+        return false;
+    }
+    const sim::Unit* viewer = sim.find(options.viewer_unit);
+    if (viewer == nullptr) {
+        return false;
+    }
+    const auto tiles = [](const sim::Fixed& value) {
+        return static_cast<float>(value.raw) / static_cast<float>(sim::Fixed::kOne);
+    };
+    const float distance
+        = std::hypot(tiles(unit.x) - tiles(viewer->x), tiles(unit.y) - tiles(viewer->y));
+    return distance > static_cast<float>(viewer_radar_radius(sim, options.viewer_unit));
+}
+
+bool outside_drawn_radius(const SceneOptions& options, const sim::Unit& unit) noexcept {
+    const int centre_x = static_cast<int>(std::floor(options.camera.x / kMetresPerTile));
+    const int centre_y = static_cast<int>(std::floor(options.camera.z / kMetresPerTile));
+    return std::abs(unit.x.floor_int() - centre_x) > options.radius_tiles
+           || std::abs(unit.y.floor_int() - centre_y) > options.radius_tiles;
+}
+
+bool available_to_viewer(const sim::Sim& sim, const SceneOptions& options, const sim::Unit& unit) {
+    return !outside_drawn_radius(options, unit) && !hidden_by_reach(sim, options, unit);
+}
+
 Projected project(const Camera& camera, Extent extent, float world_x, float world_y,
                   float world_z) noexcept {
     const std::array<float, 16> m = view_projection(camera, aspect_of(extent), math::kFovRadians);
@@ -100,7 +129,7 @@ Pick pick(const sim::Sim& sim, const SceneOptions& options, float screen_x,
 
     const float radius = kPickUnitRadiusTiles * kMetresPerTile;
     for (const sim::Unit& unit : sim.units()) {
-        if (!unit.alive) {
+        if (!unit.alive || !available_to_viewer(sim, options, unit)) {
             continue;
         }
         const float x = static_cast<float>(unit.x.raw) / static_cast<float>(sim::Fixed::kOne)
