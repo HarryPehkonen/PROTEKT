@@ -219,19 +219,12 @@ inline constexpr std::uint16_t kFactoryHp = 400;
 inline constexpr int kFollowRadiusTiles = 4;
 inline constexpr int kRepairRadiusTiles = 6;  ///< a living friendly factory mends units this close
 inline constexpr int kRepairTickInterval = 6; ///< ...by 1 hp every this many ticks
-/// THE BUILD (C4). A factory replaces a lost gun with a tank for `kTankOreCost` delivered loads --
-/// one wreck's worth, so one kill pays for one tank -- on a global production beat, the way repair
-/// runs on one. The spot it appears on is its own tile or the nearest free one within
-/// `kBuildSpawnRadiusTiles`; a yard with no room builds nothing and spends nothing.
-inline constexpr std::uint16_t kTankOreCost = 4;
 /// RECYCLE. What one recycled unit returns to its side's scrap reserve, in the same delivered loads
-/// the ledger counts. PROVISIONAL: the sim has no per-kind cost table yet (RB5 owns where the
-/// menu's costs really come from), so one flat number is refunded for every kind. Half a tank is a
-/// number chosen to be tunable in one place, not a designed economy; when RB5 lands, this is what
-/// it replaces. A recycled unit leaves NO wreckage -- its value goes to the ledger instead of onto
-/// the ground -- so a recycle is not a second harvest of the same hull.
-inline constexpr std::uint16_t kRecycleOre = kTankOreCost / 2;
-inline constexpr int kBuildIntervalTicks = 150; ///< 5 s: an unhurried production line
+/// the ledger counts. PROVISIONAL: one flat number is refunded for every kind, chosen to be tunable
+/// in one place, not a designed economy; a refund that follows each kind's own `spec_of(kind).cost`
+/// would replace it. A recycled unit leaves NO wreckage -- its value goes to the ledger instead of
+/// onto the ground -- so a recycle is not a second harvest of the same hull.
+inline constexpr std::uint16_t kRecycleOre = 2;
 inline constexpr int kBuildSpawnRadiusTiles = 3;
 inline constexpr std::uint16_t kTankDamage = 8;
 inline constexpr std::uint16_t kTurretDamage = 12;

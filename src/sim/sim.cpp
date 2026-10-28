@@ -498,20 +498,6 @@ void update_route(Unit& unit, Fixed goal_x, Fixed goal_y, const WorldGround& gro
     (void)plan_route(ground, tile_of(unit.x, unit.y), goal, route);
 }
 
-/// A kind with a gun. `range` is the one thing the sim, the spec table and the AI all agree on for
-/// "armed": a zero range means it never fires and is never a threat.
-bool armed_kind(UnitKind kind) noexcept { return spec_of(kind).range.raw > 0; }
-
-/// IS THIS SIDE SHORT A GUN AND ABLE TO PAY FOR ONE? The condition C4's production beat enacts and
-/// C8's verdict about the war asks about, written ONCE. A side at its starting strength does not
-/// build (a factory replaces a loss, it never rearms), and a side that cannot afford a tank does
-/// not either. Two callers reading one function is what stops the outcome from disagreeing with the
-/// factory that enacts it.
-[[nodiscard]] bool short_and_affordable(int armed_living, int armed_started,
-                                        std::uint16_t ore) noexcept {
-    return armed_living < armed_started && ore >= kTankOreCost;
-}
-
 /// Where a factory's new tank appears: the factory's own tile when nothing is standing on it,
 /// otherwise the first free passable tile on growing square rings, to `kBuildSpawnRadiusTiles`.
 /// `{-1, -1}` means the yard is full: no build, and no ore spent.
@@ -548,7 +534,7 @@ Coord builder_spot(std::uint64_t seed, const std::vector<Unit>& units, Fixed fx,
 }
 
 /// A unit as `create` makes one, for the one path that adds a unit after the battle has started:
-/// the factory's build (C4). The tile is a whole tile, as a spawn's is.
+/// a producer's finished build. The tile is a whole tile, as a spawn's is.
 Unit fresh_unit(std::uint32_t id, UnitKind kind, Side side, Coord tile) noexcept {
     const UnitProfile prof = profile(kind);
     Unit unit{};
@@ -1198,53 +1184,9 @@ void Sim::step() {
             }
         }
     }
-    // 7. THE BUILD (C4). On the production beat, a living factory replaces a lost GUN: a side whose
-    //    living armed units are fewer than the armed units it started with, and which can afford
-    //    it, gets a tank -- built at the factory, so a base under siege builds into the siege. The
-    //    kind it lost is not remembered: a tank is what a factory makes (the only `buildable`
-    //    kind). Ore is spent here and nowhere else: repair, repairs and replenishment are always
-    //    free, whatever the ledger says.
-    if (tick_ % static_cast<std::uint64_t>(kBuildIntervalTicks) == 0) {
-        // Counted before the build, so one factory's new tank cannot make another factory think the
-        // side is up to strength (or the other way round).
-        std::array<int, 2> armed_started{};
-        std::array<int, 2> armed_living{};
-        for (const Spawn& spawn : scenario_.spawns) {
-            if (armed_kind(spawn.kind)) {
-                ++armed_started.at(static_cast<std::size_t>(spawn.side));
-            }
-        }
-        for (const Unit& unit : units_) {
-            if (unit.alive && armed_kind(unit.kind)) {
-                ++armed_living.at(static_cast<std::size_t>(unit.side));
-            }
-        }
-        for (std::size_t i = 0; i < units_.size(); ++i) {
-            const Unit& factory = units_.at(i);
-            if (!factory.alive || factory.kind != UnitKind::Factory) {
-                continue;
-            }
-            const auto side = static_cast<std::size_t>(factory.side);
-            if (!short_and_affordable(armed_living.at(side), armed_started.at(side),
-                                      ore_.at(side))) {
-                continue;
-            }
-            const Coord spot = builder_spot(scenario_.seed, units_, factory.x, factory.y);
-            if (spot.x < 0) {
-                continue; // nowhere to put it (the yard is full): no build, and no ore spent
-            }
-            units_.push_back(fresh_unit(next_id_++, UnitKind::Tank, factory.side, spot));
-            ore_.at(side) -= kTankOreCost;
-            ++armed_living.at(side);
-            // One build per beat, and `units_` has just moved: the loop's indices are stale, so it
-            // ends here. The next beat builds again if the side is still short.
-            break;
-        }
-    }
-    // 8. THE QUEUES (BUILD-QUEUE). Every producer's line runs, in ascending id. After the C4 beat,
-    //    so the two never both pay out of the same load in one tick in an order that depends on
-    //    which was written first; and over the producers that existed when the tick began, because
-    //    an arrival appends to the table and a new unit is nobody's producer yet.
+    // 7. THE QUEUES (BUILD-QUEUE). Every producer's line runs, in ascending id, over the producers
+    //    that existed when the tick began, because an arrival appends to the table and a new unit
+    //    is nobody's producer yet.
     for (std::size_t i = 0, n = units_.size(); i < n; ++i) {
         production_step(units_, ore_, next_id_, scenario_.seed, i);
     }

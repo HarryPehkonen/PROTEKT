@@ -180,7 +180,7 @@ TEST(Scenario, TheRecyclerStartsOnItsOwnHalfWithinTheBaseCluster) {
 }
 
 // RB1b: the recycler is unarmed, so its arrival changes no side's armed count: the AI's threat list
-// and the build rule's armed_started count the same units as before.
+// counts the same units as before and after.
 TEST(Scenario, TheRecyclerIsUnarmedSoTheArmedCountPerSideIsUnchanged) {
     const Scenario s = skirmish(42);
     for (const Side side : {Side::Player, Side::Enemy}) {

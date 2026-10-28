@@ -163,7 +163,7 @@ std::vector<BattleEvent> events_between(const UnitSnapshot& before, const Sim& s
     // the same table.
     std::vector<BattleEvent> events;
     const std::vector<Unit>& after = sim.units();
-    // A BUILD ADDS A UNIT (C4): the table GROWS by one on the production beat, so a size mismatch
+    // A BUILD ADDS A UNIT: the table GROWS by one when a queue finishes a unit, so a size mismatch
     // is NOT proof of a foreign snapshot. Swallowing that tick's events (which is what this guard
     // did while the table was append-only by assumption) dropped every shot and kill of a build
     // tick out of the replay log and the sound. Only a table that SHRANK is foreign: the sim

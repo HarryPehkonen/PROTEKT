@@ -2800,11 +2800,11 @@ constexpr float kMenuRingCells = 0.5F;
 constexpr float kMenuOutlineCells = 0.5F;
 constexpr float kMenuOutlineRatio = 1.3F;
 
-/// THE LEDGER (C6). C3 keeps a per-side count of the loads a hauler has banked and C4 spends it: it
-/// is the war's only currency, and until this layer nothing showed it, so the player could not see
-/// how the build the factory was making got paid for. This draws the word and the side's own count
-/// on a black plate just above the bottom-left panel, so the reading sits with the map and the
-/// command area rather than on the ship instrument.
+/// THE LEDGER (C6). C3 keeps a per-side count of the loads a hauler has banked and a producer's
+/// queue spends it: it is the war's only currency, and until this layer nothing showed it, so the
+/// player could not see how the build the factory was making got paid for. This draws the word and
+/// the side's own count on a black plate just above the bottom-left panel, so the reading sits with
+/// the map and the command area rather than on the ship instrument.
 ///
 /// The cell is 2.0 at the 720 reference -- the HUD's ONE type scale, which is BZ2's measured glyph
 /// height. A fresh element joins that scale like every other one; "make it obvious" buys a brighter

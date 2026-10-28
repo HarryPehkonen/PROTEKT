@@ -32,7 +32,7 @@ Rules for the provenance lines:
 Terms. The sim's unit kind is `Scavenger`. Code comments call the same unit a "hauler", and BZ2 calls
 it a harvester. This document says "scavenger" for the kind and quotes the other words only when it
 quotes code. Section 9 records the team-naming ruling. The sim's ledger of delivered loads is called
-`ore` in code (`Sim::ore`, `kTankOreCost`), "SCRAP" on the HUD and "scrap" for the pieces on the
+`ore` in code (`Sim::ore`), "SCRAP" on the HUD and "scrap" for the pieces on the
 ground; they are one currency. A battle OPENS with a field of pieces near each base (C0) -- instant
 action said "some scrap" -- and the amount is the composition's own dial (`ScenarioData::scrap_per_side`,
 default 12 a side, one piece one load). A scenario assembled by hand opens on clean ground.
@@ -572,10 +572,10 @@ PROVENANCE: `src/game/scene.cpp:1527-1541,1609-1615,1775-1800,1894-1962,1996-202
 
 Ruling: a factory REPLACES A LOST GUN. It does not spend when rich.
 
-- [SHIPPED e23dec8] The condition is one function, `short_and_affordable(armed_living, armed_started,
-  ore)`: the side's living armed units are fewer than the armed units it started with, and it holds at
-  least `kTankOreCost` (4) loads. The production beat calls it, so
-  they cannot disagree.
+- [REMOVED 2026-10-28] The condition was one function, `short_and_affordable(armed_living, armed_started,
+  ore)`: the side's living armed units fewer than it started with, and at least `kTankOreCost` (4) loads.
+  The production beat was its only caller left (the attrition verdict it was shared with had already been
+  retired for the recycler verdict), so the function, `kTankOreCost` and the armed counts went with the beat.
 - [SHIPPED e653f16] "Armed" is any kind with a nonzero range: tank, hover tank, turret, mortar, rocket.
   A side starts with 8 of them. A full yard builds nothing and spends nothing
   (`Build.NoLossIsNoBuild`).
@@ -584,9 +584,9 @@ Ruling: a factory REPLACES A LOST GUN. It does not spend when rich.
 - [SHIPPED e653f16] The new tank appears on the factory's own tile when it is free, else on the nearest
   free passable tile within 3 tiles (`kBuildSpawnRadiusTiles`). A yard with no room builds nothing and
   spends nothing.
-- [SHIPPED e653f16] The cost is `kTankOreCost = 4` loads, "one wreck's worth, so one kill pays for one
+- [REMOVED 2026-10-28] The cost was `kTankOreCost = 4` loads (the constant is gone), "one wreck's worth, so one kill pays for one
   tank".
-- [SHIPPED e653f16] The code makes ONE build per beat in total, not one per side: the loop ends after
+- [REMOVED 2026-10-28, with the beat] The code made ONE build per beat in total, not one per side: the loop ends after
   the first factory builds (`sim.cpp:932-934`). The ruling says one per side per beat. Both sides'
   factories are in the same loop, the player's has the lower id, so the enemy builds only on a beat the
   player's factory did not (section 14). **The wording of that ruling comes from a brief rather than from
@@ -600,7 +600,7 @@ Ruling: a factory REPLACES A LOST GUN. It does not spend when rich.
   stays at zero, and no factory ever builds. The economy is complete in the sim and exercised by tests that
   spawn a scavenger by hand; it is inert in the shipped scenario.
 - [DECIDED — not built] Per-item identity and per-item costs (HARVESTER 20, SCOUT 45, and so on) replace
-  `kTankOreCost` and the menu's quotation in RB5. Harri 2026-10-24 (brief).
+  the old flat refund (`kRecycleOre`) and the menu's quotation in RB5. Harri 2026-10-24 (brief).
 
 PROVENANCE: `include/protekt/sim/scrap.hpp:12-41`, `include/protekt/sim/units.hpp:140-172`,
 `src/sim/sim.cpp:361-531,849-936`, `include/protekt/sim/sim.hpp:100-109`, `src/sim/scenario.cpp:34-44`,
@@ -1116,8 +1116,8 @@ choice are menu and setup concerns; the C-series HUD has no map or side picker. 
   in the mouth of a capture that never showed them". A deployment on the enemy side therefore draws no build
   rows.
 - [SHIPPED 3e799a0 for the table; DECIDED — not built for the data] There is no per-kind cost in the tree.
-  `UnitSpec::buildable` is false for every kind and has no consumer; the only price in the sim is
-  `kTankOreCost` (4 loads), on another scale entirely from HARVESTER 20 and SERVICE POD 2. A build menu needs
+  `UnitSpec::buildable` is false for every kind and has no consumer; the only flat number in the sim is
+  `kRecycleOre` (2 loads), on another scale entirely from HARVESTER 20 and SERVICE POD 2. A build menu needs
   `cost` as per-kind DATA and the item NAMES as per-faction DATA — an added field plus the R3 roster, and
   neither exists yet.
 - [DECIDED — not built] From the same answer as the deploy durations: factories and armories are raised by
@@ -1259,11 +1259,15 @@ queue drains one at a time, gated by build time and scrap. [DECIDED — not buil
 - [DECIDED — not built] A shift-built batch that finishes shares ONE function key, and each finished vehicle
   joins its batch's group; a lone build takes its own key (B.1). Each vehicle in a key draws its own health
   bar, in colour and not length, and a destroyed one's bar is removed (B.1, BAR-LOOK).
-- [SHIPPED e653f16] What exists instead, in the sim: the C4 PRODUCTION BEAT. Every 150 ticks (5 s), globally,
-  a living factory whose side has fewer living ARMED units than it started with and which can afford
-  `kTankOreCost` (4 loads, one wreck's worth) builds one `Tank`, on its own tile or the nearest free passable
-  one within 3 tiles. That is the only build path in the tree; it is not a queue, it is not per-item, and
-  Part A section 8.3 records both the rule and the one-build-per-beat-in-total drift.
+- [REMOVED 2026-10-28] The sim's automatic tank production (the C4 PRODUCTION BEAT, shipped in `e653f16`) is
+  gone. It replaced a lost gun with a free `Tank` at a living factory on a global 150-tick beat; once the
+  BUILD-QUEUE producer landed it only put a second, unordered build path in the player's own yard. Harri's
+  ruling: "I think take it out completely. Smarter AI is needed for this. There should be different goals
+  depending on state. I'll explain later." So nothing is built until a `Build` order is queued, for either
+  side; the only build path in the tree is now the producer's queue. What replaces the beat is
+  state-dependent goals in a real AI -- PARKED, not designed: Harri has deferred the explanation. Until it
+  exists the ENEMY side queues nothing, so it never replaces a loss (see `docs/baselines/measure-C1.txt`).
+  Pinned by `Build.NothingIsBuiltUntilItIsOrdered`.
 
 PROVENANCE: `protekt-hud-and-power.md` section 5 (the shift-build ruling, quoted) and section 6;
 `slices.json` RB5 (build times, the pause-and-resume rule, the batch ceiling) and ROW-SLOTS; code plus commit

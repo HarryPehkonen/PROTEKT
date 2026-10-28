@@ -37,10 +37,10 @@ inline constexpr std::size_t kMaxScrap = 512;
 /// to fetch until a fight had already happened and the ledger could not move before then. A
 /// skirmish now opens with a field of it near each base.
 ///
-/// ONE PIECE IS ONE LOAD (`kTankOreCost` is 4, a recycle is 2), so this is three rebuilds a side:
-/// an ECONOMY DIAL, and his to set. The rings start outside the base cluster, which spans +-3 tiles
-/// of a base centre, so no piece opens under a hull, and reach 12 tiles so the ground is never
-/// judged bare before it is walked.
+/// ONE PIECE IS ONE LOAD (a recycle returns 2), so this is a dozen loads a side to spend on a
+/// queue: an ECONOMY DIAL, and his to set. The rings start outside the base cluster, which spans
+/// +-3 tiles of a base centre, so no piece opens under a hull, and reach 12 tiles so the ground is
+/// never judged bare before it is walked.
 inline constexpr int kInitialScrapPerSide = 12;
 inline constexpr int kInitialScrapFirstRing = 4;
 inline constexpr int kInitialScrapRadius = 12;

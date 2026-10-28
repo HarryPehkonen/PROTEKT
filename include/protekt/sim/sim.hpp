@@ -136,7 +136,7 @@ public:
     [[nodiscard]] const std::vector<Scrap>& scraps() const noexcept;
 
     /// How many loads a side has delivered to its own factory (C3). The war's ledger: the only
-    /// currency, spent by a factory that builds (C4). A count, so repair stays free.
+    /// currency, spent by a producer's queue. A count, so repair stays free.
     [[nodiscard]] std::uint16_t ore(Side side) const noexcept;
     /// The bolts that landed during the most recent step. Output, not state: it is rebuilt by every
     /// step and is not part of the hash.

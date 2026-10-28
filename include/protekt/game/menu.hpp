@@ -101,8 +101,8 @@ struct MenuInput {
     sim::Side side{sim::Side::Player};
     ArmedCommand armed{};
     MenuTarget target{MenuTarget::None};
-    /// Scrap banked, in the loads C3 counts and C4 spends. Weighed against each build row's own
-    /// cost; nothing else in the menu reads it.
+    /// Scrap banked, in the loads C3 counts and a queue spends. Weighed against each build row's
+    /// own cost; nothing else in the menu reads it.
     int ore{};
     /// The armed command's distance to the ground under the reticle, whole metres (`nav_metres`),
     /// drawn at the state row's right: `SPACE DEPLOY 68m`. Absent -- nothing armed, or the reticle
@@ -160,7 +160,7 @@ struct MenuRow {
 };
 
 /// One row of a deployed recycler's build list. The cost is scrap, the same currency the factory
-/// spends (`kTankOreCost` is the tank's), and it is what affordability is weighed against.
+/// spends (each item's `cost`), and it is what affordability is weighed against.
 struct BuildItem {
     std::string_view key{};   ///< the key pressed to choose it, "1".."7"
     std::string_view label{}; ///< the item's name as drawn

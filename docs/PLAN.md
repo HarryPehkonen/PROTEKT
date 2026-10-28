@@ -361,7 +361,8 @@ everything else here.
 ### M4 — still owed, named so it is not silently dropped
 **The economy was M4's second half in this plan, and it has since been built in part.** Scrap lies
 where units die (C1), a scavenger carries it home (C2), a delivered load is counted on a per-side
-ledger (C3), and a factory spends the ledger to replace a lost gun with a tank (C4); the match ends
+ledger (C3), and a producer's queue spends it (C4 first did so automatically, replacing a lost gun with a tank;
+that beat was removed on 2026-10-28 and the enemy now builds nothing until a real AI exists); the match ends
 when a side's recycler is destroyed (`Sim::war_outcome`, which replaced the retired C8 attrition
 verdict). It changed the simulation's state and so every recorded hash, which is why it was its own
 milestone with its own re-recording. **Still owed:** the player's build menu (the menu is a drawn

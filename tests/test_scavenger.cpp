@@ -306,61 +306,30 @@ TEST(Scrap, WreckageNeverRestsOnGroundAVehicleCannotStandOn) {
     }
 }
 
-TEST(Build, AFactoryWithOreAndALostGunBuildsATank) {
-    // The whole economy, end to end: the player loses a gun, wins the fight, hauls the wrecks home
-    // and the factory builds what it lost. Exactly one build, on the production beat, for
-    // `kTankOreCost` loads, at the factory.
+TEST(Build, NothingIsBuiltUntilItIsOrdered) {
+    // Pins the REMOVAL of the sim's automatic production beat. The player loses a gun, wins the
+    // fight and hauls the wrecks home, so the bank fills past the removed beat's price while the
+    // side sits short of its starting guns -- exactly the state the old beat replaced a tank in.
+    // Many production beats go by and NOTHING is built; units come from a queued Build order alone
+    // (the queue's own tests pin that). The bank is not asserted frozen (the haulers keep
+    // delivering), only the units produced.
     Sim sim = Sim::create(build_battle());
     const std::size_t spawned = sim.units().size();
     const int armed_at_start = armed_alive(sim, Side::Player);
     hold_the_hauler(sim, 900);
-    EXPECT_EQ(sim.units().size(), spawned) << "nothing is built before anything is afforded";
     ASSERT_LT(armed_alive(sim, Side::Player), armed_at_start) << "the rig lost a gun to the enemy";
 
-    std::uint32_t built_tick = 0;
-    int ore_before = 0;
-    int ore_after = 0;
-    int built_id = 0;
+    int richest = sim.ore(Side::Player);
     for (int t = 0; t < 6000; ++t) {
-        const int before = sim.ore(Side::Player);
         sim.step();
-        if (sim.units().size() > spawned) {
-            built_tick = sim.tick();
-            ore_before = before;
-            ore_after = sim.ore(Side::Player);
-            built_id = static_cast<int>(sim.units().back().id.value);
-            break;
-        }
+        richest = std::max(richest, static_cast<int>(sim.ore(Side::Player)));
+        ASSERT_EQ(sim.units().size(), spawned)
+            << "a unit appeared at tick " << sim.tick() << " with no Build order queued";
     }
-    ASSERT_NE(built_tick, 0U) << "the factory never built anything";
-    const Unit& built = sim.units().back();
-    EXPECT_EQ(built.kind, UnitKind::Tank) << "a tank is what a factory makes";
-    EXPECT_EQ(built.hp, protekt::sim::kTankHp) << "it comes off the line at full strength";
-    EXPECT_GT(built_id, static_cast<int>(spawned)) << "a new unit, not a spawned one";
-    EXPECT_EQ((built_tick - 1) % protekt::sim::kBuildIntervalTicks, 0U)
-        << "built on the production beat, not whenever the ore arrived";
-    EXPECT_EQ(ore_before - ore_after, static_cast<int>(protekt::sim::kTankOreCost))
-        << "exactly the price of a tank left the ledger";
-    // It appears at the factory: its own tile or the nearest free one within the build radius.
-    const Unit& home = sim.units().at(0);
-    const int dx = std::abs((built.x.raw >> 16) - (home.x.raw >> 16));
-    const int dy = std::abs((built.y.raw >> 16) - (home.y.raw >> 16));
-    EXPECT_LE(dx, protekt::sim::kBuildSpawnRadiusTiles);
-    EXPECT_LE(dy, protekt::sim::kBuildSpawnRadiusTiles);
-    // And the side is back up to strength: it replaced a loss, it did not rearm.
-    EXPECT_EQ(armed_alive(sim, Side::Player), armed_at_start);
-}
-
-TEST(Build, NoLossIsNoBuild) {
-    // The other half of the rule: a side that has lost nothing does not spend, however rich it is.
-    Sim sim = Sim::create(fetch_battle());
-    for (int t = 0; t < 3000; ++t) {
-        sim.step();
-    }
-    EXPECT_GT(sim.ore(Side::Player), 0) << "the hauler banked the wreck";
-    EXPECT_EQ(sim.units().size(), 6U) << "and nothing was built: no gun was lost";
-    EXPECT_EQ(sim.ore(Side::Player), static_cast<int>(protekt::sim::kScrapPerWreck))
-        << "the ledger is still what was delivered";
+    // The removed beat's price was 4 loads; the bank passed it, so the beat would have fired.
+    constexpr int kRemovedBeatPrice = 4;
+    EXPECT_GE(richest, kRemovedBeatPrice) << "the bank never held what the beat charged";
+    EXPECT_LT(armed_alive(sim, Side::Player), armed_at_start) << "the lost gun is never replaced";
 }
 
 TEST(Ledger, RepairHappensAndTheLedgerPaysForNothing) {
