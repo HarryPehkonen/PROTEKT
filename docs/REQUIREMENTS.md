@@ -1240,15 +1240,28 @@ section 5 (the scrap-and-buildings sentence); `slices.json` OBJ and RECY; code p
 
 ### B.7 The build queue
 
-One press is one unit; holding SHIFT while pressing a build key queues one more per press, up to ten; the
-queue drains one at a time, gated by build time and scrap. [DECIDED — not built]
+One press is one unit; holding SHIFT while pressing a build key adds one more of the SAME kind per press, up
+to ten in that batch; a producer holds one batch at a time and is busy until it is done; the batch drains one
+at a time, gated by build time and scrap. [DECIDED — not built]
 
 - [DECIDED — not built] HIS RULING, 2026-10-24: *"if I select the recycler and hit 1 for scavengers, I only
   build one scavenger. If, instead, I select the recycler, press the shift key and keep it down while I press
   1 one to ten times, the recycler builds the one to ten scavengers, one at a time. Each one takes a finite
   time to build, and also depends on how much scrap I have."* So one press is ONE unit; shift held queues one
-  MORE per press, to a ceiling of TEN; the queue drains ONE AT A TIME; build time AND the scrap balance gate
-  it. Nothing in the sim queues builds today.
+  MORE per press, to a ceiling of TEN PER BATCH; the queue drains ONE AT A TIME; build time AND the scrap
+  balance gate it. Nothing in the sim queues builds today.
+- [DECIDED — built, BATCH-ONE-KIND] HIS RULING, 2026-10-28: *"Batch build can only build multiples of the same
+  thing. If I start building a tank with the shift key down, I can only add more tanks of the same kind into
+  that same batch. If I want to build anything different, I have to let go of shift, which initiates the
+  build. Then I have to wait until the batch is done. After that, I can create another single build or batch
+  build. If the recycler is doing a batch build, I can still get the factory to do its own batch build, and
+  vice versa."* So a producer's queue IS one batch: an empty queue takes anything, and its first entry fixes
+  the batch's kind and token; only that kind under that token joins, to a cap of ten that belongs to the
+  batch (not a pool shared with other batches); a lone build is a batch of one and closes the queue until
+  it is done. The sim refuses any other build at the door, so it never reaches the command log or a replay
+  (`Sim::enqueue`, `build_fits`); the player's hands refuse aloud at the press (`Interaction::queue_build`).
+  Each producer has its own queue, so a recycler's batch never blocks a factory's. Presses enter the line as
+  they are made and letting go of shift ends the run; there is no "frozen until released" batch.
 - [DECIDED — not built] Build TIME is per kind — 10 s for a scavenger, 30 s for a tank — so it belongs in
   the spec table beside the cost, which is the same shape as the per-entity DEPLOY time (B.2). The tick
   figures that accompany those seconds elsewhere in the source are written as 600 and 1800, which is 60 ticks

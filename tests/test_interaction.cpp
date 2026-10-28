@@ -1751,10 +1751,11 @@ struct BuildRig {
     Interaction player;
 };
 
-[[nodiscard]] BuildRig make_build_rig() {
-    sim::Sim sim = sim::Sim::create(Scenario{
-        kSeed,
-        {{UnitKind::Tank, Side::Player, 40, 40}, {UnitKind::Factory, Side::Player, 46, 41}}});
+[[nodiscard]] BuildRig make_build_rig(Scenario scenario
+                                      = Scenario{kSeed,
+                                                 {{UnitKind::Tank, Side::Player, 40, 40},
+                                                  {UnitKind::Factory, Side::Player, 46, 41}}}) {
+    sim::Sim sim = sim::Sim::create(std::move(scenario));
     const sim::UnitId tank = sim.units().at(0).id;
     const sim::UnitId factory = sim.units().at(1).id;
     BuildRig rig{std::move(sim), SceneOptions{}, tank, factory, Interaction{tank}};
@@ -1762,6 +1763,36 @@ struct BuildRig {
     rig.options.extent = kExtent;
     rig.player.handle(with_key(input::kKey1 + 1), rig.sim, rig.options); // 2: the factory
     return rig;
+}
+
+/// The same rig with three haulers and wreckage to fetch, so a queue can actually FINISH: a test
+/// of what happens once a batch is done needs scrap to pay for it.
+[[nodiscard]] BuildRig make_funded_build_rig() {
+    Scenario scenario{kSeed,
+                      {{UnitKind::Tank, Side::Player, 40, 40},
+                       {UnitKind::Factory, Side::Player, 52, 45},
+                       {UnitKind::Scavenger, Side::Player, 48, 47},
+                       {UnitKind::Scavenger, Side::Player, 48, 48},
+                       {UnitKind::Scavenger, Side::Player, 48, 49}}};
+    scenario.objectives = {};
+    const sim::Fixed half = sim::Fixed::from_raw(sim::Fixed::kOne / 2);
+    for (int i = 0; i < 90; ++i) {
+        scenario.scrap.push_back(
+            sim::Scrap{sim::fixed_add(sim::Fixed::from_int(42 + (i % 10)), half),
+                       sim::fixed_add(sim::Fixed::from_int(36 + (i / 10)), half)});
+    }
+    return make_build_rig(std::move(scenario));
+}
+
+/// Steps the sim, with no input, until `rig`'s factory has nothing queued: its batch is done.
+[[nodiscard]] bool run_batch_out(BuildRig& rig) {
+    for (int tick = 0; tick < 20000; ++tick) {
+        rig.sim.step();
+        if (rig.sim.find(rig.factory)->queue.count == 0) {
+            return true;
+        }
+    }
+    return false;
 }
 
 /// The digit key for build row `row` (1-7), shifted or not.
@@ -1804,35 +1835,108 @@ TEST(Interaction, APlainBuildKeyOrdersOneLoneBuildEvenWhenTheBankIsEmpty) {
     EXPECT_EQ(rig.sim.find(rig.factory)->queue.count, 1U) << "and it is in the factory's queue";
 }
 
-TEST(Interaction, ShiftBuildKeysOfOneGestureShareOneTokenAndABarePressBreaksTheGesture) {
+TEST(Interaction, ShiftBuildKeysOfOneGestureShareOneTokenAndABarePressDoesNotJoinIt) {
     BuildRig rig = make_build_rig();
     std::vector<Order> orders;
-    const auto keep = [&orders](const std::vector<Order>& made) {
-        orders.insert(orders.end(), made.begin(), made.end());
-    };
     for (int n = 0; n < 3; ++n) {
-        keep(press(rig, 1, true));
+        const std::vector<Order> made = press(rig, 1, true);
+        orders.insert(orders.end(), made.begin(), made.end());
     }
-    keep(press(rig, 1, false)); // a bare press: a lone build again
-    for (int n = 0; n < 2; ++n) {
-        keep(press(rig, 2, true)); // a second gesture
-    }
-    ASSERT_EQ(orders.size(), 6U);
-    std::vector<std::uint32_t> batches;
-    for (const Order& order : orders) {
-        const auto* build = build_of(order);
-        ASSERT_NE(build, nullptr);
-        batches.push_back(build->batch);
-    }
-    EXPECT_NE(batches.at(0), 0U) << "a shift-queued run carries a shared, non-zero token";
-    EXPECT_EQ(batches.at(1), batches.at(0));
-    EXPECT_EQ(batches.at(2), batches.at(0));
-    EXPECT_EQ(batches.at(3), 0U) << "the bare press is a lone build again";
-    EXPECT_NE(batches.at(4), 0U);
-    EXPECT_EQ(batches.at(5), batches.at(4));
-    EXPECT_NE(batches.at(4), batches.at(0)) << "two gestures must not share one function key";
-    EXPECT_LE(batches.at(0), sim::kMaxBatchToken) << "an order can only carry so large a token";
-    EXPECT_EQ(build_of(orders.at(4))->kind, UnitKind::Scout) << "row 2 is the Scout";
+    ASSERT_EQ(orders.size(), 3U);
+    const auto* first = build_of(orders.at(0));
+    ASSERT_NE(first, nullptr);
+    EXPECT_NE(first->batch, 0U) << "a shift-queued run carries a shared, non-zero token";
+    EXPECT_LE(first->batch, sim::kMaxBatchToken) << "an order can only carry so large a token";
+    EXPECT_EQ(build_of(orders.at(1))->batch, first->batch);
+    EXPECT_EQ(build_of(orders.at(2))->batch, first->batch);
+    EXPECT_TRUE(press(rig, 1, false).empty())
+        << "a bare press would start a lone build beside the running batch: refused";
+    EXPECT_EQ(rig.sim.find(rig.factory)->queue.count, 3U);
+}
+
+TEST(Interaction, TwoGesturesOfOneProducerGetTwoTokensOnceTheFirstBatchIsDone) {
+    BuildRig rig = make_funded_build_rig();
+    const auto token_of_gesture = [&rig](int row) {
+        const std::vector<Order> made = press(rig, row, true);
+        EXPECT_EQ(made.size(), 1U);
+        return made.empty() ? 0U : build_of(made.front())->batch;
+    };
+    const std::uint32_t first = token_of_gesture(1);
+    ASSERT_TRUE(run_batch_out(rig)) << "the batch never finished";
+    rig.player.handle(with_key(input::kKey1 + 8), rig.sim,
+                      rig.options); // 9: no row, ends a gesture
+    (void)rig.player.take_orders();
+    const std::uint32_t second = token_of_gesture(2);
+    EXPECT_NE(first, 0U);
+    EXPECT_NE(second, 0U) << "with the first batch done, a new one is taken";
+    EXPECT_NE(second, first) << "two gestures must not share one function key";
+}
+
+TEST(Interaction, ABarePressAfterTheBatchIsDoneBuildsALoneUnit) {
+    BuildRig rig = make_funded_build_rig();
+    ASSERT_EQ(press(rig, 1, true).size(), 1U);
+    ASSERT_TRUE(run_batch_out(rig));
+    const std::vector<Order> orders = press(rig, 2, false);
+    ASSERT_EQ(orders.size(), 1U) << "an idle producer takes any single build";
+    EXPECT_EQ(build_of(orders.front())->batch, 0U);
+    EXPECT_TRUE(rig.player.message().empty());
+}
+
+TEST(Interaction, ShiftingAnotherKindIntoARunIsRefusedAloudAndTheRunGoesOn) {
+    // THE RULING: SHIFT+scavenger then SHIFT+scout in one run must not put both in one batch.
+    BuildRig rig = make_build_rig();
+    ASSERT_EQ(press(rig, 1, true).size(), 1U);
+    ASSERT_TRUE(rig.player.message().empty());
+    EXPECT_TRUE(press(rig, 2, true).empty()) << "a batch is one kind";
+    EXPECT_FALSE(rig.player.message().empty()) << "and the refusal is said, not silent";
+    EXPECT_NE(rig.player.message(), "The build queue is full.")
+        << "the queue has room; the reason is the kind";
+    EXPECT_EQ(rig.sim.find(rig.factory)->queue.count, 1U);
+    EXPECT_EQ(press(rig, 1, true).size(), 1U) << "the run is still open for its own kind";
+}
+
+TEST(Interaction, ShiftingAnotherKindInTheSameFrameIsRefusedToo) {
+    // The sim has not seen the first press yet, so the gesture itself must remember its kind.
+    BuildRig rig = make_build_rig();
+    InputFrame frame{};
+    frame.keys.push_back(KeyEvent{input::kKey1, true, true});
+    frame.keys.push_back(KeyEvent{input::kKey1 + 1, true, true});
+    rig.player.handle(frame, rig.sim, rig.options);
+    EXPECT_EQ(rig.player.take_orders().size(), 1U);
+    EXPECT_FALSE(rig.player.message().empty());
+}
+
+TEST(Interaction, APressThatWouldStartAnotherBatchIsRefusedAloudWhileOneRuns) {
+    // A running batch is not disturbed: a bare press, or a shifted press that begins a new run,
+    // is refused when it is made -- so Harri hears it then and not when the order is dropped.
+    BuildRig rig = make_build_rig();
+    ASSERT_EQ(press(rig, 1, false).size(), 1U);
+    ASSERT_TRUE(rig.player.message().empty());
+    EXPECT_TRUE(press(rig, 1, false).empty()) << "a second lone press waits for the first";
+    EXPECT_FALSE(rig.player.message().empty());
+    EXPECT_NE(rig.player.message(), "The build queue is full.");
+    EXPECT_TRUE(press(rig, 2, false).empty()) << "...whatever the kind";
+    EXPECT_TRUE(press(rig, 2, true).empty()) << "...and a shifted press that begins a new run";
+    EXPECT_FALSE(rig.player.message().empty());
+    EXPECT_EQ(rig.sim.find(rig.factory)->queue.count, 1U);
+}
+
+TEST(Interaction, ASecondBarePressInOneFrameIsRefusedBeforeTheSimHasSeenTheFirst) {
+    BuildRig rig = make_build_rig();
+    InputFrame frame{};
+    frame.keys.push_back(KeyEvent{input::kKey1, true, false});
+    frame.keys.push_back(KeyEvent{input::kKey1, true, false});
+    rig.player.handle(frame, rig.sim, rig.options);
+    EXPECT_EQ(rig.player.take_orders().size(), 1U) << "the orders made this frame count as queued";
+    EXPECT_FALSE(rig.player.message().empty());
+}
+
+TEST(Interaction, ARunOpenedAfterABarePressIsRefusedNotJoinedToIt) {
+    BuildRig rig = make_build_rig();
+    ASSERT_EQ(press(rig, 1, false).size(), 1U);
+    EXPECT_TRUE(press(rig, 1, true).empty())
+        << "the lone build is a batch of one with an id of its own; a token cannot join it";
+    EXPECT_FALSE(rig.player.message().empty());
 }
 
 TEST(Interaction, TheEleventhShiftPressIsRefusedAloudAndOrdersNothing) {

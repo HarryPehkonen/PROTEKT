@@ -1129,6 +1129,11 @@ TEST(RowBatch, TwoLoneBuildsTakeTwoKeysAndNeverShareOne) {
     const UnitId factory = the_factory(sim);
     const UnitId first = sim.units().back().id;
     sim.enqueue(queue_one(factory, 0));
+    ASSERT_EQ(run_until_built(sim, first, 1).size(), 1U) << "the first lone build never arrived";
+    // The producer is busy until it has: a second lone press is only taken once the first is done.
+    while (sim.find(factory)->queue.count > 0) {
+        sim.step();
+    }
     sim.enqueue(queue_one(factory, 0));
     const std::vector<UnitId> made = run_until_built(sim, first, 2);
     ASSERT_EQ(made.size(), 2U) << "the queue never produced the two lone builds";
@@ -1148,8 +1153,12 @@ TEST(RowBatch, TwoBatchesSitOnTwoKeysAndNeitherKeyMixesThem) {
     const UnitId factory = the_factory(sim);
     const UnitId first = sim.units().back().id;
     sim.enqueue(queue_one(factory, 9));
-    sim.enqueue(queue_one(factory, 4));
     sim.enqueue(queue_one(factory, 9));
+    ASSERT_EQ(run_until_built(sim, first, 2).size(), 2U) << "the first batch never arrived";
+    while (sim.find(factory)->queue.count > 0) { // the second batch waits for the first to be done
+        sim.step();
+    }
+    sim.enqueue(queue_one(factory, 4));
     sim.enqueue(queue_one(factory, 4));
     const std::vector<UnitId> made = run_until_built(sim, first, 4);
     ASSERT_EQ(made.size(), 4U) << "the queue never produced both batches";
@@ -1157,9 +1166,9 @@ TEST(RowBatch, TwoBatchesSitOnTwoKeysAndNeitherKeyMixesThem) {
     RowState row;
     row.update(sim, Side::Player, 0);
     const int a = key_holding(row, made.at(0)); // token 9's first
-    const int b = key_holding(row, made.at(1)); // token 4's first
+    const int b = key_holding(row, made.at(2)); // token 4's first
     EXPECT_LT(b, kRowGroups + 1);
-    EXPECT_EQ(key_holding(row, made.at(2)), a) << "token 9's second member joins token 9's key";
+    EXPECT_EQ(key_holding(row, made.at(1)), a) << "token 9's second member joins token 9's key";
     EXPECT_EQ(key_holding(row, made.at(3)), b) << "token 4's second member joins token 4's key";
     EXPECT_NE(a, b) << "two different batches do not share a key";
     EXPECT_EQ(group_of(row, a).size(), 2U);

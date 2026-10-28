@@ -91,6 +91,19 @@ const UnitId* order_target(const Order& order) noexcept {
     return nullptr;
 }
 
+/// Whether `queue` takes one more entry of `kind` under `batch`: a QUEUE IS ONE BATCH (Harri,
+/// 2026-10-28). An empty queue takes anything, so a batch's first entry fixes its kind and its
+/// token; after that only the same kind under the same token joins, up to the cap -- which is the
+/// batch's own, not a pool shared with any other. A lone build's id lies above every token an order
+/// can carry, so no order matches it: it closes the queue to everything until it is done.
+bool build_fits(const BuildQueue& queue, UnitKind kind, std::uint32_t batch) noexcept {
+    if (queue.count == 0) {
+        return true;
+    }
+    const BuildEntry& front = queue.entries.at(0);
+    return queue.count < kBuildQueueDepth && front.kind == kind && front.batch == batch;
+}
+
 bool order_is_valid(const std::vector<Unit>& units, const Order& order,
                     std::uint64_t seed) noexcept {
     const Unit* unit = find_const(units, order.unit);
@@ -104,12 +117,13 @@ bool order_is_valid(const std::vector<Unit>& units, const Order& order,
                && deploy_site_ok(seed, units, deploy->tile_x, deploy->tile_y);
     }
     if (const auto* build = std::get_if<orders::Build>(&order.payload)) {
-        // A BUILD goes to a producer, by KIND (a side may have several), with room in its queue,
-        // for a kind that has a price and a time, under a token an order can carry. The same
-        // check runs when the order is applied, so the eleventh of eleven orders enqueued in one
-        // tick is dropped there, with the queue as the ten before it left it.
+        // A BUILD goes to a producer, by KIND (a side may have several), for a kind that has a
+        // price and a time, under a token an order can carry, and only into a queue that is empty
+        // or already holds this very batch (`build_fits`). The same check runs when the order is
+        // applied; `Sim::enqueue` additionally weighs the builds already pending this tick.
         return is_producer(unit->kind) && is_queueable(build->kind)
-               && build->batch <= kMaxBatchToken && unit->queue.count < kBuildQueueDepth;
+               && build->batch <= kMaxBatchToken
+               && build_fits(unit->queue, build->kind, build->batch);
     }
     if (const auto* recycle = std::get_if<orders::Recycle>(&order.payload)) {
         // A RECYCLE goes into a LIVING recycler of the unit's OWN side: the base is the side's, and
@@ -1006,6 +1020,26 @@ void Sim::enqueue(const Order& order) {
     // is the commander's responsibility. Filtering here silently killed the enemy commander.
     if (!order_is_valid(units_, order, scenario_.seed)) {
         return;
+    }
+    // A build is judged against the queue AS IT WILL BE when this order is applied: the builds
+    // already pending for the same producer are laid onto a copy first. Without that, the second
+    // of two conflicting orders enqueued in one tick passed here, was dropped when applied, and
+    // had already reached the log -- and so the replay -- as an order the sim never took.
+    if (const auto* build = std::get_if<orders::Build>(&order.payload)) {
+        BuildQueue queue = find_const(units_, order.unit)->queue;
+        for (const Order& earlier : pending_) {
+            const auto* before = std::get_if<orders::Build>(&earlier.payload);
+            if (before != nullptr && earlier.unit == order.unit
+                && build_fits(queue, before->kind, before->batch)) {
+                // A lone build's id is above every token, so any stand-in above them matches none.
+                queue.entries.at(queue.count) = BuildEntry{
+                    before->kind, before->batch != 0 ? before->batch : kFirstLoneBatch};
+                ++queue.count;
+            }
+        }
+        if (!build_fits(queue, build->kind, build->batch)) {
+            return;
+        }
     }
     pending_.push_back(order);
     log_.push_back(Command{tick_, order});

@@ -196,10 +196,12 @@ private:
     void menu_digit(const sim::Sim& sim, const SceneOptions& options, int digit, bool shift);
     /// A build row of the selected producer's menu (BUILD-QUEUE): queue one `item` at the lowest-id
     /// selected producer. Taken whether or not the row is affordable -- a queue short of scrap
-    /// pauses, it does not refuse. A bare press is a lone build (batch 0); a shifted press carries
-    /// the token shared by the presses of one gesture, and is refused, aloud, once the producer's
-    /// queue (the sim's entries plus the orders already made this frame) holds
-    /// `sim::kBuildQueueDepth`.
+    /// pauses, it does not refuse. A queue is ONE BATCH (Harri, 2026-10-28): a bare press is a lone
+    /// build (batch 0); a shifted press carries the token shared by the presses of one gesture, and
+    /// a gesture is bound to the one kind it began with. Refused, aloud, are a press of another
+    /// kind into the open run; a press that would START a batch -- bare, or shifted beginning a new
+    /// run -- while the producer's queue is non-empty; and any press once that queue (the sim's
+    /// entries plus the orders already made this frame) holds `sim::kBuildQueueDepth`.
     void queue_build(const sim::Sim& sim, const BuildItem& item, bool shift);
     /// `1 FOLLOW ME`: every orderable selected unit follows the driven craft. Refused when there is
     /// no living craft, or nothing but that craft is selected.
@@ -262,6 +264,7 @@ private:
     /// the next shifted press takes a fresh token and so a function key of its own.
     std::uint32_t shift_batch_{0};
     sim::UnitId shift_producer_{};
+    sim::UnitKind shift_kind_{};    ///< the one kind the gesture under way builds
     std::uint32_t batch_tokens_{0}; ///< the last token handed out, 1..sim::kMaxBatchToken, wrapping
     std::vector<TargetRow> targets_{};
     bool has_fired_{false};

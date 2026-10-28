@@ -583,20 +583,35 @@ void Interaction::queue_build(const sim::Sim& sim, const BuildItem& item, bool s
         std::count_if(pending_.begin(), pending_.end(), [producer](const sim::Order& order) {
             return order.unit == producer->id && order.kind() == sim::OrderKind::Build;
         }));
-    if (producer->queue.count + asked >= sim::kBuildQueueDepth) {
+    const std::size_t queued = producer->queue.count + asked;
+    // A press CONTINUES a run when it is shifted into the run already open at this producer; any
+    // other press would start a batch of its own (THE RULING, Harri 2026-10-28).
+    const bool continues = shift && shift_batch_ != 0 && shift_producer_ == producer->id;
+    if (continues && *item.kind != shift_kind_) {
+        // A gesture is bound to ONE kind: the run stays open for its own kind.
+        refuse("A batch is one kind of thing. Let go of shift to build something else.");
+        return;
+    }
+    if (!continues) {
+        shift_batch_ = 0; // a press that does not continue the run ends it, accepted or not
+        if (queued > 0) {
+            refuse("This producer is busy until its batch is done.");
+            return;
+        }
+    }
+    if (queued >= sim::kBuildQueueDepth) {
         refuse("The build queue is full.");
         return;
     }
     std::uint32_t batch = 0; // a bare press is a lone build: the sim numbers it
     if (shift) {
-        if (shift_batch_ == 0 || shift_producer_ != producer->id) {
+        if (!continues) {
             batch_tokens_ = batch_tokens_ % sim::kMaxBatchToken + 1;
             shift_batch_ = batch_tokens_;
             shift_producer_ = producer->id;
+            shift_kind_ = *item.kind;
         }
         batch = shift_batch_;
-    } else {
-        shift_batch_ = 0;
     }
     pending_.push_back(sim::Order{producer->id, sim::orders::Build{*item.kind, batch}});
 }

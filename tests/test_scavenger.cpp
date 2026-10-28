@@ -894,13 +894,13 @@ TEST(BuildQueue, AnEntryPaysItsKindsCostWhenItStartsAndTakesItsKindsTicks) {
     EXPECT_EQ(sim.find(factory)->queue.count, 0U) << "the item leaves the queue when it is done";
 }
 
-TEST(BuildQueue, AQueueOfThreeDrainsInOrderOneAtATime) {
+TEST(BuildQueue, ABatchOfThreeDrainsOneAtATime) {
     Sim sim = Sim::create(queue_battle(90));
     const UnitId factory = factory_of(sim);
     const UnitId first = last_id(sim);
-    sim.enqueue(build(factory, UnitKind::Scavenger));
-    sim.enqueue(build(factory, UnitKind::Tank));
-    sim.enqueue(build(factory, UnitKind::Scavenger));
+    for (int n = 0; n < 3; ++n) {
+        sim.enqueue(build(factory, UnitKind::Scavenger, 5)); // one kind: a queue is one batch
+    }
 
     std::vector<UnitKind> kinds;
     std::vector<sim::Tick> arrived;
@@ -914,13 +914,13 @@ TEST(BuildQueue, AQueueOfThreeDrainsInOrderOneAtATime) {
         }
     }
     ASSERT_EQ(kinds.size(), 3U) << "the queue never finished";
-    EXPECT_EQ(kinds.at(0), UnitKind::Scavenger) << "first in, first out";
-    EXPECT_EQ(kinds.at(1), UnitKind::Tank);
-    EXPECT_EQ(kinds.at(2), UnitKind::Scavenger);
-    EXPECT_GE(arrived.at(1) - arrived.at(0), sim::spec_of(UnitKind::Tank).build_ticks)
-        << "the tank's countdown starts only once the hauler before it has arrived";
+    for (const UnitKind kind : kinds) {
+        EXPECT_EQ(kind, UnitKind::Scavenger);
+    }
+    EXPECT_GE(arrived.at(1) - arrived.at(0), sim::spec_of(UnitKind::Scavenger).build_ticks)
+        << "the second hauler's countdown starts only once the first has arrived";
     EXPECT_GE(arrived.at(2) - arrived.at(1), sim::spec_of(UnitKind::Scavenger).build_ticks)
-        << "one entry at a time: the second hauler's countdown waits for the tank";
+        << "one entry at a time: the third hauler's countdown waits for the second";
 }
 
 TEST(BuildQueue, AnEntryWithNoScrapPausesAndResumesTheTickTheScrapReturns) {
@@ -988,13 +988,17 @@ TEST(BuildQueue, AnOrderThatNamesNothingBuildableOrNoProducerIsRefused) {
 }
 
 TEST(BuildQueue, ALoneBuildAndABatchMakeTheSameKindsUnderDifferentBatchIds) {
-    // Three haulers: two shift-queued under one token, one lone. They are the same kind; what
-    // differs is the batch each arrives in, which is what a function key will group by.
+    // Three haulers: two shift-queued under one token, then -- once that batch is done, the only
+    // time a producer takes another -- one lone. Same kind; what differs is the batch each arrives
+    // in, which is what a function key will group by.
     Sim sim = Sim::create(queue_battle(90));
     const UnitId factory = factory_of(sim);
     const UnitId first = last_id(sim);
     sim.enqueue(build(factory, UnitKind::Scavenger, 9));
     sim.enqueue(build(factory, UnitKind::Scavenger, 9));
+    ASSERT_TRUE(step_until(sim, 3 * kQueueLimit, [first, factory](const Sim& s) {
+        return built_since(s, first).size() == 2 && s.find(factory)->queue.count == 0;
+    }));
     sim.enqueue(build(factory, UnitKind::Scavenger));
     ASSERT_TRUE(step_until(sim, 3 * kQueueLimit,
                            [first](const Sim& s) { return built_since(s, first).size() == 3; }));
@@ -1010,18 +1014,167 @@ TEST(BuildQueue, ALoneBuildAndABatchMakeTheSameKindsUnderDifferentBatchIds) {
 }
 
 TEST(BuildQueue, TwoLoneBuildsGetTwoDifferentBatchesAndNeitherIsAShiftToken) {
+    Sim sim = Sim::create(queue_battle(90));
+    const UnitId factory = factory_of(sim);
+    const UnitId first = last_id(sim);
+    for (std::size_t built = 1; built <= 2; ++built) {
+        sim.enqueue(build(factory, UnitKind::Scavenger));
+        ASSERT_TRUE(step_until(sim, 3 * kQueueLimit, [first, factory, built](const Sim& s) {
+            return built_since(s, first).size() == built && s.find(factory)->queue.count == 0;
+        })) << "a lone build is taken only once the one before it is done";
+    }
+    const auto made = built_since(sim, first);
+    EXPECT_NE(made.at(0)->batch, made.at(1)->batch) << "each lone press is a batch of its own";
+    EXPECT_GT(made.at(0)->batch, sim::kMaxBatchToken)
+        << "the sim's own ids live above every token an order can carry, so they cannot collide";
+    EXPECT_GT(made.at(1)->batch, sim::kMaxBatchToken);
+}
+
+TEST(BuildQueue, ABatchTakesOnlyItsOwnKindAndTokenUntilItIsDone) {
+    // THE RULING (Harri, 2026-10-28): a batch is multiples of the SAME thing. A producer holding a
+    // batch refuses another kind, another token, and a lone build, whatever room the cap leaves.
+    Sim sim = Sim::create(queue_battle(0));
+    const UnitId factory = factory_of(sim);
+    sim.enqueue(build(factory, UnitKind::Scavenger, 7));
+    ASSERT_EQ(sim.command_log().size(), 1U);
+    sim.enqueue(build(factory, UnitKind::Tank, 7));
+    sim.enqueue(build(factory, UnitKind::Scavenger, 8));
+    sim.enqueue(build(factory, UnitKind::Scavenger));
+    sim.enqueue(build(factory, UnitKind::Tank));
+    EXPECT_EQ(sim.command_log().size(), 1U)
+        << "another kind, another token, or a lone build must be refused at the door";
+    sim.enqueue(build(factory, UnitKind::Scavenger, 7));
+    EXPECT_EQ(sim.command_log().size(), 2U) << "the same kind under the same token still joins";
+    sim.step();
+    const sim::BuildQueue& queue = sim.find(factory)->queue;
+    ASSERT_EQ(queue.count, 2U) << "the refused orders must not be in the queue either";
+    EXPECT_EQ(queue.entries.at(0).kind, UnitKind::Scavenger);
+    EXPECT_EQ(queue.entries.at(1).kind, UnitKind::Scavenger);
+    EXPECT_EQ(queue.entries.at(1).batch, 7U);
+
+    sim.enqueue(build(factory, UnitKind::Tank, 7)); // refused with the queue already stepped, too
+    EXPECT_EQ(sim.command_log().size(), 2U);
+}
+
+TEST(BuildQueue, AnEmptyQueueTakesAnyKindAndItsFirstEntrySetsTheBatch) {
+    // The consequence the ruling leaves deliberate: an empty queue refuses nothing, so the FIRST
+    // entry of a batch fixes both its kind and its token, and every later entry must match them.
+    Sim sim = Sim::create(queue_battle(0));
+    const UnitId factory = factory_of(sim);
+    sim.enqueue(build(factory, UnitKind::Tank, 5));
+    sim.enqueue(build(factory, UnitKind::Scavenger, 5));
+    sim.enqueue(build(factory, UnitKind::Tank, 6));
+    EXPECT_EQ(sim.command_log().size(), 1U)
+        << "the second order of a tick is judged against the first, which is still pending";
+    sim.enqueue(build(factory, UnitKind::Tank, 5));
+    EXPECT_EQ(sim.command_log().size(), 2U);
+    sim.step();
+    EXPECT_EQ(sim.find(factory)->queue.count, 2U);
+    EXPECT_EQ(sim.find(factory)->queue.entries.at(0).kind, UnitKind::Tank);
+}
+
+TEST(BuildQueue, ALoneBuildClosesTheQueueAgainstEverythingUntilItIsDone) {
+    // A lone build is a batch of one, with an id the order could not name: nothing can match it,
+    // so a second lone press, or a token, waits for it -- in the same tick or a later one.
     Sim sim = Sim::create(queue_battle(0));
     const UnitId factory = factory_of(sim);
     sim.enqueue(build(factory, UnitKind::Scavenger));
-    sim.enqueue(build(factory, UnitKind::Scavenger));
+    sim.enqueue(build(factory, UnitKind::Scavenger)); // same tick
+    EXPECT_EQ(sim.command_log().size(), 1U);
     sim.step();
-    const sim::BuildQueue& queue = sim.find(factory)->queue;
-    ASSERT_EQ(queue.count, 2U);
-    EXPECT_NE(queue.entries.at(0).batch, queue.entries.at(1).batch)
-        << "each lone press is a batch of its own";
-    EXPECT_GT(queue.entries.at(0).batch, sim::kMaxBatchToken)
-        << "the sim's own ids live above every token an order can carry, so they cannot collide";
-    EXPECT_GT(queue.entries.at(1).batch, sim::kMaxBatchToken);
+    sim.enqueue(build(factory, UnitKind::Scavenger)); // a later tick
+    sim.enqueue(build(factory, UnitKind::Scavenger, 3));
+    EXPECT_EQ(sim.command_log().size(), 1U);
+    EXPECT_EQ(sim.find(factory)->queue.count, 1U);
+}
+
+TEST(BuildQueue, ARefusedBuildNeverReachesTheReplayAndTheReplayRebuildsTheSameQueue) {
+    Sim live = Sim::create(queue_battle(0));
+    const UnitId factory = factory_of(live);
+    live.enqueue(build(factory, UnitKind::Scavenger, 7));
+    live.enqueue(build(factory, UnitKind::Tank, 7));   // another kind
+    live.enqueue(build(factory, UnitKind::Scavenger)); // a lone build
+    live.step();
+    live.enqueue(build(factory, UnitKind::Scavenger, 8)); // another token
+    live.enqueue(build(factory, UnitKind::Scavenger, 7));
+    live.step();
+
+    sim::Replay replay;
+    replay.seed = live.seed();
+    replay.commands = live.command_log();
+    const std::optional<sim::Replay> text = sim::parse(sim::to_text(replay), nullptr);
+    ASSERT_TRUE(text.has_value());
+    ASSERT_EQ(text->commands.size(), 2U) << "only the two accepted orders are in the replay";
+
+    Sim again = Sim::create(queue_battle(0));
+    std::size_t next = 0;
+    for (int tick = 0; tick < 2; ++tick) {
+        while (next < text->commands.size() && text->commands.at(next).tick == again.tick()) {
+            again.enqueue(text->commands.at(next).order);
+            ++next;
+        }
+        again.step();
+    }
+    EXPECT_EQ(again.state_hash(), live.state_hash());
+    EXPECT_EQ(again.find(factory)->queue.count, 2U);
+}
+
+TEST(BuildQueue, TwoProducersEachRunTheirOwnBatchAndBothDrainInTheSameTicks) {
+    // Harri: "If the recycler is doing a batch build, I can still get the factory to do its own
+    // batch build, and vice versa." One producer's batch must not close another's queue, nor
+    // pause it: each pays and counts down on its own.
+    Scenario scenario = queue_battle(90);
+    scenario.spawns.push_back(Spawn{UnitKind::DeployedRecycler, Side::Player, 60, 45});
+    Sim sim = Sim::create(scenario);
+    const UnitId factory = factory_of(sim);
+    UnitId recycler{};
+    for (const Unit& unit : sim.units()) {
+        if (unit.kind == UnitKind::DeployedRecycler) {
+            recycler = unit.id;
+        }
+    }
+    ASSERT_TRUE(recycler.valid());
+    // Let the haulers fill the bank first, so that scrap is not what paces the two queues and
+    // their countdowns can overlap.
+    const auto cost = sim::spec_of(UnitKind::Scavenger).cost;
+    ASSERT_TRUE(step_until(sim, kQueueLimit, [cost](const Sim& s) {
+        return s.ore(Side::Player) >= 4 * cost;
+    })) << "the bank never held four haulers' price";
+    const UnitId first = last_id(sim);
+    sim.enqueue(build(factory, UnitKind::Scavenger, 3));
+    sim.enqueue(build(recycler, UnitKind::Scavenger, 4)); // another token, with the factory busy
+    sim.enqueue(build(factory, UnitKind::Scavenger, 3));
+    sim.enqueue(build(recycler, UnitKind::Scavenger, 4));
+    ASSERT_EQ(sim.command_log().size(), 4U) << "neither producer's batch may refuse the other's";
+
+    bool both_counting = false;
+    for (int tick = 0; tick < 3 * kQueueLimit && built_since(sim, first).size() < 4; ++tick) {
+        sim.step();
+        both_counting
+            = both_counting
+              || (sim.find(factory)->queue.left > 0 && sim.find(recycler)->queue.left > 0);
+    }
+    const auto made = built_since(sim, first);
+    ASSERT_EQ(made.size(), 4U) << "both batches finish";
+    EXPECT_TRUE(both_counting) << "the two queues counted down in the same ticks";
+    EXPECT_EQ(std::count_if(made.begin(), made.end(), [](const Unit* u) { return u->batch == 3; }),
+              2);
+    EXPECT_EQ(std::count_if(made.begin(), made.end(), [](const Unit* u) { return u->batch == 4; }),
+              2);
+}
+
+TEST(BuildQueue, AProducerTakesAnotherKindOnceItsBatchIsDone) {
+    Sim sim = Sim::create(queue_battle(90));
+    const UnitId factory = factory_of(sim);
+    const UnitId first = last_id(sim);
+    sim.enqueue(build(factory, UnitKind::Scavenger, 2));
+    sim.enqueue(build(factory, UnitKind::Tank, 2));
+    ASSERT_EQ(sim.command_log().size(), 1U);
+    ASSERT_TRUE(step_until(sim, 3 * kQueueLimit, [first, factory](const Sim& s) {
+        return built_since(s, first).size() == 1 && s.find(factory)->queue.count == 0;
+    }));
+    sim.enqueue(build(factory, UnitKind::Tank, 2));
+    EXPECT_EQ(sim.command_log().size(), 2U) << "an empty queue is open again, to anything";
 }
 
 TEST(BuildQueue, AUnitIsBuiltOnGroundBesideADeployedRecyclerNeverInsideItsFootprint) {
@@ -1060,18 +1213,22 @@ TEST(BuildQueue, AQueueThatNeverStartsHashesAsAnEmptyOneAndAQueuedEntryMovesTheH
 }
 
 TEST(BuildQueue, AReplayThatQueuesBuildsReproducesTickForTick) {
+    constexpr int kReplayTicks = 6000; // long enough for the batch to finish and a lone to follow
     Sim live = Sim::create(queue_battle(40));
     const UnitId factory = factory_of(live);
     live.enqueue(build(factory, UnitKind::Scavenger, 4));
     live.enqueue(build(factory, UnitKind::Scavenger, 4));
     std::vector<std::uint64_t> hashes;
-    for (int tick = 0; tick < 3000; ++tick) {
-        if (tick == 600) {
-            live.enqueue(build(factory, UnitKind::Scavenger));
+    bool lone_sent = false;
+    for (int tick = 0; tick < kReplayTicks; ++tick) {
+        if (!lone_sent && tick > 0 && live.find(factory)->queue.count == 0) {
+            live.enqueue(build(factory, UnitKind::Scavenger)); // only once the batch is done
+            lone_sent = true;
         }
         live.step();
         hashes.push_back(live.state_hash());
     }
+    ASSERT_TRUE(lone_sent) << "the batch never finished, so the lone build was never taken";
     ASSERT_GT(live.units().size(), 4U) << "the live battle must have BUILT something to reproduce";
 
     sim::Replay replay;
@@ -1083,7 +1240,7 @@ TEST(BuildQueue, AReplayThatQueuesBuildsReproducesTickForTick) {
 
     Sim again = Sim::create(queue_battle(40));
     std::size_t next = 0;
-    for (int tick = 0; tick < 3000; ++tick) {
+    for (int tick = 0; tick < kReplayTicks; ++tick) {
         while (next < text->commands.size() && text->commands.at(next).tick == again.tick()) {
             again.enqueue(text->commands.at(next).order);
             ++next;
