@@ -816,11 +816,13 @@ crossed bars, about 9 px, no number), but the README said "numbered plate" and t
 the world map; the README now says plus. Row 11: there are **eight** unit kinds, not seven (`Recycler`
 is the eighth, `units.hpp`); PLAN now says eight. Row 9's "C8 verdict" is stale as well: C8's attrition
 verdict was retired (`c5eb877`) and the war ends on a recycler's death (`Sim::war_outcome`); the
-documents say that. Row 9 also now says the default army spawns no scavenger. Row 4 is stronger than
-the table: there is no hold-fire at all (auto-fire never reads stance). **Row 18 is only partly closed:**
-the README and the `interaction.hpp` doc comment now say every kind but the factory, but the runtime
-refusal string at `interaction.cpp` (`swap_to_crosshair`, "...only swap into your own armed units.")
-is shown to the player and was left alone: it is Harri's call, held as a question.
+documents say that. Row 9's "spawns no scavenger" line is superseded by `1f125f5` (HAULER): each side
+gets one. Row 4 is stronger than the table: there is no hold-fire at all (auto-fire never reads
+stance). **Row 18 is CLOSED** by the Q12 commit: `is_drivable` asks whether the hull MOVES, so the
+`swap_to_crosshair` refusal now reads "...only swap into your own vehicles." and the scavenger, the
+undeployed recycler and every armed kind are drivable while the factory and a deployed recycler are
+not -- pinned by `Swap.XOnAnOwnScavengerDrivesItEvenThoughItIsUnarmed` and
+`Swap.TheRefusalForAnImmobileBuildingNamesTheDrivingRuleAndNotArmament`.
 
 ### 14.3 Drift: a ruling against the code
 

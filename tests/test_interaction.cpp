@@ -1198,6 +1198,29 @@ TEST(Swap, TheFactoryCannotBeDriven) {
     EXPECT_FALSE(sim::is_drivable(UnitKind::Factory));
 }
 
+TEST(Swap, XOnAnOwnScavengerDrivesItEvenThoughItIsUnarmed) {
+    // Q12: `is_drivable` is about whether the thing MOVES, not whether it has a gun -- the
+    // scavenger and an undeployed recycler are unarmed and drivable, the factory is not.
+    Rig rig = make_rig(UnitKind::Scavenger);
+    Interaction player(rig.tank_a);
+    static_cast<void>(at(rig, rig.tank_b));
+    player.handle(with_key(input::kKeyX), rig.sim, rig.options);
+    EXPECT_EQ(player.driven(), rig.tank_b) << "the hauler is a vehicle like any other";
+}
+
+TEST(Swap, TheRefusalForAnImmobileBuildingNamesTheDrivingRuleAndNotArmament) {
+    // Q12: the old string said "you can only swap into your own armed units", which the code does
+    // not enforce -- an unarmed scavenger is drivable. A refusal has to describe the rule that
+    // actually refused you.
+    Rig rig = make_rig(UnitKind::Factory);
+    Interaction player(rig.tank_a);
+    static_cast<void>(at(rig, rig.tank_b));
+    player.handle(with_key(input::kKeyX), rig.sim, rig.options);
+    EXPECT_EQ(player.driven(), rig.tank_a);
+    EXPECT_EQ(player.message(),
+              "That cannot be driven -- you can only swap into your own vehicles.");
+}
+
 TEST(Swap, NothingUnderTheCrosshairIsRefusedWithAReason) {
     Rig rig = make_rig();
     Interaction player(rig.tank_a);

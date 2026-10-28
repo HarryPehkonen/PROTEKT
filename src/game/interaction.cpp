@@ -435,7 +435,9 @@ void Interaction::swap_to_crosshair(const sim::Sim& sim, const SceneOptions& opt
     } else if (hit->side != sim::Side::Player) {
         refuse("That unit is not yours -- you can only swap into your own.");
     } else if (!sim::is_drivable(hit->kind)) {
-        refuse("That cannot be driven -- you can only swap into your own armed units.");
+        // Not "armed": `is_drivable` asks whether the hull MOVES, and the scavenger and an
+        // undeployed recycler are unarmed and drivable. The refusal must name the rule that ran.
+        refuse("That cannot be driven -- you can only swap into your own vehicles.");
     } else if (hit->id == driven_) {
         refuse("You are already driving that unit.");
     } else {
