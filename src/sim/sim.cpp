@@ -1196,26 +1196,29 @@ template <class Is> bool wiped_out(const std::vector<Unit>& units, Side side, Is
     return had_one;
 }
 
-/// The two forms a side's recycler takes: the vehicle, and the building it deploys into. Deploying
-/// changes the KIND of the same unit, so a war that asked about `Recycler` alone would forget a
-/// deployed one: its death would decide nothing.
-bool is_recycler(UnitKind kind) noexcept {
-    return kind == UnitKind::Recycler || kind == UnitKind::DeployedRecycler;
+/// ONE UNIT, TWO FORMS. Deploying changes the KIND of the same unit: the recycler becomes the
+/// deployed recycler. A condition that named the vehicle alone would therefore forget a deployed
+/// one, and that unit's death would decide nothing -- so a condition on the recycler accepts both
+/// forms, which is the whole of this rule and the only place it lives.
+bool same_unit(const UnitKind asked, const UnitKind actual) noexcept {
+    return actual == asked || (asked == UnitKind::Recycler && actual == UnitKind::DeployedRecycler);
 }
 
 } // namespace
 
 bool Sim::kind_wiped_out(Side side, UnitKind kind) const noexcept {
-    return wiped_out(units_, side, [kind](UnitKind k) { return k == kind; });
+    return wiped_out(units_, side, [kind](UnitKind k) { return same_unit(kind, k); });
 }
 
 WarOutcome Sim::war_outcome() const noexcept {
-    // The player's loss is checked first, so a recycler pair that dies together reads as a loss.
-    if (wiped_out(units_, Side::Player, is_recycler)) {
-        return WarOutcome::PlayerLost;
-    }
-    if (wiped_out(units_, Side::Enemy, is_recycler)) {
-        return WarOutcome::PlayerWon;
+    // The scenario's own list, asked in order: the first condition that fires hands down the
+    // verdict and the rest are never reached. The built-in list puts the player's loss first, so a
+    // recycler pair that dies together reads as a loss. A scenario with no conditions is a sandbox:
+    // it is never decided, which is a scenario rather than an error.
+    for (const Objective& objective : scenario_.objectives) {
+        if (kind_wiped_out(objective.side, objective.kind)) {
+            return objective.verdict;
+        }
     }
     return WarOutcome::Undecided;
 }

@@ -7,6 +7,7 @@
 #include <string>
 #include <vector>
 
+#include "protekt/sim/objective.hpp"
 #include "protekt/sim/orders.hpp"
 #include "protekt/sim/outcome.hpp"
 #include "protekt/sim/projectile.hpp"
@@ -27,6 +28,10 @@ struct Spawn {
 struct Scenario {
     std::uint64_t seed{};
     std::vector<Spawn> spawns{};
+    /// The conditions the war is decided by (OBJ), in the order they are asked. Defaulted to the
+    /// built-in rule so that a battle assembled by hand is the war the game ships with, and a
+    /// mission is a battle that names its own.
+    std::vector<Objective> objectives = built_in_objectives();
 };
 
 /// The channel every commander writes into: the human's input layer, the scripted opponent, an AI,

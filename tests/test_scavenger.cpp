@@ -516,3 +516,171 @@ TEST(Outcome, TheOutcomeIsDerivedNotHashedAndAskingChangesNothing) {
 TEST(Outcome, AnEmptyBattleIsUndecided) {
     EXPECT_EQ(Sim::create(Scenario{}).war_outcome(), WarOutcome::Undecided);
 }
+
+// -------------------------------------------------------------- OBJ: win/lose as a LIST
+//
+// Harri's call: destroying the enemy recycler/matriarch wins INSTANTLY and TOTALLY whatever they
+// have left, and losing yours loses instantly and completely. But win and lose are SCRIPTED
+// conditions (an escort mission fails if the APC dies and wins when it arrives), so the rule is a
+// list in the scenario's own data rather than a predicate compiled into the sim.
+//
+// A unit in the sim engages hostiles in range on its own (the commander owns goals and the helm,
+// not the trigger), so these rigs place each side's units clear of what they must NOT touch: the
+// one death a test asks for is the only one in reach. The orders below are what makes the death
+// happen on the tick the test wants, not what makes it possible at all.
+
+namespace {
+
+namespace sim = protekt::sim;
+
+using sim::Objective;
+using sim::Scenario;
+using sim::Side;
+using sim::Sim;
+using sim::Spawn;
+using sim::UnitId;
+using sim::UnitKind;
+using sim::WarOutcome;
+
+/// The player's gun two tiles from the enemy's recycler, the enemy's gun at the far edge.
+[[nodiscard]] Scenario a_war_the_player_can_win(std::vector<Objective> objectives) {
+    Scenario scenario;
+    scenario.seed = 20261023;
+    scenario.spawns = {Spawn{UnitKind::Tank, Side::Player, 60, 50},
+                       Spawn{UnitKind::Recycler, Side::Player, 55, 50},
+                       Spawn{UnitKind::Tank, Side::Enemy, 120, 120},
+                       Spawn{UnitKind::Recycler, Side::Enemy, 62, 50}};
+    scenario.objectives = std::move(objectives);
+    return scenario;
+}
+
+/// Its mirror: the enemy's gun two tiles from the player's recycler, the player's gun far away.
+[[nodiscard]] Scenario a_war_the_player_loses(std::vector<Objective> objectives) {
+    Scenario scenario;
+    scenario.seed = 20261023;
+    scenario.spawns = {Spawn{UnitKind::Tank, Side::Player, 120, 120},
+                       Spawn{UnitKind::Recycler, Side::Player, 62, 50},
+                       Spawn{UnitKind::Tank, Side::Enemy, 60, 50},
+                       Spawn{UnitKind::Recycler, Side::Enemy, 170, 170}};
+    scenario.objectives = std::move(objectives);
+    return scenario;
+}
+
+/// The player's hauler is the near one and the recycler stands clear of it, so the enemy's gun can
+/// kill the hauler without touching the base the loss condition is not about.
+[[nodiscard]] Scenario a_war_where_the_hauler_is_the_near_one(std::vector<Objective> objectives) {
+    Scenario scenario;
+    scenario.seed = 20261023;
+    scenario.spawns = {Spawn{UnitKind::Scavenger, Side::Player, 62, 50},
+                       Spawn{UnitKind::Recycler, Side::Player, 45, 50},
+                       Spawn{UnitKind::Tank, Side::Enemy, 60, 50},
+                       Spawn{UnitKind::Recycler, Side::Enemy, 170, 170}};
+    scenario.objectives = std::move(objectives);
+    return scenario;
+}
+
+/// The enemy's GUN is the near one, and its recycler stands at the far edge: what dies here is a
+/// gun, and no condition about recyclers can fire by accident.
+[[nodiscard]] Scenario a_war_where_the_enemy_gun_is_what_dies(std::vector<Objective> objectives) {
+    Scenario scenario;
+    scenario.seed = 20261023;
+    scenario.spawns = {Spawn{UnitKind::Tank, Side::Player, 60, 50},
+                       Spawn{UnitKind::Recycler, Side::Player, 55, 50},
+                       Spawn{UnitKind::Tank, Side::Enemy, 62, 50},
+                       Spawn{UnitKind::Recycler, Side::Enemy, 130, 130}};
+    scenario.objectives = std::move(objectives);
+    return scenario;
+}
+
+[[nodiscard]] UnitId the_only(const Sim& sim, Side side, UnitKind kind) {
+    for (const sim::Unit& unit : sim.units()) {
+        if (unit.side == side && unit.kind == kind) {
+            return unit.id;
+        }
+    }
+    return UnitId{};
+}
+
+/// One order, aimed at a target two tiles away, and then as long as it takes. The sim fires nothing
+/// on its own, so a unit dies here only because this order said so.
+[[nodiscard]] bool kill_with(Sim& sim, Side shooter, UnitId target, int limit) {
+    sim.enqueue(sim::Order{the_only(sim, shooter, UnitKind::Tank), sim::orders::Attack{target}});
+    for (int tick = 0; tick < limit; ++tick) {
+        sim.step();
+        if (!sim.find(target)->alive) {
+            return true;
+        }
+    }
+    return false;
+}
+
+} // namespace
+
+TEST(Objective, TheBuiltInCompositionCarriesTheRecyclerRuleAsItsOwnData) {
+    // The rule is data now, and the data the game starts with is the rule Harri ruled: your own
+    // recycler first, so a pair that dies together reads as a loss.
+    const std::vector<Objective> built_in = sim::built_in_objectives();
+    ASSERT_EQ(built_in.size(), 2U);
+    EXPECT_EQ(built_in.at(0).verdict, WarOutcome::PlayerLost) << "the loss is checked first";
+    EXPECT_EQ(built_in.at(0).side, Side::Player);
+    EXPECT_EQ(built_in.at(0).kind, UnitKind::Recycler);
+    EXPECT_EQ(built_in.at(1).verdict, WarOutcome::PlayerWon);
+    EXPECT_EQ(built_in.at(1).side, Side::Enemy);
+    EXPECT_EQ(built_in.at(1).kind, UnitKind::Recycler);
+    EXPECT_EQ(sim::default_data().objectives, built_in);
+    EXPECT_EQ(sim::skirmish(7ULL).objectives, built_in);
+    // And a composition that says nothing about conditions plays the built-in ones, so a game
+    // started from a scenario file that lists only units is still a war that can be won.
+    EXPECT_EQ(sim::ScenarioData{}.objectives, built_in);
+}
+
+TEST(Objective, TheBuiltInListStillDecidesTheRecyclerWarBothWays) {
+    Sim won = Sim::create(a_war_the_player_can_win(sim::built_in_objectives()));
+    EXPECT_EQ(won.war_outcome(), WarOutcome::Undecided) << "both recyclers alive";
+    ASSERT_TRUE(kill_with(won, Side::Player, the_only(won, Side::Enemy, UnitKind::Recycler), 3000));
+    EXPECT_EQ(won.war_outcome(), WarOutcome::PlayerWon);
+
+    Sim lost = Sim::create(a_war_the_player_loses(sim::built_in_objectives()));
+    ASSERT_TRUE(
+        kill_with(lost, Side::Enemy, the_only(lost, Side::Player, UnitKind::Recycler), 3000))
+        << "the enemy gun must kill the player's recycler";
+    EXPECT_EQ(lost.war_outcome(), WarOutcome::PlayerLost);
+}
+
+TEST(Objective, ALostHaulerCanBeWhatLosesTheWar) {
+    // An escort in the pieces that exist: lose the hauler your economy runs on and you have lost,
+    // whatever your recycler is doing.
+    const std::vector<Objective> escort{
+        Objective{WarOutcome::PlayerLost, Side::Player, UnitKind::Scavenger},
+        Objective{WarOutcome::PlayerWon, Side::Enemy, UnitKind::Recycler}};
+    Sim sim = Sim::create(a_war_where_the_hauler_is_the_near_one(escort));
+    ASSERT_EQ(sim.war_outcome(), WarOutcome::Undecided);
+    ASSERT_TRUE(
+        kill_with(sim, Side::Enemy, the_only(sim, Side::Player, UnitKind::Scavenger), 4000));
+    EXPECT_TRUE(sim.find(the_only(sim, Side::Player, UnitKind::Recycler))->alive)
+        << "the recycler is alive: this is not the built-in rule";
+    EXPECT_EQ(sim.war_outcome(), WarOutcome::PlayerLost);
+}
+
+TEST(Objective, TheFirstConditionThatFiresHandsDownTheVerdict) {
+    // The list is ordered and the order IS the meaning: the same death, with two conditions that
+    // both watch it, hands down whichever verdict stands first.
+    const Objective win_first{WarOutcome::PlayerWon, Side::Enemy, UnitKind::Tank};
+    const Objective lose_first{WarOutcome::PlayerLost, Side::Enemy, UnitKind::Tank};
+
+    Sim won = Sim::create(a_war_where_the_enemy_gun_is_what_dies({win_first, lose_first}));
+    ASSERT_TRUE(kill_with(won, Side::Player, the_only(won, Side::Enemy, UnitKind::Tank), 4000));
+    EXPECT_EQ(won.war_outcome(), WarOutcome::PlayerWon) << "the first of the two spoke";
+
+    Sim lost = Sim::create(a_war_where_the_enemy_gun_is_what_dies({lose_first, win_first}));
+    ASSERT_TRUE(kill_with(lost, Side::Player, the_only(lost, Side::Enemy, UnitKind::Tank), 4000));
+    EXPECT_EQ(lost.war_outcome(), WarOutcome::PlayerLost)
+        << "the same death, and the list's order turned it round";
+}
+
+TEST(Objective, AMissionWithNoConditionsIsASandboxNotACrash) {
+    Sim sim = Sim::create(a_war_the_player_can_win({}));
+    ASSERT_TRUE(kill_with(sim, Side::Player, the_only(sim, Side::Enemy, UnitKind::Recycler), 3000));
+    EXPECT_EQ(sim.war_outcome(), WarOutcome::Undecided)
+        << "a scenario that asks for no verdict gets none";
+}

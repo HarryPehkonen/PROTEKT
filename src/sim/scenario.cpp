@@ -101,6 +101,12 @@ int blocked_tiles(std::uint64_t seed, int x0, int y0, int x1, int y1) {
 
 } // namespace
 
+std::vector<Objective> built_in_objectives() {
+    // Loss first: a recycler pair that dies together reads as a loss.
+    return {Objective{WarOutcome::PlayerLost, Side::Player, UnitKind::Recycler},
+            Objective{WarOutcome::PlayerWon, Side::Enemy, UnitKind::Recycler}};
+}
+
 ScenarioData default_data() {
     // In spawn order (creation order is id order): tanks, the hover tank, the factory, the turrets,
     // the support weapons -- the mortar and the rocket -- then the recycler. The support weapons
@@ -140,6 +146,7 @@ Scenario skirmish(std::uint64_t seed, const ScenarioData& data) {
 
     Scenario scenario{};
     scenario.seed = seed;
+    scenario.objectives = data.objectives; // the mission's conditions travel with its composition
     for (const Group& group : data.groups) {
         for (int i = 0; i < group.count; ++i) {
             scenario.spawns.push_back(place(seed, scenario.spawns, group.kind, Side::Player,

@@ -3,6 +3,8 @@
 #include <cstdint>
 #include <vector>
 
+#include "protekt/sim/objective.hpp"
+
 #include "protekt/sim/sim.hpp"
 
 namespace protekt::sim {
@@ -25,6 +27,10 @@ struct Group {
 /// builds one from text, not by skirmish(), which trusts a ScenarioData it is handed.
 struct ScenarioData {
     std::vector<Group> groups{};
+    /// The conditions this composition plays under (OBJ). A composition that says nothing about
+    /// them plays the built-in rule -- the war still has to be winnable when the file only lists
+    /// units -- and a mission is a composition with its own list.
+    std::vector<Objective> objectives = built_in_objectives();
 };
 
 inline constexpr int kMaxGroupCount = 64; ///< units in one group, at least 1
