@@ -4,6 +4,7 @@
 #include <vector>
 
 #include "protekt/sim/objective.hpp"
+#include "protekt/sim/scrap.hpp"
 
 #include "protekt/sim/sim.hpp"
 
@@ -27,6 +28,9 @@ struct Group {
 /// builds one from text, not by skirmish(), which trusts a ScenarioData it is handed.
 struct ScenarioData {
     std::vector<Group> groups{};
+    /// How many pieces of scrap each side's base opens with (C0). One piece is one load, so this is
+    /// the economy's starting allowance; a composition that asks for none starts on clean ground.
+    int scrap_per_side{kInitialScrapPerSide};
     /// The conditions this composition plays under (OBJ). A composition that says nothing about
     /// them plays the built-in rule -- the war still has to be winnable when the file only lists
     /// units -- and a mission is a composition with its own list.

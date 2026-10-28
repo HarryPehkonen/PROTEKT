@@ -1,6 +1,11 @@
 #include "protekt/sim/scrap.hpp"
 
+#include <algorithm>
 #include <array>
+#include <cstdlib>
+#include <utility>
+
+#include "protekt/sim/sim.hpp"
 
 namespace protekt::sim {
 
@@ -52,6 +57,42 @@ struct Offset {
 }
 
 } // namespace
+
+void seed_field(std::vector<Scrap>& out, std::uint64_t seed, int pieces, int centre_x,
+                int centre_y) noexcept {
+    std::vector<std::pair<std::uint64_t, Offset>> ring;
+    for (int radius = kInitialScrapFirstRing; radius <= kInitialScrapRadius && pieces > 0;
+         ++radius) {
+        ring.clear();
+        for (int dy = -radius; dy <= radius; ++dy) {
+            for (int dx = -radius; dx <= radius; ++dx) {
+                if (std::max(std::abs(dx), std::abs(dy)) != radius) {
+                    continue; // the ring's own tiles: everything inside it is a nearer ring's
+                }
+                const int tile_x = centre_x + dx;
+                const int tile_y = centre_y + dy;
+                if (!tile_passable(seed, tile_x, tile_y)) {
+                    continue; // a piece in a crater is a piece nobody can fetch
+                }
+                ring.emplace_back(mix(seed ^ (static_cast<std::uint64_t>(tile_x) << 32U)
+                                      ^ static_cast<std::uint64_t>(tile_y)),
+                                  Offset{dx, dy});
+            }
+        }
+        // The ring in hash order, so the pieces that fit land all round the base instead of along
+        // its top edge. Ties cannot matter: a tile has one hash and the sort is stable.
+        std::sort(ring.begin(), ring.end(),
+                  [](const auto& left, const auto& right) { return left.first < right.first; });
+        for (const auto& entry : ring) {
+            if (pieces == 0) {
+                break;
+            }
+            out.push_back(Scrap{tile_centre(centre_x + entry.second.dx),
+                                tile_centre(centre_y + entry.second.dy)});
+            --pieces;
+        }
+    }
+}
 
 void scatter(std::vector<Scrap>& out, std::uint64_t seed, UnitId id, Fixed x, Fixed y) noexcept {
     const int wreck_x = x.floor_int();

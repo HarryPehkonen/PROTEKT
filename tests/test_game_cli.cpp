@@ -45,6 +45,37 @@ protected:
         }
     }
 
+    /// The built-in composition written out, which is what a file that says what the default says
+    /// must play. A hauler FETCHES from its first tick and the map now opens with a field (C0), so
+    /// `with_scavenger = false` is the built-in battle with nothing moving near the base -- the
+    /// frame a stationary player sees is then a frame that should not change.
+    static void write_builtin_roster(const std::string& path, bool with_scavenger) {
+        struct Row {
+            const char* kind;
+            int dx;
+            int dy;
+        };
+        const std::array<Row, 11> rows{{{"tank", 8, 2},
+                                        {"tank", 8, 8},
+                                        {"tank", 2, 8},
+                                        {"hover_tank", 5, 5},
+                                        {"factory", 0, 0},
+                                        {"turret", 5, -3},
+                                        {"turret", -3, 5},
+                                        {"mortar", -4, -1},
+                                        {"rocket", -1, -4},
+                                        {"scavenger", 1, -3},
+                                        {"recycler", -3, -3}}};
+        std::ofstream file(path);
+        for (const Row& row : rows) {
+            if (!with_scavenger && std::string_view(row.kind) == "scavenger") {
+                continue;
+            }
+            file << "[[group]]\nkind = \"" << row.kind << "\"\ncount = 1\ndx = " << row.dx
+                 << "\ndy = " << row.dy << "\n\n";
+        }
+    }
+
     [[nodiscard]] std::string temp_path(const std::string& stem) {
         static int counter = 0;
         const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
@@ -132,17 +163,22 @@ TEST_F(GameCliTest, TheWorldMovesBetweenFrames) {
     // is true and it documents the reason a screenshot cannot be the oracle.
     const std::string early = temp_path("early.ppm");
     const std::string later = temp_path("later.ppm");
+    // No hauler in this roster: the starting field is STATIC ground, so the only thing that could
+    // move a pixel here is drift. With one, the pixels move for a good reason and this stops being
+    // evidence of anything.
+    const std::string roster = temp_path("still.toml");
+    write_builtin_roster(roster, false);
     std::string early_err;
     std::string later_err;
     std::string early_out;
     std::string later_out;
-    ASSERT_EQ(run({"--headless", "--seed", "42", "--frames", "1", "--width", "96", "--height", "64",
-                   "--capture", early},
+    ASSERT_EQ(run({"--headless", "--seed", "42", "--scenario", roster, "--frames", "1", "--width",
+                   "96", "--height", "64", "--capture", early},
                   early_err, &early_out),
               0)
         << early_err;
-    ASSERT_EQ(run({"--headless", "--seed", "42", "--frames", "400", "--width", "96", "--height",
-                   "64", "--capture", later},
+    ASSERT_EQ(run({"--headless", "--seed", "42", "--scenario", roster, "--frames", "400", "--width",
+                   "96", "--height", "64", "--capture", later},
                   later_err, &later_out),
               0)
         << later_err;
@@ -195,30 +231,7 @@ TEST_F(GameCliTest, AScenarioFileChangesTheBattleAndNoFlagPlaysTheBuiltInOne) {
                 "[[group]]\nkind = \"factory\"\ncount = 1\ndx = 0\ndy = 0\n";
     }
     const std::string builtin = temp_path("builtin.toml");
-    {
-        // The built-in composition written out: a file that says what the default says plays it.
-        std::ofstream file(builtin);
-        struct Row {
-            const char* kind;
-            int dx;
-            int dy;
-        };
-        const std::array<Row, 11> rows{{{"tank", 8, 2},
-                                        {"tank", 8, 8},
-                                        {"tank", 2, 8},
-                                        {"hover_tank", 5, 5},
-                                        {"factory", 0, 0},
-                                        {"turret", 5, -3},
-                                        {"turret", -3, 5},
-                                        {"mortar", -4, -1},
-                                        {"rocket", -1, -4},
-                                        {"scavenger", 1, -3},
-                                        {"recycler", -3, -3}}};
-        for (const Row& row : rows) {
-            file << "[[group]]\nkind = \"" << row.kind << "\"\ncount = 1\ndx = " << row.dx
-                 << "\ndy = " << row.dy << "\n\n";
-        }
-    }
+    write_builtin_roster(builtin, true);
     const std::string frame = temp_path("frame.ppm");
     const auto hash_of = [&](std::vector<std::string_view> args) {
         args.insert(args.begin(), {"--headless", "--frames", "40", "--width", "64", "--height",

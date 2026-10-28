@@ -33,7 +33,9 @@ Terms. The sim's unit kind is `Scavenger`. Code comments call the same unit a "h
 it a harvester. This document says "scavenger" for the kind and quotes the other words only when it
 quotes code. Section 9 records the team-naming ruling. The sim's ledger of delivered loads is called
 `ore` in code (`Sim::ore`, `kTankOreCost`), "SCRAP" on the HUD and "scrap" for the pieces on the
-ground; they are one currency.
+ground; they are one currency. A battle OPENS with a field of pieces near each base (C0) -- instant
+action said "some scrap" -- and the amount is the composition's own dial (`ScenarioData::scrap_per_side`,
+default 12 a side, one piece one load). A scenario assembled by hand opens on clean ground.
 
 PROVENANCE: `docs/PLAN.md:1-11`, `README.md:1-9`, `CODING_STANDARDS.md:1-5`,
 `include/protekt/game/menu.hpp:46-50`, `include/protekt/sim/sim.hpp:108`.
@@ -508,6 +510,7 @@ pixels at a 720-high frame, and a glyph is 5 cells tall.
 | Verdict banner | above the crosshair | `YOU HAVE LOST` in red or `ENEMY DEFEATED` in green; nothing while the war is undecided (section 10) | [SHIPPED e23dec8, retargeted onto the recycler by c5eb877] |
 | Colour calibration view | whole frame, `C` | three bars, red, green, blue | [SHIPPED 3c7070c] |
 | Wreckage | on the ground | each scrap piece a small dark plate lying on the terrain | [SHIPPED 62a948f] |
+| Starting field | around each base | the pieces the battle opens with, laid on passable tiles in rings 4 to 12 out from the base centre, one per tile, each side's own | [SHIPPED C0, this commit] |
 
 - [SHIPPED e653f16] The radar's hull bar is retired. Harri 2026-10-23, quoted at `scene.cpp:1433`:
   "Retire radar's hull bar. It's replaced by the health bar at the bottom right." The README's "health

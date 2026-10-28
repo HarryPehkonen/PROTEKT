@@ -31,6 +31,27 @@ inline constexpr int kScrapSpan = (2 * kScrapScatterRadius) + 1;
 /// never ends leaves a bounded amount of state behind it; the cap is a dial, not a promise.
 inline constexpr std::size_t kMaxScrap = 512;
 
+/// THE FIELD A BATTLE OPENS WITH (C0). His words for instant action: *"each side gets a
+/// non-deployed recycler, some scrap, some vehicles."* Scrap began as wreck litter and a second
+/// life as something a hauler carries home, but the map started CLEAN -- so the hauler had nothing
+/// to fetch until a fight had already happened and the ledger could not move before then. A
+/// skirmish now opens with a field of it near each base.
+///
+/// ONE PIECE IS ONE LOAD (`kTankOreCost` is 4, a recycle is 2), so this is three rebuilds a side:
+/// an ECONOMY DIAL, and his to set. The rings start outside the base cluster, which spans +-3 tiles
+/// of a base centre, so no piece opens under a hull, and reach 12 tiles so the ground is never
+/// judged bare before it is walked.
+inline constexpr int kInitialScrapPerSide = 12;
+inline constexpr int kInitialScrapFirstRing = 4;
+inline constexpr int kInitialScrapRadius = 12;
+
+/// Lays `pieces` pieces on passable ground around (centre_x, centre_y): nearest ring first, and
+/// each ring taken in `mix` order so the field lies AROUND the base rather than in a wedge of it. A
+/// PURE FUNCTION of (seed, centre, pieces) -- the terrain comes from the seed and the order from
+/// the hash, so nothing is random and a replay lays the same field.
+void seed_field(std::vector<Scrap>& out, std::uint64_t seed, int pieces, int centre_x,
+                int centre_y) noexcept;
+
 /// Scatters `kScrapPerWreck` pieces around (x, y): the wreck's own tile plus a whole-tile offset
 /// each way, appended to `out` in a fixed order, stopping at `kMaxScrap`.
 ///

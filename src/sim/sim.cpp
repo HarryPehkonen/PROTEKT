@@ -942,6 +942,11 @@ Sim Sim::create(const Scenario& scenario) {
         }
         sim.units_.push_back(fresh_unit(sim.next_id_++, spawn.kind, spawn.side, tile));
     }
+    // C0: the ground the battle starts on. The scenario placed it as a pure function of its seed;
+    // it settles here because settling needs the units that now stand on the map (a piece under a
+    // hull is invisible and unfetchable at once).
+    sim.scraps_ = scenario.scrap;
+    settle_litter(sim.scraps_, 0, scenario.seed, sim.units_);
     return sim;
 }
 

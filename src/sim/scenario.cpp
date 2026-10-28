@@ -180,6 +180,12 @@ Scenario skirmish(std::uint64_t seed, const ScenarioData& data) {
                                             enemy_x - group.dx, enemy_y - group.dy));
         }
     }
+
+    // C0: the field each side opens with, around ITS OWN base, once both bases are known.
+    if (data.scrap_per_side > 0) {
+        seed_field(scenario.scrap, seed, data.scrap_per_side, player_x, player_y);
+        seed_field(scenario.scrap, seed, data.scrap_per_side, enemy_x, enemy_y);
+    }
     return scenario;
 }
 

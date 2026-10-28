@@ -28,6 +28,10 @@ struct Spawn {
 struct Scenario {
     std::uint64_t seed{};
     std::vector<Spawn> spawns{};
+    /// The litter the battle OPENS with (C0), placed by whoever built the scenario -- `skirmish`
+    /// lays a field near each base. Empty for a battle assembled by hand, so a rig starts on clean
+    /// ground exactly as it did before there was a field at all.
+    std::vector<Scrap> scrap{};
     /// The conditions the war is decided by (OBJ), in the order they are asked. Defaulted to the
     /// built-in rule so that a battle assembled by hand is the war the game ships with, and a
     /// mission is a battle that names its own.

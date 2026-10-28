@@ -684,3 +684,147 @@ TEST(Objective, AMissionWithNoConditionsIsASandboxNotACrash) {
     EXPECT_EQ(sim.war_outcome(), WarOutcome::Undecided)
         << "a scenario that asks for no verdict gets none";
 }
+
+// ---------------------------------------------------------------- C0: the map starts with scrap
+//
+// His words for instant action: *"each side gets a non-deployed recycler, some scrap, some
+// vehicles."* The units are there and the litter is there, but the map started CLEAN -- scrap only
+// ever fell out of a wreck -- so the hauler had nothing to fetch and the ledger could only rise
+// once a fight had already happened. A skirmish now begins with a field of it near each base.
+
+namespace {
+
+namespace sim = protekt::sim;
+
+using sim::Scenario;
+using sim::Side;
+using sim::Sim;
+using sim::Spawn;
+using sim::UnitId;
+using sim::UnitKind;
+
+/// The tile a piece of ground scrap stands on: its centre is at `int + 1/2`, in Q16.16 raw units.
+[[nodiscard]] bool at_a_tile_centre(const sim::Scrap& piece) {
+    constexpr std::int32_t kHalf = sim::Fixed::kOne / 2;
+    return piece.x.raw % sim::Fixed::kOne == kHalf && piece.y.raw % sim::Fixed::kOne == kHalf;
+}
+
+[[nodiscard]] int tile_of(std::int32_t raw) { return raw / sim::Fixed::kOne; }
+
+/// How many pieces stand within `tiles` of a point, as whole tiles.
+[[nodiscard]] int pieces_near(const Scenario& scenario, int tile_x, int tile_y, int tiles) {
+    int count = 0;
+    for (const sim::Scrap& piece : scenario.scrap) {
+        const int dx = tile_of(piece.x.raw) - tile_x;
+        const int dy = tile_of(piece.y.raw) - tile_y;
+        if (std::max(std::abs(dx), std::abs(dy)) <= tiles) {
+            ++count;
+        }
+    }
+    return count;
+}
+
+/// Where the last unit of `side` stands in the roster: the base's own corner, near enough for a
+/// "is the field near this side" count.
+void last_spawn_tile(const Scenario& scenario, Side side, int* tile_x, int* tile_y) {
+    for (const Spawn& spawn : scenario.spawns) {
+        if (spawn.side == side) {
+            *tile_x = spawn.tile_x;
+            *tile_y = spawn.tile_y;
+        }
+    }
+}
+
+} // namespace
+
+TEST(ScrapField, ASkirmishStartsWithScrapNearBothBases) {
+    const Scenario scenario = sim::skirmish(42);
+    ASSERT_FALSE(scenario.scrap.empty()) << "the map still starts clean";
+    int player_x = 0;
+    int player_y = 0;
+    int enemy_x = 0;
+    int enemy_y = 0;
+    last_spawn_tile(scenario, Side::Player, &player_x, &player_y);
+    last_spawn_tile(scenario, Side::Enemy, &enemy_x, &enemy_y);
+    EXPECT_GE(pieces_near(scenario, player_x, player_y, 24), sim::kInitialScrapPerSide)
+        << "the player's side of the map got less than a field";
+    EXPECT_GE(pieces_near(scenario, enemy_x, enemy_y, 24), sim::kInitialScrapPerSide)
+        << "the enemy's side of the map got less than a field";
+    for (const sim::Scrap& piece : scenario.scrap) {
+        EXPECT_TRUE(at_a_tile_centre(piece)) << "a piece must stand at a tile's centre";
+        EXPECT_TRUE(sim::tile_passable(scenario.seed, tile_of(piece.x.raw), tile_of(piece.y.raw)))
+            << "a field on impassable ground is a field nobody can fetch";
+    }
+}
+
+TEST(ScrapField, AFieldIsAPureFunctionOfItsSeedAndItsCentre) {
+    std::vector<sim::Scrap> once;
+    std::vector<sim::Scrap> twice;
+    sim::seed_field(once, 42ULL, sim::kInitialScrapPerSide, 40, 40);
+    sim::seed_field(twice, 42ULL, sim::kInitialScrapPerSide, 40, 40);
+    ASSERT_EQ(once.size(), twice.size());
+    for (std::size_t i = 0; i < once.size(); ++i) {
+        EXPECT_EQ(once.at(i).x.raw, twice.at(i).x.raw) << i;
+        EXPECT_EQ(once.at(i).y.raw, twice.at(i).y.raw) << i;
+    }
+    std::vector<sim::Scrap> elsewhere;
+    sim::seed_field(elsewhere, 42ULL, sim::kInitialScrapPerSide, 120, 120);
+    ASSERT_EQ(elsewhere.size(), once.size());
+    bool moved = false;
+    for (std::size_t i = 0; i < once.size() && !moved; ++i) {
+        moved = once.at(i).x.raw != elsewhere.at(i).x.raw
+                || once.at(i).y.raw != elsewhere.at(i).y.raw;
+    }
+    EXPECT_TRUE(moved) << "the field ignored its centre";
+}
+
+TEST(ScrapField, NoStartingPieceOpensInsideABuilding) {
+    // A vehicle is no problem -- it drives off and the piece is there when it goes. A BUILDING
+    // never moves, so a piece inside one is lost for the rest of the war, and the rings start
+    // outside the base cluster to keep that from happening; this checks the ground the sim actually
+    // ended up with, after settling.
+    const Sim sim = Sim::create(sim::skirmish(42));
+    ASSERT_FALSE(sim.scraps().empty());
+    for (const sim::Scrap& piece : sim.scraps()) {
+        const int tile_x = tile_of(piece.x.raw);
+        const int tile_y = tile_of(piece.y.raw);
+        EXPECT_TRUE(sim::tile_passable(42ULL, tile_x, tile_y))
+            << "a piece on a crater rim is a wall";
+        EXPECT_FALSE(sim::building_blocks(sim.units(), tile_x, tile_y))
+            << "a piece inside a building can never be fetched";
+    }
+}
+
+TEST(ScrapField, AStartingPieceIsFetchableAndTheLedgerRises) {
+    // A hauler beside a starting piece: it takes it and banks a load, which is the whole point of
+    // the field -- the economy can move before anyone has died.
+    Scenario scenario;
+    scenario.seed = 20261023;
+    // The hauler banks at its FACTORY, not at the recycler (`home_factory`), so a rig without one
+    // can carry a load for ever without the ledger ever moving.
+    scenario.spawns = {Spawn{UnitKind::Scavenger, Side::Player, 40, 40},
+                       Spawn{UnitKind::Factory, Side::Player, 37, 40},
+                       Spawn{UnitKind::Recycler, Side::Player, 34, 40}};
+    scenario.objectives = {};
+    const sim::Fixed centre
+        = sim::fixed_add(sim::Fixed::from_int(40), sim::Fixed::from_raw(sim::Fixed::kOne / 2));
+    scenario.scrap = {sim::Scrap{centre, centre}};
+    Sim sim = Sim::create(scenario);
+    ASSERT_EQ(sim.scraps().size(), 1U);
+    EXPECT_EQ(sim.ore(Side::Player), 0);
+    for (int tick = 0; tick < 1200 && sim.ore(Side::Player) == 0; ++tick) {
+        sim.step();
+    }
+    EXPECT_EQ(sim.ore(Side::Player), 1) << "the hauler could not reach the field's own piece";
+    EXPECT_TRUE(sim.scraps().empty()) << "the piece was taken, not duplicated";
+}
+
+TEST(ScrapField, ACompositionThatAsksForNoScrapStillGetsNone) {
+    // The built-in composition carries a field; a composition that says nothing about scrap (or a
+    // rig assembled by hand) starts on clean ground, so every existing rig is unchanged.
+    EXPECT_GT(sim::ScenarioData{}.scrap_per_side, 0) << "the built-in amount is the dial";
+    sim::ScenarioData bare;
+    bare.scrap_per_side = 0;
+    EXPECT_TRUE(sim::skirmish(42, bare).scrap.empty());
+    EXPECT_TRUE(Scenario{}.scrap.empty()) << "a hand-built battle starts clean";
+}
