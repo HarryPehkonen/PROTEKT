@@ -3,6 +3,7 @@
 #include <gtest/gtest.h>
 
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <variant>
 #include <vector>
@@ -363,9 +364,11 @@ TEST(Session, TheDrivenTankGetsOneOrderPerFrameWhileDriving) {
     Session session{rig.tank_a};
     std::vector<Order> orders;
     session.frame(holding(input::kKeyW), rig.sim, rig.options, orders);
-    ASSERT_EQ(orders.size(), 1U);
+    // The first frame also takes the helm, once, after the tank's own order.
+    ASSERT_EQ(orders.size(), 2U);
     EXPECT_EQ(orders.front().unit, rig.tank_a);
     EXPECT_EQ(orders.front().kind(), sim::OrderKind::MoveTo);
+    EXPECT_EQ(orders.back().kind(), sim::OrderKind::TakeControl);
 
     std::vector<Order> idle;
     session.frame(InputFrame{}, rig.sim, rig.options, idle);
@@ -554,6 +557,56 @@ TEST(Session, SwappingKeepsTheLook) {
     session.frame(swap, rig.sim, rig.options, out);
     ASSERT_EQ(session.driven(), rig.tank_b);
     EXPECT_EQ(session.view_yaw(), yaw_before) << "you keep looking where you were looking";
+}
+
+// ---------------------------------------------------------------- the helm is told to the sim
+
+/// How many TakeControl orders `orders` holds, and for whom the last one was.
+std::size_t helm_orders(const std::vector<Order>& orders, sim::UnitId& last) {
+    std::size_t count = 0;
+    for (const Order& order : orders) {
+        if (order.kind() == sim::OrderKind::TakeControl) {
+            ++count;
+            last = order.unit;
+        }
+    }
+    return count;
+}
+
+TEST(Session, TheFirstFrameTakesTheHelmOnceAndOnlyOnce) {
+    Rig rig = make_rig();
+    Session session{rig.tank_a};
+    sim::UnitId who{};
+    std::vector<Order> first;
+    session.frame(InputFrame{}, rig.sim, rig.options, first);
+    EXPECT_EQ(helm_orders(first, who), 1U);
+    EXPECT_EQ(who, rig.tank_a);
+    std::vector<Order> second;
+    session.frame(InputFrame{}, rig.sim, rig.options, second);
+    EXPECT_EQ(helm_orders(second, who), 0U) << "the sim already knows; it is not told every frame";
+}
+
+TEST(Session, ASwapTakesTheHelmOfTheNewHull) {
+    Rig rig = make_rig();
+    Session session{rig.tank_a};
+    std::vector<Order> warmup;
+    session.frame(InputFrame{}, rig.sim, rig.options, warmup);
+
+    const sim::Unit* b = rig.sim.find(rig.tank_b);
+    const float bx = static_cast<float>(b->x.raw) / 65536.0F * kMetresPerTile;
+    const float bz = static_cast<float>(b->y.raw) / 65536.0F * kMetresPerTile;
+    const float ground = height_metres(kSeed, b->x.floor_int(), b->y.floor_int());
+    const Projected p = game::project(rig.options.camera, kExtent, bx, ground + 0.9F, bz);
+    rig.options.aim = Aim{p.x, p.y};
+    InputFrame swap;
+    swap.keys.push_back(KeyEvent{input::kKeyX, true, false});
+    std::vector<Order> out;
+    session.frame(swap, rig.sim, rig.options, out);
+    ASSERT_EQ(session.driven(), rig.tank_b);
+
+    sim::UnitId who{};
+    EXPECT_EQ(helm_orders(out, who), 1U);
+    EXPECT_EQ(who, rig.tank_b);
 }
 
 } // namespace protekt::game

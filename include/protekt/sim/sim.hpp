@@ -190,6 +190,14 @@ private:
     std::vector<Landing> landings_{};
     std::vector<Order> pending_{};
     std::vector<Command> log_{};
+    /// THE ONE UNIT THE PLAYER IS DRIVING, learned from a `TakeControl` order and invalid until
+    /// one arrives. The sim carries it because step 4's auto-engagement skips exactly this unit: a
+    /// hull under the player's hand fires when the trigger says so and not before. An order rather
+    /// than a call into the sim, so a replay's recorded order stream is the whole input and a
+    /// replayed battle cannot diverge from the live one. Never cleared: unit ids are not reused,
+    /// and the skip tests `unit.id == driven_` only for a living unit, so a dead helm excludes no
+    /// one.
+    UnitId driven_{};
     std::uint32_t tick_{};
     std::uint32_t next_id_{1};
     std::uint32_t route_plans_{};

@@ -398,6 +398,8 @@ const char* to_string(OrderKind kind) noexcept {
         return "firefan";
     case OrderKind::FireRocket:
         return "firerocket";
+    case OrderKind::TakeControl:
+        return "takecontrol";
     }
     return "unknown";
 }

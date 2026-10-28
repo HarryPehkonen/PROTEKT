@@ -60,6 +60,13 @@ void Session::frame(const input::InputFrame& frame, const sim::Sim& sim,
             player_.reset_helm(); // a new tank starts from a standstill; the view is kept
         }
     }
+    // THE HELM: the sim does not fire a hull on its own once told the player drives it, so it must
+    // be told on the first frame and again whenever the swap moves the player to another hull.
+    // Compared against what was last SENT, so the first frame and every swap share one path.
+    if (!destroyed_ && interaction_.driven() != helm_) {
+        helm_ = interaction_.driven();
+        out.push_back(sim::Order{helm_, sim::orders::TakeControl{}});
+    }
     // The wounded go home after the clicks, so a retreat outranks an order given this frame. It
     // runs for a spectator too: the player's tanks do not stop looking after themselves when he
     // dies.

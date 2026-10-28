@@ -125,6 +125,16 @@ struct FireRocket {
     Fixed dir_z{};
 };
 
+/// THE PLAYER TAKES THE HELM: from now on this unit is the one the player is driving. Empty -- the
+/// order already addresses a unit -- and a fact rather than a call, because a replay's only input
+/// is the recorded order stream: a driver the sim learned about any other way would not be in that
+/// stream, and a replayed battle would diverge from the live one.
+///
+/// The one thing it changes is that step 4's auto-engagement SKIPS this unit: a hull under the
+/// player's hand fires when the player pulls the trigger and not before. Taking a second unit
+/// releases the first, and the helm lapses if the unit dies. Nothing else about the AI moves.
+struct TakeControl {};
+
 /// One tick of sideways drift, as an INPUT: the direction (map x, map y; need not be normalised,
 /// zero is no strafe at all) a hover tank slides this tick. The sim scales it to a fixed fraction
 /// of the unit's speed, so the commander says where and the sim says how fast. It sets no stance
@@ -155,10 +165,11 @@ struct Recycle {
 
 } // namespace orders
 
-using OrderPayload = std::variant<orders::MoveTo, orders::GuardAt, orders::Patrol, orders::Attack,
-                                  orders::Stop, orders::FocusFire, orders::FireTowards,
-                                  orders::Strafe, orders::Follow, orders::FireLob, orders::Deploy,
-                                  orders::Recycle, orders::FireFan, orders::FireRocket>;
+using OrderPayload
+    = std::variant<orders::MoveTo, orders::GuardAt, orders::Patrol, orders::Attack, orders::Stop,
+                   orders::FocusFire, orders::FireTowards, orders::Strafe, orders::Follow,
+                   orders::FireLob, orders::Deploy, orders::Recycle, orders::FireFan,
+                   orders::FireRocket, orders::TakeControl>;
 
 /// How each payload alternative is named and reported. This is the payload's index, in the
 /// payload's order, and the assertions below make that true rather than intended.
@@ -179,9 +190,12 @@ enum class OrderKind : std::uint8_t {
     /// Appended after FireFan, never inserted: a kind's value is what a replay and an observation
     /// carry, so inserting one would move every recorded order.
     FireRocket = 13,
+    /// Appended after FireRocket, never inserted, for the reason every value above was: the number
+    /// is what a replay and an observation carry.
+    TakeControl = 14,
 };
 
-inline constexpr std::size_t kOrderKindCount = static_cast<std::size_t>(OrderKind::FireRocket) + 1;
+inline constexpr std::size_t kOrderKindCount = static_cast<std::size_t>(OrderKind::TakeControl) + 1;
 
 static_assert(std::variant_size_v<OrderPayload> == kOrderKindCount,
               "every alternative needs a kind, and every kind an alternative");
@@ -206,6 +220,7 @@ static_assert(std::is_same_v<PayloadOf<OrderKind::Deploy>, orders::Deploy>);
 static_assert(std::is_same_v<PayloadOf<OrderKind::Recycle>, orders::Recycle>);
 static_assert(std::is_same_v<PayloadOf<OrderKind::FireFan>, orders::FireFan>);
 static_assert(std::is_same_v<PayloadOf<OrderKind::FireRocket>, orders::FireRocket>);
+static_assert(std::is_same_v<PayloadOf<OrderKind::TakeControl>, orders::TakeControl>);
 
 /// The kind is the payload's own index. There is no second field that can disagree with it, which
 /// is precisely what the flat record could not promise.
@@ -303,7 +318,8 @@ struct OrderFields {
         out.has_target = true;
         out.target = p->recycler;
     }
-    // Stop carries nothing, and neither does anything else that reaches here.
+    // Stop carries nothing, and neither does TakeControl (the order already addresses a unit) or
+    // anything else that reaches here: an empty payload reads as zero positions and no target.
     return out;
 }
 

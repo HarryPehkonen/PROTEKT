@@ -159,6 +159,7 @@ TEST(Replay, EveryOrderKindSurvivesARoundTripAndNoneIsDropped) {
         Command{14,
                 Order{UnitId{9}, orders::FireRocket{Fixed::from_raw(65536), Fixed::from_raw(32768),
                                                     UnitId{10}, Fixed::from_raw(-65536)}}},
+        Command{15, Order{UnitId{4}, orders::TakeControl{}}},
     };
     ASSERT_EQ(r.commands.size(), kOrderKindCount) << "this test must cover every kind";
     for (std::size_t i = 0; i < r.commands.size(); ++i) {
@@ -180,6 +181,8 @@ TEST(Replay, EveryOrderKindSurvivesARoundTripAndNoneIsDropped) {
     EXPECT_NE(text.find("13 firefan 8 65536 0 -65536 9\n"), std::string::npos) << text;
     EXPECT_NE(text.find("14 firerocket 9 65536 32768 -65536 10\n"), std::string::npos)
         << "the rocket records the aim, not its balance numbers: " << text;
+    EXPECT_NE(text.find("15 takecontrol 4\n"), std::string::npos)
+        << "taking the helm carries a unit and nothing else: " << text;
 
     const Replay again = must_parse(text);
     ASSERT_EQ(again.commands.size(), r.commands.size());

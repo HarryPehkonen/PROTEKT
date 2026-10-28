@@ -283,6 +283,7 @@ if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
         tests/test_hover_drive.cpp
         tests/test_friendly_fire.cpp
         tests/test_sim.cpp
+        tests/test_driven.cpp
         tests/test_projectile.cpp
         tests/test_scrap.cpp
         tests/test_recycle.cpp

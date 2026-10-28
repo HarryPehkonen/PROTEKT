@@ -205,7 +205,8 @@ void apply_strafe(Unit& unit, const orders::Strafe& strafe, const WorldGround& g
 }
 
 void apply_order(std::vector<Unit>& units, std::vector<Projectile>& projectiles,
-                 std::vector<Sim::Shot>& shots, const Order& order, std::uint64_t seed) noexcept {
+                 std::vector<Sim::Shot>& shots, UnitId& driven, const Order& order,
+                 std::uint64_t seed) noexcept {
     // Re-validated here: the unit may have died between enqueue and the tick it takes effect.
     if (!order_is_valid(units, order, seed)) {
         return;
@@ -363,6 +364,12 @@ void apply_order(std::vector<Unit>& units, std::vector<Projectile>& projectiles,
                 unit.cooldown = gun.cooldown;
             }
         }
+        break;
+    case OrderKind::TakeControl:
+        // THE PLAYER TAKES THE HELM: one slot, so this unit becomes the driven one and the last
+        // one (if any) is released. Nothing else about the unit changes -- no stance, no
+        // destination, no velocity -- because the player steers it every tick.
+        driven = order.unit;
         break;
     }
 }
@@ -961,7 +968,7 @@ void Sim::step() {
         }
     }
     for (const Order& order : pending_) {
-        apply_order(units_, projectiles_, shots_, order, scenario_.seed);
+        apply_order(units_, projectiles_, shots_, driven_, order, scenario_.seed);
     }
     pending_.clear();
 
@@ -1042,7 +1049,7 @@ void Sim::step() {
                 best = named;
             }
         }
-        if (best == nullptr) {
+        if (best == nullptr && unit.id != driven_) {
             std::int64_t best_d2 = range * range + 1;
             for (Unit& other : units_) {
                 if (!other.alive || other.side == unit.side) {

@@ -66,6 +66,7 @@ private:
     input::HeldKeys keys_{};
     bool headed_{false}; ///< the spawn heading is chosen once, from the terrain, on the first frame
     bool destroyed_{false};
+    sim::UnitId helm_{}; ///< the hull the sim was last told the player drives (TakeControl)
     std::string_view destroyed_message_{};
 };
 
