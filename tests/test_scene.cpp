@@ -5947,6 +5947,42 @@ TEST(SceneWake, TheBurstBecomesASlowGreyColumnAndTheColumnGoesInItsTurn) {
     EXPECT_TRUE(wake_at(kSmokeTicks).wake.empty()) << "the column outlived kSmokeTicks";
 }
 
+/// The width of the first puff in a wake (36 vertices, one box), in metres.
+[[nodiscard]] float first_puff_width(const WakeFrame& frame) {
+    float lo = frame.wake.at(0).position[0];
+    float hi = lo;
+    for (std::size_t i = 0; i < kPuffVertices; ++i) {
+        lo = std::min(lo, frame.wake.at(i).position[0]);
+        hi = std::max(hi, frame.wake.at(i).position[0]);
+    }
+    return hi - lo;
+}
+
+TEST(SceneWake, TheFireballIsBiggerThanTheHullThatDied) {
+    const WakeFrame frame = wake_at(0);
+    ASSERT_TRUE(frame.wreck_valid);
+    ASSERT_FALSE(frame.wake.empty());
+    EXPECT_GT(first_puff_width(frame), 2.0F * protekt::game::kHullHalfMetres * 1.5F)
+        << "a puff a fraction of the hull is a spark, not a kill: it must read as an explosion";
+}
+
+TEST(SceneWake, TheColumnIsWiderThanTheHullToo) {
+    const WakeFrame frame = wake_at(kBlastTicks + 1);
+    ASSERT_TRUE(frame.wreck_valid);
+    ASSERT_FALSE(frame.wake.empty());
+    EXPECT_GT(first_puff_width(frame), 2.0F * protekt::game::kHullHalfMetres)
+        << "the smoke that marks a wreck must be at least as wide as the wreck";
+}
+
+TEST(SceneWake, TheColumnIsStillThereOnItsLastTickAndGoneOnTheNext) {
+    // `wake_at(n)` is a frame whose scene age is n + 1 (the frame after the stamp is age 1).
+    const WakeFrame last = wake_at(kSmokeTicks - 2);
+    ASSERT_TRUE(last.wreck_valid);
+    EXPECT_EQ(last.wake.size(), kSmokePuffs * kPuffVertices)
+        << "the wreck went cold before kSmokeTicks";
+    EXPECT_TRUE(wake_at(kSmokeTicks - 1).wake.empty()) << "and it must be cold at age kSmokeTicks";
+}
+
 TEST(SceneWake, TheColumnRisesAndFadesAsTheTicksPass) {
     const WakeFrame young = wake_at(kBlastTicks + 5);
     const WakeFrame old = wake_at(kBlastTicks + 200);

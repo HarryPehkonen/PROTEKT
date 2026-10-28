@@ -3937,6 +3937,25 @@ void HitMark::hit(sim::Tick now) noexcept {
     armed_ = true;
 }
 
+void WakeLog::after_frame(const sim::UnitSnapshot& before, const sim::Sim& sim, sim::Tick stamp) {
+    const sim::Tick now = sim.tick();
+    // What has gone cold is forgotten first, by the same age the scene stops drawing at.
+    std::erase_if(kills_, [now](const sim::BattleEvent& kept) {
+        return kept.tick <= now && now - kept.tick >= kSmokeTicks;
+    });
+    for (const sim::BattleEvent& event : sim::events_between(before, sim, stamp)) {
+        if (event.kind != sim::EventKind::Killed) {
+            continue;
+        }
+        const bool known = std::ranges::any_of(kills_, [&event](const sim::BattleEvent& kept) {
+            return kept.subject == event.subject && kept.tick == event.tick;
+        });
+        if (!known) {
+            kills_.push_back(event);
+        }
+    }
+}
+
 void LandingMarks::land(sim::Tick landed_at, std::int32_t tile_x, std::int32_t tile_y) {
     // What has run out by now is gone for good: the list never grows past what is showing.
     std::erase_if(entries_, [&](const Entry& entry) {

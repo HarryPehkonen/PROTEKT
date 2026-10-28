@@ -460,7 +460,7 @@ public:
             landing_marks_.land(down.tick, down.landing.tile_x, down.landing.tile_y);
         }
         if (steps > 0) {
-            frame_events_ = sim::events_between(before, sim_, stamp);
+            wakes_.after_frame(before, sim_, stamp);
         }
         refresh_row();
     }
@@ -492,7 +492,8 @@ public:
         scene_options.headings = &headings_;
         scene_options.terrain = &terrain_cache_; // the per-seed memo the mesh reads through
         scene_options.hit_flash = hit_flash_.level(sim_.tick());
-        scene_options.events = frame_events_; // D4: the wrecks this frame has to smoke for
+        scene_options.events
+            = wakes_.events(); // D4: every wreck still alight, not only this frame's
         scene_options.weapon = session_.weapon();
         scene_options.show_weapon = !session_.destroyed();
         scene_options.reloading = game::weapon_reloading(sim_, driven);
@@ -550,8 +551,8 @@ private:
     sim::Sim sim_;
     game::Session session_;
     game::Hover hover_;
-    /// The deaths of the last frame that stepped: what the scene's wakes are made of (D4).
-    std::vector<sim::BattleEvent> frame_events_;
+    /// The kills still smoking, kept for `kSmokeTicks` after the frame that saw them (D4).
+    game::WakeLog wakes_;
     game::HitFlash hit_flash_;
     game::HitMark hit_mark_;
     game::LandingMarks landing_marks_;

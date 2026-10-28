@@ -301,25 +301,51 @@ private:
 /// from `kBlastHotColour` to `kBlastCoolColour` as they go. Then a COLUMN: `kSmokePuffs` grey
 /// puffs stacked over the wreck, rising and drifting on a wind that comes off the frame's seed,
 /// thinning out until `kSmokeTicks` have passed and it is gone.
-inline constexpr std::size_t kBlastPuffs = 7;
-inline constexpr sim::Tick kBlastTicks = 20; ///< two thirds of a second at 30 Hz
-inline constexpr float kBlastHalfMetres = 0.30F;
-inline constexpr float kBlastLastHalfMetres = 0.12F;
-inline constexpr float kBlastSpreadMetres = 1.5F; ///< how far out a puff is thrown
-inline constexpr float kBlastRiseMetres = 1.6F;   ///< and how high the burst reaches
-inline constexpr float kBlastAlpha = 0.85F;
-inline constexpr std::array<float, 3> kBlastHotColour{1.00F, 0.58F, 0.12F};
+///
+/// The sizes are set against the hull that died: a tank is `2 * kHullHalfMetres` = 1.2 m across,
+/// and a puff a sixteenth of that is a spark nobody sees. The fireball opens at about twice the
+/// hull
+/// (`kBlastHalfMetres` = 1.0 m, a 2 m box) and is big, bright and brief, as BZ2's were.
+inline constexpr std::size_t kBlastPuffs = 20;
+inline constexpr sim::Tick kBlastTicks = 30; ///< one second at 30 Hz
+inline constexpr float kBlastHalfMetres = 1.0F;
+inline constexpr float kBlastLastHalfMetres
+    = 0.35F;                                      ///< where it has shrunk to as it cools to smoke
+inline constexpr float kBlastSpreadMetres = 2.5F; ///< how far out a puff is thrown
+inline constexpr float kBlastRiseMetres = 2.4F;   ///< and how high the burst reaches
+inline constexpr float kBlastAlpha = 0.92F;
+inline constexpr std::array<float, 3> kBlastHotColour{1.00F, 0.78F, 0.30F}; ///< near white-hot
 inline constexpr std::array<float, 3> kBlastCoolColour{0.40F, 0.36F, 0.33F};
 
-inline constexpr std::size_t kSmokePuffs = 5;
+/// The column is wider than the hull (`kSmokeHalfMetres` = 1.1 m, a 2.2 m box), nine puffs deep so
+/// the boxes overlap into one plume, and rises 6 m over the 390 ticks after the burst. It ends at
+/// `kSmokeTicks`: a wreck is visibly alight for fourteen seconds and then just litter.
+inline constexpr std::size_t kSmokePuffs = 9;
 inline constexpr sim::Tick kSmokeTicks = 420; ///< fourteen seconds, then the wreck is cold
 inline constexpr float kSmokeBaseMetres = 0.5F;
-inline constexpr float kSmokeSpacingMetres = 0.85F;
-inline constexpr float kSmokeRiseMetresPerTick = 0.010F;
+inline constexpr float kSmokeSpacingMetres = 0.8F;
+inline constexpr float kSmokeRiseMetresPerTick = 0.016F;
 inline constexpr float kSmokeDriftMetresPerTick = 0.012F;
-inline constexpr float kSmokeHalfMetres = 0.55F;
-inline constexpr float kSmokeAlpha = 0.30F;
+inline constexpr float kSmokeHalfMetres = 1.1F;
+inline constexpr float kSmokeAlpha = 0.34F;
 inline constexpr std::array<float, 3> kSmokeColour{0.44F, 0.44F, 0.46F};
+
+/// THE KILLS A WAKE IS DRAWN FROM. The scene derives a wreck's burst and its column from
+/// `now - event.tick`, so the `Killed` event has to reach the scene on every frame of the wreck's
+/// life, not only on the frame that stepped the kill. The app owns this, like `HitMark`: it diffs
+/// the frame (`sim::events_between`), keeps the kills, and forgets one when its age on the sim's
+/// own tick reaches `kSmokeTicks` -- the scene's cutoff, so there is no second clock. A kill that
+/// arrives again (a frame that stepped nothing re-reads the last tick) is not listed twice. Only
+/// `Killed` is kept: the hit flash and the hit mark are driven from `HitTaken` by the audio
+/// pipeline, per tick.
+class WakeLog {
+public:
+    void after_frame(const sim::UnitSnapshot& before, const sim::Sim& sim, sim::Tick stamp);
+    [[nodiscard]] std::span<const sim::BattleEvent> events() const noexcept { return kills_; }
+
+private:
+    std::vector<sim::BattleEvent> kills_;
+};
 
 /// THE HIT FLASH. How long the red wash takes to fade after the player's tank is hit.
 inline constexpr float kHitFlashSeconds = 0.4F;
@@ -711,8 +737,9 @@ struct SceneOptions {
     /// 0 draws nothing at all, so a frame that is not flashing is byte-identical to one that never
     /// heard of it.
     float hit_flash{0.0F};
-    /// The frame's battle events, as the sim reported them for the steps this frame took
-    /// (`sim::events_between`). D4 reads the `Killed` ones and nothing else: each is a wreck, and a
+    /// The battle events the scene draws from: the `Killed` ones of the last `kSmokeTicks`, kept by
+    /// `WakeLog` (a one-frame event could never drive a fourteen-second column). D4 reads the
+    /// `Killed` ones and nothing else: each is a wreck, and a
     /// wreck leaves a burst and then a column of smoke (see `kBlastTicks`/`kSmokeTicks`). EMPTY
     /// emits nothing, so every frame that never heard of this field -- and every frame that lost no
     /// unit -- is byte-identical to what it drew before there was a wake at all.
