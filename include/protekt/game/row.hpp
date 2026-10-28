@@ -30,9 +30,10 @@
 /// untouched, and no tick or hash depends on it. Whoever owns the row calls `update` once per
 /// frame, after the sim has stepped.
 ///
-/// For now every vehicle is its own one-unit group, because nothing builds a batch yet. When a
-/// shift-built batch exists (it shares one F key while a lone build takes its own) the unit will
-/// arrive with a batch id, and `update` will give a batch the slot its first member takes.
+/// A vehicle arrives carrying the batch its build order named: a lone build is a batch of one, and
+/// every unit built from one shift gesture carries that gesture's token. `update` gives a batch the
+/// slot its FIRST member takes, so a shift-built batch shares one F key (the ruling) while two lone
+/// builds take one key each. Scenario-placed units belong to no batch and are placed one per key.
 namespace protekt::game {
 
 /// What a position in the row IS. Fixed by the index; see `row_slot_kind`.

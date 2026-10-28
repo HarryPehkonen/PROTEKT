@@ -77,6 +77,24 @@ void RowState::update(const sim::Sim& sim, sim::Side side, std::size_t marks) {
         if (is_held(slots, unit.id)) {
             continue;
         }
+        // A shift-built batch shares ONE key. A unit whose batch is already seated joins its own
+        // batch's seat, which is what groups a batch and nothing else: not the kind, and not
+        // "arrived at the same time", which two lone builds also do.
+        if (unit.batch != 0) {
+            const auto seat = std::find_if(
+                slots.begin() + kRowFirstGroup, slots.end(),
+                [&sim, batch = unit.batch](const RowSlot& slot) {
+                    return std::any_of(slot.units.begin(), slot.units.end(),
+                                       [&sim, batch](sim::UnitId id) {
+                                           const sim::Unit* held = sim.find(id);
+                                           return held != nullptr && held->batch == batch;
+                                       });
+                });
+            if (seat != slots.end()) {
+                seat->units.push_back(unit.id);
+                continue;
+            }
+        }
         const auto free_slot = std::find_if(slots.begin() + kRowFirstGroup, slots.end(),
                                             [](const RowSlot& slot) { return slot.units.empty(); });
         if (free_slot != slots.end()) {

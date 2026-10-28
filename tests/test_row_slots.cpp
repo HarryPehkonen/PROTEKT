@@ -1035,5 +1035,136 @@ TEST(RowDrawing, TheRowTouchesNoSimAndTwoSameSeedFramesAreByteIdentical) {
     EXPECT_EQ(rig.sim.state_hash(), hash);
 }
 
+// ------------------------------------------------------- a batch of built units on one key
+
+/// A player's factory with scrap on the ground and haulers to work it. This is the only way a test
+/// can put scrap in the bank, and so the only way it can make a BATCH: units the sim BUILT, which
+/// arrive carrying the batch their order named, rather than units the scenario placed, which
+/// belong to no batch.
+[[nodiscard]] sim::Scenario batch_battle(int pieces) {
+    sim::Scenario s;
+    s.seed = kSeed;
+    s.objectives = {};
+    s.spawns = {sim::Spawn{UnitKind::Factory, Side::Player, 52, 45},
+                sim::Spawn{UnitKind::Scavenger, Side::Player, 48, 47},
+                sim::Spawn{UnitKind::Scavenger, Side::Player, 48, 48},
+                sim::Spawn{UnitKind::Scavenger, Side::Player, 48, 49}};
+    const sim::Fixed half = sim::Fixed::from_raw(sim::Fixed::kOne / 2);
+    for (int i = 0; i < pieces; ++i) {
+        s.scrap.push_back(sim::Scrap{sim::fixed_add(sim::Fixed::from_int(42 + (i % 10)), half),
+                                     sim::fixed_add(sim::Fixed::from_int(36 + (i / 10)), half)});
+    }
+    return s;
+}
+
+[[nodiscard]] UnitId the_factory(const sim::Sim& sim) {
+    for (const sim::Unit& unit : sim.units()) {
+        if (unit.kind == UnitKind::Factory) {
+            return unit.id;
+        }
+    }
+    return UnitId{};
+}
+
+[[nodiscard]] sim::Order queue_one(UnitId producer, std::uint32_t batch) {
+    return sim::Order{producer, sim::orders::Build{UnitKind::Scavenger, batch}};
+}
+
+/// Steps until `wanted` units exist past `first`, or gives up: what the queue produced.
+[[nodiscard]] std::vector<UnitId> run_until_built(sim::Sim& sim, UnitId first, std::size_t wanted) {
+    constexpr int kBudget = 4000;
+    for (int i = 0; i < kBudget; ++i) {
+        std::vector<UnitId> made;
+        for (const sim::Unit& unit : sim.units()) {
+            if (unit.id.value > first.value) {
+                made.push_back(unit.id);
+            }
+        }
+        if (made.size() >= wanted) {
+            return made;
+        }
+        sim.step();
+    }
+    return {};
+}
+
+/// Which group key holds `id`, or kRowGroups + 1 if the row does not hold it at all.
+[[nodiscard]] int key_holding(const RowState& row, UnitId id) {
+    for (int n = 1; n <= kRowGroups; ++n) {
+        const std::vector<UnitId> units = group_of(row, n);
+        if (std::find(units.begin(), units.end(), id) != units.end()) {
+            return n;
+        }
+    }
+    return kRowGroups + 1;
+}
+
+TEST(RowBatch, TheUnitsOfOneBatchShareTheKeyTheFirstOfThemTook) {
+    // THE RULING: a shift-built batch occupies ONE function key. The row cannot see the gesture --
+    // it sees the batch the units arrived with, and gives a batch the slot its first member takes.
+    // Two haulers built under one token must therefore sit together under a single key.
+    sim::Sim sim = sim::Sim::create(batch_battle(90));
+    const UnitId factory = the_factory(sim);
+    const UnitId first = sim.units().back().id;
+    sim.enqueue(queue_one(factory, 9));
+    sim.enqueue(queue_one(factory, 9));
+    const std::vector<UnitId> made = run_until_built(sim, first, 2);
+    ASSERT_EQ(made.size(), 2U) << "the queue never produced the batch";
+
+    RowState row;
+    row.update(sim, Side::Player, 0);
+    const int key_a = key_holding(row, made.at(0));
+    const int key_b = key_holding(row, made.at(1));
+    EXPECT_LT(key_a, kRowGroups + 1) << "a built unit has to be on the row at all";
+    EXPECT_EQ(key_a, key_b)
+        << "one batch, one key: the second member joins the first member's slot";
+    EXPECT_EQ(group_of(row, key_a).size(), 2U) << "and that key holds the batch, no one else";
+}
+
+TEST(RowBatch, TwoLoneBuildsTakeTwoKeysAndNeverShareOne) {
+    // The other half of the ruling: a lone build is a batch of one and takes its own key. Only a
+    // shared shift token may put two units together -- nothing else about two new units groups
+    // them.
+    sim::Sim sim = sim::Sim::create(batch_battle(90));
+    const UnitId factory = the_factory(sim);
+    const UnitId first = sim.units().back().id;
+    sim.enqueue(queue_one(factory, 0));
+    sim.enqueue(queue_one(factory, 0));
+    const std::vector<UnitId> made = run_until_built(sim, first, 2);
+    ASSERT_EQ(made.size(), 2U) << "the queue never produced the two lone builds";
+
+    RowState row;
+    row.update(sim, Side::Player, 0);
+    const int key_a = key_holding(row, made.at(0));
+    const int key_b = key_holding(row, made.at(1));
+    EXPECT_LT(key_b, kRowGroups + 1) << "both have to be on the row";
+    EXPECT_NE(key_a, key_b) << "two lone builds must not be grouped onto one key";
+}
+
+TEST(RowBatch, TwoBatchesSitOnTwoKeysAndNeitherKeyMixesThem) {
+    // Batch IDENTITY, not "any new unit joins any new key": token 9's pair and token 4's pair each
+    // get a key of their own, and neither key holds a member of the other batch.
+    sim::Sim sim = sim::Sim::create(batch_battle(90));
+    const UnitId factory = the_factory(sim);
+    const UnitId first = sim.units().back().id;
+    sim.enqueue(queue_one(factory, 9));
+    sim.enqueue(queue_one(factory, 4));
+    sim.enqueue(queue_one(factory, 9));
+    sim.enqueue(queue_one(factory, 4));
+    const std::vector<UnitId> made = run_until_built(sim, first, 4);
+    ASSERT_EQ(made.size(), 4U) << "the queue never produced both batches";
+
+    RowState row;
+    row.update(sim, Side::Player, 0);
+    const int a = key_holding(row, made.at(0)); // token 9's first
+    const int b = key_holding(row, made.at(1)); // token 4's first
+    EXPECT_LT(b, kRowGroups + 1);
+    EXPECT_EQ(key_holding(row, made.at(2)), a) << "token 9's second member joins token 9's key";
+    EXPECT_EQ(key_holding(row, made.at(3)), b) << "token 4's second member joins token 4's key";
+    EXPECT_NE(a, b) << "two different batches do not share a key";
+    EXPECT_EQ(group_of(row, a).size(), 2U);
+    EXPECT_EQ(group_of(row, b).size(), 2U);
+}
+
 } // namespace
 } // namespace protekt::game
