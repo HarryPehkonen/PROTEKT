@@ -43,6 +43,7 @@ namespace {
 constexpr std::size_t kTankVertices = std::size_t{12} * 36;
 
 using protekt::game::Camera;
+using protekt::game::kHullHalfMetres;
 using protekt::game::kMetresPerHeightUnit;
 using protekt::game::kMetresPerTile;
 using protekt::game::Scene;
@@ -925,7 +926,7 @@ std::array<float, 3> box_colour(const Scene& scene, const protekt::sim::Unit& un
     const float ux = static_cast<float>(unit.x.raw) / kFixedOne * kMetresPerTile;
     const float uz = static_cast<float>(unit.y.raw) / kFixedOne * kMetresPerTile;
     const bool tank = unit.kind == protekt::sim::UnitKind::Tank;
-    const float half = kMetresPerTile * 0.3F;
+    const float half = kHullHalfMetres;
     const float want_x = tank ? ux - 0.22F : ux - half; // the panel's half-width across
     // The turret's centre (0.15 m aft since D5b moved it up the hull), less the panel's back.
     const float want_z = tank ? uz - 0.15F - 0.4F : uz - half;
@@ -2931,7 +2932,7 @@ TEST(SceneFacing, TheBarrelPointsWhereTheTurretLooks) {
     EXPECT_GT(turned.at(0), 0.3F);
     EXPECT_GT(turned.at(1), 0.3F);
     // A barrel you can read: well clear of the hull, which is 0.3 tiles from the centre.
-    EXPECT_GT(barrel_reach(facing_scene(sim, 0.0F, 0.0F), viewer), kMetresPerTile * 0.3F * 1.4F);
+    EXPECT_GT(barrel_reach(facing_scene(sim, 0.0F, 0.0F), viewer), kHullHalfMetres * 1.4F);
 }
 
 TEST(SceneFacing, OnlyTheViewersTankChanges) {
@@ -2978,7 +2979,7 @@ TEST(SceneFacing, AFrameWithoutFacingIsByteIdentical) {
     for (auto v = tail; v != a.vertices.end(); ++v) {
         widest = std::max(widest, std::abs(v->position[0] - ux));
     }
-    EXPECT_NEAR(widest, kMetresPerTile * 0.3F, 1e-4F);
+    EXPECT_NEAR(widest, kHullHalfMetres, 1e-4F);
 }
 
 // ---------------------------------------------------------------- shading
@@ -3183,7 +3184,7 @@ TEST(SceneHeading, AStandingTankNeverSeenMovingFacesPlusY) {
     EXPECT_EQ(headings.of(sim.units().front()), 0.0F);
     // Barrel along +Y (+Z in metres): no reach worth the name along X.
     EXPECT_LT(forward_reach_x(scene_with(sim, headings), sim.units().front()),
-              kMetresPerTile * 0.3F + 1e-3F);
+              kHullHalfMetres + 1e-3F);
 }
 
 TEST(SceneHeading, ATankMovingTowardPlusXPointsItsBarrelAlongPlusX) {
@@ -3199,7 +3200,7 @@ TEST(SceneHeading, ATankMovingTowardPlusXPointsItsBarrelAlongPlusX) {
     EXPECT_NEAR(headings.of(sim.units().front()), protekt::math::kPi * 0.5F, 1e-4F);
     // The barrel tip is the forward-most vertex, well beyond the hull's own half-width.
     EXPECT_GT(forward_reach_x(scene_with(sim, headings), sim.units().front()),
-              kMetresPerTile * 0.3F * 1.5F);
+              kHullHalfMetres * 1.5F);
 }
 
 TEST(SceneHeading, AStoppedTankKeepsTheFacingItHadWhileMoving) {
@@ -3221,7 +3222,7 @@ TEST(SceneHeading, AStoppedTankKeepsTheFacingItHadWhileMoving) {
     EXPECT_NEAR(headings.of(sim.units().front()), protekt::math::kPi * 0.5F, 1e-4F)
         << "stopped, it keeps facing +X";
     EXPECT_GT(forward_reach_x(scene_with(sim, headings), sim.units().front()),
-              kMetresPerTile * 0.3F * 1.5F);
+              kHullHalfMetres * 1.5F);
     // Without the memory the same stopped tank falls back to +Y: the memory is what holds it.
     EXPECT_EQ(Headings{}.of(sim.units().front()), 0.0F);
 }
@@ -4613,8 +4614,7 @@ TEST(TurretModel, ADefenseTurretIsAPedestalAHousingAMuzzleCollarAndABarrel) {
     EXPECT_GT(highest(model, kCollar, kBarrel) - lowest(model, kCollar, kBarrel),
               highest(model, kBarrel, model.size()) - lowest(model, kBarrel, model.size()))
         << "the collar is thicker than the barrel";
-    EXPECT_GT(collar[1], kMetresPerTile * 0.3F * 2.0F)
-        << "a barrel you can read, past the pedestal";
+    EXPECT_GT(collar[1], kHullHalfMetres * 2.0F) << "a barrel you can read, past the pedestal";
 }
 
 // ---------------------------------------------------------------- the mortar and the rocket (R3b2)
@@ -4641,7 +4641,7 @@ TEST(MortarModel, TheMortarIsALowWideBoxAMountAStubbyTubeAndACollar) {
     // Low and wide: the base is under half a metre tall and as wide as a tank.
     EXPECT_LT(highest(model, kMortarBase, kMortarMount) - ground, 0.5F);
     const auto base = reach_of(model, kMortarBase, kMortarMount, unit);
-    EXPECT_GT(base[1], kMetresPerTile * 0.3F) << "as wide as a tank";
+    EXPECT_GT(base[1], kHullHalfMetres) << "as wide as a tank";
     // The tube is angled UP: its mouth (the collar) stands well over its breech, and it is short.
     EXPECT_GT(highest(model, kMortarCollar, model.size()),
               lowest(model, kMortarTube, kMortarCollar) + 0.4F);
@@ -5984,6 +5984,199 @@ TEST(SceneWake, TheWakeIsDerivedNotBakedIn) {
         moved = moved || std::abs(v.position[2] - once.wake.at(i).position[2]) > kWakeTolerance;
     }
     EXPECT_TRUE(moved) << "the wake is a fixed shape: the seed did not move it";
+}
+
+/// The shadow patches of a frame: every vertex in the shadow's own ink and alpha, in emission
+/// order. The patch constants are the ONLY way this finds them, so a second copy of the ink in the
+/// renderer would make the counts below come out short.
+std::vector<protekt::game::SceneVertex> shadow_vertices(const Scene& scene) {
+    std::vector<protekt::game::SceneVertex> found;
+    for (const auto& vertex : scene.vertices) {
+        if (vertex.colour == protekt::game::kShadowInk
+            && vertex.alpha == protekt::game::kShadowAlpha) {
+            found.push_back(vertex);
+        }
+    }
+    return found;
+}
+
+/// The unit's centre in metres, as the scene reads it off the sim's fixed-point tile.
+std::array<float, 2> centre_metres(const protekt::sim::Unit& unit) {
+    return {static_cast<float>(unit.x.raw) / static_cast<float>(protekt::sim::Fixed::kOne)
+                * kMetresPerTile,
+            static_cast<float>(unit.y.raw) / static_cast<float>(protekt::sim::Fixed::kOne)
+                * kMetresPerTile};
+}
+
+protekt::sim::Sim a_tank_and_a_building() {
+    protekt::sim::Scenario scenario;
+    scenario.seed = 20261028;
+    scenario.spawns.push_back(
+        protekt::sim::Spawn{protekt::sim::UnitKind::Tank, protekt::sim::Side::Player, 57, 41});
+    scenario.spawns.push_back(protekt::sim::Spawn{protekt::sim::UnitKind::DeployedRecycler,
+                                                  protekt::sim::Side::Player, 62, 41});
+    return protekt::sim::Sim::create(scenario);
+}
+
+TEST(Scene, ALivingUnitInViewHasOneFlatShadowPatchAtItsOwnTile) {
+    protekt::sim::Scenario scenario;
+    scenario.seed = 20261028;
+    scenario.spawns.push_back(
+        protekt::sim::Spawn{protekt::sim::UnitKind::Tank, protekt::sim::Side::Player, 57, 41});
+    const protekt::sim::Sim sim = protekt::sim::Sim::create(scenario);
+    const protekt::sim::Unit& tank = sim.units().front();
+    const auto [cx, cz] = centre_metres(tank);
+
+    const Scene scene = build_scene(sim, options_at(cx, cz, sim.seed(), 8));
+    const auto patch = shadow_vertices(scene);
+
+    ASSERT_EQ(patch.size(), protekt::game::kShadowVertexCount)
+        << "one quad, two triangles, six vertices, for the one living unit";
+    const float ground
+        = protekt::game::ground_metres(sim.seed(), cx / kMetresPerTile, cz / kMetresPerTile)
+          + protekt::game::kShadowLiftMetres;
+    const float half = protekt::game::kShadowHalfMetres;
+    for (const auto& vertex : patch) {
+        EXPECT_NEAR(vertex.position[1], ground, 1.0e-4F)
+            << "flat on the terrain under the unit: a floating patch is a decal, a buried one is "
+               "invisible";
+        EXPECT_LE(std::abs(vertex.position[0] - cx), half + 1.0e-4F)
+            << "at the unit's own tile, not somewhere else on the field";
+        EXPECT_LE(std::abs(vertex.position[2] - cz), half + 1.0e-4F);
+    }
+}
+
+TEST(Scene, ADeadUnitCastsNoShadow) {
+    const protekt::sim::Sim sim = a_battle_that_leaves_litter();
+    std::size_t living = 0;
+    bool any_dead = false;
+    for (const protekt::sim::Unit& unit : sim.units()) {
+        living += unit.alive ? 1U : 0U;
+        any_dead = any_dead || !unit.alive;
+    }
+    ASSERT_TRUE(any_dead) << "the rig must kill a unit, or this proves nothing";
+    ASSERT_GT(living, 0U);
+
+    const auto [cx, cz] = centre_metres(sim.units().front());
+    const Scene scene = build_scene(sim, options_at(cx, cz, sim.seed(), 40));
+    EXPECT_EQ(shadow_vertices(scene).size(), protekt::game::kShadowVertexCount * living)
+        << "a patch per LIVING unit: the wreck's patch would be a shadow under nothing";
+}
+
+TEST(Scene, APatchIsAShadeWiderThanTheHullDrawnAboveIt) {
+    const protekt::sim::Sim sim = a_tank_and_a_building();
+    ASSERT_EQ(sim.units().size(), 2U);
+    const auto [cx, cz] = centre_metres(sim.units().front());
+    const Scene scene = build_scene(sim, options_at(cx, cz, sim.seed(), 12));
+    const auto patch = shadow_vertices(scene);
+    ASSERT_EQ(patch.size(), 2U * protekt::game::kShadowVertexCount);
+
+    const auto width = [&patch](std::size_t first) {
+        float low = patch.at(first).position[0];
+        float high = low;
+        for (std::size_t i = first; i < first + protekt::game::kShadowVertexCount; ++i) {
+            low = std::min(low, patch.at(i).position[0]);
+            high = std::max(high, patch.at(i).position[0]);
+        }
+        return high - low;
+    };
+    // Emission order is the sim's unit order: the tank was spawned first.
+    //
+    // A TANK AND A BUILDING CAST THE SAME PATCH, and that is the rule, not an oversight: every hull
+    // -- the factory's skyline, the turret, the recycler, the tank's fenders -- is drawn inside
+    // `kHullHalfMetres`, so one number sizes every patch. The sim's `Footprint` is a 2x2-TILE AREA
+    // A DEPLOYED BUILDING RESERVES (no unit may enter it), not the size of the structure drawn
+    // inside it; sizing the patch from that reservation drew a black square 2.5x the building's own
+    // width. Measure what is DRAWN.
+    EXPECT_NEAR(width(0), width(protekt::game::kShadowVertexCount), 1.0e-4F)
+        << "one hull width for every kind, so one patch width for every kind";
+    EXPECT_NEAR(width(0), 2.0F * protekt::game::kShadowHalfMetres, 1.0e-4F);
+    EXPECT_GT(protekt::game::kShadowHalfMetres, protekt::game::kHullHalfMetres)
+        << "wider than the hull it belongs to, or the ink hides under the hull";
+    EXPECT_LE(protekt::game::kShadowHalfMetres, protekt::game::kHullHalfMetres * 1.5F)
+        << "and not so wide that it reads as a puddle rather than a shadow";
+    EXPECT_LT(width(protekt::game::kShadowVertexCount),
+              protekt::game::kMetresPerTile
+                  * static_cast<float>(protekt::sim::kBuildingFootprintTiles))
+        << "NOT the reserved footprint: a patch 2x2 tiles across is four times the building's "
+           "width";
+}
+
+TEST(Scene, TheShadowIsTheNamedInkAndAlphaAndStaysRestrained) {
+    const protekt::sim::Sim sim = a_tank_and_a_building();
+    const auto [cx, cz] = centre_metres(sim.units().front());
+    const Scene scene = build_scene(sim, options_at(cx, cz, sim.seed(), 12));
+    const auto patch = shadow_vertices(scene);
+    ASSERT_EQ(patch.size(), 2U * protekt::game::kShadowVertexCount)
+        << "found by the named constants alone: the renderer holds no second copy";
+    EXPECT_GT(protekt::game::kShadowAlpha, 0.0F);
+    EXPECT_LE(protekt::game::kShadowAlpha, 0.5F)
+        << "the terrain texture must still show through the patch";
+    for (const float channel : protekt::game::kShadowInk) {
+        EXPECT_LT(channel, 0.15F) << "a shadow is dark";
+    }
+}
+
+TEST(Scene, TheShadowFrameIsAPureFunctionOfSimAndOptions) {
+    const protekt::sim::Sim sim = a_tank_and_a_building();
+    const auto [cx, cz] = centre_metres(sim.units().front());
+    const SceneOptions options = options_at(cx, cz, sim.seed(), 12);
+    const auto first = shadow_vertices(build_scene(sim, options));
+    const auto second = shadow_vertices(build_scene(sim, options));
+    ASSERT_FALSE(first.empty());
+    ASSERT_EQ(first.size(), second.size());
+    for (std::size_t i = 0; i < first.size(); ++i) {
+        EXPECT_EQ(first.at(i).position, second.at(i).position)
+            << "nothing is stored between frames, so the same inputs draw the same patch";
+    }
+}
+
+TEST(Scene, AUnitOutOfViewCastsNoShadow) {
+    const protekt::sim::Sim sim = a_tank_and_a_building();
+    // Far outside the meshed radius of a camera at the origin: the unit emission culls it, and so
+    // must its shadow, by the same rule.
+    const Scene scene = build_scene(sim, options_at(0.0F, 0.0F, sim.seed(), 8));
+    EXPECT_TRUE(shadow_vertices(scene).empty())
+        << "a patch with no ground meshed under it would float over bare void";
+
+    // THE CONTROL, without which the line above would pass just as well if nothing ever emitted a
+    // patch at all: the same rig, camera on the units.
+    const auto [cx, cz] = centre_metres(sim.units().front());
+    EXPECT_FALSE(shadow_vertices(build_scene(sim, options_at(cx, cz, sim.seed(), 12))).empty())
+        << "the cull is what removes the patch, not a renderer that emits nothing";
+}
+
+TEST(Scene, TheViewersOwnHullStillCastsItsShadow) {
+    protekt::sim::Scenario scenario;
+    scenario.seed = 20261028;
+    scenario.spawns.push_back(
+        protekt::sim::Spawn{protekt::sim::UnitKind::Tank, protekt::sim::Side::Player, 57, 41});
+    const protekt::sim::Sim sim = protekt::sim::Sim::create(scenario);
+    const auto [cx, cz] = centre_metres(sim.units().front());
+    SceneOptions options = options_at(cx, cz, sim.seed(), 8);
+    options.viewer_unit = sim.units().front().id;
+    EXPECT_EQ(shadow_vertices(build_scene(sim, options)).size(), protekt::game::kShadowVertexCount)
+        << "first person draws no hull for the player, so the patch is the cue they see ahead";
+}
+
+TEST(Scene, TheShadowIsDrawnBeforeTheHull) {
+    protekt::sim::Scenario scenario;
+    scenario.seed = 20261028;
+    scenario.spawns.push_back(
+        protekt::sim::Spawn{protekt::sim::UnitKind::Tank, protekt::sim::Side::Player, 57, 41});
+    const protekt::sim::Sim sim = protekt::sim::Sim::create(scenario);
+    const auto [cx, cz] = centre_metres(sim.units().front());
+    const Scene scene = build_scene(sim, options_at(cx, cz, sim.seed(), 8));
+    std::size_t last = 0;
+    for (std::size_t i = 0; i < scene.vertices.size(); ++i) {
+        if (scene.vertices.at(i).colour == protekt::game::kShadowInk
+            && scene.vertices.at(i).alpha == protekt::game::kShadowAlpha) {
+            last = i;
+        }
+    }
+    ASSERT_GT(last, 0U);
+    EXPECT_GE(scene.vertices.size() - (last + 1), kTankVertices)
+        << "the hull (and the bars after it) come after the patch, so it reads as ground";
 }
 
 } // namespace

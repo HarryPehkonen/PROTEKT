@@ -31,6 +31,12 @@ namespace protekt::game {
 inline constexpr float kMetresPerTile = 2.0F;
 inline constexpr float kMetresPerHeightUnit = kMetresPerTile / 64.0F;
 
+/// THE HALF-WIDTH A HULL IS DRAWN INSIDE, in metres, for every kind: the factory's skyline, the
+/// turret, the recycler, the tank's body and the fender. ONE value with six users in `scene.cpp`,
+/// so the drawings cannot drift apart -- and so anything that has to match a hull (the contact
+/// shadow) has one number to match it to, rather than a guess per kind.
+inline constexpr float kHullHalfMetres = kMetresPerTile * 0.3F;
+
 /// THE SUN. Where the light comes FROM, as a world-space direction (x east, y up, z north): high
 /// overhead and a little toward -x / -z, so a unit's top face is brightest, the faces turned toward
 /// -x and -z come next, the faces turned away are darker, and the underside is darkest. Fixed data,
@@ -478,6 +484,28 @@ inline constexpr float kScrapLiftMetres = 0.05F;
 inline constexpr math::Vec3 kScrapColour{0.30F, 0.28F, 0.26F};
 /// A scrap mark is one quad, so six vertices, and it emits NONE when the field holds no litter.
 inline constexpr std::size_t kScrapVertexCount = 6U;
+
+/// CONTACT SHADOWS: a dark, translucent patch laid flat on the ground under each living unit, so a
+/// hull reads as standing on the terrain and not as pasted onto it (BZ2's trick at this fidelity).
+/// THIS IS A STAND-IN FOR REAL SHADOWING: the sun exists and faces are shaded by it, but nothing
+/// casts, so there is no shadow to draw and this blob takes its place. The ink is near-black with
+/// a slight green, and the alpha is low enough that the terrain texture still shows through.
+inline constexpr math::Vec3 kShadowInk{0.02F, 0.03F, 0.02F};
+inline constexpr float kShadowAlpha = 0.35F;
+/// Lifted this far clear of the terrain, as the scrap plates are, so it does not fight the ground.
+inline constexpr float kShadowLiftMetres = 0.03F;
+/// How much wider than the hull its patch is, so the ink shows as ground around the base instead of
+/// vanishing under it. ONE value for every kind, because every kind is drawn inside one hull width.
+inline constexpr float kShadowFill = 1.2F;
+/// A patch's half-side in metres: a shade wider than the hull standing on it.
+/// THE SIM'S `Footprint` IS NOT THIS. A deployed building reserves a `kBuildingFootprintTiles`
+/// square that no unit may enter -- four times the ground the structure drawn inside it covers (a
+/// factory, a turret, a recycler and a tank are all drawn inside `kHullHalfMetres`). Sizing the
+/// patch from that reservation put a black square two and a half times a building's own width
+/// around it, which reads as a puddle and not as a shadow. Measure what is DRAWN.
+inline constexpr float kShadowHalfMetres = kHullHalfMetres * kShadowFill;
+/// One patch is one quad, so six vertices.
+inline constexpr std::size_t kShadowVertexCount = 6U;
 
 /// The deploy preview's two colours (BZ2's placement wireframe), and how its lines sit on the
 /// ground: a stroke this many metres either side of the tile edge, lifted this far clear of the

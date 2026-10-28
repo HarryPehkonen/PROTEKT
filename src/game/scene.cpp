@@ -385,7 +385,7 @@ void build_factory(std::vector<SceneVertex>& out, std::uint64_t seed, const sim:
     // float + bool rather than optional<float>: gcc -O2 wrongly warns may-be-uninitialized on the
     // optional's storage at the call site (the same false alarm hover_.z() once raised).
     const float ground = lifted ? lift_z : ground_metres(seed, unit.x, unit.y);
-    const float half_width = kMetresPerTile * 0.3F; ///< the footprint, every part inside it
+    const float half_width = kHullHalfMetres; ///< the footprint, every part inside it
     const float angle = unit.side == sim::Side::Player ? 0.0F : kPi;
     constexpr float kHallTop = 4.5F;   ///< the picker's housing height
     constexpr float kHallRight = 0.2F; ///< the annex takes the rest of the width
@@ -476,7 +476,7 @@ void build_defense_turret(std::vector<SceneVertex>& out, std::uint64_t seed, con
     const float z
         = static_cast<float>(unit.y.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile;
     const float ground = lifted ? lift_z : ground_metres(seed, unit.x, unit.y);
-    const float half_width = kMetresPerTile * 0.3F;
+    const float half_width = kHullHalfMetres;
     constexpr float kPedestalHeight = 1.1F;
     constexpr float kHousingHalfAcross = 0.45F;
     constexpr float kHousingBack = -0.5F;
@@ -521,9 +521,9 @@ void build_defense_turret(std::vector<SceneVertex>& out, std::uint64_t seed, con
 void emit_tank_hull(std::vector<SceneVertex>& out, float x, float z, float ground, float heading,
                     const Vec3& colour, const Vec3& camo_colour, const UvRect& hull_tile,
                     const UvRect& tracks_tile) {
-    const float half_width = kMetresPerTile * 0.3F; ///< the outer edge of a fender
-    constexpr float kTrackInner = 0.7F;             ///< of half_width; the hull fills the rest
-    constexpr float kTrackOuter = 0.95F;            ///< of half_width; the fender overhangs it
+    const float half_width = kHullHalfMetres; ///< the outer edge of a fender
+    constexpr float kTrackInner = 0.7F;       ///< of half_width; the hull fills the rest
+    constexpr float kTrackOuter = 0.95F;      ///< of half_width; the fender overhangs it
     constexpr float kTrackHeight = 0.4F;
     constexpr float kTrackBack = -1.3F; ///< metres along the heading from the centre
     constexpr float kTrackFront = 1.3F;
@@ -766,8 +766,8 @@ void build_recycler(std::vector<SceneVertex>& out, std::uint64_t seed, const sim
 
     // Across is from the centre line, along from the unit's centre (+ is the front), up from the
     // ground.
-    const float half_width = kMetresPerTile * 0.3F; ///< the footprint, every part inside it
-    constexpr float kHalfLength = 1.3F;             ///< the tank's, fore and aft
+    const float half_width = kHullHalfMetres; ///< the footprint, every part inside it
+    constexpr float kHalfLength = 1.3F;       ///< the tank's, fore and aft
     constexpr float kTrackInner = 0.36F;
     constexpr float kTrackOuter = 0.55F;
     constexpr float kTrackGround = 0.98F; ///< half the run on the ground
@@ -999,9 +999,9 @@ void build_hover_tank(std::vector<SceneVertex>& out, std::uint64_t seed, const s
     const UvRect skirt_tile = atlas.rect("hover_skirt");
     const UvRect fin_tile = atlas.rect("tank_turret");
     const UvRect barrel_tile = atlas.rect("tank_barrel");
-    const float tail_half = kMetresPerTile * 0.3F; ///< the tank's own half-width, at the tail
-    constexpr float kNoseHalf = 0.12F;             ///< the wedge's half-width at its nose
-    constexpr float kTail = -1.3F;                 ///< metres along the heading from the centre
+    const float tail_half = kHullHalfMetres; ///< the tank's own half-width, at the tail
+    constexpr float kNoseHalf = 0.12F;       ///< the wedge's half-width at its nose
+    constexpr float kTail = -1.3F;           ///< metres along the heading from the centre
     constexpr float kNose = 1.5F;
     constexpr float kHullBottom = 0.4F; ///< above the ground: the skirt and the air under it
     constexpr float kTailTop = 0.85F;   ///< the deck at the tail, its tallest point
@@ -1123,7 +1123,7 @@ void build_mortar(std::vector<SceneVertex>& out, std::uint64_t seed, const sim::
         = atlas.rect(kTeamHullNames.at(static_cast<std::size_t>(unit.side))
                          .at(static_cast<std::size_t>(hull_variant(seed, unit.id.value))));
     const UvRect barrel_tile = atlas.rect("tank_barrel");
-    const float half_width = kMetresPerTile * 0.3F; ///< a tank's: the base is as wide as one
+    const float half_width = kHullHalfMetres; ///< a tank's: the base is as wide as one
     constexpr float kBaseHalfLength = 0.7F;
     constexpr float kBaseTop = 0.4F;
     constexpr float kMountHalfAcross = 0.22F;
@@ -1414,6 +1414,34 @@ void append_scrap(std::vector<SceneVertex>& out, const SceneOptions& options, co
                   Vec3{cx + kScrapHalfMetres, ground, cz - kScrapHalfMetres},
                   Vec3{cx + kScrapHalfMetres, ground, cz + kScrapHalfMetres},
                   Vec3{cx - kScrapHalfMetres, ground, cz + kScrapHalfMetres}, kScrapColour);
+    }
+}
+
+/// CONTACT SHADOWS (see `kShadowInk`): one flat translucent quad per LIVING unit, at the unit's own
+/// x/y and the terrain height there, sized by `kShadowHalfMetres` (the hull drawn above it). The
+/// viewer's own hull gets one too: it is not drawn in first person, and the patch is the cue left.
+/// Culled to the meshed radius exactly as the unit emission is. Drawn BEFORE the hulls and the
+/// bars, so it reads as ground under them.
+void append_unit_shadows(std::vector<SceneVertex>& out, const SceneOptions& options,
+                         const sim::Sim& sim, int centre_x, int centre_y) {
+    for (const sim::Unit& unit : sim.units()) {
+        if (!unit.alive) {
+            continue;
+        }
+        const int dx = unit.x.floor_int() - centre_x;
+        const int dy = unit.y.floor_int() - centre_y;
+        if (std::abs(dx) > options.radius_tiles || std::abs(dy) > options.radius_tiles) {
+            continue;
+        }
+        const float tile_x = static_cast<float>(unit.x.raw) / static_cast<float>(sim::Fixed::kOne);
+        const float tile_y = static_cast<float>(unit.y.raw) / static_cast<float>(sim::Fixed::kOne);
+        const float cx = tile_x * kMetresPerTile;
+        const float cz = tile_y * kMetresPerTile;
+        const float half = kShadowHalfMetres;
+        const float ground = ground_metres(options.seed, tile_x, tile_y) + kShadowLiftMetres;
+        emit_quad(out, Vec3{cx - half, ground, cz - half}, Vec3{cx + half, ground, cz - half},
+                  Vec3{cx + half, ground, cz + half}, Vec3{cx - half, ground, cz + half},
+                  kShadowInk, kShadowAlpha);
     }
 }
 
@@ -4047,6 +4075,8 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
     if (options.aim.has_value()) {
         aimed = pick(sim, options, options.aim->x, options.aim->y);
     }
+
+    append_unit_shadows(scene.vertices, options, sim, centre_x, centre_y);
 
     for (const sim::Unit& unit : sim.units()) {
         if (!unit.alive) {
