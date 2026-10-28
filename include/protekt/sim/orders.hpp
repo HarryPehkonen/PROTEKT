@@ -111,6 +111,20 @@ struct FireFan {
     Fixed dir_z{};
 };
 
+/// Fire the ROCKET: one bolt along a direction with the CARRIED weapon's own numbers, whatever the
+/// shooter's kind. The payload is FireTowards' (direction and intent) for the same reason
+/// `FireFan`'s is: the balance numbers belong to the WEAPON, not the order, so the sim reads
+/// `kRocketSpec` for its long reach, its damage, its reload and its bolt speed, and a replay
+/// records the aim and not the numbers. Without this order the rocket in the ring was a tank bolt
+/// with a rocket crosshair: `FireTowards` reads the SHOOTER's kind, so a rocket fired from a tank
+/// reached the tank's 12 tiles.
+struct FireRocket {
+    Fixed dir_x{};
+    Fixed dir_y{};
+    UnitId aimed_at{};
+    Fixed dir_z{};
+};
+
 /// One tick of sideways drift, as an INPUT: the direction (map x, map y; need not be normalised,
 /// zero is no strafe at all) a hover tank slides this tick. The sim scales it to a fixed fraction
 /// of the unit's speed, so the commander says where and the sim says how fast. It sets no stance
@@ -141,10 +155,10 @@ struct Recycle {
 
 } // namespace orders
 
-using OrderPayload
-    = std::variant<orders::MoveTo, orders::GuardAt, orders::Patrol, orders::Attack, orders::Stop,
-                   orders::FocusFire, orders::FireTowards, orders::Strafe, orders::Follow,
-                   orders::FireLob, orders::Deploy, orders::Recycle, orders::FireFan>;
+using OrderPayload = std::variant<orders::MoveTo, orders::GuardAt, orders::Patrol, orders::Attack,
+                                  orders::Stop, orders::FocusFire, orders::FireTowards,
+                                  orders::Strafe, orders::Follow, orders::FireLob, orders::Deploy,
+                                  orders::Recycle, orders::FireFan, orders::FireRocket>;
 
 /// How each payload alternative is named and reported. This is the payload's index, in the
 /// payload's order, and the assertions below make that true rather than intended.
@@ -162,9 +176,12 @@ enum class OrderKind : std::uint8_t {
     Deploy = 10,
     Recycle = 11,
     FireFan = 12,
+    /// Appended after FireFan, never inserted: a kind's value is what a replay and an observation
+    /// carry, so inserting one would move every recorded order.
+    FireRocket = 13,
 };
 
-inline constexpr std::size_t kOrderKindCount = static_cast<std::size_t>(OrderKind::FireFan) + 1;
+inline constexpr std::size_t kOrderKindCount = static_cast<std::size_t>(OrderKind::FireRocket) + 1;
 
 static_assert(std::variant_size_v<OrderPayload> == kOrderKindCount,
               "every alternative needs a kind, and every kind an alternative");
@@ -188,6 +205,7 @@ static_assert(std::is_same_v<PayloadOf<OrderKind::FireLob>, orders::FireLob>);
 static_assert(std::is_same_v<PayloadOf<OrderKind::Deploy>, orders::Deploy>);
 static_assert(std::is_same_v<PayloadOf<OrderKind::Recycle>, orders::Recycle>);
 static_assert(std::is_same_v<PayloadOf<OrderKind::FireFan>, orders::FireFan>);
+static_assert(std::is_same_v<PayloadOf<OrderKind::FireRocket>, orders::FireRocket>);
 
 /// The kind is the payload's own index. There is no second field that can disagree with it, which
 /// is precisely what the flat record could not promise.
@@ -264,6 +282,15 @@ struct OrderFields {
         out.positions[1] = Fixed::from_int(p->tile_y);
         out.position_count = 2;
     } else if (const auto* p = std::get_if<orders::FireFan>(&payload)) {
+        out.positions[0] = p->dir_x;
+        out.positions[1] = p->dir_y;
+        out.positions[2] = p->dir_z;
+        out.position_count = 3;
+        out.has_target = true;
+        out.target = p->aimed_at;
+    } else if (const auto* p = std::get_if<orders::FireRocket>(&payload)) {
+        // The rocket is a single bolt aimed along a direction, exactly as the shotgun's fan is:
+        // the aim is the order's, the weapon's numbers are the spec row's.
         out.positions[0] = p->dir_x;
         out.positions[1] = p->dir_y;
         out.positions[2] = p->dir_z;

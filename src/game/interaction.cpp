@@ -173,6 +173,16 @@ void Interaction::handle(const input::InputFrame& frame, const sim::Sim& sim,
                     driven_,
                     sim::orders::FireFan{to_fixed(dir.at(0)), to_fixed(dir.at(2)),
                                          named ? hit->id : sim::UnitId{}, to_fixed(dir.at(1))}});
+            } else if (weapon_ == Weapon::Rocket) {
+                // THE ROCKET (B): its own order because its own numbers -- `kRocketSpec` reaches 18
+                // tiles against the hull gun's 12, for triple damage at a fifth of the rate. Fired
+                // on the gun's own aim (shot_direction), so the two crosshairs agree; only the
+                // round, its reach and its reload differ. Until this order existed the rocket in
+                // the ring was a tank bolt wearing a rocket crosshair.
+                pending_.push_back(sim::Order{
+                    driven_,
+                    sim::orders::FireRocket{to_fixed(dir.at(0)), to_fixed(dir.at(2)),
+                                            named ? hit->id : sim::UnitId{}, to_fixed(dir.at(1))}});
             } else {
                 pending_.push_back(sim::Order{
                     driven_, sim::orders::FireTowards{to_fixed(dir.at(0)), to_fixed(dir.at(2)),

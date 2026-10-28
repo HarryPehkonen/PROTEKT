@@ -37,6 +37,7 @@ constexpr std::array<VerbInfo, kOrderKindCount> kVerbs{{
     {"deploy", OrderKind::Deploy},
     {"recycle", OrderKind::Recycle},
     {"firefan", OrderKind::FireFan},
+    {"firerocket", OrderKind::FireRocket},
 }};
 
 const VerbInfo* find_verb(OrderKind kind) {
@@ -78,6 +79,8 @@ OrderPayload blank_payload(OrderKind kind) {
         return orders::Recycle{};
     case OrderKind::FireFan:
         return orders::FireFan{};
+    case OrderKind::FireRocket:
+        return orders::FireRocket{};
     }
     return orders::Stop{};
 }
@@ -114,6 +117,9 @@ OrderPayload payload_from(OrderKind kind, const OrderFields& f) {
         return orders::Recycle{f.target};
     case OrderKind::FireFan:
         return orders::FireFan{f.positions.at(0), f.positions.at(1), f.target, f.positions.at(2)};
+    case OrderKind::FireRocket:
+        return orders::FireRocket{f.positions.at(0), f.positions.at(1), f.target,
+                                  f.positions.at(2)};
     }
     return orders::Stop{};
 }

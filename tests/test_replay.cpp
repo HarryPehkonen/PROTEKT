@@ -156,6 +156,9 @@ TEST(Replay, EveryOrderKindSurvivesARoundTripAndNoneIsDropped) {
         Command{12, Order{UnitId{7}, orders::Recycle{UnitId{8}}}},
         Command{13, Order{UnitId{8}, orders::FireFan{Fixed::from_raw(65536), Fixed::zero(),
                                                      UnitId{9}, Fixed::from_raw(-65536)}}},
+        Command{14,
+                Order{UnitId{9}, orders::FireRocket{Fixed::from_raw(65536), Fixed::from_raw(32768),
+                                                    UnitId{10}, Fixed::from_raw(-65536)}}},
     };
     ASSERT_EQ(r.commands.size(), kOrderKindCount) << "this test must cover every kind";
     for (std::size_t i = 0; i < r.commands.size(); ++i) {
@@ -174,6 +177,9 @@ TEST(Replay, EveryOrderKindSurvivesARoundTripAndNoneIsDropped) {
         << "the tile is written as a whole-tile position: " << text;
     EXPECT_NE(text.find("12 recycle 7 8\n"), std::string::npos)
         << "a recycle names its recycler as the target: " << text;
+    EXPECT_NE(text.find("13 firefan 8 65536 0 -65536 9\n"), std::string::npos) << text;
+    EXPECT_NE(text.find("14 firerocket 9 65536 32768 -65536 10\n"), std::string::npos)
+        << "the rocket records the aim, not its balance numbers: " << text;
 
     const Replay again = must_parse(text);
     ASSERT_EQ(again.commands.size(), r.commands.size());

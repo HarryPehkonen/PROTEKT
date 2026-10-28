@@ -347,6 +347,23 @@ void apply_order(std::vector<Unit>& units, std::vector<Projectile>& projectiles,
             }
         }
         break;
+    case OrderKind::FireRocket:
+        if (const auto* o = std::get_if<orders::FireRocket>(&order.payload)) {
+            // THE ROCKET'S TRIGGER (B), FireFan's rule for a single bolt: armed, mounted, reloaded,
+            // no naming oneself, no Fired event, and the WEAPON's own numbers from `kRocketSpec` --
+            // its long reach, its triple damage, its quintuple reload and its three-quarter bolt
+            // speed. ONE bolt: `pellets` is zero, so there is no fan to spread (the hull's gun
+            // fires through FireTowards, which still reads the shooter's kind).
+            const UnitSpec& gun = kRocketSpec;
+            if (gun.range.raw > 0 && gun.damage > 0 && unit.cooldown == 0 && is_mounted(unit)) {
+                const UnitId aimed_at = o->aimed_at == unit.id ? UnitId{} : o->aimed_at;
+                projectiles.push_back(launch_towards(unit, o->dir_x, o->dir_y, o->dir_z, aimed_at,
+                                                     gun.damage, seed, gun));
+                shots.push_back(Sim::Shot{unit.id, UnitId{}});
+                unit.cooldown = gun.cooldown;
+            }
+        }
+        break;
     }
 }
 

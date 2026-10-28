@@ -344,26 +344,45 @@ TEST(ManualFire, ATargetUnderTheMarkDoesNotBendTheShell) {
     EXPECT_NEAR(as_float(lob.dir_z), barrel.at(1), 1e-3F);
 }
 
-TEST(ManualFire, GunAndRocketKeepTheAutoAssistedShotAsEverTheyWere) {
-    // Today's trigger is one FireTowards along shot_direction; the gun and the rocket still make
-    // exactly that, whatever the pitch, and fly it as a straight bolt of the tank's own.
-    for (const Weapon weapon : {Weapon::Gun, Weapon::Rocket}) {
-        Rig rig = make_rig();
-        const Flight flight = fire_along_x(rig, weapon, 0.6F);
-        ASSERT_EQ(flight.orders.size(), 1U);
-        EXPECT_EQ(flight.orders.front().kind(), sim::OrderKind::FireTowards);
-        ASSERT_TRUE(flight.launched);
-        EXPECT_EQ(flight.first.gravity.raw, 0);
-        EXPECT_EQ(flight.first.splash_radius.raw, 0);
-    }
-    Rig gun = make_rig();
-    Rig rocket = make_rig();
-    const Flight g = fire_along_x(gun, Weapon::Gun, 0.6F);
-    const Flight r = fire_along_x(rocket, Weapon::Rocket, 0.6F);
-    EXPECT_EQ(std::get<sim::orders::FireTowards>(g.orders.front().payload).dir_x,
-              std::get<sim::orders::FireTowards>(r.orders.front().payload).dir_x);
-    EXPECT_EQ(gun.sim.state_hash(), rocket.sim.state_hash())
-        << "the weapon choice changes nothing the sim sees for gun and rocket";
+TEST(ManualFire, TheGunKeepsTheAutoAssistedShotItAlwaysWas) {
+    // The gun is the HULL's weapon: one FireTowards along shot_direction, flown as the tank's own
+    // straight single-target bolt. This half of the old gun-and-rocket contract is unchanged.
+    Rig rig = make_rig();
+    const Flight flight = fire_along_x(rig, Weapon::Gun, 0.6F);
+    ASSERT_EQ(flight.orders.size(), 1U);
+    EXPECT_EQ(flight.orders.front().kind(), sim::OrderKind::FireTowards);
+    ASSERT_TRUE(flight.launched);
+    EXPECT_EQ(flight.first.damage, sim::spec_of(UnitKind::Tank).damage);
+    EXPECT_EQ(flight.first.gravity.raw, 0);
+    EXPECT_EQ(flight.first.splash_radius.raw, 0);
+}
+
+TEST(ManualFire, TheRocketIsItsOwnWeaponWithItsOwnReachNotTheHulls) {
+    // B, and Harri's ask (2026-10-27: "can the rocket have more reach?"). This REPLACES the old
+    // contract that the weapon choice "changes nothing the sim sees": the trigger now sends
+    // `FireRocket`, whose numbers come from `kRocketSpec`, so the rocket owns its damage, its
+    // reload and its distance. It is still aimed on the gun's own ray -- the crosshairs agree --
+    // but it is a different shot, and the sim can see the difference.
+    Rig gun_rig = make_rig();
+    Rig rocket_rig = make_rig();
+    const Flight gun = fire_along_x(gun_rig, Weapon::Gun, 0.6F);
+    const Flight rocket = fire_along_x(rocket_rig, Weapon::Rocket, 0.6F);
+
+    ASSERT_EQ(rocket.orders.size(), 1U);
+    EXPECT_EQ(rocket.orders.front().kind(), sim::OrderKind::FireRocket);
+    ASSERT_TRUE(rocket.launched);
+    EXPECT_EQ(rocket.first.damage, sim::kRocketSpec.damage)
+        << "the weapon's damage, not the hull's";
+    EXPECT_GT(rocket.first.max_travel.raw, gun.first.max_travel.raw)
+        << "the rocket's bolt is allowed to fly farther than the gun's";
+    EXPECT_EQ(rocket.first.gravity.raw, 0);
+    EXPECT_EQ(rocket.first.splash_radius.raw, 0) << "one bolt, single target";
+
+    // The same aim as the gun's: only the round differs.
+    EXPECT_EQ(std::get<sim::orders::FireRocket>(rocket.orders.front().payload).dir_x,
+              std::get<sim::orders::FireTowards>(gun.orders.front().payload).dir_x);
+    EXPECT_NE(gun_rig.sim.state_hash(), rocket_rig.sim.state_hash())
+        << "the weapon choice is a different shot now, not a cosmetic reticle";
 }
 
 TEST(ManualFire, TheMortarShellGoesThroughTheSameProjectilePathAsAnyShot) {
