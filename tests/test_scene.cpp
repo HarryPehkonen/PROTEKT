@@ -5875,9 +5875,12 @@ TEST(SceneWake, NothingIsDrawnWithoutADeath) {
     scenario.spawns = {{sim::UnitKind::Tank, sim::Side::Player, 40, 40}};
     const sim::Sim quiet = sim::Sim::create(scenario);
     const SceneOptions plain = wake_options(0.0F, 0.0F);
-    SceneOptions with = plain;
-    with.events = std::vector<sim::BattleEvent>{
+    // The list is NAMED and lives past the frame: `events` is a span, and a span over a temporary
+    // vector is a pointer into memory the statement's end has already freed (ASan said so).
+    const std::vector<sim::BattleEvent> hits{
         sim::BattleEvent{wreck.stamp, sim::EventKind::HitTaken, sim::UnitId{1}, sim::UnitId{2}, 0}};
+    SceneOptions with = plain;
+    with.events = hits;
     EXPECT_EQ(build_scene(quiet, plain).vertices.size(), build_scene(quiet, with).vertices.size());
 }
 
