@@ -524,6 +524,12 @@ public:
         scene_options.reticle_pulse = options_.pulse_percent >= 0
                                           ? static_cast<float>(options_.pulse_percent) / 100.0F
                                           : hit_mark_.level(sim_.tick());
+        // The target SPACE would attack: one answer for the menu's `SPACE Attack` row (through
+        // `menu_for`) and for the red line, label and bar the scene draws from it. The nav chain
+        // owns SPACE while it is open, so nothing is offered then.
+        if (nav_menu_.state() == game::NavState::Closed) {
+            scene_options.attack_target = attack_offer(sim_, session_, scene_options);
+        }
         // The rows live in a NAMED LOCAL that outlives the build below: SceneOptions holds a
         // pointer and nothing owned, so pointing it at a temporary would leave a dangling menu in
         // the frame. An open nav chain is the left menu; it can only have opened from the top

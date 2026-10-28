@@ -557,6 +557,15 @@ struct MenuLeader {
 [[nodiscard]] MenuLeader menu_leader(const MenuLayout& layout, std::optional<float> radar_top,
                                      std::optional<std::array<float, 2>> blip);
 
+/// THE ATTACK OFFER'S RED LINE (`SceneOptions::attack_target`): it leaves the menu where the first
+/// row's verb bar ends -- the right side of the background round `SPACE Attack` -- at that bar's
+/// vertical middle, the way the amber leader runs from the rows' own edge. Pure in the layout.
+[[nodiscard]] std::array<float, 2> attack_line_origin(const MenuLayout& layout) noexcept;
+
+/// The attack line's ink: red, and deliberately not the reticle's `kReticleHostile` or a unit bar's
+/// fill, so the line is its own thing to find in a frame and to test.
+inline constexpr std::array<float, 3> kAttackLineInk{1.0F, 0.10F, 0.10F};
+
 /// A menu bar's face is drawn as this many horizontal bands, top to bottom, one quad each.
 inline constexpr int kMenuFaceBands = 8;
 
@@ -683,6 +692,14 @@ struct SceneOptions {
     /// The rows `show_menu` draws. Null or empty draws nothing, so a frame that never heard of it
     /// is byte-identical -- the same discipline as `attack_list`. NOT owned.
     const std::vector<MenuRow>* menu{nullptr};
+    /// THE ATTACK OFFER (SPACE ATTACK): the hostile asset SPACE would attack right now -- the
+    /// crosshair's target (`attack_target`, filled by the app each frame, so the scene stays a pure
+    /// function of the sim and these options). While it names a living unit the scene draws a red
+    /// line from the menu's `SPACE Attack` row to the unit, a small label of its kind above it
+    /// and, under the label, a bar of its health that shrinks from the right and changes colour as
+    /// the unit is hurt. An invalid id (the default) draws none of it, so a frame that never heard
+    /// of the field is byte-identical.
+    sim::UnitId attack_target{};
     /// The world map (N4), drawn last over everything: the whole world as a square, your own
     /// assets and your nav marks. Off by default, so a frame that never heard of it is unchanged.
     bool show_world_map{false};

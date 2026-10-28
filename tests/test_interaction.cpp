@@ -711,7 +711,7 @@ TEST(Interaction, SpaceOverGroundOrNothingLeavesTheSelectionAlone) {
 }
 
 TEST(HoverTank, SpaceSelectsItAndTheMarkKeysOrderItLikeATank) {
-    // The orders belong to the KEYS since 2026-10-23 -- `M` to move, `T` to attack -- because the
+    // The orders belong to the KEYS since 2026-10-23 -- `M` to move, SPACE to attack -- because the
     // right button changes weapons and nothing else now. What a hover tank still has to prove is
     // that the keys treat it like any other tank.
     Rig rig = make_rig(UnitKind::HoverTank);
@@ -727,14 +727,14 @@ TEST(HoverTank, SpaceSelectsItAndTheMarkKeysOrderItLikeATank) {
     EXPECT_EQ(moved.at(0).kind(), OrderKind::MoveTo);
 
     static_cast<void>(at(rig, rig.enemy));
-    player.handle(with_key(input::kKeyT), rig.sim, rig.options);
+    player.handle(with_key(input::kKeySpace), rig.sim, rig.options);
     const std::vector<Order> attack = player.take_orders();
     ASSERT_EQ(attack.size(), 1U);
     EXPECT_EQ(attack.at(0).unit, rig.tank_b);
     EXPECT_EQ(attack.at(0).kind(), OrderKind::Attack);
 }
 
-TEST(Interaction, TOrdersAnAttackFromEverySelectedUnitAndKeepsTheSelection) {
+TEST(Interaction, SpaceOrdersAnAttackFromEverySelectedUnitAndKeepsTheSelection) {
     Rig rig = make_rig();
     Interaction player{rig.tank_a};
     select_and_drive(rig, player, rig.tank_b);
@@ -744,7 +744,7 @@ TEST(Interaction, TOrdersAnAttackFromEverySelectedUnitAndKeepsTheSelection) {
     ASSERT_EQ(player.selection().size(), 2U);
 
     static_cast<void>(at(rig, rig.enemy));
-    player.handle(with_key(input::kKeyT), rig.sim, rig.options);
+    player.handle(with_key(input::kKeySpace), rig.sim, rig.options);
 
     const std::vector<Order> orders = player.take_orders();
     ASSERT_EQ(orders.size(), 1U) << "the driven tank is not ordered";
@@ -790,20 +790,20 @@ TEST(Interaction, TWithOnlyTheDrivenTankSelectedIsRefused) {
     EXPECT_EQ(player.message(), "You are driving that one; select another unit to give orders.");
 }
 
-TEST(Interaction, TRetargetsWithoutReselecting) {
+TEST(Interaction, SpaceRetargetsWithoutReselecting) {
     Rig rig = make_rig();
     Interaction player{rig.tank_a};
     choose(rig, player, rig.tank_b);
     const std::vector<sim::UnitId> before = selected(player);
 
     static_cast<void>(at(rig, rig.enemy));
-    player.handle(with_key(input::kKeyT), rig.sim, rig.options);
+    player.handle(with_key(input::kKeySpace), rig.sim, rig.options);
     const std::vector<Order> first = player.take_orders();
     ASSERT_EQ(first.size(), 1U);
     EXPECT_EQ(std::get<sim::orders::Attack>(first.front().payload).target, rig.enemy);
 
     static_cast<void>(at(rig, rig.enemy2));
-    player.handle(with_key(input::kKeyT), rig.sim, rig.options);
+    player.handle(with_key(input::kKeySpace), rig.sim, rig.options);
     const std::vector<Order> second = player.take_orders();
     ASSERT_EQ(second.size(), 1U);
     EXPECT_EQ(second.front().unit, rig.tank_b);
@@ -1317,13 +1317,13 @@ constexpr std::int32_t kHomeY = 12;
     return observation;
 }
 
-/// Select `unit` and press `T` with the mark on `target`: the unit is ordered to attack it.
+/// Select `unit` and press SPACE with the mark on `target`: the unit is ordered to attack it.
 void order_attack(Rig& rig, Interaction& player, sim::UnitId unit, sim::UnitId target) {
     if (!player.selection().contains(unit)) { // Space toggles: a second press would deselect it
         choose(rig, player, unit);
     }
     static_cast<void>(at(rig, target));
-    player.handle(with_key(input::kKeyT), rig.sim, rig.options);
+    player.handle(with_key(input::kKeySpace), rig.sim, rig.options);
     ASSERT_EQ(player.take_orders().size(), 1U);
 }
 

@@ -17,6 +17,10 @@ inline constexpr float kPickMaxDistanceTiles = 200.0F;
 inline constexpr float kPickStepTiles = 0.25F;
 inline constexpr float kPickUnitRadiusTiles = 0.75F;
 
+/// How tall a unit's pick box is, in metres: a factory stands taller than a vehicle. The picker's
+/// box and `attack_point`'s middle both read this, so they are the same unit's same body.
+[[nodiscard]] float unit_box_height_metres(sim::UnitKind kind) noexcept;
+
 struct Pick {
     /// The unit under the cursor, if any. `valid()` is false for a click on the ground or sky.
     sim::UnitId unit{};

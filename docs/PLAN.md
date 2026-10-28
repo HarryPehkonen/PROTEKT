@@ -266,7 +266,7 @@ Split in two: the order interface first, the economy second.
 26 new tests, red against stubs, with the 134 existing tests still green as a regression guard.
 
 **M4b — the resource loop is built; the build menu is not.** The loop (scrap → scavenger → ledger →
-the factory's tank) is in the sim, and click-to-attack has become `T` and `Space`.
+the factory's tank) is in the sim, and click-to-attack has become `Space` (the menu offers `SPACE Attack` for an enemy under or within about four degrees of the crosshair, with a red line, a kind label and a health bar on the enemy); `T` keeps the numbered attack list, and `1`/`2` with nothing selected bring up the recycler and the factory.
 Still owed: the build menu, which is only a drawn quotation of BZ2's rows, and turret placement from
 the player's own hand.
 

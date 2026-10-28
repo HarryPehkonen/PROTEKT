@@ -198,6 +198,28 @@ std::vector<BarSegment> bar_segments(std::span<const float> fractions) {
     return segments;
 }
 
+sim::UnitId building_key_holder(const sim::Sim& sim, sim::Side side, int key) {
+    if (key < 1) {
+        return sim::UnitId{};
+    }
+    const std::size_t slot = static_cast<std::size_t>(key);
+    const bool recycler_key = slot == building_slot(sim::UnitKind::DeployedRecycler);
+    sim::UnitId undeployed{};
+    for (const sim::Unit& unit : sim.units()) {
+        if (!unit.alive || unit.side != side) {
+            continue;
+        }
+        if (const std::optional<std::size_t> held = building_slot(unit.kind);
+            held.has_value() && *held == slot) {
+            return unit.id;
+        }
+        if (recycler_key && unit.kind == sim::UnitKind::Recycler && !undeployed.valid()) {
+            undeployed = unit.id;
+        }
+    }
+    return undeployed;
+}
+
 std::string_view row_key_label(std::size_t index) noexcept {
     static constexpr std::array<std::string_view, kRowSlots> kLabels{
         "~", "1", "2", "3", "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10"};

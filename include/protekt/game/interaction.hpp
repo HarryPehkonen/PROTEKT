@@ -57,12 +57,14 @@ public:
     ///    the path. The shot is also to be heard (`take_shot_voice`). It never changes the
     ///    selection.
     ///  * Space (Shift-Space is the same): the selector. Nothing selected: select the own unit
-    ///    under the mark. Something selected: follow a tank under the mark, or attack a hostile
-    ///    that is not a tank. It never adds to a selection
+    ///    under the mark. Something selected: ATTACK the hostile `attack_target` names (the unit
+    ///    under the mark, or the one within `kAttackAimToleranceDegrees` of it) when the selection
+    ///    holds anything armed -- the menu's `SPACE Attack`, drawn from the same function -- else
+    ///    follow an own tank under the mark. It never adds to a selection
     ///  * right click: THE WEAPON SWITCH, one step of `next_weapon`'s wrap. It needs no mark, and
     ///    it is the ONLY switch since 2026-10-23 (`Q` and the mouse wheel stopped switching). The
     ///    orders this button used to give -- MoveTo the ground, Attack a hostile -- live on `M`,
-    ///    `T` and `G` below
+    ///    SPACE and `G` below
     ///  * M with a selection: MoveTo the ground under the mark for every selected unit that is not
     ///    the driven one, even with a unit under the mark; nothing selected: refused
     ///  * X: swap the driven unit to the own drivable unit under the mark (any kind but the
@@ -84,9 +86,13 @@ public:
     ///    arming up; Escape cancels it (and is spent doing so: the selection stays); any other key
     ///    cancels it and then does its own job; an order by key (`M`) cancels it. The trigger
     ///    leaves it armed, and so does a weapon click: neither is an order.
-    ///  * T with a hostile under the mark: Attack it, as above. T with none: arm the attack list of
-    ///    the driven tank's nearest hostiles within the radar's radius (`nearest_enemies`), unless
-    ///    there are none (refused). The next 0-9 attacks that row for the selection.
+    ///  * T: arm the attack list of the driven tank's nearest hostiles within the radar's radius
+    ///    (`nearest_enemies`), unless there are none (refused), whatever the mark is on. The next
+    ///    0-9 attacks that row for the selection. T no longer attacks the unit under the mark:
+    ///    that is SPACE's.
+    ///  * a digit with NOTHING selected (the top menu): `1` selects the player's recycler and `2`
+    ///    the factory, wherever they are (`building_key_holder`); a building that is not alive is
+    ///    refused aloud. With a selection the digit is the open menu's, below.
     ///  * a digit with NO prompt open (RB-DIGITS): the row of the selected subject's command menu
     ///    that key names, but only the rows that can act yet, and only when `menu_rows` says the
     ///    row is enabled. `FOLLOW ME` orders the selection to follow the craft being driven;
@@ -195,6 +201,12 @@ private:
     /// `2 GO TO NAV`: MoveTo the highlighted nav mark for every orderable selected unit. Refused
     /// when no mark is highlighted, or when nothing but the driven craft is selected.
     void go_to_highlighted_mark(const SceneOptions& options);
+    /// Order every orderable selected unit to attack `target`, or refuse and say why.
+    void attack(sim::UnitId target);
+    /// A digit with nothing selected (the top menu): `1` selects the player's recycler and `2` the
+    /// factory (`building_key_holder`), wherever they are. A building that is not alive is refused
+    /// aloud and selects nothing; `3` (no armory yet) and the other digits do nothing.
+    void bring_up_building(const sim::Sim& sim, int key);
     /// `3 ATTACK`: open the attack list T opens with no hostile under the crosshair. The next digit
     /// names the row to attack.
     void attack_from_menu(const sim::Sim& sim);
@@ -210,7 +222,7 @@ private:
     /// G then a digit: MoveTo the tile of the mark drawn as `number` for every orderable selected
     /// unit (N3).
     void send_to_mark(int number, const SceneOptions& options);
-    /// T with nothing hostile under the crosshair: capture the nearest hostiles and arm the list,
+    /// T (and `3 ATTACK`): capture the nearest hostiles and arm the list,
     /// or refuse when there are none. A refusal leaves nothing armed.
     void arm_attack_list(const sim::Sim& sim);
     void disarm_attack() noexcept;

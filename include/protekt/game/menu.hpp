@@ -108,6 +108,11 @@ struct MenuInput {
     /// drawn at the state row's right: `SPACE DEPLOY 68m`. Absent -- nothing armed, or the reticle
     /// off the ground -- draws nothing there.
     std::optional<int> metres{};
+    /// SPACE would attack the hostile asset the crosshair is on (`attack_target`): the state row
+    /// reads `SPACE Attack`. Ignored while a command is armed -- the armed command owns SPACE. A
+    /// selection with no menu of its own (a mixed one) still gets that single row, because the
+    /// offer is about the crosshair and the weapons, not about the subject.
+    bool attack{false};
     /// Whether MORE THAN ONE unit is selected. It decides one row's ink and nothing else: `~
     /// Select Unit` applies to a group and not to a lone unit (the plan's measured dim rule), so a
     /// single selection draws it dimmed. Defaulted, so a caller that does not know still compiles.

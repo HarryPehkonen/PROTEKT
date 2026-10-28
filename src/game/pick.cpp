@@ -8,6 +8,10 @@
 
 namespace protekt::game {
 
+float unit_box_height_metres(sim::UnitKind kind) noexcept {
+    return kind == sim::UnitKind::Factory ? 4.5F : 1.8F;
+}
+
 namespace {
 
 float aspect_of(Extent extent) {
@@ -110,7 +114,7 @@ Pick pick(const sim::Sim& sim, const SceneOptions& options, float screen_x,
         const bool hovering
             = options.hover.has_value() && options.hover->unit.value == unit.id.value;
         const float base = hovering ? options.hover->z : ground;
-        const float height = unit.kind == sim::UnitKind::Factory ? 4.5F : 1.8F;
+        const float height = unit_box_height_metres(unit.kind);
         const float t
             = hit_box(ray, {x - radius, base, z - radius}, {x + radius, base + height, z + radius});
         if (t < 0.0F) {

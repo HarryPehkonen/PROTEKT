@@ -11,6 +11,7 @@
 
 #include "protekt/ai/utility.hpp"
 #include "protekt/cmd/command.hpp"
+#include "protekt/game/attack_aim.hpp"
 #include "protekt/game/menu.hpp"
 #include "protekt/game/nav_marks.hpp"
 #include "protekt/game/pick.hpp"
@@ -103,7 +104,7 @@ void Interaction::handle(const input::InputFrame& frame, const sim::Sim& sim,
             // It needs no mark, so it is settled before the aim is consulted -- a weapon change is
             // the same click whether the crosshair is on a tank or on the sky. The orders this
             // button used to give live on the keys: `G` (send to a mark), `M` (move to the ground
-            // under the mark), `T` (attack what the mark is on), `F` (follow). A weapon change
+            // under the mark), `SPACE` (attack what the mark is on), `F` (follow). A weapon change
             // cancels nothing, so a pending `G` or `T` stays armed across it.
             // A carried weapon belongs to the HULL, so the click walks the DRIVEN kind's lineup
             // (B): a hull that is blocked from a weapon never offers it. With no hull in hand --
@@ -246,90 +247,73 @@ void Interaction::handle(const input::InputFrame& frame, const sim::Sim& sim,
             selection_.clear();
         } else if (const int digit = input::mark_digit(key); digit >= 0) {
             // Reached only with no prompt open: G and T settle a digit above and `continue`.
-            menu_digit(sim, options, digit);
+            // A digit is the OPEN MENU's verb when a selection owns one; with nothing selected it
+            // is the TOP MENU's, and there `1` and `2` are the buildings (the menu spec: a left
+            // menu owns its keys, the top menu is reachable only without one).
+            if (selection_.empty()) {
+                bring_up_building(sim, digit);
+            } else {
+                menu_digit(sim, options, digit);
+            }
         } else if (key.scancode == input::kKeyX) {
             swap_to_crosshair(sim, options);
         } else if (key.scancode == input::kKeyM) {
             move_to_crosshair_ground(sim, options);
         } else if (key.scancode == input::kKeyF) {
             follow_crosshair_unit(sim, options);
-        } else if (key.scancode == input::kKeySpace || key.scancode == input::kKeyT) {
-            if (!options.aim.has_value()) {
-                continue; // no mark, nothing to point at; see the click loop
-            }
-            // The crosshair is read fresh on every press, so T after a kill retargets for free.
-            const Pick picked = pick(sim, options, options.aim->x, options.aim->y);
-            const sim::Unit* hit = picked.has_unit() ? sim.find(picked.unit) : nullptr;
-            const bool hit_is_ours = hit != nullptr && hit->alive && hit->side == sim::Side::Player;
-            const bool hit_is_hostile
-                = hit != nullptr && hit->alive && hit->side != sim::Side::Player;
-
-            if (key.scancode == input::kKeySpace) {
-                // Space is the SELECTOR, and its meaning depends on what is already selected and
-                // what the mark is on. The menu on the left tells the player which one is live.
-                // It never ADDS to a selection: a selection comes from a function key (a whole
-                // group) or from Space over one vehicle starting from empty.
-                if (selection_.empty()) {
-                    // Nothing selected: select the single own unit under the mark, within 80% of
-                    // the radar's range (32 of a tank's 40 tiles, 64 of a scout's 80). Ground, sky,
-                    // hostiles and the driven tank (nothing to order) are ignored: a stray press
-                    // does nothing.
-                    if (hit_is_ours && hit->id != driven_
-                        && picked.distance_tiles
-                               <= space_select_range_tiles(viewer_radar_radius(sim, driven_))) {
-                        selection_.clear();
-                        selection_.add(hit->id);
-                        message_ = "SPACE Select";
-                    }
-                    continue;
-                }
-                // Something is selected: follow a vehicle under the mark, or attack a hostile one.
-                if (hit != nullptr && hit->alive) {
-                    if (sim::is_tank(hit->kind)) {
-                        follow_crosshair_unit(sim, options);
-                        message_ = "SPACE Follow";
-                        continue;
-                    }
-                    if (hit_is_hostile) {
-                        const std::vector<sim::UnitId> roster = orderable();
-                        if (roster.empty()) {
-                            refuse("You are driving that one; select another unit to give orders.");
-                            continue;
-                        }
-                        const std::vector<sim::Order> orders = cmd::attack(roster, hit->id);
-                        if (orders.empty()) {
-                            refuse("That order cannot be carried out.");
-                            continue;
-                        }
-                        remember(orders);
-                        pending_.insert(pending_.end(), orders.begin(), orders.end());
-                        message_ = "SPACE Attack";
-                    }
-                }
-                continue;
-            }
+        } else if (key.scancode == input::kKeyT) {
+            // T opens the attack LIST: the nearest hostiles by number, whatever the crosshair is
+            // on. It used to attack the hostile under the crosshair when there was one; that is
+            // SPACE's now (the menu offers `SPACE Attack`), and T no longer gives that order.
             if (selection_.empty()) {
                 refuse("Nothing is selected to give an order to.");
                 continue;
             }
-            const std::vector<sim::UnitId> roster = orderable();
-            if (roster.empty()) {
+            if (orderable().empty()) {
                 refuse("You are driving that one; select another unit to give orders.");
                 continue;
             }
-            if (!hit_is_hostile) {
-                // Nothing hostile under the crosshair: T offers the nearest ones by number instead.
-                arm_attack_list(sim);
+            arm_attack_list(sim);
+        } else if (key.scancode == input::kKeySpace) {
+            if (!options.aim.has_value()) {
+                continue; // no mark, nothing to point at; see the click loop
+            }
+            // The crosshair is read fresh on every press, so SPACE after a kill retargets for free.
+            const Pick picked = pick(sim, options, options.aim->x, options.aim->y);
+            const sim::Unit* hit = picked.has_unit() ? sim.find(picked.unit) : nullptr;
+            const bool hit_is_ours = hit != nullptr && hit->alive && hit->side == sim::Side::Player;
+
+            // Space is the SELECTOR, and its meaning depends on what is already selected and
+            // what the mark is on. The menu on the left tells the player which one is live.
+            // It never ADDS to a selection: a selection comes from a function key (a whole
+            // group) or from Space over one vehicle starting from empty.
+            if (selection_.empty()) {
+                // Nothing selected: select the single own unit under the mark, within 80% of
+                // the radar's range (32 of a tank's 40 tiles, 64 of a scout's 80). Ground, sky,
+                // hostiles and the driven tank (nothing to order) are ignored: a stray press
+                // does nothing.
+                if (hit_is_ours && hit->id != driven_
+                    && picked.distance_tiles
+                           <= space_select_range_tiles(viewer_radar_radius(sim, driven_))) {
+                    selection_.clear();
+                    selection_.add(hit->id);
+                    message_ = "SPACE Select";
+                }
                 continue;
             }
-            const std::vector<sim::Order> orders = cmd::attack(roster, hit->id);
-            if (orders.empty()) {
-                refuse("That order cannot be carried out.");
+            // Something is selected. FIRST the attack, because it is what the menu offers: the
+            // same function that draws `SPACE Attack` and the red line names the target, so the
+            // HUD and the key can never disagree. Weapons only -- see `attack_target`.
+            if (const sim::UnitId target = attack_target(sim, options, selection_.units(), driven_);
+                target.valid()) {
+                attack(target);
                 continue;
             }
-            remember(orders);
-            pending_.insert(pending_.end(), orders.begin(), orders.end());
-            message_ = "attacking the target under the crosshair.";
+            // Otherwise follow a vehicle of ours under the mark.
+            if (hit_is_ours && sim::is_tank(hit->kind)) {
+                follow_crosshair_unit(sim, options);
+                message_ = "SPACE Follow";
+            }
         }
     }
 }
@@ -551,6 +535,41 @@ void Interaction::menu_digit(const sim::Sim& sim, const SceneOptions& options, i
     } else if (row->verb == kVerbRecycle) {
         recycle_selection(sim);
     }
+}
+
+void Interaction::bring_up_building(const sim::Sim& sim, int key) {
+    // THE CAUSE of "1 and 2 do not bring up the buildings": the row DREW them (`RowState::update`
+    // refills slots 1 and 2 from the sim every frame) but nothing ever READ them back. The digit
+    // path went only to `menu_digit`, which looks the digit up in the SELECTED subject's menu --
+    // and with nothing selected there is no subject and no menu, so the press fell through to
+    // nothing. Pointing at the building and pressing SPACE was the only way to select one.
+    const sim::UnitId building = building_key_holder(sim, sim::Side::Player, key);
+    if (building.valid()) {
+        select_only(building);
+        return;
+    }
+    // Key 3 (the armory) has no kind yet and stays silent, as it always was; 1 and 2 say why.
+    if (key == 1) {
+        refuse("You have no recycler.");
+    } else if (key == 2) {
+        refuse("You have no factory.");
+    }
+}
+
+void Interaction::attack(sim::UnitId target) {
+    const std::vector<sim::UnitId> roster = orderable();
+    if (roster.empty()) {
+        refuse("You are driving that one; select another unit to give orders.");
+        return;
+    }
+    const std::vector<sim::Order> orders = cmd::attack(roster, target);
+    if (orders.empty()) {
+        refuse("That order cannot be carried out.");
+        return;
+    }
+    remember(orders);
+    pending_.insert(pending_.end(), orders.begin(), orders.end());
+    message_ = "SPACE Attack";
 }
 
 void Interaction::arm_deploy() {

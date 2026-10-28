@@ -598,7 +598,9 @@ TEST(RowKeys, TheDigitRowSelectsNothing) {
     Interaction player{rig.own.at(0)};
     player.handle(key_frame(input::kKey1), rig.sim, rig.options);
     EXPECT_TRUE(selected(player).empty()) << "a digit is a mark key, never a group key";
-    EXPECT_TRUE(player.message().empty()) << "a digit that selects nothing has nothing to say";
+    // `1` is the BUILDING key now (tests/test_building_keys.cpp): the rig has no recycler, so the
+    // digit says that rather than selecting some vehicle's group.
+    EXPECT_EQ(player.message(), "You have no recycler.");
 }
 
 TEST(RowKeys, SpaceSelectsTheOneUnitThePlayerIsLookingAt) {

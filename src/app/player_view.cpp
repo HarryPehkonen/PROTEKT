@@ -1,5 +1,6 @@
 #include "protekt/app/player_view.hpp"
 
+#include "protekt/game/attack_aim.hpp"
 #include "protekt/game/nav_marks.hpp"
 #include "protekt/game/pick.hpp"
 
@@ -61,6 +62,14 @@ game::MenuTarget menu_target_of(const sim::Sim& sim, const game::SceneOptions& o
     return picked.has_tile() ? game::MenuTarget::Ground : game::MenuTarget::None;
 }
 
+sim::UnitId attack_offer(const sim::Sim& sim, const game::Session& session,
+                         const game::SceneOptions& options) {
+    if (session.deploy_armed() || session.attack_armed()) {
+        return sim::UnitId{};
+    }
+    return game::attack_target(sim, options, session.selection().units(), session.driven());
+}
+
 std::vector<game::MenuRow> menu_for(const sim::Sim& sim, const game::Session& session,
                                     const game::SceneOptions& options, bool attack_armed) {
     // The attack list and the menu share one slot under the notice: one panel at a time.
@@ -70,6 +79,7 @@ std::vector<game::MenuRow> menu_for(const sim::Sim& sim, const game::Session& se
     game::MenuInput in{game::menu_subject_of(sim, session.selection().units()), sim::Side::Player,
                        game::ArmedCommand{}, menu_target_of(sim, options),
                        static_cast<int>(sim.ore(sim::Side::Player))};
+    in.attack = attack_offer(sim, session, options).valid();
     if (session.deploy_armed()) {
         // `un-deployed recycler menu -> 3`: the state row names the deploy and reads the distance
         // to the ground under the reticle, by the nav chain's own rule (`nav_metres`).

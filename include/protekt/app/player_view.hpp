@@ -40,6 +40,13 @@ namespace protekt::app {
 [[nodiscard]] game::MenuTarget menu_target_of(const sim::Sim& sim,
                                               const game::SceneOptions& options);
 
+/// The hostile asset SPACE would attack this frame, or an invalid id: `game::attack_target` for the
+/// session's selection and driven craft, withheld while the deploy or the attack list is armed
+/// (SPACE means something else then, and the menu is not showing the offer). The menu's `SPACE
+/// Attack` row and the scene's red line, label and bar are all drawn from this one answer.
+[[nodiscard]] sim::UnitId attack_offer(const sim::Sim& sim, const game::Session& session,
+                                       const game::SceneOptions& options);
+
 /// The menu rows for this frame. The one command that arms is the deploy (DEPLOY): while it is
 /// armed the state row reads `SPACE DEPLOY` and, with the reticle on the ground, the distance to
 /// it. Empty when `attack_armed`: the attack list and the menu share one slot under the notice, and

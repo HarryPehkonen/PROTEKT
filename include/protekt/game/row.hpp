@@ -131,6 +131,14 @@ struct BarSegment {
 /// frame drawn before the row is next updated still never shows a dead key.
 [[nodiscard]] std::optional<SlotReading> read_slot(const sim::Sim& sim, const RowSlot& slot);
 
+/// WHO BUILDING KEY `key` (1 or 2) BRINGS UP: the lowest-id living building of `side` that the row
+/// draws under that key, or an invalid id when it holds none (and for every other key -- `3`, the
+/// armory, has no kind yet). It answers from the sim through the same kind-to-key mapping `update`
+/// fills the row with, so the key's reach and the key's drawing cannot disagree. An UNDEPLOYED
+/// recycler is still "the recycler": it sits under an F key until it deploys, but key `1` finds it
+/// when no deployed one is alive, so the key does not care which side of the deployment it is on.
+[[nodiscard]] sim::UnitId building_key_holder(const sim::Sim& sim, sim::Side side, int key);
+
 /// The strip's short name for a kind, in the capitals the HUD font has.
 [[nodiscard]] std::string_view kind_label(sim::UnitKind kind) noexcept;
 

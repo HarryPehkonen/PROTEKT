@@ -323,7 +323,9 @@ void expect_attack(const sim::Order& order, UnitId unit, UnitId target) {
     EXPECT_EQ(attack->target, target);
 }
 
-TEST(AttackList, TWithAHostileUnderTheCrosshairAttacksItAndDoesNotArm) {
+TEST(AttackList, SpaceWithAHostileUnderTheCrosshairAttacksItAndTOnlyArmsTheList) {
+    // The pointed-at attack moved from T to SPACE (the menu's `SPACE Attack`). T over the same
+    // hostile now gives no order and opens the numbered list, as it does over ground.
     Rig rig = make_listing_rig();
     Interaction player{rig.own.at(0)};
     select_second(rig, player);
@@ -334,12 +336,15 @@ TEST(AttackList, TWithAHostileUnderTheCrosshairAttacksItAndDoesNotArm) {
     const Aim aim = rig.options.aim.value_or(Aim{});
     ASSERT_EQ(pick(rig.sim, rig.options, aim.x, aim.y).unit, kFrontTank);
     player.handle(key_frame(input::kKeyT), rig.sim, rig.options);
+    EXPECT_TRUE(player.take_orders().empty()) << "T does not attack the unit under the crosshair";
+    EXPECT_TRUE(player.attack_armed());
+    player.handle(key_frame(input::kKeyEscape), rig.sim, rig.options);
+    player.handle(key_frame(input::kKeySpace), rig.sim, rig.options);
     EXPECT_FALSE(player.attack_armed());
-    EXPECT_TRUE(player.attack_targets().empty());
     const std::vector<sim::Order> orders = player.take_orders();
     ASSERT_EQ(orders.size(), 1U);
     expect_attack(orders.at(0), rig.own.at(1), kFrontTank);
-    EXPECT_EQ(player.message(), "attacking the target under the crosshair.");
+    EXPECT_EQ(player.message(), "SPACE Attack");
 }
 
 TEST(AttackList, TWithNothingUnderTheCrosshairArmsAndADigitAttacksThatRow) {

@@ -1,6 +1,7 @@
 #include "protekt/game/scene.hpp"
 
 #include "protekt/game/atlas.hpp"
+#include "protekt/game/attack_aim.hpp"
 #include "protekt/game/nav_marks.hpp"
 #include "protekt/game/pick.hpp"
 #include "protekt/game/radar.hpp"
@@ -3365,7 +3366,124 @@ void append_hud_panels(std::vector<SceneVertex>& out, const SceneOptions& option
                 emit_triangle(out, at(leader_at, cx, cy), rim(slice), rim(slice + 1), kLedgerInk);
             }
         }
+
+        // THE ATTACK LINE: only while the state row really reads `SPACE Attack`, so a line can
+        // never point from a menu that is not offering the attack. From the row's own right edge
+        // to the exact screen position of the unit, one slanted quad the leader's width, on the
+        // leader's layer.
+        const MenuRow& state = rows.front();
+        if (options.attack_target.valid() && state.key == kRowKeySpace
+            && state.verb == kVerbAttack) {
+            const sim::Unit* target = sim.find(options.attack_target);
+            if (target != nullptr && target->alive) {
+                const Projected end = attack_point(options, *target);
+                const std::array<float, 2> start = attack_line_origin(layout);
+                const float dx = end.x - start.at(0);
+                const float dy = end.y - start.at(1);
+                const float length = std::sqrt((dx * dx) + (dy * dy));
+                if (end.depth > math::kNearPlane && length > 0.0F) {
+                    const float half_width = kMenuLineCells * cell * 0.5F;
+                    const float nx = -dy / length * half_width;
+                    const float ny = dx / length * half_width;
+                    emit_quad(out, at(leader_at, start.at(0) + nx, start.at(1) + ny),
+                              at(leader_at, end.x + nx, end.y + ny),
+                              at(leader_at, end.x - nx, end.y - ny),
+                              at(leader_at, start.at(0) - nx, start.at(1) - ny), kAttackLineInk);
+                }
+            }
+        }
     }
+}
+
+/// THE ATTACK READOUT (SPACE ATTACK): the label and the health bar over the unit SPACE would
+/// attack. Both stand centred over the unit's projected top, ABOVE the slot its own floating bar
+/// (`append_unit_bars`) takes, so the two never overlap: the label's plate, then under it the bar.
+/// The label is the unit's kind in the HUD's capitals (`kind_label`, the command row's own names)
+/// on a black plate. The bar is a black track with a fill on its LEFT: full width and bright green
+/// at full health, shortened from the right as the unit is hurt (the empty part is the black
+/// track), coloured on `bar_segments`' ramp -- green, yellow, red, near-black. The row's bars vary
+/// in colour ONLY (his ruling, BAR-LOOK); this one shrinks as well, by his later word. A unit at
+/// zero hit points draws neither. Sizes are fractions of the frame, so they do not change with
+/// range.
+constexpr float kReadoutCellFraction = 2.0F / 450.0F;
+constexpr float kReadoutPadFraction = 2.0F / 450.0F;
+constexpr float kReadoutGapFraction = 2.0F / 450.0F;
+constexpr float kReadoutBarWidthFraction = 48.0F / 800.0F;
+constexpr float kReadoutBarHeightFraction = 5.0F / 450.0F;
+constexpr std::array<float, 3> kReadoutBlack{0.0F, 0.0F, 0.0F};
+
+void append_attack_readout(std::vector<SceneVertex>& out, const SceneOptions& options,
+                           const sim::Sim& sim) {
+    if (!options.attack_target.valid()) {
+        return;
+    }
+    const sim::Unit* unit = sim.find(options.attack_target);
+    if (unit == nullptr || !unit->alive || unit->hp == 0) {
+        return;
+    }
+    const float frame_w = static_cast<float>(options.extent.width);
+    const float frame_h = static_cast<float>(options.extent.height);
+    const Projected top = project(
+        options.camera, options.extent,
+        static_cast<float>(unit->x.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile,
+        ground_metres(options.seed, unit->x, unit->y) + kTankTopMetres,
+        static_cast<float>(unit->y.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile);
+    if (top.depth <= math::kNearPlane || top.x < 0.0F || top.x > frame_w || top.y < 0.0F
+        || top.y > frame_h) {
+        return;
+    }
+    const float cell = frame_h * kReadoutCellFraction;
+    const float pad = frame_h * kReadoutPadFraction;
+    const float gap = frame_h * kReadoutGapFraction;
+    const float bar_w = frame_w * kReadoutBarWidthFraction;
+    const float bar_h = frame_h * kReadoutBarHeightFraction;
+    const float marks_at = math::kNearPlane * kHudClearance * corner_ray_length(options.extent);
+    const auto rect = [&](float distance, float ax, float ay, float bx, float by,
+                          const std::array<float, 3>& rgb) {
+        const auto at = [&](float px, float py) {
+            const RayPoint point = ray_point(options.camera, options.extent, px, py, distance);
+            return Vec3{point.x, point.y, point.z};
+        };
+        emit_quad(out, at(ax, ay), at(bx, ay), at(bx, by), at(ax, by), rgb);
+    };
+
+    // The floating bar's slot, left clear: its gap, outline, track and outline.
+    const float own_bar
+        = frame_h
+          * (kUnitBarGapFraction + (2.0F * kUnitBarOutlineFraction) + kUnitBarHeightFraction);
+    const float bar_bottom = top.y - own_bar - gap;
+    const float bar_top = bar_bottom - bar_h;
+    const float bar_left = top.x - (bar_w * 0.5F);
+
+    const std::string_view label = kind_label(unit->kind);
+    const float text_w = ((static_cast<float>(label.size()) * 6.0F) - 1.0F) * cell;
+    const float plate_bottom = bar_top - gap;
+    const float plate_top = plate_bottom - (5.0F * cell) - (2.0F * pad);
+    const float text_left = top.x - (text_w * 0.5F);
+    rect(marks_at * kHudFaceRatio, text_left - pad, plate_top, text_left + text_w + pad,
+         plate_bottom, kReadoutBlack);
+    for (std::size_t index = 0; index < label.size(); ++index) {
+        const std::array<std::uint8_t, 5> rows = mount_glyph(label.at(index));
+        const float glyph_left = text_left + (static_cast<float>(index) * 6.0F * cell);
+        for (std::size_t row = 0; row < rows.size(); ++row) {
+            for (int col = 0; col < 5; ++col) {
+                if (((rows.at(row) >> (4 - col)) & 1U) == 0U) {
+                    continue;
+                }
+                const float x = glyph_left + (static_cast<float>(col) * cell);
+                const float y = plate_top + pad + (static_cast<float>(row) * cell);
+                rect(marks_at, x, y, x + cell, y + cell, kStripFrame);
+            }
+        }
+    }
+
+    const std::uint32_t max_hp = sim::spec_of(unit->kind).hp;
+    const std::uint32_t hp = std::min<std::uint32_t>(unit->hp, max_hp);
+    const std::array<float, 1> fraction{
+        max_hp > 0 ? static_cast<float>(hp) / static_cast<float>(max_hp) : 0.0F};
+    rect(marks_at * kHudFaceRatio, bar_left, bar_top, bar_left + bar_w, bar_bottom, kReadoutBlack);
+    rect(marks_at, bar_left, bar_top, bar_left + (bar_w * fraction.at(0)), bar_bottom,
+         bar_segments(fraction).front().rgb);
 }
 
 /// Four ticks round an OPEN centre and a small dot in it, in the plane the camera looks along,
@@ -3628,6 +3746,14 @@ MenuLayout menu_layout(std::span<const MenuRow> rows, float left, float top, flo
         layout.line_bottom = layout.rows.back().top + height + cell;
     }
     return layout;
+}
+
+std::array<float, 2> attack_line_origin(const MenuLayout& layout) noexcept {
+    if (layout.rows.empty()) {
+        return {0.0F, 0.0F};
+    }
+    const MenuRowLayout& state = layout.rows.front();
+    return {state.verb_right, state.top + (state.height * 0.5F)};
 }
 
 MenuLeader menu_leader(const MenuLayout& layout, std::optional<float> radar_top,
@@ -4006,6 +4132,7 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
     }
     append_mount_plates(scene.vertices, options, sim);
     append_unit_bars(scene.vertices, options, sim);
+    append_attack_readout(scene.vertices, options, sim);
     append_weapon_hud(scene.vertices, options);
     append_hud_panels(scene.vertices, options, sim, selected);
     append_ledger(scene.vertices, options, sim);
