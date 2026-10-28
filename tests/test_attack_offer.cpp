@@ -395,21 +395,26 @@ struct Watch {
     return w;
 }
 
+/// Two vertices are the same vertex when every MEMBER is the same. `memcmp` over the struct reads
+/// its object representation instead, which is not unique for floats (and would read padding if the
+/// struct ever grew any), so a byte comparison is not a statement about the geometry.
+[[nodiscard]] bool same_vertex(const SceneVertex& left, const SceneVertex& right) {
+    return left.position == right.position && left.colour == right.colour
+           && left.alpha == right.alpha && left.u == right.u && left.v == right.v;
+}
+
 /// The vertices a with-target scene has that the bare scene does not: the common head and the
 /// common tail are cut away and what is left is the insertion.
 [[nodiscard]] std::pair<std::size_t, std::size_t> inserted(const Scene& bare, const Scene& with) {
     std::size_t head = 0;
     const std::size_t shortest = std::min(bare.vertices.size(), with.vertices.size());
-    while (head < shortest
-           && std::memcmp(&bare.vertices.at(head), &with.vertices.at(head), sizeof(SceneVertex))
-                  == 0) {
+    while (head < shortest && same_vertex(bare.vertices.at(head), with.vertices.at(head))) {
         ++head;
     }
     std::size_t tail = 0;
     while (tail < shortest - head
-           && std::memcmp(&bare.vertices.at(bare.vertices.size() - 1 - tail),
-                          &with.vertices.at(with.vertices.size() - 1 - tail), sizeof(SceneVertex))
-                  == 0) {
+           && same_vertex(bare.vertices.at(bare.vertices.size() - 1 - tail),
+                          with.vertices.at(with.vertices.size() - 1 - tail))) {
         ++tail;
     }
     return {head, with.vertices.size() - tail};
