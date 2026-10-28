@@ -451,14 +451,27 @@ inline constexpr math::Vec3 kScrapColour{0.30F, 0.28F, 0.26F};
 /// A scrap mark is one quad, so six vertices, and it emits NONE when the field holds no litter.
 inline constexpr std::size_t kScrapVertexCount = 6U;
 
-/// The deploy preview's green (BZ2's placement wireframe), and how its lines sit on the ground: a
-/// stroke this many metres either side of the tile edge, lifted this far clear of the terrain.
+/// The deploy preview's two colours (BZ2's placement wireframe), and how its lines sit on the
+/// ground: a stroke this many metres either side of the tile edge, lifted this far clear of the
+/// terrain. GREEN means the sim would accept the deploy there, RED means it would refuse it -- the
+/// colour is a claim about what SPACE will do, so it is read from the sim's own verdict
+/// (`sim::deploy_site_ok`) and never re-derived here.
 inline constexpr math::Vec3 kDeployPreviewColour{0.10F, 1.0F, 0.20F};
+inline constexpr math::Vec3 kDeployPreviewBlockedColour{1.0F, 0.22F, 0.14F};
 inline constexpr float kDeployPreviewHalfStrokeMetres = 0.08F;
 inline constexpr float kDeployPreviewLiftMetres = 0.06F;
 /// One stroke per tile edge of the footprint's grid: (side + 1) lines each way, `side` tiles long.
 inline constexpr std::size_t kDeployPreviewVertexCount
     = std::size_t{2} * (sim::kBuildingFootprintTiles + 1) * sim::kBuildingFootprintTiles * 6U;
+
+/// WHAT THE ARMED DEPLOY WOULD BUILD, and whether the sim would allow it there. The footprint is
+/// where the reticle meets the ground; `valid` is `sim::deploy_site_ok`'s answer for that site,
+/// carried rather than recomputed, because a second test of the same ground in the drawing layer is
+/// a second thing that can disagree with the sim about what SPACE will do.
+struct DeployPreview {
+    sim::Footprint site{};
+    bool valid{false};
+};
 
 /// The ledger's amber (C6), the `SCRAP` label's ink. Public because the command menu's leader line
 /// and its dot are drawn in this exact colour -- the HUD's own, chosen by the user over a measured
@@ -610,9 +623,10 @@ struct SceneOptions {
     /// Not owned.
     const NavMarks* nav_marks{nullptr};
     /// DEPLOY's preview: the footprint the armed deploy would build where the reticle meets the
-    /// ground, drawn lying on the terrain as its tile grid in `kDeployPreviewColour`. ABSENT draws
-    /// nothing, so a frame that is not deploying is byte-identical to one that never heard of it.
-    std::optional<sim::Footprint> deploy_preview{};
+    /// ground, drawn lying on the terrain as its tile grid -- `kDeployPreviewColour` where the sim
+    /// would accept it, `kDeployPreviewBlockedColour` where it would not. ABSENT draws nothing, so
+    /// a frame that is not deploying is byte-identical to one that never heard of it.
+    std::optional<DeployPreview> deploy_preview{};
     /// The command row (ROW-SLOTS) along the top of the frame: `~`, `1`, `2`, `3`, `F1`..`F10`,
     /// each in its own fixed spot, with only the keys that hold something drawn. Null draws none,
     /// so a frame that never heard of it is unchanged -- the same discipline as `nav_marks`. Also

@@ -1425,7 +1425,11 @@ void append_deploy_preview(std::vector<SceneVertex>& out, const SceneOptions& op
     if (!options.deploy_preview.has_value()) {
         return;
     }
-    const sim::Footprint site = *options.deploy_preview;
+    const DeployPreview preview = *options.deploy_preview;
+    const sim::Footprint site = preview.site;
+    // The colour is the sim's answer to "would SPACE deploy here?", carried on the preview: green
+    // where it would, red where it would refuse. Asked once, in the sim, never re-derived here.
+    const math::Vec3 colour = preview.valid ? kDeployPreviewColour : kDeployPreviewBlockedColour;
     const auto corner = [&](int tile_x, int tile_y) {
         const auto x = static_cast<float>(tile_x);
         const auto y = static_cast<float>(tile_y);
@@ -1439,7 +1443,7 @@ void append_deploy_preview(std::vector<SceneVertex>& out, const SceneOptions& op
         emit_quad(out, Vec3{a.at(0) - across_x, a.at(1), a.at(2) - across_z},
                   Vec3{b.at(0) - across_x, b.at(1), b.at(2) - across_z},
                   Vec3{b.at(0) + across_x, b.at(1), b.at(2) + across_z},
-                  Vec3{a.at(0) + across_x, a.at(1), a.at(2) + across_z}, kDeployPreviewColour);
+                  Vec3{a.at(0) + across_x, a.at(1), a.at(2) + across_z}, colour);
     };
     constexpr int kSide = sim::kBuildingFootprintTiles;
     for (int line = 0; line <= kSide; ++line) {

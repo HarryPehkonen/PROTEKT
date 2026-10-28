@@ -5518,7 +5518,7 @@ TEST(Scene, TheDeployPreviewDrawsTheFootprintsTileGridOnTheGroundAndNothingWhenA
     SceneOptions plain = options_at(60.0F * kMetresPerTile, 60.0F * kMetresPerTile);
     SceneOptions previewed = plain;
     const Footprint site{63, 58};
-    previewed.deploy_preview = site;
+    previewed.deploy_preview = protekt::game::DeployPreview{site, true};
     const Scene without = protekt::game::build_scene(sim, plain);
     const Scene with = protekt::game::build_scene(sim, previewed);
     ASSERT_EQ(with.vertices.size(),
@@ -5546,6 +5546,35 @@ TEST(Scene, TheDeployPreviewDrawsTheFootprintsTileGridOnTheGroundAndNothingWhenA
     for (std::size_t i = 0; i < first; ++i) {
         ASSERT_EQ(with.vertices.at(i).position, without.vertices.at(i).position)
             << "the preview adds a layer and changes nothing under it";
+    }
+}
+
+// DEPLOY: the verdict is the SIM's, carried on the preview and never re-derived in the drawing
+// layer -- the same ground and the same footprint, one frame green and one red.
+TEST(Scene, TheDeployPreviewIsRedWhereTheDeployWouldBeRefusedAndGreenWhereItWouldNot) {
+    using protekt::sim::Footprint;
+    const auto sim = protekt::sim::Sim::create(protekt::sim::Scenario{
+        42, {{protekt::sim::UnitKind::Tank, protekt::sim::Side::Player, 60, 60}}});
+    const SceneOptions options = options_at(60.0F * kMetresPerTile, 60.0F * kMetresPerTile);
+    const Footprint site{63, 58};
+    const Scene plain = protekt::game::build_scene(sim, options);
+    const std::size_t first = plain.vertices.size();
+
+    SceneOptions accepted = options;
+    accepted.deploy_preview = protekt::game::DeployPreview{site, true};
+    SceneOptions refused = options;
+    refused.deploy_preview = protekt::game::DeployPreview{site, false};
+    const Scene green = protekt::game::build_scene(sim, accepted);
+    const Scene red = protekt::game::build_scene(sim, refused);
+
+    ASSERT_EQ(green.vertices.size(), first + protekt::game::kDeployPreviewVertexCount);
+    ASSERT_EQ(red.vertices.size(), first + protekt::game::kDeployPreviewVertexCount);
+    for (std::size_t i = first; i < green.vertices.size(); ++i) {
+        EXPECT_EQ(green.vertices.at(i).colour, protekt::game::kDeployPreviewColour) << i;
+        EXPECT_EQ(red.vertices.at(i).colour, protekt::game::kDeployPreviewBlockedColour)
+            << "the refused site must be red at vertex " << i;
+        EXPECT_EQ(green.vertices.at(i).position, red.vertices.at(i).position)
+            << "one footprint on one patch of ground: only the verdict differs, at vertex " << i;
     }
 }
 
