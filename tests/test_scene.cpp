@@ -6249,4 +6249,173 @@ TEST(Scene, TheShadowIsDrawnBeforeTheHull) {
         << "the hull (and the bars after it) come after the patch, so it reads as ground";
 }
 
+// ------------------------------------------------- the world hides what the radar cannot reach
+
+/// VIS: a hostile farther from the viewer than `viewer_radar_radius` is not drawn -- hull, shadow,
+/// bar, readout. Every test builds the SAME frame twice, once with the hostile and once without
+/// it, so "nothing" is a diff of whole vertex lists and not one field trusted.
+namespace reach {
+
+using protekt::game::kRadarRadiusTiles;
+using protekt::game::kScoutRadarRadiusTiles;
+using protekt::game::viewer_radar_radius;
+using protekt::sim::Scenario;
+using protekt::sim::Side;
+using protekt::sim::Sim;
+using protekt::sim::Spawn;
+using protekt::sim::UnitKind;
+
+constexpr std::uint64_t kSeed = 42;
+constexpr int kX
+    = 20; ///< seed 42: this row is clear of craters at +3, +40, +41, +45, +79, +80, +81
+constexpr int kY = 40;
+
+/// A viewer of `kind` at (kX, kY), an optional own tank `own_east` tiles east, an optional enemy
+/// tank `enemy_east` tiles east. Positions are asserted: a spawn moved off a crater tests nothing.
+Sim battle(UnitKind kind, int own_east, int enemy_east) {
+    std::vector<Spawn> spawns{{kind, Side::Player, kX, kY}};
+    if (own_east > 0) {
+        spawns.push_back({UnitKind::Tank, Side::Player, kX + own_east, kY});
+    }
+    if (enemy_east > 0) {
+        spawns.push_back({UnitKind::Tank, Side::Enemy, kX + enemy_east, kY});
+    }
+    Sim sim = Sim::create(Scenario{kSeed, spawns});
+    for (std::size_t i = 1; i < sim.units().size(); ++i) {
+        const int want = kX + (sim.units().at(i).side == Side::Player ? own_east : enemy_east);
+        EXPECT_EQ(sim.units().at(i).x, protekt::sim::Fixed::from_int(want)) << "moved off its tile";
+        EXPECT_EQ(sim.units().at(i).y, protekt::sim::Fixed::from_int(kY));
+    }
+    return sim;
+}
+
+SceneOptions frame_options(const Sim& sim) {
+    SceneOptions options = options_at(static_cast<float>(kX) * kMetresPerTile,
+                                      static_cast<float>(kY) * kMetresPerTile, kSeed, 100);
+    options.viewer_unit = sim.units().front().id;
+    options.viewer_side = Side::Player;
+    options.camera.yaw = 1.5707963F; // looking east, down the row the units stand on
+    return options;
+}
+
+Scene frame(const Sim& sim, const SceneOptions& options) {
+    return protekt::game::build_scene(sim, options);
+}
+
+bool same_vertices(const Scene& a, const Scene& b) {
+    return a.vertices.size() == b.vertices.size()
+           && std::memcmp(a.vertices.data(), b.vertices.data(),
+                          a.vertices.size() * sizeof(protekt::game::SceneVertex))
+                  == 0;
+}
+
+/// How many vertices the enemy adds to the frame: with it, minus without it.
+std::ptrdiff_t enemy_adds(UnitKind viewer, int enemy_east, bool with_readout = false) {
+    const Sim with = battle(viewer, 0, enemy_east);
+    const Sim without = battle(viewer, 0, 0);
+    SceneOptions a = frame_options(with);
+    if (with_readout) {
+        a.attack_target = with.units().at(1).id;
+    }
+    return static_cast<std::ptrdiff_t>(frame(with, a).vertices.size())
+           - static_cast<std::ptrdiff_t>(frame(without, frame_options(without)).vertices.size());
+}
+
+TEST(WorldReach, AHostileInsideTheReachIsDrawnWithHullShadowAndBar) {
+    const std::ptrdiff_t added = enemy_adds(UnitKind::Tank, 39);
+    EXPECT_GE(added, static_cast<std::ptrdiff_t>(kTankVertices + protekt::game::kShadowVertexCount
+                                                 + protekt::game::kUnitBarVertexCount));
+}
+
+TEST(WorldReach, TheSameHostileJustBeyondTheReachAddsNothingAtAll) {
+    EXPECT_EQ(enemy_adds(UnitKind::Tank, 41), 0) << "no hull, no shadow, no bar";
+    const Sim with = battle(UnitKind::Tank, 0, 41);
+    const Sim without = battle(UnitKind::Tank, 0, 0);
+    EXPECT_TRUE(
+        same_vertices(frame(with, frame_options(with)), frame(without, frame_options(without))))
+        << "the frame is the frame of a world with nobody there, vertex for vertex";
+}
+
+TEST(WorldReach, AHostileExactlyAtTheReachIsDrawn) {
+    ASSERT_EQ(viewer_radar_radius(battle(UnitKind::Tank, 0, 40), protekt::sim::UnitId{1}),
+              kRadarRadiusTiles);
+    EXPECT_GE(enemy_adds(UnitKind::Tank, 40),
+              static_cast<std::ptrdiff_t>(kTankVertices + protekt::game::kShadowVertexCount))
+        << "the boundary is inside, as the radar panel's own `distance <= radius` has it";
+}
+
+TEST(WorldReach, TheAttackReadoutOverAHiddenHostileIsNotDrawnEither) {
+    EXPECT_EQ(enemy_adds(UnitKind::Tank, 41, true), 0) << "its label and bar are the giveaway";
+    EXPECT_GT(enemy_adds(UnitKind::Tank, 39, true), enemy_adds(UnitKind::Tank, 39, false))
+        << "control: in reach, the readout IS drawn";
+}
+
+TEST(WorldReach, YourOwnUnitBeyondTheReachIsStillDrawn) {
+    const Sim with = battle(UnitKind::Tank, 60, 0);
+    const Sim without = battle(UnitKind::Tank, 0, 0);
+    const std::ptrdiff_t added
+        = static_cast<std::ptrdiff_t>(frame(with, frame_options(with)).vertices.size())
+          - static_cast<std::ptrdiff_t>(frame(without, frame_options(without)).vertices.size());
+    EXPECT_GE(added, static_cast<std::ptrdiff_t>(kTankVertices + protekt::game::kShadowVertexCount
+                                                 + protekt::game::kUnitBarVertexCount))
+        << "you always know where your own things are: this is not a distance cull";
+}
+
+TEST(WorldReach, AScoutSeesTheHostileATankCannotAndNotBeyondItsOwnEighty) {
+    // The scout's reach is 80, twice the tank's. Measured from the VIEWER, so a scout's hull and
+    // shadow must appear where a tank's do not -- and the whole bundle must be there: a radar BLIP
+    // alone is a handful of vertices, and an assertion of "more than nothing" was satisfied by the
+    // blip while the hull was hidden (found by inverting the reach to a fixed 40: the clause stayed
+    // green, because the blip still used the real per-kind radius).
+    constexpr std::ptrdiff_t kWholeUnit = static_cast<std::ptrdiff_t>(
+        kTankVertices + protekt::game::kShadowVertexCount + protekt::game::kUnitBarVertexCount);
+    EXPECT_EQ(enemy_adds(UnitKind::Tank, 45), 0);
+    EXPECT_GE(enemy_adds(UnitKind::Scout, 45), kWholeUnit) << "the scout's reason to exist";
+    EXPECT_GE(enemy_adds(UnitKind::Scout, 80), kWholeUnit) << "exactly at 80 is inside";
+    EXPECT_EQ(enemy_adds(UnitKind::Scout, 81), 0);
+}
+
+TEST(WorldReach, WithNoViewerNothingIsHidden) {
+    const Sim sim = battle(UnitKind::Tank, 0, 45);
+    SceneOptions options = frame_options(sim);
+    options.viewer_unit = protekt::sim::UnitId{};
+    const Sim alone = battle(UnitKind::Tank, 0, 0);
+    EXPECT_GE(frame(sim, options).vertices.size(),
+              frame(alone, options).vertices.size() + kTankVertices)
+        << "an observer frame has no radar to be limited by";
+}
+
+TEST(WorldReach, TheRadarPanelIsTheSameWithOrWithoutTheCull) {
+    // The radar's blips come from `radar_marks`, which the world cull does not touch: inside the
+    // reach a hostile is a blip, beyond it nothing -- the same rule from the other side.
+    for (const int east : {39, 40, 41}) {
+        const Sim sim = battle(UnitKind::Tank, 0, east);
+        const auto marks
+            = protekt::game::radar_marks(sim.units(), sim.units().front().id, 0.0F,
+                                         protekt::game::radar_panel(frame_options(sim).extent),
+                                         viewer_radar_radius(sim, sim.units().front().id));
+        const auto hostile = std::count_if(marks.begin(), marks.end(), [](const auto& mark) {
+            return mark.tone == protekt::game::RadarTone::Hostile;
+        });
+        EXPECT_EQ(hostile, east <= 40 ? 1 : 0) << "east " << east;
+    }
+}
+
+TEST(WorldReach, TheRadarOverlayInTheFrameStillShowsTheBlipInsideAndNoneBeyond) {
+    // The same frame, hostile in versus hostile out: the radar's tail grows by exactly the blip
+    // inside the reach and by nothing beyond it, so the cull did not eat the panel.
+    const Sim in = battle(UnitKind::Tank, 0, 39);
+    const Sim out = battle(UnitKind::Tank, 0, 41);
+    const Sim none = battle(UnitKind::Tank, 0, 0);
+    SceneOptions radar_in = frame_options(in);
+    SceneOptions radar_out = frame_options(out);
+    SceneOptions radar_none = frame_options(none);
+    EXPECT_GT(frame(in, radar_in).vertices.size() - frame(none, radar_none).vertices.size(),
+              kTankVertices)
+        << "world hull plus a blip";
+    EXPECT_EQ(frame(out, radar_out).vertices.size(), frame(none, radar_none).vertices.size());
+}
+
+} // namespace reach
+
 } // namespace
