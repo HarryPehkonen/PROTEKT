@@ -131,8 +131,9 @@ is not quiet but absent. A machine with no sound device runs silent.
 **What is next, in order.**
 
 1. **Economy and objectives: the unpaid half of M4 -- built, not finished.** Scrap, the scavenger that
-   hauls it, the ledger and the factory's build are in the sim, and the match ends when a recycler dies
-   (`Sim::war_outcome`). The default army now spawns one scavenger a side (HAULER, `1f125f5`), so the
+   hauls it, the ledger and the factory's build are in the sim, and the match ends on the scenario's own
+   list of conditions (`Sim::war_outcome`; the built-in list is the recycler pair, OBJ). The default army
+   now spawns one scavenger a side (HAULER, `1f125f5`), so the
    harvester menu and the collect-and-bank loop are reachable on screen. What is not there: the
    player has no working build menu, and turret placement from the player's own hand is still owed.
 2. **Strategic controllers** (below), the slow layer that decides what to defend. Still a design

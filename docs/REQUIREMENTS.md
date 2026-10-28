@@ -647,9 +647,12 @@ What is in the tree:
   stays in the table, so "had one" needs no second record, and a side that NEVER HAD the kind has not lost
   one -- which is what keeps a rig whose scenario spawns no recycler from reading as a defeat on tick zero.
   Derived, never stored, never hashed.
-- [SHIPPED c5eb877] `Sim::war_outcome()` asks that predicate about each side's recycler and returns
-  `Undecided`, `PlayerWon` or `PlayerLost`. A battle nobody asks about produces exactly the state it did
-  before this existed.
+- [SHIPPED c5eb877, generalised in OBJ] `Sim::war_outcome()` asks that predicate once per entry of the
+  scenario's condition list, in order, and returns the verdict of the first entry that fires -- `Undecided`
+  when none has. The built-in list is the recycler pair, the player's own loss first, so a pair that dies
+  together reads as a loss; a list with no entries is a sandbox that is never decided. A battle nobody asks
+  about produces exactly the state it did before this existed: the list is derived, never stored, never
+  hashed, and the measure baseline is byte-identical across this change.
 - [SHIPPED c5eb877] The HUD banner reads `war_outcome()`, emits nothing while undecided (so the vertex
   tail is unchanged for a battle still being fought), and is stated from the player's chair, so a viewer on
   the enemy side reads it reversed.
@@ -982,7 +985,10 @@ later. His ruling, 2026-10-24: ONE recycler per side, EVER [DECIDED — not buil
 - [SHIPPED c5eb877] Its death is the LOSE CONDITION: an enemy recycler dead means the player has won whatever
   else the enemy still has, and the player's own dead means the player has lost. The condition is the derived
   predicate `Sim::kind_wiped_out(side, kind)`, read through `Sim::war_outcome()`; destroying the factory does
-  NOT end the game. See Part A section 10. A dead recycler's tie with a dead one of the enemy's — both dead —
+  NOT end the game. Since OBJ the condition is one ENTRY in the scenario's list rather than the whole rule,
+  and the predicate counts BOTH FORMS of the unit -- the vehicle and the building it deploys into -- because
+  deploying changes the kind of the same unit and a war that watched the vehicle alone would stop watching a
+  deployed base. See Part A section 10. A dead recycler's tie with a dead one of the enemy's — both dead —
   reads as a LOSS, which is the executor's choice and NOT covered by any sentence of his; it stays open.
 - [SHIPPED a584683, c5eb877] It STARTS AS A VEHICLE and must deploy: a vehicle in the `F` row, drivable,
   unarmed, one per side, whose destruction decides the war. The enemy's starts the same way and deploys by
@@ -1202,10 +1208,18 @@ Action is the specification of what is being built.
   Q5's caveat: *"If we are in story-mode, there may or may not be a recycler in any form -- it depends on the
   mission."* So the win condition cannot be a hardcoded recycler rule forever; today it does not need to be,
   because `war_outcome` is DERIVED from the units and never stored, and a mission can supply its own
-  objective through that same seam. That door is open and must stay open.
-- [DECIDED — not built] Win and lose are a LIST of conditions, not one hard-coded rule, and "the enemy
-  recycler is dead" is one entry in that data list. HIS RULING, 2026-10-24 (Part A section 10, and OBJ). The
-  predicate the entries are written in is shipped; the data is not.
+  objective through that same seam. That door is open and must stay open -- OBJ walked through it: the
+  conditions are the scenario's own data now, and Instant Action is the scenario that passes in the
+  built-in recycler pair.
+- [SHIPPED b587d90] Win and lose are a LIST of conditions, not one hard-coded rule, and "the enemy
+  recycler is dead" is one entry in that data list. HIS RULING, 2026-10-24 (Part A section 10, and OBJ).
+  The entry is `sim::Objective{verdict, side, kind}` -- when every unit of `kind` that `side` was given is
+  gone, the war is `verdict` -- the list rides on the scenario (`Scenario::objectives`, defaulted to
+  `sim::built_in_objectives()`), and `war_outcome` asks the entries IN ORDER and returns the first that
+  fires. A `ScenarioData` that mentions no conditions plays the built-in pair, so a game started from a
+  scenario file that lists only units is still a war that can be won. What is NOT built is the ARRIVAL
+  half of an escort ("win when the APC arrives"): that needs a unit to carry its own goal, which the sim
+  has no notion of. Until then a mission is a list of deaths.
 - [DECIDED — not built] The ENEMY DEPLOYS ITS OWN UNITS AUTOMATICALLY in an Instant Action game, via a
   scripted opening behaviour rather than something emergent. Its recycler starts as a vehicle like the
   player's and deploys by script.
