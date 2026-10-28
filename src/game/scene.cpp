@@ -1223,7 +1223,7 @@ constexpr float kBoltHalfWidthMetres = 0.12F;
 /// gravity (the mortar's) also trails three dimmer, smaller boxes at the places it was one, two and
 /// three ticks ago, so its arc reads as a streak against the sky.
 void emit_bolt_box(std::vector<SceneVertex>& out, float x, float centre, float z, float half,
-                   const Vec3& colour) {
+                   const Vec3& colour, float alpha = 1.0F) {
     const float x0 = x - half;
     const float x1 = x + half;
     const float z0 = z - half;
@@ -1238,12 +1238,12 @@ void emit_bolt_box(std::vector<SceneVertex>& out, float x, float centre, float z
                                  {x1, y0, z1},
                                  {x1, y1, z1},
                                  {x0, y1, z1}}};
-    emit_quad(out, p[0], p[1], p[2], p[3], colour); // near
-    emit_quad(out, p[5], p[4], p[7], p[6], colour); // far
-    emit_quad(out, p[4], p[0], p[3], p[7], colour); // left
-    emit_quad(out, p[1], p[5], p[6], p[2], colour); // right
-    emit_quad(out, p[3], p[2], p[6], p[7], colour); // top
-    emit_quad(out, p[4], p[5], p[1], p[0], colour); // bottom
+    emit_quad(out, p[0], p[1], p[2], p[3], colour, alpha); // near
+    emit_quad(out, p[5], p[4], p[7], p[6], colour, alpha); // far
+    emit_quad(out, p[4], p[0], p[3], p[7], colour, alpha); // left
+    emit_quad(out, p[1], p[5], p[6], p[2], colour, alpha); // right
+    emit_quad(out, p[3], p[2], p[6], p[7], colour, alpha); // top
+    emit_quad(out, p[4], p[5], p[1], p[0], colour, alpha); // bottom
 }
 
 constexpr std::size_t kShellTrailPuffs = 3;
@@ -1416,11 +1416,110 @@ void append_scrap(std::vector<SceneVertex>& out, const SceneOptions& options, co
     }
 }
 
-/// THE DEPLOY PREVIEW (DEPLOY): the footprint the armed deploy would build, as its tile grid lying
-/// on the terrain -- the outline and the lines between its tiles, so it reads as the 2x2 it is.
-/// Each stroke runs one tile edge, from corner height to corner height, so it follows the ground.
-/// There is no rotation to draw: the footprint is a square, and a square turned a quarter is
-/// itself.
+/// D4: a wake's own numbers. splitmix64 over the pair, as `hull_variant` does, so two wrecks do not
+/// get the same picture and one wreck's puffs are not a regular ring: sequential ids and sequential
+/// puffs both land far apart before the fraction is taken.
+float wake_fraction(std::uint64_t seed, std::uint32_t wreck, std::uint32_t salt) noexcept {
+    std::uint64_t z = seed + (static_cast<std::uint64_t>(wreck) * 0x9E3779B97F4A7C15ULL)
+                      + (static_cast<std::uint64_t>(salt) * 0xD1B54A32D192ED03ULL);
+    z = (z ^ (z >> 30U)) * 0xBF58476D1CE4E5B9ULL;
+    z = (z ^ (z >> 27U)) * 0x94D049BB133111EBULL;
+    z ^= z >> 31U;
+    return static_cast<float>(z & 0xFFFFFFU) / static_cast<float>(0x1000000U);
+}
+
+/// THE WAKE A WRECK LEAVES (D4): a burnt-out unit throws a burst of hot puffs for `kBlastTicks`,
+/// and then smokes for `kSmokeTicks`. Both are DERIVED from what the sim already knows -- the death
+/// is a `Killed` event, the tile is the dead unit's own (the table keeps the dead), and every
+/// puff's place comes out of `wake_fraction` on the wreck's id and the frame's seed. Nothing is
+/// stored per puff, so the order stream stays the whole input and a replay needs no effects in it.
+///
+/// EMITS NOTHING without a `Killed` event: the layer is free for every frame that lost no unit, and
+/// a wreck beyond the meshed radius is skipped rather than floated over bare void.
+void append_effects(std::vector<SceneVertex>& out, const SceneOptions& options,
+                    const sim::Sim& sim) {
+    if (options.events.empty()) {
+        return;
+    }
+    constexpr float kOne = static_cast<float>(sim::Fixed::kOne);
+    constexpr float kTau = 6.2831853F;
+    const sim::Tick now = sim.tick();
+    for (const sim::BattleEvent& event : options.events) {
+        if (event.kind != sim::EventKind::Killed || event.tick > now) {
+            continue;
+        }
+        const sim::Unit* wreck = sim.find(event.subject);
+        // The sim's own word on it: a wreck that is not in the table, or that is still alive, has
+        // no wake -- an event from somewhere else cannot put smoke on a living tank.
+        if (wreck == nullptr || wreck->alive) {
+            continue;
+        }
+        const int dx = wreck->x.floor_int()
+                       - static_cast<int>(std::floor(options.camera.x / kMetresPerTile));
+        const int dy = wreck->y.floor_int()
+                       - static_cast<int>(std::floor(options.camera.z / kMetresPerTile));
+        if (std::abs(dx) > options.radius_tiles || std::abs(dy) > options.radius_tiles) {
+            continue;
+        }
+        const sim::Tick age = now - event.tick;
+        if (age >= kSmokeTicks) {
+            continue; // cold: what is left on the ground is litter, and litter has its own layer
+        }
+        const float tile_x = static_cast<float>(wreck->x.raw) / kOne;
+        const float tile_y = static_cast<float>(wreck->y.raw) / kOne;
+        const float cx = tile_x * kMetresPerTile;
+        const float cz = tile_y * kMetresPerTile;
+        const float ground = ground_metres(options.seed, tile_x, tile_y);
+        const std::uint32_t id = wreck->id.value;
+        if (age < kBlastTicks) {
+            // The burst: thrown out and up, shrinking and cooling as it goes.
+            const float t = static_cast<float>(age) / static_cast<float>(kBlastTicks);
+            const float half = kBlastHalfMetres + ((kBlastLastHalfMetres - kBlastHalfMetres) * t);
+            const float alpha = kBlastAlpha * (1.0F - t);
+            Vec3 colour{};
+            for (std::size_t channel = 0; channel < colour.size(); ++channel) {
+                colour.at(channel)
+                    = kBlastHotColour.at(channel)
+                      + ((kBlastCoolColour.at(channel) - kBlastHotColour.at(channel)) * t);
+            }
+            for (std::uint32_t puff = 0; puff < kBlastPuffs; ++puff) {
+                const float heading = wake_fraction(options.seed, id, puff) * kTau;
+                const float out_at = 0.35F + (0.65F * wake_fraction(options.seed, id, puff + 64U));
+                const float up_at = 0.2F + (0.8F * wake_fraction(options.seed, id, puff + 128U));
+                // Wide at the instant of the kill and carried outward as it burns: the puffs start
+                // at the hull and end at the burst's reach.
+                const float reach = kBlastSpreadMetres * out_at * (0.4F + (0.6F * t));
+                emit_bolt_box(out, cx + (std::cos(heading) * reach),
+                              ground + half + (kBlastRiseMetres * up_at * t),
+                              cz + (std::sin(heading) * reach), half, colour, alpha);
+            }
+            continue;
+        }
+        // The column: a slow grey stack, drifting on a wind that comes off the frame's own seed, so
+        // wrecks on one map lean the same way -- weather, not seven private breezes.
+        const sim::Tick since = age - kBlastTicks;
+        const float t = static_cast<float>(since) / static_cast<float>(kSmokeTicks - kBlastTicks);
+        const float alpha = kSmokeAlpha * (1.0F - t);
+        const float wind = wake_fraction(options.seed, 0U, 1U) * kTau;
+        const float drift = kSmokeDriftMetresPerTick * static_cast<float>(since);
+        const float rise = kSmokeRiseMetresPerTick * static_cast<float>(since);
+        for (std::uint32_t puff = 0; puff < kSmokePuffs; ++puff) {
+            const float jitter = (wake_fraction(options.seed, id, puff + 256U) - 0.5F) * 0.5F;
+            const float sway = (wake_fraction(options.seed, id, puff + 320U) - 0.5F) * 0.5F;
+            emit_bolt_box(out, cx + (std::cos(wind) * drift) + jitter,
+                          ground + kSmokeBaseMetres
+                              + (static_cast<float>(puff) * kSmokeSpacingMetres) + rise,
+                          cz + (std::sin(wind) * drift) + sway, kSmokeHalfMetres,
+                          Vec3{kSmokeColour.at(0), kSmokeColour.at(1), kSmokeColour.at(2)}, alpha);
+        }
+    }
+}
+
+/// THE DEPLOY PREVIEW (DEPLOY): the footprint the armed build would stand on, as its tile grid
+/// lying on the terrain -- the outline and the lines between its tiles, so it reads as the 2x2 it
+/// is. Each stroke runs one tile edge, from corner height to corner height, so it follows the
+/// ground. There is no rotation to draw: the footprint is a square, and a square turned a quarter
+/// is itself.
 void append_deploy_preview(std::vector<SceneVertex>& out, const SceneOptions& options) {
     if (!options.deploy_preview.has_value()) {
         return;
@@ -3891,6 +3990,7 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
     append_projectiles(scene.vertices, options, sim);
     append_landing_marks(scene.vertices, options, sim.tick());
     append_scrap(scene.vertices, options, sim);
+    append_effects(scene.vertices, options, sim);
     append_nav_beacons(scene.vertices, options);
     append_deploy_preview(scene.vertices, options);
     // The map and the radar share the bottom-left corner: BZ2's R turns one into the other rather

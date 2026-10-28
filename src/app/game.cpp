@@ -441,6 +441,12 @@ public:
         // The trigger waits for a step to be judged on: with none this frame, the pull stays
         // pending (the flag is drained only when the sim is stepped).
         const bool trigger_pulled = steps > 0 && session_.take_shot_voice();
+        // D4: the wakes this frame must draw come out of the sim's own before-and-after, rather
+        // than out of the audio path -- a headless capture has no ear, and a wreck smokes whether
+        // or not anyone is alive to hear it. One snapshot per FRAME, not per tick. A frame that
+        // stepped nothing keeps the last frame's deaths, because a frozen sim has a frozen picture.
+        const sim::UnitSnapshot before = sim_.units();
+        const sim::Tick stamp = sim_.tick();
         const AdvanceResult result
             = pipeline_.advance(sim_, steps,
                                 audio_frame_for(sim_, session_, scene_options.camera,
@@ -452,6 +458,9 @@ public:
         }
         for (const AdvanceResult::Touchdown& down : result.touchdowns) {
             landing_marks_.land(down.tick, down.landing.tile_x, down.landing.tile_y);
+        }
+        if (steps > 0) {
+            frame_events_ = sim::events_between(before, sim_, stamp);
         }
         refresh_row();
     }
@@ -483,6 +492,7 @@ public:
         scene_options.headings = &headings_;
         scene_options.terrain = &terrain_cache_; // the per-seed memo the mesh reads through
         scene_options.hit_flash = hit_flash_.level(sim_.tick());
+        scene_options.events = frame_events_; // D4: the wrecks this frame has to smoke for
         scene_options.weapon = session_.weapon();
         scene_options.show_weapon = !session_.destroyed();
         scene_options.reloading = game::weapon_reloading(sim_, driven);
@@ -534,6 +544,8 @@ private:
     sim::Sim sim_;
     game::Session session_;
     game::Hover hover_;
+    /// The deaths of the last frame that stepped: what the scene's wakes are made of (D4).
+    std::vector<sim::BattleEvent> frame_events_;
     game::HitFlash hit_flash_;
     game::HitMark hit_mark_;
     game::LandingMarks landing_marks_;

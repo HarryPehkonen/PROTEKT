@@ -5723,3 +5723,264 @@ TEST(Scene, TheVerdictIsDrawnOnlyWhenARecyclerHasDied) {
         << "a win by attrition proves nothing";
     EXPECT_GT(banner_adds(won), 0U) << "the enemy recycler died and the HUD said nothing";
 }
+
+// ---------------------------------------------------------------- D4: the blast and the smoke
+//
+// The wake a wreck leaves: a burst of hot puffs for the first `kBlastTicks`, then a slow grey
+// column for `kSmokeTicks` after that. Both are DERIVED -- the death is a `sim::EventKind::Killed`
+// event and the tile is the dead unit's own, still in the sim's table -- so nothing about a puff is
+// stored anywhere and a replay stays the whole input.
+
+namespace {
+
+namespace sim = protekt::sim;
+
+using protekt::game::build_scene;
+using protekt::game::kBlastAlpha;
+using protekt::game::kBlastPuffs;
+using protekt::game::kBlastTicks;
+using protekt::game::kMetresPerTile;
+using protekt::game::kSmokeAlpha;
+using protekt::game::kSmokePuffs;
+using protekt::game::kSmokeTicks;
+using protekt::game::SceneVertex;
+
+/// One puff is a box, and a box is six quads: the same 36 vertices a prism gets.
+constexpr std::size_t kPuffVertices = std::size_t{6} * 6;
+constexpr float kWakeTolerance = 0.01F;
+
+/// The rig these tests read a wake out of: a world frame with the HUD layers that would otherwise
+/// be the tail of the vertex list turned off, as `options_at` above does for its own callers.
+[[nodiscard]] protekt::game::SceneOptions wake_options(float x, float z, int radius = 8) {
+    protekt::game::SceneOptions options;
+    options.seed = 42ULL;
+    options.radius_tiles = radius;
+    options.camera.x = x;
+    options.camera.z = z;
+    options.camera.y = 8.0F;
+    options.show_ship_gauge = false;
+    options.show_ledger = false;
+    return options;
+}
+
+/// The tick the rig's Killed event is stamped with, and the id the sim gave the unit that died.
+struct Wreck {
+    bool valid{false};
+    sim::UnitId id{};
+    sim::Tick stamp{}; ///< the tick the Killed event carries
+    std::vector<sim::BattleEvent> events;
+    int tile_x{};
+    int tile_y{};
+};
+
+/// A wreck with its own history: an enemy hauler four tiles from a player tank. The tank is armed
+/// and the hauler is not, so the kill is the tank's own and the wreck stands where the hauler was.
+[[nodiscard]] Wreck a_wreck_just_made() {
+    Wreck wreck;
+    sim::Scenario scenario;
+    scenario.seed = 7ULL;
+    scenario.spawns = {{sim::UnitKind::Tank, sim::Side::Player, 40, 40},
+                       {sim::UnitKind::Scavenger, sim::Side::Enemy, 44, 40}};
+    sim::Sim sim = sim::Sim::create(scenario);
+    sim::UnitId hauler{};
+    for (const sim::Unit& unit : sim.units()) {
+        if (unit.kind == sim::UnitKind::Scavenger) {
+            hauler = unit.id;
+        }
+    }
+    for (int tick = 0; tick < 4000; ++tick) {
+        const sim::UnitSnapshot before = sim.units();
+        const sim::Tick now = sim.tick();
+        sim.step();
+        const std::vector<sim::BattleEvent> events = sim::events_between(before, sim, now);
+        for (const sim::BattleEvent& event : events) {
+            if (event.kind == sim::EventKind::Killed && event.subject == hauler) {
+                wreck.valid = true;
+                wreck.id = event.subject;
+                wreck.stamp = event.tick;
+                wreck.events = events;
+                const sim::Unit* dead = sim.find(hauler);
+                wreck.tile_x = dead->x.floor_int();
+                wreck.tile_y = dead->y.floor_int();
+                return wreck;
+            }
+        }
+    }
+    return wreck; // never: the tests assert `valid` first
+}
+
+/// One measurement of the wake at `age` ticks after the death, each from its OWN battle so that two
+/// ages cannot contaminate each other: the frame built WITH the death's events, minus the same
+/// frame built WITHOUT them. Reading a layer that sits inside a vertex list any other way is a
+/// guess about where the list ends.
+struct WakeFrame {
+    bool wreck_valid{false};
+    std::size_t first{};
+    int tile_x{};
+    int tile_y{};
+    std::vector<SceneVertex> wake;
+};
+
+[[nodiscard]] WakeFrame wake_at(sim::Tick age) {
+    WakeFrame frame;
+    const Wreck wreck = a_wreck_just_made();
+    frame.wreck_valid = wreck.valid;
+    frame.tile_x = wreck.tile_x;
+    frame.tile_y = wreck.tile_y;
+    if (!wreck.valid) {
+        return frame;
+    }
+    sim::Scenario scenario;
+    scenario.seed = 7ULL;
+    scenario.spawns = {{sim::UnitKind::Tank, sim::Side::Player, 40, 40},
+                       {sim::UnitKind::Scavenger, sim::Side::Enemy, 44, 40}};
+    sim::Sim sim = sim::Sim::create(scenario);
+    // The Killed event is stamped with the tick BEFORE the step that applied the blow, so the frame
+    // at age 0 is the frame one step past the stamp: the wreck is in the table and it is dead.
+    for (sim::Tick tick = 0; tick < wreck.stamp + 1; ++tick) {
+        sim.step();
+    }
+    for (sim::Tick tick = 0; tick < age; ++tick) {
+        sim.step();
+    }
+    SceneOptions plain = wake_options(static_cast<float>(wreck.tile_x) * kMetresPerTile,
+                                      static_cast<float>(wreck.tile_y) * kMetresPerTile);
+    SceneOptions with = plain;
+    with.events = wreck.events;
+    const Scene before = build_scene(sim, plain);
+    const Scene after = build_scene(sim, with);
+    frame.first = before.vertices.size();
+    if (after.vertices.size() >= before.vertices.size()) {
+        frame.wake.assign(after.vertices.begin() + static_cast<std::ptrdiff_t>(frame.first),
+                          after.vertices.end());
+    }
+    return frame;
+}
+
+[[nodiscard]] float mean_y(const std::vector<SceneVertex>& vertices) {
+    float sum = 0.0F;
+    for (const SceneVertex& v : vertices) {
+        sum += v.position[1];
+    }
+    return vertices.empty() ? 0.0F : sum / static_cast<float>(vertices.size());
+}
+
+TEST(SceneWake, NothingIsDrawnWithoutADeath) {
+    // A frame whose events hold no Killed event draws exactly what a frame with no events at all
+    // draws: the layer is free for every frame that has not lost a unit.
+    const Wreck wreck = a_wreck_just_made();
+    ASSERT_TRUE(wreck.valid);
+    sim::Scenario scenario;
+    scenario.seed = 7ULL;
+    scenario.spawns = {{sim::UnitKind::Tank, sim::Side::Player, 40, 40}};
+    const sim::Sim quiet = sim::Sim::create(scenario);
+    const SceneOptions plain = wake_options(0.0F, 0.0F);
+    SceneOptions with = plain;
+    with.events = std::vector<sim::BattleEvent>{
+        sim::BattleEvent{wreck.stamp, sim::EventKind::HitTaken, sim::UnitId{1}, sim::UnitId{2}, 0}};
+    EXPECT_EQ(build_scene(quiet, plain).vertices.size(), build_scene(quiet, with).vertices.size());
+}
+
+TEST(SceneWake, AKilledEventLaysAHotBurstAtTheWreckAndItBurnsOut) {
+    const WakeFrame frame = wake_at(0);
+    ASSERT_TRUE(frame.wreck_valid);
+    ASSERT_EQ(frame.wake.size(), kBlastPuffs * kPuffVertices);
+    // The ground under the wreck, from the rig's own seed: a puff sits ABOVE it, never in the hill.
+    const float ground = protekt::game::ground_metres(42ULL, static_cast<float>(frame.tile_x),
+                                                      static_cast<float>(frame.tile_y));
+    // A Killed event is stamped with the tick before the blow lands, so the freshest burst a frame
+    // can show is one tick old: the full burst alpha less one tick's worth of fade.
+    const float fresh = kBlastAlpha * (1.0F - (1.0F / static_cast<float>(kBlastTicks)));
+    for (const SceneVertex& v : frame.wake) {
+        EXPECT_NEAR(v.alpha, fresh, 1e-4F) << "a fresh puff is at the burst's own alpha";
+        EXPECT_LT(v.alpha, 1.0F) << "it blends; it is not a solid";
+        EXPECT_GT(v.position[1], ground) << "and it is off the ground";
+    }
+    // And it cools as it burns: the same burst halfway through its window is thinner.
+    const WakeFrame fading = wake_at(10);
+    ASSERT_FALSE(fading.wake.empty());
+    EXPECT_LT(fading.wake.at(0).alpha, frame.wake.at(0).alpha) << "the burst did not fade";
+    // The burst is OUT by the end of its window: what is left at `kBlastTicks` is the column.
+    const WakeFrame later = wake_at(kBlastTicks);
+    ASSERT_TRUE(later.wreck_valid);
+    EXPECT_EQ(later.wake.size(), kSmokePuffs * kPuffVertices) << "the burst outlived kBlastTicks";
+}
+
+TEST(SceneWake, TheBurstBecomesASlowGreyColumnAndTheColumnGoesInItsTurn) {
+    const WakeFrame frame = wake_at(kBlastTicks + 1);
+    ASSERT_TRUE(frame.wreck_valid);
+    ASSERT_EQ(frame.wake.size(), kSmokePuffs * kPuffVertices);
+    for (const SceneVertex& v : frame.wake) {
+        EXPECT_LT(v.alpha, 0.5F) << "smoke is thin, not a wall";
+        const float spread = std::max({v.colour[0], v.colour[1], v.colour[2]})
+                             - std::min({v.colour[0], v.colour[1], v.colour[2]});
+        EXPECT_LT(spread, 0.1F) << "smoke is grey, not lit";
+    }
+    EXPECT_TRUE(wake_at(kSmokeTicks).wake.empty()) << "the column outlived kSmokeTicks";
+}
+
+TEST(SceneWake, TheColumnRisesAndFadesAsTheTicksPass) {
+    const WakeFrame young = wake_at(kBlastTicks + 5);
+    const WakeFrame old = wake_at(kBlastTicks + 200);
+    ASSERT_TRUE(young.wreck_valid);
+    ASSERT_FALSE(young.wake.empty());
+    ASSERT_FALSE(old.wake.empty());
+    EXPECT_GT(mean_y(old.wake), mean_y(young.wake) + 0.5F) << "the column did not rise";
+    EXPECT_LT(old.wake.at(0).alpha, young.wake.at(0).alpha) << "and did not thin out";
+}
+
+TEST(SceneWake, AWreckBeyondTheMeshedRadiusLeavesNothingOnScreen) {
+    const Wreck wreck = a_wreck_just_made();
+    ASSERT_TRUE(wreck.valid);
+    // The camera sits at the origin and the wreck is 44 tiles away: outside a radius of 4 tiles,
+    // and a puff over bare void would be a lie about where the meshed world ends.
+    const SceneOptions plain = wake_options(0.0F, 0.0F, 4);
+    SceneOptions with = plain;
+    with.events = wreck.events;
+    sim::Scenario scenario;
+    scenario.seed = 7ULL;
+    scenario.spawns = {{sim::UnitKind::Tank, sim::Side::Player, 40, 40}};
+    const sim::Sim quiet = sim::Sim::create(scenario);
+    EXPECT_EQ(build_scene(quiet, plain).vertices.size(), build_scene(quiet, with).vertices.size());
+}
+
+TEST(SceneWake, TheWakeIsDerivedNotBakedIn) {
+    // The same battle measured twice draws the same wake to the byte: nothing about a puff is
+    // stored, every position comes out of the sim's own state. And the placement is off the sim's
+    // numbers rather than a fixed shape -- move the SEED and the puffs move with it, which is the
+    // same machinery that keeps one wreck's smoke from standing in the same place as another's.
+    const WakeFrame once = wake_at(3);
+    const WakeFrame twice = wake_at(3);
+    ASSERT_TRUE(once.wreck_valid);
+    ASSERT_FALSE(once.wake.empty());
+    ASSERT_EQ(once.wake.size(), twice.wake.size());
+    for (std::size_t i = 0; i < once.wake.size(); ++i) {
+        EXPECT_FLOAT_EQ(once.wake.at(i).position[0], twice.wake.at(i).position[0]) << i;
+        EXPECT_FLOAT_EQ(once.wake.at(i).position[1], twice.wake.at(i).position[1]) << i;
+        EXPECT_FLOAT_EQ(once.wake.at(i).position[2], twice.wake.at(i).position[2]) << i;
+    }
+    const Wreck wreck = a_wreck_just_made();
+    ASSERT_TRUE(wreck.valid);
+    sim::Scenario scenario;
+    scenario.seed = 7ULL;
+    scenario.spawns = {{sim::UnitKind::Tank, sim::Side::Player, 40, 40},
+                       {sim::UnitKind::Scavenger, sim::Side::Enemy, 44, 40}};
+    sim::Sim sim = sim::Sim::create(scenario);
+    for (sim::Tick tick = 0; tick < wreck.stamp + 3; ++tick) {
+        sim.step();
+    }
+    SceneOptions other = wake_options(static_cast<float>(wreck.tile_x) * kMetresPerTile,
+                                      static_cast<float>(wreck.tile_y) * kMetresPerTile);
+    other.seed = 8ULL;
+    other.events = wreck.events;
+    const Scene scene = build_scene(sim, other);
+    ASSERT_GE(scene.vertices.size(), once.wake.size());
+    bool moved = false;
+    for (std::size_t i = 0; i < once.wake.size(); ++i) {
+        const SceneVertex& v = scene.vertices.at(scene.vertices.size() - once.wake.size() + i);
+        moved = moved || std::abs(v.position[2] - once.wake.at(i).position[2]) > kWakeTolerance;
+    }
+    EXPECT_TRUE(moved) << "the wake is a fixed shape: the seed did not move it";
+}
+
+} // namespace

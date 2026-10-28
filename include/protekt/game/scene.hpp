@@ -245,6 +245,34 @@ private:
     bool clocked_{false};
 };
 
+/// THE WAKE A WRECK LEAVES (D4). A unit that dies is a `Killed` event: the sim's table keeps the
+/// dead unit, so the app says WHERE by naming the victim and the scene reads its own tile back
+/// out. Nothing is stored per puff, so a replay stays the whole input.
+///
+/// First a BURST: `kBlastPuffs` puffs thrown out and up over `kBlastTicks`, shrinking and cooling
+/// from `kBlastHotColour` to `kBlastCoolColour` as they go. Then a COLUMN: `kSmokePuffs` grey
+/// puffs stacked over the wreck, rising and drifting on a wind that comes off the frame's seed,
+/// thinning out until `kSmokeTicks` have passed and it is gone.
+inline constexpr std::size_t kBlastPuffs = 7;
+inline constexpr sim::Tick kBlastTicks = 20; ///< two thirds of a second at 30 Hz
+inline constexpr float kBlastHalfMetres = 0.30F;
+inline constexpr float kBlastLastHalfMetres = 0.12F;
+inline constexpr float kBlastSpreadMetres = 1.5F; ///< how far out a puff is thrown
+inline constexpr float kBlastRiseMetres = 1.6F;   ///< and how high the burst reaches
+inline constexpr float kBlastAlpha = 0.85F;
+inline constexpr std::array<float, 3> kBlastHotColour{1.00F, 0.58F, 0.12F};
+inline constexpr std::array<float, 3> kBlastCoolColour{0.40F, 0.36F, 0.33F};
+
+inline constexpr std::size_t kSmokePuffs = 5;
+inline constexpr sim::Tick kSmokeTicks = 420; ///< fourteen seconds, then the wreck is cold
+inline constexpr float kSmokeBaseMetres = 0.5F;
+inline constexpr float kSmokeSpacingMetres = 0.85F;
+inline constexpr float kSmokeRiseMetresPerTick = 0.010F;
+inline constexpr float kSmokeDriftMetresPerTick = 0.012F;
+inline constexpr float kSmokeHalfMetres = 0.55F;
+inline constexpr float kSmokeAlpha = 0.30F;
+inline constexpr std::array<float, 3> kSmokeColour{0.44F, 0.44F, 0.46F};
+
 /// THE HIT FLASH. How long the red wash takes to fade after the player's tank is hit.
 inline constexpr float kHitFlashSeconds = 0.4F;
 /// The same, in sim ticks: the flash is clocked by the sim's own counter, as the hover is.
@@ -604,6 +632,12 @@ struct SceneOptions {
     /// 0 draws nothing at all, so a frame that is not flashing is byte-identical to one that never
     /// heard of it.
     float hit_flash{0.0F};
+    /// The frame's battle events, as the sim reported them for the steps this frame took
+    /// (`sim::events_between`). D4 reads the `Killed` ones and nothing else: each is a wreck, and a
+    /// wreck leaves a burst and then a column of smoke (see `kBlastTicks`/`kSmokeTicks`). EMPTY
+    /// emits nothing, so every frame that never heard of this field -- and every frame that lost no
+    /// unit -- is byte-identical to what it drew before there was a wake at all.
+    std::span<const sim::BattleEvent> events{};
     /// The reticle's pulse, 0 (rest) to 1 (just connected): the app owns it. 0 draws the reticle
     /// at rest, byte-identical to one that never heard of it.
     float reticle_pulse{0.0F};
