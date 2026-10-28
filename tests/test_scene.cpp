@@ -18,6 +18,7 @@
 #include <utility>
 #include <vector>
 
+#include "haze.hpp"
 #include "protekt/game/atlas.hpp"
 #include "protekt/game/pick.hpp"
 #include "protekt/game/radar.hpp"
@@ -250,9 +251,9 @@ TEST(SceneTerrain, EveryQuadSamplesTheWholeTileOfItsTypeTheSameWayRound) {
     }
     ASSERT_NE(centre, 0) << "no view on the diagonal holds all four terrain types";
     const float metres = static_cast<float>(centre) * kMetresPerTile;
+    const SceneOptions view = options_at(metres, metres, seed, kRadius);
     const auto scene
-        = protekt::game::build_scene(protekt::sim::Sim::create(protekt::sim::skirmish(seed)),
-                                     options_at(metres, metres, seed, kRadius));
+        = protekt::game::build_scene(protekt::sim::Sim::create(protekt::sim::skirmish(seed)), view);
     const auto& atlas = protekt::game::atlas_manifest();
     std::set<protekt::world::Terrain> seen;
     for (std::size_t q = 0; q < terrain_vertex_count(kRadius); q += 6) {
@@ -275,8 +276,8 @@ TEST(SceneTerrain, EveryQuadSamplesTheWholeTileOfItsTypeTheSameWayRound) {
             const auto& v = scene.vertices.at(q + i);
             ASSERT_EQ(v.u, want.at(i).at(0)) << "tile " << tx << "," << ty << " vertex " << i;
             ASSERT_EQ(v.v, want.at(i).at(1)) << "tile " << tx << "," << ty << " vertex " << i;
-            ASSERT_EQ(v.colour, (std::array<float, 3>{1.0F, 1.0F, 1.0F}))
-                << "the tile carries the colour; the light is white";
+            ASSERT_EQ(v.colour, protekt::game::haze::seen(view, v, {1.0F, 1.0F, 1.0F}))
+                << "the tile carries the colour; the light is white (seen through the haze)";
         }
     }
     EXPECT_EQ(seen.size(), std::size_t{4}) << "this view should hold every terrain type";
@@ -2639,6 +2640,10 @@ TEST(SceneBolts, BothSidesAreDrawn) {
     EXPECT_EQ(with.vertices.size() - none.vertices.size(), 2U * kBoxVertices);
 }
 
+/// How far a flat colour may drift across one bolt's box once the haze takes it: the box is under
+/// half a metre across and the ramp falls by well under 0.01 of a channel per metre.
+constexpr float kHazeAcrossABox = 0.01F;
+
 TEST(SceneBolts, TheColourSaysWhoseBoltItIs) {
     auto sim = two_bolt_sim();
     const auto none = protekt::game::build_scene(sim, bolt_options(sim));
@@ -2648,8 +2653,12 @@ TEST(SceneBolts, TheColourSaysWhoseBoltItIs) {
     ASSERT_EQ(drawn.size(), 2U * kBoxVertices);
     // Each box is one flat colour, and the two boxes do not share it.
     for (std::size_t i = 1; i < kBoxVertices; ++i) {
-        EXPECT_EQ(drawn.at(i).colour, drawn.at(0).colour);
-        EXPECT_EQ(drawn.at(kBoxVertices + i).colour, drawn.at(kBoxVertices).colour);
+        // Each corner is fogged by its OWN distance, so a 0.4 m box differs by a hair across it.
+        for (std::size_t c = 0; c < 3; ++c) {
+            EXPECT_NEAR(drawn.at(i).colour.at(c), drawn.at(0).colour.at(c), kHazeAcrossABox);
+            EXPECT_NEAR(drawn.at(kBoxVertices + i).colour.at(c),
+                        drawn.at(kBoxVertices).colour.at(c), kHazeAcrossABox);
+        }
     }
     EXPECT_NE(drawn.at(0).colour, drawn.at(kBoxVertices).colour);
 
@@ -2661,8 +2670,14 @@ TEST(SceneBolts, TheColourSaysWhoseBoltItIs) {
     const auto theirs = protekt::game::build_scene(sim, flipped);
     ASSERT_EQ(mine.vertices.size(), theirs.vertices.size());
     const std::size_t first = mine.vertices.size() - 2U * kBoxVertices;
-    EXPECT_EQ(mine.vertices.at(first).colour, theirs.vertices.at(first + kBoxVertices).colour);
-    EXPECT_EQ(mine.vertices.at(first + kBoxVertices).colour, theirs.vertices.at(first).colour);
+    // The swap is of INK; each bolt is hazed by its own distance, so the swapped colours agree to
+    // the haze's difference between the two bolts' places, not bit for bit.
+    for (std::size_t c = 0; c < 3; ++c) {
+        EXPECT_NEAR(mine.vertices.at(first).colour.at(c),
+                    theirs.vertices.at(first + kBoxVertices).colour.at(c), kHazeAcrossABox);
+        EXPECT_NEAR(mine.vertices.at(first + kBoxVertices).colour.at(c),
+                    theirs.vertices.at(first).colour.at(c), kHazeAcrossABox);
+    }
 }
 
 TEST(SceneBolts, AHostileBoltDrawsToo) {
@@ -3131,7 +3146,10 @@ TEST(SceneShading, TerrainIsNotShaded) {
     // D3: the terrain's colour is its tile's; the vertex light is a flat white, never sun-shaded.
     const auto sim = facing_sim();
     const Scene scene = facing_scene(sim, 0.0F, 0.0F);
-    EXPECT_EQ(scene.vertices.front().colour, (std::array<float, 3>{1.0F, 1.0F, 1.0F}));
+    EXPECT_EQ(
+        scene.vertices.front().colour,
+        protekt::game::haze::seen(facing_options(sim), scene.vertices.front(), {1.0F, 1.0F, 1.0F}))
+        << "white light, however far the haze takes it";
 }
 
 // ---------------------------------------------------------------- which way a tank faces
@@ -5529,7 +5547,9 @@ TEST(Scene, TheDeployPreviewDrawsTheFootprintsTileGridOnTheGroundAndNothingWhenA
     const float stroke = protekt::game::kDeployPreviewHalfStrokeMetres;
     for (std::size_t i = first; i < with.vertices.size(); ++i) {
         const auto& v = with.vertices.at(i);
-        EXPECT_EQ(v.colour, protekt::game::kDeployPreviewColour) << i;
+        EXPECT_EQ(v.colour,
+                  protekt::game::haze::seen(previewed, v, protekt::game::kDeployPreviewColour))
+            << i;
         EXPECT_GE(v.position[0], static_cast<float>(site.x) * kMetresPerTile - stroke - kTolerance);
         EXPECT_LE(v.position[0],
                   static_cast<float>(site.x + kBuildingFootprintTiles) * kMetresPerTile + stroke
@@ -5570,8 +5590,13 @@ TEST(Scene, TheDeployPreviewIsRedWhereTheDeployWouldBeRefusedAndGreenWhereItWoul
     ASSERT_EQ(green.vertices.size(), first + protekt::game::kDeployPreviewVertexCount);
     ASSERT_EQ(red.vertices.size(), first + protekt::game::kDeployPreviewVertexCount);
     for (std::size_t i = first; i < green.vertices.size(); ++i) {
-        EXPECT_EQ(green.vertices.at(i).colour, protekt::game::kDeployPreviewColour) << i;
-        EXPECT_EQ(red.vertices.at(i).colour, protekt::game::kDeployPreviewBlockedColour)
+        EXPECT_EQ(green.vertices.at(i).colour,
+                  protekt::game::haze::seen(accepted, green.vertices.at(i),
+                                            protekt::game::kDeployPreviewColour))
+            << i;
+        EXPECT_EQ(red.vertices.at(i).colour,
+                  protekt::game::haze::seen(refused, red.vertices.at(i),
+                                            protekt::game::kDeployPreviewBlockedColour))
             << "the refused site must be red at vertex " << i;
         EXPECT_EQ(green.vertices.at(i).position, red.vertices.at(i).position)
             << "one footprint on one patch of ground: only the verdict differs, at vertex " << i;
@@ -5989,10 +6014,11 @@ TEST(SceneWake, TheWakeIsDerivedNotBakedIn) {
 /// The shadow patches of a frame: every vertex in the shadow's own ink and alpha, in emission
 /// order. The patch constants are the ONLY way this finds them, so a second copy of the ink in the
 /// renderer would make the counts below come out short.
-std::vector<protekt::game::SceneVertex> shadow_vertices(const Scene& scene) {
+std::vector<protekt::game::SceneVertex> shadow_vertices(const SceneOptions& options,
+                                                        const Scene& scene) {
     std::vector<protekt::game::SceneVertex> found;
     for (const auto& vertex : scene.vertices) {
-        if (vertex.colour == protekt::game::kShadowInk
+        if (protekt::game::haze::is_ink(options, vertex, protekt::game::kShadowInk)
             && vertex.alpha == protekt::game::kShadowAlpha) {
             found.push_back(vertex);
         }
@@ -6027,8 +6053,9 @@ TEST(Scene, ALivingUnitInViewHasOneFlatShadowPatchAtItsOwnTile) {
     const protekt::sim::Unit& tank = sim.units().front();
     const auto [cx, cz] = centre_metres(tank);
 
-    const Scene scene = build_scene(sim, options_at(cx, cz, sim.seed(), 8));
-    const auto patch = shadow_vertices(scene);
+    const SceneOptions options = options_at(cx, cz, sim.seed(), 8);
+    const Scene scene = build_scene(sim, options);
+    const auto patch = shadow_vertices(options, scene);
 
     ASSERT_EQ(patch.size(), protekt::game::kShadowVertexCount)
         << "one quad, two triangles, six vertices, for the one living unit";
@@ -6058,8 +6085,9 @@ TEST(Scene, ADeadUnitCastsNoShadow) {
     ASSERT_GT(living, 0U);
 
     const auto [cx, cz] = centre_metres(sim.units().front());
-    const Scene scene = build_scene(sim, options_at(cx, cz, sim.seed(), 40));
-    EXPECT_EQ(shadow_vertices(scene).size(), protekt::game::kShadowVertexCount * living)
+    const SceneOptions options = options_at(cx, cz, sim.seed(), 40);
+    const Scene scene = build_scene(sim, options);
+    EXPECT_EQ(shadow_vertices(options, scene).size(), protekt::game::kShadowVertexCount * living)
         << "a patch per LIVING unit: the wreck's patch would be a shadow under nothing";
 }
 
@@ -6067,8 +6095,9 @@ TEST(Scene, APatchIsAShadeWiderThanTheHullDrawnAboveIt) {
     const protekt::sim::Sim sim = a_tank_and_a_building();
     ASSERT_EQ(sim.units().size(), 2U);
     const auto [cx, cz] = centre_metres(sim.units().front());
-    const Scene scene = build_scene(sim, options_at(cx, cz, sim.seed(), 12));
-    const auto patch = shadow_vertices(scene);
+    const SceneOptions options = options_at(cx, cz, sim.seed(), 12);
+    const Scene scene = build_scene(sim, options);
+    const auto patch = shadow_vertices(options, scene);
     ASSERT_EQ(patch.size(), 2U * protekt::game::kShadowVertexCount);
 
     const auto width = [&patch](std::size_t first) {
@@ -6105,8 +6134,9 @@ TEST(Scene, APatchIsAShadeWiderThanTheHullDrawnAboveIt) {
 TEST(Scene, TheShadowIsTheNamedInkAndAlphaAndStaysRestrained) {
     const protekt::sim::Sim sim = a_tank_and_a_building();
     const auto [cx, cz] = centre_metres(sim.units().front());
-    const Scene scene = build_scene(sim, options_at(cx, cz, sim.seed(), 12));
-    const auto patch = shadow_vertices(scene);
+    const SceneOptions options = options_at(cx, cz, sim.seed(), 12);
+    const Scene scene = build_scene(sim, options);
+    const auto patch = shadow_vertices(options, scene);
     ASSERT_EQ(patch.size(), 2U * protekt::game::kShadowVertexCount)
         << "found by the named constants alone: the renderer holds no second copy";
     EXPECT_GT(protekt::game::kShadowAlpha, 0.0F);
@@ -6121,8 +6151,8 @@ TEST(Scene, TheShadowFrameIsAPureFunctionOfSimAndOptions) {
     const protekt::sim::Sim sim = a_tank_and_a_building();
     const auto [cx, cz] = centre_metres(sim.units().front());
     const SceneOptions options = options_at(cx, cz, sim.seed(), 12);
-    const auto first = shadow_vertices(build_scene(sim, options));
-    const auto second = shadow_vertices(build_scene(sim, options));
+    const auto first = shadow_vertices(options, build_scene(sim, options));
+    const auto second = shadow_vertices(options, build_scene(sim, options));
     ASSERT_FALSE(first.empty());
     ASSERT_EQ(first.size(), second.size());
     for (std::size_t i = 0; i < first.size(); ++i) {
@@ -6135,14 +6165,16 @@ TEST(Scene, AUnitOutOfViewCastsNoShadow) {
     const protekt::sim::Sim sim = a_tank_and_a_building();
     // Far outside the meshed radius of a camera at the origin: the unit emission culls it, and so
     // must its shadow, by the same rule.
-    const Scene scene = build_scene(sim, options_at(0.0F, 0.0F, sim.seed(), 8));
-    EXPECT_TRUE(shadow_vertices(scene).empty())
+    const SceneOptions away = options_at(0.0F, 0.0F, sim.seed(), 8);
+    const Scene scene = build_scene(sim, away);
+    EXPECT_TRUE(shadow_vertices(away, scene).empty())
         << "a patch with no ground meshed under it would float over bare void";
 
     // THE CONTROL, without which the line above would pass just as well if nothing ever emitted a
     // patch at all: the same rig, camera on the units.
     const auto [cx, cz] = centre_metres(sim.units().front());
-    EXPECT_FALSE(shadow_vertices(build_scene(sim, options_at(cx, cz, sim.seed(), 12))).empty())
+    const SceneOptions on_them = options_at(cx, cz, sim.seed(), 12);
+    EXPECT_FALSE(shadow_vertices(on_them, build_scene(sim, on_them)).empty())
         << "the cull is what removes the patch, not a renderer that emits nothing";
 }
 
@@ -6155,7 +6187,8 @@ TEST(Scene, TheViewersOwnHullStillCastsItsShadow) {
     const auto [cx, cz] = centre_metres(sim.units().front());
     SceneOptions options = options_at(cx, cz, sim.seed(), 8);
     options.viewer_unit = sim.units().front().id;
-    EXPECT_EQ(shadow_vertices(build_scene(sim, options)).size(), protekt::game::kShadowVertexCount)
+    EXPECT_EQ(shadow_vertices(options, build_scene(sim, options)).size(),
+              protekt::game::kShadowVertexCount)
         << "first person draws no hull for the player, so the patch is the cue they see ahead";
 }
 
@@ -6166,10 +6199,11 @@ TEST(Scene, TheShadowIsDrawnBeforeTheHull) {
         protekt::sim::Spawn{protekt::sim::UnitKind::Tank, protekt::sim::Side::Player, 57, 41});
     const protekt::sim::Sim sim = protekt::sim::Sim::create(scenario);
     const auto [cx, cz] = centre_metres(sim.units().front());
-    const Scene scene = build_scene(sim, options_at(cx, cz, sim.seed(), 8));
+    const SceneOptions options = options_at(cx, cz, sim.seed(), 8);
+    const Scene scene = build_scene(sim, options);
     std::size_t last = 0;
     for (std::size_t i = 0; i < scene.vertices.size(); ++i) {
-        if (scene.vertices.at(i).colour == protekt::game::kShadowInk
+        if (protekt::game::haze::is_ink(options, scene.vertices.at(i), protekt::game::kShadowInk)
             && scene.vertices.at(i).alpha == protekt::game::kShadowAlpha) {
             last = i;
         }

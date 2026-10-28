@@ -187,6 +187,20 @@ void append_sky(std::vector<SceneVertex>& out, const Camera& camera) {
     }
 }
 
+/// Fog the vertices in [first, last) by their distance from the eye. THE ONE PLACE the fog is
+/// applied: `build_scene` calls it on the world's runs of the vertex list and on nothing else.
+void fog_range(std::vector<SceneVertex>& vertices, std::size_t first, std::size_t last,
+               const Camera& camera, int radius_tiles) {
+    const float far = fog_far_metres(radius_tiles);
+    for (std::size_t i = first; i < last; ++i) {
+        SceneVertex& v = vertices.at(i);
+        const float dx = v.position[0] - camera.x;
+        const float dy = v.position[1] - camera.y;
+        const float dz = v.position[2] - camera.z;
+        v.colour = fogged(v.colour, std::sqrt((dx * dx) + (dy * dy) + (dz * dz)), far);
+    }
+}
+
 /// A selected unit keeps its side's colour and is mixed towards white, so a glance tells you both
 /// whose it is and that it is yours to move.
 Vec3 highlight(const Vec3& colour) {
@@ -4067,7 +4081,9 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
     const int centre_y = static_cast<int>(std::floor(options.camera.z / kMetresPerTile));
     build_terrain(scene.vertices, options.terrain, options.seed, centre_x, centre_y,
                   options.radius_tiles);
+    const std::size_t terrain_end = scene.vertices.size();
     append_sky(scene.vertices, options.camera);
+    const std::size_t sky_end = scene.vertices.size();
 
     // The one pick the frame makes: the reticle and the unit tint both read it, so they can never
     // disagree about what is under the crosshair.
@@ -4149,6 +4165,15 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
     append_effects(scene.vertices, options, sim);
     append_nav_beacons(scene.vertices, options);
     append_deploy_preview(scene.vertices, options);
+    // THE LINE BETWEEN WORLD AND HUD, DRAWN HERE: everything above is the world -- the terrain,
+    // the units and their shadows, bolts, landing marks, scrap, wrecks and smoke, nav beacons and
+    // the deploy wireframe -- and goes through the fog, by its distance from the eye. The sky is
+    // what the fog fades TO and is skipped. Everything below is the HUD, which is laid out in
+    // screen space on the near-plane layers: a bar over a unit 50 m away is a label, and it must
+    // read like the one over a unit 5 m away, so none of it is fogged. Nav GLYPHS are the radar's
+    // and the world map's marks, and sit on the HUD side of this line.
+    fog_range(scene.vertices, 0, terrain_end, options.camera, options.radius_tiles);
+    fog_range(scene.vertices, sky_end, scene.vertices.size(), options.camera, options.radius_tiles);
     // The map and the radar share the bottom-left corner: BZ2's R turns one into the other rather
     // than stacking them, so the radar (and the hull bar it carries) is not drawn while the map is
     // up. Hiding the radar must not change the sim, and it does not: this is a view.

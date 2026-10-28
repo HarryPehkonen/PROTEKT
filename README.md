@@ -228,7 +228,7 @@ change a verification run.
 | **The radar is range-based, not line-of-sight** | a hostile behind a hill inside its reach (40 tiles; 80 in a scout) is still on it. Battlezone's radar worked the same way, and this is the version to play before adding occlusion |
 | **Compass** | the panel turns with the tank; N, E, S, W sit on the ring for the true world directions, from the same yaw as the marks |
 | **Two units on one panel pixel** | the depth test decides, so one colour wins. A hostile within about a tile of you hides under your own mark |
-| **Lighting is one sun, no shadows** | the ground is painted from textures (six variants of each terrain type, each tile turned one of eight ways) and units are built from several lit prisms, all shaded by one directional sun. Nothing casts a shadow: each living unit, the one you drive included, stands on a dark translucent blob laid flat on the ground (sized from its footprint) as a stand-in, and the textures are generated, not authored art |
+| **Lighting is one sun, no shadows** | the ground is painted from textures (six variants of each terrain type, each tile turned one of eight ways) and units are built from several lit prisms, all shaded by one directional sun. Nothing casts a shadow: each living unit, the one you drive included, stands on a dark translucent blob laid flat on the ground (sized from its footprint) as a stand-in, and the textures are generated, not authored art. Distance fog blends the world toward the sky's horizon colour: nothing within 12 m, solid at the edge of the meshed ground, so the terrain dissolves into the sky instead of ending in a line. The HUD (bars, panels, radar, reticle) is never fogged |
 
 ## Requirements
 

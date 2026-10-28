@@ -11,6 +11,7 @@
 #include <string>
 #include <vector>
 
+#include "haze.hpp"
 #include "protekt/game/aim.hpp"
 #include "protekt/game/interaction.hpp"
 #include "protekt/game/menu.hpp"
@@ -626,8 +627,8 @@ TEST(NavMarksWorld, AMarkDrawsABeaconInItsOwnColourAndNoMarkDrawsNone) {
         const float cx = 40.5F * kMetresPerTile;
         const float cz = 50.5F * kMetresPerTile;
         for (const SceneVertex& v : scene.vertices) {
-            if (has_colour(v, rgb) && std::abs(v.position[0] - cx) < 1.0F
-                && std::abs(v.position[2] - cz) < 1.0F
+            if (protekt::game::haze::is_ink(rig.options, v, rgb)
+                && std::abs(v.position[0] - cx) < 1.0F && std::abs(v.position[2] - cz) < 1.0F
                 && v.position[1] > height_metres(kSeed, 40, 50) + 3.0F) {
                 return true;
             }

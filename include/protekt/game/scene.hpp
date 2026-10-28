@@ -87,6 +87,48 @@ inline constexpr std::array<math::Vec3, kSkyRings> kSkyRingColours{{{0.8000F, 0.
                                                                     {0.2500F, 0.5000F, 0.8200F}}};
 inline constexpr math::Vec3 kSunDiscColour{1.0F, 0.97F, 0.80F};
 
+/// DISTANCE FOG, for AERIAL PERSPECTIVE: the ground dissolving into the horizon, as Battlezone
+/// II's did, so the meshed rim melts into the sky instead of ending in a hard line and distant
+/// things lose contrast the way far things do. The fog colour is the sky's own horizon ring,
+/// `kSkyRingColours.at(kSkyHorizonRing)` -- reused, never restated. It is applied where the
+/// geometry is BUILT (the scene is a CPU vertex list), by `fogged`, to everything the WORLD draws
+/// and nothing the HUD draws (see `build_scene`).
+/// A vertex nearer than `kFogNearMetres` keeps its exact colour, so something driving toward the
+/// camera never thins out; from there to the far distance the colour moves toward the fog along
+/// `t^kFogRampExponent` (an ease-in: the middle distance keeps its contrast and the rim does the
+/// dissolving). The far distance is the meshed radius (`fog_far_metres`), so the fog and the cull
+/// agree: by the rim a vertex IS the horizon colour.
+inline constexpr float kFogNearMetres = 12.0F;
+inline constexpr int kFogRampExponent = 2;
+
+/// Where the fog is total: the terrain's half-extent in metres, the radius the scene culls to.
+[[nodiscard]] constexpr float fog_far_metres(int radius_tiles) noexcept {
+    return static_cast<float>(radius_tiles) * kMetresPerTile;
+}
+
+/// `colour` as seen `distance` metres from the camera when the fog is complete at `far`. Pure in
+/// its three arguments. Unchanged at or inside `kFogNearMetres`; EXACTLY the horizon colour at or
+/// beyond `far` (an assignment, not a blend that rounds to it); strictly nearer the horizon colour
+/// the farther the distance in between.
+[[nodiscard]] constexpr math::Vec3 fogged(const math::Vec3& colour, float distance,
+                                          float far) noexcept {
+    if (distance <= kFogNearMetres) {
+        return colour;
+    }
+    if (distance >= far) {
+        return kSkyRingColours.at(kSkyHorizonRing);
+    }
+    const float t = (distance - kFogNearMetres) / (far - kFogNearMetres);
+    float amount = 1.0F;
+    for (int step = 0; step < kFogRampExponent; ++step) {
+        amount *= t;
+    }
+    const math::Vec3& fog = kSkyRingColours.at(kSkyHorizonRing);
+    return math::Vec3{colour[0] + ((fog[0] - colour[0]) * amount),
+                      colour[1] + ((fog[1] - colour[1]) * amount),
+                      colour[2] + ((fog[2] - colour[2]) * amount)};
+}
+
 /// THE GROUND'S PAINT. A terrain quad samples one whole atlas tile, and WHICH tile is a pure
 /// function of the world tile's `Terrain` FAMILY, then of its variant below (D6). The tiles carry
 /// their own colour, so the terrain's vertex colour is `kTerrainLight`, white, the multiplicative

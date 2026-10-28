@@ -146,7 +146,9 @@ is not quiet but absent. A machine with no sound device runs silent.
 Shipped from this list since it was written, and no longer next: on-screen hit feedback, deterministic
 A\* (navigation option 2), and rendering depth (textures, lighting, unit shapes). What the rendering
 still lacks is honest in the README gap table: one sun and no cast shadows (a contact blob under each
-living unit stands in), and generated rather than authored art.
+living unit stands in), and generated rather than authored art. The world also fades into the sky's
+horizon colour with distance (aerial perspective, as Battlezone II's did): clear within 12 m, total at
+the meshed rim, world only -- the HUD is never fogged.
 
 
 Ranked by *risk reduction per unit of work*, not by visibility. The flashy part (rendering) was
