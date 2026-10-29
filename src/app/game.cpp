@@ -371,7 +371,7 @@ public:
           // 12 m/s hover tank in docs/PLAN.md. A stall is capped at 250 ms of catch-up.
           play_clock_(std::chrono::nanoseconds{1'000'000'000LL / 30},
                       std::chrono::nanoseconds{250'000'000LL}, TimeAccumulator::Clock::now()) {
-        refresh_row();
+        row_.seed_from_start(sim_, sim::Side::Player, nav_marks_.marks().size());
     }
 
     [[nodiscard]] sim::Tick tick() const { return sim_.tick(); }

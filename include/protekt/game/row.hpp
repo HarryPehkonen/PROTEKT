@@ -33,7 +33,9 @@
 /// A vehicle arrives carrying the batch its build order named: a lone build is a batch of one, and
 /// every unit built from one shift gesture carries that gesture's token. `update` gives a batch the
 /// slot its FIRST member takes, so a shift-built batch shares one F key (the ruling) while two lone
-/// builds take one key each. Scenario-placed units belong to no batch and are placed one per key.
+/// builds take one key each. Scenario-placed units belong to no batch and are placed one per key --
+/// except at the START: `seed_from_start` seats the opening force one key per KIND (his ruling,
+/// 2026-10-29), so every key is one kind from tick 0 and a shift-move can be refused by kind.
 namespace protekt::game {
 
 /// What a position in the row IS. Fixed by the index; see `row_slot_kind`.
@@ -77,6 +79,19 @@ enum class RowMove : std::uint8_t {
 struct RowState {
     std::array<RowSlot, kRowSlots> slots{}; ///< ~ 1 2 3 F1..F10, in that fixed order
     std::size_t nav_marks{0};               ///< `~` is on the screen when this is above zero
+    /// Units the start deliberately left off the F keys (see `seed_from_start`). `update` never
+    /// seats them; without this it would offer them the first empty key on the very next frame.
+    std::vector<sim::UnitId> off_row{};
+
+    /// THE START RULE, once, at tick 0, on a row that has seen nothing: seat `side`'s opening force
+    /// ONE GROUP KEY PER KIND. All the tanks share F1, and each other kind of vehicle takes the
+    /// next empty key, in the order its first unit spawns. The turrets take no F key -- they go on
+    /// `off_row`; the factory and the deployed recycler never did. The undeployed recycler moves
+    /// and deploys from its F key, so it is a kind like any. Then it fills the building keys and
+    /// `~` as `update` does. This is the ONLY place units are grouped by kind: every unit that
+    /// appears afterwards goes through `update`'s per-unit rules (a lone build takes the first
+    /// empty key, a shift-built batch shares its first member's, a wiped-out key is reused first).
+    void seed_from_start(const sim::Sim& sim, sim::Side side, std::size_t marks);
 
     /// Fold in this frame's world: prune the dead, hand every vehicle `side` has not had before the
     /// first empty group slot, and refill the building keys. `nav_marks` is how many marks the

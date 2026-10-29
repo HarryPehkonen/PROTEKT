@@ -567,8 +567,9 @@ TEST_F(GameCliTest, TheMenuIsOnScreenWhenTheRowSelectsTheRecycler) {
     if (kUnderThreadSanitizer) {
         GTEST_SKIP() << kTsanReason;
     }
-    // F10 selects the recycler (the tenth vehicle; the factory is a building and sits on key 2, not
-    // under an F key, and HAULER's scavenger took F9), and that selection's command menu is drawn
+    // F6 selects the recycler (the starting force sits one key per kind: tanks F1, hover tank F2,
+    // mortar bike F3, rocket tank F4, scavenger F5, recycler F6; the factory and turrets take no
+    // F key), and that selection's command menu is drawn
     // down the left of the frame: six rows: five live (SPACE, TAB, 1 FOLLOW ME, 2 GO TO NAV,
     // 3 DEPLOY) and `~ ROTATE BUILDINGS` dim, because a recycler that has not deployed has nothing
     // to rotate -- and not one row before the key is pressed.
@@ -577,10 +578,10 @@ TEST_F(GameCliTest, TheMenuIsOnScreenWhenTheRowSelectsTheRecycler) {
     std::string err;
     ASSERT_EQ(run({"--headless", "--seed", "42", "--frames", "6", "--capture", before}, err), 0)
         << err;
-    ASSERT_EQ(run({"--headless", "--seed", "42", "--frames", "6", "--key", "1", "f10", "--capture",
-                   after},
-                  err),
-              0)
+    ASSERT_EQ(
+        run({"--headless", "--seed", "42", "--frames", "6", "--key", "1", "f6", "--capture", after},
+            err),
+        0)
         << err;
 
     // The band the menu lives in: below the roster strip and the notice, above the SCRAP label and
