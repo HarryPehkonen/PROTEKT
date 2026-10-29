@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <cstring>
 #include <limits>
+#include <map>
 #include <optional>
 #include <set>
 #include <span>
@@ -168,6 +169,134 @@ TEST(SceneTerrain, MeshesTwoTrianglesPerTile) {
         << "the terrain mesh alone is two triangles per tile";
 }
 
+// ---------------------------------------------------------------- the ground is lit by its slope
+//
+// A terrain quad's vertex colour is the light on its own surface, relative to a FLAT tile: the same
+// half-Lambert ramp the solids use (`face_light`), divided by what that ramp gives for straight up
+// (0.958, not 1.0), so a flat tile keeps exactly the colour it always had. The oracle here is
+// written out independently of the scene's code: the quad's mean gradient, the normal it implies,
+// and the ramp, from `kSunDirection`.
+
+namespace {
+
+constexpr std::uint64_t kSlopeSeedForLight = 42; // the sloped world, see "smooth elevation" below
+
+struct ShadedTile {
+    protekt::math::Vec3 colour;
+    float h00;
+    float h10;
+    float h01;
+    float h11;
+    std::size_t vertices; ///< the scene's own vertex count, for the count guard
+};
+
+/// The colour of tile (tx, ty)'s quad, read from a scene whose camera hangs just above it, so the
+/// fog (which leaves a vertex within 12 m alone) has not touched it.
+ShadedTile shaded_tile(std::uint64_t seed, int tx, int ty) {
+    constexpr int kRadius = 2;
+    const float centre_x = (static_cast<float>(tx) + 0.5F) * kMetresPerTile;
+    const float centre_z = (static_cast<float>(ty) + 0.5F) * kMetresPerTile;
+    SceneOptions o = options_at(centre_x, centre_z, seed, kRadius);
+    o.camera.y = protekt::game::height_metres(seed, tx, ty) + 1.0F;
+    // Terrain does not depend on the sim, so one sim serves every tile (all on the one seed).
+    static const protekt::sim::Sim sim = protekt::sim::Sim::create(protekt::sim::skirmish(42));
+    const Scene scene = protekt::game::build_scene(sim, o);
+    // Quads are emitted row by row from (centre - radius - 1); the camera's tile is tx, ty.
+    const auto side = static_cast<std::size_t>(kRadius) * 2U + 2U;
+    const std::size_t quad = ((static_cast<std::size_t>(kRadius) + 1U) * side)
+                             + static_cast<std::size_t>(kRadius) + 1U;
+    return ShadedTile{scene.vertices.at(quad * 6U).colour,
+                      protekt::game::height_metres(seed, tx, ty),
+                      protekt::game::height_metres(seed, tx + 1, ty),
+                      protekt::game::height_metres(seed, tx, ty + 1),
+                      protekt::game::height_metres(seed, tx + 1, ty + 1),
+                      scene.vertices.size()};
+}
+
+float oracle_ramp(const protekt::math::Vec3& normal) {
+    const protekt::math::Vec3 sun = protekt::math::normalise(protekt::game::kSunDirection);
+    const float facing = std::clamp(protekt::math::dot(normal, sun), -1.0F, 1.0F);
+    return 0.45F + (0.55F * (0.5F + (0.5F * facing)));
+}
+
+/// What the colour of this tile must be: the ramp on the mean-gradient normal over the ramp on up.
+float oracle_light(const ShadedTile& t) {
+    const float dhdx = ((t.h10 + t.h11) - (t.h00 + t.h01)) / (2.0F * kMetresPerTile);
+    const float dhdz = ((t.h01 + t.h11) - (t.h00 + t.h10)) / (2.0F * kMetresPerTile);
+    const protekt::math::Vec3 normal = protekt::math::normalise({-dhdx, 1.0F, -dhdz});
+    return oracle_ramp(normal) / oracle_ramp({0.0F, 1.0F, 0.0F});
+}
+
+} // namespace
+
+TEST(SceneTerrainLight, ASlopedQuadIsShadedByTheSolidsRampAndTheDirectionIsRight) {
+    float brightest = 0.0F;
+    float darkest = 2.0F;
+    for (int ty = 90; ty < 120; ++ty) {
+        for (int tx = 100; tx < 130; ++tx) {
+            const ShadedTile t = shaded_tile(kSlopeSeedForLight, tx, ty);
+            const float want = oracle_light(t);
+            for (std::size_t c = 0; c < 3; ++c) {
+                EXPECT_NEAR(t.colour.at(c), want, 2e-4F) << "tile " << tx << "," << ty;
+            }
+            brightest = std::max(brightest, t.colour[0]);
+            darkest = std::min(darkest, t.colour[0]);
+        }
+    }
+    EXPECT_GT(brightest, 1.02F) << "a slope toward the sun is brighter than flat ground";
+    EXPECT_LT(darkest, 0.90F) << "a slope away from the sun is darker than flat ground";
+}
+
+TEST(SceneTerrainLight, TwoTilesWithTheSameCornerHeightsGetTheSameColour) {
+    // Heights relative to the tile's own p00: the colour is a function of the corners' shape, not
+    // of where the tile is or how high it sits.
+    using Shape = std::array<int, 3>;
+    std::map<Shape, std::pair<int, int>> seen;
+    bool compared = false;
+    for (int ty = 90; ty < 110 && !compared; ++ty) {
+        for (int tx = 100; tx < 120 && !compared; ++tx) {
+            const ShadedTile t = shaded_tile(kSlopeSeedForLight, tx, ty);
+            const auto units = [&](float h) {
+                return static_cast<int>(std::lround((h - t.h00) / kMetresPerHeightUnit));
+            };
+            const Shape shape{units(t.h10), units(t.h01), units(t.h11)};
+            if (shape == Shape{0, 0, 0}) {
+                continue;
+            }
+            const auto [it, inserted] = seen.emplace(shape, std::pair{tx, ty});
+            if (!inserted) {
+                const ShadedTile other
+                    = shaded_tile(kSlopeSeedForLight, it->second.first, it->second.second);
+                EXPECT_EQ(t.colour, other.colour);
+                EXPECT_NE(t.colour, protekt::game::kTerrainLight) << "the pair must be sloped";
+                compared = true;
+            }
+        }
+    }
+    EXPECT_TRUE(compared) << "the scan found no two sloped tiles of one shape";
+}
+
+TEST(SceneTerrainLight, AFlatTileKeepsExactlyTheColourItHadBefore) {
+    // (32,13), (33,13), (32,14), (33,14) are one height on seed 42.
+    const ShadedTile t = shaded_tile(kSlopeSeedForLight, 32, 13);
+    ASSERT_EQ(t.h00, t.h10);
+    ASSERT_EQ(t.h00, t.h01);
+    ASSERT_EQ(t.h00, t.h11);
+    EXPECT_EQ(t.colour, protekt::game::kTerrainLight);
+}
+
+TEST(SceneTerrainLight, TheVertexCountIsUnchanged) {
+    // Two triangles a tile, (2r+2)^2 tiles, then the sky dome starts: nothing was added or split.
+    constexpr int kRadius = 8;
+    const Scene scene
+        = protekt::game::build_scene(protekt::sim::Sim::create(protekt::sim::skirmish(42)),
+                                     options_at(60.0F, 60.0F, 42, kRadius));
+    EXPECT_EQ(scene.vertices.at(terrain_vertex_count(kRadius)).colour,
+              protekt::game::kSkyRingColours.at(0))
+        << "the sky must start exactly where an unlit, unsplit terrain mesh ends";
+    EXPECT_EQ(scene.vertices.at(terrain_vertex_count(kRadius) - 1).alpha, 1.0F);
+}
+
 TEST(SceneTerrain, StaysWhereItWasAsked) {
     const int radius = 6;
     const Scene scene = without_sky(
@@ -276,8 +405,19 @@ TEST(SceneTerrain, EveryQuadSamplesTheWholeTileOfItsTypeTheSameWayRound) {
             const auto& v = scene.vertices.at(q + i);
             ASSERT_EQ(v.u, want.at(i).at(0)) << "tile " << tx << "," << ty << " vertex " << i;
             ASSERT_EQ(v.v, want.at(i).at(1)) << "tile " << tx << "," << ty << " vertex " << i;
-            ASSERT_EQ(v.colour, protekt::game::haze::seen(view, v, {1.0F, 1.0F, 1.0F}))
-                << "the tile carries the colour; the light is white (seen through the haze)";
+            const ShadedTile corners{{},
+                                     protekt::game::height_metres(seed, tx, ty),
+                                     protekt::game::height_metres(seed, tx + 1, ty),
+                                     protekt::game::height_metres(seed, tx, ty + 1),
+                                     protekt::game::height_metres(seed, tx + 1, ty + 1),
+                                     0};
+            const float light = oracle_light(corners);
+            const auto want_colour
+                = protekt::game::haze::seen(view, v, protekt::math::Vec3{light, light, light});
+            for (std::size_t c = 0; c < 3; ++c) {
+                ASSERT_NEAR(v.colour.at(c), want_colour.at(c), 2e-4F)
+                    << "the tile carries the colour; the light is the slope's, grey, then hazed";
+            }
         }
     }
     EXPECT_EQ(seen.size(), std::size_t{4}) << "this view should hold every terrain type";

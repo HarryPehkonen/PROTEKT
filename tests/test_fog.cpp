@@ -130,7 +130,12 @@ TEST(Fog, TheTerrainFadesFromItsOwnPaintToTheHorizon) {
         const float d = eye_distance(o, v);
         if (d <= kFogNearMetres) {
             ++near_count;
-            EXPECT_EQ(v.colour, kTerrainLight) << "inside the near distance, terrain is untouched";
+            // Untouched by the fog: still the grey of the slope's light (a quad's light is its
+            // own, so only a FLAT quad is exactly white), never tinted toward the horizon.
+            EXPECT_EQ(v.colour[0], v.colour[1]) << "inside the near distance, terrain is unfogged";
+            EXPECT_EQ(v.colour[1], v.colour[2]) << "inside the near distance, terrain is unfogged";
+            EXPECT_GT(v.colour[0], 0.85F);
+            EXPECT_LT(v.colour[0], 1.05F);
         } else if (d >= far) {
             ++far_count;
             EXPECT_EQ(v.colour, horizon()) << "at the rim the terrain IS the horizon";

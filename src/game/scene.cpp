@@ -96,6 +96,37 @@ void emit_tiled_quad(std::vector<SceneVertex>& out, const Vec3& a, const Vec3& b
     return height_metres(seed, tile_x, tile_y);
 }
 
+/// How lit a face is: its outward unit normal against the sun (`kSunDirection`), mapped so a face
+/// square to the sun is 1.0 and one square away is `kShadeFloor` -- never black. A half-Lambert
+/// ramp rather than a clamped dot, so a face turned away from the sun still differs from the
+/// underside: top > sun side > shade side > bottom.
+float face_light(const Vec3& normal) {
+    constexpr float kShadeFloor = 0.45F;
+    const float facing = std::clamp(dot(normal, normalise(kSunDirection)), -1.0F, 1.0F);
+    return kShadeFloor + ((1.0F - kShadeFloor) * (0.5F + (0.5F * facing)));
+}
+
+/// The light on one terrain quad: `face_light` of the quad's own surface, relative to a flat tile.
+///
+/// THE NORMAL is the cross product of the quad's two diagonals, (p01 - p10) x (p11 - p00). That is
+/// the area-weighted mean of the two triangles' normals for EITHER split of the quad (so it does
+/// not care that the mesh cuts along p00-p11), and for a flat quad it is exactly straight up. One
+/// normal, one colour: the quad stays six vertices.
+///
+/// RELATIVE TO FLAT: straight up is 0.958 on the ramp, not 1.0, so the raw light would darken every
+/// flat tile by 4%. Dividing by `face_light(up)` makes flat ground exactly 1.0 (the colour it had
+/// before the ground was lit) and leaves the slope's difference from flat as the whole effect; a
+/// tile tilted toward the sun comes out a little above 1. The tile atlas supplies the colour, this
+/// only scales it. Fog is applied afterwards by `fog_range`, so a far tile still ends at the
+/// horizon.
+Vec3 terrain_light(const Vec3& p00, const Vec3& p10, const Vec3& p11, const Vec3& p01) {
+    const Vec3 across{p01[0] - p10[0], p01[1] - p10[1], p01[2] - p10[2]};
+    const Vec3 along{p11[0] - p00[0], p11[1] - p00[1], p11[2] - p00[2]};
+    const float flat = face_light(Vec3{0.0F, 1.0F, 0.0F});
+    const float light = face_light(normalise(cross(across, along))) / flat;
+    return Vec3{kTerrainLight[0] * light, kTerrainLight[1] * light, kTerrainLight[2] * light};
+}
+
 void build_terrain(std::vector<SceneVertex>& out, const TerrainCache* cache, std::uint64_t seed,
                    int centre_x, int centre_y, int radius) {
     // Each tile's corners are sampled one tile beyond it on the far edge (tx+1, ty+1); widening
@@ -126,7 +157,7 @@ void build_terrain(std::vector<SceneVertex>& out, const TerrainCache* cache, std
             const Vec3 p10{x1, cached_height_metres(cache, seed, tx + 1, ty), z0};
             const Vec3 p11{x1, cached_height_metres(cache, seed, tx + 1, ty + 1), z1};
             const Vec3 p01{x0, cached_height_metres(cache, seed, tx, ty + 1), z1};
-            emit_tiled_quad(out, p00, p10, p11, p01, kTerrainLight, tile,
+            emit_tiled_quad(out, p00, p10, p11, p01, terrain_light(p00, p10, p11, p01), tile,
                             orientation_index(terrain, tx, ty));
         }
     }
@@ -260,16 +291,6 @@ struct Prism {
     float back_y1;
     float front_y1;
 };
-
-/// How lit a face is: its outward unit normal against the sun (`kSunDirection`), mapped so a face
-/// square to the sun is 1.0 and one square away is `kShadeFloor` -- never black. A half-Lambert
-/// ramp rather than a clamped dot, so a face turned away from the sun still differs from the
-/// underside: top > sun side > shade side > bottom.
-float face_light(const Vec3& normal) {
-    constexpr float kShadeFloor = 0.45F;
-    const float facing = std::clamp(dot(normal, normalise(kSunDirection)), -1.0F, 1.0F);
-    return kShadeFloor + ((1.0F - kShadeFloor) * (0.5F + (0.5F * facing)));
-}
 
 /// One face of a prism, shaded by its WORLD normal. The normal comes from the face's own corners,
 /// so the turn by `angle` and any slant are already in it; it is flipped to point away from the

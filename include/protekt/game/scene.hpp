@@ -218,6 +218,8 @@ inline constexpr int kOrientationCount = 8;
     return type < kGroundVariantNames.size() ? kGroundVariantNames.at(type).at(at)
                                              : kGroundVariantNames.front().front();
 }
+/// The terrain quad's vertex colour on FLAT ground; a sloped quad scales it by its light
+/// (`terrain_light`).
 inline constexpr math::Vec3 kTerrainLight{1.0F, 1.0F, 1.0F};
 
 /// Where the player's eye is, in world metres and radians. Yaw 0 looks down +Z.
