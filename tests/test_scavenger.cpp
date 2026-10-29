@@ -976,9 +976,8 @@ TEST(BuildQueue, ABatchIsQueuedOnADryBankAndEachUnitPaysOnItsOwnStart) {
         << "adding to a batch never asks the bank: the door took all three on an empty reserve";
     EXPECT_EQ(sim.ore(Side::Player), 0) << "nothing is paid when a batch is ordered";
 
-    ASSERT_TRUE(
-        step_until(sim, 20 * sim::spec_of(UnitKind::Scavenger).build_ticks,
-                   [&before, factory](const Sim& s) { return built_since(s, before).size() == 3; }))
+    ASSERT_TRUE(step_until(sim, 20 * sim::spec_of(UnitKind::Scavenger).build_ticks,
+                           [&before](const Sim& s) { return built_since(s, before).size() == 3; }))
         << "the batch never drained: queue " << sim.find(factory)->queue.count << " left "
         << sim.find(factory)->queue.left << " ore " << sim.ore(Side::Player) << " made "
         << built_since(sim, before).size();
@@ -1139,6 +1138,9 @@ TEST(BuildQueue, ARefusedBuildNeverReachesTheReplayAndTheReplayRebuildsTheSameQu
     replay.commands = live.command_log();
     const std::optional<sim::Replay> text = sim::parse(sim::to_text(replay), nullptr);
     ASSERT_TRUE(text.has_value());
+    if (!text.has_value()) {
+        return; // the explicit guard the tidy rule asks for, after the assert above
+    }
     ASSERT_EQ(text->commands.size(), 2U) << "only the two accepted orders are in the replay";
 
     Sim again = Sim::create(queue_battle(0));
@@ -1172,7 +1174,7 @@ TEST(BuildQueue, TwoProducersEachRunTheirOwnBatchAndBothDrainInTheSameTicks) {
     // Let the haulers fill the bank first, so that scrap is not what paces the two queues and
     // their countdowns can overlap.
     const auto cost = sim::spec_of(UnitKind::Scavenger).cost;
-    ASSERT_TRUE(step_until(sim, kQueueLimit, [cost](const Sim& s) {
+    ASSERT_TRUE(step_until(sim, kQueueLimit, [](const Sim& s) {
         return s.ore(Side::Player) >= 4 * cost;
     })) << "the bank never held four haulers' price";
     const UnitId first = last_id(sim);
@@ -1271,6 +1273,9 @@ TEST(BuildQueue, AReplayThatQueuesBuildsReproducesTickForTick) {
     replay.commands = live.command_log();
     const std::optional<sim::Replay> text = sim::parse(sim::to_text(replay), nullptr);
     ASSERT_TRUE(text.has_value()) << "a queued build must survive the replay text";
+    if (!text.has_value()) {
+        return; // the explicit guard the tidy rule asks for, after the assert above
+    }
     ASSERT_EQ(text->commands.size(), 3U);
 
     Sim again = Sim::create(queue_battle(40));

@@ -1752,11 +1752,11 @@ struct BuildRig {
     Interaction player;
 };
 
-[[nodiscard]] BuildRig make_build_rig(Scenario scenario
+[[nodiscard]] BuildRig make_build_rig(const Scenario& scenario
                                       = Scenario{kSeed,
                                                  {{UnitKind::Tank, Side::Player, 40, 40},
                                                   {UnitKind::Factory, Side::Player, 46, 41}}}) {
-    sim::Sim sim = sim::Sim::create(std::move(scenario));
+    sim::Sim sim = sim::Sim::create(scenario);
     const sim::UnitId tank = sim.units().at(0).id;
     const sim::UnitId factory = sim.units().at(1).id;
     BuildRig rig{std::move(sim), SceneOptions{}, tank, factory, Interaction{tank}};
@@ -1782,7 +1782,7 @@ struct BuildRig {
             sim::Scrap{sim::fixed_add(sim::Fixed::from_int(42 + (i % 10)), half),
                        sim::fixed_add(sim::Fixed::from_int(36 + (i / 10)), half)});
     }
-    return make_build_rig(std::move(scenario));
+    return make_build_rig(scenario); // the parameter is a const reference: a move would do nothing
 }
 
 /// Steps the sim, with no input, until `rig`'s factory has nothing queued: its batch is done.
