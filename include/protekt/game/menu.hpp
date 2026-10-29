@@ -56,6 +56,7 @@ enum class MenuSubject : std::uint8_t {
     Recycler,   ///< a recycler / matriarch that is not yet deployed
     Harvester,  ///< a harvester / scavenger
     Deployment, ///< a DEPLOYED recycler: the build list (and `~ DROP OFF`)
+    Factory,    ///< a factory: `~ DROP OFF` and the FACTORY's own, shorter build list
     Turret,     ///< a lone deployed turret: the state row alone
     /// A selected VEHICLE -- a tank, hover tank, mortar, rocket or scout. The plan's measured shape
     /// (2026-10-26) is ONE table for every vehicle kind: only the state row's default verb differs
@@ -172,11 +173,13 @@ struct BuildItem {
     std::optional<sim::UnitKind> kind{};
 };
 
-/// A side's build list, in key order. The PLAYER's is the one the reference capture shows, with its
-/// costs; the enemy's is EMPTY until RB5 and the R3 roster fill it, because a per-side item name
-/// and a per-kind cost are that slice's and inventing a list here would put names in the mouth of a
-/// capture that never showed them. A deployment on the enemy side therefore draws no build rows.
-[[nodiscard]] std::span<const BuildItem> build_items(sim::Side side) noexcept;
+/// A producer's build list, in key order: what a `side`'s selected `subject` builds. A DEPLOYMENT
+/// (the recycler) builds the seven rows the reference capture shows, with its costs; a FACTORY
+/// builds its own, shorter list; every other subject builds nothing, so its list is empty. The
+/// enemy's lists are EMPTY until RB5 and the R3 roster fill them, because a per-side item name and
+/// a per-kind cost are that slice's and inventing a list here would put names in the mouth of a
+/// capture that never showed them. A producer on the enemy side therefore draws no build rows.
+[[nodiscard]] std::span<const BuildItem> build_items(sim::Side side, MenuSubject subject) noexcept;
 
 /// The verbs of the rows that ACT today (RB-DIGITS), written once so the table that draws them
 /// (`menu.cpp`) and the layer that routes their digit (`Interaction`) cannot drift apart: a row is

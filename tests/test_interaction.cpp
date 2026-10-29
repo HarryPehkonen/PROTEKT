@@ -1742,39 +1742,46 @@ TEST(Interaction, ShiftFKeyWithNothingSelectedOrNoRowIsRefused) {
 
 namespace {
 
-/// A tank to drive and a factory to build from, and nothing else. The factory is brought up with
-/// the top menu's own `2`, so a test goes through the same door the player does.
+/// A tank to drive and a producer to build from, and nothing else. The producer is brought up with
+/// the top menu's own key (`1` the deployed recycler, `2` the factory), so a test goes through the
+/// same door the player does.
 struct BuildRig {
     sim::Sim sim;
     SceneOptions options;
     sim::UnitId tank;
-    sim::UnitId factory;
+    sim::UnitId producer;
     Interaction player;
 };
 
+[[nodiscard]] Scenario producer_scenario(UnitKind producer) {
+    return Scenario{kSeed,
+                    {{UnitKind::Tank, Side::Player, 40, 40}, {producer, Side::Player, 46, 41}}};
+}
+
 [[nodiscard]] BuildRig make_build_rig(const Scenario& scenario
-                                      = Scenario{kSeed,
-                                                 {{UnitKind::Tank, Side::Player, 40, 40},
-                                                  {UnitKind::Factory, Side::Player, 46, 41}}}) {
+                                      = producer_scenario(UnitKind::DeployedRecycler)) {
     sim::Sim sim = sim::Sim::create(scenario);
     const sim::UnitId tank = sim.units().at(0).id;
-    const sim::UnitId factory = sim.units().at(1).id;
-    BuildRig rig{std::move(sim), SceneOptions{}, tank, factory, Interaction{tank}};
+    const sim::UnitId producer = sim.units().at(1).id;
+    const bool is_factory = sim.units().at(1).kind == UnitKind::Factory;
+    BuildRig rig{std::move(sim), SceneOptions{}, tank, producer, Interaction{tank}};
     rig.options.seed = kSeed;
     rig.options.extent = kExtent;
-    rig.player.handle(with_key(input::kKey1 + 1), rig.sim, rig.options); // 2: the factory
+    rig.player.handle(with_key(input::kKey1 + (is_factory ? 1 : 0)), rig.sim, rig.options);
     return rig;
 }
 
 /// The same rig with three haulers and wreckage to fetch, so a queue can actually FINISH: a test
-/// of what happens once a batch is done needs scrap to pay for it.
+/// of what happens once a batch is done needs scrap to pay for it. The haulers bank into a
+/// FACTORY, so the recycler's rig stands one beside it.
 [[nodiscard]] BuildRig make_funded_build_rig() {
     Scenario scenario{kSeed,
                       {{UnitKind::Tank, Side::Player, 40, 40},
-                       {UnitKind::Factory, Side::Player, 52, 45},
+                       {UnitKind::DeployedRecycler, Side::Player, 52, 45},
                        {UnitKind::Scavenger, Side::Player, 48, 47},
                        {UnitKind::Scavenger, Side::Player, 48, 48},
-                       {UnitKind::Scavenger, Side::Player, 48, 49}}};
+                       {UnitKind::Scavenger, Side::Player, 48, 49},
+                       {UnitKind::Factory, Side::Player, 50, 52}}};
     scenario.objectives = {};
     const sim::Fixed half = sim::Fixed::from_raw(sim::Fixed::kOne / 2);
     for (int i = 0; i < 90; ++i) {
@@ -1785,11 +1792,11 @@ struct BuildRig {
     return make_build_rig(scenario); // the parameter is a const reference: a move would do nothing
 }
 
-/// Steps the sim, with no input, until `rig`'s factory has nothing queued: its batch is done.
+/// Steps the sim, with no input, until `rig`'s producer has nothing queued: its batch is done.
 [[nodiscard]] bool run_batch_out(BuildRig& rig) {
     for (int tick = 0; tick < 20000; ++tick) {
         rig.sim.step();
-        if (rig.sim.find(rig.factory)->queue.count == 0) {
+        if (rig.sim.find(rig.producer)->queue.count == 0) {
             return true;
         }
     }
@@ -1824,16 +1831,16 @@ TEST(Interaction, APlainBuildKeyOrdersOneLoneBuildEvenWhenTheBankIsEmpty) {
     // short of scrap pauses, it is not refused. Row 1 is the Harvester, a scavenger.
     BuildRig rig = make_build_rig();
     ASSERT_EQ(rig.sim.ore(Side::Player), 0);
-    ASSERT_EQ(selected(rig.player), (std::vector<sim::UnitId>{rig.factory}));
+    ASSERT_EQ(selected(rig.player), (std::vector<sim::UnitId>{rig.producer}));
     const std::vector<Order> orders = press(rig, 1, false);
     ASSERT_EQ(orders.size(), 1U);
-    EXPECT_EQ(orders.front().unit, rig.factory) << "the producer is the selected building";
+    EXPECT_EQ(orders.front().unit, rig.producer) << "the producer is the selected building";
     const auto* build = build_of(orders.front());
     ASSERT_NE(build, nullptr);
     EXPECT_EQ(build->kind, UnitKind::Scavenger);
     EXPECT_EQ(build->batch, 0U) << "a lone build asks the sim for a batch of its own";
     EXPECT_TRUE(rig.player.message().empty());
-    EXPECT_EQ(rig.sim.find(rig.factory)->queue.count, 1U) << "and it is in the factory's queue";
+    EXPECT_EQ(rig.sim.find(rig.producer)->queue.count, 1U) << "and it is in the producer's queue";
 }
 
 TEST(Interaction, ShiftBuildKeysOfOneGestureShareOneTokenAndABarePressDoesNotJoinIt) {
@@ -1852,7 +1859,7 @@ TEST(Interaction, ShiftBuildKeysOfOneGestureShareOneTokenAndABarePressDoesNotJoi
     EXPECT_EQ(build_of(orders.at(2))->batch, first->batch);
     EXPECT_TRUE(press(rig, 1, false).empty())
         << "a bare press would start a lone build beside the running batch: refused";
-    EXPECT_EQ(rig.sim.find(rig.factory)->queue.count, 3U);
+    EXPECT_EQ(rig.sim.find(rig.producer)->queue.count, 3U);
 }
 
 TEST(Interaction, TwoGesturesOfOneProducerGetTwoTokensOnceTheFirstBatchIsDone) {
@@ -1892,7 +1899,7 @@ TEST(Interaction, ShiftingAnotherKindIntoARunIsRefusedAloudAndTheRunGoesOn) {
     EXPECT_FALSE(rig.player.message().empty()) << "and the refusal is said, not silent";
     EXPECT_NE(rig.player.message(), "The build queue is full.")
         << "the queue has room; the reason is the kind";
-    EXPECT_EQ(rig.sim.find(rig.factory)->queue.count, 1U);
+    EXPECT_EQ(rig.sim.find(rig.producer)->queue.count, 1U);
     EXPECT_EQ(press(rig, 1, true).size(), 1U) << "the run is still open for its own kind";
 }
 
@@ -1919,7 +1926,7 @@ TEST(Interaction, APressThatWouldStartAnotherBatchIsRefusedAloudWhileOneRuns) {
     EXPECT_TRUE(press(rig, 2, false).empty()) << "...whatever the kind";
     EXPECT_TRUE(press(rig, 2, true).empty()) << "...and a shifted press that begins a new run";
     EXPECT_FALSE(rig.player.message().empty());
-    EXPECT_EQ(rig.sim.find(rig.factory)->queue.count, 1U);
+    EXPECT_EQ(rig.sim.find(rig.producer)->queue.count, 1U);
 }
 
 TEST(Interaction, ASecondBarePressInOneFrameIsRefusedBeforeTheSimHasSeenTheFirst) {
@@ -1946,10 +1953,10 @@ TEST(Interaction, TheEleventhShiftPressIsRefusedAloudAndOrdersNothing) {
         ASSERT_EQ(press(rig, 1, true).size(), 1U) << "press " << n << " is within the cap";
         ASSERT_TRUE(rig.player.message().empty());
     }
-    ASSERT_EQ(rig.sim.find(rig.factory)->queue.count, sim::kBuildQueueDepth);
+    ASSERT_EQ(rig.sim.find(rig.producer)->queue.count, sim::kBuildQueueDepth);
     EXPECT_TRUE(press(rig, 1, true).empty()) << "ten fill the queue; the eleventh is not an entry";
     EXPECT_FALSE(rig.player.message().empty()) << "a refused press says why on the notice line";
-    EXPECT_EQ(rig.sim.find(rig.factory)->queue.count, sim::kBuildQueueDepth);
+    EXPECT_EQ(rig.sim.find(rig.producer)->queue.count, sim::kBuildQueueDepth);
 }
 
 TEST(Interaction, ElevenShiftPressesInOneFrameStillMakeTenOrders) {
@@ -1970,7 +1977,92 @@ TEST(Interaction, ABuildRowThatNamesNoKindOrdersNothing) {
     BuildRig rig = make_build_rig();
     EXPECT_TRUE(press(rig, 4, false).empty());
     EXPECT_TRUE(press(rig, 4, true).empty());
-    EXPECT_EQ(rig.sim.find(rig.factory)->queue.count, 0U);
+    EXPECT_EQ(rig.sim.find(rig.producer)->queue.count, 0U);
+}
+
+// THE FACTORY'S OWN LIST: the tank, on `3`, and nothing else yet. A factory is a producer with a
+// queue of its own, so the same door (`press`) that builds the recycler's items builds its tank.
+
+namespace {
+
+/// A funded factory rig: haulers and wreckage so the tank's price can be paid and the build can
+/// run out, as `make_funded_build_rig` does for the recycler -- the factory is the producer.
+[[nodiscard]] BuildRig make_funded_factory_rig() {
+    Scenario scenario = producer_scenario(UnitKind::Factory);
+    scenario.spawns.push_back({UnitKind::Scavenger, Side::Player, 48, 47});
+    scenario.spawns.push_back({UnitKind::Scavenger, Side::Player, 48, 48});
+    scenario.spawns.push_back({UnitKind::Scavenger, Side::Player, 48, 49});
+    scenario.objectives = {};
+    const sim::Fixed half = sim::Fixed::from_raw(sim::Fixed::kOne / 2);
+    for (int i = 0; i < 90; ++i) {
+        scenario.scrap.push_back(
+            sim::Scrap{sim::fixed_add(sim::Fixed::from_int(42 + (i % 10)), half),
+                       sim::fixed_add(sim::Fixed::from_int(36 + (i / 10)), half)});
+    }
+    return make_build_rig(scenario);
+}
+
+[[nodiscard]] int player_tanks(const sim::Sim& sim) {
+    int tanks = 0;
+    for (const sim::Unit& unit : sim.units()) {
+        tanks += unit.alive && unit.side == Side::Player && unit.kind == UnitKind::Tank ? 1 : 0;
+    }
+    return tanks;
+}
+
+} // namespace
+
+TEST(Interaction, AFactoryBuildsATankThroughTheBuildKeyAtTheTanksOwnPriceAndTime) {
+    BuildRig rig = make_funded_factory_rig();
+    ASSERT_EQ(selected(rig.player), (std::vector<sim::UnitId>{rig.producer}));
+    ASSERT_EQ(rig.sim.find(rig.producer)->kind, UnitKind::Factory);
+    const int before = player_tanks(rig.sim);
+
+    const std::vector<Order> orders = press(rig, 3, false);
+    ASSERT_EQ(orders.size(), 1U) << "3 is the factory's tank";
+    EXPECT_EQ(orders.front().unit, rig.producer);
+    ASSERT_NE(build_of(orders.front()), nullptr);
+    EXPECT_EQ(build_of(orders.front())->kind, UnitKind::Tank);
+    EXPECT_EQ(rig.sim.find(rig.producer)->queue.count, 1U);
+
+    ASSERT_TRUE(run_batch_out(rig)) << "the factory never finished its tank";
+    EXPECT_EQ(player_tanks(rig.sim), before + 1) << "the queue emptied and a tank stands";
+    EXPECT_EQ(sim::spec_of(UnitKind::Tank).cost, 40) << "the ruled price, not a new one";
+    EXPECT_EQ(sim::spec_of(UnitKind::Tank).build_ticks, 900) << "the ruled time, not a new one";
+}
+
+TEST(Interaction, AFactoryDoesNotBuildWhatIsNotOnItsList) {
+    // Every other key of the recycler's list -- the Harvester, the Scout and the rest -- is not the
+    // factory's: pressing it orders nothing, as a digit that names no row does.
+    BuildRig rig = make_build_rig(producer_scenario(UnitKind::Factory));
+    ASSERT_EQ(rig.sim.find(rig.producer)->kind, UnitKind::Factory);
+    for (const int row : {1, 2, 4, 5, 6, 7}) {
+        EXPECT_TRUE(press(rig, row, false).empty()) << "row " << row;
+        EXPECT_TRUE(press(rig, row, true).empty()) << "row " << row << " with shift";
+    }
+    EXPECT_EQ(rig.sim.find(rig.producer)->queue.count, 0U);
+}
+
+TEST(Interaction, TheFactoryAndTheRecyclerEachKeepTheirOwnQueue) {
+    Scenario scenario = producer_scenario(UnitKind::Factory);
+    scenario.spawns.push_back({UnitKind::DeployedRecycler, Side::Player, 52, 45});
+    BuildRig rig = make_build_rig(scenario); // `2` brought the factory up
+    sim::UnitId recycler{};
+    for (const sim::Unit& unit : rig.sim.units()) {
+        if (unit.kind == UnitKind::DeployedRecycler) {
+            recycler = unit.id;
+        }
+    }
+    ASSERT_TRUE(recycler.valid());
+    ASSERT_EQ(press(rig, 3, false).size(), 1U);
+    rig.player.handle(with_key(input::kKeyEscape), rig.sim, rig.options); // a menu owns its digits
+    rig.player.handle(with_key(input::kKey1), rig.sim, rig.options);      // `1`: the recycler
+    ASSERT_EQ(selected(rig.player), (std::vector<sim::UnitId>{recycler}));
+    ASSERT_EQ(press(rig, 1, false).size(), 1U) << "its own Harvester, beside the factory's tank";
+    EXPECT_EQ(rig.sim.find(rig.producer)->queue.count, 1U);
+    EXPECT_EQ(rig.sim.find(recycler)->queue.count, 1U);
+    EXPECT_EQ(rig.sim.find(rig.producer)->queue.entries.at(0).kind, UnitKind::Tank);
+    EXPECT_EQ(rig.sim.find(recycler)->queue.entries.at(0).kind, UnitKind::Scavenger);
 }
 
 // ---------------------------------------------------------------- VIS: what can be picked is what

@@ -166,10 +166,65 @@ void select_with_space(Rig& rig, Session& session, sim::UnitId id) {
     session.frame(space, rig.sim, rig.options, out);
 }
 
-TEST(PlayerView, ASelectedFactoryAsksForTheBuildList) {
-    const Rig rig = make_base_rig();
-    const std::vector<sim::UnitId> selected{unit_id(rig.sim, 0)};
-    EXPECT_EQ(game::menu_subject_of(rig.sim, selected), MenuSubject::Deployment);
+/// The key and verb of every build row `rows` draws -- the rows under TAB and `~ Drop Off`, which
+/// are digits -- in order.
+std::vector<std::pair<std::string, std::string>>
+build_rows_of(const std::vector<game::MenuRow>& rows) {
+    std::vector<std::pair<std::string, std::string>> build;
+    for (const game::MenuRow& row : rows) {
+        if (row.key.size() == 1 && row.key.front() >= '1' && row.key.front() <= '9') {
+            build.emplace_back(std::string{row.key}, row.verb);
+        }
+    }
+    return build;
+}
+
+// THE FACTORY'S OWN MENU. A selected producer's menu is ITS list: the factory builds the tank and
+// nothing else yet, the deployed recycler builds the seven. The old shape gave every producer the
+// side's one list, so a factory offered a Harvester and a Scout it has no business building.
+TEST(PlayerView, TheBuildMenuIsTheSelectedProducersOwnList) {
+    sim::Scenario scenario = base_scenario();
+    scenario.spawns.push_back(sim::Spawn{UnitKind::DeployedRecycler, Side::Player, 56, 48});
+    Rig rig{};
+    rig.sim = sim::Sim::create(scenario);
+    rig.options.seed = kSeed;
+    rig.options.extent = kExtent;
+    const sim::UnitId factory = unit_id(rig.sim, 0);
+    const sim::UnitId recycler = unit_id(rig.sim, 6);
+    ASSERT_EQ(rig.sim.find(factory)->kind, UnitKind::Factory);
+    ASSERT_EQ(rig.sim.find(recycler)->kind, UnitKind::DeployedRecycler);
+
+    const auto menu_of = [&rig](sim::UnitId id) {
+        Session session{unit_id(rig.sim, 3)};
+        select_with_space(rig, session, id);
+        EXPECT_EQ(session.selection().units().size(), 1U);
+        EXPECT_EQ(session.selection().units().front(), id) << "the rig must select the producer";
+        // 999 banked: no row is dim, so the lists are compared by what they ARE.
+        game::MenuInput in{game::menu_subject_of(rig.sim, session.selection().units()),
+                           sim::Side::Player, game::ArmedCommand{}, MenuTarget::None, 999};
+        return build_rows_of(game::menu_rows(in));
+    };
+
+    const auto factory_list = menu_of(factory);
+    const auto recycler_list = menu_of(recycler);
+    EXPECT_EQ(factory_list,
+              (std::vector<std::pair<std::string, std::string>>{{"3", "Guardian 40"}}))
+        << "a selected factory draws the factory's list: the tank, on 3";
+    ASSERT_EQ(recycler_list.size(), 7U) << "a selected deployed recycler draws the recycler's list";
+    EXPECT_EQ(recycler_list.front(), (std::pair<std::string, std::string>{"1", "Harvester 20"}));
+    EXPECT_EQ(recycler_list.at(2), (std::pair<std::string, std::string>{"3", "Guardian 40"}));
+    EXPECT_NE(factory_list, recycler_list) << "two producers, one list: the old shape";
+}
+
+TEST(PlayerView, ASelectedFactoryAsksForTheFactoryMenuAndARecyclerForItsOwn) {
+    sim::Scenario scenario = base_scenario();
+    scenario.spawns.push_back(sim::Spawn{UnitKind::DeployedRecycler, Side::Player, 56, 48});
+    const sim::Sim sim = sim::Sim::create(scenario);
+    const std::vector<sim::UnitId> factory{unit_id(sim, 0)};
+    const std::vector<sim::UnitId> recycler{unit_id(sim, 6)};
+    EXPECT_EQ(game::menu_subject_of(sim, factory), MenuSubject::Factory)
+        << "the factory is a producer with a menu of its own, not the deployment's";
+    EXPECT_EQ(game::menu_subject_of(sim, recycler), MenuSubject::Deployment);
 }
 
 TEST(PlayerView, ASelectedScavengerAsksForTheHarvesterMenu) {
@@ -353,9 +408,15 @@ TEST(PlayerView, AnArmedAttackListTakesTheSlotTheMenuWouldUse) {
 }
 
 TEST(PlayerView, TheMenuWeighsTheScrapTheSimHasBanked) {
-    Rig rig = make_base_rig();
+    // The deployed recycler's seven rows are weighed; the hauler banks into the factory.
+    sim::Scenario scenario = base_scenario();
+    scenario.spawns.push_back(sim::Spawn{UnitKind::DeployedRecycler, Side::Player, 56, 48});
+    Rig rig{};
+    rig.sim = sim::Sim::create(scenario);
+    rig.options.seed = kSeed;
+    rig.options.extent = kExtent;
     Session session{unit_id(rig.sim, 3)};
-    select_with_space(rig, session, unit_id(rig.sim, 0));
+    select_with_space(rig, session, unit_id(rig.sim, 6));
     ASSERT_EQ(game::menu_subject_of(rig.sim, session.selection().units()), MenuSubject::Deployment);
     ASSERT_EQ(rig.sim.ore(Side::Player), 0);
 

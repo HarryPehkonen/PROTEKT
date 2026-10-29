@@ -366,7 +366,7 @@ TEST(Menu, ABuildRowDrawsItsCostAndDimsWhenItIsUnaffordable) {
     // the harvester's gap below them: the two menus share a key space and not a shape.
     const std::vector<std::string> want{"SPACE", "TAB", "~", "1", "2", "3", "4", "5", "6", "7"};
     EXPECT_EQ(keys_of(rich), want);
-    for (const BuildItem& item : build_items(sim::Side::Player)) {
+    for (const BuildItem& item : build_items(sim::Side::Player, MenuSubject::Deployment)) {
         const MenuRow* row = row_for(rich, item.key);
         ASSERT_NE(row, nullptr) << "build key " << item.key << " is not drawn";
         EXPECT_EQ(row->verb, std::string{item.label} + " " + std::to_string(item.cost))
@@ -401,7 +401,7 @@ TEST(Menu, ABuildRowThatNamesAKindDrawsTheScrapTheSimWillCharge) {
     // the sim charges 50 would leave the player with a queue that pauses on a price he was never
     // shown. A row with no kind (the Hauler and the rest) has no sim price to disagree with.
     int with_kind = 0;
-    for (const BuildItem& item : build_items(sim::Side::Player)) {
+    for (const BuildItem& item : build_items(sim::Side::Player, MenuSubject::Deployment)) {
         if (item.kind.has_value()) {
             ++with_kind;
             EXPECT_EQ(item.cost, sim::spec_of(*item.kind).cost) << item.label;
@@ -409,7 +409,8 @@ TEST(Menu, ABuildRowThatNamesAKindDrawsTheScrapTheSimWillCharge) {
         }
     }
     EXPECT_EQ(with_kind, 3) << "the harvester, the scout and the guardian";
-    const std::span<const BuildItem> items = build_items(sim::Side::Player);
+    const std::span<const BuildItem> items
+        = build_items(sim::Side::Player, MenuSubject::Deployment);
     EXPECT_EQ(items[0].kind, sim::UnitKind::Scavenger);
     EXPECT_EQ(items[1].kind, sim::UnitKind::Scout);
     EXPECT_EQ(items[2].kind, sim::UnitKind::Tank);
@@ -420,8 +421,8 @@ TEST(Menu, TheEnemyBuildListIsNotInvented) {
     // Only the player's list was captured. The enemy's is empty until RB5 and the R3 roster fill it
     // (a per-side item name, a per-kind cost), so its deployment draws the rows it does know and no
     // build rows at all -- rather than a copy of the player's names.
-    EXPECT_EQ(build_items(sim::Side::Player).size(), 7U);
-    EXPECT_TRUE(build_items(sim::Side::Enemy).empty());
+    EXPECT_EQ(build_items(sim::Side::Player, MenuSubject::Deployment).size(), 7U);
+    EXPECT_TRUE(build_items(sim::Side::Enemy, MenuSubject::Deployment).empty());
 
     MenuInput in = deployed(999);
     in.side = sim::Side::Enemy;
@@ -432,6 +433,64 @@ TEST(Menu, TheEnemyBuildListIsNotInvented) {
     EXPECT_EQ(rows.at(2).verb, "Drop Off");
     for (const std::string_view absent : {"1", "2", "3", "4", "5", "6", "7"}) {
         EXPECT_EQ(row_for(rows, absent), nullptr) << "key " << absent << " invented a build row";
+    }
+}
+
+TEST(Menu, TheRecyclersListIsTheSevenItsKeysAndCostsHaveAlwaysBeen) {
+    // The recycler's list is pinned whole -- key, name, cost, in order -- so a change to the
+    // FACTORY's list can never reach it.
+    struct Row {
+        std::string_view key;
+        std::string_view label;
+        int cost;
+    };
+    const std::array<Row, 7> want{{{"1", "Harvester", 20},
+                                   {"2", "Scout", 45},
+                                   {"3", "Guardian", 40},
+                                   {"4", "Hauler", 30},
+                                   {"5", "Builder", 40},
+                                   {"6", "Healer", 50},
+                                   {"7", "Service Pod", 2}}};
+    const std::span<const BuildItem> items
+        = build_items(sim::Side::Player, MenuSubject::Deployment);
+    ASSERT_EQ(items.size(), want.size());
+    for (std::size_t i = 0; i < want.size(); ++i) {
+        EXPECT_EQ(items[i].key, want[i].key);
+        EXPECT_EQ(items[i].label, want[i].label);
+        EXPECT_EQ(items[i].cost, want[i].cost);
+    }
+}
+
+TEST(Menu, TheFactorysListIsTheTankOnThreeAtTheSpecsOwnPrice) {
+    const std::span<const BuildItem> items = build_items(sim::Side::Player, MenuSubject::Factory);
+    ASSERT_EQ(items.size(), 1U) << "the tank is the only item named for the factory so far";
+    EXPECT_EQ(items[0].key, "3");
+    EXPECT_EQ(items[0].kind, sim::UnitKind::Tank);
+    EXPECT_EQ(items[0].cost, sim::spec_of(sim::UnitKind::Tank).cost);
+    // The factory's menu draws that row and no other build row: the state row, TAB, `~`, then 3.
+    MenuInput in = query(MenuSubject::Factory);
+    in.ore = 999;
+    EXPECT_EQ(keys_of(menu_rows(in)), (std::vector<std::string>{"SPACE", "TAB", "~", "3"}));
+    EXPECT_TRUE(build_items(sim::Side::Enemy, MenuSubject::Factory).empty());
+}
+
+TEST(Menu, OnlyAProducersSubjectHasABuildList) {
+    for (const MenuSubject subject :
+         {MenuSubject::None, MenuSubject::Recycler, MenuSubject::Harvester, MenuSubject::Turret,
+          MenuSubject::Vehicle}) {
+        EXPECT_TRUE(build_items(sim::Side::Player, subject).empty());
+    }
+}
+
+TEST(Menu, ARowThatNamesAKindNamesOneTheQueueWillAccept) {
+    // A kind the sim cannot queue (no price or no time) must never be a build row a key acts on:
+    // the order would be refused by the sim after the player was told it was queued.
+    for (const MenuSubject subject : {MenuSubject::Deployment, MenuSubject::Factory}) {
+        for (const BuildItem& item : build_items(sim::Side::Player, subject)) {
+            if (item.kind.has_value()) {
+                EXPECT_TRUE(sim::is_queueable(*item.kind)) << item.label;
+            }
+        }
     }
 }
 

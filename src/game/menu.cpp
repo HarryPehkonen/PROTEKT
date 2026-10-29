@@ -78,17 +78,29 @@ constexpr std::array kDeploymentRows{
     return BuildItem{key, label, sim::spec_of(kind).cost, kind};
 }
 
+/// The tank row, `3 Guardian`, which the recycler's list and the factory's list both hold: one row,
+/// so the two lists cannot disagree about its key, its name or its price.
+constexpr BuildItem kGuardian = kinded("3", "Guardian", sim::UnitKind::Tank);
+
 /// The player's build list, in key order, with the costs the reference capture draws on the rows.
 /// The three rows that name a kind the sim has (Harvester is the scavenger, Guardian the tank)
 /// take their cost from the spec table; the rest keep the reference's literal cost and name no
 /// kind, because no `UnitKind` is a Hauler, a Builder, a Healer or a Service Pod yet. The R3 roster
 /// owns the item names; this table is the reference's reading of them.
 constexpr std::array kPlayerBuildList{
-    kinded("1", "Harvester", sim::UnitKind::Scavenger), kinded("2", "Scout", sim::UnitKind::Scout),
-    kinded("3", "Guardian", sim::UnitKind::Tank),       BuildItem{"4", "Hauler", 30, std::nullopt},
-    BuildItem{"5", "Builder", 40, std::nullopt},        BuildItem{"6", "Healer", 50, std::nullopt},
+    kinded("1", "Harvester", sim::UnitKind::Scavenger),
+    kinded("2", "Scout", sim::UnitKind::Scout),
+    kGuardian,
+    BuildItem{"4", "Hauler", 30, std::nullopt},
+    BuildItem{"5", "Builder", 40, std::nullopt},
+    BuildItem{"6", "Healer", 50, std::nullopt},
     BuildItem{"7", "Service Pod", 2, std::nullopt},
 };
+
+/// The player's FACTORY's build list: the tank, on `3`, and nothing else. The tank is the only item
+/// Harri has named for it ("the factory builds more -- a tank is one, I believe that's under 3");
+/// the rest of the list is not written yet, and adding an item is one line here.
+constexpr std::array kPlayerFactoryBuildList{kGuardian};
 
 /// The item's name and the cost the row shows, as one string: the cost is drawn ON the build row,
 /// so it rides in the verb and there is no second place for the number to drift to.
@@ -133,7 +145,7 @@ void append_fixed(std::vector<MenuRow>& rows, std::span<const FixedRow> fixed) {
 /// The build list, with each row weighed against what is banked. An unaffordable row is dimmed for
 /// `MenuDim::Unaffordable` -- not `DoesNotApply`: the item is buildable, it is simply not paid for.
 void append_build_list(std::vector<MenuRow>& rows, const MenuInput& in) {
-    for (const BuildItem& item : build_items(in.side)) {
+    for (const BuildItem& item : build_items(in.side, in.subject)) {
         const bool affordable = in.ore >= item.cost;
         rows.push_back(MenuRow{item.key, named_cost(item.label, item.cost), affordable,
                                affordable ? MenuDim::None : MenuDim::Unaffordable});
@@ -144,14 +156,29 @@ void append_build_list(std::vector<MenuRow>& rows, const MenuInput& in) {
 
 std::string metres_text(int metres) { return std::to_string(metres) + "m"; }
 
-std::span<const BuildItem> build_items(sim::Side side) noexcept {
-    return side == sim::Side::Player ? std::span<const BuildItem>{kPlayerBuildList}
-                                     : std::span<const BuildItem>{};
+std::span<const BuildItem> build_items(sim::Side side, MenuSubject subject) noexcept {
+    if (side != sim::Side::Player) {
+        return {};
+    }
+    switch (subject) {
+    case MenuSubject::Deployment:
+        return kPlayerBuildList;
+    case MenuSubject::Factory:
+        return kPlayerFactoryBuildList;
+    case MenuSubject::None:
+    case MenuSubject::Recycler:
+    case MenuSubject::Harvester:
+    case MenuSubject::Turret:
+    case MenuSubject::Vehicle:
+        break;
+    }
+    return {};
 }
 
 MenuSubject menu_subject_of_kind(sim::UnitKind kind) noexcept {
     switch (kind) {
-    case sim::UnitKind::Factory:
+    case sim::UnitKind::Factory: // `top menu -> 2`: the factory's own menu
+        return MenuSubject::Factory;
     case sim::UnitKind::DeployedRecycler: // `top menu -> 1`: the deployed recycler's own menu
         return MenuSubject::Deployment;
     case sim::UnitKind::Recycler:
@@ -212,6 +239,7 @@ std::vector<MenuRow> menu_rows(const MenuInput& in) {
         append_fixed(rows, kHarvesterRows);
         break;
     case MenuSubject::Deployment:
+    case MenuSubject::Factory:
         append_fixed(rows, kDeploymentRows);
         append_build_list(rows, in);
         break;

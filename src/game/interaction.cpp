@@ -518,8 +518,9 @@ void Interaction::menu_digit(const sim::Sim& sim, const SceneOptions& options, i
     // A build row acts whether or not the model dims it: Unaffordable only says the bank is short
     // NOW, and a queue that runs short of scrap pauses and resumes -- it is never refused for it.
     // So this runs before the enabled test below, which every other row is held to.
-    if (in.subject == MenuSubject::Deployment && row != rows.end()) {
-        const std::span<const BuildItem> items = build_items(in.side);
+    if ((in.subject == MenuSubject::Deployment || in.subject == MenuSubject::Factory)
+        && row != rows.end()) {
+        const std::span<const BuildItem> items = build_items(in.side, in.subject);
         const auto item
             = std::find_if(items.begin(), items.end(), [&row](const BuildItem& candidate) {
                   return candidate.key == row->key;
