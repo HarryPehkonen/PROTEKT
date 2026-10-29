@@ -111,9 +111,9 @@ docs/               this plan
 replay; a Vulkan client that draws it, headless or in a window — full screen included, on `F11` or
 `Alt`+`Enter`, with `Ctrl`+`Q` to quit from anywhere; a command layer where the human and the AI issue
 the same orders through the same interface; a utility AI that advances, engages and withdraws, and
-commands its mortars and rockets by role; a trigger that chooses a target; **deterministic A\* routes**
+commands its mortar bikes and rocket tanks by role; a trigger that chooses a target; **deterministic A\* routes**
 (`sim/route.hpp`) that take units round craters and rims, with the local detour kept as the fallback
-for a goal that cannot be reached; ten unit kinds (tank, hover tank, mortar, rocket, turret,
+for a goal that cannot be reached; ten unit kinds (tank, hover tank, mortar bike, rocket tank, turret,
 factory, scavenger, recycler, deployed recycler, scout), four player weapons (gun, rocket, mortar, bouncer, switched by the right button), and any armed unit
 drivable with `X`; `F` follow, nav marks (`N` arms one and `SPACE` places it, ten slots filled in turn
 and wrapping over the oldest slot; `~` opens the nav menu, whose digits toggle a mark's yellow highlight;

@@ -84,8 +84,9 @@ TEST(Commander, IssuesOneOrderPerOwnCombatUnitAndNeverForAFactory) {
     ScriptedCommander commander(30);
     std::vector<Order> orders;
     commander.think(observe(sim, Side::Player), orders);
-    ASSERT_EQ(orders.size(), 8U) << "3 tanks, the hover tank, the mortar and the rocket ordered to "
-                                    "attack, 2 turrets ordered to guard";
+    ASSERT_EQ(orders.size(), 8U)
+        << "3 tanks, the hover tank, the mortar bike and the rocket tank ordered to "
+           "attack, 2 turrets ordered to guard";
 
     const Observation obs = observe(sim, Side::Player);
     std::set<std::uint32_t> own_ids;
@@ -189,7 +190,7 @@ TEST(Commander, BothSidesActuallyReceiveOrdersInABattle) {
         << "so must the enemy's: a side that is never ordered never fights";
 }
 
-// ---- F1: the scripted commander orders its mortar and its rocket
+// ---- F1: the scripted commander orders its mortar bike and its rocket tank
 // ----------------------------------
 
 [[nodiscard]] const Order* order_for_unit(const std::vector<Order>& orders, UnitId id) {
@@ -251,12 +252,12 @@ struct Field {
     return std::sqrt(dx * dx + dy * dy);
 }
 
-TEST(ScriptedRoles, EveryCombatKindOfTheRosterReceivesAnOrderAndTheMortarAndRocketAttack) {
+TEST(ScriptedRoles, EveryCombatKindOfTheRosterReceivesAnOrderAndTheMortarBikeAndRocketTankAttack) {
     Sim sim = Sim::create(skirmish(42));
     ScriptedCommander commander(30);
     std::vector<Order> orders;
     commander.think(observe(sim, Side::Player), orders);
-    for (const UnitKind kind : {UnitKind::Mortar, UnitKind::Rocket}) {
+    for (const UnitKind kind : {UnitKind::MortarBike, UnitKind::RocketTank}) {
         const UnitId id = first_of(sim, kind, Side::Player);
         ASSERT_TRUE(id.valid());
         const Order* order = order_for_unit(orders, id);
@@ -265,28 +266,28 @@ TEST(ScriptedRoles, EveryCombatKindOfTheRosterReceivesAnOrderAndTheMortarAndRock
     }
 }
 
-TEST(ScriptedRoles, TheMortarHoldsInsideItsRangeWhileATankInTheSameSpotAdvances) {
-    // One target 13 tiles from both: inside the mortar's 14, outside the tank's 12.
+TEST(ScriptedRoles, TheMortarBikeHoldsInsideItsRangeWhileATankInTheSameSpotAdvances) {
+    // One target 13 tiles from both: inside the mortar bike's 14, outside the tank's 12.
     const Field f = open_field();
     ASSERT_NE(f.seed, 0U);
     Scenario s;
     s.seed = f.seed;
     s.spawns = {{UnitKind::Tank, Side::Player, f.x, f.y},
-                {UnitKind::Mortar, Side::Player, f.x, f.y + 2},
+                {UnitKind::MortarBike, Side::Player, f.x, f.y + 2},
                 {UnitKind::Factory, Side::Enemy, f.x + 13, f.y + 1}};
     Sim sim = Sim::create(s);
     const UnitId tank = first_of(sim, UnitKind::Tank, Side::Player);
-    const UnitId mortar = first_of(sim, UnitKind::Mortar, Side::Player);
+    const UnitId mortar_bike = first_of(sim, UnitKind::MortarBike, Side::Player);
     const UnitId target = first_of(sim, UnitKind::Factory, Side::Enemy);
     ASSERT_GT(tiles_between(sim, tank, target), 12.0);
-    ASSERT_LT(tiles_between(sim, mortar, target), 14.0);
+    ASSERT_LT(tiles_between(sim, mortar_bike, target), 14.0);
     const double tank_before = tiles_between(sim, tank, target);
-    const double mortar_before = tiles_between(sim, mortar, target);
+    const double mortar_before = tiles_between(sim, mortar_bike, target);
 
     ScriptedCommander commander(30);
     std::vector<Order> orders;
     commander.think(observe(sim, Side::Player), orders);
-    const Order* mortar_order = order_for_unit(orders, mortar);
+    const Order* mortar_order = order_for_unit(orders, mortar_bike);
     ASSERT_NE(mortar_order, nullptr) << "holding is a decision made with an order, not silence";
     EXPECT_EQ(mortar_order->kind(), OrderKind::Attack);
     for (const Order& o : orders) {
@@ -297,22 +298,22 @@ TEST(ScriptedRoles, TheMortarHoldsInsideItsRangeWhileATankInTheSameSpotAdvances)
     }
     EXPECT_LT(tiles_between(sim, tank, target), tank_before - 0.5)
         << "the tank closes to its range";
-    EXPECT_NEAR(tiles_between(sim, mortar, target), mortar_before, 0.01)
-        << "the mortar already has the target in range and does not move";
+    EXPECT_NEAR(tiles_between(sim, mortar_bike, target), mortar_before, 0.01)
+        << "the mortar bike already has the target in range and does not move";
 }
 
-TEST(ScriptedRoles, AMortarOutOfRangeAdvancesUntilTheTargetIsInRangeThenStops) {
+TEST(ScriptedRoles, AMortarBikeOutOfRangeAdvancesUntilTheTargetIsInRangeThenStops) {
     const Field f = open_field();
     ASSERT_NE(f.seed, 0U);
     Scenario s;
     s.seed = f.seed;
-    s.spawns = {{UnitKind::Mortar, Side::Player, f.x, f.y},
+    s.spawns = {{UnitKind::MortarBike, Side::Player, f.x, f.y},
                 {UnitKind::Factory, Side::Enemy, f.x + 30, f.y}};
     Sim sim = Sim::create(s);
-    const UnitId mortar = first_of(sim, UnitKind::Mortar, Side::Player);
+    const UnitId mortar_bike = first_of(sim, UnitKind::MortarBike, Side::Player);
     const UnitId target = first_of(sim, UnitKind::Factory, Side::Enemy);
-    const double range = static_cast<double>(spec_of(UnitKind::Mortar).range.raw) / Fixed::kOne;
-    ASSERT_GT(tiles_between(sim, mortar, target), range);
+    const double range = static_cast<double>(spec_of(UnitKind::MortarBike).range.raw) / Fixed::kOne;
+    ASSERT_GT(tiles_between(sim, mortar_bike, target), range);
 
     ScriptedCommander commander(30);
     std::vector<Order> orders;
@@ -326,27 +327,27 @@ TEST(ScriptedRoles, AMortarOutOfRangeAdvancesUntilTheTargetIsInRangeThenStops) {
         }
         sim.step();
     }
-    const double settled = tiles_between(sim, mortar, target);
+    const double settled = tiles_between(sim, mortar_bike, target);
     EXPECT_LE(settled, range) << "it closed until the target was in range";
     EXPECT_GT(settled, range - 2.0) << "and stopped at the edge of its range, it did not charge";
     for (int t = 0; t < 60; ++t) {
         sim.step();
     }
-    EXPECT_NEAR(tiles_between(sim, mortar, target), settled, 0.01) << "and stays put";
+    EXPECT_NEAR(tiles_between(sim, mortar_bike, target), settled, 0.01) << "and stays put";
 }
 
-TEST(ScriptedRoles, ARocketClosesLikeATankAndFiresWhenInRange) {
+TEST(ScriptedRoles, ARocketTankClosesLikeATankAndFiresWhenInRange) {
     const Field f = open_field();
     ASSERT_NE(f.seed, 0U);
     Scenario s;
     s.seed = f.seed;
-    s.spawns = {{UnitKind::Rocket, Side::Player, f.x, f.y},
+    s.spawns = {{UnitKind::RocketTank, Side::Player, f.x, f.y},
                 {UnitKind::Factory, Side::Enemy, f.x + 30, f.y}};
     Sim sim = Sim::create(s);
-    const UnitId rocket = first_of(sim, UnitKind::Rocket, Side::Player);
+    const UnitId rocket_tank = first_of(sim, UnitKind::RocketTank, Side::Player);
     const UnitId target = first_of(sim, UnitKind::Factory, Side::Enemy);
-    const double range = static_cast<double>(spec_of(UnitKind::Rocket).range.raw) / Fixed::kOne;
-    const double before = tiles_between(sim, rocket, target);
+    const double range = static_cast<double>(spec_of(UnitKind::RocketTank).range.raw) / Fixed::kOne;
+    const double before = tiles_between(sim, rocket_tank, target);
     ASSERT_GT(before, range);
     const std::uint16_t hp_before = sim.find(target)->hp;
 
@@ -362,21 +363,21 @@ TEST(ScriptedRoles, ARocketClosesLikeATankAndFiresWhenInRange) {
         }
         sim.step();
     }
-    EXPECT_LE(tiles_between(sim, rocket, target), range) << "it closed into its range";
+    EXPECT_LE(tiles_between(sim, rocket_tank, target), range) << "it closed into its range";
     EXPECT_LT(sim.find(target)->hp, hp_before) << "and fired";
 }
 
-TEST(ScriptedRoles, AHurtMortarAndRocketKeepFightingBecauseThePlanHasNoRetreat) {
+TEST(ScriptedRoles, AHurtMortarBikeAndRocketTankKeepFightingBecauseThePlanHasNoRetreat) {
     // The brief called a home-when-hurt rule "existing" in the scripted plan; it is the utility
     // commander's (ai::decide). The scripted plan is a frozen fixed plan with no retreat for ANY
-    // kind, so a wounded mortar or rocket is ordered exactly like a healthy one -- pinned here so
-    // a retreat added later is a decision, not an accident.
+    // kind, so a wounded mortar bike or rocket tank is ordered exactly like a healthy one -- pinned
+    // here so a retreat added later is a decision, not an accident.
     const Field f = open_field();
     ASSERT_NE(f.seed, 0U);
     Scenario s;
     s.seed = f.seed;
-    s.spawns = {{UnitKind::Mortar, Side::Player, f.x + 10, f.y},
-                {UnitKind::Rocket, Side::Player, f.x + 10, f.y + 2},
+    s.spawns = {{UnitKind::MortarBike, Side::Player, f.x + 10, f.y},
+                {UnitKind::RocketTank, Side::Player, f.x + 10, f.y + 2},
                 {UnitKind::Factory, Side::Player, f.x, f.y},
                 {UnitKind::Tank, Side::Enemy, f.x + 30, f.y}};
     Sim sim = Sim::create(s);
@@ -389,40 +390,41 @@ TEST(ScriptedRoles, AHurtMortarAndRocketKeepFightingBecauseThePlanHasNoRetreat) 
     ScriptedCommander commander(30);
     std::vector<Order> orders;
     commander.think(obs, orders);
-    for (const UnitKind kind : {UnitKind::Mortar, UnitKind::Rocket}) {
+    for (const UnitKind kind : {UnitKind::MortarBike, UnitKind::RocketTank}) {
         const Order* order = order_for_unit(orders, first_of(sim, kind, Side::Player));
         ASSERT_NE(order, nullptr);
         EXPECT_EQ(order->kind(), OrderKind::Attack);
     }
 }
 
-TEST(ScriptedRoles, TheLiveEnemyPathOrdersItsMortarAndRocketOverRealTicks) {
+TEST(ScriptedRoles, TheLiveEnemyPathOrdersItsMortarBikeAndRocketTankOverRealTicks) {
     // The seam Game drives (src/app/game.cpp: enemy_.think(observe(sim, Enemy), orders) each frame,
     // then sim.enqueue) rebuilt over real ticks: the shipped bug was a unit parked at spawn.
     Sim sim = Sim::create(skirmish(42));
-    const UnitId mortar = first_of(sim, UnitKind::Mortar, Side::Enemy);
-    const UnitId rocket = first_of(sim, UnitKind::Rocket, Side::Enemy);
-    ASSERT_TRUE(mortar.valid());
-    ASSERT_TRUE(rocket.valid());
+    const UnitId mortar_bike = first_of(sim, UnitKind::MortarBike, Side::Enemy);
+    const UnitId rocket_tank = first_of(sim, UnitKind::RocketTank, Side::Enemy);
+    ASSERT_TRUE(mortar_bike.valid());
+    ASSERT_TRUE(rocket_tank.valid());
     ScriptedCommander enemy(30);
     bool mortar_ordered = false;
-    bool rocket_ordered = false;
-    const double rocket_start = tile_x(sim, rocket);
-    const double rocket_start_y = tile_y(sim, rocket);
+    bool rocket_tank_ordered = false;
+    const double rocket_tank_start = tile_x(sim, rocket_tank);
+    const double rocket_tank_start_y = tile_y(sim, rocket_tank);
     for (int t = 0; t < 600; ++t) {
         std::vector<Order> orders;
         enemy.think(observe(sim, Side::Enemy), orders);
-        mortar_ordered = mortar_ordered || order_for_unit(orders, mortar) != nullptr;
-        rocket_ordered = rocket_ordered || order_for_unit(orders, rocket) != nullptr;
+        mortar_ordered = mortar_ordered || order_for_unit(orders, mortar_bike) != nullptr;
+        rocket_tank_ordered = rocket_tank_ordered || order_for_unit(orders, rocket_tank) != nullptr;
         for (const Order& o : orders) {
             sim.enqueue(o);
         }
         sim.step();
     }
     EXPECT_TRUE(mortar_ordered);
-    EXPECT_TRUE(rocket_ordered);
-    EXPECT_TRUE(tile_x(sim, rocket) != rocket_start || tile_y(sim, rocket) != rocket_start_y)
-        << "the enemy rocket leaves its spawn";
+    EXPECT_TRUE(rocket_tank_ordered);
+    EXPECT_TRUE(tile_x(sim, rocket_tank) != rocket_tank_start
+                || tile_y(sim, rocket_tank) != rocket_tank_start_y)
+        << "the enemy rocket tank leaves its spawn";
 }
 
 TEST(ScriptedRoles, TwoSameSeedRunsAreByteIdentical) {

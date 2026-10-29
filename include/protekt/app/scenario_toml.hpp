@@ -23,7 +23,8 @@ struct ScenarioParse {
 ///   * the keys `kind` (a double-quoted string, no escapes), and `count`, `dx`, `dy` (bare integers
 ///     with an optional leading `-`), one per line as `key = value`, each exactly once per group;
 ///   * `kind` is a UnitKind in lower case with underscores: tank, turret, factory, hover_tank,
-///     mortar, rocket, scavenger or recycler;
+///     mortar_bike, rocket_tank, scavenger, recycler,
+///     deployed_recycler or scout;
 ///   * `count` is 1..kMaxGroupCount, `dx` and `dy` are within +-kMaxOffset, and the groups total
 ///     at most kMaxSideUnits units a side.
 ///

@@ -42,8 +42,8 @@ TEST(Targets, NearestFirstWithKeysOneToN) {
     sim::Sim sim = make({{UnitKind::Tank, Side::Player, 50, 50},
                          {UnitKind::Tank, Side::Enemy, 60, 50},
                          {UnitKind::Turret, Side::Enemy, 50, 53},
-                         {UnitKind::Mortar, Side::Enemy, 57, 74},
-                         {UnitKind::Rocket, Side::Enemy, 44, 50}});
+                         {UnitKind::MortarBike, Side::Enemy, 57, 74},
+                         {UnitKind::RocketTank, Side::Enemy, 44, 50}});
     ASSERT_EQ(sim.units().at(0).id, id_of(1));
     const std::vector<TargetRow> rows
         = nearest_enemies(sim, Side::Player, id_of(1), kRadarRadiusTiles);
@@ -54,7 +54,7 @@ TEST(Targets, NearestFirstWithKeysOneToN) {
     EXPECT_EQ(rows.at(2).key, 3);
     EXPECT_EQ(rows.at(3).key, 4);
     EXPECT_EQ(rows.at(0).kind, UnitKind::Turret);
-    EXPECT_EQ(rows.at(3).kind, UnitKind::Mortar);
+    EXPECT_EQ(rows.at(3).kind, UnitKind::MortarBike);
     EXPECT_EQ(rows.at(0).metres, 6);
     EXPECT_EQ(rows.at(1).metres, 12);
     EXPECT_EQ(rows.at(2).metres, 20);
@@ -100,9 +100,9 @@ TEST(Targets, EqualDistanceGoesToTheLowerIdWhateverTheSpawnOrder) {
     // KINDS differ so the row says which id it is.
     sim::Sim a = make({{UnitKind::Tank, Side::Player, 50, 50},
                        {UnitKind::Turret, Side::Enemy, 55, 50},
-                       {UnitKind::Mortar, Side::Enemy, 50, 45}});
+                       {UnitKind::MortarBike, Side::Enemy, 50, 45}});
     sim::Sim b = make({{UnitKind::Tank, Side::Player, 50, 50},
-                       {UnitKind::Mortar, Side::Enemy, 50, 45},
+                       {UnitKind::MortarBike, Side::Enemy, 50, 45},
                        {UnitKind::Turret, Side::Enemy, 55, 50}});
     const std::vector<TargetRow> ra = nearest_enemies(a, Side::Player, id_of(1), kRadarRadiusTiles);
     const std::vector<TargetRow> rb = nearest_enemies(b, Side::Player, id_of(1), kRadarRadiusTiles);
@@ -111,7 +111,7 @@ TEST(Targets, EqualDistanceGoesToTheLowerIdWhateverTheSpawnOrder) {
     EXPECT_EQ(ra.at(0).id, id_of(2));
     EXPECT_EQ(ra.at(0).kind, UnitKind::Turret);
     EXPECT_EQ(rb.at(0).id, id_of(2));
-    EXPECT_EQ(rb.at(0).kind, UnitKind::Mortar);
+    EXPECT_EQ(rb.at(0).kind, UnitKind::MortarBike);
     EXPECT_EQ(ra.at(1).id, id_of(3));
     EXPECT_EQ(rb.at(1).id, id_of(3));
 }

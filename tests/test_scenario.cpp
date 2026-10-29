@@ -32,7 +32,7 @@ int count_of(const Scenario& s, Side side, UnitKind kind) {
 TEST(Scenario, BothSidesGetTheFrozenComposition) {
     const Scenario s = skirmish(42);
     EXPECT_EQ(s.seed, 42U);
-    ASSERT_EQ(s.spawns.size(), 22U) << "11 units a side, the hover tank, mortar, rocket, "
+    ASSERT_EQ(s.spawns.size(), 22U) << "11 units a side, the hover tank, mortar bike, rocket tank, "
                                        "scavenger and recycler included";
     EXPECT_EQ(count_of(s, Side::Player, UnitKind::HoverTank), 1);
     EXPECT_EQ(count_of(s, Side::Enemy, UnitKind::HoverTank), 1);
@@ -42,8 +42,8 @@ TEST(Scenario, BothSidesGetTheFrozenComposition) {
         EXPECT_EQ(count_of(s, side, UnitKind::Tank), 3);
         EXPECT_EQ(count_of(s, side, UnitKind::Factory), 1);
         EXPECT_EQ(count_of(s, side, UnitKind::Turret), 2);
-        EXPECT_EQ(count_of(s, side, UnitKind::Mortar), 1);
-        EXPECT_EQ(count_of(s, side, UnitKind::Rocket), 1);
+        EXPECT_EQ(count_of(s, side, UnitKind::MortarBike), 1);
+        EXPECT_EQ(count_of(s, side, UnitKind::RocketTank), 1);
         EXPECT_EQ(count_of(s, side, UnitKind::Recycler), 1);
     }
 }
@@ -190,8 +190,9 @@ TEST(Scenario, TheRecyclerIsUnarmedSoTheArmedCountPerSideIsUnchanged) {
                 ++armed;
             }
         }
-        EXPECT_EQ(armed, 8) << "3 tanks, the hover tank, 2 turrets, the mortar and the rocket "
-                               "(the recycler adds none)";
+        EXPECT_EQ(armed, 8)
+            << "3 tanks, the hover tank, 2 turrets, the mortar bike and the rocket tank "
+               "(the recycler adds none)";
     }
     EXPECT_EQ(spec_of(UnitKind::Recycler).range.raw, 0);
 }

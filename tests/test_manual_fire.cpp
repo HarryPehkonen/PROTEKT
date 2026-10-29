@@ -183,7 +183,7 @@ TEST(PitchLimit, LookingUpClampsAtItAndLookingDownAtItsNegative) {
 }
 
 TEST(PitchLimit, TheLadderReachesTheMortarsWholeRangeAtTheLimit) {
-    const float range = as_float(sim::spec_of(UnitKind::Mortar).range);
+    const float range = as_float(sim::spec_of(UnitKind::MortarBike).range);
     EXPECT_GE(mortar_landing_tiles(kMortarRungPitches.back()), range - 0.2F);
     EXPECT_LE(kMortarRungPitches.back(), kLookPitchLimit);
     EXPECT_EQ(mortar_rung(kLookPitchLimit), kMortarRungCount - 1);
@@ -248,7 +248,7 @@ TEST(ManualFire, TheMortarOrdersALobAlongTheBarrelNotAFireTowards) {
 TEST(ManualFire, TheShellLeavesWithTheLaddersOwnClimbAndTheMortarsOwnSpeed) {
     // The no-lying-sight proof, exactly: the shell's velocity is the one `mortar_landing_tiles`
     // flies for that pitch -- both go through sim::mortar_climb.
-    const sim::UnitSpec& mortar = sim::spec_of(UnitKind::Mortar);
+    const sim::UnitSpec& mortar = sim::spec_of(UnitKind::MortarBike);
     for (const float pitch : kMortarRungPitches) {
         Rig rig = make_rig();
         const Flight flight = fire_along_x(rig, Weapon::Mortar, pitch);
@@ -276,7 +276,7 @@ TEST(ManualFire, TheShellLandsWhereTheLadderSaysOnLevelGround) {
         const Flight flight = fire_along_x(rig, Weapon::Mortar, pitch);
         ASSERT_TRUE(flight.launched) << pitch;
         const float ladder = mortar_landing_tiles(pitch);
-        const float step = as_float(sim::spec_of(UnitKind::Mortar).bolt_speed);
+        const float step = as_float(sim::spec_of(UnitKind::MortarBike).bolt_speed);
         // The last step the shell took before it landed brackets the touchdown, and the row is
         // level to within six height units (the same slack M1's ladder test gives).
         EXPECT_GE(ladder, flight.tiles - 0.25F) << "pitch " << pitch;
@@ -288,7 +288,7 @@ TEST(ManualFire, TheLimitPitchLandsAtTheMortarsFullRange) {
     Rig rig = make_rig();
     const Flight flight = fire_along_x(rig, Weapon::Mortar, kLookPitchLimit);
     ASSERT_TRUE(flight.launched);
-    EXPECT_GE(flight.tiles, as_float(sim::spec_of(UnitKind::Mortar).range) - 0.5F);
+    EXPECT_GE(flight.tiles, as_float(sim::spec_of(UnitKind::MortarBike).range) - 0.5F);
 }
 
 TEST(ManualFire, FiresWithNothingUnderTheCrosshairAndDoesNotRefuse) {
@@ -400,7 +400,7 @@ TEST(ManualFire, TheMortarShellGoesThroughTheSameProjectilePathAsAnyShot) {
     ASSERT_EQ(rig.sim.projectiles().size(), 1U);
     EXPECT_NE(rig.sim.state_hash(), before);
     EXPECT_EQ(rig.sim.shots().size(), 1U);
-    EXPECT_EQ(rig.sim.find(rig.tank)->cooldown + 1U, sim::spec_of(UnitKind::Mortar).cooldown)
+    EXPECT_EQ(rig.sim.find(rig.tank)->cooldown + 1U, sim::spec_of(UnitKind::MortarBike).cooldown)
         << "the mortar reloads like a mortar";
 }
 

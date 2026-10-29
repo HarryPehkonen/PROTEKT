@@ -42,8 +42,8 @@ inline constexpr int kMaxSideUnits = 64;  ///< units a side spawns with, over al
 inline constexpr int kMaxOffset = 32;     ///< |dx| and |dy| of a group, in tiles
 
 /// The built-in composition, and what a game started with no scenario file plays: 3 tanks, 1 hover
-/// tank, 1 factory, 2 turrets, 1 mortar, 1 rocket and 1 recycler -- ten a side, as ten groups of
-/// one, because the three tanks and the two turrets each stand at their own offset.
+/// tank, 1 factory, 2 turrets, 1 mortar bike, 1 rocket tank and 1 recycler -- ten a side, as ten
+/// groups of one, because the three tanks and the two turrets each stand at their own offset.
 [[nodiscard]] ScenarioData default_data();
 
 /// The kinds a side spawns with, in spawn order, each group expanded to `count` entries. Both

@@ -53,9 +53,9 @@ inline constexpr std::int32_t kBoltArcRaw = 2 * Fixed::kOne;
 /// Every kind keeps the engine's old bolt range: the turret's 16 tiles.
 inline constexpr Fixed kBoltTravel = kProjectileRange;
 
-/// The mortar: a lob (gravity 2.25 height units per tick squared; peak ~3 tiles over a 7-tile shot,
-/// ~12 over its 14), a 1.5-tile splash, 3/4 the tank's hp, half its speed, twice its damage, three
-/// times its cooldown; range 14 sits between the tank's 12 and the turret's 16.
+/// The mortar bike's mortar: a lob (gravity 2.25 height units per tick squared; peak ~3 tiles over
+/// a 7-tile shot, ~12 over its 14), a 1.5-tile splash, 3/4 the tank's hp, half its speed, twice its
+/// damage, three times its cooldown; range 14 sits between the tank's 12 and the turret's 16.
 inline constexpr std::int32_t kMortarRangeRaw = 14 << 16;
 inline constexpr std::int32_t kMortarGravityRaw = 9 * Fixed::kOne / 4;
 inline constexpr std::int32_t kMortarArcRaw = 4 * Fixed::kOne;
@@ -81,7 +81,7 @@ inline constexpr BouncerSpec kBouncer{Fixed::from_raw(Fixed::kOne / 2),
                                       Fixed::from_raw(3 * Fixed::kOne),
                                       12};
 
-/// The rocket VEHICLE (`UnitKind::Rocket`): the tank's hp and speed, range 15, three times the
+/// The rocket TANK (`UnitKind::RocketTank`): the tank's hp and speed, range 15, three times the
 /// damage, five times the cooldown, three quarters of the bolt speed, a straight flight, no splash.
 inline constexpr std::int32_t kRocketRangeRaw = 15 << 16;
 
@@ -133,8 +133,8 @@ inline constexpr UnitSpec kShotgunSpec{"shotgun",
 /// numbers a rocket fired from ANY hull uses, read by `orders::FireRocket`. Harri asked for it to
 /// reach further than the gun he is firing it from (2026-10-27: "can the rocket have more reach? I
 /// know that's cheating, but I want to try that"), so its range is 18 tiles against the tank gun's
-/// 12 and the Rocket VEHICLE's 15 -- the longest reach in the game, past the turret's 16. Its other
-/// numbers are the Rocket vehicle's own, because the round IS that rocket: three times the tank's
+/// 12 and the rocket tank's 15 -- the longest reach in the game, past the turret's 16. Its other
+/// numbers are the rocket tank's own, because the round IS that rocket: three times the tank's
 /// damage, five times its reload, three quarters of the bolt speed, a straight flight, no splash.
 /// `max_travel` must be at least `range` or the bolt fizzles before it reaches the distance the
 /// engagement test allows, which is why travel is 20 and not the engine's `kBoltTravel` (16).
@@ -184,12 +184,12 @@ inline constexpr std::array<UnitSpec, static_cast<std::size_t>(kUnitKindCount)> 
      kTankDamage, kTankCooldownTicks, Fixed::from_raw(kProjectileSpeedRaw),
      Fixed::from_raw(kBoltArcRaw), kBoltTravel, Fixed::zero(), Fixed::zero(), false, 0, 0, 0,
      Fixed::zero()},
-    {"mortar", kTankHp * 3 / 4, Fixed::from_raw(kTankSpeedRaw / 2),
+    {"mortarbike", kTankHp * 3 / 4, Fixed::from_raw(kTankSpeedRaw / 2),
      Fixed::from_raw(kMortarRangeRaw), kTankDamage * 2, kTankCooldownTicks * 3,
      Fixed::from_raw(kProjectileSpeedRaw / 2), Fixed::from_raw(kMortarArcRaw), kBoltTravel,
      Fixed::from_raw(kMortarSplashRaw), Fixed::from_raw(kMortarGravityRaw), false, 0, 0, 0,
      Fixed::zero()},
-    {"rocket", kTankHp, Fixed::from_raw(kTankSpeedRaw), Fixed::from_raw(kRocketRangeRaw),
+    {"rockettank", kTankHp, Fixed::from_raw(kTankSpeedRaw), Fixed::from_raw(kRocketRangeRaw),
      kTankDamage * 3, kTankCooldownTicks * 5, Fixed::from_raw(kProjectileSpeedRaw * 3 / 4),
      Fixed::from_raw(kBoltArcRaw), kBoltTravel, Fixed::zero(), Fixed::zero(), false, 0, 0, 0,
      Fixed::zero()},

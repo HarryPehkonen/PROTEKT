@@ -29,17 +29,17 @@ constexpr std::uint64_t kSeed = 42;
 struct Rig {
     sim::Sim sim;
     RowState row;
-    UnitId tank0{};  ///< F1
-    UnitId tank1{};  ///< F2
-    UnitId tank2{};  ///< F3
-    UnitId mortar{}; ///< F4
-    UnitId turret{}; ///< F5
-    UnitId enemy{};  ///< held by no key
+    UnitId tank0{};       ///< F1
+    UnitId tank1{};       ///< F2
+    UnitId tank2{};       ///< F3
+    UnitId mortar_bike{}; ///< F4
+    UnitId turret{};      ///< F5
+    UnitId enemy{};       ///< held by no key
 };
 
 [[nodiscard]] std::vector<Spawn> rig_spawns() {
     return {{UnitKind::Tank, Side::Player, 10, 10},   {UnitKind::Tank, Side::Player, 14, 10},
-            {UnitKind::Tank, Side::Player, 18, 10},   {UnitKind::Mortar, Side::Player, 22, 10},
+            {UnitKind::Tank, Side::Player, 18, 10},   {UnitKind::MortarBike, Side::Player, 22, 10},
             {UnitKind::Turret, Side::Player, 26, 10}, {UnitKind::Tank, Side::Enemy, 90, 90}};
 }
 
@@ -51,7 +51,7 @@ struct Rig {
     rig.tank0 = units.at(0).id;
     rig.tank1 = units.at(1).id;
     rig.tank2 = units.at(2).id;
-    rig.mortar = units.at(3).id;
+    rig.mortar_bike = units.at(3).id;
     rig.turret = units.at(4).id;
     rig.enemy = units.at(5).id;
     rig.row.update(rig.sim, Side::Player, 0);
@@ -122,7 +122,7 @@ TEST(RowMove, RefusesADifferentKindAndChangesNothing) {
     Rig rig = make_rig();
     const RowState before = rig.row;
 
-    EXPECT_EQ(move(rig, {rig.mortar}, 1), RowMove::DifferentKind) << "F1 holds a tank";
+    EXPECT_EQ(move(rig, {rig.mortar_bike}, 1), RowMove::DifferentKind) << "F1 holds a tank";
 
     EXPECT_EQ(rig.row.slots, before.slots);
 }
@@ -131,7 +131,7 @@ TEST(RowMove, RefusesAMixedKindSelection) {
     Rig rig = make_rig();
     const RowState before = rig.row;
 
-    EXPECT_EQ(move(rig, {rig.tank0, rig.mortar}, 8), RowMove::MixedKinds)
+    EXPECT_EQ(move(rig, {rig.tank0, rig.mortar_bike}, 8), RowMove::MixedKinds)
         << "F8 is empty, yet two kinds must not make a two-kind key";
 
     EXPECT_EQ(rig.row.slots, before.slots);
@@ -211,7 +211,7 @@ TEST(RowMove, SurvivesUpdate) {
 
     // A unit seen for the first time fills the gap the move left: the FIRST EMPTY group slot.
     std::vector<Spawn> more = rig_spawns();
-    more.push_back({UnitKind::Mortar, Side::Player, 30, 10});
+    more.push_back({UnitKind::MortarBike, Side::Player, 30, 10});
     const sim::Sim later = sim::Sim::create(sim::Scenario{kSeed, more});
     rig.row.update(later, Side::Player, 0);
 

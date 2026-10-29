@@ -317,7 +317,7 @@ void apply_order(std::vector<Unit>& units, std::vector<Projectile>& projectiles,
             // The player's mortar: FireTowards' rules (armed, reloaded, mounted, no naming
             // oneself, no Fired event) with the MORTAR's shell, damage and reload.
             const UnitProfile prof = profile(unit.kind);
-            const UnitProfile shell = profile(UnitKind::Mortar);
+            const UnitProfile shell = profile(UnitKind::MortarBike);
             if (prof.weapon_range.raw > 0 && prof.damage > 0 && unit.cooldown == 0
                 && is_mounted(unit)) {
                 const UnitId aimed_at = o->aimed_at == unit.id ? UnitId{} : o->aimed_at;

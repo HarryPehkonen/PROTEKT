@@ -58,9 +58,10 @@ enum class MenuSubject : std::uint8_t {
     Deployment, ///< a DEPLOYED recycler: the build list (and `~ DROP OFF`)
     Factory,    ///< a factory: `~ DROP OFF` and the FACTORY's own, shorter build list
     Turret,     ///< a lone deployed turret: the state row alone
-    /// A selected VEHICLE -- a tank, hover tank, mortar, rocket or scout. The plan's measured shape
-    /// (2026-10-26) is ONE table for every vehicle kind: only the state row's default verb differs
-    /// between a tank and a scout, and this model leaves that to the caller's target readout.
+    /// A selected VEHICLE -- a tank, hover tank, mortar bike, rocket tank or scout. The plan's
+    /// measured shape (2026-10-26) is ONE table for every vehicle kind: only the state row's
+    /// default verb differs between a tank and a scout, and this model leaves that to the caller's
+    /// target readout.
     Vehicle,
 };
 

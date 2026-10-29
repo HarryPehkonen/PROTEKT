@@ -9,6 +9,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "protekt/app/scenario_toml.hpp"
@@ -53,15 +54,15 @@ dy = -3
 
 TEST(ScenarioData, DefaultIsUnchanged) {
     // Today's roster and offsets, entry for entry: tanks lead, the hover tank, the factory at the
-    // base centre, the turrets flank it, the mortar and the rocket behind, the scavenger beside
-    // the recycler, and the recycler last (HAULER: the scavenger spawns, so the economy can be
-    // played; it sits before the recycler to keep RB1b's "recycler is the last id" rule).
+    // base centre, the turrets flank it, the mortar bike and the rocket tank behind, the scavenger
+    // beside the recycler, and the recycler last (HAULER: the scavenger spawns, so the economy can
+    // be played; it sits before the recycler to keep RB1b's "recycler is the last id" rule).
     const std::vector<Group> want{
-        {UnitKind::Tank, 1, 8, 2},       {UnitKind::Tank, 1, 8, 8},
-        {UnitKind::Tank, 1, 2, 8},       {UnitKind::HoverTank, 1, 5, 5},
-        {UnitKind::Factory, 1, 0, 0},    {UnitKind::Turret, 1, 5, -3},
-        {UnitKind::Turret, 1, -3, 5},    {UnitKind::Mortar, 1, -4, -1},
-        {UnitKind::Rocket, 1, -1, -4},   {UnitKind::Scavenger, 1, 1, -3},
+        {UnitKind::Tank, 1, 8, 2},         {UnitKind::Tank, 1, 8, 8},
+        {UnitKind::Tank, 1, 2, 8},         {UnitKind::HoverTank, 1, 5, 5},
+        {UnitKind::Factory, 1, 0, 0},      {UnitKind::Turret, 1, 5, -3},
+        {UnitKind::Turret, 1, -3, 5},      {UnitKind::MortarBike, 1, -4, -1},
+        {UnitKind::RocketTank, 1, -1, -4}, {UnitKind::Scavenger, 1, 1, -3},
         {UnitKind::Recycler, 1, -3, -3},
     };
     const ScenarioData data = default_data();
@@ -92,10 +93,10 @@ TEST(ScenarioData, SkirmishWithoutDataIsSkirmishWithTheDefault) {
 
 TEST(ScenarioData, TheRosterExpandsEachGroupToItsCountInOrder) {
     ScenarioData data;
-    data.groups
-        = {{UnitKind::Rocket, 2, 0, 0}, {UnitKind::Tank, 3, 1, 1}, {UnitKind::Factory, 1, 2, 2}};
-    const std::vector<UnitKind> want{UnitKind::Rocket, UnitKind::Rocket, UnitKind::Tank,
-                                     UnitKind::Tank,   UnitKind::Tank,   UnitKind::Factory};
+    data.groups = {
+        {UnitKind::RocketTank, 2, 0, 0}, {UnitKind::Tank, 3, 1, 1}, {UnitKind::Factory, 1, 2, 2}};
+    const std::vector<UnitKind> want{UnitKind::RocketTank, UnitKind::RocketTank, UnitKind::Tank,
+                                     UnitKind::Tank,       UnitKind::Tank,       UnitKind::Factory};
     EXPECT_EQ(side_roster(data, Side::Player), want);
     EXPECT_EQ(side_roster(data, Side::Enemy), want);
 }
@@ -125,8 +126,8 @@ TEST(ScenarioToml, EveryKindIsNamedInLowerCaseWithUnderscores) {
                                       {"turret", UnitKind::Turret},
                                       {"factory", UnitKind::Factory},
                                       {"hover_tank", UnitKind::HoverTank},
-                                      {"mortar", UnitKind::Mortar},
-                                      {"rocket", UnitKind::Rocket},
+                                      {"mortar_bike", UnitKind::MortarBike},
+                                      {"rocket_tank", UnitKind::RocketTank},
                                       {"scavenger", UnitKind::Scavenger},
                                       {"recycler", UnitKind::Recycler},
                                       {"deployed_recycler", UnitKind::DeployedRecycler}}};
@@ -139,14 +140,36 @@ TEST(ScenarioToml, EveryKindIsNamedInLowerCaseWithUnderscores) {
     }
 }
 
+TEST(ScenarioToml, TheSupportVehiclesAreNamedMortarBikeAndRocketTank) {
+    for (const auto& [name, kind] : {std::pair{"mortar_bike", UnitKind::MortarBike},
+                                     std::pair{"rocket_tank", UnitKind::RocketTank}}) {
+        const std::string text
+            = std::string("[[group]]\nkind = \"") + name + "\"\ncount = 1\ndx = 0\ndy = 0\n";
+        const ScenarioParse parse = load_scenario_data(text);
+        ASSERT_TRUE(parse.ok) << name << ": " << parse.error;
+        EXPECT_EQ(parse.data.groups.at(0).kind, kind) << name;
+    }
+}
+
+TEST(ScenarioToml, TheWeaponNamesAreNoLongerVehicleKinds) {
+    // No alias: a scenario written before the rename fails loudly, naming the line and the word.
+    for (const char* old_name : {"mortar", "rocket", "mortarbike", "rockettank"}) {
+        const std::string text = std::string("[[group]]\n# c\nkind = \"") + old_name
+                                 + "\"\ncount = 1\ndx = 0\ndy = 0\n";
+        const ScenarioParse parse = load_scenario_data(text);
+        EXPECT_FALSE(parse.ok) << old_name;
+        EXPECT_TRUE(names(parse, "line 3", old_name)) << old_name << ": " << parse.error;
+    }
+}
+
 TEST(ScenarioToml, IgnoresCommentsAndBlankLines) {
     const ScenarioParse parse
         = load_scenario_data("\n# header\n   # indented comment\n\n[[group]] # the first\n\tkind = "
-                             "\"mortar\"  # a kind\n"
+                             "\"mortar_bike\"  # a kind\n"
                              "count=4\r\n\n  dx =   -7 \ndy = 0#tight\n\n\n# trailer");
     ASSERT_TRUE(parse.ok) << parse.error;
     ASSERT_EQ(parse.data.groups.size(), 1U);
-    EXPECT_EQ(parse.data.groups.at(0).kind, UnitKind::Mortar);
+    EXPECT_EQ(parse.data.groups.at(0).kind, UnitKind::MortarBike);
     EXPECT_EQ(parse.data.groups.at(0).count, 4);
     EXPECT_EQ(parse.data.groups.at(0).dx, -7);
     EXPECT_EQ(parse.data.groups.at(0).dy, 0);
@@ -278,13 +301,13 @@ dx = 0
 dy = 0
 
 [[group]]
-kind = "mortar"
+kind = "mortar_bike"
 count = 1
 dx = -4
 dy = -1
 
 [[group]]
-kind = "rocket"
+kind = "rocket_tank"
 count = 1
 dx = -1
 dy = -4
@@ -298,8 +321,8 @@ dy = -3
     ASSERT_TRUE(parse.ok) << parse.error;
     const Scenario s = skirmish(42, parse.data);
     EXPECT_EQ(s.seed, 42U);
-    const std::vector<UnitKind> want{UnitKind::Factory, UnitKind::Mortar, UnitKind::Rocket,
-                                     UnitKind::Turret,  UnitKind::Turret, UnitKind::Turret};
+    const std::vector<UnitKind> want{UnitKind::Factory, UnitKind::MortarBike, UnitKind::RocketTank,
+                                     UnitKind::Turret,  UnitKind::Turret,     UnitKind::Turret};
     ASSERT_EQ(s.spawns.size(), 2 * want.size());
     for (std::size_t i = 0; i < want.size(); ++i) {
         EXPECT_EQ(s.spawns.at(i).side, Side::Player) << i;
@@ -307,8 +330,8 @@ dy = -3
         EXPECT_EQ(s.spawns.at(want.size() + i).side, Side::Enemy) << i;
         EXPECT_EQ(s.spawns.at(want.size() + i).kind, want.at(i)) << i;
     }
-    // The factory stands on each base centre, so the mortar and the rocket show the offsets: the
-    // player's lie at (-4,-1) and (-1,-4) of its factory, the enemy's mirror them.
+    // The factory stands on each base centre, so the mortar bike and the rocket tank show the
+    // offsets: the player's lie at (-4,-1) and (-1,-4) of its factory, the enemy's mirror them.
     const Spawn& pf = s.spawns.at(0);
     const Spawn& ef = s.spawns.at(want.size());
     EXPECT_EQ(s.spawns.at(1).tile_x, pf.tile_x - 4);

@@ -67,8 +67,8 @@ protected:
                                         {"factory", 0, 0},
                                         {"turret", 5, -3},
                                         {"turret", -3, 5},
-                                        {"mortar", -4, -1},
-                                        {"rocket", -1, -4},
+                                        {"mortar_bike", -4, -1},
+                                        {"rocket_tank", -1, -4},
                                         {"scavenger", 1, -3},
                                         {"recycler", -3, -3}}};
         std::ofstream file(path);

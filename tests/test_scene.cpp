@@ -936,7 +936,7 @@ TEST(MortarLadder, RungDistancesAreTheSimsOwnFlightOnLevelGround) {
     // ONE source of truth: the shell is built from the mortar's spec row and flown by the sim's
     // own `advance_projectiles`; the ladder's distance must fall inside the last step it took.
     namespace sim = protekt::sim;
-    const sim::UnitSpec& mortar = sim::spec_of(sim::UnitKind::Mortar);
+    const sim::UnitSpec& mortar = sim::spec_of(sim::UnitKind::MortarBike);
     const LevelRow row = find_level_row(16);
     ASSERT_TRUE(row.found);
     const sim::Fixed start_x = sim::Fixed::from_int(row.x);
@@ -4875,25 +4875,27 @@ TEST(TurretModel, ADefenseTurretIsAPedestalAHousingAMuzzleCollarAndABarrel) {
     EXPECT_GT(collar[1], kHullHalfMetres * 2.0F) << "a barrel you can read, past the pedestal";
 }
 
-// ---------------------------------------------------------------- the mortar and the rocket (R3b2)
+// ---------------------------------------------------------------- the mortar bike and the rocket
+// tank (R3b2)
 //
 // Both are built of the fleet's shaded prisms and wear the team's camo with side-colour accents; no
-// new atlas tile. The mortar is a low wide box, a mount and a short stubby tube angled up with a
-// collar at its mouth (it lobs). The rocket is the tank's hull -- the same seven prisms, byte for
-// byte -- with a mount and a rectangular launcher rack where the turret and barrel would be.
+// new atlas tile. The mortar bike is a low wide box, a mount and a short stubby tube angled up with
+// a collar at its mouth (it lobs). The rocket tank is the tank's hull -- the same seven prisms,
+// byte for byte -- with a mount and a rectangular launcher rack where the turret and barrel would
+// be.
 
 constexpr std::size_t kMortarBase = 0;
 constexpr std::size_t kMortarMount = 36;
 constexpr std::size_t kMortarTube = 72;
 constexpr std::size_t kMortarCollar = 108;
-constexpr std::size_t kRocketHull = std::size_t{7} * 36U; ///< the tank's tracks .. fenders
-constexpr std::size_t kRocketRack = kRocketHull + 36U;
+constexpr std::size_t kRocketTankHull = std::size_t{7} * 36U; ///< the tank's tracks .. fenders
+constexpr std::size_t kRocketTankRack = kRocketTankHull + 36U;
 
-TEST(MortarModel, TheMortarIsALowWideBoxAMountAStubbyTubeAndACollar) {
-    const auto model = unit_box_of(UnitKind::Mortar);
-    ASSERT_EQ(model.size(), protekt::game::kMortarVertices);
-    EXPECT_EQ(protekt::game::kMortarVertices, std::size_t{144}) << "four prisms";
-    const auto sim = sim_of({{Side::Player, UnitKind::Mortar, 100, 100}});
+TEST(MortarBikeModel, TheMortarBikeIsALowWideBoxAMountAStubbyTubeAndACollar) {
+    const auto model = unit_box_of(UnitKind::MortarBike);
+    ASSERT_EQ(model.size(), protekt::game::kMortarBikeVertices);
+    EXPECT_EQ(protekt::game::kMortarBikeVertices, std::size_t{144}) << "four prisms";
+    const auto sim = sim_of({{Side::Player, UnitKind::MortarBike, 100, 100}});
     const protekt::sim::Unit& unit = sim.units().at(0);
     const float ground = protekt::game::ground_metres(42, unit.x, unit.y);
     // Low and wide: the base is under half a metre tall and as wide as a tank.
@@ -4910,10 +4912,10 @@ TEST(MortarModel, TheMortarIsALowWideBoxAMountAStubbyTubeAndACollar) {
     EXPECT_GE(highest(model, 0, model.size()) - ground, 0.9F);
 }
 
-TEST(MortarModel, TheTubeAndCollarCarryTheSideColourAndTheSidesDiffer) {
-    const auto mine = unit_box_of(UnitKind::Mortar);
+TEST(MortarBikeModel, TheTubeAndCollarCarryTheSideColourAndTheSidesDiffer) {
+    const auto mine = unit_box_of(UnitKind::MortarBike);
     const auto theirs = [] {
-        const auto sim = sim_of({{Side::Enemy, UnitKind::Mortar, 100, 100}});
+        const auto sim = sim_of({{Side::Enemy, UnitKind::MortarBike, 100, 100}});
         return tank_only(sim, sim.units().at(0), {});
     }();
     ASSERT_EQ(mine.size(), theirs.size());
@@ -4923,43 +4925,44 @@ TEST(MortarModel, TheTubeAndCollarCarryTheSideColourAndTheSidesDiffer) {
     EXPECT_NE(mine.at(kMortarBase).colour, mine.at(kMortarTube).colour);
 }
 
-TEST(RocketModel, TheRocketIsATanksHullWithAMountAndALauncherRack) {
-    const auto rocket = unit_box_of(UnitKind::Rocket);
-    ASSERT_EQ(rocket.size(), protekt::game::kRocketVertices);
-    EXPECT_EQ(protekt::game::kRocketVertices, std::size_t{324}) << "nine prisms";
+TEST(RocketTankModel, TheRocketTankIsATanksHullWithAMountAndALauncherRack) {
+    const auto rocket_tank = unit_box_of(UnitKind::RocketTank);
+    ASSERT_EQ(rocket_tank.size(), protekt::game::kRocketTankVertices);
+    EXPECT_EQ(protekt::game::kRocketTankVertices, std::size_t{324}) << "nine prisms";
     // The hull is the tank's, vertex for vertex: the same id at the same tile wears the same camo.
     const auto tank = unit_box_of(UnitKind::Tank);
-    for (std::size_t i = 0; i < kRocketHull; ++i) {
-        ASSERT_EQ(rocket.at(i).position, tank.at(i).position) << "vertex " << i;
-        ASSERT_EQ(rocket.at(i).colour, tank.at(i).colour) << "vertex " << i;
-        ASSERT_EQ(rocket.at(i).u, tank.at(i).u) << "vertex " << i;
+    for (std::size_t i = 0; i < kRocketTankHull; ++i) {
+        ASSERT_EQ(rocket_tank.at(i).position, tank.at(i).position) << "vertex " << i;
+        ASSERT_EQ(rocket_tank.at(i).colour, tank.at(i).colour) << "vertex " << i;
+        ASSERT_EQ(rocket_tank.at(i).u, tank.at(i).u) << "vertex " << i;
     }
     // No barrel: nothing on it addresses the barrel tile.
     const UvRect barrel = tile_rect(protekt::game::atlas_manifest().tile("tank_barrel"));
-    for (const SceneVertex& v : rocket) {
-        ASSERT_FALSE(on_rect(v, barrel)) << "a rocket carries a rack, not a gun";
+    for (const SceneVertex& v : rocket_tank) {
+        ASSERT_FALSE(on_rect(v, barrel)) << "a rocket tank carries a rack, not a gun";
     }
     // The rack sits on the mount, is a broad slab rather than a barrel, and stays inside the hull's
     // length rather than reaching past the nose as a barrel does.
-    const auto sim = sim_of({{Side::Player, UnitKind::Rocket, 100, 100}});
+    const auto sim = sim_of({{Side::Player, UnitKind::RocketTank, 100, 100}});
     const protekt::sim::Unit& unit = sim.units().at(0);
-    EXPECT_GE(lowest(rocket, kRocketRack, rocket.size()) + kTolerance,
-              lowest(rocket, kRocketHull, kRocketRack));
-    const auto rack = reach_of(rocket, kRocketRack, rocket.size(), unit);
+    EXPECT_GE(lowest(rocket_tank, kRocketTankRack, rocket_tank.size()) + kTolerance,
+              lowest(rocket_tank, kRocketTankHull, kRocketTankRack));
+    const auto rack = reach_of(rocket_tank, kRocketTankRack, rocket_tank.size(), unit);
     EXPECT_LT(rack[1], 1.3F) << "inside the 1.3 m track, no barrel past the nose";
     const float ground = protekt::game::ground_metres(42, unit.x, unit.y);
-    EXPECT_LE(highest(rocket, 0, rocket.size()) - ground, 1.2F) << "under the bar's anchor";
-    EXPECT_NE(rocket.at(kRocketRack).colour, rocket.at(kRocketHull - 36U).colour)
+    EXPECT_LE(highest(rocket_tank, 0, rocket_tank.size()) - ground, 1.2F)
+        << "under the bar's anchor";
+    EXPECT_NE(rocket_tank.at(kRocketTankRack).colour, rocket_tank.at(kRocketTankHull - 36U).colour)
         << "the rack is the side-colour accent, the fender the pale camo";
 }
 
-TEST(MortarModel, AMortarAndARocketInViewEachGetABarLikeATank) {
+TEST(MortarBikeModel, AMortarBikeAndARocketTankInViewEachGetABarLikeATank) {
     using protekt::sim::Spawn;
     protekt::sim::Scenario scenario;
     scenario.seed = 42;
     scenario.spawns.push_back(Spawn{UnitKind::Tank, Side::Player, 50, 50});
-    scenario.spawns.push_back(Spawn{UnitKind::Mortar, Side::Player, 54, 51});
-    scenario.spawns.push_back(Spawn{UnitKind::Rocket, Side::Enemy, 46, 51});
+    scenario.spawns.push_back(Spawn{UnitKind::MortarBike, Side::Player, 54, 51});
+    scenario.spawns.push_back(Spawn{UnitKind::RocketTank, Side::Enemy, 46, 51});
     const auto sim = protekt::sim::Sim::create(scenario);
     BarBattle b = bar_battle();
     b.options.viewer_unit = sim.units().front().id;
@@ -4970,11 +4973,11 @@ TEST(MortarModel, AMortarAndARocketInViewEachGetABarLikeATank) {
     EXPECT_EQ(bars.at(1).fill_colour, kHostileBarRgb);
 }
 
-TEST(MortarModel, TwoBuildsOfASkirmishWithBothInViewAreByteIdentical) {
+TEST(MortarBikeModel, TwoBuildsOfASkirmishWithBothInViewAreByteIdentical) {
     const auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(42));
-    const protekt::sim::Unit& mortar = sim.units().at(7);
-    ASSERT_EQ(mortar.kind, UnitKind::Mortar);
-    const SceneOptions options = at_tank(mortar);
+    const protekt::sim::Unit& mortar_bike = sim.units().at(7);
+    ASSERT_EQ(mortar_bike.kind, UnitKind::MortarBike);
+    const SceneOptions options = at_tank(mortar_bike);
     const Scene a = build_scene(sim, options);
     const Scene b = build_scene(sim, options);
     ASSERT_EQ(a.vertices.size(), b.vertices.size());

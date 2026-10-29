@@ -115,8 +115,8 @@ TEST(Sim, TheScoutIsAppendedAfterTheDeployedRecyclerAndNoEarlierIndexMoved) {
     EXPECT_EQ(static_cast<int>(UnitKind::Turret), 1);
     EXPECT_EQ(static_cast<int>(UnitKind::Factory), 2);
     EXPECT_EQ(static_cast<int>(UnitKind::HoverTank), 3);
-    EXPECT_EQ(static_cast<int>(UnitKind::Mortar), 4);
-    EXPECT_EQ(static_cast<int>(UnitKind::Rocket), 5);
+    EXPECT_EQ(static_cast<int>(UnitKind::MortarBike), 4);
+    EXPECT_EQ(static_cast<int>(UnitKind::RocketTank), 5);
     EXPECT_EQ(static_cast<int>(UnitKind::Scavenger), 6);
     EXPECT_EQ(static_cast<int>(UnitKind::Recycler), 7);
     EXPECT_EQ(static_cast<int>(UnitKind::DeployedRecycler), 8);

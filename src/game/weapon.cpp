@@ -53,7 +53,7 @@ std::string_view weapon_name(Weapon weapon) noexcept {
 }
 
 float mortar_landing_tiles(float pitch) noexcept {
-    const sim::UnitSpec& mortar = sim::spec_of(sim::UnitKind::Mortar);
+    const sim::UnitSpec& mortar = sim::spec_of(sim::UnitKind::MortarBike);
     const std::int64_t across = mortar.bolt_speed.raw;
     // The climb in height units a tick, from the sim's own `mortar_climb` (the very call the
     // player's shell is launched with): one tile of run, `tan(pitch)` tiles of rise in Q16.16.

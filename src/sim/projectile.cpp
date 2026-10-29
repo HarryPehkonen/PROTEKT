@@ -427,7 +427,7 @@ void fan_out(const Projectile& bolt, std::uint8_t pellets, Fixed cone_half_tan,
 }
 
 std::int64_t mortar_climb(std::int64_t run, std::int64_t rise) noexcept {
-    const UnitSpec& mortar = spec_of(UnitKind::Mortar);
+    const UnitSpec& mortar = spec_of(UnitKind::MortarBike);
     const std::int64_t across = mortar.bolt_speed.raw;
     const std::int64_t steepest
         = static_cast<std::int64_t>(mortar.arc.raw) * across / Fixed::kOne * kHeightUnitsPerTile;
@@ -439,7 +439,7 @@ std::int64_t mortar_climb(std::int64_t run, std::int64_t rise) noexcept {
 
 Projectile launch_lob(const Unit& shooter, Fixed dir_x, Fixed dir_y, Fixed dir_z, UnitId aimed_at,
                       std::uint16_t damage, std::uint64_t seed, Round round) noexcept {
-    const UnitSpec& mortar = spec_of(UnitKind::Mortar);
+    const UnitSpec& mortar = spec_of(UnitKind::MortarBike);
     const std::int64_t across = mortar.bolt_speed.raw;
     std::int64_t dx = dir_x.raw;
     std::int64_t dy = dir_y.raw;

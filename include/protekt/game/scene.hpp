@@ -527,13 +527,13 @@ inline constexpr std::size_t kFactoryVertices = std::size_t{7} * 36U;
 /// plow and its slit, the cab and its vision band, the radiator, and the crane arm's four parts.
 inline constexpr std::size_t kRecyclerVertices = std::size_t{33} * 36U;
 
-/// A drawn mortar: a low wide base turned by its heading, then a mount, a short stubby tube angled
-/// up and the collar at its mouth, all three turned by `gun_yaw`.
-inline constexpr std::size_t kMortarVertices = std::size_t{4} * 36U;
+/// A drawn mortar bike: a low wide base turned by its heading, then a mount, a short stubby tube
+/// angled up and the collar at its mouth, all three turned by `gun_yaw`.
+inline constexpr std::size_t kMortarBikeVertices = std::size_t{4} * 36U;
 
-/// A drawn rocket: the tank's seven hull prisms (tracks, compartment, engine deck, grille,
+/// A drawn rocket tank: the tank's seven hull prisms (tracks, compartment, engine deck, grille,
 /// fenders), then a mount and a rectangular launcher rack turned by `gun_yaw`.
-inline constexpr std::size_t kRocketVertices = std::size_t{9} * 36U;
+inline constexpr std::size_t kRocketTankVertices = std::size_t{9} * 36U;
 
 /// A reticle is four ticks (up, down, left, right) and a centre dot, six vertices each, in a
 /// triangle list: the ticks first, the dot last. The centre between the ticks is open.

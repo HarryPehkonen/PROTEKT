@@ -27,10 +27,17 @@ enum class UnitKind : std::uint8_t {
     Turret = 1,
     Factory = 2,
     HoverTank = 3,
-    Mortar = 4, ///< lobs a splashing shell over hills; outranged by a turret
-    Rocket = 5, ///< slow, heavy, single-target
-    /// Appended after Rocket so every kind's index -- and every hash, replay and observation that
-    /// carries one -- is unchanged by its arrival. Unarmed: it hauls wreckage, and never shoots.
+    /// The mortar BIKE: a motorcycle that carries mortars (and can carry bouncers). "Mortar" is a
+    /// weapon, never a vehicle (Harri, 2026-10-29), so the kind is named for what it is. Renamed
+    /// from `Mortar` in place: the value 4 is hashed, packed and replayed, and did not move.
+    /// Lobs a splashing shell over hills; outranged by a turret.
+    MortarBike = 4,
+    /// The rocket TANK, renamed from `Rocket` for the same reason; the value 5 did not move.
+    /// Slow, heavy, single-target.
+    RocketTank = 5,
+    /// Appended after RocketTank so every kind's index -- and every hash, replay and observation
+    /// that carries one -- is unchanged by its arrival. Unarmed: it hauls wreckage, and never
+    /// shoots.
     Scavenger = 6,
     /// Appended after Scavenger for the same reason: the kind is hashed, packed into observations
     /// and serialised in replays, so inserting it anywhere else would move every recorded value.
@@ -62,9 +69,9 @@ inline constexpr int kUnitKindCount = 10;
     return kind == UnitKind::Factory || kind == UnitKind::DeployedRecycler;
 }
 
-/// Every ARMED kind can be driven (swapped into): the tanks, the mortar, the rocket and the
-/// turret. The factory is unarmed and cannot move, so there is nothing to drive. The scavenger is
-/// unarmed too, but it DOES move, so it can be driven -- an order from the player outranks the
+/// Every ARMED kind can be driven (swapped into): the tanks, the mortar bike, the rocket tank and
+/// the turret. The factory is unarmed and cannot move, so there is nothing to drive. The scavenger
+/// is unarmed too, but it DOES move, so it can be driven -- an order from the player outranks the
 /// fetch it would otherwise run (see `Unit::fetching`). The recycler is the same case: unarmed, and
 /// it moves (it has to reach the site it deploys at), so it is driven like the hauler. Once
 /// deployed it is a building, like the factory, and there is nothing to drive.

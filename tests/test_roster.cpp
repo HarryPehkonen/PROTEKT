@@ -11,8 +11,8 @@
 #include <vector>
 
 /// Side rosters: which kinds each side spawns, in spawn order. The enemy mirrors the player,
-/// hover tank, mortar and rocket included, and the utility commander (which commands by role)
-/// drives the hover tank like a tank.
+/// hover tank, mortar bike and rocket tank included, and the utility commander (which commands by
+/// role) drives the hover tank like a tank.
 namespace protekt::sim {
 namespace {
 
@@ -26,10 +26,10 @@ constexpr std::size_t kRosterSize = 11;
 // economy playable, and until it spawned nothing could harvest in the game the player plays.
 // It sits BEFORE the recycler, so the recycler stays the last id on each side (RB1b's rule).
 TEST(Roster, BothSidesListTheSameKindsInSpawnOrder) {
-    const std::vector<UnitKind> want{UnitKind::Tank,      UnitKind::Tank,    UnitKind::Tank,
-                                     UnitKind::HoverTank, UnitKind::Factory, UnitKind::Turret,
-                                     UnitKind::Turret,    UnitKind::Mortar,  UnitKind::Rocket,
-                                     UnitKind::Scavenger, UnitKind::Recycler};
+    const std::vector<UnitKind> want{
+        UnitKind::Tank,       UnitKind::Tank,      UnitKind::Tank,    UnitKind::HoverTank,
+        UnitKind::Factory,    UnitKind::Turret,    UnitKind::Turret,  UnitKind::MortarBike,
+        UnitKind::RocketTank, UnitKind::Scavenger, UnitKind::Recycler};
     for (const Side side : {Side::Player, Side::Enemy}) {
         const std::vector<UnitKind> roster = side_roster(default_data(), side);
         ASSERT_EQ(roster.size(), want.size());
@@ -37,8 +37,8 @@ TEST(Roster, BothSidesListTheSameKindsInSpawnOrder) {
             EXPECT_EQ(roster[i], want[i]) << "slot " << i;
         }
         EXPECT_EQ(roster[kHoverSlot], UnitKind::HoverTank);
-        EXPECT_EQ(roster[kMortarSlot], UnitKind::Mortar);
-        EXPECT_EQ(roster[kRocketSlot], UnitKind::Rocket);
+        EXPECT_EQ(roster[kMortarSlot], UnitKind::MortarBike);
+        EXPECT_EQ(roster[kRocketSlot], UnitKind::RocketTank);
         EXPECT_EQ(roster[kScavengerSlot], UnitKind::Scavenger);
     }
 }
@@ -75,9 +75,9 @@ TEST(Roster, HoverTankPositionsArePinnedAtSeed42) {
 
 /// The support weapons stand at the REAR of each cluster -- behind the factory, on the side away
 /// from the enemy -- so the tanks screen them, and the enemy's mirror the player's.
-TEST(Roster, MortarAndRocketSpawnAtTheRearOfEachClusterMirroredAtSeed42) {
-    // Player factory (25,45): the mortar wished for -4,-1 and the rocket -1,-4. Enemy factory
-    // (147,166): +4,+1 and +1,+4.
+TEST(Roster, MortarBikeAndRocketTankSpawnAtTheRearOfEachClusterMirroredAtSeed42) {
+    // Player factory (25,45): the mortar bike wished for -4,-1 and the rocket tank -1,-4. Enemy
+    // factory (147,166): +4,+1 and +1,+4.
     const Scenario s = skirmish(42);
     ASSERT_EQ(s.spawns.size(), 2 * kRosterSize);
     const Spawn& pf = s.spawns.at(4);
@@ -88,10 +88,10 @@ TEST(Roster, MortarAndRocketSpawnAtTheRearOfEachClusterMirroredAtSeed42) {
     const Spawn& pr = s.spawns.at(kRocketSlot);
     const Spawn& em = s.spawns.at(kRosterSize + kMortarSlot);
     const Spawn& er = s.spawns.at(kRosterSize + kRocketSlot);
-    EXPECT_EQ(pm.kind, UnitKind::Mortar);
-    EXPECT_EQ(pr.kind, UnitKind::Rocket);
-    EXPECT_EQ(em.kind, UnitKind::Mortar);
-    EXPECT_EQ(er.kind, UnitKind::Rocket);
+    EXPECT_EQ(pm.kind, UnitKind::MortarBike);
+    EXPECT_EQ(pr.kind, UnitKind::RocketTank);
+    EXPECT_EQ(em.kind, UnitKind::MortarBike);
+    EXPECT_EQ(er.kind, UnitKind::RocketTank);
     EXPECT_EQ(pm.side, Side::Player);
     EXPECT_EQ(em.side, Side::Enemy);
     EXPECT_EQ(pm.tile_x, 21);
@@ -139,44 +139,45 @@ TEST(Roster, TheEnemyAiDrivesItsHoverTank) {
     EXPECT_GT(shots, 0) << "and it engaged";
 }
 
-/// The R3b2 gap, closed by AID: the utility commander commands by role, so the rocket (frontline)
-/// closes on the war like a tank and the mortar (standoff) is a combatant that fires and is
-/// ordered. The rocket used to stand where it spawned for good; this pins the opposite.
-TEST(Roster, TheAiOrdersARocketForwardAndAMortarStillFiresAtWhatIsInRange) {
+/// The R3b2 gap, closed by AID: the utility commander commands by role, so the rocket tank
+/// (frontline) closes on the war like a tank and the mortar bike (standoff) is a combatant that
+/// fires and is ordered. The rocket tank used to stand where it spawned for good; this pins the
+/// opposite.
+TEST(Roster, TheAiOrdersARocketTankForwardAndAMortarBikeStillFiresAtWhatIsInRange) {
     Scenario scenario{};
     scenario.seed = 42;
-    scenario.spawns.push_back(Spawn{UnitKind::Mortar, Side::Enemy, 60, 60});
-    scenario.spawns.push_back(Spawn{UnitKind::Rocket, Side::Enemy, 90, 60});
+    scenario.spawns.push_back(Spawn{UnitKind::MortarBike, Side::Enemy, 60, 60});
+    scenario.spawns.push_back(Spawn{UnitKind::RocketTank, Side::Enemy, 90, 60});
     scenario.spawns.push_back(Spawn{UnitKind::Factory, Side::Enemy, 75, 50});
     scenario.spawns.push_back(Spawn{UnitKind::Tank, Side::Player, 60, 68});
     scenario.spawns.push_back(Spawn{UnitKind::Factory, Side::Player, 75, 120});
-    const UnitId mortar{1};
-    const UnitId rocket{2};
+    const UnitId mortar_bike{1};
+    const UnitId rocket_tank{2};
     ai::UtilityCommander enemy{ai::UtilityTuning{}};
     Sim sim = Sim::create(scenario);
     std::vector<Order> orders;
     int mortar_shots = 0;
-    bool rocket_ordered = false;
+    bool rocket_tank_ordered = false;
     for (int t = 0; t < 300; ++t) {
         orders.clear();
         enemy.think(observe(sim, Side::Enemy), orders);
         for (const Order& order : orders) {
-            rocket_ordered = rocket_ordered || order.unit == rocket;
+            rocket_tank_ordered = rocket_tank_ordered || order.unit == rocket_tank;
             sim.enqueue(order);
         }
         sim.step();
         for (const Sim::Shot& shot : sim.shots()) {
-            if (shot.shooter == mortar) {
+            if (shot.shooter == mortar_bike) {
                 ++mortar_shots;
             }
         }
     }
-    EXPECT_GT(mortar_shots, 0) << "the mortar engages the tank 8 tiles off";
-    EXPECT_TRUE(rocket_ordered) << "the rocket is commanded now";
-    const Unit* moved = sim.find(rocket);
+    EXPECT_GT(mortar_shots, 0) << "the mortar bike engages the tank 8 tiles off";
+    EXPECT_TRUE(rocket_tank_ordered) << "the rocket tank is commanded now";
+    const Unit* moved = sim.find(rocket_tank);
     ASSERT_NE(moved, nullptr);
     EXPECT_TRUE(moved->x != Fixed::from_int(90) || moved->y != Fixed::from_int(60))
-        << "the rocket closes on the war";
+        << "the rocket tank closes on the war";
 }
 
 TEST(Roster, SameSeedBattlesAreByteIdentical) {

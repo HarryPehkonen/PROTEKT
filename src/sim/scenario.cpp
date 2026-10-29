@@ -109,20 +109,20 @@ std::vector<Objective> built_in_objectives() {
 
 ScenarioData default_data() {
     // In spawn order (creation order is id order): tanks, the hover tank, the factory, the turrets,
-    // the support weapons -- the mortar and the rocket -- then the recycler. The support weapons
-    // come last so every unit before them keeps its id and tile; the newest kind is appended after
-    // them for the same reason, and so that the recycler is the last id on each side. Offsets are
-    // from the side's base centre and mirrored for the enemy so the two sides face each other:
-    // the tanks lead, the turrets flank the factory, and the mortar and rocket stand BEHIND it, at
-    // the rear of the cluster, where the tanks screen them. The recycler, the base on wheels,
-    // stands at the rear beside the factory.
+    // the support vehicles -- the mortar bike and the rocket tank -- then the recycler. The support
+    // vehicles come last so every unit before them keeps its id and tile; the newest kind is
+    // appended after them for the same reason, and so that the recycler is the last id on each
+    // side. Offsets are from the side's base centre and mirrored for the enemy so the two sides
+    // face each other: the tanks lead, the turrets flank the factory, and the mortar bike and
+    // rocket tank stand BEHIND it, at the rear of the cluster, where the tanks screen them. The
+    // recycler, the base on wheels, stands at the rear beside the factory.
     ScenarioData data;
     data.groups = {
-        {UnitKind::Tank, 1, 8, 2},       {UnitKind::Tank, 1, 8, 8},
-        {UnitKind::Tank, 1, 2, 8},       {UnitKind::HoverTank, 1, 5, 5},
-        {UnitKind::Factory, 1, 0, 0},    {UnitKind::Turret, 1, 5, -3},
-        {UnitKind::Turret, 1, -3, 5},    {UnitKind::Mortar, 1, -4, -1},
-        {UnitKind::Rocket, 1, -1, -4},   {UnitKind::Scavenger, 1, 1, -3},
+        {UnitKind::Tank, 1, 8, 2},         {UnitKind::Tank, 1, 8, 8},
+        {UnitKind::Tank, 1, 2, 8},         {UnitKind::HoverTank, 1, 5, 5},
+        {UnitKind::Factory, 1, 0, 0},      {UnitKind::Turret, 1, 5, -3},
+        {UnitKind::Turret, 1, -3, 5},      {UnitKind::MortarBike, 1, -4, -1},
+        {UnitKind::RocketTank, 1, -1, -4}, {UnitKind::Scavenger, 1, 1, -3},
         {UnitKind::Recycler, 1, -3, -3},
     };
     return data;

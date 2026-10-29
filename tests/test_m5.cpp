@@ -242,7 +242,7 @@ TEST(ReloadReticle, TheMortarShellReloadsForFortyFiveTicksAndTheTanksBoltFifteen
     Rig mortar;
     make_rig(mortar, Weapon::Mortar, 0.6F);
     EXPECT_EQ(ticks_until_ready(mortar), 45);
-    EXPECT_EQ(sim::profile(UnitKind::Mortar).cooldown_ticks, 45);
+    EXPECT_EQ(sim::profile(UnitKind::MortarBike).cooldown_ticks, 45);
     Rig gun;
     make_rig(gun, Weapon::Gun, 0.0F);
     EXPECT_EQ(ticks_until_ready(gun), 15);

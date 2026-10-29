@@ -189,16 +189,16 @@ second. Speeds are tiles per tick in the table and are shown per second here. Ra
 | `Turret` | 1 | a deployable defence: crawls unmounted, fires only when mounted | 150 | 1.5 | 16 | 12 | 20 | [SHIPPED e15935e] |
 | `Factory` | 2 | the base: repairs units near it and builds tanks; unarmed and immobile | 400 | 0 | none | 0 | 0 | [SHIPPED 1b64326] |
 | `HoverTank` | 3 | a tank's numbers, driven differently (A/D strafe, the mouse turns the hull) | 100 | 6.0 | 12 | 8 | 15 | [SHIPPED 6812c57] |
-| `Mortar` | 4 | lobs a splashing shell over hills; outranged by a turret | 75 | 3.0 | 14 | 16 | 45 | [SHIPPED 564c1b2] |
-| `Rocket` | 5 | slow, heavy, single target | 100 | 6.0 | 15 | 24 | 75 | [SHIPPED 564c1b2] |
+| `MortarBike` | 4 | a motorcycle carrying mortars (and able to carry bouncers); lobs a splashing shell over hills; outranged by a turret | 75 | 3.0 | 14 | 16 | 45 | [SHIPPED 564c1b2] |
+| `RocketTank` | 5 | slow, heavy, single target | 100 | 6.0 | 15 | 24 | 75 | [SHIPPED 564c1b2] |
 | `Scavenger` | 6 | unarmed hauler: carries wreckage home to its own factory | 60 | 4.5 | none | 0 | 0 | [SHIPPED e653f16] |
 
 Derived and exact values behind the table:
 
 - [SHIPPED 1b64326] Tank speed is 13107 raw Q16.16 per tick (0.2 tiles/tick). A turret's is a quarter
-  of that, a mortar's a half, a scavenger's three quarters. A tank shot costs a factory 8 hit points.
+  of that, a mortar bike's a half, a scavenger's three quarters. A tank shot costs a factory 8 hit points.
 - [SHIPPED be02c32] Weapons are data. Every armed kind's bolt flies at 16 tiles a second with a
-  climb ceiling of 2.0. The mortar's bolt speed is half, the rocket's three quarters. Bolts fizzle after
+  climb ceiling of 2.0. The mortar bike's bolt speed is half, the rocket tank's three quarters. Bolts fizzle after
   16 tiles.
 - [SHIPPED 564c1b2] The mortar's shell has gravity 2.25 height units per tick squared, an arc cap of
   4.0 and a 1.5 tile splash that hurts every living unit in radius, either side.
@@ -218,7 +218,7 @@ Derived and exact values behind the table:
 ### 4.2 Who starts with what
 
 - [SHIPPED 0effaea] `side_roster(side)` returns the kinds a side spawns with, in spawn order. Both sides
-  carry the same list: 3 `Tank`, 1 `HoverTank`, 1 `Factory`, 2 `Turret`, 1 `Mortar`, 1 `Rocket`.
+  carry the same list: 3 `Tank`, 1 `HoverTank`, 1 `Factory`, 2 `Turret`, 1 `MortarBike`, 1 `RocketTank`.
   Nine a side, eighteen in all. Ids ascend in spawn order. Pinned by
   `Scenario.BothSidesGetTheFrozenComposition`.
 - [SHIPPED a67233b] The enemy mirrors the player slot for slot, including the hover tank.
@@ -576,7 +576,7 @@ Ruling: a factory REPLACES A LOST GUN. It does not spend when rich.
   ore)`: the side's living armed units fewer than it started with, and at least `kTankOreCost` (4) loads.
   The production beat was its only caller left (the attrition verdict it was shared with had already been
   retired for the recycler verdict), so the function, `kTankOreCost` and the armed counts went with the beat.
-- [SHIPPED e653f16] "Armed" is any kind with a nonzero range: tank, hover tank, turret, mortar, rocket.
+- [SHIPPED e653f16] "Armed" is any kind with a nonzero range: tank, hover tank, turret, mortar bike, rocket tank.
   A side starts with 8 of them. A full yard builds nothing and spends nothing
   (`Build.NoLossIsNoBuild`).
 - [SHIPPED e653f16] The beat is global, every 150 ticks (5 s). A building factory makes a `Tank`

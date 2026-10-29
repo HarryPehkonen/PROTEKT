@@ -1182,8 +1182,8 @@ TEST(Swap, XOnAnOwnTurretDrivesIt) {
     EXPECT_FALSE(player.message().empty());
 }
 
-TEST(Swap, XOnAnOwnMortarOrRocketDrivesIt) {
-    for (const UnitKind kind : {UnitKind::Mortar, UnitKind::Rocket}) {
+TEST(Swap, XOnAnOwnMortarBikeOrRocketTankDrivesIt) {
+    for (const UnitKind kind : {UnitKind::MortarBike, UnitKind::RocketTank}) {
         Rig rig = make_rig(kind);
         Interaction player(rig.tank_a);
         static_cast<void>(at(rig, rig.tank_b));
@@ -1195,8 +1195,8 @@ TEST(Swap, XOnAnOwnMortarOrRocketDrivesIt) {
 TEST(Swap, TheFactoryCannotBeDriven) {
     EXPECT_TRUE(sim::is_drivable(UnitKind::Tank));
     EXPECT_TRUE(sim::is_drivable(UnitKind::HoverTank));
-    EXPECT_TRUE(sim::is_drivable(UnitKind::Mortar));
-    EXPECT_TRUE(sim::is_drivable(UnitKind::Rocket));
+    EXPECT_TRUE(sim::is_drivable(UnitKind::MortarBike));
+    EXPECT_TRUE(sim::is_drivable(UnitKind::RocketTank));
     EXPECT_TRUE(sim::is_drivable(UnitKind::Turret));
     EXPECT_FALSE(sim::is_drivable(UnitKind::Factory));
 }

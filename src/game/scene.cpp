@@ -554,7 +554,7 @@ void build_defense_turret(std::vector<SceneVertex>& out, std::uint64_t seed, con
                     ground + kBarrelBottom, ground + kBarrelTop, colour, metal);
 }
 
-/// THE TANK'S HULL, shared by the tank and the rocket: two dark tracks with a camo fender over
+/// THE TANK'S HULL, shared by the tank and the rocket tank: two dark tracks with a camo fender over
 /// each, a shelf a little wider than the track under it, and a hull between them whose raised
 /// fighting compartment meets the ground in a sloped front glacis and steps down aft to a lower
 /// engine deck with a dark grille band -- seven prisms, all turned by `heading`, in that order:
@@ -1148,13 +1148,13 @@ void emit_raised_tube(std::vector<SceneVertex>& out, float x, float z, float ang
                       colour, tile, tile);
 }
 
-/// THE MORTAR: a low wide base box on the ground, turned by `heading`; a small mount on it; and a
-/// SHORT STUBBY TUBE angled up 45 degrees -- it lobs -- with a thicker collar at its mouth (the
-/// fleet's convention), all three turned by `gun_yaw`. The base and mount wear the team's camo;
-/// the tube and collar are the saturated side-colour accents, as a tank's barrel is. Its top stays
-/// under the health bar's anchor.
-void build_mortar(std::vector<SceneVertex>& out, std::uint64_t seed, const sim::Unit& unit,
-                  Mark mark, float lift_z, bool lifted, float heading, float aim) {
+/// THE MORTAR BIKE: a low wide base box on the ground, turned by `heading`; a small mount on it;
+/// and a SHORT STUBBY TUBE angled up 45 degrees -- it lobs -- with a thicker collar at its mouth
+/// (the fleet's convention), all three turned by `gun_yaw`. The base and mount wear the team's
+/// camo; the tube and collar are the saturated side-colour accents, as a tank's barrel is. Its top
+/// stays under the health bar's anchor.
+void build_mortar_bike(std::vector<SceneVertex>& out, std::uint64_t seed, const sim::Unit& unit,
+                       Mark mark, float lift_z, bool lifted, float heading, float aim) {
     const float x
         = static_cast<float>(unit.x.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile;
     const float z
@@ -1202,13 +1202,13 @@ void build_mortar(std::vector<SceneVertex>& out, std::uint64_t seed, const sim::
                      kElevation, kCollarHalf, kCollarHalf, colour, barrel_tile);
 }
 
-/// THE ROCKET: the tank's hull (`emit_tank_hull`, the same seven prisms in the same camo) with,
-/// where the turret and barrel would be, a small mount and a broad RECTANGULAR LAUNCHER RACK on
-/// it -- no gun. The mount wears the camo; the rack is the side-colour accent on the turret's
+/// THE ROCKET TANK: the tank's hull (`emit_tank_hull`, the same seven prisms in the same camo)
+/// with, where the turret and barrel would be, a small mount and a broad RECTANGULAR LAUNCHER RACK
+/// on it -- no gun. The mount wears the camo; the rack is the side-colour accent on the turret's
 /// plain metal, as a tank's roof panel is. Mount and rack turn by `heading + turret`. The rack
 /// stays inside the hull's length and under the health bar's anchor.
-void build_rocket(std::vector<SceneVertex>& out, std::uint64_t seed, const sim::Unit& unit,
-                  Mark mark, float lift_z, bool lifted, float heading, float turret) {
+void build_rocket_tank(std::vector<SceneVertex>& out, std::uint64_t seed, const sim::Unit& unit,
+                       Mark mark, float lift_z, bool lifted, float heading, float turret) {
     const float x
         = static_cast<float>(unit.x.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile;
     const float z
@@ -2076,8 +2076,9 @@ void append_unit_bars(std::vector<SceneVertex>& out, const SceneOptions& options
     constexpr std::array<float, 3> kPlate{0.10F, 0.10F, 0.12F};
 
     for (const sim::Unit& unit : sim.units()) {
-        // Every unit in the field wears one -- tank, hover tank, mortar, rocket alike. The
-        // structures do not: the factory is the base, and a turret wears its DEPLOYING plate there.
+        // Every unit in the field wears one -- tank, hover tank, mortar bike, rocket tank alike.
+        // The structures do not: the factory is the base, and a turret wears its DEPLOYING plate
+        // there.
         const bool structure
             = unit.kind == sim::UnitKind::Factory || unit.kind == sim::UnitKind::Turret;
         if (!unit.alive || structure || unit.id == options.viewer_unit
@@ -4179,12 +4180,12 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
             if (unit.kind == sim::UnitKind::HoverTank) {
                 build_hover_tank(scene.vertices, options.seed, unit, mark, lift_z, hovering,
                                  heading, turret);
-            } else if (unit.kind == sim::UnitKind::Mortar) {
-                build_mortar(scene.vertices, options.seed, unit, mark, lift_z, hovering, heading,
-                             heading + turret);
-            } else if (unit.kind == sim::UnitKind::Rocket) {
-                build_rocket(scene.vertices, options.seed, unit, mark, lift_z, hovering, heading,
-                             turret);
+            } else if (unit.kind == sim::UnitKind::MortarBike) {
+                build_mortar_bike(scene.vertices, options.seed, unit, mark, lift_z, hovering,
+                                  heading, heading + turret);
+            } else if (unit.kind == sim::UnitKind::RocketTank) {
+                build_rocket_tank(scene.vertices, options.seed, unit, mark, lift_z, hovering,
+                                  heading, turret);
             } else if (unit.kind == sim::UnitKind::Scavenger) {
                 // Before the tank fallback below: a driven scavenger is FACED too, and it must not
                 // borrow the tank's turret. Nothing on a scavenger aims.

@@ -49,10 +49,11 @@ constexpr std::array kHarvesterRows{
     FixedRow{"0", kVerbRecycle, MenuDim::None},
 };
 
-/// A selected VEHICLE -- a tank, hover tank, mortar, rocket or scout. The same ten rows as the
-/// reference's tank and scout captures (2026-10-26); only the state row's default verb differs
-/// between them, and the model leaves that to the caller. `~ Select Unit` is NOT here because its
-/// ink depends on the selection size: `menu_rows` draws it first, dimmed for a lone unit.
+/// A selected VEHICLE -- a tank, hover tank, mortar bike, rocket tank or scout. The same ten rows
+/// as the reference's tank and scout captures (2026-10-26); only the state row's default verb
+/// differs between them, and the model leaves that to the caller. `~ Select Unit` is NOT here
+/// because its ink depends on the selection size: `menu_rows` draws it first, dimmed for a lone
+/// unit.
 constexpr std::array kVehicleRows{
     FixedRow{"1", kVerbFollowMe, MenuDim::None},
     FixedRow{"2", kVerbGoToNav, MenuDim::None},
@@ -189,8 +190,8 @@ MenuSubject menu_subject_of_kind(sim::UnitKind kind) noexcept {
         return MenuSubject::Turret;
     case sim::UnitKind::Tank:
     case sim::UnitKind::HoverTank:
-    case sim::UnitKind::Mortar:
-    case sim::UnitKind::Rocket:
+    case sim::UnitKind::MortarBike:
+    case sim::UnitKind::RocketTank:
     case sim::UnitKind::Scout: // the reference's tank and scout captures share ONE table
         return MenuSubject::Vehicle;
     }

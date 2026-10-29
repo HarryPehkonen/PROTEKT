@@ -41,7 +41,7 @@ struct Rig {
     Rig rig{};
     std::vector<Spawn> spawns{
         {UnitKind::Tank, Side::Player, 40, 40},    {UnitKind::Tank, Side::Player, 44, 41},
-        {UnitKind::Factory, Side::Player, 30, 30}, {UnitKind::Mortar, Side::Player, 200, 220},
+        {UnitKind::Factory, Side::Player, 30, 30}, {UnitKind::MortarBike, Side::Player, 200, 220},
         {UnitKind::Tank, Side::Enemy, 38, 60},     {UnitKind::Factory, Side::Enemy, 230, 230},
         {UnitKind::Turret, Side::Enemy, 120, 130}};
     spawns.insert(spawns.end(), extra.begin(), extra.end());

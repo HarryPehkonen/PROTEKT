@@ -79,10 +79,10 @@ Role role_of(sim::UnitKind kind) noexcept {
     switch (kind) {
     case sim::UnitKind::Tank:
     case sim::UnitKind::HoverTank:
-    case sim::UnitKind::Rocket:
+    case sim::UnitKind::RocketTank:
     case sim::UnitKind::Scout: // armed, and it fights: a light gun is still a gun at the front
         return Role::Frontline;
-    case sim::UnitKind::Mortar:
+    case sim::UnitKind::MortarBike:
         return Role::Standoff;
     case sim::UnitKind::Turret:
     case sim::UnitKind::Factory:
@@ -100,8 +100,8 @@ int threat_of(sim::UnitKind kind) noexcept {
     switch (kind) {
     case sim::UnitKind::Tank:
     case sim::UnitKind::HoverTank:
-    case sim::UnitKind::Mortar:
-    case sim::UnitKind::Rocket:
+    case sim::UnitKind::MortarBike:
+    case sim::UnitKind::RocketTank:
         return 3;
     case sim::UnitKind::Turret:
     case sim::UnitKind::Scout: // a light raider: armed, but outgunned by any tank's 3
@@ -188,8 +188,9 @@ Decision decide(const sim::UnitView& self, const sim::Observation& observation,
     // Hysteresis without memory: a tank is "withdrawn" when it is wounded and standing at its own
     // living factory, so it stays until topped up. A wounded tank in the field keeps fighting.
     const std::int64_t repair_radius = sim::kRepairRadiusTiles;
-    // The band's top is capped at the kind's own full health: a mortar is built at 75 hp, so an
-    // absolute 80 would read a mortar at full health as forever "still healing" and keep it home.
+    // The band's top is capped at the kind's own full health: a mortar bike is built at 75 hp, so
+    // an absolute 80 would read a mortar bike at full health as forever "still healing" and keep it
+    // home.
     const int topped_up = std::min<int>(tuning.return_hp, sim::profile(self.kind).hp);
     const bool healing_at_home = home != nullptr && self.hp < topped_up
                                  && distance_squared(self, *home) <= repair_radius * repair_radius;

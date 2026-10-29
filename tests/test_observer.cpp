@@ -329,6 +329,23 @@ TEST(Observer, TheHoverTankPrintsAsHovertank) {
     EXPECT_STREQ(to_string(UnitKind::Tank), "tank");
 }
 
+TEST(Observer, TheTwoSupportVehiclesPrintAsMortarbikeAndRockettank) {
+    // Harri's ruling (2026-10-29): mortar and rocket are WEAPONS; the vehicles that carry them are
+    // the mortar bike and the rocket tank. Their slots, 4 and 5, are unchanged.
+    EXPECT_STREQ(to_string(UnitKind::MortarBike), "mortarbike");
+    EXPECT_STREQ(to_string(UnitKind::RocketTank), "rockettank");
+}
+
+TEST(Observer, RenamingTheSupportVehiclesMovedNoRecordedBattle) {
+    // Recorded on the code BEFORE the rename, with the scripted commanders on both sides. A kind's
+    // index is hashed, so were 4 or 5 to move, this number would move with it.
+    const Scenario scenario = skirmish(42);
+    ai::ScriptedCommander player(30);
+    ai::ScriptedCommander enemy(30);
+    const BattleLog log = run_battle(scenario, {}, 600, &player, &enemy);
+    EXPECT_EQ(log.final_hash, 9673985124876689061ULL);
+}
+
 TEST(Observer, TheFiredStreamForAScriptedBattleIsUnchanged) {
     // First recorded on the code BEFORE shots() existed, when Fired was still inferred from a
     // cooldown diff; RE-RECORDED for E9a, when the player gained a fourth unit (the hover tank,
@@ -336,16 +353,15 @@ TEST(Observer, TheFiredStreamForAScriptedBattleIsUnchanged) {
     // subject, subject_hp.
     // RE-RECORDED again for R3a: the enemy gained its own hover tank (id 11), so the battle
     // changed.
-    // RE-RECORDED for R3b2: each side gained a mortar and a rocket (ids 8, 9 and 17, 18), so every
-    // enemy id moved up two; the ticks, the pairs and the hp are exactly R3a's -- the four support
-    // weapons fire nothing in these 600 ticks.
-    // RE-RECORDED for NAV1 (B2 -> B3): units now follow an A* route round craters instead of
-    // steering at the goal, so they reach each other earlier and by different paths; the stream is
-    // a different battle (first shot 438, 68 shots).
-    // RE-RECORDED for F1 (B4 -> B5): the scripted commander now orders its mortar and rocket
-    // (ids 8, 9 and 17, 18) to attack too, so they walk to range and fire; 69 shots.
-    // RE-RECORDED for RB1b: each side gained a recycler (ids 10 and 20), appended after the rocket,
-    // so every enemy id moved up one; the ticks, the pairs and the hp are exactly F1's -- the
+    // RE-RECORDED for R3b2: each side gained a mortar bike and a rocket tank (ids 8, 9 and 17, 18),
+    // so every enemy id moved up two; the ticks, the pairs and the hp are exactly R3a's -- the four
+    // support weapons fire nothing in these 600 ticks. RE-RECORDED for NAV1 (B2 -> B3): units now
+    // follow an A* route round craters instead of steering at the goal, so they reach each other
+    // earlier and by different paths; the stream is a different battle (first shot 438, 68 shots).
+    // RE-RECORDED for F1 (B4 -> B5): the scripted commander now orders its mortar bike and rocket
+    // tank (ids 8, 9 and 17, 18) to attack too, so they walk to range and fire; 69 shots.
+    // RE-RECORDED for RB1b: each side gained a recycler (ids 10 and 20), appended after the rocket
+    // tank, so every enemy id moved up one; the ticks, the pairs and the hp are exactly F1's -- the
     // unarmed recycler fires nothing and is shot at by nobody in these 600 ticks.
     // RE-RECORDED for the shotgun slice: a bolt now hits ANY living unit in its way, its own side
     // included (friendly fire), so a unit standing in a friend's line of fire shields what is

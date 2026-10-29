@@ -69,13 +69,13 @@ struct Rig {
 }
 
 /// Camera at tile (40,30) looking down +Z. Own units, in spawn order: tank at (40,40), tank at
-/// (44,41), a tank at (40,2) far BEHIND the camera, a mortar at (60,41), a turret at (36,41) --
-/// so F1..F5 each hold one of them. One enemy tank, in front.
+/// (44,41), a tank at (40,2) far BEHIND the camera, a mortar bike at (60,41), a turret at (36,41)
+/// -- so F1..F5 each hold one of them. One enemy tank, in front.
 [[nodiscard]] Rig make_rig(std::vector<Spawn> extra = {}) {
     Rig rig{};
     std::vector<Spawn> spawns{
         {UnitKind::Tank, Side::Player, 40, 40},   {UnitKind::Tank, Side::Player, 44, 41},
-        {UnitKind::Tank, Side::Player, 40, 2},    {UnitKind::Mortar, Side::Player, 60, 41},
+        {UnitKind::Tank, Side::Player, 40, 2},    {UnitKind::MortarBike, Side::Player, 60, 41},
         {UnitKind::Turret, Side::Player, 36, 41}, {UnitKind::Tank, Side::Enemy, 38, 60}};
     spawns.insert(spawns.end(), extra.begin(), extra.end());
     rig.sim = sim::Sim::create(sim::Scenario{kSeed, spawns});
@@ -126,13 +126,13 @@ void aim_at_unit(Rig& rig, UnitId unit) {
 }
 
 /// A layout where the MIDDLE group dies: a tank far off in the corner (F1), a turret at (44,41)
-/// in front of three enemy tanks (F2), a mortar far off (F3). With `late`, one more tank
+/// in front of three enemy tanks (F2), a mortar bike far off (F3). With `late`, one more tank
 /// (spawned last, so with the highest id) is in the sim too: the unit that arrives after the death.
 [[nodiscard]] std::vector<Spawn> middle_dies(bool late) {
     std::vector<Spawn> spawns{
-        {UnitKind::Tank, Side::Player, 4, 4},   {UnitKind::Turret, Side::Player, 44, 41},
-        {UnitKind::Mortar, Side::Player, 8, 4}, {UnitKind::Tank, Side::Enemy, 45, 41},
-        {UnitKind::Tank, Side::Enemy, 46, 42},  {UnitKind::Tank, Side::Enemy, 45, 40}};
+        {UnitKind::Tank, Side::Player, 4, 4},       {UnitKind::Turret, Side::Player, 44, 41},
+        {UnitKind::MortarBike, Side::Player, 8, 4}, {UnitKind::Tank, Side::Enemy, 45, 41},
+        {UnitKind::Tank, Side::Enemy, 46, 42},      {UnitKind::Tank, Side::Enemy, 45, 40}};
     if (late) {
         spawns.push_back({UnitKind::Tank, Side::Player, 12, 4});
     }
@@ -182,9 +182,9 @@ TEST(RowSlots, ANewUnitTakesTheLowestEmptySlotAndASecondOneTheNext) {
     const std::vector<Spawn> base{{UnitKind::Tank, Side::Player, 10, 10},
                                   {UnitKind::Turret, Side::Player, 12, 10}};
     std::vector<Spawn> one_more = base;
-    one_more.push_back({UnitKind::Mortar, Side::Player, 14, 10});
+    one_more.push_back({UnitKind::MortarBike, Side::Player, 14, 10});
     std::vector<Spawn> two_more = one_more;
-    two_more.push_back({UnitKind::Rocket, Side::Player, 16, 10});
+    two_more.push_back({UnitKind::RocketTank, Side::Player, 16, 10});
 
     RowState row;
     row.update(sim::Sim::create(sim::Scenario{kSeed, base}), Side::Player, 0);
@@ -495,8 +495,8 @@ TEST(RowSlots, ADeadUnitDoesNotReadEvenBeforeTheRowIsUpdated) {
 TEST(RowSlots, TheLabelsAreTheShortNames) {
     EXPECT_EQ(kind_label(UnitKind::Tank), "TANK");
     EXPECT_EQ(kind_label(UnitKind::HoverTank), "HOVER");
-    EXPECT_EQ(kind_label(UnitKind::Mortar), "MORTAR");
-    EXPECT_EQ(kind_label(UnitKind::Rocket), "ROCKET");
+    EXPECT_EQ(kind_label(UnitKind::MortarBike), "MORTAR BIKE");
+    EXPECT_EQ(kind_label(UnitKind::RocketTank), "ROCKET TANK");
     EXPECT_EQ(kind_label(UnitKind::Turret), "TURRET");
     EXPECT_EQ(kind_label(UnitKind::Factory), "FACTORY");
     EXPECT_EQ(kind_label(UnitKind::Recycler), "RECYCLER");
@@ -606,7 +606,8 @@ TEST(RowKeys, TheDigitRowSelectsNothing) {
 TEST(RowKeys, SpaceSelectsTheOneUnitThePlayerIsLookingAt) {
     Rig rig = make_rig();
     Interaction player{rig.own.at(0)};
-    aim_at_unit(rig, rig.own.at(3)); // the mortar alone: no group key needed, just the crosshair
+    aim_at_unit(rig,
+                rig.own.at(3)); // the mortar bike alone: no group key needed, just the crosshair
     player.handle(key_frame(input::kKeySpace), rig.sim, rig.options);
     EXPECT_EQ(selected(player), (std::vector<UnitId>{rig.own.at(3)}));
 }
@@ -616,7 +617,7 @@ TEST(RowKeys, TheSelectedGroupObeysFollowWithNoNewPlumbing) {
     rig.row.slots.at(group_slot(1)).units = {rig.own.at(0), rig.own.at(1), rig.own.at(2)};
     Interaction player{rig.own.at(0)};
     player.handle(group_key(1), rig.sim, rig.options); // three tanks
-    aim_at_unit(rig, rig.own.at(3));                   // the mortar, which is NOT in the group
+    aim_at_unit(rig, rig.own.at(3));                   // the mortar bike, which is NOT in the group
     player.handle(key_frame(input::kKeyF), rig.sim, rig.options);
     // Two orders, not three: the tank the player is SITTING IN is not sent anywhere, and it is
     // own.at(0). So the group order reaches the rest of the group and leaves the driven one alone.
@@ -636,7 +637,7 @@ TEST(RowKeys, EveryKeySelectsItsOwnSlotAndReplacesTheLast) {
     player.handle(group_key(1), rig.sim, rig.options);
     EXPECT_EQ(selected(player), (std::vector<UnitId>{rig.own.at(0)}));
     player.handle(group_key(4), rig.sim, rig.options);
-    EXPECT_EQ(selected(player), (std::vector<UnitId>{rig.own.at(3)})) << "the mortar alone";
+    EXPECT_EQ(selected(player), (std::vector<UnitId>{rig.own.at(3)})) << "the mortar bike alone";
     player.handle(group_key(5), rig.sim, rig.options);
     EXPECT_EQ(selected(player), (std::vector<UnitId>{rig.own.at(4)})) << "the turret alone";
 }

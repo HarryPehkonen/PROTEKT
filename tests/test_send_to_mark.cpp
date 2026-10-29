@@ -63,7 +63,7 @@ struct Rig {
     // tests are about sending a known unit to a mark, not about group selection.
     const std::vector<Spawn> spawns{{UnitKind::Tank, Side::Player, 40, 40},
                                     {UnitKind::HoverTank, Side::Player, 44, 41},
-                                    {UnitKind::Mortar, Side::Player, 40, 2},
+                                    {UnitKind::MortarBike, Side::Player, 40, 2},
                                     {UnitKind::Tank, Side::Enemy, 38, 60}};
     rig.sim = sim::Sim::create(sim::Scenario{kSeed, spawns});
     for (const sim::Unit& unit : rig.sim.units()) {
@@ -292,9 +292,9 @@ TEST(SendToMark, TwoSameSeedRunsProduceByteIdenticalOrders) {
 [[nodiscard]] Rig make_listing_rig() {
     Rig rig{};
     const std::vector<Spawn> spawns{
-        {UnitKind::Tank, Side::Player, 40, 40},  {UnitKind::HoverTank, Side::Player, 44, 41},
-        {UnitKind::Mortar, Side::Player, 40, 2}, {UnitKind::Tank, Side::Enemy, 38, 44},
-        {UnitKind::Tank, Side::Enemy, 50, 55},   {UnitKind::Factory, Side::Enemy, 30, 45}};
+        {UnitKind::Tank, Side::Player, 40, 40},      {UnitKind::HoverTank, Side::Player, 44, 41},
+        {UnitKind::MortarBike, Side::Player, 40, 2}, {UnitKind::Tank, Side::Enemy, 38, 44},
+        {UnitKind::Tank, Side::Enemy, 50, 55},       {UnitKind::Factory, Side::Enemy, 30, 45}};
     rig.sim = sim::Sim::create(sim::Scenario{kSeed, spawns});
     for (const sim::Unit& unit : rig.sim.units()) {
         if (unit.side == Side::Player) {

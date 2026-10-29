@@ -70,10 +70,10 @@ constexpr int kTile = Fixed::kOne;
 
 // --- the spec rows -----------------------------------------------------------------------------
 
-TEST(Mortar, SpecRowIsPinnedToExactIntegers) {
-    const UnitSpec& s = spec_of(UnitKind::Mortar);
-    EXPECT_EQ(static_cast<int>(UnitKind::Mortar), 4);
-    EXPECT_STREQ(s.name, "mortar");
+TEST(MortarBike, SpecRowIsPinnedToExactIntegers) {
+    const UnitSpec& s = spec_of(UnitKind::MortarBike);
+    EXPECT_EQ(static_cast<int>(UnitKind::MortarBike), 4);
+    EXPECT_STREQ(s.name, "mortarbike");
     EXPECT_EQ(s.hp, 75);
     EXPECT_EQ(s.max_speed.raw, 6553);
     EXPECT_EQ(s.range.raw, 14 * kTile);
@@ -87,15 +87,15 @@ TEST(Mortar, SpecRowIsPinnedToExactIntegers) {
     EXPECT_FALSE(s.buildable);
 }
 
-TEST(Mortar, OutranksATankAndIsOutrangedByATurret) {
-    EXPECT_GT(spec_of(UnitKind::Mortar).range.raw, spec_of(UnitKind::Tank).range.raw);
-    EXPECT_LT(spec_of(UnitKind::Mortar).range.raw, spec_of(UnitKind::Turret).range.raw);
+TEST(MortarBike, OutranksATankAndIsOutrangedByATurret) {
+    EXPECT_GT(spec_of(UnitKind::MortarBike).range.raw, spec_of(UnitKind::Tank).range.raw);
+    EXPECT_LT(spec_of(UnitKind::MortarBike).range.raw, spec_of(UnitKind::Turret).range.raw);
 }
 
-TEST(Rocket, SpecRowIsPinnedToExactIntegers) {
-    const UnitSpec& s = spec_of(UnitKind::Rocket);
-    EXPECT_EQ(static_cast<int>(UnitKind::Rocket), 5);
-    EXPECT_STREQ(s.name, "rocket");
+TEST(RocketTank, SpecRowIsPinnedToExactIntegers) {
+    const UnitSpec& s = spec_of(UnitKind::RocketTank);
+    EXPECT_EQ(static_cast<int>(UnitKind::RocketTank), 5);
+    EXPECT_STREQ(s.name, "rockettank");
     EXPECT_EQ(s.hp, 100);
     EXPECT_EQ(s.max_speed.raw, 13107);
     EXPECT_EQ(s.range.raw, 15 * kTile);
@@ -121,13 +121,13 @@ TEST(Mortar, ExistingKindsKeepTheOldRangeAndNoSplashOrGravity) {
 
 // Replaced (R3b2): was NeitherNewKindIsInEitherRoster -- R3b-1 kept them off the field; R3b2
 // puts exactly one of each on every side.
-TEST(Mortar, EachRosterCarriesExactlyOneOfEachNewKind) {
+TEST(MortarBike, EachRosterCarriesExactlyOneOfEachNewKind) {
     for (const Side side : {Side::Player, Side::Enemy}) {
         int mortars = 0;
         int rockets = 0;
         for (const UnitKind kind : side_roster(default_data(), side)) {
-            mortars += kind == UnitKind::Mortar ? 1 : 0;
-            rockets += kind == UnitKind::Rocket ? 1 : 0;
+            mortars += kind == UnitKind::MortarBike ? 1 : 0;
+            rockets += kind == UnitKind::RocketTank ? 1 : 0;
         }
         EXPECT_EQ(mortars, 1);
         EXPECT_EQ(rockets, 1);
@@ -137,8 +137,8 @@ TEST(Mortar, EachRosterCarriesExactlyOneOfEachNewKind) {
         int mortars = 0;
         int rockets = 0;
         for (const Spawn& spawn : s.spawns) {
-            mortars += spawn.side == side && spawn.kind == UnitKind::Mortar ? 1 : 0;
-            rockets += spawn.side == side && spawn.kind == UnitKind::Rocket ? 1 : 0;
+            mortars += spawn.side == side && spawn.kind == UnitKind::MortarBike ? 1 : 0;
+            rockets += spawn.side == side && spawn.kind == UnitKind::RocketTank ? 1 : 0;
         }
         EXPECT_EQ(mortars, 1);
         EXPECT_EQ(rockets, 1);
@@ -178,7 +178,7 @@ TEST(Mortar, ATankBoltFliesTickForTickAsItAlwaysDid) {
 TEST(Mortar, ALobRisesAboveTheStraightLineAndComesDownAtTheAimPoint) {
     const Level at = find_level_row(12);
     ASSERT_TRUE(at.found);
-    std::vector<Unit> units{make_unit_at(1, UnitKind::Mortar, Side::Player, at, 0, 0),
+    std::vector<Unit> units{make_unit_at(1, UnitKind::MortarBike, Side::Player, at, 0, 0),
                             make_unit_at(2, UnitKind::Tank, Side::Enemy, at, 7 * kTile, 0)};
     const Fixed ground = ground_height(kSeed, units[0].x, units[0].y);
     std::vector<Projectile> bolts{launch(units[0], units[1], 16, kSeed)};
@@ -236,7 +236,7 @@ TEST(Mortar, SplashHurtsEveryEnemyInTheRadiusAndNoOneBeyondIt) {
     const Level at = find_level_row(12);
     ASSERT_TRUE(at.found);
     std::vector<Unit> units{
-        make_unit_at(1, UnitKind::Mortar, Side::Player, at, 0, 0),
+        make_unit_at(1, UnitKind::MortarBike, Side::Player, at, 0, 0),
         make_unit_at(2, UnitKind::Tank, Side::Enemy, at, 7 * kTile, 0),             // the aim
         make_unit_at(3, UnitKind::Tank, Side::Enemy, at, 7 * kTile, kTile),         // 1 tile
         make_unit_at(4, UnitKind::Tank, Side::Enemy, at, 7 * kTile + 2 * kTile, 0), // 2 tiles
@@ -255,7 +255,7 @@ TEST(Mortar, SplashHurtsAFriendlyInTheRadiusToo) {
     const Level at = find_level_row(12);
     ASSERT_TRUE(at.found);
     std::vector<Unit> units{
-        make_unit_at(1, UnitKind::Mortar, Side::Player, at, 0, 0),
+        make_unit_at(1, UnitKind::MortarBike, Side::Player, at, 0, 0),
         make_unit_at(2, UnitKind::Tank, Side::Enemy, at, 7 * kTile, 0),
         make_unit_at(3, UnitKind::Tank, Side::Player, at, 7 * kTile, kTile), // friendly, 1 tile
     };
@@ -271,7 +271,7 @@ TEST(Mortar, AShellThatMissesEveryoneStillBurstsOnTheGround) {
     ASSERT_TRUE(at.found);
     // The aimed-at tank is dead, so the shell passes through where it stood and lands there.
     std::vector<Unit> units{
-        make_unit_at(1, UnitKind::Mortar, Side::Player, at, 0, 0),
+        make_unit_at(1, UnitKind::MortarBike, Side::Player, at, 0, 0),
         make_unit_at(2, UnitKind::Tank, Side::Enemy, at, 7 * kTile, 0),
         make_unit_at(3, UnitKind::Tank, Side::Enemy, at, 7 * kTile, kTile),
     };
@@ -289,7 +289,7 @@ TEST(Mortar, ABoltWithoutASplashRadiusNeverSplashes) {
     const Level at = find_level_row(12);
     ASSERT_TRUE(at.found);
     std::vector<Unit> units{
-        make_unit_at(1, UnitKind::Rocket, Side::Player, at, 0, 0),
+        make_unit_at(1, UnitKind::RocketTank, Side::Player, at, 0, 0),
         make_unit_at(2, UnitKind::Tank, Side::Enemy, at, 8 * kTile, 0),
         make_unit_at(3, UnitKind::Tank, Side::Enemy, at, 8 * kTile, kTile / 2 + 1000),
     };
@@ -309,7 +309,7 @@ TEST(Mortar, TwoSameSeedBoltsFlyIdentically) {
     const Level at = find_level_row(12);
     ASSERT_TRUE(at.found);
     auto run = [&] {
-        std::vector<Unit> units{make_unit_at(1, UnitKind::Mortar, Side::Player, at, 0, 0),
+        std::vector<Unit> units{make_unit_at(1, UnitKind::MortarBike, Side::Player, at, 0, 0),
                                 make_unit_at(2, UnitKind::Tank, Side::Enemy, at, 9 * kTile, 0)};
         std::vector<Projectile> bolts{launch(units[0], units[1], 16, kSeed)};
         std::vector<Impact> impacts;

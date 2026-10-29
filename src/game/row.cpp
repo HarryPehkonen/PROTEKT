@@ -23,8 +23,8 @@ namespace {
     case sim::UnitKind::Tank:
     case sim::UnitKind::Turret:
     case sim::UnitKind::HoverTank:
-    case sim::UnitKind::Mortar:
-    case sim::UnitKind::Rocket:
+    case sim::UnitKind::MortarBike:
+    case sim::UnitKind::RocketTank:
     case sim::UnitKind::Scavenger:
     case sim::UnitKind::Recycler:
     case sim::UnitKind::Scout:
@@ -250,10 +250,10 @@ std::string_view kind_label(sim::UnitKind kind) noexcept {
         return "TANK";
     case sim::UnitKind::HoverTank:
         return "HOVER";
-    case sim::UnitKind::Mortar:
-        return "MORTAR";
-    case sim::UnitKind::Rocket:
-        return "ROCKET";
+    case sim::UnitKind::MortarBike:
+        return "MORTAR BIKE";
+    case sim::UnitKind::RocketTank:
+        return "ROCKET TANK";
     case sim::UnitKind::Turret:
         return "TURRET";
     case sim::UnitKind::Factory:
