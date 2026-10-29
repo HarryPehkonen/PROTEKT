@@ -5,6 +5,9 @@
 
 #include <filesystem>
 #include <fstream>
+#include <map>
+#include <regex>
+#include <set>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -162,6 +165,93 @@ TEST(Cli, ABrokenReplayIsAnErrorNotACrash) {
     const CliResult missing = run({"--replay", temp_file("definitely-not-here.replay").string()});
     EXPECT_EQ(missing.code, 3);
     EXPECT_FALSE(missing.err.empty());
+}
+
+// --- docs/CLI.md must say what the parsers accept ------------------------------------------------
+//
+// The flags live only in the parsers, so the reference is a second copy that can rot. These tests
+// read both from disk (the same rig as test_layering.cpp: PROTEKT_SOURCE_DIR and a file slurped)
+// and fail in BOTH directions: a flag a parser accepts that the document does not list, and a flag
+// the document names that no parser accepts.
+
+namespace fs = std::filesystem;
+
+std::string slurp_file(const fs::path& path) {
+    std::ifstream in(path);
+    std::ostringstream text;
+    text << in.rdbuf();
+    return text.str();
+}
+
+/// Every flag a parser source accepts: a string literal that is exactly `"--name"`. Messages that
+/// merely mention a flag inside a longer string are not matched, because they are not comparisons.
+std::set<std::string> accepted_flags(const fs::path& source) {
+    const std::string text = slurp_file(source);
+    static const std::regex literal{R"re("(--[a-z][a-z0-9-]*)")re"};
+    std::set<std::string> flags;
+    for (std::sregex_iterator it{text.begin(), text.end(), literal}, end; it != end; ++it) {
+        flags.insert((*it)[1].str());
+    }
+    return flags;
+}
+
+/// The flags in the first column of the reference tables of one `## <binary>` section: the lines
+/// that begin "| `--flag`".
+std::set<std::string> documented_flags(const std::string& doc, const std::string& binary) {
+    std::set<std::string> flags;
+    std::istringstream lines{doc};
+    std::string line;
+    bool inside = false;
+    static const std::regex row{R"re(^\| `(--[a-z][a-z0-9-]*)`)re"};
+    while (std::getline(lines, line)) {
+        if (line.starts_with("## ")) {
+            inside = line == "## " + binary;
+        } else if (std::smatch m; inside && std::regex_search(line, m, row)) {
+            flags.insert(m[1].str());
+        }
+    }
+    return flags;
+}
+
+const std::map<std::string, std::string>& parser_sources() {
+    static const std::map<std::string, std::string> sources{
+        {"protekt-game", "src/app/game.cpp"},         {"protekt-render", "src/app/render.cpp"},
+        {"protekt-sim", "src/app/cli.cpp"},           {"protekt-map", "src/app/map_cli.cpp"},
+        {"protekt-atlas-gen", "tools/atlas_gen.cpp"},
+    };
+    return sources;
+}
+
+TEST(CliDoc, EveryFlagAParserAcceptsIsInTheDocumentAndNothingElseIs) {
+    const fs::path root{PROTEKT_SOURCE_DIR};
+    const std::string doc = slurp_file(root / "docs/CLI.md");
+    ASSERT_FALSE(doc.empty()) << "docs/CLI.md is missing or empty";
+
+    std::set<std::string> everything;
+    for (const auto& [binary, source] : parser_sources()) {
+        const std::set<std::string> accepted = accepted_flags(root / source);
+        ASSERT_FALSE(accepted.empty()) << "found no flags in " << source << ": the scan is broken";
+        everything.insert(accepted.begin(), accepted.end());
+
+        const std::set<std::string> documented = documented_flags(doc, binary);
+        for (const std::string& flag : accepted) {
+            EXPECT_TRUE(documented.contains(flag))
+                << binary << " accepts " << flag << " (" << source
+                << ") but docs/CLI.md has no row for it under '## " << binary << "'";
+        }
+        for (const std::string& flag : documented) {
+            EXPECT_TRUE(accepted.contains(flag))
+                << "docs/CLI.md lists " << flag << " under '## " << binary
+                << "' but that parser does not accept it";
+        }
+    }
+
+    // Anywhere else in the document, a flag may be mentioned only if some parser really has it.
+    static const std::regex mention{R"re(--[a-z][a-z0-9-]*)re"};
+    for (std::sregex_iterator it{doc.begin(), doc.end(), mention}, end; it != end; ++it) {
+        EXPECT_TRUE(everything.contains(it->str()))
+            << "docs/CLI.md names " << it->str() << ", which no parser accepts";
+    }
 }
 
 } // namespace

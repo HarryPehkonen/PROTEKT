@@ -244,6 +244,8 @@ cmake -S . -B build
 cmake --build build -j"$(nproc)"
 ```
 
+Every flag of every binary is in [`docs/CLI.md`](docs/CLI.md).
+
 Then any of:
 
 ```bash
