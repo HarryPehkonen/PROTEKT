@@ -2020,7 +2020,9 @@ constexpr float kTankTopMetres = 1.2F;               ///< the turret roof, above
 /// size, whatever the range. The viewer's own tank gets none -- its hull is in the HUD panel -- and
 /// with no viewer there are no bars at all, which keeps a frame with no player in it as it was.
 /// Always `kUnitBarVertexCount` vertices per bar, in sim order; a bar with a zero-width fill stays
-/// whole.
+/// whole. A unit counting a deploy (`Unit::deploy_ticks` non-zero) wears a second bar of the same
+/// make right above the first, its fill `deploy_ticks / kDeployTicks`; it goes through the same
+/// cull as the health bar, and a unit not counting adds nothing.
 void append_unit_bars(std::vector<SceneVertex>& out, const SceneOptions& options,
                       const sim::Sim& sim) {
     if (!options.viewer_unit.valid()) {
@@ -2071,16 +2073,26 @@ void append_unit_bars(std::vector<SceneVertex>& out, const SceneOptions& options
             continue; // behind the eye, or off the frame: not visible
         }
         const float left = top.x - (width * 0.5F);
+        const std::array<float, 3>& side_rgb
+            = unit.side == options.viewer_side ? kReticleOwn : kReticleHostile;
+        const auto bar = [&](float bottom, float share) {
+            const float track_top = bottom - height;
+            rect(marks_at * kHudBorderRatio, left - outline, track_top - outline,
+                 left + width + outline, bottom + outline, kOutline);
+            rect(marks_at * kHudFaceRatio, left, track_top, left + width, bottom, kPlate);
+            rect(marks_at, left, track_top, left + (width * share), bottom, side_rgb);
+        };
         const float bottom = top.y - gap - outline;
-        const float track_top = bottom - height;
-        rect(marks_at * kHudBorderRatio, left - outline, track_top - outline,
-             left + width + outline, bottom + outline, kOutline);
-        rect(marks_at * kHudFaceRatio, left, track_top, left + width, bottom, kPlate);
         const std::uint32_t max_hp = sim::spec_of(unit.kind).hp;
         const std::uint32_t hp = std::min<std::uint32_t>(unit.hp, max_hp);
-        const float share = max_hp > 0 ? static_cast<float>(hp) / static_cast<float>(max_hp) : 0.0F;
-        rect(marks_at, left, track_top, left + (width * share), bottom,
-             unit.side == options.viewer_side ? kReticleOwn : kReticleHostile);
+        bar(bottom, max_hp > 0 ? static_cast<float>(hp) / static_cast<float>(max_hp) : 0.0F);
+        // THE DEPLOY BAR: the wait, in the sim's own count, one strip above the health bar's
+        // outline (a 1 px spacing and its own outline between). No count, no bar.
+        if (unit.deploy_ticks != 0) {
+            bar(bottom - height - (3.0F * outline),
+                std::min(1.0F, static_cast<float>(unit.deploy_ticks)
+                                   / static_cast<float>(sim::kDeployTicks)));
+        }
     }
 }
 
@@ -3483,7 +3495,12 @@ void append_attack_readout(std::vector<SceneVertex>& out, const SceneOptions& op
     const float own_bar
         = frame_h
           * (kUnitBarGapFraction + (2.0F * kUnitBarOutlineFraction) + kUnitBarHeightFraction);
-    const float bar_bottom = top.y - own_bar - gap;
+    // ... and the deploy bar's, stacked on it while the unit is counting a deploy.
+    const float deploy_bar
+        = unit->deploy_ticks == 0
+              ? 0.0F
+              : frame_h * ((3.0F * kUnitBarOutlineFraction) + kUnitBarHeightFraction);
+    const float bar_bottom = top.y - own_bar - deploy_bar - gap;
     const float bar_top = bar_bottom - bar_h;
     const float bar_left = top.x - (bar_w * 0.5F);
 

@@ -6416,6 +6416,116 @@ TEST(WorldReach, TheRadarOverlayInTheFrameStillShowsTheBlipInsideAndNoneBeyond) 
     EXPECT_EQ(frame(out, radar_out).vertices.size(), frame(none, radar_none).vertices.size());
 }
 
+// THE DEPLOY BAR (RB6): a recycler counting `deploy_ticks` wears a second bar over its health bar,
+// its fill `deploy_ticks / kDeployTicks`. The sim's own count is the only number; nothing is
+// hashed.
+
+/// Every bar in the frame, wherever it stands: an outline quad, a plate quad and a fill quad in the
+/// bar colours, found by pattern so nothing after the bar pass (HUD panels) can hide one.
+std::vector<UnitBar> bars_in(const SceneOptions& options, const Scene& scene) {
+    std::vector<UnitBar> bars;
+    const auto& v = scene.vertices;
+    for (std::size_t first = 0; first + kUnitBarVertexCount <= v.size(); ++first) {
+        if (v.at(first).colour == kBarOutlineRgb && v.at(first + 6).colour == kBarPlateRgb
+            && (v.at(first + 12).colour == kOwnBarRgb || v.at(first + 12).colour == kHostileBarRgb)
+            && v.at(first + 17).colour == v.at(first + 12).colour) {
+            bars.push_back(
+                UnitBar{rect_of(options, scene, first), rect_of(options, scene, first + 6),
+                        rect_of(options, scene, first + 12), v.at(first + 12).colour, 0});
+            first += kUnitBarVertexCount - 1;
+        }
+    }
+    return bars;
+}
+
+/// A viewer tank at (kX, kY) and a recycler of `side` `east` tiles east of it, ordered to deploy on
+/// the site it already stands on and stepped `ticks` ticks. The order is asserted accepted and the
+/// count asserted to be the ticks, so a refused order cannot pass for a missing bar.
+Sim deploying(Side side, int east, int ticks) {
+    Sim sim = Sim::create(Scenario{
+        kSeed,
+        {{UnitKind::Tank, Side::Player, kX, kY}, {UnitKind::Recycler, side, kX + east, kY}}});
+    const protekt::sim::UnitId id = sim.units().at(1).id;
+    sim.enqueue(protekt::sim::Order{id, protekt::sim::orders::Deploy{kX + east - 1, kY - 1}});
+    for (int i = 0; i < ticks; ++i) {
+        sim.step();
+    }
+    EXPECT_EQ(sim.command_log().size(), 1U) << "the deploy order was refused";
+    EXPECT_EQ(sim.find(id)->deploy_ticks, ticks);
+    return sim;
+}
+
+std::vector<UnitBar> bars_of_deploy(Side side, int east, int ticks) {
+    const Sim sim = deploying(side, east, ticks);
+    const SceneOptions options = frame_options(sim);
+    return bars_in(options, frame(sim, options));
+}
+
+TEST(DeployBar, AMidCountRecyclerWearsASecondBarWhoseFillIsTheSimsFraction) {
+    const std::vector<UnitBar> before = bars_of_deploy(Side::Player, 10, 0);
+    ASSERT_EQ(before.size(), 1U) << "the health bar alone, nothing counting";
+    for (const int ticks : {1, protekt::sim::kDeployTicks / 2, protekt::sim::kDeployTicks - 1}) {
+        const std::vector<UnitBar> bars = bars_of_deploy(Side::Player, 10, ticks);
+        ASSERT_EQ(bars.size(), 2U) << "health bar plus deploy bar at tick " << ticks;
+        const UnitBar& deploy = bars.back();
+        EXPECT_NEAR(deploy.fill.width() / deploy.track.width(),
+                    static_cast<float>(ticks) / static_cast<float>(protekt::sim::kDeployTicks),
+                    0.01F)
+            << "ticks " << ticks;
+        EXPECT_NEAR(deploy.fill.left, deploy.track.left, 0.1F) << "grows from the left";
+    }
+}
+
+TEST(DeployBar, ItGrowsAndIsWholeJustBeforeTheBuildingStands) {
+    const UnitBar first = bars_of_deploy(Side::Player, 10, 1).back();
+    const UnitBar half = bars_of_deploy(Side::Player, 10, protekt::sim::kDeployTicks / 2).back();
+    const UnitBar last = bars_of_deploy(Side::Player, 10, protekt::sim::kDeployTicks - 1).back();
+    EXPECT_LT(first.fill.width(), half.fill.width());
+    EXPECT_LT(half.fill.width(), last.fill.width());
+    EXPECT_NEAR(last.fill.width(), last.track.width(), last.track.width() / 100.0F);
+}
+
+TEST(DeployBar, ItStandsAboveTheHealthBarAndNeverOverlapsIt) {
+    const std::vector<UnitBar> bars = bars_of_deploy(Side::Player, 10, 100);
+    ASSERT_EQ(bars.size(), 2U);
+    EXPECT_LT(bars.at(1).outline.bottom, bars.at(0).outline.top) << "clear of the health bar";
+    EXPECT_FLOAT_EQ(bars.at(1).track.centre_x(), bars.at(0).track.centre_x());
+}
+
+TEST(DeployBar, ARecyclerNotCountingAddsExactlyNothing) {
+    // Ordered but not yet counted (tick 0), against a recycler never ordered: the same frame.
+    const Sim ordered = deploying(Side::Player, 10, 0);
+    const Sim idle = Sim::create(Scenario{
+        kSeed,
+        {{UnitKind::Tank, Side::Player, kX, kY}, {UnitKind::Recycler, Side::Player, kX + 10, kY}}});
+    EXPECT_TRUE(
+        same_vertices(frame(ordered, frame_options(ordered)), frame(idle, frame_options(idle))));
+    EXPECT_EQ(bars_of_deploy(Side::Player, 10, 0).size(), 1U);
+}
+
+TEST(DeployBar, TheBuildingThatStandsAfterTheCountWearsNone) {
+    EXPECT_EQ(bars_of_deploy(Side::Player, 10, 0).size(), 1U);
+    Sim sim = deploying(Side::Player, 10, protekt::sim::kDeployTicks - 1);
+    sim.step();
+    ASSERT_EQ(sim.units().at(1).kind, UnitKind::DeployedRecycler);
+    const SceneOptions options = frame_options(sim);
+    EXPECT_LE(bars_in(options, frame(sim, options)).size(), 1U) << "the count is zero: no bar";
+}
+
+TEST(DeployBar, ADeployingHostileInsideTheRadarShowsItAndBeyondItShowsNothing) {
+    const std::vector<UnitBar> in = bars_of_deploy(Side::Enemy, 39, 100);
+    ASSERT_EQ(in.size(), 2U) << "a hostile counting inside the reach";
+    EXPECT_EQ(in.back().fill_colour, kHostileBarRgb);
+    const Sim out = deploying(Side::Enemy, 41, 100);
+    const Sim none = battle(UnitKind::Tank, 0, 0);
+    EXPECT_TRUE(same_vertices(frame(out, frame_options(out)), frame(none, frame_options(none))))
+        << "beyond the reach: no hull, no health bar, no deploy bar";
+}
+
+TEST(DeployBar, YourOwnDeployingRecyclerBeyondTheReachStillShowsIt) {
+    EXPECT_EQ(bars_of_deploy(Side::Player, 60, 100).size(), 2U);
+}
+
 } // namespace reach
 
 } // namespace
