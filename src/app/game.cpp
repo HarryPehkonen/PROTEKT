@@ -382,7 +382,7 @@ public:
         scene_options.seed = options_.seed;
         scene_options.camera = camera_for(sim_, session_, options_.seed, hover_.z());
         scene_options.extent = extent;
-        scene_options.radius_tiles = 24;
+        scene_options.radius_tiles = kWorldViewRadiusTiles; // you see as far as your radar reaches
         scene_options.aim = game::aim_from(hands, extent);
         scene_options.viewer_unit = radar_viewer(session_, options_.no_radar);
         scene_options.nav_marks = &nav_marks_; // G-then-a-number reads the marks

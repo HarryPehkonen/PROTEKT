@@ -13,9 +13,14 @@
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "protekt/app/game.hpp"
+#include "protekt/game/pick.hpp"
+#include "protekt/game/radar.hpp"
+#include "protekt/game/scene.hpp"
+#include "protekt/sim/sim.hpp"
 
 namespace {
 
@@ -548,6 +553,34 @@ TEST_F(GameCliTest, WithoutAHeadlessFlagAndWithNoDisplayItRefusesCleanly) {
     EXPECT_EQ(run(args, err), 4) << "a window that cannot be opened must be a clean refusal, not a "
                                     "crash and not a hang";
     EXPECT_FALSE(err.empty()) << "the refusal must say why";
+}
+
+/// THE MESH REACHES THE RADAR. The scene options are built inside the game loop, so a test cannot
+/// capture them; what it can reach is the number the loop is built from, `kWorldViewRadiusTiles`.
+/// A rig that set its own radius here would pin the rig, not the game.
+TEST(WorldViewRadius, TheDrawnRadiusIsTheRadarReachSoAHostileAt39IsDrawnAndAt41IsNot) {
+    using namespace protekt;
+    EXPECT_EQ(app::kWorldViewRadiusTiles, game::kRadarRadiusTiles);
+
+    constexpr std::uint64_t kSeed = 3;
+    const auto available = [&](int hostile_offset) {
+        sim::Sim world = sim::Sim::create(
+            sim::Scenario{kSeed,
+                          {{sim::UnitKind::Tank, sim::Side::Player, 100, 100},
+                           {sim::UnitKind::Tank, sim::Side::Enemy, 100 + hostile_offset, 100}}});
+        game::SceneOptions options;
+        options.seed = kSeed;
+        options.radius_tiles = app::kWorldViewRadiusTiles;
+        options.viewer_unit = world.units().at(0).id;
+        options.camera.x = 100.5F * game::kMetresPerTile; // over the viewer's tile
+        options.camera.z = 100.5F * game::kMetresPerTile;
+        const sim::Unit& hostile = world.units().at(1);
+        return std::pair{!game::outside_drawn_radius(options, hostile),
+                         game::available_to_viewer(world, options, hostile)};
+    };
+    EXPECT_EQ(available(39), (std::pair{true, true})) << "39 tiles out: drawn and in reach";
+    EXPECT_EQ(available(41), (std::pair{false, false}))
+        << "41 tiles out: neither drawn nor reached";
 }
 
 } // namespace
