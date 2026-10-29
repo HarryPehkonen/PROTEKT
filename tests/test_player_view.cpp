@@ -430,5 +430,20 @@ TEST(PlayerView, TheSkirmishScavengerIsLabelledScavengerAndAsksForTheHarvesterMe
     EXPECT_EQ(game::menu_subject_of(sim, selected), MenuSubject::Harvester);
 }
 
+TEST(CameraYawed, TurnsOnlyTheYawByHundredthsOfARadianAndWrapsAtPi) {
+    game::Camera camera;
+    camera.x = 3.0F;
+    camera.yaw = 0.5F;
+    camera.pitch = 0.25F;
+    const game::Camera turned = camera_yawed(camera, 122);
+    EXPECT_NEAR(turned.yaw, 1.72F, 1e-4F);
+    EXPECT_EQ(turned.pitch, camera.pitch);
+    EXPECT_EQ(turned.x, camera.x);
+    EXPECT_NEAR(camera_yawed(camera, -243).yaw, 0.5F - 2.43F, 1e-4F);
+    // 0.5 + 3.0 is past pi: it comes back round to the other side.
+    EXPECT_NEAR(camera_yawed(camera, 300).yaw, 3.5F - 2.0F * 3.14159265F, 1e-4F);
+    EXPECT_EQ(camera_yawed(camera, 0).yaw, camera.yaw);
+}
+
 } // namespace
 } // namespace protekt::app

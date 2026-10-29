@@ -25,6 +25,11 @@ namespace protekt::app {
 [[nodiscard]] game::Camera camera_for(const sim::Sim& sim, const game::Session& session,
                                       std::uint64_t seed, std::optional<float> hull_z);
 
+/// The camera turned `centirad` hundredths of a radian round, and nothing else: the pitch, the eye
+/// and the sim are as they were, and the yaw is wrapped. For `--look-yaw`, which aims a capture at
+/// a bearing without going through the mouse (the mouse turns the hull, and the hull is the sim's).
+[[nodiscard]] game::Camera camera_yawed(game::Camera camera, std::int32_t centirad);
+
 /// The unit the radar is drawn from: the driven tank, or no unit when the radar is off.
 [[nodiscard]] sim::UnitId radar_viewer(const game::Session& session, bool no_radar);
 

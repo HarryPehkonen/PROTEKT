@@ -35,6 +35,11 @@ game::Camera camera_for(const sim::Sim& sim, const game::Session& session, std::
     return camera;
 }
 
+game::Camera camera_yawed(game::Camera camera, std::int32_t centirad) {
+    camera.yaw = game::Camera::wrap_angle(camera.yaw + static_cast<float>(centirad) / 100.0F);
+    return camera;
+}
+
 sim::UnitId radar_viewer(const game::Session& session, bool no_radar) {
     return no_radar ? sim::UnitId{} : session.driven();
 }

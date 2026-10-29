@@ -407,6 +407,51 @@ TEST_F(GameCliTest, TheNavChainPlacesAndHighlightsAndLeavesTheSimAlone) {
     EXPECT_NE(slurp(plain), slurp(navs));
 }
 
+TEST_F(GameCliTest, LookYawTurnsTheCameraAndLeavesTheSimAlone) {
+    if (kUnderThreadSanitizer) {
+        GTEST_SKIP() << kTsanReason;
+    }
+    // The sky's counterpart to --look-up: the view, and only the view, turned to a bearing. The
+    // hull's heading feeds the tank's orders, so a yaw that went through the mouse would move the
+    // hash; this one must not.
+    const std::string plain = temp_path("plain.ppm");
+    const std::string yawed = temp_path("yawed.ppm");
+    const std::string negative = temp_path("negative.ppm");
+    std::string err;
+    std::string plain_out;
+    std::string yawed_out;
+    std::string negative_out;
+    ASSERT_EQ(
+        run({"--headless", "--seed", "42", "--frames", "6", "--capture", plain}, err, &plain_out),
+        0)
+        << err;
+    ASSERT_EQ(run({"--headless", "--seed", "42", "--frames", "6", "--look-yaw", "122", "--capture",
+                   yawed},
+                  err, &yawed_out),
+              0)
+        << err;
+    ASSERT_EQ(run({"--headless", "--seed", "42", "--frames", "6", "--look-yaw", "-243", "--capture",
+                   negative},
+                  err, &negative_out),
+              0)
+        << "a negative bearing must be accepted: " << err;
+    ASSERT_NE(plain_out.find("hash"), std::string::npos) << plain_out;
+    EXPECT_EQ(plain_out.substr(plain_out.find("hash")), yawed_out.substr(yawed_out.find("hash")))
+        << "looking round must not move the sim";
+    EXPECT_EQ(plain_out.substr(plain_out.find("hash")),
+              negative_out.substr(negative_out.find("hash")));
+    EXPECT_NE(slurp(plain), slurp(yawed)) << "--look-yaw turned nothing the frame could show";
+    EXPECT_NE(slurp(yawed), slurp(negative));
+}
+
+TEST_F(GameCliTest, LookYawWithoutANumberIsRefused) {
+    std::string err;
+    EXPECT_EQ(run({"--headless", "--look-yaw"}, err), 2);
+    EXPECT_NE(err.find("--look-yaw"), std::string::npos) << err;
+    EXPECT_EQ(run({"--headless", "--look-yaw", "left"}, err), 2);
+    EXPECT_NE(err.find("--look-yaw wants hundredths of a radian"), std::string::npos) << err;
+}
+
 /// The PPM the harness writes: "P6", the size, 255, then three bytes a pixel.
 struct Frame {
     int width{};

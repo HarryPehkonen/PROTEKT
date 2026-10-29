@@ -81,6 +81,11 @@ struct Options {
     /// `--fire N`: the trigger pulled on frame N (1-based; 0 is never), so a capture can show a
     /// shell in the air with nobody at the mouse. The same family as `--switch`.
     std::uint32_t look_up_centirad{0};
+    /// `--look-yaw N`: the view turned N hundredths of a radian round from where the turret points,
+    /// on every frame -- negative turns left, so any bearing is reachable. The sky's counterpart to
+    /// `--look-up`, for a capture that must face a sky body. It turns the CAMERA only: the mouse
+    /// path would turn the hull, which is the sim's.
+    std::int32_t look_yaw_centirad{0};
     std::uint32_t fire_frame{0};
     /// `--look-level N`: on frame N (1-based; 0 is never) the view comes back down by exactly what
     /// `--look-up` raised it, so a capture can watch where a high lob landed.
@@ -201,6 +206,11 @@ int parse_args(std::span<const std::string_view> args, Options& options, std::os
         } else if (arg == "--look-up") {
             if (!next(value) || !parse_number(value, options.look_up_centirad)) {
                 err << "protekt-game: --look-up wants hundredths of a radian\n";
+                return 2;
+            }
+        } else if (arg == "--look-yaw") {
+            if (!next(value) || !parse_number(value, options.look_yaw_centirad)) {
+                err << "protekt-game: --look-yaw wants hundredths of a radian\n";
                 return 2;
             }
         } else if (arg == "--look-level") {
@@ -380,7 +390,8 @@ public:
                                std::ostream& out) {
         game::SceneOptions scene_options;
         scene_options.seed = options_.seed;
-        scene_options.camera = camera_for(sim_, session_, options_.seed, hover_.z());
+        scene_options.camera = camera_yawed(camera_for(sim_, session_, options_.seed, hover_.z()),
+                                            options_.look_yaw_centirad);
         scene_options.extent = extent;
         scene_options.radius_tiles = kWorldViewRadiusTiles; // you see as far as your radar reaches
         scene_options.aim = game::aim_from(hands, extent);
@@ -481,7 +492,8 @@ public:
                 break;
             }
         }
-        scene_options.camera = camera_for(sim_, session_, options_.seed, hover_.z());
+        scene_options.camera = camera_yawed(camera_for(sim_, session_, options_.seed, hover_.z()),
+                                            options_.look_yaw_centirad);
         // The turret's angle relative to the hull: `Session` exposes the hull's heading and the
         // turret's world yaw (`view_yaw`), but not `PlayerCommander::turret_yaw` itself, so it is
         // their wrapped difference -- the same number, without adding an accessor.
