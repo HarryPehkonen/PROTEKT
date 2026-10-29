@@ -3652,9 +3652,11 @@ Scene sky_scene(const SceneOptions& options) {
 } // namespace
 
 TEST(Sky, AddsExactlyItsGeometryToTheScene) {
-    // Twelve quad bands (16 x 6) + a zenith fan (16 x 3) + the sun disc (16 x 3) = 1248 vertices.
+    // Twelve quad bands (16 x 6) + a zenith fan (16 x 3) + the sun disc (16 x 3) = 1248 vertices,
+    // then the moon disc: exactly its own count more.
     EXPECT_EQ(protekt::game::kSkyRings, std::size_t{14});
-    EXPECT_EQ(kSkyVertexCount, std::size_t{1248});
+    EXPECT_EQ(protekt::game::kMoonDiscVertexCount, std::size_t{72});
+    EXPECT_EQ(kSkyVertexCount, std::size_t{1248} + protekt::game::kMoonDiscVertexCount);
     const SceneOptions options = options_at(60.0F, 60.0F, 5, 4);
     const Scene scene = sky_scene(options);
     const std::size_t terrain = terrain_vertex_count(4);
@@ -3672,8 +3674,9 @@ TEST(Sky, SunDiscSitsExactlyOnTheDirectionThePrismsAreLitFrom) {
     const SceneOptions options = options_at(60.0F, 60.0F, 5, 4);
     const std::vector<SceneVertex> sky = sky_of(sky_scene(options), 4);
     const std::size_t disc = protekt::game::kSunDiscVertexCount;
+    const std::size_t first = sky.size() - protekt::game::kMoonDiscVertexCount - disc;
     std::array<double, 3> sum{};
-    for (std::size_t i = sky.size() - disc; i < sky.size(); ++i) {
+    for (std::size_t i = first; i < first + disc; ++i) {
         EXPECT_EQ(sky.at(i).colour, protekt::game::kSunDiscColour);
         sum[0] += static_cast<double>(sky.at(i).position[0] - options.camera.x);
         sum[1] += static_cast<double>(sky.at(i).position[1] - options.camera.y);
@@ -3694,7 +3697,8 @@ TEST(Sky, SunDiscSitsExactlyOnTheDirectionThePrismsAreLitFrom) {
 TEST(Sky, CarriesTheExactGradientColoursAndIsNeverShaded) {
     const SceneOptions options = options_at(60.0F, 60.0F, 5, 4);
     const std::vector<SceneVertex> sky = sky_of(sky_scene(options), 4);
-    const std::size_t dome = sky.size() - protekt::game::kSunDiscVertexCount;
+    const std::size_t dome
+        = sky.size() - protekt::game::kSunDiscVertexCount - protekt::game::kMoonDiscVertexCount;
     // Every dome vertex's colour is one of the ring colours, chosen by its elevation.
     for (std::size_t i = 0; i < dome; ++i) {
         const float dy = sky.at(i).position[1] - options.camera.y;
@@ -3713,6 +3717,102 @@ TEST(Sky, CarriesTheExactGradientColoursAndIsNeverShaded) {
     EXPECT_GT(protekt::game::kSkyRingColours.front()[0], protekt::game::kSkyRingColours.back()[0]);
     EXPECT_EQ(protekt::game::kSkyRingColours.at(protekt::game::kSkyThirtyDegreeRing),
               (protekt::math::Vec3{0.53F, 0.81F, 0.92F}));
+}
+
+namespace {
+
+/// The moon's vertices: the last kMoonDiscVertexCount of the sky.
+std::vector<SceneVertex> moon_of(const SceneOptions& options) {
+    const std::vector<SceneVertex> sky = sky_of(sky_scene(options), 4);
+    return {sky.end() - static_cast<std::ptrdiff_t>(protekt::game::kMoonDiscVertexCount),
+            sky.end()};
+}
+
+float degrees_between(const protekt::math::Vec3& a, const protekt::math::Vec3& b) {
+    const float d = std::clamp(
+        protekt::math::dot(protekt::math::normalise(a), protekt::math::normalise(b)), -1.0F, 1.0F);
+    return std::acos(d) * 180.0F / 3.14159265F;
+}
+
+protekt::math::Vec3 centroid_direction(const std::vector<SceneVertex>& disc,
+                                       const SceneOptions& options) {
+    protekt::math::Vec3 sum{0.0F, 0.0F, 0.0F};
+    for (const SceneVertex& v : disc) {
+        sum[0] += v.position[0] - options.camera.x;
+        sum[1] += v.position[1] - options.camera.y;
+        sum[2] += v.position[2] - options.camera.z;
+    }
+    return protekt::math::normalise(sum);
+}
+
+} // namespace
+
+TEST(Moon, AddsExactlyItsDiscAndSitsOnTheDirectionTheConstantNames) {
+    const SceneOptions options = options_at(60.0F, 60.0F, 5, 4);
+    const std::vector<SceneVertex> moon = moon_of(options);
+    ASSERT_EQ(moon.size(), protekt::game::kMoonDiscVertexCount);
+    EXPECT_EQ(protekt::game::kMoonDiscVertexCount % 3, std::size_t{0});
+    EXPECT_LT(degrees_between(centroid_direction(moon, options), protekt::game::kMoonDirection),
+              0.1F);
+    // On the sky's own surface (a hair inside, like the sun), above the horizon, clear of the sun.
+    for (const SceneVertex& v : moon) {
+        const protekt::math::Vec3 d{v.position[0] - options.camera.x,
+                                    v.position[1] - options.camera.y,
+                                    v.position[2] - options.camera.z};
+        const float r = std::sqrt((d[0] * d[0]) + (d[1] * d[1]) + (d[2] * d[2]));
+        EXPECT_LE(r, protekt::game::kSkyRadiusMetres);
+        EXPECT_GT(r, 0.9F * protekt::game::kSkyRadiusMetres);
+        EXPECT_GT(d[1], 0.0F) << "every rim vertex is above the horizon";
+    }
+    EXPECT_GT(degrees_between(protekt::game::kMoonDirection, protekt::game::kSunDirection), 30.0F);
+}
+
+TEST(Moon, IsItsOwnColourAndTheSunDoesNotShadeIt) {
+    const SceneOptions options = options_at(60.0F, 60.0F, 5, 4);
+    for (const SceneVertex& v : moon_of(options)) {
+        EXPECT_EQ(v.colour, protekt::game::kMoonDiscColour);
+    }
+    // The sky is its own emitter: nothing the sun does reaches it. The sun is a constant, so the
+    // fixture turns the CAMERA instead -- the moon's colour must not move with the view either.
+    SceneOptions turned = options;
+    turned.camera.yaw = 2.0F;
+    turned.camera.pitch = 0.3F;
+    for (const SceneVertex& v : moon_of(turned)) {
+        EXPECT_EQ(v.colour, protekt::game::kMoonDiscColour);
+    }
+}
+
+TEST(Moon, IsAPureFunctionOfTheCamera) {
+    const SceneOptions options = options_at(60.0F, 60.0F, 5, 4);
+    const std::vector<SceneVertex> a = moon_of(options);
+    const std::vector<SceneVertex> b = moon_of(options);
+    ASSERT_EQ(a.size(), b.size());
+    for (std::size_t i = 0; i < a.size(); ++i) {
+        EXPECT_EQ(a.at(i).position, b.at(i).position);
+    }
+    SceneOptions moved = options;
+    moved.camera.x += 40.0F;
+    const std::vector<SceneVertex> c = moon_of(moved);
+    for (std::size_t i = 0; i < a.size(); ++i) {
+        EXPECT_NEAR(c.at(i).position[0] - a.at(i).position[0], 40.0F, 1e-3F);
+        EXPECT_NEAR(c.at(i).position[1], a.at(i).position[1], 1e-3F);
+    }
+}
+
+TEST(Moon, IsInFrameWhenTheCameraFacesIt) {
+    // Facing the moon's bearing, its centre projects inside the frame (clip x, y within +-1).
+    SceneOptions options = options_at(60.0F, 60.0F, 5, 4);
+    options.camera.yaw
+        = std::atan2(protekt::game::kMoonDirection[0], protekt::game::kMoonDirection[2]);
+    const Scene scene = sky_scene(options);
+    const auto clip = protekt::math::transform(
+        scene.view_projection,
+        protekt::math::Vec3{options.camera.x + (protekt::game::kMoonDirection[0] * 980.0F),
+                            options.camera.y + (protekt::game::kMoonDirection[1] * 980.0F),
+                            options.camera.z + (protekt::game::kMoonDirection[2] * 980.0F)});
+    ASSERT_GT(clip[3], 0.0F);
+    EXPECT_LT(std::abs(clip[0] / clip[3]), 1.0F);
+    EXPECT_LT(std::abs(clip[1] / clip[3]), 1.0F);
 }
 
 TEST(Sky, RingsAreDenseEnoughNearTheHorizonToNotBand) {

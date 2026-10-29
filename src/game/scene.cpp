@@ -197,25 +197,32 @@ void append_sky(std::vector<SceneVertex>& out, const Camera& camera) {
         }
     }
 
-    // The sun disc, on exactly the direction the prisms are lit from.
+    // A disc is a fan on the plane perpendicular to its direction, a hair inside the dome so it
+    // wins the depth test. The sun sits on exactly the direction the prisms are lit from.
     constexpr float kDiscRadius = 0.98F * kSkyRadiusMetres;
-    constexpr float kDiscAngularSize = 0.06F; ///< rim radius as a fraction of the distance
-    const Vec3 direction = normalise(kSunDirection);
-    const Vec3 across = normalise(cross(Vec3{0.0F, 1.0F, 0.0F}, direction));
-    const Vec3 up = cross(direction, across);
-    const Vec3 centre = at(direction, kDiscRadius);
-    const auto rim = [&](int segment) {
-        const float angle = 2.0F * kPi * static_cast<float>(segment) / kSkySegments;
-        const float scale = kDiscRadius * kDiscAngularSize;
-        const float u = std::cos(angle) * scale;
-        const float v = std::sin(angle) * scale;
-        return Vec3{centre[0] + (across[0] * u) + (up[0] * v),
-                    centre[1] + (across[1] * u) + (up[1] * v),
-                    centre[2] + (across[2] * u) + (up[2] * v)};
-    };
-    for (int segment = 0; segment < kSkySegments; ++segment) {
-        emit_triangle(out, centre, rim(segment), rim(segment + 1), kSunDiscColour);
-    }
+    const auto disc
+        = [&](const Vec3& toward, float angular_radius, int segments, const Vec3& colour) {
+              const Vec3 direction = normalise(toward);
+              const Vec3 across = normalise(cross(Vec3{0.0F, 1.0F, 0.0F}, direction));
+              const Vec3 up = cross(direction, across);
+              const Vec3 centre = at(direction, kDiscRadius);
+              const auto rim = [&](int segment) {
+                  const float angle
+                      = 2.0F * kPi * static_cast<float>(segment) / static_cast<float>(segments);
+                  const float scale = kDiscRadius * angular_radius;
+                  const float u = std::cos(angle) * scale;
+                  const float v = std::sin(angle) * scale;
+                  return Vec3{centre[0] + (across[0] * u) + (up[0] * v),
+                              centre[1] + (across[1] * u) + (up[1] * v),
+                              centre[2] + (across[2] * u) + (up[2] * v)};
+              };
+              for (int segment = 0; segment < segments; ++segment) {
+                  emit_triangle(out, centre, rim(segment), rim(segment + 1), colour);
+              }
+          };
+    constexpr float kSunAngularSize = 0.06F; ///< rim radius as a fraction of the distance
+    disc(kSunDirection, kSunAngularSize, kSkySegments, kSunDiscColour);
+    disc(kMoonDirection, kMoonAngularRadius, kMoonSegments, kMoonDiscColour);
 }
 
 /// Fog the vertices in [first, last) by their distance from the eye. THE ONE PLACE the fog is

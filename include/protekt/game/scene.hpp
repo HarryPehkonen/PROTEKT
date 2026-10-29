@@ -55,13 +55,25 @@ inline constexpr math::Vec3 kSunDirection{-0.35F, 0.85F, -0.40F};
 /// The skirt (rings at -30, -20, -10 and 0 degrees, all the haze colour) closes the gap between
 /// the horizon and the terrain silhouette, which the renderer's clear colour used to show through.
 inline constexpr int kSkySegments = 16;
+/// THE MOON, after the sun in the sky's vertex list: ONE flat disc of `kMoonSegments` triangles,
+/// at the fixed world direction `kMoonDirection` (bearing 70 degrees, yaw 0 being +z and positive
+/// toward +x, at 28 degrees elevation), 5 degrees of rim radius. Like the sun it is its own
+/// emitter: a raw colour, never through `face_light`. It is 90.6 degrees from the sun. A
+/// world-fixed body, so it is in view only while the camera faces within the frame of its bearing
+/// -- as the sun is. There are no stars: nothing in this game has a night.
+inline constexpr math::Vec3 kMoonDirection{0.83F, 0.47F, 0.30F};
+inline constexpr math::Vec3 kMoonDiscColour{0.93F, 0.94F, 0.97F};
+inline constexpr float kMoonAngularRadius = 0.09F; ///< rim radius as a fraction of the distance
+inline constexpr int kMoonSegments = 24;
+inline constexpr std::size_t kMoonDiscVertexCount = std::size_t{kMoonSegments} * 3;
 inline constexpr float kSkyRadiusMetres = 1000.0F; ///< well inside the 2000 m far plane
 inline constexpr std::size_t kSkyRings = 14;
 inline constexpr std::size_t kSkyBandVertexCount = std::size_t{kSkySegments} * 6;
 inline constexpr std::size_t kSkyCapVertexCount = std::size_t{kSkySegments} * 3;
 inline constexpr std::size_t kSunDiscVertexCount = std::size_t{kSkySegments} * 3;
-inline constexpr std::size_t kSkyVertexCount
-    = ((kSkyRings - 2) * kSkyBandVertexCount) + kSkyCapVertexCount + kSunDiscVertexCount;
+inline constexpr std::size_t kSkyVertexCount = ((kSkyRings - 2) * kSkyBandVertexCount)
+                                               + kSkyCapVertexCount + kSunDiscVertexCount
+                                               + kMoonDiscVertexCount;
 /// Elevation of each ring in degrees, horizon first, and its colour. Rings are packed toward the
 /// horizon (never more than 6 degrees apart below 30) so the gradient has no visible banding. The
 /// colours blend the original five anchors (0, 12, 30, 60, 90 degrees) linearly by elevation; the
