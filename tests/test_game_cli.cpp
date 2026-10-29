@@ -336,6 +336,21 @@ TEST_F(GameCliTest, LogSpawnsPrintsTheSameCompositionTwiceForTheSameSeed) {
     EXPECT_EQ(first, second) << "the spawn log is a pure function of the seed and the scenario";
 }
 
+TEST_F(GameCliTest, TheFullScreenAndHeadlessRefusalDoesNotDependOnArgumentOrder) {
+    // `--fullscreen` used to be refused only when `--headless` had ALREADY been parsed, so the same
+    // two flags were legal in one order and refused in the other. Neither order can have a window,
+    // so the refusal belongs after the parse, not in one branch of it.
+    const std::vector<std::vector<std::string_view>> orders{
+        {"--headless", "--fullscreen", "--frames", "1"},
+        {"--fullscreen", "--headless", "--frames", "1"}};
+    for (const std::vector<std::string_view>& args : orders) {
+        std::string err;
+        EXPECT_EQ(run(args, err), 2) << err;
+        EXPECT_NE(err.find("--fullscreen needs a window; --headless has none"), std::string::npos)
+            << err;
+    }
+}
+
 TEST_F(GameCliTest, ARefusedKeyNameNamesTheAcceptedOnes) {
     // `--key` takes space, tab, tilde and f1-f10, in lower case: anything else is a refusal that
     // says so.

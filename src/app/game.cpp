@@ -200,7 +200,7 @@ int parse_args(std::span<const std::string_view> args, Options& options, std::os
             }
         } else if (arg == "--switch") {
             if (!next(value) || !parse_number(value, options.switches)) {
-                err << "protekt-game: --switch wants a number of weapon-key presses\n";
+                err << "protekt-game: --switch wants a number of weapon switches (right clicks)\n";
                 return 2;
             }
         } else if (arg == "--look-up") {
@@ -272,10 +272,6 @@ int parse_args(std::span<const std::string_view> args, Options& options, std::os
             }
             options.key_presses.push_back(press);
         } else if (arg == "--fullscreen") {
-            if (options.headless) {
-                err << "protekt-game: --fullscreen needs a window; --headless has none\n";
-                return 2;
-            }
             options.fullscreen = true;
         } else if (arg == "--autodrive") {
             options.autodrive = true;
@@ -628,7 +624,9 @@ void script_hands(const Options& options, std::uint32_t frame, input::InputFrame
             hands.keys.push_back(input::KeyEvent{press.scancode, true, false});
         }
     }
-    if (options.press_scancode >= 0) {
+    // The doc promises one key on the FIRST frame, and the flag's purpose is a single scripted
+    // toggle -- pressing every frame would flip F11 off again on the next one.
+    if (options.press_scancode >= 0 && frame == 0) {
         hands.keys.push_back(input::KeyEvent{options.press_scancode, true, false,
                                              options.press_ctrl, options.press_alt});
     }
@@ -781,6 +779,12 @@ int run_game_cli(std::span<const std::string_view> args, std::ostream& out, std:
 
     // Checked here rather than at parse time so that a SPECIFIC request error -- a device name that
     // does not exist -- is still the error a caller sees first.
+    // Order-independent: `--headless` and `--fullscreen` contradict each other whichever comes
+    // first, so the refusal cannot live in the parse branch where only one order reaches it.
+    if (options.headless && options.fullscreen) {
+        err << "protekt-game: --fullscreen needs a window; --headless has none\n";
+        return 2;
+    }
     if (options.frames == 0) {
 #ifdef PROTEKT_HAVE_WINDOW
         if (options.headless) {
