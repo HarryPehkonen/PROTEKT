@@ -245,6 +245,9 @@ protekt-map [--seed N] [--size N] [--chunk CX CY]
 Prints `seed 0x..  chunk (cx,cy)  SxS`, then the top-left `S` by `S` tiles of the chunk as ASCII
 (`~` deep water, `-` shallow, `.` flat, `+` rising, `^` high), then `hash 0x...`, which is the world's
 region hash at `(CX+1, CY+1)`. Defaults: seed 1, size 32, chunk (0,0). A chunk is 64 tiles a side.
+Any `int` chunk is accepted, including `2147483647` and `-2147483648`. The hash covers every chunk in
+`[0, CX+1) x [0, CY+1)`, so it costs time proportional to that area: a large positive `CX` *and* `CY`
+runs for a very long time, while a coordinate of `-1` or below makes the region empty and the run instant.
 
 | flag | argument | what it does | refusal |
 |---|---|---|---|
