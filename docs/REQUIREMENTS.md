@@ -1008,6 +1008,10 @@ later. His ruling, 2026-10-24: ONE recycler per side, EVER [DECIDED — not buil
   spot, then press SPACE to CONFIRM. `3` is not a second binding for SPACE: it arms, SPACE confirms, and the
   menu's top row becomes a live readout of the armed step. Of that menu only `1 Follow Me` and `4 Hold` route
   today (RB-DIGITS); `3 Deploy` is inert and says why.
+- [SHIPPED 0099c53] The deploy's WAIT is visible: while a unit's `deploy_ticks` is non-zero it wears
+  a second bar right above its health bar, in its side's colours, filled `deploy_ticks / kDeployTicks` from
+  the left (paint only; the same reach and radius cull as the unit). No count, no bar. The rising building
+  is not part of this.
 - [SHIPPED 3e799a0, ddc6423] The undeployed recycler's menu is six rows, in drawn order: `SPACE` (the state
   row), `TAB Close Menu`, `~ Rotate Buildings` (dim — it does not apply until there are buildings to rotate),
   `1 Follow Me`, `2 Go to Nav`, `3 Deploy`.
