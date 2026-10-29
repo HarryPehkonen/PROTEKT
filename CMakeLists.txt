@@ -321,6 +321,7 @@ if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
                                         tests/test_sounds.cpp tests/test_audio_out.cpp
                                         tests/test_pixels.cpp tests/test_atlas.cpp
                                         tests/test_atlas_files.cpp tests/test_ground_variants.cpp
+                                        tests/test_map_cli.cpp
                                         tests/test_fog.cpp)
     target_link_libraries(protekt_tests PRIVATE protekt_app)
     if(PROTEKT_RENDER)
@@ -337,6 +338,8 @@ if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
     add_executable(protekt-map src/app/map_cli.cpp)
     target_link_libraries(protekt-map PRIVATE protekt_app)
     protekt_warnings(protekt-map)
+    add_dependencies(protekt_tests protekt-map)
+    target_compile_definitions(protekt_tests PRIVATE PROTEKT_MAP="$<TARGET_FILE:protekt-map>")
 
     # The sim CLI: the same battle the tests run, printed for a human.
     add_executable(protekt-sim src/app/sim_cli.cpp)

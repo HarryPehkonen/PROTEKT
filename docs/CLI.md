@@ -62,9 +62,9 @@ They are not a uniform 0/1/2. Each was produced by the command shown.
 
 | code | meaning | produced by |
 |---|---|---|
-| 0 | success | `protekt-sim --seed 42 --ticks 300`; also `protekt-map` for ANY arguments, even nonsense |
+| 0 | success | `protekt-sim --seed 42 --ticks 300` |
 | 1 | failed at the end, after starting | `protekt-game --headless --frames 1 --capture /nonexistent/x.ppm` ("could not write"); `protekt-game` on a scenario with no player tank; `protekt-sim --ticks 10 --replay-out /nonexistent/x.replay`; `protekt-render --out /nonexistent/x.ppm` |
-| 2 | usage: the command line was refused before any work | `protekt-game -x`, `protekt-sim --seed abc`, `protekt-render --width 0`, `protekt-measure abc`, `protekt-atlas-gen -x`; and `protekt-game --scenario FILE` when the file is unreadable or invalid |
+| 2 | usage: the command line was refused before any work | `protekt-game -x`, `protekt-sim --seed abc`, `protekt-map --seed abc`, `protekt-render --width 0`, `protekt-measure abc`, `protekt-atlas-gen -x`; and `protekt-game --scenario FILE` when the file is unreadable or invalid |
 | 3 | an input or output file was refused | `protekt-sim --replay /nonexistent.replay` and `--replay` of a file that is not a replay; `protekt-atlas-gen --out /nonexistent/a.png` |
 | 4 | no usable Vulkan device or window | `protekt-game` with no display and no `--headless`; `protekt-game --headless --frames 1 --gpu nosuch`; `protekt-render --gpu nosuch`; `protekt-render --list-gpus` with no Vulkan driver |
 
@@ -248,27 +248,22 @@ region hash at `(CX+1, CY+1)`. Defaults: seed 1, size 32, chunk (0,0). A chunk i
 
 | flag | argument | what it does | refusal |
 |---|---|---|---|
-| `--seed` | `N` | the world seed (default 1, not 42) | none: a bad value leaves the seed at 1 |
-| `--size` | `N` | how many tiles to print per side; clamped to 2..64 | none: `--size 1` printed 2, `--size 9999` printed 64, text reads as 0 and prints 2 |
-| `--chunk` | `CX CY` | which chunk | none |
+| `--seed` | `N` | the world seed (default 1, not 42) | `protekt-map: --seed wants an unsigned integer, got 'abc'` |
+| `--size` | `N` | how many tiles to print per side; clamped to 2..64 | `protekt-map: --size wants an integer, got 'abc'`; a number that parses is clamped, not refused (`--size 1` prints 2, `--size 9999` prints 64), but one that does not fit an `int` is refused |
+| `--chunk` | `CX CY` | which chunk | `protekt-map: --chunk wants two integers, got 'a' 'b'` |
 
-**This binary refuses nothing.** An unknown flag, a bad number or a flag missing its value is silently
-ignored and the exit code is 0:
+An unknown option, a bad number, or an option missing its value is refused with exit code 2 and
+nothing on stdout. A missing value reads `protekt-map: --seed needs a value` (likewise `--size`,
+`--chunk`), an unknown option `protekt-map: unknown option '-x'`:
 
 ```
-$ protekt-map --seed abc --size 4 | head -2
-seed 0x0000000000000001  chunk (0,0)  4x4
-++++
+$ protekt-map --seed abc --size 4 ; echo $?
+protekt-map: --seed wants an unsigned integer, got 'abc'
+2
 $ protekt-map -x --size 3 ; echo $?
-seed 0x0000000000000001  chunk (0,0)  3x3
-+++
-+++
-+++
-hash 0xDE26C98863273876
-0
+protekt-map: unknown option '-x'
+2
 ```
-
-Be careful with `--seed abc`: you get seed 1, not an error.
 
 ---
 

@@ -1,9 +1,9 @@
 // protekt-map --seed <u64> --size <N> [--chunk <cx> <cy>]
+// A bad command line is refused the way its siblings refuse one: a line on stderr, exit code 2.
 // Prints the world as ASCII plus the region hash. Its purpose is the one thing unit tests
 // cannot check: that the SAME seed gives the SAME bytes in a DIFFERENT process.
 #include <cstddef>
 #include <cstdint>
-#include <cstdlib>
 #include <format>
 #include <iostream>
 #include <span>
@@ -20,14 +20,46 @@ int main(int argc, char** argv) {
     const std::span<char*> args{argv, static_cast<std::size_t>(argc)};
     for (std::size_t i = 1; i < args.size(); ++i) {
         const std::string_view arg = args[i];
-        if (arg == "--seed" && i + 1 < args.size()) {
-            // A refused value leaves `seed` as it was, which is the fallback this used to pass.
-            protekt::app::parse_number(args[++i], seed);
-        } else if (arg == "--size" && i + 1 < args.size()) {
-            size = std::atoi(args[++i]);
-        } else if (arg == "--chunk" && i + 2 < args.size()) {
-            chunk_x = std::atoi(args[++i]);
-            chunk_y = std::atoi(args[++i]);
+        const auto next = [&](std::string_view& value) {
+            if (i + 1 >= args.size()) {
+                std::cerr << "protekt-map: " << arg << " needs a value\n";
+                return false;
+            }
+            value = args[++i];
+            return true;
+        };
+        std::string_view text;
+        std::string_view second;
+        if (arg == "--seed") {
+            if (!next(text)) {
+                return 2;
+            }
+            if (!protekt::app::parse_number(text, seed)) {
+                std::cerr << "protekt-map: --seed wants an unsigned integer, got '" << text
+                          << "'\n";
+                return 2;
+            }
+        } else if (arg == "--size") {
+            if (!next(text)) {
+                return 2;
+            }
+            if (!protekt::app::parse_number(text, size)) {
+                std::cerr << "protekt-map: --size wants an integer, got '" << text << "'\n";
+                return 2;
+            }
+        } else if (arg == "--chunk") {
+            if (!next(text) || !next(second)) {
+                return 2;
+            }
+            if (!protekt::app::parse_number(text, chunk_x)
+                || !protekt::app::parse_number(second, chunk_y)) {
+                std::cerr << "protekt-map: --chunk wants two integers, got '" << text << "' '"
+                          << second << "'\n";
+                return 2;
+            }
+        } else {
+            std::cerr << "protekt-map: unknown option '" << arg << "'\n";
+            return 2;
         }
     }
     if (size < 2) {
