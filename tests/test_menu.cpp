@@ -455,9 +455,14 @@ TEST(Menu, TheRecyclersListIsTheSevenItsKeysAndCostsHaveAlwaysBeen) {
         = build_items(sim::Side::Player, MenuSubject::Deployment);
     ASSERT_EQ(items.size(), want.size());
     for (std::size_t i = 0; i < want.size(); ++i) {
-        EXPECT_EQ(items[i].key, want[i].key);
-        EXPECT_EQ(items[i].label, want[i].label);
-        EXPECT_EQ(items[i].cost, want[i].cost);
+        // `std::span::at` is C++26 and this is C++20, so bind through the iterator: the tidy check
+        // (cppcoreguidelines-pro-bounds-constant-array-index) wants a constant index or no
+        // subscript.
+        const BuildItem& got = *(items.begin() + static_cast<std::ptrdiff_t>(i));
+        const Row& expected = want.at(i);
+        EXPECT_EQ(got.key, expected.key);
+        EXPECT_EQ(got.label, expected.label);
+        EXPECT_EQ(got.cost, expected.cost);
     }
 }
 
