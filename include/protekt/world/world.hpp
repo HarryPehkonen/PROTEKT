@@ -38,8 +38,11 @@ struct Coord {
 [[nodiscard]] Chunk generate(std::uint64_t seed, int chunk_x, int chunk_y) noexcept;
 
 /// A stable hash over the chunks in [0, chunks_x) x [0, chunks_y) of the world for `seed`.
-/// Used as the determinism oracle: it must not change between runs or machines.
-[[nodiscard]] std::uint64_t region_hash(std::uint64_t seed, int chunks_x, int chunks_y) noexcept;
+/// Used as the determinism oracle: it must not change between runs or machines. The counts are
+/// wide so that "one past an int chunk coordinate" is representable; a count above 0 costs
+/// time linear in chunks_x * chunks_y, and a count <= 0 hashes no chunk.
+[[nodiscard]] std::uint64_t region_hash(std::uint64_t seed, std::int64_t chunks_x,
+                                        std::int64_t chunks_y) noexcept;
 
 /// The tile at a WORLD tile coordinate, for runtimes that need to look up a single spot
 /// (the sim does). Pure, no cache, no global state: it generates the chunk that contains the

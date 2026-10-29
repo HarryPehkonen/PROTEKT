@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <cstddef>
+#include <cstdint>
 
 #include "protekt/rng.hpp"
 
@@ -23,11 +24,11 @@ constexpr int kSpawnMaxHeight = 128;
 
 // Lattice value in [kMinHeight, kMaxHeight) for an integer lattice point; a pure hash of
 // (seed, octave, ix, iy). The int -> uint64 conversions wrap, which is well defined.
-int lattice(std::uint64_t seed, int octave, int ix, int iy) noexcept {
-    const std::uint64_t key
-        = seed ^ (0xC2B2AE3D27D4EB4FULL * static_cast<std::uint64_t>(octave + 1))
-          ^ (0x9E3779B97F4A7C15ULL * static_cast<std::uint64_t>(static_cast<std::int64_t>(ix)))
-          ^ (0xD6E8FEB86659FD93ULL * static_cast<std::uint64_t>(static_cast<std::int64_t>(iy)));
+int lattice(std::uint64_t seed, int octave, std::int64_t ix, std::int64_t iy) noexcept {
+    const std::uint64_t key = seed
+                              ^ (0xC2B2AE3D27D4EB4FULL * static_cast<std::uint64_t>(octave + 1))
+                              ^ (0x9E3779B97F4A7C15ULL * static_cast<std::uint64_t>(ix))
+                              ^ (0xD6E8FEB86659FD93ULL * static_cast<std::uint64_t>(iy));
     const std::uint64_t h = rng::SplitMix64(key).next();
     return static_cast<int>((h >> 32) % static_cast<std::uint64_t>(kMaxHeight - kMinHeight))
            + kMinHeight;
@@ -39,12 +40,13 @@ int smooth(int t) noexcept { return (t * t * (3 * kFixedOne - 2 * t)) >> (2 * kF
 int lerp(int a, int b, int weight) noexcept { return a + (((b - a) * weight) >> kFixedBits); }
 
 // One octave of value noise at world coordinates; cells are (1 << shift) tiles wide.
-int value_noise(std::uint64_t seed, int octave, int shift, int wx, int wy) noexcept {
-    const int ix = wx >> shift; // arithmetic shift == floor division for negatives
-    const int iy = wy >> shift;
+int value_noise(std::uint64_t seed, int octave, int shift, std::int64_t wx,
+                std::int64_t wy) noexcept {
+    const std::int64_t ix = wx >> shift; // arithmetic shift == floor division for negatives
+    const std::int64_t iy = wy >> shift;
     const int mask = (1 << shift) - 1;
-    const int tx = smooth(((wx & mask) << kFixedBits) >> shift);
-    const int ty = smooth(((wy & mask) << kFixedBits) >> shift);
+    const int tx = smooth(static_cast<int>(((wx & mask) << kFixedBits) >> shift));
+    const int ty = smooth(static_cast<int>(((wy & mask) << kFixedBits) >> shift));
     const int top = lerp(lattice(seed, octave, ix, iy), lattice(seed, octave, ix + 1, iy), tx);
     const int bottom
         = lerp(lattice(seed, octave, ix, iy + 1), lattice(seed, octave, ix + 1, iy + 1), tx);
@@ -52,7 +54,7 @@ int value_noise(std::uint64_t seed, int octave, int shift, int wx, int wy) noexc
 }
 
 // Height at WORLD coordinates: octaves of cell width 32, 16, 8 weighted 4:2:1.
-int height_at(std::uint64_t seed, int wx, int wy) noexcept {
+int height_at(std::uint64_t seed, std::int64_t wx, std::int64_t wy) noexcept {
     constexpr std::array<int, kOctaves> kShifts{5, 4, 3};
     constexpr std::array<int, kOctaves> kWeights{4, 2, 1};
     int sum = 0;
@@ -96,8 +98,9 @@ Chunk generate(std::uint64_t seed, int chunk_x, int chunk_y) noexcept {
     Chunk chunk{};
     for (int y = 0; y < kChunkSize; ++y) {
         for (int x = 0; x < kChunkSize; ++x) {
-            const int wx = chunk_x * kChunkSize + x;
-            const int wy = chunk_y * kChunkSize + y;
+            // Wide: a chunk near INT_MAX is a real chunk; its tile coordinate does not fit an int.
+            const std::int64_t wx = static_cast<std::int64_t>(chunk_x) * kChunkSize + x;
+            const std::int64_t wy = static_cast<std::int64_t>(chunk_y) * kChunkSize + y;
             const int h = height_at(world_seed, wx, wy);
             const int slope = abs_diff(h, height_at(world_seed, wx + 1, wy))
                               + abs_diff(h, height_at(world_seed, wx, wy + 1));
@@ -111,14 +114,16 @@ Chunk generate(std::uint64_t seed, int chunk_x, int chunk_y) noexcept {
     return chunk;
 }
 
-std::uint64_t region_hash(std::uint64_t seed, int chunks_x, int chunks_y) noexcept {
+std::uint64_t region_hash(std::uint64_t seed, std::int64_t chunks_x,
+                          std::int64_t chunks_y) noexcept {
     std::uint64_t h = 0xCBF29CE484222325ULL; // FNV-1a offset basis
     h = fnv_u64(h, seed);
-    h = fnv_u64(h, static_cast<std::uint64_t>(static_cast<std::int64_t>(chunks_x)));
-    h = fnv_u64(h, static_cast<std::uint64_t>(static_cast<std::int64_t>(chunks_y)));
-    for (int cy = 0; cy < chunks_y; ++cy) {
-        for (int cx = 0; cx < chunks_x; ++cx) {
-            const Chunk chunk = generate(seed, cx, cy);
+    h = fnv_u64(h, static_cast<std::uint64_t>(chunks_x));
+    h = fnv_u64(h, static_cast<std::uint64_t>(chunks_y));
+    for (std::int64_t cy = 0; cy < chunks_y; ++cy) {
+        for (std::int64_t cx = 0; cx < chunks_x; ++cx) {
+            // cx, cy < the count; for any count an int plus one can form, that is an int chunk.
+            const Chunk chunk = generate(seed, static_cast<int>(cx), static_cast<int>(cy));
             for (const Tile& tile : chunk.tiles) {
                 const auto height = static_cast<std::uint16_t>(tile.height);
                 h = fnv_step(h, height);

@@ -86,7 +86,8 @@ int main(int argc, char** argv) {
         }
         std::cout << '\n';
     }
-    std::cout << std::format("hash 0x{:016X}\n",
-                             protekt::world::region_hash(seed, chunk_x + 1, chunk_y + 1));
+    std::cout << std::format(
+        "hash 0x{:016X}\n",
+        protekt::world::region_hash(seed, std::int64_t{chunk_x} + 1, std::int64_t{chunk_y} + 1));
     return 0;
 }

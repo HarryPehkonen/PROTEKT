@@ -106,4 +106,17 @@ TEST(MapCli, TheDocumentedClampOfSizeIsStillThere) {
         0U);
 }
 
+TEST(MapCli, AChunkAtTheEdgeOfIntIsPrintedNotUndefined) {
+    // chunk+1 is the region the hash covers; at INT_MAX it must not overflow. A negative
+    // other coordinate keeps the hashed region empty, so the run stays instant.
+    const MapRun hi = run_map({"--seed", "42", "--size", "8", "--chunk", "2147483647", "-1"});
+    EXPECT_EQ(hi.code, 0) << hi.err;
+    EXPECT_EQ(hi.out.rfind("seed 0x000000000000002A  chunk (2147483647,-1)  8x8\n", 0), 0U)
+        << hi.out;
+    const MapRun lo = run_map({"--seed", "42", "--size", "8", "--chunk", "-2147483648", "0"});
+    EXPECT_EQ(lo.code, 0) << lo.err;
+    EXPECT_EQ(lo.out.rfind("seed 0x000000000000002A  chunk (-2147483648,0)  8x8\n", 0), 0U)
+        << lo.out;
+}
+
 } // namespace
