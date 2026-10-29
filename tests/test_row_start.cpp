@@ -32,6 +32,7 @@ constexpr std::uint64_t kSeed = 42;
 
 [[nodiscard]] std::vector<UnitKind> kinds_in(const sim::Sim& sim, const RowSlot& slot) {
     std::vector<UnitKind> kinds;
+    kinds.reserve(slot.units.size());
     for (const UnitId id : slot.units) {
         kinds.push_back(sim.find(id)->kind);
     }

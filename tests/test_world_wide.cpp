@@ -34,7 +34,7 @@ struct Pin {
 
 TEST(WorldWide, ChunksThatWorkedBeforeAreUnchanged) {
     // Seed 42, pre-fix. Negative and far-out coordinates included.
-    constexpr Pin pins[] = {
+    constexpr std::array<Pin, 7> pins{{
         {0, 0, 0xADD3A21375C612E8ULL},
         {-1, -1, 0x4A2493E1DF5EF9FEULL},
         {-3, 5, 0x92D4BD3CC786528CULL},
@@ -42,21 +42,21 @@ TEST(WorldWide, ChunksThatWorkedBeforeAreUnchanged) {
         {100000, -100000, 0xCE6229C55C58F01AULL},
         {5000000, -5000000, 0xFE33F2CD7B8645DDULL},
         {-5000000, 5000000, 0xD33132E20112847CULL},
-    };
+    }};
     for (const Pin& pin : pins) {
         EXPECT_EQ(digest(generate(42, pin.x, pin.y)), pin.value) << pin.x << "," << pin.y;
     }
 }
 
 TEST(WorldWide, RegionHashesThatWorkedBeforeAreUnchanged) {
-    constexpr Pin pins[] = {
+    constexpr std::array<Pin, 6> pins{{
         {0, 0, 0x2F69B4B4B921FEAFULL},
         {1, 1, 0xDCFD6A8B3D9E5DE1ULL}, // protekt-map --seed 42 --size 8
         {3, 2, 0x62BB5D07999D3632ULL},
         {-2, 3, 0x3222A6129BBB5BC5ULL},
         {4, -1, 0xBBBB8C6FDC660A23ULL},
         {-5, -5, 0x90D6E8CE39A4EC1FULL},
-    };
+    }};
     for (const Pin& pin : pins) {
         EXPECT_EQ(region_hash(42, pin.x, pin.y), pin.value) << pin.x << "," << pin.y;
     }
@@ -69,13 +69,13 @@ TEST(WorldWide, SamplesThatWorkedBeforeAreUnchanged) {
         int height;
         Terrain terrain;
     };
-    constexpr SamplePin pins[] = {
+    constexpr std::array<SamplePin, 5> pins{{
         {0, 0, 238, Terrain{2}},
         {-1, -1, 240, Terrain{2}},
         {63, 64, 145, Terrain{0}},
         {-100000, 3000000, 147, Terrain{0}},
         {300000000, -300000000, 173, Terrain{2}},
-    };
+    }};
     for (const SamplePin& pin : pins) {
         const Tile tile = sample(42, pin.x, pin.y);
         EXPECT_EQ(tile.height, pin.height) << pin.x << "," << pin.y;
