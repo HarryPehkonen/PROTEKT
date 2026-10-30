@@ -35,6 +35,7 @@
 #include "protekt/sim/sim.hpp"
 #include "protekt/sim/spec.hpp"
 #include "protekt/world/world.hpp"
+#include "untilt.hpp"
 
 namespace {
 
@@ -1071,7 +1072,18 @@ std::array<float, 3> box_colour(const Scene& scene, const protekt::sim::Unit& un
     const float want_x = tank ? ux - 0.22F : ux - half; // the panel's half-width across
     // The turret's centre (0.15 m aft since D5b moved it up the hull), less the panel's back.
     const float want_z = tank ? uz - 0.15F - 0.4F : uz - half;
+    // The vertices near the unit, turned level (untilt.hpp): the box is found by where the design
+    // puts its corner, not by where the slope leans it. Terrain is turned too, but a tile that
+    // lay on the slope the body was turned by lies flat when it is turned back, so it never passes
+    // the height test below.
+    std::vector<protekt::game::SceneVertex> near;
     for (const auto& v : scene.vertices) {
+        if (std::hypot(v.position[0] - ux, v.position[2] - uz) < 3.0F) {
+            near.push_back(v);
+        }
+    }
+    protekt::game::untilt::level(near, unit, 42);
+    for (const auto& v : near) {
         if (std::abs(v.position[0] - want_x) < 1e-3F && std::abs(v.position[2] - want_z) < 1e-3F
             && v.position[1]
                    > protekt::game::height_metres(42, unit.x.floor_int(), unit.y.floor_int())
@@ -1840,8 +1852,12 @@ TEST(GroundMetres, ATanksFootingInTheSceneIsContinuousAsItDrivesAcrossATileEdge)
         = options_at(106.0F * kMetresPerTile, 95.0F * kMetresPerTile, kSlopeSeed, 4);
     constexpr std::size_t kBoxVertices = 36;
     const auto footing = [&] {
-        const std::vector<protekt::game::SceneVertex> v
+        std::vector<protekt::game::SceneVertex> v
             = protekt::game::build_scene(sim, options).vertices;
+        // The footing is where the tank STANDS; the lean it takes from the slope is another matter
+        // (the tilt tests have it), so the box is read level.
+        protekt::game::untilt::level(std::span(v).last(kBoxVertices), sim.units().at(0),
+                                     kSlopeSeed);
         float lowest = 1e9F;
         for (std::size_t i = v.size() - kBoxVertices; i < v.size(); ++i) {
             lowest = std::min(lowest, v.at(i).position.at(1));
@@ -2022,6 +2038,8 @@ std::vector<protekt::game::SceneVertex> tank_only(const protekt::sim::Sim& sim,
             out.push_back(base.vertices.at(i));
         }
     }
+    // The design, not the lean: the shape tests read a body off whatever ground the tank stands on.
+    protekt::game::untilt::level(out, tank, options.seed);
     return out;
 }
 
@@ -2993,7 +3011,11 @@ SceneOptions facing_options(const protekt::sim::Sim& sim) {
 Scene facing_scene(const protekt::sim::Sim& sim, float heading, float turret) {
     SceneOptions o = facing_options(sim);
     o.facing = SceneOptions::Facing{viewer_of(sim).id, heading, turret};
-    return protekt::game::build_scene(sim, o);
+    Scene scene = protekt::game::build_scene(sim, o);
+    // The viewer's tank is the tail of the scene; the design is read level (see untilt.hpp).
+    protekt::game::untilt::level(std::span(scene.vertices).last(kTankVertices), viewer_of(sim),
+                                 o.seed);
+    return scene;
 }
 
 /// The barrel is the last prism of the viewer's tank, and the viewer's tank is the end of the
@@ -3129,10 +3151,13 @@ TEST(SceneFacing, AFrameWithoutFacingIsByteIdentical) {
     // than it always was (the outer edge of a fender), because heading 0 is the world's +Y.
     const auto& viewer = viewer_of(sim);
     const float ux = static_cast<float>(viewer.x.raw) / 65536.0F * kMetresPerTile;
-    const auto tail = a.vertices.end() - static_cast<std::ptrdiff_t>(kFacingTankVertices);
+    std::vector<protekt::game::SceneVertex> tail(
+        a.vertices.end() - static_cast<std::ptrdiff_t>(kFacingTankVertices), a.vertices.end());
+    protekt::game::untilt::level(tail, viewer,
+                                 absent.seed); // the width of the design, not the lean
     float widest = 0.0F;
-    for (auto v = tail; v != a.vertices.end(); ++v) {
-        widest = std::max(widest, std::abs(v->position[0] - ux));
+    for (const auto& v : tail) {
+        widest = std::max(widest, std::abs(v.position[0] - ux));
     }
     EXPECT_NEAR(widest, kHullHalfMetres, 1e-4F);
 }
@@ -3328,7 +3353,10 @@ Scene scene_with(const protekt::sim::Sim& sim, const Headings& headings) {
     o.camera.x = static_cast<float>(unit.x.raw) / 65536.0F * kMetresPerTile;
     o.camera.z = static_cast<float>(unit.y.raw) / 65536.0F * kMetresPerTile;
     o.headings = &headings;
-    return protekt::game::build_scene(sim, o);
+    Scene scene = protekt::game::build_scene(sim, o);
+    // The tank is the tail of the scene; its heading is the question, not its lean (untilt.hpp).
+    protekt::game::untilt::level(std::span(scene.vertices).last(kFacingTankVertices), unit, o.seed);
+    return scene;
 }
 
 } // namespace

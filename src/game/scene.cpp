@@ -2934,12 +2934,13 @@ void append_ship_gauge(std::vector<SceneVertex>& out, const SceneOptions& option
 /// text is 10 px in the 800x600 originals and still ~10 px in a 1280x730 screenshot of the
 /// remaster, so it is a fixed pixel font that ignores the resolution. Top row: the key, and how
 /// many vehicles the group holds beside it; then the kind (cell 2.0, or smaller for a name that
-/// would not fit the plate's inside); then a 3 px bar with ONE SEGMENT PER LIVING VEHICLE, in
-/// the group's spawn order, 1 px apart (BAR-LOOK, HIS RULING 2026-10-24: "They vary in COLOUR, not
-/// length"). The segments divide the slot's inside equally and never shorten with damage; each is
-/// coloured by its own vehicle's hit points on `bar_segments`'s ramp, bright green through yellow
-/// and red to a near-black that still reads against the black plate. A vehicle that dies takes
-/// its segment with it and the rest re-divide the same width. `~` says how many nav marks there
+/// would not fit the plate's inside). Under the plate hangs a COLUMN of 3 px bars, ONE PER LIVING
+/// VEHICLE, top to bottom in the group's spawn order, 1 px apart (BAR-LOOK, HIS RULING 2026-10-24:
+/// "They vary in COLOUR, not length"; the column is his BZ2 screenshot, "always the same size").
+/// Every bar is the slot's inside wide and never shrinks with damage; each is coloured by its own
+/// vehicle's hit points on `bar_segments`'s ramp, bright green through yellow and red to a
+/// near-black that still reads against its dark track. A vehicle that dies takes its bar with it
+/// and the ones below move up. `~` says how many nav marks there
 /// are and has no bar; the building on `2` has one segment and no count. Under the row,
 /// `options.notice` in 10 px yellow capitals.
 ///
@@ -2958,6 +2959,10 @@ constexpr float kStripHpCell = 2.0F;
 constexpr float kStripKindCell = 2.0F;
 constexpr float kStripBarPixels = 3.0F;
 constexpr float kStripSegmentGapPixels = 1.0F;
+/// How many bars the column under a key has room for: Harri's own count, "the up-to-ten health bars
+/// under each active function key" (BZ2). The room is the space under the plate, so a panel that
+/// reaches under it (the notice, the attack list, the menu) cuts the column short instead.
+constexpr std::size_t kStripColumnBars = 10;
 constexpr float kStripNoticeCell = 2.0F;
 /// The corner radius of a HUD panel, at 720p. Panels are rounded like BZ2's rather than square, and
 /// the frame ring clamps the radius to at least its own width so the face inside it can never be
@@ -3322,6 +3327,58 @@ void append_hud_panels(std::vector<SceneVertex>& out, const SceneOptions& option
     // The notice's row, reserved whether or not there is a notice: the attack list is drawn under
     // it, and a panel that moves when a notice appears or expires is a panel that gets misread.
     const float notice_top = top + slot_h + (kStripMarginPixels * px) + pad;
+    const float segment_gap = kStripSegmentGapPixels * px;
+    // THE PANELS DOWN THE LEFT, where each reaches and where each starts: what a vehicle key's
+    // column of bars must not run into. The notice, the attack list and the command menu are all
+    // anchored at the margin, so a key's column is clear of them unless the panel reaches as far
+    // right as the key. Worked out once, here, because the row draws first and the panels after.
+    struct LeftPanel {
+        float right;
+        float top;
+    };
+    std::vector<LeftPanel> left_panels;
+    left_panels.reserve(3);
+    if (!options.notice.empty()) {
+        const float cell = kStripNoticeCell * px;
+        left_panels.push_back(
+            {(kStripMarginPixels * px) + pad + word_width(options.notice, cell) + pad,
+             notice_top - pad});
+    }
+    const float list_cell = kStripNoticeCell * px;
+    const float list_key_left = (kStripMarginPixels * px) + pad;
+    const float list_label_left = list_key_left + (7.0F * list_cell); // a glyph and a blank column
+    float list_label_width = 0.0F;
+    float list_metres_width = 0.0F;
+    if (wants_list) {
+        for (const TargetRow& row : *options.attack_list) {
+            list_label_width
+                = std::max(list_label_width, word_width(kind_label(row.kind), list_cell));
+            list_metres_width
+                = std::max(list_metres_width, word_width(metres_text(row.metres), list_cell));
+        }
+    }
+    const float list_metres_left = list_label_left + list_label_width + (2.0F * list_cell);
+    const float list_top = notice_top + (5.0F * list_cell) + (2.0F * pad);
+    if (wants_list) {
+        left_panels.push_back({list_metres_left + list_metres_width + pad, list_top});
+    }
+    const float menu_cell = kMenuCell * px;
+    MenuLayout menu_placed;
+    if (wants_menu) {
+        menu_placed = menu_layout(*options.menu, kStripMarginPixels * px,
+                                  notice_top + (5.0F * menu_cell) + (2.0F * pad), menu_cell);
+        float menu_right = 0.0F;
+        for (std::size_t i = 0; i < menu_placed.rows.size(); ++i) {
+            const MenuRowLayout& placed = menu_placed.rows.at(i);
+            menu_right = std::max(menu_right,
+                                  options.menu->at(i).right.empty()
+                                      ? placed.verb_right
+                                      : placed.right_left
+                                            + word_width(options.menu->at(i).right, menu_cell));
+        }
+        left_panels.push_back(
+            {menu_right, menu_placed.rows.empty() ? 0.0F : menu_placed.rows.front().top});
+    }
     // THE COMMAND ROW. Every key has its own spot, by index, and a key that holds nothing is
     // skipped without moving the ones after it: its space stays blank for what is built next.
     for (std::size_t index = 0; options.row != nullptr && index < kRowSlots; ++index) {
@@ -3379,31 +3436,38 @@ void append_hud_panels(std::vector<SceneVertex>& out, const SceneOptions& option
         if (is_navs) {
             continue; // marks have no hit points: no bar
         }
-        // The bar: a dark track the width of the slot's inside, then one segment per vehicle,
-        // 1 px apart, dividing that width equally whatever their health -- COLOUR says how hurt a
-        // vehicle is, never length -- with the last taking the whole pixels left over. A group too
-        // big for that gets 1 px segments, left to right, until the bar's right edge.
-        const float bar_top = top + slot_h - pad - (kStripBarPixels * px) + (2.0F * px);
-        const float bar_bottom = bar_top + (kStripBarPixels * px);
-        const float bar_left = left + pad;
-        const float bar_width = slot_w - (2.0F * pad);
-        const float bar_right = bar_left + bar_width;
-        rect(marks_at * kHudFaceRatio * 0.999F, bar_left, bar_top, bar_right, bar_bottom,
-             {0.25F, 0.25F, 0.25F});
+        // THE COLUMN. The bars hang under the key's plate, one per living vehicle, in spawn order
+        // from the top, every one the slot's inside wide and `kStripBarPixels` tall whatever its
+        // vehicle's health -- COLOUR says how hurt a vehicle is, never size (Harri, BZ2: "When the
+        // health of a ship goes down, the size doesn't change -- only the colour changes"). A dark
+        // track behind them is what lets the ramp's near-black read against the world. The room is
+        // `kStripColumnBars` bars, or less where a panel down the left reaches this far right: the
+        // column ends a gap above it. A group with more vehicles than room fills what fits, in
+        // order, and stops; nothing moves to make space and nothing is overlapped.
         const std::vector<BarSegment> segments = bar_segments(fractions);
-        const float segment_gap = kStripSegmentGapPixels * px;
-        const float n = std::max(1.0F, static_cast<float>(segments.size()));
-        const float segment_w
-            = std::max(px, std::floor((bar_width - ((n - 1.0F) * segment_gap)) / n));
-        float segment_left = bar_left;
-        for (std::size_t i = 0; i < segments.size(); ++i) {
-            if (segment_left + segment_w > bar_right + (0.01F * px)) {
-                break; // no room left: an absurd group shows as many as fit, never overlapping
+        const float bar_h = kStripBarPixels * px;
+        const float bar_pitch = bar_h + segment_gap;
+        const float bar_left = left + pad;
+        const float bar_right = left + slot_w - pad;
+        const float column_top = top + slot_h + segment_gap;
+        float room = static_cast<float>(kStripColumnBars) * bar_pitch;
+        for (const LeftPanel& panel : left_panels) {
+            if (panel.right > left) {
+                room = std::min(room, panel.top - column_top);
             }
-            const float segment_right
-                = i + 1 == segments.size() ? bar_right : segment_left + segment_w;
-            rect(marks_at, segment_left, bar_top, segment_right, bar_bottom, segments.at(i).rgb);
-            segment_left = segment_right + segment_gap;
+        }
+        const std::size_t fitting
+            = std::min(segments.size(), static_cast<std::size_t>(std::max(0.0F, room / bar_pitch)));
+        if (fitting == 0) {
+            continue;
+        }
+        const float column_bottom
+            = column_top + (static_cast<float>(fitting) * bar_pitch) - segment_gap;
+        rect(marks_at * kHudFaceRatio * 0.999F, bar_left, column_top, bar_right, column_bottom,
+             {0.25F, 0.25F, 0.25F});
+        for (std::size_t i = 0; i < fitting; ++i) {
+            const float bar_top = column_top + (static_cast<float>(i) * bar_pitch);
+            rect(marks_at, bar_left, bar_top, bar_right, bar_top + bar_h, segments.at(i).rgb);
         }
     }
     if (!options.notice.empty()) {
@@ -3420,28 +3484,20 @@ void append_hud_panels(std::vector<SceneVertex>& out, const SceneOptions& option
     // out of the plate by a number longer than its neighbours.
     if (wants_list) {
         const std::vector<TargetRow>& rows = *options.attack_list;
-        const float cell = kStripNoticeCell * px;
-        const float pitch = 6.0F * cell; // a 5-cell glyph and one blank row between rows
-        const float key_left = kStripMarginPixels * px + pad;
-        const float label_left = key_left + (7.0F * cell); // one glyph (5 cells) and a blank column
-        float label_width = 0.0F;
-        float metres_width = 0.0F;
-        for (const TargetRow& row : rows) {
-            label_width = std::max(label_width, word_width(kind_label(row.kind), cell));
-            metres_width = std::max(metres_width, word_width(metres_text(row.metres), cell));
-        }
-        const float metres_left = label_left + label_width + (2.0F * cell);
-        const float list_top = notice_top + (5.0F * cell) + (2.0F * pad);
+        const float pitch = 6.0F * list_cell; // a 5-cell glyph and one blank row between rows
         const float list_left = kStripMarginPixels * px;
-        plate(list_left, list_top, metres_left + metres_width + pad,
-              list_top + pad + (static_cast<float>(rows.size() - 1) * pitch) + (5.0F * cell) + pad,
+        plate(list_left, list_top, list_metres_left + list_metres_width + pad,
+              list_top + pad + (static_cast<float>(rows.size() - 1) * pitch) + (5.0F * list_cell)
+                  + pad,
               kStripFrame);
         for (std::size_t index = 0; index < rows.size(); ++index) {
             const float row_top = list_top + pad + (static_cast<float>(index) * pitch);
             const char key = static_cast<char>('0' + rows.at(index).key);
-            ink_text(std::string_view{&key, 1}, key_left, row_top, cell, kStripFrame);
-            ink_text(kind_label(rows.at(index).kind), label_left, row_top, cell, kStripFrame);
-            ink_text(metres_text(rows.at(index).metres), metres_left, row_top, cell, kStripFrame);
+            ink_text(std::string_view{&key, 1}, list_key_left, row_top, list_cell, kStripFrame);
+            ink_text(kind_label(rows.at(index).kind), list_label_left, row_top, list_cell,
+                     kStripFrame);
+            ink_text(metres_text(rows.at(index).metres), list_metres_left, row_top, list_cell,
+                     kStripFrame);
         }
     }
     // THE COMMAND MENU, in the order it was handed: never sorted, never renumbered, and the key is
@@ -3449,9 +3505,8 @@ void append_hud_panels(std::vector<SceneVertex>& out, const SceneOptions& option
     // visible gap. `menu_layout` places every bar; this draws them, then the glyphs, then the line.
     if (wants_menu) {
         const std::vector<MenuRow>& rows = *options.menu;
-        const float cell = kMenuCell * px;
-        const float menu_top = notice_top + (5.0F * cell) + (2.0F * pad);
-        const MenuLayout layout = menu_layout(rows, kStripMarginPixels * px, menu_top, cell);
+        const float cell = menu_cell;
+        const MenuLayout& layout = menu_placed;
         const float face_at = marks_at * kHudFaceRatio;
         const float ring_at = marks_at * kHudBorderRatio;
         const float outline_at = marks_at * kMenuOutlineRatio;
@@ -4123,6 +4178,36 @@ float ground_metres(std::uint64_t seed, float tile_x, float tile_y) noexcept {
                          tile_y - fy);
 }
 
+math::Vec3 ground_normal(std::uint64_t seed, sim::Fixed x, sim::Fixed y) noexcept {
+    constexpr float kOne = static_cast<float>(sim::Fixed::kOne);
+    constexpr float kReachTiles = kHullHalfMetres / kMetresPerTile;
+    const float tile_x = static_cast<float>(x.raw) / kOne;
+    const float tile_y = static_cast<float>(y.raw) / kOne;
+    // Centred differences over a hull's own width: the ground the body actually spans, not the
+    // one point it stands on.
+    const float run = 2.0F * kHullHalfMetres;
+    float slope_x = (ground_metres(seed, tile_x + kReachTiles, tile_y)
+                     - ground_metres(seed, tile_x - kReachTiles, tile_y))
+                    / run;
+    float slope_z = (ground_metres(seed, tile_x, tile_y + kReachTiles)
+                     - ground_metres(seed, tile_x, tile_y - kReachTiles))
+                    / run;
+    const float steepness = std::hypot(slope_x, slope_z);
+    if (steepness > kMaxTiltSlope) {
+        slope_x *= kMaxTiltSlope / steepness;
+        slope_z *= kMaxTiltSlope / steepness;
+    }
+    if (slope_x == 0.0F && slope_z == 0.0F) {
+        return Vec3{0.0F, 1.0F, 0.0F}; // level: exactly up, so nothing is rotated at all
+    }
+    return normalise(Vec3{-slope_x, 1.0F, -slope_z});
+}
+
+bool stands_level(sim::UnitKind kind) noexcept {
+    return kind == sim::UnitKind::Factory || kind == sim::UnitKind::Turret
+           || kind == sim::UnitKind::DeployedRecycler;
+}
+
 Suspension suspend(Suspension state, float target_z, std::uint32_t ticks) noexcept {
     for (std::uint32_t tick = 0; tick < ticks; ++tick) {
         state.z_vel += ((target_z - state.z) * kSpringPerTick) - (state.z_vel * kDampPerTick);
@@ -4323,6 +4408,41 @@ std::array<float, 16> view_projection(const Camera& camera, float aspect,
                                  aspect, fov_radians);
 }
 
+namespace {
+
+/// Turns the vertices from `first` on (one vehicle, just built level) so its up is the ground's
+/// normal under it. The turn is about the point on the ground below the unit's centre, `pivot_y`
+/// being that point's height, so the footing stays where the sim put it and the elevation the
+/// builder chose is untouched at the centre; only pitch and roll are added. A level normal rotates
+/// nothing, so a vehicle on flat ground is the same bytes it was before the tilt existed.
+void tilt_to_ground(std::vector<SceneVertex>& out, std::size_t first, const sim::Unit& unit,
+                    float pivot_y, const Vec3& normal) {
+    const float sine = std::hypot(normal[0], normal[2]);
+    if (sine == 0.0F) {
+        return;
+    }
+    // Rodrigues: the axis is up x normal, horizontal, and the angle between them has sine |axis|
+    // and cosine normal.y. Every point turns about the pivot.
+    const Vec3 axis{normal[2] / sine, 0.0F, -normal[0] / sine};
+    const float cosine = normal[1];
+    const Vec3 pivot{
+        static_cast<float>(unit.x.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile,
+        pivot_y,
+        static_cast<float>(unit.y.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile};
+    for (std::size_t i = first; i < out.size(); ++i) {
+        Vec3& p = out.at(i).position;
+        const Vec3 v{p[0] - pivot[0], p[1] - pivot[1], p[2] - pivot[2]};
+        const Vec3 swung = cross(axis, v);
+        const float along = dot(axis, v) * (1.0F - cosine);
+        for (std::size_t c = 0; c < 3; ++c) {
+            p.at(c)
+                = pivot.at(c) + (v.at(c) * cosine) + (swung.at(c) * sine) + (axis.at(c) * along);
+        }
+    }
+}
+
+} // namespace
+
 Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
                   std::span<const sim::UnitId> selected) {
     Scene scene;
@@ -4363,6 +4483,7 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
             } else if (aimed.has_unit() && aimed.unit == unit.id) {
                 mark = unit.side == options.viewer_side ? Mark::AimedOwn : Mark::AimedHostile;
             }
+            const std::size_t body_first = scene.vertices.size();
             const bool hovering = options.hover.has_value() && options.hover->unit == unit.id;
             const float lift_z = hovering ? options.hover->z : 0.0F;
             const bool faced = options.facing.has_value() && options.facing->unit == unit.id;
@@ -4418,6 +4539,11 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
                                      heading, heading + turret);
             } else {
                 build_factory(scene.vertices, options.seed, unit, mark, lift_z, hovering);
+            }
+            if (!stands_level(unit.kind)) {
+                tilt_to_ground(scene.vertices, body_first, unit,
+                               hovering ? lift_z : ground_metres(options.seed, unit.x, unit.y),
+                               ground_normal(options.seed, unit.x, unit.y));
             }
         }
     }

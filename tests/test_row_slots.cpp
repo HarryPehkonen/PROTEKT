@@ -676,9 +676,8 @@ struct Px {
 
 constexpr float kMarginPx = 6.0F;
 constexpr float kGapPx = 6.0F;
-constexpr float kSlotPx = 85.0F; ///< (1280 - 12 + 6) / 14 - 6: the 14 slots just fit the frame
-constexpr float kBarTopPx = 36.0F;
-constexpr float kBarBottomPx = 39.0F;
+constexpr float kSlotPx = 85.0F;      ///< (1280 - 12 + 6) / 14 - 6: the 14 slots just fit the frame
+constexpr float kColumnTopPx = 41.0F; ///< the plate ends at 6 + 34 = 40; the column leads in 1 px
 constexpr float kPadPx = 3.0F;
 
 [[nodiscard]] float slot_left(std::size_t index) {
@@ -816,8 +815,10 @@ TEST(RowDrawing, TheFactoryIsDrawnOnKeyTwoAndTheNavKeyOnlyWithAMark) {
            && p.colour != std::array<float, 3>{0.0F, 0.0F, 0.0F};
 }
 
-/// One drawn segment of a slot's bar, measured off the frame.
+/// One drawn bar of a slot's column, measured off the frame.
 struct BarRun {
+    float top{};
+    float bottom{};
     float left{};
     float right{};
     std::array<float, 3> colour{};
@@ -830,56 +831,58 @@ constexpr float kEdgeTolerance = 0.05F;
 }
 constexpr float kInsideWidth = kSlotPx - (2.0F * kPadPx);
 
-/// The slot's bar segments, left to right. Each is a quad with two distinct x edges, and they
-/// are 1 px apart, so the sorted distinct edges pair off one segment at a time.
+/// The slot's bars, top to bottom. The column hangs under the plate, so it is found below the
+/// plate's bottom edge; each bar is a quad with two distinct y edges, and they are 1 px apart, so
+/// the sorted distinct edges pair off one bar at a time.
 [[nodiscard]] std::vector<BarRun> bar_runs(const std::vector<Px>& pixels, int slot) {
     std::vector<Px> fill;
     std::copy_if(pixels.begin(), pixels.end(), std::back_inserter(fill), [slot](const Px& p) {
-        return slot_at(p.x) == slot && p.y >= kBarTopPx - 0.1F && p.y <= kBarBottomPx + 0.1F
-               && is_fill(p);
+        return slot_at(p.x) == slot && p.y >= kColumnTopPx - 0.1F && is_fill(p);
     });
     std::vector<float> edges;
     for (const Px& p : fill) {
         if (std::none_of(edges.begin(), edges.end(),
-                         [&p](float x) { return std::abs(x - p.x) < kEdgeTolerance; })) {
-            edges.push_back(p.x);
+                         [&p](float y) { return std::abs(y - p.y) < kEdgeTolerance; })) {
+            edges.push_back(p.y);
         }
     }
     std::sort(edges.begin(), edges.end());
     std::vector<BarRun> runs;
     if (edges.size() % 2 != 0) {
-        ADD_FAILURE() << "slot " << slot << ": an odd number of segment edges";
+        ADD_FAILURE() << "slot " << slot << ": an odd number of bar edges";
         return runs;
     }
     for (std::size_t i = 0; i < edges.size(); i += 2) {
-        BarRun run{edges.at(i), edges.at(i + 1), {}};
+        BarRun run{edges.at(i), edges.at(i + 1), 1.0e9F, -1.0e9F, {}};
         bool first = true;
         for (const Px& p : fill) {
-            if (p.x < run.left - kEdgeTolerance || p.x > run.right + kEdgeTolerance) {
+            if (p.y < run.top - kEdgeTolerance || p.y > run.bottom + kEdgeTolerance) {
                 continue;
             }
+            run.left = std::min(run.left, p.x);
+            run.right = std::max(run.right, p.x);
             if (first) {
                 run.colour = p.colour;
                 first = false;
             }
-            EXPECT_EQ(p.colour, run.colour) << "slot " << slot << ": a segment is one colour";
+            EXPECT_EQ(p.colour, run.colour) << "slot " << slot << ": a bar is one colour";
         }
         runs.push_back(run);
     }
     return runs;
 }
 
-/// The runs fill the slot's inside, edge to edge, 1 px apart; every one is the same width but the
-/// last, which takes the whole pixels left over.
-void expect_divides_the_inside(const std::vector<BarRun>& runs, int slot) {
+/// A column: every bar the slot's inside wide and 3 px tall, 1 px apart, the first 1 px under the
+/// plate -- the same size whatever the group holds and however hurt it is.
+void expect_column(const std::vector<BarRun>& runs, int slot) {
     ASSERT_FALSE(runs.empty());
-    const auto n = static_cast<float>(runs.size());
-    const float width = std::floor((kInsideWidth - (n - 1.0F)) / n);
-    EXPECT_NEAR(runs.front().left, inside_left_of(slot), kEdgeTolerance);
-    EXPECT_NEAR(runs.back().right, inside_left_of(slot) + kInsideWidth, kEdgeTolerance);
-    for (std::size_t i = 0; i + 1 < runs.size(); ++i) {
-        EXPECT_NEAR(runs.at(i).right - runs.at(i).left, width, kEdgeTolerance) << "segment " << i;
-        EXPECT_NEAR(runs.at(i + 1).left - runs.at(i).right, 1.0F, kEdgeTolerance) << "gap " << i;
+    for (std::size_t i = 0; i < runs.size(); ++i) {
+        EXPECT_NEAR(runs.at(i).left, inside_left_of(slot), kEdgeTolerance) << "bar " << i;
+        EXPECT_NEAR(runs.at(i).right, inside_left_of(slot) + kInsideWidth, kEdgeTolerance)
+            << "bar " << i;
+        EXPECT_NEAR(runs.at(i).bottom - runs.at(i).top, 3.0F, kEdgeTolerance) << "bar " << i;
+        EXPECT_NEAR(runs.at(i).top, kColumnTopPx + (4.0F * static_cast<float>(i)), kEdgeTolerance)
+            << "bar " << i << " is 4 px below the one before";
     }
 }
 
@@ -887,8 +890,8 @@ TEST(RowDrawing, AVehicleKeyHasAFullBarAtFullHealth) {
     Rig rig = make_rig();
     const std::vector<Px> pixels = row_pixels(rig.sim, rig.options);
     const std::vector<BarRun> runs = bar_runs(pixels, 4);
-    ASSERT_EQ(runs.size(), 1U) << "one vehicle, one segment";
-    expect_divides_the_inside(runs, 4);
+    ASSERT_EQ(runs.size(), 1U) << "one vehicle, one bar";
+    expect_column(runs, 4);
     EXPECT_EQ(runs.front().colour, (std::array<float, 3>{0.15F, 0.95F, 0.25F})) << "bright green";
 }
 
@@ -932,7 +935,7 @@ TEST(RowDrawing, AnEnemysReadoutBarIsRedAtFullHealthWhileMyRowBarIsGreen) {
     EXPECT_NE(fill, friendly);
 }
 
-TEST(RowDrawing, TheBarIsOneSegmentPerVehicleColouredNotShortenedByItsHealth) {
+TEST(RowDrawing, TheColumnIsOneBarPerVehicleColouredNotShrunkByItsHealth) {
     Rig rig
         = make_rig({{UnitKind::Tank, Side::Enemy, 47, 41}, {UnitKind::Tank, Side::Enemy, 47, 42}});
     // F2's tank is the one under fire. Group it with the healthy first tank, F2 left blank.
@@ -947,12 +950,16 @@ TEST(RowDrawing, TheBarIsOneSegmentPerVehicleColouredNotShortenedByItsHealth) {
         << "nothing was hurt, so nothing is proved";
     const std::vector<BarRun> hurt = bar_runs(row_pixels(rig.sim, rig.options), 4);
     ASSERT_EQ(hurt.size(), 2U) << "x2, two segments";
-    expect_divides_the_inside(hurt, 4);
+    expect_column(hurt, 4);
     ASSERT_EQ(healthy.size(), hurt.size());
     for (std::size_t i = 0; i < hurt.size(); ++i) {
-        EXPECT_NEAR(hurt.at(i).left, healthy.at(i).left, kEdgeTolerance) << "length, not colour";
-        EXPECT_NEAR(hurt.at(i).right, healthy.at(i).right, kEdgeTolerance) << "length, not colour";
+        EXPECT_NEAR(hurt.at(i).top, healthy.at(i).top, kEdgeTolerance) << "size, not colour";
+        EXPECT_NEAR(hurt.at(i).bottom, healthy.at(i).bottom, kEdgeTolerance) << "size, not colour";
+        EXPECT_NEAR(hurt.at(i).left, healthy.at(i).left, kEdgeTolerance) << "size, not colour";
+        EXPECT_NEAR(hurt.at(i).right, healthy.at(i).right, kEdgeTolerance) << "size, not colour";
     }
+    EXPECT_EQ(hurt.at(0).colour, healthy.at(0).colour) << "the unhurt bar did not change";
+    EXPECT_NE(hurt.at(1).colour, healthy.at(1).colour) << "exactly the hurt vehicle's bar changed";
     // Each vehicle's own hit points, straight off the sim, in F1's order.
     std::vector<float> fractions;
     for (const UnitId id : rig.row.slots.at(group_slot(1)).units) {
@@ -967,15 +974,27 @@ TEST(RowDrawing, TheBarIsOneSegmentPerVehicleColouredNotShortenedByItsHealth) {
     EXPECT_NE(hurt.at(1).colour, hurt.at(0).colour) << "the hurt one reads differently";
 }
 
-TEST(RowDrawing, ThreeVehiclesDivideTheSameWidthInThree) {
+TEST(RowDrawing, ThreeVehiclesStandInAColumnOfThreeSameSizedBars) {
     Rig rig = make_rig();
     rig.row.slots.at(group_slot(1)).units = {rig.own.at(0), rig.own.at(1), rig.own.at(2)};
     const std::vector<BarRun> runs = bar_runs(row_pixels(rig.sim, rig.options), 4);
     ASSERT_EQ(runs.size(), 3U);
-    expect_divides_the_inside(runs, 4);
+    expect_column(runs, 4);
+    // The column grows DOWN: a third vehicle adds a bar below the two, and moves neither of them
+    // sideways. A row layout would re-divide the width and so fail the x checks.
+    rig.row.slots.at(group_slot(1)).units = {rig.own.at(0), rig.own.at(1)};
+    const std::vector<BarRun> two = bar_runs(row_pixels(rig.sim, rig.options), 4);
+    ASSERT_EQ(two.size(), 2U);
+    for (std::size_t i = 0; i < two.size(); ++i) {
+        EXPECT_NEAR(runs.at(i).top, two.at(i).top, kEdgeTolerance) << "bar " << i;
+        EXPECT_NEAR(runs.at(i).left, two.at(i).left, kEdgeTolerance) << "bar " << i;
+        EXPECT_NEAR(runs.at(i).right, two.at(i).right, kEdgeTolerance) << "bar " << i;
+    }
+    EXPECT_GT(runs.at(2).top, two.at(1).bottom) << "the new bar is under the others";
+    EXPECT_NEAR(runs.at(2).left, runs.at(0).left, kEdgeTolerance) << "in the same column";
 }
 
-TEST(RowDrawing, ADeadVehiclesSegmentIsRemovedAndTheRestFillTheWidth) {
+TEST(RowDrawing, ADeadVehiclesBarIsRemovedAndTheRestMoveUp) {
     Rig rig
         = make_rig({{UnitKind::Tank, Side::Enemy, 47, 41}, {UnitKind::Tank, Side::Enemy, 47, 42}});
     rig.row.slots.at(group_slot(1)).units = {rig.own.at(0), rig.own.at(1)};
@@ -986,16 +1005,16 @@ TEST(RowDrawing, ADeadVehiclesSegmentIsRemovedAndTheRestFillTheWidth) {
     ASSERT_EQ(rig.row.slots.at(group_slot(1)).units.size(), 2U);
     const std::vector<BarRun> runs = bar_runs(row_pixels(rig.sim, rig.options), 4);
     ASSERT_EQ(runs.size(), 1U) << "removed, not drawn black";
-    expect_divides_the_inside(runs, 4);
+    expect_column(runs, 4);
 }
 
-TEST(RowDrawing, AnAbsurdGroupDrawsOnePixelSegmentsAndStopsAtTheEdge) {
-    // More tanks than the bar has room for at 1 px each with 1 px gaps (79 px holds 40).
-    constexpr int kCrowd = 45;
+TEST(RowDrawing, AnAbsurdGroupFillsTheColumnsRoomAndStops) {
+    // More tanks than the column has room for (ten).
+    constexpr int kCrowd = 14;
     std::vector<Spawn> crowd;
     crowd.reserve(kCrowd);
     for (int i = 0; i < kCrowd; ++i) {
-        crowd.push_back({UnitKind::Tank, Side::Player, 10 + (i % 9), 10 + (i / 9)});
+        crowd.push_back({UnitKind::Tank, Side::Player, 10 + (i % 7), 10 + (i / 7)});
     }
     Rig rig = make_rig(crowd);
     std::vector<UnitId> tanks;
@@ -1004,17 +1023,62 @@ TEST(RowDrawing, AnAbsurdGroupDrawsOnePixelSegmentsAndStopsAtTheEdge) {
             tanks.push_back(id);
         }
     }
-    ASSERT_GT(tanks.size(), 40U);
+    ASSERT_GT(tanks.size(), 10U);
     rig.row.slots.at(group_slot(1)).units = tanks;
     const std::vector<BarRun> runs = bar_runs(row_pixels(rig.sim, rig.options), 4);
-    ASSERT_EQ(runs.size(), 40U) << "as many as fit, left to right";
-    for (std::size_t i = 0; i < runs.size(); ++i) {
-        EXPECT_NEAR(runs.at(i).left, inside_left_of(4) + (2.0F * static_cast<float>(i)),
-                    kEdgeTolerance)
-            << "segment " << i;
-        EXPECT_NEAR(runs.at(i).right - runs.at(i).left, 1.0F, kEdgeTolerance) << "segment " << i;
+    ASSERT_EQ(runs.size(), 10U) << "as many as fit, top to bottom";
+    expect_column(runs, 4);
+}
+
+/// The top edge of the notice's yellow plate in `options`, in pixels. The row's own pixels exclude
+/// the notice (it is in the frame without the row too), so it is read off the whole frame -- and
+/// something yellow MUST be found, or a comparison against it proves nothing.
+[[nodiscard]] float notice_top_px(const sim::Sim& sim, const SceneOptions& options) {
+    constexpr std::array<float, 3> kNoticeYellow{1.0F, 0.85F, 0.10F};
+    const Scene scene = build_scene(sim, options);
+    float top = 1.0e9F;
+    std::size_t yellow = 0;
+    for (const SceneVertex& v : scene.vertices) {
+        if (v.colour == kNoticeYellow) {
+            const Projected p = project(options.camera, options.extent, v.position[0],
+                                        v.position[1], v.position[2]);
+            top = std::min(top, p.y);
+            ++yellow;
+        }
     }
-    EXPECT_LE(runs.back().right, inside_left_of(4) + kInsideWidth + kEdgeTolerance);
+    EXPECT_GT(yellow, 0U) << "no notice was drawn, so nothing is proved";
+    return top;
+}
+
+TEST(RowDrawing, ANoticeThatReachesUnderAKeyCutsItsColumnShortRatherThanBeingOverlapped) {
+    Rig rig = make_rig();
+    rig.row.slots.at(group_slot(1)).units = {rig.own.at(0), rig.own.at(1), rig.own.at(2)};
+    const std::vector<BarRun> clear = bar_runs(row_pixels(rig.sim, rig.options), 4);
+    ASSERT_EQ(clear.size(), 3U) << "three vehicles, three bars, with no notice in the way";
+    // 40 capitals is wider than the 370 px that lie to the left of F1's plate, so it runs under it.
+    rig.options.notice = "THIS NOTICE IS LONG ENOUGH TO REACH F1.";
+    const float notice_top = notice_top_px(rig.sim, rig.options);
+    // The notice is in the row's pixels too (nothing else draws it without a row). Its yellow is
+    // the ramp's own 0.66 anchor, but these three tanks are all unhurt, so no bar is yellow here
+    // and the notice can be told from the bars by colour alone.
+    constexpr std::array<float, 3> kNoticeYellow{1.0F, 0.85F, 0.10F};
+    std::vector<Px> above_notice;
+    for (const Px& p : row_pixels(rig.sim, rig.options)) {
+        if (p.colour != kNoticeYellow) {
+            above_notice.push_back(p);
+        }
+    }
+    const std::vector<BarRun> cut = bar_runs(above_notice, 4);
+    ASSERT_FALSE(cut.empty()) << "the column is cut short, not removed";
+    EXPECT_LT(cut.size(), clear.size());
+    EXPECT_LT(cut.back().bottom, notice_top) << "the column ends above the notice's plate";
+    // Nothing of the column was lost to the cut above: the same bars are there with the notice
+    // plate's top as the floor, and an uncut column would have run on past it.
+    EXPECT_GT(clear.back().bottom, notice_top) << "the uncut column WOULD have reached the notice";
+    // The bars that remain are the first ones, in the same places.
+    for (std::size_t i = 0; i < cut.size(); ++i) {
+        EXPECT_NEAR(cut.at(i).top, clear.at(i).top, kEdgeTolerance) << "bar " << i;
+    }
 }
 
 TEST(RowDrawing, TheNavKeyHasNoBarAndTheFactoryDoes) {
@@ -1024,7 +1088,7 @@ TEST(RowDrawing, TheNavKeyHasNoBarAndTheFactoryDoes) {
     EXPECT_TRUE(bar_runs(pixels, 0).empty()) << "marks have no hit points";
     const std::vector<BarRun> factory = bar_runs(pixels, 2);
     ASSERT_EQ(factory.size(), 1U) << "a building is one segment";
-    expect_divides_the_inside(factory, 2);
+    expect_column(factory, 2);
     EXPECT_EQ(factory.front().colour, (std::array<float, 3>{0.15F, 0.95F, 0.25F}));
 }
 

@@ -314,7 +314,7 @@ if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
                                         tests/test_weapon_lineup.cpp
                                         tests/test_session.cpp tests/test_navigate.cpp
                                         tests/test_utility.cpp tests/test_time_accumulator.cpp
-                                        tests/test_audio_pipeline.cpp tests/test_wake_log.cpp tests/test_m5.cpp tests/test_nav_marks.cpp tests/test_send_to_mark.cpp tests/test_row_slots.cpp tests/test_row_move.cpp tests/test_row_start.cpp tests/test_targets.cpp tests/test_world_map.cpp tests/test_player_view.cpp tests/test_game_presenter.cpp
+                                        tests/test_audio_pipeline.cpp tests/test_wake_log.cpp tests/test_m5.cpp tests/test_nav_marks.cpp tests/test_send_to_mark.cpp tests/test_row_slots.cpp tests/test_vehicle_tilt.cpp tests/test_row_move.cpp tests/test_row_start.cpp tests/test_targets.cpp tests/test_world_map.cpp tests/test_player_view.cpp tests/test_game_presenter.cpp
                                         tests/test_menu.cpp tests/test_utility_battle.cpp tests/test_building_keys.cpp tests/test_attack_offer.cpp
                                         tests/test_layering.cpp
                                         tests/test_navigation.cpp tests/test_routing.cpp

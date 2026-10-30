@@ -948,6 +948,13 @@ All of those keys are always in the same spot on the screen!"* [SHIPPED a15a059]
   exposes only the two sums today. The band cut-points are UNRULED — the default on record is green above
   two-thirds, yellow above one-third, red above zero, black at the lowest living band — and the bar order
   under a key is the group's own spawn order, left to right. That is BAR-LOOK.
+- [SHIPPED — commit recorded in the log] BAR-LOOK, DRAWN AS A COLUMN (2026-10-30). The bars under a key hang
+  UNDER its plate as a vertical stack, one per living vehicle, in spawn order from the top, every bar the same
+  size and only its colour moving (Harri's BZ2 screenshot: "always the same size ... only the colour changes").
+  Room is ten bars (`kStripColumnBars`), less where a panel down the left (notice, attack list, menu) reaches
+  under the key; the column then fills what fits and stops. OPEN FOR HARRI: whether "vertical" meant a stack
+  of bars or a row of upright ticks side by side. Vehicles also LEAN to the ground under them, clamped at
+  `kMaxTiltSlope` (provisional, his to set); structures stay upright.
 - [DECIDED — not built] SHIFT-MOVE BETWEEN KEYS (ROW-MOVE). HIS RULING, 2026-10-24: with a selection in hand,
   shift and a function key MOVES the selected vehicles into that key — the target keeps its units and gains
   them, the source key goes blank if it is emptied, and nothing else in the row moves. A target already

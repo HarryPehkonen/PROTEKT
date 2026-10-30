@@ -20,6 +20,7 @@
 #include "protekt/math/math.hpp"
 #include "protekt/sim/observer.hpp"
 #include "protekt/sim/sim.hpp"
+#include "protekt/sim/units.hpp"
 #include "protekt/world/world.hpp"
 
 /// The world as the player sees it: terrain under the camera, and a box per unit.
@@ -265,6 +266,10 @@ struct Camera {
 [[nodiscard]] float ground_metres(std::uint64_t seed, sim::Fixed x, sim::Fixed y) noexcept;
 [[nodiscard]] float ground_metres(std::uint64_t seed, float tile_x, float tile_y) noexcept;
 
+/// Structures stand level on whatever slope they sit on; only things that DRIVE follow the ground.
+/// The turret and the deployed recycler are structures, as the factory is.
+[[nodiscard]] bool stands_level(sim::UnitKind kind) noexcept;
+
 /// THE HOVER. A hover tank does not weld itself to the ground: its ride height follows the terrain
 /// through a spring and damper, so a rise under it makes the hull lag, overshoot once, and settle.
 /// Presentation only -- no UNIT has a z and none gains one (a bolt does now, since pitch bends it;
@@ -273,6 +278,21 @@ struct Camera {
 ///
 /// A stationary tank floats this far above the ground, in metres.
 inline constexpr float kRideHeightMetres = 0.25F;
+
+/// THE STEEPEST A VEHICLE'S BODY IS DRAWN TILTED, as a slope (rise over run). PROVISIONAL, and
+/// Harri's to set. It is derived, not picked: the hull stands `kRideHeightMetres` clear of the
+/// ground and is `kHullHalfMetres` from its centre to its side, so a slope steeper than the one
+/// that lifts a side by the whole ride height over that half-width (0.25 / 0.6, about 22.6
+/// degrees) is a hull leaning past the clearance it was drawn with. Beyond it the body stops
+/// following the ground, so a tank on a cliff edge leans, never rolls over.
+inline constexpr float kMaxTiltSlope = kRideHeightMetres / kHullHalfMetres;
+
+/// The unit-length normal of the ground under a vehicle at (x, y), for tilting its body. Four
+/// samples, one a hull half-width out on each side of the point (east, west, north, south), give
+/// the slope along each axis; the gradient is clamped to `kMaxTiltSlope` and the normal is
+/// (-d/dx, 1, -d/dz) normalised. Exactly (0, 1, 0) on level ground. Pure in `(seed, x, y)`.
+[[nodiscard]] math::Vec3 ground_normal(std::uint64_t seed, sim::Fixed x, sim::Fixed y) noexcept;
+
 /// BOOST. While the boost key is held the spring's target is this much higher, so the hull rises,
 /// overshoots once and settles at kRideHeightMetres + this; released, it settles back. 0.9 m is
 /// half the 1.8 m hull: the daylight under it grows from 0.25 m to 1.15 m, plainly more than a bump
