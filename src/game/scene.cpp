@@ -1930,7 +1930,7 @@ void append_radar(std::vector<SceneVertex>& out, const SceneOptions& options, co
         const float viewer_z = static_cast<float>(viewer->y.raw) / kOne;
         for (const RadarSegment& segment :
              radar_mesh(options.seed, viewer_x, viewer_z, options.camera.yaw, panel, reach,
-                        options.radar_mesh_step_tiles)) {
+                        options.radar_mesh_step_tiles, options.terrain)) {
             const float ax = panel.x + segment.a.px;
             const float ay = panel.y + segment.a.py;
             const float bx = panel.x + segment.b.px;

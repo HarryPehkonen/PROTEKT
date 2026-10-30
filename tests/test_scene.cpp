@@ -5494,6 +5494,51 @@ TEST(TerrainCache, ChangesNothingAboutAFrame) {
         << "a cache for another seed must be ignored, not believed";
 }
 
+/// The radar wireframe reads its corner heights through the same memo, and must come out the same
+/// segments to the byte -- with the cache, without it, and with a cache built for another seed.
+/// Rig reused: this section's `TerrainCache` shape (a cache per camera, one near the west edge
+/// where the grid walks off the map, a stale-seed cache) and `options_at`'s frame for the panel.
+TEST(TerrainCache, ChangesNothingAboutTheRadarMesh) {
+    const protekt::game::RadarPanel panel
+        = protekt::game::radar_panel(options_at(100.0F, 104.0F).extent);
+    const auto same_segments = [](const std::vector<protekt::game::RadarSegment>& a,
+                                  const std::vector<protekt::game::RadarSegment>& b) {
+        return a.size() == b.size()
+               && (a.empty()
+                   || std::memcmp(a.data(), b.data(),
+                                  a.size() * sizeof(protekt::game::RadarSegment))
+                          == 0);
+    };
+    for (const float viewer_x : {100.0F, 6.0F}) {
+        for (const int step : {protekt::game::kRadarMeshStepTiles, 1}) {
+            protekt::game::TerrainCache cache{42};
+            const auto plain = protekt::game::radar_mesh(
+                42, viewer_x, 104.0F, 0.3F, panel, protekt::game::kRadarRadiusTiles, step, nullptr);
+            const auto cached = protekt::game::radar_mesh(
+                42, viewer_x, 104.0F, 0.3F, panel, protekt::game::kRadarRadiusTiles, step, &cache);
+            ASSERT_FALSE(plain.empty());
+            EXPECT_TRUE(same_segments(plain, cached))
+                << "the memo must not change a byte at x=" << viewer_x << " step " << step;
+            EXPECT_GT(cache.tiles_derived(), std::size_t{0})
+                << "the mesh should have read the memo at x=" << viewer_x << " step " << step;
+            // A second ask is answered from the memo alone, and is still the same mesh.
+            const std::size_t derived = cache.tiles_derived();
+            EXPECT_TRUE(same_segments(
+                plain, protekt::game::radar_mesh(42, viewer_x, 104.0F, 0.3F, panel,
+                                                 protekt::game::kRadarRadiusTiles, step, &cache)));
+            EXPECT_EQ(cache.tiles_derived(), derived);
+        }
+    }
+    // A cache built for ANOTHER seed is ignored rather than trusted, and never even touched.
+    protekt::game::TerrainCache other{7};
+    EXPECT_TRUE(same_segments(
+        protekt::game::radar_mesh(42, 100.0F, 104.0F, 0.3F, panel),
+        protekt::game::radar_mesh(42, 100.0F, 104.0F, 0.3F, panel, protekt::game::kRadarRadiusTiles,
+                                  protekt::game::kRadarMeshStepTiles, &other)))
+        << "a cache for another seed must be ignored, not believed";
+    EXPECT_EQ(other.tiles_derived(), std::size_t{0});
+}
+
 // ---- the instrument's placement, measured rather than eyeballed ---------------------------------
 //
 // The plan's own acceptance for this slice: the instrument stays inside the frame and clear of the

@@ -49,11 +49,12 @@ int main() {
     std::cout << std::format("radar panel: {:.0f} x {:.0f} px at 1280x720\n", panel.width,
                              panel.height);
 
+    const game::TerrainCache mesh_cache{42};
     for (const int step : {4, 3, 2, 1}) {
         std::vector<game::RadarSegment> segments;
         const double mesh_ms = ms_each(200, [&] {
-            segments
-                = game::radar_mesh(42, 100.0F, 100.0F, 0.3F, panel, game::kRadarRadiusTiles, step);
+            segments = game::radar_mesh(42, 100.0F, 100.0F, 0.3F, panel, game::kRadarRadiusTiles,
+                                        step, &mesh_cache);
         });
         std::cout << std::format("  mesh alone, step {}: {:4} segments  {:7.3f} ms  "
                                  "({:5.1f} us a segment, {:5} vertices as thin quads)\n",

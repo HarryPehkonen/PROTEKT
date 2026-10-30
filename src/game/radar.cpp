@@ -24,6 +24,17 @@ constexpr float kNavRimFraction = 0.02F;
     return static_cast<float>(value.raw) / static_cast<float>(sim::Fixed::kOne);
 }
 
+/// A tile corner's height in metres, from the cache when there is one for this seed. The same
+/// memo-or-world choice the terrain mesh makes (`cached_height_metres` in scene.cpp), and the same
+/// answer either way: the cache's height units times `kMetresPerHeightUnit` IS `height_metres`.
+[[nodiscard]] float corner_height_metres(const TerrainCache* terrain, std::uint64_t seed,
+                                         int tile_x, int tile_y) noexcept {
+    if (terrain != nullptr && terrain->seed() == seed) {
+        return static_cast<float>(terrain->height_units(tile_x, tile_y)) * kMetresPerHeightUnit;
+    }
+    return height_metres(seed, tile_x, tile_y);
+}
+
 } // namespace
 
 int viewer_radar_radius(const sim::Sim& sim, sim::UnitId viewer) noexcept {
@@ -99,7 +110,7 @@ namespace {
 
 std::vector<RadarSegment> radar_mesh(std::uint64_t seed, float viewer_x, float viewer_z,
                                      float yaw_radians, const RadarPanel& panel, int radius_tiles,
-                                     int step_tiles) {
+                                     int step_tiles, const TerrainCache* terrain) {
     std::vector<RadarSegment> segments;
     if (radius_tiles <= 0 || step_tiles <= 0 || panel.width <= 0.0F || panel.height <= 0.0F) {
         return segments;
@@ -135,7 +146,7 @@ std::vector<RadarSegment> radar_mesh(std::uint64_t seed, float viewer_x, float v
                 = (static_cast<std::size_t>(row) * static_cast<std::size_t>(corners))
                   + static_cast<std::size_t>(column);
             points.at(index) = radar_project(panel, right, forward, radius_tiles,
-                                             height_metres(seed, tile_x, tile_z));
+                                             corner_height_metres(terrain, seed, tile_x, tile_z));
             sampled.at(index) = 1;
         }
     }

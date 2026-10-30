@@ -7,6 +7,7 @@
 
 #include "protekt/game/nav_marks.hpp"
 #include "protekt/game/scene_data.hpp"
+#include "protekt/game/terrain_cache.hpp"
 #include "protekt/sim/sim.hpp"
 
 /// The radar: what is near the tank you are sitting in, and nothing else.
@@ -176,11 +177,14 @@ inline constexpr float kRadarMeshLinePixels = 1.0F;
 /// unit-disc space, and a segment that misses the oval entirely is dropped rather than drawn across
 /// the panel's corners. `step_tiles` is the frame-cost dial: 1 is a 81x81 grid, four times the
 /// work.
-[[nodiscard]] std::vector<RadarSegment> radar_mesh(std::uint64_t seed, float viewer_x,
-                                                   float viewer_z, float yaw_radians,
-                                                   const RadarPanel& panel,
-                                                   int radius_tiles = kRadarRadiusTiles,
-                                                   int step_tiles = kRadarMeshStepTiles);
+///
+/// `terrain` is the optional memo (game/terrain_cache.hpp), read for heights when it is there AND
+/// was built for this `seed`; otherwise the world is asked. The segments are byte-identical either
+/// way (TerrainCache.ChangesNothingAboutTheRadarMesh), only the work differs.
+[[nodiscard]] std::vector<RadarSegment>
+radar_mesh(std::uint64_t seed, float viewer_x, float viewer_z, float yaw_radians,
+           const RadarPanel& panel, int radius_tiles = kRadarRadiusTiles,
+           int step_tiles = kRadarMeshStepTiles, const TerrainCache* terrain = nullptr);
 
 /// One navigational mark on the radar, in panel pixels like `RadarMark`: the centre of its plus,
 /// `half` the plus's half-size (`radar_nav_half`). No number is drawn: the slot is for the caller.
