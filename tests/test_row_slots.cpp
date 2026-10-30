@@ -500,6 +500,8 @@ TEST(RowSlots, TheLabelsAreTheShortNames) {
     EXPECT_EQ(kind_label(UnitKind::Turret), "TURRET");
     EXPECT_EQ(kind_label(UnitKind::Factory), "FACTORY");
     EXPECT_EQ(kind_label(UnitKind::Recycler), "RECYCLER");
+    EXPECT_EQ(kind_label(UnitKind::Scout), "SCOUT");
+    EXPECT_EQ(kind_label(UnitKind::MslScout), "MSL SCOUT");
 }
 
 // ------------------------------------------------------------------ the bar's look (BAR-LOOK)

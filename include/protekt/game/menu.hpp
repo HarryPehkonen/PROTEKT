@@ -8,6 +8,7 @@
 #include <utility>
 #include <vector>
 
+#include "protekt/game/faction.hpp"
 #include "protekt/sim/sim.hpp"
 #include "protekt/sim/units.hpp"
 
@@ -98,9 +99,11 @@ enum class MenuTarget : std::uint8_t {
 /// what the cursor is over).
 struct MenuInput {
     MenuSubject subject{MenuSubject::None};
-    /// Whose selection it is. It picks the build list's item names: the same kind is a Harvester on
-    /// one side and a Scavenger on the other, so a single table of strings cannot serve both.
-    sim::Side side{sim::Side::Player};
+    /// Which FACTION's selection it is. It picks the build list's item names and costs: the same
+    /// kind is a Harvester to the aliens and a Scavenger to the humans, so a single table of
+    /// strings cannot serve both. Never the side: a story mission may have the player play the
+    /// aliens.
+    Faction faction{Faction::Human};
     ArmedCommand armed{};
     MenuTarget target{MenuTarget::None};
     /// Scrap banked, in the loads C3 counts and a queue spends. Weighed against each build row's
@@ -167,20 +170,21 @@ struct BuildItem {
     std::string_view key{};   ///< the key pressed to choose it, "1".."7"
     std::string_view label{}; ///< the item's name as drawn
     int cost{};               ///< scrap it spends when it is built
-    /// The unit kind the row builds, or none for an item no `UnitKind` is yet (the Hauler, Builder,
-    /// Healer and Service Pod): such a row is drawn and its key does nothing. A row that names a
+    /// The unit kind the row builds, or none for an item the sim cannot build yet (the Turret and
+    /// Guardian, which need a structure-placement feature, and the Hauler/Tug, Builder/Constructor,
+    /// Healer/Service Truck and Service Pod, which no `UnitKind` is): such a row is drawn and its
+    /// key does nothing. A row that names a
     /// kind takes its `cost` FROM the sim's spec table, so the price drawn and the price charged
     /// are one number.
     std::optional<sim::UnitKind> kind{};
 };
 
-/// A producer's build list, in key order: what a `side`'s selected `subject` builds. A DEPLOYMENT
-/// (the recycler) builds the seven rows the reference capture shows, with its costs; a FACTORY
-/// builds its own, shorter list; every other subject builds nothing, so its list is empty. The
-/// enemy's lists are EMPTY until RB5 and the R3 roster fill them, because a per-side item name and
-/// a per-kind cost are that slice's and inventing a list here would put names in the mouth of a
-/// capture that never showed them. A producer on the enemy side therefore draws no build rows.
-[[nodiscard]] std::span<const BuildItem> build_items(sim::Side side, MenuSubject subject) noexcept;
+/// A producer's build list, in key order: what a `faction`'s selected `subject` builds. A
+/// DEPLOYMENT (the recycler) builds its faction's seven rows -- the HUMAN list and the ALIEN list,
+/// which name and price the same roles differently; a FACTORY builds its own eight; every other
+/// subject builds nothing, so its list is empty. The faction, never the side, picks the list: an
+/// alien producer draws the alien rows whoever is playing it.
+[[nodiscard]] std::span<const BuildItem> build_items(Faction faction, MenuSubject subject) noexcept;
 
 /// The verbs of the rows that ACT today (RB-DIGITS), written once so the table that draws them
 /// (`menu.cpp`) and the layer that routes their digit (`Interaction`) cannot drift apart: a row is

@@ -79,41 +79,54 @@ constexpr std::array kDeploymentRows{
     return BuildItem{key, label, sim::spec_of(kind).cost, kind};
 }
 
-/// The recycler's tank row, `3 Tank`. "Guardian" is the ALIEN faction's turret, not a name for a
-/// tank, and is deliberately not written: the sim has no faction. The factory's list holds a row of
-/// its own for the tank (see `kPlayerFactoryBuildList`): Harri's two menus name and price their
-/// rows separately (his factory's row 2 is `MSL Scout`, his recycler's is `Scout`), so the lists
-/// never share a row.
-constexpr BuildItem kTankRow = kinded("3", "Tank", sim::UnitKind::Tank);
-
-/// The player's build list, in key order, with the costs the reference capture draws on the rows.
-/// The three rows that name a kind the sim has (the Scavenger, the Scout, the Tank)
-/// take their cost from the spec table; the rest keep the reference's literal cost and name no
-/// kind, because no `UnitKind` is a Hauler, a Builder, a Healer or a Service Pod yet. The R3 roster
-/// owns the item names; this table is the reference's reading of them.
-constexpr std::array kPlayerBuildList{
-    // "Harvester" is the ALIEN faction's name for the Scavenger; the sim has no faction to key it
-    // on,
-    // so it is deliberately not written yet.
+/// The HUMAN recycler's build list, in key order: Harri's own list, verbatim. The two rows that
+/// name a kind the sim has (the Scavenger and the Scout) take their cost from the spec table, so
+/// the number drawn is the number the queue charges; the rest keep his literal cost and name no
+/// kind. The Scavenger is the SAME `UnitKind` the alien list calls a Harvester (Harri's ruling: the
+/// faction names the machine, the sim keeps one kind).
+constexpr std::array kHumanBuildList{
     kinded("1", "Scavenger", sim::UnitKind::Scavenger),
     kinded("2", "Scout", sim::UnitKind::Scout),
-    kTankRow,
+    // A NAME row for now, not a buildable one: a turret is a structure, and making it buildable
+    // needs a structure-placement feature that does not exist yet. A row that named a kind would
+    // queue something the sim cannot place, so it names none and its key does nothing.
+    BuildItem{"3", "Turret", 40, std::nullopt},
+    BuildItem{"4", "Tug", 45, std::nullopt},
+    BuildItem{"5", "Constructor", 40, std::nullopt},
+    BuildItem{"6", "Service Truck", 50, std::nullopt},
+    BuildItem{"7", "Service Pod", 2, std::nullopt},
+};
+
+/// The ALIEN recycler's build list, in key order: the names and costs the reference capture showed
+/// (it was the code's only list until factions existed, and was mislabelled as the player's). Its
+/// row 1 is the SAME `UnitKind` the human list calls a Scavenger.
+constexpr std::array kAlienBuildList{
+    kinded("1", "Harvester", sim::UnitKind::Scavenger),
+    // The alien Scout is documented at 45 against the human 50, but the sim charges one price per
+    // kind and a row must show what the queue charges, so this row reads the kind's own price.
+    // OWED by Harri: whether the alien scout is a kind of its own.
+    kinded("2", "Scout", sim::UnitKind::Scout),
+    // A NAME row, like the human Turret: the structure-placement feature it needs does not exist.
+    BuildItem{"3", "Guardian", 40, std::nullopt},
     BuildItem{"4", "Hauler", 30, std::nullopt},
     BuildItem{"5", "Builder", 40, std::nullopt},
     BuildItem{"6", "Healer", 50, std::nullopt},
     BuildItem{"7", "Service Pod", 2, std::nullopt},
 };
 
-/// The player's FACTORY's build list: Harri's own factory menu, eight rows in key order (he said
-/// "just propose something ... you build, I play, then we correct", 2026-10-30). The labels and the
-/// costs are his menu screenshot's; the cost is read from the spec table, so the number drawn is
-/// the number the queue charges. These are the factory's OWN rows, not the recycler's
-/// (`kPlayerBuildList` keeps its seven): his `MSL Scout` is the recycler's `Scout`, and the two
-/// lists must stay free to differ. The four kinds past the tank's are new this slice
-/// (`AssaultTank`..`Bomber`).
-constexpr std::array kPlayerFactoryBuildList{
+/// The FACTORY's build list: Harri's own factory menu, eight rows in key order (he said "just
+/// propose something ... you build, I play, then we correct", 2026-10-30). The labels and the costs
+/// are his menu screenshot's; the cost is read from the spec table, so the number drawn is the
+/// number the queue charges. His `MSL Scout` is the missile scout, a kind of its own, and NOT the
+/// recycler's `Scout`.
+///
+/// It belongs to the HUMAN faction. The ALIEN factory draws this same list for now: the alien
+/// factory's cost list and the alien NAMES for these eight vehicles are both OWED by Harri (the
+/// only alien names known are for the recycler's roles and the guardian), so the costs and the
+/// names here are PROVISIONAL for the aliens until he supplies them.
+constexpr std::array kFactoryBuildList{
     kinded("1", "Mortar Bike", sim::UnitKind::MortarBike),
-    kinded("2", "MSL Scout", sim::UnitKind::Scout),
+    kinded("2", "MSL Scout", sim::UnitKind::MslScout),
     kinded("3", "Tank", sim::UnitKind::Tank),
     kinded("4", "Rocket Tank", sim::UnitKind::RocketTank),
     kinded("5", "Assault Tank", sim::UnitKind::AssaultTank),
@@ -165,7 +178,7 @@ void append_fixed(std::vector<MenuRow>& rows, std::span<const FixedRow> fixed) {
 /// The build list, with each row weighed against what is banked. An unaffordable row is dimmed for
 /// `MenuDim::Unaffordable` -- not `DoesNotApply`: the item is buildable, it is simply not paid for.
 void append_build_list(std::vector<MenuRow>& rows, const MenuInput& in) {
-    for (const BuildItem& item : build_items(in.side, in.subject)) {
+    for (const BuildItem& item : build_items(in.faction, in.subject)) {
         const bool affordable = in.ore >= item.cost;
         rows.push_back(MenuRow{item.key, named_cost(item.label, item.cost), affordable,
                                affordable ? MenuDim::None : MenuDim::Unaffordable});
@@ -176,15 +189,13 @@ void append_build_list(std::vector<MenuRow>& rows, const MenuInput& in) {
 
 std::string metres_text(int metres) { return std::to_string(metres) + "m"; }
 
-std::span<const BuildItem> build_items(sim::Side side, MenuSubject subject) noexcept {
-    if (side != sim::Side::Player) {
-        return {};
-    }
+std::span<const BuildItem> build_items(Faction faction, MenuSubject subject) noexcept {
     switch (subject) {
     case MenuSubject::Deployment:
-        return kPlayerBuildList;
+        return faction == Faction::Human ? std::span<const BuildItem>{kHumanBuildList}
+                                         : std::span<const BuildItem>{kAlienBuildList};
     case MenuSubject::Factory:
-        return kPlayerFactoryBuildList;
+        return kFactoryBuildList; // both factions, until the alien factory's own list is supplied
     case MenuSubject::None:
     case MenuSubject::Recycler:
     case MenuSubject::Harvester:
@@ -216,6 +227,7 @@ MenuSubject menu_subject_of_kind(sim::UnitKind kind) noexcept {
     case sim::UnitKind::Walker:
     case sim::UnitKind::Apc:
     case sim::UnitKind::Bomber:
+    case sim::UnitKind::MslScout:
         return MenuSubject::Vehicle;
     }
     return MenuSubject::None;

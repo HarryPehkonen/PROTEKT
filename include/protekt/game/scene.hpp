@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "protekt/game/atlas.hpp"
+#include "protekt/game/faction.hpp"
 #include "protekt/game/menu.hpp"
 #include "protekt/game/scene_data.hpp"
 #include "protekt/game/targets.hpp"
@@ -724,6 +725,12 @@ struct SceneOptions {
     /// Whose eyes this is, which is what colours the reticle: a unit that is not yours turns it
     /// red, because that is the one click that fires.
     sim::Side viewer_side{sim::Side::Player};
+    /// Which faction each side plays, from the scenario. Harri's ruling: a Scavenger and a
+    /// Harvester are the SAME machine, differing by FACTION -- humans vs aliens -- never by
+    /// player/enemy side. The default, the player human and the enemy alien, is just a default: a
+    /// story mission swaps it, so nothing may read `Side::Player` as "human". The sim never sees
+    /// this.
+    Factions factions{};
     /// The tank the radar is centred on. ABSENT means no radar, which is what a frame with no
     /// player unit in it gets: a radar with no centre would be a lie about where the tank is.
     sim::UnitId viewer_unit{};

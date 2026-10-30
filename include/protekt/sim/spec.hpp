@@ -218,7 +218,7 @@ inline constexpr std::array<UnitSpec, static_cast<std::size_t>(kUnitKindCount)> 
     // menu (RB3) is what fills that flag, and its display-only `SCOUT` row does not.
     {"scout", kTankHp / 2, Fixed::from_raw(kTankSpeedRaw * 3 / 2), Fixed::from_raw(kScoutRangeRaw),
      (kTankDamage + 1) / 2, kTankCooldownTicks / 3, Fixed::from_raw(kProjectileSpeedRaw),
-     Fixed::from_raw(kBoltArcRaw), kBoltTravel, Fixed::zero(), Fixed::zero(), false, 45, 900, 0,
+     Fixed::from_raw(kBoltArcRaw), kBoltTravel, Fixed::zero(), Fixed::zero(), false, 50, 900, 0,
      Fixed::zero()},
     // The four kinds Harri's factory menu adds (2026-10-30). EVERY number below is PROVISIONAL,
     // derived from the tank's (hp 100, damage 8, cooldown 15, speed 0.2 tiles/tick, range 12) so
@@ -251,6 +251,14 @@ inline constexpr std::array<UnitSpec, static_cast<std::size_t>(kUnitKindCount)> 
      Fixed::from_raw(kProjectileSpeedRaw / 2), Fixed::from_raw(kMortarArcRaw), kBoltTravel,
      Fixed::from_raw(kMortarSplashRaw), Fixed::from_raw(kMortarGravityRaw), false, 75, 1500, 0,
      Fixed::zero()},
+    // The missile scout: the scout's own hull and speed carrying the rocket tank's rocket (its
+    // range, damage, cooldown and bolt speed, a straight flight). EVERY number here is PROVISIONAL
+    // and Harri's to set: he plays it and corrects it. The cost, 45, is his factory menu's; the
+    // build time follows the same 20 ticks a scrap as the rows above (45 -> 900).
+    {"mslscout", kTankHp / 2, Fixed::from_raw(kTankSpeedRaw * 3 / 2),
+     Fixed::from_raw(kRocketRangeRaw), kTankDamage * 3, kTankCooldownTicks * 5,
+     Fixed::from_raw(kProjectileSpeedRaw * 3 / 4), Fixed::from_raw(kBoltArcRaw), kBoltTravel,
+     Fixed::zero(), Fixed::zero(), false, 45, 900, 0, Fixed::zero()},
 }};
 
 [[nodiscard]] constexpr const UnitSpec& spec_of(UnitKind kind) noexcept {

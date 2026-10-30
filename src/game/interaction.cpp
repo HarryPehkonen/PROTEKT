@@ -507,7 +507,7 @@ void Interaction::menu_digit(const sim::Sim& sim, const SceneOptions& options, i
                              bool shift) {
     MenuInput in;
     in.subject = menu_subject_of(sim, selection_.units());
-    in.side = sim::Side::Player;
+    in.faction = faction_of(options.factions, sim::Side::Player);
     in.ore = static_cast<int>(sim.ore(sim::Side::Player));
     in.group = selection_.units().size() > 1;
     const std::vector<MenuRow> rows = menu_rows(in);
@@ -520,7 +520,7 @@ void Interaction::menu_digit(const sim::Sim& sim, const SceneOptions& options, i
     // So this runs before the enabled test below, which every other row is held to.
     if ((in.subject == MenuSubject::Deployment || in.subject == MenuSubject::Factory)
         && row != rows.end()) {
-        const std::span<const BuildItem> items = build_items(in.side, in.subject);
+        const std::span<const BuildItem> items = build_items(in.faction, in.subject);
         const auto item
             = std::find_if(items.begin(), items.end(), [&row](const BuildItem& candidate) {
                   return candidate.key == row->key;

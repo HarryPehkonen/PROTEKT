@@ -4407,9 +4407,10 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
                 // building has no look of its own yet, and DEPLOY adds no art.
                 build_recycler(scene.vertices, options.seed, unit, mark, lift_z, hovering, heading);
             } else if (faced || unit.kind == sim::UnitKind::Tank
-                       || unit.kind == sim::UnitKind::Scout) {
-                // The scout borrows the tank's body until it has art of its own (VIS adds none):
-                // left to the final branch it would be drawn as a factory.
+                       || unit.kind == sim::UnitKind::Scout
+                       || unit.kind == sim::UnitKind::MslScout) {
+                // The scout (and the missile scout) borrows the tank's body until it has art of its
+                // own (VIS adds none): left to the final branch it would be drawn as a factory.
                 build_facing_tank(scene.vertices, options.seed, unit, mark, lift_z, hovering,
                                   heading, turret);
             } else if (unit.kind == sim::UnitKind::Turret) {

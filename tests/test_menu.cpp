@@ -82,10 +82,10 @@ TEST(Menu, NothingSelectedDrawsNoMenu) {
     // layer that draws these rows draws NOTHING in the state most frames are in.
     for (const MenuSubject subject : {MenuSubject::None}) {
         for (const MenuTarget target : kEveryTarget) {
-            for (const sim::Side side : {sim::Side::Player, sim::Side::Enemy}) {
+            for (const Faction faction : {Faction::Human, Faction::Alien}) {
                 MenuInput in = query(subject);
                 in.target = target;
-                in.side = side;
+                in.faction = faction;
                 in.ore = 500;
                 in.armed = ArmedCommand{MenuCommand::Deploy, {}};
                 EXPECT_TRUE(menu_rows(in).empty())
@@ -250,7 +250,7 @@ TEST(Menu, TheThreeKeyMeansWhateverTheSelectionMakesIt) {
     ASSERT_NE(row_for(deployment, "3"), nullptr);
     EXPECT_EQ(row_for(recycler, "3")->verb, "Deploy");
     EXPECT_EQ(row_for(harvester, "3")->verb, "Scavenge");
-    EXPECT_EQ(row_for(deployment, "3")->verb, "Tank 55");
+    EXPECT_EQ(row_for(deployment, "3")->verb, "Turret 40");
 
     // The verbs the capture verified, in the order it draws them -- the rest of both menus.
     ASSERT_NE(row_for(harvester, "9"), nullptr);
@@ -288,7 +288,7 @@ TEST(Menu, ADimmedRowCarriesTheReasonItIsDimmed) {
     ASSERT_NE(scout, nullptr);
     EXPECT_FALSE(scout->enabled);
     EXPECT_EQ(scout->reason, MenuDim::Unaffordable);
-    EXPECT_EQ(scout->verb, "Scout 45");
+    EXPECT_EQ(scout->verb, "Scout 50");
 }
 
 TEST(Menu, NoRowIsEverDimmedForTheWrongReason) {
@@ -297,20 +297,20 @@ TEST(Menu, NoRowIsEverDimmedForTheWrongReason) {
     // action row is never dimmed for money and a build row never for inapplicability; and only the
     // deployment grows build rows.
     for (const MenuSubject subject : kEverySubject) {
-        for (const sim::Side side : {sim::Side::Player, sim::Side::Enemy}) {
+        for (const Faction faction : {Faction::Human, Faction::Alien}) {
             for (const MenuTarget target : kEveryTarget) {
                 for (const MenuCommand command :
                      {MenuCommand::None, MenuCommand::Deploy, MenuCommand::Build}) {
                     for (const int ore : {0, 44, 999}) {
                         MenuInput in = query(subject);
-                        in.side = side;
+                        in.faction = faction;
                         in.target = target;
                         in.armed = ArmedCommand{command, "Scout"};
                         in.ore = ore;
                         const std::vector<MenuRow> rows = menu_rows(in);
                         const std::string where
-                            = "subject " + std::to_string(static_cast<int>(subject)) + ", side "
-                              + std::to_string(static_cast<int>(side)) + ", target "
+                            = "subject " + std::to_string(static_cast<int>(subject)) + ", faction "
+                              + std::to_string(static_cast<int>(faction)) + ", target "
                               + std::to_string(static_cast<int>(target)) + ", ore "
                               + std::to_string(ore);
                         // Nothing selected is no menu at all -- pinned in full by its own test, and
@@ -366,94 +366,76 @@ TEST(Menu, ABuildRowDrawsItsCostAndDimsWhenItIsUnaffordable) {
     // the harvester's gap below them: the two menus share a key space and not a shape.
     const std::vector<std::string> want{"SPACE", "TAB", "~", "1", "2", "3", "4", "5", "6", "7"};
     EXPECT_EQ(keys_of(rich), want);
-    for (const BuildItem& item : build_items(sim::Side::Player, MenuSubject::Deployment)) {
+    int drawn = 0;
+    for (const BuildItem& item : build_items(Faction::Human, MenuSubject::Deployment)) {
         const MenuRow* row = row_for(rich, item.key);
         ASSERT_NE(row, nullptr) << "build key " << item.key << " is not drawn";
+        ++drawn;
         EXPECT_EQ(row->verb, std::string{item.label} + " " + std::to_string(item.cost))
             << "build row " << item.key << " does not draw its cost";
         EXPECT_TRUE(row->enabled) << "with 999 banked, " << item.label << " is affordable";
     }
-    // And the captured names and costs themselves, as the quotation they are.
-    EXPECT_EQ(row_for(rich, "1")->verb, "Scavenger 20");
-    EXPECT_EQ(row_for(rich, "3")->verb, "Tank 55");
-    EXPECT_EQ(row_for(rich, "4")->verb, "Hauler 30");
-    EXPECT_EQ(row_for(rich, "5")->verb, "Builder 40");
-    EXPECT_EQ(row_for(rich, "6")->verb, "Healer 50");
-    EXPECT_EQ(row_for(rich, "7")->verb, "Service Pod 2");
+    EXPECT_EQ(drawn, 7) << "the loop saw no rows, so it proved nothing";
 
-    // 44 scrap buys the 20-scrap harvester and the 2-scrap service pod and nothing else here: the
-    // user's reading of the dim rows is exactly this comparison.
+    // 44 scrap buys the 20-scrap scavenger and the 2-scrap service pod and nothing dearer than
+    // the 40-scrap turret: the user's reading of the dim rows is exactly this comparison.
     const std::vector<MenuRow> poor = menu_rows(deployed(44));
     ASSERT_EQ(poor.size(), 10U);
+    for (const std::string_view key : {"1", "2", "4", "6", "7"}) {
+        ASSERT_NE(row_for(poor, key), nullptr) << key;
+    }
     EXPECT_TRUE(row_for(poor, "1")->enabled);
-    EXPECT_FALSE(row_for(poor, "2")->enabled) << "Scout 45 was affordable on 44 scrap";
+    EXPECT_FALSE(row_for(poor, "2")->enabled) << "Scout 50 was affordable on 44 scrap";
     EXPECT_EQ(row_for(poor, "2")->reason, MenuDim::Unaffordable);
-    EXPECT_FALSE(row_for(poor, "6")->enabled) << "Healer 50 was affordable on 44 scrap";
+    EXPECT_FALSE(row_for(poor, "4")->enabled) << "Tug 45 was affordable on 44 scrap";
+    EXPECT_FALSE(row_for(poor, "6")->enabled) << "Service Truck 50 was affordable on 44 scrap";
     EXPECT_TRUE(row_for(poor, "7")->enabled);
 
-    // Exactly the price is affordable: 45 buys the 45-scrap scout.
-    const std::vector<MenuRow> exact = menu_rows(deployed(45));
+    // Exactly the price is affordable: 50 buys the 50-scrap scout.
+    const std::vector<MenuRow> exact = menu_rows(deployed(50));
+    ASSERT_NE(row_for(exact, "2"), nullptr);
     EXPECT_TRUE(row_for(exact, "2")->enabled);
 }
 
 TEST(Menu, ABuildRowThatNamesAKindDrawsTheScrapTheSimWillCharge) {
     // The row and the queue must be one number, not two that agree today: a row that says 45 while
     // the sim charges 50 would leave the player with a queue that pauses on a price he was never
-    // shown. A row with no kind (the Hauler and the rest) has no sim price to disagree with.
-    int with_kind = 0;
-    for (const BuildItem& item : build_items(sim::Side::Player, MenuSubject::Deployment)) {
-        if (item.kind.has_value()) {
-            ++with_kind;
-            EXPECT_EQ(item.cost, sim::spec_of(*item.kind).cost) << item.label;
-            EXPECT_GT(sim::spec_of(*item.kind).build_ticks, 0) << item.label;
+    // shown. A row with no kind (the Tug and the rest) has no sim price to disagree with.
+    for (const Faction faction : {Faction::Human, Faction::Alien}) {
+        int with_kind = 0;
+        for (const BuildItem& item : build_items(faction, MenuSubject::Deployment)) {
+            if (item.kind.has_value()) {
+                ++with_kind;
+                EXPECT_EQ(item.cost, sim::spec_of(*item.kind).cost) << item.label;
+                EXPECT_GT(sim::spec_of(*item.kind).build_ticks, 0) << item.label;
+            }
         }
-    }
-    EXPECT_EQ(with_kind, 3) << "the harvester, the scout and the guardian";
-    const std::span<const BuildItem> items
-        = build_items(sim::Side::Player, MenuSubject::Deployment);
-    EXPECT_EQ(items[0].kind, sim::UnitKind::Scavenger);
-    EXPECT_EQ(items[1].kind, sim::UnitKind::Scout);
-    EXPECT_EQ(items[2].kind, sim::UnitKind::Tank);
-    EXPECT_FALSE(items[3].kind.has_value()) << "no UnitKind is the hauler yet";
-}
-
-TEST(Menu, TheEnemyBuildListIsNotInvented) {
-    // Only the player's list was captured. The enemy's is empty until RB5 and the R3 roster fill it
-    // (a per-side item name, a per-kind cost), so its deployment draws the rows it does know and no
-    // build rows at all -- rather than a copy of the player's names.
-    EXPECT_EQ(build_items(sim::Side::Player, MenuSubject::Deployment).size(), 7U);
-    EXPECT_TRUE(build_items(sim::Side::Enemy, MenuSubject::Deployment).empty());
-
-    MenuInput in = deployed(999);
-    in.side = sim::Side::Enemy;
-    const std::vector<MenuRow> rows = menu_rows(in);
-    ASSERT_EQ(rows.size(), 3U) << "the enemy deployment grew rows nobody has seen";
-    EXPECT_EQ(rows.at(0).key, "SPACE");
-    EXPECT_EQ(rows.at(1).verb, "Close Menu");
-    EXPECT_EQ(rows.at(2).verb, "Drop Off");
-    for (const std::string_view absent : {"1", "2", "3", "4", "5", "6", "7"}) {
-        EXPECT_EQ(row_for(rows, absent), nullptr) << "key " << absent << " invented a build row";
+        EXPECT_EQ(with_kind, 2) << "the miner and the scout; the turret is a name row";
+        const std::span<const BuildItem> items = build_items(faction, MenuSubject::Deployment);
+        ASSERT_EQ(items.size(), 7U);
+        EXPECT_EQ(items[0].kind, sim::UnitKind::Scavenger);
+        EXPECT_EQ(items[1].kind, sim::UnitKind::Scout);
+        EXPECT_FALSE(items[2].kind.has_value()) << "a turret needs structure placement";
+        EXPECT_FALSE(items[3].kind.has_value()) << "no UnitKind is the hauler or the tug yet";
     }
 }
 
-TEST(Menu, TheRecyclersListIsTheSevenItsKeysAndCostsHaveAlwaysBeen) {
-    // The recycler's list is pinned whole -- key, name, cost, in order -- so a change to the
-    // FACTORY's list can never reach it.
+TEST(Menu, TheHumanRecyclersListIsHarrisOwnSevenInKeyOrder) {
+    // Harri's own list, verbatim and pinned whole -- key, name, cost, in order -- so a change to
+    // the factory's list or the aliens' can never reach it.
     struct Row {
         std::string_view key;
         std::string_view label;
         int cost;
     };
-    const std::array<Row, 7> want{
-        {{"1", "Scavenger", 20},
-         {"2", "Scout", 45},
-         {"3", "Tank", 55}, // the sim charges one price per kind: Harri's 55
-         {"4", "Hauler", 30},
-         {"5", "Builder", 40},
-         {"6", "Healer", 50},
-         {"7", "Service Pod", 2}}};
-    const std::span<const BuildItem> items
-        = build_items(sim::Side::Player, MenuSubject::Deployment);
+    const std::array<Row, 7> want{{{"1", "Scavenger", 20},
+                                   {"2", "Scout", 50},
+                                   {"3", "Turret", 40},
+                                   {"4", "Tug", 45},
+                                   {"5", "Constructor", 40},
+                                   {"6", "Service Truck", 50},
+                                   {"7", "Service Pod", 2}}};
+    const std::span<const BuildItem> items = build_items(Faction::Human, MenuSubject::Deployment);
     ASSERT_EQ(items.size(), want.size());
     for (std::size_t i = 0; i < want.size(); ++i) {
         // `std::span::at` is C++26 and this is C++20, so bind through the iterator: the tidy check
@@ -467,6 +449,55 @@ TEST(Menu, TheRecyclersListIsTheSevenItsKeysAndCostsHaveAlwaysBeen) {
     }
 }
 
+TEST(Menu, TheAlienRecyclersListIsTheOneTheCodeAlwaysCaptured) {
+    struct Row {
+        std::string_view key;
+        std::string_view label;
+        int cost;
+    };
+    // The Scout reads the kind's own price (50): see the alien list's comment in menu.cpp.
+    const std::array<Row, 7> want{{{"1", "Harvester", 20},
+                                   {"2", "Scout", 50},
+                                   {"3", "Guardian", 40},
+                                   {"4", "Hauler", 30},
+                                   {"5", "Builder", 40},
+                                   {"6", "Healer", 50},
+                                   {"7", "Service Pod", 2}}};
+    const std::span<const BuildItem> items = build_items(Faction::Alien, MenuSubject::Deployment);
+    ASSERT_EQ(items.size(), want.size());
+    for (std::size_t i = 0; i < want.size(); ++i) {
+        const BuildItem& got = *(items.begin() + static_cast<std::ptrdiff_t>(i));
+        const Row& expected = want.at(i);
+        EXPECT_EQ(got.key, expected.key);
+        EXPECT_EQ(got.label, expected.label);
+        EXPECT_EQ(got.cost, expected.cost);
+    }
+}
+
+TEST(Menu, TheDrawnRowsFollowTheFactionNotTheSide) {
+    // The same deployed recycler, drawn for each faction: the rows carry that faction's names.
+    MenuInput human = deployed(999);
+    human.faction = Faction::Human;
+    MenuInput alien = deployed(999);
+    alien.faction = Faction::Alien;
+    const std::vector<MenuRow> human_rows = menu_rows(human);
+    const std::vector<MenuRow> alien_rows = menu_rows(alien);
+    for (const std::string_view key : {"1", "3"}) {
+        ASSERT_NE(row_for(human_rows, key), nullptr) << key;
+        ASSERT_NE(row_for(alien_rows, key), nullptr) << key;
+    }
+    EXPECT_EQ(row_for(human_rows, "1")->verb, "Scavenger 20");
+    EXPECT_EQ(row_for(alien_rows, "1")->verb, "Harvester 20");
+    EXPECT_EQ(row_for(human_rows, "3")->verb, "Turret 40");
+    EXPECT_EQ(row_for(alien_rows, "3")->verb, "Guardian 40");
+    // The scenario's mapping, not a constant: swapped, the player is the alien.
+    const Factions swapped{Faction::Alien, Faction::Human};
+    EXPECT_EQ(faction_of(Factions{}, sim::Side::Player), Faction::Human);
+    EXPECT_EQ(faction_of(Factions{}, sim::Side::Enemy), Faction::Alien);
+    EXPECT_EQ(faction_of(swapped, sim::Side::Player), Faction::Alien);
+    EXPECT_EQ(faction_of(swapped, sim::Side::Enemy), Faction::Human);
+}
+
 TEST(Menu, TheFactorysListIsEightRowsInKeyOrderWithTheirOwnLabelsAndCosts) {
     struct Row {
         std::string_view key;
@@ -477,44 +508,111 @@ TEST(Menu, TheFactorysListIsEightRowsInKeyOrderWithTheirOwnLabelsAndCosts) {
     // Harri's factory menu (2026-10-30), pinned whole. The costs are PROVISIONAL until he has
     // played it, so a later edit has to be deliberate and name itself here.
     const std::array<Row, 8> want{{{"1", "Mortar Bike", 45, sim::UnitKind::MortarBike},
-                                   {"2", "MSL Scout", 45, sim::UnitKind::Scout},
+                                   {"2", "MSL Scout", 45, sim::UnitKind::MslScout},
                                    {"3", "Tank", 55, sim::UnitKind::Tank},
                                    {"4", "Rocket Tank", 65, sim::UnitKind::RocketTank},
                                    {"5", "Assault Tank", 70, sim::UnitKind::AssaultTank},
                                    {"6", "Walker", 100, sim::UnitKind::Walker},
                                    {"7", "APC", 50, sim::UnitKind::Apc},
                                    {"8", "Bomber", 75, sim::UnitKind::Bomber}}};
-    const std::span<const BuildItem> items = build_items(sim::Side::Player, MenuSubject::Factory);
-    ASSERT_EQ(items.size(), want.size());
-    for (std::size_t i = 0; i < want.size(); ++i) {
-        const BuildItem& got = *(items.begin() + static_cast<std::ptrdiff_t>(i));
-        const Row& expected = want.at(i);
-        EXPECT_EQ(got.key, expected.key);
-        EXPECT_EQ(got.label, expected.label);
-        EXPECT_EQ(got.cost, expected.cost) << expected.label;
-        if (!got.kind.has_value()) {
-            // tidy's bugprone-unchecked-optional-access wants the guard in a branch it can see: an
-            // ASSERT_TRUE above is not enough, and neither is `.value()`.
-            ADD_FAILURE() << expected.label << " names a kind the sim has";
-            continue;
+    // The human factory is the one pinned; the alien factory draws the same eight for now (its own
+    // costs and names are owed by Harri), and that is pinned here too so the day it changes is
+    // loud.
+    for (const Faction faction : {Faction::Human, Faction::Alien}) {
+        const std::span<const BuildItem> items = build_items(faction, MenuSubject::Factory);
+        ASSERT_EQ(items.size(), want.size());
+        for (std::size_t i = 0; i < want.size(); ++i) {
+            const BuildItem& got = *(items.begin() + static_cast<std::ptrdiff_t>(i));
+            const Row& expected = want.at(i);
+            EXPECT_EQ(got.key, expected.key);
+            EXPECT_EQ(got.label, expected.label);
+            EXPECT_EQ(got.cost, expected.cost) << expected.label;
+            if (!got.kind.has_value()) {
+                // tidy's bugprone-unchecked-optional-access wants the guard in a branch it can
+                // see: an ASSERT_TRUE above is not enough, and neither is `.value()`.
+                ADD_FAILURE() << expected.label << " names a kind the sim has";
+                continue;
+            }
+            EXPECT_EQ(got.kind.value(), expected.kind) << expected.label;
+            EXPECT_EQ(got.cost, sim::spec_of(expected.kind).cost) << "the row is the queue's price";
         }
-        EXPECT_EQ(got.kind.value(), expected.kind) << expected.label;
-        EXPECT_EQ(got.cost, sim::spec_of(expected.kind).cost) << "the row is the queue's price";
     }
     // The menu draws the state row, TAB, `~`, then the eight build rows.
     MenuInput in = query(MenuSubject::Factory);
     in.ore = 999;
     EXPECT_EQ(keys_of(menu_rows(in)), (std::vector<std::string>{"SPACE", "TAB", "~", "1", "2", "3",
                                                                 "4", "5", "6", "7", "8"}));
-    EXPECT_TRUE(build_items(sim::Side::Enemy, MenuSubject::Factory).empty());
+}
+
+TEST(Menu, OneKindTwoNamesTheMinerIsTheSameUnitKindOnBothLists) {
+    // Harri's ruling pinned in code: a Scavenger and a Harvester are the SAME machine, differing by
+    // faction. The sim keeps ONE kind for the pair.
+    const BuildItem* human_miner = nullptr;
+    const BuildItem* alien_miner = nullptr;
+    for (const BuildItem& item : build_items(Faction::Human, MenuSubject::Deployment)) {
+        if (item.kind == sim::UnitKind::Scavenger) {
+            human_miner = &item;
+        }
+    }
+    for (const BuildItem& item : build_items(Faction::Alien, MenuSubject::Deployment)) {
+        if (item.kind == sim::UnitKind::Scavenger) {
+            alien_miner = &item;
+        }
+    }
+    ASSERT_NE(human_miner, nullptr) << "the human list has no miner row";
+    ASSERT_NE(alien_miner, nullptr) << "the alien list has no miner row";
+    EXPECT_EQ(human_miner->label, "Scavenger");
+    EXPECT_EQ(alien_miner->label, "Harvester");
+    EXPECT_EQ(human_miner->kind, alien_miner->kind);
+    EXPECT_EQ(human_miner->cost, alien_miner->cost);
+}
+
+TEST(Menu, NoRowPrintsTheOtherFactionsName) {
+    constexpr std::array kAlienOnly{std::string_view{"Harvester"}, std::string_view{"Guardian"},
+                                    std::string_view{"Hauler"}, std::string_view{"Builder"},
+                                    std::string_view{"Healer"}};
+    constexpr std::array kHumanOnly{std::string_view{"Scavenger"}, std::string_view{"Turret"},
+                                    std::string_view{"Tug"}, std::string_view{"Constructor"},
+                                    std::string_view{"Service Truck"}};
+    int human_seen = 0;
+    int alien_seen = 0;
+    for (const BuildItem& item : build_items(Faction::Human, MenuSubject::Deployment)) {
+        ++human_seen;
+        for (const std::string_view alien : kAlienOnly) {
+            EXPECT_NE(item.label, alien) << "the human list prints an alien name";
+        }
+    }
+    for (const BuildItem& item : build_items(Faction::Alien, MenuSubject::Deployment)) {
+        ++alien_seen;
+        for (const std::string_view human : kHumanOnly) {
+            EXPECT_NE(item.label, human) << "the alien list prints a human name";
+        }
+    }
+    EXPECT_EQ(human_seen, 7);
+    EXPECT_EQ(alien_seen, 7);
+}
+
+TEST(Menu, TheMissileScoutAndTheScoutAreDifferentKindsWithDifferentCosts) {
+    EXPECT_NE(sim::UnitKind::MslScout, sim::UnitKind::Scout);
+    EXPECT_EQ(sim::spec_of(sim::UnitKind::Scout).cost, 50);
+    EXPECT_EQ(sim::spec_of(sim::UnitKind::MslScout).cost, 45);
+    const std::span<const BuildItem> factory = build_items(Faction::Human, MenuSubject::Factory);
+    const std::span<const BuildItem> recycler
+        = build_items(Faction::Human, MenuSubject::Deployment);
+    ASSERT_GE(factory.size(), 2U);
+    ASSERT_GE(recycler.size(), 2U);
+    EXPECT_EQ((*(factory.begin() + 1)).kind, sim::UnitKind::MslScout);
+    EXPECT_EQ((*(recycler.begin() + 1)).kind, sim::UnitKind::Scout);
+    EXPECT_EQ((*(factory.begin() + 1)).cost, 45);
+    EXPECT_EQ((*(recycler.begin() + 1)).cost, 50);
 }
 
 TEST(Menu, TheFactoryAndTheRecyclerShareNoRow) {
     // Harri's factory names its row 2 `MSL Scout` and his recycler names it `Scout`: two lists, two
     // rows, free to differ. Compared by address, a shared `BuildItem` would be the same object.
-    const std::span<const BuildItem> factory = build_items(sim::Side::Player, MenuSubject::Factory);
+    const std::span<const BuildItem> factory = build_items(Faction::Human, MenuSubject::Factory);
     const std::span<const BuildItem> recycler
-        = build_items(sim::Side::Player, MenuSubject::Deployment);
+        = build_items(Faction::Human, MenuSubject::Deployment);
     for (const BuildItem& f : factory) {
         for (const BuildItem& r : recycler) {
             EXPECT_NE(&f, &r) << f.label;
@@ -528,7 +626,9 @@ TEST(Menu, OnlyAProducersSubjectHasABuildList) {
     for (const MenuSubject subject :
          {MenuSubject::None, MenuSubject::Recycler, MenuSubject::Harvester, MenuSubject::Turret,
           MenuSubject::Vehicle}) {
-        EXPECT_TRUE(build_items(sim::Side::Player, subject).empty());
+        for (const Faction faction : {Faction::Human, Faction::Alien}) {
+            EXPECT_TRUE(build_items(faction, subject).empty());
+        }
     }
 }
 
@@ -536,9 +636,11 @@ TEST(Menu, ARowThatNamesAKindNamesOneTheQueueWillAccept) {
     // A kind the sim cannot queue (no price or no time) must never be a build row a key acts on:
     // the order would be refused by the sim after the player was told it was queued.
     for (const MenuSubject subject : {MenuSubject::Deployment, MenuSubject::Factory}) {
-        for (const BuildItem& item : build_items(sim::Side::Player, subject)) {
-            if (item.kind.has_value()) {
-                EXPECT_TRUE(sim::is_queueable(*item.kind)) << item.label;
+        for (const Faction faction : {Faction::Human, Faction::Alien}) {
+            for (const BuildItem& item : build_items(faction, subject)) {
+                if (item.kind.has_value()) {
+                    EXPECT_TRUE(sim::is_queueable(*item.kind)) << item.label;
+                }
             }
         }
     }
@@ -1680,28 +1782,6 @@ TEST(Menu, ASelectionOwnsTheSubjectOfTheLivingKindItHolds) {
     const std::vector<sim::UnitId> with_stranger{sim::UnitId{9999}, harvester};
     ASSERT_EQ(sim.find(sim::UnitId{9999}), nullptr);
     EXPECT_EQ(menu_subject_of(sim, with_stranger), MenuSubject::Harvester);
-}
-
-// Harri's naming rule, not a cosmetic preference: a Scavenger and a Harvester are the same machine
-// differing by FACTION, and "Guardian" is the alien TURRET. The sim has no faction yet, so each row
-// prints the name of the kind it actually builds.
-TEST(Menu, ARowPrintsTheNameOfTheKindItBuildsNotTheAlienFactionsName) {
-    const std::span<const BuildItem> items
-        = build_items(sim::Side::Player, MenuSubject::Deployment);
-    bool saw_scavenger = false;
-    bool saw_tank = false;
-    for (const BuildItem& item : items) {
-        if (item.kind == sim::UnitKind::Scavenger) {
-            saw_scavenger = true;
-            EXPECT_EQ(item.label, "Scavenger") << "Harvester is the alien faction's name";
-        }
-        if (item.kind == sim::UnitKind::Tank) {
-            saw_tank = true;
-            EXPECT_EQ(item.label, "Tank") << "Guardian is the alien faction's turret";
-        }
-    }
-    EXPECT_TRUE(saw_scavenger);
-    EXPECT_TRUE(saw_tank);
 }
 
 } // namespace

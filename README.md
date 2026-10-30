@@ -140,14 +140,25 @@ A row that **completes an order** -- `Follow Me`, `Hold`, `Go to Nav`, `Attack` 
 **The factory builds eight things.** Select your factory (`2`) and its rows are the keys `1`-`8`, each
 drawn with its cost in scrap on the row and dimmed while you cannot pay it: `1 Mortar Bike 45`,
 `2 MSL Scout 45`, `3 Tank 55`, `4 Rocket Tank 65`, `5 Assault Tank 70`, `6 Walker 100`, `7 APC 50`,
-`8 Bomber 75`. Four of the kinds are new -- the **assault tank** (the tank's gun on a heavier hull,
+`8 Bomber 75`. Five of the kinds are new -- the **assault tank** (the tank's gun on a heavier hull,
 150 hp), the **walker** (200 hp, hits twice as hard and reloads half as fast, at half a tank's
-speed), the **APC** (the fastest ground vehicle; it carries no troops yet, so it has a light gun) and
-the **bomber** (a wide, flat hull that lobs the mortar's splash shell, 14 tiles). The deployed
-recycler keeps its own seven rows; it shares the tank's price (now 55) because the sim charges one
-price per kind. Every number here is a first proposal, **provisional** until it has been played, and
-the four new machines are placeholder shapes. The **scavenger** now has the tank's hull, 100 hp
-(it was 60) -- 25 scout shots to kill instead of 15 -- because a hauler should take a beating.
+speed), the **APC** (the fastest ground vehicle; it carries no troops yet, so it has a light gun),
+the **bomber** (a wide, flat hull that lobs the mortar's splash shell, 14 tiles) and the **MSL
+Scout** (the scout's hull carrying the rocket tank's rocket; a vehicle of its own, not the Scout
+at a second price). Every number here is a first proposal, **provisional** until it has been
+played, and the new machines are placeholder shapes. The **scavenger** now has the tank's hull,
+100 hp (it was 60) -- 25 scout shots to kill instead of 15 -- because a hauler should take a
+beating.
+
+**Names follow the faction, never the side.** A Scavenger and a Harvester are the same machine:
+the sim has one kind for the pair, and the menu names it by whether the producer's faction is
+human or alien. By default the player plays the humans and the enemy the aliens, but that mapping
+belongs to the scenario (`SceneOptions::factions`), so a story mission can swap it. The human
+recycler's rows are `1 Scavenger 20`, `2 Scout 50`, `3 Turret 40`, `4 Tug 45`, `5 Constructor 40`,
+`6 Service Truck 50`, `7 Service Pod 2`; the alien recycler's are `1 Harvester 20`, `2 Scout`,
+`3 Guardian 40`, `4 Hauler 30`, `5 Builder 40`, `6 Healer 50`, `7 Service Pod 2`. The Turret and
+Guardian rows are names only for now: a turret is a structure, and nothing can place one yet. The
+alien factory draws the human factory's eight rows until Harri supplies its own costs and names.
 
 ### The group bar and the ship instrument
 

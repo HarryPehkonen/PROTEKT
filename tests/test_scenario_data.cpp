@@ -140,6 +140,15 @@ TEST(ScenarioToml, EveryKindIsNamedInLowerCaseWithUnderscores) {
     }
 }
 
+TEST(ScenarioToml, TheMissileScoutIsNamedMslScoutAndIsNotTheScout) {
+    const ScenarioParse parse
+        = load_scenario_data("[[group]]\nkind = \"msl_scout\"\ncount = 1\ndx = 0\ndy = 0\n");
+    ASSERT_TRUE(parse.ok) << parse.error;
+    ASSERT_EQ(parse.data.groups.size(), 1U);
+    EXPECT_EQ(parse.data.groups.at(0).kind, UnitKind::MslScout);
+    EXPECT_NE(parse.data.groups.at(0).kind, UnitKind::Scout);
+}
+
 TEST(ScenarioToml, TheSupportVehiclesAreNamedMortarBikeAndRocketTank) {
     for (const auto& [name, kind] : {std::pair{"mortar_bike", UnitKind::MortarBike},
                                      std::pair{"rocket_tank", UnitKind::RocketTank}}) {

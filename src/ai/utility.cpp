@@ -80,7 +80,8 @@ Role role_of(sim::UnitKind kind) noexcept {
     case sim::UnitKind::Tank:
     case sim::UnitKind::HoverTank:
     case sim::UnitKind::RocketTank:
-    case sim::UnitKind::Scout: // armed, and it fights: a light gun is still a gun at the front
+    case sim::UnitKind::Scout:    // armed, and it fights: a light gun is still a gun at the front
+    case sim::UnitKind::MslScout: // the scout's hull and a rocket: it fights at the front too
     case sim::UnitKind::AssaultTank:
     case sim::UnitKind::Walker:
     case sim::UnitKind::Apc: // a light gun, but a gun: it fights at the front
@@ -111,8 +112,9 @@ int threat_of(sim::UnitKind kind) noexcept {
     case sim::UnitKind::Bomber:
         return 3;
     case sim::UnitKind::Turret:
-    case sim::UnitKind::Apc:   // a light gun, like the scout's
-    case sim::UnitKind::Scout: // a light raider: armed, but outgunned by any tank's 3
+    case sim::UnitKind::Apc:      // a light gun, like the scout's
+    case sim::UnitKind::Scout:    // a light raider: armed, but outgunned by any tank's 3
+    case sim::UnitKind::MslScout: // the same raider hull, with the rocket's bite
         return 2;
     case sim::UnitKind::Factory:
         return 1;

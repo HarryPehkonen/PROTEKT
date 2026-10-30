@@ -201,7 +201,7 @@ TEST(PlayerView, TheBuildMenuIsTheSelectedProducersOwnList) {
         EXPECT_EQ(session.selection().units().front(), id) << "the rig must select the producer";
         // 999 banked: no row is dim, so the lists are compared by what they ARE.
         game::MenuInput in{game::menu_subject_of(rig.sim, session.selection().units()),
-                           sim::Side::Player, game::ArmedCommand{}, MenuTarget::None, 999};
+                           game::Faction::Human, game::ArmedCommand{}, MenuTarget::None, 999};
         return build_rows_of(game::menu_rows(in));
     };
 
@@ -219,7 +219,7 @@ TEST(PlayerView, TheBuildMenuIsTheSelectedProducersOwnList) {
         << "a selected factory draws the factory's own eight rows";
     ASSERT_EQ(recycler_list.size(), 7U) << "a selected deployed recycler draws the recycler's list";
     EXPECT_EQ(recycler_list.front(), (std::pair<std::string, std::string>{"1", "Scavenger 20"}));
-    EXPECT_EQ(recycler_list.at(2), (std::pair<std::string, std::string>{"3", "Tank 55"}));
+    EXPECT_EQ(recycler_list.at(2), (std::pair<std::string, std::string>{"3", "Turret 40"}));
     EXPECT_NE(factory_list, recycler_list) << "two producers, one list: the old shape";
 }
 

@@ -219,18 +219,37 @@ TEST(SpecFactoryKinds, TheBomberDropsTheMortarsLobbedShellWithAOneAndAHalfTileSp
 TEST(SpecFactoryKinds, TheFourOldKindsNowCarryTheirPrices) {
     EXPECT_EQ(spec_of(UnitKind::MortarBike).cost, 45);
     EXPECT_EQ(spec_of(UnitKind::MortarBike).build_ticks, 900);
-    EXPECT_EQ(spec_of(UnitKind::Scout).cost, 45);
-    EXPECT_EQ(spec_of(UnitKind::Scout).build_ticks, 900);
+    EXPECT_EQ(spec_of(UnitKind::Scout).cost, 50) << "Harri's human list; it was 45";
+    EXPECT_EQ(spec_of(UnitKind::Scout).build_ticks, 900) << "unchanged by the price";
     EXPECT_EQ(spec_of(UnitKind::Tank).cost, 55) << "Harri's cost; it was 40";
     EXPECT_EQ(spec_of(UnitKind::Tank).build_ticks, 900) << "the one exception to 20 ticks a scrap";
     EXPECT_EQ(spec_of(UnitKind::RocketTank).cost, 65);
     EXPECT_EQ(spec_of(UnitKind::RocketTank).build_ticks, 1300);
 }
 
+// PROVISIONAL, like every number of the factory kinds: Harri plays it and corrects it.
+TEST(SpecFactoryKinds, TheMissileScoutIsTheScoutsHullCarryingTheRocketTanksRocket) {
+    const UnitSpec& s = spec_of(UnitKind::MslScout);
+    const UnitSpec& scout = spec_of(UnitKind::Scout);
+    const UnitSpec& rocket = spec_of(UnitKind::RocketTank);
+    EXPECT_EQ(s.hp, scout.hp);
+    EXPECT_EQ(s.max_speed.raw, scout.max_speed.raw);
+    EXPECT_EQ(s.range.raw, rocket.range.raw);
+    EXPECT_EQ(s.damage, rocket.damage);
+    EXPECT_EQ(s.cooldown, rocket.cooldown);
+    EXPECT_EQ(s.bolt_speed.raw, rocket.bolt_speed.raw);
+    EXPECT_GT(s.range.raw, 0) << "armed";
+    EXPECT_EQ(s.cost, 45);
+    EXPECT_EQ(s.build_ticks, 900) << "20 ticks a scrap";
+    EXPECT_NE(s.cost, scout.cost) << "two vehicles, two prices";
+    EXPECT_TRUE(is_drivable(UnitKind::MslScout));
+    EXPECT_FALSE(is_tank(UnitKind::MslScout));
+}
+
 TEST(SpecFactoryKinds, EveryFactoryKindIsQueueableAndTheUnpricedOnesAreNot) {
-    for (const UnitKind kind :
-         {UnitKind::MortarBike, UnitKind::Scout, UnitKind::Tank, UnitKind::RocketTank,
-          UnitKind::AssaultTank, UnitKind::Walker, UnitKind::Apc, UnitKind::Bomber}) {
+    for (const UnitKind kind : {UnitKind::MortarBike, UnitKind::Scout, UnitKind::Tank,
+                                UnitKind::RocketTank, UnitKind::AssaultTank, UnitKind::Walker,
+                                UnitKind::Apc, UnitKind::Bomber, UnitKind::MslScout}) {
         EXPECT_TRUE(is_queueable(kind)) << spec_of(kind).name;
     }
     // The scavenger keeps its own 20/300 row; the rest have no price and are not buildable.

@@ -129,8 +129,11 @@ TEST(Sim, TheScoutIsAppendedAfterTheDeployedRecyclerAndNoEarlierIndexMoved) {
     EXPECT_EQ(static_cast<int>(UnitKind::Walker), 11);
     EXPECT_EQ(static_cast<int>(UnitKind::Apc), 12);
     EXPECT_EQ(static_cast<int>(UnitKind::Bomber), 13);
-    EXPECT_EQ(kUnitKindCount, 14);
-    EXPECT_EQ(static_cast<int>(UnitKind::Bomber), kUnitKindCount - 1) << "the bomber stays last";
+    // The missile scout was appended after the bomber, again without moving anything.
+    EXPECT_EQ(static_cast<int>(UnitKind::MslScout), 14);
+    EXPECT_EQ(kUnitKindCount, 15);
+    EXPECT_EQ(static_cast<int>(UnitKind::MslScout), kUnitKindCount - 1)
+        << "the missile scout stays last";
 }
 
 TEST(Sim, TheScoutIsALightFastArmedVehicleThatCanBeDriven) {
@@ -162,7 +165,7 @@ TEST(Sim, TheDeployedRecyclerIsAStillUnarmedBuildingWithTheRecyclersHull) {
 }
 
 TEST(Sim, TheHoverTankHasTheTanksProfileExactly) {
-    EXPECT_EQ(kUnitKindCount, 14);
+    EXPECT_EQ(kUnitKindCount, 15);
     EXPECT_EQ(static_cast<int>(UnitKind::HoverTank), 3);
     const UnitProfile tank = profile(UnitKind::Tank);
     const UnitProfile hover = profile(UnitKind::HoverTank);

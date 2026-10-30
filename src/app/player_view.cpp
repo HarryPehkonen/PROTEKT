@@ -81,9 +81,9 @@ std::vector<game::MenuRow> menu_for(const sim::Sim& sim, const game::Session& se
     if (attack_armed) {
         return {};
     }
-    game::MenuInput in{game::menu_subject_of(sim, session.selection().units()), sim::Side::Player,
-                       game::ArmedCommand{}, menu_target_of(sim, options),
-                       static_cast<int>(sim.ore(sim::Side::Player))};
+    game::MenuInput in{game::menu_subject_of(sim, session.selection().units()),
+                       game::faction_of(options.factions, sim::Side::Player), game::ArmedCommand{},
+                       menu_target_of(sim, options), static_cast<int>(sim.ore(sim::Side::Player))};
     in.attack = attack_offer(sim, session, options).valid();
     if (session.deploy_armed()) {
         // `un-deployed recycler menu -> 3`: the state row names the deploy and reads the distance

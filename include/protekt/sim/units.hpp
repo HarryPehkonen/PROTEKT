@@ -66,9 +66,14 @@ enum class UnitKind : std::uint8_t {
     Apc = 12,
     /// The bomber (build row 8): a lobbed-shell carrier, the mortar's bomb on a wide flat hull.
     /// Appended after Apc so that no recorded value moves.
-    Bomber = 13
+    Bomber = 13,
+    /// The scout carrying missiles (the factory's row 2, `MSL Scout`): a vehicle of its own, NOT
+    /// the scout under a second price -- in Battlezone 2 the Scout and the Scout with missiles are
+    /// two vehicles, and one kind may carry only one price. The scout's hull, the rocket tank's
+    /// rocket. Appended after Bomber so that no recorded value moves.
+    MslScout = 14
 };
-inline constexpr int kUnitKindCount = 14;
+inline constexpr int kUnitKindCount = 15;
 
 /// Tanks and hover tanks: every rule written "for a tank" (orders, retreat, defend, swap, the AI's
 /// hunters) takes both. The hover tank has the tank's profile and, until it is drivable, its
