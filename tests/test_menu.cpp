@@ -250,7 +250,7 @@ TEST(Menu, TheThreeKeyMeansWhateverTheSelectionMakesIt) {
     ASSERT_NE(row_for(deployment, "3"), nullptr);
     EXPECT_EQ(row_for(recycler, "3")->verb, "Deploy");
     EXPECT_EQ(row_for(harvester, "3")->verb, "Scavenge");
-    EXPECT_EQ(row_for(deployment, "3")->verb, "Tank 40");
+    EXPECT_EQ(row_for(deployment, "3")->verb, "Tank 55");
 
     // The verbs the capture verified, in the order it draws them -- the rest of both menus.
     ASSERT_NE(row_for(harvester, "9"), nullptr);
@@ -375,7 +375,7 @@ TEST(Menu, ABuildRowDrawsItsCostAndDimsWhenItIsUnaffordable) {
     }
     // And the captured names and costs themselves, as the quotation they are.
     EXPECT_EQ(row_for(rich, "1")->verb, "Scavenger 20");
-    EXPECT_EQ(row_for(rich, "3")->verb, "Tank 40");
+    EXPECT_EQ(row_for(rich, "3")->verb, "Tank 55");
     EXPECT_EQ(row_for(rich, "4")->verb, "Hauler 30");
     EXPECT_EQ(row_for(rich, "5")->verb, "Builder 40");
     EXPECT_EQ(row_for(rich, "6")->verb, "Healer 50");
@@ -444,13 +444,14 @@ TEST(Menu, TheRecyclersListIsTheSevenItsKeysAndCostsHaveAlwaysBeen) {
         std::string_view label;
         int cost;
     };
-    const std::array<Row, 7> want{{{"1", "Scavenger", 20},
-                                   {"2", "Scout", 45},
-                                   {"3", "Tank", 40},
-                                   {"4", "Hauler", 30},
-                                   {"5", "Builder", 40},
-                                   {"6", "Healer", 50},
-                                   {"7", "Service Pod", 2}}};
+    const std::array<Row, 7> want{
+        {{"1", "Scavenger", 20},
+         {"2", "Scout", 45},
+         {"3", "Tank", 55}, // the sim charges one price per kind: Harri's 55
+         {"4", "Hauler", 30},
+         {"5", "Builder", 40},
+         {"6", "Healer", 50},
+         {"7", "Service Pod", 2}}};
     const std::span<const BuildItem> items
         = build_items(sim::Side::Player, MenuSubject::Deployment);
     ASSERT_EQ(items.size(), want.size());
@@ -466,17 +467,56 @@ TEST(Menu, TheRecyclersListIsTheSevenItsKeysAndCostsHaveAlwaysBeen) {
     }
 }
 
-TEST(Menu, TheFactorysListIsTheTankOnThreeAtTheSpecsOwnPrice) {
+TEST(Menu, TheFactorysListIsEightRowsInKeyOrderWithTheirOwnLabelsAndCosts) {
+    struct Row {
+        std::string_view key;
+        std::string_view label;
+        int cost;
+        sim::UnitKind kind;
+    };
+    // Harri's factory menu (2026-10-30), pinned whole. The costs are PROVISIONAL until he has
+    // played it, so a later edit has to be deliberate and name itself here.
+    const std::array<Row, 8> want{{{"1", "Mortar Bike", 45, sim::UnitKind::MortarBike},
+                                   {"2", "MSL Scout", 45, sim::UnitKind::Scout},
+                                   {"3", "Tank", 55, sim::UnitKind::Tank},
+                                   {"4", "Rocket Tank", 65, sim::UnitKind::RocketTank},
+                                   {"5", "Assault Tank", 70, sim::UnitKind::AssaultTank},
+                                   {"6", "Walker", 100, sim::UnitKind::Walker},
+                                   {"7", "APC", 50, sim::UnitKind::Apc},
+                                   {"8", "Bomber", 75, sim::UnitKind::Bomber}}};
     const std::span<const BuildItem> items = build_items(sim::Side::Player, MenuSubject::Factory);
-    ASSERT_EQ(items.size(), 1U) << "the tank is the only item named for the factory so far";
-    EXPECT_EQ(items[0].key, "3");
-    EXPECT_EQ(items[0].kind, sim::UnitKind::Tank);
-    EXPECT_EQ(items[0].cost, sim::spec_of(sim::UnitKind::Tank).cost);
-    // The factory's menu draws that row and no other build row: the state row, TAB, `~`, then 3.
+    ASSERT_EQ(items.size(), want.size());
+    for (std::size_t i = 0; i < want.size(); ++i) {
+        const BuildItem& got = *(items.begin() + static_cast<std::ptrdiff_t>(i));
+        const Row& expected = want.at(i);
+        EXPECT_EQ(got.key, expected.key);
+        EXPECT_EQ(got.label, expected.label);
+        EXPECT_EQ(got.cost, expected.cost) << expected.label;
+        ASSERT_TRUE(got.kind.has_value()) << expected.label << " names a kind the sim has";
+        EXPECT_EQ(*got.kind, expected.kind) << expected.label;
+        EXPECT_EQ(got.cost, sim::spec_of(expected.kind).cost) << "the row is the queue's price";
+    }
+    // The menu draws the state row, TAB, `~`, then the eight build rows.
     MenuInput in = query(MenuSubject::Factory);
     in.ore = 999;
-    EXPECT_EQ(keys_of(menu_rows(in)), (std::vector<std::string>{"SPACE", "TAB", "~", "3"}));
+    EXPECT_EQ(keys_of(menu_rows(in)), (std::vector<std::string>{"SPACE", "TAB", "~", "1", "2", "3",
+                                                                "4", "5", "6", "7", "8"}));
     EXPECT_TRUE(build_items(sim::Side::Enemy, MenuSubject::Factory).empty());
+}
+
+TEST(Menu, TheFactoryAndTheRecyclerShareNoRow) {
+    // Harri's factory names its row 2 `MSL Scout` and his recycler names it `Scout`: two lists, two
+    // rows, free to differ. Compared by address, a shared `BuildItem` would be the same object.
+    const std::span<const BuildItem> factory = build_items(sim::Side::Player, MenuSubject::Factory);
+    const std::span<const BuildItem> recycler
+        = build_items(sim::Side::Player, MenuSubject::Deployment);
+    for (const BuildItem& f : factory) {
+        for (const BuildItem& r : recycler) {
+            EXPECT_NE(&f, &r) << f.label;
+        }
+    }
+    EXPECT_EQ((*(factory.begin() + 1)).label, "MSL Scout");
+    EXPECT_EQ((*(recycler.begin() + 1)).label, "Scout");
 }
 
 TEST(Menu, OnlyAProducersSubjectHasABuildList) {

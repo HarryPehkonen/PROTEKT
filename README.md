@@ -137,6 +137,18 @@ smaller capital on the same baseline.
 
 A row that **completes an order** -- `Follow Me`, `Hold`, `Go to Nav`, `Attack` (through the attack list), `Recycle` -- closes the menu and clears the selection as soon as its orders are posted, which is what BZ2 does and what Harri asked for. The rows that **queue a build** or **arm a click** leave the selection alone: their sequence is not finished yet.
 
+**The factory builds eight things.** Select your factory (`2`) and its rows are the keys `1`-`8`, each
+drawn with its cost in scrap on the row and dimmed while you cannot pay it: `1 Mortar Bike 45`,
+`2 MSL Scout 45`, `3 Tank 55`, `4 Rocket Tank 65`, `5 Assault Tank 70`, `6 Walker 100`, `7 APC 50`,
+`8 Bomber 75`. Four of the kinds are new -- the **assault tank** (the tank's gun on a heavier hull,
+150 hp), the **walker** (200 hp, hits twice as hard and reloads half as fast, at half a tank's
+speed), the **APC** (the fastest ground vehicle; it carries no troops yet, so it has a light gun) and
+the **bomber** (a wide, flat hull that lobs the mortar's splash shell, 14 tiles). The deployed
+recycler keeps its own seven rows; it shares the tank's price (now 55) because the sim charges one
+price per kind. Every number here is a first proposal, **provisional** until it has been played, and
+the four new machines are placeholder shapes. The **scavenger** now has the tank's hull, 100 hp
+(it was 60) -- 25 scout shots to kill instead of 15 -- because a hauler should take a beating.
+
 ### The group bar and the ship instrument
 
 The bar on each top-strip plate has **one segment per living vehicle** of the group, side by side and

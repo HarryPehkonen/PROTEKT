@@ -2027,16 +2027,16 @@ TEST(Interaction, AFactoryBuildsATankThroughTheBuildKeyAtTheTanksOwnPriceAndTime
 
     ASSERT_TRUE(run_batch_out(rig)) << "the factory never finished its tank";
     EXPECT_EQ(player_tanks(rig.sim), before + 1) << "the queue emptied and a tank stands";
-    EXPECT_EQ(sim::spec_of(UnitKind::Tank).cost, 40) << "the ruled price, not a new one";
+    EXPECT_EQ(sim::spec_of(UnitKind::Tank).cost, 55) << "Harri's price (it was 40), not a new one";
     EXPECT_EQ(sim::spec_of(UnitKind::Tank).build_ticks, 900) << "the ruled time, not a new one";
 }
 
 TEST(Interaction, AFactoryDoesNotBuildWhatIsNotOnItsList) {
-    // Every other key of the recycler's list -- the Harvester, the Scout and the rest -- is not the
-    // factory's: pressing it orders nothing, as a digit that names no row does.
+    // The factory's list is the eight rows 1..8; the keys past it name no row, so pressing one
+    // orders nothing, as a digit that names no row does.
     BuildRig rig = make_build_rig(producer_scenario(UnitKind::Factory));
     ASSERT_EQ(rig.sim.find(rig.producer)->kind, UnitKind::Factory);
-    for (const int row : {1, 2, 4, 5, 6, 7}) {
+    for (const int row : {0, 9}) {
         EXPECT_TRUE(press(rig, row, false).empty()) << "row " << row;
         EXPECT_TRUE(press(rig, row, true).empty()) << "row " << row << " with shift";
     }

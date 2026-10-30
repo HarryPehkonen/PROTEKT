@@ -79,10 +79,11 @@ constexpr std::array kDeploymentRows{
     return BuildItem{key, label, sim::spec_of(kind).cost, kind};
 }
 
-/// The tank row, `3 Tank`, which the recycler's list and the factory's list both hold: one row,
-/// so the two lists cannot disagree about its key, its name or its price. "Guardian" is the ALIEN
-/// faction's turret, not a name for a tank, and is deliberately not written: the sim has no
-/// faction.
+/// The recycler's tank row, `3 Tank`. "Guardian" is the ALIEN faction's turret, not a name for a
+/// tank, and is deliberately not written: the sim has no faction. The factory's list holds a row of
+/// its own for the tank (see `kPlayerFactoryBuildList`): Harri's two menus name and price their
+/// rows separately (his factory's row 2 is `MSL Scout`, his recycler's is `Scout`), so the lists
+/// never share a row.
 constexpr BuildItem kTankRow = kinded("3", "Tank", sim::UnitKind::Tank);
 
 /// The player's build list, in key order, with the costs the reference capture draws on the rows.
@@ -103,10 +104,23 @@ constexpr std::array kPlayerBuildList{
     BuildItem{"7", "Service Pod", 2, std::nullopt},
 };
 
-/// The player's FACTORY's build list: the tank, on `3`, and nothing else. The tank is the only item
-/// Harri has named for it ("the factory builds more -- a tank is one, I believe that's under 3");
-/// the rest of the list is not written yet, and adding an item is one line here.
-constexpr std::array kPlayerFactoryBuildList{kTankRow};
+/// The player's FACTORY's build list: Harri's own factory menu, eight rows in key order (he said
+/// "just propose something ... you build, I play, then we correct", 2026-10-30). The labels and the
+/// costs are his menu screenshot's; the cost is read from the spec table, so the number drawn is
+/// the number the queue charges. These are the factory's OWN rows, not the recycler's
+/// (`kPlayerBuildList` keeps its seven): his `MSL Scout` is the recycler's `Scout`, and the two
+/// lists must stay free to differ. The four kinds past the tank's are new this slice
+/// (`AssaultTank`..`Bomber`).
+constexpr std::array kPlayerFactoryBuildList{
+    kinded("1", "Mortar Bike", sim::UnitKind::MortarBike),
+    kinded("2", "MSL Scout", sim::UnitKind::Scout),
+    kinded("3", "Tank", sim::UnitKind::Tank),
+    kinded("4", "Rocket Tank", sim::UnitKind::RocketTank),
+    kinded("5", "Assault Tank", sim::UnitKind::AssaultTank),
+    kinded("6", "Walker", sim::UnitKind::Walker),
+    kinded("7", "APC", sim::UnitKind::Apc),
+    kinded("8", "Bomber", sim::UnitKind::Bomber),
+};
 
 /// The item's name and the cost the row shows, as one string: the cost is drawn ON the build row,
 /// so it rides in the verb and there is no second place for the number to drift to.
@@ -198,6 +212,10 @@ MenuSubject menu_subject_of_kind(sim::UnitKind kind) noexcept {
     case sim::UnitKind::MortarBike:
     case sim::UnitKind::RocketTank:
     case sim::UnitKind::Scout: // the reference's tank and scout captures share ONE table
+    case sim::UnitKind::AssaultTank:
+    case sim::UnitKind::Walker:
+    case sim::UnitKind::Apc:
+    case sim::UnitKind::Bomber:
         return MenuSubject::Vehicle;
     }
     return MenuSubject::None;

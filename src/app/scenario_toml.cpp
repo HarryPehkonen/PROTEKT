@@ -35,6 +35,10 @@ constexpr std::array<KindName, static_cast<std::size_t>(sim::kUnitKindCount)> kK
     {"recycler", UnitKind::Recycler},
     {"deployed_recycler", UnitKind::DeployedRecycler},
     {"scout", UnitKind::Scout},
+    {"assault_tank", UnitKind::AssaultTank},
+    {"walker", UnitKind::Walker},
+    {"apc", UnitKind::Apc},
+    {"bomber", UnitKind::Bomber},
 }};
 
 /// The keys of a group, in the order a missing one is reported.

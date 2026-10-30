@@ -124,8 +124,13 @@ TEST(Sim, TheScoutIsAppendedAfterTheDeployedRecyclerAndNoEarlierIndexMoved) {
     // The shotgun was appended here as kind 10 and has been REMOVED again: it is a carried
     // WEAPON (`kShotgunSpec`, fired by `orders::FireFan`), not a hull. Nothing earlier moved
     // either way, which is the property this test exists to pin.
-    EXPECT_EQ(kUnitKindCount, 10);
-    EXPECT_EQ(static_cast<int>(UnitKind::Scout), kUnitKindCount - 1) << "the scout stays last";
+    // The four factory kinds were appended after it, again without moving anything.
+    EXPECT_EQ(static_cast<int>(UnitKind::AssaultTank), 10);
+    EXPECT_EQ(static_cast<int>(UnitKind::Walker), 11);
+    EXPECT_EQ(static_cast<int>(UnitKind::Apc), 12);
+    EXPECT_EQ(static_cast<int>(UnitKind::Bomber), 13);
+    EXPECT_EQ(kUnitKindCount, 14);
+    EXPECT_EQ(static_cast<int>(UnitKind::Bomber), kUnitKindCount - 1) << "the bomber stays last";
 }
 
 TEST(Sim, TheScoutIsALightFastArmedVehicleThatCanBeDriven) {
@@ -157,7 +162,7 @@ TEST(Sim, TheDeployedRecyclerIsAStillUnarmedBuildingWithTheRecyclersHull) {
 }
 
 TEST(Sim, TheHoverTankHasTheTanksProfileExactly) {
-    EXPECT_EQ(kUnitKindCount, 10);
+    EXPECT_EQ(kUnitKindCount, 14);
     EXPECT_EQ(static_cast<int>(UnitKind::HoverTank), 3);
     const UnitProfile tank = profile(UnitKind::Tank);
     const UnitProfile hover = profile(UnitKind::HoverTank);

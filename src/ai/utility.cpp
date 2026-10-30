@@ -81,8 +81,12 @@ Role role_of(sim::UnitKind kind) noexcept {
     case sim::UnitKind::HoverTank:
     case sim::UnitKind::RocketTank:
     case sim::UnitKind::Scout: // armed, and it fights: a light gun is still a gun at the front
+    case sim::UnitKind::AssaultTank:
+    case sim::UnitKind::Walker:
+    case sim::UnitKind::Apc: // a light gun, but a gun: it fights at the front
         return Role::Frontline;
     case sim::UnitKind::MortarBike:
+    case sim::UnitKind::Bomber: // the lobbed shell, like the bike's: it stands off
         return Role::Standoff;
     case sim::UnitKind::Turret:
     case sim::UnitKind::Factory:
@@ -102,8 +106,12 @@ int threat_of(sim::UnitKind kind) noexcept {
     case sim::UnitKind::HoverTank:
     case sim::UnitKind::MortarBike:
     case sim::UnitKind::RocketTank:
+    case sim::UnitKind::AssaultTank:
+    case sim::UnitKind::Walker:
+    case sim::UnitKind::Bomber:
         return 3;
     case sim::UnitKind::Turret:
+    case sim::UnitKind::Apc:   // a light gun, like the scout's
     case sim::UnitKind::Scout: // a light raider: armed, but outgunned by any tank's 3
         return 2;
     case sim::UnitKind::Factory:

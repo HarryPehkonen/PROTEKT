@@ -339,11 +339,14 @@ TEST(Observer, TheTwoSupportVehiclesPrintAsMortarbikeAndRockettank) {
 TEST(Observer, RenamingTheSupportVehiclesMovedNoRecordedBattle) {
     // Recorded on the code BEFORE the rename, with the scripted commanders on both sides. A kind's
     // index is hashed, so were 4 or 5 to move, this number would move with it.
+    // RE-RECORDED 2026-10-30 for the scavenger's thick armour (60 -> 100 hp): the skirmish has
+    // scavengers under fire, so their longer lives change the battle. Old value
+    // 9673985124876689061 is reproduced exactly by setting `kScavengerHp` back to 60.
     const Scenario scenario = skirmish(42);
     ai::ScriptedCommander player(30);
     ai::ScriptedCommander enemy(30);
     const BattleLog log = run_battle(scenario, {}, 600, &player, &enemy);
-    EXPECT_EQ(log.final_hash, 9673985124876689061ULL);
+    EXPECT_EQ(log.final_hash, 17892257750622002389ULL);
 }
 
 TEST(Observer, TheFiredStreamForAScriptedBattleIsUnchanged) {

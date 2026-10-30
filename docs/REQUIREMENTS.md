@@ -434,7 +434,7 @@ What is built, what is not:
   reads 1 2 3 4 5, a visible gap, then 9 and 0. Numbering by position is wrong, and the drawn order is not
   key order (`Menu.TheKeysAreNotContiguousAndTheGapIsDrawn`, `Menu.TheRowOrderIsNotKeyOrder`).
 - [SHIPPED 3e799a0] A key's verb depends on the selection: `3` is `Deploy`, `Scavenge` or
-  `Tank 40` (`Menu.TheThreeKeyMeansWhateverTheSelectionMakesIt`).
+  `Tank 55` (`Menu.TheThreeKeyMeansWhateverTheSelectionMakesIt`).
 - [SHIPPED 3e799a0] **The top row is a live readout, not a binding.** It is `SPACE Select` when
   something of yours is under the cursor, `SPACE Deploy` once `3` has armed the deploy, `SPACE <item>`
   once a build row has armed that item, and a bare `SPACE` otherwise. It is never dimmed, and pressing
@@ -1111,11 +1111,22 @@ choice are menu and setup concerns; the C-series HUD has no map or side picker. 
   which faction an earlier capture was playing: it showed `Harvester 20`, and harvester is the ALIEN name,
   so that capture was the alien side. So the shipping code's list is not keyed by faction (below).
 - [SHIPPED 3e799a0] What the code has today: ONE build list, and it is handed out by `Side::Player`
-  (`build_items`), i.e. the alien list of seven rows (its row 1 prints the kind's own name, `Scavenger`, since 2026-10-30; rows 4-6 still carry the alien names `Hauler`/`Builder`/`Healer`) — `1 Scavenger 20`, `2 Scout 45`, `3 Tank 40`,
+  (`build_items`), i.e. the alien list of seven rows (its row 1 prints the kind's own name, `Scavenger`, since 2026-10-30; rows 4-6 still carry the alien names `Hauler`/`Builder`/`Healer`) — `1 Scavenger 20`, `2 Scout 45`, `3 Tank 55`,
   `4 Hauler 30`, `5 Builder 40`, `6 Healer 50`, `7 Service Pod 2` — drawn as a QUOTATION of the reference
   capture, with the cost composed onto the row and weighed against the sim's real ledger. Because both the
   numbers and the faction keying differ from the ruling above, this table is exactly what RB5 and the
   per-side roster replace.
+- [SHIPPED — this change, hash filled at commit; PROVISIONAL, Harri's to correct after playing] THE FACTORY'S
+  LIST (2026-10-30, his words: "just propose something ... You build, I play, then we correct"). Eight rows of
+  its own, never shared with the recycler's: `1 Mortar Bike 45`, `2 MSL Scout 45`, `3 Tank 55`,
+  `4 Rocket Tank 65`, `5 Assault Tank 70`, `6 Walker 100`, `7 APC 50`, `8 Bomber 75` -- the costs are his own
+  menu screenshot's; the build times follow 20 ticks a scrap (900, 900, 900 [the tank's exception], 1300,
+  1400, 2000, 1000, 1500). Four new kinds were appended as `UnitKind` 10-13 (`AssaultTank`, `Walker`, `Apc`,
+  `Bomber`), their stats derived from the tank's; the bomber's bomb is the mortar's lob and 1.5-tile splash.
+  The shapes are placeholders. The sim charges ONE price per kind, so the recycler's `3 Tank` row now reads 55
+  too (it was 40); a per-list price would be a design change, not a drawing one. The SCAVENGER's hull went
+  from 60 to the tank's 100 hp ("they should take a beating -- they have thick armour"): 25 scout shots
+  to kill, up from 15. The recycler's turret-on-`3` is deliberately NOT decided (a per-faction question).
 - [SHIPPED 3e799a0] The ENEMY side's build list is EMPTY, and deliberately so: inventing one "would put names
   in the mouth of a capture that never showed them". A deployment on the enemy side therefore draws no build
   rows.

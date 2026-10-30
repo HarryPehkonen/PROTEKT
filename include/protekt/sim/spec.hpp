@@ -172,7 +172,7 @@ static_assert(kRocketSpec.max_travel.raw >= kRocketSpec.range.raw,
 inline constexpr std::array<UnitSpec, static_cast<std::size_t>(kUnitKindCount)> kUnitSpecs{{
     {"tank", kTankHp, Fixed::from_raw(kTankSpeedRaw), Fixed::from_raw(kTankRangeRaw), kTankDamage,
      kTankCooldownTicks, Fixed::from_raw(kProjectileSpeedRaw), Fixed::from_raw(kBoltArcRaw),
-     kBoltTravel, Fixed::zero(), Fixed::zero(), false, 40, 900, 0, Fixed::zero()},
+     kBoltTravel, Fixed::zero(), Fixed::zero(), false, 55, 900, 0, Fixed::zero()},
     {"turret", kTurretHp, Fixed::from_raw(kTurretSpeedRaw), Fixed::from_raw(kTurretRangeRaw),
      kTurretDamage, kTurretCooldownTicks, Fixed::from_raw(kProjectileSpeedRaw),
      Fixed::from_raw(kBoltArcRaw), kBoltTravel, Fixed::zero(), Fixed::zero(), false, 0, 0, 0,
@@ -187,11 +187,11 @@ inline constexpr std::array<UnitSpec, static_cast<std::size_t>(kUnitKindCount)> 
     {"mortarbike", kTankHp * 3 / 4, Fixed::from_raw(kTankSpeedRaw / 2),
      Fixed::from_raw(kMortarRangeRaw), kTankDamage * 2, kTankCooldownTicks * 3,
      Fixed::from_raw(kProjectileSpeedRaw / 2), Fixed::from_raw(kMortarArcRaw), kBoltTravel,
-     Fixed::from_raw(kMortarSplashRaw), Fixed::from_raw(kMortarGravityRaw), false, 0, 0, 0,
+     Fixed::from_raw(kMortarSplashRaw), Fixed::from_raw(kMortarGravityRaw), false, 45, 900, 0,
      Fixed::zero()},
     {"rockettank", kTankHp, Fixed::from_raw(kTankSpeedRaw), Fixed::from_raw(kRocketRangeRaw),
      kTankDamage * 3, kTankCooldownTicks * 5, Fixed::from_raw(kProjectileSpeedRaw * 3 / 4),
-     Fixed::from_raw(kBoltArcRaw), kBoltTravel, Fixed::zero(), Fixed::zero(), false, 0, 0, 0,
+     Fixed::from_raw(kBoltArcRaw), kBoltTravel, Fixed::zero(), Fixed::zero(), false, 65, 1300, 0,
      Fixed::zero()},
     // The scavenger (C2): no gun, no range, no damage -- `range` zero is what makes it unarmed
     // everywhere in the sim (fire, targeting, the AI's threat list). It is fast ENOUGH to reach
@@ -219,6 +219,37 @@ inline constexpr std::array<UnitSpec, static_cast<std::size_t>(kUnitKindCount)> 
     {"scout", kTankHp / 2, Fixed::from_raw(kTankSpeedRaw * 3 / 2), Fixed::from_raw(kScoutRangeRaw),
      (kTankDamage + 1) / 2, kTankCooldownTicks / 3, Fixed::from_raw(kProjectileSpeedRaw),
      Fixed::from_raw(kBoltArcRaw), kBoltTravel, Fixed::zero(), Fixed::zero(), false, 45, 900, 0,
+     Fixed::zero()},
+    // The four kinds Harri's factory menu adds (2026-10-30). EVERY number below is PROVISIONAL,
+    // derived from the tank's (hp 100, damage 8, cooldown 15, speed 0.2 tiles/tick, range 12) so
+    // the ladder stays readable; costs are from his own menu screenshot, and build times follow one
+    // rule, 20 ticks per scrap (the scout's 45 -> 900), as the four rows above do bar the tank's
+    // 900. The assault tank: the tank's gun at 3/2 the hull and 3/2 the damage, a straight bolt.
+    {"assaulttank", kTankHp * 3 / 2, Fixed::from_raw(kTankSpeedRaw), Fixed::from_raw(kTankRangeRaw),
+     kTankDamage * 3 / 2, kTankCooldownTicks, Fixed::from_raw(kProjectileSpeedRaw),
+     Fixed::from_raw(kBoltArcRaw), kBoltTravel, Fixed::zero(), Fixed::zero(), false, 70, 1400, 0,
+     Fixed::zero()},
+    // The walker: twice the tank's hull and damage and twice its cooldown, at half its speed (it
+    // walks); the tank's range and a straight bolt.
+    {"walker", kTankHp * 2, Fixed::from_raw(kTankSpeedRaw / 2), Fixed::from_raw(kTankRangeRaw),
+     kTankDamage * 2, kTankCooldownTicks * 2, Fixed::from_raw(kProjectileSpeedRaw),
+     Fixed::from_raw(kBoltArcRaw), kBoltTravel, Fixed::zero(), Fixed::zero(), false, 100, 2000, 0,
+     Fixed::zero()},
+    // The APC: the tank's hull, 3/2 its speed (the fastest ground vehicle, level with the scout),
+    // the scout's 10-tile range. It has no troop-carrying role yet, so it carries a light gun --
+    // half the tank's damage and half its cooldown -- rather than being a unit that cannot fight at
+    // all. A straight bolt.
+    {"apc", kTankHp, Fixed::from_raw(kTankSpeedRaw * 3 / 2), Fixed::from_raw(kScoutRangeRaw),
+     kTankDamage / 2, kTankCooldownTicks / 2, Fixed::from_raw(kProjectileSpeedRaw),
+     Fixed::from_raw(kBoltArcRaw), kBoltTravel, Fixed::zero(), Fixed::zero(), false, 50, 1000, 0,
+     Fixed::zero()},
+    // The bomber: 3/4 the tank's hull and speed, the mortar's 14-tile range, twice the tank's
+    // damage and three times its cooldown. The bomb IS the existing lobbed shell -- the mortar's
+    // gravity, arc, bolt speed and 1.5-tile splash -- so the bomber needs no new ballistics.
+    {"bomber", kTankHp * 3 / 4, Fixed::from_raw(kTankSpeedRaw * 3 / 4),
+     Fixed::from_raw(kMortarRangeRaw), kTankDamage * 2, kTankCooldownTicks * 3,
+     Fixed::from_raw(kProjectileSpeedRaw / 2), Fixed::from_raw(kMortarArcRaw), kBoltTravel,
+     Fixed::from_raw(kMortarSplashRaw), Fixed::from_raw(kMortarGravityRaw), false, 75, 1500, 0,
      Fixed::zero()},
 }};
 

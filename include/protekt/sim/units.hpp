@@ -52,9 +52,23 @@ enum class UnitKind : std::uint8_t {
     /// after DeployedRecycler, never inserted, for the reason every kind above was: the kind is
     /// hashed, packed into observations and serialised in replays. What it is FOR is the game
     /// layer's: its radar reaches twice as far as any other kind's (`viewer_radar_radius`).
-    Scout = 9
+    Scout = 9,
+    /// The heavier tank (the factory's build row 5): the tank's gun at 3/2 the hull and the damage.
+    /// Appended after Scout, never inserted, for the reason every kind above was: it moves no
+    /// recorded hash, observation or replay.
+    AssaultTank = 10,
+    /// The slow, heavy walker (build row 6): twice the tank's hull and damage at half its speed.
+    /// Appended after AssaultTank so that no recorded value moves.
+    Walker = 11,
+    /// The armoured personnel carrier (build row 7): the fastest ground vehicle. It has no
+    /// troop-carrying role yet, so it carries a light gun. Appended after Walker so that no
+    /// recorded value moves.
+    Apc = 12,
+    /// The bomber (build row 8): a lobbed-shell carrier, the mortar's bomb on a wide flat hull.
+    /// Appended after Apc so that no recorded value moves.
+    Bomber = 13
 };
-inline constexpr int kUnitKindCount = 10;
+inline constexpr int kUnitKindCount = 14;
 
 /// Tanks and hover tanks: every rule written "for a tank" (orders, retreat, defend, swap, the AI's
 /// hunters) takes both. The hover tank has the tank's profile and, until it is drivable, its
@@ -248,9 +262,12 @@ inline constexpr std::int32_t kTankRangeRaw = 12 << 16; ///< 12 tiles
 inline constexpr std::int32_t kTurretRangeRaw = 16 << 16;
 inline constexpr std::int32_t kArriveRadiusRaw = 1 << 16; ///< 1 tile
 
-/// The scavenger (C2). Unarmed and lightly built -- three fifths of a tank's hit points, three
-/// quarters of its speed -- because a hauler is meant to be worth escorting, not worth arming.
-inline constexpr std::uint16_t kScavengerHp = kTankHp * 3 / 5;
+/// The scavenger (C2). Unarmed, and thickly armoured: the tank's own hull, 100 (Harri, 2026-10-30:
+/// "they should take a beating -- they have thick armour"; it WAS 3/5 of that, 60). The consequence
+/// is the reason to stop there: a scout deals 4 damage a shot, so killing one now takes 25 shots
+/// where it took 15. Above 100 a 20-scrap unarmed vehicle becomes unraidable. Its speed (three
+/// quarters of the tank's), its unarmed state and its 20/300 build row are unchanged.
+inline constexpr std::uint16_t kScavengerHp = kTankHp;
 inline constexpr std::int32_t kScavengerSpeedRaw = kTankSpeedRaw * 3 / 4;
 /// How close (tiles) a scavenger must be to a piece of wreckage to pick it up, and to its own
 /// factory to hand the load over. Both are radii, not tiles: the mover stops inside them.

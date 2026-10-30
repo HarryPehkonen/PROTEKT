@@ -822,11 +822,12 @@ TEST(MenuDigit, EveryRowThatCannotActYetDoesNothingAndTheSimIsUntouched) {
     };
     // The digits that name NO row, or a row the model dims: the recycler has no 4/5/9/0 (its table
     // is ~,1,2,3); the harvester's 5 PICK ME UP is dim and 6/7/8 are the drawn gap; a deployment's
-    // digits are its build list and 8/9/0 name no row; a lone vehicle's 5 PICK ME UP is dim and
-    // 6/7/8 are the gap. The acting rows are proved by their own tests below.
+    // digits are its build list and 8/9/0 name no row (a factory's, 1..8, so 9/0 name none); a lone
+    // vehicle's 5 PICK ME UP is dim and 6/7/8 are the gap. The acting rows are proved by their own
+    // tests below.
     const std::vector<Case> cases{{UnitKind::Recycler, {4, 5, 9, 0}},
                                   {UnitKind::Scavenger, {5, 6, 7, 8}},
-                                  {UnitKind::Factory, {0, 8, 9}},
+                                  {UnitKind::Factory, {0, 9}},
                                   {UnitKind::Tank, {5, 6, 7, 8}}};
     for (const Case& c : cases) {
         MenuRig rig = make_menu_rig();
