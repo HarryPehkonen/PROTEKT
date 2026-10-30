@@ -79,19 +79,24 @@ constexpr std::array kDeploymentRows{
     return BuildItem{key, label, sim::spec_of(kind).cost, kind};
 }
 
-/// The tank row, `3 Guardian`, which the recycler's list and the factory's list both hold: one row,
-/// so the two lists cannot disagree about its key, its name or its price.
-constexpr BuildItem kGuardian = kinded("3", "Guardian", sim::UnitKind::Tank);
+/// The tank row, `3 Tank`, which the recycler's list and the factory's list both hold: one row,
+/// so the two lists cannot disagree about its key, its name or its price. "Guardian" is the ALIEN
+/// faction's turret, not a name for a tank, and is deliberately not written: the sim has no
+/// faction.
+constexpr BuildItem kTankRow = kinded("3", "Tank", sim::UnitKind::Tank);
 
 /// The player's build list, in key order, with the costs the reference capture draws on the rows.
-/// The three rows that name a kind the sim has (Harvester is the scavenger, Guardian the tank)
+/// The three rows that name a kind the sim has (the Scavenger, the Scout, the Tank)
 /// take their cost from the spec table; the rest keep the reference's literal cost and name no
 /// kind, because no `UnitKind` is a Hauler, a Builder, a Healer or a Service Pod yet. The R3 roster
 /// owns the item names; this table is the reference's reading of them.
 constexpr std::array kPlayerBuildList{
-    kinded("1", "Harvester", sim::UnitKind::Scavenger),
+    // "Harvester" is the ALIEN faction's name for the Scavenger; the sim has no faction to key it
+    // on,
+    // so it is deliberately not written yet.
+    kinded("1", "Scavenger", sim::UnitKind::Scavenger),
     kinded("2", "Scout", sim::UnitKind::Scout),
-    kGuardian,
+    kTankRow,
     BuildItem{"4", "Hauler", 30, std::nullopt},
     BuildItem{"5", "Builder", 40, std::nullopt},
     BuildItem{"6", "Healer", 50, std::nullopt},
@@ -101,7 +106,7 @@ constexpr std::array kPlayerBuildList{
 /// The player's FACTORY's build list: the tank, on `3`, and nothing else. The tank is the only item
 /// Harri has named for it ("the factory builds more -- a tank is one, I believe that's under 3");
 /// the rest of the list is not written yet, and adding an item is one line here.
-constexpr std::array kPlayerFactoryBuildList{kGuardian};
+constexpr std::array kPlayerFactoryBuildList{kTankRow};
 
 /// The item's name and the cost the row shows, as one string: the cost is drawn ON the build row,
 /// so it rides in the verb and there is no second place for the number to drift to.

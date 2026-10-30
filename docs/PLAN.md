@@ -377,7 +377,7 @@ and the amber leader line down the gutter between them; the line's turn along th
 on the selected unit's blip are the next slice. Its TYPE is now its own (MENU-FONT, 2026-10-27): a 1.5 px text cell inside the
 unchanged 2 px-cell bars, antialiased by box-filtering the 5x5 masks onto whole pixels, with
 lowercase drawn as 0.71-scale small capitals -- the one deliberate exception to the HUD's single
-type scale, at the user's request. Which casing the menu's own strings take is not yet ruled.
+type scale, at the user's request. Which casing the menu's own strings take is not yet ruled. The rows now print the name of the kind they build -- the scavenger's row says `Scavenger`, the tank's says `Tank` -- because the ALIEN names (`Harvester`, `Guardian`) belong to the other faction and are not written until factions exist. And a completed command sequence now closes the menu and unselects, while queuing and arming leave the selection alone (2026-10-30).
 One decision is open
 on `UnitSpec`: its `buildable` flag is false for every kind and never read, while the factory builds a
 tank anyway — wire it or delete it (Harri's call, held as a question).

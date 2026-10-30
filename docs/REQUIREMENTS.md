@@ -415,7 +415,7 @@ What is built, what is not:
 
 | selection | subject | rows, top to bottom | status |
 |---|---|---|---|
-| a `Factory` | Deployment | `SPACE` state row; `TAB Close Menu`; `~ Drop Off`; then 7 build rows `1 Harvester 20`, `2 Scout 45`, `3 Guardian 40`, `4 Hauler 30`, `5 Builder 40`, `6 Healer 50`, `7 Service Pod 2` | [SHIPPED 3e799a0] |
+| a `Factory` | Deployment | `SPACE` state row; `TAB Close Menu`; `~ Drop Off`; then 7 build rows `1 Harvester 20`, `2 Scout 45`, `3 Guardian 40` *(as shipped; rows 1 and 3 print `Scavenger` and `Tank` since 2026-10-30)*, `4 Hauler 30`, `5 Builder 40`, `6 Healer 50`, `7 Service Pod 2` | [SHIPPED 3e799a0] |
 | a `Scavenger` | Harvester | `SPACE`; `TAB Close Menu`; `~ Select Unit` (dim); `1 Follow Me`; `2 Go to Nav`; `3 Scavenge`; `4 Hold`; `5 Pick Me Up` (dim); *gap where 6, 7, 8 would be*; `9 Bailout`; `0 Recycle` | [SHIPPED 3e799a0] |
 | a `Turret` | Turret | the `SPACE` state row alone — not even `TAB Close Menu` | [SHIPPED 3e799a0] |
 | a recycler / matriarch, not deployed | Recycler | `SPACE`; `TAB Close Menu`; `~ Rotate Buildings` (dim); `1 Follow Me`; `2 Go to Nav`; `3 Deploy` | [SHIPPED 3e799a0] — modelled and tested, but no `UnitKind` maps to it, so no selection can reach it (`app/player_view.cpp:12-27`) |
@@ -434,7 +434,7 @@ What is built, what is not:
   reads 1 2 3 4 5, a visible gap, then 9 and 0. Numbering by position is wrong, and the drawn order is not
   key order (`Menu.TheKeysAreNotContiguousAndTheGapIsDrawn`, `Menu.TheRowOrderIsNotKeyOrder`).
 - [SHIPPED 3e799a0] A key's verb depends on the selection: `3` is `Deploy`, `Scavenge` or
-  `Guardian 40` (`Menu.TheThreeKeyMeansWhateverTheSelectionMakesIt`).
+  `Tank 40` (`Menu.TheThreeKeyMeansWhateverTheSelectionMakesIt`).
 - [SHIPPED 3e799a0] **The top row is a live readout, not a binding.** It is `SPACE Select` when
   something of yours is under the cursor, `SPACE Deploy` once `3` has armed the deploy, `SPACE <item>`
   once a build row has armed that item, and a bare `SPACE` otherwise. It is never dimmed, and pressing
@@ -617,7 +617,7 @@ Harri 2026-10-16, 2026-10-23, 2026-10-24 (brief).
 - [SHIPPED 1b64326] The sim has no faction concept. The only partition is `sim::Side::Player` and
   `sim::Side::Enemy` (`units.hpp:51`), and both sides spawn the same kinds.
 - [SHIPPED 3e799a0] Today's names are not keyed by team. The unit-kind label is `SCAVENGER`
-  (`roster.cpp:63`) and the player's build list says `Harvester` (`menu.cpp:64`), both on the one side.
+  (`roster.cpp:63`) and the player's build list names those rows `Scavenger` and `Tank` (`menu.cpp`); they printed the ALIEN names (`Harvester`, `Guardian`) until 2026-10-30, both on the one side.
   `menu.hpp:93-95` already says "the same kind is a HARVESTER on one side and a Scavenger on the other",
   so the model expects per-side naming and the table does not provide it.
 - [DECIDED — not built] Per-team naming is re-keyed when factions exist. Until then no code should
@@ -844,7 +844,7 @@ not -- pinned by `Swap.XOnAnOwnScavengerDrivesItEvenThoughItIsUnarmed` and
     kind and its spawn landed (`ddc6423`, `a584683`), and the rows that CAN act now act (`d80ce95` — `1`
     and `4`). The rows still inert are inert because the SIM has nothing for them to do (`3 Deploy` awaits
     RB3, the build rows await RB5, `2 Go to Nav` awaits a ruling), not because no code routes the digits.
-24. **Names are not keyed by team**, and `Harvester` and `SCAVENGER` both appear on the player's side.
+24. **Names are not keyed by team**, and the player's own list prints `Scavenger` for the scavenger kind and `Tank` for the tank, while `Harvester`/`Guardian` are the same two vehicles on the alien faction.
     Section 9.
 25. **Menu costs are on another scale from the sim's.** The menu quotes HARVESTER 20 to SERVICE POD 2;
     the sim spends 4 loads on a tank. RB5 replaces them (`menu.cpp:59-62`).
@@ -1054,7 +1054,7 @@ player or the enemy side. HIS RULING, 2026-10-24 (Part A section 9) [DECIDED —
 - [DECIDED — not built] Its name and its appearance are PER FACTION: `Harvester` on the alien side,
   `SCAVENGER` on the human side. The name follows the faction and not the side, so the sim's one kind wears
   two names. Today the code is not keyed by faction at all: the kind's label is `SCAVENGER`
-  (`src/game/row.cpp:94-95`) and the one shipped build list says `Harvester` (`src/game/menu.cpp:63-67`),
+  (`src/game/row.cpp:94-95`) and the one shipped build list names those rows `Scavenger` and `Tank` since 2026-10-30 (`src/game/menu.cpp`),
   both on the player's side. Part A section 9 records the drift.
 - [DECIDED — not built] A DEPLOYED scavenger is selectable by NO key at all. HIS CORRECTION, 2026-10-24:
   *"When a scavenger is deployed, as opposed to a recycler, there is no key that can select the deployed
@@ -1111,7 +1111,7 @@ choice are menu and setup concerns; the C-series HUD has no map or side picker. 
   which faction an earlier capture was playing: it showed `Harvester 20`, and harvester is the ALIEN name,
   so that capture was the alien side. So the shipping code's list is not keyed by faction (below).
 - [SHIPPED 3e799a0] What the code has today: ONE build list, and it is handed out by `Side::Player`
-  (`build_items`), i.e. the alien list of seven rows — `1 Harvester 20`, `2 Scout 45`, `3 Guardian 40`,
+  (`build_items`), i.e. the alien list of seven rows (its row 1 prints the kind's own name, `Scavenger`, since 2026-10-30; rows 4-6 still carry the alien names `Hauler`/`Builder`/`Healer`) — `1 Scavenger 20`, `2 Scout 45`, `3 Tank 40`,
   `4 Hauler 30`, `5 Builder 40`, `6 Healer 50`, `7 Service Pod 2` — drawn as a QUOTATION of the reference
   capture, with the cost composed onto the row and weighed against the sim's real ledger. Because both the
   numbers and the faction keying differ from the ruling above, this table is exactly what RB5 and the

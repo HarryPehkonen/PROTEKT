@@ -3472,12 +3472,12 @@ void append_hud_panels(std::vector<SceneVertex>& out, const SceneOptions& option
 /// attack. Both stand centred over the unit's projected top, ABOVE the slot its own floating bar
 /// (`append_unit_bars`) takes, so the two never overlap: the label's plate, then under it the bar.
 /// The label is the unit's kind in the HUD's capitals (`kind_label`, the command row's own names)
-/// on a black plate. The bar is a black track with a fill on its LEFT: full width and bright green
+/// on a black plate. The bar is a black track with a fill on its LEFT: full width
 /// at full health, shortened from the right as the unit is hurt (the empty part is the black
-/// track), coloured on `bar_segments`' ramp -- green, yellow, red, near-black. The row's bars vary
-/// in colour ONLY (his ruling, BAR-LOOK); this one shrinks as well, by his later word. A unit at
-/// zero hit points draws neither. Sizes are fractions of the frame, so they do not change with
-/// range.
+/// track), always `kEnemyBarRed`. The row's bars vary in colour ONLY (his ruling, BAR-LOOK) and
+/// stay on `bar_segments`' ramp; this one shrinks as well, by his later word, and never takes the
+/// ramp. A unit at zero hit points draws neither. Sizes are fractions of the frame, so they do not
+/// change with range.
 constexpr float kReadoutCellFraction = 2.0F / 450.0F;
 constexpr float kReadoutPadFraction = 2.0F / 450.0F;
 constexpr float kReadoutGapFraction = 2.0F / 450.0F;
@@ -3561,7 +3561,7 @@ void append_attack_readout(std::vector<SceneVertex>& out, const SceneOptions& op
         max_hp > 0 ? static_cast<float>(hp) / static_cast<float>(max_hp) : 0.0F};
     rect(marks_at * kHudFaceRatio, bar_left, bar_top, bar_left + bar_w, bar_bottom, kReadoutBlack);
     rect(marks_at, bar_left, bar_top, bar_left + (bar_w * fraction.at(0)), bar_bottom,
-         bar_segments(fraction).front().rgb);
+         kEnemyBarRed);
 }
 
 /// Four ticks round an OPEN centre and a small dot in it, in the plane the camera looks along,

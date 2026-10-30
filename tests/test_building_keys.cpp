@@ -159,8 +159,10 @@ TEST(BuildingKeys, WithAMenuOpenTheDigitIsTheMenusAndNotTheBuildings) {
 
     player.handle(digit_frame(1), base.sim, base.options);
 
-    EXPECT_EQ(selected(player), (std::vector<UnitId>{base.second_tank}))
-        << "the selection stays on the tank: the digit went to the tank's menu";
+    const std::vector<sim::Order> orders = player.take_orders();
+    ASSERT_EQ(orders.size(), 1U) << "the digit went to the tank's menu: Follow Me posts an order";
+    EXPECT_EQ(orders.at(0).unit, base.second_tank);
+    EXPECT_TRUE(selected(player).empty()) << "and a completed Follow Me closes the menu";
 }
 
 TEST(BuildingKeys, TheHolderIsTheSameFactTheRowDraws) {

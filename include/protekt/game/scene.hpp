@@ -28,6 +28,13 @@
 /// rises and falls by about 16 m. Every number below is in metres; the conversion happens once.
 namespace protekt::game {
 
+/// Harri's ruling: an enemy's bar is always red, so it can never be mistaken for one of my own.
+/// The fill length still follows the enemy's health; only the colour is fixed. It is the ramp's own
+/// red (`bar_segments`' 0.33 anchor is 1.0, 0.15, 0.10) pulled a touch off it: a friendly bar is
+/// red only when its vehicle is nearly dead, an enemy's is red at every health. It lives here, not
+/// in scene.cpp, so the test that pins it reads the same constant.
+inline constexpr std::array<float, 3> kEnemyBarRed{0.95F, 0.10F, 0.10F};
+
 inline constexpr float kMetresPerTile = 2.0F;
 inline constexpr float kMetresPerHeightUnit = kMetresPerTile / 64.0F;
 

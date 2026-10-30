@@ -504,23 +504,18 @@ TEST(AttackReadout, TheLabelIsAboveTheBarAndBothAreCentredOverTheUnit) {
     EXPECT_NEAR(r.plate.centre_x(), top.x, 0.5F);
 }
 
-TEST(AttackReadout, AtFullHealthTheBarIsFullWidthAndBrightGreen) {
+TEST(AttackReadout, AtFullHealthTheBarIsFullWidthAndRedNotTheFriendlyGreen) {
     const Watch w = watch_enemy(1000); // the enemy has not been touched
     ASSERT_EQ(w.sim.find(w.enemy)->hp, sim::spec_of(UnitKind::Tank).hp);
     const Readout r = read_readout(w, scene_of(w, false), scene_of(w, true));
     EXPECT_NEAR(r.fill.width(), r.track.width(), 0.01F);
     EXPECT_NEAR(r.fill.left, r.track.left, 0.01F);
-    const std::array<float, 1> whole{1.0F};
-    EXPECT_EQ(r.fill_colour, bar_segments(whole).front().rgb)
-        << "the row's own top-of-the-ramp green, not a second green";
-    EXPECT_GT(r.fill_colour.at(1), r.fill_colour.at(0)) << "and it is green";
+    EXPECT_EQ(r.fill_colour, kEnemyBarRed) << "an enemy's bar is red even when it is whole";
     EXPECT_EQ(r.track_colour, (std::array<float, 3>{0.0F, 0.0F, 0.0F}))
         << "the empty part is black";
 }
 
-TEST(AttackReadout, AsHealthFallsTheBarShortensFromTheRightAndTheColourMoves) {
-    std::array<std::array<float, 3>, 3> colours{};
-    std::size_t at = 0;
+TEST(AttackReadout, AsHealthFallsTheBarShortensFromTheRightAndTheColourStaysRed) {
     for (const std::uint16_t hp : {std::uint16_t{66}, std::uint16_t{40}, std::uint16_t{12}}) {
         const Watch w = watch_enemy(hp);
         ASSERT_TRUE(w.sim.find(w.enemy)->alive) << "stepped to at most " << hp;
@@ -531,13 +526,8 @@ TEST(AttackReadout, AsHealthFallsTheBarShortensFromTheRightAndTheColourMoves) {
         EXPECT_NEAR(r.fill.left, r.track.left, 0.01F) << "the filled part is on the LEFT";
         EXPECT_NEAR(r.fill.width(), r.track.width() * fraction, 0.01F)
             << "and is cut from the right, in proportion to health";
-        const std::array<float, 1> now{fraction};
-        EXPECT_EQ(r.fill_colour, bar_segments(now).front().rgb);
-        colours.at(at++) = r.fill_colour;
+        EXPECT_EQ(r.fill_colour, kEnemyBarRed) << "the colour does not follow health";
     }
-    EXPECT_NE(colours.at(0), colours.at(1));
-    EXPECT_NE(colours.at(1), colours.at(2));
-    EXPECT_GT(colours.at(0).at(1), colours.at(2).at(1)) << "green drains away as it is hurt";
 }
 
 TEST(AttackReadout, TheRampRunsGreenYellowRedAndVeryDarkRed) {

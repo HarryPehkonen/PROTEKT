@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "protekt/game/interaction.hpp"
+#include "protekt/game/menu.hpp"
 #include "protekt/game/nav_marks.hpp"
 #include "protekt/game/pick.hpp"
 #include "protekt/game/row.hpp"
@@ -383,8 +384,9 @@ TEST(AttackList, TWithNothingUnderTheCrosshairArmsAndADigitAttacksThatRow) {
     expect_attack(orders.at(0), rig.own.at(1), kFarTank);
     EXPECT_EQ(player.message(), "attacking the target in row 3.");
     EXPECT_FALSE(player.attack_armed());
-    EXPECT_EQ(selected(player), (std::vector<UnitId>{rig.own.at(1)}))
-        << "the digit was the list's, not a roster key";
+    EXPECT_TRUE(selected(player).empty())
+        << "the attack is a completed sequence: the menu closes and un-selects. That the digit was "
+           "the list's and not a roster key is the attack order above, posted by the hover tank";
 }
 
 /// The attack list's reach is the DRIVEN unit's radar (VIS): a hostile 79 tiles out is listed from
@@ -667,8 +669,7 @@ TEST(MenuDigit, OneOnARecyclerOrdersItToFollowTheDrivenCraft) {
     const auto* follow = std::get_if<sim::orders::Follow>(&orders.at(0).payload);
     ASSERT_NE(follow, nullptr) << "FOLLOW ME is a Follow order";
     EXPECT_EQ(follow->target, rig.tank) << "and the one it shadows is the craft the player drives";
-    EXPECT_EQ(selected(player), (std::vector<UnitId>{rig.recycler}))
-        << "a command keeps the selection";
+    EXPECT_TRUE(selected(player).empty()) << "a completed command closes the menu and un-selects";
 }
 
 TEST(MenuDigit, OneFollowsTheCraftTheXSwapMovedTheDrivingTo) {
@@ -737,6 +738,8 @@ TEST(MenuDigit, FourWithTheDrivenHarvesterSelectedHoldsOnlyTheOthers) {
     ASSERT_EQ(orders.size(), 1U);
     EXPECT_EQ(orders.at(0).unit, rig.harvester_a)
         << "ordering the driven craft would fight its driver";
+    ASSERT_TRUE(selected(player).empty()) << "Hold completed the sequence";
+    select_kind(rig, player, UnitKind::Scavenger); // the menu closed, so the group is picked again
     player.handle(digit(1), rig.sim, rig.options);
     const std::vector<sim::Order> follow = player.take_orders();
     ASSERT_EQ(follow.size(), 1U);
@@ -898,6 +901,21 @@ TEST(MenuDigit, ZeroOnHarvestersSendsThemToTheRecycler) {
         ASSERT_NE(recycle, nullptr) << "0 RECYCLE is a Recycle order";
         EXPECT_EQ(recycle->recycler, rig.recycler) << "at the side's own recycler";
     }
+}
+
+TEST(MenuDigit, ACompletedSequenceClosesTheMenuAndUnselects) {
+    // Harri: "Once I complete any valid sequence on the left hand menu, it should be closed, and
+    // any vehicles or buildings should be un-selected." The menu is derived from the selection, so
+    // an empty selection IS a closed menu.
+    MenuRig rig = make_menu_rig();
+    Interaction player{rig.tank};
+    select_kind(rig, player, UnitKind::Scavenger);
+    ASSERT_EQ(selected(player).size(), 2U);
+    ASSERT_NE(menu_subject_of(rig.sim, player.selection().units()), MenuSubject::None);
+    player.handle(digit(0), rig.sim, rig.options); // Recycle posts orders
+    ASSERT_EQ(player.take_orders().size(), 2U);
+    EXPECT_TRUE(selected(player).empty());
+    EXPECT_EQ(menu_subject_of(rig.sim, player.selection().units()), MenuSubject::None);
 }
 
 // DEPLOY: `un-deployed recycler menu -> 3` ARMS the deploy; the reticle picks the ground, `~`

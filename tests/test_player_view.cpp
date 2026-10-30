@@ -207,12 +207,11 @@ TEST(PlayerView, TheBuildMenuIsTheSelectedProducersOwnList) {
 
     const auto factory_list = menu_of(factory);
     const auto recycler_list = menu_of(recycler);
-    EXPECT_EQ(factory_list,
-              (std::vector<std::pair<std::string, std::string>>{{"3", "Guardian 40"}}))
+    EXPECT_EQ(factory_list, (std::vector<std::pair<std::string, std::string>>{{"3", "Tank 40"}}))
         << "a selected factory draws the factory's list: the tank, on 3";
     ASSERT_EQ(recycler_list.size(), 7U) << "a selected deployed recycler draws the recycler's list";
-    EXPECT_EQ(recycler_list.front(), (std::pair<std::string, std::string>{"1", "Harvester 20"}));
-    EXPECT_EQ(recycler_list.at(2), (std::pair<std::string, std::string>{"3", "Guardian 40"}));
+    EXPECT_EQ(recycler_list.front(), (std::pair<std::string, std::string>{"1", "Scavenger 20"}));
+    EXPECT_EQ(recycler_list.at(2), (std::pair<std::string, std::string>{"3", "Tank 40"}));
     EXPECT_NE(factory_list, recycler_list) << "two producers, one list: the old shape";
 }
 

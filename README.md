@@ -135,6 +135,8 @@ grey. The menu's text is smaller than the rest of the HUD's and smooth-edged (an
 bars of the same size; a lowercase letter, where a row has one (the `m` of `17m`), is drawn as a
 smaller capital on the same baseline.
 
+A row that **completes an order** -- `Follow Me`, `Hold`, `Go to Nav`, `Attack` (through the attack list), `Recycle` -- closes the menu and clears the selection as soon as its orders are posted, which is what BZ2 does and what Harri asked for. The rows that **queue a build** or **arm a click** leave the selection alone: their sequence is not finished yet.
+
 ### The group bar and the ship instrument
 
 The bar on each top-strip plate has **one segment per living vehicle** of the group, side by side and
@@ -146,7 +148,7 @@ There is no health bar above the radar (retired 2026-10-23). The hull you are si
 **ship instrument**, bottom right: a C-shaped ring of segments, its upper arc the hull in green and its
 lower arc the ammunition in blue, the two readings as numbers in the ring's opening, and the four
 weapons beside it with the one you have up lit. A small bar also floats over every other
-field unit in view (not factories or turrets), green for yours and red for a hostile.
+field unit in view (not factories or turrets), green for yours and red for a hostile. The readout that names the enemy you have targeted is **red at every health** as well, so a hostile's bar can never be read as one of yours, whose colour falls with its damage.
 
 ### The colour calibration view
 

@@ -250,7 +250,7 @@ TEST(Menu, TheThreeKeyMeansWhateverTheSelectionMakesIt) {
     ASSERT_NE(row_for(deployment, "3"), nullptr);
     EXPECT_EQ(row_for(recycler, "3")->verb, "Deploy");
     EXPECT_EQ(row_for(harvester, "3")->verb, "Scavenge");
-    EXPECT_EQ(row_for(deployment, "3")->verb, "Guardian 40");
+    EXPECT_EQ(row_for(deployment, "3")->verb, "Tank 40");
 
     // The verbs the capture verified, in the order it draws them -- the rest of both menus.
     ASSERT_NE(row_for(harvester, "9"), nullptr);
@@ -374,8 +374,8 @@ TEST(Menu, ABuildRowDrawsItsCostAndDimsWhenItIsUnaffordable) {
         EXPECT_TRUE(row->enabled) << "with 999 banked, " << item.label << " is affordable";
     }
     // And the captured names and costs themselves, as the quotation they are.
-    EXPECT_EQ(row_for(rich, "1")->verb, "Harvester 20");
-    EXPECT_EQ(row_for(rich, "3")->verb, "Guardian 40");
+    EXPECT_EQ(row_for(rich, "1")->verb, "Scavenger 20");
+    EXPECT_EQ(row_for(rich, "3")->verb, "Tank 40");
     EXPECT_EQ(row_for(rich, "4")->verb, "Hauler 30");
     EXPECT_EQ(row_for(rich, "5")->verb, "Builder 40");
     EXPECT_EQ(row_for(rich, "6")->verb, "Healer 50");
@@ -444,9 +444,9 @@ TEST(Menu, TheRecyclersListIsTheSevenItsKeysAndCostsHaveAlwaysBeen) {
         std::string_view label;
         int cost;
     };
-    const std::array<Row, 7> want{{{"1", "Harvester", 20},
+    const std::array<Row, 7> want{{{"1", "Scavenger", 20},
                                    {"2", "Scout", 45},
-                                   {"3", "Guardian", 40},
+                                   {"3", "Tank", 40},
                                    {"4", "Hauler", 30},
                                    {"5", "Builder", 40},
                                    {"6", "Healer", 50},
@@ -1635,6 +1635,28 @@ TEST(Menu, ASelectionOwnsTheSubjectOfTheLivingKindItHolds) {
     const std::vector<sim::UnitId> with_stranger{sim::UnitId{9999}, harvester};
     ASSERT_EQ(sim.find(sim::UnitId{9999}), nullptr);
     EXPECT_EQ(menu_subject_of(sim, with_stranger), MenuSubject::Harvester);
+}
+
+// Harri's naming rule, not a cosmetic preference: a Scavenger and a Harvester are the same machine
+// differing by FACTION, and "Guardian" is the alien TURRET. The sim has no faction yet, so each row
+// prints the name of the kind it actually builds.
+TEST(Menu, ARowPrintsTheNameOfTheKindItBuildsNotTheAlienFactionsName) {
+    const std::span<const BuildItem> items
+        = build_items(sim::Side::Player, MenuSubject::Deployment);
+    bool saw_scavenger = false;
+    bool saw_tank = false;
+    for (const BuildItem& item : items) {
+        if (item.kind == sim::UnitKind::Scavenger) {
+            saw_scavenger = true;
+            EXPECT_EQ(item.label, "Scavenger") << "Harvester is the alien faction's name";
+        }
+        if (item.kind == sim::UnitKind::Tank) {
+            saw_tank = true;
+            EXPECT_EQ(item.label, "Tank") << "Guardian is the alien faction's turret";
+        }
+    }
+    EXPECT_TRUE(saw_scavenger);
+    EXPECT_TRUE(saw_tank);
 }
 
 } // namespace

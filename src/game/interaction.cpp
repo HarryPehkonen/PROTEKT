@@ -531,8 +531,14 @@ void Interaction::menu_digit(const sim::Sim& sim, const SceneOptions& options, i
         }
     }
     shift_batch_ = 0; // a digit that is not a build row ends a shift gesture
-    // A row the model dims, or draws no digit for, is not a command: the digit does nothing, as it
-    // did before the menu was routed. Only the rows below can act yet; the rest stay inert.
+    // Harri: a COMPLETED menu sequence closes the menu and un-selects. The menu is derived from the
+    // selection (`menu_subject_of`), so the handlers that POST orders -- Follow Me, Hold, Go to
+    // Nav, Recycle, and the attack list's row (Attack only arms that list; the row completes it) --
+    // end by clearing it. Two kinds of row deliberately do not: the build rows (above) keep the
+    // factory selected so the player can keep queueing, and Deploy only ARMS a click, so its
+    // sequence is not complete until the click lands. A row the model dims, or draws no digit for,
+    // is not a command: the digit does nothing, as it did before the menu was routed. Only the rows
+    // below can act yet; the rest stay inert.
     if (row == rows.end() || !row->enabled) {
         return;
     }
@@ -721,6 +727,7 @@ void Interaction::follow_driven(const sim::Sim& sim) {
     remember(orders);
     pending_.insert(pending_.end(), orders.begin(), orders.end());
     message_ = "following you.";
+    selection_.clear(); // the sequence is complete: the menu closes (see `menu_digit`)
 }
 
 void Interaction::hold_selection(const sim::Sim& sim) {
@@ -749,6 +756,7 @@ void Interaction::hold_selection(const sim::Sim& sim) {
     remember(orders);
     pending_.insert(pending_.end(), orders.begin(), orders.end());
     message_ = "holding here.";
+    selection_.clear(); // the sequence is complete: the menu closes (see `menu_digit`)
 }
 
 void Interaction::go_to_highlighted_mark(const SceneOptions& options) {
@@ -789,6 +797,7 @@ void Interaction::go_to_highlighted_mark(const SceneOptions& options) {
     remember(orders);
     pending_.insert(pending_.end(), orders.begin(), orders.end());
     message_ = "moving to the highlighted nav point.";
+    selection_.clear(); // the sequence is complete: the menu closes (see `menu_digit`)
 }
 
 void Interaction::attack_from_menu(const sim::Sim& sim, const SceneOptions& options) {
@@ -840,6 +849,7 @@ void Interaction::recycle_selection(const sim::Sim& sim) {
     remember(orders);
     pending_.insert(pending_.end(), orders.begin(), orders.end());
     message_ = "returning to the recycler.";
+    selection_.clear(); // the sequence is complete: the menu closes (see `menu_digit`)
 }
 
 void Interaction::send_to_mark(int number, const SceneOptions& options) {
@@ -942,6 +952,7 @@ void Interaction::attack_row(const std::vector<TargetRow>& rows, int key) {
     remember(orders);
     pending_.insert(pending_.end(), orders.begin(), orders.end());
     message_ = kAttacking.at(static_cast<std::size_t>(key));
+    selection_.clear(); // the sequence is complete: the menu closes (see `menu_digit`)
 }
 
 void Interaction::select_roster_key(const SceneOptions& options, int group_key) {

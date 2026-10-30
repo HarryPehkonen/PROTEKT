@@ -890,6 +890,46 @@ TEST(RowDrawing, AVehicleKeyHasAFullBarAtFullHealth) {
     EXPECT_EQ(runs.front().colour, (std::array<float, 3>{0.15F, 0.95F, 0.25F})) << "bright green";
 }
 
+// Harri: "Enemy ships' health bar is always red. They need to be easy to distinguish from my own
+// ships' health." Red for them, the ramp for mine: the pair is the whole point.
+TEST(RowDrawing, AnEnemysReadoutBarIsRedAtFullHealthWhileMyRowBarIsGreen) {
+    Rig rig = make_rig();
+    UnitId enemy{};
+    for (const sim::Unit& unit : rig.sim.units()) {
+        if (unit.side == Side::Enemy) {
+            enemy = unit.id;
+        }
+    }
+    ASSERT_TRUE(enemy.valid());
+    ASSERT_EQ(rig.sim.find(enemy)->hp, sim::profile(UnitKind::Tank).hp) << "a full-health enemy";
+
+    SceneOptions plain = rig.options;
+    plain.row = nullptr;
+    const Scene bare = build_scene(rig.sim, plain);
+    plain.attack_target = enemy;
+    const Scene with = build_scene(rig.sim, plain);
+    ASSERT_GT(with.vertices.size(), bare.vertices.size()) << "the readout was not drawn";
+    // The readout is the run of vertices `with` has that `bare` does not: cut the common tail away,
+    // and the bar's fill is the last quad of what is left.
+    const auto same_vertex = [](const SceneVertex& a, const SceneVertex& b) {
+        return a.position == b.position && a.colour == b.colour && a.alpha == b.alpha && a.u == b.u
+               && a.v == b.v;
+    };
+    std::size_t tail = 0;
+    while (tail < bare.vertices.size()
+           && same_vertex(bare.vertices.at(bare.vertices.size() - 1 - tail),
+                          with.vertices.at(with.vertices.size() - 1 - tail))) {
+        ++tail;
+    }
+    const std::array<float, 3> fill = with.vertices.at(with.vertices.size() - tail - 1).colour;
+    EXPECT_EQ(fill, kEnemyBarRed) << "an enemy's bar is red";
+    const std::array<float, 3> friendly
+        = bar_runs(row_pixels(rig.sim, rig.options), 4).front().colour;
+    EXPECT_EQ(friendly, bar_segments(std::array<float, 1>{1.0F}).front().rgb)
+        << "and mine, at full health, is still the green end of the ramp";
+    EXPECT_NE(fill, friendly);
+}
+
 TEST(RowDrawing, TheBarIsOneSegmentPerVehicleColouredNotShortenedByItsHealth) {
     Rig rig
         = make_rig({{UnitKind::Tank, Side::Enemy, 47, 41}, {UnitKind::Tank, Side::Enemy, 47, 42}});
