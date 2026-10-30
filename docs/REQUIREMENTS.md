@@ -1150,11 +1150,23 @@ choice are menu and setup concerns; the C-series HUD has no map or side picker. 
   slice.
 - [DECIDED — not built] The name table is keyed by (kind, faction), matching the vehicle-name rule in
   section 9. The matriarch is the recycler's ALIEN NAME, not a separate kind.
+- [SHIPPED 1b7086a] THE FACTION AXIS (2026-10-30). `game/faction.hpp` holds `Faction {Human, Alien}` and a
+  `Factions` pair on the scene's options; `build_items` and the menu's input take a FACTION instead of a side, so
+  the player's recycler draws the HUMAN list (above) and the alien list exists beside it. The sim does not know the
+  word faction, and NO recorded battle hash moved. The human `2 Scout` is 50 and the factory's `2 MSL Scout` became
+  a kind of its own (14 -- the scout's hull, the rocket tank's rocket, all provisional) so both lists can be right
+  at the same time. This supersedes the `[SHIPPED 3e799a0]` list record above, whose rows 4-6 named the alien
+  vehicles as the player's. OWED by Harri and NOT decided here: the alien scout's documented 45 against the kind's
+  50 (it would need an alien kind of its own); the Scout's build time, which the 20-ticks-a-scrap rule would put at
+  1000 rather than 900; whether the MSL Scout gets the scout's doubled radar reach; the alien factory's own names
+  and costs (it draws the human eight until then); and a scenario key for the side-to-faction mapping, which today
+  is set only in code, so a mission cannot yet swap the sides.
 
 PROVENANCE: `protekt-open-questions.md` Q6.2 and Q6.1 (Harri 2026-10-24, quoted, with the read-back table);
 Harri 2026-10-25 (relayed Battlezone II reference: Matriarch, Kiln/Forge, Dower, Power Lung, Antenna
 Mound/Overseer Array, Gun Spire);
-`slices.json` RB5, RECY; code plus commit — `3e799a0` (`include/protekt/game/menu.hpp:90-96,140-152`,
+Harri 2026-10-30 (the faction axis: the alien-side switch as scenario data, and the alien kit's own silhouettes);
+`slices.json` RB5, RECY; code plus commit — `3e799a0`, and the faction axis in `1b7086a` (`include/protekt/game/menu.hpp:90-96,140-152`,
 `src/game/menu.cpp:59-67,113-116`), `include/protekt/sim/spec.hpp:35-36,110-112`, and Part A sections 6 and 9
 for the drift.
 
