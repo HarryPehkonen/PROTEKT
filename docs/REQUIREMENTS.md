@@ -1116,7 +1116,7 @@ choice are menu and setup concerns; the C-series HUD has no map or side picker. 
   capture, with the cost composed onto the row and weighed against the sim's real ledger. Because both the
   numbers and the faction keying differ from the ruling above, this table is exactly what RB5 and the
   per-side roster replace.
-- [SHIPPED — this change, hash filled at commit; PROVISIONAL, Harri's to correct after playing] THE FACTORY'S
+- [SHIPPED 406ee6c; PROVISIONAL, Harri's to correct after playing] THE FACTORY'S
   LIST (2026-10-30, his words: "just propose something ... You build, I play, then we correct"). Eight rows of
   its own, never shared with the recycler's: `1 Mortar Bike 45`, `2 MSL Scout 45`, `3 Tank 55`,
   `4 Rocket Tank 65`, `5 Assault Tank 70`, `6 Walker 100`, `7 APC 50`, `8 Bomber 75` -- the costs are his own
