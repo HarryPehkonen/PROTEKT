@@ -492,8 +492,13 @@ TEST(Menu, TheFactorysListIsEightRowsInKeyOrderWithTheirOwnLabelsAndCosts) {
         EXPECT_EQ(got.key, expected.key);
         EXPECT_EQ(got.label, expected.label);
         EXPECT_EQ(got.cost, expected.cost) << expected.label;
-        ASSERT_TRUE(got.kind.has_value()) << expected.label << " names a kind the sim has";
-        EXPECT_EQ(*got.kind, expected.kind) << expected.label;
+        if (!got.kind.has_value()) {
+            // tidy's bugprone-unchecked-optional-access wants the guard in a branch it can see: an
+            // ASSERT_TRUE above is not enough, and neither is `.value()`.
+            ADD_FAILURE() << expected.label << " names a kind the sim has";
+            continue;
+        }
+        EXPECT_EQ(got.kind.value(), expected.kind) << expected.label;
         EXPECT_EQ(got.cost, sim::spec_of(expected.kind).cost) << "the row is the queue's price";
     }
     // The menu draws the state row, TAB, `~`, then the eight build rows.
