@@ -151,7 +151,17 @@ horizon colour with distance (aerial perspective, as Battlezone II's did): clear
 the meshed rim, linear in between. Thickened on Harri's ruling of 2026-10-30 -- "Can you make the fog
 thicker?" -- after he reported nothing to see, which measurement confirmed: with the first ramp (12 m
 start, `t^2`) the fog reached 111 of a live frame's 720 rows, only past 18.9 m, and a fog-free render
-differed from a fogged one by 0.011/255 of full scale. World only -- the HUD is never fogged.
+differed from a fogged one by 0.011/255 of full scale. The thickening was still not enough, and the
+ramp was never the problem. On 2026-10-31 he reported seeing no fog at all in play, and counting
+pixels by PERCEPTIBLE shift -- not, as the earlier figure did, by any byte that differed at all --
+agreed with him: with the thickened ramp the ground moved by under 8 levels of 255 at every
+distance, and the only movement above that sat in the sky. The blend was applied to the vertex
+colour, which the fragment shader then multiplied by the tile's texture; the texture is a darkening
+multiply, so it crushed the haze to a fraction of its strength. The fog now travels as a per-vertex
+AMOUNT and is mixed in the fragment stage, after the texture, so the same ramp finally has its full
+strength: the ground shifts 23 levels at the far band, 8 at the middle distance and under 1
+underfoot, with the sim hash unchanged and every ink test checking that the amount a vertex carries
+is the one its distance asks for. World only -- the HUD is never fogged.
 
 
 Ranked by *risk reduction per unit of work*, not by visibility. The flashy part (rendering) was

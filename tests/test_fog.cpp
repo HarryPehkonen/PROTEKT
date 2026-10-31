@@ -20,6 +20,7 @@
 namespace {
 
 using protekt::game::build_scene;
+using protekt::game::fog_amount;
 using protekt::game::fog_far_metres;
 using protekt::game::fogged;
 using protekt::game::ground_metres;
@@ -99,6 +100,50 @@ TEST(Fog, AVertexAtOrBeyondTheFarDistanceIsTheHorizonColourExactly) {
     }
 }
 
+TEST(Fog, TheAmountIsZeroAtAndInsideTheNearDistance) {
+    const float far = fog_far_metres(kRadius);
+    for (const float distance : {0.0F, kFogNearMetres * 0.5F, kFogNearMetres}) {
+        EXPECT_EQ(fog_amount(distance, far), 0.0F) << "at " << distance << " m";
+    }
+}
+
+TEST(Fog, TheAmountIsOneAtAndBeyondTheFarDistance) {
+    const float far = fog_far_metres(kRadius);
+    for (const float distance : {far, far + 0.001F, far * 1.5F, 1.0e6F}) {
+        EXPECT_EQ(fog_amount(distance, far), 1.0F) << "bitwise, not close: at " << distance << " m";
+    }
+}
+
+TEST(Fog, TheAmountRisesStrictlyBetweenTheTwoEnds) {
+    const float far = fog_far_metres(kRadius);
+    float previous = 0.0F;
+    for (float d = kFogNearMetres + 1.0F; d < far; d += 3.0F) {
+        const float now = fog_amount(d, far);
+        EXPECT_GT(now, previous) << "at " << d << " m";
+        EXPECT_LT(now, 1.0F) << "at " << d << " m";
+        previous = now;
+    }
+}
+
+TEST(Fog, ASmallerFarGivesALargerAmountAtTheSameDistance) {
+    for (const float distance : {10.0F, 20.0F, 30.0F}) {
+        EXPECT_GT(fog_amount(distance, 40.0F), fog_amount(distance, 60.0F)) << "at " << distance;
+        EXPECT_GT(fog_amount(distance, 60.0F), fog_amount(distance, 100.0F)) << "at " << distance;
+    }
+}
+
+TEST(Fog, FoggedIsTheColourMovedTowardTheHorizonByTheAmount) {
+    const float far = fog_far_metres(kRadius);
+    const Vec3 colour{0.1F, 0.7F, 0.3F};
+    for (const float distance : {12.0F, 20.0F, 31.0F}) {
+        const float amount = fog_amount(distance, far);
+        const Vec3 expected{colour[0] + ((horizon()[0] - colour[0]) * amount),
+                            colour[1] + ((horizon()[1] - colour[1]) * amount),
+                            colour[2] + ((horizon()[2] - colour[2]) * amount)};
+        EXPECT_EQ(fogged(colour, distance, far), expected) << "at " << distance << " m";
+    }
+}
+
 TEST(Fog, TheFarEndIsTheRadiusTheSceneCullsTo) {
     EXPECT_EQ(fog_far_metres(kRadius), static_cast<float>(kRadius) * kMetresPerTile)
         << "the fog and the cull must agree, or the rim ends in a line against the sky";
@@ -153,24 +198,26 @@ TEST(Fog, TheTerrainFadesFromItsOwnPaintToTheHorizon) {
     for (std::size_t i = 0; i < terrain_vertices(); ++i) {
         const SceneVertex& v = scene.vertices.at(i);
         const float d = eye_distance(o, v);
+        // The paint is untouched at every distance -- the fog is the AMOUNT, applied by the
+        // fragment shader after the texture -- and the amount is what the distance says.
+        EXPECT_EQ(v.fog, fog_amount(d, far)) << "at " << d << " m";
+        // The grey of the slope's light (a quad's light is its own, so only a FLAT quad is exactly
+        // white), never tinted toward the horizon, near or far.
+        EXPECT_EQ(v.colour[0], v.colour[1]) << "terrain paint is never tinted";
+        EXPECT_EQ(v.colour[1], v.colour[2]) << "terrain paint is never tinted";
+        EXPECT_NE(v.colour, horizon()) << "the colour is the raw lighting, not the horizon";
         if (d <= kFogNearMetres) {
             ++near_count;
-            // Untouched by the fog: still the grey of the slope's light (a quad's light is its
-            // own, so only a FLAT quad is exactly white), never tinted toward the horizon.
-            EXPECT_EQ(v.colour[0], v.colour[1]) << "inside the near distance, terrain is unfogged";
-            EXPECT_EQ(v.colour[1], v.colour[2]) << "inside the near distance, terrain is unfogged";
+            EXPECT_EQ(v.fog, 0.0F) << "inside the near distance, terrain is unfogged";
             EXPECT_GT(v.colour[0], 0.85F);
             EXPECT_LT(v.colour[0], 1.05F);
         } else if (d >= far) {
             ++far_count;
-            EXPECT_EQ(v.colour, horizon()) << "at the rim the terrain IS the horizon";
+            EXPECT_EQ(v.fog, 1.0F) << "at the rim the terrain IS the horizon";
         } else {
             ++between;
-            if (d > kFogNearMetres + 2.0F) {
-                EXPECT_NE(v.colour, kTerrainLight)
-                    << "a ramp starts from nothing: only past 2 m of it is it visible";
-            }
-            EXPECT_NE(v.colour, horizon());
+            EXPECT_GT(v.fog, 0.0F);
+            EXPECT_LT(v.fog, 1.0F);
         }
         EXPECT_EQ(v.alpha, 1.0F) << "fog moves colour, never alpha";
     }
@@ -198,7 +245,7 @@ TEST(Fog, AHullBeyondTheFarDistanceIsTheHorizonColour) {
     for (std::size_t i = first; i < scene.vertices.size(); ++i) {
         const SceneVertex& v = scene.vertices.at(i);
         ASSERT_GT(eye_distance(o, v), fog_far_metres(kRadius));
-        EXPECT_EQ(v.colour, horizon()) << "the hull and its shadow belong to the world: fogged";
+        EXPECT_EQ(v.fog, 1.0F) << "the hull and its shadow belong to the world: fogged";
     }
 }
 
@@ -213,7 +260,7 @@ TEST(Fog, ANavBeaconBeyondTheFarDistanceIsTheHorizonColour) {
     ASSERT_GT(with.vertices.size(), without.vertices.size()) << "no beacon was drawn";
     for (std::size_t i = without.vertices.size(); i < with.vertices.size(); ++i) {
         EXPECT_GT(eye_distance(o, with.vertices.at(i)), fog_far_metres(kRadius));
-        EXPECT_EQ(with.vertices.at(i).colour, horizon());
+        EXPECT_EQ(with.vertices.at(i).fog, 1.0F);
     }
 }
 

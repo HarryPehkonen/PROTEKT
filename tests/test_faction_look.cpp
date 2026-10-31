@@ -12,6 +12,7 @@
 #include <limits>
 #include <vector>
 
+#include "haze.hpp"
 #include "protekt/game/faction.hpp"
 #include "protekt/game/scene.hpp"
 #include "protekt/sim/sim.hpp"
@@ -61,7 +62,7 @@ constexpr std::uint64_t kHumanScavengerHash = 15785359456797730901ULL;
     const Scene scene = build_scene(with, options);
     const auto same = [](const SceneVertex& a, const SceneVertex& b) {
         return a.position == b.position && a.colour == b.colour && a.alpha == b.alpha && a.u == b.u
-               && a.v == b.v;
+               && a.v == b.v && a.fog == b.fog;
     };
     std::size_t head = 0;
     while (head < base.vertices.size() && head < scene.vertices.size()
@@ -87,7 +88,10 @@ constexpr std::uint64_t kHumanScavengerHash = 15785359456797730901ULL;
         for (const float p : v.position) {
             mix(p);
         }
-        for (const float c : v.colour) {
+        // The colour AS THE FRAME DRAWS IT (the raw ink mixed toward the horizon by the vertex's
+        // own fog amount), so this hash is still the one the hauler had when the fog was applied to
+        // the colour at build time: the fog moving to the fragment stage moved no pixel of it.
+        for (const float c : protekt::game::haze::seen(v, v.colour)) {
             mix(c);
         }
         mix(v.alpha);

@@ -6,9 +6,11 @@ layout(location = 0) in vec3 in_position;
 layout(location = 1) in vec3 in_colour;
 layout(location = 2) in float in_alpha;
 layout(location = 3) in vec2 in_uv;
+layout(location = 4) in float in_fog;
 layout(location = 0) out vec3 v_colour;
 layout(location = 1) out vec2 v_uv;
 layout(location = 2) out float v_alpha;
+layout(location = 3) out float v_fog;
 
 layout(push_constant) uniform Push {
     mat4 view_proj;
@@ -18,5 +20,6 @@ void main() {
     v_colour = in_colour;
     v_uv = in_uv;
     v_alpha = in_alpha;
+    v_fog = in_fog;
     gl_Position = push.view_proj * vec4(in_position, 1.0);
 }

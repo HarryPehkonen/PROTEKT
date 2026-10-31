@@ -4,6 +4,7 @@
 // colour image into a host-visible buffer. No window, no surface, no swapchain.
 #include "protekt/render/renderer.hpp"
 
+#include "protekt/game/scene.hpp"
 #include "protekt/math/math.hpp"
 #include "protekt/rng.hpp"
 
@@ -54,6 +55,7 @@ struct Vertex {
     float alpha{1.0F};
     float u{};
     float v{};
+    float fog{};
 };
 
 constexpr std::uint32_t kUnitVertices = 36;
@@ -76,7 +78,7 @@ Vec3 ground_colour(std::uint64_t seed) {
 void emit_triangle(std::vector<Vertex>& out, const Vec3& a, const Vec3& b, const Vec3& c,
                    const Vec3& colour) {
     const auto emit = [&out, &colour](const Vec3& position) {
-        out.push_back(Vertex{position, colour, 1.0F, 0.0F, 0.0F});
+        out.push_back(Vertex{position, colour, 1.0F, 0.0F, 0.0F, 0.0F});
     };
     emit(a);
     emit(b);
@@ -608,13 +610,17 @@ private:
             return false;
         }
 
-        VkPushConstantRange push{VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(Mat4)};
+        // The matrix for the vertex stage, then the fog colour for the fragment stage after it.
+        const std::array<VkPushConstantRange, 2> push{{
+            {VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(Mat4)},
+            {VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(Mat4), sizeof(Vec3)},
+        }};
         VkPipelineLayoutCreateInfo layout{};
         layout.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
         layout.setLayoutCount = 1;
         layout.pSetLayouts = &set_layout_;
-        layout.pushConstantRangeCount = 1;
-        layout.pPushConstantRanges = &push;
+        layout.pushConstantRangeCount = static_cast<std::uint32_t>(push.size());
+        layout.pPushConstantRanges = push.data();
         if (vkCreatePipelineLayout(device_, &layout, nullptr, &pipeline_layout_) != VK_SUCCESS) {
             pipeline_layout_ = VK_NULL_HANDLE;
             error = "vkCreatePipelineLayout failed";
@@ -632,11 +638,12 @@ private:
         stages[1].pName = "main";
 
         VkVertexInputBindingDescription binding{0, sizeof(Vertex), VK_VERTEX_INPUT_RATE_VERTEX};
-        std::array<VkVertexInputAttributeDescription, 4> attributes{{
+        std::array<VkVertexInputAttributeDescription, 5> attributes{{
             {0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, position)},
             {1, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, colour)},
             {2, 0, VK_FORMAT_R32_SFLOAT, offsetof(Vertex, alpha)},
             {3, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex, u)},
+            {4, 0, VK_FORMAT_R32_SFLOAT, offsetof(Vertex, fog)},
         }};
         VkPipelineVertexInputStateCreateInfo vertex_input{};
         vertex_input.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
@@ -1141,6 +1148,10 @@ private:
                                 &descriptor_set_, 0, nullptr);
         vkCmdPushConstants(cmd_, pipeline_layout_, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(Mat4),
                            mvp.data());
+        // The fog is the sky's own horizon ring: one source, never restated here.
+        const Vec3& fog_colour = game::kSkyRingColours.at(game::kSkyHorizonRing);
+        vkCmdPushConstants(cmd_, pipeline_layout_, VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(Mat4),
+                           sizeof(Vec3), fog_colour.data());
         if (vertex_count > 0) {
             const VkDeviceSize offset = 0;
             vkCmdBindVertexBuffers(cmd_, 0, 1, &vertex_buffer_, &offset);

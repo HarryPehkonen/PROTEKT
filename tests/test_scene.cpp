@@ -57,60 +57,17 @@ using protekt::math::Vec3;
 
 constexpr float kTolerance = 0.01F;
 
-/// The ink a colour was drawn from, with the fog divided back out. `fogged` is a per-channel lerp
-/// toward the horizon colour, so its inverse is exact -- and matching on the DRAWN colour stops
-/// discriminating as the fog thickens, because every far colour converges on the horizon colour.
-/// (Measured with a 5 m/linear ramp: 11,820 terrain vertices fell within 0.01 of the fogged
-/// wreckage ink.) A test that names an ink must un-fog before comparing, or any change to the ramp
-/// breaks a paint test. At or beyond the rim the fog is total and the ink is unrecoverable.
-std::optional<std::array<float, 3>> ink_behind_fog(float distance, int radius_tiles,
-                                                   const std::array<float, 3>& colour) {
-    const float far = protekt::game::fog_far_metres(radius_tiles);
-    if (distance >= far) {
-        return std::nullopt;
-    }
-    float amount = 0.0F;
-    if (distance > protekt::game::kFogNearMetres) {
-        const float t
-            = (distance - protekt::game::kFogNearMetres) / (far - protekt::game::kFogNearMetres);
-        amount = 1.0F;
-        for (int step = 0; step < protekt::game::kFogRampExponent; ++step) {
-            amount *= t;
-        }
-    }
-    const float apart = 1.0F - amount;
-    const protekt::math::Vec3 fog
-        = protekt::game::kSkyRingColours.at(protekt::game::kSkyHorizonRing);
-    std::array<float, 3> own{};
-    for (std::size_t channel = 0; channel < 3; ++channel) {
-        own.at(channel) = fog.at(channel) + ((colour.at(channel) - fog.at(channel)) / apart);
-    }
-    return own;
-}
-
-/// The same for a vertex, at its own distance from the eye.
+/// The ink a vertex was drawn from. The colour is the raw ink now -- the fog is a separate amount
+/// the fragment shader mixes in last -- so there is nothing to divide back out, and it is readable
+/// at the rim too (the old un-fogging lost it there). What a vertex must still earn is its fog:
+/// one whose amount is not what its distance from the eye asks for is not read at all, so a scene
+/// that fogs wrongly fails every test that names an ink.
 std::optional<std::array<float, 3>> ink_behind_fog(const SceneOptions& options,
                                                    const SceneVertex& vertex) {
-    const protekt::math::Vec3 eye{options.camera.x, options.camera.y, options.camera.z};
-    const protekt::math::Vec3 at{vertex.position[0], vertex.position[1], vertex.position[2]};
-    const protekt::math::Vec3 delta{at[0] - eye[0], at[1] - eye[1], at[2] - eye[2]};
-    const float distance
-        = std::sqrt((delta[0] * delta[0]) + (delta[1] * delta[1]) + (delta[2] * delta[2]));
-    return ink_behind_fog(
-        distance, options.radius_tiles,
-        std::array<float, 3>{vertex.colour.at(0), vertex.colour.at(1), vertex.colour.at(2)});
-}
-
-/// How far a unit's mark is from the eye, in metres. The mark is read at a corner of the unit's box
-/// and this is the unit's own centre: they differ by under a metre, far inside what the ramp tells
-/// apart.
-float eye_to_unit_metres(const SceneOptions& options, const protekt::sim::Unit& unit) {
-    constexpr float kFixedOne = static_cast<float>(protekt::sim::Fixed::kOne);
-    const float ux = static_cast<float>(unit.x.raw) / kFixedOne * kMetresPerTile;
-    const float uz = static_cast<float>(unit.y.raw) / kFixedOne * kMetresPerTile;
-    const float dx = ux - options.camera.x;
-    const float dz = uz - options.camera.z;
-    return std::sqrt((dx * dx) + (dz * dz));
+    if (!protekt::game::haze::fog_is_right(options, vertex)) {
+        return std::nullopt;
+    }
+    return std::array<float, 3>{vertex.colour.at(0), vertex.colour.at(1), vertex.colour.at(2)};
 }
 
 SceneOptions options_at(float x, float z, std::uint64_t seed = 42, int radius = 8) {
@@ -472,11 +429,16 @@ TEST(SceneTerrain, EveryQuadSamplesTheWholeTileOfItsTypeTheSameWayRound) {
                                      protekt::game::height_metres(seed, tx + 1, ty + 1),
                                      0};
             const float light = oracle_light(corners);
+            ASSERT_TRUE(protekt::game::haze::fog_is_right(view, v))
+                << "tile " << tx << "," << ty << " vertex " << i << ": the fog is its distance's";
             const auto want_colour
-                = protekt::game::haze::seen(view, v, protekt::math::Vec3{light, light, light});
+                = protekt::game::haze::seen(v, protekt::math::Vec3{light, light, light});
+            const auto got_colour = protekt::game::haze::seen(v, v.colour);
             for (std::size_t c = 0; c < 3; ++c) {
-                ASSERT_NEAR(v.colour.at(c), want_colour.at(c), 2e-4F)
-                    << "the tile carries the colour; the light is the slope's, grey, then hazed";
+                ASSERT_NEAR(v.colour.at(c), light, 2e-4F)
+                    << "the tile carries the colour; the light is the slope's, grey";
+                ASSERT_NEAR(got_colour.at(c), want_colour.at(c), 2e-4F)
+                    << "and the frame draws it hazed by the vertex's own amount";
             }
         }
     }
@@ -1208,17 +1170,11 @@ TEST(AimCue, AnOwnUnitAndAHostileAreMarkedDifferently) {
     // The claim is about the INK of the mark, so the haze is divided back out first: the two units
     // are drawn from different cameras, and a thick fog drags both families toward the horizon's
     // blue by however far each one's own camera stood from it.
-    const std::optional<std::array<float, 3>> own_ink = ink_behind_fog(
-        eye_to_unit_metres(own_scenes.used, *own), own_scenes.used.radius_tiles, own_mark);
-    const std::optional<std::array<float, 3>> enemy_ink = ink_behind_fog(
-        eye_to_unit_metres(enemy_scenes.used, *enemy), enemy_scenes.used.radius_tiles, enemy_mark);
-    if (!own_ink.has_value() || !enemy_ink.has_value()) { // for the analyzer, not the test
-        FAIL() << "a marked unit must be inside the fog's rim for its ink to be read back";
-        return;
-    }
+    const std::array<float, 3> own_ink = own_mark;
+    const std::array<float, 3> enemy_ink = enemy_mark;
     EXPECT_NE(own_ink, enemy_ink);
-    EXPECT_GT(own_ink->at(1), own_ink->at(2) + 0.2F) << "yours is warm amber, not blue";
-    EXPECT_GT(enemy_ink->at(0), enemy_ink->at(2) + 0.4F) << "a hostile stays in the red family";
+    EXPECT_GT(own_ink.at(1), own_ink.at(2) + 0.2F) << "yours is warm amber, not blue";
+    EXPECT_GT(enemy_ink.at(0), enemy_ink.at(2) + 0.4F) << "a hostile stays in the red family";
 }
 
 TEST(AimCue, ASelectedUnitUnderTheCrosshairStillReadsAsSelected) {
@@ -3462,10 +3418,12 @@ TEST(SceneShading, TerrainIsNotShaded) {
     // D3: the terrain's colour is its tile's; the vertex light is a flat white, never sun-shaded.
     const auto sim = facing_sim();
     const Scene scene = facing_scene(sim, 0.0F, 0.0F);
-    EXPECT_EQ(
-        scene.vertices.front().colour,
-        protekt::game::haze::seen(facing_options(sim), scene.vertices.front(), {1.0F, 1.0F, 1.0F}))
+    const SceneVertex& first = scene.vertices.front();
+    EXPECT_EQ(protekt::game::haze::seen(first, first.colour),
+              protekt::game::haze::seen(first, {1.0F, 1.0F, 1.0F}))
         << "white light, however far the haze takes it";
+    EXPECT_TRUE(protekt::game::haze::fog_is_right(facing_options(sim), first))
+        << "and the haze is the vertex's own amount";
 }
 
 // ---------------------------------------------------------------- which way a tank faces
@@ -4145,17 +4103,19 @@ TEST(SceneUv, ASkirmishPastItsTerrainAndTheCalibrationSceneLeaveTheUvAtZeroToo) 
     }
 }
 
-TEST(SceneUv, TheVertexIsNineFloatsWithNoPaddingBecauseItIsUploadedVerbatim) {
-    EXPECT_EQ(sizeof(SceneVertex), std::size_t{9} * sizeof(float));
+TEST(SceneUv, TheVertexIsTenFloatsWithNoPaddingBecauseItIsUploadedVerbatim) {
+    // Ten since the fog amount was appended to the tail: position, colour, alpha, uv, fog.
+    EXPECT_EQ(sizeof(SceneVertex), std::size_t{10} * sizeof(float));
     EXPECT_EQ(offsetof(SceneVertex, alpha), std::size_t{6} * sizeof(float));
     EXPECT_EQ(offsetof(SceneVertex, u), std::size_t{7} * sizeof(float));
     EXPECT_EQ(offsetof(SceneVertex, v), std::size_t{8} * sizeof(float));
+    EXPECT_EQ(offsetof(SceneVertex, fog), std::size_t{9} * sizeof(float));
 }
 
 TEST(SceneUv, PinnedVertexCountsSurviveTheWiderVertex) {
     const Scene scene = protekt::game::build_calibration_scene(options_at(60.0F, 60.0F, 5, 4));
     EXPECT_EQ(scene.vertices.size(), std::size_t{18});
-    EXPECT_EQ(scene.vertices.size() * sizeof(SceneVertex), std::size_t{18} * 36U);
+    EXPECT_EQ(scene.vertices.size() * sizeof(SceneVertex), std::size_t{18} * 40U);
 }
 
 } // namespace
@@ -5927,21 +5887,6 @@ protekt::sim::Sim a_battle_that_leaves_litter() {
     return sim;
 }
 
-/// What a layer's own ink looks like at a vertex, through the fog: `fogged` is a pure function of
-/// the colour and the vertex's distance from the eye, so a test can name an ink and still be right
-/// when the ramp changes. Without this, moving the ramp broke two tests that had the fogged colours
-/// of their paint as literals -- a look change must not break a paint test.
-Vec3 seen_through_fog(const SceneOptions& options, const SceneVertex& vertex,
-                      const std::array<float, 3>& ink) {
-    const Vec3 eye{options.camera.x, options.camera.y, options.camera.z};
-    const Vec3 at{vertex.position[0], vertex.position[1], vertex.position[2]};
-    const Vec3 delta{at[0] - eye[0], at[1] - eye[1], at[2] - eye[2]};
-    const float distance
-        = std::sqrt((delta[0] * delta[0]) + (delta[1] * delta[1]) + (delta[2] * delta[2]));
-    return protekt::game::fogged(Vec3{ink.at(0), ink.at(1), ink.at(2)}, distance,
-                                 protekt::game::fog_far_metres(options.radius_tiles));
-}
-
 /// How many vertices a frame draws in the wreckage's own ink, whatever the fog did to it. A colour
 /// only this layer emits is how a layer's absence is proved: a vertex count or "the bytes differ"
 /// would not say which.
@@ -6034,8 +5979,7 @@ TEST(Scene, TheDeployPreviewDrawsTheFootprintsTileGridOnTheGroundAndNothingWhenA
     const float stroke = protekt::game::kDeployPreviewHalfStrokeMetres;
     for (std::size_t i = first; i < with.vertices.size(); ++i) {
         const auto& v = with.vertices.at(i);
-        EXPECT_EQ(v.colour,
-                  protekt::game::haze::seen(previewed, v, protekt::game::kDeployPreviewColour))
+        EXPECT_TRUE(protekt::game::haze::is_ink(previewed, v, protekt::game::kDeployPreviewColour))
             << i;
         EXPECT_GE(v.position[0], static_cast<float>(site.x) * kMetresPerTile - stroke - kTolerance);
         EXPECT_LE(v.position[0],
@@ -6077,13 +6021,11 @@ TEST(Scene, TheDeployPreviewIsRedWhereTheDeployWouldBeRefusedAndGreenWhereItWoul
     ASSERT_EQ(green.vertices.size(), first + protekt::game::kDeployPreviewVertexCount);
     ASSERT_EQ(red.vertices.size(), first + protekt::game::kDeployPreviewVertexCount);
     for (std::size_t i = first; i < green.vertices.size(); ++i) {
-        EXPECT_EQ(green.vertices.at(i).colour,
-                  protekt::game::haze::seen(accepted, green.vertices.at(i),
-                                            protekt::game::kDeployPreviewColour))
+        EXPECT_TRUE(protekt::game::haze::is_ink(accepted, green.vertices.at(i),
+                                                protekt::game::kDeployPreviewColour))
             << i;
-        EXPECT_EQ(red.vertices.at(i).colour,
-                  protekt::game::haze::seen(refused, red.vertices.at(i),
-                                            protekt::game::kDeployPreviewBlockedColour))
+        EXPECT_TRUE(protekt::game::haze::is_ink(refused, red.vertices.at(i),
+                                                protekt::game::kDeployPreviewBlockedColour))
             << "the refused site must be red at vertex " << i;
         EXPECT_EQ(green.vertices.at(i).position, red.vertices.at(i).position)
             << "one footprint on one patch of ground: only the verdict differs, at vertex " << i;
@@ -6631,13 +6573,13 @@ TEST(SceneWake, ARoundPuffIsTheSamePuffInCentreSizeAndColour) {
                 << "the round puff is not as wide across the flats and as tall as the box was";
         }
         for (const SceneVertex& v : puff) {
-            // The plume's own colours, seen through the fog at this vertex's own distance: the
-            // literals above are the inks (they match kBlastHotColour..kBlastCoolColour and
-            // kSmokeColour exactly), so the fog is applied here rather than baked into them.
-            const Vec3 seen = seen_through_fog(eye_of(frame), v, want.colour);
-            EXPECT_NEAR(v.colour[0], seen[0], 1e-3F);
-            EXPECT_NEAR(v.colour[1], seen[1], 1e-3F);
-            EXPECT_NEAR(v.colour[2], seen[2], 1e-3F);
+            // The plume's own colours: the literals above are the inks (they match
+            // kBlastHotColour..kBlastCoolColour and kSmokeColour exactly), the vertex carries them
+            // raw, and its fog amount is the one its distance from the eye asks for.
+            EXPECT_TRUE(protekt::game::haze::fog_is_right(eye_of(frame), v));
+            EXPECT_NEAR(v.colour[0], want.colour[0], 1e-3F);
+            EXPECT_NEAR(v.colour[1], want.colour[1], 1e-3F);
+            EXPECT_NEAR(v.colour[2], want.colour[2], 1e-3F);
             EXPECT_NEAR(v.alpha, want.alpha, 1e-4F);
         }
     }

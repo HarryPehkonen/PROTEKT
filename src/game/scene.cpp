@@ -227,8 +227,11 @@ void append_sky(std::vector<SceneVertex>& out, const Camera& camera) {
     disc(kMoonDirection, kMoonAngularRadius, kMoonSegments, kMoonDiscColour);
 }
 
-/// Fog the vertices in [first, last) by their distance from the eye. THE ONE PLACE the fog is
-/// applied: `build_scene` calls it on the world's runs of the vertex list and on nothing else.
+/// Fog the vertices in [first, last) by their distance from the eye: store each one's fog AMOUNT
+/// and leave its colour the raw lighting colour, because the fragment shader mixes the fog in after
+/// the texture (mixing it into the colour let the texture's multiply crush it). THE ONE PLACE the
+/// fog is applied: `build_scene` calls it on the world's runs of the vertex list and on nothing
+/// else.
 void fog_range(std::vector<SceneVertex>& vertices, std::size_t first, std::size_t last,
                const Camera& camera, int radius_tiles) {
     const float far = fog_far_metres(radius_tiles);
@@ -237,7 +240,7 @@ void fog_range(std::vector<SceneVertex>& vertices, std::size_t first, std::size_
         const float dx = v.position[0] - camera.x;
         const float dy = v.position[1] - camera.y;
         const float dz = v.position[2] - camera.z;
-        v.colour = fogged(v.colour, std::sqrt((dx * dx) + (dy * dy) + (dz * dz)), far);
+        v.fog = fog_amount(std::sqrt((dx * dx) + (dy * dy) + (dz * dz)), far);
     }
 }
 

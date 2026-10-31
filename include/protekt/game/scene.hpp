@@ -135,24 +135,40 @@ inline constexpr int kFogRampExponent = 1;
     return static_cast<float>(radius_tiles) * kMetresPerTile;
 }
 
-/// `colour` as seen `distance` metres from the camera when the fog is complete at `far`. Pure in
-/// its three arguments. Unchanged at or inside `kFogNearMetres`; EXACTLY the horizon colour at or
-/// beyond `far` (an assignment, not a blend that rounds to it); strictly nearer the horizon colour
-/// the farther the distance in between.
-[[nodiscard]] constexpr math::Vec3 fogged(const math::Vec3& colour, float distance,
-                                          float far) noexcept {
+/// How much of the fog covers something `distance` metres from the eye when the fog is complete at
+/// `far`: 0 at or inside `kFogNearMetres`, EXACTLY 1 at or beyond `far`, the ramp in between. The
+/// ramp is defined here and nowhere else: `fogged` reads it, and the scene stores it per vertex for
+/// the fragment shader, which mixes the fog in AFTER the texture.
+[[nodiscard]] constexpr float fog_amount(float distance, float far) noexcept {
     if (distance <= kFogNearMetres) {
-        return colour;
+        return 0.0F;
     }
     if (distance >= far) {
-        return kSkyRingColours.at(kSkyHorizonRing);
+        return 1.0F;
     }
     const float t = (distance - kFogNearMetres) / (far - kFogNearMetres);
     float amount = 1.0F;
     for (int step = 0; step < kFogRampExponent; ++step) {
         amount *= t;
     }
+    return amount;
+}
+
+/// `colour` as seen `distance` metres from the camera when the fog is complete at `far`. Pure in
+/// its three arguments. Unchanged at or inside `kFogNearMetres`; EXACTLY the horizon colour at or
+/// beyond `far` (an assignment, not a blend that rounds to it); strictly nearer the horizon colour
+/// the farther the distance in between. The scene no longer calls this -- it stores `fog_amount`
+/// and the GPU does the mix -- but it is what that mix computes, and the tests read colours by it.
+[[nodiscard]] constexpr math::Vec3 fogged(const math::Vec3& colour, float distance,
+                                          float far) noexcept {
+    const float amount = fog_amount(distance, far);
+    if (amount <= 0.0F) {
+        return colour;
+    }
     const math::Vec3& fog = kSkyRingColours.at(kSkyHorizonRing);
+    if (amount >= 1.0F) {
+        return fog;
+    }
     return math::Vec3{colour[0] + ((fog[0] - colour[0]) * amount),
                       colour[1] + ((fog[1] - colour[1]) * amount),
                       colour[2] + ((fog[2] - colour[2]) * amount)};

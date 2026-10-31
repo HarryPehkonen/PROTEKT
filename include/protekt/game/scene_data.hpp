@@ -29,6 +29,9 @@ struct SceneVertex {
     float alpha{1.0F};
     float u{};
     float v{};
+    /// How much of the distance fog covers this vertex, 0..1 (`fog_amount`). The fragment shader
+    /// mixes the fog colour in AFTER the texture; 0 is the old expression exactly.
+    float fog{};
 };
 
 /// A frame's worth of geometry, already in world space, plus whose camera it is.
