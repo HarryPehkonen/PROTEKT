@@ -5,6 +5,23 @@
 
 namespace protekt::math {
 
+namespace {
+/// Squared length of `hull_up x forward` below which the two are taken to be parallel.
+constexpr float kDegenerateSide = 1.0e-12F;
+
+/// The up the frame is built around: `hull_up`, unless the view runs along it (no right-hand side
+/// to the frame then), in which case the upright camera's.
+Vec3 usable_up(const Vec3& hull_up, const Vec3& forward) noexcept {
+    const Vec3 side = cross(hull_up, forward);
+    return dot(side, side) < kDegenerateSide ? Vec3{0.0F, 1.0F, 0.0F} : hull_up;
+}
+
+Vec3 forward_of(float yaw, float pitch) noexcept {
+    const float cp = std::cos(pitch);
+    return {std::sin(yaw) * cp, std::sin(pitch), std::cos(yaw) * cp};
+}
+} // namespace
+
 Mat4 multiply(const Mat4& a, const Mat4& b) noexcept {
     Mat4 r{};
     for (std::size_t col = 0; col < 4; ++col) {
@@ -32,12 +49,11 @@ Vec3 normalise(const Vec3& v) noexcept {
     return {v[0] / len, v[1] / len, v[2] / len};
 }
 
-Basis basis_from(float yaw, float pitch) noexcept {
-    const float cp = std::cos(pitch);
-    const Vec3 forward{std::sin(yaw) * cp, std::sin(pitch), std::cos(yaw) * cp};
-    // (0,1,0) x forward = (forward.z, 0, -forward.x), and it is already horizontal.
-    const float right_length = std::sqrt((forward[2] * forward[2]) + (forward[0] * forward[0]));
-    const Vec3 right{forward[2] / right_length, 0.0F, -forward[0] / right_length};
+Basis basis_from(float yaw, float pitch, const Vec3& hull_up) noexcept {
+    const Vec3 forward = forward_of(yaw, pitch);
+    // For hull_up = (0,1,0) this is (forward.z, 0, -forward.x), already horizontal, and the
+    // arithmetic is the same as the upright camera's: nothing moves on level ground.
+    const Vec3 right = normalise(cross(usable_up(hull_up, forward), forward));
     const Vec3 up{cross(forward, right)};
     return Basis{forward, right, up};
 }
@@ -79,10 +95,10 @@ Mat4 perspective(float fovy_radians, float aspect, float near_plane, float far_p
 }
 
 Mat4 view_projection(const Vec3& eye, float yaw, float pitch, float aspect, float fov_radians,
-                     float near_plane, float far_plane) noexcept {
-    const Basis b = basis_from(yaw, pitch);
+                     float near_plane, float far_plane, const Vec3& hull_up) noexcept {
+    const Basis b = basis_from(yaw, pitch, hull_up);
     return multiply(perspective(fov_radians, aspect, near_plane, far_plane),
-                    look_at(eye, add(eye, b.forward), {0.0F, 1.0F, 0.0F}));
+                    look_at(eye, add(eye, b.forward), usable_up(hull_up, b.forward)));
 }
 
 std::array<float, 4> transform(const Mat4& m, const Vec3& point) noexcept {

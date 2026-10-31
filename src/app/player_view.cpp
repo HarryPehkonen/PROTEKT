@@ -32,27 +32,45 @@ EyePlacement eye_placement(game::CameraPosition position) noexcept {
     return EyePlacement{0.0F, kEyeAboveHullMetres}; // unreachable: every position is above
 }
 
+game::Camera camera_on_hull(const math::Vec3& pivot, const math::Vec3& hull_up,
+                            const EyePlacement& placement, float yaw, float pitch,
+                            std::uint64_t seed) {
+    game::Camera camera;
+    const std::array<float, 3> forward = math::basis_from(yaw, 0.0F).forward;
+    // The offset is laid out as if the hull stood level, then the whole of it is turned about the
+    // hull's ground pivot by the same rotation that turns the body: the eye stays over the same
+    // part of the vehicle as it leans. A level hull rotates nothing.
+    const game::GroundTilt tilt = game::tilt_about(pivot, hull_up);
+    const math::Vec3 eye
+        = tilt.apply(math::Vec3{pivot[0] - (forward.at(0) * placement.behind_metres),
+                                pivot[1] + placement.above_hull_metres,
+                                pivot[2] - (forward.at(2) * placement.behind_metres)});
+    camera.x = eye[0];
+    camera.z = eye[2];
+    camera.y = std::max(eye[1], game::ground_metres(seed, camera.x / game::kMetresPerTile,
+                                                    camera.z / game::kMetresPerTile)
+                                    + kEyeGroundClearanceMetres);
+    camera.yaw = yaw;
+    camera.pitch = pitch;
+    camera.up = hull_up;
+    return camera;
+}
+
 game::Camera camera_for(const sim::Sim& sim, const game::Session& session, std::uint64_t seed,
                         std::optional<float> hull_z) {
-    game::Camera camera;
     for (const sim::Unit& unit : sim.units()) {
         if (unit.id != session.driven()) {
             continue;
         }
-        const EyePlacement placement = eye_placement(session.camera_position());
-        const std::array<float, 3> forward = math::basis_from(session.view_yaw(), 0.0F).forward;
-        camera.x = (static_cast<float>(unit.x.raw) / 65536.0F * game::kMetresPerTile)
-                   - (forward.at(0) * placement.behind_metres);
-        camera.z = (static_cast<float>(unit.y.raw) / 65536.0F * game::kMetresPerTile)
-                   - (forward.at(2) * placement.behind_metres);
-        camera.y
-            = hull_z.value_or(game::ground_metres(seed, unit.x, unit.y) + game::kRideHeightMetres)
-              + placement.above_hull_metres;
-        camera.y = std::max(camera.y, game::ground_metres(seed, camera.x / game::kMetresPerTile,
-                                                          camera.z / game::kMetresPerTile)
-                                          + kEyeGroundClearanceMetres);
-        break;
+        const math::Vec3 pivot{
+            static_cast<float>(unit.x.raw) / 65536.0F * game::kMetresPerTile,
+            hull_z.value_or(game::ground_metres(seed, unit.x, unit.y) + game::kRideHeightMetres),
+            static_cast<float>(unit.y.raw) / 65536.0F * game::kMetresPerTile};
+        return camera_on_hull(pivot, game::ground_normal(seed, unit.x, unit.y),
+                              eye_placement(session.camera_position()), session.view_yaw(),
+                              session.view_pitch(), seed);
     }
+    game::Camera camera;
     camera.yaw = session.view_yaw();
     camera.pitch = session.view_pitch();
     return camera;

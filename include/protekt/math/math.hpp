@@ -58,7 +58,7 @@ inline constexpr float kFarPlane = 2000.0F;
 /// The camera's three axes, right-handed.
 ///
 /// `forward` is where a camera with this yaw and pitch looks; `right` is
-/// `worldUp x forward`; `up` is `forward x right`. Both the view matrix and the
+/// `up x forward`; `up` is `forward x right`. Both the view matrix and the
 /// picker's ray are built from this, which is the point: there is one answer to
 /// "which way is the camera facing", and no second one to drift away from it.
 struct Basis {
@@ -67,7 +67,12 @@ struct Basis {
     Vec3 up;
 };
 
-[[nodiscard]] Basis basis_from(float yaw, float pitch) noexcept;
+/// `hull_up` is the frame the yaw and pitch are expressed in: the view direction is the same
+/// whatever it is, and the frame is rebuilt around it. The default, world up, is the upright camera
+/// (and reproduces it to the bit). Its cross with `forward` must not vanish; if it would (looking
+/// straight along `hull_up`), the upright frame is returned instead of a NaN.
+[[nodiscard]] Basis basis_from(float yaw, float pitch,
+                               const Vec3& hull_up = {0.0F, 1.0F, 0.0F}) noexcept;
 
 /// The view matrix for a camera at `eye` with these angles, followed by the
 /// projection, which is what the vertex shader multiplies. Pitching down and
@@ -76,7 +81,8 @@ struct Basis {
 /// itself has no forward vector at all.
 [[nodiscard]] Mat4 view_projection(const Vec3& eye, float yaw, float pitch, float aspect,
                                    float fov_radians = kFovRadians, float near_plane = kNearPlane,
-                                   float far_plane = kFarPlane) noexcept;
+                                   float far_plane = kFarPlane,
+                                   const Vec3& hull_up = {0.0F, 1.0F, 0.0F}) noexcept;
 
 /// A point in the world, transformed by `m`, as Vulkan's clip space sees it:
 /// `w` is returned separately because a point behind the camera has `w <= 0`

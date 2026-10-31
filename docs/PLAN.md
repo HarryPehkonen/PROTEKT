@@ -163,6 +163,16 @@ strength: the ground shifts 23 levels at the far band, 8 at the middle distance 
 underfoot, with the sim hash unchanged and every ink test checking that the amount a vertex carries
 is the one its distance asks for. World only -- the HUD is never fogged.
 
+The view leans with the vehicle (2026-10-31, his ask): the camera's up is the hull's own up, from the
+same `ground_normal` the body's lean already came from, and the eye is turned about the hull's ground
+pivot by the same rotation that turns the body -- so the player stays over the same part of the
+vehicle as it leans, and a future vehicle on its side would show a sideways world. The screen
+furniture keeps its screen position; the aim cue deliberately does NOT take the tilted basis, so it
+leans with the world as the mark for where the shot lands should. Presentation only, so the sim hash
+does not move, and level ground is byte-identical because a level hull's up is exactly world up. One
+honest limit: facing downhill, once the nose drops more than about 3.4 degrees below the barrel eye,
+the muzzle tip leaves the bottom of the frame.
+
 
 Ranked by *risk reduction per unit of work*, not by visibility. The flashy part (rendering) was
 deliberately left behind the simulation work, and has now been done.

@@ -3758,6 +3758,89 @@ TEST(UnitBars, SitOnTheHudLayerNearerThanTheReticle) {
     }
 }
 
+// ---- the view rides the hull: the furniture stays square to the screen, the aim cue leans with
+// the world. The camera below is the bar rig's, rolled by a hull's up; nothing else about it
+// changes.
+
+namespace {
+
+/// A leaning hull's up, well inside `kMaxTiltSlope`'s clamp and with both a pitch and a roll in it.
+const protekt::math::Vec3 kLeaningUp = protekt::math::normalise({0.25F, 1.0F, 0.1F});
+
+/// The screen angle of the segment from `a` to `b`, from straight up the screen, positive to the
+/// right: 0 for a segment that runs up the screen.
+float screen_roll_of(const SceneOptions& options, const protekt::game::SceneVertex& a,
+                     const protekt::game::SceneVertex& b) {
+    const protekt::game::Projected pa
+        = project(options.camera, options.extent, a.position[0], a.position[1], a.position[2]);
+    const protekt::game::Projected pb
+        = project(options.camera, options.extent, b.position[0], b.position[1], b.position[2]);
+    return std::atan2(pb.x - pa.x, -(pb.y - pa.y));
+}
+
+} // namespace
+
+TEST(ViewTilt, ABarStaysSquareToTheScreenAndSitsAboveItsTankWhateverTheViewsLean) {
+    const BarBattle flat = bar_battle();
+    BarBattle leaning = bar_battle();
+    leaning.options.camera.up = kLeaningUp;
+    const std::vector<UnitBar> level_bars
+        = unit_bars_of(flat.options, build_scene(flat.sim, flat.options));
+    const std::vector<UnitBar> tilted_bars
+        = unit_bars_of(leaning.options, build_scene(leaning.sim, leaning.options));
+    ASSERT_EQ(level_bars.size(), 3U);
+    ASSERT_EQ(tilted_bars.size(), 3U) << "the lean must not lose a bar";
+    // The lean really moved the picture: the tanks are not where they were on screen.
+    const protekt::sim::Unit& first = flat.sim.units().at(1);
+    EXPECT_GT(std::abs(top_of(leaning.options, first).x - top_of(flat.options, first).x)
+                  + std::abs(top_of(leaning.options, first).y - top_of(flat.options, first).y),
+              5.0F);
+    for (std::size_t i = 0; i < tilted_bars.size(); ++i) {
+        // The same size on screen: a bar rolled with the world would span a bigger box.
+        EXPECT_NEAR(tilted_bars.at(i).outline.width(), level_bars.at(i).outline.width(), 0.1F);
+        EXPECT_NEAR(tilted_bars.at(i).outline.height(), level_bars.at(i).outline.height(), 0.1F);
+        EXPECT_NEAR(tilted_bars.at(i).fill.width(), level_bars.at(i).fill.width(), 0.1F);
+    }
+    // And in the same place relative to its tank: centred over the projected top, a few pixels up.
+    std::size_t next = 0;
+    for (const protekt::sim::Unit& unit : leaning.sim.units()) {
+        if (unit.id == leaning.viewer) {
+            continue;
+        }
+        const protekt::game::Projected top = top_of(leaning.options, unit);
+        const UnitBar& bar = tilted_bars.at(next++);
+        EXPECT_NEAR(bar.track.centre_x(), top.x, 1.0F);
+        EXPECT_LT(bar.outline.bottom, top.y);
+        EXPECT_GT(bar.outline.bottom, top.y - 8.0F);
+    }
+}
+
+TEST(ViewTilt, TheAimCueLeansWithTheWorldWhileTheViewLeansWithTheHull) {
+    const auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(42));
+    SceneOptions options = options_at(60.0F, 60.0F);
+    options.camera.y = 200.0F;
+    options.aim = Aim{static_cast<float>(options.extent.width) * 0.5F,
+                      static_cast<float>(options.extent.height) * 0.5F};
+    const auto up_bar_roll = [&](const SceneOptions& o) {
+        const std::vector<protekt::game::SceneVertex> cue = reticle_of(build_scene(sim, o));
+        // The first quad is the up tick: its first corner is on the inner edge, its last (the sixth
+        // vertex) on the outer, so a -> d runs along the cue's own up.
+        return screen_roll_of(o, cue.at(0), cue.at(5));
+    };
+    const float level_roll = up_bar_roll(options);
+    EXPECT_NEAR(level_roll, 0.0F, 1.0e-3F) << "the cue stands upright on a level view";
+
+    options.camera.up = kLeaningUp;
+    const float leaning_roll = up_bar_roll(options);
+    // Where the WORLD's up lies on the leaning screen: that is the way the cue must point, because
+    // it marks where the shot lands, and the shot does not lean.
+    const protekt::math::Basis frame
+        = protekt::math::basis_from(options.camera.yaw, options.camera.pitch, options.camera.up);
+    const float world_up_on_screen = std::atan2(frame.right.at(1) * 1.0F, frame.up.at(1) * 1.0F);
+    EXPECT_GT(std::abs(leaning_roll), 0.1F) << "the cue must have rolled, or this proves nothing";
+    EXPECT_NEAR(leaning_roll, world_up_on_screen, 0.02F);
+}
+
 TEST(UnitBars, NoViewerMeansNoBarsAndATankBehindTheEyeGetsNone) {
     BarBattle b = bar_battle();
     SceneOptions blind = b.options;

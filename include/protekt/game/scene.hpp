@@ -274,6 +274,10 @@ struct Camera {
     float z{};
     float yaw{};
     float pitch{};
+    /// The frame the yaw and pitch are expressed in: the hull's up when the view rides a vehicle
+    /// (`ground_normal` under it), world up otherwise. It changes the camera's roll and nothing
+    /// else -- the view direction is the yaw and pitch's, whatever this is.
+    math::Vec3 up{0.0F, 1.0F, 0.0F};
     [[nodiscard]] static float wrap_angle(float radians) noexcept;
 };
 
@@ -316,6 +320,21 @@ inline constexpr float kMaxTiltSlope = kRideHeightMetres / kHullHalfMetres;
 /// the slope along each axis; the gradient is clamped to `kMaxTiltSlope` and the normal is
 /// (-d/dx, 1, -d/dz) normalised. Exactly (0, 1, 0) on level ground. Pure in `(seed, x, y)`.
 [[nodiscard]] math::Vec3 ground_normal(std::uint64_t seed, sim::Fixed x, sim::Fixed y) noexcept;
+
+/// THE HULL'S LEAN AS A ROTATION, the one definition of how a vehicle's frame is turned off world
+/// up: Rodrigues, about the horizontal axis `up x normal`, through `pivot`. The scene turns a
+/// vehicle's body with it and the player's eye rides the hull with it, so the two cannot disagree.
+/// A level normal (exactly `{0, 1, 0}`, as `ground_normal` returns it) turns nothing at all.
+struct GroundTilt {
+    math::Vec3 axis{};
+    math::Vec3 pivot{};
+    float sine{};
+    float cosine{1.0F};
+    [[nodiscard]] bool level() const noexcept { return sine == 0.0F; }
+    /// `point` turned about the pivot; `point` itself when level.
+    [[nodiscard]] math::Vec3 apply(const math::Vec3& point) const noexcept;
+};
+[[nodiscard]] GroundTilt tilt_about(const math::Vec3& pivot, const math::Vec3& normal) noexcept;
 
 /// BOOST. While the boost key is held the spring's target is this much higher, so the hull rises,
 /// overshoots once and settles at kRideHeightMetres + this; released, it settles back. 0.9 m is

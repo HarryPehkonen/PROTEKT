@@ -4813,7 +4813,35 @@ float Camera::wrap_angle(float radians) noexcept {
 std::array<float, 16> view_projection(const Camera& camera, float aspect,
                                       float fov_radians) noexcept {
     return math::view_projection(Vec3{camera.x, camera.y, camera.z}, camera.yaw, camera.pitch,
-                                 aspect, fov_radians);
+                                 aspect, fov_radians, math::kNearPlane, math::kFarPlane, camera.up);
+}
+
+GroundTilt tilt_about(const Vec3& pivot, const Vec3& normal) noexcept {
+    GroundTilt tilt;
+    tilt.pivot = pivot;
+    tilt.sine = std::hypot(normal[0], normal[2]);
+    if (tilt.sine == 0.0F) {
+        return tilt;
+    }
+    // Rodrigues: the axis is up x normal, horizontal, and the angle between them has sine |axis|
+    // and cosine normal.y. Every point turns about the pivot.
+    tilt.axis = Vec3{normal[2] / tilt.sine, 0.0F, -normal[0] / tilt.sine};
+    tilt.cosine = normal[1];
+    return tilt;
+}
+
+Vec3 GroundTilt::apply(const Vec3& point) const noexcept {
+    if (level()) {
+        return point;
+    }
+    const Vec3 v{point[0] - pivot[0], point[1] - pivot[1], point[2] - pivot[2]};
+    const Vec3 swung = cross(axis, v);
+    const float along = dot(axis, v) * (1.0F - cosine);
+    Vec3 out{};
+    for (std::size_t c = 0; c < 3; ++c) {
+        out.at(c) = pivot.at(c) + (v.at(c) * cosine) + (swung.at(c) * sine) + (axis.at(c) * along);
+    }
+    return out;
 }
 
 namespace {
@@ -4825,27 +4853,17 @@ namespace {
 /// nothing, so a vehicle on flat ground is the same bytes it was before the tilt existed.
 void tilt_to_ground(std::vector<SceneVertex>& out, std::size_t first, const sim::Unit& unit,
                     float pivot_y, const Vec3& normal) {
-    const float sine = std::hypot(normal[0], normal[2]);
-    if (sine == 0.0F) {
+    const GroundTilt tilt = tilt_about(
+        Vec3{static_cast<float>(unit.x.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile,
+             pivot_y,
+             static_cast<float>(unit.y.raw) / static_cast<float>(sim::Fixed::kOne)
+                 * kMetresPerTile},
+        normal);
+    if (tilt.level()) {
         return;
     }
-    // Rodrigues: the axis is up x normal, horizontal, and the angle between them has sine |axis|
-    // and cosine normal.y. Every point turns about the pivot.
-    const Vec3 axis{normal[2] / sine, 0.0F, -normal[0] / sine};
-    const float cosine = normal[1];
-    const Vec3 pivot{
-        static_cast<float>(unit.x.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile,
-        pivot_y,
-        static_cast<float>(unit.y.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile};
     for (std::size_t i = first; i < out.size(); ++i) {
-        Vec3& p = out.at(i).position;
-        const Vec3 v{p[0] - pivot[0], p[1] - pivot[1], p[2] - pivot[2]};
-        const Vec3 swung = cross(axis, v);
-        const float along = dot(axis, v) * (1.0F - cosine);
-        for (std::size_t c = 0; c < 3; ++c) {
-            p.at(c)
-                = pivot.at(c) + (v.at(c) * cosine) + (swung.at(c) * sine) + (axis.at(c) * along);
-        }
+        out.at(i).position = tilt.apply(out.at(i).position);
     }
 }
 

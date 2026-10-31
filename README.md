@@ -204,6 +204,21 @@ A vehicle's body follows the ground it stands on: it leans to the slope under it
 `kMaxTiltSlope` (provisional, derived from the ride height and the hull's half-width). Structures
 (factory, turret, deployed recycler) stay upright. Drawing only; the sim is untouched.
 
+**The view leans with the hull** (2026-10-31, Harri: "I would like my view to be tilted the same
+amount as that of the vehicle... Normally, I would be tilted with the vehicle I'm driving"). The
+camera's up is the hull's own up, taken from the same `ground_normal` the body's lean comes from, so
+the horizon rolls on screen by the vehicle's lean, and the eye is turned about the hull's ground
+pivot with the same rotation that turns the body — the player stays over the same part of the vehicle
+as it leans, which is what makes a sideways vehicle give a sideways view. On level ground the hull's
+up is exactly world up, so the basis and the eye are identical to what they were before. Two things
+stay as they were: the screen furniture (bars, key plates, ticks, radar) keeps its screen position,
+because it is placed by the pick ray that now uses the tilted basis, and the aim cue does NOT take
+that basis — it stays on the world-upright one, so it leans with the world on screen, which is right
+because it marks where the shot lands. Measured on a live frame, a tank standing on a gentle slope
+rolls the horizon about 3.4 degrees, and the horizon sits 70 rows lower than the level-hull frame.
+Its one honest limit: facing downhill, once the nose drops more than about 3.4 degrees below the
+barrel-eye's view, the muzzle tip leaves the bottom of the frame.
+
 There is no health bar above the radar (retired 2026-10-23). The hull you are sitting in is read off the
 **ship instrument**, bottom right: a C-shaped ring of segments, its upper arc the hull in green and its
 lower arc the ammunition in blue, the two readings as numbers in the ring's opening, and the four

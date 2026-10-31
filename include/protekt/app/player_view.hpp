@@ -8,6 +8,7 @@
 #include "protekt/game/menu.hpp"
 #include "protekt/game/scene.hpp"
 #include "protekt/game/session.hpp"
+#include "protekt/math/math.hpp"
 #include "protekt/sim/sim.hpp"
 
 namespace protekt::app {
@@ -70,11 +71,24 @@ struct EyePlacement {
 /// camera's near plane. The barrel position never reaches it (its eye is 2 m over the hull).
 inline constexpr float kEyeGroundClearanceMetres = 0.5F;
 
+/// THE VIEW RIDES THE VEHICLE. The eye for `placement` on a hull whose ground pivot (the point
+/// under its centre, at the hull's height) is `pivot` and whose up is `hull_up`: the placement's
+/// offset is laid out level and turned about the pivot by `game::tilt_about(pivot, hull_up)`, the
+/// rotation the body is drawn with, and the camera's frame is the hull's (`Camera::up == hull_up`).
+/// The yaw and pitch are passed through untouched. With `hull_up` exactly `{0, 1, 0}` (level
+/// ground) nothing turns: the eye and the frame are the upright camera's. Split out of `camera_for`
+/// so a test can lean the hull without finding a hill.
+[[nodiscard]] game::Camera camera_on_hull(const math::Vec3& pivot, const math::Vec3& hull_up,
+                                          const EyePlacement& placement, float yaw, float pitch,
+                                          std::uint64_t seed);
+
 /// The player's eye, at the session's camera position (`Session::camera_position`): the
 /// placement's height above the hull under the driven tank, and its setback behind the tank along
 /// the view, looking where the turret is pointed (the view, not the hull's heading) from all three.
 /// The first position is on the barrel's own line. The camera rides the hull: once the tank hovers,
-/// the eye is that far above the HULL. Before the hover has a height the hull is at rest.
+/// the eye is that far above the HULL, and it leans with it (`camera_on_hull`, up from
+/// `game::ground_normal` under the tank -- the one place the lean is defined). Before the hover has
+/// a height the hull is at rest.
 [[nodiscard]] game::Camera camera_for(const sim::Sim& sim, const game::Session& session,
                                       std::uint64_t seed, std::optional<float> hull_z);
 

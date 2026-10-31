@@ -41,14 +41,14 @@ struct Rig {
     sim::UnitId tank_b{};
 };
 
-Rig make_rig() {
+Rig make_rig(int a_tile_x = 40, int a_tile_y = 40) {
     Rig rig{};
     rig.sim = sim::Sim::create(sim::Scenario{kSeed,
-                                             {{UnitKind::Tank, Side::Player, 40, 40},
+                                             {{UnitKind::Tank, Side::Player, a_tile_x, a_tile_y},
                                               {UnitKind::Tank, Side::Player, 60, 40},
                                               {UnitKind::Tank, Side::Enemy, 40, 70}}});
     for (const sim::Unit& unit : rig.sim.units()) {
-        if (unit.side == Side::Player && unit.x.floor_int() == 40) {
+        if (unit.side == Side::Player && unit.x.floor_int() == a_tile_x) {
             rig.tank_a = unit.id;
         } else if (unit.side == Side::Player) {
             rig.tank_b = unit.id;
@@ -57,6 +57,30 @@ Rig make_rig() {
     rig.options.seed = kSeed;
     rig.options.extent = kExtent;
     return rig;
+}
+
+/// A rig whose driven tank A stands on LEVEL ground. The default rig's tile (and every tile around
+/// it) is on a hill, where the hull leans and the view leans with it (`test_view_tilt.cpp`); the
+/// tests below measure the eye's height, setback and framing against a hull that is not leaning, so
+/// they stand it where the ground is flat and the arithmetic is the plain one.
+Rig make_level_rig() {
+    for (int ty = 20; ty < 220; ++ty) {
+        for (int tx = 20; tx < 220; ++tx) {
+            if (tx != 60
+                && game::ground_normal(kSeed, sim::Fixed::from_int(tx), sim::Fixed::from_int(ty))
+                       == math::Vec3{0.0F, 1.0F, 0.0F}) {
+                return make_rig(tx, ty);
+            }
+        }
+    }
+    return make_rig(); // unreachable on this map; `LevelRigIsLevel` would say so
+}
+
+TEST(PlayerView, TheLevelRigReallyStandsOnLevelGround) {
+    const Rig rig = make_level_rig();
+    const sim::Unit* own = rig.sim.find(rig.tank_a);
+    ASSERT_NE(own, nullptr);
+    EXPECT_EQ(game::ground_normal(kSeed, own->x, own->y), (math::Vec3{0.0F, 1.0F, 0.0F}));
 }
 
 /// A session that started driving tank A and has swapped into tank B with X.
@@ -557,7 +581,7 @@ float tip_angle_below_axis(const MuzzleView& view, float eye_y) {
 }
 
 TEST(EyeOnTheBarrel, TheEyeStandsOnTheBarrelsAxisPlusTheDocumentedLift) {
-    Rig rig = make_rig();
+    Rig rig = make_level_rig();
     const Session session{rig.tank_a};
     const MuzzleView view = muzzle_view(rig, session);
     // Against the barrel's OWN constants, not a number typed here: raise the barrel's axis and this
@@ -570,7 +594,7 @@ TEST(EyeOnTheBarrel, TheEyeStandsOnTheBarrelsAxisPlusTheDocumentedLift) {
 }
 
 TEST(EyeOnTheBarrel, TheMuzzleTipIsInFrameAtLevelPitchAndTheOldEyeHadItOutside) {
-    Rig rig = make_rig();
+    Rig rig = make_level_rig();
     const Session session{rig.tank_a};
     const MuzzleView view = muzzle_view(rig, session);
     const float half_fov = math::kFovRadians * 0.5F;
@@ -694,7 +718,7 @@ TEST(CameraPositions, EachPositionPutsTheEyeSomewhereDistinct) {
 }
 
 TEST(CameraPositions, TheChaseEyesStandBehindTheHullAlongTheViewAndKeepTheAim) {
-    Rig rig = make_rig();
+    Rig rig = make_level_rig();
     const Session session{rig.tank_a};
     const auto cameras = cameras_at_each_position(rig);
     const sim::Unit* own = rig.sim.find(rig.tank_a);
@@ -759,7 +783,7 @@ TEST(CameraPositions, TheRotationDoesNotChangeTheAim) {
 }
 
 TEST(CameraPositions, TheMuzzleTipIsInFrameAtThe1mBarrelPositionAndAtEveryOther) {
-    Rig rig = make_rig();
+    Rig rig = make_level_rig();
     const Session base{rig.tank_a};
     const MuzzleView hull = muzzle_view(rig, base);
     const auto cameras = cameras_at_each_position(rig);

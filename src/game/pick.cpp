@@ -27,8 +27,10 @@ struct Ray {
 
 Ray ray_through(const Camera& camera, Extent extent, float screen_x, float screen_y) {
     // The camera's axes come from the module the renderer builds its view matrix from, so a click
-    // cannot land somewhere other than where the crosshair is drawn.
-    const math::Basis b = math::basis_from(camera.yaw, camera.pitch);
+    // cannot land somewhere other than where the crosshair is drawn -- and the frame is the hull's
+    // (`camera.up`), so a leaning view names what is under the cursor, and the HUD placed by this
+    // ray stays square to the screen.
+    const math::Basis b = math::basis_from(camera.yaw, camera.pitch, camera.up);
     const float half_tan = std::tan(math::kFovRadians * 0.5F);
     // Pixel -> NDC. Y is measured from the top, which is the way Vulkan's clip Y already points.
     const float ndc_x = (2.0F * screen_x / static_cast<float>(extent.width)) - 1.0F;
