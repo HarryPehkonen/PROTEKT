@@ -2989,15 +2989,16 @@ void append_ship_gauge(std::vector<SceneVertex>& out, const SceneOptions& option
 /// text is 10 px in the 800x600 originals and still ~10 px in a 1280x730 screenshot of the
 /// remaster, so it is a fixed pixel font that ignores the resolution. Top row: the key, and how
 /// many vehicles the group holds beside it; then the kind (cell 2.0, or smaller for a name that
-/// would not fit the plate's inside). Under the plate hangs a COLUMN of 3 px bars, ONE PER LIVING
-/// VEHICLE, top to bottom in the group's spawn order, 1 px apart (BAR-LOOK, HIS RULING 2026-10-24:
-/// "They vary in COLOUR, not length"; the column is his BZ2 screenshot, "always the same size").
-/// Every bar is the slot's inside wide and never shrinks with damage; each is coloured by its own
-/// vehicle's hit points on `bar_segments`'s ramp, bright green through yellow and red to a
-/// near-black that still reads against its dark track. A vehicle that dies takes its bar with it
-/// and the ones below move up. `~` says how many nav marks there
-/// are and has no bar; the building on `2` has one segment and no count. Under the row,
-/// `options.notice` in 10 px yellow capitals.
+/// would not fit the plate's inside). Under the plate hangs the vehicle-type ICON's reserved square
+/// (drawn by a later slice), and under that a ROW of upright TICKS, ONE PER LIVING VEHICLE, left to
+/// right in the group's spawn order from the key's left edge, up to ten (BAR-LOOK, HIS RULING
+/// 2026-10-30, from a BZ2 crop: "Vertical, and always the same size. They are left-justified, up to
+/// ten. ... it only changes colour, never the size"). Every tick is the same size and never shrinks
+/// with damage; each is coloured by its own vehicle's hit points on `bar_segments`'s ramp, bright
+/// green through yellow and red to a near-black that still reads against its dark track. A vehicle
+/// that dies takes its tick with it and the ones after it close up to the left, no blanks. `~` says
+/// how many nav marks there are and has no ticks; the building on `2` has one segment and no count.
+/// Under the row, `options.notice` in 10 px yellow capitals.
 ///
 /// THE ATTACK LIST (BZ2A): the nearest enemies T offered, by the same plate and the same type, one
 /// row per enemy. It sits in the row BELOW the notice, which is reserved whether or not there is a
@@ -3012,12 +3013,23 @@ constexpr float kStripPadPixels = 3.0F;
 constexpr float kStripKeyCell = 2.0F;
 constexpr float kStripHpCell = 2.0F;
 constexpr float kStripKindCell = 2.0F;
-constexpr float kStripBarPixels = 3.0F;
-constexpr float kStripSegmentGapPixels = 1.0F;
-/// How many bars the column under a key has room for: Harri's own count, "the up-to-ten health bars
-/// under each active function key" (BZ2). The room is the space under the plate, so a panel that
-/// reaches under it (the notice, the attack list, the menu) cuts the column short instead.
-constexpr std::size_t kStripColumnBars = 10;
+/// The gap between the things stacked under a key's plate (plate, icon square, ticks).
+constexpr float kStripStackGapPixels = 1.0F;
+/// The vehicle-type icon's reserved square under the plate (Harri: "an image of the type of
+/// vehicle", turrets in his crop). Nothing is drawn in it yet; the ticks start below it. 16 px is
+/// the icon's room at 720: about half the plate's height, so it reads as a badge hanging off the
+/// key rather than a second plate, and a glyph of it can be drawn on a 16 px (4 x 4 cell) grid.
+constexpr float kStripIconPixels = 16.0F;
+/// One tick: 4 px wide and 14 tall, so it is 3.5 times taller than wide and cannot be read as a
+/// square, 3 px apart so neighbours stay distinct. Ten of them span 10 * 4 + 9 * 3 = 67 px, inside
+/// the 88 px slot with room to spare; a slot narrowed by a narrow frame scales the whole row down
+/// to fit, since a row wider than its key would run into the next key's.
+constexpr float kStripTickWidthPixels = 4.0F;
+constexpr float kStripTickHeightPixels = 14.0F;
+constexpr float kStripTickGapPixels = 3.0F;
+/// How many ticks a key has room for: Harri's own count, "up to ten" (BZ2). An eleventh vehicle is
+/// not drawn: the ticks never shrink or wrap to make room.
+constexpr std::size_t kStripTicks = 10;
 constexpr float kStripNoticeCell = 2.0F;
 /// The corner radius of a HUD panel, at 720p. Panels are rounded like BZ2's rather than square, and
 /// the frame ring clamps the radius to at least its own width so the face inside it can never be
@@ -3382,22 +3394,23 @@ void append_hud_panels(std::vector<SceneVertex>& out, const SceneOptions& option
     // The notice's row, reserved whether or not there is a notice: the attack list is drawn under
     // it, and a panel that moves when a notice appears or expires is a panel that gets misread.
     const float notice_top = top + slot_h + (kStripMarginPixels * px) + pad;
-    const float segment_gap = kStripSegmentGapPixels * px;
+    const float stack_gap = kStripStackGapPixels * px;
     // THE PANELS DOWN THE LEFT, where each reaches and where each starts: what a vehicle key's
-    // column of bars must not run into. The notice, the attack list and the command menu are all
-    // anchored at the margin, so a key's column is clear of them unless the panel reaches as far
+    // row of ticks must not run into. The notice, the attack list and the command menu are all
+    // anchored at the margin, so a key's ticks are clear of them unless the panel reaches as far
     // right as the key. Worked out once, here, because the row draws first and the panels after.
     struct LeftPanel {
         float right;
         float top;
+        float bottom;
     };
     std::vector<LeftPanel> left_panels;
-    left_panels.reserve(3);
+    left_panels.reserve(2 + (wants_menu ? options.menu->size() : 0U));
     if (!options.notice.empty()) {
         const float cell = kStripNoticeCell * px;
         left_panels.push_back(
             {(kStripMarginPixels * px) + pad + word_width(options.notice, cell) + pad,
-             notice_top - pad});
+             notice_top - pad, notice_top + (5.0F * cell) + pad});
     }
     const float list_cell = kStripNoticeCell * px;
     const float list_key_left = (kStripMarginPixels * px) + pad;
@@ -3415,24 +3428,26 @@ void append_hud_panels(std::vector<SceneVertex>& out, const SceneOptions& option
     const float list_metres_left = list_label_left + list_label_width + (2.0F * list_cell);
     const float list_top = notice_top + (5.0F * list_cell) + (2.0F * pad);
     if (wants_list) {
-        left_panels.push_back({list_metres_left + list_metres_width + pad, list_top});
+        const float list_rows = static_cast<float>(options.attack_list->size());
+        left_panels.push_back(
+            {list_metres_left + list_metres_width + pad, list_top,
+             list_top + pad + ((list_rows - 1.0F) * 6.0F * list_cell) + (5.0F * list_cell) + pad});
     }
     const float menu_cell = kMenuCell * px;
     MenuLayout menu_placed;
     if (wants_menu) {
         menu_placed = menu_layout(*options.menu, kStripMarginPixels * px,
                                   notice_top + (5.0F * menu_cell) + (2.0F * pad), menu_cell);
-        float menu_right = 0.0F;
+        // One panel per menu row, not one box round them all: the rows differ in width, and a row
+        // that stops short of a key must not hide the ticks under it.
         for (std::size_t i = 0; i < menu_placed.rows.size(); ++i) {
             const MenuRowLayout& placed = menu_placed.rows.at(i);
-            menu_right = std::max(menu_right,
-                                  options.menu->at(i).right.empty()
-                                      ? placed.verb_right
-                                      : placed.right_left
-                                            + word_width(options.menu->at(i).right, menu_cell));
+            const float right
+                = options.menu->at(i).right.empty()
+                      ? placed.verb_right
+                      : placed.right_left + word_width(options.menu->at(i).right, menu_cell);
+            left_panels.push_back({right, placed.top, placed.top + placed.height});
         }
-        left_panels.push_back(
-            {menu_right, menu_placed.rows.empty() ? 0.0F : menu_placed.rows.front().top});
     }
     // THE COMMAND ROW. Every key has its own spot, by index, and a key that holds nothing is
     // skipped without moving the ones after it: its space stays blank for what is built next.
@@ -3491,38 +3506,49 @@ void append_hud_panels(std::vector<SceneVertex>& out, const SceneOptions& option
         if (is_navs) {
             continue; // marks have no hit points: no bar
         }
-        // THE COLUMN. The bars hang under the key's plate, one per living vehicle, in spawn order
-        // from the top, every one the slot's inside wide and `kStripBarPixels` tall whatever its
-        // vehicle's health -- COLOUR says how hurt a vehicle is, never size (Harri, BZ2: "When the
-        // health of a ship goes down, the size doesn't change -- only the colour changes"). A dark
-        // track behind them is what lets the ramp's near-black read against the world. The room is
-        // `kStripColumnBars` bars, or less where a panel down the left reaches this far right: the
-        // column ends a gap above it. A group with more vehicles than room fills what fits, in
-        // order, and stops; nothing moves to make space and nothing is overlapped.
+        // THE TICKS. Under the plate come the icon's reserved square, then one upright tick per
+        // living vehicle, in spawn order from the key's left edge, every one
+        // `kStripTickWidthPixels` by `kStripTickHeightPixels` whatever its vehicle's health --
+        // COLOUR says how hurt a vehicle is, never size (Harri, BZ2: "it only changes colour, never
+        // the size"). A dead vehicle is not in `fractions` at all, so the ones after it close up
+        // with no blank. A dark track behind them is what lets the ramp's near-black read against
+        // the world. Ten at most. A panel down the left that reaches this far right hides the ticks
+        // it would cover (the ones nearest the key's left edge) instead of being overlapped, and
+        // the rest stay put.
         const std::vector<BarSegment> segments = bar_segments(fractions);
-        const float bar_h = kStripBarPixels * px;
-        const float bar_pitch = bar_h + segment_gap;
-        const float bar_left = left + pad;
-        const float bar_right = left + slot_w - pad;
-        const float column_top = top + slot_h + segment_gap;
-        float room = static_cast<float>(kStripColumnBars) * bar_pitch;
-        for (const LeftPanel& panel : left_panels) {
-            if (panel.right > left) {
-                room = std::min(room, panel.top - column_top);
+        const float row_span = ((static_cast<float>(kStripTicks) * kStripTickWidthPixels)
+                                + (static_cast<float>(kStripTicks - 1) * kStripTickGapPixels))
+                               * px;
+        const float fit = std::min(1.0F, slot_w / row_span);
+        const float tick_w = kStripTickWidthPixels * px * fit;
+        const float tick_pitch = (kStripTickWidthPixels + kStripTickGapPixels) * px * fit;
+        const float tick_top = top + slot_h + stack_gap + (kStripIconPixels * px) + stack_gap;
+        const float tick_bottom = tick_top + (kStripTickHeightPixels * px);
+        const std::size_t shown = std::min(segments.size(), kStripTicks);
+        std::vector<std::size_t> placed;
+        placed.reserve(shown);
+        for (std::size_t i = 0; i < shown; ++i) {
+            const float tick_left = left + (static_cast<float>(i) * tick_pitch);
+            const bool covered
+                = std::any_of(left_panels.begin(), left_panels.end(), [&](const LeftPanel& panel) {
+                      return panel.right > tick_left && panel.top < tick_bottom
+                             && panel.bottom > tick_top;
+                  });
+            if (!covered) {
+                placed.push_back(i);
             }
         }
-        const std::size_t fitting
-            = std::min(segments.size(), static_cast<std::size_t>(std::max(0.0F, room / bar_pitch)));
-        if (fitting == 0) {
+        if (placed.empty()) {
             continue;
         }
-        const float column_bottom
-            = column_top + (static_cast<float>(fitting) * bar_pitch) - segment_gap;
-        rect(marks_at * kHudFaceRatio * 0.999F, bar_left, column_top, bar_right, column_bottom,
+        rect(marks_at * kHudFaceRatio * 0.999F,
+             left + (static_cast<float>(placed.front()) * tick_pitch), tick_top,
+             left + (static_cast<float>(placed.back()) * tick_pitch) + tick_w, tick_bottom,
              {0.25F, 0.25F, 0.25F});
-        for (std::size_t i = 0; i < fitting; ++i) {
-            const float bar_top = column_top + (static_cast<float>(i) * bar_pitch);
-            rect(marks_at, bar_left, bar_top, bar_right, bar_top + bar_h, segments.at(i).rgb);
+        for (const std::size_t i : placed) {
+            const float tick_left = left + (static_cast<float>(i) * tick_pitch);
+            rect(marks_at, tick_left, tick_top, tick_left + tick_w, tick_bottom,
+                 segments.at(i).rgb);
         }
     }
     if (!options.notice.empty()) {
