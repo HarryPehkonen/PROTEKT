@@ -26,7 +26,13 @@ namespace protekt::app {
 /// m) at level pitch: 27 degrees for 1 m), and past about 1.15 m, where that angle reaches the 30
 /// degree half field of view, it leaves the frame. A lift is the only knob: the height
 /// itself is derived (`kEyeAboveHullMetres`), never typed, so it cannot split from the barrel.
-inline constexpr float kEyeAboveBarrelMetres = 0.0F;
+/// MEASURED (2026-10-30): 0 is NOT usable, which the first version of this shipped. At 0 the eye
+/// sits inside the turret's own box (0.8 to 1.2 m over the hull) and, since the renderer culls no
+/// back faces, the whole frame is the turret's interior and its front face hides the barrel. About
+/// 0.2 m clears the roof panel; 0.4 m shows the barrel as a spur rising from the bottom of the
+/// frame, which is the "certain amount of the end of the barrel" Harri asked to see, so 0.4 is the
+/// default. He sets it: it is the one knob.
+inline constexpr float kEyeAboveBarrelMetres = 0.4F;
 
 /// The eye's height above the hull's base: the tank barrel's own axis
 /// (`game::kTankBarrelAxisMetres`) plus the lift. The one place the eye's position is composed from
