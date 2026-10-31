@@ -162,6 +162,13 @@ alien factory draws the human factory's eight rows until Harri supplies its own 
 
 ### The health ticks and the ship instrument
 
+Each command-row key is drawn as a **keycap** (Harri: "I would also like the function key displayed in the
+same way as here (F3)"): a slate blue-grey face, a 1 px near-black outline round the whole cap, the
+white (or, selected, yellow) frame inside it, and inside that a 1 px bevel -- lighter along the top and
+left, darker along the bottom and right. Only the paint changed: the plate's box, its key, count and kind
+text, and every other panel (the notice, the attack list) are as they were. Whether the key's label
+should sit centred on the cap is still open.
+
 Under each vehicle key's plate hangs the **vehicle-type icon**: a pale, plain, side-view silhouette of
 the kind in a 16 px square at 720p, left-justified like the ticks, the same grey whoever owns the vehicle
 and whether or not the key is selected (the type is shown, not the side). Thirteen kinds have their own

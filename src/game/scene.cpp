@@ -3041,6 +3041,24 @@ constexpr float kHudCornerPixels = 5.0F;
 /// which is how BZ2's panels read.
 constexpr float kHudPanelAlpha = 0.65F;
 constexpr std::array<float, 3> kStripFrame{0.95F, 0.95F, 0.95F};
+/// THE KEYCAP (Harri: "I would also like the function key displayed in the same way as here (F3)"):
+/// a command-row key reads as a cap, not a flat panel, by paint alone -- the plate's box, its text
+/// and its frame colour are what they were. From the outside in: a 1 px near-black OUTLINE that
+/// takes the frame's outer pixel (the frame's second pixel keeps the white or the yellow, which is
+/// what says "selected"), then a 1 px BEVEL in the margin the glyphs leave inside the frame (the
+/// label starts 1 px inside it), lighter along the top and left and darker along the bottom and
+/// right as if lit from the upper left, then a slate face. Flat bands: the renderer has no gradient
+/// here. The face is dark enough that the white text keeps its contrast through the panel's
+/// translucency.
+constexpr float kStripOutlinePixels = 1.0F;
+constexpr float kStripBevelPixels = 1.0F;
+constexpr std::array<float, 3> kStripOutline{0.02F, 0.03F, 0.05F};
+constexpr std::array<float, 3> kStripBevelLight{0.50F, 0.57F, 0.67F};
+constexpr std::array<float, 3> kStripBevelDark{0.08F, 0.10F, 0.14F};
+constexpr std::array<float, 3> kStripKeycapFace{0.16F, 0.21F, 0.29F};
+/// How a plate is painted: the glass the notice and the attack list wear (black, one frame ring),
+/// or the keycap a command-row key wears. One drawing each; every key is a keycap.
+enum class PlateStyle : std::uint8_t { Glass, Keycap };
 constexpr std::array<float, 3> kStripSelected{1.0F, 0.85F, 0.10F};
 /// THE COMMAND MENU (RB0.5, the look MENU-READ): `menu_rows`'s rows, key then verb, down the left
 /// margin in the row under the notice -- the same reserved slot the attack list takes, so neither
@@ -3324,7 +3342,7 @@ void append_hud_panels(std::vector<SceneVertex>& out, const SceneOptions& option
               emit(left + radius, bottom - radius, mid, kPi);
           };
     const auto plate = [&](float left, float top, float right, float bottom,
-                           const std::array<float, 3>& frame) {
+                           const std::array<float, 3>& frame, PlateStyle style) {
         const float edge = kStripFramePixels * px;
         const float radius = std::max(kHudCornerPixels * px, edge);
         const float bars_at = marks_at * kHudBorderRatio;
@@ -3333,36 +3351,70 @@ void append_hud_panels(std::vector<SceneVertex>& out, const SceneOptions& option
             const RayPoint point = ray_point(options.camera, options.extent, x, y, distance);
             return Vec3{point.x, point.y, point.z};
         };
-        // The straight bars, held back from the corners by the radius.
-        rect(bars_at, left + radius, top, right - radius, top + edge, frame);
-        rect(bars_at, left + radius, bottom - edge, right - radius, bottom, frame);
-        rect(bars_at, left, top + radius, left + edge, bottom - radius, frame);
-        rect(bars_at, right - edge, top + radius, right, bottom - radius, frame);
-        // The corners: a quarter annulus from the outer radius in to the inner one, one quad
-        // per slice, in the frame's own opaque colour so the ink still has a crisp edge.
-        const float inner = radius - edge;
-        walk_corners(
-            left, top, right, bottom, radius, [&](float cx, float cy, float from, float to) {
+        // One ring of the plate: the rounded rectangle `inset` in from the plate's box, `width`
+        // thick, each straight bar in its own side's colour. A corner is walked as short arcs and
+        // wears the side it comes from for the first half and the side it goes to for the second,
+        // so a bevel turns the corner where the light does.
+        const auto ring = [&](float inset, float width, const std::array<float, 3>& top_rgb,
+                              const std::array<float, 3>& right_rgb,
+                              const std::array<float, 3>& bottom_rgb,
+                              const std::array<float, 3>& left_rgb) {
+            const float l = left + inset;
+            const float t = top + inset;
+            const float r = right - inset;
+            const float b = bottom - inset;
+            const float outer = radius - inset;
+            // The straight bars, held back from the corners by the radius.
+            rect(bars_at, l + outer, t, r - outer, t + width, top_rgb);
+            rect(bars_at, l + outer, b - width, r - outer, b, bottom_rgb);
+            rect(bars_at, l, t + outer, l + width, b - outer, left_rgb);
+            rect(bars_at, r - width, t + outer, r, b - outer, right_rgb);
+            // The corners: a quarter annulus from the outer radius in to the inner one, one quad
+            // per slice, opaque so the ink still has a crisp edge.
+            const float inner = outer - width;
+            const std::array<const std::array<float, 3>*, 4> before{&left_rgb, &top_rgb, &right_rgb,
+                                                                    &bottom_rgb};
+            const std::array<const std::array<float, 3>*, 4> after{&top_rgb, &right_rgb,
+                                                                   &bottom_rgb, &left_rgb};
+            std::size_t corner = 0;
+            walk_corners(l, t, r, b, outer, [&](float cx, float cy, float from, float to) {
                 for (int slice = 0; slice < kCornerSlices; ++slice) {
                     const float a = from
                                     + ((to - from) * static_cast<float>(slice)
                                        / static_cast<float>(kCornerSlices));
-                    const float b = from
+                    const float c = from
                                     + ((to - from) * static_cast<float>(slice + 1)
                                        / static_cast<float>(kCornerSlices));
+                    const std::array<float, 3>& rgb
+                        = slice < kCornerSlices / 2 ? *before.at(corner) : *after.at(corner);
                     emit_quad(
-                        out, at(bars_at, cx + (radius * std::cos(a)), cy + (radius * std::sin(a))),
-                        at(bars_at, cx + (radius * std::cos(b)), cy + (radius * std::sin(b))),
-                        at(bars_at, cx + (inner * std::cos(b)), cy + (inner * std::sin(b))),
-                        at(bars_at, cx + (inner * std::cos(a)), cy + (inner * std::sin(a))), frame);
+                        out, at(bars_at, cx + (outer * std::cos(a)), cy + (outer * std::sin(a))),
+                        at(bars_at, cx + (outer * std::cos(c)), cy + (outer * std::sin(c))),
+                        at(bars_at, cx + (inner * std::cos(c)), cy + (inner * std::sin(c))),
+                        at(bars_at, cx + (inner * std::cos(a)), cy + (inner * std::sin(a))), rgb);
                 }
+                ++corner;
             });
-        // The glass face: the same rounded rectangle inset by the frame, as a fan from its
+        };
+        // Everything inside this inset is the face: the frame, and on a keycap the outline before
+        // it and the bevel after it, are rings the face must not run under.
+        float rim_inset = edge;
+        if (style == PlateStyle::Glass) {
+            ring(0.0F, edge, frame, frame, frame, frame);
+        } else {
+            const float outline = kStripOutlinePixels * px;
+            const float bevel = kStripBevelPixels * px;
+            ring(0.0F, outline, kStripOutline, kStripOutline, kStripOutline, kStripOutline);
+            ring(outline, edge - outline, frame, frame, frame, frame);
+            ring(edge, bevel, kStripBevelLight, kStripBevelDark, kStripBevelDark, kStripBevelLight);
+            rim_inset = edge + bevel;
+        }
+        // The glass face: the same rounded rectangle inset past the rings, as a fan from its
         // centre, translucent so the world shows through it.
-        const float inset = radius - edge;
+        const float inset = radius - rim_inset;
         std::vector<std::array<float, 2>> rim;
-        walk_corners(left + edge, top + edge, right - edge, bottom - edge, inset,
-                     [&](float cx, float cy, float from, float to) {
+        walk_corners(left + rim_inset, top + rim_inset, right - rim_inset, bottom - rim_inset,
+                     inset, [&](float cx, float cy, float from, float to) {
                          for (int slice = 0; slice <= kCornerSlices; ++slice) {
                              const float a = from
                                              + ((to - from) * static_cast<float>(slice)
@@ -3373,11 +3425,12 @@ void append_hud_panels(std::vector<SceneVertex>& out, const SceneOptions& option
                      });
         const float centre_x = (left + right) * 0.5F;
         const float centre_y = (top + bottom) * 0.5F;
+        const std::array<float, 3>& face = style == PlateStyle::Glass ? kPlate : kStripKeycapFace;
         for (std::size_t i = 0; i < rim.size(); ++i) {
             const std::array<float, 2>& a = rim.at(i);
             const std::array<float, 2>& b = rim.at((i + 1) % rim.size());
             emit_triangle(out, at(face_at, centre_x, centre_y), at(face_at, a.at(0), a.at(1)),
-                          at(face_at, b.at(0), b.at(1)), kPlate, kHudPanelAlpha);
+                          at(face_at, b.at(0), b.at(1)), face, kHudPanelAlpha);
         }
     };
 
@@ -3487,7 +3540,7 @@ void append_hud_panels(std::vector<SceneVertex>& out, const SceneOptions& option
                   return std::find(selected.begin(), selected.end(), id) != selected.end();
               });
         const std::array<float, 3>& frame = chosen ? kStripSelected : kStripFrame;
-        plate(left, top, left + slot_w, top + slot_h, frame);
+        plate(left, top, left + slot_w, top + slot_h, frame, PlateStyle::Keycap);
         const float key_cell = kStripKeyCell * px;
         const float count_cell = kStripHpCell * px;
         ink_text(row_key_label(index), left + pad, top + pad, key_cell, frame);
@@ -3595,7 +3648,7 @@ void append_hud_panels(std::vector<SceneVertex>& out, const SceneOptions& option
         const float notice_left = kStripMarginPixels * px + pad;
         plate(kStripMarginPixels * px, notice_top - pad,
               notice_left + word_width(options.notice, cell) + pad,
-              notice_top + (5.0F * cell) + pad, kStripSelected);
+              notice_top + (5.0F * cell) + pad, kStripSelected, PlateStyle::Glass);
         ink_text(options.notice, notice_left, notice_top, cell, kStripSelected);
     }
     // THE ATTACK LIST. The key to press, the kind in a column of its own, then the distance in
@@ -3609,7 +3662,7 @@ void append_hud_panels(std::vector<SceneVertex>& out, const SceneOptions& option
         plate(list_left, list_top, list_metres_left + list_metres_width + pad,
               list_top + pad + (static_cast<float>(rows.size() - 1) * pitch) + (5.0F * list_cell)
                   + pad,
-              kStripFrame);
+              kStripFrame, PlateStyle::Glass);
         for (std::size_t index = 0; index < rows.size(); ++index) {
             const float row_top = list_top + pad + (static_cast<float>(index) * pitch);
             const char key = static_cast<char>('0' + rows.at(index).key);

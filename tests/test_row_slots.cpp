@@ -1469,6 +1469,190 @@ TEST(KindIconDrawing, TheIconFillsTheReservedBoxAndTheTicksStartUnderIt) {
     EXPECT_LE(bottom, box.top + box.size + kEdgeTolerance);
 }
 
+/// The slot's pixels that belong to neither the icon's ink nor the plate above it nor the ticks'
+/// dark track (which is drawn from its own edges, so it would hide a tick drawn off them): the
+/// ticks themselves, found by where they are and what they are not, never by where they are
+/// SUPPOSED to be. `floor` is a y above which nothing of the tick row can start; the icon's lit top
+/// is far enough above any plausible mis-derivation and far enough below the plate.
+[[nodiscard]] std::vector<Px> drawn_tick_pixels(const std::vector<Px>& pixels, int slot,
+                                                float floor) {
+    std::vector<Px> out;
+    std::copy_if(pixels.begin(), pixels.end(), std::back_inserter(out), [slot, floor](const Px& p) {
+        return slot_at(p.x) == slot && p.y >= floor && p.colour != kStripIconInk && is_fill(p);
+    });
+    return out;
+}
+
+TEST(KindIconDrawing,
+     TheDrawnTicksHangFromTheDrawnIconsBottomByTheSameGapTheIconHangsFromThePlate) {
+    Rig rig = make_rig();
+    const std::vector<Px> pixels = row_pixels(rig.sim, rig.options);
+    const std::vector<Px> icon = icon_pixels(pixels, 4);
+    ASSERT_FALSE(icon.empty()) << "a vacuous pass: nothing was drawn";
+    float lit_left = 1.0e9F;
+    float lit_top = 1.0e9F;
+    float lit_bottom = -1.0e9F;
+    for (const Px& p : icon) {
+        lit_left = std::min(lit_left, p.x);
+        lit_top = std::min(lit_top, p.y);
+        lit_bottom = std::max(lit_bottom, p.y);
+    }
+    // F1 is a tank. The box the icon is drawn in is the lit extent plus the unlit cells of its
+    // mask (a cell a pixel), so it is read off the DRAWN pixels and the mask, not off the code's
+    // own box.
+    const IconMask& mask = kind_icon(UnitKind::Tank);
+    std::size_t first_row = kIconCells;
+    std::size_t last_row = 0;
+    std::size_t first_col = kIconCells;
+    for (std::size_t row = 0; row < kIconCells; ++row) {
+        const std::size_t first = mask.at(row).find('#');
+        if (first != std::string_view::npos) {
+            first_row = std::min(first_row, row);
+            last_row = std::max(last_row, row);
+            first_col = std::min(first_col, first);
+        }
+    }
+    ASSERT_LT(first_row, kIconCells);
+    const float box_left = lit_left - static_cast<float>(first_col);
+    const float box_top = lit_top - static_cast<float>(first_row);
+    const float box_bottom = lit_bottom + static_cast<float>(kIconCells - 1 - last_row);
+
+    // The plate's drawn bottom and left edges: the outermost vertices of the slot above the box.
+    float plate_bottom = -1.0e9F;
+    float plate_left = 1.0e9F;
+    for (const Px& p : pixels) {
+        if (slot_at(p.x) == 4 && p.y < box_top - 0.01F) {
+            plate_bottom = std::max(plate_bottom, p.y);
+            plate_left = std::min(plate_left, p.x);
+        }
+    }
+    const std::vector<Px> ticks = drawn_tick_pixels(pixels, 4, lit_top);
+    ASSERT_FALSE(ticks.empty()) << "a vacuous pass: no tick was drawn";
+    float tick_top = 1.0e9F;
+    float tick_left = 1.0e9F;
+    for (const Px& p : ticks) {
+        tick_top = std::min(tick_top, p.y);
+        tick_left = std::min(tick_left, p.x);
+    }
+
+    const float gap_above = box_top - plate_bottom;
+    const float gap_below = tick_top - box_bottom;
+    EXPECT_NEAR(gap_above, 1.0F, kEdgeTolerance) << "the icon hangs one gap under the plate";
+    EXPECT_NEAR(gap_below, gap_above, kEdgeTolerance)
+        << "the ticks hang from the icon's drawn bottom by the same gap: " << tick_top
+        << " against the box's bottom " << box_bottom;
+    EXPECT_NEAR(tick_left, plate_left, kEdgeTolerance)
+        << "the ticks start on the plate's left edge";
+    EXPECT_NEAR(box_left, plate_left, kEdgeTolerance) << "and so does the icon";
+}
+
+TEST(KeycapDrawing, TheBevelTheFaceAndTheOutlineAreThreeDifferentThingsOnTheDrawnPlate) {
+    Rig rig = make_rig();
+    const std::vector<Px> pixels = row_pixels(rig.sim, rig.options);
+    const IconBox box = key_icon_box(slot_left(4), kMarginPx, 1.0F);
+    // The plate is what the slot draws above the icon's box.
+    std::vector<Px> plate;
+    std::copy_if(pixels.begin(), pixels.end(), std::back_inserter(plate),
+                 [&box](const Px& p) { return slot_at(p.x) == 4 && p.y < box.top - 0.01F; });
+    ASSERT_FALSE(plate.empty());
+    float left = 1.0e9F;
+    float right = -1.0e9F;
+    float top = 1.0e9F;
+    float bottom = -1.0e9F;
+    for (const Px& p : plate) {
+        left = std::min(left, p.x);
+        right = std::max(right, p.x);
+        top = std::min(top, p.y);
+        bottom = std::max(bottom, p.y);
+    }
+    const float centre_x = (left + right) * 0.5F;
+    const float centre_y = (top + bottom) * 0.5F;
+    const auto luma = [](const std::array<float, 3>& c) {
+        return (0.2126F * c.at(0)) + (0.7152F * c.at(1)) + (0.0722F * c.at(2));
+    };
+
+    // The face: the colour of the fan's centre vertex, the one vertex that sits at the plate's
+    // centre and nowhere else.
+    std::vector<std::array<float, 3>> centre_colours;
+    for (const Px& p : plate) {
+        if (std::abs(p.x - centre_x) < kEdgeTolerance
+            && std::abs(p.y - centre_y) < kEdgeTolerance) {
+            centre_colours.push_back(p.colour);
+        }
+    }
+    ASSERT_FALSE(centre_colours.empty()) << "the face fan has a centre vertex";
+    const std::array<float, 3> face = centre_colours.front();
+    for (const auto& c : centre_colours) {
+        EXPECT_EQ(c, face) << "one face colour at the centre";
+    }
+
+    // The rim's colours: those whose EVERY vertex lies within 4 px of the plate's box (the 2 px
+    // frame and the 1 px bevel inside it, which at a rounded corner runs a little deeper along
+    // the diagonal). The label's, the count's and the kind's ink reach
+    // deeper in, so the frame (which shares the ink's colour) is not among them; the outline and
+    // the two bevel bands are.
+    constexpr float kRimDepth = 4.0F;
+    struct Group {
+        std::array<float, 3> colour;
+        float sum_x{};
+        float sum_y{};
+        std::size_t count{};
+        bool rim{true};
+    };
+    std::vector<Group> groups;
+    for (const Px& p : plate) {
+        auto found = std::find_if(groups.begin(), groups.end(),
+                                  [&p](const Group& g) { return g.colour == p.colour; });
+        if (found == groups.end()) {
+            groups.push_back(Group{p.colour});
+            found = groups.end() - 1;
+        }
+        found->sum_x += p.x;
+        found->sum_y += p.y;
+        ++found->count;
+        const float depth = std::min({p.x - left, right - p.x, p.y - top, bottom - p.y});
+        found->rim = found->rim && depth <= kRimDepth;
+    }
+    std::vector<Group> rim;
+    std::copy_if(groups.begin(), groups.end(), std::back_inserter(rim),
+                 [](const Group& g) { return g.rim; });
+    ASSERT_EQ(rim.size(), 3U) << "an outline and a light and a dark bevel, and nothing else hugs "
+                                 "the rim: a flat panel has none";
+    const Group* light = nullptr;
+    const Group* dark = nullptr;
+    const Group* outline = nullptr;
+    for (const Group& g : rim) {
+        const float mean_x = g.sum_x / static_cast<float>(g.count);
+        const float mean_y = g.sum_y / static_cast<float>(g.count);
+        if (mean_x < centre_x - 1.0F && mean_y < centre_y - 1.0F) {
+            light = &g; // its weight is on the top and left
+        } else if (mean_x > centre_x + 1.0F && mean_y > centre_y + 1.0F) {
+            dark = &g; // its weight is on the bottom and right
+        } else {
+            outline = &g; // all the way round: its centre of weight is the plate's
+        }
+    }
+    ASSERT_NE(light, nullptr) << "a band along the top and left";
+    ASSERT_NE(dark, nullptr) << "a band along the bottom and right";
+    ASSERT_NE(outline, nullptr) << "a ring all the way round";
+    EXPECT_GT(luma(light->colour), luma(face)) << "the lit edge is lighter than the face";
+    EXPECT_LT(luma(dark->colour), luma(face)) << "the shaded edge is darker than the face";
+    EXPECT_LT(luma(outline->colour), luma(face)) << "the outline is darker than the face";
+    EXPECT_NE(outline->colour, dark->colour) << "the outline is not just the shaded band";
+    EXPECT_NE(light->colour, face);
+    EXPECT_NE(dark->colour, face);
+    EXPECT_NE(outline->colour, face);
+
+    // The outline is the outermost ring: its vertices reach the plate's own edge.
+    float outline_left = 1.0e9F;
+    for (const Px& p : plate) {
+        if (p.colour == outline->colour) {
+            outline_left = std::min(outline_left, p.x);
+        }
+    }
+    EXPECT_NEAR(outline_left, left, kEdgeTolerance) << "the outline is outside the bevel";
+}
+
 TEST(KindIconDrawing, EveryLivingVehicleKeyHasAnIconAndNothingElseDoes) {
     Rig rig = make_rig();
     const std::vector<Px> pixels = row_pixels(rig.sim, rig.options);
