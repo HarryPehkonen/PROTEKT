@@ -21,9 +21,14 @@ inline constexpr std::size_t kIconCells = 16;
 
 using IconMask = std::array<std::string_view, kIconCells>;
 
-/// The mask drawn for `kind`: its own silhouette, or `fallback_icon()` for a kind with none (the
-/// buildings, which hang on the numbered keys and show no icon, and any kind added later).
+/// The mask drawn for `kind`: its own silhouette, the two buildings (the factory and the deployed
+/// recycler) included, or `fallback_icon()` for a kind with none (any kind added later).
 [[nodiscard]] const IconMask& kind_icon(sim::UnitKind kind) noexcept;
+
+/// The armory's mask, Harri's "the one with a missile on each side of it". The armory is not a
+/// `UnitKind` yet -- the game cannot build one -- so the numbered key `3` asks for it by position;
+/// it is drawn the moment that key holds something.
+[[nodiscard]] const IconMask& armory_icon() noexcept;
 
 /// The deliberate "no art for this kind" mark: a hollow box with a dot in it.
 [[nodiscard]] const IconMask& fallback_icon() noexcept;

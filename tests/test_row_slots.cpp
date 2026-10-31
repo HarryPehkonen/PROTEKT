@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -1169,29 +1170,6 @@ TEST(RowDrawing, TheNavKeyHasNoTickAndTheFactoryDoes) {
     EXPECT_EQ(factory.front().colour, (std::array<float, 3>{0.15F, 0.95F, 0.25F}));
 }
 
-TEST(RowDrawing, TheCountIsDrawnAndFollowsTheGroupSize) {
-    Rig rig = make_rig();
-    const auto count_ink = [&](const std::vector<Px>& pixels) {
-        // The count sits in the slot's top right: the right half, above the label.
-        std::vector<float> xs;
-        for (const Px& p : pixels) {
-            if (slot_at(p.x) == 4 && p.x > slot_left(4) + (kSlotPx / 2.0F) && p.y > 8.5F
-                && p.y < 20.0F) {
-                xs.push_back(p.x);
-            }
-        }
-        return xs;
-    };
-    const std::vector<float> one = count_ink(row_pixels(rig.sim, rig.options));
-    rig.row.slots.at(group_slot(1)).units = {rig.own.at(0), rig.own.at(1)};
-    const std::vector<float> two = count_ink(row_pixels(rig.sim, rig.options));
-    rig.row.slots.at(group_slot(1)).units = {rig.own.at(0), rig.own.at(1)};
-    const std::vector<float> two_again = count_ink(row_pixels(rig.sim, rig.options));
-    EXPECT_FALSE(one.empty());
-    EXPECT_NE(one, two) << "x1 and x2 are different glyphs";
-    EXPECT_EQ(two, two_again);
-}
-
 TEST(RowDrawing, TheRowTouchesNoSimAndTwoSameSeedFramesAreByteIdentical) {
     const auto run = [] {
         Rig rig = make_rig();
@@ -1362,7 +1340,7 @@ TEST(RowBatch, TwoBatchesSitOnTwoKeysAndNeitherKeyMixesThem) {
 // ------------------------------------------------------------------ the vehicle-type icon
 
 /// The kinds a vehicle key can hold: every kind but the two buildings, which hang on the numbered
-/// keys and show no icon.
+/// keys and have masks of their own.
 [[nodiscard]] std::vector<UnitKind> vehicle_kinds() {
     std::vector<UnitKind> kinds;
     kinds.reserve(sim::kUnitKindCount);
@@ -1396,18 +1374,60 @@ TEST(KindIcon, EveryKindAVehicleKeyCanHoldHasItsOwnMask) {
     }
 }
 
-TEST(KindIcon, AKindWithNoArtAndAnUnknownKindDrawTheFallback) {
-    EXPECT_EQ(&kind_icon(UnitKind::Factory), &fallback_icon());
-    EXPECT_EQ(&kind_icon(UnitKind::DeployedRecycler), &fallback_icon());
+TEST(KindIcon, AnUnknownKindDrawsTheFallback) {
     EXPECT_EQ(&kind_icon(static_cast<UnitKind>(200)), &fallback_icon());
 }
 
-TEST(KindIcon, EveryMaskIsASixteenSquareOfDotsAndHashesWithSomethingLit) {
-    std::vector<const IconMask*> masks{&fallback_icon()};
+/// Every mask a plate can show, buildings and armory included.
+[[nodiscard]] std::vector<const IconMask*> all_masks() {
+    std::vector<const IconMask*> masks{&fallback_icon(), &armory_icon(),
+                                       &kind_icon(UnitKind::Factory),
+                                       &kind_icon(UnitKind::DeployedRecycler)};
     for (const UnitKind kind : vehicle_kinds()) {
         masks.push_back(&kind_icon(kind));
     }
-    for (const IconMask* mask : masks) {
+    return masks;
+}
+
+TEST(KindIcon, TheThreeBuildingsEachHaveAMaskOfTheirOwn) {
+    const std::vector<const IconMask*> masks = all_masks();
+    const std::array<const IconMask*, 3> buildings{&kind_icon(UnitKind::DeployedRecycler),
+                                                   &kind_icon(UnitKind::Factory), &armory_icon()};
+    for (const IconMask* building : buildings) {
+        EXPECT_NE(building, &fallback_icon()) << "a building fell back";
+        EXPECT_EQ(std::count_if(masks.begin(), masks.end(),
+                                [building](const IconMask* other) { return *other == *building; }),
+                  1)
+            << "a building's mask is also another kind's";
+    }
+}
+
+TEST(KindIcon, TheArmoryHasAMissileStandingOnEachSideOfIt) {
+    // Harri: "the one with a missile on each side of it". The structure, not the exact pixels: a
+    // pointed nose over a three-wide body in the outer three columns of each side, a clear gap
+    // between each missile and the building, and the whole mask its own mirror.
+    const IconMask& mask = armory_icon();
+    EXPECT_EQ(mask.at(1), ".#............#.") << "a pointed nose either side";
+    for (std::size_t row = 2; row < 14; ++row) {
+        const std::string_view line = mask.at(row);
+        EXPECT_EQ(line.substr(0, 3), "###") << "left missile, row " << row;
+        EXPECT_EQ(line.substr(13, 3), "###") << "right missile, row " << row;
+        EXPECT_EQ(line.at(3), '.') << "a gap between the left missile and the building";
+        EXPECT_EQ(line.at(12), '.') << "a gap between the right missile and the building";
+        if (row >= 3) { // row 2 is the missiles' shoulders alone, above the building's antenna
+            EXPECT_NE(line.substr(4, 8).find('#'), std::string_view::npos)
+                << "the building between them, row " << row;
+        }
+    }
+    for (const std::string_view line : mask) {
+        std::string mirrored(line);
+        std::reverse(mirrored.begin(), mirrored.end());
+        EXPECT_EQ(mirrored, line) << "the same missile on both sides";
+    }
+}
+
+TEST(KindIcon, EveryMaskIsASixteenSquareOfDotsAndHashesWithSomethingLit) {
+    for (const IconMask* mask : all_masks()) {
         std::size_t lit = 0;
         for (const std::string_view row : *mask) {
             ASSERT_EQ(row.size(), kIconCells);
@@ -1588,9 +1608,8 @@ TEST(KeycapDrawing, TheBevelTheFaceAndTheOutlineAreThreeDifferentThingsOnTheDraw
 
     // The rim's colours: those whose EVERY vertex lies within 4 px of the plate's box (the 2 px
     // frame and the 1 px bevel inside it, which at a rounded corner runs a little deeper along
-    // the diagonal). The label's, the count's and the kind's ink reach
-    // deeper in, so the frame (which shares the ink's colour) is not among them; the outline and
-    // the two bevel bands are.
+    // the diagonal). The label's ink reaches deeper in, so the frame (which shares the ink's
+    // colour) is not among them; the outline and the two bevel bands are.
     constexpr float kRimDepth = 4.0F;
     struct Group {
         std::array<float, 3> colour;
@@ -1685,6 +1704,216 @@ TEST(KindIconDrawing, AKeyWhoseVehiclesAllDieDrawsNoIconAtAll) {
     const std::vector<Px> pixels = row_pixels(rig.sim, rig.options);
     EXPECT_TRUE(icon_pixels(pixels, 5).empty());
     EXPECT_FALSE(icon_pixels(pixels, 4).empty()) << "its neighbour's icon stays";
+}
+
+// ------------------------------------------------------------------ the plate carries three things
+
+/// A plate as drawn: its box, and the label's ink inside it (the frame's colour, deeper than any
+/// part of the rim or its rounded corners can reach). Read off the vertices, never off the
+/// constants the code placed them with.
+struct DrawnPlate {
+    float left{1.0e9F};
+    float right{-1.0e9F};
+    float top{1.0e9F};
+    float bottom{-1.0e9F};
+    std::vector<Px> ink;
+};
+
+constexpr float kInkDepthPx = 6.0F;
+constexpr std::array<float, 3> kFrameInk{0.95F, 0.95F, 0.95F};
+
+[[nodiscard]] DrawnPlate drawn_plate(const std::vector<Px>& pixels, int slot) {
+    DrawnPlate plate;
+    const IconBox box = key_icon_box(slot_left(static_cast<std::size_t>(slot)), kMarginPx, 1.0F);
+    for (const Px& p : pixels) {
+        if (slot_at(p.x) == slot && p.y < box.top - 0.01F) {
+            plate.left = std::min(plate.left, p.x);
+            plate.right = std::max(plate.right, p.x);
+            plate.top = std::min(plate.top, p.y);
+            plate.bottom = std::max(plate.bottom, p.y);
+        }
+    }
+    for (const Px& p : pixels) {
+        if (slot_at(p.x) == slot && p.y < box.top - 0.01F && p.colour == kFrameInk
+            && std::min({p.x - plate.left, plate.right - p.x, p.y - plate.top, plate.bottom - p.y})
+                   > kInkDepthPx) {
+            plate.ink.push_back(p);
+        }
+    }
+    return plate;
+}
+
+/// Every key at once: ~ 1 2 3 and F1..F10, all holding something.
+[[nodiscard]] Rig full_row_rig() {
+    std::vector<Spawn> extra{{UnitKind::Factory, Side::Player, 30, 30},
+                             {UnitKind::DeployedRecycler, Side::Player, 26, 30}};
+    for (int i = 0; i < 5; ++i) {
+        extra.push_back({UnitKind::Tank, Side::Player, 20 + (i * 3), 45});
+    }
+    Rig rig = make_rig(extra);
+    rig.row.update(rig.sim, Side::Player, 2);
+    // The armory is not buildable yet, so nothing seats a unit on `3`; put one there by hand to
+    // see what the key would draw the moment the game can.
+    rig.row.slots.at(3).units = {rig.own.at(0)};
+    return rig;
+}
+
+TEST(PlateContent, TheKeyLabelIsCentredOnThePlateOnEveryKeyIncludingF10) {
+    Rig rig = full_row_rig();
+    const std::vector<Px> pixels = row_pixels(rig.sim, rig.options);
+    for (int slot = 0; slot < static_cast<int>(kRowSlots); ++slot) {
+        const DrawnPlate plate = drawn_plate(pixels, slot);
+        ASSERT_FALSE(plate.ink.empty()) << "a vacuous pass: slot " << slot << " drew no label";
+        float left = 1.0e9F;
+        float right = -1.0e9F;
+        float top = 1.0e9F;
+        float bottom = -1.0e9F;
+        for (const Px& p : plate.ink) {
+            left = std::min(left, p.x);
+            right = std::max(right, p.x);
+            top = std::min(top, p.y);
+            bottom = std::max(bottom, p.y);
+        }
+        EXPECT_NEAR((left + right) * 0.5F, (plate.left + plate.right) * 0.5F, 1.0F)
+            << row_key_label(static_cast<std::size_t>(slot)) << " across";
+        EXPECT_NEAR((top + bottom) * 0.5F, (plate.top + plate.bottom) * 0.5F, 1.0F)
+            << row_key_label(static_cast<std::size_t>(slot)) << " down";
+    }
+}
+
+/// The lit cells of `text` in the HUD's 5x5 font, as (column, row) with `column` counted across
+/// the whole word (a glyph is five cells and a blank column).
+[[nodiscard]] std::vector<std::pair<int, int>> text_cells(std::string_view text) {
+    std::vector<std::pair<int, int>> cells;
+    for (std::size_t i = 0; i < text.size(); ++i) {
+        const char upper = static_cast<char>(std::toupper(static_cast<unsigned char>(text.at(i))));
+        const std::vector<float> coverage = glyph_coverage(upper, 5, 5);
+        if (coverage.empty()) {
+            continue; // the font has no such glyph and draws it blank (it has no `X`)
+        }
+        for (int row = 0; row < 5; ++row) {
+            for (int col = 0; col < 5; ++col) {
+                if (coverage.at((static_cast<std::size_t>(row) * 5U)
+                                + static_cast<std::size_t>(col))
+                    > 0.5F) {
+                    cells.emplace_back((static_cast<int>(i) * 6) + col, row);
+                }
+            }
+        }
+    }
+    return cells;
+}
+
+[[nodiscard]] bool has_ink_corner(const DrawnPlate& plate, float x, float y) {
+    return std::any_of(plate.ink.begin(), plate.ink.end(), [x, y](const Px& p) {
+        return std::abs(p.x - x) < kEdgeTolerance && std::abs(p.y - y) < kEdgeTolerance;
+    });
+}
+
+TEST(PlateContent, NeitherTheKindNameNorTheCountIsDrawnOnAnyPlate) {
+    // F1 holds two tanks: its plate used to say TANK in the lower half and x2 at the top right.
+    Rig rig = make_rig();
+    rig.row.slots.at(group_slot(1)).units = {rig.own.at(0), rig.own.at(1)};
+    const std::vector<Px> pixels = row_pixels(rig.sim, rig.options);
+    const DrawnPlate plate = drawn_plate(pixels, 4);
+
+    // Not vacuous: the label IS drawn, and the search below finds it where it is.
+    const std::vector<std::pair<int, int>> label = text_cells("F1");
+    ASSERT_FALSE(plate.ink.empty());
+    constexpr float kCell = 2.0F;
+    int first_col = 99;
+    int last_col = 0;
+    for (const auto& [col, row] : label) {
+        first_col = std::min(first_col, col);
+        last_col = std::max(last_col, col + 1);
+    }
+    const float label_left
+        = slot_left(4) + ((kSlotPx - (static_cast<float>(first_col + last_col) * kCell)) * 0.5F);
+    const float label_top = kMarginPx + ((34.0F - (5.0F * kCell)) * 0.5F);
+    for (const auto& [col, row] : label) {
+        EXPECT_TRUE(has_ink_corner(plate, label_left + (static_cast<float>(col) * kCell),
+                                   label_top + (static_cast<float>(row) * kCell)))
+            << "the label's own cell (" << col << "," << row << ") is not where it should be";
+    }
+    // Every drawn ink vertex belongs to the label: a quad a lit cell, so nothing else is on it.
+    EXPECT_EQ(plate.ink.size(), label.size() * 6U) << "ink on the plate that is not the label";
+
+    // And the old text's cells, where it used to be: the kind at the lower left, the count at the
+    // right of the top row (kind cell 2, right-aligned in the plate less its 3 px of padding).
+    const float kind_left = slot_left(4) + 3.0F;
+    const float kind_top = kMarginPx + 3.0F + 10.0F + 3.0F;
+    for (const auto& [col, row] : text_cells("TANK")) {
+        EXPECT_FALSE(has_ink_corner(plate, kind_left + (static_cast<float>(col) * kCell),
+                                    kind_top + (static_cast<float>(row) * kCell)))
+            << "kind text cell (" << col << "," << row << ")";
+    }
+    // (The font has no `x`, so the old count drew as the bare digit, `2`, right-aligned as "x2".)
+    const float count_left = slot_left(4) + kSlotPx - 3.0F - (11.0F * kCell);
+    const float count_top = kMarginPx + 3.0F + 5.0F - 5.0F;
+    for (const auto& [col, row] : text_cells("x2")) {
+        EXPECT_FALSE(has_ink_corner(plate, count_left + (static_cast<float>(col) * kCell),
+                                    count_top + (static_cast<float>(row) * kCell)))
+            << "count cell (" << col << "," << row << ")";
+    }
+    // The plate's centre is not blank: the label is drawn over it.
+    EXPECT_TRUE(std::any_of(plate.ink.begin(), plate.ink.end(), [&plate](const Px& p) {
+        return std::abs(p.x - ((plate.left + plate.right) * 0.5F)) < 12.0F
+               && std::abs(p.y - ((plate.top + plate.bottom) * 0.5F)) < 6.0F;
+    }));
+}
+
+TEST(PlateContent, EveryKeyShowsOnlyItsLabelOverAnIconOverTicks) {
+    Rig rig = full_row_rig();
+    const std::vector<Px> pixels = row_pixels(rig.sim, rig.options);
+    for (int slot = 0; slot < static_cast<int>(kRowSlots); ++slot) {
+        const std::string_view key = row_key_label(static_cast<std::size_t>(slot));
+        const DrawnPlate plate = drawn_plate(pixels, slot);
+        EXPECT_EQ(plate.ink.size(), text_cells(key).size() * 6U)
+            << "slot " << key << ": the plate carries its label and nothing more";
+        if (slot == 0) {
+            EXPECT_TRUE(icon_pixels(pixels, slot).empty()) << "~ has no icon";
+            EXPECT_TRUE(tick_runs(pixels, slot).empty()) << "~ has no ticks";
+        } else {
+            EXPECT_FALSE(icon_pixels(pixels, slot).empty()) << key << " has an icon";
+            EXPECT_FALSE(tick_runs(pixels, slot).empty()) << key << " has a tick";
+        }
+    }
+}
+
+/// The quads an icon is drawn as: one per horizontal run of lit cells in `mask`.
+[[nodiscard]] std::size_t mask_runs(const IconMask& mask) {
+    std::size_t runs = 0;
+    for (const std::string_view line : mask) {
+        for (std::size_t col = 0; col < line.size(); ++col) {
+            if (line.at(col) == '#' && (col == 0 || line.at(col - 1) != '#')) {
+                ++runs;
+            }
+        }
+    }
+    return runs;
+}
+
+TEST(PlateContent, TheBuildingKeysDrawTheirOwnMasksUnderTheirLabels) {
+    Rig rig = full_row_rig();
+    const std::vector<Px> pixels = row_pixels(rig.sim, rig.options);
+    ASSERT_EQ(row_slot_kind(1), RowSlotKind::RecyclerKey);
+    const std::array<std::pair<int, const IconMask*>, 3> keys{
+        std::pair{1, &kind_icon(UnitKind::DeployedRecycler)},
+        std::pair{2, &kind_icon(UnitKind::Factory)}, std::pair{3, &armory_icon()}};
+    for (const auto& [slot, mask] : keys) {
+        EXPECT_EQ(icon_pixels(pixels, slot).size(), mask_runs(*mask) * 6U)
+            << "key " << slot << " draws its building's own silhouette";
+        const IconBox box
+            = key_icon_box(slot_left(static_cast<std::size_t>(slot)), kMarginPx, 1.0F);
+        float lowest = -1.0e9F;
+        for (const Px& p : icon_pixels(pixels, slot)) {
+            lowest = std::max(lowest, p.y);
+        }
+        EXPECT_NEAR(lowest, box.top + box.size, kEdgeTolerance) << "standing on the box's floor";
+        const std::vector<TickRun> ticks = tick_runs(pixels, slot);
+        ASSERT_EQ(ticks.size(), 1U) << "a building is one thing: one tick";
+        EXPECT_NEAR(ticks.front().top, kTickTopPx, kEdgeTolerance);
+    }
 }
 
 } // namespace

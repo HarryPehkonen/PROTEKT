@@ -20,6 +20,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
+#include <limits>
 #include <map>
 #include <string>
 #include <string_view>
@@ -3019,20 +3020,22 @@ void append_ship_gauge(std::vector<SceneVertex>& out, const SceneOptions& option
 /// unit of the group is selected, white otherwise), 6 px from the top and 6 px apart. Every glyph
 /// is 10 px tall (cell 2.0), which is BZ2's own HUD text height, counted rather than guessed: its
 /// text is 10 px in the 800x600 originals and still ~10 px in a 1280x730 screenshot of the
-/// remaster, so it is a fixed pixel font that ignores the resolution. Top row: the key, and how
-/// many vehicles the group holds beside it; then the kind (cell 2.0, or smaller for a name that
-/// would not fit the plate's inside). Under the plate hangs the vehicle-type ICON in its reserved
-/// square (`key_icon_box`: a pale side-view silhouette of the kind, `kind_icon`, left-justified
-/// like the ticks, no colour for whose it is; building keys and `~` have none), and under that a
-/// ROW of upright TICKS, ONE PER LIVING VEHICLE, left to right in the group's spawn order from the
-/// key's left edge, up to ten (BAR-LOOK, HIS RULING 2026-10-30, from a BZ2 crop: "Vertical, and
-/// always the same size. They are left-justified, up to ten. ... it only changes colour, never the
-/// size"). Every tick is the same size and never shrinks with damage; each is coloured by its own
-/// vehicle's hit points on `bar_segments`'s ramp, bright green through yellow and red to a
-/// near-black that still reads against its dark track. A vehicle that dies takes its tick with it
-/// and the ones after it close up to the left, no blanks. `~` says how many nav marks there are and
-/// has no ticks; the building on `2` has one segment and no count. Under the row, `options.notice`
-/// in 10 px yellow capitals.
+/// remaster, so it is a fixed pixel font that ignores the resolution. The plate carries ONE thing:
+/// the key's label, centred on the plate both ways (Harri, 2026-10-30: "Centre the label. Stop
+/// drawing the kind text. Stop drawing the count on the plate. Only the f key label, the icon under
+/// it, and the vertical health ticks under the icon."). No kind name and no head count: the count
+/// was the only numeric reading of a group's size, and the ticks stop at ten, which he accepted.
+/// Under the plate hangs the ICON in its reserved square (`key_icon_box`: a pale side-view
+/// silhouette, `kind_icon` for a vehicle or a building, `armory_icon` for the key `3`,
+/// left-justified like the ticks, no colour for whose it is; `~` has none), and under that a ROW of
+/// upright TICKS, ONE PER LIVING VEHICLE, left to right in the group's spawn order from the key's
+/// left edge, up to ten (BAR-LOOK, HIS RULING 2026-10-30, from a BZ2 crop: "Vertical, and always
+/// the same size. They are left-justified, up to ten. ... it only changes colour, never the size").
+/// Every tick is the same size and never shrinks with damage; each is coloured by its own vehicle's
+/// hit points on `bar_segments`'s ramp, bright green through yellow and red to a near-black that
+/// still reads against its dark track. A vehicle that dies takes its tick with it and the ones
+/// after it close up to the left, no blanks. `~` is its label alone and has no ticks; a building
+/// key has one tick. Under the row, `options.notice` in 10 px yellow capitals.
 ///
 /// THE ATTACK LIST (BZ2A): the nearest enemies T offered, by the same plate and the same type, one
 /// row per enemy. It sits in the row BELOW the notice, which is reserved whether or not there is a
@@ -3045,8 +3048,6 @@ constexpr float kStripSlotHeightPixels = 34.0F;
 constexpr float kStripFramePixels = 2.0F;
 constexpr float kStripPadPixels = 3.0F;
 constexpr float kStripKeyCell = 2.0F;
-constexpr float kStripHpCell = 2.0F;
-constexpr float kStripKindCell = 2.0F;
 /// The gap between the things stacked under a key's plate (plate, icon square, ticks).
 constexpr float kStripStackGapPixels = 1.0F;
 /// The vehicle-type icon's reserved square under the plate (Harri: "an image of the type of
@@ -3547,9 +3548,7 @@ void append_hud_panels(std::vector<SceneVertex>& out, const SceneOptions& option
         const RowSlot& slot = options.row->slots.at(index);
         const bool is_navs = row_slot_kind(index) == RowSlotKind::Navs;
         const bool is_group = row_slot_kind(index) == RowSlotKind::Group;
-        std::string label = "NAVS";
         sim::UnitKind reading_kind{};
-        std::size_t count = options.row->nav_marks;
         std::vector<float> fractions;
         if (!is_navs) {
             const std::optional<SlotReading> reading = read_slot(sim, slot);
@@ -3557,8 +3556,6 @@ void append_hud_panels(std::vector<SceneVertex>& out, const SceneOptions& option
                 continue; // everything in it died since the row was last updated
             }
             reading_kind = reading->kind;
-            label = std::string(kind_label(reading->kind));
-            count = reading->count;
             // A vehicle key has a segment per living vehicle; a building key is one thing, so one.
             fractions = is_group
                             ? reading->fractions
@@ -3576,60 +3573,56 @@ void append_hud_panels(std::vector<SceneVertex>& out, const SceneOptions& option
               });
         const std::array<float, 3>& frame = chosen ? kStripSelected : kStripFrame;
         plate(left, top, left + slot_w, top + slot_h, frame, PlateStyle::Keycap);
+        // THE LABEL, centred on the plate's face on both axes: it is all the plate carries (Harri:
+        // "Only the f key label, the icon under it, and the vertical health ticks under the
+        // icon."), so nothing is left for it to collide with. It is centred on what is DRAWN, the
+        // extent of its lit cells, not on its advance width: a `1` leaves its right column blank,
+        // and centring on the box would put `F1` a pixel left of the middle.
         const float key_cell = kStripKeyCell * px;
-        const float count_cell = kStripHpCell * px;
-        ink_text(row_key_label(index), left + pad, top + pad, key_cell, frame);
-        // How many, not how hurt. The "x" is what keeps a bare digit from reading as hit points.
-        // A building is one thing, not a head count, so only `~` and the vehicle groups say it.
-        if (is_navs || is_group) {
-            const std::string text = "x" + std::to_string(count);
-            const float count_left = left + slot_w - pad - word_width(text, count_cell);
-            ink_text(text, count_left, top + pad + (2.5F * key_cell) - (2.5F * count_cell),
-                     count_cell, kStripFrame);
-        }
-        // The label takes the largest cell that fits the slot's inside, up to the design size:
-        // the longest names would run out of a narrow slot at full size.
-        const float kind_top = top + pad + (5.0F * key_cell) + pad;
-        const float kind_cell
-            = std::min(kStripKindCell * px,
-                       (slot_w - (2.0F * pad)) / static_cast<float>((label.size() * 6) - 1));
-        ink_text(label, left + pad, kind_top, kind_cell, kStripFrame);
+        float lit_left = std::numeric_limits<float>::max();
+        float lit_right = 0.0F;
+        glyph_cells(row_key_label(index), 0.0F, 0.0F, 1.0F, [&](float x, float) {
+            lit_left = std::min(lit_left, x);
+            lit_right = std::max(lit_right, x + 1.0F);
+        });
+        ink_text(row_key_label(index),
+                 left + ((slot_w - ((lit_left + lit_right) * key_cell)) * 0.5F),
+                 top + ((slot_h - (5.0F * key_cell)) * 0.5F), key_cell, frame);
         if (is_navs) {
-            continue; // marks have no hit points: no bar
+            continue; // marks have no hit points: no bar, and nothing to draw an icon of
         }
         // THE ICON, in its reserved square: one quad per horizontal run of lit cells of the kind's
-        // mask, a cell a pixel. A run a left panel reaches is left out like a covered tick. Only
-        // vehicle keys have one, and only a living key gets this far (a dead one `continue`d
-        // above).
+        // mask, a cell a pixel. A run a left panel reaches is left out like a covered tick. Every
+        // key but `~` has one, and only a living key gets this far (a dead one `continue`d above).
+        // The armory's key is the one that is drawn by position: it has no kind to look up.
         const IconBox icon = key_icon_box(left, top, px);
         const float icon_bottom = icon.top + icon.size;
-        if (is_group) {
-            const IconMask& mask = kind_icon(reading_kind);
-            const float cell = icon.size / static_cast<float>(kIconCells);
-            for (std::size_t row = 0; row < kIconCells; ++row) {
-                const std::string_view line = mask.at(row);
-                std::size_t col = 0;
-                while (col < kIconCells) {
-                    if (line.at(col) != '#') {
-                        ++col;
-                        continue;
-                    }
-                    const std::size_t start = col;
-                    while (col < kIconCells && line.at(col) == '#') {
-                        ++col;
-                    }
-                    const float run_left = icon.left + (static_cast<float>(start) * cell);
-                    const bool covered = std::any_of(
-                        left_panels.begin(), left_panels.end(), [&](const LeftPanel& panel) {
-                            return panel.right > run_left && panel.top < icon_bottom
-                                   && panel.bottom > icon.top;
-                        });
-                    if (!covered) {
-                        const float run_top = icon.top + (static_cast<float>(row) * cell);
-                        rect(marks_at, run_left, run_top,
-                             icon.left + (static_cast<float>(col) * cell), run_top + cell,
-                             kStripIconInk);
-                    }
+        const IconMask& mask = row_slot_kind(index) == RowSlotKind::ArmoryKey
+                                   ? armory_icon()
+                                   : kind_icon(reading_kind);
+        const float cell = icon.size / static_cast<float>(kIconCells);
+        for (std::size_t row = 0; row < kIconCells; ++row) {
+            const std::string_view line = mask.at(row);
+            std::size_t col = 0;
+            while (col < kIconCells) {
+                if (line.at(col) != '#') {
+                    ++col;
+                    continue;
+                }
+                const std::size_t start = col;
+                while (col < kIconCells && line.at(col) == '#') {
+                    ++col;
+                }
+                const float run_left = icon.left + (static_cast<float>(start) * cell);
+                const bool covered = std::any_of(
+                    left_panels.begin(), left_panels.end(), [&](const LeftPanel& panel) {
+                        return panel.right > run_left && panel.top < icon_bottom
+                               && panel.bottom > icon.top;
+                    });
+                if (!covered) {
+                    const float run_top = icon.top + (static_cast<float>(row) * cell);
+                    rect(marks_at, run_left, run_top, icon.left + (static_cast<float>(col) * cell),
+                         run_top + cell, kStripIconInk);
                 }
             }
         }

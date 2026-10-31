@@ -117,8 +117,8 @@ sized to be read rather than to be exact.
 
 The panel above is most of the HUD. Beyond it the screen carries a small amount of text, in a built-in
 five-by-five block font: the weapon's name beside the crosshair, the mortar ladder's range in tiles
-on each rung, a strip along the top with a plate for each key that holds something -- its key, the
-count `x<n>` beside it, the kind, and a row of health ticks -- a `DEPLOYING` plate over one of your turrets
+on each rung, a strip along the top with a plate for each key that holds something -- its key label
+centred on the plate, the icon under it and a row of health ticks under that -- a `DEPLOYING` plate over one of your turrets
 that is not yet mounted, and a notice line for a refused roster or nav-mark key. The radar is colour
 and length only. The ship instrument below carries two numbers.
 
@@ -165,23 +165,29 @@ alien factory draws the human factory's eight rows until Harri supplies its own 
 Each command-row key is drawn as a **keycap** (Harri: "I would also like the function key displayed in the
 same way as here (F3)"): a slate blue-grey face, a 1 px near-black outline round the whole cap, the
 white (or, selected, yellow) frame inside it, and inside that a 1 px bevel -- lighter along the top and
-left, darker along the bottom and right. Only the paint changed: the plate's box, its key, count and kind
-text, and every other panel (the notice, the attack list) are as they were. Whether the key's label
-should sit centred on the cap is still open.
+left, darker along the bottom and right. The plate carries **one thing**, the key's label, centred on
+the cap both ways (Harri: "Centre the label. Stop drawing the kind text. Stop drawing the count on the
+plate. Only the f key label, the icon under it, and the vertical health ticks under the icon."). There is
+no kind name and no `x<n>` count any more, so nothing now shows a group's size as a number: the ticks are
+the only reading, and they stop at ten, which he accepted. `~` is its label alone.
 
-Under each vehicle key's plate hangs the **vehicle-type icon**: a pale, plain, side-view silhouette of
+Under each key's plate hangs the **icon**: a pale, plain, side-view silhouette of
 the kind in a 16 px square at 720p, left-justified like the ticks, the same grey whoever owns the vehicle
 and whether or not the key is selected (the type is shown, not the side). Thirteen kinds have their own
 (tank, turret, hover tank, mortar bike, rocket tank, scavenger, recycler, scout, assault tank, walker, APC,
-bomber, MSL scout); a kind with none draws a hollow box with a dot. The factory (`2`), the deployed
-recycler (`1`) and `~` show no icon, and a key whose vehicles are all dead is not drawn at all. Under the
+bomber, MSL scout), and so do the buildings (Harri: "the recycler and the factory should have icons
+too"): the deployed recycler (`1`) a block with a tower, two stacks and two bay doors, the factory (`2`)
+a sawtooth-roofed shed with a chimney, and the armory (`3`) a bunker with a missile standing on each side
+of it, which is Harri's own description. The game cannot build an armory yet, so `3` is never drawn today;
+its icon appears the moment it holds something. A kind with none draws a hollow box with a dot. `~` shows
+no icon, and a key whose vehicles are all dead is not drawn at all. Under the
 icon is a row of **upright ticks, one per living vehicle** of the group, left to
 right in spawn order from the key's left edge (up to ten; the ticks a long notice, the attack list or the
 menu would cover are left out rather than overlapped). Every tick is the same size, 4 px wide and 14 tall,
 however hurt its vehicle is: a tick's **colour** says how hurt it is, shading smoothly (per vehicle, per hit
 point, never in bands) from bright green through yellow and red to near-black. A vehicle that dies takes
-its tick with it and the ones after it close up to the left with no blanks. The nav mark plate (`~`) has
-no ticks.
+its tick with it and the ones after it close up to the left with no blanks. A building key has one tick.
+The nav mark plate (`~`) has no ticks.
 
 A vehicle's body follows the ground it stands on: it leans to the slope under it, by at most
 `kMaxTiltSlope` (provisional, derived from the ride height and the hull's half-width). Structures

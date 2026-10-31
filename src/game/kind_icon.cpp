@@ -89,6 +89,31 @@ constexpr IconMask kRecycler{
     ".#####....#####.", ".#####....#####.", ".#####....#####.", "################",
     "################", "################", "################", ".##############."};
 
+/// The deployed recycler: the base it becomes, a central tower with an antenna and a stack either
+/// side of it on a block with two bay doors. Nothing of the wheeled `kRecycler` survives in it --
+/// no wheels, no door between them -- so the two are never mistaken.
+constexpr IconMask kDeployedRecycler{
+    "................", "......####......", "......####......", "..##..####..##..",
+    "..##..####..##..", ".####.####.####.", ".##############.", ".##############.",
+    ".##############.", ".###..####..###.", ".###..####..###.", ".###..####..###.",
+    ".###..####..###.", "################", "################", "################"};
+
+/// The factory: a chimney and a sawtooth roof over a long shed with a row of windows and a wide
+/// door, the picture of a works.
+constexpr IconMask kFactory{
+    "................", "..##............", "..##............", "..##....#..#..#.",
+    "..##...##.##.##.", "..##..#########.", ".##############.", ".##############.",
+    ".##.##.##.##.##.", ".##.##.##.##.##.", ".##############.", ".####......####.",
+    ".####......####.", ".####......####.", ".####......####.", "################"};
+
+/// The armory, which is Harri's own description: "the one with a missile on each side of it". A
+/// bunker with a flat stepped roof and a door, a pointed missile standing upright either side.
+constexpr IconMask kArmory{
+    "................", ".#............#.", "###..........###", "###....##....###",
+    "###....##....###", "###..######..###", "###.########.###", "###.########.###",
+    "###.########.###", "###.##....##.###", "###.##....##.###", "###.##....##.###",
+    "###.##....##.###", "###.##....##.###", "################", "################"};
+
 constexpr IconMask kFallback{
     "................", "................", "................", "................",
     "................", "................", "..############..", "..#..........#..",
@@ -126,11 +151,14 @@ const IconMask& kind_icon(sim::UnitKind kind) noexcept {
     case sim::UnitKind::MslScout:
         return kMslScout;
     case sim::UnitKind::Factory:
+        return kFactory;
     case sim::UnitKind::DeployedRecycler:
-        break; // buildings on the numbered keys: no icon is drawn for them
+        return kDeployedRecycler;
     }
     return kFallback;
 }
+
+const IconMask& armory_icon() noexcept { return kArmory; }
 
 const IconMask& fallback_icon() noexcept { return kFallback; }
 
