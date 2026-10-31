@@ -6143,8 +6143,7 @@ using protekt::game::kSmokePuffs;
 using protekt::game::kSmokeTicks;
 using protekt::game::SceneVertex;
 
-/// One puff is a box, and a box is six quads: the same 36 vertices a prism gets.
-constexpr std::size_t kPuffVertices = std::size_t{6} * 6;
+using protekt::game::kPuffVertices;
 constexpr float kWakeTolerance = 0.01F;
 
 /// The rig these tests read a wake out of: a world frame with the HUD layers that would otherwise
@@ -6354,6 +6353,162 @@ TEST(SceneWake, TheColumnIsStillThereOnItsLastTickAndGoneOnTheNext) {
     EXPECT_EQ(last.wake.size(), kSmokePuffs * kPuffVertices)
         << "the wreck went cold before kSmokeTicks";
     EXPECT_TRUE(wake_at(kSmokeTicks - 1).wake.empty()) << "and it must be cold at age kSmokeTicks";
+}
+
+/// One puff of a wake frame, `kPuffVertices` vertices from the front of its list.
+[[nodiscard]] std::vector<SceneVertex> puff_of(const WakeFrame& frame, std::size_t which) {
+    const auto first = frame.wake.begin() + static_cast<std::ptrdiff_t>(which * kPuffVertices);
+    return {first, first + static_cast<std::ptrdiff_t>(kPuffVertices)};
+}
+
+struct PuffBounds {
+    std::array<float, 3> lo{1e9F, 1e9F, 1e9F};
+    std::array<float, 3> hi{-1e9F, -1e9F, -1e9F};
+};
+
+[[nodiscard]] PuffBounds bounds_of(const std::vector<SceneVertex>& puff) {
+    PuffBounds bounds;
+    for (const SceneVertex& v : puff) {
+        for (std::size_t axis = 0; axis < 3; ++axis) {
+            bounds.lo.at(axis) = std::min(bounds.lo.at(axis), v.position.at(axis));
+            bounds.hi.at(axis) = std::max(bounds.hi.at(axis), v.position.at(axis));
+        }
+    }
+    return bounds;
+}
+
+/// The corners of a puff's cross-section, MEASURED: the distinct (x, z) places among the vertices
+/// at its top, to a millimetre. A box gives four; nothing here reads `kPuffSides`.
+[[nodiscard]] std::size_t measured_corners(const std::vector<SceneVertex>& puff) {
+    const float top = bounds_of(puff).hi.at(1);
+    std::set<std::pair<long, long>> places;
+    for (const SceneVertex& v : puff) {
+        if (std::abs(v.position[1] - top) < 1e-4F) {
+            places.emplace(std::lround(v.position[0] * 1000.0F),
+                           std::lround(v.position[2] * 1000.0F));
+        }
+    }
+    return places.size();
+}
+
+TEST(SceneWake, APuffIsRoundNotABox) {
+    const WakeFrame frame = wake_at(kBlastTicks + 1);
+    ASSERT_TRUE(frame.wreck_valid);
+    const std::vector<SceneVertex> puff = puff_of(frame, 0);
+    EXPECT_GT(measured_corners(puff), std::size_t{4}) << "a four-cornered puff is a box";
+    EXPECT_EQ(measured_corners(puff), std::size_t{8}) << "an octagon, measured from the vertices";
+    // The guard against a vacuous pass: a box was 36 vertices, and the round puff must be more
+    // than that in the list the scene really built (not only in the constant).
+    EXPECT_GT(frame.wake.size(), kSmokePuffs * std::size_t{36});
+    EXPECT_EQ(frame.wake.size(), kSmokePuffs * std::size_t{84});
+}
+
+TEST(SceneWake, APuffIsClosedAndConvexAndFacesOutward) {
+    for (const sim::Tick age : {sim::Tick{5}, sim::Tick{kBlastTicks + 1}}) {
+        const WakeFrame frame = wake_at(age);
+        ASSERT_TRUE(frame.wreck_valid);
+        const std::vector<SceneVertex> puff = puff_of(frame, 0);
+        const PuffBounds b = bounds_of(puff);
+        std::array<float, 3> centre{};
+        for (std::size_t axis = 0; axis < 3; ++axis) {
+            centre.at(axis) = (b.lo.at(axis) + b.hi.at(axis)) * 0.5F;
+        }
+        std::map<std::array<long, 6>, int> edge_faces;
+        const auto key = [&](const SceneVertex& v) {
+            return std::array<long, 3>{std::lround(v.position[0] * 1000.0F),
+                                       std::lround(v.position[1] * 1000.0F),
+                                       std::lround(v.position[2] * 1000.0F)};
+        };
+        for (std::size_t tri = 0; tri < puff.size(); tri += 3) {
+            for (std::size_t edge = 0; edge < 3; ++edge) {
+                auto p = key(puff.at(tri + edge));
+                auto q = key(puff.at(tri + ((edge + 1) % 3)));
+                if (q < p) {
+                    std::swap(p, q);
+                }
+                ++edge_faces[{p[0], p[1], p[2], q[0], q[1], q[2]}];
+            }
+            // Convex and outward: every vertex of the puff is behind this face's plane, and the
+            // face's normal points away from the puff's centre. The box's own near face (z0, a to
+            // b along +x, then up) has e1 x e2 = +z while it faces -z, so in this winding the
+            // OUTWARD normal is minus the cross product, and `dot_from_face` negates it.
+            const auto at = [&](std::size_t i, std::size_t axis) {
+                return puff.at(tri + i).position.at(axis);
+            };
+            std::array<float, 3> e1{};
+            std::array<float, 3> e2{};
+            for (std::size_t axis = 0; axis < 3; ++axis) {
+                e1.at(axis) = at(1, axis) - at(0, axis);
+                e2.at(axis) = at(2, axis) - at(0, axis);
+            }
+            const std::array<float, 3> n{(e1[1] * e2[2]) - (e1[2] * e2[1]),
+                                         (e1[2] * e2[0]) - (e1[0] * e2[2]),
+                                         (e1[0] * e2[1]) - (e1[1] * e2[0])};
+            const auto dot_from_face = [&](const std::array<float, 3>& point) {
+                return -((n[0] * (point[0] - at(0, 0))) + (n[1] * (point[1] - at(0, 1)))
+                         + (n[2] * (point[2] - at(0, 2))));
+            };
+            EXPECT_LT(dot_from_face(centre), 0.0F) << "triangle " << tri / 3 << " faces inward";
+            for (const SceneVertex& v : puff) {
+                EXPECT_LE(dot_from_face({v.position[0], v.position[1], v.position[2]}), 1e-3F)
+                    << "the puff is not convex at triangle " << tri / 3;
+            }
+        }
+        for (const auto& [edge, faces] : edge_faces) {
+            EXPECT_EQ(faces, 2) << "an edge not shared by exactly two faces: the puff has a hole";
+        }
+    }
+}
+
+TEST(SceneWake, ARoundPuffIsTheSamePuffInCentreSizeAndColour) {
+    // Numbers read off the BOX puffs of the same seed (7), wreck and tick before this change:
+    // the slice changes the silhouette, not the plume.
+    struct Expected {
+        sim::Tick age;
+        std::size_t puff;
+        std::array<float, 3> centre;
+        float half;
+        std::array<float, 3> colour;
+        float alpha;
+    };
+    const std::array<Expected, 4> cases{{
+        {5, 0, {87.17888F, 4.05459F, 80.58006F}, 0.87F, {0.880F, 0.696F, 0.306F}, 0.73600F},
+        {kBlastTicks + 1,
+         0,
+         {88.19931F, 3.31325F, 80.13919F},
+         1.1F,
+         {0.44F, 0.44F, 0.46F},
+         0.33826F},
+        {kBlastTicks + 1,
+         3,
+         {87.98959F, 5.71325F, 80.14204F},
+         1.1F,
+         {0.44F, 0.44F, 0.46F},
+         0.33826F},
+        {kBlastTicks + 200,
+         3,
+         {90.37377F, 8.89725F, 80.00710F},
+         1.1F,
+         {0.44F, 0.44F, 0.46F},
+         0.16477F},
+    }};
+    for (const Expected& want : cases) {
+        const WakeFrame frame = wake_at(want.age);
+        ASSERT_TRUE(frame.wreck_valid);
+        const std::vector<SceneVertex> puff = puff_of(frame, want.puff);
+        const PuffBounds b = bounds_of(puff);
+        for (std::size_t axis = 0; axis < 3; ++axis) {
+            EXPECT_NEAR((b.lo.at(axis) + b.hi.at(axis)) * 0.5F, want.centre.at(axis), 2e-3F);
+            EXPECT_NEAR((b.hi.at(axis) - b.lo.at(axis)) * 0.5F, want.half, 2e-3F)
+                << "the round puff is not as wide across the flats and as tall as the box was";
+        }
+        for (const SceneVertex& v : puff) {
+            EXPECT_NEAR(v.colour[0], want.colour.at(0), 1e-3F);
+            EXPECT_NEAR(v.colour[1], want.colour.at(1), 1e-3F);
+            EXPECT_NEAR(v.colour[2], want.colour.at(2), 1e-3F);
+            EXPECT_NEAR(v.alpha, want.alpha, 1e-4F);
+        }
+    }
 }
 
 TEST(SceneWake, TheColumnRisesAndFadesAsTheTicksPass) {

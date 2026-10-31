@@ -372,6 +372,14 @@ inline constexpr float kSmokeHalfMetres = 1.1F;
 inline constexpr float kSmokeAlpha = 0.34F;
 inline constexpr std::array<float, 3> kSmokeColour{0.44F, 0.44F, 0.46F};
 
+/// A puff (burst or column) is a prism of `kPuffSides` corners, not a box: eight is the fewest that
+/// stops a plume reading as stacked dice, and the next step up (twelve) costs 48 more vertices a
+/// puff for a silhouette nobody can tell at the puff's distance. Its flats sit where the box's
+/// faces did, so it is exactly as wide across as the box it replaced and no wider. The vertex
+/// count is two rim-fan caps (`kPuffSides - 2` triangles each) and `kPuffSides` side quads.
+inline constexpr std::size_t kPuffSides = 8;
+inline constexpr std::size_t kPuffVertices = (kPuffSides * 6) + (2 * (kPuffSides - 2) * 3);
+
 /// THE KILLS A WAKE IS DRAWN FROM. The scene derives a wreck's burst and its column from
 /// `now - event.tick`, so the `Killed` event has to reach the scene on every frame of the wreck's
 /// life, not only on the frame that stepped the kill. The app owns this, like `HitMark`: it diffs

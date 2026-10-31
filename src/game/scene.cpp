@@ -1744,6 +1744,41 @@ float wake_fraction(std::uint64_t seed, std::uint32_t wreck, std::uint32_t salt)
     return static_cast<float>(z & 0xFFFFFFU) / static_cast<float>(0x1000000U);
 }
 
+/// One puff: a `kPuffSides`-cornered prism centred on (x, centre, z), `half` from the centre to
+/// each flat and to each cap, so it is as wide and as tall as the box it replaced. Corners sit
+/// half a step round from the axes, which puts the flats on the box's own faces. Winding is the
+/// box's: the sides run the way the box's near face does, the top counter-clockwise seen from
+/// above, the bottom the reverse. Each cap is a fan from its first corner, so the prism costs
+/// `kPuffVertices` and every edge is shared by exactly two triangles.
+void emit_puff(std::vector<SceneVertex>& out, float x, float centre, float z, float half,
+               const Vec3& colour, float alpha) {
+    constexpr float kTau = 6.2831853F;
+    constexpr float kStep = kTau / static_cast<float>(kPuffSides);
+    // The flat is `half` away, so the corner is `half / cos(step / 2)`.
+    const float radius = half / std::cos(kStep * 0.5F);
+    std::array<std::array<float, 2>, kPuffSides> rim{};
+    for (std::size_t corner = 0; corner < kPuffSides; ++corner) {
+        const float angle = (static_cast<float>(corner) + 0.5F) * kStep;
+        rim.at(corner) = {x + (std::cos(angle) * radius), z + (std::sin(angle) * radius)};
+    }
+    const float y0 = centre - half;
+    const float y1 = centre + half;
+    for (std::size_t corner = 0; corner < kPuffSides; ++corner) {
+        const auto& a = rim.at(corner);
+        const auto& b = rim.at((corner + 1) % kPuffSides);
+        emit_quad(out, Vec3{a.at(0), y0, a.at(1)}, Vec3{b.at(0), y0, b.at(1)},
+                  Vec3{b.at(0), y1, b.at(1)}, Vec3{a.at(0), y1, a.at(1)}, colour, alpha);
+    }
+    for (std::size_t corner = 1; corner + 1 < kPuffSides; ++corner) {
+        const auto& b = rim.at(corner);
+        const auto& c = rim.at(corner + 1);
+        emit_triangle(out, Vec3{rim.at(0).at(0), y1, rim.at(0).at(1)}, Vec3{b.at(0), y1, b.at(1)},
+                      Vec3{c.at(0), y1, c.at(1)}, colour, alpha);
+        emit_triangle(out, Vec3{rim.at(0).at(0), y0, rim.at(0).at(1)}, Vec3{c.at(0), y0, c.at(1)},
+                      Vec3{b.at(0), y0, b.at(1)}, colour, alpha);
+    }
+}
+
 /// THE WAKE A WRECK LEAVES (D4): a burnt-out unit throws a burst of hot puffs for `kBlastTicks`,
 /// and then smokes for `kSmokeTicks`. Both are DERIVED from what the sim already knows -- the death
 /// is a `Killed` event, the tile is the dead unit's own (the table keeps the dead), and every
@@ -1805,9 +1840,9 @@ void append_effects(std::vector<SceneVertex>& out, const SceneOptions& options,
                 // Wide at the instant of the kill and carried outward as it burns: the puffs start
                 // at the hull and end at the burst's reach.
                 const float reach = kBlastSpreadMetres * out_at * (0.4F + (0.6F * t));
-                emit_bolt_box(out, cx + (std::cos(heading) * reach),
-                              ground + half + (kBlastRiseMetres * up_at * t),
-                              cz + (std::sin(heading) * reach), half, colour, alpha);
+                emit_puff(out, cx + (std::cos(heading) * reach),
+                          ground + half + (kBlastRiseMetres * up_at * t),
+                          cz + (std::sin(heading) * reach), half, colour, alpha);
             }
             continue;
         }
@@ -1822,11 +1857,11 @@ void append_effects(std::vector<SceneVertex>& out, const SceneOptions& options,
         for (std::uint32_t puff = 0; puff < kSmokePuffs; ++puff) {
             const float jitter = (wake_fraction(options.seed, id, puff + 256U) - 0.5F) * 0.5F;
             const float sway = (wake_fraction(options.seed, id, puff + 320U) - 0.5F) * 0.5F;
-            emit_bolt_box(out, cx + (std::cos(wind) * drift) + jitter,
-                          ground + kSmokeBaseMetres
-                              + (static_cast<float>(puff) * kSmokeSpacingMetres) + rise,
-                          cz + (std::sin(wind) * drift) + sway, kSmokeHalfMetres,
-                          Vec3{kSmokeColour.at(0), kSmokeColour.at(1), kSmokeColour.at(2)}, alpha);
+            emit_puff(out, cx + (std::cos(wind) * drift) + jitter,
+                      ground + kSmokeBaseMetres + (static_cast<float>(puff) * kSmokeSpacingMetres)
+                          + rise,
+                      cz + (std::sin(wind) * drift) + sway, kSmokeHalfMetres,
+                      Vec3{kSmokeColour.at(0), kSmokeColour.at(1), kSmokeColour.at(2)}, alpha);
         }
     }
 }
