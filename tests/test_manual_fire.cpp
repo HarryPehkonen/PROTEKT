@@ -345,7 +345,7 @@ TEST(ManualFire, ATargetUnderTheMarkDoesNotBendTheShell) {
 }
 
 TEST(ManualFire, TheGunKeepsTheAutoAssistedShotItAlwaysWas) {
-    // The gun is the HULL's weapon: one FireTowards along shot_direction, flown as the tank's own
+    // The gun is the HULL's weapon: one FireTowards along the barrel, flown as the tank's own
     // straight single-target bolt. This half of the old gun-and-rocket contract is unchanged.
     Rig rig = make_rig();
     const Flight flight = fire_along_x(rig, Weapon::Gun, 0.6F);
@@ -361,7 +361,7 @@ TEST(ManualFire, TheRocketIsItsOwnWeaponWithItsOwnReachNotTheHulls) {
     // B, and Harri's ask (2026-10-27: "can the rocket have more reach?"). This REPLACES the old
     // contract that the weapon choice "changes nothing the sim sees": the trigger now sends
     // `FireRocket`, whose numbers come from `kRocketSpec`, so the rocket owns its damage, its
-    // reload and its distance. It is still aimed on the gun's own ray -- the crosshairs agree --
+    // reload and its distance. It is still aimed on the gun's own barrel -- the crosshairs agree --
     // but it is a different shot, and the sim can see the difference.
     Rig gun_rig = make_rig();
     Rig rocket_rig = make_rig();
@@ -378,11 +378,80 @@ TEST(ManualFire, TheRocketIsItsOwnWeaponWithItsOwnReachNotTheHulls) {
     EXPECT_EQ(rocket.first.gravity.raw, 0);
     EXPECT_EQ(rocket.first.splash_radius.raw, 0) << "one bolt, single target";
 
-    // The same aim as the gun's: only the round differs.
+    // The same barrel as the gun's: only the round differs.
     EXPECT_EQ(std::get<sim::orders::FireRocket>(rocket.orders.front().payload).dir_x,
               std::get<sim::orders::FireTowards>(gun.orders.front().payload).dir_x);
     EXPECT_NE(gun_rig.sim.state_hash(), rocket_rig.sim.state_hash())
         << "the weapon choice is a different shot now, not a cosmetic reticle";
+}
+
+TEST(ManualFire, TheGunTheShotgunAndTheRocketFlyTheBarrelNotTheTarget) {
+    // The mark is ON the enemy and the barrel is a little off it: each weapon names the enemy as
+    // intent and carries the view's own direction, pitch included, not the line to the enemy.
+    for (const Weapon weapon : {Weapon::Gun, Weapon::Shotgun, Weapon::Rocket}) {
+        Rig rig = make_rig();
+        rig.options.radius_tiles
+            = 100; // the enemy stands 40 tiles out: draw it, so it can be picked
+        Interaction player{rig.tank};
+        switch_to(rig, player, weapon);
+        look(rig, 0.0F, 0.0F);
+        const sim::Unit* enemy = rig.sim.find(rig.enemy);
+        const float to_x = as_float(enemy->x) * kMetresPerTile - rig.options.camera.x;
+        const float to_z = as_float(enemy->y) * kMetresPerTile - rig.options.camera.z;
+        const float to_y = ground_metres(kSeed, enemy->x, enemy->y) + 0.9F - rig.options.camera.y;
+        // Look at the enemy, then turn the barrel a few hundredths of a radian off it: the enemy is
+        // still on the screen under the mark, and the barrel and the line to it now differ.
+        const float yaw = std::atan2(to_x, to_z) + 0.05F;
+        const float pitch = std::atan2(to_y, std::hypot(to_x, to_z)) + 0.05F;
+        look(rig, yaw, pitch);
+        const Projected p = project(
+            rig.options.camera, kExtent, as_float(enemy->x) * kMetresPerTile,
+            ground_metres(kSeed, enemy->x, enemy->y) + 0.9F, as_float(enemy->y) * kMetresPerTile);
+        rig.options.aim = Aim{p.x, p.y};
+        ASSERT_TRUE(pick(rig.sim, rig.options, p.x, p.y).has_unit())
+            << "the mark really is on the enemy: " << static_cast<int>(weapon);
+        player.handle(InputFrame{[] {
+                          InputFrame f{};
+                          f.clicks.push_back(Click{0, 0, MouseButton::Left, true, false});
+                          return f;
+                      }()},
+                      rig.sim, rig.options);
+        const std::vector<Order> orders = player.take_orders();
+        ASSERT_EQ(orders.size(), 1U);
+        sim::Fixed x{};
+        sim::Fixed y{};
+        sim::Fixed up{};
+        sim::UnitId named{};
+        if (weapon == Weapon::Gun) {
+            const auto& fire = std::get<sim::orders::FireTowards>(orders.front().payload);
+            x = fire.dir_x;
+            y = fire.dir_y;
+            up = fire.dir_z;
+            named = fire.aimed_at;
+        } else if (weapon == Weapon::Shotgun) {
+            const auto& fire = std::get<sim::orders::FireFan>(orders.front().payload);
+            x = fire.dir_x;
+            y = fire.dir_y;
+            up = fire.dir_z;
+            named = fire.aimed_at;
+        } else {
+            const auto& fire = std::get<sim::orders::FireRocket>(orders.front().payload);
+            x = fire.dir_x;
+            y = fire.dir_y;
+            up = fire.dir_z;
+            named = fire.aimed_at;
+        }
+        const auto barrel = math::basis_from(yaw, pitch).forward;
+        EXPECT_EQ(named, rig.enemy) << static_cast<int>(weapon);
+        EXPECT_NEAR(as_float(x), barrel.at(0), 1e-3F) << static_cast<int>(weapon);
+        EXPECT_NEAR(as_float(up), barrel.at(1), 1e-3F) << static_cast<int>(weapon);
+        EXPECT_NEAR(as_float(y), barrel.at(2), 1e-3F) << static_cast<int>(weapon);
+        // The barrel is not the line to the enemy, or this proves nothing.
+        const float line = std::sqrt((to_x * to_x) + (to_y * to_y) + (to_z * to_z));
+        const float toward
+            = ((to_x * as_float(x)) + (to_y * as_float(up)) + (to_z * as_float(y))) / line;
+        EXPECT_LT(toward, 0.999F) << static_cast<int>(weapon);
+    }
 }
 
 TEST(ManualFire, TheMortarShellGoesThroughTheSameProjectilePathAsAnyShot) {

@@ -495,7 +495,8 @@ public:
         // their wrapped difference -- the same number, without adding an accessor.
         scene_options.facing = game::SceneOptions::Facing{
             driven, session_.heading(),
-            game::Camera::wrap_angle(session_.view_yaw() - session_.heading())};
+            game::Camera::wrap_angle(session_.view_yaw() - session_.heading()),
+            session_.view_pitch()};
         headings_.observe(sim_);
         scene_options.headings = &headings_;
         scene_options.terrain = &terrain_cache_; // the per-seed memo the mesh reads through

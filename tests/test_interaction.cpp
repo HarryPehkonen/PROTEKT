@@ -5,7 +5,6 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
-#include <iostream>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -252,36 +251,79 @@ TEST(Trigger, AClickOnTheGroundFiresABoltOntoTheOrderQueue) {
     EXPECT_TRUE(heard) << "a shot at nothing is still a shot to hear";
 }
 
-TEST(Trigger, AClickOnAUnitFiresFromTheMuzzleAtThePointTheMarkSees) {
-    // The crosshair chooses a TRAJECTORY, and a unit under it is intent -- what the shot is for.
-    // The trajectory is the muzzle's line through the point the mark's ray reaches (the unit's
-    // box), the same as `shot_direction` says; `aimed_at` is the unit and the order is the same
-    // kind as a shot at the ground.
+/// The direction a gun shot carries, as the (x, up, z) the barrel is: the order's dir_x, dir_z and
+/// dir_y, which is how the sim spells a map-plane x, a map-plane y and a height.
+[[nodiscard]] std::array<float, 3> shot_of(const sim::orders::FireTowards& fire) {
+    const float scale = static_cast<float>(sim::Fixed::kOne);
+    return {static_cast<float>(fire.dir_x.raw) / scale, static_cast<float>(fire.dir_z.raw) / scale,
+            static_cast<float>(fire.dir_y.raw) / scale};
+}
+
+/// One gun shot from a fresh rig with the view at `yaw`/`pitch` and the mark on the ground.
+[[nodiscard]] sim::orders::FireTowards gun_shot(float yaw, float pitch) {
+    Rig rig = make_rig();
+    rig.options.camera.yaw = yaw;
+    rig.options.camera.pitch = pitch;
+    Interaction player{rig.tank_a};
+    player.handle(with_click(ground_click(rig)), rig.sim, rig.options);
+    const std::vector<Order> orders = player.take_orders();
+    EXPECT_EQ(orders.size(), 1U);
+    return std::get<sim::orders::FireTowards>(orders.at(0).payload);
+}
+
+TEST(Trigger, PitchReachesTheShot) {
+    // The owner's ruling: point up and the shot goes up. Same yaw, only the pitch differs, so the
+    // horizontal direction is shared and the height is what moves.
+    for (const float yaw : {0.0F, 0.1F, -0.4F}) {
+        const auto up = shot_of(gun_shot(yaw, 0.5F));
+        const auto down = shot_of(gun_shot(yaw, -0.5F));
+        EXPECT_GT(up.at(1), 0.3F) << yaw;
+        EXPECT_LT(down.at(1), -0.3F) << yaw;
+        // Not one case against a constant: the two cases are the same aim but for the pitch, and
+        // must differ in height by the barrel's own elevation.
+        const auto want_up = math::basis_from(yaw, 0.5F).forward;
+        const auto want_down = math::basis_from(yaw, -0.5F).forward;
+        EXPECT_NEAR(up.at(1), want_up.at(1), 1e-3F) << yaw;
+        EXPECT_NEAR(down.at(1), want_down.at(1), 1e-3F) << yaw;
+        EXPECT_GT(up.at(1) - down.at(1), 0.8F) << yaw;
+        // The horizontal direction keeps its heading: the (x, z) pairs are parallel and agree in
+        // sign, so only the pitch moved.
+        const float cross = (up.at(0) * down.at(2)) - (up.at(2) * down.at(0));
+        EXPECT_NEAR(cross, 0.0F, 2e-3F) << yaw;
+        EXPECT_GT((up.at(0) * down.at(0)) + (up.at(2) * down.at(2)), 0.0F) << yaw;
+    }
+}
+
+TEST(Trigger, NothingIsAimedAtTheUnitUnderTheMark) {
+    // The mark is ON the enemy, but the bolt takes time and the enemy may have gone: the shot flies
+    // the barrel, never the line to the unit. The enemy is named (attribution) and the direction
+    // is the view's own, even though the two differ.
     for (const float yaw : {0.0F, 0.1F, -0.1F}) {
         Rig rig = make_rig();
         rig.options.camera.yaw = yaw;
-        Interaction on_ground{rig.tank_a};
-        on_ground.handle(with_click(ground_click(rig)), rig.sim, rig.options);
-        const std::vector<Order> ground = on_ground.take_orders();
-        ASSERT_EQ(ground.size(), 1U) << yaw;
-        const auto& along = std::get<sim::orders::FireTowards>(ground.at(0).payload);
-        EXPECT_FALSE(along.aimed_at.valid()) << "a shot at the ground names no one";
-
-        Interaction on_unit{rig.tank_a};
-        on_unit.handle(with_click(at(rig, rig.enemy)), rig.sim, rig.options);
-        const std::vector<Order> unit = on_unit.take_orders();
-        ASSERT_EQ(unit.size(), 1U) << yaw;
-        const auto& at_enemy = std::get<sim::orders::FireTowards>(unit.at(0).payload);
-        EXPECT_EQ(at_enemy.aimed_at, rig.enemy) << yaw;
+        Interaction player{rig.tank_a};
+        player.handle(with_click(at(rig, rig.enemy)), rig.sim, rig.options);
+        const std::vector<Order> orders = player.take_orders();
+        ASSERT_EQ(orders.size(), 1U) << yaw;
+        const auto& fire = std::get<sim::orders::FireTowards>(orders.at(0).payload);
+        EXPECT_EQ(fire.aimed_at, rig.enemy) << "the unit is named, for attribution only";
 
         const Pick seen = pick(rig.sim, rig.options, mark_of(rig).x, mark_of(rig).y);
-        ASSERT_TRUE(seen.has_unit()) << yaw;
-        const std::array<float, 3> want
-            = shot_direction(*rig.sim.find(rig.tank_a), rig.options, seen, mark_of(rig));
-        const float scale = static_cast<float>(sim::Fixed::kOne);
-        EXPECT_NEAR(static_cast<float>(at_enemy.dir_x.raw) / scale, want.at(0), 1e-3F) << yaw;
-        EXPECT_NEAR(static_cast<float>(at_enemy.dir_y.raw) / scale, want.at(2), 1e-3F) << yaw;
-        EXPECT_NEAR(static_cast<float>(at_enemy.dir_z.raw) / scale, want.at(1), 1e-3F) << yaw;
+        ASSERT_TRUE(seen.has_unit()) << "the mark really is on the enemy: " << yaw;
+        const auto shot = shot_of(fire);
+        const auto barrel = math::basis_from(yaw, rig.options.camera.pitch).forward;
+        EXPECT_NEAR(shot.at(0), barrel.at(0), 1e-3F) << yaw;
+        EXPECT_NEAR(shot.at(1), barrel.at(1), 1e-3F) << yaw;
+        EXPECT_NEAR(shot.at(2), barrel.at(2), 1e-3F) << yaw;
+
+        // And that really differs from the line to the unit, or this proves nothing.
+        const sim::Unit& tank = *rig.sim.find(rig.tank_a);
+        const sim::Unit& enemy = *rig.sim.find(rig.enemy);
+        const float to_x = static_cast<float>(enemy.x.raw - tank.x.raw);
+        const float to_z = static_cast<float>(enemy.y.raw - tank.y.raw);
+        const float length = std::hypot(to_x, to_z);
+        const float toward = ((to_x / length) * shot.at(0)) + ((to_z / length) * shot.at(2));
+        EXPECT_LT(toward, 0.999F) << "the barrel does not point at the unit: " << yaw;
     }
 }
 
@@ -396,13 +438,11 @@ void eye_over(Rig& rig, sim::UnitId tank, float yaw, float pitch) {
 } // namespace
 
 TEST(Trigger, AShotGoesWhereTheCameraLooksWithTheCamerasOwnSigns) {
-    // THE SIGNS. The camera's forward is whatever `math::basis_from` says it is. The camera sits
-    // over the gun, so aiming the shot from the muzzle at the point the mark sees moves it only
-    // in the vertical: the HEADING is the camera's, exactly, in all four quadrants -- a flipped
-    // sign on either map axis fails at least one yaw. The shot is never aimed LOWER than the look
-    // (the muzzle is below the eye, so it climbs to meet the mark's ray), and a look well above or
-    // below the horizon keeps its own sign. (The order is (map x, map y, up) = (forward.x,
-    // forward.z, forward.y).)
+    // THE SIGNS. The camera's forward is whatever `math::basis_from` says it is, and the shot IS
+    // that forward -- the muzzle's offset below the eye is ignored on the owner's word -- so the
+    // HEADING and the height are the camera's, exactly, in all four quadrants: a flipped sign on
+    // either map axis fails at least one yaw. A look well above or below the horizon keeps its
+    // own sign. (The order is (map x, map y, up) = (forward.x, forward.z, forward.y).)
     for (const float yaw : {0.0F, 0.7F, 1.5707964F, 2.4F, 3.1415927F, -0.7F, -1.5707964F, -2.4F}) {
         for (const float pitch : {-0.9F, -0.4F, 0.0F, 0.3F, 0.9F}) {
             Rig rig = make_rig();
@@ -414,8 +454,8 @@ TEST(Trigger, AShotGoesWhereTheCameraLooksWithTheCamerasOwnSigns) {
             EXPECT_NEAR(x * forward.at(2) - y * forward.at(0), 0.0F, 2e-3F)
                 << "the heading is the camera's: " << yaw << " " << pitch;
             EXPECT_GT((x * forward.at(0)) + (y * forward.at(2)), 0.0F) << yaw << " " << pitch;
-            EXPECT_GE(up, forward.at(1) - 1e-3F)
-                << "never aimed below the look: " << yaw << " " << pitch;
+            EXPECT_NEAR(up, forward.at(1), 1e-3F)
+                << "the height is the look's own: " << yaw << " " << pitch;
             const float length = std::sqrt((x * x) + (y * y) + (up * up));
             EXPECT_NEAR(length, 1.0F, 2e-3F) << "the direction is a unit vector";
         }
@@ -424,112 +464,6 @@ TEST(Trigger, AShotGoesWhereTheCameraLooksWithTheCamerasOwnSigns) {
     EXPECT_GT(shot_looking(up, 0.0F, 0.4F).dir_z.raw, 0) << "looking UP must aim up";
     Rig down = make_rig();
     EXPECT_LT(shot_looking(down, 0.0F, -0.4F).dir_z.raw, 0) << "looking DOWN must aim down";
-}
-
-namespace {
-
-/// THE MEASUREMENT: fire from the middle of the screen, take the bolt's line, find where it
-/// crosses the depth of what the mark sees, and project that point through the renderer's own
-/// projection. Returns the distance in pixels from the mark; `depth` gets that depth in metres.
-/// The reticle is the camera's ray through the mark; the bolt leaves the MUZZLE, below the eye.
-[[nodiscard]] float landing_miss_px(Rig& rig, sim::UnitId tank, float& depth) {
-    const Aim mark = mark_of(rig);
-    Interaction player{tank};
-    player.handle(with_click(Click{static_cast<int>(mark.x), static_cast<int>(mark.y),
-                                   MouseButton::Left, true, false}),
-                  rig.sim, rig.options);
-    for (const Order& order : player.take_orders()) {
-        rig.sim.enqueue(order);
-    }
-    rig.sim.step();
-    const auto bolt_of_player = [&]() {
-        for (const sim::Projectile& p : rig.sim.projectiles()) {
-            if (p.shooter == tank) {
-                return p;
-            }
-        }
-        ADD_FAILURE() << "no bolt from the player";
-        return sim::Projectile{};
-    };
-    const sim::Projectile first = bolt_of_player();
-    rig.sim.step();
-    const sim::Projectile later = bolt_of_player();
-
-    // The bolt's line in world metres: a point on it and its direction (x, up, z).
-    const std::array<float, 3> p0{as_float(first.x) * kMetresPerTile,
-                                  as_float(first.z) * kMetresPerHeightUnit,
-                                  as_float(first.y) * kMetresPerTile};
-    const std::array<float, 3> v{(as_float(later.x) - as_float(first.x)) * kMetresPerTile,
-                                 (as_float(later.z) - as_float(first.z)) * kMetresPerHeightUnit,
-                                 (as_float(later.y) - as_float(first.y)) * kMetresPerTile};
-    const Camera& eye = rig.options.camera;
-    const auto forward = math::basis_from(eye.yaw, eye.pitch).forward;
-    const auto depth_of = [&](float x, float y, float z) {
-        return ((x - eye.x) * forward.at(0)) + ((y - eye.y) * forward.at(1))
-               + ((z - eye.z) * forward.at(2));
-    };
-    // The depth, along the camera's forward, of what the mark sees.
-    const Pick seen = pick(rig.sim, rig.options, mark.x, mark.y);
-    const RayPoint target
-        = ray_point(eye, kExtent, mark.x, mark.y, seen.distance_tiles * kMetresPerTile);
-    depth = depth_of(target.x, target.y, target.z);
-    const float along
-        = (depth - depth_of(p0[0], p0[1], p0[2]))
-          / ((v[0] * forward.at(0)) + (v[1] * forward.at(1)) + (v[2] * forward.at(2)));
-    const Projected landed = project(eye, kExtent, p0[0] + (v[0] * along), p0[1] + (v[1] * along),
-                                     p0[2] + (v[2] * along));
-    return std::hypot(landed.x - mark.x, landed.y - mark.y);
-}
-
-} // namespace
-
-TEST(Trigger, TheBoltFliesWhereTheCameraLooksOnTheScreenItself) {
-    // The same claim end to end and through the renderer's own projection, for a level, an upward
-    // and a downward look at ground or sky: the bolt crosses the middle of the screen -- where the
-    // mark is -- at the depth the mark sees. A sign error anywhere between the camera and the sim
-    // puts it above or below the mark. A lone tank, so nothing else fires: the one bolt in the
-    // air is the player's.
-    for (const float pitch : {0.0F, 0.35F, -0.35F}) {
-        for (const float yaw : {0.0F, 0.5F, 1.0F}) {
-            Rig rig = make_rig();
-            rig.sim = sim::Sim::create(Scenario{kSeed, {{UnitKind::Tank, Side::Player, 40, 40}}});
-            const sim::UnitId tank{1};
-            reload(rig.sim);
-            eye_over(rig, tank, yaw, pitch);
-            float depth = 0.0F;
-            EXPECT_LT(landing_miss_px(rig, tank, depth), 2.0F)
-                << "yaw " << yaw << " pitch " << pitch;
-        }
-    }
-}
-
-TEST(Parallax, TheBoltLandsOnTheMarkAtOneHundredMetres) {
-    // THE DIVERGENCE, at the range the player reported it. Fired along the camera's own direction
-    // the bolt runs parallel to the mark and passes under it by the muzzle's drop: 13.2 px at
-    // 98.7 m before the shot was aimed from the muzzle at the point the mark sees. Now it must
-    // land on the mark.
-    Rig rig = make_rig();
-    rig.sim = sim::Sim::create(Scenario{
-        kSeed, {{UnitKind::Tank, Side::Player, 40, 40}, {UnitKind::Tank, Side::Enemy, 40, 90}}});
-    const sim::UnitId tank{1};
-    const sim::Unit* target = rig.sim.find(sim::UnitId{2});
-    ASSERT_NE(target, nullptr);
-    reload(rig.sim);
-    // Look at the enemy, as the player does: pitch the camera until the middle of the screen is on
-    // the enemy's body.
-    rig.options.radius_tiles = 100; // the enemy stands 50 tiles out: draw it, so it can be picked
-    eye_over(rig, tank, 0.0F, 0.0F);
-    const float to_x = as_float(target->x) * kMetresPerTile - rig.options.camera.x;
-    const float to_z = as_float(target->y) * kMetresPerTile - rig.options.camera.z;
-    const float to_y = ground_metres(kSeed, target->x, target->y) + 0.9F - rig.options.camera.y;
-    rig.options.camera.yaw = std::atan2(to_x, to_z);
-    rig.options.camera.pitch = std::atan2(to_y, std::hypot(to_x, to_z));
-    ASSERT_TRUE(pick(rig.sim, rig.options, mark_of(rig).x, mark_of(rig).y).has_unit());
-    float depth = 0.0F;
-    const float miss_px = landing_miss_px(rig, tank, depth);
-    EXPECT_GT(depth, 95.0F) << "the target must be about 100 m out for this to be the 100 m case";
-    std::cout << "[parallax] bolt lands " << miss_px << " px from the mark at " << depth << " m\n";
-    EXPECT_LT(miss_px, 2.0F) << "the shot must land where the reticle is drawn";
 }
 
 TEST(Trigger, AClickOnGroundOrSkyIsAShotThePlayerCanHear) {

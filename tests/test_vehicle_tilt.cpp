@@ -8,6 +8,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <vector>
 
 #include "protekt/game/scene.hpp"
@@ -43,7 +44,10 @@ struct Placed {
 
 /// Draws one `kind` standing at `tile_x`, `tile_y` and returns its body. The body is cut from the
 /// frame as the run of vertices after the shadow that stays inside `kBodyReachMetres` of the unit.
-[[nodiscard]] Placed draw_unit(UnitKind kind, int tile_x, int tile_y) {
+/// With `aim`, the unit is the one being driven: its hull heading, turret angle and barrel
+/// elevation, as `SceneOptions::Facing` takes them.
+[[nodiscard]] Placed draw_unit(UnitKind kind, int tile_x, int tile_y,
+                               std::optional<std::array<float, 3>> aim = std::nullopt) {
     const sim::Sim empty = sim::Sim::create(sim::Scenario{kSeed, {}});
     const sim::Sim with = sim::Sim::create(
         sim::Scenario{kSeed, std::vector<Spawn>{{kind, Side::Player, tile_x, tile_y}}});
@@ -69,6 +73,9 @@ struct Placed {
     options.camera.z = placed.z - 8.0F;
     options.camera.y = placed.ground + 5.0F;
     options.camera.pitch = -0.25F;
+    if (aim.has_value()) {
+        options.facing = SceneOptions::Facing{unit.id, aim->at(0), aim->at(1), aim->at(2)};
+    }
     const Scene base = build_scene(empty, options);
     const Scene scene = build_scene(with, options);
 
@@ -247,6 +254,60 @@ TEST(VehicleTilt, AStructureStandsUprightOnTheSlopeThatTiltsAVehicle) {
             }
         }
     }
+}
+
+/// The way the barrel points, read off a driven tank's body: from the middle of the barrel prism to
+/// the middle of the muzzle collar, which is emitted first and sits at the tip. The tank's last two
+/// prisms are the collar and then the barrel.
+[[nodiscard]] Vec3 barrel_axis(const Placed& tank) {
+    constexpr std::size_t kPrism = 36;
+    const auto centre = [&](std::size_t from) {
+        Vec3 sum{};
+        for (std::size_t i = from; i < from + kPrism; ++i) {
+            for (std::size_t c = 0; c < 3; ++c) {
+                sum.at(c) += tank.body.at(i).at(c) / static_cast<float>(kPrism);
+            }
+        }
+        return sum;
+    };
+    const Vec3 collar = centre(tank.body.size() - (2 * kPrism));
+    const Vec3 barrel = centre(tank.body.size() - kPrism);
+    const Vec3 along{collar[0] - barrel[0], collar[1] - barrel[1], collar[2] - barrel[2]};
+    const float length = std::hypot(along[0], along[1], along[2]);
+    return {along[0] / length, along[1] / length, along[2] / length};
+}
+
+TEST(VehicleTilt, TheBarrelIsBuiltInTheHullsFrameSoItLeansWithTheHull) {
+    // The barrel is raised to the aim's pitch in the HULL's frame, and the lean to the ground then
+    // takes it along: its elevation above the hull's own plane is the aim's pitch, while in the
+    // world it is not. A barrel that floated (raised in the world frame) would keep the aim's
+    // elevation in the world and fail the first claim.
+    constexpr float kPitch = 0.3F;
+    const auto steep = [](const Vec3& n) { return tilt_of(n) > 0.2F && !is_clamped(n); };
+    std::array<int, 2> flat{};
+    std::array<int, 2> hill{};
+    ASSERT_TRUE(find_tile(is_level, flat));
+    ASSERT_TRUE(find_tile(steep, hill));
+    const std::array<float, 3> aim{0.0F, 0.0F, kPitch};
+    const Placed level = draw_unit(UnitKind::Tank, flat.at(0), flat.at(1), aim);
+    const Placed sloped = draw_unit(UnitKind::Tank, hill.at(0), hill.at(1), aim);
+    ASSERT_TRUE(level.drawn && sloped.drawn);
+    ASSERT_GT(level.body.size(), std::size_t{72}) << "no tank was found";
+    ASSERT_GT(sloped.body.size(), std::size_t{72}) << "no tank was found";
+
+    // The aim itself reaches the drawing: on level ground the barrel points where the view does.
+    const Vec3 want = math::basis_from(0.0F, kPitch).forward;
+    const Vec3 flat_axis = barrel_axis(level);
+    for (std::size_t c = 0; c < 3; ++c) {
+        EXPECT_NEAR(flat_axis.at(c), want.at(c), 2.0e-3F) << c;
+    }
+    EXPECT_GT(flat_axis[1], 0.25F) << "an aim of +0.3 rad raises the barrel";
+
+    // On the slope: elevation above the hull's plane is the aim's, and the world elevation is not.
+    const Vec3 axis = barrel_axis(sloped);
+    EXPECT_NEAR(math::dot(axis, sloped.normal), std::sin(kPitch), 2.0e-3F);
+    EXPECT_GT(std::abs(axis[1] - flat_axis[1]), 0.03F)
+        << "the barrel leaned with the hull: its world elevation moved";
 }
 
 } // namespace

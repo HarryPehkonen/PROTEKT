@@ -625,6 +625,44 @@ void emit_tank_hull(std::vector<SceneVertex>& out, float x, float z, float groun
     }
 }
 
+/// How far a drawn barrel may point below the hull's horizontal before it would run into the
+/// hull. A barrel pivots at the turret's front face (0.35 m ahead of the tank's centre, its lower
+/// edge 0.98 m up) and the compartment roof's front edge is 0.2 m further on at 0.85 m: the barrel
+/// clears that corner while tan(depression) < 0.13 / 0.2, which is 33 degrees. 0.5 rad is 28.6
+/// degrees, a margin under it. PROVISIONAL and a design call (it caps what is DRAWN, never the
+/// shot, which flies the view's own pitch); the other hulls borrow it unchecked.
+constexpr float kMaxBarrelDepression = 0.5F;
+
+/// Elevates the vertices from `first` on (a barrel just built level, along `yaw`) by `pitch`
+/// radians, up positive, about the horizontal axis across the barrel through `pivot_forward` metres
+/// along `yaw` from (x, z) at height `pivot_y`. Built in the hull's frame, before the lean to the
+/// ground, so the lean carries the barrel with the hull. Zero rotates nothing, to the bit.
+void elevate_barrel(std::vector<SceneVertex>& out, std::size_t first, float x, float z, float yaw,
+                    float pivot_forward, float pivot_y, float pitch) {
+    if (pitch == 0.0F) {
+        return;
+    }
+    const float angle = std::max(pitch, -kMaxBarrelDepression);
+    const float sine = std::sin(angle);
+    const float cosine = std::cos(angle);
+    const float forward_x = std::sin(yaw);
+    const float forward_z = std::cos(yaw);
+    const float pivot_x = x + (forward_x * pivot_forward);
+    const float pivot_z = z + (forward_z * pivot_forward);
+    for (std::size_t i = first; i < out.size(); ++i) {
+        Vec3& p = out.at(i).position;
+        const float dx = p[0] - pivot_x;
+        const float dz = p[2] - pivot_z;
+        const float up = p[1] - pivot_y;
+        const float along = (dx * forward_x) + (dz * forward_z);
+        const float lift = (along * sine) + (up * cosine);
+        const float ahead = (along * cosine) - (up * sine);
+        p[0] = pivot_x + (dx - (along * forward_x)) + (ahead * forward_x);
+        p[2] = pivot_z + (dz - (along * forward_z)) + (ahead * forward_z);
+        p[1] = pivot_y + lift;
+    }
+}
+
 /// A tank, abstracted from a side-on battle tank and built only of flat-shaded prisms: the hull
 /// (`emit_tank_hull`), a squat turret on the compartment roof with a rear bustle over the engine
 /// deck, a long thin barrel from the turret's front face with a thicker muzzle collar, and a flat
@@ -633,7 +671,8 @@ void emit_tank_hull(std::vector<SceneVertex>& out, float x, float z, float groun
 /// outer edge of a fender, with the track tucked just inside it -- and the barrel is always the
 /// last prism.
 void build_facing_tank(std::vector<SceneVertex>& out, std::uint64_t seed, const sim::Unit& unit,
-                       Mark mark, float lift_z, bool lifted, float heading, float turret) {
+                       Mark mark, float lift_z, bool lifted, float heading, float turret,
+                       float pitch) {
     const float x
         = static_cast<float>(unit.x.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile;
     const float z
@@ -708,12 +747,17 @@ void build_facing_tank(std::vector<SceneVertex>& out, std::uint64_t seed, const 
     emit_turned_box(out, turret_at.at(0), turret_at.at(1), turret_angle, kPanelHalfAcross,
                     kPanelBack, kPanelFront, roof, roof + kPanelThickness, colour, panel_tile);
     const float turret_front = kTurretCentre + kTurretHalfLength;
+    const std::size_t barrel_first = out.size();
     emit_turned_box(out, x, z, turret_angle, kCollarHalfAcross, kBarrelTip - kCollarLength,
                     kBarrelTip, turret_y0 + kCollarBottom, turret_y0 + kCollarTop, colour,
                     barrel_tile);
     emit_turned_box(out, x, z, turret_angle, kBarrelHalfAcross, turret_front,
                     kBarrelTip - kCollarLength, turret_y0 + kBarrelBottom, turret_y0 + kBarrelTop,
                     colour, barrel_tile);
+    // The barrel is the last thing built, in the hull's frame: raised to the aim's elevation about
+    // its root at the turret's front, and then the lean to the ground takes it along with the rest.
+    elevate_barrel(out, barrel_first, x, z, turret_angle, turret_front,
+                   turret_y0 + ((kBarrelBottom + kBarrelTop) * 0.5F), pitch);
 }
 
 /// THE SCAVENGER (C2). It is built on the TANK's own hull -- tracks, compartment, fenders, engine
@@ -1028,7 +1072,8 @@ void build_recycler(std::vector<SceneVertex>& out, std::uint64_t seed, const sim
 /// are. The skirt is RAW colour: not lit, not marked, the glow of the lift. The hull and skirt are
 /// turned by `heading`, the turret and barrel by `heading + turret`.
 void build_hover_tank(std::vector<SceneVertex>& out, std::uint64_t seed, const sim::Unit& unit,
-                      Mark mark, float lift_z, bool lifted, float heading, float turret) {
+                      Mark mark, float lift_z, bool lifted, float heading, float turret,
+                      float pitch) {
     const float x
         = static_cast<float>(unit.x.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile;
     const float z
@@ -1117,9 +1162,12 @@ void build_hover_tank(std::vector<SceneVertex>& out, std::uint64_t seed, const s
     emit_turned_box(out, turret_at.at(0), turret_at.at(1), turret_angle, kTurretHalfAcross,
                     -kTurretHalfLength, kTurretHalfLength, turret_y0, turret_y0 + kTurretHeight,
                     camo_colour, hull_tile);
+    const std::size_t barrel_first = out.size();
     emit_turned_box(out, x, z, turret_angle, kBarrelHalfAcross, kTurretCentre + kTurretHalfLength,
                     kBarrelTip, turret_y0 + kBarrelBottom, turret_y0 + kBarrelTop, colour,
                     barrel_tile);
+    elevate_barrel(out, barrel_first, x, z, turret_angle, kTurretCentre + kTurretHalfLength,
+                   turret_y0 + ((kBarrelBottom + kBarrelTop) * 0.5F), pitch);
     // The fin rides the hull, so it turns with the heading, from the deck at the tail up.
     emit_turned_box(out, x, z, heading, kFinHalfAcross, kFinBack, kFinFront, ground + kTailTop,
                     ground + kFinTop, colour, fin_tile);
@@ -1278,7 +1326,8 @@ KindColours kind_colours(const sim::Unit& unit, Mark mark) {
 /// tank's, with a bustle-less flat roof panel and the tank's barrel and collar. Hull turned by
 /// `heading`, turret group by `heading + turret`.
 void build_assault_tank(std::vector<SceneVertex>& out, std::uint64_t seed, const sim::Unit& unit,
-                        Mark mark, float lift_z, bool lifted, float heading, float turret) {
+                        Mark mark, float lift_z, bool lifted, float heading, float turret,
+                        float pitch) {
     const float x
         = static_cast<float>(unit.x.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile;
     const float z
@@ -1319,18 +1368,21 @@ void build_assault_tank(std::vector<SceneVertex>& out, std::uint64_t seed, const
     emit_turned_box(out, x, z, turret_angle, kPanelHalfAcross, kBlockCentre - kBlockHalfLength,
                     kBlockCentre + kBlockHalfLength, roof, roof + kPanelThickness, colour,
                     panel_tile);
+    const std::size_t barrel_first = out.size();
     emit_turned_box(out, x, z, turret_angle, kCollarHalfAcross, kBarrelTip - kCollarLength,
                     kBarrelTip, base + kCollarBottom, base + kCollarTop, colour, barrel_tile);
     emit_turned_box(out, x, z, turret_angle, kBarrelHalfAcross, kBlockCentre + kBlockHalfLength,
                     kBarrelTip - kCollarLength, base + kBarrelBottom, base + kBarrelTop, colour,
                     barrel_tile);
+    elevate_barrel(out, barrel_first, x, z, turret_angle, kBlockCentre + kBlockHalfLength,
+                   base + ((kBarrelBottom + kBarrelTop) * 0.5F), pitch);
 }
 
 /// THE WALKER: a body on TWO THIN LEG BOXES, so it stands taller than it is wide. The legs are
 /// dark, one each side under the body; the body wears the camo with a team-colour roof panel; a
 /// short gun juts from its front, turned by `heading + turret` (the legs and body by `heading`).
 void build_walker(std::vector<SceneVertex>& out, std::uint64_t seed, const sim::Unit& unit,
-                  Mark mark, float lift_z, bool lifted, float heading, float turret) {
+                  Mark mark, float lift_z, bool lifted, float heading, float turret, float pitch) {
     const float x
         = static_cast<float>(unit.x.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile;
     const float z
@@ -1368,8 +1420,11 @@ void build_walker(std::vector<SceneVertex>& out, std::uint64_t seed, const sim::
                     ground + kLegTop, ground + kBodyTop, camo_colour, hull_tile);
     emit_turned_box(out, x, z, heading, kPanelHalfAcross, -kBodyHalfLength, kBodyHalfLength,
                     ground + kBodyTop, ground + kBodyTop + kPanelThickness, colour, panel_tile);
+    const std::size_t gun_first = out.size();
     emit_turned_box(out, x, z, heading + turret, kGunHalfAcross, kBodyHalfLength, kGunTip,
                     ground + kGunBottom, ground + kGunTop, colour, barrel_tile);
+    elevate_barrel(out, gun_first, x, z, heading + turret, kBodyHalfLength,
+                   ground + ((kGunBottom + kGunTop) * 0.5F), pitch);
 }
 
 /// THE APC: a LONGER, LOWER hull than the tank's with no turret -- two dark track boxes under one
@@ -4496,9 +4551,11 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
                                       : Headings::heading_of(unit).value_or(0.0F);
             const float turret
                 = faced ? options.facing->turret : gun_yaw(sim, unit, heading) - heading;
+            // The barrel's elevation is the driven unit's alone; every other gun is level.
+            const float pitch = faced ? options.facing->pitch : 0.0F;
             if (unit.kind == sim::UnitKind::HoverTank) {
                 build_hover_tank(scene.vertices, options.seed, unit, mark, lift_z, hovering,
-                                 heading, turret);
+                                 heading, turret, pitch);
             } else if (unit.kind == sim::UnitKind::MortarBike) {
                 build_mortar_bike(scene.vertices, options.seed, unit, mark, lift_z, hovering,
                                   heading, heading + turret);
@@ -4507,10 +4564,10 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
                                   heading, turret);
             } else if (unit.kind == sim::UnitKind::AssaultTank) {
                 build_assault_tank(scene.vertices, options.seed, unit, mark, lift_z, hovering,
-                                   heading, turret);
+                                   heading, turret, pitch);
             } else if (unit.kind == sim::UnitKind::Walker) {
                 build_walker(scene.vertices, options.seed, unit, mark, lift_z, hovering, heading,
-                             turret);
+                             turret, pitch);
             } else if (unit.kind == sim::UnitKind::Apc) {
                 build_apc(scene.vertices, options.seed, unit, mark, lift_z, hovering, heading);
             } else if (unit.kind == sim::UnitKind::Bomber) {
@@ -4533,7 +4590,7 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
                 // The scout (and the missile scout) borrows the tank's body until it has art of its
                 // own (VIS adds none): left to the final branch it would be drawn as a factory.
                 build_facing_tank(scene.vertices, options.seed, unit, mark, lift_z, hovering,
-                                  heading, turret);
+                                  heading, turret, pitch);
             } else if (unit.kind == sim::UnitKind::Turret) {
                 build_defense_turret(scene.vertices, options.seed, unit, mark, lift_z, hovering,
                                      heading, heading + turret);

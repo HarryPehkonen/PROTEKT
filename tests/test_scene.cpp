@@ -3008,9 +3008,9 @@ SceneOptions facing_options(const protekt::sim::Sim& sim) {
     return o;
 }
 
-Scene facing_scene(const protekt::sim::Sim& sim, float heading, float turret) {
+Scene facing_scene(const protekt::sim::Sim& sim, float heading, float turret, float pitch = 0.0F) {
     SceneOptions o = facing_options(sim);
-    o.facing = SceneOptions::Facing{viewer_of(sim).id, heading, turret};
+    o.facing = SceneOptions::Facing{viewer_of(sim).id, heading, turret, pitch};
     Scene scene = protekt::game::build_scene(sim, o);
     // The viewer's tank is the tail of the scene; the design is read level (see untilt.hpp).
     protekt::game::untilt::level(std::span(scene.vertices).last(kTankVertices), viewer_of(sim),
@@ -3110,6 +3110,63 @@ TEST(SceneFacing, TheBarrelPointsWhereTheTurretLooks) {
     EXPECT_GT(turned.at(1), 0.3F);
     // A barrel you can read: well clear of the hull, which is 0.3 tiles from the centre.
     EXPECT_GT(barrel_reach(facing_scene(sim, 0.0F, 0.0F), viewer), kHullHalfMetres * 1.4F);
+}
+
+/// How high the barrel's far end stands over its root: the highest vertex less the lowest.
+float barrel_rise(const Scene& scene) {
+    float low = 1.0e9F;
+    float high = -1.0e9F;
+    for (const auto& v : barrel_of(scene)) {
+        low = std::min(low, v.position[1]);
+        high = std::max(high, v.position[1]);
+    }
+    return high - low;
+}
+
+TEST(SceneFacing, TheBarrelRisesAndFallsWithTheAimsPitch) {
+    const auto sim = facing_sim();
+    const Scene level = facing_scene(sim, 0.0F, 0.0F, 0.0F);
+    const Scene up = facing_scene(sim, 0.0F, 0.0F, 0.6F);
+    const Scene down = facing_scene(sim, 0.0F, 0.0F, -0.3F);
+    // Pitch 0 draws what a frame that never heard of pitch drew, to the bit.
+    EXPECT_TRUE(same_vertices(barrel_of(level), barrel_of(facing_scene(sim, 0.0F, 0.0F))));
+    EXPECT_FALSE(same_vertices(barrel_of(level), barrel_of(up)));
+    EXPECT_FALSE(same_vertices(barrel_of(level), barrel_of(down)));
+    // Looking up lifts the muzzle collar and looking down drops it, about the same root.
+    // The scene's barrel is one prism: its muzzle end is the half of its vertices farthest along +z
+    // (heading 0), and its height there is their mean.
+    const auto tip_height = [](const Scene& scene) {
+        const auto view = barrel_of(scene);
+        float mid = 0.0F;
+        for (const auto& v : view) {
+            mid += v.position[2] / static_cast<float>(view.size());
+        }
+        float sum = 0.0F;
+        int count = 0;
+        for (const auto& v : view) {
+            if (v.position[2] > mid) {
+                sum += v.position[1];
+                ++count;
+            }
+        }
+        return count > 0 ? sum / static_cast<float>(count) : -1.0e9F;
+    };
+    EXPECT_GT(tip_height(up), tip_height(level) + 0.5F);
+    EXPECT_LT(tip_height(down), tip_height(level) - 0.2F);
+    EXPECT_GT(barrel_rise(up), barrel_rise(level));
+    // Its reach along the ground shortens as it rises: the same length, tipped.
+    EXPECT_LT(barrel_reach(up, viewer_of(sim)), barrel_reach(level, viewer_of(sim)));
+}
+
+TEST(SceneFacing, TheDrawnBarrelStopsShortOfTheHullHoweverFarTheAimLooksDown) {
+    // The aim may look down to -1.3 rad, but a barrel drawn that far would run into the hull; what
+    // is DRAWN stops at its clearance while the shot (not drawn here) keeps the view's pitch.
+    const auto sim = facing_sim();
+    const Scene far_down = facing_scene(sim, 0.0F, 0.0F, -1.2F);
+    const Scene farther = facing_scene(sim, 0.0F, 0.0F, -1.3F);
+    const Scene shallow = facing_scene(sim, 0.0F, 0.0F, -0.2F);
+    EXPECT_TRUE(same_vertices(barrel_of(far_down), barrel_of(farther)));
+    EXPECT_FALSE(same_vertices(barrel_of(far_down), barrel_of(shallow)));
 }
 
 TEST(SceneFacing, OnlyTheViewersTankChanges) {

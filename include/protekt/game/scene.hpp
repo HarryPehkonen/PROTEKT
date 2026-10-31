@@ -763,12 +763,15 @@ struct SceneOptions {
     std::optional<Hovering> hover{};
     /// How the viewer's own tank is oriented, so the drawn tank shows the steering model the player
     /// is using: `heading` is which way the body points and `turret` is how far the turret is
-    /// turned relative to it, both in radians. ABSENT draws every unit as an axis-aligned box, so a
+    /// turned relative to it, both in radians. `pitch` is the barrel's elevation (up is positive),
+    /// the view's own pitch: the barrel is built in the hull's frame at that elevation, so the lean
+    /// to the ground carries it with the hull. ABSENT draws every unit as an axis-aligned box, so a
     /// frame without one is byte-identical to a frame that never heard of this field.
     struct Facing {
         sim::UnitId unit{};
         float heading{};
         float turret{};
+        float pitch{};
     };
     std::optional<Facing> facing{};
     /// Remembered headings, so a stopped tank keeps its facing. ABSENT (null) faces a stopped tank

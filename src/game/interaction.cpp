@@ -135,24 +135,19 @@ void Interaction::handle(const input::InputFrame& frame, const sim::Sim& sim,
             last_shot_tick_ = sim.tick();
             // The driven tank itself is nothing to name: it cannot shoot itself.
             const bool named = hit != nullptr && hit->alive && hit->id != driven_;
-            // THE DIRECTION. The shot is aimed from the MUZZLE at the point the mark's ray
-            // reaches, so it crosses the reticle where the reticle is drawn instead of running
-            // parallel to it, a muzzle-drop below (game::shot_direction). Out of the camera's
-            // basis (math::basis_from; yaw 0 looks down +Z) it is (x, up, z) in world metres, and
-            // the map plane is x = world x, y = world z -- a tile is two metres either way, so
-            // only the direction matters. With no driven tank to fire from, the camera's forward.
-            // tests/test_interaction.cpp checks it against `math::basis_from` itself.
-            const sim::Unit* gun = sim.find(driven_);
-            const std::array<float, 3> dir
-                = gun != nullptr
-                      ? shot_direction(*gun, options, picked, *options.aim)
-                      : math::basis_from(options.camera.yaw, options.camera.pitch).forward;
+            // THE DIRECTION IS THE BARREL, FOR EVERY WEAPON (the owner's ruling, 2026-10-30): the
+            // view's own yaw and pitch, out of the camera's basis (math::basis_from; yaw 0 looks
+            // down +Z), so it is (x, up, z) in world metres, and the map plane is x = world x,
+            // y = world z -- a tile is two metres either way, so only the direction matters. A bolt
+            // takes time to arrive and the target may have left, so NOTHING is aimed: no solving,
+            // no leading, no correction to whatever is under the mark -- that unit is named in the
+            // order for attribution only. tests/test_interaction.cpp checks it against
+            // `math::basis_from` itself.
+            const std::array<float, 3> barrel
+                = math::basis_from(options.camera.yaw, options.camera.pitch).forward;
             if (weapon_ == Weapon::Mortar || weapon_ == Weapon::Bouncer) {
-                // THE MORTAR IS AIMED BY HAND (M2): the shell flies the barrel -- the view's own
-                // yaw and pitch, which is what the range ladder reads -- and not the path to
-                // whatever is under the mark. Nothing is solved, nothing led.
-                const std::array<float, 3> barrel
-                    = math::basis_from(options.camera.yaw, options.camera.pitch).forward;
+                // THE MORTAR'S shell flies the barrel too, which is also what the range ladder
+                // reads.
                 pending_.push_back(sim::Order{
                     driven_,
                     sim::orders::FireLob{to_fixed(barrel.at(0)), to_fixed(barrel.at(2)),
@@ -161,28 +156,27 @@ void Interaction::handle(const input::InputFrame& frame, const sim::Sim& sim,
                                                                     : sim::Round::Contact}});
             } else if (weapon_ == Weapon::Shotgun) {
                 // THE SCATTER GUN (A): the same aim as the gun's trigger, a different shot -- the
-                // sim reads `kShotgunSpec` for the pellet count, cone and per-pellet damage. It is
-                // aimed along the same ray as the gun's (shot_direction), so a shotgun and a gun
-                // hit the same point at the same pitch; only the fan about that point differs.
+                // sim reads `kShotgunSpec` for the pellet count, cone and per-pellet damage. It
+                // flies the barrel as the gun does; only the fan about that line differs.
                 pending_.push_back(sim::Order{
                     driven_,
-                    sim::orders::FireFan{to_fixed(dir.at(0)), to_fixed(dir.at(2)),
-                                         named ? hit->id : sim::UnitId{}, to_fixed(dir.at(1))}});
+                    sim::orders::FireFan{to_fixed(barrel.at(0)), to_fixed(barrel.at(2)),
+                                         named ? hit->id : sim::UnitId{}, to_fixed(barrel.at(1))}});
             } else if (weapon_ == Weapon::Rocket) {
                 // THE ROCKET (B): its own order because its own numbers -- `kRocketSpec` reaches 18
                 // tiles against the hull gun's 12, for triple damage at a fifth of the rate. Fired
-                // on the gun's own aim (shot_direction), so the two crosshairs agree; only the
+                // along the barrel, as the gun's is, so the two crosshairs agree; only the
                 // round, its reach and its reload differ. Until this order existed the rocket in
                 // the ring was a tank bolt wearing a rocket crosshair.
                 pending_.push_back(sim::Order{
-                    driven_,
-                    sim::orders::FireRocket{to_fixed(dir.at(0)), to_fixed(dir.at(2)),
-                                            named ? hit->id : sim::UnitId{}, to_fixed(dir.at(1))}});
+                    driven_, sim::orders::FireRocket{to_fixed(barrel.at(0)), to_fixed(barrel.at(2)),
+                                                     named ? hit->id : sim::UnitId{},
+                                                     to_fixed(barrel.at(1))}});
             } else {
                 pending_.push_back(sim::Order{
-                    driven_, sim::orders::FireTowards{to_fixed(dir.at(0)), to_fixed(dir.at(2)),
-                                                      named ? hit->id : sim::UnitId{},
-                                                      to_fixed(dir.at(1))}});
+                    driven_, sim::orders::FireTowards{
+                                 to_fixed(barrel.at(0)), to_fixed(barrel.at(2)),
+                                 named ? hit->id : sim::UnitId{}, to_fixed(barrel.at(1))}});
             }
             // Every manual shot is one order and one bolt. The sound is NOT played here: pulling
             // the trigger only raises the flag, and audio_pipeline judges it against the sim's own

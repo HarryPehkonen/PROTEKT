@@ -361,7 +361,11 @@ Selection and orders, the rules behind the rows:
   salmon for a hostile.
 - [SHIPPED be6da0a] The shot goes where the crosshair points and nothing aims for it. A unit under the
   mark is intent only: it decides whom the shot may hurt, not where it goes.
-- [SHIPPED 7a225e7] The shot leaves the muzzle and crosses the reticle where the reticle is drawn.
+- [SUPERSEDED 2026-10-30] ~~The shot leaves the muzzle and crosses the reticle where the reticle is
+  drawn (7a225e7).~~ Harri's ruling replaces it: every weapon flies the barrel, the view's own yaw and
+  pitch, and the muzzle-versus-eye offset is ignored. A bolt takes time, so nothing is aimed at where
+  a target is. The drawn barrel is raised to the same pitch in the hull's frame, so it leans with the
+  hull.
 - [SHIPPED 60b21a5] A click fires one shot. The bolt is a real projectile that takes time to arrive,
   inherits the shooter's velocity, keeps flying if its target dies, and fizzles after 16 tiles.
 - [SHIPPED 3c7070c] Friendly fire is on purpose. Auto-engagement only ever picks a hostile; an explicit

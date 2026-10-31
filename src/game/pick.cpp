@@ -195,28 +195,4 @@ Pick pick(const sim::Sim& sim, const SceneOptions& options, float screen_x,
     return result;
 }
 
-std::array<float, 3> shot_direction(const sim::Unit& shooter, const SceneOptions& options,
-                                    const Pick& picked, Aim aim) noexcept {
-    const Ray ray = ray_through(options.camera, options.extent, aim.x, aim.y);
-    // The bolt leaves kMuzzleHeight above the ground under the shooter (sim/projectile.hpp): 32
-    // height units to the metre, and the same ground the scene draws.
-    const float muzzle_x
-        = static_cast<float>(shooter.x.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile;
-    const float muzzle_z
-        = static_cast<float>(shooter.y.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile;
-    const float muzzle_y = ground_metres(options.seed, shooter.x, shooter.y)
-                           + (static_cast<float>(sim::kMuzzleHeight.raw)
-                              / static_cast<float>(sim::Fixed::kOne) * kMetresPerHeightUnit);
-    const float reach = picked.distance_tiles * kMetresPerTile;
-    const std::array<float, 3> to{ray.origin[0] + (ray.dir[0] * reach) - muzzle_x,
-                                  ray.origin[1] + (ray.dir[1] * reach) - muzzle_y,
-                                  ray.origin[2] + (ray.dir[2] * reach) - muzzle_z};
-    const float length = std::sqrt((to[0] * to[0]) + (to[1] * to[1]) + (to[2] * to[2]));
-    const float ahead = (to[0] * ray.dir[0]) + (to[1] * ray.dir[1]) + (to[2] * ray.dir[2]);
-    if (length < 1e-3F || ahead <= 0.0F) {
-        return ray.dir;
-    }
-    return {to[0] / length, to[1] / length, to[2] / length};
-}
-
 } // namespace protekt::game
