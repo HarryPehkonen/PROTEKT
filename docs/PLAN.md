@@ -147,8 +147,11 @@ Shipped from this list since it was written, and no longer next: on-screen hit f
 A\* (navigation option 2), and rendering depth (textures, lighting, unit shapes). What the rendering
 still lacks is honest in the README gap table: one sun and no cast shadows (a contact blob under each
 living unit stands in), and generated rather than authored art. The world also fades into the sky's
-horizon colour with distance (aerial perspective, as Battlezone II's did): clear within 12 m, total at
-the meshed rim, world only -- the HUD is never fogged.
+horizon colour with distance (aerial perspective, as Battlezone II's did): clear within 5 m, total at
+the meshed rim, linear in between. Thickened on Harri's ruling of 2026-10-30 -- "Can you make the fog
+thicker?" -- after he reported nothing to see, which measurement confirmed: with the first ramp (12 m
+start, `t^2`) the fog reached 111 of a live frame's 720 rows, only past 18.9 m, and a fog-free render
+differed from a fogged one by 0.011/255 of full scale. World only -- the HUD is never fogged.
 
 
 Ranked by *risk reduction per unit of work*, not by visibility. The flashy part (rendering) was

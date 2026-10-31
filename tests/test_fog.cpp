@@ -22,6 +22,7 @@ namespace {
 using protekt::game::build_scene;
 using protekt::game::fog_far_metres;
 using protekt::game::fogged;
+using protekt::game::ground_metres;
 using protekt::game::kFogNearMetres;
 using protekt::game::kMetresPerTile;
 using protekt::game::kSkyHorizonRing;
@@ -115,10 +116,34 @@ TEST(Fog, FartherIsStrictlyNearerTheFogBetweenTheTwoEnds) {
     }
 }
 
+TEST(Fog, TheRampIsThickEnoughToSeeWhereThePlayerLooks) {
+    // Harri, 2026-10-30: "Can you make the fog thicker?" -- after "I couldn't tell there was fog."
+    // Measured with the previous ramp on a 1280x720 capture of the live view: the fog reached 111
+    // of 720 rows and the whole frame differed from a fog-free render by 0.011/255, because with a
+    // 12 m start the ground nearer than 19 m -- most of the frame -- was untouched and the `t^2`
+    // ease kept the rest crisp. This rig meshes 20 tiles, so its fog is solid at 40 m; the numbers
+    // below are what a thicker ramp gives there. The same ramp under `t^2` gives 0.18 and 0.51,
+    // which is the invisible thing this test exists to stop coming back.
+    const float far = fog_far_metres(kRadius);
+    const auto fraction = [&](float distance) {
+        return distance_to(fogged(kTerrainLight, distance, far), kTerrainLight)
+               / distance_to(horizon(), kTerrainLight);
+    };
+    EXPECT_EQ(fraction(kFogNearMetres), 0.0F) << "at the near distance the ground is untouched";
+    EXPECT_EQ(fraction(4.0F), 0.0F) << "and inside it";
+    EXPECT_NEAR(fraction(20.0F), 0.43F, 0.02F) << "the near-mid ground must be visibly hazed";
+    EXPECT_NEAR(fraction(30.0F), 0.71F, 0.02F) << "the mid ground is most of the way to the sky";
+    EXPECT_EQ(fraction(far), 1.0F) << "and the rim is the horizon colour exactly";
+}
+
 // The scene ----------------------------------------------------------------------------------
 
 TEST(Fog, TheTerrainFadesFromItsOwnPaintToTheHorizon) {
-    const SceneOptions o = rig();
+    SceneOptions o = rig();
+    // The driver's eye is low: at the fog's near distance the ground beneath it must still be there
+    // unfogged, and a camera 8 m up (as `rig()` leaves it) has no terrain vertex within 5 m of it
+    // at all, which is how this test caught the ramp's change.
+    o.camera.y = ground_metres(o.seed, 50.0F, 50.0F) + 1.0F;
     const auto sim = one_unit(UnitKind::Tank, Side::Player, 50, 50);
     const Scene scene = build_scene(sim, o);
     const float far = fog_far_metres(kRadius);

@@ -116,11 +116,19 @@ inline constexpr math::Vec3 kSunDiscColour{1.0F, 0.97F, 0.80F};
 /// and nothing the HUD draws (see `build_scene`).
 /// A vertex nearer than `kFogNearMetres` keeps its exact colour, so something driving toward the
 /// camera never thins out; from there to the far distance the colour moves toward the fog along
-/// `t^kFogRampExponent` (an ease-in: the middle distance keeps its contrast and the rim does the
-/// dissolving). The far distance is the meshed radius (`fog_far_metres`), so the fog and the cull
-/// agree: by the rim a vertex IS the horizon colour.
-inline constexpr float kFogNearMetres = 12.0F;
-inline constexpr int kFogRampExponent = 2;
+/// `t^kFogRampExponent`. The far distance is the meshed radius (`fog_far_metres`), so the fog and
+/// the cull agree: by the rim a vertex IS the horizon colour.
+///
+/// THICK ENOUGH TO SEE (Harri: "Can you make the fog thicker?", 2026-10-30). Measured on a
+/// 1280x720 capture of the live view BEFORE this change: the fog reached 111 of 720 rows, 18.9 m
+/// to 80.0 m, and the whole-frame difference between the fog and no fog at all was 0.011/255 --
+/// which is why he could not tell it was there. The ground nearer than 12 m fills most of the
+/// frame and was untouched. So the ramp now starts at 5 m and is LINEAR (`t`): at 20 m the ground
+/// is a fifth of the way to the horizon, at 40 m a half, and the rim still lands on the horizon
+/// colour exactly. A nearer start also cannot thin out what is driving at the camera: at 5 m the
+/// tank's own hull and the ground under it are still exact.
+inline constexpr float kFogNearMetres = 5.0F;
+inline constexpr int kFogRampExponent = 1;
 
 /// Where the fog is total: the terrain's half-extent in metres, the radius the scene culls to.
 [[nodiscard]] constexpr float fog_far_metres(int radius_tiles) noexcept {
