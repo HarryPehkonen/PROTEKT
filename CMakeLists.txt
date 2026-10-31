@@ -110,6 +110,7 @@ add_library(protekt_game STATIC
     src/game/radar.cpp
     src/game/nav_marks.cpp
     src/game/row.cpp
+    src/game/kind_icon.cpp
     src/game/menu.cpp
     src/game/targets.cpp
     src/game/world_map.cpp

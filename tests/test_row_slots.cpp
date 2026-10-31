@@ -20,6 +20,7 @@
 #include <vector>
 
 #include "protekt/game/interaction.hpp"
+#include "protekt/game/kind_icon.hpp"
 #include "protekt/game/pick.hpp"
 #include "protekt/game/row.hpp"
 #include "protekt/game/scene.hpp"
@@ -1356,6 +1357,150 @@ TEST(RowBatch, TwoBatchesSitOnTwoKeysAndNeitherKeyMixesThem) {
     EXPECT_NE(a, b) << "two different batches do not share a key";
     EXPECT_EQ(group_of(row, a).size(), 2U);
     EXPECT_EQ(group_of(row, b).size(), 2U);
+}
+
+// ------------------------------------------------------------------ the vehicle-type icon
+
+/// The kinds a vehicle key can hold: every kind but the two buildings, which hang on the numbered
+/// keys and show no icon.
+[[nodiscard]] std::vector<UnitKind> vehicle_kinds() {
+    std::vector<UnitKind> kinds;
+    kinds.reserve(sim::kUnitKindCount);
+    for (int i = 0; i < sim::kUnitKindCount; ++i) {
+        const UnitKind kind = static_cast<UnitKind>(i);
+        if (kind != UnitKind::Factory && kind != UnitKind::DeployedRecycler) {
+            kinds.push_back(kind);
+        }
+    }
+    return kinds;
+}
+
+/// The icon-ink pixels of one slot, as the frame shows them.
+[[nodiscard]] std::vector<Px> icon_pixels(const std::vector<Px>& pixels, int slot) {
+    std::vector<Px> out;
+    std::copy_if(pixels.begin(), pixels.end(), std::back_inserter(out),
+                 [slot](const Px& p) { return slot_at(p.x) == slot && p.colour == kStripIconInk; });
+    return out;
+}
+
+TEST(KindIcon, EveryKindAVehicleKeyCanHoldHasItsOwnMask) {
+    const std::vector<UnitKind> kinds = vehicle_kinds();
+    ASSERT_EQ(kinds.size(), 13U) << "fifteen kinds less the two buildings";
+    for (std::size_t i = 0; i < kinds.size(); ++i) {
+        const IconMask& mask = kind_icon(kinds.at(i));
+        EXPECT_NE(&mask, &fallback_icon()) << kind_label(kinds.at(i)) << " fell back";
+        for (std::size_t j = 0; j < i; ++j) {
+            EXPECT_NE(mask, kind_icon(kinds.at(j)))
+                << kind_label(kinds.at(i)) << " and " << kind_label(kinds.at(j)) << " are one mask";
+        }
+    }
+}
+
+TEST(KindIcon, AKindWithNoArtAndAnUnknownKindDrawTheFallback) {
+    EXPECT_EQ(&kind_icon(UnitKind::Factory), &fallback_icon());
+    EXPECT_EQ(&kind_icon(UnitKind::DeployedRecycler), &fallback_icon());
+    EXPECT_EQ(&kind_icon(static_cast<UnitKind>(200)), &fallback_icon());
+}
+
+TEST(KindIcon, EveryMaskIsASixteenSquareOfDotsAndHashesWithSomethingLit) {
+    std::vector<const IconMask*> masks{&fallback_icon()};
+    for (const UnitKind kind : vehicle_kinds()) {
+        masks.push_back(&kind_icon(kind));
+    }
+    for (const IconMask* mask : masks) {
+        std::size_t lit = 0;
+        for (const std::string_view row : *mask) {
+            ASSERT_EQ(row.size(), kIconCells);
+            EXPECT_EQ(row.find_first_not_of(".#"), std::string_view::npos);
+            lit += static_cast<std::size_t>(std::count(row.begin(), row.end(), '#'));
+        }
+        EXPECT_GT(lit, 20U) << "a silhouette, not a speck";
+        EXPECT_LT(lit, kIconCells * kIconCells) << "not a filled square either";
+    }
+}
+
+TEST(KindIconDrawing, TheIconFillsTheReservedBoxAndTheTicksStartUnderIt) {
+    Rig rig = make_rig();
+    const std::vector<Px> pixels = row_pixels(rig.sim, rig.options);
+    const IconBox box = key_icon_box(slot_left(4), kMarginPx, 1.0F);
+    EXPECT_NEAR(box.left, slot_left(4), kEdgeTolerance) << "left-justified on the key";
+    EXPECT_GT(box.size, 0.0F);
+    EXPECT_NEAR(box.top + box.size + 1.0F, kTickTopPx, kEdgeTolerance)
+        << "the ticks start one gap under the box the icon is drawn in";
+    EXPECT_GE(box.left, slot_left(4));
+    EXPECT_LE(box.left + box.size, slot_left(4) + kSlotPx) << "inside the key's own width";
+
+    // F1 is a tank: its mask's lit extent, placed in the box a cell a pixel.
+    const IconMask& mask = kind_icon(UnitKind::Tank);
+    float want_left = 1.0e9F;
+    float want_right = -1.0e9F;
+    float want_top = 1.0e9F;
+    float want_bottom = -1.0e9F;
+    for (std::size_t row = 0; row < kIconCells; ++row) {
+        const std::size_t first = mask.at(row).find('#');
+        if (first == std::string_view::npos) {
+            continue;
+        }
+        want_left = std::min(want_left, box.left + static_cast<float>(first));
+        want_right
+            = std::max(want_right, box.left + static_cast<float>(mask.at(row).rfind('#') + 1));
+        want_top = std::min(want_top, box.top + static_cast<float>(row));
+        want_bottom = std::max(want_bottom, box.top + static_cast<float>(row + 1));
+    }
+    const std::vector<Px> icon = icon_pixels(pixels, 4);
+    ASSERT_FALSE(icon.empty()) << "a vacuous pass: nothing was drawn";
+    float left = 1.0e9F;
+    float right = -1.0e9F;
+    float top = 1.0e9F;
+    float bottom = -1.0e9F;
+    for (const Px& p : icon) {
+        left = std::min(left, p.x);
+        right = std::max(right, p.x);
+        top = std::min(top, p.y);
+        bottom = std::max(bottom, p.y);
+    }
+    EXPECT_NEAR(left, want_left, kEdgeTolerance);
+    EXPECT_NEAR(right, want_right, kEdgeTolerance);
+    EXPECT_NEAR(top, want_top, kEdgeTolerance);
+    EXPECT_NEAR(bottom, want_bottom, kEdgeTolerance);
+    EXPECT_GE(left, box.left - kEdgeTolerance);
+    EXPECT_LE(right, box.left + box.size + kEdgeTolerance);
+    EXPECT_GE(top, box.top - kEdgeTolerance);
+    EXPECT_LE(bottom, box.top + box.size + kEdgeTolerance);
+}
+
+TEST(KindIconDrawing, EveryLivingVehicleKeyHasAnIconAndNothingElseDoes) {
+    Rig rig = make_rig();
+    const std::vector<Px> pixels = row_pixels(rig.sim, rig.options);
+    for (const int slot : {4, 5, 6, 7, 8}) {
+        EXPECT_FALSE(icon_pixels(pixels, slot).empty()) << "F" << slot - 3;
+    }
+    for (int slot = 0; slot < static_cast<int>(kRowSlots); ++slot) {
+        if (slot < 4 || slot > 8) {
+            EXPECT_TRUE(icon_pixels(pixels, slot).empty()) << "slot " << slot << " holds nothing";
+        }
+    }
+}
+
+TEST(KindIconDrawing, ADifferentKindDrawsADifferentSilhouetteInTheSameBox) {
+    Rig rig = make_rig();
+    const std::vector<Px> pixels = row_pixels(rig.sim, rig.options);
+    // F1 is a tank, F4 a mortar bike, F5 a turret: three silhouettes, three vertex sets.
+    const auto count = [&](int slot) { return icon_pixels(pixels, slot).size(); };
+    EXPECT_NE(count(4), count(7));
+    EXPECT_NE(count(7), count(8));
+    EXPECT_NE(count(4), count(8));
+}
+
+TEST(KindIconDrawing, AKeyWhoseVehiclesAllDieDrawsNoIconAtAll) {
+    Rig rig
+        = make_rig({{UnitKind::Tank, Side::Enemy, 47, 41}, {UnitKind::Tank, Side::Enemy, 47, 42}});
+    ASSERT_FALSE(icon_pixels(row_pixels(rig.sim, rig.options), 5).empty()) << "alive: has one";
+    step_until_dead(rig.sim, rig.own.at(1));
+    // The row is NOT updated: the corpse is still F2's, and still no icon is drawn for it.
+    const std::vector<Px> pixels = row_pixels(rig.sim, rig.options);
+    EXPECT_TRUE(icon_pixels(pixels, 5).empty());
+    EXPECT_FALSE(icon_pixels(pixels, 4).empty()) << "its neighbour's icon stays";
 }
 
 } // namespace

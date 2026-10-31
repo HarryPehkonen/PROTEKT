@@ -919,4 +919,19 @@ struct SceneOptions {
 /// (camera and extent); it reads no sim, so showing it cannot disturb one.
 [[nodiscard]] Scene build_calibration_scene(const SceneOptions& options);
 
+/// The vehicle-type icon's reserved square under a command-row key's plate, in frame pixels: the
+/// ONE place the box is computed, so the layout that reserves it (the ticks start under it) and the
+/// drawing that fills it cannot drift apart. `slot_left` is the key's left edge and `plate_top` its
+/// plate's top; the square is left-justified on the key, `size` on a side, a gap below the plate.
+struct IconBox {
+    float left{};
+    float top{};
+    float size{};
+};
+[[nodiscard]] IconBox key_icon_box(float slot_left, float plate_top, float px) noexcept;
+
+/// The icon's ink: pale and plain whatever the key's side or selection (the TYPE is shown, not
+/// whose it is), so a frame reading can tell it from the plate's frame and from the ticks.
+inline constexpr std::array<float, 3> kStripIconInk{0.80F, 0.80F, 0.80F};
+
 } // namespace protekt::game

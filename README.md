@@ -162,8 +162,13 @@ alien factory draws the human factory's eight rows until Harri supplies its own 
 
 ### The health ticks and the ship instrument
 
-Under each top-strip plate hangs a space reserved for the **vehicle-type icon** (not drawn yet; 16 px
-square at 720p), and under that a row of **upright ticks, one per living vehicle** of the group, left to
+Under each vehicle key's plate hangs the **vehicle-type icon**: a pale, plain, side-view silhouette of
+the kind in a 16 px square at 720p, left-justified like the ticks, the same grey whoever owns the vehicle
+and whether or not the key is selected (the type is shown, not the side). Thirteen kinds have their own
+(tank, turret, hover tank, mortar bike, rocket tank, scavenger, recycler, scout, assault tank, walker, APC,
+bomber, MSL scout); a kind with none draws a hollow box with a dot. The factory (`2`), the deployed
+recycler (`1`) and `~` show no icon, and a key whose vehicles are all dead is not drawn at all. Under the
+icon is a row of **upright ticks, one per living vehicle** of the group, left to
 right in spawn order from the key's left edge (up to ten; the ticks a long notice, the attack list or the
 menu would cover are left out rather than overlapped). Every tick is the same size, 4 px wide and 14 tall,
 however hurt its vehicle is: a tick's **colour** says how hurt it is, shading smoothly (per vehicle, per hit

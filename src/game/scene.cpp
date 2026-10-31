@@ -2,6 +2,7 @@
 
 #include "protekt/game/atlas.hpp"
 #include "protekt/game/attack_aim.hpp"
+#include "protekt/game/kind_icon.hpp"
 #include "protekt/game/nav_marks.hpp"
 #include "protekt/game/pick.hpp"
 #include "protekt/game/radar.hpp"
@@ -2985,16 +2986,18 @@ void append_ship_gauge(std::vector<SceneVertex>& out, const SceneOptions& option
 /// text is 10 px in the 800x600 originals and still ~10 px in a 1280x730 screenshot of the
 /// remaster, so it is a fixed pixel font that ignores the resolution. Top row: the key, and how
 /// many vehicles the group holds beside it; then the kind (cell 2.0, or smaller for a name that
-/// would not fit the plate's inside). Under the plate hangs the vehicle-type ICON's reserved square
-/// (drawn by a later slice), and under that a ROW of upright TICKS, ONE PER LIVING VEHICLE, left to
-/// right in the group's spawn order from the key's left edge, up to ten (BAR-LOOK, HIS RULING
-/// 2026-10-30, from a BZ2 crop: "Vertical, and always the same size. They are left-justified, up to
-/// ten. ... it only changes colour, never the size"). Every tick is the same size and never shrinks
-/// with damage; each is coloured by its own vehicle's hit points on `bar_segments`'s ramp, bright
-/// green through yellow and red to a near-black that still reads against its dark track. A vehicle
-/// that dies takes its tick with it and the ones after it close up to the left, no blanks. `~` says
-/// how many nav marks there are and has no ticks; the building on `2` has one segment and no count.
-/// Under the row, `options.notice` in 10 px yellow capitals.
+/// would not fit the plate's inside). Under the plate hangs the vehicle-type ICON in its reserved
+/// square (`key_icon_box`: a pale side-view silhouette of the kind, `kind_icon`, left-justified
+/// like the ticks, no colour for whose it is; building keys and `~` have none), and under that a
+/// ROW of upright TICKS, ONE PER LIVING VEHICLE, left to right in the group's spawn order from the
+/// key's left edge, up to ten (BAR-LOOK, HIS RULING 2026-10-30, from a BZ2 crop: "Vertical, and
+/// always the same size. They are left-justified, up to ten. ... it only changes colour, never the
+/// size"). Every tick is the same size and never shrinks with damage; each is coloured by its own
+/// vehicle's hit points on `bar_segments`'s ramp, bright green through yellow and red to a
+/// near-black that still reads against its dark track. A vehicle that dies takes its tick with it
+/// and the ones after it close up to the left, no blanks. `~` says how many nav marks there are and
+/// has no ticks; the building on `2` has one segment and no count. Under the row, `options.notice`
+/// in 10 px yellow capitals.
 ///
 /// THE ATTACK LIST (BZ2A): the nearest enemies T offered, by the same plate and the same type, one
 /// row per enemy. It sits in the row BELOW the notice, which is reserved whether or not there is a
@@ -3012,10 +3015,12 @@ constexpr float kStripKindCell = 2.0F;
 /// The gap between the things stacked under a key's plate (plate, icon square, ticks).
 constexpr float kStripStackGapPixels = 1.0F;
 /// The vehicle-type icon's reserved square under the plate (Harri: "an image of the type of
-/// vehicle", turrets in his crop). Nothing is drawn in it yet; the ticks start below it. 16 px is
-/// the icon's room at 720: about half the plate's height, so it reads as a badge hanging off the
-/// key rather than a second plate, and a glyph of it can be drawn on a 16 px (4 x 4 cell) grid.
+/// vehicle", turrets in his crop); the ticks start below it. 16 px is the icon's room at 720:
+/// about half the plate's height, so it reads as a badge hanging off the key rather than a second
+/// plate. It is `kIconCells` masks cells of one pixel each, so a mask fills it exactly.
 constexpr float kStripIconPixels = 16.0F;
+static_assert(kStripIconPixels == static_cast<float>(kIconCells),
+              "an icon mask is one pixel a cell, so the box is exactly the mask");
 /// One tick: 4 px wide and 14 tall, so it is 3.5 times taller than wide and cannot be read as a
 /// square, 3 px apart so neighbours stay distinct. Ten of them span 10 * 4 + 9 * 3 = 67 px, inside
 /// the 88 px slot with room to spare; a slot narrowed by a narrow frame scales the whole row down
@@ -3455,6 +3460,7 @@ void append_hud_panels(std::vector<SceneVertex>& out, const SceneOptions& option
         const bool is_navs = row_slot_kind(index) == RowSlotKind::Navs;
         const bool is_group = row_slot_kind(index) == RowSlotKind::Group;
         std::string label = "NAVS";
+        sim::UnitKind reading_kind{};
         std::size_t count = options.row->nav_marks;
         std::vector<float> fractions;
         if (!is_navs) {
@@ -3462,6 +3468,7 @@ void append_hud_panels(std::vector<SceneVertex>& out, const SceneOptions& option
             if (!reading.has_value()) {
                 continue; // everything in it died since the row was last updated
             }
+            reading_kind = reading->kind;
             label = std::string(kind_label(reading->kind));
             count = reading->count;
             // A vehicle key has a segment per living vehicle; a building key is one thing, so one.
@@ -3502,6 +3509,42 @@ void append_hud_panels(std::vector<SceneVertex>& out, const SceneOptions& option
         if (is_navs) {
             continue; // marks have no hit points: no bar
         }
+        // THE ICON, in its reserved square: one quad per horizontal run of lit cells of the kind's
+        // mask, a cell a pixel. A run a left panel reaches is left out like a covered tick. Only
+        // vehicle keys have one, and only a living key gets this far (a dead one `continue`d
+        // above).
+        const IconBox icon = key_icon_box(left, top, px);
+        const float icon_bottom = icon.top + icon.size;
+        if (is_group) {
+            const IconMask& mask = kind_icon(reading_kind);
+            const float cell = icon.size / static_cast<float>(kIconCells);
+            for (std::size_t row = 0; row < kIconCells; ++row) {
+                const std::string_view line = mask.at(row);
+                std::size_t col = 0;
+                while (col < kIconCells) {
+                    if (line.at(col) != '#') {
+                        ++col;
+                        continue;
+                    }
+                    const std::size_t start = col;
+                    while (col < kIconCells && line.at(col) == '#') {
+                        ++col;
+                    }
+                    const float run_left = icon.left + (static_cast<float>(start) * cell);
+                    const bool covered = std::any_of(
+                        left_panels.begin(), left_panels.end(), [&](const LeftPanel& panel) {
+                            return panel.right > run_left && panel.top < icon_bottom
+                                   && panel.bottom > icon.top;
+                        });
+                    if (!covered) {
+                        const float run_top = icon.top + (static_cast<float>(row) * cell);
+                        rect(marks_at, run_left, run_top,
+                             icon.left + (static_cast<float>(col) * cell), run_top + cell,
+                             kStripIconInk);
+                    }
+                }
+            }
+        }
         // THE TICKS. Under the plate come the icon's reserved square, then one upright tick per
         // living vehicle, in spawn order from the key's left edge, every one
         // `kStripTickWidthPixels` by `kStripTickHeightPixels` whatever its vehicle's health --
@@ -3518,7 +3561,7 @@ void append_hud_panels(std::vector<SceneVertex>& out, const SceneOptions& option
         const float fit = std::min(1.0F, slot_w / row_span);
         const float tick_w = kStripTickWidthPixels * px * fit;
         const float tick_pitch = (kStripTickWidthPixels + kStripTickGapPixels) * px * fit;
-        const float tick_top = top + slot_h + stack_gap + (kStripIconPixels * px) + stack_gap;
+        const float tick_top = icon_bottom + stack_gap;
         const float tick_bottom = tick_top + (kStripTickHeightPixels * px);
         const std::size_t shown = std::min(segments.size(), kStripTicks);
         std::vector<std::size_t> placed;
@@ -4103,6 +4146,11 @@ void append_world_map(std::vector<SceneVertex>& out, const SceneOptions& options
 }
 
 } // namespace
+
+IconBox key_icon_box(float slot_left, float plate_top, float px) noexcept {
+    return IconBox{slot_left, plate_top + ((kStripSlotHeightPixels + kStripStackGapPixels) * px),
+                   kStripIconPixels * px};
+}
 
 MenuLayout menu_layout(std::span<const MenuRow> rows, float left, float top, float cell) {
     const auto width = [cell](std::string_view text) {
