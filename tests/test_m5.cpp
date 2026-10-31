@@ -417,15 +417,17 @@ TEST(LandingMarker, TheClosestLadderRungIsATallNarrowCrossAndNotAWall) {
     //
     // M6 (the mortar's lift) raised the closest rung from about 1.6 tiles to 3.30, so the "at your
     // feet" landing this defect was MEASURED at is no longer reachable by the ladder at all. The
-    // guard and the width bound below are re-derived for the rung that does exist: the mark's
-    // half-width is `clamp(camera_distance * kLandingMarkWidthPerMetre, min, max)`, so a rung
-    // further out gives a slightly wider cross -- still a cross. Half a metre was right at 1.6
-    // tiles; it is not the right figure at 3.3, and pretending otherwise would mean asserting a
-    // bound the feature is not built to hold.
+    // fixed muzzle speed (2026-10-31) made a level aim a flat gun: the closest rung is 4.37 tiles
+    // (the shell falls the muzzle's 0.57 tiles at 21 tiles a second), 0.795 m of cross
+    // became 1.019. The guard and the width bound below are re-derived for the rung that does
+    // exist: the mark's half-width is `clamp(camera_distance * kLandingMarkWidthPerMetre, min,
+    // max)`, so a rung further out gives a slightly wider cross -- still a cross. Half a metre was
+    // right at 1.6 tiles; it is not the right figure at 3.3, and pretending otherwise would mean
+    // asserting a bound the feature is not built to hold.
     Rig rig;
     make_rig(rig, Weapon::Mortar, kMortarRungPitches.front());
     const float tiles = mortar_landing_tiles(kMortarRungPitches.front());
-    ASSERT_LT(tiles, 4.0F) << "the closest rung of the ladder";
+    ASSERT_LT(tiles, 5.0F) << "the closest rung of the ladder";
     // Fire and read the marker the moment it lands: `expect_marker_at` runs out the whole lifetime.
     frame(rig, true);
     for (int tick = 0; tick < 300 && rig.landings == 0; ++tick) {
@@ -446,10 +448,11 @@ TEST(LandingMarker, TheClosestLadderRungIsATallNarrowCrossAndNotAWall) {
                                   + ((v.position[2] - centre_z) * (v.position[2] - centre_z))));
         tall = std::max(tall, v.position[1] - ground);
     }
-    // Measured at this rung: 0.795 m across. A metre is a figure a human chose, and it has teeth
-    // in both directions -- the old 1.9 m wall breaks it, and so does a runaway width (the
+    // Measured at this rung: 1.019 m across (0.795 m at the old 3.3 tiles: the width follows the
+    // range, linearly until the clamp). 1.2 m is a figure a human chose, and it has teeth in both
+    // directions -- the old 1.9 m wall breaks it, and so does a runaway width (the
     // kLandingMarkMaxHalfWidth clamp would draw 1.8 m here).
-    EXPECT_LE(wide, 1.0F) << "a metre at 3.3 tiles: a cross, not a wall";
+    EXPECT_LE(wide, 1.2F) << "just over a metre at 4.4 tiles: a cross, not a wall";
     EXPECT_GE(tall, 3.5F) << "and still 4 m tall, so it reaches into the frame from a level view";
 }
 
@@ -459,14 +462,14 @@ TEST(LandingMarker, TheHoldIsTwoSecondsSoAShotAtTheSkyCanBeLookedDownAt) {
     EXPECT_EQ(kLandingMarkHoldTicks, 120);
 }
 
-TEST(LandingMarker, TheHighestLadderPitchLandsAMarkerFourteenPointThreeTilesOut) {
-    // M6: the lift moved this rung out from 13.9 tiles. It is still inside the mortar's travel
-    // (`kBoltTravel` is the turret's 16 tiles, not the mortar's 14-tile ENGAGEMENT range), so the
-    // shell lands rather than fizzling -- the whole ladder lands.
+TEST(LandingMarker, TheHighestLadderPitchLandsAMarkerEightPointOneTilesOut) {
+    // The fixed muzzle speed (2026-10-31): the steepest rung is the HIGH, SHORT lob, 8.06 tiles
+    // (it was the furthest, 14.33, when the horizontal speed was constant). It lands rather than
+    // fizzling, as does the whole ladder (`kBoltTravel` is 16 tiles).
     Rig rig;
     make_rig(rig, Weapon::Mortar, kMortarRungPitches.back());
     expect_marker_at(rig, mortar_landing_tiles(kMortarRungPitches.back()));
-    EXPECT_NEAR(mortar_landing_tiles(kMortarRungPitches.back()), 14.3F, 0.1F);
+    EXPECT_NEAR(mortar_landing_tiles(kMortarRungPitches.back()), 8.1F, 0.1F);
 }
 
 TEST(LandingMarker, OnlyThePlayersOwnLobMakesOne) {

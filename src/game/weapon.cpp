@@ -54,12 +54,14 @@ std::string_view weapon_name(Weapon weapon) noexcept {
 
 float mortar_landing_tiles(float pitch) noexcept {
     const sim::UnitSpec& mortar = sim::spec_of(sim::UnitKind::MortarBike);
-    const std::int64_t across = mortar.bolt_speed.raw;
-    // The climb in height units a tick, from the sim's own `mortar_climb` (the very call the
-    // player's shell is launched with): one tile of run, `tan(pitch)` tiles of rise in Q16.16.
-    std::int64_t vz
+    // The speed across and the climb in height units a tick, from the sim's own `mortar_climb` (the
+    // very call the player's shell is launched with): one tile of run, `tan(pitch)` tiles of rise
+    // in Q16.16.
+    const sim::MortarSplit split
         = sim::mortar_climb(sim::Fixed::kOne, std::lround(static_cast<double>(std::tan(pitch))
                                                           * static_cast<double>(sim::Fixed::kOne)));
+    const std::int64_t across = split.across;
+    std::int64_t vz = split.climb;
     std::int64_t z = sim::kMuzzleHeight.raw; // over flat ground at height 0
     std::int64_t flown = 0;
     // `advance_projectiles`, step for step: move by the velocity; a step that ends at or under the

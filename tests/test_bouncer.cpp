@@ -306,6 +306,7 @@ TEST(Bouncer, DamageFallsOffWithDistanceInOneRunAndNothingBeyondTheRadius) {
     const Rest r = run_rest(
         at, {victim(2, kTile * 6 / 10), victim(3, kTile * 12 / 5), victim(4, kTile * 4)});
     ASSERT_TRUE(r.gone);
+    ASSERT_FALSE(r.hp_by_tick.empty()) << "the shell fizzled before it rested: nothing to measure";
     const auto& last = r.hp_by_tick.back();
     const int full = spec_of(UnitKind::Tank).hp;
     const int close = full - last[1];
@@ -322,6 +323,7 @@ TEST(Bouncer, ItHurtsBothSides) {
         at, {make_unit(2, UnitKind::Tank, Side::Enemy, Fixed::zero(), Fixed::from_raw(-kTile)),
              make_unit(3, UnitKind::Tank, Side::Player, Fixed::zero(), Fixed::from_raw(kTile))});
     ASSERT_TRUE(r.gone);
+    ASSERT_FALSE(r.hp_by_tick.empty()) << "the shell fizzled before it rested: nothing to measure";
     const int full = spec_of(UnitKind::Tank).hp;
     EXPECT_LT(r.hp_by_tick.back()[1], full);
     EXPECT_LT(r.hp_by_tick.back()[2], full) << "friendly fire is real";

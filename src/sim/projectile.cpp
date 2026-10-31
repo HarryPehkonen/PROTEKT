@@ -185,7 +185,8 @@ bool operator==(const Projectile& a, const Projectile& b) noexcept {
            && a.aimed_at == b.aimed_at && a.damage == b.damage && a.age == b.age
            && a.learns == b.learns && a.closest_d2 == b.closest_d2 && a.miss_x == b.miss_x
            && a.miss_y == b.miss_y && a.round == b.round && a.bounces == b.bounces
-           && a.resting == b.resting && a.rested == b.rested && a.bounced_off == b.bounced_off;
+           && a.resting == b.resting && a.rested == b.rested && a.bounced_off == b.bounced_off
+           && a.flown == b.flown;
 }
 
 std::int64_t isqrt(std::int64_t n) noexcept {
@@ -241,16 +242,122 @@ void retarget_aim(Unit& shooter, UnitId target) noexcept {
     }
 }
 
+namespace {
+
+/// How high a lob leaving at `slope` (rise per run, Q16.16) is above its muzzle when it has flown
+/// `dist` across the map, in height units (Q16.16). The shell crosses the map at its split's speed
+/// across plus `along`, the gun's own drive towards the aim point, and steps with the climb it has
+/// and then loses `gravity`, so after t ticks it has risen t*climb - g*t*(t-1)/2.
+std::int64_t lob_rise_at(std::int64_t slope, std::int64_t dist, std::int64_t along,
+                         std::int64_t gravity) noexcept {
+    const MortarSplit split = mortar_climb(Fixed::kOne, slope);
+    const std::int64_t closing = std::max<std::int64_t>(1, split.across + along);
+    const std::int64_t t = std::clamp<std::int64_t>(dist * Fixed::kOne / closing, Fixed::kOne,
+                                                    std::int64_t{256} * Fixed::kOne);
+    return split.climb * t / Fixed::kOne
+           - (gravity * t / Fixed::kOne) * (t - Fixed::kOne) / (std::int64_t{2} * Fixed::kOne);
+}
+
+/// The elevation (a slope, Q16.16) at which the mortar's one muzzle speed carries a lob `rise`
+/// height units up or down over `dist` tiles of map: the HIGH arc, the steepest shot that gets
+/// there, so the shell clears whatever stands between the gun and the target. Two elevations reach
+/// a point, one either side of 45 degrees (the rise at `dist` grows with the slope up to the peak
+/// and then falls), and the search is bounded above by the spec's `arc`, about 76 degrees.
+/// The boundaries read like this:
+///  - past the reach of the muzzle speed (the rise at 45 degrees falls short) it gets 45 degrees,
+///    the farthest it throws, not a steeper shot that falls shorter;
+///  - when the cap is itself too steep (the rise at `arc` is still over the aim point: a level
+///    target nearer than about 6.6 tiles) the high arc lies beyond the cap and every elevation up
+///    to it overshoots, so it takes the LOW arc, the steepest one that really comes down there;
+///  - when the shot at the cap falls short of the aim point, a bisection between 45 degrees and
+///    the cap finds the steepest slope that still reaches it.
+std::int64_t lob_slope_to(std::int64_t dist, std::int64_t rise, std::int64_t along,
+                          std::int64_t gravity) noexcept {
+    const std::int64_t cap = spec_of(UnitKind::MortarBike).arc.raw;
+    const std::int64_t farthest = Fixed::kOne; // 45 degrees
+    if (lob_rise_at(farthest, dist, along, gravity) < rise) {
+        return farthest;
+    }
+    if (lob_rise_at(cap, dist, along, gravity) < rise) {
+        std::int64_t reaches = farthest;
+        std::int64_t falls_short = cap;
+        while (falls_short - reaches > 1) {
+            const std::int64_t mid = reaches + (falls_short - reaches) / 2;
+            if (lob_rise_at(mid, dist, along, gravity) < rise) {
+                falls_short = mid;
+            } else {
+                reaches = mid;
+            }
+        }
+        return reaches;
+    }
+    std::int64_t low = -cap;
+    std::int64_t high = farthest;
+    if (lob_rise_at(low, dist, along, gravity) >= rise) {
+        return low;
+    }
+    while (high - low > 1) {
+        const std::int64_t mid = low + (high - low) / 2;
+        if (lob_rise_at(mid, dist, along, gravity) < rise) {
+            low = mid;
+        } else {
+            high = mid;
+        }
+    }
+    return high;
+}
+
+} // namespace
+
 Projectile launch(const Unit& shooter, const Unit& target, std::uint16_t damage,
                   std::uint64_t seed) noexcept {
     const UnitSpec& weapon = spec_of(shooter.kind);
-    const std::int64_t bolt_speed = weapon.bolt_speed.raw;
+    const bool lob = weapon.gravity.raw > 0;
     // Aim at where the target IS, plus what this gun has learned about how far to lead it.
     const std::int64_t dx
         = static_cast<std::int64_t>(target.x.raw) - shooter.x.raw + shooter.aim_x.raw;
     const std::int64_t dy
         = static_cast<std::int64_t>(target.y.raw) - shooter.y.raw + shooter.aim_y.raw;
     const std::int64_t dist = isqrt(dx * dx + dy * dy);
+    Projectile bolt{};
+    bolt.x = shooter.x;
+    bolt.y = shooter.y;
+    bolt.z = Fixed::from_raw(ground_height(seed, shooter.x, shooter.y).raw + kMuzzleHeight.raw);
+
+    // The speed across the map. A flat gun's is its `bolt_speed`. A lob has one MUZZLE speed, and
+    // the elevation splits it between reach and climb (`mortar_climb`, the same split the player's
+    // `launch_lob` uses), so its speed across is whatever the elevation that reaches the aim point
+    // leaves it; a lob aimed at nothing flies level.
+    std::int64_t bolt_speed = weapon.bolt_speed.raw;
+    std::int64_t lob_climb = 0;
+    if (lob) {
+        MortarSplit split = mortar_climb(Fixed::kOne, 0);
+        if (dist > 0) {
+            // The aim point's height: the ground there plus the middle of the body, since a lob
+            // goes OVER the ground between and does not need the straight line the flat guns look
+            // for.
+            const std::int64_t point_x = static_cast<std::int64_t>(shooter.x.raw) + dx;
+            const std::int64_t point_y = static_cast<std::int64_t>(shooter.y.raw) + dy;
+            const std::int64_t aim_z
+                = ground_height(seed, Fixed::from_raw(static_cast<std::int32_t>(point_x)),
+                                Fixed::from_raw(static_cast<std::int32_t>(point_y)))
+                      .raw
+                  + body_bottom(target.kind).raw
+                  + (static_cast<std::int64_t>(body_top(target.kind).raw)
+                     - body_bottom(target.kind).raw)
+                        / 2;
+            // The gun's own drive adds to the shell's speed across the aim point or takes from it,
+            // so the flight time is over the real closing speed, not the speed it was aimed at.
+            const std::int64_t along = (static_cast<std::int64_t>(shooter.vx.raw) * dx
+                                        + static_cast<std::int64_t>(shooter.vy.raw) * dy)
+                                       / dist;
+            const std::int64_t slope
+                = lob_slope_to(dist, aim_z - bolt.z.raw, along, weapon.gravity.raw);
+            split = mortar_climb(Fixed::kOne, slope);
+        }
+        bolt_speed = split.across;
+        lob_climb = split.climb;
+    }
     // An aim point exactly on the gun has no direction to aim in; due east is as good as any and
     // keeps the answer defined.
     std::int64_t aim_x = bolt_speed;
@@ -259,41 +366,28 @@ Projectile launch(const Unit& shooter, const Unit& target, std::uint16_t damage,
         aim_x = dx * bolt_speed / dist;
         aim_y = dy * bolt_speed / dist;
     }
-    Projectile bolt{};
-    bolt.x = shooter.x;
-    bolt.y = shooter.y;
-    bolt.z = Fixed::from_raw(ground_height(seed, shooter.x, shooter.y).raw + kMuzzleHeight.raw);
     bolt.vx = Fixed::from_raw(static_cast<std::int32_t>(aim_x + shooter.vx.raw));
     bolt.vy = Fixed::from_raw(static_cast<std::int32_t>(aim_y + shooter.vy.raw));
     bolt.gravity = weapon.gravity;
     bolt.splash_radius = weapon.splash_radius;
     bolt.max_travel = weapon.max_travel;
 
-    // The vertical aim is exact: the aim POINT is on the ground it is over, and a body stands on
-    // it. With no estimate that is the target where it really stands; with one, it is where the
-    // target is expected to be, at the height the ground has THERE, so a target walking up a slope
-    // is aimed at on the slope. There is no vertical estimate to learn or to be wrong: the height
-    // follows from the horizontal aim. Within the body the gun takes the lowest point it can see --
-    // the middle, or higher if a rise in the ground would stop a bolt on its way to the middle --
-    // since a shot that stops short of a target on a hillside teaches nothing and repeats forever.
-    // The rise is spread over the run to the aim point.
-    if (dist > 0) {
+    if (lob) {
+        bolt.vz = Fixed::from_raw(static_cast<std::int32_t>(lob_climb));
+    } else if (dist > 0) {
+        // The vertical aim is exact: the aim POINT is on the ground it is over, and a body stands
+        // on it. With no estimate that is the target where it really stands; with one, it is where
+        // the target is expected to be, at the height the ground has THERE, so a target walking up
+        // a slope is aimed at on the slope. There is no vertical estimate to learn or to be wrong:
+        // the height follows from the horizontal aim. Within the body the gun takes the lowest
+        // point it can see -- the middle, or higher if a rise in the ground would stop a bolt on
+        // its way to the middle -- since a shot that stops short of a target on a hillside teaches
+        // nothing and repeats forever. The rise is spread over the run to the aim point.
         const std::int64_t point_x = static_cast<std::int64_t>(shooter.x.raw) + dx;
         const std::int64_t point_y = static_cast<std::int64_t>(shooter.y.raw) + dy;
-        // A lob goes OVER the ground between, so it aims at the middle of the body and does not
-        // need the straight line the flat guns look for.
-        const std::int64_t aim_z
-            = weapon.gravity.raw > 0
-                  ? ground_height(seed, Fixed::from_raw(static_cast<std::int32_t>(point_x)),
-                                  Fixed::from_raw(static_cast<std::int32_t>(point_y)))
-                            .raw
-                        + body_bottom(target.kind).raw
-                        + (static_cast<std::int64_t>(body_top(target.kind).raw)
-                           - body_bottom(target.kind).raw)
-                              / 2
-                  : aim_height(seed, shooter.x.raw, shooter.y.raw, bolt.z.raw, point_x, point_y,
-                               target.kind)
-                        .z;
+        const std::int64_t aim_z = aim_height(seed, shooter.x.raw, shooter.y.raw, bolt.z.raw,
+                                              point_x, point_y, target.kind)
+                                       .z;
         // The rise is spread over the bolt's real closing speed on the aim point -- the gun's own
         // drive adds to it or takes from it -- not over the speed it was aimed at, or a moving
         // gun's bolt would arrive early and low (or late and high).
@@ -303,20 +397,8 @@ Projectile launch(const Unit& shooter, const Unit& target, std::uint16_t damage,
         const std::int64_t speed = closing > 0 ? closing : bolt_speed;
         const std::int64_t steepest = static_cast<std::int64_t>(weapon.arc.raw) * bolt_speed
                                       / Fixed::kOne * kHeightUnitsPerTile;
-        std::int64_t vz = 0;
-        if (weapon.gravity.raw > 0) {
-            // The parabola through the aim point. The bolt steps with the vz it has and then loses
-            // `gravity`, so after t ticks it has risen t*vz - g*t*(t-1)/2; set that equal to the
-            // rise at t = the flight time in ticks (Q16.16), and solve for vz.
-            const std::int64_t t = std::max<std::int64_t>(Fixed::kOne, dist * Fixed::kOne / speed);
-            vz = (aim_z - bolt.z.raw) * Fixed::kOne / t
-                 + static_cast<std::int64_t>(weapon.gravity.raw) * (t - Fixed::kOne)
-                       / (std::int64_t{2} * Fixed::kOne);
-        } else {
-            vz = (aim_z - bolt.z.raw) * speed / dist;
-        }
-        vz = std::clamp(vz, -steepest, steepest);
-        bolt.vz = Fixed::from_raw(static_cast<std::int32_t>(vz));
+        const std::int64_t vz = (aim_z - bolt.z.raw) * speed / dist;
+        bolt.vz = Fixed::from_raw(static_cast<std::int32_t>(std::clamp(vz, -steepest, steepest)));
     }
     bolt.shooter = shooter.id;
     bolt.side = shooter.side;
@@ -426,34 +508,28 @@ void fan_out(const Projectile& bolt, std::uint8_t pellets, Fixed cone_half_tan,
     }
 }
 
-std::int64_t mortar_climb(std::int64_t run, std::int64_t rise) noexcept {
+MortarSplit mortar_climb(std::int64_t run, std::int64_t rise) noexcept {
     const UnitSpec& mortar = spec_of(UnitKind::MortarBike);
-    const std::int64_t across = mortar.bolt_speed.raw;
-    const std::int64_t steepest
-        = static_cast<std::int64_t>(mortar.arc.raw) * across / Fixed::kOne * kHeightUnitsPerTile;
-    if (run <= 0) {
-        return rise < 0 ? -steepest : steepest;
+    const std::int64_t muzzle = mortar.bolt_speed.raw;
+    // The aim as a slope, clamped to the cap BEFORE the elevation is taken. Straight up or down is
+    // the cap itself, over a run of one tile.
+    std::int64_t flat = run;
+    std::int64_t lean = rise;
+    if (run > 0) {
+        const std::int64_t steepest = static_cast<std::int64_t>(mortar.arc.raw) * run / Fixed::kOne;
+        lean = std::clamp(rise, -steepest, steepest);
+    } else {
+        flat = Fixed::kOne;
+        lean = rise < 0 ? -static_cast<std::int64_t>(mortar.arc.raw) : mortar.arc.raw;
     }
-    // The aim as a slope, which is the frame the cap is expressed in.
-    const std::int64_t slope = rise * Fixed::kOne / run;
-    const std::int64_t lean = slope < 0 ? -slope : slope;
-    // The lift fades linearly to nothing at the cap, so it can never carry a shot past the cap and
-    // no rung of the ladder collapses onto another's distance. Aiming down lifts too (the "higher
-    // than the current angle" is taken whichever way the barrel points), which is why the fade
-    // reads the aim's SIZE and not its sign. Harri's "multiplied by something that gets smaller the
-    // higher you aim": level, the lift is the whole of `kMortarLift`; at the cap, none of it.
-    std::int64_t fade = 0;
-    if (mortar.arc.raw > 0 && lean < mortar.arc.raw) {
-        fade = Fixed::kOne - (lean * Fixed::kOne / mortar.arc.raw);
-    }
-    const std::int64_t lifted = slope + (kMortarLift.raw * fade / Fixed::kOne);
-    return std::clamp(lifted * across / Fixed::kOne * kHeightUnitsPerTile, -steepest, steepest);
+    const std::int64_t hypotenuse = isqrt(flat * flat + lean * lean);
+    return MortarSplit{muzzle * flat / hypotenuse,
+                       muzzle * lean / hypotenuse * kHeightUnitsPerTile};
 }
 
 Projectile launch_lob(const Unit& shooter, Fixed dir_x, Fixed dir_y, Fixed dir_z, UnitId aimed_at,
                       std::uint16_t damage, std::uint64_t seed, Round round) noexcept {
     const UnitSpec& mortar = spec_of(UnitKind::MortarBike);
-    const std::int64_t across = mortar.bolt_speed.raw;
     std::int64_t dx = dir_x.raw;
     std::int64_t dy = dir_y.raw;
     std::int64_t dz = dir_z.raw;
@@ -464,11 +540,12 @@ Projectile launch_lob(const Unit& shooter, Fixed dir_x, Fixed dir_y, Fixed dir_z
         dz >>= 8;
     }
     const std::int64_t run = isqrt(dx * dx + dy * dy);
-    std::int64_t aim_x = across;
+    const MortarSplit split = mortar_climb(run, dz);
+    std::int64_t aim_x = split.across;
     std::int64_t aim_y = 0;
     if (run > 0) {
-        aim_x = dx * across / run;
-        aim_y = dy * across / run;
+        aim_x = dx * split.across / run;
+        aim_y = dy * split.across / run;
     }
     Projectile bolt{};
     bolt.x = shooter.x;
@@ -476,10 +553,10 @@ Projectile launch_lob(const Unit& shooter, Fixed dir_x, Fixed dir_y, Fixed dir_z
     bolt.z = Fixed::from_raw(ground_height(seed, shooter.x, shooter.y).raw + kMuzzleHeight.raw);
     bolt.vx = Fixed::from_raw(static_cast<std::int32_t>(aim_x));
     bolt.vy = Fixed::from_raw(static_cast<std::int32_t>(aim_y));
-    bolt.vz = Fixed::from_raw(static_cast<std::int32_t>(mortar_climb(run, dz)));
+    bolt.vz = Fixed::from_raw(static_cast<std::int32_t>(split.climb));
     bolt.gravity = mortar.gravity;
     bolt.splash_radius = mortar.splash_radius;
-    bolt.max_travel = mortar.max_travel;
+    bolt.max_travel = round == Round::Bounce ? kBouncerTravel : mortar.max_travel;
     bolt.shooter = shooter.id;
     bolt.side = shooter.side;
     bolt.aimed_at = aimed_at;
@@ -612,6 +689,22 @@ void advance_projectiles(std::vector<Projectile>& projectiles, std::vector<Unit>
             }
         }
 
+        // A bouncer's bounces carry it on past its first landing, and the cap bounds the whole
+        // flight across the map: a bounced shell whose step would spend the rest of it flies only
+        // that far and comes to rest there.
+        bool spent = false;
+        if (bolt.round == Round::Bounce) {
+            const std::int64_t reach = isqrt(step_x * step_x + step_y * step_y);
+            const std::int64_t room = bolt.max_travel.raw - bolt.flown;
+            if (bolt.bounces > 0 && reach > room) {
+                step_x = step_x * room / reach;
+                step_y = step_y * room / reach;
+                step_z = step_z * room / reach;
+                spent = true;
+            }
+            bolt.flown += static_cast<std::int32_t>(spent ? room : reach);
+        }
+
         const bool passed
             = bolt.learns && track_approach(bolt, units, from_x, from_y, step_x, step_y);
 
@@ -679,6 +772,20 @@ void advance_projectiles(std::vector<Projectile>& projectiles, std::vector<Unit>
         if (passed) {
             learn_from(bolt, units); // it has told the shooter all it can; not again at the end
             bolt.learns = false;
+        }
+        if (spent) {
+            // The cap is spent: it drops to the ground where it is and spins.
+            bolt.x = Fixed::from_raw(static_cast<std::int32_t>(from_x + step_x));
+            bolt.y = Fixed::from_raw(static_cast<std::int32_t>(from_y + step_y));
+            bolt.z = ground_height(seed, bolt.x, bolt.y);
+            bolt.vx = Fixed::zero();
+            bolt.vy = Fixed::zero();
+            bolt.vz = Fixed::zero();
+            bolt.resting = true;
+            bolt.bounced_off = UnitId{};
+            ++bolt.age;
+            projectiles[kept++] = bolt;
+            continue;
         }
         if (grounded && bolt.round == Round::Bounce) {
             const Rebound rebound = rebound_of(bolt);

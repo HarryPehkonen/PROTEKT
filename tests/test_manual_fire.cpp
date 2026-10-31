@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstddef>
@@ -182,9 +183,17 @@ TEST(PitchLimit, LookingUpClampsAtItAndLookingDownAtItsNegative) {
     EXPECT_EQ(player.view_pitch(), -1.3F);
 }
 
-TEST(PitchLimit, TheLadderReachesTheMortarsWholeRangeAtTheLimit) {
+TEST(PitchLimit, TheLadderReachesTheMortarsWholeRangeAtItsBestRungAndTopsOutAtTheLimit) {
+    // At a fixed muzzle speed the range peaks near 45 degrees, not at the steepest aim: the top
+    // rung (the limit) is the HIGHEST lob, and the whole 14 tiles is reached by the rung that
+    // peaks.
     const float range = as_float(sim::spec_of(UnitKind::MortarBike).range);
-    EXPECT_GE(mortar_landing_tiles(kMortarRungPitches.back()), range - 0.2F);
+    float best = 0.0F;
+    for (const float pitch : kMortarRungPitches) {
+        best = std::max(best, mortar_landing_tiles(pitch));
+    }
+    EXPECT_GE(best, range - 0.2F);
+    EXPECT_LT(mortar_landing_tiles(kMortarRungPitches.back()), range - 5.0F);
     EXPECT_LE(kMortarRungPitches.back(), kLookPitchLimit);
     EXPECT_EQ(mortar_rung(kLookPitchLimit), kMortarRungCount - 1);
 }
@@ -238,29 +247,32 @@ TEST(Wheel, ASeparateFrameIsStillNoNotchWorthOfSwitch) {
 
 // --- manual fire -------------------------------------------------------------------------------
 
-// ---- the lob leaves steeper than the barrel points, and the lift fades as the aim climbs --------
+// ---- the mortar throws at ONE muzzle speed, and the elevation splits it -------------------------
 //
-// Harri's ruling (2026-10-31): the shell should be "ejected at an angle that's higher than the
-// current angle" -- "they look like a flop" -- and "the different rungs should result in different
-// arcs", "say, 30 degrees multiplied by something that gets smaller the higher you aim". These read
-// the climb back as an ELEVATION IN DEGREES over the mortar's own bolt speed: the player's
-// currency, not the raw Q16.16 the function speaks in, so they say what he asked about.
+// Harri's ruling (2026-10-31): "Fixed speed! That's more realistic than constant horizontal speed,
+// right?" and, on a level aim, "Let it be flat." The reason: "I wasn't looking for the reach, but
+// for the highest lob. The maximum angle should not be determined by maximum reach." These ask the
+// sim
+// (`mortar_climb`) what a pitch makes of the muzzle speed and read it back as an ELEVATION IN
+// DEGREES and a SPEED, the player's currency, not the raw Q16.16 the function speaks in.
 
 namespace {
 
 constexpr double kDegreesPerRadian = 180.0 / 3.14159265358979323846;
 
+/// What the sim makes of a barrel at `pitch` radians (one tile of run, `tan(pitch)` of rise).
+[[nodiscard]] sim::MortarSplit split_at(float pitch) {
+    const std::int64_t rise = std::lround(static_cast<double>(std::tan(pitch)) * 65536.0);
+    return sim::mortar_climb(sim::Fixed::kOne, rise);
+}
+
 /// The elevation the shell leaves at, in degrees, for a barrel at `pitch` radians.
 [[nodiscard]] double elevation_degrees(float pitch) {
-    const sim::UnitSpec& mortar = sim::spec_of(UnitKind::MortarBike);
-    const std::int64_t rise = std::lround(static_cast<double>(std::tan(pitch)) * 65536.0);
-    const std::int64_t climb = sim::mortar_climb(sim::Fixed::kOne, rise);
-    // The climb and the bolt speed are BOTH Q16.16, so the two factors cancel: height units a tick
-    // over 64 (tiles a tick) divided by the bolt's own tiles a tick is the slope, plain.
-    const double slope = static_cast<double>(climb)
-                         / (static_cast<double>(sim::kHeightUnitsPerTile)
-                            * static_cast<double>(mortar.bolt_speed.raw));
-    return std::atan(slope) * kDegreesPerRadian;
+    const sim::MortarSplit split = split_at(pitch);
+    // `climb` is height units a tick (64 to a tile) and `across` tiles a tick: both Q16.16.
+    return std::atan2(static_cast<double>(split.climb) / sim::kHeightUnitsPerTile,
+                      static_cast<double>(split.across))
+           * kDegreesPerRadian;
 }
 
 /// The barrel's own elevation, in degrees, for the same pitch.
@@ -268,48 +280,84 @@ constexpr double kDegreesPerRadian = 180.0 / 3.14159265358979323846;
     return static_cast<double>(pitch) * kDegreesPerRadian;
 }
 
+/// The speed along the barrel, tiles a tick in Q16.16: the muzzle speed, if it is one.
+[[nodiscard]] double muzzle_speed(float pitch) {
+    const sim::MortarSplit split = split_at(pitch);
+    return std::hypot(static_cast<double>(split.across),
+                      static_cast<double>(split.climb) / sim::kHeightUnitsPerTile);
+}
+
 } // namespace
 
-TEST(MortarLob, ALevelAimLeavesAtTheLiftAndNotFlat) {
-    // The flop itself: level, the shell used to leave dead level. It leaves at the lift now.
-    EXPECT_NEAR(elevation_degrees(0.0F), 30.0, 0.2);
+TEST(MortarLob, TheMuzzleSpeedIsCalibratedSoFortyFiveDegreesPeaksAtTheMortarsRange) {
+    // v = sqrt(range * gravity): 14 tiles, 2.25 height units (2.25/64 tile) a tick squared.
+    const sim::UnitSpec& mortar = sim::spec_of(UnitKind::MortarBike);
+    EXPECT_EQ(mortar.bolt_speed.raw, 45977);
+    const double v = static_cast<double>(mortar.bolt_speed.raw) / 65536.0;
+    const double g = static_cast<double>(mortar.gravity.raw) / 65536.0 / sim::kHeightUnitsPerTile;
+    EXPECT_NEAR(v * v / g, 14.0, 0.001);
 }
 
-TEST(MortarLob, TheShellLeavesSteeperThanTheBarrelPointsAtEveryRung) {
+TEST(MortarLob, ALevelAimIsFlat) {
+    // The lift is gone: a mortar at zero elevation is a gun. All of the speed is across the map.
+    const sim::MortarSplit split = split_at(0.0F);
+    EXPECT_EQ(split.climb, 0);
+    EXPECT_EQ(split.across, sim::spec_of(UnitKind::MortarBike).bolt_speed.raw);
+}
+
+TEST(MortarLob, TheShellLeavesExactlyAsSteepAsTheBarrelPointsAtEveryRung) {
     for (const float pitch : kMortarRungPitches) {
-        EXPECT_GT(elevation_degrees(pitch), aim_degrees(pitch) + 0.2) << "pitch " << pitch;
+        EXPECT_NEAR(elevation_degrees(pitch), aim_degrees(pitch), 0.01) << "pitch " << pitch;
     }
 }
 
-TEST(MortarLob, TheLiftFadesSoEveryRungKeepsAnArcOfItsOwn) {
-    std::vector<double> elevations;
-    std::vector<double> lifts;
+TEST(MortarLob, TheSpeedAlongTheBarrelIsTheMuzzleSpeedAtEveryRung) {
+    const double muzzle = static_cast<double>(sim::spec_of(UnitKind::MortarBike).bolt_speed.raw);
     for (const float pitch : kMortarRungPitches) {
-        const double elevation = elevation_degrees(pitch);
-        elevations.push_back(elevation);
-        lifts.push_back(elevation - aim_degrees(pitch));
+        EXPECT_NEAR(muzzle_speed(pitch), muzzle, 2.0) << "pitch " << pitch;
     }
-    // Every rung steeper than the one below it: no two rungs share an arc.
-    for (std::size_t i = 1; i < elevations.size(); ++i) {
-        EXPECT_GT(elevations.at(i), elevations.at(i - 1)) << "rung " << i << " is not the steeper";
+    // And so the reach across the map FALLS as the barrel climbs: speed is split, not added to.
+    for (std::size_t i = 1; i < kMortarRungPitches.size(); ++i) {
+        EXPECT_LT(split_at(kMortarRungPitches.at(i)).across,
+                  split_at(kMortarRungPitches.at(i - 1)).across)
+            << "rung " << i;
     }
-    // And the LIFT is what shrinks towards the cap -- "something that gets smaller the higher you
-    // aim". Read on the lift and not on the elevation, which rises on the aim alone.
-    for (std::size_t i = 1; i < lifts.size(); ++i) {
-        EXPECT_LT(lifts.at(i), lifts.at(i - 1)) << "the lift must shrink, rung " << i;
-    }
-    EXPECT_GT(lifts.front(), 25.0) << "aiming level, nearly the whole 30 degrees of it is left";
-    EXPECT_LT(lifts.back(), 5.0) << "at the top of the ladder almost none of it is left";
 }
 
-TEST(MortarLob, TheLadderStillOutRangesEveryRungBelowIt) {
-    // The distances the sight actually prints: still strictly increasing, so the lift has not
-    // collapsed two rungs onto one reading.
-    float previous = -1.0F;
+TEST(MortarLob, TheArcCapClampsTheElevationAtAboutSeventySixDegrees) {
+    const sim::UnitSpec& mortar = sim::spec_of(UnitKind::MortarBike);
+    const double cap = std::atan(static_cast<double>(mortar.arc.raw) / 65536.0) * kDegreesPerRadian;
+    EXPECT_NEAR(cap, 75.96, 0.01);
+    // Steeper than the cap, and straight up or down, are held at it.
+    for (const std::int64_t rise : {5 * 65536LL, 100 * 65536LL}) {
+        const sim::MortarSplit split = sim::mortar_climb(sim::Fixed::kOne, rise);
+        EXPECT_NEAR(std::atan2(static_cast<double>(split.climb) / sim::kHeightUnitsPerTile,
+                               static_cast<double>(split.across))
+                        * kDegreesPerRadian,
+                    cap, 0.01);
+    }
+    const sim::MortarSplit up = sim::mortar_climb(0, 65536);
+    const sim::MortarSplit down = sim::mortar_climb(0, -65536);
+    EXPECT_GT(up.climb, 0);
+    EXPECT_EQ(down.climb, -up.climb);
+    EXPECT_EQ(down.across, up.across);
+}
+
+TEST(MortarLob, ASteepAimIsAHighShortLobAndRangePeaksNearFortyFiveDegrees) {
+    // The point of the slice: the highest rung climbs the most and lands SHORT of the rung below
+    // the top of the range curve. Range peaks at 45 degrees, rung 4 (0.8 rad = 45.8).
+    std::vector<float> tiles;
+    tiles.reserve(kMortarRungPitches.size());
     for (const float pitch : kMortarRungPitches) {
-        const float tiles = mortar_landing_tiles(pitch);
-        EXPECT_GT(tiles, previous) << "pitch " << pitch << " does not out-range the rung below";
-        previous = tiles;
+        tiles.push_back(mortar_landing_tiles(pitch));
+    }
+    const auto peak = std::max_element(tiles.begin(), tiles.end());
+    EXPECT_EQ(peak - tiles.begin(), 4);
+    EXPECT_NEAR(*peak, 15.0F, 0.05F); // the 14-tile range, plus the muzzle's own height
+    EXPECT_LT(tiles.back(), tiles.at(4) - 5.0F) << "the steepest lob lands far short of the best";
+    // Every rung from the peak up is shorter than the one below it.
+    for (std::size_t i = 5; i < tiles.size(); ++i) {
+        EXPECT_LT(tiles.at(i), tiles.at(i - 1)) << "rung " << i;
     }
 }
 
@@ -328,17 +376,16 @@ TEST(ManualFire, TheShellLeavesWithTheLaddersOwnClimbAndTheMortarsOwnSpeed) {
         Rig rig = make_rig();
         const Flight flight = fire_along_x(rig, Weapon::Mortar, pitch);
         ASSERT_TRUE(flight.launched) << pitch;
-        const std::int64_t rise = std::lround(static_cast<double>(std::tan(pitch)) * 65536.0);
         // Quantising the barrel to Q16.16 may move the ratio by a hair; one raw unit of the
         // direction is a few raw units of climb.
-        const std::int64_t want = sim::mortar_climb(sim::Fixed::kOne, rise);
+        const sim::MortarSplit want = split_at(pitch);
         // `first` is read after the launch tick's step, which has already lost one tick of gravity.
         EXPECT_NEAR(static_cast<double>(flight.first.vz.raw) + mortar.gravity.raw,
-                    static_cast<double>(want),
+                    static_cast<double>(want.climb),
                     static_cast<double>(mortar.bolt_speed.raw) * 64.0 / 65536.0 * 8.0 + 8.0)
             << "pitch " << pitch;
-        EXPECT_NEAR(static_cast<double>(flight.first.vx.raw),
-                    static_cast<double>(mortar.bolt_speed.raw), 8.0);
+        EXPECT_NEAR(static_cast<double>(flight.first.vx.raw), static_cast<double>(want.across), 8.0)
+            << "pitch " << pitch;
         EXPECT_EQ(flight.first.gravity.raw, mortar.gravity.raw);
         EXPECT_EQ(flight.first.splash_radius.raw, mortar.splash_radius.raw);
         EXPECT_EQ(flight.first.max_travel.raw, mortar.max_travel.raw);
@@ -351,7 +398,7 @@ TEST(ManualFire, TheShellLandsWhereTheLadderSaysOnLevelGround) {
         const Flight flight = fire_along_x(rig, Weapon::Mortar, pitch);
         ASSERT_TRUE(flight.launched) << pitch;
         const float ladder = mortar_landing_tiles(pitch);
-        const float step = as_float(sim::spec_of(UnitKind::MortarBike).bolt_speed);
+        const float step = static_cast<float>(split_at(pitch).across) / 65536.0F;
         // The last step the shell took before it landed brackets the touchdown, and the row is
         // level to within six height units (the same slack M1's ladder test gives).
         EXPECT_GE(ladder, flight.tiles - 0.25F) << "pitch " << pitch;
@@ -359,11 +406,18 @@ TEST(ManualFire, TheShellLandsWhereTheLadderSaysOnLevelGround) {
     }
 }
 
-TEST(ManualFire, TheLimitPitchLandsAtTheMortarsFullRange) {
+TEST(ManualFire, TheBestRungLandsAtTheMortarsFullRangeAndTheLimitPitchLobsShort) {
+    // 45.8 degrees (rung 4) is where the fixed muzzle speed reaches furthest: the mortar's 14
+    // tiles.
     Rig rig = make_rig();
-    const Flight flight = fire_along_x(rig, Weapon::Mortar, kLookPitchLimit);
+    const Flight flight = fire_along_x(rig, Weapon::Mortar, kMortarRungPitches.at(4));
     ASSERT_TRUE(flight.launched);
     EXPECT_GE(flight.tiles, as_float(sim::spec_of(UnitKind::MortarBike).range) - 0.5F);
+    // The steepest aim the view allows is the high lob: it lands well inside that.
+    Rig steep = make_rig();
+    const Flight lob = fire_along_x(steep, Weapon::Mortar, kLookPitchLimit);
+    ASSERT_TRUE(lob.launched);
+    EXPECT_LT(lob.tiles, flight.tiles - 5.0F);
 }
 
 TEST(ManualFire, FiresWithNothingUnderTheCrosshairAndDoesNotRefuse) {

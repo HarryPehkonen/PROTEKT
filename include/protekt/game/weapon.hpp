@@ -98,9 +98,10 @@ struct WeaponLineup {
 
 /// THE MORTAR'S RANGE LADDER. Its rungs are pitch bands of the view (`view_pitch`, radians, up is
 /// positive), and each rung says how far a mortar shell fired at that pitch lands on level ground.
-/// The barrel's climb IS the view's pitch: the shell leaves at the mortar's own `bolt_speed` across
-/// the map (as the sim's `launch` lobs it) climbing `tan(pitch)` tiles per tile -- capped at the
-/// spec's `arc` -- from `kMuzzleHeight`, and loses the spec's `gravity` every tick.
+/// The barrel's elevation IS the view's pitch: the shell leaves at the mortar's one muzzle speed
+/// (`bolt_speed`), which `mortar_climb` splits into speed across the map and climb by the elevation
+/// -- the aim's slope, `tan(pitch)`, capped at the spec's `arc` -- from `kMuzzleHeight`, and loses
+/// the spec's `gravity` every tick.
 ///
 /// M2 widened the view's pitch limit to 1.3 rad, so the ladder runs to the mortar's whole 14 tiles:
 /// two rungs more than M1's six (1.15 and 1.28 rad, the last landing at 13.9 tiles).

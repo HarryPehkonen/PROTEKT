@@ -970,12 +970,13 @@ TEST(MortarLadder, RungDistancesAreTheSimsOwnFlightOnLevelGround) {
         shell.y = start_y;
         shell.z = sim::Fixed::from_raw(sim::ground_height(42, start_x, start_y).raw
                                        + sim::kMuzzleHeight.raw);
-        shell.vx = mortar.bolt_speed;
-        // The launch's own climb, asked of the sim's own function. This used to hand-roll
-        // `tan(pitch) * bolt_speed * 64`, which baked the launch rule into the test: the test then
-        // could not follow the rule changing, and it failed the moment the lob gained its lift.
-        shell.vz = sim::Fixed::from_raw(static_cast<std::int32_t>(sim::mortar_climb(
-            sim::Fixed::kOne, std::lround(static_cast<double>(std::tan(pitch)) * 65536.0))));
+        // The launch's own split of the muzzle speed, asked of the sim's own function. This used to
+        // hand-roll `tan(pitch) * bolt_speed * 64`, which baked the launch rule into the test: the
+        // test then could not follow the rule changing.
+        const sim::MortarSplit split = sim::mortar_climb(
+            sim::Fixed::kOne, std::lround(static_cast<double>(std::tan(pitch)) * 65536.0));
+        shell.vx = sim::Fixed::from_raw(static_cast<std::int32_t>(split.across));
+        shell.vz = sim::Fixed::from_raw(static_cast<std::int32_t>(split.climb));
         shell.gravity = mortar.gravity;
         shell.max_travel = mortar.max_travel;
         std::vector<sim::Projectile> bolts{shell};
@@ -989,7 +990,7 @@ TEST(MortarLadder, RungDistancesAreTheSimsOwnFlightOnLevelGround) {
         ASSERT_TRUE(bolts.empty());
         const float one = static_cast<float>(sim::Fixed::kOne);
         const float before = static_cast<float>(last_x.raw - start_x.raw) / one;
-        const float after = before + (static_cast<float>(mortar.bolt_speed.raw) / one);
+        const float after = before + (static_cast<float>(split.across) / one);
         const float ladder = mortar_landing_tiles(pitch);
         // Six height units of unevenness in the row move the touchdown a little either way.
         EXPECT_GE(ladder, before - 0.25F) << "rung " << rung;
@@ -997,16 +998,17 @@ TEST(MortarLadder, RungDistancesAreTheSimsOwnFlightOnLevelGround) {
     }
 }
 
-TEST(MortarLadder, TheRungsArePinnedAndClimbWithThePitch) {
-    // From the spec: 17476 raw tiles a tick across, a 36.8-unit muzzle, 2.25 units a tick^2.
-    // M2 re-record: M1's six rungs are unchanged; 1.15 and 1.28 rad are new, the last the full 14.
-    // Re-recorded for the lob's LIFT (2026-10-31, `kMortarLift`): every rung leaves steeper than
-    // its barrel aim, by the lift fading to nothing at the arc cap, so every rung now lands further
-    // -- the level rung from 1.66 to 3.30 tiles, which is the flop being taken out. The top rung
-    // reads 14.33, past the mortar's own 14-tile `max_travel`: that is the fizzle point, the
-    // distance the shell stops at rather than lands at, which this ladder has always reported.
-    const std::array<float, kMortarRungCount> tiles{3.3015F, 3.8965F, 4.5724F,  5.3987F,
-                                                    6.5202F, 8.2738F, 10.5554F, 14.3292F};
+TEST(MortarLadder, TheRungsArePinnedAndRangePeaksNearFortyFiveDegrees) {
+    // From the spec: ONE muzzle speed, 45977 raw tiles a tick (about 21 tiles a second), split by
+    // the elevation into reach and climb; a 36.8-unit muzzle, 2.25 units a tick^2.
+    // Re-recorded for the FIXED MUZZLE SPEED (2026-10-31): the old rule kept the horizontal speed
+    // constant and added the climb on top, so distance rose with every rung (3.30 ... 14.33); the
+    // elevation now divides one speed, so distance rises to rung 4 (45.8 degrees, 15.00 tiles: the
+    // mortar's 14 plus the muzzle's own height) and FALLS after it, the steepest rung a high short
+    // lob of 8.06. The rungs' pitches are unchanged and their landings now cross: the next slice
+    // re-spaces them.
+    const std::array<float, kMortarRungCount> tiles{4.3678F,  8.0485F,  11.8353F, 14.3861F,
+                                                    14.9995F, 13.4552F, 10.9696F, 8.0557F};
     for (std::size_t rung = 0; rung < kMortarRungCount; ++rung) {
         EXPECT_NEAR(mortar_landing_tiles(kMortarRungPitches.at(rung)), tiles.at(rung), 0.01F)
             << "rung " << rung;

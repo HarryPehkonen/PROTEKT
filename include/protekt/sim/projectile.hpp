@@ -94,6 +94,9 @@ struct Projectile {
     bool resting{};          ///< it has come to rest and spins, pulsing
     std::uint32_t rested{};  ///< ticks it has spent at rest
     UnitId bounced_off{};    ///< the unit it last bounced off, which it does not bounce off twice
+    /// Tiles (raw) it has flown across the map, a bouncer's only: its bounces carry it on past the
+    /// first landing, and `max_travel` bounds the total.
+    std::int32_t flown{};
 };
 [[nodiscard]] bool operator==(const Projectile& a, const Projectile& b) noexcept;
 
@@ -199,27 +202,25 @@ void retarget_aim(Unit& shooter, UnitId target) noexcept;
 void fan_out(const Projectile& bolt, std::uint8_t pellets, Fixed cone_half_tan,
              std::vector<Projectile>& into) noexcept;
 
-/// The mortar's extra elevation, OVER AND ABOVE the aim: every lobbed shell leaves steeper than the
-/// barrel points, so a level shot is an arc rather than a flop. It FADES to nothing as the aim
-/// climbs, so no rung of the range ladder loses a distance of its own and a shot already aimed near
-/// the arc cap is unchanged. `tan(30 degrees)` as a slope in Q16.16 (0.5773502692 * 65536,
-/// rounded), which is exactly 30 degrees of elevation over a level aim. Harri's number and his
-/// ruling (2026-10-31): the shell should be "ejected at an angle that's higher than the current
-/// angle", "say, 30 degrees multiplied by something that gets smaller the higher you aim".
-inline constexpr Fixed kMortarLift = Fixed::from_raw(37838);
+/// What the mortar's elevation makes of its one muzzle speed: the speed across the map (raw tiles a
+/// tick, Q16.16) and the vertical speed (height units a tick, Q16.16, so 64 to a tile of rise).
+struct MortarSplit {
+    std::int64_t across{};
+    std::int64_t climb{};
+};
 
-/// THE MORTAR'S CLIMB, the one place it is computed: the vertical speed (height units a tick) of a
-/// mortar shell that rises `rise` over a horizontal run of `run` (both Q16.16, any common scale;
-/// `run` > 0), leaving at the mortar spec's `bolt_speed` across the map -- `tan(pitch)` tiles of
-/// climb per tile of run -- and capped at the spec's `arc`.
-///
-/// The climb carries `kMortarLift` on top of the aim, fading linearly to nothing at the cap, so the
-/// shell is always lobbed steeper than the barrel points while every rung of the ladder keeps a
-/// landing distance of its own.
+/// THE MORTAR'S SPLIT, the one place it is computed. A shell leaves the barrel at ONE speed -- the
+/// mortar spec's `bolt_speed`, its muzzle speed -- and the aim's elevation divides that speed
+/// between reach and climb, as a real mortar does: `across = speed * cos(elevation)` and `climb =
+/// speed * sin(elevation)`. The aim is `rise` over a horizontal `run` (both Q16.16, any common
+/// scale; `run` <= 0 is straight up or down). Its slope is clamped to the spec's `arc` before the
+/// elevation is taken, so the elevation is at most atan(arc), about 76 degrees. A level aim is
+/// flat: there is no lift on top of the aim. Integer only: cos and sin are `run` and `rise` over
+/// their hypotenuse.
 ///
 /// Both `launch_lob` and the player's range ladder (`mortar_landing_tiles`) call it, so the sight
 /// cannot disagree with the shot.
-[[nodiscard]] std::int64_t mortar_climb(std::int64_t run, std::int64_t rise) noexcept;
+[[nodiscard]] MortarSplit mortar_climb(std::int64_t run, std::int64_t rise) noexcept;
 
 /// The mortar shell `shooter` lobs along (`dir_x`, `dir_y`) with `dir_z` of climb per unit of
 /// horizontal run (the same world-space direction as `launch_towards`; it need not be normalised):

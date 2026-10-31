@@ -19,11 +19,17 @@ struct UnitSpec {
     std::uint16_t damage{};
     std::uint16_t cooldown{}; ///< ticks between shots
     // The weapon block's ballistics. Zero for an unarmed kind.
-    Fixed bolt_speed{}; ///< raw tiles per tick, in the map plane's direction of aim
+    /// Raw tiles per tick. For a flat gun it is the speed in the map plane's direction of aim. For
+    /// the MORTAR it is the MUZZLE speed, along the barrel: the aim's elevation splits it between
+    /// reach across the map and climb (`mortar_climb`), so the horizontal speed is not constant.
+    Fixed bolt_speed{};
     /// The steepest climb a bolt may be launched at: tiles of rise per tile of run (a slope),
     /// Q16.16. The launch aims the bolt straight at the aim point; this only caps how steeply it
-    /// may climb
-    /// (`vz` raw <= arc * bolt_speed * kHeightUnitsPerTile), so 2.0 is a 63 degree ceiling.
+    /// may climb. For a flat gun that is `vz` raw <= arc * bolt_speed * kHeightUnitsPerTile, so 2.0
+    /// is a 63 degree ceiling. For the mortar the cap is on the ELEVATION, taken as the aim's slope
+    /// clamped to `arc` before the muzzle speed is split: the shell leaves at most atan(arc) above
+    /// the horizon, so 4.0 is a 76 degree ceiling. (The bolt's `vz` can then never exceed
+    /// bolt_speed * kHeightUnitsPerTile, the whole muzzle speed pointed straight up.)
     Fixed arc{};
     /// How far a bolt flies before it fizzles, tiles (see Projectile::max_travel).
     Fixed max_travel{};
@@ -60,6 +66,34 @@ inline constexpr std::int32_t kMortarRangeRaw = 14 << 16;
 inline constexpr std::int32_t kMortarGravityRaw = 9 * Fixed::kOne / 4;
 inline constexpr std::int32_t kMortarArcRaw = 4 * Fixed::kOne;
 inline constexpr std::int32_t kMortarSplashRaw = 3 * Fixed::kOne / 2;
+
+/// The floor of the square root of `n`, usable in a constant expression (the sim's `isqrt` is not).
+[[nodiscard]] constexpr std::int64_t constexpr_isqrt(std::int64_t n) noexcept {
+    std::int64_t lo = 0;
+    std::int64_t hi = std::int64_t{1} << 31;
+    while (lo < hi) {
+        const std::int64_t mid = (lo + hi + 1) / 2;
+        if (mid * mid <= n) {
+            lo = mid;
+        } else {
+            hi = mid - 1;
+        }
+    }
+    return lo;
+}
+/// THE MORTAR'S MUZZLE SPEED, raw tiles per tick: the shell leaves the barrel at one speed whatever
+/// the elevation, and the elevation splits it between reach and climb. Calibrated so a 45 degree
+/// shot peaks at the mortar's own range: on level ground the range is v^2/g, so v = sqrt(range *
+/// gravity), with gravity in tiles per tick squared (`kMortarGravityRaw` is height units, 64 to the
+/// tile). In raw Q16.16 that is sqrt(range_tiles * gravity_raw * 65536 / 64) = sqrt(14 * 147456 *
+/// 1024) = 45977.49, floored to 45977: about 21.05 tiles a second.
+inline constexpr std::int32_t kMortarMuzzleSpeedRaw = static_cast<std::int32_t>(constexpr_isqrt(
+    static_cast<std::int64_t>(kMortarRangeRaw >> 16) * kMortarGravityRaw * Fixed::kOne / 64));
+/// THE BOUNCER'S MAX TRAVEL, tiles across the map from the barrel to where it may rest: 18, against
+/// the shell's 16 (`kBoltTravel`), which its bounces used to carry it past (~30). Harri's number
+/// (2026-10-31: "Give it a separate max travel. Maybe 18 tiles for now."), so PROVISIONAL. The
+/// shell that has bounced and would fly further comes to rest where the cap is spent.
+inline constexpr Fixed kBouncerTravel = Fixed::from_raw(18 << 16);
 /// THE BOUNCER ROUND (M3), all of it data. It leaves the barrel with the mortar's own ballistics,
 /// so the range ladder is honest for its FIRST landing; then it bounces, rests, spins and pulses.
 struct BouncerSpec {
@@ -186,7 +220,7 @@ inline constexpr std::array<UnitSpec, static_cast<std::size_t>(kUnitKindCount)> 
      Fixed::zero()},
     {"mortarbike", kTankHp * 3 / 4, Fixed::from_raw(kTankSpeedRaw / 2),
      Fixed::from_raw(kMortarRangeRaw), kTankDamage * 2, kTankCooldownTicks * 3,
-     Fixed::from_raw(kProjectileSpeedRaw / 2), Fixed::from_raw(kMortarArcRaw), kBoltTravel,
+     Fixed::from_raw(kMortarMuzzleSpeedRaw), Fixed::from_raw(kMortarArcRaw), kBoltTravel,
      Fixed::from_raw(kMortarSplashRaw), Fixed::from_raw(kMortarGravityRaw), false, 45, 900, 0,
      Fixed::zero()},
     {"rockettank", kTankHp, Fixed::from_raw(kTankSpeedRaw), Fixed::from_raw(kRocketRangeRaw),
@@ -245,10 +279,13 @@ inline constexpr std::array<UnitSpec, static_cast<std::size_t>(kUnitKindCount)> 
      Fixed::zero()},
     // The bomber: 3/4 the tank's hull and speed, the mortar's 14-tile range, twice the tank's
     // damage and three times its cooldown. The bomb IS the existing lobbed shell -- the mortar's
-    // gravity, arc, bolt speed and 1.5-tile splash -- so the bomber needs no new ballistics.
+    // gravity, arc, muzzle speed and 1.5-tile splash -- so the bomber needs no new ballistics. It
+    // is an AIRCRAFT dropping the mortar's shell, which is why its `bolt_speed` is the mortar's
+    // `kMortarMuzzleSpeedRaw` and not a number of its own: one shell, one flight model, whoever
+    // lets it go. (The bomber's own flight speed is the `speed` field above and is not this.)
     {"bomber", kTankHp * 3 / 4, Fixed::from_raw(kTankSpeedRaw * 3 / 4),
      Fixed::from_raw(kMortarRangeRaw), kTankDamage * 2, kTankCooldownTicks * 3,
-     Fixed::from_raw(kProjectileSpeedRaw / 2), Fixed::from_raw(kMortarArcRaw), kBoltTravel,
+     Fixed::from_raw(kMortarMuzzleSpeedRaw), Fixed::from_raw(kMortarArcRaw), kBoltTravel,
      Fixed::from_raw(kMortarSplashRaw), Fixed::from_raw(kMortarGravityRaw), false, 75, 1500, 0,
      Fixed::zero()},
     // The missile scout: the scout's own hull and speed carrying the rocket tank's rocket (its

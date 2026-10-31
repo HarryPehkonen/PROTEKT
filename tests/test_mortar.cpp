@@ -79,7 +79,7 @@ TEST(MortarBike, SpecRowIsPinnedToExactIntegers) {
     EXPECT_EQ(s.range.raw, 14 * kTile);
     EXPECT_EQ(s.damage, 16);
     EXPECT_EQ(s.cooldown, 45);
-    EXPECT_EQ(s.bolt_speed.raw, 17476);
+    EXPECT_EQ(s.bolt_speed.raw, 45977); // the MUZZLE speed: sqrt(14 tiles * gravity)
     EXPECT_EQ(s.arc.raw, 4 * kTile);
     EXPECT_EQ(s.max_travel.raw, 16 * kTile);
     EXPECT_EQ(s.splash_radius.raw, 98304); // 1.5 tiles
@@ -188,7 +188,11 @@ TEST(Mortar, ALobRisesAboveTheStraightLineAndComesDownAtTheAimPoint) {
     EXPECT_EQ(z_launch, ground.raw + kMuzzleHeight.raw) << "leaves the muzzle like any bolt";
     EXPECT_EQ(bolts[0].gravity.raw, 147456);
     EXPECT_EQ(bolts[0].splash_radius.raw, 98304);
-    EXPECT_EQ(bolts[0].vx.raw, 17476) << "half the speed of a tank bolt";
+    // The AI's lob leaves at the mortar's ONE muzzle speed (45977), as the player's does, and the
+    // elevation that reaches 7 tiles splits it: this much across the map. 7 tiles is past the
+    // shortest the 76 degree cap can throw, so the AI takes the HIGH arc (about 75 degrees), the
+    // one that clears cover, and little of the speed is left across (the flat arc would be 44797).
+    EXPECT_EQ(bolts[0].vx.raw, 11557);
 
     // The target's centre: ground + ride + half a body. The straight line from the muzzle to it.
     const std::int32_t z_aim = ground_height(kSeed, units[1].x, units[1].y).raw + kRideHeight.raw
@@ -203,22 +207,52 @@ TEST(Mortar, ALobRisesAboveTheStraightLineAndComesDownAtTheAimPoint) {
         ++ticks;
         if (!bolts.empty()) {
             peak = std::max(peak, bolts[0].z.raw);
-            if (ticks == 13) {
+            if (ticks == 20) { // half the flight
                 z_mid = bolts[0].z.raw;
             }
         }
     }
-    // Mid-flight (13 of ~26 ticks) the bolt is far above the line between muzzle and aim point
-    // (which on level ground is at the muzzle's own height): about 190 height units, 3 tiles.
+    // Mid-flight (20 of 40 ticks) the bolt is far above the line between muzzle and aim point
+    // (which on level ground is at the muzzle's own height): about 440 height units, nearly 7
+    // tiles. The fixed-speed lob reaches a 7-tile aim point on the HIGH arc, the steeper of the two
+    // elevations that reach it, so it clears cover: the flat arc peaked at 28.5 units, the old
+    // constant-speed shell at ~190.
     const std::int32_t line_mid = z_launch + (z_aim - z_launch) / 2;
-    EXPECT_GT(z_mid - line_mid, 180 * Fixed::kOne);
-    EXPECT_LT(z_mid - line_mid, 200 * Fixed::kOne);
-    EXPECT_GT(peak - z_launch, 180 * Fixed::kOne);
-    // It came down: the aim point is reached on step 26, the bolt hit the body and is gone.
-    EXPECT_EQ(ticks, 26);
-    EXPECT_LT(z_before_end - z_aim, 40 * Fixed::kOne) << "last seen a step above the aim point";
+    EXPECT_GT(z_mid - line_mid, 430 * Fixed::kOne);
+    EXPECT_LT(z_mid - line_mid, 450 * Fixed::kOne);
+    EXPECT_GT(peak - z_launch, 435 * Fixed::kOne);
+    EXPECT_LT(peak - z_launch, 450 * Fixed::kOne);
+    // It came down: the aim point is reached on step 40, the bolt hit the body and is gone.
+    EXPECT_EQ(ticks, 40);
+    // It falls about 44 height units a tick at the end, so it is last seen within one step of it.
+    EXPECT_LT(z_before_end - z_aim, 50 * Fixed::kOne) << "last seen a step above the aim point";
     EXPECT_GE(z_before_end, z_aim);
     EXPECT_EQ(units[1].hp, 100 - 16) << "and it landed on the tank it was aimed at";
+}
+
+/// The elevation a lob leaves at, as the slope of its climb (height units a tick, 64 to the tile)
+/// over its speed across.
+[[nodiscard]] double ai_lob_slope(const Level at, int tiles) {
+    const std::vector<Unit> units{
+        make_unit_at(1, UnitKind::MortarBike, Side::Player, at, 0, 0),
+        make_unit_at(2, UnitKind::Tank, Side::Enemy, at, tiles * kTile, 0)};
+    const Projectile bolt = launch(units[0], units[1], 16, kSeed);
+    return static_cast<double>(bolt.vz.raw) / 64.0 / static_cast<double>(bolt.vx.raw);
+}
+
+TEST(Mortar, TheAiTakesTheHighArcWhereTheCapCanReachItAndTheLowOneWhereItCannot) {
+    const Level at = find_level_row(16);
+    ASSERT_TRUE(at.found);
+    // 10 tiles: the high arc, steeper than 45 degrees (slope 1.0) by a long way, to clear cover.
+    EXPECT_GT(ai_lob_slope(at, 10), 2.0);
+    EXPECT_LE(ai_lob_slope(at, 10),
+              static_cast<double>(spec_of(UnitKind::MortarBike).arc.raw) / Fixed::kOne);
+    // 4 tiles: nearer than the 76 degree cap can throw, where the high arc is out of bounds and
+    // every elevation up to the cap would overshoot, so it takes the low arc, flat.
+    EXPECT_LT(ai_lob_slope(at, 4), 0.2);
+    // 16 tiles: past the muzzle speed's reach, 45 degrees (slope 1.0), the farthest it throws, not
+    // the cap, which would fall short.
+    EXPECT_NEAR(ai_lob_slope(at, 16), 1.0, 0.01);
 }
 
 // --- splash ------------------------------------------------------------------------------------
@@ -269,7 +303,10 @@ TEST(Mortar, SplashHurtsAFriendlyInTheRadiusToo) {
 TEST(Mortar, AShellThatMissesEveryoneStillBurstsOnTheGround) {
     const Level at = find_level_row(12);
     ASSERT_TRUE(at.found);
-    // The aimed-at tank is dead, so the shell passes through where it stood and lands there.
+    // The aimed-at tank is dead, so the shell passes through where it stood and lands there: the
+    // fixed-speed lob takes the HIGH arc to 7 tiles, about 75 degrees, which comes down nearly
+    // straight (the flat arc carried on to about 8.6 tiles); the bystander stands in that burst's
+    // 1.5 tiles, at 7 tiles and one beside.
     std::vector<Unit> units{
         make_unit_at(1, UnitKind::MortarBike, Side::Player, at, 0, 0),
         make_unit_at(2, UnitKind::Tank, Side::Enemy, at, 7 * kTile, 0),
@@ -278,9 +315,15 @@ TEST(Mortar, AShellThatMissesEveryoneStillBurstsOnTheGround) {
     std::vector<Projectile> bolts{launch(units[0], units[1], 16, kSeed)};
     units[1].alive = false;
     std::vector<Impact> impacts;
+    std::vector<Landing> landings;
+    std::vector<Landing> burst;
     for (int i = 0; i < 80 && !bolts.empty(); ++i) {
-        advance_projectiles(bolts, units, impacts, kSeed);
+        advance_projectiles(bolts, units, impacts, landings, kSeed);
+        burst.insert(burst.end(), landings.begin(), landings.end());
     }
+    ASSERT_EQ(burst.size(), 1U);
+    EXPECT_FALSE(burst[0].hit) << "on bare ground";
+    EXPECT_EQ(burst[0].tile_x, at.x + 7) << "on the aim point, not past it";
     EXPECT_EQ(units[2].hp, 84) << "splashed by a ground burst";
     ASSERT_EQ(impacts.size(), 1U);
 }

@@ -1417,6 +1417,7 @@ std::uint64_t Sim::state_hash() const noexcept {
                 h.u64(p.resting ? 1 : 0);
                 h.u64(p.rested);
                 h.u64(p.bounced_off.value);
+                h.i32(p.flown);
             }
             // Ballistics only when a bolt has any, so a straight single-target battle hashes as it
             // always did.
