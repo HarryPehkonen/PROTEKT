@@ -758,13 +758,14 @@ void build_facing_tank(std::vector<SceneVertex>& out, std::uint64_t seed, const 
                    turret_y0 + ((kTankBarrelBottom + kTankBarrelTop) * 0.5F), pitch);
 }
 
-/// THE SCAVENGER (C2). It is built on the TANK's own hull -- tracks, compartment, fenders, engine
-/// deck -- with the turret ring left empty and a low sloped cab where the turret would sit: an
-/// unarmed hauler has no gun to show, and a hull cut down from the tank is what it is. It is turned
-/// by `heading` alone; there is nothing on it that aims. The cab and deck wear the team's camo (the
-/// fleet's tiles, as a tank does) and the cab's roof panel the plain turret metal, so the colour
-/// language stays the army's. A PLACEHOLDER look: the kind's own machine is a later slice, and this
-/// one exists so that a new kind is not an invisible one.
+/// THE SCAVENGER (C2), the HUMAN hauler (the alien one is `build_harvester`). It is built on the
+/// TANK's own hull -- tracks, compartment, fenders, engine deck -- with the turret ring left empty
+/// and a low sloped cab where the turret would sit: an unarmed hauler has no gun to show, and a
+/// hull cut down from the tank is what it is. It is turned by `heading` alone; there is nothing on
+/// it that aims. The cab and deck wear the team's camo (the fleet's tiles, as a tank does) and the
+/// cab's roof panel the plain turret metal, so the colour language stays the army's. A PLACEHOLDER
+/// look: the kind's own machine is a later slice, and this one exists so that a new kind is not an
+/// invisible one.
 void build_scavenger(std::vector<SceneVertex>& out, std::uint64_t seed, const sim::Unit& unit,
                      Mark mark, float lift_z, bool lifted, float heading) {
     const float x
@@ -801,6 +802,204 @@ void build_scavenger(std::vector<SceneVertex>& out, std::uint64_t seed, const si
                     ground + kCabRoof, camo_colour, hull_tile);
     emit_turned_box(out, x, z, heading, kCabHalfAcross, kCabBack, kCabFront, ground + kCabRoof,
                     ground + kCabRoof + kRoofThickness, colour, panel_tile);
+}
+
+/// One ring of a `emit_loft`: where it is in the unit's frame (`x` across, `y` over the ground, `z`
+/// along the heading) and its two half-sizes, `across` on the horizontal and `up` on the other axis
+/// of the plane the sweep's direction leaves it.
+struct LoftStation {
+    float x;
+    float y;
+    float z;
+    float across;
+    float up;
+};
+
+/// A smooth-looking solid swept through `stations`: each ring is `sides` corners of an ellipse, set
+/// square to the sweep's direction there (the line from the station before to the station after),
+/// and neighbouring rings are joined by quads -- the renderer's own way of approximating a curve, a
+/// fan of facets. The two end rings are closed by a fan, so the solid is watertight. Built level,
+/// in the unit's frame, then turned by `heading` about (x, z) over `ground`; every quad is shaded
+/// by its own world normal, flipped to point away from its ring's centre, so a sweep with a bend in
+/// it still lights as one body. A ring with a zero size is a point: that is how a sweep tapers to a
+/// tip.
+template <std::size_t N>
+void emit_loft(std::vector<SceneVertex>& out, float x, float z, float ground, float heading,
+               const std::array<LoftStation, N>& stations, std::size_t sides, const Vec3& colour,
+               const UvRect& tile) {
+    constexpr float kTau = 6.2831853F;
+    constexpr float kParallel = 1.0e-4F; ///< a sweep this close to straight up has no "across"
+    const auto world = [&](const Vec3& local) {
+        const std::array<float, 2> at = rotate_offset(x, z, local[0], local[2], heading);
+        return Vec3{at.at(0), ground + local[1], at.at(1)};
+    };
+    std::vector<std::vector<Vec3>> rings;
+    rings.reserve(stations.size());
+    for (std::size_t i = 0; i < stations.size(); ++i) {
+        const LoftStation& here = stations.at(i);
+        const LoftStation& before = stations.at(i == 0 ? 0 : i - 1);
+        const LoftStation& after = stations.at(std::min(i + 1, N - 1));
+        const Vec3 along
+            = normalise(Vec3{after.x - before.x, after.y - before.y, after.z - before.z});
+        Vec3 right = cross(Vec3{0.0F, 1.0F, 0.0F}, along);
+        right = std::hypot(right[0], right[1], right[2]) < kParallel ? Vec3{1.0F, 0.0F, 0.0F}
+                                                                     : normalise(right);
+        const Vec3 over = cross(along, right);
+        std::vector<Vec3>& ring = rings.emplace_back();
+        ring.reserve(sides);
+        for (std::size_t corner = 0; corner < sides; ++corner) {
+            const float angle = kTau * static_cast<float>(corner) / static_cast<float>(sides);
+            const float a = std::cos(angle) * here.across;
+            const float u = std::sin(angle) * here.up;
+            ring.push_back(world(Vec3{here.x + (right[0] * a) + (over[0] * u),
+                                      here.y + (right[1] * a) + (over[1] * u),
+                                      here.z + (right[2] * a) + (over[2] * u)}));
+        }
+    }
+    const auto shaded = [&](const Vec3& a, const Vec3& b, const Vec3& c, const Vec3& centre) {
+        const Vec3 ab{b[0] - a[0], b[1] - a[1], b[2] - a[2]};
+        const Vec3 ac{c[0] - a[0], c[1] - a[1], c[2] - a[2]};
+        Vec3 normal = normalise(cross(ab, ac));
+        if (dot(normal, Vec3{a[0] - centre[0], a[1] - centre[1], a[2] - centre[2]}) < 0.0F) {
+            normal = {-normal[0], -normal[1], -normal[2]};
+        }
+        const float light = face_light(normal);
+        return Vec3{colour[0] * light, colour[1] * light, colour[2] * light};
+    };
+    const auto centre_of = [&](const std::vector<Vec3>& ring) {
+        Vec3 sum{0.0F, 0.0F, 0.0F};
+        for (const Vec3& p : ring) {
+            for (std::size_t axis = 0; axis < 3; ++axis) {
+                sum.at(axis) += p.at(axis) / static_cast<float>(ring.size());
+            }
+        }
+        return sum;
+    };
+    for (std::size_t i = 0; i + 1 < rings.size(); ++i) {
+        const Vec3 centre = centre_of(rings.at(i));
+        for (std::size_t corner = 0; corner < sides; ++corner) {
+            const std::size_t next = (corner + 1) % sides;
+            const Vec3& a = rings.at(i).at(corner);
+            const Vec3& b = rings.at(i).at(next);
+            const Vec3& c = rings.at(i + 1).at(next);
+            const Vec3& d = rings.at(i + 1).at(corner);
+            emit_tiled_quad(out, a, b, c, d, shaded(a, b, c, centre), tile);
+        }
+    }
+    // The caps are flat fans from a ring's first corner, sampling the tile's middle texel.
+    const float mid_u = (tile.u0 + tile.u1) * 0.5F;
+    const float mid_v = (tile.v0 + tile.v1) * 0.5F;
+    for (const std::size_t end : {std::size_t{0}, rings.size() - 1}) {
+        const std::vector<Vec3>& ring = rings.at(end);
+        const Vec3 neighbour = centre_of(rings.at(end == 0 ? 1 : end - 1));
+        for (std::size_t corner = 1; corner + 1 < sides; ++corner) {
+            const Vec3 ink = shaded(ring.at(0), ring.at(corner), ring.at(corner + 1), neighbour);
+            for (const Vec3* p : {&ring.at(0), &ring.at(corner), &ring.at(corner + 1)}) {
+                out.push_back(SceneVertex{*p, ink, 1.0F, mid_u, mid_v});
+            }
+        }
+    }
+}
+
+/// THE HARVESTER, the alien Scavenger: the SAME kind as the human hauler, drawn when the unit's
+/// FACTION is Alien (`build_scene` decides, once). Harri's ruling: the alien kit differs in SHAPE,
+/// not only colour, and is more organic -- no flat walls or square corners, ribbed and tapered
+/// rather than boxed, legs rather than tracks or a hover skirt, a curving spine rather than a
+/// mirror, a carapace rather than a hull. It is a grazing animal: a low domed carapace that rises
+/// to its high point just behind the head and tapers to the tail, a tapered PROBOSCIS trailing
+/// behind it and dragging its tip along the ground, six splayed legs, and a crest of side colour
+/// down the spine so the side still reads from the air. Everything is a `emit_loft` sweep of
+/// `kHarvesterSides`-cornered rings, so it is built from one small primitive and turned by
+/// `heading` alone -- nothing on it aims. The carapace wears the team's camo in the pale tint, as
+/// a tank's armour does; the legs and the proboscis are the side colour on the dark track tile.
+/// Large on purpose: 5.5 m long and 2.3 m across against the hauler's 2.6 by 1.2, because a shape
+/// that reads as a small blob across the map is worse than a box.
+void build_harvester(std::vector<SceneVertex>& out, std::uint64_t seed, const sim::Unit& unit,
+                     Mark mark, float lift_z, bool lifted, float heading) {
+    const float x
+        = static_cast<float>(unit.x.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile;
+    const float z
+        = static_cast<float>(unit.y.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile;
+    const float ground = lifted ? lift_z : ground_metres(seed, unit.x, unit.y);
+    const AtlasManifest& atlas = atlas_manifest();
+    const UvRect hull_tile
+        = atlas.rect(kTeamHullNames.at(static_cast<std::size_t>(unit.side))
+                         .at(static_cast<std::size_t>(hull_variant(seed, unit.id.value))));
+    const UvRect tracks_tile = atlas.rect("tank_tracks");
+    const UvRect panel_tile = atlas.rect("tank_turret");
+    // Ten corners round is where a ring stops reading as a polygon at the range a harvester is seen
+    // from; the legs are thin enough that six do. All three are the brief's "eight or ten sides".
+    constexpr std::size_t kCarapaceSides = 10;
+    constexpr std::size_t kLegSides = 6;
+    // The carapace, nose to tail. Its high point (1.2 m) sits just behind the head, a metre over
+    // the hauler's roof, and it narrows to the tail. A rounded nose and a rounded tail are rings
+    // that shrink to a point.
+    constexpr std::array<LoftStation, 7> kCarapace{{
+        {0.0F, 0.42F, 1.30F, 0.02F, 0.02F}, // the nose's tip
+        {0.0F, 0.50F, 1.05F, 0.30F, 0.22F}, // the head, low and narrow
+        {0.0F, 0.68F, 0.55F, 0.60F, 0.38F}, // the shoulders, climbing
+        {0.0F, 0.78F, 0.05F, 0.74F, 0.46F}, // the high point
+        {0.0F, 0.68F, -0.55F, 0.66F, 0.38F},
+        {0.0F, 0.52F, -1.10F, 0.42F, 0.26F}, // tapering to the tail
+        {0.0F, 0.42F, -1.40F, 0.02F, 0.02F},
+    }};
+    // The proboscis hangs off the tail and tapers to a tip that rests on the ground, so it reads
+    // as dragged. The tip stays 3 cm off the ground, where the terrain's own roughness cannot cut
+    // it away.
+    constexpr std::array<LoftStation, 6> kProboscis{{
+        {0.0F, 0.42F, -1.10F, 0.24F, 0.20F},
+        {0.0F, 0.32F, -1.85F, 0.21F, 0.17F},
+        {0.0F, 0.20F, -2.65F, 0.16F, 0.13F},
+        {0.0F, 0.10F, -3.40F, 0.10F, 0.08F},
+        {0.0F, 0.07F, -3.90F, 0.05F, 0.04F},
+        {0.0F, 0.06F, -4.15F, 0.01F, 0.01F},
+    }};
+    // The crest of side colour along the spine, standing a little proud of the carapace's top.
+    constexpr std::array<LoftStation, 5> kCrest{{
+        {0.0F, 0.99F, 0.62F, 0.03F, 0.05F},
+        {0.0F, 1.26F, 0.05F, 0.09F, 0.11F},
+        {0.0F, 1.17F, -0.55F, 0.08F, 0.10F},
+        {0.0F, 0.90F, -1.05F, 0.05F, 0.07F},
+        {0.0F, 0.79F, -1.28F, 0.01F, 0.01F},
+    }};
+    // Three legs a side, from a hip inside the carapace out to a high knee and down to a foot 1.1 m
+    // from the centre. The hips follow the carapace's width; the feet are splayed wider than the
+    // dome so the machine stands like a crab, not on a skirt.
+    constexpr std::array<float, 3> kLegAlong{0.70F, 0.05F, -0.65F};
+    constexpr float kHipAcross = 0.50F;
+    constexpr float kHipHeight = 0.60F;
+    constexpr float kKneeAcross = 0.95F;
+    constexpr float kKneeHeight = 0.85F;
+    constexpr float kFootAcross = 1.10F;
+    constexpr float kFootHeight = 0.03F; ///< the sole just off the ground
+    constexpr float kHipThick = 0.12F;
+    constexpr float kKneeThick = 0.09F;
+    constexpr float kFootThick = 0.04F;
+
+    Vec3 colour = side_colour(unit.side);
+    if (mark == Mark::Selected) {
+        colour = highlight(colour);
+    } else if (mark != Mark::None) {
+        colour = aim_tint(colour, mark == Mark::AimedOwn);
+    }
+    Vec3 camo_colour = colour;
+    for (float& channel : camo_colour) {
+        channel += (1.0F - channel) * kHullPaleMix;
+    }
+
+    emit_loft(out, x, z, ground, heading, kCarapace, kCarapaceSides, camo_colour, hull_tile);
+    emit_loft(out, x, z, ground, heading, kProboscis, kLegSides, colour, tracks_tile);
+    emit_loft(out, x, z, ground, heading, kCrest, kLegSides, colour, panel_tile);
+    for (const float side : {-1.0F, 1.0F}) {
+        for (const float along : kLegAlong) {
+            const std::array<LoftStation, 3> leg{{
+                {side * kHipAcross, kHipHeight, along, kHipThick, kHipThick},
+                {side * kKneeAcross, kKneeHeight, along, kKneeThick, kKneeThick},
+                {side * kFootAcross, kFootHeight, along, kFootThick, kFootThick},
+            }};
+            emit_loft(out, x, z, ground, heading, leg, kLegSides, colour, tracks_tile);
+        }
+    }
 }
 
 /// THE RECYCLER, after Battlezone II's ISDF recycler: a heavy tracked factory on the move -- broad,
@@ -4725,9 +4924,16 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
                 build_bomber(scene.vertices, options.seed, unit, mark, lift_z, hovering, heading);
             } else if (unit.kind == sim::UnitKind::Scavenger) {
                 // Before the tank fallback below: a driven scavenger is FACED too, and it must not
-                // borrow the tank's turret. Nothing on a scavenger aims.
-                build_scavenger(scene.vertices, options.seed, unit, mark, lift_z, hovering,
-                                heading);
+                // borrow the tank's turret. Nothing on a scavenger aims. THE one place a kind's
+                // silhouette follows the unit's FACTION (never its side): the human hauler or the
+                // alien harvester, the same kind either way.
+                if (faction_of(options.factions, unit.side) == Faction::Alien) {
+                    build_harvester(scene.vertices, options.seed, unit, mark, lift_z, hovering,
+                                    heading);
+                } else {
+                    build_scavenger(scene.vertices, options.seed, unit, mark, lift_z, hovering,
+                                    heading);
+                }
             } else if (unit.kind == sim::UnitKind::Recycler
                        || unit.kind == sim::UnitKind::DeployedRecycler) {
                 // Beside the scavenger's, and before the tank fallback: a driven recycler is FACED

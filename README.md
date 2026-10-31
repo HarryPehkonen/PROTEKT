@@ -161,6 +161,16 @@ recycler's rows are `1 Scavenger 20`, `2 Scout 50`, `3 Turret 40`, `4 Tug 45`, `
 Guardian rows are names only for now: a turret is a structure, and nothing can place one yet. The
 alien factory draws the human factory's eight rows until Harri supplies its own costs and names.
 
+**Shapes follow the faction too.** Harri: "The alien side assets need a different look -- not just
+colours, but shapes too; they should be more organic." A kind's silhouette is chosen by the unit's
+faction (`SceneOptions::factions`), in one place in `build_scene`, never by its side. So far one
+role is done: the alien **harvester**, the Scavenger kind drawn for an alien unit -- a low domed
+carapace on six legs that rises to its high point behind the head, a tapered proboscis dragging
+behind it, and a crest of the side's colour down the spine, all built from ten-cornered swept rings
+(`emit_loft`) rather than boxes. It is 5.5 m long and 2.3 m across, against the human hauler's 2.6 by
+1.2. The human Scavenger is drawn exactly as before. Every other kind is still the human kit for
+both factions. The shape is mine to propose and Harri's to judge by looking.
+
 ### The health ticks and the ship instrument
 
 Each command-row key is drawn as a **keycap** (Harri: "I would also like the function key displayed in the
