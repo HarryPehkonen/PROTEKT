@@ -434,7 +434,20 @@ std::int64_t mortar_climb(std::int64_t run, std::int64_t rise) noexcept {
     if (run <= 0) {
         return rise < 0 ? -steepest : steepest;
     }
-    return std::clamp(rise * across * kHeightUnitsPerTile / run, -steepest, steepest);
+    // The aim as a slope, which is the frame the cap is expressed in.
+    const std::int64_t slope = rise * Fixed::kOne / run;
+    const std::int64_t lean = slope < 0 ? -slope : slope;
+    // The lift fades linearly to nothing at the cap, so it can never carry a shot past the cap and
+    // no rung of the ladder collapses onto another's distance. Aiming down lifts too (the "higher
+    // than the current angle" is taken whichever way the barrel points), which is why the fade
+    // reads the aim's SIZE and not its sign. Harri's "multiplied by something that gets smaller the
+    // higher you aim": level, the lift is the whole of `kMortarLift`; at the cap, none of it.
+    std::int64_t fade = 0;
+    if (mortar.arc.raw > 0 && lean < mortar.arc.raw) {
+        fade = Fixed::kOne - (lean * Fixed::kOne / mortar.arc.raw);
+    }
+    const std::int64_t lifted = slope + (kMortarLift.raw * fade / Fixed::kOne);
+    return std::clamp(lifted * across / Fixed::kOne * kHeightUnitsPerTile, -steepest, steepest);
 }
 
 Projectile launch_lob(const Unit& shooter, Fixed dir_x, Fixed dir_y, Fixed dir_z, UnitId aimed_at,

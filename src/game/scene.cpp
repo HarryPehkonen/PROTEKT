@@ -4244,7 +4244,12 @@ void append_reticle(std::vector<SceneVertex>& out, const SceneOptions& options, 
     const bool heavy = shape.kind != ReticleKind::FourTicks;
     const RayPoint centre
         = ray_point(camera, options.extent, screen_x, screen_y, kReticleDistanceMetres);
-    const math::Basis basis = math::basis_from(camera.yaw, camera.pitch);
+    // THE FRAME IS THE HULL'S, exactly as `ray_through` builds it (`pick.cpp`), so the ticks and
+    // the dot are drawn in the VIEW's axes and a leaning camera shows them square on the screen --
+    // which is what the player reads them as. Omitting `camera.up` here left the reticle as the one
+    // mark on this layer still plumb with the WORLD, so it visibly rotated against a tilted horizon
+    // while the ground, the units, the range ladder and the HUD beside it did not.
+    const math::Basis basis = math::basis_from(camera.yaw, camera.pitch, camera.up);
     const float half
         = kReticleDistanceMetres * std::tan(math::kFovRadians * 0.5F) * kReticleHalfFraction;
     const float pulse = std::clamp(options.reticle_pulse, 0.0F, 1.0F);

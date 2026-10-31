@@ -375,5 +375,104 @@ TEST(ViewTilt, TheMuzzleTipStaysInFrameAtEveryPositionOnASlopeLookingUpAndAcross
     }
 }
 
+// ------------------------------- the reticle is drawn in the VIEW's frame, not the world's
+
+/// The reticle's 30 vertices as the PLAYER sees them: SCREEN pixels, through the renderer's own
+/// projection. Deliberately NOT through `basis_from` -- the reticle and that function sharing one
+/// expression is exactly what let the mark stay plumb with the world while every other mark on the
+/// layer leaned with it, so a test that measured the mark the same way could never have seen it.
+[[nodiscard]] std::vector<game::Projected> reticle_pixels(const Camera& camera,
+                                                          const game::Scene& scene) {
+    std::vector<game::Projected> px;
+    if (scene.vertices.size() < game::kReticleVertexCount) {
+        return px;
+    }
+    for (std::size_t i = scene.vertices.size() - game::kReticleVertexCount;
+         i < scene.vertices.size(); ++i) {
+        const std::array<float, 3>& at = scene.vertices.at(i).position;
+        px.push_back(game::project(camera, kExtent, at.at(0), at.at(1), at.at(2)));
+    }
+    return px;
+}
+
+/// How many distinct values in `values`, counting anything within `eps` of one already counted as
+/// the same one. Two means a quad's sides are parallel to that screen axis; four means it is
+/// turned.
+[[nodiscard]] std::size_t distinct_in(const std::vector<float>& values, float eps) {
+    std::vector<float> seen;
+    for (const float value : values) {
+        bool duplicate = false;
+        for (const float already : seen) {
+            if (std::abs(value - already) <= eps) {
+                duplicate = true;
+                break;
+            }
+        }
+        if (!duplicate) {
+            seen.push_back(value);
+        }
+    }
+    return seen.size();
+}
+
+TEST(ViewTilt, TheReticleIsDrawnInTheViewsFrameSoItsTicksAndDotStaySquareToTheScreen) {
+    std::array<int, 2> tile{};
+    ASSERT_TRUE(find_tile(is_gentle, tile)) << "no gentle slope on the map, so nothing is proved";
+    const Hull hull = hull_on(tile);
+    const Camera camera = camera_for(hull.sim, session_at(hull, 0), kSeed, std::nullopt);
+    ASSERT_NE(camera.up, kWorldUp) << "the vacuous guard: the view must be leaning";
+
+    game::SceneOptions options;
+    options.seed = kSeed;
+    options.radius_tiles = 8;
+    options.extent = kExtent;
+    options.camera = camera;
+    // Or the world map's vertices are the tail of the list and this reads the wrong mark.
+    options.show_world_map = false;
+    options.aim = game::Aim{static_cast<float>(kExtent.width) * 0.5F,
+                            static_cast<float>(kExtent.height) * 0.5F};
+    const std::vector<game::Projected> px
+        = reticle_pixels(camera, game::build_scene(hull.sim, options));
+    ASSERT_EQ(px.size(), game::kReticleVertexCount) << "no reticle was drawn at all";
+
+    // Each of the four ticks and then the dot must be a rectangle whose sides are parallel to the
+    // screen's own axes: two distinct x and two distinct y across its six corners. Built on the
+    // world's up under a leaning camera a corner is TURNED, and then there are four of each.
+    constexpr float kHalfPixel = 0.5F;
+    for (std::size_t quad = 0; quad + 6 <= px.size(); quad += 6) {
+        std::vector<float> xs;
+        std::vector<float> ys;
+        for (std::size_t i = quad; i < quad + 6; ++i) {
+            xs.push_back(px.at(i).x);
+            ys.push_back(px.at(i).y);
+        }
+        EXPECT_EQ(distinct_in(xs, kHalfPixel), 2U)
+            << "quad " << (quad / 6) << " is turned about the screen's x axis";
+        EXPECT_EQ(distinct_in(ys, kHalfPixel), 2U)
+            << "quad " << (quad / 6) << " is turned about the screen's y axis";
+    }
+
+    // Not vacuous: the mark has real extent, and the four ticks sit at four different places, so
+    // "two distinct values" cannot be a collapsed figure satisfying the assertion by accident.
+    const auto width_of = [&px](std::size_t quad) {
+        float lo = px.at(quad).x;
+        float hi = lo;
+        for (std::size_t i = quad; (i < quad + 6) && (i < px.size()); ++i) {
+            lo = std::fmin(lo, px.at(i).x);
+            hi = std::fmax(hi, px.at(i).x);
+        }
+        return hi - lo;
+    };
+    EXPECT_GT(width_of(24), 2.0F) << "the dot must be a couple of pixels wide";
+    EXPECT_GT(width_of(0), 2.0F) << "a tick must be a couple of pixels wide";
+    for (std::size_t a = 0; a < 4; ++a) {
+        for (std::size_t b = a + 1; b < 4; ++b) {
+            const float dx = px.at(a * 6).x - px.at(b * 6).x;
+            const float dy = px.at(a * 6).y - px.at(b * 6).y;
+            EXPECT_GT(std::hypot(dx, dy), 4.0F) << "ticks " << a << " and " << b << " are apart";
+        }
+    }
+}
+
 } // namespace
 } // namespace protekt::app

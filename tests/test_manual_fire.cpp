@@ -238,6 +238,81 @@ TEST(Wheel, ASeparateFrameIsStillNoNotchWorthOfSwitch) {
 
 // --- manual fire -------------------------------------------------------------------------------
 
+// ---- the lob leaves steeper than the barrel points, and the lift fades as the aim climbs --------
+//
+// Harri's ruling (2026-10-31): the shell should be "ejected at an angle that's higher than the
+// current angle" -- "they look like a flop" -- and "the different rungs should result in different
+// arcs", "say, 30 degrees multiplied by something that gets smaller the higher you aim". These read
+// the climb back as an ELEVATION IN DEGREES over the mortar's own bolt speed: the player's
+// currency, not the raw Q16.16 the function speaks in, so they say what he asked about.
+
+namespace {
+
+constexpr double kDegreesPerRadian = 180.0 / 3.14159265358979323846;
+
+/// The elevation the shell leaves at, in degrees, for a barrel at `pitch` radians.
+[[nodiscard]] double elevation_degrees(float pitch) {
+    const sim::UnitSpec& mortar = sim::spec_of(UnitKind::MortarBike);
+    const std::int64_t rise = std::lround(static_cast<double>(std::tan(pitch)) * 65536.0);
+    const std::int64_t climb = sim::mortar_climb(sim::Fixed::kOne, rise);
+    // The climb and the bolt speed are BOTH Q16.16, so the two factors cancel: height units a tick
+    // over 64 (tiles a tick) divided by the bolt's own tiles a tick is the slope, plain.
+    const double slope = static_cast<double>(climb)
+                         / (static_cast<double>(sim::kHeightUnitsPerTile)
+                            * static_cast<double>(mortar.bolt_speed.raw));
+    return std::atan(slope) * kDegreesPerRadian;
+}
+
+/// The barrel's own elevation, in degrees, for the same pitch.
+[[nodiscard]] double aim_degrees(float pitch) {
+    return static_cast<double>(pitch) * kDegreesPerRadian;
+}
+
+} // namespace
+
+TEST(MortarLob, ALevelAimLeavesAtTheLiftAndNotFlat) {
+    // The flop itself: level, the shell used to leave dead level. It leaves at the lift now.
+    EXPECT_NEAR(elevation_degrees(0.0F), 30.0, 0.2);
+}
+
+TEST(MortarLob, TheShellLeavesSteeperThanTheBarrelPointsAtEveryRung) {
+    for (const float pitch : kMortarRungPitches) {
+        EXPECT_GT(elevation_degrees(pitch), aim_degrees(pitch) + 0.2) << "pitch " << pitch;
+    }
+}
+
+TEST(MortarLob, TheLiftFadesSoEveryRungKeepsAnArcOfItsOwn) {
+    std::vector<double> elevations;
+    std::vector<double> lifts;
+    for (const float pitch : kMortarRungPitches) {
+        const double elevation = elevation_degrees(pitch);
+        elevations.push_back(elevation);
+        lifts.push_back(elevation - aim_degrees(pitch));
+    }
+    // Every rung steeper than the one below it: no two rungs share an arc.
+    for (std::size_t i = 1; i < elevations.size(); ++i) {
+        EXPECT_GT(elevations.at(i), elevations.at(i - 1)) << "rung " << i << " is not the steeper";
+    }
+    // And the LIFT is what shrinks towards the cap -- "something that gets smaller the higher you
+    // aim". Read on the lift and not on the elevation, which rises on the aim alone.
+    for (std::size_t i = 1; i < lifts.size(); ++i) {
+        EXPECT_LT(lifts.at(i), lifts.at(i - 1)) << "the lift must shrink, rung " << i;
+    }
+    EXPECT_GT(lifts.front(), 25.0) << "aiming level, nearly the whole 30 degrees of it is left";
+    EXPECT_LT(lifts.back(), 5.0) << "at the top of the ladder almost none of it is left";
+}
+
+TEST(MortarLob, TheLadderStillOutRangesEveryRungBelowIt) {
+    // The distances the sight actually prints: still strictly increasing, so the lift has not
+    // collapsed two rungs onto one reading.
+    float previous = -1.0F;
+    for (const float pitch : kMortarRungPitches) {
+        const float tiles = mortar_landing_tiles(pitch);
+        EXPECT_GT(tiles, previous) << "pitch " << pitch << " does not out-range the rung below";
+        previous = tiles;
+    }
+}
+
 TEST(ManualFire, TheMortarOrdersALobAlongTheBarrelNotAFireTowards) {
     Rig rig = make_rig();
     const Flight flight = fire_along_x(rig, Weapon::Mortar, 0.6F);

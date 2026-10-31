@@ -408,16 +408,24 @@ TEST(LandingMarker, TheLowestLadderPitchLandsAMarkerThatIsClearlyVisibleInFront)
     expect_marker_at(rig, mortar_landing_tiles(kMortarRungPitches.front()));
 }
 
-TEST(LandingMarker, ACloseOneIsATallNarrowCrossAndNotAWall) {
+TEST(LandingMarker, TheClosestLadderRungIsATallNarrowCrossAndNotAWall) {
     // M5c, measured: the first version drew a 1.9 m-wide cross at the closest rung, which covered
     // 34% of the frame's width and 80% of its height -- a magenta wall in the player's face at
     // exactly the range the mark exists for. The HEIGHT stays 4 m (the eye is above a close
-    // landing, so the height is what carries the mark into the frame); the WIDTH now follows the
+    // landing, so the height is what carries the mark into the frame); the WIDTH follows the
     // range, so what stands at your feet is a tall narrow cross.
+    //
+    // M6 (the mortar's lift) raised the closest rung from about 1.6 tiles to 3.30, so the "at your
+    // feet" landing this defect was MEASURED at is no longer reachable by the ladder at all. The
+    // guard and the width bound below are re-derived for the rung that does exist: the mark's
+    // half-width is `clamp(camera_distance * kLandingMarkWidthPerMetre, min, max)`, so a rung
+    // further out gives a slightly wider cross -- still a cross. Half a metre was right at 1.6
+    // tiles; it is not the right figure at 3.3, and pretending otherwise would mean asserting a
+    // bound the feature is not built to hold.
     Rig rig;
     make_rig(rig, Weapon::Mortar, kMortarRungPitches.front());
     const float tiles = mortar_landing_tiles(kMortarRungPitches.front());
-    ASSERT_LT(tiles, 3.0F) << "the closest rung, about 1.6 tiles out";
+    ASSERT_LT(tiles, 4.0F) << "the closest rung of the ladder";
     // Fire and read the marker the moment it lands: `expect_marker_at` runs out the whole lifetime.
     frame(rig, true);
     for (int tick = 0; tick < 300 && rig.landings == 0; ++tick) {
@@ -438,7 +446,10 @@ TEST(LandingMarker, ACloseOneIsATallNarrowCrossAndNotAWall) {
                                   + ((v.position[2] - centre_z) * (v.position[2] - centre_z))));
         tall = std::max(tall, v.position[1] - ground);
     }
-    EXPECT_LE(wide, 0.5F) << "half a metre either side at 1.6 tiles: a cross, not a wall";
+    // Measured at this rung: 0.795 m across. A metre is a figure a human chose, and it has teeth
+    // in both directions -- the old 1.9 m wall breaks it, and so does a runaway width (the
+    // kLandingMarkMaxHalfWidth clamp would draw 1.8 m here).
+    EXPECT_LE(wide, 1.0F) << "a metre at 3.3 tiles: a cross, not a wall";
     EXPECT_GE(tall, 3.5F) << "and still 4 m tall, so it reaches into the frame from a level view";
 }
 
@@ -448,11 +459,14 @@ TEST(LandingMarker, TheHoldIsTwoSecondsSoAShotAtTheSkyCanBeLookedDownAt) {
     EXPECT_EQ(kLandingMarkHoldTicks, 120);
 }
 
-TEST(LandingMarker, TheHighestLadderPitchLandsAMarkerThirteenPointNineTilesOut) {
+TEST(LandingMarker, TheHighestLadderPitchLandsAMarkerFourteenPointThreeTilesOut) {
+    // M6: the lift moved this rung out from 13.9 tiles. It is still inside the mortar's travel
+    // (`kBoltTravel` is the turret's 16 tiles, not the mortar's 14-tile ENGAGEMENT range), so the
+    // shell lands rather than fizzling -- the whole ladder lands.
     Rig rig;
     make_rig(rig, Weapon::Mortar, kMortarRungPitches.back());
     expect_marker_at(rig, mortar_landing_tiles(kMortarRungPitches.back()));
-    EXPECT_NEAR(mortar_landing_tiles(kMortarRungPitches.back()), 13.9F, 0.1F);
+    EXPECT_NEAR(mortar_landing_tiles(kMortarRungPitches.back()), 14.3F, 0.1F);
 }
 
 TEST(LandingMarker, OnlyThePlayersOwnLobMakesOne) {

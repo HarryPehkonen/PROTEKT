@@ -971,8 +971,11 @@ TEST(MortarLadder, RungDistancesAreTheSimsOwnFlightOnLevelGround) {
         shell.z = sim::Fixed::from_raw(sim::ground_height(42, start_x, start_y).raw
                                        + sim::kMuzzleHeight.raw);
         shell.vx = mortar.bolt_speed;
-        shell.vz = sim::Fixed::from_raw(static_cast<std::int32_t>(
-            std::tan(pitch) * static_cast<float>(mortar.bolt_speed.raw * 64)));
+        // The launch's own climb, asked of the sim's own function. This used to hand-roll
+        // `tan(pitch) * bolt_speed * 64`, which baked the launch rule into the test: the test then
+        // could not follow the rule changing, and it failed the moment the lob gained its lift.
+        shell.vz = sim::Fixed::from_raw(static_cast<std::int32_t>(sim::mortar_climb(
+            sim::Fixed::kOne, std::lround(static_cast<double>(std::tan(pitch)) * 65536.0))));
         shell.gravity = mortar.gravity;
         shell.max_travel = mortar.max_travel;
         std::vector<sim::Projectile> bolts{shell};
@@ -997,8 +1000,13 @@ TEST(MortarLadder, RungDistancesAreTheSimsOwnFlightOnLevelGround) {
 TEST(MortarLadder, TheRungsArePinnedAndClimbWithThePitch) {
     // From the spec: 17476 raw tiles a tick across, a 36.8-unit muzzle, 2.25 units a tick^2.
     // M2 re-record: M1's six rungs are unchanged; 1.15 and 1.28 rad are new, the last the full 14.
-    const std::array<float, kMortarRungCount> tiles{1.66F, 2.16F, 2.80F, 3.67F,
-                                                    4.90F, 6.90F, 9.55F, 13.95F};
+    // Re-recorded for the lob's LIFT (2026-10-31, `kMortarLift`): every rung leaves steeper than
+    // its barrel aim, by the lift fading to nothing at the arc cap, so every rung now lands further
+    // -- the level rung from 1.66 to 3.30 tiles, which is the flop being taken out. The top rung
+    // reads 14.33, past the mortar's own 14-tile `max_travel`: that is the fizzle point, the
+    // distance the shell stops at rather than lands at, which this ladder has always reported.
+    const std::array<float, kMortarRungCount> tiles{3.3015F, 3.8965F, 4.5724F,  5.3987F,
+                                                    6.5202F, 8.2738F, 10.5554F, 14.3292F};
     for (std::size_t rung = 0; rung < kMortarRungCount; ++rung) {
         EXPECT_NEAR(mortar_landing_tiles(kMortarRungPitches.at(rung)), tiles.at(rung), 0.01F)
             << "rung " << rung;
@@ -3815,7 +3823,7 @@ TEST(ViewTilt, ABarStaysSquareToTheScreenAndSitsAboveItsTankWhateverTheViewsLean
     }
 }
 
-TEST(ViewTilt, TheAimCueLeansWithTheWorldWhileTheViewLeansWithTheHull) {
+TEST(ViewTilt, TheAimCueStaysSquareToTheScreenEvenThoughTheWorldLeansUnderIt) {
     const auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(42));
     SceneOptions options = options_at(60.0F, 60.0F);
     options.camera.y = 200.0F;
@@ -3832,13 +3840,25 @@ TEST(ViewTilt, TheAimCueLeansWithTheWorldWhileTheViewLeansWithTheHull) {
 
     options.camera.up = kLeaningUp;
     const float leaning_roll = up_bar_roll(options);
-    // Where the WORLD's up lies on the leaning screen: that is the way the cue must point, because
-    // it marks where the shot lands, and the shot does not lean.
+    // THE CUE RIDES THE VIEW: its up tick points up the SCREEN whatever the world does underneath,
+    // because that is the frame the player reads it against. This test used to assert the opposite
+    // -- that the cue pointed along the WORLD's up, "because it marks where the shot lands, and the
+    // shot does not lean". That reasoning does not hold: `basis_from` leaves `forward` alone when
+    // it takes the hull's up (only the frame's roll moves), so the shot lands in the same place
+    // either way, and all the world's up bought was a crosshair that turned against a leaning
+    // horizon while every other mark on the layer stayed square.
+    EXPECT_NEAR(leaning_roll, 0.0F, 1.0e-3F) << "the cue must stay square to the screen";
+    EXPECT_NEAR(leaning_roll, level_roll, 1.0e-3F) << "the lean must not turn it at all";
+
+    // Can fail: where the WORLD's up lies on the leaning screen is somewhere else, which is the
+    // reading this test asserted before the cue took the view's frame.
     const protekt::math::Basis frame
         = protekt::math::basis_from(options.camera.yaw, options.camera.pitch, options.camera.up);
     const float world_up_on_screen = std::atan2(frame.right.at(1) * 1.0F, frame.up.at(1) * 1.0F);
-    EXPECT_GT(std::abs(leaning_roll), 0.1F) << "the cue must have rolled, or this proves nothing";
-    EXPECT_NEAR(leaning_roll, world_up_on_screen, 0.02F);
+    EXPECT_GT(std::abs(world_up_on_screen), 0.1F)
+        << "the lean must move something, or this proves nothing";
+    EXPECT_GT(std::abs(leaning_roll - world_up_on_screen), 0.1F)
+        << "the cue must no longer point along the world's up";
 }
 
 TEST(UnitBars, NoViewerMeansNoBarsAndATankBehindTheEyeGetsNone) {
