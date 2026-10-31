@@ -111,9 +111,9 @@ struct Options {
         int digit{};
     };
     std::vector<DigitPress> digit_presses{};
-    /// `--key FRAME NAME` (repeatable): SPACE, TAB, `~` or F1-F10 pressed on that frame (1-based).
-    /// The digits cannot make a selection -- they are mark and menu-row keys -- so this is the
-    /// scripted selection (`--key 1 f3` picks the factory group), and a capture can show the
+    /// `--key FRAME NAME` (repeatable): SPACE, TAB, `~`, V or F1-F10 pressed on that frame
+    /// (1-based). The digits cannot make a selection -- they are mark and menu-row keys -- so this
+    /// is the scripted selection (`--key 1 f3` picks the factory group), and a capture can show the
     /// command menu with nobody at the keyboard.
     struct KeyPress {
         std::uint32_t frame{};
@@ -141,8 +141,8 @@ struct Options {
     bool log_spawns{false};
 };
 
-/// The scancode `--key` names: `space`, `tab`, `tilde`, `f1` to `f10`, in lower case and nothing
-/// else.
+/// The scancode `--key` names: `space`, `tab`, `tilde`, `v`, `f1` to `f10`, in lower case and
+/// nothing else.
 bool parse_key_name(std::string_view name, std::int32_t& scancode) {
     if (name == "space") {
         scancode = input::kKeySpace;
@@ -154,6 +154,10 @@ bool parse_key_name(std::string_view name, std::int32_t& scancode) {
     }
     if (name == "tilde") {
         scancode = input::kKeyGrave;
+        return true;
+    }
+    if (name == "v") {
+        scancode = input::kKeyV;
         return true;
     }
     int number = 0;
@@ -267,7 +271,7 @@ int parse_args(std::span<const std::string_view> args, Options& options, std::os
             if (!next(value) || !next(name) || !parse_number(value, press.frame) || press.frame == 0
                 || !parse_key_name(name, press.scancode)) {
                 err << "protekt-game: --key wants a frame number (1-based) and one of space, tab, "
-                       "tilde, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10\n";
+                       "tilde, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, v\n";
                 return 2;
             }
             options.key_presses.push_back(press);
@@ -392,6 +396,7 @@ public:
         scene_options.radius_tiles = kWorldViewRadiusTiles; // you see as far as your radar reaches
         scene_options.aim = game::aim_from(hands, extent);
         scene_options.viewer_unit = radar_viewer(session_, options_.no_radar);
+        scene_options.driven_unit = session_.driven();
         scene_options.nav_marks = &nav_marks_; // G-then-a-number reads the marks
         scene_options.row = &row_;             // F1-F10 select what the row holds
         player_alive_before_ = is_alive(sim_, session_.driven());

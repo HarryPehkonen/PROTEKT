@@ -784,6 +784,9 @@ struct SceneOptions {
     /// The tank the radar is centred on. ABSENT means no radar, which is what a frame with no
     /// player unit in it gets: a radar with no centre would be a lie about where the tank is.
     sim::UnitId viewer_unit{};
+    /// The hull the eye belongs to, whether or not the radar is on (`viewer_unit` is absent with
+    /// `--no-radar`). The picker never names it: the camera rotates to positions outside it.
+    sim::UnitId driven_unit{};
     /// A unit whose hull is drawn at `z` metres instead of on the ground: the hovering tank.
     /// ABSENT draws every unit on the ground, so a frame without one is unchanged.
     struct Hovering {

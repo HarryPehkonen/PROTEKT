@@ -138,7 +138,11 @@ Pick pick(const sim::Sim& sim, const SceneOptions& options, float screen_x,
 
     const float radius = kPickUnitRadiusTiles * kMetresPerTile;
     for (const sim::Unit& unit : sim.units()) {
-        if (!unit.alive || !available_to_viewer(sim, options, unit)) {
+        // A view cannot be looking at the thing it is looking out of: at the barrel the ray starts
+        // inside the driven hull's box (`hit_box`), and in a chase view it starts behind it and
+        // would hit it first, so the driven hull is never what the crosshair names.
+        if (!unit.alive || unit.id == options.driven_unit
+            || !available_to_viewer(sim, options, unit)) {
             continue;
         }
         const float x = static_cast<float>(unit.x.raw) / static_cast<float>(sim::Fixed::kOne)

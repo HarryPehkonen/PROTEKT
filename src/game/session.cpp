@@ -7,6 +7,11 @@
 
 namespace protekt::game {
 
+CameraPosition next_camera_position(CameraPosition position) noexcept {
+    return static_cast<CameraPosition>((static_cast<std::size_t>(position) + 1U)
+                                       % kCameraPositionCount);
+}
+
 Session::Session(sim::UnitId driven) noexcept : interaction_(driven) {}
 
 void Session::frame(const input::InputFrame& frame, const sim::Sim& sim,
@@ -31,6 +36,9 @@ void Session::frame(const input::InputFrame& frame, const sim::Sim& sim,
     // sends a key-down for every OS repeat, which must change nothing.
     for (const input::KeyEvent& key : frame.keys) {
         input::apply(keys_, key);
+        if (input::camera_cycled(key)) {
+            camera_position_ = next_camera_position(camera_position_);
+        }
     }
 
     InputState input{};
@@ -87,6 +95,8 @@ float Session::heading() const noexcept { return player_.heading(); }
 float Session::view_yaw() const noexcept { return player_.view_yaw(); }
 
 float Session::view_pitch() const noexcept { return player_.view_pitch(); }
+
+CameraPosition Session::camera_position() const noexcept { return camera_position_; }
 
 Weapon Session::weapon() const noexcept { return interaction_.weapon(); }
 

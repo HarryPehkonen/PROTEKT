@@ -21,6 +21,7 @@ inline constexpr std::int32_t kKeyD = 7;
 inline constexpr std::int32_t kKeyE = 8;
 inline constexpr std::int32_t kKeyF = 9;
 inline constexpr std::int32_t kKeyS = 22;
+inline constexpr std::int32_t kKeyV = 25;
 inline constexpr std::int32_t kKeyW = 26;
 inline constexpr std::int32_t kKeyX = 27;
 
@@ -100,6 +101,13 @@ inline void apply(HeldKeys& keys, const KeyEvent& event) noexcept {
         }
     }
     return false;
+}
+
+/// V: rotate the camera to its next position (on the barrel, a chase view, a higher chase view, and
+/// round to the first). V for VIEW, and the key Harri's to change: it is the one scancode here that
+/// the camera answers to. `C`, the first choice, is the calibration view's. Bare only.
+[[nodiscard]] inline bool camera_cycled(const KeyEvent& key) noexcept {
+    return key.pressed && !key.ctrl && !key.alt && key.scancode == kKeyV;
 }
 
 /// The digit 1-9 a key event is, or 0. Bare only: Ctrl/Alt+digit are not the roster's.

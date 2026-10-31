@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstddef>
+#include <cstdint>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -10,6 +12,18 @@
 #include "protekt/input/bindings.hpp"
 
 namespace protekt::game {
+
+/// WHERE THE EYE SITS, of the three the camera rotates between. The numbers behind each are
+/// `app::eye_placement`'s; the choice is the player's view state, so it lives beside the look.
+enum class CameraPosition : std::uint8_t {
+    Barrel,    ///< on the barrel's own line: what the game shipped with
+    Chase,     ///< a few metres behind the hull, at about the barrel's height
+    HighChase, ///< further back and well above, so the hull and the ground round it read
+};
+inline constexpr std::size_t kCameraPositionCount = 3;
+
+/// The position after `position`, round to the first after the last.
+[[nodiscard]] CameraPosition next_camera_position(CameraPosition position) noexcept;
 
 /// The player's whole side of one frame: the tank he is sitting in, and the units he is commanding.
 ///
@@ -43,6 +57,9 @@ public:
     /// Alive after death, from the wreck's last heading.
     [[nodiscard]] float view_yaw() const noexcept;
     [[nodiscard]] float view_pitch() const noexcept;
+    /// Where the eye sits (V rotates it). It moves the eye and nothing else: the view's yaw and
+    /// pitch, the shot and the sim are the same in all three.
+    [[nodiscard]] CameraPosition camera_position() const noexcept;
     /// The weapon the driven craft has up (Q cycles it): the reticle and the HUD label read it.
     [[nodiscard]] Weapon weapon() const noexcept;
     [[nodiscard]] const cmd::Selection& selection() const noexcept;
@@ -64,6 +81,7 @@ private:
     PlayerCommander player_;
     Interaction interaction_;
     input::HeldKeys keys_{};
+    CameraPosition camera_position_{CameraPosition::Barrel};
     bool headed_{false}; ///< the spawn heading is chosen once, from the terrain, on the first frame
     bool destroyed_{false};
     sim::UnitId helm_{}; ///< the hull the sim was last told the player drives (TakeControl)

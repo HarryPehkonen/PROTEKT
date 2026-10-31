@@ -64,6 +64,7 @@ Session swapped_session(Rig& rig) {
     Session session{rig.tank_a};
     // Aim at tank B: put the camera behind A, looking along +x at B is what the swap's pick needs.
     const sim::Unit* b = rig.sim.find(rig.tank_b);
+    rig.options.driven_unit = rig.tank_a;
     rig.options.camera = camera_for(rig.sim, session, kSeed, std::nullopt);
     rig.options.camera.yaw = 1.5707964F; // +x
     const float bx = static_cast<float>(b->x.raw) / 65536.0F * game::kMetresPerTile;
@@ -140,6 +141,7 @@ sim::UnitId unit_id(const sim::Sim& sim, std::size_t index) { return sim.units()
 /// The camera on the driven tank, turned to face `id`, and the aim on it: the mark sits on the
 /// unit.
 void aim_at(Rig& rig, const Session& session, sim::UnitId id) {
+    rig.options.driven_unit = session.driven(); // as `Game::command` sets it
     rig.options.camera = camera_for(rig.sim, session, kSeed, std::nullopt);
     const sim::Unit* unit = rig.sim.find(id);
     const float x = static_cast<float>(unit->x.raw) / 65536.0F * game::kMetresPerTile;
@@ -391,6 +393,7 @@ TEST(PlayerView, TheCursorOverAnEnemyNamesNoSelect) {
 
 TEST(PlayerView, TheCursorOverBareGroundNamesNothing) {
     Rig rig = make_base_rig();
+    rig.options.driven_unit = unit_id(rig.sim, 3); // as `Game::command` sets it
     rig.options.camera = camera_for(rig.sim, Session{unit_id(rig.sim, 3)}, kSeed, std::nullopt);
     rig.options.camera.yaw = -1.5707964F;        // -x, away from every other unit
     rig.options.aim = game::Aim{640.0F, 650.0F}; // low on the screen, below every unit
@@ -520,9 +523,10 @@ TEST(CameraYawed, TurnsOnlyTheYawByHundredthsOfARadianAndWrapsAtPi) {
 /// What the eye was before it was derived: 3.0 m above the hull, the number `camera_for` used to
 /// carry. Here only so the test can show the old eye FAILS the check the new one passes.
 constexpr float kOldEyeAboveHull = 3.0F;
-/// How far inside the half field of view the muzzle tip must land, so a small tune of
-/// `kEyeAboveBarrelMetres` keeps passing and a large one (the tip leaving the frame) does not.
-constexpr float kFrameMarginRadians = 5.0F * 3.14159265F / 180.0F;
+/// How far inside the half field of view the muzzle tip must land. Harri's 1 m lift puts it at
+/// 26.6 of the 30 degrees, so the margin is 2 degrees: a small tune keeps passing and a lift past
+/// the frame's edge (about 1.15 m) does not.
+constexpr float kFrameMarginRadians = 2.0F * 3.14159265F / 180.0F;
 
 /// The driven tank, the hull's height at rest, and the muzzle tip at level pitch for a camera: the
 /// tip is `kTankBarrelTip` along the view's yaw from the eye and on the barrel's own axis.
@@ -617,20 +621,191 @@ TEST(EyeOnTheBarrel, TheViewIsStillTheBarrelsOwnYawAndPitch) {
 }
 
 TEST(EyeOnTheBarrel, TheDriversOwnTankIsNotWhatTheViewPicks) {
-    // The eye is inside the driven tank's own pick box now; a ray cannot look at what it starts in.
+    // The eye is at or just over the driven tank's own pick box (1.8 m over the ground; the eye at
+    // the 1 m lift is 2.3 m), and a steep ray down to a lower target clips its corner: the driven
+    // hull is never what the view names.
     Rig rig = make_rig();
     const Session session{rig.tank_a};
+    rig.options.driven_unit = rig.tank_a;
     rig.options.camera = camera_for(rig.sim, session, kSeed, std::nullopt);
     const sim::Unit* own = rig.sim.find(rig.tank_a);
     ASSERT_NE(own, nullptr);
     ASSERT_GT(rig.options.camera.y, game::ground_metres(kSeed, own->x, own->y));
-    ASSERT_LT(rig.options.camera.y,
-              game::ground_metres(kSeed, own->x, own->y) + game::unit_box_height_metres(own->kind))
-        << "the eye must really be inside the pick box, or this proves nothing";
     const game::Pick picked
         = game::pick(rig.sim, rig.options, static_cast<float>(kExtent.width) * 0.5F,
                      static_cast<float>(kExtent.height) * 0.5F);
     EXPECT_NE(picked.unit, rig.tank_a);
+}
+
+// ------------------------------------------------------------------- the three camera positions
+
+constexpr std::array<game::CameraPosition, game::kCameraPositionCount> kPositions{
+    game::CameraPosition::Barrel, game::CameraPosition::Chase, game::CameraPosition::HighChase};
+
+/// One frame with only V pressed.
+void press_camera_key(Rig& rig, Session& session) {
+    input::InputFrame frame;
+    frame.keys.push_back(input::KeyEvent{input::kKeyV, true, false});
+    std::vector<sim::Order> out;
+    session.frame(frame, rig.sim, rig.options, out);
+}
+
+/// The camera at each position, the session rotated by V presses rather than set.
+std::array<game::Camera, game::kCameraPositionCount> cameras_at_each_position(Rig& rig) {
+    Session session{rig.tank_a};
+    std::array<game::Camera, game::kCameraPositionCount> cameras{};
+    for (game::Camera& camera : cameras) {
+        camera = camera_for(rig.sim, session, kSeed, std::nullopt);
+        camera.pitch = 0.0F; // LEVEL, as `muzzle_view` measures
+        press_camera_key(rig, session);
+    }
+    return cameras;
+}
+
+/// The muzzle tip's angle off the view axis, in radians, from `camera`: the tip stands
+/// `kTankBarrelTip` along the view's yaw from the HULL's centre (not the eye's), on the barrel's
+/// axis. Straight geometry, no field of view in it.
+float tip_angle_from(const MuzzleView& hull, const game::Camera& camera) {
+    return tip_angle_below_axis(MuzzleView{camera, hull.hull_z, hull.tip}, camera.y);
+}
+
+TEST(CameraPositions, TheEyeIsTheBarrelsAxisPlusTheLiftWhateverTheTwoAreTuneTo) {
+    // The composition, not a typed number: swap the two constants or retype one and this fails.
+    EXPECT_EQ(kEyeAboveHullMetres, game::kTankBarrelAxisMetres + kEyeAboveBarrelMetres);
+    EXPECT_EQ(eye_placement(game::CameraPosition::Barrel).above_hull_metres, kEyeAboveHullMetres);
+    EXPECT_EQ(eye_placement(game::CameraPosition::Chase).above_hull_metres, kEyeAboveHullMetres);
+    EXPECT_EQ(eye_placement(game::CameraPosition::HighChase).above_hull_metres,
+              game::kTankBarrelAxisMetres + kHighChaseLiftMetres);
+    EXPECT_EQ(eye_placement(game::CameraPosition::Barrel).behind_metres, 0.0F);
+}
+
+TEST(CameraPositions, EachPositionPutsTheEyeSomewhereDistinct) {
+    Rig rig = make_rig();
+    const auto cameras = cameras_at_each_position(rig);
+    const auto separation = [](const game::Camera& a, const game::Camera& b) {
+        return std::hypot(std::hypot(a.x - b.x, a.y - b.y), a.z - b.z);
+    };
+    EXPECT_GT(separation(cameras.at(0), cameras.at(1)), 1.0F);
+    EXPECT_GT(separation(cameras.at(1), cameras.at(2)), 1.0F);
+    EXPECT_GT(separation(cameras.at(0), cameras.at(2)), 1.0F);
+    // Guard against a vacuous pass: the heights differ, so this is not three copies of one eye.
+    EXPECT_FALSE(cameras.at(0).y == cameras.at(1).y && cameras.at(1).y == cameras.at(2).y);
+    EXPECT_GT(cameras.at(2).y, cameras.at(1).y + 1.0F) << "the third is well above the second";
+}
+
+TEST(CameraPositions, TheChaseEyesStandBehindTheHullAlongTheViewAndKeepTheAim) {
+    Rig rig = make_rig();
+    const Session session{rig.tank_a};
+    const auto cameras = cameras_at_each_position(rig);
+    const sim::Unit* own = rig.sim.find(rig.tank_a);
+    const float hull_x = static_cast<float>(own->x.raw) / 65536.0F * game::kMetresPerTile;
+    const float hull_z = static_cast<float>(own->y.raw) / 65536.0F * game::kMetresPerTile;
+    const std::array<float, 3> forward = math::basis_from(session.view_yaw(), 0.0F).forward;
+    for (std::size_t i = 0; i < kPositions.size(); ++i) {
+        const float behind = eye_placement(kPositions.at(i)).behind_metres;
+        // Along the view, so the offset's component on the view is the setback, and across it,
+        // none.
+        const float along = ((cameras.at(i).x - hull_x) * forward.at(0))
+                            + ((cameras.at(i).z - hull_z) * forward.at(2));
+        EXPECT_NEAR(along, -behind, 1.0e-4F);
+        EXPECT_NEAR(std::hypot(cameras.at(i).x - hull_x, cameras.at(i).z - hull_z), behind,
+                    1.0e-4F);
+        EXPECT_EQ(cameras.at(i).yaw, session.view_yaw());
+    }
+    EXPECT_GT(eye_placement(game::CameraPosition::Chase).behind_metres, 0.0F);
+    EXPECT_GT(eye_placement(game::CameraPosition::HighChase).behind_metres,
+              eye_placement(game::CameraPosition::Chase).behind_metres);
+}
+
+TEST(CameraPositions, VCyclesInOrderAndThreePressesComeBackToTheFirst) {
+    Rig rig = make_rig();
+    Session session{rig.tank_a};
+    ASSERT_EQ(session.camera_position(), game::CameraPosition::Barrel);
+    press_camera_key(rig, session);
+    EXPECT_EQ(session.camera_position(), game::CameraPosition::Chase);
+    press_camera_key(rig, session);
+    EXPECT_EQ(session.camera_position(), game::CameraPosition::HighChase)
+        << "two presses land on the third position, not the second";
+    press_camera_key(rig, session);
+    EXPECT_EQ(session.camera_position(), game::CameraPosition::Barrel);
+}
+
+TEST(CameraPositions, OnlyABareVPressRotatesTheCamera) {
+    Rig rig = make_rig();
+    Session session{rig.tank_a};
+    input::InputFrame frame;
+    frame.keys.push_back(input::KeyEvent{input::kKeyV, false, false});      // a release
+    frame.keys.push_back(input::KeyEvent{input::kKeyV, true, false, true}); // Ctrl+V
+    frame.keys.push_back(input::KeyEvent{input::kKeyC, true, false});       // C is calibration
+    std::vector<sim::Order> out;
+    session.frame(frame, rig.sim, rig.options, out);
+    EXPECT_EQ(session.camera_position(), game::CameraPosition::Barrel);
+}
+
+TEST(CameraPositions, TheRotationDoesNotChangeTheAim) {
+    Rig rig = make_rig();
+    Session session{rig.tank_a};
+    const float yaw = session.view_yaw();
+    const float pitch = session.view_pitch();
+    for (std::size_t i = 0; i < game::kCameraPositionCount; ++i) {
+        const game::Camera camera = camera_for(rig.sim, session, kSeed, std::nullopt);
+        EXPECT_EQ(camera.yaw, yaw);
+        EXPECT_EQ(camera.pitch, pitch);
+        press_camera_key(rig, session);
+    }
+    EXPECT_EQ(session.camera_position(), game::CameraPosition::Barrel);
+    EXPECT_EQ(session.view_yaw(), yaw);
+    EXPECT_EQ(session.view_pitch(), pitch);
+}
+
+TEST(CameraPositions, TheMuzzleTipIsInFrameAtThe1mBarrelPositionAndAtEveryOther) {
+    Rig rig = make_rig();
+    const Session base{rig.tank_a};
+    const MuzzleView hull = muzzle_view(rig, base);
+    const auto cameras = cameras_at_each_position(rig);
+    const float half_fov = math::kFovRadians * 0.5F;
+    ASSERT_NEAR(kEyeAboveBarrelMetres, 1.0F, 1.0e-6F) << "this test is about Harri's 1 m";
+    for (std::size_t i = 0; i < cameras.size(); ++i) {
+        const float angle = tip_angle_from(hull, cameras.at(i));
+        EXPECT_GT(angle, 0.0F) << "position " << i << ": the tip is below the view axis";
+        EXPECT_LT(angle, half_fov - kFrameMarginRadians) << "position " << i;
+        // And through the game's own projection: the tip lands on the screen.
+        const game::Projected seen
+            = game::project(cameras.at(i), kExtent, hull.tip.at(0), hull.tip.at(1), hull.tip.at(2));
+        EXPECT_GT(seen.depth, math::kNearPlane) << "position " << i;
+        EXPECT_GE(seen.y, 0.0F) << "position " << i;
+        EXPECT_LE(seen.y, static_cast<float>(kExtent.height)) << "position " << i;
+    }
+    // At the barrel position the angle is atan(lift / reach): the geometry, not a typed degree.
+    EXPECT_NEAR(tip_angle_from(hull, cameras.at(0)),
+                std::atan2(kEyeAboveBarrelMetres, game::kTankBarrelTip), 1.0e-4F);
+    // The vacuous guard: a lift past the frame's edge FAILS the same check.
+    game::Camera too_high = cameras.at(0);
+    too_high.y = hull.hull_z + game::kTankBarrelAxisMetres + 1.5F;
+    EXPECT_GT(tip_angle_from(hull, too_high), half_fov);
+}
+
+TEST(CameraPositions, TheDrivenHullIsNotWhatAChaseViewPicks) {
+    // From behind, the ray passes through the driven hull's own box: it must not name it.
+    Rig rig = make_rig();
+    Session session{rig.tank_a};
+    press_camera_key(rig, session);
+    rig.options.driven_unit = rig.tank_a;
+    rig.options.camera = camera_for(rig.sim, session, kSeed, std::nullopt);
+    const sim::Unit* own = rig.sim.find(rig.tank_a);
+    // Aim the ray at the hull: from the eye to the hull's middle.
+    const float hull_x = static_cast<float>(own->x.raw) / 65536.0F * game::kMetresPerTile;
+    const float hull_z = static_cast<float>(own->y.raw) / 65536.0F * game::kMetresPerTile;
+    const float hull_y
+        = game::ground_metres(kSeed, own->x, own->y) + game::kRideHeightMetres + 0.5F;
+    const game::Projected hull = game::project(rig.options.camera, kExtent, hull_x, hull_y, hull_z);
+    ASSERT_GT(hull.depth, math::kNearPlane) << "the hull must be in front of the chase eye";
+    ASSERT_GE(hull.x, 0.0F);
+    ASSERT_LE(hull.x, static_cast<float>(kExtent.width));
+    EXPECT_NE(game::pick(rig.sim, rig.options, hull.x, hull.y).unit, rig.tank_a);
+    rig.options.driven_unit = sim::UnitId{};
+    EXPECT_EQ(game::pick(rig.sim, rig.options, hull.x, hull.y).unit, rig.tank_a)
+        << "without the rule the ray does hit the hull, or this proves nothing";
 }
 
 } // namespace
