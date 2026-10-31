@@ -498,6 +498,20 @@ inline constexpr math::Vec3 kHoverSkirtColour{0.70F, 1.0F, 1.0F};
 /// A drawn hover tank: the wedge, four skirt quads, the turret, the barrel and the fin.
 inline constexpr std::size_t kHoverTankVertices = (4U * 36U) + (4U * 6U);
 
+/// THE TANK'S BARREL, in metres above the hull's own base (the `ground` the tank is built on, which
+/// is the hull height once it hovers). Here, and not inside the tank builder, because the driver's
+/// eye is derived from the barrel's axis: two copies of the numbers would let the eye and the gun
+/// drift apart.
+inline constexpr float kTankTurretBase = 0.8F;    ///< sunk into the compartment roof
+inline constexpr float kTankBarrelBottom = 0.18F; ///< above the turret's base
+inline constexpr float kTankBarrelTop = 0.3F;
+/// From the tank's centre along the aim, well past the hull front: the muzzle collar's far end.
+inline constexpr float kTankBarrelTip = 2.0F;
+/// The barrel's axis above the hull's base: the line the shot travels along when level, and the
+/// line the driver's eye sits on (`app::kEyeAboveHullMetres`).
+inline constexpr float kTankBarrelAxisMetres
+    = kTankTurretBase + ((kTankBarrelBottom + kTankBarrelTop) * 0.5F);
+
 /// Column-major view-projection for a camera, matching what the vertex shader expects.
 [[nodiscard]] std::array<float, 16> view_projection(const Camera& camera, float aspect,
                                                     float fov_radians = math::kFovRadians) noexcept;

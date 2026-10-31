@@ -15,7 +15,7 @@ You are one tank. Everything else you command.
 | input | what it does |
 |---|---|
 | `W` / `S` | throttle forward / back |
-| **mouse** | turn the turret, relative to the body: the pointer is captured, and the crosshair is always the centre of the screen, where the turret points. In a hover tank the mouse turns the hull itself and the turret stays on the centre line |
+| **mouse** | turn the turret, relative to the body: the pointer is captured, and the crosshair is always the centre of the screen, where the turret points. The eye sits on the barrel's own line (2026-10-30), `kEyeAboveBarrelMetres` above it (0 for now, Harri's to tune), so the end of the barrel is on the crosshair's line rather than 48 degrees below the bottom of the screen. In a hover tank the mouse turns the hull itself and the turret stays on the centre line |
 | `A` / `D` | in a plain tank (which you start in): turn the body left / right, on the spot or while driving; the turret goes round with it. In a hover tank: strafe left / right, and the mouse turns the hull |
 | `E` (**held**) | boost: lift the hull, and settle back down when you let go |
 | `C` | toggle the colour calibration view: three red/green/blue bars, a check on the display path |

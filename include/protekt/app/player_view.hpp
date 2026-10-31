@@ -19,9 +19,24 @@ namespace protekt::app {
 /// Whether `id` names a living unit; a unit that is not in the sim is not alive.
 [[nodiscard]] bool is_alive(const sim::Sim& sim, sim::UnitId id);
 
-/// The player's eye: kEyeHeight metres above the ground under the driven tank, looking where the
-/// turret is pointed (the view, not the hull's heading). The camera rides the hull: once the tank
-/// hovers, the eye is kEyeHeight above the HULL. Before the hover has a height the hull is at rest.
+/// HOW FAR THE EYE SITS ABOVE THE BARREL'S LINE, in metres. HARRI'S TO TUNE, and he will judge it
+/// by eye: "as long as I can see a certain amount of the end of the barrel". 0 puts the eye exactly
+/// on the barrel's axis, so the view and the shot share one line and the muzzle tip sits on the
+/// view axis (the crosshair); each extra metre drops the tip further down the screen (atan(lift / 2
+/// m) at level pitch: 27 degrees for 1 m), and past about 1.15 m, where that angle reaches the 30
+/// degree half field of view, it leaves the frame. A lift is the only knob: the height
+/// itself is derived (`kEyeAboveHullMetres`), never typed, so it cannot split from the barrel.
+inline constexpr float kEyeAboveBarrelMetres = 0.0F;
+
+/// The eye's height above the hull's base: the tank barrel's own axis
+/// (`game::kTankBarrelAxisMetres`) plus the lift. The one place the eye's position is composed from
+/// named parts.
+inline constexpr float kEyeAboveHullMetres = game::kTankBarrelAxisMetres + kEyeAboveBarrelMetres;
+
+/// The player's eye: `kEyeAboveHullMetres` above the hull under the driven tank (on the barrel's
+/// own line), looking where the turret is pointed (the view, not the hull's heading). The camera
+/// rides the hull: once the tank hovers, the eye is that far above the HULL. Before the hover has a
+/// height the hull is at rest.
 [[nodiscard]] game::Camera camera_for(const sim::Sim& sim, const game::Session& session,
                                       std::uint64_t seed, std::optional<float> hull_z);
 

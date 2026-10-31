@@ -44,8 +44,17 @@ Ray ray_through(const Camera& camera, Extent extent, float screen_x, float scree
     return Ray{{camera.x, camera.y, camera.z}, {d[0] / len, d[1] / len, d[2] / len}};
 }
 
-/// Slab test: distance along the ray to the box, or a negative number for a miss.
+/// Slab test: distance along the ray to the box, or a negative number for a miss. A ray that
+/// STARTS inside the box misses it: the driver's eye sits on the barrel's line, inside the driven
+/// tank's own pick box, and a view cannot be looking at the thing it is looking out of.
 float hit_box(const Ray& ray, const std::array<float, 3>& lo, const std::array<float, 3>& hi) {
+    const bool inside
+        = std::ranges::all_of(std::array<std::size_t, 3>{0, 1, 2}, [&](std::size_t i) {
+              return ray.origin.at(i) >= lo.at(i) && ray.origin.at(i) <= hi.at(i);
+          });
+    if (inside) {
+        return -1.0F;
+    }
     float t_near = 0.0F;
     float t_far = kPickMaxDistanceTiles * kMetresPerTile;
     for (std::size_t i = 0; i < 3; ++i) {

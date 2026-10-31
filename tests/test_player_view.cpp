@@ -5,6 +5,7 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <optional>
@@ -18,6 +19,7 @@
 #include "protekt/game/scene.hpp"
 #include "protekt/game/session.hpp"
 #include "protekt/input/input.hpp"
+#include "protekt/math/math.hpp"
 #include "protekt/sim/scenario.hpp"
 #include "protekt/sim/scrap.hpp"
 #include "protekt/sim/sim.hpp"
@@ -511,6 +513,124 @@ TEST(CameraYawed, TurnsOnlyTheYawByHundredthsOfARadianAndWrapsAtPi) {
     // 0.5 + 3.0 is past pi: it comes back round to the other side.
     EXPECT_NEAR(camera_yawed(camera, 300).yaw, 3.5F - 2.0F * 3.14159265F, 1e-4F);
     EXPECT_EQ(camera_yawed(camera, 0).yaw, camera.yaw);
+}
+
+// ------------------------------------------------------------------------ the eye on the barrel
+
+/// What the eye was before it was derived: 3.0 m above the hull, the number `camera_for` used to
+/// carry. Here only so the test can show the old eye FAILS the check the new one passes.
+constexpr float kOldEyeAboveHull = 3.0F;
+/// How far inside the half field of view the muzzle tip must land, so a small tune of
+/// `kEyeAboveBarrelMetres` keeps passing and a large one (the tip leaving the frame) does not.
+constexpr float kFrameMarginRadians = 5.0F * 3.14159265F / 180.0F;
+
+/// The driven tank, the hull's height at rest, and the muzzle tip at level pitch for a camera: the
+/// tip is `kTankBarrelTip` along the view's yaw from the eye and on the barrel's own axis.
+struct MuzzleView {
+    game::Camera camera;
+    float hull_z{};
+    std::array<float, 3> tip{};
+};
+
+MuzzleView muzzle_view(Rig& rig, const Session& session) {
+    MuzzleView view;
+    view.camera = camera_for(rig.sim, session, kSeed, std::nullopt);
+    view.camera.pitch = 0.0F; // LEVEL: the session starts looking a little down
+    const sim::Unit* unit = rig.sim.find(session.driven());
+    view.hull_z = game::ground_metres(kSeed, unit->x, unit->y) + game::kRideHeightMetres;
+    const std::array<float, 3> forward = math::basis_from(view.camera.yaw, 0.0F).forward;
+    view.tip = {view.camera.x + (forward.at(0) * game::kTankBarrelTip),
+                view.hull_z + game::kTankBarrelAxisMetres,
+                view.camera.z + (forward.at(2) * game::kTankBarrelTip)};
+    return view;
+}
+
+/// The muzzle tip's angle below the view axis, from the camera's own height and the tip's: the
+/// geometry, with no field of view in it.
+float tip_angle_below_axis(const MuzzleView& view, float eye_y) {
+    const float run = std::hypot(view.tip.at(0) - view.camera.x, view.tip.at(2) - view.camera.z);
+    return std::atan2(eye_y - view.tip.at(1), run);
+}
+
+TEST(EyeOnTheBarrel, TheEyeStandsOnTheBarrelsAxisPlusTheDocumentedLift) {
+    Rig rig = make_rig();
+    const Session session{rig.tank_a};
+    const MuzzleView view = muzzle_view(rig, session);
+    // Against the barrel's OWN constants, not a number typed here: raise the barrel's axis and this
+    // fails instead of the eye and the gun drifting apart.
+    const float axis
+        = game::kTankTurretBase + ((game::kTankBarrelBottom + game::kTankBarrelTop) * 0.5F);
+    EXPECT_NEAR(view.camera.y - view.hull_z, axis + kEyeAboveBarrelMetres, 1.0e-5F);
+    EXPECT_NEAR(view.camera.y, view.tip.at(1) + kEyeAboveBarrelMetres, 1.0e-5F)
+        << "at level pitch the eye is the tip's height, plus the lift";
+}
+
+TEST(EyeOnTheBarrel, TheMuzzleTipIsInFrameAtLevelPitchAndTheOldEyeHadItOutside) {
+    Rig rig = make_rig();
+    const Session session{rig.tank_a};
+    const MuzzleView view = muzzle_view(rig, session);
+    const float half_fov = math::kFovRadians * 0.5F;
+
+    // A vacuous pass would be a tip that was never placed ahead of the eye.
+    const float run = std::hypot(view.tip.at(0) - view.camera.x, view.tip.at(2) - view.camera.z);
+    ASSERT_GT(run, 1.0F) << "the tip must have been computed, well ahead of the eye";
+
+    const float now = tip_angle_below_axis(view, view.camera.y);
+    const float before = tip_angle_below_axis(view, view.hull_z + kOldEyeAboveHull);
+    EXPECT_LT(now, half_fov - kFrameMarginRadians) << "the tip is not clear of the frame's edge";
+    EXPECT_GT(before, half_fov)
+        << "the old eye must put the tip outside the frame, or this proves nothing";
+
+    // The same answer from the game's own projection, which is what reads the camera's field of
+    // view: the tip lands on the screen now, and below its bottom edge with the old eye.
+    const game::Projected seen
+        = game::project(view.camera, kExtent, view.tip.at(0), view.tip.at(1), view.tip.at(2));
+    EXPECT_GT(seen.depth, math::kNearPlane);
+    EXPECT_GE(seen.y, 0.0F);
+    EXPECT_LE(seen.y, static_cast<float>(kExtent.height));
+    game::Camera old_eye = view.camera;
+    old_eye.y = view.hull_z + kOldEyeAboveHull;
+    const game::Projected missed
+        = game::project(old_eye, kExtent, view.tip.at(0), view.tip.at(1), view.tip.at(2));
+    EXPECT_GT(missed.y, static_cast<float>(kExtent.height))
+        << "the old eye saw the tip below the screen";
+    // The pixel row agrees with the angle: the projection is reading the real half field of view.
+    const float centre_row = static_cast<float>(kExtent.height) * 0.5F;
+    EXPECT_NEAR(seen.y, centre_row + (centre_row * std::tan(now) / std::tan(half_fov)), 0.5F);
+}
+
+TEST(EyeOnTheBarrel, TheViewIsStillTheBarrelsOwnYawAndPitch) {
+    Rig rig = make_rig();
+    const Session session{rig.tank_a};
+    const game::Camera camera = camera_for(rig.sim, session, kSeed, std::nullopt);
+    EXPECT_EQ(camera.yaw, session.view_yaw());
+    EXPECT_EQ(camera.pitch, session.view_pitch());
+    // The screen's centre looks along `basis_from(yaw, pitch).forward`, from the new eye.
+    const std::array<float, 3> forward = math::basis_from(camera.yaw, camera.pitch).forward;
+    constexpr float kAhead = 10.0F;
+    const game::Projected centre
+        = game::project(camera, kExtent, camera.x + (forward.at(0) * kAhead),
+                        camera.y + (forward.at(1) * kAhead), camera.z + (forward.at(2) * kAhead));
+    ASSERT_GT(centre.depth, math::kNearPlane);
+    EXPECT_NEAR(centre.x, static_cast<float>(kExtent.width) * 0.5F, 0.5F);
+    EXPECT_NEAR(centre.y, static_cast<float>(kExtent.height) * 0.5F, 0.5F);
+}
+
+TEST(EyeOnTheBarrel, TheDriversOwnTankIsNotWhatTheViewPicks) {
+    // The eye is inside the driven tank's own pick box now; a ray cannot look at what it starts in.
+    Rig rig = make_rig();
+    const Session session{rig.tank_a};
+    rig.options.camera = camera_for(rig.sim, session, kSeed, std::nullopt);
+    const sim::Unit* own = rig.sim.find(rig.tank_a);
+    ASSERT_NE(own, nullptr);
+    ASSERT_GT(rig.options.camera.y, game::ground_metres(kSeed, own->x, own->y));
+    ASSERT_LT(rig.options.camera.y,
+              game::ground_metres(kSeed, own->x, own->y) + game::unit_box_height_metres(own->kind))
+        << "the eye must really be inside the pick box, or this proves nothing";
+    const game::Pick picked
+        = game::pick(rig.sim, rig.options, static_cast<float>(kExtent.width) * 0.5F,
+                     static_cast<float>(kExtent.height) * 0.5F);
+    EXPECT_NE(picked.unit, rig.tank_a);
 }
 
 } // namespace

@@ -17,7 +17,6 @@ bool is_alive(const sim::Sim& sim, sim::UnitId id) {
 
 game::Camera camera_for(const sim::Sim& sim, const game::Session& session, std::uint64_t seed,
                         std::optional<float> hull_z) {
-    constexpr float kEyeHeight = 3.0F;
     game::Camera camera;
     for (const sim::Unit& unit : sim.units()) {
         if (unit.id != session.driven()) {
@@ -27,7 +26,7 @@ game::Camera camera_for(const sim::Sim& sim, const game::Session& session, std::
         camera.z = static_cast<float>(unit.y.raw) / 65536.0F * game::kMetresPerTile;
         camera.y
             = hull_z.value_or(game::ground_metres(seed, unit.x, unit.y) + game::kRideHeightMetres)
-              + kEyeHeight;
+              + kEyeAboveHullMetres;
         break;
     }
     camera.yaw = session.view_yaw();

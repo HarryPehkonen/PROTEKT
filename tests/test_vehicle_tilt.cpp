@@ -310,5 +310,26 @@ TEST(VehicleTilt, TheBarrelIsBuiltInTheHullsFrameSoItLeansWithTheHull) {
         << "the barrel leaned with the hull: its world elevation moved";
 }
 
+TEST(VehicleTilt, TheDrawnBarrelStandsOnTheAxisTheDriversEyeIsDerivedFrom) {
+    // The shared constants are the picture: a level tank's barrel prism is centred on
+    // `kTankBarrelAxisMetres` above its base, and its collar ends `kTankBarrelTip` from the centre.
+    std::array<int, 2> flat{};
+    ASSERT_TRUE(find_tile(is_level, flat));
+    const Placed tank = draw_unit(UnitKind::Tank, flat.at(0), flat.at(1), std::array<float, 3>{});
+    ASSERT_TRUE(tank.drawn);
+    constexpr std::size_t kPrism = 36;
+    ASSERT_GT(tank.body.size(), kPrism * 2) << "no tank was found";
+    float height = 0.0F;
+    float far_end = 0.0F;
+    for (std::size_t i = tank.body.size() - kPrism; i < tank.body.size(); ++i) {
+        height += tank.body.at(i)[1] / static_cast<float>(kPrism);
+    }
+    for (std::size_t i = tank.body.size() - (2 * kPrism); i < tank.body.size(); ++i) {
+        far_end = std::max(far_end, tank.body.at(i)[2]);
+    }
+    EXPECT_NEAR(height, kTankBarrelAxisMetres, 1.0e-4F);
+    EXPECT_NEAR(far_end, kTankBarrelTip, 1.0e-4F);
+}
+
 } // namespace
 } // namespace protekt::game

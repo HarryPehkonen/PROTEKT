@@ -690,7 +690,6 @@ void build_facing_tank(std::vector<SceneVertex>& out, std::uint64_t seed, const 
     const UvRect tracks_tile = atlas.rect("tank_tracks");
     const UvRect panel_tile = atlas.rect("tank_turret");
     const UvRect barrel_tile = atlas.rect("tank_barrel");
-    constexpr float kTurretBase = 0.8F; ///< above the ground; sunk into the compartment roof
     constexpr float kTurretHeight = 0.4F;
     constexpr float kTurretHalfAcross = 0.36F;
     constexpr float kTurretCentre = -0.15F; ///< set back from the hull's centre
@@ -704,9 +703,6 @@ void build_facing_tank(std::vector<SceneVertex>& out, std::uint64_t seed, const 
     constexpr float kPanelFront = 0.25F;
     constexpr float kPanelThickness = 0.03F; ///< standing just proud of the roof
     constexpr float kBarrelHalfAcross = 0.06F;
-    constexpr float kBarrelBottom = 0.18F; ///< above the turret's base
-    constexpr float kBarrelTop = 0.3F;
-    constexpr float kBarrelTip = 2.0F; ///< from the tank's centre, well past the hull front
     constexpr float kCollarLength = 0.3F;
     constexpr float kCollarHalfAcross = 0.1F;
     constexpr float kCollarBottom = 0.14F;
@@ -732,7 +728,7 @@ void build_facing_tank(std::vector<SceneVertex>& out, std::uint64_t seed, const 
     // turret looks. The turret and bustle are camo -- from the driver's seat they are most of the
     // tank -- and the team reads from the two saturated accents: the roof panel and the barrel.
     const float turret_angle = heading + turret;
-    const float turret_y0 = ground + kTurretBase;
+    const float turret_y0 = ground + kTankTurretBase;
     const std::array<float, 2> turret_at = rotate_offset(x, z, 0.0F, kTurretCentre, turret_angle);
     const Prism turret_box{
         -kTurretHalfAcross, kTurretHalfAcross,         -kTurretHalfLength,
@@ -748,16 +744,16 @@ void build_facing_tank(std::vector<SceneVertex>& out, std::uint64_t seed, const 
                     kPanelBack, kPanelFront, roof, roof + kPanelThickness, colour, panel_tile);
     const float turret_front = kTurretCentre + kTurretHalfLength;
     const std::size_t barrel_first = out.size();
-    emit_turned_box(out, x, z, turret_angle, kCollarHalfAcross, kBarrelTip - kCollarLength,
-                    kBarrelTip, turret_y0 + kCollarBottom, turret_y0 + kCollarTop, colour,
+    emit_turned_box(out, x, z, turret_angle, kCollarHalfAcross, kTankBarrelTip - kCollarLength,
+                    kTankBarrelTip, turret_y0 + kCollarBottom, turret_y0 + kCollarTop, colour,
                     barrel_tile);
     emit_turned_box(out, x, z, turret_angle, kBarrelHalfAcross, turret_front,
-                    kBarrelTip - kCollarLength, turret_y0 + kBarrelBottom, turret_y0 + kBarrelTop,
-                    colour, barrel_tile);
+                    kTankBarrelTip - kCollarLength, turret_y0 + kTankBarrelBottom,
+                    turret_y0 + kTankBarrelTop, colour, barrel_tile);
     // The barrel is the last thing built, in the hull's frame: raised to the aim's elevation about
     // its root at the turret's front, and then the lean to the ground takes it along with the rest.
     elevate_barrel(out, barrel_first, x, z, turret_angle, turret_front,
-                   turret_y0 + ((kBarrelBottom + kBarrelTop) * 0.5F), pitch);
+                   turret_y0 + ((kTankBarrelBottom + kTankBarrelTop) * 0.5F), pitch);
 }
 
 /// THE SCAVENGER (C2). It is built on the TANK's own hull -- tracks, compartment, fenders, engine
