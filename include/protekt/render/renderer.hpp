@@ -89,6 +89,10 @@ struct CreateOptions {
     /// identity. The renderer does not know what the tiles are; the game hands it pixels.
     std::vector<std::uint8_t> atlas_rgba;
     std::uint32_t atlas_side{0};
+    /// Smooth the world's edges with one fullscreen FXAA-style pass (the HUD is drawn after it and
+    /// is never touched). Off keeps the same passes but makes the filter an exact copy, so a frame
+    /// with it off is byte-identical to a renderer that has no such pass. `--no-fxaa` clears it.
+    bool fxaa{true};
 };
 
 /// Every physical device that can be enumerated. Empty when there is no loader or no driver;

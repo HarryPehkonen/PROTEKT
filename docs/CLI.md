@@ -134,6 +134,7 @@ the `wants` line (the refusal for a bad value). All refusals are exit 2 unless n
 | `--look-up` | `N` (unsigned, hundredths of a radian) | tilts the view up by `N/100` rad on the first frame. UNSIGNED: it cannot look down | `protekt-game: --look-up wants hundredths of a radian` |
 | `--look-yaw` | `N` (signed, hundredths of a radian) | turns the camera `N/100` rad from where the turret points, on every frame; negative is left. Camera only: the sim hash does not change | `protekt-game: --look-yaw wants hundredths of a radian` |
 | `--look-level` | `FRAME` (0 = never) | on that frame, brings the view down by exactly what `--look-up` raised it | `protekt-game: --look-level wants a frame number` |
+| `--no-fxaa` | none | turn the world's edge smoothing off (it is on by default). The HUD is never smoothed either way. With it, the frame is byte-identical to the renderer before the pass existed; the state hash is unchanged by it. 114453 of 921600 pixels differ from the default at seed 42, 3 frames, 1280x720 (max channel delta 80) | none |
 | `--no-radar` | none | no radar (34102 pixels differ from the default at seed 42, 3 frames) | none |
 | `--no-radar-mesh` | none | keep the radar but drop its terrain wireframe (14945 pixels differ) | none |
 | `--pulse` | `PCT` (0 to 100) | hold the reticle's pulse at that percentage (190 pixels differ at 50) | `protekt-game: --pulse wants a percentage from 0 to 100` |
@@ -220,7 +221,8 @@ protekt-render [--seed N] [--width N] [--height N] [--out FILE] [--gpu NAME] [--
 ```
 
 One frame of terrain for a seed, rendered with no game around it (no units, no HUD, no camera
-control), written as a PPM. Defaults: seed 42, 640x400, `frame.ppm`. **There is no camera flag here:
+control), written as a PPM. It goes through the same edge-smoothing pass as the game's frames and has
+no flag to turn it off: to compare, use `protekt-game --no-fxaa`. Defaults: seed 42, 640x400, `frame.ppm`. **There is no camera flag here:
 no `--look-yaw`, no `--look-up`.** To aim at the sky, use `protekt-game`.
 
 | flag | argument | what it does | refusal |

@@ -11,13 +11,16 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <map>
+#include <memory>
 #include <sstream>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "protekt/app/render.hpp"
@@ -235,16 +238,16 @@ TEST_F(RenderTest, ShowsTheUnitThatTheGroundWouldOtherwiseHide) {
     const std::uint32_t sky = frame.rgb(0, 0);
     const std::uint32_t ground = frame.rgb(0, kHeight - 1);
 
-    // The scene has exactly three flat colours: sky, ground, and the unit. The unit is the one
-    // that is neither of the other two -- and it is submitted FIRST, so if it is visible the
-    // depth test did its job.
+    // The scene has three flat colours: sky, ground, and the unit -- plus the blends the edge pass
+    // leaves along their borders, each a handful of pixels. The unit is the most common colour that
+    // is neither sky nor ground, and it is submitted FIRST, so if it is visible the depth test did
+    // its job.
     std::uint32_t unit = 0;
     std::size_t unit_pixels = 0;
     for (const auto& [colour, count] : histogram) {
-        if (colour != sky && colour != ground) {
+        if (colour != sky && colour != ground && count > unit_pixels) {
             unit = colour;
             unit_pixels = count;
-            break;
         }
     }
     ASSERT_NE(unit, 0U) << "no third colour in the frame: the unit was swallowed by the ground";
@@ -589,7 +592,18 @@ constexpr double kMinCapturedGroundLumaRange = 0.20;
 /// patches the eye can see, not sub-pixel speckle.
 constexpr double kMinCapturedGroundPatchPixels = 6.0;
 
-TEST_F(RenderTest, GrassUnderTheCameraRendersWithVisibleTextureDetail) {
+/// What a frame of grass looks like to the capture gate, and whether it is repeatable.
+struct GrassMeasure {
+    bool ok{}; ///< false when the frame could not be rendered (already reported)
+    double luma_range{};
+    double mean_run{};
+    bool repeatable{};
+    std::uint32_t validation_errors{};
+};
+
+/// Renders the patch of grass under a tank's-eye camera through a renderer with the edge pass on or
+/// off, and measures it. `ok` false (after reporting why) when the seed has no 7x7 patch of grass.
+GrassMeasure measure_grass(bool fxaa) {
     namespace sim = protekt::sim;
     namespace world = protekt::world;
     constexpr std::uint64_t kSeed = 42;
@@ -613,7 +627,10 @@ TEST_F(RenderTest, GrassUnderTheCameraRendersWithVisibleTextureDetail) {
             }
         }
     }
-    ASSERT_TRUE(found) << "no 7x7 patch of grass to look at";
+    if (!found) {
+        ADD_FAILURE() << "no 7x7 patch of grass to look at";
+        return {};
+    }
     const auto state = sim::Sim::create(sim::skirmish(kSeed));
     protekt::game::SceneOptions so;
     so.seed = kSeed;
@@ -624,20 +641,27 @@ TEST_F(RenderTest, GrassUnderTheCameraRendersWithVisibleTextureDetail) {
     so.camera.y = protekt::game::height_metres(kSeed, gx, gy) + 3.0F;
     so.camera.pitch = -1.5F;
     const protekt::game::Scene scene = protekt::game::build_scene(state, so);
-    protekt::render::CreateOptions with = options();
+    protekt::render::CreateOptions with;
+    with.validation = true;
+    with.extent = Extent{kWidth, kHeight};
+    with.fxaa = fxaa;
     with.atlas_rgba = protekt::game::atlas_pixels();
     with.atlas_side = protekt::game::kAtlasSide;
     std::string error;
     const auto atlas_renderer = protekt::render::create(with, error);
-    ASSERT_NE(atlas_renderer, nullptr) << error;
+    if (atlas_renderer == nullptr) {
+        ADD_FAILURE() << error;
+        return {};
+    }
     Frame frame;
     frame.extent = Extent{kWidth, kHeight};
     frame.pixels = atlas_renderer->render(
         protekt::render::FrameRequest{
             .extent = frame.extent, .seed = kSeed, .tick = 0, .scene = &scene},
         frame.stats);
-    EXPECT_EQ(atlas_renderer->validation_errors(), 0U);
 
+    GrassMeasure m;
+    m.ok = true;
     double lo = 1.0;
     double hi = 0.0;
     std::size_t runs = 0;
@@ -653,15 +677,252 @@ TEST_F(RenderTest, GrassUnderTheCameraRendersWithVisibleTextureDetail) {
             runs += x > 0 && c != frame.rgb(x - 1, y) ? 1U : 0U;
         }
     }
-    const double mean_run = static_cast<double>(kWidth) * kHeight / static_cast<double>(runs);
-    RecordProperty("ground_luma_range", std::to_string(hi - lo));
-    RecordProperty("ground_mean_run_pixels", std::to_string(mean_run));
-    EXPECT_GE(hi - lo, kMinCapturedGroundLumaRange) << "luma " << lo << " .. " << hi;
-    EXPECT_GE(mean_run, kMinCapturedGroundPatchPixels);
+    m.luma_range = hi - lo;
+    m.mean_run = static_cast<double>(kWidth) * kHeight / static_cast<double>(runs);
     // Two renders of the one request are byte-identical: the paint is data, not noise.
-    std::vector<std::uint8_t> again = atlas_renderer->render(
-        protekt::render::FrameRequest{
-            .extent = frame.extent, .seed = kSeed, .tick = 0, .scene = &scene},
-        frame.stats);
-    EXPECT_EQ(again, frame.pixels);
+    m.repeatable = atlas_renderer->render(
+                       protekt::render::FrameRequest{
+                           .extent = frame.extent, .seed = kSeed, .tick = 0, .scene = &scene},
+                       frame.stats)
+                   == frame.pixels;
+    m.validation_errors = atlas_renderer->validation_errors();
+    return m;
+}
+
+TEST_F(RenderTest, GrassUnderTheCameraRendersWithVisibleTextureDetail) {
+    // Measured with the edge pass OFF: the run length is a property of the PAINT (does the atlas
+    // reach the pixels as patches the eye can see), and the pass adds a blended pixel along every
+    // patch border it softens, which shortens every run by construction. The pass's own effect on
+    // this frame is the next test's business.
+    const auto m = measure_grass(false);
+    ASSERT_TRUE(m.ok);
+    EXPECT_EQ(m.validation_errors, 0U);
+    RecordProperty("ground_luma_range", std::to_string(m.luma_range));
+    RecordProperty("ground_mean_run_pixels", std::to_string(m.mean_run));
+    EXPECT_GE(m.luma_range, kMinCapturedGroundLumaRange);
+    EXPECT_GE(m.mean_run, kMinCapturedGroundPatchPixels);
+    EXPECT_TRUE(m.repeatable);
+}
+
+TEST_F(RenderTest, TheEdgePassSoftensTheGrassWithoutFlatteningIt) {
+    // FXAA softens everything it sees, texture detail included -- the known trade. What it must not
+    // do is flatten the ground: the luma range the capture gate asks of the paint still holds with
+    // the pass on, the frame is still repeatable, and the pass really did something to it (its
+    // runs are shorter than the paint's own).
+    const auto off = measure_grass(false);
+    const auto on = measure_grass(true);
+    ASSERT_TRUE(off.ok);
+    ASSERT_TRUE(on.ok);
+    EXPECT_EQ(on.validation_errors, 0U);
+    RecordProperty("fxaa_ground_luma_range", std::to_string(on.luma_range));
+    RecordProperty("fxaa_ground_mean_run_pixels", std::to_string(on.mean_run));
+    EXPECT_GE(on.luma_range, kMinCapturedGroundLumaRange);
+    EXPECT_TRUE(on.repeatable);
+    EXPECT_LT(on.mean_run, off.mean_run) << "the pass changed nothing on the textured ground";
+}
+
+// ---------------------------------------------------------------- the edge pass
+
+/// A triangle drawn straight in clip space (the view-projection is the identity), flat `colour`, at
+/// depth `z` (0 is the nearest). Three vertices appended to `scene`.
+void add_clip_triangle(protekt::game::Scene& scene, std::array<std::array<float, 2>, 3> corners,
+                       float z, std::array<float, 3> colour) {
+    for (const auto& corner : corners) {
+        protekt::game::SceneVertex v;
+        v.position = {corner.at(0), corner.at(1), z};
+        v.colour = colour;
+        scene.vertices.push_back(v);
+    }
+}
+
+[[nodiscard]] protekt::game::Scene clip_space_scene() {
+    protekt::game::Scene scene;
+    scene.view_projection = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+    return scene;
+}
+
+constexpr std::array<float, 3> kDark{0.05F, 0.05F, 0.05F};
+/// A pixel well inside `world_triangle_scene`'s triangle, away from every edge of it.
+constexpr std::uint32_t kDarkX = 30;
+constexpr std::uint32_t kDarkY = 50;
+constexpr std::array<float, 3> kBright{0.95F, 0.95F, 0.20F};
+
+/// The left half of the frame: a dark right triangle whose hypotenuse is a long diagonal edge
+/// against the sky. A diagonal is the case an edge filter exists for -- its stair-steps.
+[[nodiscard]] protekt::game::Scene world_triangle_scene() {
+    protekt::game::Scene scene = clip_space_scene();
+    add_clip_triangle(scene, {{{-0.9F, -0.9F}, {-0.1F, -0.9F}, {-0.9F, 0.9F}}}, 0.5F, kDark);
+    return scene;
+}
+
+class EdgePassTest : public RenderTest {
+protected:
+    [[nodiscard]] std::unique_ptr<protekt::render::Renderer> make(bool fxaa) const {
+        protekt::render::CreateOptions o = options();
+        o.fxaa = fxaa;
+        std::string error;
+        auto made = protekt::render::create(o, error);
+        EXPECT_NE(made, nullptr) << error;
+        return made;
+    }
+
+    [[nodiscard]] static Frame draw(protekt::render::Renderer& renderer,
+                                    const protekt::game::Scene& scene,
+                                    Extent extent = Extent{kWidth, kHeight}) {
+        Frame frame;
+        frame.extent = extent;
+        frame.pixels = renderer.render(
+            protekt::render::FrameRequest{.extent = extent, .seed = 1, .tick = 0, .scene = &scene},
+            frame.stats);
+        return frame;
+    }
+
+    /// Pixels in columns [x0, x1) that differ between two frames of one extent.
+    [[nodiscard]] static std::size_t differing(const Frame& a, const Frame& b, std::uint32_t x0,
+                                               std::uint32_t x1) {
+        std::size_t count = 0;
+        for (std::uint32_t y = 0; y < a.extent.height; ++y) {
+            for (std::uint32_t x = x0; x < x1; ++x) {
+                count += a.rgb(x, y) != b.rgb(x, y) ? 1U : 0U;
+            }
+        }
+        return count;
+    }
+};
+
+TEST_F(EdgePassTest, BlendsAcrossAWorldEdgeAndLeavesFlatAreasAlone) {
+    const auto off_renderer = make(false);
+    ASSERT_NE(off_renderer, nullptr);
+    const protekt::game::Scene scene = world_triangle_scene();
+    const Frame off = draw(*off_renderer, scene);
+    const Frame on = draw(*renderer_, scene);
+
+    // With the pass off the frame is exactly the two flat colours: no blending anywhere.
+    EXPECT_EQ(off.colour_histogram().size(), 2U);
+    // With it on there are blends between them, and they are only ever BETWEEN them in luma.
+    EXPECT_GT(on.colour_histogram().size(), 2U) << "no edge was smoothed";
+    const std::uint32_t sky = off.rgb(kWidth - 1, 0);
+    const std::uint32_t dark = off.rgb(kDarkX, kDarkY);
+    ASSERT_NE(sky, dark);
+    const auto red = [](std::uint32_t c) { return (c >> 16U) & 0xFFU; };
+    std::size_t changed = 0;
+    for (std::uint32_t y = 0; y < kHeight; ++y) {
+        for (std::uint32_t x = 0; x < kWidth; ++x) {
+            if (on.rgb(x, y) == off.rgb(x, y)) {
+                continue;
+            }
+            ++changed;
+            EXPECT_GE(red(on.rgb(x, y)), std::min(red(sky), red(dark))) << x << "," << y;
+            EXPECT_LE(red(on.rgb(x, y)), std::max(red(sky), red(dark))) << x << "," << y;
+            // A changed pixel must sit next to the edge: the unfiltered frame has a different
+            // colour somewhere within two pixels of it.
+            bool near_edge = false;
+            for (int dy = -2; dy <= 2 && !near_edge; ++dy) {
+                for (int dx = -2; dx <= 2 && !near_edge; ++dx) {
+                    const auto nx = static_cast<std::int64_t>(x) + dx;
+                    const auto ny = static_cast<std::int64_t>(y) + dy;
+                    if (nx >= 0 && ny >= 0 && nx < kWidth && ny < kHeight) {
+                        near_edge = near_edge
+                                    || off.rgb(static_cast<std::uint32_t>(nx),
+                                               static_cast<std::uint32_t>(ny))
+                                           != off.rgb(x, y);
+                    }
+                }
+            }
+            EXPECT_TRUE(near_edge) << "a pixel away from every edge was changed: " << x << "," << y;
+        }
+    }
+    EXPECT_GT(changed, 50U) << "a diagonal edge this long has far more stair-steps than that";
+    // The two far corners are flat sky and flat dark, and untouched.
+    EXPECT_EQ(on.rgb(kWidth - 1, 0), off.rgb(kWidth - 1, 0));
+    EXPECT_EQ(on.rgb(kDarkX, kDarkY), off.rgb(kDarkX, kDarkY));
+    EXPECT_EQ(renderer_->validation_errors(), 0U);
+}
+
+TEST_F(EdgePassTest, TwoRendersWithThePassOnAreByteIdentical) {
+    const protekt::game::Scene scene = world_triangle_scene();
+    const Frame first = draw(*renderer_, scene);
+    const Frame second = draw(*renderer_, scene);
+    EXPECT_EQ(first.pixels, second.pixels);
+    // ...and a SECOND renderer agrees: the result is a function of the frame, not of any state the
+    // first one built up (there is no history buffer to remember).
+    const auto other = make(true);
+    ASSERT_NE(other, nullptr);
+    EXPECT_EQ(draw(*other, scene).pixels, first.pixels);
+}
+
+TEST_F(EdgePassTest, NeverTouchesTheHud) {
+    // The same two triangles drawn twice. In the first scene the right-hand one is past the
+    // world/HUD boundary; in the second there is no boundary and it is world like the other.
+    protekt::game::Scene scene = world_triangle_scene();
+    const std::size_t world_end = scene.vertices.size();
+    add_clip_triangle(scene, {{{0.1F, -0.9F}, {0.9F, -0.9F}, {0.9F, 0.9F}}}, 0.5F, kDark);
+
+    protekt::game::Scene with_hud = scene;
+    with_hud.world_vertex_count = world_end;
+    const auto off_renderer = make(false);
+    ASSERT_NE(off_renderer, nullptr);
+
+    const Frame off = draw(*off_renderer, with_hud);
+    const Frame on = draw(*renderer_, with_hud);
+    // The right half is the HUD triangle: every pixel of it is as the unfiltered draw wrote it.
+    EXPECT_EQ(differing(on, off, kWidth / 2, kWidth), 0U);
+    // The left half is the world triangle and is smoothed.
+    EXPECT_GT(differing(on, off, 0, kWidth / 2), 50U);
+
+    // Without the boundary the right-hand triangle is world too, and IS smoothed -- so the equality
+    // above is the boundary's doing and not an accident of where the triangle sits.
+    const Frame all_world = draw(*renderer_, scene);
+    EXPECT_GT(differing(all_world, off, kWidth / 2, kWidth), 50U);
+}
+
+TEST_F(EdgePassTest, TheHudStillDepthTestsAgainstTheWorld) {
+    // The HUD is drawn in a pass of its own, against the world's depth buffer carried across the
+    // filter. A HUD triangle NEARER than the world must show over it, and one FARTHER must not --
+    // exactly what a single draw would have done.
+    const auto probe = [this](float hud_z) {
+        protekt::game::Scene scene = clip_space_scene();
+        add_clip_triangle(scene, {{{-1.0F, -1.0F}, {3.0F, -1.0F}, {-1.0F, 3.0F}}}, 0.5F, kDark);
+        scene.world_vertex_count = scene.vertices.size();
+        add_clip_triangle(scene, {{{-1.0F, -1.0F}, {3.0F, -1.0F}, {-1.0F, 3.0F}}}, hud_z, kBright);
+        const Frame frame = draw(*renderer_, scene);
+        return std::pair{frame.rgb(kWidth / 2, kHeight / 2),
+                         frame.rgb(kWidth / 2, kHeight / 2) == frame.rgb(0, 0)};
+    };
+    const auto [nearer, nearer_flat] = probe(0.25F);
+    const auto [farther, farther_flat] = probe(0.75F);
+    EXPECT_TRUE(nearer_flat);
+    EXPECT_TRUE(farther_flat);
+    EXPECT_NE(nearer, farther) << "the HUD ignored the world's depth in one direction";
+    // The nearer HUD triangle is bright, the farther one is hidden behind the dark world.
+    const auto red = [](std::uint32_t c) { return (c >> 16U) & 0xFFU; };
+    EXPECT_GT(red(nearer), 200U);
+    EXPECT_LT(red(farther), 50U);
+}
+
+TEST_F(EdgePassTest, SurvivesAResizeAndComesBackTheSameWithoutAValidationFinding) {
+    const protekt::game::Scene scene = world_triangle_scene();
+    const Extent big{kWidth, kHeight};
+    const Extent small{160, 100};
+    const Frame first = draw(*renderer_, scene, big);
+    const Frame shrunk = draw(*renderer_, scene, small);
+    const Frame again = draw(*renderer_, scene, big);
+    EXPECT_EQ(shrunk.pixels.size(), static_cast<std::size_t>(160) * 100U * 4U);
+    EXPECT_GT(shrunk.colour_histogram().size(), 2U) << "the pass did not run at the new size";
+    EXPECT_EQ(again.pixels, first.pixels) << "a recreated target drew something different";
+    EXPECT_EQ(renderer_->validation_errors(), 0U);
+}
+
+TEST_F(EdgePassTest, TheOffSwitchDrawsTheSceneUnfiltered) {
+    // With the pass off, the built-in scene is the same frame as ever: three flat colours and no
+    // blends. (The default-on renderer's histogram has more.)
+    const auto off_renderer = make(false);
+    ASSERT_NE(off_renderer, nullptr);
+    protekt::render::FrameStats stats;
+    Frame off;
+    off.extent = Extent{kWidth, kHeight};
+    off.pixels = off_renderer->render(
+        protekt::render::FrameRequest{.extent = off.extent, .seed = 42, .tick = 0}, stats);
+    EXPECT_EQ(off.colour_histogram().size(), 3U);
+    EXPECT_GT(render_frame().colour_histogram().size(), 3U);
 }

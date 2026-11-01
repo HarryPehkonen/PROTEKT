@@ -226,7 +226,8 @@ Split in two, because the GPU plumbing and the fun are different risks.
 (`include/protekt/render/renderer.hpp` contains no Vulkan type at all): instance and device
 selection, an offscreen colour+depth target, validation layers counted and asserted zero, shaders
 compiled to SPIR-V at build time, readback to RGBA8, and `protekt-render` writing a PPM. 19 tests,
-and they run on the gate box where the only device is llvmpipe. Vulkan is optional at configure
+and they run on the gate box where the only device is llvmpipe. (It began as ONE render pass and one
+draw; since 2026-11-01 a frame is three passes -- see "The edge-smoothing pass" below.) Vulkan is optional at configure
 time: without a loader the renderer and its tests are absent and configure says so.
 
 **M3b (done) — the window.** One game loop, two presenters: a swapchain window on a machine with a
@@ -272,6 +273,47 @@ anywhere else still fails the gate.
 bit-identical everywhere; rasterisation is not. An exact image hash is only meaningful on one
 device and driver, so the suite asserts structure on any device and byte equality only between two
 renders of the same request. There are no checked-in golden images.
+
+**The edge-smoothing pass (2026-11-01; step 1 of `protekt-plan/2026-10-31-look-and-feel.md`).** A frame
+is no longer one render pass and one draw. It is THREE passes, in `src/render/renderer.cpp`:
+
+1. the WORLD is drawn into an offscreen colour image (with the depth buffer), exactly as the old single
+   pass drew it;
+2. ONE fullscreen pass (`shaders/post.vert` + `shaders/post.frag`, a fullscreen triangle with no vertex
+   buffer) reads that image and writes an FXAA-style smoothed copy;
+3. the HUD is drawn onto the smoothed copy, against the world's depth buffer reloaded, then the result is
+   copied out.
+
+*The world/HUD boundary was a real design decision.* The game builds one vertex list and the renderer
+used to draw it in one call, so a filter over the target would have softened every HUD glyph, the
+reticle and the assist dot. `game::Scene::world_vertex_count` (set by `build_scene` at the line it
+already drew between the fogged world and the unfogged HUD) says where the world ends; the renderer
+draws `[0, n)` before the filter and `[n, end)` after. The depth buffer is KEPT across the filter, so a
+HUD layer still wins or loses against the world exactly as it did in one draw (a test pins both
+directions). A scene that never sets the field is all world.
+
+*Constraints kept.* No temporal state: the filter is a pure function of the scene image, so two renders
+of one request stay byte-identical (the "Determinism boundary" paragraph above). It reads the image
+with integer `texelFetch` only -- no sampler, no filtering -- the same determinism contract as the scene's
+NEAREST sampler. 8-bit `R8G8B8A8_UNORM` throughout, no HDR, no tone mapping (that is step 2). No new
+asset: FXAA needs no lookup table, which is why it came before SMAA. The filter's settings are ONE
+constant, `kFxaaSettings` (relative edge threshold 0.125, dark-area floor 0.0625, sub-pixel blend 0.75 --
+FXAA 3.11's own defaults). The offscreen images are recreated on resize and destroyed on teardown by the
+same `create_target`/`destroy_target` pair the old colour and depth images used, which asan covers.
+`--no-fxaa` (`CreateOptions::fxaa`) makes the pass an exact copy; measured against a build of the commit
+before this change, seed 42 / 3 frames and seed 7 / 60 frames with `--autodrive --cursor 640 360` were
+byte-identical (md5), so the off switch is the old renderer, not an approximation of it.
+
+*Measured, and Harri's to judge by looking.* At seed 42, 3 frames, 1280x720, the filter changes 114453 of
+921600 pixels (max channel delta 80), and most of that is the GROUND TEXTURE, not geometry: the atlas's
+camouflage patches are high-contrast and the filter softens everything above its threshold. If that is
+too soft, raise `edge_threshold` (fewer pixels qualify) before reaching for SMAA. The tests can assert
+structure and two-render equality; they can never assert that this looks better. Two existing tests had
+to learn the pass: `ShowsTheUnitThatTheGroundWouldOtherwiseHide` took "the first colour that is neither
+sky nor ground" as the unit, which is now an edge blend, so it takes the most common such colour; and
+`GrassUnderTheCameraRendersWithVisibleTextureDetail` measures mean run length, which a blended pixel
+along every patch border shortens by construction, so it now measures the paint with the pass OFF and a
+new test holds the filtered frame to the same luma-range gate.
 
 **Known gap:** the Vulkan tests are skipped under ThreadSanitizer, because lavapipe races inside
 itself and a driver cannot be instrumented. So the renderer's CPU-side code has ASan and UBSan

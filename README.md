@@ -122,6 +122,16 @@ centred on the plate, the icon under it and a row of health ticks under that -- 
 that is not yet mounted, and a notice line for a refused roster or nav-mark key. The radar is colour
 and length only. The ship instrument below carries two numbers.
 
+**Edge smoothing (2026-11-01).** The world -- sky, terrain, units, shots, smoke -- is drawn into an
+offscreen image and passed through one fullscreen FXAA-style filter before anything else is drawn; the
+HUD, the assist dot, the reticle and every panel are drawn AFTER it, onto the smoothed frame, and are
+never softened. The filter blends only where the local brightness contrast is high, so flat colour is
+untouched, but it softens EVERYTHING above its threshold -- the ground's texture patches included, which is
+the known trade. Its two knobs (`edge_threshold`, `subpixel_blend`, and a dark-area floor) are one named
+constant, `kFxaaSettings` in `src/render/renderer.cpp`. `--no-fxaa` turns it off: that frame is
+byte-identical to what the renderer drew before the filter existed. Same seed, same frames, one capture each
+-- see "Build, run, watch" for the two commands. No history buffer: a frame is a function of itself.
+
 ### The command menu
 
 The menu down the left (a selection's rows, the nav menu, an armed `N`) is drawn as BZ2 draws it:
@@ -353,6 +363,11 @@ Then any of:
 
 # the radar off, for comparing two frames pixel by pixel (the game always has one)
 ./build/protekt-game --headless --seed 42 --frames 60 --autodrive --no-radar --capture without.ppm
+
+# the edge smoothing off, to compare a frame with and without it (the default is on); same seed and frames,
+# so only the filter differs and the state hash printed is the same
+./build/protekt-game --headless --seed 42 --frames 3 --capture /tmp/with-fxaa.ppm
+./build/protekt-game --headless --seed 42 --frames 3 --no-fxaa --capture /tmp/without-fxaa.ppm
 
 # no sound device opened, whatever the machine has (a window run says so once if it finds none)
 ./build/protekt-game --seed 42 --no-sound

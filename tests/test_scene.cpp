@@ -548,6 +548,32 @@ TEST(SceneBuild, IsDeterministic) {
     EXPECT_EQ(a.view_projection, b.view_projection);
 }
 
+TEST(SceneBuild, MarksWhereTheWorldEndsAndTheHudBegins) {
+    // The renderer smooths the world's edges and draws everything past `world_vertex_count` after,
+    // untouched. So the boundary must sit on a triangle, after the sky and the terrain, before the
+    // HUD -- and everything after it must be the HUD's own, which is never fogged.
+    const auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(42));
+    SceneOptions options = options_at(60.0F, 60.0F);
+    options.aim = protekt::game::Aim{640.0F, 360.0F};
+    const Scene scene = build_scene(sim, options);
+    const std::size_t world = scene.world_vertex_count;
+    EXPECT_EQ(world % 3U, 0U);
+    EXPECT_GE(world, terrain_vertex_count(options.radius_tiles) + protekt::game::kSkyVertexCount);
+    ASSERT_LT(world, scene.vertices.size()) << "a scene with a reticle has a HUD past the boundary";
+    for (std::size_t i = world; i < scene.vertices.size(); ++i) {
+        EXPECT_EQ(scene.vertices.at(i).fog, 0.0F) << "HUD vertex " << i << " was fogged";
+    }
+    const bool world_is_fogged = std::any_of(
+        scene.vertices.begin(), scene.vertices.begin() + static_cast<std::ptrdiff_t>(world),
+        [](const SceneVertex& v) { return v.fog > 0.0F; });
+    EXPECT_TRUE(world_is_fogged) << "the distant terrain is world, and the fog is the world's";
+
+    // Adding the reticle adds to the HUD side and moves nothing across the line.
+    options.aim.reset();
+    const Scene without = build_scene(sim, options);
+    EXPECT_EQ(without.world_vertex_count, world);
+}
+
 TEST(SceneBuild, CarriesTheCameraItWasGiven) {
     const auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(1));
     SceneOptions o = options_at(10.0F, 10.0F, 1, 4);

@@ -187,17 +187,21 @@ if(PROTEKT_RENDER)
     set(PROTEKT_SHADER_DIR ${CMAKE_BINARY_DIR}/generated/shaders)
     # Shaders are compiled to SPIR-V headers at build time and linked in, so the binary needs no
     # data files beside it and cannot pick up a stale .spv from somebody's home directory.
-    add_custom_command(
-        OUTPUT ${PROTEKT_SHADER_DIR}/scene_vert.h ${PROTEKT_SHADER_DIR}/scene_frag.h
-        COMMAND ${CMAKE_COMMAND} -E make_directory ${PROTEKT_SHADER_DIR}
-        COMMAND ${GLSLANG_VALIDATOR} -V --target-env vulkan1.3 --vn scene_vert_spv
-                ${CMAKE_CURRENT_SOURCE_DIR}/shaders/scene.vert -o ${PROTEKT_SHADER_DIR}/scene_vert.h
-        COMMAND ${GLSLANG_VALIDATOR} -V --target-env vulkan1.3 --vn scene_frag_spv
-                ${CMAKE_CURRENT_SOURCE_DIR}/shaders/scene.frag -o ${PROTEKT_SHADER_DIR}/scene_frag.h
-        DEPENDS shaders/scene.vert shaders/scene.frag
-        COMMENT "Compiling shaders to SPIR-V")
-    add_custom_target(protekt_shaders
-        DEPENDS ${PROTEKT_SHADER_DIR}/scene_vert.h ${PROTEKT_SHADER_DIR}/scene_frag.h)
+    set(PROTEKT_SHADERS scene_vert scene_frag post_vert post_frag)
+    set(PROTEKT_SHADER_HEADERS "")
+    foreach(shader IN LISTS PROTEKT_SHADERS)
+        # scene_vert -> shaders/scene.vert, scene_vert.h, array scene_vert_spv
+        string(REPLACE "_" "." source ${shader})
+        list(APPEND PROTEKT_SHADER_HEADERS ${PROTEKT_SHADER_DIR}/${shader}.h)
+        add_custom_command(
+            OUTPUT ${PROTEKT_SHADER_DIR}/${shader}.h
+            COMMAND ${CMAKE_COMMAND} -E make_directory ${PROTEKT_SHADER_DIR}
+            COMMAND ${GLSLANG_VALIDATOR} -V --target-env vulkan1.3 --vn ${shader}_spv
+                    ${CMAKE_CURRENT_SOURCE_DIR}/shaders/${source} -o ${PROTEKT_SHADER_DIR}/${shader}.h
+            DEPENDS shaders/${source}
+            COMMENT "Compiling shaders/${source} to SPIR-V")
+    endforeach()
+    add_custom_target(protekt_shaders DEPENDS ${PROTEKT_SHADER_HEADERS})
 
     set(PROTEKT_RENDER_SOURCES
         src/render/renderer.cpp

@@ -21,6 +21,8 @@ struct PresenterOptions {
     std::string gpu{};
     bool headless{false};
     bool fullscreen{false};
+    /// The renderer's FXAA edge smoothing; `--no-fxaa` clears it.
+    bool fxaa{true};
 };
 
 /// The presentation seam of the game loop: a window if there is one, an offscreen buffer if not.

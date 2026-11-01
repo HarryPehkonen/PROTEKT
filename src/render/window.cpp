@@ -244,6 +244,7 @@ private:
     bool validation_{true};
     std::vector<std::uint8_t> atlas_rgba_;
     std::uint32_t atlas_side_{0};
+    bool fxaa_{true};
     bool resize_pending_{false};
     bool fullscreen_{false};
 };
@@ -256,6 +257,7 @@ bool VulkanWindow::init(const WindowOptions& options, std::string& error) {
     validation_ = options.validation;
     atlas_rgba_ = options.atlas_rgba;
     atlas_side_ = options.atlas_side;
+    fxaa_ = options.fxaa;
     extent_ = options.extent;
 
     if (!sdl_.active()) {
@@ -649,6 +651,7 @@ void VulkanWindow::rebuild_offscreen(std::string& error) {
     options.extent = extent_;
     options.atlas_rgba = atlas_rgba_;
     options.atlas_side = atlas_side_;
+    options.fxaa = fxaa_;
     // Qualified: inside this class, an unqualified `create` is Window::create.
     offscreen_ = protekt::render::create(options, error);
 }

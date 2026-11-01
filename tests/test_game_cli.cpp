@@ -11,6 +11,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <set>
 #include <sstream>
 #include <string>
 #include <utility>
@@ -372,6 +373,56 @@ TEST_F(GameCliTest, ARefusedKeyNameNamesTheAcceptedOnes) {
     EXPECT_EQ(run({"--headless", "--key", "0", "f3"}, err), 2) << "frames are 1-based";
     EXPECT_EQ(run({"--headless", "--key", "1"}, err), 2) << "a key with no name";
     EXPECT_EQ(run({"--headless", "--key"}, err), 2) << "a key with nothing at all";
+}
+
+TEST_F(GameCliTest, NoFxaaChangesThePixelsAndLeavesTheSimAlone) {
+    if (kUnderThreadSanitizer) {
+        GTEST_SKIP() << kTsanReason;
+    }
+    // The edge pass is a function of the frame, so switching it off must not move the sim, must
+    // change what is drawn, and must itself be repeatable.
+    const std::string on = temp_path("on.ppm");
+    const std::string off = temp_path("off.ppm");
+    const std::string off_again = temp_path("off-again.ppm");
+    std::string err;
+    std::string on_out;
+    std::string off_out;
+    const std::vector<std::string_view> common{"--headless", "--seed", "42",       "--frames", "4",
+                                               "--width",    "160",    "--height", "96"};
+    const auto go = [&](bool fxaa, const std::string& path, std::string& out) {
+        std::vector<std::string_view> args = common;
+        if (!fxaa) {
+            args.emplace_back("--no-fxaa");
+        }
+        args.emplace_back("--capture");
+        args.emplace_back(path);
+        return run(args, err, &out);
+    };
+    std::string again_out;
+    ASSERT_EQ(go(true, on, on_out), 0) << err;
+    ASSERT_EQ(go(false, off, off_out), 0) << err;
+    ASSERT_EQ(go(false, off_again, again_out), 0) << err;
+    ASSERT_NE(on_out.find("hash"), std::string::npos) << on_out;
+    EXPECT_EQ(on_out.substr(on_out.find("hash")), off_out.substr(off_out.find("hash")))
+        << "the edge pass is drawing: it must not move the sim";
+    EXPECT_NE(slurp(on), slurp(off)) << "--no-fxaa emitted nothing the frame could show";
+    // ...and the right way round: blending between two colours makes new ones, so the smoothed
+    // frame has strictly more distinct colours than the unfiltered one. Differing alone would
+    // pass a flag that did the opposite of its name.
+    const auto distinct_colours = [](const std::string& ppm) {
+        std::set<std::string> colours;
+        std::size_t at = 0;
+        for (int newlines = 0; newlines < 3; ++at) {
+            newlines += ppm.at(at) == '\n' ? 1 : 0;
+        }
+        for (; at + 3 <= ppm.size(); at += 3) {
+            colours.insert(ppm.substr(at, 3));
+        }
+        return colours.size();
+    };
+    EXPECT_GT(distinct_colours(slurp(on)), distinct_colours(slurp(off)))
+        << "--no-fxaa must be the frame WITHOUT the smoothing";
+    EXPECT_EQ(slurp(off), slurp(off_again));
 }
 
 TEST_F(GameCliTest, AScriptedKeyReachesTheFrameAndLeavesTheSimAlone) {

@@ -68,6 +68,8 @@ struct Options {
     /// Start in full screen. The window is the authority on its size either way; this only says
     /// which size to start at.
     bool fullscreen{false};
+    /// `--no-fxaa`: the renderer's edge smoothing off, to A/B a frame with and without it.
+    bool fxaa{true};
     /// One key pressed on the first frame, for a run nobody is sitting at: `--press f11` exercises
     /// the full-screen toggle, `--press ctrl+q` the quit, and a bug report can name the key that
     /// did it. The same family as `--cursor`: a scripted frame of input, so what happened is
@@ -281,6 +283,8 @@ int parse_args(std::span<const std::string_view> args, Options& options, std::os
             options.key_presses.push_back(press);
         } else if (arg == "--fullscreen") {
             options.fullscreen = true;
+        } else if (arg == "--no-fxaa") {
+            options.fxaa = false;
         } else if (arg == "--autodrive") {
             options.autodrive = true;
         } else if (arg == "--seed") {
@@ -734,6 +738,7 @@ int run_game_cli(std::span<const std::string_view> args, std::ostream& out, std:
     presenter_options.gpu = options.gpu;
     presenter_options.headless = options.headless;
     presenter_options.fullscreen = options.fullscreen;
+    presenter_options.fxaa = options.fxaa;
     const std::unique_ptr<GamePresenter> presenter
         = GamePresenter::create(presenter_options, out, err);
     if (presenter == nullptr) {

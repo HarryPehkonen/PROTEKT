@@ -5020,6 +5020,8 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
     // and the world map's marks, and sit on the HUD side of this line.
     fog_range(scene.vertices, 0, terrain_end, options.camera, options.radius_tiles);
     fog_range(scene.vertices, sky_end, scene.vertices.size(), options.camera, options.radius_tiles);
+    // The renderer smooths the world's edges and draws everything past this index after it.
+    scene.world_vertex_count = scene.vertices.size();
     // The map and the radar share the bottom-left corner: BZ2's R turns one into the other rather
     // than stacking them, so the radar (and the hull bar it carries) is not drawn while the map is
     // up. Hiding the radar must not change the sim, and it does not: this is a view.

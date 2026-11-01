@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <vector>
 
@@ -38,6 +39,12 @@ struct SceneVertex {
 struct Scene {
     std::vector<SceneVertex> vertices;       ///< triples: three vertices per triangle
     std::array<float, 16> view_projection{}; ///< column-major, what GLSL's mat4 expects
+    /// How many of the leading vertices are the WORLD (sky, terrain, units, effects); the rest are
+    /// the HUD. The renderer smooths the world's edges and draws the HUD after, so no panel, glyph,
+    /// dot or reticle is ever softened. The default means everything is world, which is what a
+    /// hand-built scene with no HUD wants. Both lists are triples, so a boundary is a multiple
+    /// of 3.
+    std::size_t world_vertex_count{SIZE_MAX};
 };
 
 /// The radar's wireframe grid pitch in tiles, for RADAR3D-2: 2 gives a 41x41 grid of tile corners

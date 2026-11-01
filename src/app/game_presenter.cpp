@@ -24,6 +24,7 @@ std::unique_ptr<GamePresenter> GamePresenter::create(const PresenterOptions& opt
         window_options.extent = options.extent;
         window_options.device_name = options.gpu;
         window_options.fullscreen = options.fullscreen;
+        window_options.fxaa = options.fxaa;
         window_options.atlas_rgba = game::load_game_atlas(err).pixels;
         window_options.atlas_side = game::kAtlasSide;
         presenter->window_ = render::Window::create(window_options, error);
@@ -49,6 +50,7 @@ std::unique_ptr<GamePresenter> GamePresenter::create(const PresenterOptions& opt
         render::CreateOptions create_options;
         create_options.device_name = options.gpu;
         create_options.validation = true;
+        create_options.fxaa = options.fxaa;
         create_options.extent = options.extent;
         create_options.atlas_rgba = game::load_game_atlas(err).pixels;
         create_options.atlas_side = game::kAtlasSide;
