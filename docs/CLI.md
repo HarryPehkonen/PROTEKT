@@ -167,7 +167,7 @@ order: `--autodrive`'s W, then `--nav`, `--go`, `--map`, `--targets`, then `--di
 | `--map` | `FRAME` (repeatable) | presses R on that frame: opens the map, closes it on a second use | `protekt-game: --map wants a frame number (1-based)` |
 | `--targets` | `FRAME` (repeatable) | presses the menu's `3` (ATTACK) on that frame: arms the attack list; needs a selection, since with none `3` is the top menu's and does nothing | `protekt-game: --targets wants a frame number (1-based)` |
 | `--digit` | `FRAME N` (repeatable; `N` 0 to 9) | presses the number key `N` on that frame | `protekt-game: --digit wants a frame number (1-based) and a key 0-9` |
-| `--key` | `FRAME NAME` (repeatable) | presses a named key on that frame; `NAME` is `space`, `tab`, `tilde`, `v` (rotate the camera) or `f1` to `f10`, lower case only. A selection is made this way: the digits cannot select a vehicle | `protekt-game: --key wants a frame number (1-based) and one of space, tab, tilde, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, v` |
+| `--key` | `FRAME NAME` (repeatable) | presses a named key on that frame; `NAME` is `space`, `tab`, `tilde`, `t` (the assist-targetting), `v` (rotate the camera) or `f1` to `f10`, lower case only. A selection is made this way: the digits cannot select a vehicle | `protekt-game: --key wants a frame number (1-based) and one of space, tab, tilde, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, t, v` |
 
 ### Sound and window
 

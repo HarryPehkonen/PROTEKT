@@ -315,7 +315,7 @@ meaning, and those are in section 14.
 | `X`, mark on an own drivable unit | swap: drive that unit; the one you leave gets a `Stop` and becomes an ordinary unit | [SHIPPED c76d8cf] |
 | `F`, mark on a living unit | the selection follows that unit, holding within 4 tiles | [SHIPPED 6e09100] |
 | `M` | the selection moves to the ground under the mark, even when a unit is in front of it | [SHIPPED 86a0261] |
-| `T` | unbound (2026-10-31): it attacked the hostile under the mark (029a7b1, moved to `Space`) and then armed the attack list (bbe4650); the key is held for the assist-targetting and does nothing | [REMOVED] |
+| `T` | the assist-targetting (2026-10-31): latch the hostile nearest the crosshair within 4 degrees; the HUD draws a thin red line from it to a small red dot, the point to aim the barrel at for the weapon that is up to hit it if it holds its course (the gun's, rocket's and shotgun's lead point; the mortar's and bouncer's low-arc solution). It draws and never steers; `T` with nothing in the cone lets go. (It once attacked the hostile under the mark, 029a7b1, moved to `Space`, and then armed the attack list, bbe4650, now `3`.) | [SHIPPED, uncommitted] |
 | `3` (vehicle's command menu) | arm the attack list: the nearest enemies within radar range, numbered `1`–`9` then `0`; the next digit attacks that row | [SHIPPED bbe4650, key moved from `T` 2026-10-31] |
 | `N` | drop a numbered nav mark `0`–`9` under the crosshair, or clear the one aimed at; ten is the limit | [SHIPPED 4594cec] |
 | `G`, then `0`–`9` | send the selection to that nav mark as a move order; `Escape` cancels; any other key cancels and then acts | [SHIPPED 30b618c] |

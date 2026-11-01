@@ -141,7 +141,7 @@ struct Options {
     bool log_spawns{false};
 };
 
-/// The scancode `--key` names: `space`, `tab`, `tilde`, `v`, `f1` to `f10`, in lower case and
+/// The scancode `--key` names: `space`, `tab`, `tilde`, `t`, `v`, `f1` to `f10`, in lower case and
 /// nothing else.
 bool parse_key_name(std::string_view name, std::int32_t& scancode) {
     if (name == "space") {
@@ -158,6 +158,10 @@ bool parse_key_name(std::string_view name, std::int32_t& scancode) {
     }
     if (name == "v") {
         scancode = input::kKeyV;
+        return true;
+    }
+    if (name == "t") {
+        scancode = input::kKeyT;
         return true;
     }
     int number = 0;
@@ -271,7 +275,7 @@ int parse_args(std::span<const std::string_view> args, Options& options, std::os
             if (!next(value) || !next(name) || !parse_number(value, press.frame) || press.frame == 0
                 || !parse_key_name(name, press.scancode)) {
                 err << "protekt-game: --key wants a frame number (1-based) and one of space, tab, "
-                       "tilde, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, v\n";
+                       "tilde, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, t, v\n";
                 return 2;
             }
             options.key_presses.push_back(press);
@@ -509,6 +513,7 @@ public:
         scene_options.events
             = wakes_.events(); // D4: every wreck still alight, not only this frame's
         scene_options.weapon = session_.weapon();
+        scene_options.assist_target = session_.assist_target();
         scene_options.show_weapon = !session_.destroyed();
         scene_options.reloading = game::weapon_reloading(sim_, driven);
         scene_options.landing_marks = &landing_marks_;

@@ -89,9 +89,11 @@ public:
     ///    arming up; Escape cancels it (and is spent doing so: the selection stays); any other key
     ///    cancels it and then does its own job; an order by key (`M`) cancels it. The trigger
     ///    leaves it armed, and so does a weapon click: neither is an order.
-    ///  * T: unbound. It opened the attack list and, before that, attacked the unit under the
-    ///    mark; the list is now the menu's `3 ATTACK` alone and the pointed attack is SPACE's.
-    ///    The key is held for the assist-targetting, and until then it does nothing at all.
+    ///  * T: the ASSIST (game/assist.hpp). It latches the hostile nearest the crosshair within
+    ///    `kAssistConeDegrees` for the HUD's line and dot, replaces a latch already held, and with
+    ///    nothing in the cone lets it go -- and with none held does nothing at all. It orders
+    ///    nothing, selects nothing, arms nothing and says nothing: the shot is the barrel's. (T
+    ///    used to open the attack list, which is now the menu's `3 ATTACK` alone.)
     ///  * a digit with NOTHING selected (the top menu): `1` selects the player's recycler and `2`
     ///    the factory, wherever they are (`building_key_holder`); a building that is not alive is
     ///    refused aloud. With a selection the digit is the open menu's, below.
@@ -151,6 +153,12 @@ public:
 
     [[nodiscard]] const cmd::Selection& selection() const noexcept;
     [[nodiscard]] sim::UnitId driven() const noexcept;
+    /// THE ASSIST (`T`): the hostile asset latched for the dot, or none. `T` takes the hostile
+    /// nearest the crosshair within `kAssistConeDegrees` -- a second `T` takes the one nearest NOW,
+    /// and with nothing in the cone it lets go. The latch outlives the crosshair leaving the unit,
+    /// and goes when the unit dies or the world view stops drawing it. It is a HUD fact only: it
+    /// orders nothing, selects nothing and never reaches the shot (see game/assist.hpp).
+    [[nodiscard]] sim::UnitId assist_target() const noexcept;
     /// The weapon the driven craft has up. The craft carries the set, so an X swap keeps it.
     [[nodiscard]] Weapon weapon() const noexcept;
     /// G has been pressed and the digit that names its mark has not: the next 0-9 is a MARK number
@@ -248,6 +256,7 @@ private:
     void remember(const std::vector<sim::Order>& orders);
 
     sim::UnitId driven_;
+    sim::UnitId assist_{}; ///< the latched assist target (`T`); none when zero
     std::map<sim::UnitId, sim::OrderPayload> remembered_; ///< each unit's last player order
     std::set<sim::UnitId> retreating_;                    ///< tanks sent home and not yet healed
     cmd::Selection selection_;

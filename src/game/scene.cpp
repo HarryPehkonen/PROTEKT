@@ -1,5 +1,6 @@
 #include "protekt/game/scene.hpp"
 
+#include "protekt/game/assist.hpp"
 #include "protekt/game/atlas.hpp"
 #include "protekt/game/attack_aim.hpp"
 #include "protekt/game/kind_icon.hpp"
@@ -2530,15 +2531,16 @@ constexpr float kUnitBarOutlineFraction = 1.0F / 450.0F;
 constexpr float kUnitBarGapFraction = 3.0F / 450.0F; ///< from the tank's top to the outline
 constexpr float kTankTopMetres = 1.2F;               ///< the turret roof, above the tank's ground
 
-/// One small health bar over each living field unit in view (not the factory, not a turret), on the
-/// radar's HUD layers: a near-black outline, a dark track and a fill in the reticle's colours
-/// (green yours, red hostile), centred over the tank and sitting above its projected top. Fixed
-/// size, whatever the range. The viewer's own tank gets none -- its hull is in the HUD panel -- and
-/// with no viewer there are no bars at all, which keeps a frame with no player in it as it was.
-/// Always `kUnitBarVertexCount` vertices per bar, in sim order; a bar with a zero-width fill stays
-/// whole. A unit counting a deploy (`Unit::deploy_ticks` non-zero) wears a second bar of the same
-/// make right above the first, its fill `deploy_ticks / kDeployTicks`; it goes through the same
-/// cull as the health bar, and a unit not counting adds nothing.
+/// One small health bar over each living field unit in view (not the factory, not a turret unless
+/// the player has latched it for the assist, `SceneOptions::assist_target`), on the radar's HUD
+/// layers: a near-black outline, a dark track and a fill in the reticle's colours (green yours, red
+/// hostile), centred over the tank and sitting above its projected top. Fixed size, whatever the
+/// range. The viewer's own tank gets none -- its hull is in the HUD panel -- and with no viewer
+/// there are no bars at all, which keeps a frame with no player in it as it was. Always
+/// `kUnitBarVertexCount` vertices per bar, in sim order; a bar with a zero-width fill stays whole.
+/// A unit counting a deploy (`Unit::deploy_ticks` non-zero) wears a second bar of the same make
+/// right above the first, its fill `deploy_ticks / kDeployTicks`; it goes through the same cull as
+/// the health bar, and a unit not counting adds nothing.
 void append_unit_bars(std::vector<SceneVertex>& out, const SceneOptions& options,
                       const sim::Sim& sim) {
     if (!options.viewer_unit.valid()) {
@@ -2569,7 +2571,10 @@ void append_unit_bars(std::vector<SceneVertex>& out, const SceneOptions& options
         // there.
         const bool structure
             = unit.kind == sim::UnitKind::Factory || unit.kind == sim::UnitKind::Turret;
-        if (!unit.alive || structure || unit.id == options.viewer_unit
+        // ... unless the player has latched it for the assist (`T`): the shot at a Guardian shows
+        // its health, from this bar and not a second one.
+        const bool assisted = unit.id == options.assist_target;
+        if (!unit.alive || (structure && !assisted) || unit.id == options.viewer_unit
             || hidden_by_reach(sim, options, unit)) {
             continue;
         }
@@ -2583,7 +2588,7 @@ void append_unit_bars(std::vector<SceneVertex>& out, const SceneOptions& options
         const Projected top = project(
             options.camera, options.extent,
             static_cast<float>(unit.x.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile,
-            ground + kTankTopMetres,
+            ground + (structure ? unit_box_height_metres(unit.kind) : kTankTopMetres),
             static_cast<float>(unit.y.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile);
         if (top.depth <= math::kNearPlane || top.x < 0.0F || top.x > frame_w || top.y < 0.0F
             || top.y > frame_h) {
@@ -4168,6 +4173,70 @@ void append_attack_readout(std::vector<SceneVertex>& out, const SceneOptions& op
          kEnemyBarRed);
 }
 
+/// THE ASSIST (`T`, game/assist.hpp): a thin red line from the latched asset's middle to a small
+/// red dot at the point the barrel must be aimed at for the weapon that is up to hit it. Fractions
+/// of the frame, like every HUD mark, so the same size at any range: a line 1.5 px thick and a dot
+/// of 3 px radius at 450 px of frame height. Two layers BEHIND the reticle
+/// (`kReticleDistanceMetres`) and in front of the world, the dot nearer than the line, so the cross
+/// is drawn over the dot it is laid on and the dot over the line it ends. A HUD distance moves
+/// depth only, never the pixel. Nothing is drawn for a target that is dead, hidden, behind the eye,
+/// or with no solution
+/// (`assist_shot`: out of reach, or never settling).
+constexpr float kAssistLineHalfFraction = 0.75F / 450.0F;
+constexpr float kAssistDotRadiusFraction = 3.0F / 450.0F;
+constexpr float kAssistDotRatio = 1.05F;  ///< of the reticle's distance: just behind it
+constexpr float kAssistLineRatio = 1.08F; ///< and the line behind the dot
+
+void append_assist(std::vector<SceneVertex>& out, const SceneOptions& options,
+                   const sim::Sim& sim) {
+    if (!options.assist_target.valid()) {
+        return;
+    }
+    const sim::Unit* target = sim.find(options.assist_target);
+    const sim::Unit* shooter = sim.find(options.driven_unit);
+    if (target == nullptr || !target->alive || shooter == nullptr || !shooter->alive
+        || !available_to_viewer(sim, options, *target)) {
+        return;
+    }
+    const std::optional<AssistShot> shot = assist_shot(options, options.weapon, *shooter, *target);
+    if (!shot.has_value()) {
+        return;
+    }
+    const Projected start = attack_point(options, *target);
+    const Projected end = project(options.camera, options.extent, shot->dot_metres.at(0),
+                                  shot->dot_metres.at(1), shot->dot_metres.at(2));
+    if (start.depth <= math::kNearPlane || end.depth <= math::kNearPlane) {
+        return;
+    }
+    const float frame_h = static_cast<float>(options.extent.height);
+    const auto at = [&](float distance, float px, float py) {
+        const RayPoint point = ray_point(options.camera, options.extent, px, py, distance);
+        return Vec3{point.x, point.y, point.z};
+    };
+    const float line_at = kReticleDistanceMetres * kAssistLineRatio;
+    const float dot_at = kReticleDistanceMetres * kAssistDotRatio;
+    const float dx = end.x - start.x;
+    const float dy = end.y - start.y;
+    const float length = std::sqrt((dx * dx) + (dy * dy));
+    if (length > 0.0F) {
+        const float half = frame_h * kAssistLineHalfFraction;
+        const float nx = -dy / length * half;
+        const float ny = dx / length * half;
+        emit_quad(out, at(line_at, start.x + nx, start.y + ny), at(line_at, end.x + nx, end.y + ny),
+                  at(line_at, end.x - nx, end.y - ny), at(line_at, start.x - nx, start.y - ny),
+                  kAssistInk);
+    }
+    const float radius = frame_h * kAssistDotRadiusFraction;
+    const auto rim = [&](int slice) {
+        const float angle
+            = (2.0F * math::kPi * static_cast<float>(slice)) / static_cast<float>(kAssistDotSlices);
+        return at(dot_at, end.x + (radius * std::cos(angle)), end.y + (radius * std::sin(angle)));
+    };
+    for (int slice = 0; slice < kAssistDotSlices; ++slice) {
+        emit_triangle(out, at(dot_at, end.x, end.y), rim(slice), rim(slice + 1), kAssistInk);
+    }
+}
+
 /// Four ticks round an OPEN centre and a small dot in it, in the plane the camera looks along,
 /// centred on the point the click's own ray reaches. Six vertices per quad: two triangles, and no
 /// winding to get wrong, because the pipeline culls nothing. The ticks reach the old box's
@@ -4965,6 +5034,7 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
     append_mount_plates(scene.vertices, options, sim);
     append_unit_bars(scene.vertices, options, sim);
     append_attack_readout(scene.vertices, options, sim);
+    append_assist(scene.vertices, options, sim);
     append_weapon_hud(scene.vertices, options);
     append_hud_panels(scene.vertices, options, sim, selected);
     append_ledger(scene.vertices, options, sim);

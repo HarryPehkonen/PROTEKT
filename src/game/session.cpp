@@ -112,6 +112,8 @@ const std::vector<TargetRow>& Session::attack_targets() const noexcept {
     return interaction_.attack_targets();
 }
 
+sim::UnitId Session::assist_target() const noexcept { return interaction_.assist_target(); }
+
 std::string_view Session::message() const noexcept {
     if (!destroyed_message_.empty()) {
         return destroyed_message_;

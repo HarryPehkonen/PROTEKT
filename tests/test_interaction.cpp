@@ -690,32 +690,6 @@ TEST(Interaction, SpaceOrdersAnAttackFromEverySelectedUnitAndKeepsTheSelection) 
     EXPECT_EQ(std::get<sim::orders::Attack>(orders.front().payload).target, rig.enemy);
 }
 
-TEST(Interaction, TIsUnboundWhateverIsSelectedOrUnderTheCrosshair) {
-    // T was the attack list's key, and before that the pointed attack's. It is held for the
-    // assist-targetting and does nothing until then: no order, no list, no prompt, no message.
-    Rig rig = make_rig();
-    Interaction player{rig.tank_a};
-    static_cast<void>(at(rig, rig.enemy));
-    player.handle(with_key(input::kKeyT), rig.sim, rig.options);
-    EXPECT_TRUE(player.take_orders().empty()) << "nothing selected";
-    EXPECT_FALSE(player.attack_armed());
-    EXPECT_FALSE(player.go_armed());
-    EXPECT_TRUE(player.message().empty());
-
-    choose(rig, player, rig.tank_b);
-    static_cast<void>(at(rig, rig.enemy));
-    player.handle(with_key(input::kKeyT), rig.sim, rig.options);
-    EXPECT_TRUE(player.take_orders().empty()) << "a hostile under the crosshair";
-    EXPECT_FALSE(player.attack_armed());
-    EXPECT_FALSE(player.go_armed());
-    EXPECT_TRUE(player.message().empty());
-    EXPECT_EQ(selected(player), (std::vector<sim::UnitId>{rig.tank_b})) << "and it selects nothing";
-
-    static_cast<void>(ground_click(rig));
-    player.handle(with_key(input::kKeyT), rig.sim, rig.options);
-    EXPECT_FALSE(player.attack_armed()) << "over ground";
-}
-
 TEST(Interaction, ThreeOffAHostileArmsTheListInsteadOfRefusing) {
     Rig rig = make_rig();
     Interaction player{rig.tank_a};

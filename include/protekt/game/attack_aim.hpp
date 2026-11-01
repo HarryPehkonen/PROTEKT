@@ -23,6 +23,13 @@ inline constexpr float kAttackAimToleranceDegrees = 4.0F;
 /// red line ends on. `depth` <= 0 is behind the eye, and then there is nothing to draw.
 [[nodiscard]] Projected attack_point(const SceneOptions& options, const sim::Unit& unit) noexcept;
 
+/// The living, available hostile whose middle lies nearest the crosshair's ray within `degrees` of
+/// it (the angle in 3D, to the middle), ties to the lower id; invalid when there is none or no
+/// crosshair. The scan `attack_target` falls back on and `assist_pick` is, so the two offers
+/// measure "near the crosshair" the same way.
+[[nodiscard]] sim::UnitId hostile_nearest_ray(const sim::Sim& sim, const SceneOptions& options,
+                                              float degrees) noexcept;
+
 /// The hostile asset SPACE would attack, or an invalid id when it would attack nothing.
 ///
 ///  * `selected` must hold something ARMED that can take the order -- a living unit of the player's

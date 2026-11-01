@@ -29,29 +29,10 @@ Projected attack_point(const SceneOptions& options, const sim::Unit& unit) noexc
     return project(options.camera, options.extent, at.at(0), at.at(1), at.at(2));
 }
 
-sim::UnitId attack_target(const sim::Sim& sim, const SceneOptions& options,
-                          std::span<const sim::UnitId> selected, sim::UnitId driven) noexcept {
+sim::UnitId hostile_nearest_ray(const sim::Sim& sim, const SceneOptions& options,
+                                float degrees) noexcept {
     if (!options.aim.has_value()) {
         return sim::UnitId{};
-    }
-    bool armed = false;
-    for (const sim::UnitId id : selected) {
-        const sim::Unit* unit = sim.find(id);
-        if (unit != nullptr && unit->alive && unit->side == sim::Side::Player && id != driven
-            && sim::spec_of(unit->kind).range.raw > 0) {
-            armed = true;
-            break;
-        }
-    }
-    if (!armed) {
-        return sim::UnitId{};
-    }
-    const Pick picked = pick(sim, options, options.aim->x, options.aim->y);
-    if (picked.has_unit()) {
-        const sim::Unit* hit = sim.find(picked.unit);
-        if (hit != nullptr && hit->alive) {
-            return hit->side != sim::Side::Player ? hit->id : sim::UnitId{};
-        }
     }
     const RayPoint probe = ray_point(options.camera, options.extent, options.aim->x, options.aim->y,
                                      kRayProbeMetres);
@@ -59,7 +40,7 @@ sim::UnitId attack_target(const sim::Sim& sim, const SceneOptions& options,
                                    probe.z - options.camera.z};
     const float ray_length
         = std::sqrt((ray.at(0) * ray.at(0)) + (ray.at(1) * ray.at(1)) + (ray.at(2) * ray.at(2)));
-    const float cos_window = std::cos(kAttackAimToleranceDegrees * math::kPi / 180.0F);
+    const float cos_window = std::cos(degrees * math::kPi / 180.0F);
     sim::UnitId best{};
     float best_cos = -1.0F;
     for (const sim::Unit& unit : sim.units()) {
@@ -86,6 +67,33 @@ sim::UnitId attack_target(const sim::Sim& sim, const SceneOptions& options,
         }
     }
     return best;
+}
+
+sim::UnitId attack_target(const sim::Sim& sim, const SceneOptions& options,
+                          std::span<const sim::UnitId> selected, sim::UnitId driven) noexcept {
+    if (!options.aim.has_value()) {
+        return sim::UnitId{};
+    }
+    bool armed = false;
+    for (const sim::UnitId id : selected) {
+        const sim::Unit* unit = sim.find(id);
+        if (unit != nullptr && unit->alive && unit->side == sim::Side::Player && id != driven
+            && sim::spec_of(unit->kind).range.raw > 0) {
+            armed = true;
+            break;
+        }
+    }
+    if (!armed) {
+        return sim::UnitId{};
+    }
+    const Pick picked = pick(sim, options, options.aim->x, options.aim->y);
+    if (picked.has_unit()) {
+        const sim::Unit* hit = sim.find(picked.unit);
+        if (hit != nullptr && hit->alive) {
+            return hit->side != sim::Side::Player ? hit->id : sim::UnitId{};
+        }
+    }
+    return hostile_nearest_ray(sim, options, kAttackAimToleranceDegrees);
 }
 
 } // namespace protekt::game

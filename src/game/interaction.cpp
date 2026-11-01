@@ -12,6 +12,7 @@
 
 #include "protekt/ai/utility.hpp"
 #include "protekt/cmd/command.hpp"
+#include "protekt/game/assist.hpp"
 #include "protekt/game/attack_aim.hpp"
 #include "protekt/game/menu.hpp"
 #include "protekt/game/nav_marks.hpp"
@@ -82,6 +83,14 @@ void Interaction::handle(const input::InputFrame& frame, const sim::Sim& sim,
         const sim::Unit* unit = sim.find(id);
         return unit != nullptr && unit->alive && unit->side == sim::Side::Player;
     });
+    // The assist follows its target only while there is one to draw: dead, or no longer drawn by
+    // the world view (out of the radar's reach, off the meshed ground), it is let go.
+    if (assist_.valid()) {
+        const sim::Unit* held = sim.find(assist_);
+        if (held == nullptr || !held->alive || !available_to_viewer(sim, options, *held)) {
+            assist_ = sim::UnitId{};
+        }
+    }
     // The deploy is armed on a recycler: once the selection is not one any more (it died, it
     // deployed, the selection went), there is nothing left to deploy and the arming goes with it.
     if (deploy_armed_ && menu_subject_of(sim, selection_.units()) != MenuSubject::Recycler) {
@@ -248,6 +257,12 @@ void Interaction::handle(const input::InputFrame& frame, const sim::Sim& sim,
             } else {
                 menu_digit(sim, options, digit, key.shift);
             }
+        } else if (key.scancode == input::kKeyT && !key.ctrl && !key.alt) {
+            // THE ASSIST. The hostile nearest the crosshair within the cone is latched for the dot
+            // (replacing a latch already held); with nothing in the cone the latch is let go, and
+            // with none held nothing happens at all -- no order, no prompt, no message. Nothing
+            // here is a command: the dot draws, it never steers the shot.
+            assist_ = assist_pick(sim, options);
         } else if (key.scancode == input::kKeyX) {
             swap_to_crosshair(sim, options);
         } else if (key.scancode == input::kKeyM) {
@@ -363,6 +378,8 @@ const std::vector<TargetRow>& Interaction::attack_targets() const noexcept { ret
 const cmd::Selection& Interaction::selection() const noexcept { return selection_; }
 
 sim::UnitId Interaction::driven() const noexcept { return driven_; }
+
+sim::UnitId Interaction::assist_target() const noexcept { return assist_; }
 
 Weapon Interaction::weapon() const noexcept { return weapon_; }
 
@@ -782,7 +799,7 @@ void Interaction::go_to_highlighted_mark(const SceneOptions& options) {
 
 void Interaction::attack_from_menu(const sim::Sim& sim, const SceneOptions& options) {
     // The list appears and the next digit names the row to attack. This row is the only door onto
-    // it: T was a second and is unbound, so there is ONE target list and one numbering.
+    // it: T was a second and now has another job, so there is ONE target list and one numbering.
     arm_attack_list(sim, options);
 }
 

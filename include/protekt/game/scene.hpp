@@ -916,6 +916,13 @@ struct SceneOptions {
     /// the unit is hurt. An invalid id (the default) draws none of it, so a frame that never heard
     /// of the field is byte-identical.
     sim::UnitId attack_target{};
+    /// THE ASSIST (`T`, see game/assist.hpp): the hostile asset the player has latched. While it
+    /// names a living, available unit the scene draws a thin red line from it to a small red dot
+    /// where the barrel must point for `weapon` to hit it if it holds its course, and gives it the
+    /// floating health bar even when it is a structure. An invalid id (the default) draws none of
+    /// it, so a frame that never heard of the field is byte-identical. Filled by the app from the
+    /// session; the scene stays a pure function of the sim and these options.
+    sim::UnitId assist_target{};
     /// The world map (N4), drawn last over everything: the whole world as a square, your own
     /// assets and your nav marks. Off by default, so a frame that never heard of it is unchanged.
     bool show_world_map{false};
