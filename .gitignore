@@ -23,3 +23,7 @@ fuzz/leak-*
 fuzz/timeout-*
 fuzz/oom-*
 .aider*
+
+# The code bundle a review pass writes into the tree (regenerated in place).
+# Its contents are the sources themselves, so it must never be committed.
+final.bundle
