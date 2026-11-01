@@ -101,7 +101,9 @@ public:
     ///    that key names, but only the rows that can act yet, and only when `menu_rows` says the
     ///    row is enabled. `FOLLOW ME` orders the selection to follow the craft being driven;
     ///    `HOLD` posts each selected unit where it stands (GuardAt at its own position -- a bare
-    ///    Stop would not hold a harvester, whose fetch starts again the same tick). Every other
+    ///    Stop would not hold a harvester, which scavenges again the moment it is idle).
+    ///    `SCAVENGE` orders each selected unit to Stop, which sets an idle scavenger collecting
+    ///    from inside its radar where it stands; it has no destination. Every other
     ///    row, and every digit with no menu, does nothing. A `G` prompt or the attack list, armed,
     ///    swallows the digit before the menu sees it.
     ///  * `3 DEPLOY` on an un-deployed recycler ARMS the deploy (DEPLOY; `deploy_armed`). While it
@@ -215,6 +217,9 @@ private:
     void follow_driven(const sim::Sim& sim);
     /// `4 HOLD`: every orderable selected unit is posted where it stands, one GuardAt each.
     void hold_selection(const sim::Sim& sim);
+    /// `3 SCAVENGE`: every orderable selected unit is ordered to Stop, which leaves a scavenger
+    /// idle and so collecting where it stands.
+    void scavenge_selection();
     /// `3 DEPLOY`: arm the deploy, or refuse when only the driven craft is selected.
     void arm_deploy();
     /// `2 GO TO NAV`: MoveTo the highlighted nav mark for every orderable selected unit. Refused

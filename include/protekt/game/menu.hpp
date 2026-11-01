@@ -199,8 +199,9 @@ inline constexpr std::string_view kVerbDeploy{"Deploy"};
 inline constexpr std::string_view kVerbGoToNav{"Go to Nav"};
 inline constexpr std::string_view kVerbAttack{"Attack"};
 inline constexpr std::string_view kVerbRecycle{"Recycle"};
-/// Drawn on a vehicle's menu and inert in this slice: the row is the reference's, the behaviour is
-/// not built. Written here so the table reads as one list and not a run of literals.
+/// Drawn on a vehicle's menu; `Pick Me Up` and `Bailout` are inert in this slice: the row is the
+/// reference's, the behaviour is not built. (`Scavenge` acts: see `Interaction`.) Written here so
+/// the table reads as one list and not a run of literals.
 inline constexpr std::string_view kVerbSelectUnit{"Select Unit"};
 inline constexpr std::string_view kVerbPickMeUp{"Pick Me Up"};
 inline constexpr std::string_view kVerbBailout{"Bailout"};

@@ -11,6 +11,8 @@ namespace {
 
 constexpr float kDotHalfFraction = 0.022F;
 constexpr float kBaseHalfFraction = 0.05F;
+/// A piece of litter: half a unit's dot, so scrap reads as specks among the blips.
+constexpr float kLitterHalfFraction = 0.011F;
 constexpr float kViewerHalfFraction = 0.03F;
 constexpr float kArrowHalfFraction = 0.045F;
 /// A nav mark's plus is this half-size, of the panel: 4 px at the 230 px panel, so the mark spans
@@ -39,8 +41,10 @@ constexpr float kNavRimFraction = 0.02F;
 
 int viewer_radar_radius(const sim::Sim& sim, sim::UnitId viewer) noexcept {
     const sim::Unit* unit = sim.find(viewer);
-    const bool scout = unit != nullptr && unit->alive && unit->kind == sim::UnitKind::Scout;
-    return scout ? kScoutRadarRadiusTiles : kRadarRadiusTiles;
+    if (unit == nullptr || !unit->alive) {
+        return kRadarRadiusTiles; // a dead or missing viewer has no kind's eyes to lend a reach
+    }
+    return sim::radar_radius_tiles(unit->kind);
 }
 
 RadarPanel radar_panel(Extent extent) noexcept {
@@ -309,6 +313,38 @@ std::vector<RadarMark> radar_marks(std::span<const sim::Unit> units, sim::UnitId
                       half);
         marks.push_back(RadarMark{at.px, at.py, half, std::atan2(ground_x, ground_y),
                                   RadarShape::Arrow, RadarTone::Yours, unit.id});
+    }
+    return marks;
+}
+
+std::vector<RadarMark> radar_litter(std::span<const sim::Scrap> scrap,
+                                    std::span<const sim::Unit> units, sim::UnitId viewer_unit,
+                                    float yaw_radians, const RadarPanel& panel, int radius_tiles) {
+    std::vector<RadarMark> marks;
+    if (!viewer_unit.valid() || radius_tiles <= 0 || panel.width <= 0.0F) {
+        return marks;
+    }
+    const auto viewer = std::find_if(units.begin(), units.end(), [viewer_unit](const sim::Unit& u) {
+        return u.id == viewer_unit;
+    });
+    if (viewer == units.end()) {
+        return marks;
+    }
+    const float sine = std::sin(yaw_radians);
+    const float cosine = std::cos(yaw_radians);
+    const float half = panel.width * kLitterHalfFraction;
+    for (const sim::Scrap& piece : scrap) {
+        const float dx = tiles(piece.x) - tiles(viewer->x);
+        const float dz = tiles(piece.y) - tiles(viewer->y);
+        if (std::hypot(dx, dz) > static_cast<float>(radius_tiles)) {
+            continue; // the same reach as a unit's blip, and the same reach a scavenger collects in
+        }
+        const float forward = (dx * sine) + (dz * cosine);
+        const float right = (dx * cosine) - (dz * sine);
+        const RadarPoint at
+            = fit_box(panel, radar_project(panel, right, forward, radius_tiles), half);
+        marks.push_back(RadarMark{at.px, at.py, half, 0.0F, RadarShape::Square, RadarTone::Litter,
+                                  sim::UnitId{}});
     }
     return marks;
 }

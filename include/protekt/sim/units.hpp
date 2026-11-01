@@ -115,9 +115,9 @@ enum class Stance : std::uint8_t {
     Attack = 4,
     Dead = 5,
     Follow = 6, ///< appended after Dead, so every recorded stance value (and hash) is unchanged
-    /// The fetch (C2), appended for the same reason. Not an order: nothing a commander can issue
-    /// sets it -- the sim sets it on an unarmed scavenger with no orders of its own, and any order
-    /// the player or an AI gives replaces it (see `fetch_step`).
+    /// RETIRED. The fetch (C2) drove a scavenger at scrap and home; scavengers now collect where
+    /// they stand and nothing sets this. The value stays so every recorded stance, observation and
+    /// replay still names the same thing (`scavenge_step`).
     Fetch = 7,
     /// A recycler under a `Deploy` order (DEPLOY), appended for the same reason: it drives to the
     /// site's centre (`guard_x`/`guard_y`) and, once there, counts `Unit::deploy_ticks` up to
@@ -203,17 +203,13 @@ struct Unit {
     std::uint16_t unmount_ticks{};
     /// The planned route to this unit's goal (see sim/route.hpp). Hashed: it decides every step.
     Route route{};
-    /// How many pieces of wreckage this unit is carrying (C2): 0 or 1 today, a count so a
-    /// bigger hold is a number and not a new field. Hashed only when non-zero, so a battle with
-    /// no scavenger anywhere in it hashes exactly as it did before the fetch existed.
-    std::uint16_t cargo{};
     /// DEPLOY: ticks this recycler has stood at its site under a `Deploy` order, counting up to
     /// `kDeployTicks`; zero whenever it is not standing there under one. Hashed only when non-zero,
-    /// like `cargo`, so a battle in which nothing deploys hashes exactly as it did before.
+    /// so a battle in which nothing deploys hashes exactly as it did before.
     std::uint16_t deploy_ticks{};
     /// The batch this unit was BUILT in (BUILD-QUEUE): the id its queue entry carried. Zero for a
     /// unit the scenario placed, which belongs to no batch; a lone build gets an id of its own, so
-    /// a built unit's is never zero. The row groups by it. Hashed only when non-zero, like `cargo`,
+    /// a built unit's is never zero. The row groups by it. Hashed only when non-zero,
     /// so a battle that builds nothing hashes exactly as it did before there was a queue.
     std::uint32_t batch{};
     /// This unit's build queue, if it is a producer (see `is_producer`). Hashed only when it holds
@@ -274,10 +270,19 @@ inline constexpr std::int32_t kArriveRadiusRaw = 1 << 16; ///< 1 tile
 /// quarters of the tank's), its unarmed state and its 20/300 build row are unchanged.
 inline constexpr std::uint16_t kScavengerHp = kTankHp;
 inline constexpr std::int32_t kScavengerSpeedRaw = kTankSpeedRaw * 3 / 4;
-/// How close (tiles) a scavenger must be to a piece of wreckage to pick it up, and to its own
-/// factory to hand the load over. Both are radii, not tiles: the mover stops inside them.
-inline constexpr int kFetchRadiusTiles = 1;
-inline constexpr int kDeliverRadiusTiles = 2;
+/// THE RADAR'S REACH, in tiles: 40 for every kind but the scout, 80 for the scout (VIS, twice as
+/// far). It lives in the sim because the sim reads it too -- a scavenger's collection range IS its
+/// radar's range (Harri: "they look for scrap in their radar") -- and the game layer's radar takes
+/// its numbers from here, so the two cannot drift apart.
+inline constexpr int kRadarRadiusTiles = 40;
+inline constexpr int kScoutRadarRadiusTiles = 80;
+[[nodiscard]] constexpr int radar_radius_tiles(UnitKind kind) noexcept {
+    return kind == UnitKind::Scout ? kScoutRadarRadiusTiles : kRadarRadiusTiles;
+}
+
+/// How often one idle scavenger takes a piece of scrap from inside its radar, in ticks: once a
+/// second. A dial, Harri's to set; several scavengers over ample scrap multiply it.
+inline constexpr int kScavengeIntervalTicks = kTicksPerSecond;
 
 /// The recycler's hull, and the deployed recycler's. The recycler's is BORROWED from the tank (see
 /// its spec entry). The deployed recycler's equals it -- a building that heals or wounds itself by

@@ -721,6 +721,22 @@ TEST(Interaction, ThreeWithOnlyTheDrivenTankSelectedOpensTheListAndItsRowIsRefus
     EXPECT_EQ(player.message(), "You are driving that one; select another unit to give orders.");
 }
 
+TEST(Interaction, ThreeScavengeOnASelectedScavengerOrdersItToStopAndClosesTheMenu) {
+    // Harri: "I select them and hit 3, and they start scavenging where they are." A Stop is the
+    // whole order: the sim's idle scavenger takes from inside its radar, so no destination goes
+    // with it, and the sequence is complete, so the menu closes.
+    Rig rig = make_rig(UnitKind::Scavenger);
+    Interaction player{rig.tank_a};
+    choose(rig, player, rig.tank_b);
+    player.handle(with_key(input::kKey1 + 2), rig.sim, rig.options);
+    const std::vector<Order> orders = player.take_orders();
+    ASSERT_EQ(orders.size(), 1U);
+    EXPECT_EQ(orders.front().unit, rig.tank_b);
+    EXPECT_EQ(orders.front().kind(), OrderKind::Stop);
+    EXPECT_FALSE(player.attack_armed()) << "a scavenger's 3 is not the attack list";
+    EXPECT_TRUE(selected(player).empty()) << "a completed sequence un-selects";
+}
+
 TEST(Interaction, SpaceRetargetsWithoutReselecting) {
     Rig rig = make_rig();
     Interaction player{rig.tank_a};

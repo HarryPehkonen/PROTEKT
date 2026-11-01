@@ -41,13 +41,6 @@ constexpr std::int32_t kMaxPosRaw = kMapTiles * Fixed::kOne - 1;
 
 /// "No piece" from `nearest_scrap`.
 constexpr std::size_t kNoScrap = static_cast<std::size_t>(-1);
-/// The pick-up and hand-over radii, as squared raw distances (see kFetchRadiusTiles).
-constexpr std::int64_t kFetchRadiusRaw2
-    = (static_cast<std::int64_t>(kFetchRadiusTiles) << Fixed::kShift)
-      * (static_cast<std::int64_t>(kFetchRadiusTiles) << Fixed::kShift);
-constexpr std::int64_t kDeliverRadiusRaw2
-    = (static_cast<std::int64_t>(kDeliverRadiusTiles) << Fixed::kShift)
-      * (static_cast<std::int64_t>(kDeliverRadiusTiles) << Fixed::kShift);
 
 Fixed clamp_pos(Fixed v) noexcept {
     return Fixed::from_raw(std::clamp<std::int32_t>(v.raw, 0, kMaxPosRaw));
@@ -661,66 +654,36 @@ void settle_litter(std::vector<Scrap>& scraps, std::size_t first, std::uint64_t 
     }
 }
 
-/// The lowest-id living factory of a side: the same "home" every other rule in the sim means by it
-/// (repair, retreat), asked here for a caller that is only passing through.
-const Unit* home_factory(const std::vector<Unit>& units, Side side) noexcept {
-    const Unit* home = nullptr;
-    for (const Unit& unit : units) {
-        if (unit.alive && unit.kind == UnitKind::Factory && unit.side == side
-            && (home == nullptr || unit.id < home->id)) {
-            home = &unit;
-        }
-    }
-    return home;
-}
-
-/// THE FETCH (C2). Called for every living scavenger before it is steered, in ascending unit order,
-/// so a piece a lower id picked up this tick is already gone when a higher id looks for one.
+/// SCAVENGING IN PLACE (C2). Called for every living scavenger before it is steered, in ascending
+/// unit order, so a piece a lower id took this tick is already gone when a higher id looks.
 ///
-/// Picking up and handing over are matters of where the hauler IS, not of what it was told:
-/// wreckage under the tracks is taken even by a scavenger a player is driving elsewhere, and a load
-/// that reaches its own yard is banked however it got there. The GOAL is the sim's business alone,
-/// and only for a scavenger with no orders of its own (`Idle` or already `Fetch`): carrying, the
-/// goal is home; empty, it is the nearest piece; with no wreckage left, the fetch ends and it
-/// stands. Any order sets a stance of its own, which is what stops the fetch -- the sim never
-/// argues with one.
-void fetch_step(std::vector<Unit>& units, std::vector<Scrap>& scraps,
-                std::array<std::uint16_t, 2>& ore, Unit& unit) noexcept {
-    if (unit.cargo == 0) {
-        const std::size_t pick = nearest_scrap(scraps, unit.x, unit.y);
-        if (pick != kNoScrap
-            && dist2(unit.x, unit.y, scraps.at(pick).x, scraps.at(pick).y) <= kFetchRadiusRaw2) {
-            scraps.erase(scraps.begin() + static_cast<std::ptrdiff_t>(pick));
-            unit.cargo = 1;
-        }
-    }
-    const Unit* home = home_factory(units, unit.side);
-    if (unit.cargo > 0 && home != nullptr
-        && dist2(unit.x, unit.y, home->x, home->y) <= kDeliverRadiusRaw2) {
-        unit.cargo = 0;
-        ++ore.at(static_cast<std::size_t>(unit.side));
-    }
-    if (unit.stance != Stance::Idle && unit.stance != Stance::Fetch) {
-        return; // under an order: it collects what it drives over, and goes where it was sent
-    }
-    if (unit.cargo > 0) {
-        if (home == nullptr) {
-            unit.stance = Stance::Idle; // hauling with no base to bank it at: hold where it stands
-            return;
-        }
-        unit.guard_x = home->x;
-        unit.guard_y = home->y;
-        unit.stance = Stance::Fetch;
+/// Nothing is carried and nothing is delivered (Harri: scavengers "just collect, and scrap
+/// magically appears in your stores. It's immediately available!"): a piece taken goes straight
+/// into its side's bank in the same tick. And nothing is walked to -- the scavenger takes from
+/// where it STANDS, the nearest piece inside its own radar (`radar_radius_tiles`, the one number
+/// the game layer's radar draws at), once every `kScavengeIntervalTicks` ticks. Nothing in range
+/// and it does nothing at all: no search, no wander, no stance. Leading it to new litter is the
+/// player's order (`Follow`), and `Stop` -- the `3 Scavenge` row -- sets it taking again.
+///
+/// Only an IDLE scavenger collects: any order (a move, a follow, a hold) is a stance of its own and
+/// the sim never argues with one. The beat is phased by unit id (`tick + id`), so a group does not
+/// all take on the same tick and the bank rises evenly, with no per-unit timer to hash.
+void scavenge_step(std::vector<Scrap>& scraps, std::array<std::uint16_t, 2>& ore, const Unit& unit,
+                   std::uint32_t tick) noexcept {
+    if (unit.stance != Stance::Idle
+        || (tick + unit.id.value) % static_cast<std::uint32_t>(kScavengeIntervalTicks) != 0) {
         return;
     }
+    const std::int64_t reach = static_cast<std::int64_t>(radar_radius_tiles(unit.kind))
+                               << Fixed::kShift;
     const std::size_t pick = nearest_scrap(scraps, unit.x, unit.y);
-    if (pick == kNoScrap) {
-        unit.stance = Stance::Idle;
+    if (pick == kNoScrap
+        || dist2(unit.x, unit.y, scraps.at(pick).x, scraps.at(pick).y) > reach * reach) {
         return;
     }
-    unit.guard_x = scraps.at(pick).x;
-    unit.guard_y = scraps.at(pick).y;
-    unit.stance = Stance::Fetch;
+    scraps.erase(scraps.begin() + static_cast<std::ptrdiff_t>(pick));
+    std::uint16_t& bank = ore.at(static_cast<std::size_t>(unit.side));
+    bank = static_cast<std::uint16_t>(std::min(static_cast<int>(bank) + 1, 0xFFFF));
 }
 
 /// DEPLOY (R2). Called for every living recycler before it is steered. Returns true when the
@@ -815,7 +778,8 @@ void steer(std::vector<Unit>& units, Unit& unit, const UnitProfile& prof, const 
     case Stance::MoveTo:
     case Stance::GuardAt:
     case Stance::Patrol:
-    // The fetch steers at whatever goal `fetch_step` wrote into guard_x/guard_y this tick.
+    // RETIRED: nothing sets `Fetch` since scavengers stopped walking to scrap; a recorded replay
+    // that names it steers as it did.
     case Stance::Fetch:
     // A deploy drives to its site's centre, which the order wrote into guard_x/guard_y.
     case Stance::Deploy:
@@ -1079,9 +1043,9 @@ void Sim::step() {
         // already in the way of every unit after it.
         const WorldGround ground = ground_of(seed, units_);
         const UnitProfile prof = profile(unit.kind);
-        // The fetch, before the mover: it writes the goal the mover is about to steer at (C2).
+        // Scavenging, before the mover: it takes from where the unit stands and sets no goal (C2).
         if (unit.kind == UnitKind::Scavenger) {
-            fetch_step(units_, scraps_, ore_, unit);
+            scavenge_step(scraps_, ore_, unit, tick_);
         }
         if (!prof.mobile) {
             unit.vx = Fixed::zero();
@@ -1357,9 +1321,6 @@ std::uint64_t Sim::state_hash() const noexcept {
         h.i32(u.aim_y.raw);
         h.u64(u.aim_target.value);
         h.u64(u.alive ? 1 : 0);
-        if (u.cargo != 0) {
-            h.u64(u.cargo); // only when set, like unmount_ticks: a haul-less sim hashes as before
-        }
         if (u.deploy_ticks != 0) {
             h.u64(
                 u.deploy_ticks); // only when set too: a battle that never deploys hashes as before

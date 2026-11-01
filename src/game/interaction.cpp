@@ -531,12 +531,12 @@ void Interaction::menu_digit(const sim::Sim& sim, const SceneOptions& options, i
     shift_batch_ = 0; // a digit that is not a build row ends a shift gesture
     // Harri: a COMPLETED menu sequence closes the menu and un-selects. The menu is derived from the
     // selection (`menu_subject_of`), so the handlers that POST orders -- Follow Me, Hold, Go to
-    // Nav, Recycle, and the attack list's row (Attack only arms that list; the row completes it) --
-    // end by clearing it. Two kinds of row deliberately do not: the build rows (above) keep the
-    // factory selected so the player can keep queueing, and Deploy only ARMS a click, so its
-    // sequence is not complete until the click lands. A row the model dims, or draws no digit for,
-    // is not a command: the digit does nothing, as it did before the menu was routed. Only the rows
-    // below can act yet; the rest stay inert.
+    // Nav, Recycle, Scavenge, and the attack list's row (Attack only arms that list; the row
+    // completes it) -- end by clearing it. Two kinds of row deliberately do not: the build rows
+    // (above) keep the factory selected so the player can keep queueing, and Deploy only ARMS a
+    // click, so its sequence is not complete until the click lands. A row the model dims, or draws
+    // no digit for, is not a command: the digit does nothing, as it did before the menu was routed.
+    // Only the rows below can act yet; the rest stay inert.
     if (row == rows.end() || !row->enabled) {
         return;
     }
@@ -544,6 +544,8 @@ void Interaction::menu_digit(const sim::Sim& sim, const SceneOptions& options, i
         follow_driven(sim);
     } else if (row->verb == kVerbHold) {
         hold_selection(sim);
+    } else if (row->verb == kVerbScavenge) {
+        scavenge_selection();
     } else if (row->verb == kVerbDeploy) {
         arm_deploy();
     } else if (row->verb == kVerbGoToNav) {
@@ -753,6 +755,26 @@ void Interaction::hold_selection(const sim::Sim& sim) {
     remember(orders);
     pending_.insert(pending_.end(), orders.begin(), orders.end());
     message_ = "holding here.";
+    selection_.clear(); // the sequence is complete: the menu closes (see `menu_digit`)
+}
+
+void Interaction::scavenge_selection() {
+    const std::vector<sim::UnitId> roster = orderable();
+    if (roster.empty()) {
+        refuse("You are driving that one; select another unit to give orders.");
+        return;
+    }
+    // `3 Scavenge` is a Stop and nothing more: an idle scavenger takes the scrap inside its radar
+    // where it stands, so the order carries no destination and names no pile. Leading it to new
+    // litter is `1 Follow Me`, and the player's.
+    const std::vector<sim::Order> orders = cmd::stop(roster);
+    if (orders.empty()) {
+        refuse("That order cannot be carried out.");
+        return;
+    }
+    remember(orders);
+    pending_.insert(pending_.end(), orders.begin(), orders.end());
+    message_ = "scavenging here.";
     selection_.clear(); // the sequence is complete: the menu closes (see `menu_digit`)
 }
 

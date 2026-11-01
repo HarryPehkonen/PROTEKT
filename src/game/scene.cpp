@@ -2244,6 +2244,8 @@ std::array<float, 3> radar_colour(RadarTone tone) {
         return {0.30F, 0.85F, 0.35F};
     case RadarTone::Hostile:
         return {1.0F, 0.30F, 0.25F};
+    case RadarTone::Litter:
+        return {1.0F, 1.0F, 1.0F}; // whatever a scavenger can collect: one white, wreck or pool
     }
     return {1.0F, 1.0F, 1.0F};
 }
@@ -2469,7 +2471,13 @@ void append_radar(std::vector<SceneVertex>& out, const SceneOptions& options, co
         }
     }
 
-    for (const RadarMark& mark : marks) {
+    // Scrap LAST: the marks all sit at one depth, where the first quad drawn wins (the depth test
+    // is LESS), so the litter goes after the blips and can never hide one.
+    std::vector<RadarMark> drawn = marks;
+    const std::vector<RadarMark> litter = radar_litter(
+        sim.scraps(), sim.units(), options.viewer_unit, options.camera.yaw, panel, reach);
+    drawn.insert(drawn.end(), litter.begin(), litter.end());
+    for (const RadarMark& mark : drawn) {
         const std::array<float, 3> rgb = radar_colour(mark.tone);
         // The mark's own coordinates are PANEL pixels; the frame is what gets drawn into, so the
         // panel's corner is added once, here, and nowhere else. Forgetting it puts every unit at

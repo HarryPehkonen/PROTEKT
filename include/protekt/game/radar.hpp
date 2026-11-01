@@ -33,10 +33,11 @@
 namespace protekt::game {
 
 /// The radar's reach, in tiles, for every kind but the scout -- and the default every projection
-/// below is calibrated against.
-inline constexpr int kRadarRadiusTiles = 40;
+/// below is calibrated against. The sim's number, not a copy of it: a scavenger collects from
+/// inside its radar (`sim::radar_radius_tiles`), so the two can never be allowed to drift.
+inline constexpr int kRadarRadiusTiles = sim::kRadarRadiusTiles;
 /// The scout's reach (VIS): twice everyone else's. The wider view is the whole point of the unit.
-inline constexpr int kScoutRadarRadiusTiles = 80;
+inline constexpr int kScoutRadarRadiusTiles = sim::kScoutRadarRadiusTiles;
 
 /// The reach of the radar centred on `viewer`: `kScoutRadarRadiusTiles` for a living scout,
 /// `kRadarRadiusTiles` for anything else -- including a viewer that is missing or dead, because the
@@ -61,7 +62,7 @@ inline constexpr float kRadarBorderPixels = 3.0F;
 
 /// What a mark means, which is what decides its colour. Two tones only: everything of yours looks
 /// alike, everything hostile looks alike, because that is the one decision the player is making.
-enum class RadarTone : std::uint8_t { You = 0, Yours = 1, Hostile = 2 };
+enum class RadarTone : std::uint8_t { You = 0, Yours = 1, Hostile = 2, Litter = 3 };
 
 /// A mark's shape. Shape carries meaning as well as colour, so your base is not just a bigger dot.
 enum class RadarShape : std::uint8_t {
@@ -150,6 +151,15 @@ inline constexpr float kRadarLetterInsetPixels = 10.0F;
                                                  sim::UnitId viewer_unit, float yaw_radians,
                                                  const RadarPanel& panel,
                                                  int radius_tiles = kRadarRadiusTiles);
+
+/// Scrap on the radar: a small white mark for every piece of litter inside `radius_tiles` of the
+/// viewer, placed exactly as a unit at that spot would be. Whatever a scavenger can collect shows
+/// this one way. With no viewer there is no centre and so no marks.
+[[nodiscard]] std::vector<RadarMark> radar_litter(std::span<const sim::Scrap> scrap,
+                                                  std::span<const sim::Unit> units,
+                                                  sim::UnitId viewer_unit, float yaw_radians,
+                                                  const RadarPanel& panel,
+                                                  int radius_tiles = kRadarRadiusTiles);
 
 /// One line of the radar's terrain wireframe, in PANEL pixels like a mark.
 struct RadarSegment {

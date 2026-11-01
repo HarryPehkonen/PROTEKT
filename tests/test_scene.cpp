@@ -1358,6 +1358,13 @@ TEST(RadarDraws, MarksCountUpTheWayTheRulesSay) {
             break;
         }
     }
+    // The litter: a small white quad for every piece of scrap inside the reach (the skirmish opens
+    // with a field near each base, and the player's tank stands among its own side's).
+    const auto litter
+        = protekt::game::radar_litter(sim.scraps(), sim.units(), player, watched.camera.yaw,
+                                      protekt::game::radar_panel(watched.extent));
+    EXPECT_FALSE(litter.empty()) << "the rig has to put scrap on the radar for this to count it";
+    expected += litter.size() * 6;
     // The ground under the marks (RADAR3D-2): a thin quad a segment, from the viewer's own tile
     // through the same default radius and grid step the drawing uses.
     const protekt::sim::Unit* viewer = sim.find(player);
@@ -7139,6 +7146,28 @@ TEST(WorldReach, TheRadarOverlayInTheFrameStillShowsTheBlipInsideAndNoneBeyond) 
               kTankVertices)
         << "world hull plus a blip";
     EXPECT_EQ(frame(out, radar_out).vertices.size(), frame(none, radar_none).vertices.size());
+}
+
+TEST(WorldReach, ScrapInReachDrawsAsOneWhiteMarkOnTheRadarAndNoneBeyond) {
+    // Harri: scrap "should appear as small white litter in the radar". One quad of pure white
+    // (the compass letters' ink is the only other white, and it does not change with the scrap).
+    const auto whites = [](int east) {
+        Scenario scenario{kSeed, {{UnitKind::Tank, Side::Player, kX, kY}}};
+        if (east > 0) {
+            const protekt::sim::Fixed half = protekt::sim::Fixed::from_raw(Fixed::kOne / 2);
+            scenario.scrap.push_back(protekt::sim::Scrap{
+                protekt::sim::fixed_add(protekt::sim::Fixed::from_int(kX + east), half),
+                protekt::sim::fixed_add(protekt::sim::Fixed::from_int(kY), half)});
+        }
+        const Sim sim = Sim::create(scenario);
+        const Scene scene = frame(sim, frame_options(sim));
+        return std::count_if(scene.vertices.begin(), scene.vertices.end(), [](const auto& vertex) {
+            return vertex.colour == std::array<float, 3>{1.0F, 1.0F, 1.0F};
+        });
+    };
+    const auto none = whites(0);
+    EXPECT_EQ(whites(20) - none, 6) << "one quad: two triangles";
+    EXPECT_EQ(whites(60) - none, 0) << "past the reach it is not on the radar";
 }
 
 // THE DEPLOY BAR (RB6): a recycler counting `deploy_ticks` wears a second bar over its health bar,

@@ -83,15 +83,16 @@ protected:
 ///   1. every order enqueued since the last step is applied in the order it was enqueued;
 ///      an order naming a unit that does not exist, is dead, or belongs to the other side is
 ///      dropped without effect;
-///   2. units act in ascending unit-id order: a scavenger fetches (it is sent to the nearest
-///      wreckage, or home with a load aboard, and picks up or hands over anything it is standing
-///      next to -- C2; an order outranks it, always); a recycler under a Deploy order whose site
-///      has stopped being usable (`deploy_site_ok`) drops the order and stands, an idle recycler,
-///      and one that is standing at its site counts one tick and, on the `kDeployTicks`th, becomes
-///      a `DeployedRecycler` where the site's centre is -- same id, same hit points -- and does not
-///      move; then a mobile unit with a MoveTo/GuardAt/Patrol/Fetch/Deploy stance steers towards
-///      its goal, then every unit's position moves by its velocity; map bounds clamp, and a unit
-///      may not enter an impassable tile -- a crater or a building's footprint;
+///   2. units act in ascending unit-id order: an idle scavenger takes the nearest scrap inside
+///      its radar, once a `kScavengeIntervalTicks`, and the bank is credited in the same tick --
+///      it neither walks to the scrap nor carries it anywhere (C2; any order outranks it); a
+///      recycler under a Deploy order whose site has stopped being usable (`deploy_site_ok`) drops
+///      the order and stands, an idle recycler, and one that is standing at its site counts one
+///      tick and, on the `kDeployTicks`th, becomes a `DeployedRecycler` where the site's centre is
+///      -- same id, same hit points -- and does not move; then a mobile unit with a
+///      MoveTo/GuardAt/Patrol/Deploy stance steers towards its goal, then every unit's position
+///      moves by its velocity; map bounds clamp, and a unit may not enter an impassable tile -- a
+///      crater or a building's footprint;
 ///   3. every projectile already in the air advances, in spawn order; one that reaches a living
 ///      hostile lands its damage there (see advance_projectiles), so a unit killed here does not
 ///      fire this tick;
@@ -195,8 +196,9 @@ private:
     std::vector<Unit> units_{};
     std::vector<Projectile> projectiles_{};
     std::vector<Scrap> scraps_{};
-    /// Delivered loads per side, indexed by `Side` (C3). Hashed only when either side has
-    /// delivered anything, so a battle with no scavenger hashes exactly as before.
+    /// The scrap banked per side, indexed by `Side` (C3): credited the tick a scavenger takes a
+    /// piece, or a unit is recycled. Hashed only when either side has any, so a battle with no
+    /// scavenger hashes exactly as before.
     std::array<std::uint16_t, 2> ore_{};
     std::vector<Impact> impacts_{};
     std::vector<Shot> shots_{};

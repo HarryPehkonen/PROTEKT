@@ -22,6 +22,7 @@ using protekt::game::kRadarElevationRadians;
 using protekt::game::kRadarRadiusTiles;
 using protekt::game::kScoutRadarRadiusTiles;
 using protekt::game::radar_compass;
+using protekt::game::radar_litter;
 using protekt::game::radar_marks;
 using protekt::game::radar_panel;
 using protekt::game::radar_project;
@@ -850,6 +851,50 @@ TEST(RadarReach, ATankInTheSameSeatSeesNoneOfThem) {
     EXPECT_EQ(hostile_blips(UnitKind::Tank, 45), 0) << "past a tank's 40";
     EXPECT_EQ(hostile_blips(UnitKind::Tank, 79), 0);
     EXPECT_EQ(hostile_blips(UnitKind::Tank, 81), 0);
+}
+
+// ---------------------------------------------------------------- litter: what a scavenger
+// collects
+
+TEST(RadarLitter, TheRadarsReachIsTheSimsNumberNotACopyOfIt) {
+    // A scavenger collects from inside the radar's reach, so the two must be one number: the game
+    // layer's constants ARE the sim's, and the per-kind rule is the sim's too.
+    static_assert(kRadarRadiusTiles == protekt::sim::kRadarRadiusTiles);
+    static_assert(kScoutRadarRadiusTiles == protekt::sim::kScoutRadarRadiusTiles);
+    const Sim sim = Sim::create(Scenario{
+        1, {{UnitKind::Scavenger, Side::Player, 40, 40}, {UnitKind::Scout, Side::Player, 44, 40}}});
+    for (const Unit& unit : sim.units()) {
+        EXPECT_EQ(viewer_radar_radius(sim, unit.id), protekt::sim::radar_radius_tiles(unit.kind));
+    }
+}
+
+TEST(RadarLitter, APieceInReachIsASmallWhiteMarkWhereAUnitAtThatSpotWouldBe) {
+    const std::vector<Unit> units = with_viewer({at_bearing(2, 20.0F, 30.0F, Side::Enemy)});
+    const protekt::sim::Scrap piece{units.at(1).x, units.at(1).y};
+    const std::vector<RadarMark> litter
+        = radar_litter(std::span{&piece, 1}, units, UnitId{1}, 0.0F, kPanel);
+    const std::vector<RadarMark> unit_marks = radar_marks(units, UnitId{1}, 0.0F, kPanel);
+    ASSERT_EQ(litter.size(), 1U);
+    ASSERT_EQ(unit_marks.size(), 2U);
+    EXPECT_EQ(litter.front().tone, RadarTone::Litter);
+    EXPECT_EQ(litter.front().shape, RadarShape::Square);
+    EXPECT_NEAR(litter.front().px, unit_marks.at(1).px, kTolerance);
+    EXPECT_NEAR(litter.front().py, unit_marks.at(1).py, kTolerance);
+    EXPECT_LT(litter.front().half, unit_marks.at(1).half) << "small: smaller than a unit's blip";
+}
+
+TEST(RadarLitter, APiecePastTheReachIsNotOnTheRadarAndNoViewerMeansNone) {
+    const std::vector<Unit> units = with_viewer({});
+    const auto piece_at = [&](float tiles) {
+        return protekt::sim::Scrap{
+            Fixed::from_raw(units.front().x.raw + static_cast<std::int32_t>(tiles * Fixed::kOne)),
+            units.front().y};
+    };
+    const protekt::sim::Scrap in = piece_at(static_cast<float>(kRadarRadiusTiles) - 1.0F);
+    const protekt::sim::Scrap out = piece_at(static_cast<float>(kRadarRadiusTiles) + 1.0F);
+    EXPECT_EQ(radar_litter(std::span{&in, 1}, units, UnitId{1}, 0.0F, kPanel).size(), 1U);
+    EXPECT_TRUE(radar_litter(std::span{&out, 1}, units, UnitId{1}, 0.0F, kPanel).empty());
+    EXPECT_TRUE(radar_litter(std::span{&in, 1}, units, UnitId{}, 0.0F, kPanel).empty());
 }
 
 } // namespace

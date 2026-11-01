@@ -342,11 +342,16 @@ TEST(Observer, RenamingTheSupportVehiclesMovedNoRecordedBattle) {
     // RE-RECORDED 2026-10-30 for the scavenger's thick armour (60 -> 100 hp): the skirmish has
     // scavengers under fire, so their longer lives change the battle. Old value
     // 9673985124876689061 is reproduced exactly by setting `kScavengerHp` back to 60.
+    // RE-RECORDED 2026-11-01 for scavenging in place: the skirmish's scavengers no longer drive to
+    // scrap and home -- they stand where they are and credit the bank from inside their radar --
+    // so their positions, what the guns shoot at, and the hashed `ore_` all change. Old value
+    // 17892257750622002389 is the code at 57da47a (the fetch and haul); it is not reproducible by
+    // a constant, because the behaviour itself was removed.
     const Scenario scenario = skirmish(42);
     ai::ScriptedCommander player(30);
     ai::ScriptedCommander enemy(30);
     const BattleLog log = run_battle(scenario, {}, 600, &player, &enemy);
-    EXPECT_EQ(log.final_hash, 17892257750622002389ULL);
+    EXPECT_EQ(log.final_hash, 11819047574427730567ULL);
 }
 
 TEST(Observer, TheFiredStreamForAScriptedBattleIsUnchanged) {
