@@ -483,7 +483,7 @@ private:
 /// `kLandingMarkHoldTicks` at full strength and then shrinking away over `kLandingMarkFadeTicks`
 /// more, so a shell that lands on empty ground still tells the player where. Fed from the sim's own
 /// `Landing` record, never re-derived. The app owns it, like `HitMark`.
-/// The hold is 2 s (M5c): a lob at the top of the ladder is in the air for 52 ticks, so a player
+/// The hold is 2 s (M5c): a lob at the highest elevation is in the air for 52 ticks, so a player
 /// who fires at the sky and looks back down still has a second to read where it came down.
 inline constexpr sim::Tick kLandingMarkHoldTicks = 120;
 inline constexpr sim::Tick kLandingMarkFadeTicks = 20;
@@ -866,9 +866,9 @@ struct SceneOptions {
     /// The reticle's pulse, 0 (rest) to 1 (just connected): the app owns it. 0 draws the reticle
     /// at rest, byte-identical to one that never heard of it.
     float reticle_pulse{0.0F};
-    /// The weapon the driven craft has up, which picks the reticle (`reticle_for`, with the
-    /// camera's pitch): the gun is E12's four ticks, unchanged, so a frame that never heard of it
-    /// is byte-identical. The mortar adds its range ladder.
+    /// The weapon the driven craft has up, which picks the reticle (`reticle_for`): the gun is
+    /// E12's four ticks, unchanged, so a frame that never heard of it is byte-identical. The mortar
+    /// is the dot alone.
     Weapon weapon{Weapon::Gun};
     /// Draw the weapon's name by the reticle. Off by default for the same reason.
     bool show_weapon{false};

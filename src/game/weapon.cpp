@@ -84,17 +84,6 @@ float mortar_landing_tiles(float pitch) noexcept {
     return static_cast<float>(flown) / static_cast<float>(sim::Fixed::kOne);
 }
 
-std::size_t mortar_rung(float pitch) noexcept {
-    std::size_t best = 0;
-    for (std::size_t rung = 1; rung < kMortarRungCount; ++rung) {
-        if (std::abs(kMortarRungPitches.at(rung) - pitch)
-            < std::abs(kMortarRungPitches.at(best) - pitch)) {
-            best = rung;
-        }
-    }
-    return best;
-}
-
 bool weapon_reloading(const sim::Sim& sim, sim::UnitId driven) noexcept {
     const sim::Unit* unit = sim.find(driven);
     return unit != nullptr && unit->alive && unit->cooldown > 0;
@@ -119,16 +108,16 @@ std::string_view trigger_refusal(Weapon weapon, const sim::Unit& unit) noexcept 
     return "the weapon is reloading.";
 }
 
-ReticleShape reticle_for(Weapon weapon, float pitch) noexcept {
+ReticleShape reticle_for(Weapon weapon) noexcept {
     switch (weapon) {
     case Weapon::Gun:
     case Weapon::Shotgun:
-        return ReticleShape{ReticleKind::FourTicks, 0};
+        return ReticleShape{ReticleKind::FourTicks};
     case Weapon::Rocket:
-        return ReticleShape{ReticleKind::Heavy, 0};
+        return ReticleShape{ReticleKind::Heavy};
     case Weapon::Mortar:
     case Weapon::Bouncer:
-        return ReticleShape{ReticleKind::Ladder, mortar_rung(pitch)};
+        return ReticleShape{ReticleKind::Dot};
     }
     return ReticleShape{};
 }

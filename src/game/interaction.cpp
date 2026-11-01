@@ -146,8 +146,7 @@ void Interaction::handle(const input::InputFrame& frame, const sim::Sim& sim,
             const std::array<float, 3> barrel
                 = math::basis_from(options.camera.yaw, options.camera.pitch).forward;
             if (weapon_ == Weapon::Mortar || weapon_ == Weapon::Bouncer) {
-                // THE MORTAR'S shell flies the barrel too, which is also what the range ladder
-                // reads.
+                // THE MORTAR'S shell flies the barrel too.
                 pending_.push_back(sim::Order{
                     driven_,
                     sim::orders::FireLob{to_fixed(barrel.at(0)), to_fixed(barrel.at(2)),

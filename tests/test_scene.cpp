@@ -893,35 +893,17 @@ TEST(Reticle, APulseSpreadsTheTicksAndRestIsUntouched) {
 
 // ---------------------------------------------------------------- the weapon's reticle (M1)
 
-using protekt::game::kMortarRungCount;
-using protekt::game::kMortarRungPitches;
 using protekt::game::mortar_landing_tiles;
-using protekt::game::mortar_rung;
 using protekt::game::reticle_for;
 using protekt::game::ReticleKind;
 using protekt::game::Weapon;
 
-TEST(WeaponReticle, TheChoiceIsAPureFunctionOfWeaponAndPitch) {
-    for (const float pitch : {-1.0F, -0.12F, 0.0F, 0.45F, 1.0F}) {
-        EXPECT_EQ(reticle_for(Weapon::Gun, pitch).kind, ReticleKind::FourTicks);
-        EXPECT_EQ(reticle_for(Weapon::Rocket, pitch).kind, ReticleKind::Heavy);
-        EXPECT_EQ(reticle_for(Weapon::Mortar, pitch).kind, ReticleKind::Ladder);
-        EXPECT_EQ(reticle_for(Weapon::Mortar, pitch).rung, reticle_for(Weapon::Mortar, pitch).rung);
-    }
-    // The lit rung follows the pitch: nearest band, clamped at both ends.
-    EXPECT_EQ(reticle_for(Weapon::Mortar, -1.0F).rung, 0U);
-    EXPECT_EQ(reticle_for(Weapon::Mortar, -0.12F).rung, 0U) << "the starting view";
-    EXPECT_EQ(reticle_for(Weapon::Mortar, 0.0F).rung, 0U);
-    EXPECT_EQ(reticle_for(Weapon::Mortar, 0.25F).rung, 1U);
-    EXPECT_EQ(reticle_for(Weapon::Mortar, 0.45F).rung, 2U);
-    EXPECT_EQ(reticle_for(Weapon::Mortar, 0.62F).rung, 3U);
-    EXPECT_EQ(reticle_for(Weapon::Mortar, 0.79F).rung, 4U);
-    EXPECT_EQ(reticle_for(Weapon::Mortar, 1.0F).rung, 5U);
-    EXPECT_EQ(reticle_for(Weapon::Mortar, 1.3F).rung, kMortarRungCount - 1)
-        << "the limit lights the last";
-    for (std::size_t rung = 0; rung < kMortarRungCount; ++rung) {
-        EXPECT_EQ(mortar_rung(kMortarRungPitches.at(rung)), rung);
-    }
+TEST(WeaponReticle, TheChoiceIsAPureFunctionOfTheWeapon) {
+    EXPECT_EQ(reticle_for(Weapon::Gun).kind, ReticleKind::FourTicks);
+    EXPECT_EQ(reticle_for(Weapon::Shotgun).kind, ReticleKind::FourTicks);
+    EXPECT_EQ(reticle_for(Weapon::Rocket).kind, ReticleKind::Heavy);
+    EXPECT_EQ(reticle_for(Weapon::Mortar).kind, ReticleKind::Dot);
+    EXPECT_EQ(reticle_for(Weapon::Bouncer).kind, ReticleKind::Dot);
 }
 
 /// A row of `length` + 1 tiles at seed 42 within six height units of each other, none a crater:
@@ -954,17 +936,21 @@ LevelRow find_level_row(int length) {
     return LevelRow{};
 }
 
-TEST(MortarLadder, RungDistancesAreTheSimsOwnFlightOnLevelGround) {
+/// The pitches the landing mirror is checked at: the eight the retired range ladder used to light,
+/// kept as plain numbers (radians, up positive).
+constexpr std::array<float, 8> kFlightPitches{0.0F, 0.2F, 0.4F, 0.6F, 0.8F, 1.0F, 1.15F, 1.28F};
+
+TEST(MortarLanding, TheMirrorsDistancesAreTheSimsOwnFlightOnLevelGround) {
     // ONE source of truth: the shell is built from the mortar's spec row and flown by the sim's
-    // own `advance_projectiles`; the ladder's distance must fall inside the last step it took.
+    // own `advance_projectiles`; the mirror's distance must fall inside the last step it took.
     namespace sim = protekt::sim;
     const sim::UnitSpec& mortar = sim::spec_of(sim::UnitKind::MortarBike);
     const LevelRow row = find_level_row(16);
     ASSERT_TRUE(row.found);
     const sim::Fixed start_x = sim::Fixed::from_int(row.x);
     const sim::Fixed start_y = sim::Fixed::from_raw((row.y * sim::Fixed::kOne) + 32768);
-    for (std::size_t rung = 0; rung < kMortarRungCount; ++rung) {
-        const float pitch = kMortarRungPitches.at(rung);
+    for (std::size_t index = 0; index < kFlightPitches.size(); ++index) {
+        const float pitch = kFlightPitches.at(index);
         sim::Projectile shell{};
         shell.x = start_x;
         shell.y = start_y;
@@ -991,27 +977,26 @@ TEST(MortarLadder, RungDistancesAreTheSimsOwnFlightOnLevelGround) {
         const float one = static_cast<float>(sim::Fixed::kOne);
         const float before = static_cast<float>(last_x.raw - start_x.raw) / one;
         const float after = before + (static_cast<float>(split.across) / one);
-        const float ladder = mortar_landing_tiles(pitch);
+        const float mirror = mortar_landing_tiles(pitch);
         // Six height units of unevenness in the row move the touchdown a little either way.
-        EXPECT_GE(ladder, before - 0.25F) << "rung " << rung;
-        EXPECT_LE(ladder, after + 0.25F) << "rung " << rung;
+        EXPECT_GE(mirror, before - 0.25F) << "pitch " << pitch;
+        EXPECT_LE(mirror, after + 0.25F) << "pitch " << pitch;
     }
 }
 
-TEST(MortarLadder, TheRungsArePinnedAndRangePeaksNearFortyFiveDegrees) {
+TEST(MortarLanding, TheLandingsArePinnedAndRangePeaksNearFortyFiveDegrees) {
     // From the spec: ONE muzzle speed, 45977 raw tiles a tick (about 21 tiles a second), split by
     // the elevation into reach and climb; a 36.8-unit muzzle, 2.25 units a tick^2.
     // Re-recorded for the FIXED MUZZLE SPEED (2026-10-31): the old rule kept the horizontal speed
-    // constant and added the climb on top, so distance rose with every rung (3.30 ... 14.33); the
-    // elevation now divides one speed, so distance rises to rung 4 (45.8 degrees, 15.00 tiles: the
-    // mortar's 14 plus the muzzle's own height) and FALLS after it, the steepest rung a high short
-    // lob of 8.06. The rungs' pitches are unchanged and their landings now cross: the next slice
-    // re-spaces them.
-    const std::array<float, kMortarRungCount> tiles{4.3678F,  8.0485F,  11.8353F, 14.3861F,
-                                                    14.9995F, 13.4552F, 10.9696F, 8.0557F};
-    for (std::size_t rung = 0; rung < kMortarRungCount; ++rung) {
-        EXPECT_NEAR(mortar_landing_tiles(kMortarRungPitches.at(rung)), tiles.at(rung), 0.01F)
-            << "rung " << rung;
+    // constant and added the climb on top, so distance rose with every pitch step (3.30 ... 14.33);
+    // the elevation now divides one speed, so distance rises to index 4 (45.8 degrees, 15.00 tiles:
+    // the mortar's 14 plus the muzzle's own height) and FALLS after it, the steepest pitch a high
+    // short lob of 8.06.
+    const std::array<float, kFlightPitches.size()> tiles{4.3678F,  8.0485F,  11.8353F, 14.3861F,
+                                                         14.9995F, 13.4552F, 10.9696F, 8.0557F};
+    for (std::size_t index = 0; index < kFlightPitches.size(); ++index) {
+        EXPECT_NEAR(mortar_landing_tiles(kFlightPitches.at(index)), tiles.at(index), 0.01F)
+            << "pitch " << kFlightPitches.at(index);
     }
     EXPECT_FLOAT_EQ(mortar_landing_tiles(0.6F), mortar_landing_tiles(0.6F));
 }
@@ -1056,12 +1041,16 @@ TEST(WeaponReticle, TheRocketHasABiggerDotAndShorterTicks) {
     EXPECT_LT(reach(rocket, 0, 24), reach(gun, 0, 24) * 0.8F) << "the ticks are shorter";
 }
 
-TEST(WeaponReticle, TheMortarAddsALadderAndItsLitRungMovesWithThePitch) {
+TEST(WeaponReticle, TheMortarIsTheDotAloneAndDrawsNoRangeRuler) {
     SceneOptions gun_options;
     SceneOptions mortar_options;
     const Scene gun = weapon_scene(Weapon::Gun, gun_options);
     const Scene mortar = weapon_scene(Weapon::Mortar, mortar_options);
-    EXPECT_GT(mortar.vertices.size(), gun.vertices.size()) << "rungs and their labels";
+    // The gun's reticle is four tick quads and the dot; the mortar's is the dot. Nothing else
+    // differs in the frame, so a ruler of any kind would show as extra vertices here.
+    constexpr std::size_t kTickVertices = 24;
+    ASSERT_GT(gun.vertices.size(), kTickVertices);
+    EXPECT_EQ(mortar.vertices.size(), gun.vertices.size() - kTickVertices);
     SceneOptions again_options;
     const Scene again = weapon_scene(Weapon::Mortar, again_options);
     ASSERT_EQ(again.vertices.size(), mortar.vertices.size());
@@ -1069,6 +1058,9 @@ TEST(WeaponReticle, TheMortarAddsALadderAndItsLitRungMovesWithThePitch) {
                           again.vertices.size() * sizeof(protekt::game::SceneVertex)),
               0)
         << "the same weapon and pitch draw the same bytes";
+    SceneOptions steep_options;
+    const Scene steep = weapon_scene(Weapon::Mortar, steep_options, 1.0F);
+    EXPECT_EQ(steep.vertices.size(), mortar.vertices.size()) << "the pitch lights nothing";
 }
 
 TEST(WeaponReticle, TheLabelIsDrawnOnlyWhenAsked) {

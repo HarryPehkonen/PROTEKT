@@ -177,7 +177,7 @@ TEST(Bouncer, ASimFiredBouncerLeavesAShellMarkedBounceAndAContactOneDoesNot) {
 
 // --- the ballistics ---------------------------------------------------------------------------
 
-TEST(Bouncer, ItsFirstLandingIsTheMortarLaddersLanding) {
+TEST(Bouncer, ItsFirstLandingIsTheMortarsLanding) {
     const Level at = find_level_row(16);
     ASSERT_TRUE(at.found);
     const Unit gun
@@ -187,7 +187,7 @@ TEST(Bouncer, ItsFirstLandingIsTheMortarLaddersLanding) {
         ASSERT_NE(f.first_x.raw, 0) << pitch;
         const double landed = static_cast<double>(f.first_x.raw - gun.x.raw) / kTile;
         EXPECT_NEAR(landed, game::mortar_landing_tiles(static_cast<float>(pitch)), 0.6)
-            << "the sight must not lie, pitch " << pitch;
+            << "the mirror must not lie, pitch " << pitch;
     }
 }
 
@@ -385,9 +385,8 @@ TEST(Bouncer, IsTheFourthOfFiveDrivenWeaponsAndTheRightClickWrapsPastIt) {
     EXPECT_EQ(game::next_weapon(Weapon::Bouncer), Weapon::Shotgun);
     EXPECT_EQ(game::next_weapon(Weapon::Shotgun), Weapon::Gun) << "the right click wraps";
     EXPECT_EQ(game::weapon_name(Weapon::Bouncer), "BOUNCER");
-    const game::ReticleShape shape = game::reticle_for(Weapon::Bouncer, 0.6F);
-    EXPECT_EQ(shape.kind, game::ReticleKind::Ladder);
-    EXPECT_EQ(shape.rung, game::mortar_rung(0.6F)) << "its first landing is the mortar's";
+    EXPECT_EQ(game::reticle_for(Weapon::Bouncer).kind, game::ReticleKind::Dot)
+        << "its first landing is the mortar's, so it is sighted the mortar's way";
 }
 
 } // namespace

@@ -2625,8 +2625,8 @@ constexpr float kMountPadFraction = 3.0F / 450.0F;
 constexpr float kMountOutlineFraction = 1.5F / 450.0F;
 constexpr float kMountGapFraction = 4.0F / 450.0F; ///< from the turret's top to the outline
 
-/// The HUD's 5x5 capitals and digits: the DEPLOYING plate's letters, the weapon names and the
-/// ladder's distances. Rows top to bottom, bit 4 left; anything else is blank.
+/// The HUD's 5x5 capitals and digits: the DEPLOYING plate's letters, the weapon names.
+/// Rows top to bottom, bit 4 left; anything else is blank.
 std::array<std::uint8_t, 5> mount_glyph(char glyph) {
     switch (glyph) {
     case 'A':
@@ -2830,39 +2830,20 @@ void append_mount_plates(std::vector<SceneVertex>& out, const SceneOptions& opti
     }
 }
 
-/// THE WEAPON'S HUD (M1), in frame pixels on the HUD layer like the DEPLOYING plate, scaled by the
-/// frame's height (the px below are at 720). Both hang off the aim point and come BEFORE the
-/// reticle, so the reticle stays the tail of the vertex list.
-///  * The label, when `show_weapon` asks: the weapon's name in white 5x5 capitals, cell 4.8 px
-///    (24 px tall letters), on a black plate with 4.8 px of padding, its left edge 50 px right of
-///    the aim point and centred on it.
-///  * The mortar's RANGE LADDER: `kMortarRungCount` rungs under the aim point, the first 54 px
-///    below it and 36 px apart (the last 234 px below). A rung is a bar 50 px wide and 4 px thick
-///    in white; the LIT rung -- the band the view's pitch is in -- is 80 px wide, 6.5 px thick and
-///    yellow. Each rung sits in a 2 px black outline, and to its right, on a black plate, is its
-///    level-ground landing distance in tiles to a tenth (`mortar_landing_tiles`), digits 4 px a
-///    cell (20 px tall), white, or yellow on the lit rung.
+/// THE WEAPON'S LABEL (M1), in frame pixels on the HUD layer like the DEPLOYING plate, scaled by
+/// the frame's height (the px below are at 720). It hangs off the aim point and comes BEFORE the
+/// reticle, so the reticle stays the tail of the vertex list. When `show_weapon` asks, the weapon's
+/// name in white 5x5 capitals, cell 4.8 px (24 px tall letters), on a black plate with 4.8 px of
+/// padding, its left edge 50 px right of the aim point and centred on it.
 constexpr float kHudPerFrameHeight = 1.0F / 720.0F;
 constexpr float kLabelGapPixels = 50.0F;
-constexpr float kRungFirstPixels = 54.0F;
-constexpr float kRungStepPixels = 36.0F;
-constexpr float kRungHalfWidthPixels = 25.0F;
-constexpr float kRungLitHalfWidthPixels = 40.0F;
-constexpr float kRungHalfThickPixels = 2.0F;
-constexpr float kRungLitHalfThickPixels = 3.25F;
-constexpr float kRungOutlinePixels = 2.0F;
-constexpr float kRungLabelGapPixels = 10.0F;
-constexpr float kRungCellPixels = 4.0F;
-constexpr float kRungPadPixels = 3.0F;
-constexpr std::array<float, 3> kRungInk{0.95F, 0.95F, 0.95F};
-constexpr std::array<float, 3> kRungLitInk{1.0F, 0.85F, 0.10F};
+constexpr std::array<float, 3> kLabelInk{0.95F, 0.95F, 0.95F};
 
 void append_weapon_hud(std::vector<SceneVertex>& out, const SceneOptions& options) {
     if (!options.aim.has_value()) {
         return;
     }
-    const ReticleShape shape = reticle_for(options.weapon, options.camera.pitch);
-    if (!options.show_weapon && shape.kind != ReticleKind::Ladder) {
+    if (!options.show_weapon) {
         return;
     }
     const float px = static_cast<float>(options.extent.height) * kHudPerFrameHeight;
@@ -2900,43 +2881,10 @@ void append_weapon_hud(std::vector<SceneVertex>& out, const SceneOptions& option
     };
     const float aim_x = options.aim->x;
     const float aim_y = options.aim->y;
-
-    if (options.show_weapon) {
-        const float cell = static_cast<float>(options.extent.height) * kMountCellFraction;
-        const float pad = static_cast<float>(options.extent.height) * kMountPadFraction;
-        text(weapon_name(options.weapon), aim_x + (kLabelGapPixels * px), aim_y - (2.5F * cell),
-             cell, pad, kRungInk);
-    }
-    if (shape.kind != ReticleKind::Ladder) {
-        return;
-    }
-    for (std::size_t rung = 0; rung < kMortarRungCount; ++rung) {
-        const bool lit = rung == shape.rung;
-        const float y
-            = aim_y + ((kRungFirstPixels + (static_cast<float>(rung) * kRungStepPixels)) * px);
-        const float half_w = (lit ? kRungLitHalfWidthPixels : kRungHalfWidthPixels) * px;
-        const float half_t = (lit ? kRungLitHalfThickPixels : kRungHalfThickPixels) * px;
-        const float edge = kRungOutlinePixels * px;
-        const std::array<float, 3>& ink = lit ? kRungLitInk : kRungInk;
-        rect(marks_at * kHudBorderRatio, aim_x - half_w - edge, y - half_t - edge,
-             aim_x + half_w + edge, y + half_t + edge, kPlate);
-        rect(marks_at, aim_x - half_w, y - half_t, aim_x + half_w, y + half_t, ink);
-        // The distance to a tenth of a tile: "6.9", and "13.9" once it passes ten.
-        const int tenths = static_cast<int>(
-            std::lround(mortar_landing_tiles(kMortarRungPitches.at(rung)) * 10.0F));
-        std::array<char, 4> digits{};
-        std::size_t count = 0;
-        if (tenths >= 100) {
-            digits.at(count++) = static_cast<char>('0' + ((tenths / 100) % 10));
-        }
-        digits.at(count++) = static_cast<char>('0' + ((tenths / 10) % 10));
-        digits.at(count++) = '.';
-        digits.at(count++) = static_cast<char>('0' + (tenths % 10));
-        const float cell = kRungCellPixels * px;
-        text(std::string_view{digits.data(), count},
-             aim_x + half_w + edge + ((kRungLabelGapPixels + kRungPadPixels) * px),
-             y - (2.5F * cell), cell, kRungPadPixels * px, ink);
-    }
+    const float cell = static_cast<float>(options.extent.height) * kMountCellFraction;
+    const float pad = static_cast<float>(options.extent.height) * kMountPadFraction;
+    text(weapon_name(options.weapon), aim_x + (kLabelGapPixels * px), aim_y - (2.5F * cell), cell,
+         pad, kLabelInk);
 }
 
 /// THE SHIP INSTRUMENT (SHIPGAUGE-1), bottom right: BZ2's own gauge -- a segmented C-shaped ring
@@ -4239,8 +4187,8 @@ void append_reticle(std::vector<SceneVertex>& out, const SceneOptions& options, 
         }
     }
     // The weapon picks the shape (M1): the gun's is E12's, untouched; the rocket's is heavier;
-    // the mortar's is the dot alone, its ladder drawn on the HUD layer by `append_weapon_hud`.
-    const ReticleShape shape = reticle_for(options.weapon, camera.pitch);
+    // the mortar's is the dot alone.
+    const ReticleShape shape = reticle_for(options.weapon);
     const bool heavy = shape.kind != ReticleKind::FourTicks;
     const RayPoint centre
         = ray_point(camera, options.extent, screen_x, screen_y, kReticleDistanceMetres);
@@ -4248,7 +4196,7 @@ void append_reticle(std::vector<SceneVertex>& out, const SceneOptions& options, 
     // the dot are drawn in the VIEW's axes and a leaning camera shows them square on the screen --
     // which is what the player reads them as. Omitting `camera.up` here left the reticle as the one
     // mark on this layer still plumb with the WORLD, so it visibly rotated against a tilted horizon
-    // while the ground, the units, the range ladder and the HUD beside it did not.
+    // while the ground, the units and the HUD beside it did not.
     const math::Basis basis = math::basis_from(camera.yaw, camera.pitch, camera.up);
     const float half
         = kReticleDistanceMetres * std::tan(math::kFovRadians * 0.5F) * kReticleHalfFraction;
@@ -4279,7 +4227,7 @@ void append_reticle(std::vector<SceneVertex>& out, const SceneOptions& options, 
         out.push_back(SceneVertex{c, colour});
         out.push_back(SceneVertex{d, colour});
     };
-    if (shape.kind != ReticleKind::Ladder) {
+    if (shape.kind != ReticleKind::Dot) {
         bar_quad(-thick, inner, thick, outer);   // up
         bar_quad(-thick, -outer, thick, -inner); // down
         bar_quad(-outer, -thick, -inner, thick); // left

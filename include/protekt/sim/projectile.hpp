@@ -218,8 +218,8 @@ struct MortarSplit {
 /// flat: there is no lift on top of the aim. Integer only: cos and sin are `run` and `rise` over
 /// their hypotenuse.
 ///
-/// Both `launch_lob` and the player's range ladder (`mortar_landing_tiles`) call it, so the sight
-/// cannot disagree with the shot.
+/// Both `launch_lob` and the landing mirror (`mortar_landing_tiles`) call it, so the mirror cannot
+/// disagree with the shot.
 [[nodiscard]] MortarSplit mortar_climb(std::int64_t run, std::int64_t rise) noexcept;
 
 /// The mortar shell `shooter` lobs along (`dir_x`, `dir_y`) with `dir_z` of climb per unit of

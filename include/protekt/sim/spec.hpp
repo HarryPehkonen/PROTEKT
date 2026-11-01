@@ -95,7 +95,7 @@ inline constexpr std::int32_t kMortarMuzzleSpeedRaw = static_cast<std::int32_t>(
 /// shell that has bounced and would fly further comes to rest where the cap is spent.
 inline constexpr Fixed kBouncerTravel = Fixed::from_raw(18 << 16);
 /// THE BOUNCER ROUND (M3), all of it data. It leaves the barrel with the mortar's own ballistics,
-/// so the range ladder is honest for its FIRST landing; then it bounces, rests, spins and pulses.
+/// so its FIRST landing is the mortar's; then it bounces, rests, spins and pulses.
 struct BouncerSpec {
     Fixed restitution{};         ///< fraction of the fall speed kept as the rebound
     Fixed horizontal_keep{};     ///< fraction of the horizontal speed kept by each bounce

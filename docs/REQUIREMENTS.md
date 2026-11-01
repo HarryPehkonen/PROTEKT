@@ -374,8 +374,8 @@ Selection and orders, the rules behind the rows:
 - [SHIPPED 27f24f6] With the mortar or bouncer up, the trigger lobs a shell along the view's own
   heading and pitch, with no aim assist and no lead.
 - [SHIPPED fd58977] The bouncer is lobbed the same way and fires a bouncing round.
-- [SHIPPED 9ee8354] Each weapon has its own reticle and HUD label; the mortar's reticle is a range
-  ladder of eight rungs (`kMortarRungPitches`), the lit one being where the view's pitch lands.
+- [SHIPPED 9ee8354] Each weapon has its own reticle and HUD label; the mortar's and the bouncer's
+  reticle is the centre dot alone (the range ladder was deleted 2026-10-31).
 - [SHIPPED ad39a68] The reticle spreads for 6 ticks when your shot damages an enemy, and is shaded
   while the gun reloads.
 
@@ -490,8 +490,7 @@ pixels at a 720-high frame, and a glyph is 5 cells tall.
   (`scene.cpp:2203-2205`).
 - [SHIPPED bd32f0b] These elements are at cell 2.0: the roster strip, the notice line, the attack list,
   the command menu, the scrap ledger and the verdict banner.
-- [SHIPPED src/game/scene.cpp:1778] These are not: the weapon label (cell 4.8, `scene.cpp:1778`), the mortar rung digits
-  (cell 4.0, `scene.cpp:1797`), the ship instrument's readings (cell 3.0, `scene.cpp:1924`) and the
+- [SHIPPED src/game/scene.cpp:1778] These are not: the weapon label (cell 4.8, `scene.cpp:1778`), the ship instrument's readings (cell 3.0, `scene.cpp:1924`) and the
   `DEPLOYING` plate (cell 3.0 at 450 px, `scene.cpp:1615`). Whether they are exempt is not stated
   (section 14).
 
@@ -780,8 +779,7 @@ a document and the code, and places where the documents contradict each other. N
    a second kind of building coming?
 4. **Strategic controllers** (`docs/PLAN.md:309-345`) are called a "design sketch" and the module was
    deleted. Requirement, or parked idea?
-5. **Which HUD elements are exempt from the 10 px type scale?** The weapon label (4.8), the mortar ladder
-   digits (4.0), the ship readings (3.0) and the `DEPLOYING` plate (3.0 at 450) are larger than cell 2.0.
+5. **Which HUD elements are exempt from the 10 px type scale?** The weapon label (4.8), the ship readings (3.0) and the `DEPLOYING` plate (3.0 at 450) are larger than cell 2.0.
 6. **(Moot since ROW-SLOTS: the pool is gone.) The roster-key ruling had two wordings.** `roster.hpp` (now `row.hpp`) records "when the last unit dies, the
    function key space gets returned to the pool" as Harri's of 2026-10-22; the brief gives 2026-10-24 for
    "a key returns to the pool". Is the later one a restatement or a new ruling? The code satisfies both.

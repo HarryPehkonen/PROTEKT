@@ -34,6 +34,11 @@ using input::MouseButton;
 using sim::Side;
 using sim::UnitKind;
 
+/// The flattest and the steepest pitch the landing marker is tested at (radians, up positive): a
+/// level aim, and 1.28 rad, just under `kLookPitchLimit`.
+constexpr float kLevelPitch = 0.0F;
+constexpr float kSteepPitch = 1.28F;
+
 constexpr std::uint64_t kSeed = 42;
 constexpr game::Extent kExtent{1280, 720};
 constexpr float kHalfPi = 1.5707963F;
@@ -402,32 +407,32 @@ void expect_marker_at(Rig& rig, float expected_tiles) {
     EXPECT_TRUE(marker_vertices(rig).marker.empty()) << "and out of the scene";
 }
 
-TEST(LandingMarker, TheLowestLadderPitchLandsAMarkerThatIsClearlyVisibleInFront) {
+TEST(LandingMarker, TheLowestPitchLandsAMarkerThatIsClearlyVisibleInFront) {
     Rig rig;
-    make_rig(rig, Weapon::Mortar, kMortarRungPitches.front());
-    expect_marker_at(rig, mortar_landing_tiles(kMortarRungPitches.front()));
+    make_rig(rig, Weapon::Mortar, kLevelPitch);
+    expect_marker_at(rig, mortar_landing_tiles(kLevelPitch));
 }
 
-TEST(LandingMarker, TheClosestLadderRungIsATallNarrowCrossAndNotAWall) {
-    // M5c, measured: the first version drew a 1.9 m-wide cross at the closest rung, which covered
+TEST(LandingMarker, TheClosestPitchIsATallNarrowCrossAndNotAWall) {
+    // M5c, measured: the first version drew a 1.9 m-wide cross at the closest pitch, which covered
     // 34% of the frame's width and 80% of its height -- a magenta wall in the player's face at
     // exactly the range the mark exists for. The HEIGHT stays 4 m (the eye is above a close
     // landing, so the height is what carries the mark into the frame); the WIDTH follows the
     // range, so what stands at your feet is a tall narrow cross.
     //
-    // M6 (the mortar's lift) raised the closest rung from about 1.6 tiles to 3.30, so the "at your
-    // feet" landing this defect was MEASURED at is no longer reachable by the ladder at all. The
-    // fixed muzzle speed (2026-10-31) made a level aim a flat gun: the closest rung is 4.37 tiles
+    // M6 (the mortar's lift) raised the closest pitch from about 1.6 tiles to 3.30, so the "at your
+    // feet" landing this defect was MEASURED at is no longer reachable at all. The
+    // fixed muzzle speed (2026-10-31) made a level aim a flat gun: the closest pitch is 4.37 tiles
     // (the shell falls the muzzle's 0.57 tiles at 21 tiles a second), 0.795 m of cross
-    // became 1.019. The guard and the width bound below are re-derived for the rung that does
+    // became 1.019. The guard and the width bound below are re-derived for the pitch that does
     // exist: the mark's half-width is `clamp(camera_distance * kLandingMarkWidthPerMetre, min,
-    // max)`, so a rung further out gives a slightly wider cross -- still a cross. Half a metre was
+    // max)`, so a pitch further out gives a slightly wider cross -- still a cross. Half a metre was
     // right at 1.6 tiles; it is not the right figure at 3.3, and pretending otherwise would mean
     // asserting a bound the feature is not built to hold.
     Rig rig;
-    make_rig(rig, Weapon::Mortar, kMortarRungPitches.front());
-    const float tiles = mortar_landing_tiles(kMortarRungPitches.front());
-    ASSERT_LT(tiles, 5.0F) << "the closest rung of the ladder";
+    make_rig(rig, Weapon::Mortar, kLevelPitch);
+    const float tiles = mortar_landing_tiles(kLevelPitch);
+    ASSERT_LT(tiles, 5.0F) << "the closest of the flight pitches";
     // Fire and read the marker the moment it lands: `expect_marker_at` runs out the whole lifetime.
     frame(rig, true);
     for (int tick = 0; tick < 300 && rig.landings == 0; ++tick) {
@@ -448,7 +453,7 @@ TEST(LandingMarker, TheClosestLadderRungIsATallNarrowCrossAndNotAWall) {
                                   + ((v.position[2] - centre_z) * (v.position[2] - centre_z))));
         tall = std::max(tall, v.position[1] - ground);
     }
-    // Measured at this rung: 1.019 m across (0.795 m at the old 3.3 tiles: the width follows the
+    // Measured at this pitch: 1.019 m across (0.795 m at the old 3.3 tiles: the width follows the
     // range, linearly until the clamp). 1.2 m is a figure a human chose, and it has teeth in both
     // directions -- the old 1.9 m wall breaks it, and so does a runaway width (the
     // kLandingMarkMaxHalfWidth clamp would draw 1.8 m here).
@@ -457,19 +462,19 @@ TEST(LandingMarker, TheClosestLadderRungIsATallNarrowCrossAndNotAWall) {
 }
 
 TEST(LandingMarker, TheHoldIsTwoSecondsSoAShotAtTheSkyCanBeLookedDownAt) {
-    // A lob at the top of the ladder is 52 ticks in the air; 60 ticks of hold left nothing to see
+    // A lob at the steepest pitch is 52 ticks in the air; 60 ticks of hold left nothing to see
     // by the time the player brought his view back down.
     EXPECT_EQ(kLandingMarkHoldTicks, 120);
 }
 
-TEST(LandingMarker, TheHighestLadderPitchLandsAMarkerEightPointOneTilesOut) {
-    // The fixed muzzle speed (2026-10-31): the steepest rung is the HIGH, SHORT lob, 8.06 tiles
+TEST(LandingMarker, TheHighestPitchLandsAMarkerEightPointOneTilesOut) {
+    // The fixed muzzle speed (2026-10-31): the steepest pitch is the HIGH, SHORT lob, 8.06 tiles
     // (it was the furthest, 14.33, when the horizontal speed was constant). It lands rather than
-    // fizzling, as does the whole ladder (`kBoltTravel` is 16 tiles).
+    // fizzling, as do all the flight pitches (`kBoltTravel` is 16 tiles).
     Rig rig;
-    make_rig(rig, Weapon::Mortar, kMortarRungPitches.back());
-    expect_marker_at(rig, mortar_landing_tiles(kMortarRungPitches.back()));
-    EXPECT_NEAR(mortar_landing_tiles(kMortarRungPitches.back()), 8.1F, 0.1F);
+    make_rig(rig, Weapon::Mortar, kSteepPitch);
+    expect_marker_at(rig, mortar_landing_tiles(kSteepPitch));
+    EXPECT_NEAR(mortar_landing_tiles(kSteepPitch), 8.1F, 0.1F);
 }
 
 TEST(LandingMarker, OnlyThePlayersOwnLobMakesOne) {

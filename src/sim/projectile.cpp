@@ -822,8 +822,8 @@ void advance_projectiles(std::vector<Projectile>& projectiles, std::vector<Unit>
         // A bolt with gravity has no constant speed: its range is the ground it has covered.
         const std::int64_t hspeed = isqrt(static_cast<std::int64_t>(bolt.vx.raw) * bolt.vx.raw
                                           + static_cast<std::int64_t>(bolt.vy.raw) * bolt.vy.raw);
-        // A bouncer's first flight is the one the ladder shows and the range bounds; what the
-        // bounces add is bounded by the cap.
+        // A bouncer's first flight is the one the range bounds; what the bounces add is bounded
+        // by the cap.
         const bool out_of_range
             = bolt.bounces == 0
               && static_cast<std::int64_t>(bolt.age) * (bolt.gravity.raw != 0 ? hspeed : speed)
