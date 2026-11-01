@@ -117,7 +117,6 @@ bool NavMenu::owned_while_open(const input::KeyEvent& key) noexcept {
     case input::kKeyGrave:
     case input::kKeyN:
     case input::kKeyG:
-    case input::kKeyT:
         return true;
     default:
         break;

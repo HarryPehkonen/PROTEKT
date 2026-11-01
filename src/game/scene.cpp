@@ -3187,10 +3187,10 @@ void append_ship_gauge(std::vector<SceneVertex>& out, const SceneOptions& option
 /// after it close up to the left, no blanks. `~` is its label alone and has no ticks; a building
 /// key has one tick. Under the row, `options.notice` in 10 px yellow capitals.
 ///
-/// THE ATTACK LIST (BZ2A): the nearest enemies T offered, by the same plate and the same type, one
-/// row per enemy. It sits in the row BELOW the notice, which is reserved whether or not there is a
-/// notice, so the list never moves and never overlaps: the player is choosing under time pressure
-/// and a panel that jumps is a panel that gets misread.
+/// THE ATTACK LIST (BZ2A): the nearest enemies `3 ATTACK` offered, by the same plate and the same
+/// type, one row per enemy. It sits in the row BELOW the notice, which is reserved whether or not
+/// there is a notice, so the list never moves and never overlaps: the player is choosing under time
+/// pressure and a panel that jumps is a panel that gets misread.
 constexpr float kStripMarginPixels = 6.0F;
 constexpr float kStripSlotWidthPixels = 88.0F;
 constexpr float kStripSlotGapPixels = 6.0F;

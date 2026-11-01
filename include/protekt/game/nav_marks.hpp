@@ -129,8 +129,8 @@ struct NavAim {
 ///  * Menu: SPACE toggles the highlight of the mark under the reticle, a digit toggles that slot's;
 ///    the same verb, one mark per press. The menu stays open.
 ///  * Placing and Menu: TAB (or Escape) closes the left menu. The top menu is visible but
-///    inaccessible meanwhile, so `n`, `~`, the digits, F1-F10 (shifted or not), and `G` and `T`
-///    -- which open prompts of their own, and one panel at a time is the rule -- do nothing.
+///    inaccessible meanwhile, so `n`, `~`, the digits, F1-F10 (shifted or not), and `G`
+///    -- which opens a prompt of its own, and one panel at a time is the rule -- do nothing.
 ///
 /// Only presses are taken; a release always passes through. Everything not taken goes to the
 /// session in the order it came, so driving, looking, `R`, `X` and `M` work in every state.

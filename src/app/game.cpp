@@ -102,9 +102,9 @@ struct Options {
     /// `--map FRAME` (repeatable): R pressed on that frame (1-based), which opens the map view and
     /// on a second frame closes it, so a capture can show the map with nobody at the keyboard.
     std::vector<std::uint32_t> map_frames{};
-    /// `--targets FRAME` (repeatable): T pressed on that frame (1-based), so a capture can show the
-    /// attack list with nobody at the keyboard. A hostile under the crosshair is still attacked;
-    /// aim at the sky to arm the list instead.
+    /// `--targets FRAME` (repeatable): `3` pressed on that frame (1-based), the menu's `3 ATTACK`,
+    /// so a capture can show the attack list with nobody at the keyboard (something must be
+    /// selected first: with nothing selected `3` is the top menu's, and it does nothing).
     std::vector<std::uint32_t> target_frames{};
     struct DigitPress {
         std::uint32_t frame{};
@@ -526,8 +526,9 @@ public:
         scene_options.show_radar_mesh = !options_.no_radar_mesh;
         scene_options.show_world_map = world_map_;
         if (session_.attack_armed()) {
-            // The list lives in the Session's own vector and is captured when T arms it; pointing
-            // at it is enough, and nothing here is owned. A frame that is not arming stays null.
+            // The list lives in the Session's own vector and is captured when `3 ATTACK` arms it;
+            // pointing at it is enough, and nothing here is owned. A frame that is not arming stays
+            // null.
             scene_options.attack_list = &session_.attack_targets();
         }
         if (session_.go_armed()) {
@@ -617,7 +618,7 @@ void script_hands(const Options& options, std::uint32_t frame, input::InputFrame
     }
     if (std::find(options.target_frames.begin(), options.target_frames.end(), frame + 1)
         != options.target_frames.end()) {
-        hands.keys.push_back(input::KeyEvent{input::kKeyT, true, false});
+        hands.keys.push_back(input::KeyEvent{input::kKey1 + 2, true, false});
     }
     for (const Options::DigitPress& press : options.digit_presses) {
         if (press.frame == frame + 1) {

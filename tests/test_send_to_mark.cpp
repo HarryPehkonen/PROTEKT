@@ -327,9 +327,9 @@ void expect_attack(const sim::Order& order, UnitId unit, UnitId target) {
     EXPECT_EQ(attack->target, target);
 }
 
-TEST(AttackList, SpaceWithAHostileUnderTheCrosshairAttacksItAndTOnlyArmsTheList) {
-    // The pointed-at attack moved from T to SPACE (the menu's `SPACE Attack`). T over the same
-    // hostile now gives no order and opens the numbered list, as it does over ground.
+TEST(AttackList, SpaceWithAHostileUnderTheCrosshairAttacksItAndThreeOnlyArmsTheList) {
+    // The pointed-at attack is SPACE's (the menu's `SPACE Attack`). The menu's `3 ATTACK` over the
+    // same hostile gives no order and opens the numbered list, as it does over ground.
     Rig rig = make_listing_rig();
     Interaction player{rig.own.at(0)};
     select_second(rig, player);
@@ -339,8 +339,8 @@ TEST(AttackList, SpaceWithAHostileUnderTheCrosshairAttacksItAndTOnlyArmsTheList)
     // dereference as unchecked access (see test_aim.cpp's mark_for). The failure is recorded above.
     const Aim aim = rig.options.aim.value_or(Aim{});
     ASSERT_EQ(pick(rig.sim, rig.options, aim.x, aim.y).unit, kFrontTank);
-    player.handle(key_frame(input::kKeyT), rig.sim, rig.options);
-    EXPECT_TRUE(player.take_orders().empty()) << "T does not attack the unit under the crosshair";
+    player.handle(digit(3), rig.sim, rig.options);
+    EXPECT_TRUE(player.take_orders().empty()) << "3 does not attack the unit under the crosshair";
     EXPECT_TRUE(player.attack_armed());
     player.handle(key_frame(input::kKeyEscape), rig.sim, rig.options);
     player.handle(key_frame(input::kKeySpace), rig.sim, rig.options);
@@ -351,7 +351,7 @@ TEST(AttackList, SpaceWithAHostileUnderTheCrosshairAttacksItAndTOnlyArmsTheList)
     EXPECT_EQ(player.message(), "SPACE Attack");
 }
 
-TEST(AttackList, TWithNothingUnderTheCrosshairArmsAndADigitAttacksThatRow) {
+TEST(AttackList, ThreeWithNothingUnderTheCrosshairArmsAndADigitAttacksThatRow) {
     Rig rig = make_listing_rig();
     Interaction player{rig.own.at(0)};
     // U3: fkey(2) selects the hover tank group; the driven tank is not in this selection.
@@ -360,12 +360,12 @@ TEST(AttackList, TWithNothingUnderTheCrosshairArmsAndADigitAttacksThatRow) {
     ASSERT_EQ(selected(player), (std::vector<UnitId>{rig.own.at(1)}));
     const UnitId under = pick(rig.sim, rig.options, 640.0F, 360.0F).unit;
     ASSERT_TRUE(!under.valid() || rig.sim.find(under)->side == Side::Player)
-        << "nothing hostile may be under the crosshair, or T would attack it";
+        << "nothing hostile may be under the crosshair, or SPACE would attack it";
     static_cast<void>(player.take_orders());
 
-    player.handle(key_frame(input::kKeyT), rig.sim, rig.options);
+    player.handle(digit(3), rig.sim, rig.options);
     EXPECT_TRUE(player.attack_armed());
-    EXPECT_TRUE(player.take_orders().empty()) << "T alone orders nothing";
+    EXPECT_TRUE(player.take_orders().empty()) << "3 alone orders nothing";
     const std::vector<TargetRow>& rows = player.attack_targets();
     ASSERT_EQ(rows.size(), 3U);
     EXPECT_EQ(rows.at(0).id, kFrontTank);
@@ -421,8 +421,8 @@ TEST(AttackList, TWithNothingUnderTheCrosshairArmsAndADigitAttacksThatRow) {
     EXPECT_EQ(selected(player), (std::vector<UnitId>{rig.own.at(1)}));
     const UnitId under = pick(rig.sim, rig.options, 640.0F, 360.0F).unit;
     EXPECT_TRUE(!under.valid() || rig.sim.find(under)->side == Side::Player)
-        << "nothing hostile may be under the crosshair, or T would attack it";
-    player.handle(key_frame(input::kKeyT), rig.sim, rig.options);
+        << "nothing hostile may be under the crosshair, or SPACE would attack it";
+    player.handle(digit(3), rig.sim, rig.options);
     return player.attack_targets().size();
 }
 
@@ -435,7 +435,7 @@ TEST(AttackList, TheListIsCapturedAtArmingAndDoesNotShiftUnderTheFinger) {
     Rig rig = make_listing_rig();
     Interaction player{rig.own.at(0)};
     select_second(rig, player);
-    player.handle(key_frame(input::kKeyT), rig.sim, rig.options);
+    player.handle(digit(3), rig.sim, rig.options);
     ASSERT_TRUE(player.attack_armed());
     const std::vector<TargetRow> captured = player.attack_targets();
     rig.sim.step();
@@ -447,7 +447,7 @@ TEST(AttackList, ADigitNamingNoRowIsRefusedOrdersNothingAndEndsTheMode) {
     Rig rig = make_listing_rig();
     Interaction player{rig.own.at(0)};
     select_second(rig, player);
-    player.handle(key_frame(input::kKeyT), rig.sim, rig.options);
+    player.handle(digit(3), rig.sim, rig.options);
     ASSERT_TRUE(player.attack_armed());
     player.handle(digit(7), rig.sim, rig.options);
     EXPECT_TRUE(player.take_orders().empty());
@@ -464,7 +464,7 @@ TEST(AttackList, ZeroNamesTheTenthRow) {
     Rig rig = make_listing_rig();
     Interaction player{rig.own.at(0)};
     select_second(rig, player);
-    player.handle(key_frame(input::kKeyT), rig.sim, rig.options);
+    player.handle(digit(3), rig.sim, rig.options);
     player.handle(digit(0), rig.sim, rig.options);
     EXPECT_TRUE(player.take_orders().empty());
     EXPECT_EQ(player.message(), "no target 0 in the list.") << "three rows: the tenth is empty";
@@ -474,7 +474,7 @@ TEST(AttackList, EscapeCancelsAndIsSpentDoingSo) {
     Rig rig = make_listing_rig();
     Interaction player{rig.own.at(0)};
     select_second(rig, player);
-    player.handle(key_frame(input::kKeyT), rig.sim, rig.options);
+    player.handle(digit(3), rig.sim, rig.options);
     ASSERT_TRUE(player.attack_armed());
     player.handle(key_frame(input::kKeyEscape), rig.sim, rig.options);
     EXPECT_FALSE(player.attack_armed());
@@ -486,7 +486,7 @@ TEST(AttackList, AnyOtherKeyCancelsAndStillDoesItsOwnJob) {
     Rig rig = make_listing_rig();
     Interaction player{rig.own.at(0)};
     select_second(rig, player);
-    player.handle(key_frame(input::kKeyT), rig.sim, rig.options);
+    player.handle(digit(3), rig.sim, rig.options);
     ASSERT_TRUE(player.attack_armed());
     player.handle(key_frame(input::kKeyM), rig.sim, rig.options);
     EXPECT_FALSE(player.attack_armed());
@@ -500,7 +500,7 @@ TEST(AttackList, AnOrderByKeyCancelsIt) {
     Rig rig = make_listing_rig();
     Interaction player{rig.own.at(0)};
     select_second(rig, player);
-    player.handle(key_frame(input::kKeyT), rig.sim, rig.options);
+    player.handle(digit(3), rig.sim, rig.options);
     ASSERT_TRUE(player.attack_armed());
     player.handle(key_frame(input::kKeyM), rig.sim, rig.options); // an order, by hand
     EXPECT_FALSE(player.attack_armed());
@@ -510,17 +510,20 @@ TEST(AttackList, RefusalsNameTheirReasonAndLeaveTheModeUnarmed) {
     {
         Rig rig = make_listing_rig();
         Interaction player{rig.own.at(0)};
-        player.handle(key_frame(input::kKeyT), rig.sim, rig.options);
+        player.handle(digit(3), rig.sim, rig.options); // no menu is open: 3 is the top menu's
         EXPECT_FALSE(player.attack_armed());
-        EXPECT_EQ(player.message(), "Nothing is selected to give an order to.");
+        EXPECT_TRUE(player.message().empty());
     }
     {
         Rig rig = make_listing_rig();
         Interaction player{rig.own.at(0)};
         player.handle(fkey(1), rig.sim, rig.options); // the driven tank, alone
         ASSERT_EQ(selected(player), (std::vector<UnitId>{rig.own.at(0)}));
-        player.handle(key_frame(input::kKeyT), rig.sim, rig.options);
+        player.handle(digit(3), rig.sim, rig.options);
+        ASSERT_TRUE(player.attack_armed()) << "the list opens; the row's digit is what refuses";
+        player.handle(digit(1), rig.sim, rig.options);
         EXPECT_FALSE(player.attack_armed());
+        EXPECT_TRUE(player.take_orders().empty());
         EXPECT_EQ(player.message(),
                   "You are driving that one; select another unit to give orders.");
     }
@@ -546,7 +549,7 @@ TEST(AttackList, RefusalsNameTheirReasonAndLeaveTheModeUnarmed) {
         rig.options.row = &rig.row;
         Interaction player{rig.own.at(0)};
         select_second(rig, player);
-        player.handle(key_frame(input::kKeyT), rig.sim, rig.options);
+        player.handle(digit(3), rig.sim, rig.options);
         EXPECT_FALSE(player.attack_armed());
         EXPECT_TRUE(player.attack_targets().empty());
         EXPECT_EQ(player.message(), "no enemies within radar range.");
@@ -560,9 +563,11 @@ TEST(AttackList, ArmingEitherClearsTheOther) {
     select_second(rig, player);
     player.handle(key_frame(input::kKeyG), rig.sim, rig.options);
     ASSERT_TRUE(player.go_armed());
-    player.handle(key_frame(input::kKeyT), rig.sim, rig.options);
-    EXPECT_FALSE(player.go_armed()) << "any other key cancels G, and T then arms the list";
-    EXPECT_TRUE(player.attack_armed());
+    player.handle(digit(3), rig.sim, rig.options);
+    EXPECT_FALSE(player.go_armed()) << "a digit answers G: the mark number 3, not the menu's row";
+    EXPECT_FALSE(player.attack_armed()) << "so 3 cannot open the list while G is waiting";
+    player.handle(digit(3), rig.sim, rig.options);
+    ASSERT_TRUE(player.attack_armed());
     player.handle(key_frame(input::kKeyG), rig.sim, rig.options);
     EXPECT_TRUE(player.go_armed());
     EXPECT_FALSE(player.attack_armed());
@@ -800,11 +805,13 @@ TEST(MenuDigit, AnArmedGoWithNoMarkRefusesAndIssuesNoFollowOrHold) {
     }
 }
 
-TEST(MenuDigit, AnArmedAttackListStillOwnsTheDigit) {
-    MenuRig rig = make_menu_rig();
-    Interaction player{rig.tank};
-    select_kind(rig, player, UnitKind::Recycler);
-    player.handle(key_frame(input::kKeyT), rig.sim, rig.options);
+TEST(AttackList, AnArmedListStillOwnsTheDigitTheMenuWouldTake) {
+    // A vehicle's menu has `1 FOLLOW ME` and the armed list has a row 1; the list wins. (The rig is
+    // the listing one: a harvester's menu has no `3 ATTACK`, and the menu rig has no second tank.)
+    Rig rig = make_listing_rig();
+    Interaction player{rig.own.at(0)};
+    select_second(rig, player);
+    player.handle(digit(3), rig.sim, rig.options);
     ASSERT_TRUE(player.attack_armed());
     ASSERT_FALSE(player.attack_targets().empty());
     player.handle(digit(1), rig.sim, rig.options);
@@ -1001,8 +1008,7 @@ TEST(DeployGesture, TildeRotatesASquareIntoItselfAndKeepsTheArming) {
 TEST(DeployGesture, TheTopMenuIsShownButNotReachableWhileArmed) {
     ArmedDeploy a = arm_deploy();
     const RowState row = a.rig.row;
-    for (const std::int32_t scancode :
-         {input::kKeyF1, input::kKeyF1 + 2, input::kKeyG, input::kKeyT}) {
+    for (const std::int32_t scancode : {input::kKeyF1, input::kKeyF1 + 2, input::kKeyG}) {
         a.player.handle(key_frame(scancode), a.rig.sim, a.rig.options);
         EXPECT_TRUE(a.player.deploy_armed()) << "scancode " << scancode;
         EXPECT_EQ(selected(a.player), (std::vector<UnitId>{a.rig.recycler})) << scancode;

@@ -99,7 +99,7 @@ void Interaction::handle(const input::InputFrame& frame, const sim::Sim& sim,
             // the same click whether the crosshair is on a tank or on the sky. The orders this
             // button used to give live on the keys: `G` (send to a mark), `M` (move to the ground
             // under the mark), `SPACE` (attack what the mark is on), `F` (follow). A weapon change
-            // cancels nothing, so a pending `G` or `T` stays armed across it.
+            // cancels nothing, so a pending `G` or attack list stays armed across it.
             // A carried weapon belongs to the HULL, so the click walks the DRIVEN kind's lineup
             // (B): a hull that is blocked from a weapon never offers it. With no hull in hand --
             // a headless frame or nothing driven -- it walks the whole set, which every kind
@@ -215,8 +215,9 @@ void Interaction::handle(const input::InputFrame& frame, const sim::Sim& sim,
             }
         }
         if (attack_armed_) {
-            // T is waiting on the attack list, and it settles exactly as G does. The digit is a ROW
-            // key (the list's numbering is mark_digit's: 1-9, then 0), never N2's roster key.
+            // The attack list is waiting (`3 ATTACK` armed it), and it settles exactly as G does.
+            // The digit is a ROW key (the list's numbering is mark_digit's: 1-9, then 0), never
+            // N2's roster key.
             const std::vector<TargetRow> rows = std::move(targets_);
             disarm_attack();
             if (const int row = input::mark_digit(key); row >= 0) {
@@ -238,10 +239,10 @@ void Interaction::handle(const input::InputFrame& frame, const sim::Sim& sim,
             // Tab clears, as Escape does.
             selection_.clear();
         } else if (const int digit = input::mark_digit(key); digit >= 0) {
-            // Reached only with no prompt open: G and T settle a digit above and `continue`.
-            // A digit is the OPEN MENU's verb when a selection owns one; with nothing selected it
-            // is the TOP MENU's, and there `1` and `2` are the buildings (the menu spec: a left
-            // menu owns its keys, the top menu is reachable only without one).
+            // Reached only with no prompt open: G and the attack list settle a digit above and
+            // `continue`. A digit is the OPEN MENU's verb when a selection owns one; with nothing
+            // selected it is the TOP MENU's, and there `1` and `2` are the buildings (the menu
+            // spec: a left menu owns its keys, the top menu is reachable only without one).
             if (selection_.empty()) {
                 bring_up_building(sim, digit);
             } else {
@@ -253,19 +254,6 @@ void Interaction::handle(const input::InputFrame& frame, const sim::Sim& sim,
             move_to_crosshair_ground(sim, options);
         } else if (key.scancode == input::kKeyF) {
             follow_crosshair_unit(sim, options);
-        } else if (key.scancode == input::kKeyT) {
-            // T opens the attack LIST: the nearest hostiles by number, whatever the crosshair is
-            // on. It used to attack the hostile under the crosshair when there was one; that is
-            // SPACE's now (the menu offers `SPACE Attack`), and T no longer gives that order.
-            if (selection_.empty()) {
-                refuse("Nothing is selected to give an order to.");
-                continue;
-            }
-            if (orderable().empty()) {
-                refuse("You are driving that one; select another unit to give orders.");
-                continue;
-            }
-            arm_attack_list(sim, options);
         } else if (key.scancode == input::kKeySpace) {
             if (!options.aim.has_value()) {
                 continue; // no mark, nothing to point at; see the click loop
@@ -670,9 +658,8 @@ bool Interaction::deploy_key(const input::KeyEvent& key, const sim::Sim& sim,
         return true;
     }
     // The top menu is shown but not reachable while this left menu is open (MENU-NAV's rule): the
-    // F keys, shifted or not, and the G and T prompts, which would open panels of their own.
-    return input::function_key(key) != 0 || key.scancode == input::kKeyG
-           || key.scancode == input::kKeyT;
+    // F keys, shifted or not, and the G prompt, which would open a panel of its own.
+    return input::function_key(key) != 0 || key.scancode == input::kKeyG;
 }
 
 void Interaction::deploy_at_crosshair(const sim::Sim& sim, const SceneOptions& options) {
@@ -794,8 +781,8 @@ void Interaction::go_to_highlighted_mark(const SceneOptions& options) {
 }
 
 void Interaction::attack_from_menu(const sim::Sim& sim, const SceneOptions& options) {
-    // The same door T opens with no hostile under the crosshair: the list appears and the next
-    // digit names the row to attack. Reusing it keeps ONE target list and one numbering.
+    // The list appears and the next digit names the row to attack. This row is the only door onto
+    // it: T was a second and is unbound, so there is ONE target list and one numbering.
     arm_attack_list(sim, options);
 }
 
@@ -896,8 +883,8 @@ void Interaction::arm_attack_list(const sim::Sim& sim, const SceneOptions& optio
         refuse("no enemies within radar range.");
         return;
     }
-    // No need to clear the G arming here: the only way in is T, and a G arming eats the T that
-    // would have got here (interaction.cpp's go_armed_ block runs first).
+    // No need to clear the G arming here: the only way in is the `3` row, and a G arming eats the
+    // `3` that would have got here (interaction.cpp's go_armed_ block runs first).
     targets_ = std::move(rows);
     attack_armed_ = true;
 }
@@ -927,7 +914,7 @@ void Interaction::attack_row(const std::vector<TargetRow>& rows, int key) {
         refuse(kNoTarget.at(static_cast<std::size_t>(key)));
         return;
     }
-    // The selection is read afresh: a unit may have died since T armed the list.
+    // The selection is read afresh: a unit may have died since the list was armed.
     if (selection_.empty()) {
         refuse("Nothing is selected to give an order to.");
         return;

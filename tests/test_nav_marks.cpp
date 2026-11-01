@@ -410,15 +410,15 @@ TEST(NavMenu, WhileOpenTheTopMenuIsShutOutAndTheRestPasses) {
         const std::array shut{press(input::kKeyF1),
                               shifted_f2,
                               press(input::kKeyG),
-                              press(input::kKeyT),
                               press(input::kKeyN),
                               press(input::kKeyGrave),
                               digit(1),
                               digit(0)};
         EXPECT_TRUE(menu.handle(shut, marks, NavAim{}, true).empty());
         EXPECT_NE(menu.state(), NavState::Closed) << "none of those closes it";
-        const std::array pass{press(input::kKeyW), press(input::kKeyR), press(input::kKeyX),
-                              press(input::kKeyM), input::KeyEvent{input::kKeySpace, false}};
+        const std::array pass{press(input::kKeyW), press(input::kKeyR),
+                              press(input::kKeyX), press(input::kKeyM),
+                              press(input::kKeyT), input::KeyEvent{input::kKeySpace, false}};
         const std::vector<input::KeyEvent> rest = menu.handle(pass, marks, NavAim{}, true);
         ASSERT_EQ(rest.size(), pass.size());
         for (std::size_t i = 0; i < pass.size(); ++i) {

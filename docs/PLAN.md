@@ -299,7 +299,7 @@ Split in two: the order interface first, the economy second.
 26 new tests, red against stubs, with the 134 existing tests still green as a regression guard.
 
 **M4b — the resource loop is built; the build menu is not.** The loop (scrap → scavenger → ledger →
-the factory's tank) is in the sim, and click-to-attack has become `Space` (the menu offers `SPACE Attack` for an enemy under or within about four degrees of the crosshair, with a red line, a kind label and a health bar on the enemy); `T` keeps the numbered attack list, and `1`/`2` with nothing selected bring up the recycler and the factory.
+the factory's tank) is in the sim, and click-to-attack has become `Space` (the menu offers `SPACE Attack` for an enemy under or within about four degrees of the crosshair, with a red line, a kind label and a health bar on the enemy); the numbered attack list is the menu's `3 ATTACK` (T, which opened it, was unbound on 2026-10-31), and `1`/`2` with nothing selected bring up the recycler and the factory.
 Still owed: the build menu, which is only a drawn quotation of BZ2's rows, and turret placement from
 the player's own hand.
 
@@ -746,3 +746,5 @@ kind of off-by-one letter that only a model makes, which is the joke: the game's
 AI, the seed *is* the world, and the name is what an AI calls "protect". Repo `PROTEKT`,
 public, Unlicense. (The working title was "Planet Defense"; it collided with a pile of
 JavaScript canvas tutorials.)
+
+T IS UNBOUND (2026-10-31; slice 3 of the assist-targetting; Harri: "Let's take over the t key for assist-targetting, please.  Remove the old mapping."). T used to open the attack list: the nearest hostiles by number, whatever the crosshair was on. That was a pure shortcut -- the menu's `3 ATTACK` row calls the same `arm_attack_list`, so one target list and one numbering remain -- and its branch in `Interaction::handle` is deleted, along with its two claims on the key: `NavMenu::owned_while_open` (T was shut out while the nav menu or an armed `N` was open) and the deploy menu's `deploy_key` (T was one of the top-menu keys it held back). T now reaches nothing: no order, no list, no prompt, no message, and it cancels no arming. NOT BUILT: the assist itself (no dot, no connector line, no lead estimate, no health bar); T is simply free for the next slice. One difference to know about: T refused UP FRONT ("Nothing is selected to give an order to.", "You are driving that one; select another unit to give orders."), while `3` with the same selections is the top menu's digit (nothing selected: it does nothing) or opens the list and refuses at the ROW digit (only the driven craft selected). Also `3` is a digit, so with a `G` prompt open it answers G as mark 3 rather than cancelling G and opening the list. `--targets FRAME` (capture flag) now presses `3` rather than T and still wants a selection first. UNCHANGED: the list's rows, numbering, capture and radius, `3 ATTACK`, and `Space`.

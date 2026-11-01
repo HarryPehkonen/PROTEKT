@@ -255,17 +255,17 @@ TEST(AttackKeys, SpaceOutsideTheWindowAttacksNothing) {
     EXPECT_TRUE(player.take_orders().empty()) << "what the menu does not offer, SPACE does not do";
 }
 
-TEST(AttackKeys, TNoLongerAttacksWhatTheCrosshairIsOn) {
+TEST(AttackKeys, ThreeDoesNotAttackWhatTheCrosshairIsOn) {
     Field f = make_field();
     f.options.row = &f.row;
     Interaction player{f.driven};
     player.handle(key_frame(input::kKeyF1 + 1), f.sim, f.options);
 
-    player.handle(key_frame(input::kKeyT), f.sim, f.options);
+    player.handle(key_frame(input::kKey1 + 2), f.sim, f.options);
 
     EXPECT_TRUE(player.take_orders().empty())
-        << "pressing T with an enemy dead centre gives no order: SPACE does that";
-    EXPECT_TRUE(player.attack_armed()) << "T keeps its other job, the numbered attack list";
+        << "pressing 3 with an enemy dead centre gives no order: SPACE does that";
+    EXPECT_TRUE(player.attack_armed()) << "3 is the numbered attack list";
     EXPECT_NE(player.message(), "SPACE Attack");
     // ...and the list's own digit still attacks, exactly as it did.
     player.handle(key_frame(input::kKey1), f.sim, f.options);

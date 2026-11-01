@@ -307,16 +307,16 @@ meaning, and those are in section 14.
 | `E` (held) | boost: lifts the hull; presentation only, not counted as "driving" | [SHIPPED 3c7070c] |
 | left click | the trigger: one bolt along the crosshair; rate-limited to one every 8 ticks | [SHIPPED 826b1e6] |
 | right click | switch weapon, gun → rocket → mortar → bouncer → gun; the ONLY weapon switch | [SHIPPED a2400a9] |
-| `Space`, nothing selected | select the one own unit under the mark, if the world view draws it (inside the drawn radius); ground, hostiles and the driven tank are ignored. The mark, Space and the `T` list only ever reach what the world view draws: inside the drawn radius, and for a hostile also inside the viewer's radar reach (40 tiles, a scout's 80) | [SHIPPED 3404ba9] |
+| `Space`, nothing selected | select the one own unit under the mark, if the world view draws it (inside the drawn radius); ground, hostiles and the driven tank are ignored. The mark, Space and the attack list only ever reach what the world view draws: inside the drawn radius, and for a hostile also inside the viewer's radar reach (40 tiles, a scout's 80) | [SHIPPED 3404ba9] |
 | `Space`, something selected, a tank under the mark | the selection follows it | [SHIPPED 3404ba9] |
 | `Space`, something selected, a hostile under the mark | the selection attacks it | [SHIPPED 3404ba9] |
 | `F1`–`F10` | select every unit of the kind that holds that key | [SHIPPED 160dec4] |
-| `Tab` or `Escape` | clear the selection (and cancel a pending `G` or `T`) | [SHIPPED 029a7b1] |
+| `Tab` or `Escape` | clear the selection (and cancel a pending `G` or the attack list) | [SHIPPED 029a7b1] |
 | `X`, mark on an own drivable unit | swap: drive that unit; the one you leave gets a `Stop` and becomes an ordinary unit | [SHIPPED c76d8cf] |
 | `F`, mark on a living unit | the selection follows that unit, holding within 4 tiles | [SHIPPED 6e09100] |
 | `M` | the selection moves to the ground under the mark, even when a unit is in front of it | [SHIPPED 86a0261] |
-| `T`, hostile under the mark | the selection attacks it directly | [SHIPPED 029a7b1] |
-| `T`, no hostile under the mark | arm the attack list: the nearest enemies within radar range, numbered `1`–`9` then `0`; the next digit attacks that row | [SHIPPED bbe4650] |
+| `T` | unbound (2026-10-31): it attacked the hostile under the mark (029a7b1, moved to `Space`) and then armed the attack list (bbe4650); the key is held for the assist-targetting and does nothing | [REMOVED] |
+| `3` (vehicle's command menu) | arm the attack list: the nearest enemies within radar range, numbered `1`–`9` then `0`; the next digit attacks that row | [SHIPPED bbe4650, key moved from `T` 2026-10-31] |
 | `N` | drop a numbered nav mark `0`–`9` under the crosshair, or clear the one aimed at; ten is the limit | [SHIPPED 4594cec] |
 | `G`, then `0`–`9` | send the selection to that nav mark as a move order; `Escape` cancels; any other key cancels and then acts | [SHIPPED 30b618c] |
 | `R` | toggle the world map in the radar's corner | [SHIPPED 20f224e] |
@@ -325,7 +325,7 @@ meaning, and those are in section 14.
 | `F11` or `Alt`+`Enter` | toggle full screen | [SHIPPED 47ba745] |
 | `Ctrl`+`Q` | quit from anywhere; deliberately a modified key | [SHIPPED 47ba745] |
 | digits `1`–`9`, `0`, no prompt open | act on the selected subject's command menu, for the two rows that can act: `1 Follow Me` (the selection follows the craft you are driving) and `4 Hold` (each unit guards its own position with `GuardAt`). A digit the menu has no row for, a row the model dims, or a subject with no menu does nothing at all — and the recycler's menu has no `4` | [SHIPPED d80ce95] |
-| digits `1`–`9`, `0`, a prompt open | answer `G`, `T` and the attack list exactly as before: the prompt swallows the digit first, and the menu never sees it | [SHIPPED 160dec4, precedence pinned d80ce95] |
+| digits `1`–`9`, `0`, a prompt open | answer `G` and the attack list exactly as before: the prompt swallows the digit first, and the menu never sees it | [SHIPPED 160dec4, precedence pinned d80ce95] |
 | digits in a command menu, rows that cannot act yet | inert, with no message: `2 Go to Nav` (which mark it means is unruled), `3 Scavenge` (the fetch is automatic), `3 Deploy` (RB3), `5 Pick Me Up`, `9 Bailout`, `0 Recycle`, `~`, and the factory's seven build rows (RB5) | [SHIPPED d80ce95] |
 
 Selection and orders, the rules behind the rows:
@@ -457,11 +457,11 @@ What is built, what is not:
   the MODEL's own rows (`menu_rows`) and only an ENABLED row acts, so a dimmed row and a digit with no row
   do nothing — exactly as they did before anything was routed. Section 7's key table lists which rows act
   and which are inert, and why each inert one cannot act yet.
-- [SHIPPED d80ce95] The PROMPTS still win, and that is deliberate: `G`, `T` and the attack list settle a
+- [SHIPPED d80ce95] The PROMPTS still win, and that is deliberate: `G` and the attack list settle a
   digit above the menu in `Interaction::handle` and `continue`, so the menu branch is only reached with no
   prompt open. This is the conservative reading of the next bullet, not the next bullet.
 - [INTENDED — unconfirmed] **A menu is a MODE that SUSPENDS the prompts.** What is still unruled is whether
-  opening the menu takes the digits away from `G`/`T`/the attack list: the layout says the menu is opened and
+  opening the menu takes the digits away from `G`/the attack list: the layout says the menu is opened and
   closed (`TAB Close Menu`), but `Tab` clears the selection and nothing suspends anything. In normal mode the
   digits would address buildings (`1` recycler, `2` factory, `3` armory) once those exist. `menu.hpp:40-43`
   writes the mode as a property of the reference menu; whether PROTEKT adopts it is not ruled anywhere I can
@@ -500,7 +500,7 @@ pixels at a 720-high frame, and a glyph is 5 cells tall.
 |---|---|---|---|
 | Roster strip | top left, 6 px margin | one plate per kind with living units, in key order: the key (`F1`…), the count as `x<n>`, the kind's short name, and a 3 px bar of the group's summed hp over summed maximum (green above 60%, yellow above 30%, red below). The frame is yellow when any unit of the group is selected, white otherwise. A plate is 88 by 34 px | [SHIPPED 609fd67] |
 | Notice line | under the strip, yellow | the last refusal or confirmation, held for `kNoticeTicks` of sim time; the `go where? 0-9 for a mark.` prompt while `G` waits | [SHIPPED d81b8cf] |
-| Attack list | under the notice | after `T` with no hostile under the mark: one row per nearest enemy within the radar, `key  kind  metres`, keys `1`–`9` then `0`; the row's meaning is fixed when `T` was pressed | [SHIPPED eff1299] |
+| Attack list | under the notice | after the menu's `3 ATTACK`: one row per nearest enemy within the radar, `key  kind  metres`, keys `1`–`9` then `0`; the row's meaning is fixed when the list was armed | [SHIPPED eff1299] |
 | Command menu | the left margin, in the attack list's slot | section 6 | [SHIPPED be3afb4] |
 | Radar | bottom left | a wide shallow oval, 40 tile radius, heading-up; the driven unit a triangle at the middle, yours squares, hostiles red squares, your base an outline, nav marks, a rim arrow to your base; terrain relief in a wireframe mesh | [SHIPPED f8e65de] |
 | World map | bottom left, replaces the radar | section 3 | [SHIPPED 5458ec4] |
@@ -1357,7 +1357,7 @@ reader can see what they are, and none of them is a rule the code may be built f
   ruling later.
 - [INTENDED — unconfirmed] "A menu is a MODE that SUSPENDS the prompts" (`menu.hpp:40-43`). It is written as
   a property of the REFERENCE menu; whether PROTEKT adopts the mode is ruled nowhere (Part A section 14.1,
-  question 2). The shipped behaviour is the conservative reading: the `G`, `T` and attack-list prompts settle
+  question 2). The shipped behaviour is the conservative reading: the `G` and attack-list prompts settle
   a digit before the menu sees it.
 - [CLOSED by his ruling, 2026-10-26] The recycler's key. HIS WORDS: *"A deployed recycler is not under any
   function key. It's under the 1 key. Only an un-deployed recycler is under a function key. The deployment

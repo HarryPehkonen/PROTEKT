@@ -89,10 +89,9 @@ public:
     ///    arming up; Escape cancels it (and is spent doing so: the selection stays); any other key
     ///    cancels it and then does its own job; an order by key (`M`) cancels it. The trigger
     ///    leaves it armed, and so does a weapon click: neither is an order.
-    ///  * T: arm the attack list of the driven tank's nearest hostiles within the radar's radius
-    ///    (`nearest_enemies`), unless there are none (refused), whatever the mark is on. The next
-    ///    0-9 attacks that row for the selection. T no longer attacks the unit under the mark:
-    ///    that is SPACE's.
+    ///  * T: unbound. It opened the attack list and, before that, attacked the unit under the
+    ///    mark; the list is now the menu's `3 ATTACK` alone and the pointed attack is SPACE's.
+    ///    The key is held for the assist-targetting, and until then it does nothing at all.
     ///  * a digit with NOTHING selected (the top menu): `1` selects the player's recycler and `2`
     ///    the factory, wherever they are (`building_key_holder`); a building that is not alive is
     ///    refused aloud. With a selection the digit is the open menu's, below.
@@ -101,8 +100,8 @@ public:
     ///    row is enabled. `FOLLOW ME` orders the selection to follow the craft being driven;
     ///    `HOLD` posts each selected unit where it stands (GuardAt at its own position -- a bare
     ///    Stop would not hold a harvester, whose fetch starts again the same tick). Every other
-    ///    row, and every digit with no menu, does nothing. A `G` or `T` prompt, armed, swallows
-    ///    the digit before the menu sees it.
+    ///    row, and every digit with no menu, does nothing. A `G` prompt or the attack list, armed,
+    ///    swallows the digit before the menu sees it.
     ///  * `3 DEPLOY` on an un-deployed recycler ARMS the deploy (DEPLOY; `deploy_armed`). While it
     ///    is armed the reticle picks the ground, SPACE orders the selected recycler -- the lowest
     ///    id, if several are selected: one site holds one building -- to `Deploy` there and
@@ -110,7 +109,7 @@ public:
     ///    site the sim would refuse (`sim::deploy_site_ok`) is refused here, out loud, and the
     ///    arming stays; so does a SPACE with the reticle off the ground. `~` ROTATES the preview,
     ///    which for a 2x2 footprint is the identity, so it is taken and changes nothing. The top
-    ///    menu is visible but inaccessible meanwhile: F1-F10 (shifted or not), G and T do nothing.
+    ///    menu is visible but inaccessible meanwhile: F1-F10 (shifted or not) and G do nothing.
     ///    The arming lapses on its own once the selection is no longer one un-deployed recycler of
     ///    the player's.
     ///  * Tab or Escape: clear the selection
@@ -157,13 +156,13 @@ public:
     /// G has been pressed and the digit that names its mark has not: the next 0-9 is a MARK number
     /// (N3), and the HUD shows `kGoPrompt` for as long as this is true.
     [[nodiscard]] bool go_armed() const noexcept;
-    /// T has been pressed with no hostile under the crosshair and the key that names a row has not:
+    /// `3 ATTACK` has been pressed and the key that names a row has not:
     /// the next 0-9 is a ROW of `attack_targets()` (BZ2A), and the HUD shows the list for as long
     /// as this is true. Settled like G: a digit uses it up, Escape cancels it (and is spent doing
     /// so), any other key cancels it and then does its own job, a right-click order cancels it.
     [[nodiscard]] bool attack_armed() const noexcept;
-    /// The rows the armed list offers, nearest first, captured when T armed it so the numbers
-    /// cannot shift under the player's finger. Empty whenever the list is not armed.
+    /// The rows the armed list offers, nearest first, captured when `3 ATTACK` armed it so the
+    /// numbers cannot shift under the player's finger. Empty whenever the list is not armed.
     [[nodiscard]] const std::vector<TargetRow>& attack_targets() const noexcept;
     /// `un-deployed recycler menu -> 3`: the deploy is armed, and the next SPACE over the ground
     /// deploys the selected recycler there. The state row reads `SPACE DEPLOY <distance>` and the
@@ -219,8 +218,7 @@ private:
     /// factory (`building_key_holder`), wherever they are. A building that is not alive is refused
     /// aloud and selects nothing; `3` (no armory yet) and the other digits do nothing.
     void bring_up_building(const sim::Sim& sim, int key);
-    /// `3 ATTACK`: open the attack list T opens with no hostile under the crosshair. The next digit
-    /// names the row to attack.
+    /// `3 ATTACK`: open the attack list. The next digit names the row to attack.
     void attack_from_menu(const sim::Sim& sim, const SceneOptions& options);
     /// `0 RECYCLE`: order every orderable selected unit to the side's own recycler. Refused when
     /// the side has no living recycler, or when nothing but the driven craft is selected.
@@ -234,7 +232,7 @@ private:
     /// G then a digit: MoveTo the tile of the mark drawn as `number` for every orderable selected
     /// unit (N3).
     void send_to_mark(int number, const SceneOptions& options);
-    /// T (and `3 ATTACK`): capture the nearest hostiles and arm the list,
+    /// `3 ATTACK`: capture the nearest hostiles and arm the list,
     /// or refuse when there are none. A refusal leaves nothing armed.
     void arm_attack_list(const sim::Sim& sim, const SceneOptions& options);
     void disarm_attack() noexcept;

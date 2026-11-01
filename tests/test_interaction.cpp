@@ -690,39 +690,59 @@ TEST(Interaction, SpaceOrdersAnAttackFromEverySelectedUnitAndKeepsTheSelection) 
     EXPECT_EQ(std::get<sim::orders::Attack>(orders.front().payload).target, rig.enemy);
 }
 
-TEST(Interaction, TWithNothingSelectedIsRefusedAndSaysWhy) {
+TEST(Interaction, TIsUnboundWhateverIsSelectedOrUnderTheCrosshair) {
+    // T was the attack list's key, and before that the pointed attack's. It is held for the
+    // assist-targetting and does nothing until then: no order, no list, no prompt, no message.
     Rig rig = make_rig();
     Interaction player{rig.tank_a};
     static_cast<void>(at(rig, rig.enemy));
     player.handle(with_key(input::kKeyT), rig.sim, rig.options);
-    EXPECT_TRUE(player.take_orders().empty());
-    EXPECT_EQ(player.message(), "Nothing is selected to give an order to.");
+    EXPECT_TRUE(player.take_orders().empty()) << "nothing selected";
+    EXPECT_FALSE(player.attack_armed());
+    EXPECT_FALSE(player.go_armed());
+    EXPECT_TRUE(player.message().empty());
+
+    choose(rig, player, rig.tank_b);
+    static_cast<void>(at(rig, rig.enemy));
+    player.handle(with_key(input::kKeyT), rig.sim, rig.options);
+    EXPECT_TRUE(player.take_orders().empty()) << "a hostile under the crosshair";
+    EXPECT_FALSE(player.attack_armed());
+    EXPECT_FALSE(player.go_armed());
+    EXPECT_TRUE(player.message().empty());
+    EXPECT_EQ(selected(player), (std::vector<sim::UnitId>{rig.tank_b})) << "and it selects nothing";
+
+    static_cast<void>(ground_click(rig));
+    player.handle(with_key(input::kKeyT), rig.sim, rig.options);
+    EXPECT_FALSE(player.attack_armed()) << "over ground";
 }
 
-TEST(Interaction, TOffAHostileArmsTheListInsteadOfRefusing) {
+TEST(Interaction, ThreeOffAHostileArmsTheListInsteadOfRefusing) {
     Rig rig = make_rig();
     Interaction player{rig.tank_a};
     choose(rig, player, rig.tank_b);
 
     static_cast<void>(ground_click(rig));
-    player.handle(with_key(input::kKeyT), rig.sim, rig.options);
+    player.handle(with_key(input::kKey1 + 2), rig.sim, rig.options);
     EXPECT_TRUE(player.take_orders().empty()) << "ground";
-    // BZ2A-1: no longer a refusal -- with hostiles about, T offers them by number instead.
+    // BZ2A-1: no longer a refusal -- with hostiles about, 3 offers them by number instead.
     EXPECT_TRUE(player.attack_armed());
 
+    player.handle(with_key(input::kKeyEscape), rig.sim, rig.options); // a 3 now would be row 3
     static_cast<void>(at(rig, rig.turret));
-    player.handle(with_key(input::kKeyT), rig.sim, rig.options);
+    player.handle(with_key(input::kKey1 + 2), rig.sim, rig.options);
     EXPECT_TRUE(player.take_orders().empty()) << "own unit";
     EXPECT_TRUE(player.attack_armed());
     EXPECT_EQ(selected(player), (std::vector<sim::UnitId>{rig.tank_b}));
 }
 
-TEST(Interaction, TWithOnlyTheDrivenTankSelectedIsRefused) {
+TEST(Interaction, ThreeWithOnlyTheDrivenTankSelectedOpensTheListAndItsRowIsRefused) {
     Rig rig = make_rig();
     Interaction player{rig.tank_a};
     select_and_drive(rig, player, rig.tank_b);
     static_cast<void>(at(rig, rig.enemy));
-    player.handle(with_key(input::kKeyT), rig.sim, rig.options);
+    player.handle(with_key(input::kKey1 + 2), rig.sim, rig.options);
+    ASSERT_TRUE(player.attack_armed()) << "the list opens; the row's digit is what refuses";
+    player.handle(with_key(input::kKey1), rig.sim, rig.options);
     EXPECT_TRUE(player.take_orders().empty());
     EXPECT_EQ(player.message(), "You are driving that one; select another unit to give orders.");
 }
@@ -2051,12 +2071,12 @@ struct VisRig {
     return pick(rig.sim, rig.options, p.x, p.y);
 }
 
-[[nodiscard]] std::vector<sim::UnitId> named_by_t(VisRig& rig) {
+[[nodiscard]] std::vector<sim::UnitId> named_by_three(VisRig& rig) {
     Interaction player{rig.viewer};
     // Select the wingman by aiming at it, then open the list.
     static_cast<void>(aim_at(rig, rig.wingman));
     player.handle(with_key(input::kKeySpace), rig.sim, rig.options);
-    player.handle(with_key(input::kKeyT), rig.sim, rig.options);
+    player.handle(with_key(input::kKey1 + 2), rig.sim, rig.options);
     std::vector<sim::UnitId> ids;
     for (const TargetRow& row : player.attack_targets()) {
         ids.push_back(row.id);
@@ -2073,7 +2093,7 @@ TEST(Availability, AHostileJustBeyondTheDrawnRadiusCannotBePickedMarkedOrNamed) 
     const Pick picked = aim_at(rig, rig.hostile);
     EXPECT_FALSE(picked.has_unit()) << "nothing is picked over a hostile that is not drawn";
 
-    EXPECT_TRUE(named_by_t(rig).empty()) << "the attack list does not name what is not drawn";
+    EXPECT_TRUE(named_by_three(rig).empty()) << "the attack list does not name what is not drawn";
 
     Interaction player{rig.viewer};
     static_cast<void>(aim_at(rig, rig.wingman));
@@ -2086,7 +2106,7 @@ TEST(Availability, AHostileJustBeyondTheDrawnRadiusCannotBePickedMarkedOrNamed) 
 TEST(Availability, TheSameHostileAtTwentyTilesIsPickedAndNamedAsBefore) {
     VisRig rig = make_vis_rig(UnitKind::Tank, 44, 60, 36, 44, 24);
     EXPECT_EQ(aim_at(rig, rig.hostile).unit, rig.hostile);
-    EXPECT_EQ(named_by_t(rig), (std::vector<sim::UnitId>{rig.hostile}));
+    EXPECT_EQ(named_by_three(rig), (std::vector<sim::UnitId>{rig.hostile}));
 
     Interaction player{rig.viewer};
     static_cast<void>(aim_at(rig, rig.wingman));
@@ -2104,12 +2124,12 @@ TEST(Availability, TheReachBindsWhenTheDrawnRadiusIsLonger) {
     {
         VisRig tank = make_vis_rig(UnitKind::Tank, 44, 85, 36, 44, 100);
         EXPECT_FALSE(aim_at(tank, tank.hostile).has_unit()) << "a tank's reach is 40";
-        EXPECT_TRUE(named_by_t(tank).empty());
+        EXPECT_TRUE(named_by_three(tank).empty());
     }
     {
         VisRig scout = make_vis_rig(UnitKind::Scout, 44, 85, 36, 44, 100);
         EXPECT_EQ(aim_at(scout, scout.hostile).unit, scout.hostile) << "a scout's reach is 80";
-        EXPECT_EQ(named_by_t(scout), (std::vector<sim::UnitId>{scout.hostile}));
+        EXPECT_EQ(named_by_three(scout), (std::vector<sim::UnitId>{scout.hostile}));
     }
 }
 
