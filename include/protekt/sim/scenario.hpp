@@ -4,6 +4,7 @@
 #include <vector>
 
 #include "protekt/sim/objective.hpp"
+#include "protekt/sim/pool.hpp"
 #include "protekt/sim/scrap.hpp"
 
 #include "protekt/sim/sim.hpp"
@@ -35,6 +36,12 @@ struct ScenarioData {
     /// them plays the built-in rule -- the war still has to be winnable when the file only lists
     /// units -- and a mission is a composition with its own list.
     std::vector<Objective> objectives = built_in_objectives();
+    /// What a side's scrap store holds before any scavenger has deployed. Instant Action is always
+    /// `kStoreStartCapacity`; a story-mode mission may supply another.
+    std::uint16_t store_capacity{kStoreStartCapacity};
+    /// How many biometal pools the map lays. Zero (the default) is "from the terrain seed",
+    /// `kMinPools` to `kMaxPools`; a designed map sets its own count.
+    int pool_count{0};
 };
 
 inline constexpr int kMaxGroupCount = 64; ///< units in one group, at least 1

@@ -413,12 +413,16 @@ Observation observe(const Sim& sim, Side side) {
     Observation observation{};
     observation.tick = sim.tick();
     observation.terrain = sim.seed();
+    observation.pools = sim.pools();
+    observation.scrap = sim.scraps();
     for (const Unit& unit : sim.units()) {
         if (!unit.alive) {
             continue;
         }
-        const UnitView view{unit.id, unit.kind,  unit.side,  unit.x.floor_int(), unit.y.floor_int(),
-                            unit.hp, unit.x.raw, unit.y.raw, is_mounted(unit)};
+        const UnitView view{
+            unit.id,    unit.kind,  unit.side,  unit.x.floor_int(), unit.y.floor_int(),
+            unit.hp,    unit.x.raw, unit.y.raw, is_mounted(unit),   unit.vx.raw,
+            unit.vy.raw};
         (unit.side == side ? observation.own : observation.enemy).push_back(view);
     }
     return observation;

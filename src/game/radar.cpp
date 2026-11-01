@@ -13,6 +13,8 @@ constexpr float kDotHalfFraction = 0.022F;
 constexpr float kBaseHalfFraction = 0.05F;
 /// A piece of litter: half a unit's dot, so scrap reads as specks among the blips.
 constexpr float kLitterHalfFraction = 0.011F;
+/// A biometal pool's outline is this many times a piece of litter: a place, not a speck.
+constexpr float kPoolHalfScale = 2.0F;
 constexpr float kViewerHalfFraction = 0.03F;
 constexpr float kArrowHalfFraction = 0.045F;
 /// A nav mark's plus is this half-size, of the panel: 4 px at the 230 px panel, so the mark spans
@@ -344,6 +346,38 @@ std::vector<RadarMark> radar_litter(std::span<const sim::Scrap> scrap,
         const RadarPoint at
             = fit_box(panel, radar_project(panel, right, forward, radius_tiles), half);
         marks.push_back(RadarMark{at.px, at.py, half, 0.0F, RadarShape::Square, RadarTone::Litter,
+                                  sim::UnitId{}});
+    }
+    return marks;
+}
+
+std::vector<RadarMark> radar_pools(std::span<const sim::Pool> pools,
+                                   std::span<const sim::Unit> units, sim::UnitId viewer_unit,
+                                   float yaw_radians, const RadarPanel& panel, int radius_tiles) {
+    std::vector<RadarMark> marks;
+    if (!viewer_unit.valid() || radius_tiles <= 0 || panel.width <= 0.0F) {
+        return marks;
+    }
+    const auto viewer = std::find_if(units.begin(), units.end(), [viewer_unit](const sim::Unit& u) {
+        return u.id == viewer_unit;
+    });
+    if (viewer == units.end()) {
+        return marks;
+    }
+    const float sine = std::sin(yaw_radians);
+    const float cosine = std::cos(yaw_radians);
+    const float half = panel.width * kLitterHalfFraction * kPoolHalfScale;
+    for (const sim::Pool& pool : pools) {
+        const float dx = static_cast<float>(pool.tile_x) + 0.5F - tiles(viewer->x);
+        const float dz = static_cast<float>(pool.tile_y) + 0.5F - tiles(viewer->y);
+        if (std::hypot(dx, dz) > static_cast<float>(radius_tiles)) {
+            continue;
+        }
+        const float forward = (dx * sine) + (dz * cosine);
+        const float right = (dx * cosine) - (dz * sine);
+        const RadarPoint at
+            = fit_box(panel, radar_project(panel, right, forward, radius_tiles), half);
+        marks.push_back(RadarMark{at.px, at.py, half, 0.0F, RadarShape::Hollow, RadarTone::Litter,
                                   sim::UnitId{}});
     }
     return marks;

@@ -10,6 +10,7 @@
 #include "protekt/sim/objective.hpp"
 #include "protekt/sim/orders.hpp"
 #include "protekt/sim/outcome.hpp"
+#include "protekt/sim/pool.hpp"
 #include "protekt/sim/projectile.hpp"
 #include "protekt/sim/scrap.hpp"
 #include "protekt/sim/units.hpp"
@@ -32,6 +33,13 @@ struct Scenario {
     /// lays a field near each base. Empty for a battle assembled by hand, so a rig starts on clean
     /// ground exactly as it did before there was a field at all.
     std::vector<Scrap> scrap{};
+    /// The biometal pools the map has: fixed places, laid by whoever built the scenario (`skirmish`
+    /// lays them from the seed). Empty for a battle assembled by hand, which then has nowhere for a
+    /// scavenger to deploy. Scenario data, never hashed.
+    std::vector<Pool> pools{};
+    /// What each side's scrap store holds before any scavenger has deployed
+    /// (`kStoreStartCapacity`).
+    std::uint16_t store_capacity{kStoreStartCapacity};
     /// The conditions the war is decided by (OBJ), in the order they are asked. Defaulted to the
     /// built-in rule so that a battle assembled by hand is the war the game ships with, and a
     /// mission is a battle that names its own.
@@ -111,6 +119,13 @@ protected:
 ///   6. every unit this tick's damage killed leaves its wreckage on the ground (C1): scrap pieces
 ///      around the tile it stood on, in ascending victim id, so the litter is a function of the
 ///      battle and not of the order the bolts happened to fly in;
+///   6b. THE STORE (POOLS): each side's bank is clamped to its capacity (`capacity`: the scenario's
+///      store plus 20 per living deployed scavenger), so a deployed scavenger killed this tick has
+///      already taken its 20 and the scrap above the new capacity; then each side holding a
+///      deployed scavenger extracts ONE unit on the `kPoolExtractIntervalTicks` beat, however many
+///      pools it holds, into whatever room is left. (In step 2 a scavenger under a `Deploy` order
+///      drives to its pool, counts `scavenger_deploy_ticks` and becomes a `DeployedScavenger`; a
+///      full store stops its collecting of litter.)
 ///   7. every PRODUCER's build queue runs, in ascending id (BUILD-QUEUE): the front entry waits for
 ///      its scrap -- the one `ore` bank, paused and never cancelled while it is short -- pays its
 ///      whole cost on the tick it starts, counts its build time down, and on the last tick its
@@ -139,6 +154,11 @@ public:
     /// How many loads a side has delivered to its own factory (C3). The war's ledger: the only
     /// currency, spent by a producer's queue. A count, so repair stays free.
     [[nodiscard]] std::uint16_t ore(Side side) const noexcept;
+    /// How much a side's store can hold now: the scenario's `store_capacity` plus 20 per living
+    /// DEPLOYED scavenger (`store_capacity`). The bank never exceeds it.
+    [[nodiscard]] std::uint16_t capacity(Side side) const noexcept;
+    /// The biometal pools of this battle, in the order the scenario listed them.
+    [[nodiscard]] const std::vector<Pool>& pools() const noexcept;
     /// The bolts that landed during the most recent step. Output, not state: it is rebuilt by every
     /// step and is not part of the hash.
     [[nodiscard]] const std::vector<Impact>& impacts() const noexcept;

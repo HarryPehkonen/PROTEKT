@@ -1,6 +1,7 @@
 #include "protekt/ai/utility.hpp"
 
 #include <algorithm>
+#include <cstdlib>
 #include <optional>
 
 #include "protekt/sim/projectile.hpp"
@@ -93,7 +94,8 @@ Role role_of(sim::UnitKind kind) noexcept {
     case sim::UnitKind::Factory:
     case sim::UnitKind::Scavenger: // unarmed: it hauls, so there is no decision to make about it
     case sim::UnitKind::Recycler:  // unarmed too: it is the base-to-be, with no hunt to run
-    case sim::UnitKind::DeployedRecycler: // the base itself: it never moves, so nothing to decide
+    case sim::UnitKind::DeployedRecycler:  // the base itself: it never moves, so nothing to decide
+    case sim::UnitKind::DeployedScavenger: // a fixture on its pool: nothing to decide either
         return Role::None;
     }
     return Role::None;
@@ -120,7 +122,8 @@ int threat_of(sim::UnitKind kind) noexcept {
         return 1;
     case sim::UnitKind::Scavenger: // unarmed: nothing to shoot back with, nothing to fear from it
     case sim::UnitKind::Recycler: // unarmed too: it cannot hurt anything, whatever it later becomes
-    case sim::UnitKind::DeployedRecycler: // and deployed it is still unarmed
+    case sim::UnitKind::DeployedRecycler:  // and deployed it is still unarmed
+    case sim::UnitKind::DeployedScavenger: // unarmed on its pool, as it was on wheels
         return 0;
     }
     return 0;
@@ -259,7 +262,139 @@ Decision decide(const sim::UnitView& self, const sim::Observation& observation,
 
 UtilityCommander::UtilityCommander(UtilityTuning tuning) noexcept : tuning_(tuning) {}
 
+namespace {
+
+/// The middle of a pool's tile, in Q16.16.
+constexpr std::int64_t pool_centre_raw(int tile) noexcept {
+    return (static_cast<std::int64_t>(tile) << sim::Fixed::kShift) + (sim::Fixed::kOne / 2);
+}
+
+/// A VEHICLE: something that drives. A turret crawls but is a post, not a vehicle.
+bool is_vehicle(sim::UnitKind kind) noexcept {
+    return kind != sim::UnitKind::Turret && sim::profile(kind).mobile;
+}
+
+} // namespace
+
+bool vehicle_points_at(const sim::UnitView& vehicle, const Facing& facing,
+                       const sim::Pool& pool) noexcept {
+    const std::int64_t dx = pool_centre_raw(pool.tile_x) - vehicle.raw_x;
+    const std::int64_t dy = pool_centre_raw(pool.tile_y) - vehicle.raw_y;
+    const std::int64_t reach = static_cast<std::int64_t>(sim::radar_radius_tiles(vehicle.kind))
+                               << sim::Fixed::kShift;
+    if ((dx * dx) + (dy * dy) > reach * reach) {
+        return false; // the vehicle cannot see it
+    }
+    const std::int64_t along
+        = (static_cast<std::int64_t>(facing.vx) * dx) + (static_cast<std::int64_t>(facing.vy) * dy);
+    const std::int64_t across
+        = (static_cast<std::int64_t>(facing.vx) * dy) - (static_cast<std::int64_t>(facing.vy) * dx);
+    // Within the cone: ahead of it, and the sideways part no more than tan(cone) of the forward.
+    return along > 0 && std::abs(across) * 1'000'000 <= sim::kPointingConeTanMillionths * along;
+}
+
+void UtilityCommander::remember_facings(const sim::Observation& observation) {
+    for (const sim::UnitView& unit : observation.own) {
+        if (!is_vehicle(unit.kind) || (unit.raw_vx == 0 && unit.raw_vy == 0)) {
+            continue; // standing still keeps the facing it had
+        }
+        const auto found = std::find_if(facings_.begin(), facings_.end(),
+                                        [&unit](const Facing& f) { return f.unit == unit.id; });
+        if (found != facings_.end()) {
+            found->vx = unit.raw_vx;
+            found->vy = unit.raw_vy;
+        } else {
+            facings_.push_back(Facing{unit.id, unit.raw_vx, unit.raw_vy});
+        }
+    }
+}
+
+void UtilityCommander::deploy_scavengers(const sim::Observation& observation,
+                                         std::vector<sim::Order>& out) {
+    // A claim ends when its scavenger is gone (dead, or deployed -- then the pool is taken), or its
+    // time is up.
+    std::erase_if(claims_, [&](const DeployClaim& claim) {
+        const bool alive = std::any_of(
+            observation.own.begin(), observation.own.end(), [&claim](const sim::UnitView& u) {
+                return u.id == claim.scavenger && u.kind == sim::UnitKind::Scavenger;
+            });
+        return !alive
+               || observation.tick - claim.tick
+                      >= static_cast<sim::Tick>(tuning_.deploy_claim_ticks);
+    });
+    const auto enemy_scavenger = [](const sim::UnitView& u) {
+        return u.side == sim::Side::Enemy && u.kind == sim::UnitKind::Scavenger;
+    };
+    // Litter in reach of any of the side's scavengers is worth collecting: no deploying then.
+    for (const sim::UnitView& scav : observation.own) {
+        if (!enemy_scavenger(scav)) {
+            continue;
+        }
+        const std::int64_t reach = static_cast<std::int64_t>(sim::radar_radius_tiles(scav.kind))
+                                   << sim::Fixed::kShift;
+        for (const sim::Scrap& piece : observation.scrap) {
+            const std::int64_t dx = static_cast<std::int64_t>(piece.x.raw) - scav.raw_x;
+            const std::int64_t dy = static_cast<std::int64_t>(piece.y.raw) - scav.raw_y;
+            if ((dx * dx) + (dy * dy) <= reach * reach) {
+                return;
+            }
+        }
+    }
+    for (const sim::Pool& pool : observation.pools) {
+        const auto holds_pool = [&pool](const sim::UnitView& u) {
+            return u.kind == sim::UnitKind::DeployedScavenger && u.x == pool.tile_x
+                   && u.y == pool.tile_y;
+        };
+        const bool claimed
+            = std::any_of(claims_.begin(), claims_.end(), [&pool](const DeployClaim& c) {
+                  return c.pool_x == pool.tile_x && c.pool_y == pool.tile_y;
+              });
+        if (claimed || std::any_of(observation.own.begin(), observation.own.end(), holds_pool)
+            || std::any_of(observation.enemy.begin(), observation.enemy.end(), holds_pool)) {
+            continue; // one scavenger per pool, from either side
+        }
+        const bool pointed_at = std::any_of(
+            observation.own.begin(), observation.own.end(), [&](const sim::UnitView& vehicle) {
+                if (vehicle.side != sim::Side::Enemy || !is_vehicle(vehicle.kind)) {
+                    return false;
+                }
+                const auto facing
+                    = std::find_if(facings_.begin(), facings_.end(),
+                                   [&vehicle](const Facing& f) { return f.unit == vehicle.id; });
+                return facing != facings_.end() && vehicle_points_at(vehicle, *facing, pool);
+            });
+        if (!pointed_at) {
+            continue;
+        }
+        // The nearest scavenger not already sent, the lower id on a tie.
+        const sim::UnitView* pick = nullptr;
+        std::int64_t best = 0;
+        for (const sim::UnitView& scav : observation.own) {
+            const bool sent
+                = std::any_of(claims_.begin(), claims_.end(),
+                              [&scav](const DeployClaim& c) { return c.scavenger == scav.id; });
+            if (!enemy_scavenger(scav) || sent) {
+                continue;
+            }
+            const std::int64_t dx = pool_centre_raw(pool.tile_x) - scav.raw_x;
+            const std::int64_t dy = pool_centre_raw(pool.tile_y) - scav.raw_y;
+            const std::int64_t d2 = (dx * dx) + (dy * dy);
+            if (pick == nullptr || d2 < best) {
+                pick = &scav;
+                best = d2;
+            }
+        }
+        if (pick == nullptr) {
+            return; // no scavenger left to send to this or any other pool
+        }
+        out.push_back(sim::Order{pick->id, sim::orders::Deploy{pool.tile_x, pool.tile_y}});
+        claims_.push_back(DeployClaim{pick->id, pool.tile_x, pool.tile_y, observation.tick});
+    }
+}
+
 void UtilityCommander::think(const sim::Observation& observation, std::vector<sim::Order>& out) {
+    remember_facings(
+        observation); // every call, not only on the beat: a heading is learned in motion
     if (tuning_.cycle_ticks <= 0
         || observation.tick % static_cast<sim::Tick>(tuning_.cycle_ticks) != 0) {
         return;
@@ -274,6 +409,7 @@ void UtilityCommander::think(const sim::Observation& observation, std::vector<si
         }
         out.push_back(order_for(decision, unit));
     }
+    deploy_scavengers(observation, out);
 }
 
 const std::vector<Decision>& UtilityCommander::decisions() const noexcept { return decisions_; }

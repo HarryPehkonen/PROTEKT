@@ -25,6 +25,7 @@ using protekt::game::radar_compass;
 using protekt::game::radar_litter;
 using protekt::game::radar_marks;
 using protekt::game::radar_panel;
+using protekt::game::radar_pools;
 using protekt::game::radar_project;
 using protekt::game::RadarLetter;
 using protekt::game::RadarMark;
@@ -895,6 +896,33 @@ TEST(RadarLitter, APiecePastTheReachIsNotOnTheRadarAndNoViewerMeansNone) {
     EXPECT_EQ(radar_litter(std::span{&in, 1}, units, UnitId{1}, 0.0F, kPanel).size(), 1U);
     EXPECT_TRUE(radar_litter(std::span{&out, 1}, units, UnitId{1}, 0.0F, kPanel).empty());
     EXPECT_TRUE(radar_litter(std::span{&in, 1}, units, UnitId{}, 0.0F, kPanel).empty());
+}
+
+// ---------------------------------------------------------------- biometal pools
+
+TEST(RadarPools, APoolInReachIsAWhiteOutlineWhereAUnitAtItsMiddleWouldBe) {
+    const std::vector<Unit> units = with_viewer({at_bearing(2, 20.0F, 30.0F, Side::Enemy)});
+    // The pool whose tile holds that unit: its middle is the tile centre.
+    const protekt::sim::Pool pool{units.at(1).x.floor_int(), units.at(1).y.floor_int()};
+    const std::vector<RadarMark> marks
+        = radar_pools(std::span{&pool, 1}, units, UnitId{1}, 0.0F, kPanel);
+    const RadarMark blip = radar_marks(units, UnitId{1}, 0.0F, kPanel).at(1);
+    ASSERT_EQ(marks.size(), 1U);
+    EXPECT_EQ(marks.front().tone, RadarTone::Litter) << "white: whatever a scavenger can collect";
+    EXPECT_EQ(marks.front().shape, RadarShape::Hollow) << "an outline, so it reads as a place";
+    EXPECT_NEAR(marks.front().px, blip.px, 1.5F * blip.half);
+    EXPECT_NEAR(marks.front().py, blip.py, 1.5F * blip.half);
+}
+
+TEST(RadarPools, ThePoolsReachIsTheViewersRadarAndNoViewerMeansNone) {
+    const std::vector<Unit> units = with_viewer({});
+    const int vx = units.front().x.floor_int();
+    const int vy = units.front().y.floor_int();
+    const protekt::sim::Pool in{vx + kRadarRadiusTiles - 2, vy};
+    const protekt::sim::Pool out{vx + kRadarRadiusTiles + 2, vy};
+    EXPECT_EQ(radar_pools(std::span{&in, 1}, units, UnitId{1}, 0.0F, kPanel).size(), 1U);
+    EXPECT_TRUE(radar_pools(std::span{&out, 1}, units, UnitId{1}, 0.0F, kPanel).empty());
+    EXPECT_TRUE(radar_pools(std::span{&in, 1}, units, UnitId{}, 0.0F, kPanel).empty());
 }
 
 } // namespace

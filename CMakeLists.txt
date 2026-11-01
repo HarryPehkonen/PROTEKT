@@ -50,6 +50,7 @@ add_library(protekt_core STATIC
     src/sim/sim.cpp
     src/sim/projectile.cpp
     src/sim/scrap.cpp
+    src/sim/pool.cpp
     src/sim/scenario.cpp
     src/sim/replay.cpp
     src/sim/observer.cpp
@@ -296,6 +297,7 @@ if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
         tests/test_scrap.cpp
         tests/test_recycle.cpp
         tests/test_scavenger.cpp
+        tests/test_pools.cpp
         tests/test_faction_look.cpp
         tests/test_ai_aim.cpp
         tests/test_scenario.cpp

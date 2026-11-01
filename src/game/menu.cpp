@@ -216,6 +216,8 @@ MenuSubject menu_subject_of_kind(sim::UnitKind kind) noexcept {
         return MenuSubject::Recycler;
     case sim::UnitKind::Scavenger:
         return MenuSubject::Harvester;
+    case sim::UnitKind::DeployedScavenger: // no key selects it, and it takes no command: no menu
+        return MenuSubject::None;
     case sim::UnitKind::Turret:
         return MenuSubject::Turret;
     case sim::UnitKind::Tank:

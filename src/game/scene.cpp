@@ -2477,6 +2477,10 @@ void append_radar(std::vector<SceneVertex>& out, const SceneOptions& options, co
     const std::vector<RadarMark> litter = radar_litter(
         sim.scraps(), sim.units(), options.viewer_unit, options.camera.yaw, panel, reach);
     drawn.insert(drawn.end(), litter.begin(), litter.end());
+    // ...and the biometal pools, from the same reach: the places a scavenger can deploy.
+    const std::vector<RadarMark> pools = radar_pools(sim.pools(), sim.units(), options.viewer_unit,
+                                                     options.camera.yaw, panel, reach);
+    drawn.insert(drawn.end(), pools.begin(), pools.end());
     for (const RadarMark& mark : drawn) {
         const std::array<float, 3> rgb = radar_colour(mark.tone);
         // The mark's own coordinates are PANEL pixels; the frame is what gets drawn into, so the

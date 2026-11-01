@@ -161,6 +161,16 @@ inline constexpr float kRadarLetterInsetPixels = 10.0F;
                                                   const RadarPanel& panel,
                                                   int radius_tiles = kRadarRadiusTiles);
 
+/// Biometal pools on the radar: a white OUTLINE (twice a piece of litter's size) for every pool
+/// inside `radius_tiles` of the viewer, placed as a unit at the pool's middle would be. Drawn in
+/// the litter's own tone -- one white for whatever a scavenger can work -- and from the same reach,
+/// which is the sim's radar number. With no viewer there is no centre and so no marks.
+[[nodiscard]] std::vector<RadarMark> radar_pools(std::span<const sim::Pool> pools,
+                                                 std::span<const sim::Unit> units,
+                                                 sim::UnitId viewer_unit, float yaw_radians,
+                                                 const RadarPanel& panel,
+                                                 int radius_tiles = kRadarRadiusTiles);
+
 /// One line of the radar's terrain wireframe, in PANEL pixels like a mark.
 struct RadarSegment {
     RadarPoint a{};

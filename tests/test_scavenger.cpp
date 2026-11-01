@@ -733,6 +733,10 @@ Scenario queue_battle(int pieces) {
     Scenario s;
     s.seed = kSeed;
     s.objectives = {};
+    // 2026-11-01 (POOLS): the scrap store is capped (40 at Instant Action), and these tests bank
+    // several builds' price at once -- more than 40. They run in a scenario that supplies a bigger
+    // store, as a story mission may; the capacity rule itself is pinned in test_pools.cpp.
+    s.store_capacity = 400;
     s.spawns = {Spawn{UnitKind::Factory, Side::Player, 52, 45},
                 Spawn{UnitKind::Scavenger, Side::Player, 48, 47},
                 Spawn{UnitKind::Scavenger, Side::Player, 48, 48},

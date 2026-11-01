@@ -135,6 +135,7 @@ const IconMask& kind_icon(sim::UnitKind kind) noexcept {
     case sim::UnitKind::RocketTank:
         return kRocketTank;
     case sim::UnitKind::Scavenger:
+    case sim::UnitKind::DeployedScavenger:
         return kScavenger;
     case sim::UnitKind::Recycler:
         return kRecycler;

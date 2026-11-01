@@ -33,9 +33,17 @@ namespace {
     case sim::UnitKind::Apc:
     case sim::UnitKind::Bomber:
     case sim::UnitKind::MslScout:
+    case sim::UnitKind::DeployedScavenger: // on no key at all: see `keyless`
         break;
     }
     return std::nullopt;
+}
+
+/// A kind selectable by NO key: the deployed scavenger (his correction, 2026-10-24: "there is no
+/// key that can select the deployed scavenger"). Not a building key and not an F key, so it is
+/// neither dealt a slot nor kept in one.
+[[nodiscard]] bool keyless(sim::UnitKind kind) noexcept {
+    return kind == sim::UnitKind::DeployedScavenger;
 }
 
 /// Whether the opening force keeps `kind` off the F keys: the buildings, and the turret. The
@@ -69,7 +77,8 @@ void RowState::update(const sim::Sim& sim, sim::Side side, std::size_t marks) {
     for (RowSlot& slot : slots) {
         std::erase_if(slot.units, [&sim](sim::UnitId id) {
             const sim::Unit* unit = sim.find(id);
-            return unit == nullptr || !unit->alive || building_slot(unit->kind).has_value();
+            return unit == nullptr || !unit->alive || building_slot(unit->kind).has_value()
+                   || keyless(unit->kind);
         });
     }
     // The building keys are not remembered: they hold whatever of the thing is alive.
@@ -77,7 +86,7 @@ void RowState::update(const sim::Sim& sim, sim::Side side, std::size_t marks) {
         slots.at(index).units.clear();
     }
     for (const sim::Unit& unit : sim.units()) {
-        if (unit.side != side || !unit.alive) {
+        if (unit.side != side || !unit.alive || keyless(unit.kind)) {
             continue;
         }
         if (const std::optional<std::size_t> key = building_slot(unit.kind); key.has_value()) {
@@ -308,6 +317,7 @@ std::string_view kind_label(sim::UnitKind kind) noexcept {
     case sim::UnitKind::Factory:
         return "FACTORY";
     case sim::UnitKind::Scavenger:
+    case sim::UnitKind::DeployedScavenger:
         return "SCAVENGER";
     case sim::UnitKind::Scout:
         return "SCOUT";

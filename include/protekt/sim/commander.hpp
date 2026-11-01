@@ -5,6 +5,8 @@
 #include <vector>
 
 #include "protekt/sim/orders.hpp"
+#include "protekt/sim/pool.hpp"
+#include "protekt/sim/scrap.hpp"
 #include "protekt/sim/units.hpp"
 
 namespace protekt::sim {
@@ -24,6 +26,8 @@ struct UnitView {
     std::int32_t raw_x{}; ///< the same position in Q16.16, for questions the tile cannot answer
     std::int32_t raw_y{};
     bool mounted{true}; ///< `is_mounted` passed through: false only for a turret still redeploying
+    std::int32_t raw_vx{}; ///< the velocity in Q16.16 tiles a tick: the direction a vehicle faces
+    std::int32_t raw_vy{};
 };
 
 struct Observation {
@@ -34,6 +38,10 @@ struct Observation {
     /// `sim::tile_passable` answer from. Empty for a hand-built observation, and then nothing is
     /// hidden behind anything.
     std::optional<std::uint64_t> terrain{};
+    /// The biometal pools and the litter on the ground, as the sim holds them: what a vehicle that
+    /// can see them could tell its side.
+    std::vector<Pool> pools{};
+    std::vector<Scrap> scrap{};
 };
 
 /// The one interface every commander implements: perception in, orders out. A human's input layer,

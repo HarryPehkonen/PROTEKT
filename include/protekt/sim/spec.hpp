@@ -296,6 +296,11 @@ inline constexpr std::array<UnitSpec, static_cast<std::size_t>(kUnitKindCount)> 
      Fixed::from_raw(kRocketRangeRaw), kTankDamage * 3, kTankCooldownTicks * 5,
      Fixed::from_raw(kProjectileSpeedRaw * 3 / 4), Fixed::from_raw(kBoltArcRaw), kBoltTravel,
      Fixed::zero(), Fixed::zero(), false, 45, 900, 0, Fixed::zero()},
+    // The deployed scavenger: a fixture on a biometal pool. Speed zero, unarmed, and the
+    // scavenger's own hull -- deploying neither heals nor wounds it. Not buildable: it is a
+    // scavenger that has finished a deploy, never a row.
+    {"deployedscavenger", kScavengerHp, Fixed::zero(), Fixed::zero(), 0, 0, Fixed::zero(),
+     Fixed::zero(), kBoltTravel, Fixed::zero(), Fixed::zero(), false, 0, 0, 0, Fixed::zero()},
 }};
 
 [[nodiscard]] constexpr const UnitSpec& spec_of(UnitKind kind) noexcept {

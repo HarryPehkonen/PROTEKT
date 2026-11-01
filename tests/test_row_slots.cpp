@@ -1340,13 +1340,14 @@ TEST(RowBatch, TwoBatchesSitOnTwoKeysAndNeitherKeyMixesThem) {
 // ------------------------------------------------------------------ the vehicle-type icon
 
 /// The kinds a vehicle key can hold: every kind but the two buildings, which hang on the numbered
-/// keys and have masks of their own.
+/// keys and have masks of their own, and the deployed scavenger, which no key selects.
 [[nodiscard]] std::vector<UnitKind> vehicle_kinds() {
     std::vector<UnitKind> kinds;
     kinds.reserve(sim::kUnitKindCount);
     for (int i = 0; i < sim::kUnitKindCount; ++i) {
         const UnitKind kind = static_cast<UnitKind>(i);
-        if (kind != UnitKind::Factory && kind != UnitKind::DeployedRecycler) {
+        if (kind != UnitKind::Factory && kind != UnitKind::DeployedRecycler
+            && kind != UnitKind::DeployedScavenger) {
             kinds.push_back(kind);
         }
     }

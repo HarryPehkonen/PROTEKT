@@ -97,15 +97,25 @@ bool build_fits(const BuildQueue& queue, UnitKind kind, std::uint32_t batch) noe
     return queue.count < kBuildQueueDepth && front.kind == kind && front.batch == batch;
 }
 
-bool order_is_valid(const std::vector<Unit>& units, const Order& order,
-                    std::uint64_t seed) noexcept {
+bool order_is_valid(const std::vector<Unit>& units, const std::vector<Pool>& pools,
+                    const Order& order, std::uint64_t seed) noexcept {
     const Unit* unit = find_const(units, order.unit);
     if (unit == nullptr || !unit->alive) {
         return false;
     }
+    // A DEPLOYED SCAVENGER CAN NEVER BE UN-DEPLOYED (Harri, 2026-10-31): it takes no order at all,
+    // so there is no recall, no move and no second deploy. Its 20 is committed while it lives.
+    if (unit->kind == UnitKind::DeployedScavenger) {
+        return false;
+    }
     if (const auto* deploy = std::get_if<orders::Deploy>(&order.payload)) {
-        // Only a recycler deploys -- which is also what refuses a second deploy, since the first
-        // turned it into a `DeployedRecycler` -- and only onto a site it can stand on.
+        // A recycler deploys onto a site it can stand on; a scavenger onto a biometal POOL no other
+        // deployed scavenger holds (ONE PER POOL, either side's). Nothing else deploys -- which is
+        // also what refuses a second deploy, since the first changed the kind.
+        if (unit->kind == UnitKind::Scavenger) {
+            const Pool* pool = pool_at(pools, deploy->tile_x, deploy->tile_y);
+            return pool != nullptr && !pool_taken(units, *pool);
+        }
         return unit->kind == UnitKind::Recycler
                && deploy_site_ok(seed, units, deploy->tile_x, deploy->tile_y);
     }
@@ -171,6 +181,11 @@ struct WorldGround {
 
 /// Where a position-bearing order sends the unit; unused points are the origin, as they always
 /// were.
+/// The middle of a whole tile: where a scavenger stands on its pool.
+[[nodiscard]] Fixed tile_centre_of(int tile) noexcept {
+    return fixed_add(Fixed::from_int(tile), Fixed::from_raw(Fixed::kOne / 2));
+}
+
 void apply_posted(Unit& unit, Stance stance, Fixed x, Fixed y, Fixed x2, Fixed y2) noexcept {
     unit.stance = stance;
     unit.guard_x = clamp_pos(x);
@@ -221,9 +236,9 @@ void apply_strafe(Unit& unit, const orders::Strafe& strafe, const WorldGround& g
 
 void apply_order(std::vector<Unit>& units, std::vector<Projectile>& projectiles,
                  std::vector<Sim::Shot>& shots, UnitId& driven, std::uint32_t& lone_batches,
-                 const Order& order, std::uint64_t seed) noexcept {
+                 const std::vector<Pool>& pools, const Order& order, std::uint64_t seed) noexcept {
     // Re-validated here: the unit may have died between enqueue and the tick it takes effect.
-    if (!order_is_valid(units, order, seed)) {
+    if (!order_is_valid(units, pools, order, seed)) {
         return;
     }
     Unit& unit = *find_mut(units, order.unit);
@@ -299,6 +314,13 @@ void apply_order(std::vector<Unit>& units, std::vector<Projectile>& projectiles,
         if (const auto* o = std::get_if<orders::Deploy>(&order.payload)) {
             // Off to the site's centre, as a MoveTo would go; the countdown starts once it is there
             // (`deploy_step`). A new deploy order starts the count again from nothing.
+            if (unit.kind == UnitKind::Scavenger) {
+                // A scavenger goes to the middle of its pool's tile.
+                apply_posted(unit, Stance::Deploy, tile_centre_of(o->tile_x),
+                             tile_centre_of(o->tile_y), Fixed{}, Fixed{});
+                unit.deploy_ticks = 0;
+                break;
+            }
             const Footprint site = footprint_at(o->tile_x, o->tile_y);
             apply_posted(unit, Stance::Deploy, Fixed::from_int(site.centre_x()),
                          Fixed::from_int(site.centre_y()), Fixed{}, Fixed{});
@@ -669,9 +691,13 @@ void settle_litter(std::vector<Scrap>& scraps, std::size_t first, std::uint64_t 
 /// the sim never argues with one. The beat is phased by unit id (`tick + id`), so a group does not
 /// all take on the same tick and the bank rises evenly, with no per-unit timer to hash.
 void scavenge_step(std::vector<Scrap>& scraps, std::array<std::uint16_t, 2>& ore, const Unit& unit,
-                   std::uint32_t tick) noexcept {
+                   std::uint32_t tick, std::uint16_t capacity) noexcept {
     if (unit.stance != Stance::Idle
         || (tick + unit.id.value) % static_cast<std::uint32_t>(kScavengeIntervalTicks) != 0) {
+        return;
+    }
+    // A FULL STORE STOPS COLLECTION: the piece stays where it lies, not taken and not destroyed.
+    if (ore.at(static_cast<std::size_t>(unit.side)) >= capacity) {
         return;
     }
     const std::int64_t reach = static_cast<std::int64_t>(radar_radius_tiles(unit.kind))
@@ -684,6 +710,72 @@ void scavenge_step(std::vector<Scrap>& scraps, std::array<std::uint16_t, 2>& ore
     scraps.erase(scraps.begin() + static_cast<std::ptrdiff_t>(pick));
     std::uint16_t& bank = ore.at(static_cast<std::size_t>(unit.side));
     bank = static_cast<std::uint16_t>(std::min(static_cast<int>(bank) + 1, 0xFFFF));
+}
+
+/// DEPLOYING A SCAVENGER ON A POOL. Called for every living scavenger before it is steered; returns
+/// true when it is not to be steered this tick (counting at its pool, just deployed, or its order
+/// has failed). The shape is `deploy_step`'s: away from the pool it drives there like a MoveTo with
+/// the count at zero, at it the count runs to `scavenger_deploy_ticks`, and the site is re-checked
+/// every tick -- a pool another scavenger has finished on ends the order whole, the loser standing
+/// idle, still a scavenger. The finished unit is the same unit, settled on the pool's middle, as a
+/// `DeployedScavenger`: its store (+20) exists from this tick and the order can never be undone.
+bool scavenger_deploy_step(const std::vector<Unit>& units, const std::vector<Pool>& pools,
+                           Unit& unit) noexcept {
+    if (unit.stance != Stance::Deploy) {
+        unit.deploy_ticks = 0;
+        return false;
+    }
+    const Pool* pool = pool_at(pools, unit.guard_x.floor_int(), unit.guard_y.floor_int());
+    if (pool == nullptr || pool_taken(units, *pool)) {
+        unit.stance = Stance::Idle;
+        unit.deploy_ticks = 0;
+        unit.route = Route{};
+        unit.vx = Fixed::zero();
+        unit.vy = Fixed::zero();
+        return true;
+    }
+    constexpr std::int64_t kArrive = kArriveRadiusRaw;
+    if (dist2(unit.x, unit.y, unit.guard_x, unit.guard_y) >= kArrive * kArrive) {
+        unit.deploy_ticks = 0;
+        return false;
+    }
+    unit.vx = Fixed::zero();
+    unit.vy = Fixed::zero();
+    ++unit.deploy_ticks;
+    if (unit.deploy_ticks < scavenger_deploy_ticks(unit.side)) {
+        return true;
+    }
+    unit.kind = UnitKind::DeployedScavenger;
+    unit.x = unit.guard_x;
+    unit.y = unit.guard_y;
+    unit.stance = Stance::Idle;
+    unit.deploy_ticks = 0;
+    unit.route = Route{};
+    unit.detour = Detour{};
+    return true;
+}
+
+/// THE STORE, once a tick (after the shooting, so a deployed scavenger killed this tick has already
+/// taken its 20 with it). First the bank is CLAMPED to what each side can hold -- "you can't have
+/// more scrap than capacity to hold it": a lost deployed scavenger destroys the scrap above the new
+/// capacity. Then each side that holds a deployed scavenger extracts ONE unit on the global beat,
+/// whatever number of pools it holds (the rate does not scale), into whatever room is left.
+void store_step(const std::vector<Unit>& units, std::array<std::uint16_t, 2>& ore,
+                std::uint16_t base, std::uint32_t tick) noexcept {
+    for (const Side side : {Side::Player, Side::Enemy}) {
+        std::uint16_t& bank = ore.at(static_cast<std::size_t>(side));
+        const std::uint16_t capacity = store_capacity(units, side, base);
+        bank = std::min(bank, capacity);
+        if (tick % static_cast<std::uint32_t>(kPoolExtractIntervalTicks) != 0 || bank >= capacity) {
+            continue;
+        }
+        const bool extracting = std::any_of(units.begin(), units.end(), [side](const Unit& unit) {
+            return unit.alive && unit.side == side && unit.kind == UnitKind::DeployedScavenger;
+        });
+        if (extracting) {
+            ++bank;
+        }
+    }
 }
 
 /// DEPLOY (R2). Called for every living recycler before it is steered. Returns true when the
@@ -739,8 +831,8 @@ bool deploy_step(const std::vector<Unit>& units, Unit& unit, std::uint64_t seed)
 /// -- so the goal is re-written every tick and a moving base is followed, not missed. The unit is
 /// set !alive WITHOUT an Impact, which is what keeps step 6 from scattering a wreck: its value goes
 /// to the ledger, and the ground gets nothing.
-bool recycle_step(std::vector<Unit>& units, Unit& unit,
-                  std::array<std::uint16_t, 2>& ore) noexcept {
+bool recycle_step(std::vector<Unit>& units, Unit& unit, std::array<std::uint16_t, 2>& ore,
+                  std::uint16_t base) noexcept {
     if (unit.stance != Stance::Recycle) {
         return false;
     }
@@ -762,8 +854,11 @@ bool recycle_step(std::vector<Unit>& units, Unit& unit,
     unit.stance = Stance::Dead;
     unit.target = UnitId{};
     const auto side = static_cast<std::size_t>(unit.side);
+    // What a recycle returns is clamped to the store like everything else banked: scrap above the
+    // capacity has nowhere to go.
     const int next = static_cast<int>(ore.at(side)) + static_cast<int>(kRecycleOre);
-    ore.at(side) = static_cast<std::uint16_t>(std::min(next, 0xFFFF));
+    ore.at(side)
+        = static_cast<std::uint16_t>(std::min<int>(next, store_capacity(units, unit.side, base)));
     return true;
 }
 
@@ -982,7 +1077,7 @@ void Sim::enqueue(const Order& order) {
     // The generic command channel: the human's input layer, a replay being replayed, and an AI all
     // arrive here. The sim has no idea WHO is issuing, so it must not filter by side -- ownership
     // is the commander's responsibility. Filtering here silently killed the enemy commander.
-    if (!order_is_valid(units_, order, scenario_.seed)) {
+    if (!order_is_valid(units_, scenario_.pools, order, scenario_.seed)) {
         return;
     }
     // A build is judged against the queue AS IT WILL BE when this order is applied: the builds
@@ -1021,7 +1116,8 @@ void Sim::step() {
         }
     }
     for (const Order& order : pending_) {
-        apply_order(units_, projectiles_, shots_, driven_, lone_batches_, order, scenario_.seed);
+        apply_order(units_, projectiles_, shots_, driven_, lone_batches_, scenario_.pools, order,
+                    scenario_.seed);
     }
     pending_.clear();
 
@@ -1036,7 +1132,11 @@ void Sim::step() {
         if (unit.kind == UnitKind::Recycler && deploy_step(units_, unit, seed)) {
             continue;
         }
-        if (recycle_step(units_, unit, ore_)) {
+        if (unit.kind == UnitKind::Scavenger
+            && scavenger_deploy_step(units_, scenario_.pools, unit)) {
+            continue;
+        }
+        if (recycle_step(units_, unit, ore_, scenario_.store_capacity)) {
             continue;
         }
         // Asked afresh for each unit, so a recycler that deployed earlier in this very loop is
@@ -1045,7 +1145,8 @@ void Sim::step() {
         const UnitProfile prof = profile(unit.kind);
         // Scavenging, before the mover: it takes from where the unit stands and sets no goal (C2).
         if (unit.kind == UnitKind::Scavenger) {
-            scavenge_step(scraps_, ore_, unit, tick_);
+            scavenge_step(scraps_, ore_, unit, tick_,
+                          store_capacity(units_, unit.side, scenario_.store_capacity));
         }
         if (!prof.mobile) {
             unit.vx = Fixed::zero();
@@ -1182,6 +1283,9 @@ void Sim::step() {
             }
         }
     }
+    // 6b. THE STORE: the bank is clamped to what the side can hold, then the side's deployed
+    //     scavengers extract on the global beat (see `store_step`).
+    store_step(units_, ore_, scenario_.store_capacity, tick_);
     // 7. THE QUEUES (BUILD-QUEUE). Every producer's line runs, in ascending id, over the producers
     //    that existed when the tick began, because an arrival appends to the table and a new unit
     //    is nobody's producer yet.
@@ -1278,6 +1382,12 @@ const std::vector<Projectile>& Sim::projectiles() const noexcept { return projec
 const std::vector<Scrap>& Sim::scraps() const noexcept { return scraps_; }
 
 std::uint16_t Sim::ore(Side side) const noexcept { return ore_.at(static_cast<std::size_t>(side)); }
+
+std::uint16_t Sim::capacity(Side side) const noexcept {
+    return store_capacity(units_, side, scenario_.store_capacity);
+}
+
+const std::vector<Pool>& Sim::pools() const noexcept { return scenario_.pools; }
 
 const std::vector<Impact>& Sim::impacts() const noexcept { return impacts_; }
 

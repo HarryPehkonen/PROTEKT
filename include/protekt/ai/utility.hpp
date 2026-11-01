@@ -53,7 +53,34 @@ struct UtilityTuning {
                              ///< what makes two of these commanders actually meet.
     int sidestep_tiles{3};   ///< how far to step aside, per try, when the target is behind a rise
     int sidestep_reach{4};   ///< how many such steps, each farther than the last, to try
+    int deploy_claim_ticks{1800}; ///< how long a pool stays spoken for once a scavenger is sent to
+                                  ///< it (60 s): long enough to drive across the map and deploy
 };
+
+/// Which way a vehicle last moved: the facing the sim does not keep (a unit has a velocity, never a
+/// heading). Remembered by the commander, exactly as the presentation layer remembers it, so a
+/// vehicle that has stopped still points where it was going.
+struct Facing {
+    sim::UnitId unit{};
+    std::int32_t vx{}; ///< Q16.16 tiles a tick
+    std::int32_t vy{};
+};
+
+/// A pool this commander has sent a scavenger to, so it does not send a second while the first is
+/// on its way.
+struct DeployClaim {
+    sim::UnitId scavenger{};
+    int pool_x{};
+    int pool_y{};
+    sim::Tick tick{};
+};
+
+/// Whether `vehicle`, facing `facing`, POINTS AT the pool and can see it: the pool lies within the
+/// vehicle's own radar (`sim::radar_radius_tiles`) and within `sim::kPointingConeDegrees` of the
+/// line it faces -- the same cone as the player's assist. The ordering vehicle's perception is the
+/// test, never the scavenger's. Integer arithmetic only: no float in a decision.
+[[nodiscard]] bool vehicle_points_at(const sim::UnitView& vehicle, const Facing& facing,
+                                     const sim::Pool& pool) noexcept;
 
 /// One unit's decision, kept separate from the order it becomes: the interesting claims are about
 /// the reason ("it withdrew because it was hurt"), and an order only ever shows the consequence.
@@ -129,8 +156,16 @@ public:
     [[nodiscard]] const UtilityTuning& tuning() const noexcept;
 
 private:
+    /// ENEMY-SIDE POOL DEPLOYMENT. Any enemy vehicle pointing at a free pool it can see sends a
+    /// scavenger to deploy there -- unless the side has litter worth collecting in reach. The
+    /// player's side is never touched: its scavengers deploy on the player's command and only then.
+    void deploy_scavengers(const sim::Observation& observation, std::vector<sim::Order>& out);
+    void remember_facings(const sim::Observation& observation);
+
     UtilityTuning tuning_{};
     std::vector<Decision> decisions_{};
+    std::vector<Facing> facings_{};
+    std::vector<DeployClaim> claims_{};
 };
 
 } // namespace protekt::ai

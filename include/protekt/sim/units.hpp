@@ -71,9 +71,14 @@ enum class UnitKind : std::uint8_t {
     /// the scout under a second price -- in Battlezone 2 the Scout and the Scout with missiles are
     /// two vehicles, and one kind may carry only one price. The scout's hull, the rocket tank's
     /// rocket. Appended after Bomber so that no recorded value moves.
-    MslScout = 14
+    MslScout = 14,
+    /// The scavenger once it has finished deploying on a biometal pool: the SAME unit, turned into
+    /// a fixture that extracts there and holds `kStoreCapacityPerDeployed` of store. It never
+    /// moves, never fires, takes no order and can never be un-deployed. Appended after MslScout so
+    /// that no recorded value moves.
+    DeployedScavenger = 15
 };
-inline constexpr int kUnitKindCount = 15;
+inline constexpr int kUnitKindCount = 16;
 
 /// Tanks and hover tanks: every rule written "for a tank" (orders, retreat, defend, swap, the AI's
 /// hunters) takes both. The hover tank has the tank's profile and, until it is drivable, its
@@ -95,7 +100,8 @@ inline constexpr int kUnitKindCount = 15;
 /// it moves (it has to reach the site it deploys at), so it is driven like the hauler. Once
 /// deployed it is a building, like the factory, and there is nothing to drive.
 [[nodiscard]] constexpr bool is_drivable(UnitKind kind) noexcept {
-    return kind != UnitKind::Factory && kind != UnitKind::DeployedRecycler;
+    return kind != UnitKind::Factory && kind != UnitKind::DeployedRecycler
+           && kind != UnitKind::DeployedScavenger;
 }
 
 /// A kind that stands on a FOOTPRINT (see `Footprint`): only the deployed recycler today. The
@@ -294,6 +300,34 @@ inline constexpr std::uint16_t kDeployedRecyclerHp = kRecyclerHp;
 /// DEPLOY: how many ticks a recycler stands at its site before it becomes a `DeployedRecycler` --
 /// 300, ten seconds at `kTicksPerSecond`. The one number to change for a faster or slower deploy.
 inline constexpr std::uint16_t kDeployTicks = 300;
+
+/// THE SCRAP STORE (Harri, 2026-10-31). A side's store holds this much at the start of the game
+/// (Instant Action is always 40; a scenario may supply its own, `Scenario::store_capacity`) and
+/// each COMPLETED deployed scavenger adds `kStoreCapacityPerDeployed` -- 40, 60, 80. Space only,
+/// never scrap. Losing a deployed scavenger takes the 20 away again and the bank is clamped to what
+/// is left.
+inline constexpr std::uint16_t kStoreStartCapacity = 40;
+inline constexpr std::uint16_t kStoreCapacityPerDeployed = 20;
+
+/// A deployed scavenger's extraction: ONE unit a second PER SIDE, however many pools the side
+/// holds -- "illogical, but that's the game". The beat is the global tick, not a per-unit timer.
+inline constexpr int kPoolExtractIntervalTicks = kTicksPerSecond;
+
+/// How long a scavenger stands on its pool before it is deployed, per side: the human and the alien
+/// harvester follow identical rules and only this constant may differ (Harri, 2026-10-31). A
+/// DEFAULT -- his per-entity deploy times were ruled in shape but no scavenger value was given --
+/// borrowed from the recycler's `kDeployTicks`.
+inline constexpr std::array<std::uint16_t, 2> kScavengerDeployTicks{300, 300}; ///< by `Side`
+[[nodiscard]] constexpr std::uint16_t scavenger_deploy_ticks(Side side) noexcept {
+    return kScavengerDeployTicks.at(static_cast<std::size_t>(side));
+}
+
+/// "POINTING AT": a vehicle points at a place when the angle between its facing and the line to the
+/// place is no more than this -- the same cone the player's assist uses (`kAssistConeDegrees`, 4.0,
+/// pinned equal by a test). The sim tests it in integers, as the tangent in millionths:
+/// tan(4 degrees) = 0.0699268.
+inline constexpr int kPointingConeDegrees = 4;
+inline constexpr std::int64_t kPointingConeTanMillionths = 69927;
 
 /// A building's footprint is a square this many tiles on a side (his ruling, 2026-10-26: "2x2
 /// tiles -- a building should not be the same size as a tank").

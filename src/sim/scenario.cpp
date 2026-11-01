@@ -1,6 +1,7 @@
 #include "protekt/sim/scenario.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cstddef>
 #include <cstdlib>
 #include <vector>
@@ -186,6 +187,13 @@ Scenario skirmish(std::uint64_t seed, const ScenarioData& data) {
         seed_field(scenario.scrap, seed, data.scrap_per_side, player_x, player_y);
         seed_field(scenario.scrap, seed, data.scrap_per_side, enemy_x, enemy_y);
     }
+
+    // The biometal pools: 3 to 10 from the terrain seed (a designed map names its own count), on
+    // open ground and clear of both bases; and the store both sides open with.
+    const std::array<Pool, 2> bases{Pool{player_x, player_y}, Pool{enemy_x, enemy_y}};
+    scenario.pools
+        = lay_pools(seed, data.pool_count > 0 ? data.pool_count : pool_count_for(seed), bases);
+    scenario.store_capacity = data.store_capacity;
     return scenario;
 }
 

@@ -1937,6 +1937,10 @@ namespace {
     scenario.spawns.push_back({UnitKind::Scavenger, Side::Player, 48, 48});
     scenario.spawns.push_back({UnitKind::Scavenger, Side::Player, 48, 49});
     scenario.objectives = {};
+    // 2026-11-01 (POOLS): a tank costs 55 and the Instant Action store holds 40, so this rig runs
+    // in a scenario that supplies a bigger store (a story mission may). The cap itself is pinned
+    // in test_pools.cpp.
+    scenario.store_capacity = 400;
     const sim::Fixed half = sim::Fixed::from_raw(sim::Fixed::kOne / 2);
     for (int i = 0; i < 90; ++i) {
         scenario.scrap.push_back(

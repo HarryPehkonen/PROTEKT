@@ -1351,10 +1351,10 @@ reader can see what they are, and none of them is a rule the code may be built f
   capacity rather than a currency. A design consequence drawn from his ruling, not his sentence.
 - [INTENDED — unconfirmed] The layout note that his capture carries the whole command row as one TOP bar
   while PROTEKT draws the command menu on the LEFT. Recorded so the layout pass asks rather than assumes.
-- [INTENDED — unconfirmed] The half-remembered "each scavenger deployed over a pool raises the available
-  scrap by 20". His answer to Q9 confirmed the 40 per faction and nothing else; the 20 was never said in this
-  thread and was not confirmed, so it may not be built on. It is kept here only so it is not mistaken for a
-  ruling later.
+- [RULED 2026-10-31, BUILT in POOLS] "each scavenger deployed over a pool raises the available scrap by 20".
+  This bullet said the 20 was never confirmed; Harri ruled it on 2026-10-31 (a side's store holds 40 at the
+  start and each COMPLETED deployed scavenger adds 20, space only, losing one drops it by 20 and clamps the
+  bank). See README.md ("Biometal pools") and docs/PLAN.md.
 - [INTENDED — unconfirmed] "A menu is a MODE that SUSPENDS the prompts" (`menu.hpp:40-43`). It is written as
   a property of the REFERENCE menu; whether PROTEKT adopts the mode is ruled nowhere (Part A section 14.1,
   question 2). The shipped behaviour is the conservative reading: the `G` and attack-list prompts settle
