@@ -34,6 +34,7 @@ namespace {
     case sim::UnitKind::Bomber:
     case sim::UnitKind::MslScout:
     case sim::UnitKind::DeployedScavenger: // on no key at all: see `keyless`
+    case sim::UnitKind::DeployedTurret:    // a turret that is standing: it keeps its F key
         break;
     }
     return std::nullopt;
@@ -313,6 +314,7 @@ std::string_view kind_label(sim::UnitKind kind) noexcept {
     case sim::UnitKind::RocketTank:
         return "ROCKET TANK";
     case sim::UnitKind::Turret:
+    case sim::UnitKind::DeployedTurret:
         return "TURRET";
     case sim::UnitKind::Factory:
         return "FACTORY";

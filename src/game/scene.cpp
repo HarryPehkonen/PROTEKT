@@ -2607,8 +2607,7 @@ void append_unit_bars(std::vector<SceneVertex>& out, const SceneOptions& options
     constexpr std::array<float, 3> kPlate{0.10F, 0.10F, 0.12F};
 
     for (const sim::Unit& unit : sim.units()) {
-        const bool structure
-            = unit.kind == sim::UnitKind::Factory || unit.kind == sim::UnitKind::Turret;
+        const bool structure = unit.kind == sim::UnitKind::Factory || sim::is_turret(unit.kind);
         const bool wanted
             = (unit.side == options.viewer_side
                && std::find(selected.begin(), selected.end(), unit.id) != selected.end())
@@ -4687,7 +4686,7 @@ math::Vec3 ground_normal(std::uint64_t seed, sim::Fixed x, sim::Fixed y) noexcep
 }
 
 bool stands_level(sim::UnitKind kind) noexcept {
-    return kind == sim::UnitKind::Factory || kind == sim::UnitKind::Turret
+    return kind == sim::UnitKind::Factory || sim::is_turret(kind)
            || kind == sim::UnitKind::DeployedRecycler;
 }
 
@@ -5044,7 +5043,7 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
                 // own (VIS adds none): left to the final branch it would be drawn as a factory.
                 build_facing_tank(scene.vertices, options.seed, unit, mark, lift_z, hovering,
                                   heading, turret, pitch);
-            } else if (unit.kind == sim::UnitKind::Turret) {
+            } else if (sim::is_turret(unit.kind)) {
                 build_defense_turret(scene.vertices, options.seed, unit, mark, lift_z, hovering,
                                      heading, heading + turret);
             } else {

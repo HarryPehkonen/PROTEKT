@@ -97,10 +97,14 @@ protected:
 ///      recycler under a Deploy order whose site has stopped being usable (`deploy_site_ok`) drops
 ///      the order and stands, an idle recycler, and one that is standing at its site counts one
 ///      tick and, on the `kDeployTicks`th, becomes a `DeployedRecycler` where the site's centre is
-///      -- same id, same hit points -- and does not move; then a mobile unit with a
-///      MoveTo/GuardAt/Patrol/Deploy stance steers towards its goal, then every unit's position
-///      moves by its velocity; map bounds clamp, and a unit may not enter an impassable tile -- a
-///      crater or a building's footprint;
+///      -- same id, same hit points -- and does not move; a turret under a Deploy or Defend order
+///      drives to its spot (or to within weapon range of its enemy) and on the
+///      `kTurretDeployTicks`th tick there becomes a `DeployedTurret`, and a deployed turret told to
+///      leave (an Undeploy, or any order that goes somewhere) counts `kTurretUndeployTicks` and
+///      becomes a plain `Turret` again -- the one kind that changes both ways
+///      (`turret_deploy_step`); then a mobile unit with a MoveTo/GuardAt/Patrol/Deploy stance
+///      steers towards its goal, then every unit's position moves by its velocity; map bounds
+///      clamp, and a unit may not enter an impassable tile -- a crater or a building's footprint;
 ///   3. every projectile already in the air advances, in spawn order; one that reaches a living
 ///      hostile lands its damage there (see advance_projectiles), so a unit killed here does not
 ///      fire this tick;

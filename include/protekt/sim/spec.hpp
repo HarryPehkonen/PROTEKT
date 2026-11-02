@@ -301,6 +301,13 @@ inline constexpr std::array<UnitSpec, static_cast<std::size_t>(kUnitKindCount)> 
     // scavenger that has finished a deploy, never a row.
     {"deployedscavenger", kScavengerHp, Fixed::zero(), Fixed::zero(), 0, 0, Fixed::zero(),
      Fixed::zero(), kBoltTravel, Fixed::zero(), Fixed::zero(), false, 0, 0, 0, Fixed::zero()},
+    // The deployed turret (TURRET-CMD): the turret's gun and hull, fixed to its spot. Speed zero is
+    // what makes it immobile everywhere in the sim; every other number is the turret's own, so
+    // deploying neither heals, wounds nor re-arms it. Not buildable: it is a turret that has
+    // finished a deploy, never a row.
+    {"deployedturret", kTurretHp, Fixed::zero(), Fixed::from_raw(kTurretRangeRaw), kTurretDamage,
+     kTurretCooldownTicks, Fixed::from_raw(kProjectileSpeedRaw), Fixed::from_raw(kBoltArcRaw),
+     kBoltTravel, Fixed::zero(), Fixed::zero(), false, 0, 0, 0, Fixed::zero()},
 }};
 
 [[nodiscard]] constexpr const UnitSpec& spec_of(UnitKind kind) noexcept {

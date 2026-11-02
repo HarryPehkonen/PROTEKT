@@ -76,15 +76,30 @@ enum class UnitKind : std::uint8_t {
     /// a fixture that extracts there and holds `kStoreCapacityPerDeployed` of store. It never
     /// moves, never fires, takes no order and can never be un-deployed. Appended after MslScout so
     /// that no recorded value moves.
-    DeployedScavenger = 15
+    DeployedScavenger = 15,
+    /// The turret once a deploy has run its countdown (TURRET-CMD): the SAME unit -- the same
+    /// `UnitId`, the same F key, the hit points it had -- standing on its spot with its gun up. It
+    /// fires, never moves, and UNLIKE the two kinds above it goes back: an un-deploy (an
+    /// `Undeploy` order, or any order that would move it) counts `kTurretUndeployTicks` and returns
+    /// it to a plain `Turret`. The scavenger's permanence exists for the capacity it grants; a
+    /// turret grants none, so the two rules are different on purpose. Appended after
+    /// DeployedScavenger so that no recorded value moves.
+    DeployedTurret = 16
 };
-inline constexpr int kUnitKindCount = 16;
+inline constexpr int kUnitKindCount = 17;
 
 /// Tanks and hover tanks: every rule written "for a tank" (orders, retreat, defend, swap, the AI's
 /// hunters) takes both. The hover tank has the tank's profile and, until it is drivable, its
 /// behaviour.
 [[nodiscard]] constexpr bool is_tank(UnitKind kind) noexcept {
     return kind == UnitKind::Tank || kind == UnitKind::HoverTank;
+}
+
+/// A turret, standing or crawling: the plain `Turret` and the `DeployedTurret` it becomes. One
+/// thing that changes state both ways, so a rule written "for a turret" (its look, its bar, its
+/// map mark) takes both.
+[[nodiscard]] constexpr bool is_turret(UnitKind kind) noexcept {
+    return kind == UnitKind::Turret || kind == UnitKind::DeployedTurret;
 }
 
 /// The kinds that build: the factory, and the recycler once it has deployed. Chosen BY KIND, never
@@ -131,7 +146,14 @@ enum class Stance : std::uint8_t {
     Deploy = 8,
     /// A RECYCLE order (RECYCLE): drive to the named recycler and, on arrival, be consumed there
     /// into the side's scrap reserve. Appended for the same reason as every value above.
-    Recycle = 9
+    Recycle = 9,
+    /// An UNDEPLOY order (TURRET-CMD) on a `DeployedTurret`: the gun comes off its mount over
+    /// `kTurretUndeployTicks` and the unit is a plain `Turret` again, idle. Appended for the same
+    /// reason as every value above.
+    Undeploy = 10,
+    /// A DEFEND order (TURRET-CMD): drive at the named enemy until within the turret's weapon
+    /// range of it, then count `kTurretDeployTicks` standing there and become a `DeployedTurret`.
+    Defend = 11
 };
 
 struct UnitId {
@@ -233,7 +255,13 @@ inline constexpr std::uint16_t kMountTicks = 90;
 inline constexpr std::uint16_t kUnmountTicks = 90;
 
 /// True when the gun may fire. Every other kind fires on the move, so it is always "mounted".
+///
+/// A DEPLOYED turret fires from the tick it exists until an un-deploy begins: `deploy_ticks` is the
+/// un-deploy's count on that kind, so a non-zero count is a gun coming off its mount.
 [[nodiscard]] constexpr bool is_mounted(const Unit& unit) noexcept {
+    if (unit.kind == UnitKind::DeployedTurret) {
+        return unit.deploy_ticks == 0;
+    }
     return unit.kind != UnitKind::Turret || unit.still_ticks >= kMountTicks;
 }
 
@@ -313,11 +341,18 @@ inline constexpr std::uint16_t kStoreCapacityPerDeployed = 20;
 /// holds -- "illogical, but that's the game". The beat is the global tick, not a per-unit timer.
 inline constexpr int kPoolExtractIntervalTicks = kTicksPerSecond;
 
+/// THE TURRET'S DEPLOY AND UN-DEPLOY (Harri, 2026-11-01: "Deploying takes maybe five seconds" and
+/// "I can un-deploy them at will, but it takes maybe three seconds"). Ticks, at `kTicksPerSecond`:
+/// 150 is five seconds and 90 is three. Per-entity, like the recycler's and the scavenger's: a
+/// turret's deploy is its own number, and nothing else reads these.
+inline constexpr std::uint16_t kTurretDeployTicks = 150;
+inline constexpr std::uint16_t kTurretUndeployTicks = 90;
+
 /// How long a scavenger stands on its pool before it is deployed, per side: the human and the alien
-/// harvester follow identical rules and only this constant may differ (Harri, 2026-10-31). A
-/// DEFAULT -- his per-entity deploy times were ruled in shape but no scavenger value was given --
-/// borrowed from the recycler's `kDeployTicks`.
-inline constexpr std::array<std::uint16_t, 2> kScavengerDeployTicks{300, 300}; ///< by `Side`
+/// harvester follow identical rules and only this constant may differ (Harri, 2026-10-31). Five
+/// seconds, 150 ticks (his, 2026-11-01); it was a DEFAULT borrowed from the recycler's
+/// `kDeployTicks`, which keeps its own 300.
+inline constexpr std::array<std::uint16_t, 2> kScavengerDeployTicks{150, 150}; ///< by `Side`
 [[nodiscard]] constexpr std::uint16_t scavenger_deploy_ticks(Side side) noexcept {
     return kScavengerDeployTicks.at(static_cast<std::size_t>(side));
 }

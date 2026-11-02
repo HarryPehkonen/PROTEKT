@@ -59,6 +59,11 @@ TEST(FuzzEntry, TheValidCorpusEntryParsesAndTheInvalidOnesDoNot) {
     ASSERT_FALSE(valid.empty());
     std::string error;
     EXPECT_TRUE(protekt::sim::parse(valid, &error).has_value()) << error;
+    // The turret verbs (`deploy`, `undeploy`, `defend`) have an accepting seed of their own.
+    const std::string turret
+        = slurp(std::filesystem::path(PROTEKT_CORPUS_DIR) / "valid_turret.replay");
+    ASSERT_FALSE(turret.empty());
+    EXPECT_TRUE(protekt::sim::parse(turret, &error).has_value()) << error;
 
     for (const char* name :
          {"invalid_overflow.replay", "invalid_verb.replay", "invalid_order.replay"}) {

@@ -4,6 +4,7 @@
 #include <array>
 
 #include "protekt/game/attack_aim.hpp"
+#include "protekt/game/deploy_aim.hpp"
 #include "protekt/game/nav_marks.hpp"
 #include "protekt/game/pick.hpp"
 #include "protekt/math/math.hpp"
@@ -126,6 +127,13 @@ std::vector<game::MenuRow> menu_for(const sim::Sim& sim, const game::Session& se
                        game::faction_of(options.factions, sim::Side::Player), game::ArmedCommand{},
                        menu_target_of(sim, options), static_cast<int>(sim.ore(sim::Side::Player))};
     in.attack = attack_offer(sim, session, options).valid();
+    in.deployed = game::any_deployed_turret(sim, session.selection().units());
+    // `SPACE Deploy` only where SPACE would deploy, and never over the attack offer or an armed
+    // command, which own SPACE (the same order `Interaction` takes them in).
+    if (!in.attack && !session.deploy_armed()) {
+        in.deploy = game::deploy_offer(sim, options, session.selection().units(), session.driven())
+                        .has_value();
+    }
     if (session.deploy_armed()) {
         // `un-deployed recycler menu -> 3`: the state row names the deploy and reads the distance
         // to the ground under the reticle, by the nav chain's own rule (`nav_metres`).

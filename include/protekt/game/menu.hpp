@@ -58,7 +58,11 @@ enum class MenuSubject : std::uint8_t {
     Harvester,  ///< a harvester / scavenger
     Deployment, ///< a DEPLOYED recycler: the build list (and `~ DROP OFF`)
     Factory,    ///< a factory: `~ DROP OFF` and the FACTORY's own, shorter build list
-    Turret,     ///< a lone deployed turret: the state row alone
+    /// A turret, plain or deployed (TURRET-CMD, Harri 2026-11-01: "follow me", "defend", `SPACE
+    /// Deploy`, "and other usual commands"). It had no verbs of its own, so its menu was the state
+    /// row alone; now it carries the vehicle's rows and two of its own, `6 Defend` and `7 Undeploy`
+    /// (in the gap the vehicle's table leaves).
+    Turret,
     /// A selected VEHICLE -- a tank, hover tank, mortar bike, rocket tank or scout. The plan's
     /// measured shape (2026-10-26) is ONE table for every vehicle kind: only the state row's
     /// default verb differs between a tank and a scout, and this model leaves that to the caller's
@@ -122,6 +126,15 @@ struct MenuInput {
     /// Select Unit` applies to a group and not to a lone unit (the plan's measured dim rule), so a
     /// single selection draws it dimmed. Defaulted, so a caller that does not know still compiles.
     bool group{false};
+    /// SPACE would deploy: a lone scavenger is pointing at a pool, or turrets are pointing at bare
+    /// ground (`deploy_offer`). The state row reads `SPACE Deploy`. It is a CONTEXTUAL prompt like
+    /// `attack`, never a permanent row: with it false there is no `Deploy` anywhere on a
+    /// scavenger's menu. Ignored while a command is armed or an attack is offered -- those own
+    /// SPACE.
+    bool deploy{false};
+    /// A selected turret is DEPLOYED: `7 Undeploy` applies. False draws the row dimmed
+    /// (`DoesNotApply`), like `5 Pick Me Up` when you are not outside a vehicle.
+    bool deployed{false};
 };
 
 /// WHY a row is dimmed. The three values are exhaustive on purpose: `None` means the row is NOT
@@ -208,6 +221,9 @@ inline constexpr std::string_view kVerbBailout{"Bailout"};
 inline constexpr std::string_view kVerbScavenge{"Scavenge"};
 inline constexpr std::string_view kVerbRotateBuildings{"Rotate Buildings"};
 inline constexpr std::string_view kVerbDropOff{"Drop Off"};
+/// A turret's own two rows (TURRET-CMD). Harri's words, both: "defend" and "un-deploy".
+inline constexpr std::string_view kVerbDefend{"Defend"};
+inline constexpr std::string_view kVerbUndeploy{"Undeploy"};
 
 /// A distance as a row's RIGHT column draws it: whole metres and an `m`, "68m". The one spelling,
 /// for the nav chain's rows, the armed deploy's state row and the attack list alike.

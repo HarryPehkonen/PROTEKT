@@ -177,13 +177,29 @@ struct Build {
     std::uint32_t batch{};
 };
 
+/// UN-DEPLOY a deployed turret, at will: the gun comes off its mount over `kTurretUndeployTicks`
+/// and the unit returns to a plain `Turret`, the same unit with the same id. Empty -- the order
+/// already addresses the unit. Refused for any kind but a `DeployedTurret`. A deployed SCAVENGER
+/// has no such order and takes none: its capacity is committed for as long as it lives.
+struct Undeploy {};
+
+/// DEFEND with a turret: drive at `target` until within the turret's weapon range of it, deploy
+/// there (`kTurretDeployTicks`) and start shooting. The target is chosen by whoever ISSUES the
+/// order, as an Attack's is, so a replay records the choice. Refused for any kind but a `Turret` or
+/// a `DeployedTurret` (which un-deploys first), and for a target that is not a living unit other
+/// than the turret itself.
+struct Defend {
+    UnitId target{};
+};
+
 } // namespace orders
 
 using OrderPayload
     = std::variant<orders::MoveTo, orders::GuardAt, orders::Patrol, orders::Attack, orders::Stop,
                    orders::FocusFire, orders::FireTowards, orders::Strafe, orders::Follow,
                    orders::FireLob, orders::Deploy, orders::Recycle, orders::FireFan,
-                   orders::FireRocket, orders::TakeControl, orders::Build>;
+                   orders::FireRocket, orders::TakeControl, orders::Build, orders::Undeploy,
+                   orders::Defend>;
 
 /// How each payload alternative is named and reported. This is the payload's index, in the
 /// payload's order, and the assertions below make that true rather than intended.
@@ -209,9 +225,12 @@ enum class OrderKind : std::uint8_t {
     TakeControl = 14,
     /// Appended after TakeControl, never inserted, for the reason every value above was.
     Build = 15,
+    /// Appended after Build, never inserted, for the reason every value above was.
+    Undeploy = 16,
+    Defend = 17,
 };
 
-inline constexpr std::size_t kOrderKindCount = static_cast<std::size_t>(OrderKind::Build) + 1;
+inline constexpr std::size_t kOrderKindCount = static_cast<std::size_t>(OrderKind::Defend) + 1;
 
 static_assert(std::variant_size_v<OrderPayload> == kOrderKindCount,
               "every alternative needs a kind, and every kind an alternative");
@@ -238,6 +257,8 @@ static_assert(std::is_same_v<PayloadOf<OrderKind::FireFan>, orders::FireFan>);
 static_assert(std::is_same_v<PayloadOf<OrderKind::FireRocket>, orders::FireRocket>);
 static_assert(std::is_same_v<PayloadOf<OrderKind::TakeControl>, orders::TakeControl>);
 static_assert(std::is_same_v<PayloadOf<OrderKind::Build>, orders::Build>);
+static_assert(std::is_same_v<PayloadOf<OrderKind::Undeploy>, orders::Undeploy>);
+static_assert(std::is_same_v<PayloadOf<OrderKind::Defend>, orders::Defend>);
 
 /// The kind is the payload's own index. There is no second field that can disagree with it, which
 /// is precisely what the flat record could not promise.
@@ -335,6 +356,9 @@ struct OrderFields {
         out.positions[0] = Fixed::from_int(static_cast<std::int32_t>(p->kind));
         out.positions[1] = Fixed::from_int(static_cast<std::int32_t>(p->batch));
         out.position_count = 2;
+    } else if (const auto* p = std::get_if<orders::Defend>(&payload)) {
+        out.has_target = true;
+        out.target = p->target;
     } else if (const auto* p = std::get_if<orders::Recycle>(&payload)) {
         // The recycler as the target and nothing else: the destination is read from the unit when
         // the order is applied, so a recycler that drives away is followed rather than missed.

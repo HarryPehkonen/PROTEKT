@@ -184,18 +184,16 @@ TEST(Menu, ArmingDoesNotRewriteTheBindingThatArmedIt) {
 }
 
 TEST(Menu, TheSecondRowClosesTheMenu) {
-    for (const MenuSubject subject :
-         {MenuSubject::Recycler, MenuSubject::Harvester, MenuSubject::Deployment}) {
+    // The turret is no longer the exception: it has verbs now (TURRET-CMD), so it has a menu to
+    // close.
+    for (const MenuSubject subject : {MenuSubject::Recycler, MenuSubject::Harvester,
+                                      MenuSubject::Deployment, MenuSubject::Turret}) {
         const std::vector<MenuRow> rows = menu_rows(query(subject));
         ASSERT_GT(rows.size(), 2U) << "subject " << static_cast<int>(subject);
         EXPECT_EQ(rows.at(1).key, "TAB");
         EXPECT_EQ(rows.at(1).verb, "Close Menu");
         EXPECT_TRUE(rows.at(1).enabled);
     }
-    // The lone turret is the exception, and it is not drawn a TAB row it would have nothing to
-    // close: its menu is the state row alone (pinned below).
-    const std::vector<MenuRow> turret = menu_rows(query(MenuSubject::Turret));
-    EXPECT_EQ(turret.size(), 1U);
 }
 
 TEST(Menu, TheKeysAreNotContiguousAndTheGapIsDrawn) {
@@ -663,17 +661,86 @@ TEST(Menu, TheDeploymentKeepsTheDropOffStringItCannotExplain) {
     EXPECT_TRUE(row_for(broke, "~")->enabled);
 }
 
-TEST(Menu, ALoneTurretCollapsesToTheStateRow) {
-    // The capture of a lone deployed turret reads a one-row `SPACE SELECT`: a thing with no verbs
-    // of its own still has a menu, and the menu IS the state row.
+TEST(Menu, ATurretOwnsTheVehiclesRowsAndTwoOfItsOwn) {
+    // Harri, 2026-11-01: turrets "follow my commands, such as 'follow me' or 'defend'", "SPACE
+    // Deploy", "I can un-deploy them at will", "and other usual commands". The usual commands are
+    // the vehicle's, on the vehicle's keys; the two that are a turret's own sit in the vehicle
+    // table's gap (6 and 7).
     MenuInput in = query(MenuSubject::Turret);
-    in.target = MenuTarget::Selectable;
+    in.group = true;
+    in.deployed = true;
     const std::vector<MenuRow> rows = menu_rows(in);
-    ASSERT_EQ(rows.size(), 1U);
-    EXPECT_EQ(rows.at(0).key, "SPACE");
-    EXPECT_EQ(rows.at(0).verb, "Select");
-    EXPECT_TRUE(rows.at(0).enabled);
-    EXPECT_EQ(rows.at(0).reason, MenuDim::None);
+    const std::vector<std::string> want{"SPACE", "TAB", "~", "1", "2", "3",
+                                        "4",     "5",   "6", "7", "9", "0"};
+    ASSERT_EQ(keys_of(rows), want);
+    EXPECT_EQ(row_for(rows, "1")->verb, "Follow Me");
+    EXPECT_EQ(row_for(rows, "2")->verb, "Go to Nav");
+    EXPECT_EQ(row_for(rows, "3")->verb, "Attack");
+    EXPECT_EQ(row_for(rows, "4")->verb, "Hold");
+    EXPECT_EQ(row_for(rows, "6")->verb, "Defend");
+    EXPECT_EQ(row_for(rows, "7")->verb, "Undeploy");
+    EXPECT_EQ(row_for(rows, "0")->verb, "Recycle");
+    // Every row a vehicle has is there, key for key and verb for verb: no new vocabulary.
+    const std::vector<MenuRow> vehicle = menu_rows([] {
+        MenuInput v = query(MenuSubject::Vehicle);
+        v.group = true;
+        return v;
+    }());
+    for (const MenuRow& row : vehicle) {
+        ASSERT_NE(row_for(rows, row.key), nullptr) << row.key;
+        EXPECT_EQ(row_for(rows, row.key)->verb, row.verb) << row.key;
+    }
+}
+
+TEST(Menu, UndeployIsLiveOnlyWhenATurretIsDeployed) {
+    MenuInput in = query(MenuSubject::Turret);
+    in.deployed = false;
+    const std::vector<MenuRow> plain = menu_rows(in);
+    EXPECT_FALSE(row_for(plain, "7")->enabled) << "nothing to take down";
+    EXPECT_EQ(row_for(plain, "7")->reason, MenuDim::DoesNotApply);
+    in.deployed = true;
+    const std::vector<MenuRow> standing = menu_rows(in);
+    EXPECT_TRUE(row_for(standing, "7")->enabled);
+}
+
+TEST(Menu, ASelectionOfTurretsIsOneSubjectWhetherOrNotTheyAreDeployed) {
+    // The kind changes both ways, so a group can hold both at once; it must not fall to "no menu".
+    const sim::Scenario scenario{42,
+                                 {{sim::UnitKind::Turret, sim::Side::Player, 30, 30},
+                                  {sim::UnitKind::DeployedTurret, sim::Side::Player, 32, 30},
+                                  {sim::UnitKind::Tank, sim::Side::Player, 34, 30}}};
+    const sim::Sim sim = sim::Sim::create(scenario);
+    const sim::UnitId plain = sim.units().at(0).id;
+    const sim::UnitId standing = sim.units().at(1).id;
+    const sim::UnitId tank = sim.units().at(2).id;
+    const std::vector<sim::UnitId> turrets{plain, standing};
+    EXPECT_EQ(menu_subject_of(sim, turrets), MenuSubject::Turret);
+    const std::vector<sim::UnitId> mixed{plain, tank};
+    EXPECT_EQ(menu_subject_of(sim, mixed), MenuSubject::None) << "a turret and a tank are two";
+}
+
+TEST(Menu, TheStateRowOfATurretNamesTheDeployOnlyInThatContext) {
+    MenuInput in = query(MenuSubject::Turret);
+    EXPECT_NE(menu_rows(in).front().verb, "Deploy") << "no context, no prompt";
+    in.deploy = true;
+    EXPECT_EQ(menu_rows(in).front().key, "SPACE");
+    EXPECT_EQ(menu_rows(in).front().verb, "Deploy") << "exactly 'SPACE Deploy'";
+    in.attack = true;
+    EXPECT_EQ(menu_rows(in).front().verb, "Attack") << "the attack offer owns SPACE first";
+}
+
+TEST(Menu, AScavengersDeployPromptIsNeverAPermanentRow) {
+    MenuInput in = query(MenuSubject::Harvester);
+    for (const MenuRow& row : menu_rows(in)) {
+        EXPECT_NE(row.verb, "Deploy") << "key " << row.key;
+    }
+    in.deploy = true;
+    const std::vector<MenuRow> rows = menu_rows(in);
+    EXPECT_EQ(rows.front().key, "SPACE");
+    EXPECT_EQ(rows.front().verb, "Deploy");
+    EXPECT_EQ(rows.size(), 10U) << "the prompt replaces the state row's verb and adds no row";
+    in.armed = ArmedCommand{MenuCommand::Build, "x"};
+    EXPECT_EQ(menu_rows(in).front().verb, "x") << "an armed command owns SPACE";
 }
 
 // THE MENU, DRAWN (RB0.5). The rows above reach the frame through `SceneOptions::menu`: these pin

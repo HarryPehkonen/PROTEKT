@@ -163,7 +163,7 @@ TEST(Store, CapacityStartsAtFortyAndTheScenarioMaySupplyAnother) {
 TEST(Store, ACompletedDeployAddsTwentyOfSpaceAndNoScrapAndNotBefore) {
     Sim sim = Sim::create(pool_battle());
     deploy(sim, 2, sim.pools().at(0));
-    run(sim, protekt::sim::kDeployTicks - 20);
+    run(sim, protekt::sim::scavenger_deploy_ticks(Side::Player) - 20);
     EXPECT_EQ(sim.capacity(Side::Player), 40) << "still deploying: nothing is built yet";
     run(sim, kDeployDone);
     ASSERT_EQ(deployed_count(sim, Side::Player), 1U);

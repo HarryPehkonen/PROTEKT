@@ -65,6 +65,26 @@ constexpr std::array kVehicleRows{
     FixedRow{"0", kVerbRecycle, MenuDim::None},
 };
 
+/// The key `7 Undeploy` sits on; named so the row's key is a view into a static, not a literal the
+/// compiler may take for a temporary string (see `MenuRow`'s deleted constructor).
+constexpr std::string_view kUndeployKey{"7"};
+
+/// A TURRET, plain or deployed: the vehicle's ten rows, the same keys on the same verbs, with the
+/// two that are a turret's own in the vehicle table's gap -- `6 Defend` (drive to within range of
+/// an enemy, deploy there, shoot) and `7 Undeploy`. `~ Select Unit` is drawn first by `menu_rows`,
+/// as for a vehicle, and `7`'s ink depends on the selection (a turret that is not deployed has
+/// nothing to take down), so it too is drawn by `menu_rows` and is not in this table. `SPACE
+/// Deploy` is not here either: it is the state row's, and only in its context.
+constexpr std::array kTurretHeadRows{
+    FixedRow{"1", kVerbFollowMe, MenuDim::None},         FixedRow{"2", kVerbGoToNav, MenuDim::None},
+    FixedRow{"3", kVerbAttack, MenuDim::None},           FixedRow{"4", kVerbHold, MenuDim::None},
+    FixedRow{"5", kVerbPickMeUp, MenuDim::DoesNotApply}, FixedRow{"6", kVerbDefend, MenuDim::None},
+};
+constexpr std::array kTurretTailRows{
+    FixedRow{"9", kVerbBailout, MenuDim::None},
+    FixedRow{"0", kVerbRecycle, MenuDim::None},
+};
+
 /// A DEPLOYED recycler, above its build list. `~ DROP OFF` is drawn as the reference draws it and
 /// means nothing to us yet: the string is rendered, no behaviour is invented behind it.
 constexpr std::array kDeploymentRows{
@@ -156,6 +176,9 @@ constexpr std::array kFactoryBuildList{
     if (in.attack) {
         return std::string{kVerbAttack};
     }
+    if (in.deploy) {
+        return std::string{kVerbDeploy};
+    }
     return in.target == MenuTarget::Selectable ? std::string{kVerbSelect} : std::string{};
 }
 
@@ -219,6 +242,7 @@ MenuSubject menu_subject_of_kind(sim::UnitKind kind) noexcept {
     case sim::UnitKind::DeployedScavenger: // no key selects it, and it takes no command: no menu
         return MenuSubject::None;
     case sim::UnitKind::Turret:
+    case sim::UnitKind::DeployedTurret:
         return MenuSubject::Turret;
     case sim::UnitKind::Tank:
     case sim::UnitKind::HoverTank:
@@ -237,19 +261,22 @@ MenuSubject menu_subject_of_kind(sim::UnitKind kind) noexcept {
 
 MenuSubject menu_subject_of(const sim::Sim& sim, std::span<const sim::UnitId> selected) noexcept {
     bool any = false;
-    sim::UnitKind kind{};
+    MenuSubject subject = MenuSubject::None;
     for (const sim::UnitId id : selected) {
         const sim::Unit* unit = sim.find(id);
         if (unit == nullptr || !unit->alive) {
             continue;
         }
-        if (any && unit->kind != kind) {
-            return MenuSubject::None; // one subject per menu
+        // One subject per menu -- compared as SUBJECTS, not kinds, so a group of turrets of which
+        // some are deployed is still a group of turrets and owns the turret menu.
+        const MenuSubject mine = menu_subject_of_kind(unit->kind);
+        if (any && mine != subject) {
+            return MenuSubject::None;
         }
-        kind = unit->kind;
+        subject = mine;
         any = true;
     }
-    return any ? menu_subject_of_kind(kind) : MenuSubject::None;
+    return subject;
 }
 
 std::vector<MenuRow> menu_rows(const MenuInput& in) {
@@ -262,11 +289,6 @@ std::vector<MenuRow> menu_rows(const MenuInput& in) {
     rows.push_back(state_row(in));
     if (in.subject == MenuSubject::None) {
         return rows; // armed units with no menu of their own: the offer, and nothing under it
-    }
-    // A lone deployed turret has no verbs of its own: the reference collapses its menu to the state
-    // row, so there is nothing under it -- not even Close Menu.
-    if (in.subject == MenuSubject::Turret) {
-        return rows;
     }
     rows.push_back(MenuRow{kRowKeyTab, std::string{kVerbCloseMenu}, true, MenuDim::None});
     switch (in.subject) {
@@ -288,8 +310,15 @@ std::vector<MenuRow> menu_rows(const MenuInput& in) {
                                in.group ? MenuDim::None : MenuDim::DoesNotApply});
         append_fixed(rows, kVehicleRows);
         break;
-    case MenuSubject::None:
     case MenuSubject::Turret:
+        rows.push_back(MenuRow{kTilde, std::string{kVerbSelectUnit}, in.group,
+                               in.group ? MenuDim::None : MenuDim::DoesNotApply});
+        append_fixed(rows, kTurretHeadRows);
+        rows.push_back(MenuRow{kUndeployKey, std::string{kVerbUndeploy}, in.deployed,
+                               in.deployed ? MenuDim::None : MenuDim::DoesNotApply});
+        append_fixed(rows, kTurretTailRows);
+        break;
+    case MenuSubject::None:
         // Answered above. Listed so a new subject is a compile-time finding, not a silent gap.
         break;
     }

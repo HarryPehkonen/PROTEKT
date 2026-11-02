@@ -1340,14 +1340,16 @@ TEST(RowBatch, TwoBatchesSitOnTwoKeysAndNeitherKeyMixesThem) {
 // ------------------------------------------------------------------ the vehicle-type icon
 
 /// The kinds a vehicle key can hold: every kind but the two buildings, which hang on the numbered
-/// keys and have masks of their own, and the deployed scavenger, which no key selects.
+/// keys and have masks of their own, and the deployed scavenger, which no key selects. The deployed
+/// turret IS held by a key, but wears the turret's mask on purpose (one plate, either state), so it
+/// is not asked for a mask of its own.
 [[nodiscard]] std::vector<UnitKind> vehicle_kinds() {
     std::vector<UnitKind> kinds;
     kinds.reserve(sim::kUnitKindCount);
     for (int i = 0; i < sim::kUnitKindCount; ++i) {
         const UnitKind kind = static_cast<UnitKind>(i);
         if (kind != UnitKind::Factory && kind != UnitKind::DeployedRecycler
-            && kind != UnitKind::DeployedScavenger) {
+            && kind != UnitKind::DeployedScavenger && kind != UnitKind::DeployedTurret) {
             kinds.push_back(kind);
         }
     }
@@ -1364,7 +1366,7 @@ TEST(RowBatch, TwoBatchesSitOnTwoKeysAndNeitherKeyMixesThem) {
 
 TEST(KindIcon, EveryKindAVehicleKeyCanHoldHasItsOwnMask) {
     const std::vector<UnitKind> kinds = vehicle_kinds();
-    ASSERT_EQ(kinds.size(), 13U) << "fifteen kinds less the two buildings";
+    ASSERT_EQ(kinds.size(), 13U) << "the kinds a key holds, less the two buildings";
     for (std::size_t i = 0; i < kinds.size(); ++i) {
         const IconMask& mask = kind_icon(kinds.at(i));
         EXPECT_NE(&mask, &fallback_icon()) << kind_label(kinds.at(i)) << " fell back";

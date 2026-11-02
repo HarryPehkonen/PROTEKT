@@ -50,6 +50,21 @@ namespace protekt::cmd {
 [[nodiscard]] std::vector<sim::Order> recycle(std::span<const sim::UnitId> roster,
                                               sim::UnitId recycler);
 
+/// Every unit in the roster drives to the tile and deploys there (a scavenger onto a pool, a turret
+/// onto the spot). A tile off the map is not clipped and not sent: nothing comes back, as a move
+/// to one gives nothing. The sim refuses a kind that has nothing to deploy into.
+[[nodiscard]] std::vector<sim::Order> deploy(std::span<const sim::UnitId> roster, int tile_x,
+                                             int tile_y);
+
+/// Every unit in the roster -- turrets -- drives to within weapon range of `target`, deploys there
+/// and fires. Refuses an invalid target for the reason attack does.
+[[nodiscard]] std::vector<sim::Order> defend(std::span<const sim::UnitId> roster,
+                                             sim::UnitId target);
+
+/// Every unit in the roster takes its gun off its mount (a deployed turret; the sim refuses the
+/// rest). The way BACK from `deploy`, which exists for turrets alone.
+[[nodiscard]] std::vector<sim::Order> undeploy(std::span<const sim::UnitId> roster);
+
 /// `shooter` shoots `target` and does nothing else: no stance, no destination, no velocity.
 ///
 /// This is the TRIGGER, and it is deliberately not `attack`. `attack` gives a unit a hunting

@@ -14,6 +14,7 @@
 #include "protekt/cmd/command.hpp"
 #include "protekt/game/assist.hpp"
 #include "protekt/game/attack_aim.hpp"
+#include "protekt/game/deploy_aim.hpp"
 #include "protekt/game/menu.hpp"
 #include "protekt/game/nav_marks.hpp"
 #include "protekt/game/pick.hpp"
@@ -68,6 +69,13 @@ namespace {
 }
 
 } // namespace
+
+bool any_deployed_turret(const sim::Sim& sim, std::span<const sim::UnitId> selected) noexcept {
+    return std::any_of(selected.begin(), selected.end(), [&sim](sim::UnitId id) {
+        const sim::Unit* unit = sim.find(id);
+        return unit != nullptr && unit->alive && unit->kind == sim::UnitKind::DeployedTurret;
+    });
+}
 
 audio::Voice shot_voice() noexcept { return audio::Voice{audio::SoundKind::YourShot, 1.0F, 0.0F}; }
 
@@ -302,6 +310,15 @@ void Interaction::handle(const input::InputFrame& frame, const sim::Sim& sim,
                 attack(target);
                 continue;
             }
+            // Then the DEPLOY, which is offered only where it is true (`deploy_offer`, the same
+            // function the menu's `SPACE Deploy` row is drawn from): a lone scavenger pointing at
+            // a pool, or turrets pointing at bare ground.
+            if (const std::optional<DeployOffer> offer
+                = deploy_offer(sim, options, selection_.units(), driven_);
+                offer.has_value()) {
+                deploy_at(*offer);
+                continue;
+            }
             // Otherwise follow a vehicle of ours under the mark.
             if (hit_is_ours && sim::is_tank(hit->kind)) {
                 follow_crosshair_unit(sim, options);
@@ -510,6 +527,7 @@ void Interaction::menu_digit(const sim::Sim& sim, const SceneOptions& options, i
     in.faction = faction_of(options.factions, sim::Side::Player);
     in.ore = static_cast<int>(sim.ore(sim::Side::Player));
     in.group = selection_.units().size() > 1;
+    in.deployed = any_deployed_turret(sim, selection_.units());
     const std::vector<MenuRow> rows = menu_rows(in);
     const char label = static_cast<char>('0' + digit);
     const auto row = std::find_if(rows.begin(), rows.end(), [&label](const MenuRow& candidate) {
@@ -558,6 +576,10 @@ void Interaction::menu_digit(const sim::Sim& sim, const SceneOptions& options, i
         attack_from_menu(sim, options);
     } else if (row->verb == kVerbRecycle) {
         recycle_selection(sim);
+    } else if (row->verb == kVerbDefend) {
+        defend_selection(sim, options);
+    } else if (row->verb == kVerbUndeploy) {
+        undeploy_selection(sim);
     }
 }
 
@@ -660,6 +682,88 @@ void Interaction::arm_deploy() {
         return;
     }
     deploy_armed_ = true;
+}
+
+void Interaction::deploy_at(const DeployOffer& offer) {
+    std::vector<sim::UnitId> roster = orderable();
+    if (roster.empty()) {
+        refuse("You are driving that one; select another unit to give orders.");
+        return;
+    }
+    const std::vector<sim::Order> orders = cmd::deploy(roster, offer.tile_x, offer.tile_y);
+    if (orders.empty()) {
+        refuse("That order cannot be carried out.");
+        return;
+    }
+    remember(orders);
+    pending_.insert(pending_.end(), orders.begin(), orders.end());
+    message_ = "deploying.";
+    selection_.clear(); // the sequence is complete: the menu closes (see `menu_digit`)
+}
+
+void Interaction::defend_selection(const sim::Sim& sim, const SceneOptions& options) {
+    const std::vector<sim::UnitId> roster = orderable();
+    if (roster.empty()) {
+        refuse("You are driving that one; select another unit to give orders.");
+        return;
+    }
+    // Each turret defends against the hostile asset NEAREST IT that the player can see (the
+    // radar's reach and the drawn window: `available_to_viewer`), ties to the lower id. The sim
+    // does the rest: it drives the turret to within its weapon range of that unit and deploys it.
+    std::vector<sim::Order> orders;
+    for (const sim::UnitId id : roster) {
+        const sim::Unit* turret = sim.find(id);
+        if (turret == nullptr) {
+            continue;
+        }
+        const sim::Unit* nearest = nullptr;
+        std::int64_t best = 0;
+        for (const sim::Unit& other : sim.units()) {
+            if (!other.alive || other.side == sim::Side::Player
+                || !available_to_viewer(sim, options, other)) {
+                continue;
+            }
+            const std::int64_t dx = static_cast<std::int64_t>(other.x.raw) - turret->x.raw;
+            const std::int64_t dy = static_cast<std::int64_t>(other.y.raw) - turret->y.raw;
+            const std::int64_t d2 = (dx * dx) + (dy * dy);
+            if (nearest == nullptr || d2 < best) { // strict: ties keep the lower id
+                nearest = &other;
+                best = d2;
+            }
+        }
+        if (nearest != nullptr) {
+            const std::vector<sim::UnitId> one{id};
+            const std::vector<sim::Order> mine = cmd::defend(one, nearest->id);
+            orders.insert(orders.end(), mine.begin(), mine.end());
+        }
+    }
+    if (orders.empty()) {
+        refuse("no enemies within radar range.");
+        return;
+    }
+    remember(orders);
+    pending_.insert(pending_.end(), orders.begin(), orders.end());
+    message_ = "defending.";
+    selection_.clear(); // the sequence is complete: the menu closes (see `menu_digit`)
+}
+
+void Interaction::undeploy_selection(const sim::Sim& sim) {
+    std::vector<sim::UnitId> deployed;
+    for (const sim::UnitId id : orderable()) {
+        const sim::Unit* unit = sim.find(id);
+        if (unit != nullptr && unit->kind == sim::UnitKind::DeployedTurret) {
+            deployed.push_back(id);
+        }
+    }
+    if (deployed.empty()) {
+        refuse("Nothing selected is deployed.");
+        return;
+    }
+    const std::vector<sim::Order> orders = cmd::undeploy(deployed);
+    remember(orders);
+    pending_.insert(pending_.end(), orders.begin(), orders.end());
+    message_ = "undeploying.";
+    selection_.clear(); // the sequence is complete: the menu closes (see `menu_digit`)
 }
 
 bool Interaction::deploy_key(const input::KeyEvent& key, const sim::Sim& sim,

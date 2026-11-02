@@ -1,5 +1,7 @@
 #pragma once
 
+#include <array>
+#include <optional>
 #include <span>
 
 #include "protekt/game/pick.hpp"
@@ -35,6 +37,14 @@ inline constexpr float kAttackAimToleranceDegrees = 4.0F;
 /// with the side filter off and nothing else, so the two can never measure the cone differently.
 [[nodiscard]] sim::UnitId asset_nearest_ray(const sim::Sim& sim, const SceneOptions& options,
                                             float degrees) noexcept;
+
+/// The angle, in degrees, between the crosshair's ray and the direction from the eye to a world
+/// point (x, up, z in metres): the one measure of "near the crosshair" that the attack offer, the
+/// assist, the health bars and the deploy offer all take, so none of them can disagree about it.
+/// Nothing when there is no crosshair, or the point is at the eye. A point behind the eye is a
+/// large angle, not an error.
+[[nodiscard]] std::optional<float> degrees_off_ray(const SceneOptions& options,
+                                                   const std::array<float, 3>& point) noexcept;
 
 /// The hostile asset SPACE would attack, or an invalid id when it would attack nothing.
 ///

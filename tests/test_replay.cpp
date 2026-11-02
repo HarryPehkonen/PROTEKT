@@ -164,6 +164,8 @@ TEST(Replay, EveryOrderKindSurvivesARoundTripAndNoneIsDropped) {
                                                     UnitId{10}, Fixed::from_raw(-65536)}}},
         Command{15, Order{UnitId{4}, orders::TakeControl{}}},
         Command{16, Order{UnitId{2}, orders::Build{UnitKind::Scout, 12}}},
+        Command{17, Order{UnitId{3}, orders::Undeploy{}}},
+        Command{18, Order{UnitId{4}, orders::Defend{UnitId{9}}}},
     };
     ASSERT_EQ(r.commands.size(), kOrderKindCount) << "this test must cover every kind";
     for (std::size_t i = 0; i < r.commands.size(); ++i) {
@@ -190,6 +192,10 @@ TEST(Replay, EveryOrderKindSurvivesARoundTripAndNoneIsDropped) {
     EXPECT_NE(text.find("16 build 2 589824 786432\n"), std::string::npos)
         << "a build is its kind and its batch as whole-number positions, like a deploy's tile: "
         << text;
+    EXPECT_NE(text.find("17 undeploy 3\n"), std::string::npos)
+        << "an un-deploy carries a unit and nothing else: " << text;
+    EXPECT_NE(text.find("18 defend 4 9\n"), std::string::npos)
+        << "a defend names its enemy as the target, as an attack does: " << text;
 
     const Replay again = must_parse(text);
     ASSERT_EQ(again.commands.size(), r.commands.size());

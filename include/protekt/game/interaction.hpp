@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <map>
 #include <set>
+#include <span>
 #include <string_view>
 #include <vector>
 
@@ -35,6 +36,12 @@ inline constexpr std::string_view kGoPrompt = "go where? 0-9 for a mark.";
 [[nodiscard]] audio::Voice shot_voice() noexcept;
 
 struct BuildItem;
+struct DeployOffer;
+
+/// Whether any living unit of `selected` is a `DeployedTurret`: the one fact `7 Undeploy`'s ink
+/// depends on, read by the menu's caller in the app and by the digit's own routing here.
+[[nodiscard]] bool any_deployed_turret(const sim::Sim& sim,
+                                       std::span<const sim::UnitId> selected) noexcept;
 
 /// The player's hands, as a pure function of input and what he can see.
 ///
@@ -231,6 +238,14 @@ private:
     void scavenge_selection();
     /// `3 DEPLOY`: arm the deploy, or refuse when only the driven craft is selected.
     void arm_deploy();
+    /// SPACE with a deploy OFFERED (`deploy_offer`): the orderable selection drives to the offered
+    /// tile and deploys there, and the command is done.
+    void deploy_at(const DeployOffer& offer);
+    /// `6 DEFEND` on turrets: each selected turret is sent to defend against the hostile asset
+    /// nearest it that the player can see; refused when there is none.
+    void defend_selection(const sim::Sim& sim, const SceneOptions& options);
+    /// `7 UNDEPLOY`: every selected DEPLOYED turret takes its gun down; refused when none is.
+    void undeploy_selection(const sim::Sim& sim);
     /// `2 GO TO NAV`: MoveTo the highlighted nav mark for every orderable selected unit. Refused
     /// when no mark is highlighted, or when nothing but the driven craft is selected.
     void go_to_highlighted_mark(const SceneOptions& options);

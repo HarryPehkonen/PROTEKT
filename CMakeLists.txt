@@ -102,6 +102,7 @@ add_library(protekt_game STATIC
     src/game/assist.cpp
     src/game/attack_aim.cpp
     src/game/atlas.cpp
+    src/game/deploy_aim.cpp
     src/game/png.cpp
     src/game/scene.cpp
     src/game/player.cpp
@@ -298,6 +299,8 @@ if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
         tests/test_recycle.cpp
         tests/test_scavenger.cpp
         tests/test_pools.cpp
+        tests/test_turret_deploy.cpp
+        tests/test_turret_commands.cpp
         tests/test_faction_look.cpp
         tests/test_ai_aim.cpp
         tests/test_scenario.cpp

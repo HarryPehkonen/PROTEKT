@@ -91,6 +91,7 @@ Role role_of(sim::UnitKind kind) noexcept {
     case sim::UnitKind::Bomber: // the lobbed shell, like the bike's: it stands off
         return Role::Standoff;
     case sim::UnitKind::Turret:
+    case sim::UnitKind::DeployedTurret: // the player's to deploy; the AI never does
     case sim::UnitKind::Factory:
     case sim::UnitKind::Scavenger: // unarmed: it hauls, so there is no decision to make about it
     case sim::UnitKind::Recycler:  // unarmed too: it is the base-to-be, with no hunt to run
@@ -114,9 +115,10 @@ int threat_of(sim::UnitKind kind) noexcept {
     case sim::UnitKind::Bomber:
         return 3;
     case sim::UnitKind::Turret:
-    case sim::UnitKind::Apc:      // a light gun, like the scout's
-    case sim::UnitKind::Scout:    // a light raider: armed, but outgunned by any tank's 3
-    case sim::UnitKind::MslScout: // the same raider hull, with the rocket's bite
+    case sim::UnitKind::DeployedTurret: // the same gun, fixed to its spot
+    case sim::UnitKind::Apc:            // a light gun, like the scout's
+    case sim::UnitKind::Scout:          // a light raider: armed, but outgunned by any tank's 3
+    case sim::UnitKind::MslScout:       // the same raider hull, with the rocket's bite
         return 2;
     case sim::UnitKind::Factory:
         return 1;

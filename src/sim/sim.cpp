@@ -81,6 +81,9 @@ const UnitId* order_target(const Order& order) noexcept {
     if (const auto* follow = std::get_if<orders::Follow>(&order.payload)) {
         return &follow->target; // a living unit of either side, never itself: the same rule
     }
+    if (const auto* defend = std::get_if<orders::Defend>(&order.payload)) {
+        return &defend->target; // chosen by the issuer, as an attack's is: the same rule again
+    }
     return nullptr;
 }
 
@@ -116,8 +119,23 @@ bool order_is_valid(const std::vector<Unit>& units, const std::vector<Pool>& poo
             const Pool* pool = pool_at(pools, deploy->tile_x, deploy->tile_y);
             return pool != nullptr && !pool_taken(units, *pool);
         }
+        if (is_turret(unit->kind)) {
+            // A turret deploys wherever it can stand: a spot, not a footprint.
+            return tile_passable(seed, deploy->tile_x, deploy->tile_y)
+                   && !building_blocks(units, deploy->tile_x, deploy->tile_y);
+        }
         return unit->kind == UnitKind::Recycler
                && deploy_site_ok(seed, units, deploy->tile_x, deploy->tile_y);
+    }
+    // UN-DEPLOY is a deployed turret's alone (a plain turret has nothing to take down, and a
+    // deployed scavenger takes no order at all, above).
+    if (std::holds_alternative<orders::Undeploy>(order.payload)) {
+        return unit->kind == UnitKind::DeployedTurret;
+    }
+    // DEFEND is a turret's, plain or deployed, and needs somebody to defend against: the generic
+    // target rule below (a living unit, never itself) is the rest of it.
+    if (std::holds_alternative<orders::Defend>(order.payload) && !is_turret(unit->kind)) {
+        return false;
     }
     if (const auto* build = std::get_if<orders::Build>(&order.payload)) {
         // A BUILD goes to a producer, by KIND (a side may have several), for a kind that has a
@@ -314,6 +332,17 @@ void apply_order(std::vector<Unit>& units, std::vector<Projectile>& projectiles,
         if (const auto* o = std::get_if<orders::Deploy>(&order.payload)) {
             // Off to the site's centre, as a MoveTo would go; the countdown starts once it is there
             // (`deploy_step`). A new deploy order starts the count again from nothing.
+            if (is_turret(unit.kind)) {
+                // A turret goes to the middle of the tile it was pointed at. A DEPLOYED one keeps
+                // its `deploy_ticks`, which count its un-deploy: the order is "take it down, go
+                // there, put it up", and the first leg must not lose its progress.
+                apply_posted(unit, Stance::Deploy, tile_centre_of(o->tile_x),
+                             tile_centre_of(o->tile_y), Fixed{}, Fixed{});
+                if (unit.kind == UnitKind::Turret) {
+                    unit.deploy_ticks = 0;
+                }
+                break;
+            }
             if (unit.kind == UnitKind::Scavenger) {
                 // A scavenger goes to the middle of its pool's tile.
                 apply_posted(unit, Stance::Deploy, tile_centre_of(o->tile_x),
@@ -409,6 +438,21 @@ void apply_order(std::vector<Unit>& units, std::vector<Projectile>& projectiles,
             const std::uint32_t batch = o->batch != 0 ? o->batch : kFirstLoneBatch + lone_batches++;
             unit.queue.entries.at(unit.queue.count) = BuildEntry{o->kind, batch};
             ++unit.queue.count;
+        }
+        break;
+    case OrderKind::Undeploy:
+        // The count itself is `turret_deploy_step`'s; the order only says "take it down".
+        unit.stance = Stance::Undeploy;
+        unit.target = UnitId{};
+        break;
+    case OrderKind::Defend:
+        if (const auto* o = std::get_if<orders::Defend>(&order.payload)) {
+            unit.stance = Stance::Defend;
+            unit.target = o->target;
+            unit.route.age = kRouteAgeFresh;
+            if (unit.kind == UnitKind::Turret) {
+                unit.deploy_ticks = 0; // a deployed turret's count is its un-deploy: keep it
+            }
         }
         break;
     case OrderKind::TakeControl:
@@ -825,6 +869,120 @@ bool deploy_step(const std::vector<Unit>& units, Unit& unit, std::uint64_t seed)
     return true;
 }
 
+/// Whether an order a `DeployedTurret` holds asks it to leave its spot: an un-deploy by name, or
+/// any stance that goes somewhere -- a move, a patrol, a follow, a redeploy, a defend, a recycle,
+/// or a post it is not standing at. Hold (a post under its own feet), Attack and Idle keep it up.
+bool wants_to_leave(const Unit& unit) noexcept {
+    switch (unit.stance) {
+    case Stance::Undeploy:
+    case Stance::MoveTo:
+    case Stance::Patrol:
+    case Stance::Follow:
+    case Stance::Deploy:
+    case Stance::Defend:
+    case Stance::Recycle:
+        return true;
+    case Stance::GuardAt: {
+        constexpr std::int64_t kArrive = kArriveRadiusRaw;
+        return dist2(unit.x, unit.y, unit.guard_x, unit.guard_y) >= kArrive * kArrive;
+    }
+    case Stance::Idle:
+    case Stance::Attack:
+    case Stance::Dead:
+    case Stance::Fetch:
+        break;
+    }
+    return false;
+}
+
+/// THE TURRET'S DEPLOY AND UN-DEPLOY (TURRET-CMD). Called for every living turret, plain or
+/// deployed, before it is steered; returns true when it is not to be steered this tick.
+///
+/// A plain `Turret` under a `Deploy` order drives to its spot (the tile's middle, within the
+/// MoveTo's arrive radius) and counts `kTurretDeployTicks` there; under a `Defend` order it drives
+/// at its enemy until it is within its own WEAPON RANGE of it (`profile(Turret).weapon_range`,
+/// `kTurretRangeRaw`: 16 tiles) and counts from there. On the last tick it is the SAME unit as a
+/// `DeployedTurret`, where it stands: the gun is up and it takes no step.
+///
+/// A `DeployedTurret` counts `kTurretUndeployTicks` once it has been told to leave -- by an
+/// `Undeploy` order or by any order that goes somewhere (`wants_to_leave`) -- and then is a plain
+/// `Turret` again with its stance as the order left it, so a move or a follow carries straight on.
+/// A count once begun runs to the end: Stop does not put the gun back. Both ways go through
+/// `deploy_ticks`, which on a deployed turret is the un-deploy's count.
+bool turret_deploy_step(const std::vector<Unit>& units, Unit& unit, std::uint64_t seed) noexcept {
+    if (unit.kind == UnitKind::DeployedTurret) {
+        unit.vx = Fixed::zero();
+        unit.vy = Fixed::zero();
+        if (unit.deploy_ticks == 0 && unit.stance == Stance::Defend) {
+            // Already up, and the enemy is already in range: there is nothing to take down.
+            const Unit* enemy = find_const(units, unit.target);
+            const std::int64_t range = profile(UnitKind::Turret).weapon_range.raw;
+            if (enemy != nullptr && enemy->alive
+                && dist2(unit.x, unit.y, enemy->x, enemy->y) < range * range) {
+                unit.stance = Stance::Idle;
+                unit.target = UnitId{};
+                return true;
+            }
+        }
+        if (unit.deploy_ticks == 0 && !wants_to_leave(unit)) {
+            return true;
+        }
+        if (++unit.deploy_ticks < kTurretUndeployTicks) {
+            return true;
+        }
+        unit.kind = UnitKind::Turret;
+        unit.deploy_ticks = 0;
+        unit.still_ticks = 0; // off its mount: it crawls, and mounts again as any turret does
+        unit.unmount_ticks = 0;
+        if (unit.stance == Stance::Undeploy) {
+            unit.stance = Stance::Idle;
+        }
+        return true;
+    }
+    if (unit.kind != UnitKind::Turret) {
+        return false;
+    }
+    if (unit.stance != Stance::Deploy && unit.stance != Stance::Defend) {
+        unit.deploy_ticks = 0;
+        return false;
+    }
+    std::int64_t radius = kArriveRadiusRaw; // a spot: the radius a MoveTo stops in
+    if (unit.stance == Stance::Defend) {
+        const Unit* enemy = find_const(units, unit.target);
+        if (enemy == nullptr || !enemy->alive) {
+            unit.stance = Stance::Idle; // moot: nobody left to defend against
+            unit.target = UnitId{};
+            unit.deploy_ticks = 0;
+            return false;
+        }
+        unit.guard_x = enemy->x; // steered at like a MoveTo, re-aimed every tick
+        unit.guard_y = enemy->y;
+        radius = profile(UnitKind::Turret).weapon_range.raw;
+    } else if (!tile_passable(seed, unit.guard_x.floor_int(), unit.guard_y.floor_int())
+               || building_blocks(units, unit.guard_x.floor_int(), unit.guard_y.floor_int())) {
+        unit.stance = Stance::Idle; // the spot stopped being ground: the order ends whole
+        unit.deploy_ticks = 0;
+        unit.route = Route{};
+        return false;
+    }
+    if (dist2(unit.x, unit.y, unit.guard_x, unit.guard_y) >= radius * radius) {
+        unit.deploy_ticks = 0;
+        return false; // on its way
+    }
+    unit.vx = Fixed::zero();
+    unit.vy = Fixed::zero();
+    if (++unit.deploy_ticks < kTurretDeployTicks) {
+        return true;
+    }
+    unit.kind = UnitKind::DeployedTurret;
+    unit.stance = Stance::Idle;
+    unit.target = UnitId{};
+    unit.deploy_ticks = 0;
+    unit.route = Route{};
+    unit.detour = Detour{};
+    return true;
+}
+
 /// RECYCLE. Called for every living unit before it is steered. Returns true when the unit is not to
 /// be steered this tick: it is standing at its recycler and has just been consumed into the ledger.
 /// Away from it the unit chases the recycler's CURRENT position -- an undeployed recycler can drive
@@ -881,6 +1039,10 @@ void steer(std::vector<Unit>& units, Unit& unit, const UnitProfile& prof, const 
     // A recycle drives at its recycler, whose CURRENT position `recycle_step` writes into
     // guard_x/y.
     case Stance::Recycle:
+    // A defend drives at its enemy's CURRENT position, which `turret_deploy_step` writes into
+    // guard_x/y every tick; an undeploy has nowhere to go, and a turret in it never steers.
+    case Stance::Defend:
+    case Stance::Undeploy:
         break;
     case Stance::Attack: {
         const Unit* target = find_const(units, unit.target);
@@ -1134,6 +1296,9 @@ void Sim::step() {
         }
         if (unit.kind == UnitKind::Scavenger
             && scavenger_deploy_step(units_, scenario_.pools, unit)) {
+            continue;
+        }
+        if (is_turret(unit.kind) && turret_deploy_step(units_, unit, seed)) {
             continue;
         }
         if (recycle_step(units_, unit, ore_, scenario_.store_capacity)) {

@@ -1,0 +1,9 @@
+# protekt replay v1
+seed 42
+# A turret's whole life in the new verbs: deploy where it stands (a tile as a whole-tile position),
+# take it down, send it to defend against unit 9, and stop. `undeploy` carries a unit and nothing
+# else; `defend` names its enemy as a target, as `attack` does.
+0 deploy 3 24.0 230.0
+200 undeploy 3
+300 defend 3 9
+900 stop 3

@@ -1,5 +1,6 @@
 #include "protekt/game/attack_aim.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 
@@ -12,6 +13,14 @@ namespace {
 /// A point the ray is cast to when its direction is wanted: any distance in front of the eye works,
 /// because `ray_point` puts a pixel on the same ray at every distance.
 constexpr float kRayProbeMetres = 100.0F;
+
+/// The crosshair's ray as a vector from the eye (any length: `ray_point` is on the same line at
+/// every distance).
+[[nodiscard]] std::array<float, 3> crosshair_ray(const SceneOptions& options,
+                                                 const Aim& aim) noexcept {
+    const RayPoint probe = ray_point(options.camera, options.extent, aim.x, aim.y, kRayProbeMetres);
+    return {probe.x - options.camera.x, probe.y - options.camera.y, probe.z - options.camera.z};
+}
 
 [[nodiscard]] std::array<float, 3> world_middle(const SceneOptions& options,
                                                 const sim::Unit& unit) noexcept {
@@ -29,6 +38,28 @@ Projected attack_point(const SceneOptions& options, const sim::Unit& unit) noexc
     return project(options.camera, options.extent, at.at(0), at.at(1), at.at(2));
 }
 
+std::optional<float> degrees_off_ray(const SceneOptions& options,
+                                     const std::array<float, 3>& point) noexcept {
+    if (!options.aim.has_value()) {
+        return std::nullopt;
+    }
+    const std::array<float, 3> ray = crosshair_ray(options, options.aim.value());
+    const std::array<float, 3> to{point.at(0) - options.camera.x, point.at(1) - options.camera.y,
+                                  point.at(2) - options.camera.z};
+    const float ray_length
+        = std::sqrt((ray.at(0) * ray.at(0)) + (ray.at(1) * ray.at(1)) + (ray.at(2) * ray.at(2)));
+    const float length
+        = std::sqrt((to.at(0) * to.at(0)) + (to.at(1) * to.at(1)) + (to.at(2) * to.at(2)));
+    if (length <= 0.0F || ray_length <= 0.0F) {
+        return std::nullopt;
+    }
+    const float cosine
+        = std::clamp(((ray.at(0) * to.at(0)) + (ray.at(1) * to.at(1)) + (ray.at(2) * to.at(2)))
+                         / (ray_length * length),
+                     -1.0F, 1.0F);
+    return std::acos(cosine) * 180.0F / math::kPi;
+}
+
 namespace {
 
 /// THE ONE SCAN behind every "near the crosshair" in the game: the living, available unit whose
@@ -41,10 +72,7 @@ sim::UnitId nearest_ray(const sim::Sim& sim, const SceneOptions& options, float 
     if (!options.aim.has_value()) {
         return sim::UnitId{};
     }
-    const RayPoint probe = ray_point(options.camera, options.extent, options.aim->x, options.aim->y,
-                                     kRayProbeMetres);
-    const std::array<float, 3> ray{probe.x - options.camera.x, probe.y - options.camera.y,
-                                   probe.z - options.camera.z};
+    const std::array<float, 3> ray = crosshair_ray(options, options.aim.value());
     const float ray_length
         = std::sqrt((ray.at(0) * ray.at(0)) + (ray.at(1) * ray.at(1)) + (ray.at(2) * ray.at(2)));
     const float cos_window = std::cos(degrees * math::kPi / 180.0F);

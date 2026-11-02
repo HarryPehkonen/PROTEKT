@@ -143,8 +143,7 @@ WorldMap world_map(const sim::Sim& sim, Extent extent, sim::Side own, sim::UnitI
             continue;
         }
         const MapPoint at = map_point(map.layout, tiles(unit.x), tiles(unit.y));
-        const bool building
-            = unit.kind == sim::UnitKind::Factory || unit.kind == sim::UnitKind::Turret;
+        const bool building = unit.kind == sim::UnitKind::Factory || sim::is_turret(unit.kind);
         map.assets.push_back(MapAsset{unit.id, unit.kind, at.x, at.y,
                                       (building ? kMapBuildingHalf : kMapUnitHalf) * scale,
                                       unit.id == driven});

@@ -78,6 +78,24 @@ std::vector<sim::Order> recycle(std::span<const sim::UnitId> roster, sim::UnitId
     return make(roster, sim::orders::Recycle{recycler});
 }
 
+std::vector<sim::Order> deploy(std::span<const sim::UnitId> roster, int tile_x, int tile_y) {
+    if (tile_x < 0 || tile_y < 0 || tile_x >= sim::kMapTiles || tile_y >= sim::kMapTiles) {
+        return {};
+    }
+    return make(roster, sim::orders::Deploy{tile_x, tile_y});
+}
+
+std::vector<sim::Order> defend(std::span<const sim::UnitId> roster, sim::UnitId target) {
+    if (!target.valid()) {
+        return {};
+    }
+    return make(roster, sim::orders::Defend{target});
+}
+
+std::vector<sim::Order> undeploy(std::span<const sim::UnitId> roster) {
+    return make(roster, sim::orders::Undeploy{});
+}
+
 std::vector<sim::Order> focus_fire(sim::UnitId shooter, sim::UnitId target) {
     if (!shooter.valid() || !target.valid() || shooter == target) {
         return {};

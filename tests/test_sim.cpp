@@ -134,9 +134,12 @@ TEST(Sim, TheScoutIsAppendedAfterTheDeployedRecyclerAndNoEarlierIndexMoved) {
     // The deployed scavenger was appended after the missile scout (POOLS, 2026-11-01), again
     // without moving anything.
     EXPECT_EQ(static_cast<int>(UnitKind::DeployedScavenger), 15);
-    EXPECT_EQ(kUnitKindCount, 16);
-    EXPECT_EQ(static_cast<int>(UnitKind::DeployedScavenger), kUnitKindCount - 1)
-        << "the deployed scavenger stays last";
+    // The deployed turret was appended after the deployed scavenger (TURRET-CMD, 2026-11-01), again
+    // without moving anything -- and it is the first kind that goes back to the one before it.
+    EXPECT_EQ(static_cast<int>(UnitKind::DeployedTurret), 16);
+    EXPECT_EQ(kUnitKindCount, 17);
+    EXPECT_EQ(static_cast<int>(UnitKind::DeployedTurret), kUnitKindCount - 1)
+        << "the deployed turret stays last";
 }
 
 TEST(Sim, TheScoutIsALightFastArmedVehicleThatCanBeDriven) {
@@ -168,7 +171,7 @@ TEST(Sim, TheDeployedRecyclerIsAStillUnarmedBuildingWithTheRecyclersHull) {
 }
 
 TEST(Sim, TheHoverTankHasTheTanksProfileExactly) {
-    EXPECT_EQ(kUnitKindCount, 16);
+    EXPECT_EQ(kUnitKindCount, 17);
     EXPECT_EQ(static_cast<int>(UnitKind::HoverTank), 3);
     const UnitProfile tank = profile(UnitKind::Tank);
     const UnitProfile hover = profile(UnitKind::HoverTank);
@@ -1205,7 +1208,10 @@ TEST(Deploy, IsRefusedASecondTimeAndForEveryOtherKind) {
     const Footprint site = open_site(kDeploySeed, 40, 6);
     std::vector<Spawn> spawns{{UnitKind::Recycler, Side::Player, site.centre_x(), site.centre_y()}};
     for (int kind = 0; kind < kUnitKindCount; ++kind) {
-        if (static_cast<UnitKind>(kind) != UnitKind::Recycler) {
+        // A turret deploys too (onto a spot, TURRET-CMD), so it is not a kind this order is refused
+        // for; tests/test_turret_deploy.cpp has its rules.
+        if (static_cast<UnitKind>(kind) != UnitKind::Recycler
+            && !is_turret(static_cast<UnitKind>(kind))) {
             spawns.push_back(
                 {static_cast<UnitKind>(kind), Side::Player, site.x - 4, site.y + kind});
         }

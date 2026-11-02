@@ -127,6 +127,7 @@ const IconMask& kind_icon(sim::UnitKind kind) noexcept {
     case sim::UnitKind::Tank:
         return kTank;
     case sim::UnitKind::Turret:
+    case sim::UnitKind::DeployedTurret: // the same plate: the icon is the turret's either way
         return kTurret;
     case sim::UnitKind::HoverTank:
         return kHoverTank;
