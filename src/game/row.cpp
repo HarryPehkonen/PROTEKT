@@ -47,11 +47,19 @@ namespace {
     return kind == sim::UnitKind::DeployedScavenger;
 }
 
-/// Whether the opening force keeps `kind` off the F keys: the buildings, and the turret. The
-/// undeployed recycler is NOT here: it moves, it is selected by an F key until it deploys (and the
-/// headless `--key` cannot press `1`), so it is a vehicle kind of its own at the start.
+/// Whether the opening force keeps `kind` off the F keys: the buildings only. The undeployed
+/// recycler is NOT here: it moves, it is selected by an F key until it deploys (and the headless
+/// `--key` cannot press `1`), so it is a vehicle kind of its own at the start. Nor is the turret
+/// (Harri, 2026-11-02): "all turrets should always appear under a function key".
 [[nodiscard]] bool off_the_f_row_at_start(sim::UnitKind kind) noexcept {
-    return building_slot(kind).has_value() || kind == sim::UnitKind::Turret;
+    return building_slot(kind).has_value();
+}
+
+/// The first group slot holding nothing, or `end` when all ten keys are taken.
+[[nodiscard]] std::array<RowSlot, kRowSlots>::iterator
+first_empty_group(std::array<RowSlot, kRowSlots>& slots) {
+    return std::find_if(slots.begin() + kRowFirstGroup, slots.end(),
+                        [](const RowSlot& slot) { return slot.units.empty(); });
 }
 
 /// Whether any slot already holds `id`.
@@ -71,15 +79,37 @@ bool is_held_in_group(const std::array<RowSlot, kRowSlots>& slots, sim::UnitId i
 
 } // namespace
 
-void RowState::update(const sim::Sim& sim, sim::Side side, std::size_t marks) {
-    nav_marks = marks;
-    // A group key loses its dead, and a vehicle that has become a building (a recycler that has
-    // deployed): its F key goes blank where it stands and is never re-packed.
+bool RowState::swap_driven(const sim::Sim& sim, sim::UnitId vacated, sim::UnitId entered) {
+    const sim::Unit* left = sim.find(vacated);
+    const bool needs_key = left != nullptr && left->alive && !keyless(left->kind)
+                           && !building_slot(left->kind).has_value() && !is_held(slots, vacated);
+    // The entered vehicle's key is given up first: when it was alone on that key, the key is the
+    // free one the vehicle being left takes. All of it is undone if there is still none.
+    const std::array<RowSlot, kRowSlots> before = slots;
     for (RowSlot& slot : slots) {
-        std::erase_if(slot.units, [&sim](sim::UnitId id) {
+        std::erase(slot.units, entered);
+    }
+    const auto free_slot = first_empty_group(slots);
+    if (needs_key && free_slot == slots.end()) {
+        slots = before;
+        return false;
+    }
+    if (needs_key) {
+        free_slot->units.push_back(vacated);
+    }
+    return true;
+}
+
+void RowState::update(const sim::Sim& sim, sim::Side side, std::size_t marks, sim::UnitId driven) {
+    nav_marks = marks;
+    // A group key loses its dead, the vehicle the player sits in (he commands the rest, not that
+    // one), and a vehicle that has become a building (a recycler that has deployed): its F key
+    // goes blank where it stands and is never re-packed.
+    for (RowSlot& slot : slots) {
+        std::erase_if(slot.units, [&sim, driven](sim::UnitId id) {
             const sim::Unit* unit = sim.find(id);
-            return unit == nullptr || !unit->alive || building_slot(unit->kind).has_value()
-                   || keyless(unit->kind);
+            return unit == nullptr || !unit->alive || id == driven
+                   || building_slot(unit->kind).has_value() || keyless(unit->kind);
         });
     }
     // The building keys are not remembered: they hold whatever of the thing is alive.
@@ -87,7 +117,7 @@ void RowState::update(const sim::Sim& sim, sim::Side side, std::size_t marks) {
         slots.at(index).units.clear();
     }
     for (const sim::Unit& unit : sim.units()) {
-        if (unit.side != side || !unit.alive || keyless(unit.kind)) {
+        if (unit.side != side || !unit.alive || keyless(unit.kind) || unit.id == driven) {
             continue;
         }
         if (const std::optional<std::size_t> key = building_slot(unit.kind); key.has_value()) {
@@ -96,8 +126,7 @@ void RowState::update(const sim::Sim& sim, sim::Side side, std::size_t marks) {
         }
         // Units come in id order, so a slot's occupants stay in spawn order. A unit that finds
         // every group slot full is simply unseen: it is offered the next slot to free up.
-        if (is_held(slots, unit.id)
-            || std::find(off_row.begin(), off_row.end(), unit.id) != off_row.end()) {
+        if (is_held(slots, unit.id)) {
             continue;
         }
         // A shift-built batch shares ONE key. A unit whose batch is already seated joins its own
@@ -118,30 +147,24 @@ void RowState::update(const sim::Sim& sim, sim::Side side, std::size_t marks) {
                 continue;
             }
         }
-        const auto free_slot = std::find_if(slots.begin() + kRowFirstGroup, slots.end(),
-                                            [](const RowSlot& slot) { return slot.units.empty(); });
+        const auto free_slot = first_empty_group(slots);
         if (free_slot != slots.end()) {
             free_slot->units.push_back(unit.id);
         }
     }
 }
 
-void RowState::seed_from_start(const sim::Sim& sim, sim::Side side, std::size_t marks) {
+void RowState::seed_from_start(const sim::Sim& sim, sim::Side side, std::size_t marks,
+                               sim::UnitId driven) {
     for (RowSlot& slot : slots) {
         slot.units.clear();
     }
-    off_row.clear();
     for (const sim::Unit& unit : sim.units()) {
-        if (unit.side != side || !unit.alive) {
+        if (unit.side != side || !unit.alive || unit.id == driven) {
             continue;
         }
         if (off_the_f_row_at_start(unit.kind)) {
-            // The building keys are refilled by `update`; a turret or recycler is simply not
-            // seated.
-            if (!building_slot(unit.kind).has_value()) {
-                off_row.push_back(unit.id);
-            }
-            continue;
+            continue; // the building keys are refilled by `update`
         }
         // One key per kind: join the group that already holds this kind, else open the next key.
         const auto same_kind = std::find_if(
@@ -153,13 +176,12 @@ void RowState::seed_from_start(const sim::Sim& sim, sim::Side side, std::size_t 
             same_kind->units.push_back(unit.id);
             continue;
         }
-        const auto free_slot = std::find_if(slots.begin() + kRowFirstGroup, slots.end(),
-                                            [](const RowSlot& slot) { return slot.units.empty(); });
+        const auto free_slot = first_empty_group(slots);
         if (free_slot != slots.end()) {
             free_slot->units.push_back(unit.id);
         }
     }
-    update(sim, side, marks);
+    update(sim, side, marks, driven);
 }
 
 bool RowState::occupied(std::size_t index) const {

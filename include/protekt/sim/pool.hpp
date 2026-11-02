@@ -35,6 +35,12 @@ inline constexpr int kPoolSpacingTiles = 24;
 /// `count` pools on passable ground, none within `kPoolBaseClearTiles` of a tile in `bases`. A
 /// PURE FUNCTION of (seed, count, bases). The spacing relaxes by halves until `count` fit, so the
 /// count asked for is the count returned unless the ground has no room at all.
+///
+/// BALANCED BY SIDE (Harri, 2026-11-02: "no seed can hand one side the economy"). A candidate's
+/// side is whichever base is NEARER -- the perpendicular bisector between two bases -- and each
+/// side gets `count / bases.size()` pools; the leftover pools go to sides the seed picks. Inside a
+/// side the positions are as random as ever and every rejection above still applies. Only if the
+/// ground cannot hold a side's share even at a spacing of 1 does the count outrank the balance.
 [[nodiscard]] std::vector<Pool> lay_pools(std::uint64_t seed, int count,
                                           std::span<const Pool> bases);
 

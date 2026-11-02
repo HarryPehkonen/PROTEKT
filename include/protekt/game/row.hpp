@@ -79,28 +79,39 @@ enum class RowMove : std::uint8_t {
 struct RowState {
     std::array<RowSlot, kRowSlots> slots{}; ///< ~ 1 2 3 F1..F10, in that fixed order
     std::size_t nav_marks{0};               ///< `~` is on the screen when this is above zero
-    /// Units the start deliberately left off the F keys (see `seed_from_start`). `update` never
-    /// seats them; without this it would offer them the first empty key on the very next frame.
-    std::vector<sim::UnitId> off_row{};
-
     /// THE START RULE, once, at tick 0, on a row that has seen nothing: seat `side`'s opening force
     /// ONE GROUP KEY PER KIND. All the tanks share F1, and each other kind of vehicle takes the
-    /// next empty key, in the order its first unit spawns. The turrets take no F key -- they go on
-    /// `off_row`; the factory and the deployed recycler never did. The undeployed recycler moves
-    /// and deploys from its F key, so it is a kind like any. Then it fills the building keys and
-    /// `~` as `update` does. This is the ONLY place units are grouped by kind: every unit that
-    /// appears afterwards goes through `update`'s per-unit rules (a lone build takes the first
-    /// empty key, a shift-built batch shares its first member's, a wiped-out key is reused first).
-    void seed_from_start(const sim::Sim& sim, sim::Side side, std::size_t marks);
+    /// next empty key, in the order its first unit spawns -- the turrets too, which always sit
+    /// under a key (2026-11-02); the factory and the deployed recycler never did. The undeployed
+    /// recycler moves and deploys from its F key, so it is a kind like any. `driven` is the
+    /// vehicle the player starts in, and it is seated nowhere (see `update`). Then it fills the
+    /// building keys and `~` as `update` does. This is the ONLY place units are grouped by kind:
+    /// every unit that appears afterwards goes through `update`'s per-unit rules (a lone build
+    /// takes the first empty key, a shift-built batch shares its first member's, a wiped-out key is
+    /// reused first).
+    void seed_from_start(const sim::Sim& sim, sim::Side side, std::size_t marks,
+                         sim::UnitId driven = {});
 
     /// Fold in this frame's world: prune the dead, hand every vehicle `side` has not had before the
     /// first empty group slot, and refill the building keys. `nav_marks` is how many marks the
     /// player has set; `~` is on the screen when there is at least one.
     ///
+    /// `driven` is THE VEHICLE THE PLAYER IS IN, and it is never under a key (Harri, 2026-11-02):
+    /// the keys are for assets he commands, he already controls that one, and a key for it could
+    /// only offer an order that fails. It is pruned from any key that held it and never seated.
+    /// The default, no vehicle, is an observer's row.
+    ///
     /// The group keys are therefore not a function of the sim alone: they remember where the
     /// player put things (`move_into`), and `update` keeps those places -- it only prunes the dead
     /// and seats newcomers in the gaps.
-    void update(const sim::Sim& sim, sim::Side side, std::size_t marks);
+    void update(const sim::Sim& sim, sim::Side side, std::size_t marks, sim::UnitId driven = {});
+
+    /// THE SWAP (X): the player leaves `vacated` for `entered`. The row is re-derived the way he
+    /// ruled: `entered` loses its key, and `vacated` takes the first empty one. DISALLOWED when
+    /// there is none for it -- a false return, and then nothing has changed. A key `entered` held
+    /// alone is empty the moment it is entered, so it counts as the free one. A `vacated` that is
+    /// dead, unknown, or already on a key needs none.
+    [[nodiscard]] bool swap_driven(const sim::Sim& sim, sim::UnitId vacated, sim::UnitId entered);
 
     /// Whether the key at `index` is on the screen: it holds something.
     [[nodiscard]] bool occupied(std::size_t index) const;

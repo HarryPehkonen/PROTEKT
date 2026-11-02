@@ -7,6 +7,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <utility>
 #include <vector>
 
 #include "protekt/game/interaction.hpp"
@@ -599,6 +600,59 @@ TEST(MapLine, AUnitWithNoFacingKeepsItsVelocityHeading) {
     options.headings = &headings;
     const sim::Unit& you = *rig.sim.find(rig.own.at(0));
     EXPECT_FLOAT_EQ(map_line_heading(options, you), headings.of(you));
+}
+
+// ============================================================ the pools (Harri, 2026-11-02)
+// "In BattleZone 2, the map shows the locations of all biometal pools."
+
+/// A rig with `pools` on the map: your units near (40,40), the pools in the far corners and the
+/// middle, none of them anywhere near the radar's reach of the viewer.
+[[nodiscard]] Rig make_pool_rig(std::vector<sim::Pool> pools) {
+    Rig rig = make_rig();
+    sim::Scenario scenario{
+        kSeed, {{UnitKind::Tank, Side::Player, 40, 40}, {UnitKind::Tank, Side::Enemy, 38, 60}}};
+    scenario.pools = std::move(pools);
+    rig.sim = sim::Sim::create(scenario);
+    rig.options.show_world_map = true;
+    rig.options.viewer_unit = rig.sim.units().front().id;
+    rig.options.viewer_side = Side::Player;
+    return rig;
+}
+
+TEST(WorldMapPools, EveryPoolIsOnTheMapWhereverItIsAndNotOnlyThoseInSight) {
+    const Rig rig = make_pool_rig({sim::Pool{41, 41}, sim::Pool{220, 30}, sim::Pool{128, 200}});
+    const WorldMap map = map_of(rig);
+
+    ASSERT_EQ(map.pools.size(), 3U) << "the near one and both that are 100+ tiles out of the radar";
+    for (std::size_t i = 0; i < map.pools.size(); ++i) {
+        const sim::Pool& pool = rig.sim.pools().at(i);
+        const MapPoint at = map_point(map.layout, static_cast<float>(pool.tile_x) + 0.5F,
+                                      static_cast<float>(pool.tile_y) + 0.5F);
+        EXPECT_FLOAT_EQ(map.pools.at(i).px, at.x) << "pool " << i << " at the middle of its tile";
+        EXPECT_FLOAT_EQ(map.pools.at(i).py, at.y);
+        EXPECT_GT(map.pools.at(i).half, 0.0F);
+    }
+}
+
+TEST(WorldMapPools, AMapWithNoPoolsShowsNone) {
+    EXPECT_TRUE(map_of(make_pool_rig({})).pools.empty());
+}
+
+TEST(WorldMapPools, AMarkerIsDrawnForEachPool) {
+    // Both far past the radar's reach: the map replaces the radar, so a pool the radar outlined
+    // would take its outline off the frame as the map comes up and muddy the count.
+    const Rig with = make_pool_rig({sim::Pool{128, 128}, sim::Pool{220, 30}});
+    const Rig without = make_pool_rig({});
+    const auto map_part = [](const Rig& rig) {
+        SceneOptions off = rig.options;
+        off.show_world_map = false;
+        return build_scene(rig.sim, rig.options).vertices.size()
+               - build_scene(rig.sim, off).vertices.size();
+    };
+    // A marker is a black ring under a white ring, four bars each, a quad a bar: 8 quads.
+    EXPECT_EQ(map_part(with) - map_part(without), 2U * 8U * 6U);
+
+    EXPECT_GT(map_part(without), 0U) << "the map itself is drawn either way";
 }
 
 } // namespace

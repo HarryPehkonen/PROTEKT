@@ -87,7 +87,10 @@ public:
     ///    Not finished, so kept: a BUILD row (the factory stays selected for the next one), `3
     ///    Deploy`'s arming (until its click lands), a refusal, and Escape of a prompt
     ///  * X: swap the driven unit to the own drivable unit under the mark (any kind but the
-    ///    factory); the vacated one is told to Stop
+    ///    factory); the vacated one is told to Stop. The command row follows the swap
+    ///    (`RowState::swap_driven`): the vehicle left takes a free function key, the one entered
+    ///    loses its own, and with no key free for the one left the swap is REFUSED, changing
+    ///    nothing
     ///  * F1-F10: select the whole GROUP the command row (`game/row.hpp`) holds under that key,
     ///    wherever its units are, on screen or not, replacing whatever the mouse had built; a key
     ///    that holds nothing is refused with one message. A key belongs to a group of vehicles,

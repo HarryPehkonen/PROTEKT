@@ -13,12 +13,26 @@ namespace {
 
 constexpr std::uint64_t kPoolCountStream = 4; ///< world 0, sim 1, ai 2, scenario 3 are taken
 constexpr std::uint64_t kPoolSiteStream = 5;
-constexpr int kCandidatesPerPass = 4000; ///< hashed candidates tried at one spacing
+constexpr std::uint64_t kPoolSideStream = 6; ///< which sides get the pools a split leaves over
+constexpr int kCandidatesPerPass = 4000;     ///< hashed candidates tried at one spacing
 
 [[nodiscard]] std::int64_t distance2(int ax, int ay, int bx, int by) noexcept {
     const std::int64_t dx = static_cast<std::int64_t>(ax) - bx;
     const std::int64_t dy = static_cast<std::int64_t>(ay) - by;
     return (dx * dx) + (dy * dy);
+}
+
+/// The index of the base nearest tile (x, y), the lowest on a tie; 0 when there are none. THE
+/// SIDE of a candidate pool: one comparison of squared distances per base, no map data.
+[[nodiscard]] std::size_t nearer_base(std::span<const Pool> bases, int x, int y) noexcept {
+    std::size_t nearest = 0;
+    for (std::size_t i = 1; i < bases.size(); ++i) {
+        if (distance2(x, y, bases[i].tile_x, bases[i].tile_y)
+            < distance2(x, y, bases[nearest].tile_x, bases[nearest].tile_y)) {
+            nearest = i;
+        }
+    }
+    return nearest;
 }
 
 /// A tile a vehicle can stand on and drive out of: it and all eight neighbours are passable ground.
@@ -41,11 +55,25 @@ int pool_count_for(std::uint64_t seed) noexcept {
 }
 
 std::vector<Pool> lay_pools(std::uint64_t seed, int count, std::span<const Pool> bases) {
+    // THE SIDES (Harri, 2026-11-02): a candidate belongs to whichever base is nearer, which is the
+    // perpendicular bisector between the two. Each side's share is `count / sides`; the pools left
+    // over go to sides the seed picks, so the odd one still varies from map to map.
+    const int sides = std::max(1, static_cast<int>(bases.size()));
+    std::vector<int> quota(static_cast<std::size_t>(sides), count / sides);
+    rng::SplitMix64 extra_stream(rng::stream_seed(seed, kPoolSideStream));
+    const int first_extra
+        = static_cast<int>(extra_stream.bounded(static_cast<std::uint32_t>(sides)));
+    for (int i = 0; i < count % sides; ++i) {
+        ++quota.at(static_cast<std::size_t>((first_extra + i) % sides));
+    }
+
     std::vector<Pool> pools;
     const auto span = static_cast<std::uint32_t>(kMapTiles - (2 * kPoolEdgeTiles));
-    // Spacing relaxes by halves (24, 12, 6, 3, 1) until the whole count fits.
-    for (int spacing = kPoolSpacingTiles; spacing >= 1; spacing /= 2) {
+    // One pass of hashed candidates at one spacing; true when `count` fit. `balanced` is whether
+    // each side is held to its quota.
+    const auto pass = [&](int spacing, bool balanced) {
         pools.clear();
+        std::vector<int> placed(quota.size(), 0);
         rng::SplitMix64 stream(rng::stream_seed(seed, kPoolSiteStream));
         for (int attempt = 0; attempt < kCandidatesPerPass && std::cmp_less(pools.size(), count);
              ++attempt) {
@@ -63,13 +91,27 @@ std::vector<Pool> lay_pools(std::uint64_t seed, int count, std::span<const Pool>
             const bool crowded = std::any_of(pools.begin(), pools.end(), [&](const Pool& other) {
                 return distance2(x, y, other.tile_x, other.tile_y) < apart;
             });
-            if (!near_base && !crowded) {
-                pools.push_back(Pool{x, y});
+            if (near_base || crowded) {
+                continue;
             }
+            const std::size_t side = nearer_base(bases, x, y);
+            if (balanced && placed.at(side) >= quota.at(side)) {
+                continue;
+            }
+            ++placed.at(side);
+            pools.push_back(Pool{x, y});
         }
-        if (std::cmp_equal(pools.size(), count)) {
-            break;
-        }
+        return std::cmp_equal(pools.size(), count);
+    };
+    // Spacing relaxes by halves (24, 12, 6, 3, 1) until the whole count fits.
+    bool fits = false;
+    for (int spacing = kPoolSpacingTiles; spacing >= 1 && !fits; spacing /= 2) {
+        fits = pass(spacing, true);
+    }
+    if (!fits) {
+        // Ground so poor that one side cannot hold its share even at a spacing of 1: the count
+        // asked for outranks the balance, as it outranked the spacing.
+        pass(1, false);
     }
     return pools;
 }

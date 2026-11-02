@@ -522,6 +522,26 @@ TEST(RadarMarks, ABaseIsBiggerThanATankAndYouAreInBetween) {
     EXPECT_GT(marks.at(0).half, marks.at(1).half); // and you read bigger than both
 }
 
+TEST(RadarMarks, AnAssetBlipIsAtMostTenPixelsAcrossOnTheReferenceFrame) {
+    // Harri, 2026-11-02: "Can the green and red dots on the radar be smaller?" They were 14.5 px
+    // across (half 0.022 of the 330 px panel at 1280x720). Measured in pixels so it is a number
+    // and not a taste: at most 10 px, and still bigger than a piece of litter, which is the
+    // specks among the blips.
+    const std::vector<Unit> units = with_viewer(
+        {at_bearing(2, 20.0F, 30.0F, Side::Enemy), at_bearing(3, 25.0F, 200.0F, Side::Player)});
+    const std::vector<RadarMark> marks = radar_marks(units, UnitId{1}, 0.0F, kPanel);
+    ASSERT_EQ(marks.size(), 3U);
+    for (std::size_t i = 1; i < marks.size(); ++i) {
+        EXPECT_EQ(marks.at(i).shape, RadarShape::Square);
+        EXPECT_LE(2.0F * marks.at(i).half, 10.0F) << "mark " << i << " is the dot, side to side";
+    }
+    const protekt::sim::Scrap piece{units.at(1).x, units.at(1).y};
+    const std::vector<RadarMark> litter
+        = radar_litter(std::span{&piece, 1}, units, UnitId{1}, 0.0F, kPanel);
+    ASSERT_EQ(litter.size(), 1U);
+    EXPECT_GT(marks.at(1).half, litter.front().half) << "a dot is still more than a speck";
+}
+
 /// R3b2: a mortar bike and a rocket tank are units like any other -- the same square dot a tank
 /// gets, in the same size and tone, with nothing special-cased for them.
 TEST(RadarMarks, AMortarBikeAndARocketTankAreMarkedExactlyAsATankIs) {

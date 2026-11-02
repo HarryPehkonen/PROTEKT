@@ -9,18 +9,23 @@ namespace protekt::game {
 
 namespace {
 
-constexpr float kDotHalfFraction = 0.022F;
+/// An asset's blip, the green and red dots (half its side, of the panel's width): 0.014, so 4.6 px
+/// half and 9.2 px across at the 330 px panel of a 1280x720 frame. It was 0.022 -- 7.3 px half,
+/// 14.5 px across -- until Harri asked for them smaller (2026-11-02).
+constexpr float kDotHalfFraction = 0.014F;
 constexpr float kBaseHalfFraction = 0.05F;
-/// A piece of litter: half a unit's dot, so scrap reads as specks among the blips.
+/// A piece of litter: a little under a unit's dot (it was half of it), so scrap still reads as
+/// specks among the blips.
 constexpr float kLitterHalfFraction = 0.011F;
 /// A biometal pool's outline is this many times a piece of litter: a place, not a speck.
 constexpr float kPoolHalfScale = 2.0F;
 constexpr float kViewerHalfFraction = 0.03F;
 constexpr float kArrowHalfFraction = 0.045F;
 /// A nav mark's plus is this half-size, of the panel: 4 px at the 230 px panel, so the mark spans
-/// about 9 px and is SMALLER than a unit blip (`kDotHalfFraction`, about 10 px) -- BZ2 shows a
-/// placed nav point as a tiny plus in its radar and the user asked for ours to be no bigger than
-/// the tanks'. Kept clear of the rim by `kNavRimFraction`.
+/// about 9 px -- BZ2 shows a placed nav point as a tiny plus in its radar, and the user asked for
+/// ours to be no bigger than the tanks'. (That held when a unit blip was about 10 px at that
+/// panel; the blip was then made smaller, 2026-11-02, and the plus was left as it was.) Kept clear
+/// of the rim by `kNavRimFraction`.
 constexpr float kNavHalfFraction = 0.019F;
 constexpr float kNavRimFraction = 0.02F;
 

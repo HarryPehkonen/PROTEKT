@@ -436,6 +436,10 @@ void Interaction::swap_to_crosshair(const sim::Sim& sim, const SceneOptions& opt
         refuse("That cannot be driven -- you can only swap into your own vehicles.");
     } else if (hit->id == driven_) {
         refuse("You are already driving that unit.");
+    } else if (options.row != nullptr && !options.row->swap_driven(sim, driven_, hit->id)) {
+        // The row is re-derived with the swap (the vehicle left takes a key, the one entered gives
+        // its own up) and a full row has no key to give: the swap is DISALLOWED, nothing changed.
+        refuse("No function key is free for the vehicle you would leave.");
     } else {
         // The old tank would otherwise trundle off on its last MoveTo with nobody at the helm: Stop
         // idles it and the sim's steering zeroes its velocity. It is an ordinary unit from now on.

@@ -353,11 +353,16 @@ TEST(Observer, RenamingTheSupportVehiclesMovedNoRecordedBattle) {
     // level. The skirmish's scavengers therefore end on pools, the bank and the capacity differ,
     // and the hash moves. Old value 11819047574427730567 is the code at df59cdb; no constant
     // restores it.
+    // RE-RECORDED 2026-11-02 for the balanced pool layout: each side's half now gets its share of
+    // the pools (`count / 2` a side, the odd one to a seeded side), so the same seed lays its
+    // pools elsewhere and the skirmish's scavengers deploy on different ones. Old value
+    // 1105521973134294600 is the code at 8c852b4 (pools drawn from the whole map); no constant
+    // restores it, because the placement itself changed.
     const Scenario scenario = skirmish(42);
     ai::ScriptedCommander player(30);
     ai::ScriptedCommander enemy(30);
     const BattleLog log = run_battle(scenario, {}, 600, &player, &enemy);
-    EXPECT_EQ(log.final_hash, 1105521973134294600ULL);
+    EXPECT_EQ(log.final_hash, 3416926680840922879ULL);
 }
 
 TEST(Observer, TheFiredStreamForAScriptedBattleIsUnchanged) {

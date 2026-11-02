@@ -148,6 +148,11 @@ WorldMap world_map(const sim::Sim& sim, Extent extent, sim::Side own, sim::UnitI
                                       (building ? kMapBuildingHalf : kMapUnitHalf) * scale,
                                       unit.id == driven});
     }
+    for (const sim::Pool& pool : sim.pools()) {
+        const MapPoint at = map_point(map.layout, static_cast<float>(pool.tile_x) + 0.5F,
+                                      static_cast<float>(pool.tile_y) + 0.5F);
+        map.pools.push_back(MapPool{at.x, at.y, kMapPoolHalf * scale});
+    }
     if (marks != nullptr) {
         const float half = radar_nav_half(radar_panel(extent));
         for (const NavMarks::Mark& mark : marks->marks()) {

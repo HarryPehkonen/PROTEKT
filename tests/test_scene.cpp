@@ -1367,6 +1367,14 @@ TEST(RadarDraws, MarksCountUpTheWayTheRulesSay) {
                                       protekt::game::radar_panel(watched.extent));
     EXPECT_FALSE(litter.empty()) << "the rig has to put scrap on the radar for this to count it";
     expected += litter.size() * 6;
+    // The biometal pools in reach: each a white outline, four bars, each a quad.
+    const auto pools
+        = protekt::game::radar_pools(sim.pools(), sim.units(), player, watched.camera.yaw,
+                                     protekt::game::radar_panel(watched.extent));
+    for (const auto& pool : pools) {
+        EXPECT_EQ(pool.shape, protekt::game::RadarShape::Hollow);
+    }
+    expected += pools.size() * 24;
     // The ground under the marks (RADAR3D-2): a thin quad a segment, from the viewer's own tile
     // through the same default radius and grid step the drawing uses.
     const protekt::sim::Unit* viewer = sim.find(player);

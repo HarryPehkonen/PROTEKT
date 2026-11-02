@@ -1,6 +1,6 @@
 // ROW-START: the force the player starts with takes ONE GROUP KEY PER KIND (his ruling, applied to
-// tick 0): three starting tanks share F1, every other starting vehicle kind takes the next key, and
-// no building claims an F key.
+// tick 0): three starting tanks share F1, every other starting vehicle kind takes the next key --
+// the turrets too, which always sit under a key (2026-11-02) -- and no building claims an F key.
 #include <gtest/gtest.h>
 
 #include <cstddef>
@@ -69,8 +69,11 @@ TEST(RowStart, EachOtherStartingVehicleKindHoldsItsOwnKey) {
     EXPECT_EQ(kinds_in(sim, row.slots.at(group_slot(2))),
               (std::vector<UnitKind>{UnitKind::HoverTank}));
     EXPECT_EQ(kinds_in(sim, row.slots.at(group_slot(3))),
-              (std::vector<UnitKind>{UnitKind::MortarBike}));
+              (std::vector<UnitKind>{UnitKind::Turret, UnitKind::Turret}))
+        << "the two turrets share the key their kind opens";
     EXPECT_EQ(kinds_in(sim, row.slots.at(group_slot(4))),
+              (std::vector<UnitKind>{UnitKind::MortarBike}));
+    EXPECT_EQ(kinds_in(sim, row.slots.at(group_slot(5))),
               (std::vector<UnitKind>{UnitKind::RocketTank}));
 }
 
@@ -81,7 +84,6 @@ TEST(RowStart, NoBuildingSitsInAGroupKey) {
     for (int n = 1; n <= kRowGroups; ++n) {
         for (const UnitKind kind : kinds_in(sim, row.slots.at(group_slot(n)))) {
             EXPECT_NE(kind, UnitKind::Factory) << "F" << n;
-            EXPECT_NE(kind, UnitKind::Turret) << "F" << n;
             EXPECT_NE(kind, UnitKind::DeployedRecycler) << "F" << n;
         }
     }
@@ -91,12 +93,12 @@ TEST(RowStart, TheVisibleFKeysAreTheStartingVehicleKinds) {
     const sim::Sim sim = sim_of(sim::default_data());
     const RowState row = start_row(sim);
 
-    // Tank, hover tank, mortar bike, rocket tank, then the scavenger and the undeployed recycler
-    // (vehicles that move, the recycler until it deploys), one key each.
-    EXPECT_EQ(visible_group_keys(row), 6U);
-    EXPECT_EQ(kinds_in(sim, row.slots.at(group_slot(5))),
-              (std::vector<UnitKind>{UnitKind::Scavenger}));
+    // Tank, hover tank, turret, mortar bike, rocket tank, then the scavenger and the undeployed
+    // recycler (vehicles that move, the recycler until it deploys), one key each.
+    EXPECT_EQ(visible_group_keys(row), 7U);
     EXPECT_EQ(kinds_in(sim, row.slots.at(group_slot(6))),
+              (std::vector<UnitKind>{UnitKind::Scavenger}));
+    EXPECT_EQ(kinds_in(sim, row.slots.at(group_slot(7))),
               (std::vector<UnitKind>{UnitKind::Recycler}));
 }
 

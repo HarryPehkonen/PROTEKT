@@ -4487,6 +4487,10 @@ constexpr float kMapFrameRatio = 2.8F;
 constexpr float kMapRowStep = 0.0005F; ///< each row a hair further than the one below it
 constexpr std::size_t kWorldMapSide = static_cast<std::size_t>(kWorldMapTiles);
 constexpr float kMapEdgePixels = 3.0F;
+/// A pool's marker sits BEHIND a unit's blip (whose edge is at 1.02), the black edge a hair behind
+/// the white ring, because two layers at one distance lose the depth test to each other.
+constexpr float kMapPoolRingRatio = 1.04F;
+constexpr float kMapPoolEdgeRatio = 1.05F;
 constexpr std::string_view kMapCaption = "WORLD MAP - R CLOSES";
 
 void append_world_map(std::vector<SceneVertex>& out, const SceneOptions& options,
@@ -4512,6 +4516,8 @@ void append_world_map(std::vector<SceneVertex>& out, const SceneOptions& options
     constexpr std::array<float, 3> kEdge{0.80F, 0.82F, 0.85F};
     constexpr std::array<float, 3> kOwn{0.30F, 0.85F, 0.35F};
     constexpr std::array<float, 3> kDriven{1.0F, 1.0F, 1.0F};
+    constexpr std::array<float, 3> kPoolRing{1.0F, 1.0F,
+                                             1.0F}; // the radar's white: a pool is white
 
     const float edge = kMapEdgePixels * scale;
     // The frame is four strips, never one square behind the ground: a big quad's depth is
@@ -4549,6 +4555,22 @@ void append_world_map(std::vector<SceneVertex>& out, const SceneOptions& options
                  {colour.r, colour.g, colour.b});
             x = end;
         }
+    }
+
+    // The biometal pools, ALL of them (`world_map`): a white hollow square in a black edge, drawn
+    // under the assets (a farther layer than their edge) so a scavenger deployed on one still
+    // shows.
+    for (const MapPool& pool : map.pools) {
+        const float h = pool.half;
+        const float ring = kMapPoolRing * scale;
+        const auto square = [&](float ratio, float out, float in, const std::array<float, 3>& rgb) {
+            rect(ratio, pool.px - out, pool.py - out, pool.px + out, pool.py - in, rgb);
+            rect(ratio, pool.px - out, pool.py + in, pool.px + out, pool.py + out, rgb);
+            rect(ratio, pool.px - out, pool.py - in, pool.px - in, pool.py + in, rgb);
+            rect(ratio, pool.px + in, pool.py - in, pool.px + out, pool.py + in, rgb);
+        };
+        square(kMapPoolEdgeRatio, h + scale, h - ring - scale, kInk);
+        square(kMapPoolRingRatio, h, h - ring, kPoolRing);
     }
 
     // Your assets: a black edge, then the green square. Buildings are the larger squares. The

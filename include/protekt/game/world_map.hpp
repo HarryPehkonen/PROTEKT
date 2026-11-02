@@ -62,6 +62,12 @@ inline constexpr float kMapMaxFurnitureScale = 1.6F;
 /// pixels and overwhelming a small minimap.
 inline constexpr float kMapUnitHalf = 3.0F;
 inline constexpr float kMapBuildingHalf = 5.0F;
+/// A BIOMETAL POOL's marker (Harri, 2026-11-02: "the map shows the locations of all biometal
+/// pools"): a hollow square, `kMapPoolHalf` out from the pool's middle and `kMapPoolRing` thick,
+/// white inside a black edge. As big as a building's square so it stands clear of the blip of the
+/// scavenger deployed on it, and hollow so it reads as a place and not as one of your units.
+inline constexpr float kMapPoolHalf = 5.0F;
+inline constexpr float kMapPoolRing = 1.5F;
 
 /// The driven unit's direction line: 3 mm on the reference frame. A frame pixel is treated as a CSS
 /// pixel at 96 dpi (1280 px across is 13.3 in), so 3 mm is 3 / 25.4 * 96 = 11.34 px. The line runs
@@ -170,14 +176,24 @@ inline constexpr MapLineAims kMapLineAims = MapLineAims::Hull;
 [[nodiscard]] std::array<MapPoint, 4> map_heading_needle(const MapAsset& asset,
                                                          float heading_radians) noexcept;
 
+/// A pool's marker, centred at (px, py), `half` its half-size in frame pixels at the current frame
+/// height. ALL the world's pools, in the sim's order: a pool is terrain, not an asset, so unlike an
+/// enemy unit there is nothing to hide, and the map shows the ones out of sight too.
+struct MapPool {
+    float px{};
+    float py{};
+    float half{};
+};
+
 struct WorldMap {
     WorldMapLayout layout{};
     std::vector<MapAsset> assets;
     std::vector<MapMark> marks;
+    std::vector<MapPool> pools;
 };
 
 /// Everything the map draws apart from the ground, for the side `own` and the unit `driven`.
-/// `marks` may be null. Only living units of `own` are included; marks only if placed.
+/// `marks` may be null. Only living units of `own` are included; marks only if placed; every pool.
 [[nodiscard]] WorldMap world_map(const sim::Sim& sim, Extent extent, sim::Side own,
                                  sim::UnitId driven, const NavMarks* marks);
 

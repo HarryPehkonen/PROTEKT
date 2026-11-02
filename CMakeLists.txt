@@ -303,8 +303,10 @@ if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
         tests/test_auto_deploy.cpp
         tests/test_store_gauge.cpp
         tests/test_pool_vent.cpp
+        tests/test_pool_balance.cpp
         tests/test_turret_deploy.cpp
         tests/test_turret_commands.cpp
+        tests/test_command_row.cpp
         tests/test_faction_look.cpp
         tests/test_ai_aim.cpp
         tests/test_scenario.cpp
