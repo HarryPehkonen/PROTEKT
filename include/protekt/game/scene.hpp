@@ -423,6 +423,29 @@ inline constexpr std::array<float, 3> kSmokeColour{0.44F, 0.44F, 0.46F};
 inline constexpr std::size_t kPuffSides = 8;
 inline constexpr std::size_t kPuffVertices = (kPuffSides * 6) + (2 * (kPuffSides - 2) * 3);
 
+/// A BIOMETAL POOL VENTING (Harri, 2026-11-01, from BattleZone 2, where a pool is "a shallow
+/// circular vent with a pale rim and a visible plume of steam"). Until now a pool was a white
+/// outline on the radar and NOTHING in the world, so it read as a decal. Each pool in view is a
+/// dark disc
+/// (`kPoolVentRadiusMetres`, a little over a tile) lying `kPoolLiftMetres` clear of the ground, a
+/// pale ring `kPoolRimWidthMetres` wide round it, and a plume: `kPoolPlumePuffs` see-through puffs
+/// that rise `kPoolPlumeHeightMetres` over `kPoolPlumeTicks`, each a fraction of a cycle behind the
+/// last, widening and fading as they climb. Every puff's place is a function of the sim's tick, so
+/// nothing is stored and a replay needs nothing in it. The plume is taller than a tank on purpose:
+/// from the ground it must be obvious that something is coming out of the ground there.
+inline constexpr std::array<float, 3> kPoolVentColour{0.10F, 0.09F, 0.10F};
+inline constexpr std::array<float, 3> kPoolRimColour{0.80F, 0.78F, 0.76F};
+inline constexpr std::array<float, 3> kPoolSteamColour{0.88F, 0.88F, 0.90F};
+inline constexpr float kPoolVentRadiusMetres = 3.0F;
+inline constexpr float kPoolRimWidthMetres = 0.6F;
+inline constexpr float kPoolLiftMetres = 0.06F;
+inline constexpr std::size_t kPoolPlumePuffs = 10;
+inline constexpr float kPoolPlumeHeightMetres = 14.0F;
+inline constexpr sim::Tick kPoolPlumeTicks = 150; ///< five seconds for a puff to climb the plume
+inline constexpr float kPoolPuffHalfBaseMetres = 0.7F;
+inline constexpr float kPoolPuffHalfTopMetres = 2.4F;
+inline constexpr float kPoolSteamAlpha = 0.34F;
+
 /// THE KILLS A WAKE IS DRAWN FROM. The scene derives a wreck's burst and its column from
 /// `now - event.tick`, so the `Killed` event has to reach the scene on every frame of the wreck's
 /// life, not only on the frame that stepped the kill. The app owns this, like `HitMark`: it diffs
@@ -947,10 +970,15 @@ struct SceneOptions {
     /// it -- but the layer emits NOTHING while `Sim::scraps()` is empty, so a battle that has lost
     /// no unit is byte-identical to one that never heard of this field.
     bool show_scrap{true};
-    /// The ledger (C6): C3's per-side count of banked loads, drawn as a small labelled reading on
-    /// the HUD, so the player can see the currency a queue spends. ON by default, because the game
-    /// draws it; the shared test rigs turn it off, the same way they already do for the ship
-    /// instrument, because a HUD layer that always draws becomes the tail of every vertex list.
+    /// The biometal pools venting (`kPoolVentColour`): drawn in the world for every pool in view,
+    /// ON by default because the game draws it, and emitting NOTHING for a sim with no pools.
+    bool show_pools{true};
+    /// The ledger (C6) -- and, with it, THE STORE GAUGE beside the radar (`store_gauge.hpp`), one
+    /// HUD layer of the scrap economy: C3's per-side count of banked loads, drawn as a small
+    /// labelled reading on the HUD, so the player can see the currency a queue spends. ON by
+    /// default, because the game draws it; the shared test rigs turn it off, the same way they
+    /// already do for the ship instrument, because a HUD layer that always draws becomes the tail
+    /// of every vertex list.
     bool show_ledger{true};
     /// The verdict (C8): the one line that says the war is over, drawn only once a recycler has
     /// died (`Sim::war_outcome`) and emitting NOTHING while it is undecided -- so a battle still

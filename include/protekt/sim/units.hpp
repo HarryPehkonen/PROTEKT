@@ -337,9 +337,23 @@ inline constexpr std::uint16_t kDeployTicks = 300;
 inline constexpr std::uint16_t kStoreStartCapacity = 40;
 inline constexpr std::uint16_t kStoreCapacityPerDeployed = 20;
 
-/// A deployed scavenger's extraction: ONE unit a second PER SIDE, however many pools the side
-/// holds -- "illogical, but that's the game". The beat is the global tick, not a per-unit timer.
-inline constexpr int kPoolExtractIntervalTicks = kTicksPerSecond;
+/// THE TWO POOL RATES (Harri, 2026-11-01: "When the store is in the green section, it accumulates
+/// very slowly. When it's in the yellow section, which is what a deployed scavenger gives, it
+/// accumulates faster."). A side that holds a deployed scavenger extracts ONE unit per beat, and
+/// the beat depends on where the bank's level sits in the store: inside the GOLD band (the bottom
+/// `kStoreCapacityPerDeployed` for each deployed scavenger) it is `kPoolFastIntervalTicks`, once
+/// the level climbs into the GREEN (the base `kStoreStartCapacity`) it is `kPoolSlowIntervalTicks`.
+/// Both are dials, Harri's to set; the fast one keeps the number the single pool rate had, one a
+/// second, and the slow one is five times slower. Litter keeps its own, `kScavengeIntervalTicks`.
+///
+/// THIS DOES NOT CONTRADICT "the rate does not scale with more pools or scavengers". There are
+/// exactly these two rates and neither depends on how many scavengers a side has. What a deployed
+/// scavenger changes is the SIZE OF THE FAST REGION: the gold band is `kStoreCapacityPerDeployed`
+/// tall per deployed scavenger. Three scavengers do not fill faster than one; they give a 60-unit
+/// band at the fast rate instead of a 20-unit band. More room AT the fast rate, never a faster
+/// rate. The beat is the global tick, not a per-unit timer.
+inline constexpr int kPoolFastIntervalTicks = kTicksPerSecond;
+inline constexpr int kPoolSlowIntervalTicks = 5 * kTicksPerSecond;
 
 /// THE TURRET'S DEPLOY AND UN-DEPLOY (Harri, 2026-11-01: "Deploying takes maybe five seconds" and
 /// "I can un-deploy them at will, but it takes maybe three seconds"). Ticks, at `kTicksPerSecond`:

@@ -94,7 +94,8 @@ void seed_field(std::vector<Scrap>& out, std::uint64_t seed, int pieces, int cen
     }
 }
 
-void scatter(std::vector<Scrap>& out, std::uint64_t seed, UnitId id, Fixed x, Fixed y) noexcept {
+void scatter(std::vector<Scrap>& out, std::uint64_t seed, UnitId id, Fixed x, Fixed y,
+             int pieces) noexcept {
     const int wreck_x = x.floor_int();
     const int wreck_y = y.floor_int();
     // The tiles this wreck may still use. A piece takes the tile its own hash names; a tile already
@@ -103,7 +104,7 @@ void scatter(std::vector<Scrap>& out, std::uint64_t seed, UnitId id, Fixed x, Fi
     // every piece stays within `kScrapScatterRadius` of the wreck.
     std::array<Offset, kSpanTiles> free_tiles = scatter_square();
     int free_count = kSpanTiles;
-    for (int piece = 0; piece < kScrapPerWreck; ++piece) {
+    for (int piece = 0; piece < pieces; ++piece) {
         if (out.size() >= kMaxScrap || free_count == 0) {
             return;
         }

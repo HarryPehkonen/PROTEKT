@@ -8,6 +8,7 @@
 #include "protekt/game/pick.hpp"
 #include "protekt/game/radar.hpp"
 #include "protekt/game/row.hpp"
+#include "protekt/game/store_gauge.hpp"
 #include "protekt/game/weapon.hpp"
 #include "protekt/game/world_map.hpp"
 #include "protekt/math/math.hpp"
@@ -2070,6 +2071,69 @@ void append_effects(std::vector<SceneVertex>& out, const SceneOptions& options,
     }
 }
 
+/// THE BIOMETAL POOLS, VENTING (see `kPoolVentColour`): per pool in view a dark disc lying on the
+/// ground, a pale ring round it, and a plume of see-through puffs climbing from it. Culled to the
+/// meshed radius like litter. EMITS NOTHING for a sim without pools. The plume is a pure function
+/// of the sim's tick: puff `n` of `kPoolPlumePuffs` is `n / kPoolPlumePuffs` of a cycle ahead of
+/// puff 0, climbs `kPoolPlumeHeightMetres` over `kPoolPlumeTicks`, widens as it goes and fades
+/// toward the top; each pool is phased by its own tile so the plumes do not breathe in step, and
+/// each puff sways a little on its own hash (`wake_fraction`, as the wrecks' smoke does).
+void append_pools(std::vector<SceneVertex>& out, const SceneOptions& options, const sim::Sim& sim) {
+    if (!options.show_pools) {
+        return;
+    }
+    constexpr float kTau = 6.2831853F;
+    constexpr int kSlices = 24;
+    for (const sim::Pool& pool : sim.pools()) {
+        const int dx
+            = pool.tile_x - static_cast<int>(std::floor(options.camera.x / kMetresPerTile));
+        const int dy
+            = pool.tile_y - static_cast<int>(std::floor(options.camera.z / kMetresPerTile));
+        if (std::abs(dx) > options.radius_tiles || std::abs(dy) > options.radius_tiles) {
+            continue;
+        }
+        const float tile_x = static_cast<float>(pool.tile_x) + 0.5F;
+        const float tile_y = static_cast<float>(pool.tile_y) + 0.5F;
+        const float cx = tile_x * kMetresPerTile;
+        const float cz = tile_y * kMetresPerTile;
+        const float ground = ground_metres(options.seed, tile_x, tile_y);
+        const float rim_out = kPoolVentRadiusMetres + kPoolRimWidthMetres;
+        const Vec3 vent{kPoolVentColour.at(0), kPoolVentColour.at(1), kPoolVentColour.at(2)};
+        const Vec3 rim{kPoolRimColour.at(0), kPoolRimColour.at(1), kPoolRimColour.at(2)};
+        // The disc and its rim lie at the CENTRE's height: a pool is open ground, and the ring is
+        // lifted a hair more than the disc so it is never fought over by the depth test.
+        const auto spot = [&](float radius, float angle, float lift) {
+            return Vec3{cx + (std::cos(angle) * radius), ground + lift,
+                        cz + (std::sin(angle) * radius)};
+        };
+        for (int slice = 0; slice < kSlices; ++slice) {
+            const float a = kTau * static_cast<float>(slice) / kSlices;
+            const float b = kTau * static_cast<float>(slice + 1) / kSlices;
+            emit_triangle(out, Vec3{cx, ground + kPoolLiftMetres, cz},
+                          spot(kPoolVentRadiusMetres, b, kPoolLiftMetres),
+                          spot(kPoolVentRadiusMetres, a, kPoolLiftMetres), vent);
+            emit_quad(out, spot(kPoolVentRadiusMetres, a, kPoolLiftMetres * 1.5F),
+                      spot(kPoolVentRadiusMetres, b, kPoolLiftMetres * 1.5F),
+                      spot(rim_out, b, kPoolLiftMetres * 1.5F),
+                      spot(rim_out, a, kPoolLiftMetres * 1.5F), rim);
+        }
+        const std::uint32_t phase = static_cast<std::uint32_t>(pool.tile_x * 31 + pool.tile_y * 17);
+        const Vec3 steam{kPoolSteamColour.at(0), kPoolSteamColour.at(1), kPoolSteamColour.at(2)};
+        for (std::uint32_t puff = 0; puff < kPoolPlumePuffs; ++puff) {
+            const sim::Tick offset
+                = (kPoolPlumeTicks * puff) / static_cast<sim::Tick>(kPoolPlumePuffs);
+            const float t = static_cast<float>((sim.tick() + offset + phase) % kPoolPlumeTicks)
+                            / static_cast<float>(kPoolPlumeTicks);
+            const float half = kPoolPuffHalfBaseMetres
+                               + ((kPoolPuffHalfTopMetres - kPoolPuffHalfBaseMetres) * t);
+            const float sway = (wake_fraction(options.seed, phase, puff) - 0.5F) * 1.2F * t;
+            const float sway_z = (wake_fraction(options.seed, phase, puff + 64U) - 0.5F) * 1.2F * t;
+            emit_puff(out, cx + sway, ground + half + (kPoolPlumeHeightMetres * t), cz + sway_z,
+                      half, steam, kPoolSteamAlpha * (1.0F - (0.7F * t)));
+        }
+    }
+}
+
 /// THE DEPLOY PREVIEW (DEPLOY): the footprint the armed build would stand on, as its tile grid
 /// lying on the terrain -- the outline and the lines between its tiles, so it reads as the 2x2 it
 /// is. Each stroke runs one tile edge, from corner height to corner height, so it follows the
@@ -3432,6 +3496,62 @@ void append_ledger(std::vector<SceneVertex>& out, const SceneOptions& options,
     rect(marks_at * kHudBorderRatio, left, top, right, bottom, kLedgerPlate);
     draw(kLedgerWord, word_left);
     draw(reading, number_left);
+}
+
+/// THE STORE GAUGE (Harri, 2026-11-01), beside the radar -- or beside the map when R has swapped
+/// them. Every rectangle comes from `store_gauge_layout`; this only paints them, in pixels through
+/// `ray_point` like every HUD layer, the pill first, then the sections, then the white bar over
+/// them, then the number. Depth is the ledger's own layering: each later layer a step nearer.
+/// Drawn with the ledger (`show_ledger`), because it is the same reading of the same bank.
+void append_store_gauge(std::vector<SceneVertex>& out, const SceneOptions& options,
+                        const sim::Sim& sim) {
+    if (!options.show_ledger) {
+        return;
+    }
+    const float px = static_cast<float>(options.extent.height) * kHudPerFrameHeight;
+    const float cell = kLedgerCell * px;
+    const float marks_at = math::kNearPlane * kHudClearance * corner_ray_length(options.extent);
+    RadarPanel beside = radar_panel(options.extent);
+    if (options.show_world_map) {
+        const WorldMapLayout map = world_map_layout(options.extent);
+        beside = RadarPanel{map.x, map.y, map.size, map.size};
+    }
+    const sim::Side side = options.viewer_side;
+    const StoreGaugeLayout gauge
+        = store_gauge_layout(beside, sim.capacity(side), sim.fast_band(side), sim.ore(side), cell);
+    const auto rect = [&](float distance, const GaugeRect& r, const std::array<float, 3>& rgb) {
+        if (r.width <= 0.0F || r.height <= 0.0F) {
+            return;
+        }
+        const auto at = [&](float x, float y) {
+            const RayPoint point = ray_point(options.camera, options.extent, x, y, distance);
+            return Vec3{point.x, point.y, point.z};
+        };
+        emit_quad(out, at(r.x, r.y), at(r.x + r.width, r.y), at(r.x + r.width, r.y + r.height),
+                  at(r.x, r.y + r.height), rgb);
+    };
+    rect(marks_at * kHudBorderRatio, gauge.frame, kGaugePill);
+    rect(marks_at * kHudBorderRatio * 0.99F, gauge.green, kGaugeGreen);
+    rect(marks_at * kHudBorderRatio * 0.99F, gauge.gold, kGaugeGold);
+    rect(marks_at, gauge.level, kGaugeLevel);
+    // The number, centred under the column, in the HUD's one 5x5 cell font.
+    const float text_width = ((static_cast<float>(gauge.text.size()) * 6.0F) - 1.0F) * cell;
+    const float left = gauge.number.x + ((gauge.number.width - text_width) * 0.5F);
+    const float top = gauge.number.y + (((gauge.number.height) - (5.0F * cell)) * 0.5F);
+    for (std::size_t index = 0; index < gauge.text.size(); ++index) {
+        const std::array<std::uint8_t, 5> rows = mount_glyph(gauge.text.at(index));
+        for (std::size_t row = 0; row < rows.size(); ++row) {
+            for (int col = 0; col < 5; ++col) {
+                if (((rows.at(row) >> (4 - col)) & 1U) == 0U) {
+                    continue;
+                }
+                const float x = left + (static_cast<float>(index) * 6.0F * cell)
+                                + (static_cast<float>(col) * cell);
+                rect(marks_at, GaugeRect{x, top + (static_cast<float>(row) * cell), cell, cell},
+                     kGaugeInk);
+            }
+        }
+    }
 }
 
 /// THE VERDICT (C8, retargeted by OBJ-a). The war is won and lost on recyclers: destroy the
@@ -5060,6 +5180,7 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
     append_projectiles(scene.vertices, options, sim);
     append_landing_marks(scene.vertices, options, sim.tick());
     append_scrap(scene.vertices, options, sim);
+    append_pools(scene.vertices, options, sim);
     append_effects(scene.vertices, options, sim);
     append_nav_beacons(scene.vertices, options);
     append_deploy_preview(scene.vertices, options);
@@ -5096,6 +5217,7 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
     append_weapon_hud(scene.vertices, options);
     append_hud_panels(scene.vertices, options, sim, selected);
     append_ledger(scene.vertices, options, sim);
+    append_store_gauge(scene.vertices, options, sim);
     append_outcome(scene.vertices, options, sim);
     append_reticle(scene.vertices, options, sim, aimed);
     append_world_map(scene.vertices, options, sim);

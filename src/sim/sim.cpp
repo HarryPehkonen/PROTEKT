@@ -756,6 +756,60 @@ void scavenge_step(std::vector<Scrap>& scraps, std::array<std::uint16_t, 2>& ore
     bank = static_cast<std::uint16_t>(std::min(static_cast<int>(bank) + 1, 0xFFFF));
 }
 
+/// A SCAVENGER WITH NO ORDER DEPLOYS ITSELF (Harri, 2026-11-01, watched in BattleZone 2: pointed at
+/// the ground near a pool, "Go To", and "it waited there for a few seconds. Then, ON ITS OWN, it
+/// went to the pool and deployed itself"). Called for every living scavenger after its deploy step
+/// and before it collects, on the same once-a-second beat, ONLY WHEN THE SCAVENGER HAS NO ORDER
+/// (`Stance::Idle`): a Follow Me, a Go To or anything else suspends it for as long as that order
+/// stands and going idle resumes it, which is how a player leads a scavenger past a pool without it
+/// stopping. Its own radar gates it, the number that is also its collection range, so it never acts
+/// on a pool it cannot see; and it deploys only when it sees NO litter there (litter is the faster
+/// income, and `scavenge_step` has first call on it). The pool is the nearest free one in reach,
+/// and one another scavenger is already driving to is not free, so a second idle scavenger takes
+/// the next pool and does not make a wasted trip after the first. It sets the very stance a
+/// `Deploy` order sets, so everything after is `scavenger_deploy_step`'s. The enemy's
+/// any-vehicle-points-at-it order is a separate path and is untouched; this is the scavenger's own
+/// idle decision, and it applies to both sides.
+void auto_deploy_step(const std::vector<Unit>& units, const std::vector<Pool>& pools,
+                      const std::vector<Scrap>& scraps, Unit& unit, std::uint32_t tick) noexcept {
+    if (unit.stance != Stance::Idle
+        || (tick + unit.id.value) % static_cast<std::uint32_t>(kScavengeIntervalTicks) != 0) {
+        return;
+    }
+    const std::int64_t reach = static_cast<std::int64_t>(radar_radius_tiles(unit.kind))
+                               << Fixed::kShift;
+    const std::size_t litter = nearest_scrap(scraps, unit.x, unit.y);
+    if (litter != kNoScrap
+        && dist2(unit.x, unit.y, scraps.at(litter).x, scraps.at(litter).y) <= reach * reach) {
+        return; // it sees litter: collecting comes first
+    }
+    const Pool* best = nullptr;
+    std::int64_t best_d = 0;
+    for (const Pool& pool : pools) {
+        const Fixed px = tile_centre_of(pool.tile_x);
+        const Fixed py = tile_centre_of(pool.tile_y);
+        const std::int64_t d = dist2(unit.x, unit.y, px, py);
+        if (d > reach * reach || pool_taken(units, pool) || (best != nullptr && d >= best_d)) {
+            continue;
+        }
+        const bool claimed = std::any_of(units.begin(), units.end(), [&](const Unit& other) {
+            return other.alive && other.id != unit.id && other.kind == UnitKind::Scavenger
+                   && other.stance == Stance::Deploy && other.guard_x.floor_int() == pool.tile_x
+                   && other.guard_y.floor_int() == pool.tile_y;
+        });
+        if (!claimed) {
+            best = &pool;
+            best_d = d;
+        }
+    }
+    if (best == nullptr) {
+        return;
+    }
+    apply_posted(unit, Stance::Deploy, tile_centre_of(best->tile_x), tile_centre_of(best->tile_y),
+                 Fixed{}, Fixed{});
+    unit.deploy_ticks = 0;
+}
+
 /// DEPLOYING A SCAVENGER ON A POOL. Called for every living scavenger before it is steered; returns
 /// true when it is not to be steered this tick (counting at its pool, just deployed, or its order
 /// has failed). The shape is `deploy_step`'s: away from the pool it drives there like a MoveTo with
@@ -803,14 +857,20 @@ bool scavenger_deploy_step(const std::vector<Unit>& units, const std::vector<Poo
 /// taken its 20 with it). First the bank is CLAMPED to what each side can hold -- "you can't have
 /// more scrap than capacity to hold it": a lost deployed scavenger destroys the scrap above the new
 /// capacity. Then each side that holds a deployed scavenger extracts ONE unit on the global beat,
-/// whatever number of pools it holds (the rate does not scale), into whatever room is left.
+/// whatever number of pools it holds (the rate does not scale), into whatever room is left. The
+/// beat is the fast one inside the gold band and the slow one above it.
 void store_step(const std::vector<Unit>& units, std::array<std::uint16_t, 2>& ore,
                 std::uint16_t base, std::uint32_t tick) noexcept {
     for (const Side side : {Side::Player, Side::Enemy}) {
         std::uint16_t& bank = ore.at(static_cast<std::size_t>(side));
         const std::uint16_t capacity = store_capacity(units, side, base);
         bank = std::min(bank, capacity);
-        if (tick % static_cast<std::uint32_t>(kPoolExtractIntervalTicks) != 0 || bank >= capacity) {
+        // THE TWO RATES: the bank fills at the fast beat while its level is inside the gold band
+        // (the bottom `capacity - base` of the store) and at the slow one once it climbs into the
+        // green. The band is the only thing a deployed scavenger changes -- see
+        // `kPoolFastIntervalTicks` -- so no rate here depends on how many scavengers there are.
+        const int beat = bank < capacity - base ? kPoolFastIntervalTicks : kPoolSlowIntervalTicks;
+        if (tick % static_cast<std::uint32_t>(beat) != 0 || bank >= capacity) {
             continue;
         }
         const bool extracting = std::any_of(units.begin(), units.end(), [side](const Unit& unit) {
@@ -989,8 +1049,9 @@ bool turret_deploy_step(const std::vector<Unit>& units, Unit& unit, std::uint64_
 /// -- so the goal is re-written every tick and a moving base is followed, not missed. The unit is
 /// set !alive WITHOUT an Impact, which is what keeps step 6 from scattering a wreck: its value goes
 /// to the ledger, and the ground gets nothing.
-bool recycle_step(std::vector<Unit>& units, Unit& unit, std::array<std::uint16_t, 2>& ore,
-                  std::uint16_t base) noexcept {
+bool recycle_step(std::vector<Unit>& units, std::vector<Scrap>& scraps, Unit& unit,
+                  std::array<std::uint16_t, 2>& ore, std::uint16_t base,
+                  std::uint64_t seed) noexcept {
     if (unit.stance != Stance::Recycle) {
         return false;
     }
@@ -1012,11 +1073,20 @@ bool recycle_step(std::vector<Unit>& units, Unit& unit, std::array<std::uint16_t
     unit.stance = Stance::Dead;
     unit.target = UnitId{};
     const auto side = static_cast<std::size_t>(unit.side);
-    // What a recycle returns is clamped to the store like everything else banked: scrap above the
-    // capacity has nowhere to go.
-    const int next = static_cast<int>(ore.at(side)) + static_cast<int>(kRecycleOre);
-    ore.at(side)
-        = static_cast<std::uint16_t>(std::min<int>(next, store_capacity(units, unit.side, base)));
+    // What a recycle returns goes into the store as far as the store has room. THE REMAINDER LANDS
+    // ON THE GROUND AS COLLECTABLE LITTER where the unit stood (Harri, 2026-11-01): nothing is
+    // destroyed and nothing is blocked, and it is the rule a destroyed building already follows --
+    // `scatter` -- one piece to the unit of refund. Do not turn this back into a clamp: a silent
+    // clamp is invisible, and the capacity design depends on the economy staying legible.
+    const int room = std::max(0, static_cast<int>(store_capacity(units, unit.side, base))
+                                     - static_cast<int>(ore.at(side)));
+    const int banked = std::min(room, static_cast<int>(kRecycleOre));
+    ore.at(side) = static_cast<std::uint16_t>(ore.at(side) + banked);
+    if (banked < static_cast<int>(kRecycleOre)) {
+        const std::size_t first = scraps.size();
+        scatter(scraps, seed, unit.id, unit.x, unit.y, static_cast<int>(kRecycleOre) - banked);
+        settle_litter(scraps, first, seed, units);
+    }
     return true;
 }
 
@@ -1301,7 +1371,7 @@ void Sim::step() {
         if (is_turret(unit.kind) && turret_deploy_step(units_, unit, seed)) {
             continue;
         }
-        if (recycle_step(units_, unit, ore_, scenario_.store_capacity)) {
+        if (recycle_step(units_, scraps_, unit, ore_, scenario_.store_capacity, seed)) {
             continue;
         }
         // Asked afresh for each unit, so a recycler that deployed earlier in this very loop is
@@ -1310,6 +1380,7 @@ void Sim::step() {
         const UnitProfile prof = profile(unit.kind);
         // Scavenging, before the mover: it takes from where the unit stands and sets no goal (C2).
         if (unit.kind == UnitKind::Scavenger) {
+            auto_deploy_step(units_, scenario_.pools, scraps_, unit, tick_);
             scavenge_step(scraps_, ore_, unit, tick_,
                           store_capacity(units_, unit.side, scenario_.store_capacity));
         }
@@ -1550,6 +1621,10 @@ std::uint16_t Sim::ore(Side side) const noexcept { return ore_.at(static_cast<st
 
 std::uint16_t Sim::capacity(Side side) const noexcept {
     return store_capacity(units_, side, scenario_.store_capacity);
+}
+
+std::uint16_t Sim::fast_band(Side side) const noexcept {
+    return store_fast_band(units_, side, scenario_.store_capacity);
 }
 
 const std::vector<Pool>& Sim::pools() const noexcept { return scenario_.pools; }

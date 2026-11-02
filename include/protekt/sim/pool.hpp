@@ -44,6 +44,11 @@ inline constexpr int kPoolSpacingTiles = 24;
 /// True when a living deployed scavenger of EITHER side stands on the pool: ONE SCAVENGER PER POOL.
 [[nodiscard]] bool pool_taken(std::span<const Unit> units, const Pool& pool) noexcept;
 
+/// The height of a side's GOLD band: the room its deployed scavengers added, `capacity - base`.
+/// The bottom of the store is the band, the base is the green above it.
+[[nodiscard]] std::uint16_t store_fast_band(std::span<const Unit> units, Side side,
+                                            std::uint16_t base) noexcept;
+
 /// The store a side's scavengers have built: `base` plus `kStoreCapacityPerDeployed` for every
 /// living DEPLOYED scavenger the side has. DERIVED from the unit table, never stored, so it falls
 /// the tick a deployed scavenger dies and cannot disagree with the units.

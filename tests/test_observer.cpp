@@ -347,11 +347,17 @@ TEST(Observer, RenamingTheSupportVehiclesMovedNoRecordedBattle) {
     // so their positions, what the guns shoot at, and the hashed `ore_` all change. Old value
     // 17892257750622002389 is the code at 57da47a (the fetch and haul); it is not reproducible by
     // a constant, because the behaviour itself was removed.
+    // RE-RECORDED 2026-11-02 for the scavenger's own idle decision and the store's two rates: an
+    // idle scavenger that sees a pool and no litter now walks there and deploys itself (both
+    // sides), and a deployed scavenger's pool income runs at the fast or the slow beat by the
+    // level. The skirmish's scavengers therefore end on pools, the bank and the capacity differ,
+    // and the hash moves. Old value 11819047574427730567 is the code at df59cdb; no constant
+    // restores it.
     const Scenario scenario = skirmish(42);
     ai::ScriptedCommander player(30);
     ai::ScriptedCommander enemy(30);
     const BattleLog log = run_battle(scenario, {}, 600, &player, &enemy);
-    EXPECT_EQ(log.final_hash, 11819047574427730567ULL);
+    EXPECT_EQ(log.final_hash, 1105521973134294600ULL);
 }
 
 TEST(Observer, TheFiredStreamForAScriptedBattleIsUnchanged) {

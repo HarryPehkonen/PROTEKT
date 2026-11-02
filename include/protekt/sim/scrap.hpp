@@ -59,6 +59,10 @@ void seed_field(std::vector<Scrap>& out, std::uint64_t seed, int pieces, int cen
 /// the same arithmetic-hash trick the camo paint uses -- so a replay scatters the same field
 /// without the sim holding an RNG, and the same battle always produces the same litter in the same
 /// places.
-void scatter(std::vector<Scrap>& out, std::uint64_t seed, UnitId id, Fixed x, Fixed y) noexcept;
+///
+/// `pieces` is how many (a destroyed unit leaves the full `kScrapPerWreck`; a recycle the store
+/// could not absorb leaves one per unit of refund that did not fit).
+void scatter(std::vector<Scrap>& out, std::uint64_t seed, UnitId id, Fixed x, Fixed y,
+             int pieces = kScrapPerWreck) noexcept;
 
 } // namespace protekt::sim

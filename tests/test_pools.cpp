@@ -77,6 +77,13 @@ Scenario pool_battle(bool with_tank = false) {
     return s;
 }
 
+/// A SCAVENGER WITH NO ORDER NOW DEPLOYS ITSELF onto a pool it sees (Harri, 2026-11-01), so a test
+/// that wants a scavenger to stay a vehicle gives it an order that stands: it follows the factory
+/// (id 1) until a test orders it somewhere else.
+void hold_back(Sim& sim, std::uint32_t scavenger) {
+    sim.enqueue(Order{UnitId{scavenger}, orders::Follow{UnitId{1}}});
+}
+
 void deploy(Sim& sim, std::uint32_t scavenger, const Pool& pool) {
     sim.enqueue(Order{UnitId{scavenger}, orders::Deploy{pool.tile_x, pool.tile_y}});
 }
@@ -162,6 +169,7 @@ TEST(Store, CapacityStartsAtFortyAndTheScenarioMaySupplyAnother) {
 
 TEST(Store, ACompletedDeployAddsTwentyOfSpaceAndNoScrapAndNotBefore) {
     Sim sim = Sim::create(pool_battle());
+    hold_back(sim, 3);
     deploy(sim, 2, sim.pools().at(0));
     run(sim, protekt::sim::scavenger_deploy_ticks(Side::Player) - 20);
     EXPECT_EQ(sim.capacity(Side::Player), 40) << "still deploying: nothing is built yet";
@@ -222,7 +230,9 @@ TEST(Store, LosingADeployedScavengerDropsCapacityByTwentyAndClampsTheBank) {
 // ---- RULE 3: one scavenger per pool ------------------------------------------------------------
 
 TEST(Pools, OnlyOneScavengerMayDeployOnAPool) {
-    Sim sim = Sim::create(pool_battle());
+    Scenario s = pool_battle();
+    s.pools.pop_back(); // the loser would otherwise go and deploy itself on the second pool
+    Sim sim = Sim::create(s);
     const Pool pool = sim.pools().at(0);
     deploy(sim, 2, pool);
     deploy(sim, 3, pool);
@@ -238,7 +248,9 @@ TEST(Pools, OnlyOneScavengerMayDeployOnAPool) {
 }
 
 TEST(Pools, ADestroyedScavengerFreesItsPoolForADifferentOne) {
-    Sim sim = Sim::create(pool_battle(true));
+    Scenario s = pool_battle(true);
+    s.pools.pop_back(); // see OnlyOneScavengerMayDeployOnAPool
+    Sim sim = Sim::create(s);
     const Pool pool = sim.pools().at(0);
     deploy(sim, 2, pool);
     run(sim, kDeployDone);
@@ -263,6 +275,7 @@ TEST(Pools, AScavengerCanOnlyDeployOnAPool) {
 
 TEST(Pools, ADeployedScavengerTakesNoOrderAndIsNeverUndeployed) {
     Sim sim = Sim::create(pool_battle());
+    hold_back(sim, 3);
     deploy(sim, 2, sim.pools().at(0));
     run(sim, kDeployDone);
     ASSERT_EQ(sim.find(UnitId{2})->kind, UnitKind::DeployedScavenger);
@@ -307,8 +320,10 @@ TEST(Store, AFullStoreStopsExtractionAtAPool) {
     Scenario s = pool_battle();
     s.store_capacity = 3;
     Sim sim = Sim::create(s);
+    hold_back(sim, 3);
     deploy(sim, 2, sim.pools().at(0));
-    run(sim, kDeployDone + 900);
+    // 20 units at the fast beat, then the last 3 at the slow one.
+    run(sim, kDeployDone + 1500);
     EXPECT_EQ(sim.capacity(Side::Player), 23);
     EXPECT_EQ(sim.ore(Side::Player), 23) << "full, and exactly full";
     run(sim, 300);
@@ -447,21 +462,17 @@ TEST(Pools, NoDeployOnATakenPoolOrWithLitterInReach) {
     }
 }
 
-TEST(Pools, ThePlayersScavengersNeverAutoDeploy) {
-    // The very layout that makes the enemy deploy, on the player's side: nothing is ordered.
+// SUPERSEDED (Harri, 2026-11-01): this test pinned "on my side, deploy on my command only". He
+// ruled otherwise -- a scavenger with no order deploys itself on EITHER side (test_auto_deploy.cpp)
+// -- so the sim half of it is gone. What stands is the COMMANDER's path: a vehicle pointing at a
+// pool orders a scavenger over it for the enemy side only, and the player's observation gets no
+// order.
+TEST(Pools, TheCommandersPoolOrderIsTheEnemysAloneAndThePlayerIsNeverOrdered) {
     const Pool pool{120, 100};
     UtilityCommander ai;
     std::vector<Order> out;
     ai.think(enemy_view(100, 100, 0.2, 0.0, pool, 100, 190, Side::Player), out);
     EXPECT_FALSE(deploy_order(out, 11).has_value());
-    // And the sim itself never deploys anything unasked: a scavenger on a pool, left alone.
-    Scenario s = pool_battle();
-    s.spawns.at(1).tile_x = s.pools.at(0).tile_x;
-    s.spawns.at(1).tile_y = s.pools.at(0).tile_y;
-    Sim sim = Sim::create(s);
-    run(sim, 1200);
-    EXPECT_EQ(sim.find(UnitId{2})->kind, UnitKind::Scavenger);
-    EXPECT_EQ(sim.capacity(Side::Player), 40);
 }
 
 /// A pool with a dead-straight run of open ground on its row, 14 tiles to the west and 30 to the

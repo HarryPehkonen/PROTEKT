@@ -183,7 +183,10 @@ TEST_F(GameCliTest, TheWorldMovesBetweenFrames) {
                   early_err, &early_out),
               0)
         << early_err;
-    ASSERT_EQ(run({"--headless", "--seed", "42", "--scenario", roster, "--frames", "400", "--width",
+    // 151 frames, not 400: a biometal pool in view vents a plume that is a function of the tick and
+    // repeats every `kPoolPlumeTicks` (150), so the picture moves by design -- and a frame exactly
+    // one plume cycle later is the one that must still match if nothing else drifts.
+    ASSERT_EQ(run({"--headless", "--seed", "42", "--scenario", roster, "--frames", "151", "--width",
                    "96", "--height", "64", "--capture", later},
                   later_err, &later_out),
               0)
@@ -191,7 +194,7 @@ TEST_F(GameCliTest, TheWorldMovesBetweenFrames) {
     ASSERT_NE(early_out.find("hash"), std::string::npos) << early_out;
     ASSERT_NE(later_out.find("hash"), std::string::npos) << later_out;
     EXPECT_NE(early_out.substr(early_out.find("hash")), later_out.substr(later_out.find("hash")))
-        << "400 ticks left the world in the same state as one: nothing is being simulated";
+        << "150 ticks left the world in the same state as one: nothing is being simulated";
     EXPECT_EQ(slurp(early), slurp(later))
         << "if the picture DID change with no input, the camera or the scene is drifting";
 }

@@ -111,6 +111,7 @@ add_library(protekt_game STATIC
     src/game/session.cpp
     src/game/navigate.cpp
     src/game/radar.cpp
+    src/game/store_gauge.cpp
     src/game/nav_marks.cpp
     src/game/row.cpp
     src/game/kind_icon.cpp
@@ -299,6 +300,9 @@ if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
         tests/test_recycle.cpp
         tests/test_scavenger.cpp
         tests/test_pools.cpp
+        tests/test_auto_deploy.cpp
+        tests/test_store_gauge.cpp
+        tests/test_pool_vent.cpp
         tests/test_turret_deploy.cpp
         tests/test_turret_commands.cpp
         tests/test_faction_look.cpp

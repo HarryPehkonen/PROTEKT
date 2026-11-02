@@ -98,4 +98,8 @@ std::uint16_t store_capacity(std::span<const Unit> units, Side side, std::uint16
     return static_cast<std::uint16_t>(std::min(capacity, 0xFFFF));
 }
 
+std::uint16_t store_fast_band(std::span<const Unit> units, Side side, std::uint16_t base) noexcept {
+    return static_cast<std::uint16_t>(store_capacity(units, side, base) - base);
+}
+
 } // namespace protekt::sim

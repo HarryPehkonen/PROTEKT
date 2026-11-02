@@ -126,7 +126,7 @@ protected:
 ///   6b. THE STORE (POOLS): each side's bank is clamped to its capacity (`capacity`: the scenario's
 ///      store plus 20 per living deployed scavenger), so a deployed scavenger killed this tick has
 ///      already taken its 20 and the scrap above the new capacity; then each side holding a
-///      deployed scavenger extracts ONE unit on the `kPoolExtractIntervalTicks` beat, however many
+///      deployed scavenger extracts ONE unit on the `kPoolFastIntervalTicks` beat, however many
 ///      pools it holds, into whatever room is left. (In step 2 a scavenger under a `Deploy` order
 ///      drives to its pool, counts `scavenger_deploy_ticks` and becomes a `DeployedScavenger`; a
 ///      full store stops its collecting of litter.)
@@ -161,6 +161,9 @@ public:
     /// How much a side's store can hold now: the scenario's `store_capacity` plus 20 per living
     /// DEPLOYED scavenger (`store_capacity`). The bank never exceeds it.
     [[nodiscard]] std::uint16_t capacity(Side side) const noexcept;
+    /// The GOLD band of that store: the room the side's deployed scavengers added (`capacity` minus
+    /// the scenario's base). The bank fills at the fast pool rate while its level is inside it.
+    [[nodiscard]] std::uint16_t fast_band(Side side) const noexcept;
     /// The biometal pools of this battle, in the order the scenario listed them.
     [[nodiscard]] const std::vector<Pool>& pools() const noexcept;
     /// The bolts that landed during the most recent step. Output, not state: it is rebuilt by every
