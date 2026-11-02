@@ -466,6 +466,7 @@ void Interaction::move_to_crosshair_ground(const sim::Sim& sim, const SceneOptio
     }
     remember(orders);
     pending_.insert(pending_.end(), orders.begin(), orders.end());
+    selection_.clear(); // the sequence is complete: the menu closes (see `menu_digit`)
 }
 
 void Interaction::follow_crosshair_unit(const sim::Sim& sim, const SceneOptions& options) {
@@ -499,6 +500,7 @@ void Interaction::follow_crosshair_unit(const sim::Sim& sim, const SceneOptions&
     remember(orders);
     pending_.insert(pending_.end(), orders.begin(), orders.end());
     message_ = "shadowing that unit.";
+    selection_.clear(); // the sequence is complete: the menu closes (see `menu_digit`)
 }
 
 void Interaction::menu_digit(const sim::Sim& sim, const SceneOptions& options, int digit,
@@ -529,8 +531,10 @@ void Interaction::menu_digit(const sim::Sim& sim, const SceneOptions& options, i
         }
     }
     shift_batch_ = 0; // a digit that is not a build row ends a shift gesture
-    // Harri: a COMPLETED menu sequence closes the menu and un-selects. The menu is derived from the
-    // selection (`menu_subject_of`), so the handlers that POST orders -- Follow Me, Hold, Go to
+    // Harri: a COMPLETED menu sequence closes the menu and un-selects, and so does every shortcut
+    // that gives an order (SPACE attack, F, M, G + a mark, the deploy click: "the command is done,
+    // and the menu should go away, as should the selection", 2026-11-01). The menu is derived from
+    // the selection (`menu_subject_of`), so the handlers that POST orders -- Follow Me, Hold, Go to
     // Nav, Recycle, Scavenge, and the attack list's row (Attack only arms that list; the row
     // completes it) -- end by clearing it. Two kinds of row deliberately do not: the build rows
     // (above) keep the factory selected so the player can keep queueing, and Deploy only ARMS a
@@ -647,6 +651,7 @@ void Interaction::attack(sim::UnitId target) {
     remember(orders);
     pending_.insert(pending_.end(), orders.begin(), orders.end());
     message_ = "SPACE Attack";
+    selection_.clear(); // the sequence is complete: the menu closes (see `menu_digit`)
 }
 
 void Interaction::arm_deploy() {
@@ -705,6 +710,7 @@ void Interaction::deploy_at_crosshair(const sim::Sim& sim, const SceneOptions& o
     pending_.insert(pending_.end(), orders.begin(), orders.end());
     deploy_armed_ = false;
     message_ = "deploying.";
+    selection_.clear(); // the sequence is complete: the menu closes (see `menu_digit`)
 }
 
 void Interaction::follow_driven(const sim::Sim& sim) {
@@ -910,6 +916,7 @@ void Interaction::send_to_mark(int number, const SceneOptions& options) {
     if (roster.size() < selection_.units().size()) {
         message_ = "Sent the rest to the mark; you are driving that one, so it stays put.";
     }
+    selection_.clear(); // the sequence is complete: the menu closes (see `menu_digit`)
 }
 
 void Interaction::arm_attack_list(const sim::Sim& sim, const SceneOptions& options) {

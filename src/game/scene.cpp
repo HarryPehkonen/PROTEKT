@@ -2543,18 +2543,50 @@ constexpr float kUnitBarOutlineFraction = 1.0F / 450.0F;
 constexpr float kUnitBarGapFraction = 3.0F / 450.0F; ///< from the tank's top to the outline
 constexpr float kTankTopMetres = 1.2F;               ///< the turret roof, above the tank's ground
 
-/// One small health bar over each living field unit in view (not the factory, not a turret unless
-/// the player has latched it for the assist, `SceneOptions::assist_target`), on the radar's HUD
-/// layers: a near-black outline, a dark track and a fill in the reticle's colours (green yours, red
-/// hostile), centred over the tank and sitting above its projected top. Fixed size, whatever the
-/// range. The viewer's own tank gets none -- its hull is in the HUD panel -- and with no viewer
-/// there are no bars at all, which keeps a frame with no player in it as it was. Always
-/// `kUnitBarVertexCount` vertices per bar, in sim order; a bar with a zero-width fill stays whole.
-/// A unit counting a deploy (`Unit::deploy_ticks` non-zero) wears a second bar of the same make
-/// right above the first, its fill `deploy_ticks / kDeployTicks`; it goes through the same cull as
-/// the health bar, and a unit not counting adds nothing.
+/// WHERE THE WORLD'S UP LIES ON THE SCREEN, a unit vector in pixels (x right, y down): the camera's
+/// own basis, taken against the world's (0, 1, 0). It is `(0, -1)`, straight up the screen, for a
+/// view with no roll whatever its pitch and yaw; a view that leans with the hull (`Camera::up`)
+/// sees the world's up leaning on its screen by exactly that roll, as the horizon does. The health
+/// bars are laid out in THIS frame and not the screen's, so they stay level with gravity while the
+/// camera banks.
+std::array<float, 2> world_up_on_screen(const Camera& camera) noexcept {
+    const math::Basis basis = math::basis_from(camera.yaw, camera.pitch, camera.up);
+    const float across = basis.right.at(1);
+    const float rise = basis.up.at(1);
+    const float length = std::hypot(across, rise);
+    if (length < 1.0e-6F) {
+        return {0.0F, -1.0F}; // looking straight up or down: there is no horizon to keep level with
+    }
+    return {across / length, -rise / length};
+}
+
+/// One small health bar over each living unit in view that the player has a reason to read, on the
+/// radar's HUD layers: a near-black outline, a dark track and a fill in the reticle's colours
+/// (green yours, red hostile), centred over the unit and sitting above its projected top. Fixed
+/// size, whatever the range. The viewer's own tank gets none -- its hull is in the HUD panel -- and
+/// with no viewer there are no bars at all, which keeps a frame with no player in it as it was.
+///
+/// ON DEMAND (Harri, 2026-11-01: "should not be there until I either select something on my side,
+/// or point approximately at it, or have it targetted with the t key"): a unit wears its bar when
+/// it is in `selected` (his side's), or it is the one the crosshair is on or within
+/// `kAssistConeDegrees` of (`pointed`, from `asset_nearest_ray`: the assist's own cone), or it is
+/// the assist's latched target (`SceneOptions::assist_target`). Any asset: a tank, a turret or the
+/// factory alike, which sit higher (`unit_box_height_metres`) than a tank's roof.
+///
+/// LEVEL WITH GRAVITY: the bar's width runs along the world's horizontal and its height up the
+/// world's up as the screen sees them (`world_up_on_screen`), so a banked view shows the bars
+/// banked with the world. Only the BASIS turns: the anchor stays the unit's projected top and the
+/// size stays the same number of pixels, and the camera is not touched.
+///
+/// Always `kUnitBarVertexCount` vertices per bar, in sim order; a bar with a zero-width fill stays
+/// whole. A unit counting a deploy (`Unit::deploy_ticks` non-zero) wears a deploy bar of the same
+/// make whatever the reason above -- the wait is progress the player is owed, not health -- its
+/// fill `deploy_ticks / kDeployTicks`, right above the health bar when there is one and in the
+/// health bar's own place when there is not; it goes through the same cull, and a unit not counting
+/// adds nothing.
 void append_unit_bars(std::vector<SceneVertex>& out, const SceneOptions& options,
-                      const sim::Sim& sim) {
+                      const sim::Sim& sim, std::span<const sim::UnitId> selected,
+                      sim::UnitId pointed) {
     if (!options.viewer_unit.valid()) {
         return;
     }
@@ -2566,27 +2598,22 @@ void append_unit_bars(std::vector<SceneVertex>& out, const SceneOptions& options
     const float gap = frame_h * kUnitBarGapFraction;
 
     const float marks_at = math::kNearPlane * kHudClearance * corner_ray_length(options.extent);
-    const auto rect = [&](float distance, float ax, float ay, float bx, float by,
-                          const std::array<float, 3>& rgb) {
-        const auto at = [&](float px, float py) {
-            const RayPoint point = ray_point(options.camera, options.extent, px, py, distance);
-            return Vec3{point.x, point.y, point.z};
-        };
-        emit_quad(out, at(ax, ay), at(bx, ay), at(bx, by), at(ax, by), rgb);
-    };
+    // The bar's two pixel axes: `rise` up the world's up as the screen sees it, `across` square to
+    // it. For an unbanked view these are the screen's own, and every number below is the one the
+    // screen-aligned bar had.
+    const std::array<float, 2> rise = world_up_on_screen(options.camera);
+    const std::array<float, 2> across{-rise.at(1), rise.at(0)};
     constexpr std::array<float, 3> kOutline{0.0F, 0.0F, 0.0F};
     constexpr std::array<float, 3> kPlate{0.10F, 0.10F, 0.12F};
 
     for (const sim::Unit& unit : sim.units()) {
-        // Every unit in the field wears one -- tank, hover tank, mortar bike, rocket tank alike.
-        // The structures do not: the factory is the base, and a turret wears its DEPLOYING plate
-        // there.
         const bool structure
             = unit.kind == sim::UnitKind::Factory || unit.kind == sim::UnitKind::Turret;
-        // ... unless the player has latched it for the assist (`T`): the shot at a Guardian shows
-        // its health, from this bar and not a second one.
-        const bool assisted = unit.id == options.assist_target;
-        if (!unit.alive || (structure && !assisted) || unit.id == options.viewer_unit
+        const bool wanted
+            = (unit.side == options.viewer_side
+               && std::find(selected.begin(), selected.end(), unit.id) != selected.end())
+              || unit.id == pointed || unit.id == options.assist_target;
+        if (!unit.alive || unit.id == options.viewer_unit || (!wanted && unit.deploy_ticks == 0)
             || hidden_by_reach(sim, options, unit)) {
             continue;
         }
@@ -2606,26 +2633,40 @@ void append_unit_bars(std::vector<SceneVertex>& out, const SceneOptions& options
             || top.y > frame_h) {
             continue; // behind the eye, or off the frame: not visible
         }
-        const float left = top.x - (width * 0.5F);
         const std::array<float, 3>& side_rgb
             = unit.side == options.viewer_side ? kReticleOwn : kReticleHostile;
-        const auto bar = [&](float bottom, float share) {
-            const float track_top = bottom - height;
-            rect(marks_at * kHudBorderRatio, left - outline, track_top - outline,
-                 left + width + outline, bottom + outline, kOutline);
-            rect(marks_at * kHudFaceRatio, left, track_top, left + width, bottom, kPlate);
-            rect(marks_at, left, track_top, left + (width * share), bottom, side_rgb);
+        // A point `along` the bar's width from its centre and `up` above the unit's top, in pixels.
+        const auto corner = [&](float distance, float along, float up) {
+            const RayPoint point = ray_point(
+                options.camera, options.extent, top.x + (across.at(0) * along) + (rise.at(0) * up),
+                top.y + (across.at(1) * along) + (rise.at(1) * up), distance);
+            return Vec3{point.x, point.y, point.z};
         };
-        const float bottom = top.y - gap - outline;
-        const std::uint32_t max_hp = sim::spec_of(unit.kind).hp;
-        const std::uint32_t hp = std::min<std::uint32_t>(unit.hp, max_hp);
-        bar(bottom, max_hp > 0 ? static_cast<float>(hp) / static_cast<float>(max_hp) : 0.0F);
+        const auto rect = [&](float distance, float left, float right, float lower, float upper,
+                              const std::array<float, 3>& rgb) {
+            emit_quad(out, corner(distance, left, upper), corner(distance, right, upper),
+                      corner(distance, right, lower), corner(distance, left, lower), rgb);
+        };
+        const auto bar = [&](float lower, float share) {
+            const float left = -width * 0.5F;
+            rect(marks_at * kHudBorderRatio, left - outline, left + width + outline,
+                 lower - outline, lower + height + outline, kOutline);
+            rect(marks_at * kHudFaceRatio, left, left + width, lower, lower + height, kPlate);
+            rect(marks_at, left, left + (width * share), lower, lower + height, side_rgb);
+        };
+        const float lower = gap + outline;
+        float next = lower;
+        if (wanted) {
+            const std::uint32_t max_hp = sim::spec_of(unit.kind).hp;
+            const std::uint32_t hp = std::min<std::uint32_t>(unit.hp, max_hp);
+            bar(lower, max_hp > 0 ? static_cast<float>(hp) / static_cast<float>(max_hp) : 0.0F);
+            next = lower + height + (3.0F * outline);
+        }
         // THE DEPLOY BAR: the wait, in the sim's own count, one strip above the health bar's
         // outline (a 1 px spacing and its own outline between). No count, no bar.
         if (unit.deploy_ticks != 0) {
-            bar(bottom - height - (3.0F * outline),
-                std::min(1.0F, static_cast<float>(unit.deploy_ticks)
-                                   / static_cast<float>(sim::kDeployTicks)));
+            bar(next, std::min(1.0F, static_cast<float>(unit.deploy_ticks)
+                                         / static_cast<float>(sim::kDeployTicks)));
         }
     }
 }
@@ -4403,12 +4444,12 @@ void append_world_map(std::vector<SceneVertex>& out, const SceneOptions& options
              asset.py + h + scale, kInk);
         rect(1.0F, asset.px - h, asset.py - h, asset.px + h, asset.py + h,
              asset.driven ? kDriven : kOwn);
-        if (!asset.driven || options.headings == nullptr) {
+        if (!asset.driven || (options.headings == nullptr && !options.facing.has_value())) {
             continue;
         }
-        // WHICH WAY YOU ARE GOING. The presentation's own heading for this unit -- its velocity
-        // while it moves, the last one it had while it stands -- drawn as a thin white needle from
-        // the blip's edge outward. Map y grows DOWN, so north, yaw 0, is (0, -1).
+        // WHICH WAY THE HULL POINTS (`map_line_heading` is the one place that is chosen): a thin
+        // white needle from the blip's edge outward, following a turn as it is made. Map y grows
+        // DOWN, so north, yaw 0, is (0, -1).
         const sim::Unit* you = nullptr;
         for (const sim::Unit& unit : sim.units()) {
             if (unit.id == asset.id) {
@@ -4420,7 +4461,7 @@ void append_world_map(std::vector<SceneVertex>& out, const SceneOptions& options
             continue;
         }
         const std::array<MapPoint, 4> needle
-            = map_heading_needle(asset, options.headings->of(*you));
+            = map_heading_needle(asset, map_line_heading(options, *you));
         // A hair in front of the blip's fill, so the needle is never buried by it.
         const float needle_at = marks_at * 0.995F;
         const auto at_needle = [&](const MapPoint& p) {
@@ -5046,7 +5087,11 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
         append_ship_gauge(scene.vertices, options, sim);
     }
     append_mount_plates(scene.vertices, options, sim);
-    append_unit_bars(scene.vertices, options, sim);
+    // "Pointing approximately at it": the unit the crosshair is on, else the nearest within the
+    // assist's own cone (any side, unlike the assist's). One answer for the whole frame.
+    const sim::UnitId pointed
+        = aimed.has_unit() ? aimed.unit : asset_nearest_ray(sim, options, kAssistConeDegrees);
+    append_unit_bars(scene.vertices, options, sim, selected, pointed);
     append_attack_readout(scene.vertices, options, sim);
     append_assist(scene.vertices, options, sim);
     append_weapon_hud(scene.vertices, options);

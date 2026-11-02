@@ -576,11 +576,12 @@ TEST(Interaction, SpaceSelectsAFriendlyUnitWhenNothingIsSelected) {
         << "Space does not add a turret to the selection";
     EXPECT_TRUE(player.message().empty());
 
-    // Over the already-selected tank: Space follows it (it is a tank), and the selection stays.
+    // Over the already-selected tank: Space follows it (it is a tank). A follow is a finished
+    // command, so the selection closes with it (Harri, 2026-11-01).
     static_cast<void>(at(rig, rig.tank_b));
     player.handle(with_key(input::kKeySpace), rig.sim, rig.options);
-    EXPECT_EQ(selected(player), (std::vector<sim::UnitId>{rig.tank_b}))
-        << "Space on an already-selected tank follows it, does not toggle it out";
+    EXPECT_TRUE(selected(player).empty())
+        << "Space on an already-selected tank follows it, and the order closes the menu";
     EXPECT_FALSE(player.message().empty());
 }
 
@@ -592,38 +593,40 @@ TEST(Interaction, PlainSpaceSelectsTheUnitUnderTheCrosshair) {
     EXPECT_EQ(selected(player), (std::vector<sim::UnitId>{rig.tank_b}));
 }
 
-TEST(Interaction, PlainSpaceOnAnAlreadySelectedTankKeepsItSelected) {
-    // U3: Space does not toggle a unit out of the selection. On an already-selected tank it
-    // follows it; the selection stays exactly as it was.
+TEST(Interaction, PlainSpaceOnAnAlreadySelectedTankFollowsItAndClosesTheMenu) {
+    // U3: Space does not toggle a unit out of the selection: on an already-selected tank it is the
+    // follow ORDER, and a finished order clears the selection (2026-11-01), it is not a toggle.
     Rig rig = make_rig();
     Interaction player{rig.tank_a};
     choose(rig, player, rig.tank_b);
     choose(rig, player, rig.tank_b);
-    EXPECT_EQ(selected(player), (std::vector<sim::UnitId>{rig.tank_b}))
-        << "Space on a selected tank follows it, does not remove it";
+    EXPECT_EQ(player.take_orders().size(), 1U) << "the follow was given";
+    EXPECT_TRUE(selected(player).empty()) << "and the command is done: the selection is cleared";
 }
 
-TEST(Interaction, TwoSpacesOnTheSameTankAreNetNothing) {
-    // U3: Space on an already-selected tank follows it; the selection is unchanged.
+TEST(Interaction, ThreeSpacesOnTheSameTankSelectFollowAndSelectAgain) {
+    // U3: the first Space selects, the second is the follow order (which clears the selection),
+    // and the third, from an empty selection, selects the same tank again.
     Rig rig = make_rig();
     Interaction player{rig.tank_a};
     choose(rig, player, rig.tank_b);
     const std::vector<sim::UnitId> before = selected(player);
     choose(rig, player, rig.tank_b);
+    EXPECT_TRUE(selected(player).empty());
     choose(rig, player, rig.tank_b);
     EXPECT_EQ(selected(player), before);
 }
 
 TEST(Interaction, SpaceOnTheDrivenTankFollowsIt) {
     // U3: with a selection up, Space over the driven tank follows it (it is a tank), and the
-    // selection is unchanged. Following the driven tank is the point: after an X-swap the wingman
-    // still shadows the old hull.
+    // follow closes the menu like any finished command. Following the driven tank is the point:
+    // after an X-swap the wingman still shadows the old hull.
     Rig rig = make_rig();
     Interaction player{rig.tank_a};
     choose(rig, player, rig.tank_b);
-    const std::vector<sim::UnitId> before = selected(player);
     choose(rig, player, rig.tank_a);
-    EXPECT_EQ(selected(player), before) << "following does not change the selection";
+    EXPECT_EQ(player.take_orders().size(), 1U);
+    EXPECT_TRUE(selected(player).empty()) << "the command is done: the selection is cleared";
     EXPECT_FALSE(player.message().empty()) << "it says it is following";
 }
 
@@ -662,7 +665,9 @@ TEST(HoverTank, SpaceSelectsItAndTheMarkKeysOrderItLikeATank) {
     ASSERT_EQ(moved.size(), 1U);
     EXPECT_EQ(moved.at(0).unit, rig.tank_b);
     EXPECT_EQ(moved.at(0).kind(), OrderKind::MoveTo);
+    EXPECT_TRUE(selected(player).empty()) << "the move was the command; the menu closed";
 
+    choose(rig, player, rig.tank_b);
     static_cast<void>(at(rig, rig.enemy));
     player.handle(with_key(input::kKeySpace), rig.sim, rig.options);
     const std::vector<Order> attack = player.take_orders();
@@ -671,7 +676,7 @@ TEST(HoverTank, SpaceSelectsItAndTheMarkKeysOrderItLikeATank) {
     EXPECT_EQ(attack.at(0).kind(), OrderKind::Attack);
 }
 
-TEST(Interaction, SpaceOrdersAnAttackFromEverySelectedUnitAndKeepsTheSelection) {
+TEST(Interaction, SpaceOrdersAnAttackFromEverySelectedUnitAndClosesTheMenu) {
     Rig rig = make_rig();
     Interaction player{rig.tank_a};
     select_and_drive(rig, player, rig.tank_b);
@@ -688,6 +693,7 @@ TEST(Interaction, SpaceOrdersAnAttackFromEverySelectedUnitAndKeepsTheSelection) 
     EXPECT_EQ(orders.front().unit, rig.tank_a);
     EXPECT_EQ(orders.front().kind(), OrderKind::Attack);
     EXPECT_EQ(std::get<sim::orders::Attack>(orders.front().payload).target, rig.enemy);
+    EXPECT_TRUE(selected(player).empty()) << "a group's finished command clears all of it";
 }
 
 TEST(Interaction, ThreeOffAHostileArmsTheListInsteadOfRefusing) {
@@ -737,25 +743,27 @@ TEST(Interaction, ThreeScavengeOnASelectedScavengerOrdersItToStopAndClosesTheMen
     EXPECT_TRUE(selected(player).empty()) << "a completed sequence un-selects";
 }
 
-TEST(Interaction, SpaceRetargetsWithoutReselecting) {
+TEST(Interaction, SpaceReadsTheCrosshairFreshOnEveryPress) {
+    // The attack closes the menu now, so the unit is selected again between two presses; what is
+    // pinned is that the second press names what the crosshair is on NOW.
     Rig rig = make_rig();
     Interaction player{rig.tank_a};
     choose(rig, player, rig.tank_b);
-    const std::vector<sim::UnitId> before = selected(player);
 
     static_cast<void>(at(rig, rig.enemy));
     player.handle(with_key(input::kKeySpace), rig.sim, rig.options);
     const std::vector<Order> first = player.take_orders();
     ASSERT_EQ(first.size(), 1U);
     EXPECT_EQ(std::get<sim::orders::Attack>(first.front().payload).target, rig.enemy);
+    EXPECT_TRUE(selected(player).empty()) << "the attack was the command; the menu closed";
 
+    choose(rig, player, rig.tank_b);
     static_cast<void>(at(rig, rig.enemy2));
     player.handle(with_key(input::kKeySpace), rig.sim, rig.options);
     const std::vector<Order> second = player.take_orders();
     ASSERT_EQ(second.size(), 1U);
     EXPECT_EQ(second.front().unit, rig.tank_b);
     EXPECT_EQ(std::get<sim::orders::Attack>(second.front().payload).target, rig.enemy2);
-    EXPECT_EQ(selected(player), before);
 }
 
 TEST(Interaction, EscapeClearsTheSelection) {

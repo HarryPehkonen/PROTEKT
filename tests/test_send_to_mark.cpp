@@ -566,6 +566,7 @@ TEST(AttackList, ArmingEitherClearsTheOther) {
     player.handle(digit(3), rig.sim, rig.options);
     EXPECT_FALSE(player.go_armed()) << "a digit answers G: the mark number 3, not the menu's row";
     EXPECT_FALSE(player.attack_armed()) << "so 3 cannot open the list while G is waiting";
+    select_second(rig, player); // the mark order was the command: the selection closed with it
     player.handle(digit(3), rig.sim, rig.options);
     ASSERT_TRUE(player.attack_armed());
     player.handle(key_frame(input::kKeyG), rig.sim, rig.options);
@@ -784,7 +785,9 @@ TEST(MenuDigit, AnArmedGoStillOwnsTheDigit) {
     ASSERT_EQ(orders.size(), 1U);
     expect_move_to(orders.at(0), rig.recycler, 50, 50);
     EXPECT_FALSE(player.go_armed());
-    // The prompt is spent, so the very next `1` is the menu's.
+    // The prompt is spent, so the very next `1` is the menu's -- once the unit is selected again,
+    // because the move to the mark was the command and closed the menu.
+    select_kind(rig, player, UnitKind::Recycler);
     player.handle(digit(1), rig.sim, rig.options);
     const std::vector<sim::Order> next = player.take_orders();
     ASSERT_EQ(next.size(), 1U);
@@ -1067,6 +1070,7 @@ TEST(DeployGesture, TheArmingLapsesOnceTheSelectionIsNoLongerAnUndeployedRecycle
     for (const sim::Order& order : a.player.take_orders()) {
         a.rig.sim.enqueue(order);
     }
+    select_kind(a.rig, a.player, UnitKind::Recycler); // the click closed the menu: select it again
     a.player.handle(digit(3), a.rig.sim, a.rig.options); // armed again, on the way there
     ASSERT_TRUE(a.player.deploy_armed());
     for (int tick = 0; tick < 600 && a.rig.sim.find(a.rig.recycler)->kind == UnitKind::Recycler;
@@ -1144,6 +1148,252 @@ TEST(MenuDigit, AHoldNeverReachesADeadUnit) {
     const std::vector<sim::Order> orders = player.take_orders();
     ASSERT_EQ(orders.size(), 1U);
     EXPECT_EQ(orders.at(0).unit, safe);
+}
+
+// A FINISHED COMMAND CLOSES THE MENU AND CLEARS THE SELECTION (Harri, 2026-11-01: "When I'm done
+// issuing a command, like 'follow me', 'deploy', etc, the command is done, and the menu should go
+// away, as should the selection"). The menu is derived from the selection, so an empty selection
+// IS a closed menu; these tests assert both, and that no prompt is left armed behind it. The
+// digit-fired rows (`1 Follow Me`, `4 Hold`, ...) already did this; the SHORTCUTS -- SPACE attack,
+// F, M, G+digit and the deploy click -- posted their order and left the selection standing, which
+// is also why a turret could not be selected afterwards (SPACE never adds to a selection).
+
+/// Everything "closed" means: nothing selected, no subject and so no menu rows, no prompt armed.
+void expect_menu_closed(const sim::Sim& sim, const Interaction& player) {
+    EXPECT_TRUE(selected(player).empty()) << "the selection is cleared";
+    MenuInput in;
+    in.subject = menu_subject_of(sim, player.selection().units());
+    EXPECT_EQ(in.subject, MenuSubject::None) << "so no menu has a subject";
+    EXPECT_TRUE(menu_rows(in).empty()) << "and no row is drawn";
+    EXPECT_FALSE(player.go_armed());
+    EXPECT_FALSE(player.attack_armed());
+    EXPECT_FALSE(player.deploy_armed());
+}
+
+/// own[1] and own[2] of the listing rig under F2, as a shift-built batch would hold them: a
+/// multiply-selected group, both armed and both orderable.
+void group_f2(Rig& rig) {
+    rig.row.slots.at(group_slot(2)).units = {rig.own.at(1), rig.own.at(2)};
+    rig.row.slots.at(group_slot(3)).units.clear();
+}
+
+TEST(CompletedCommand, SpaceAttackOrdersAndClosesTheMenu) {
+    Rig rig = make_listing_rig();
+    Interaction player{rig.own.at(0)};
+    select_second(rig, player);
+    aim_at_unit(rig, kFrontTank);
+    player.handle(key_frame(input::kKeySpace), rig.sim, rig.options);
+    ASSERT_EQ(player.take_orders().size(), 1U) << "SPACE over a hostile attacks it";
+    expect_menu_closed(rig.sim, player);
+}
+
+TEST(CompletedCommand, SpaceAttackByAGroupOrdersEveryoneAndClosesTheMenu) {
+    Rig rig = make_listing_rig();
+    group_f2(rig);
+    Interaction player{rig.own.at(0)};
+    player.handle(fkey(2), rig.sim, rig.options);
+    ASSERT_EQ(selected(player).size(), 2U);
+    aim_at_unit(rig, kFrontTank);
+    player.handle(key_frame(input::kKeySpace), rig.sim, rig.options);
+    ASSERT_EQ(player.take_orders().size(), 2U);
+    expect_menu_closed(rig.sim, player);
+}
+
+TEST(CompletedCommand, FFollowOrdersAndClosesTheMenu) {
+    Rig rig = make_listing_rig();
+    Interaction player{rig.own.at(0)};
+    select_second(rig, player);
+    aim_at_unit(rig, kFrontTank);
+    player.handle(key_frame(input::kKeyF), rig.sim, rig.options);
+    ASSERT_EQ(player.take_orders().size(), 1U);
+    expect_menu_closed(rig.sim, player);
+}
+
+TEST(CompletedCommand, FFollowByAGroupClosesTheMenu) {
+    Rig rig = make_listing_rig();
+    group_f2(rig);
+    Interaction player{rig.own.at(0)};
+    player.handle(fkey(2), rig.sim, rig.options);
+    aim_at_unit(rig, kFrontTank);
+    player.handle(key_frame(input::kKeyF), rig.sim, rig.options);
+    ASSERT_EQ(player.take_orders().size(), 2U);
+    expect_menu_closed(rig.sim, player);
+}
+
+TEST(CompletedCommand, SpaceFollowOfAnOwnTankOrdersAndClosesTheMenu) {
+    Rig rig = make_listing_rig();
+    Interaction player{rig.own.at(0)};
+    // No hostile can be armed on: select the hover tank, point at the mortar bike's neighbour...
+    // the driven tank is not a pick, so the follow target is the other own tank-kind in the rig.
+    select_second(rig, player);
+    aim_at_unit(rig, rig.own.at(1)); // the selected hover tank itself: an own tank under the mark
+    player.handle(key_frame(input::kKeySpace), rig.sim, rig.options);
+    ASSERT_EQ(player.take_orders().size(), 1U) << "SPACE over an own tank is a Follow";
+    expect_menu_closed(rig.sim, player);
+}
+
+TEST(CompletedCommand, MMoveOrdersAndClosesTheMenu) {
+    Rig rig = make_listing_rig();
+    Interaction player{rig.own.at(0)};
+    select_second(rig, player);
+    rig.options.aim = Aim{640.0F, 700.0F}; // bare ground
+    player.handle(key_frame(input::kKeyM), rig.sim, rig.options);
+    ASSERT_EQ(player.take_orders().size(), 1U);
+    expect_menu_closed(rig.sim, player);
+}
+
+TEST(CompletedCommand, MMoveByAGroupClosesTheMenu) {
+    Rig rig = make_listing_rig();
+    group_f2(rig);
+    Interaction player{rig.own.at(0)};
+    player.handle(fkey(2), rig.sim, rig.options);
+    rig.options.aim = Aim{640.0F, 700.0F};
+    player.handle(key_frame(input::kKeyM), rig.sim, rig.options);
+    ASSERT_EQ(player.take_orders().size(), 2U);
+    expect_menu_closed(rig.sim, player);
+}
+
+TEST(CompletedCommand, GThenAMarkNumberOrdersAndClosesTheMenu) {
+    Rig rig = make_listing_rig();
+    drop_marks(rig);
+    Interaction player{rig.own.at(0)};
+    select_second(rig, player);
+    player.handle(key_frame(input::kKeyG), rig.sim, rig.options);
+    player.handle(digit(2), rig.sim, rig.options);
+    ASSERT_EQ(player.take_orders().size(), 1U);
+    expect_menu_closed(rig.sim, player);
+}
+
+TEST(CompletedCommand, GThenAMarkNumberByAGroupClosesTheMenu) {
+    Rig rig = make_listing_rig();
+    drop_marks(rig);
+    group_f2(rig);
+    Interaction player{rig.own.at(0)};
+    player.handle(fkey(2), rig.sim, rig.options);
+    player.handle(key_frame(input::kKeyG), rig.sim, rig.options);
+    player.handle(digit(2), rig.sim, rig.options);
+    ASSERT_EQ(player.take_orders().size(), 2U);
+    expect_menu_closed(rig.sim, player);
+}
+
+TEST(CompletedCommand, TheDeployClickOrdersAndClosesTheMenu) {
+    ArmedDeploy a = arm_deploy();
+    ASSERT_TRUE(a.ground.has_tile());
+    a.player.handle(key_frame(input::kKeySpace), a.rig.sim, a.rig.options);
+    ASSERT_EQ(a.player.take_orders().size(), 1U) << "the click is the Deploy order";
+    expect_menu_closed(a.rig.sim, a.player);
+}
+
+TEST(CompletedCommand, TheDigitRowsStillCloseTheMenuForAGroup) {
+    // Already true before this slice; pinned for the group, which the older test does not cover
+    // for Follow Me and Hold.
+    for (const int row : {1, 4}) {
+        MenuRig rig = make_menu_rig();
+        Interaction player{rig.tank};
+        select_kind(rig, player, UnitKind::Scavenger);
+        ASSERT_EQ(selected(player).size(), 2U);
+        player.handle(digit(row), rig.sim, rig.options);
+        EXPECT_FALSE(player.take_orders().empty()) << "row " << row;
+        expect_menu_closed(rig.sim, player);
+    }
+}
+
+TEST(CompletedCommand, ABuildRowKeepsTheFactorySelectedSoTheQueueCanGrow) {
+    // The one deliberate exception, unchanged: queueing is not a command that is "done".
+    MenuRig rig = make_menu_rig();
+    Interaction player{rig.tank};
+    select_kind(rig, player, UnitKind::Factory);
+    ASSERT_EQ(selected(player).size(), 1U);
+    player.handle(digit(3), rig.sim, rig.options); // a build row
+    EXPECT_EQ(selected(player).size(), 1U);
+}
+
+// THE TURRET REGRESSION (Harri, 2026-11-01: "I can't seem to be able to select turrets anymore").
+// SPACE selects only from an EMPTY selection and never adds to one, so any command that left its
+// selection standing made the next SPACE over a turret do nothing.
+
+TEST(TurretSelection, ATurretCanBeSelectedRightAfterAnyFinishedShortcut) {
+    const auto spawns = std::vector<Spawn>{{UnitKind::Tank, Side::Player, 40, 40},
+                                           {UnitKind::HoverTank, Side::Player, 44, 41},
+                                           {UnitKind::Turret, Side::Player, 36, 41},
+                                           {UnitKind::Tank, Side::Enemy, 38, 44}};
+    enum class Shortcut : std::uint8_t { SpaceAttack, FFollow, MMove, GMark };
+    for (const Shortcut shortcut :
+         {Shortcut::SpaceAttack, Shortcut::FFollow, Shortcut::MMove, Shortcut::GMark}) {
+        Rig rig{};
+        rig.sim = sim::Sim::create(sim::Scenario{kSeed, spawns});
+        UnitId turret{};
+        UnitId enemy{};
+        for (const sim::Unit& unit : rig.sim.units()) {
+            if (unit.side == Side::Player) {
+                rig.own.push_back(unit.id);
+                if (unit.kind == UnitKind::Turret) {
+                    turret = unit.id;
+                }
+            } else {
+                enemy = unit.id;
+            }
+        }
+        rig.options.seed = kSeed;
+        rig.options.extent = kExtent;
+        rig.options.camera
+            = Camera{80.0F, height_metres(kSeed, 40, 40) + 3.0F, 60.0F, 0.0F, -0.12F};
+        rig.options.radius_tiles = 40;
+        rig.options.viewer_unit = rig.own.at(0);
+        rig.options.nav_marks = &rig.marks;
+        rig.row.update(rig.sim, Side::Player, 0);
+        rig.options.row = &rig.row;
+        drop_marks(rig);
+
+        Interaction player{rig.own.at(0)};
+        select_second(rig, player); // the hover tank, F2
+        switch (shortcut) {
+        case Shortcut::SpaceAttack:
+            aim_at_unit(rig, enemy);
+            player.handle(key_frame(input::kKeySpace), rig.sim, rig.options);
+            break;
+        case Shortcut::FFollow:
+            aim_at_unit(rig, enemy);
+            player.handle(key_frame(input::kKeyF), rig.sim, rig.options);
+            break;
+        case Shortcut::MMove:
+            rig.options.aim = Aim{640.0F, 700.0F};
+            player.handle(key_frame(input::kKeyM), rig.sim, rig.options);
+            break;
+        case Shortcut::GMark:
+            player.handle(key_frame(input::kKeyG), rig.sim, rig.options);
+            player.handle(digit(1), rig.sim, rig.options);
+            break;
+        }
+        ASSERT_FALSE(player.take_orders().empty()) << "the command must have been given";
+
+        aim_at_unit(rig, turret);
+        player.handle(key_frame(input::kKeySpace), rig.sim, rig.options);
+        EXPECT_EQ(selected(player), (std::vector<UnitId>{turret}))
+            << "shortcut " << static_cast<int>(shortcut)
+            << ": the turret under the mark is selected";
+    }
+}
+
+TEST(TurretSelection, ATurretIsSelectedFromAnEmptySelection) {
+    // The baseline, true on the tree before this slice as well: the selector itself is not broken.
+    Rig rig = make_listing_rig();
+    UnitId turret{};
+    rig.sim = sim::Sim::create(sim::Scenario{
+        kSeed, {{UnitKind::Tank, Side::Player, 40, 40}, {UnitKind::Turret, Side::Player, 36, 41}}});
+    rig.own.clear();
+    for (const sim::Unit& unit : rig.sim.units()) {
+        rig.own.push_back(unit.id);
+        if (unit.kind == UnitKind::Turret) {
+            turret = unit.id;
+        }
+    }
+    rig.options.viewer_unit = rig.own.at(0);
+    rig.row.update(rig.sim, Side::Player, 0);
+    Interaction player{rig.own.at(0)};
+    aim_at_unit(rig, turret);
+    player.handle(key_frame(input::kKeySpace), rig.sim, rig.options);
+    EXPECT_EQ(selected(player), (std::vector<UnitId>{turret}));
 }
 
 } // namespace

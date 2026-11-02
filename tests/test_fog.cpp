@@ -8,6 +8,7 @@
 #include <utility>
 #include <vector>
 
+#include "protekt/game/attack_aim.hpp"
 #include "protekt/game/nav_marks.hpp"
 #include "protekt/game/scene.hpp"
 #include "protekt/sim/scenario.hpp"
@@ -306,7 +307,14 @@ Palette palette_of(const Scene& scene, std::size_t first) {
 }
 
 TEST(Fog, AHealthBarOverADistantUnitIsAsLegibleAsOneOverANearUnit) {
-    const Rig r = hud_rig();
+    Rig r = hud_rig();
+    // The bars are on demand: the nearest hostile is the assist's target and the crosshair is on
+    // the farthest, so both wear one (the reticle is drawn after them, so they are found by
+    // pattern below).
+    r.options.assist_target = r.nearest_enemy;
+    const protekt::game::Projected on_far
+        = protekt::game::attack_point(r.options, *r.sim.find(r.farthest_enemy));
+    r.options.aim = protekt::game::Aim{on_far.x, on_far.y};
     const Scene scene = build_scene(r.sim, r.options);
     const protekt::sim::Unit* near_unit = r.sim.find(r.nearest_enemy);
     const protekt::sim::Unit* far_unit = r.sim.find(r.farthest_enemy);
@@ -321,10 +329,19 @@ TEST(Fog, AHealthBarOverADistantUnitIsAsLegibleAsOneOverANearUnit) {
     ASSERT_GT(metres(*near_unit), kFogNearMetres) << "the near unit must already be in the haze";
     ASSERT_GT(metres(*far_unit), metres(*near_unit) + 4.0F);
 
-    // Both bars are 18 vertices at the tail: outline, plate, fill. The far unit's is the second.
+    // Each bar is 18 vertices: outline, plate, fill. Found by pattern; the far unit's is the
+    // second.
     const std::size_t bar = 18;
-    ASSERT_GE(scene.vertices.size(), 2 * bar);
-    const std::size_t end = scene.vertices.size();
+    std::vector<std::size_t> starts;
+    for (std::size_t i = 0; i + bar <= scene.vertices.size(); ++i) {
+        if (scene.vertices.at(i).colour == std::array<float, 3>{0.0F, 0.0F, 0.0F}
+            && scene.vertices.at(i + 6).colour == std::array<float, 3>{0.10F, 0.10F, 0.12F}
+            && scene.vertices.at(i + 12).colour == std::array<float, 3>{1.0F, 0.25F, 0.25F}) {
+            starts.push_back(i);
+            i += bar - 1;
+        }
+    }
+    ASSERT_EQ(starts.size(), 2U) << "one bar over each hostile";
     const auto colours = [&](std::size_t first) {
         std::vector<std::array<float, 3>> out;
         for (std::size_t i = first; i < first + bar; i += 6) {
@@ -332,12 +349,14 @@ TEST(Fog, AHealthBarOverADistantUnitIsAsLegibleAsOneOverANearUnit) {
         }
         return out;
     };
-    EXPECT_EQ(colours(end - bar), colours(end - (2 * bar)))
+    EXPECT_EQ(colours(starts.at(1)), colours(starts.at(0)))
         << "a bar is a metre label: the same outline, plate and fill at any range";
-    EXPECT_EQ(colours(end - bar).at(0), (std::array<float, 3>{0.0F, 0.0F, 0.0F}));
-    EXPECT_EQ(colours(end - bar).at(2), (std::array<float, 3>{1.0F, 0.25F, 0.25F}));
-    for (std::size_t i = end - (2 * bar); i < end; ++i) {
-        EXPECT_EQ(scene.vertices.at(i).alpha, 1.0F);
+    EXPECT_EQ(colours(starts.at(1)).at(0), (std::array<float, 3>{0.0F, 0.0F, 0.0F}));
+    EXPECT_EQ(colours(starts.at(1)).at(2), (std::array<float, 3>{1.0F, 0.25F, 0.25F}));
+    for (const std::size_t first : starts) {
+        for (std::size_t i = first; i < first + bar; ++i) {
+            EXPECT_EQ(scene.vertices.at(i).alpha, 1.0F);
+        }
     }
 }
 

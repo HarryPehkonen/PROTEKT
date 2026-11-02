@@ -20,7 +20,9 @@
 #include <vector>
 
 #include "haze.hpp"
+#include "protekt/game/assist.hpp"
 #include "protekt/game/atlas.hpp"
+#include "protekt/game/attack_aim.hpp"
 #include "protekt/game/pick.hpp"
 #include "protekt/game/radar.hpp"
 #include "protekt/game/row.hpp"
@@ -3603,24 +3605,25 @@ PixelRect rect_of(const SceneOptions& options, const Scene& scene, std::size_t f
     return r;
 }
 
-/// The bars at the tail of the scene, in vertex order: groups of `kUnitBarVertexCount` read back
-/// from the end while they still look like a bar (an outline quad, a plate quad, a fill quad).
+/// The bars in the scene, in vertex order, found by pattern -- an outline quad, a plate quad and a
+/// fill quad in the bar colours -- because an aimed frame has a reticle after them.
 std::vector<UnitBar> unit_bars_of(const SceneOptions& options, const Scene& scene) {
     std::vector<UnitBar> bars;
-    for (std::size_t end = scene.vertices.size(); end >= kUnitBarVertexCount;
-         end -= kUnitBarVertexCount) {
-        const std::size_t first = end - kUnitBarVertexCount;
-        const auto& v = scene.vertices;
-        if (v.at(first).colour != kBarOutlineRgb || v.at(first + 6).colour != kBarPlateRgb) {
-            break;
+    const auto& v = scene.vertices;
+    for (std::size_t first = 0; first + kUnitBarVertexCount <= v.size(); ++first) {
+        if (!(v.at(first).colour == kBarOutlineRgb && v.at(first + 6).colour == kBarPlateRgb
+              && (v.at(first + 12).colour == kOwnBarRgb
+                  || v.at(first + 12).colour == kHostileBarRgb)
+              && v.at(first + 17).colour == v.at(first + 12).colour)) {
+            continue;
         }
         const float dx = v.at(first + 12).position[0] - options.camera.x;
         const float dy = v.at(first + 12).position[1] - options.camera.y;
         const float dz = v.at(first + 12).position[2] - options.camera.z;
-        bars.insert(bars.begin(),
-                    UnitBar{rect_of(options, scene, first), rect_of(options, scene, first + 6),
-                            rect_of(options, scene, first + 12), v.at(first + 12).colour,
-                            std::sqrt((dx * dx) + (dy * dy) + (dz * dz))});
+        bars.push_back(UnitBar{rect_of(options, scene, first), rect_of(options, scene, first + 6),
+                               rect_of(options, scene, first + 12), v.at(first + 12).colour,
+                               std::sqrt((dx * dx) + (dy * dy) + (dz * dz))});
+        first += kUnitBarVertexCount - 1;
     }
     return bars;
 }
@@ -3631,8 +3634,11 @@ struct BarBattle {
     protekt::sim::Sim sim;
     protekt::sim::UnitId viewer;
     SceneOptions options;
+    std::vector<protekt::sim::UnitId> selected{}; ///< what the player has selected (his side's)
 };
-BarBattle bar_battle() {
+/// The battle with NO reason for any bar (nothing selected, pointed at or targeted): the frame the
+/// on-demand rule must leave bare.
+BarBattle bar_battle_bare() {
     using protekt::sim::Side;
     using protekt::sim::Spawn;
     using protekt::sim::UnitKind;
@@ -3658,7 +3664,21 @@ BarBattle bar_battle() {
     // The bars are found by walking BACK from the end of the vertex list, so nothing else may be
     // drawn after them: the ledger (C6) is off here for the same reason it is off in `options_at`.
     options.show_ledger = false;
-    return BarBattle{std::move(sim), viewer, options};
+    return BarBattle{std::move(sim), viewer, options, {}};
+}
+
+/// The same battle with every unit in view given its own REASON to wear a bar (the bars are on
+/// demand, 2026-11-01): the own tank is selected, the first hostile is the assist's target and the
+/// crosshair is on the second. Nothing about the camera changes, so the geometry the bar tests
+/// measure is the geometry they always did.
+BarBattle bar_battle() {
+    BarBattle b = bar_battle_bare();
+    b.selected = {b.sim.units().at(1).id};
+    b.options.assist_target = b.sim.units().at(2).id;
+    const protekt::game::Projected on_it
+        = protekt::game::attack_point(b.options, b.sim.units().at(3));
+    b.options.aim = protekt::game::Aim{on_it.x, on_it.y};
+    return b;
 }
 
 /// Where a tank's projected top is: the turret roof, 1.2 m above its ground.
@@ -3672,7 +3692,8 @@ protekt::game::Projected top_of(const SceneOptions& options, const protekt::sim:
 
 TEST(UnitBars, EveryVisibleTankButTheDrivenOneGetsABar) {
     const BarBattle b = bar_battle();
-    const std::vector<UnitBar> bars = unit_bars_of(b.options, build_scene(b.sim, b.options));
+    const std::vector<UnitBar> bars
+        = unit_bars_of(b.options, build_scene(b.sim, b.options, b.selected));
     ASSERT_EQ(bars.size(), 3U) << "four tanks in view, one of them driven";
     for (const protekt::sim::Unit& unit : b.sim.units()) {
         const protekt::game::Projected top = top_of(b.options, unit);
@@ -3686,7 +3707,8 @@ TEST(UnitBars, EveryVisibleTankButTheDrivenOneGetsABar) {
 
 TEST(UnitBars, TheDrivenTankHasNoBarOverIt) {
     const BarBattle b = bar_battle();
-    const std::vector<UnitBar> bars = unit_bars_of(b.options, build_scene(b.sim, b.options));
+    const std::vector<UnitBar> bars
+        = unit_bars_of(b.options, build_scene(b.sim, b.options, b.selected));
     const protekt::game::Projected driven = top_of(b.options, *b.sim.find(b.viewer));
     for (const UnitBar& bar : bars) {
         const bool over_it = std::abs(bar.track.centre_x() - driven.x) < 3.0F
@@ -3697,7 +3719,7 @@ TEST(UnitBars, TheDrivenTankHasNoBarOverIt) {
 
 TEST(UnitBars, ATrackIs20By4AtEightHundredByFourFifty) {
     const BarBattle b = bar_battle();
-    for (const UnitBar& bar : unit_bars_of(b.options, build_scene(b.sim, b.options))) {
+    for (const UnitBar& bar : unit_bars_of(b.options, build_scene(b.sim, b.options, b.selected))) {
         EXPECT_NEAR(bar.track.width(), 20.0F, 0.1F);
         EXPECT_NEAR(bar.track.height(), 4.0F, 0.1F);
         EXPECT_NEAR(bar.outline.width(), 22.0F, 0.1F) << "a 1 px outline all round";
@@ -3709,7 +3731,8 @@ TEST(UnitBars, ATrackIs20By4AtEightHundredByFourFifty) {
 
 TEST(UnitBars, EachBarIsCentredAboveItsTanksProjectedTop) {
     const BarBattle b = bar_battle();
-    const std::vector<UnitBar> bars = unit_bars_of(b.options, build_scene(b.sim, b.options));
+    const std::vector<UnitBar> bars
+        = unit_bars_of(b.options, build_scene(b.sim, b.options, b.selected));
     ASSERT_EQ(bars.size(), 3U);
     std::size_t next = 0;
     for (const protekt::sim::Unit& unit : b.sim.units()) {
@@ -3726,9 +3749,11 @@ TEST(UnitBars, EachBarIsCentredAboveItsTanksProjectedTop) {
 
 TEST(UnitBars, TheSizeDoesNotChangeWithRange) {
     BarBattle b = bar_battle();
-    const std::vector<UnitBar> near_bars = unit_bars_of(b.options, build_scene(b.sim, b.options));
+    const std::vector<UnitBar> near_bars
+        = unit_bars_of(b.options, build_scene(b.sim, b.options, b.selected));
     b.options.camera.z -= 4.0F * kMetresPerTile;
-    const std::vector<UnitBar> far_bars = unit_bars_of(b.options, build_scene(b.sim, b.options));
+    const std::vector<UnitBar> far_bars
+        = unit_bars_of(b.options, build_scene(b.sim, b.options, b.selected));
     ASSERT_FALSE(near_bars.empty());
     ASSERT_FALSE(far_bars.empty());
     EXPECT_NEAR(far_bars.front().track.width(), near_bars.front().track.width(), 0.1F);
@@ -3737,7 +3762,8 @@ TEST(UnitBars, TheSizeDoesNotChangeWithRange) {
 
 TEST(UnitBars, GreenForYoursAndRedForHostiles) {
     const BarBattle b = bar_battle();
-    const std::vector<UnitBar> bars = unit_bars_of(b.options, build_scene(b.sim, b.options));
+    const std::vector<UnitBar> bars
+        = unit_bars_of(b.options, build_scene(b.sim, b.options, b.selected));
     ASSERT_EQ(bars.size(), 3U);
     std::size_t next = 0;
     for (const protekt::sim::Unit& unit : b.sim.units()) {
@@ -3751,7 +3777,8 @@ TEST(UnitBars, GreenForYoursAndRedForHostiles) {
 
 TEST(UnitBars, AFullHullFillsTheTrackAndAHurtOneFillsItsShare) {
     BarBattle b = bar_battle();
-    const std::vector<UnitBar> full = unit_bars_of(b.options, build_scene(b.sim, b.options));
+    const std::vector<UnitBar> full
+        = unit_bars_of(b.options, build_scene(b.sim, b.options, b.selected));
     ASSERT_EQ(full.size(), 3U);
     for (const UnitBar& bar : full) {
         EXPECT_NEAR(bar.fill.width(), 20.0F, 0.1F);
@@ -3767,7 +3794,8 @@ TEST(UnitBars, AFullHullFillsTheTrackAndAHurtOneFillsItsShare) {
         }
     }
     ASSERT_TRUE(hurt) << "the scenario must produce damage";
-    const std::vector<UnitBar> after = unit_bars_of(b.options, build_scene(b.sim, b.options));
+    const std::vector<UnitBar> after
+        = unit_bars_of(b.options, build_scene(b.sim, b.options, b.selected));
     std::vector<const protekt::sim::Unit*> drawn;
     for (const protekt::sim::Unit& unit : b.sim.units()) {
         if (unit.alive && unit.id != b.viewer) {
@@ -3787,7 +3815,7 @@ TEST(UnitBars, AFullHullFillsTheTrackAndAHurtOneFillsItsShare) {
 
 TEST(UnitBars, SitOnTheHudLayerNearerThanTheReticle) {
     const BarBattle b = bar_battle();
-    for (const UnitBar& bar : unit_bars_of(b.options, build_scene(b.sim, b.options))) {
+    for (const UnitBar& bar : unit_bars_of(b.options, build_scene(b.sim, b.options, b.selected))) {
         EXPECT_GT(bar.distance_from_eye, 0.1F) << "past the near plane";
         EXPECT_LT(bar.distance_from_eye, 1.0F) << "nearer than the reticle's 1.5 m";
     }
@@ -3815,14 +3843,55 @@ float screen_roll_of(const SceneOptions& options, const protekt::game::SceneVert
 
 } // namespace
 
-TEST(ViewTilt, ABarStaysSquareToTheScreenAndSitsAboveItsTankWhateverTheViewsLean) {
+/// One bar's fill quad as the four screen corners a, b, c, d (left-top, right-top, right-bottom,
+/// left-bottom), found by pattern.
+using Corners = std::array<std::array<float, 2>, 4>;
+
+std::vector<Corners> fill_corners(const SceneOptions& options, const Scene& scene) {
+    std::vector<Corners> found;
+    const auto& v = scene.vertices;
+    for (std::size_t first = 0; first + kUnitBarVertexCount <= v.size(); ++first) {
+        if (!(v.at(first).colour == kBarOutlineRgb && v.at(first + 6).colour == kBarPlateRgb
+              && (v.at(first + 12).colour == kOwnBarRgb
+                  || v.at(first + 12).colour == kHostileBarRgb))) {
+            continue;
+        }
+        Corners corners{};
+        std::size_t next = 0;
+        for (const std::size_t at : {first + 12, first + 13, first + 14, first + 17}) {
+            const auto& p = v.at(at).position;
+            const protekt::game::Projected q
+                = project(options.camera, options.extent, p[0], p[1], p[2]);
+            corners.at(next++) = {q.x, q.y};
+        }
+        found.push_back(corners);
+        first += kUnitBarVertexCount - 1;
+    }
+    return found;
+}
+
+/// Where the world's up lies on the screen, a unit vector (x right, y down): the camera's own right
+/// and up axes against the world's (0, 1, 0), which is what the horizon's tilt is. Asked of the
+/// camera's frame and NOT of a projected vertical line, which would add the perspective
+/// convergence of a pitched view -- bars level on level ground at any pitch is the point.
+std::array<float, 2> world_up_on_screen(const SceneOptions& options) {
+    const protekt::math::Basis frame
+        = protekt::math::basis_from(options.camera.yaw, options.camera.pitch, options.camera.up);
+    const float length = std::hypot(frame.right.at(1), frame.up.at(1));
+    return {frame.right.at(1) / length, -frame.up.at(1) / length};
+}
+
+TEST(ViewTilt, ABarKeepsItsSizeAndSitsAboveItsTankWhateverTheViewsLean) {
+    // The bars used to stay square to the SCREEN as the view leaned; they stay level with the WORLD
+    // now (`LevelBars`, below). What does not change is the size and the place: 20 by 4 pixels,
+    // centred over the unit's projected top, a few pixels up -- up the world's up.
     const BarBattle flat = bar_battle();
     BarBattle leaning = bar_battle();
     leaning.options.camera.up = kLeaningUp;
-    const std::vector<UnitBar> level_bars
-        = unit_bars_of(flat.options, build_scene(flat.sim, flat.options));
-    const std::vector<UnitBar> tilted_bars
-        = unit_bars_of(leaning.options, build_scene(leaning.sim, leaning.options));
+    const std::vector<Corners> level_bars
+        = fill_corners(flat.options, build_scene(flat.sim, flat.options, flat.selected));
+    const std::vector<Corners> tilted_bars = fill_corners(
+        leaning.options, build_scene(leaning.sim, leaning.options, leaning.selected));
     ASSERT_EQ(level_bars.size(), 3U);
     ASSERT_EQ(tilted_bars.size(), 3U) << "the lean must not lose a bar";
     // The lean really moved the picture: the tanks are not where they were on screen.
@@ -3830,23 +3899,19 @@ TEST(ViewTilt, ABarStaysSquareToTheScreenAndSitsAboveItsTankWhateverTheViewsLean
     EXPECT_GT(std::abs(top_of(leaning.options, first).x - top_of(flat.options, first).x)
                   + std::abs(top_of(leaning.options, first).y - top_of(flat.options, first).y),
               5.0F);
+    const std::array<float, 2> up = world_up_on_screen(leaning.options);
     for (std::size_t i = 0; i < tilted_bars.size(); ++i) {
-        // The same size on screen: a bar rolled with the world would span a bigger box.
-        EXPECT_NEAR(tilted_bars.at(i).outline.width(), level_bars.at(i).outline.width(), 0.1F);
-        EXPECT_NEAR(tilted_bars.at(i).outline.height(), level_bars.at(i).outline.height(), 0.1F);
-        EXPECT_NEAR(tilted_bars.at(i).fill.width(), level_bars.at(i).fill.width(), 0.1F);
-    }
-    // And in the same place relative to its tank: centred over the projected top, a few pixels up.
-    std::size_t next = 0;
-    for (const protekt::sim::Unit& unit : leaning.sim.units()) {
-        if (unit.id == leaning.viewer) {
-            continue;
-        }
+        const Corners& c = tilted_bars.at(i);
+        EXPECT_NEAR(std::hypot(c.at(1).at(0) - c.at(0).at(0), c.at(1).at(1) - c.at(0).at(1)), 20.0F,
+                    0.2F)
+            << "the same width: it is turned, not stretched";
+        EXPECT_NEAR(std::hypot(c.at(0).at(0) - c.at(3).at(0), c.at(0).at(1) - c.at(3).at(1)), 4.0F,
+                    0.1F);
+        // Centred over the projected top, the 3 px gap and 1 px outline up the world's up.
+        const protekt::sim::Unit& unit = leaning.sim.units().at(i + 1);
         const protekt::game::Projected top = top_of(leaning.options, unit);
-        const UnitBar& bar = tilted_bars.at(next++);
-        EXPECT_NEAR(bar.track.centre_x(), top.x, 1.0F);
-        EXPECT_LT(bar.outline.bottom, top.y);
-        EXPECT_GT(bar.outline.bottom, top.y - 8.0F);
+        EXPECT_NEAR((c.at(2).at(0) + c.at(3).at(0)) * 0.5F, top.x + (up.at(0) * 4.0F), 0.3F);
+        EXPECT_NEAR((c.at(2).at(1) + c.at(3).at(1)) * 0.5F, top.y + (up.at(1) * 4.0F), 0.3F);
     }
 }
 
@@ -3892,9 +3957,9 @@ TEST(UnitBars, NoViewerMeansNoBarsAndATankBehindTheEyeGetsNone) {
     BarBattle b = bar_battle();
     SceneOptions blind = b.options;
     blind.viewer_unit = protekt::sim::UnitId{};
-    EXPECT_TRUE(unit_bars_of(blind, build_scene(b.sim, blind)).empty());
+    EXPECT_TRUE(unit_bars_of(blind, build_scene(b.sim, blind, b.selected)).empty());
     b.options.camera.yaw = protekt::math::kPi; // looking away from every tank
-    EXPECT_TRUE(unit_bars_of(b.options, build_scene(b.sim, b.options)).empty());
+    EXPECT_TRUE(unit_bars_of(b.options, build_scene(b.sim, b.options, b.selected)).empty());
 }
 
 // ---- the sky: a gradient dome and a sun disc, raw colours, centred on the camera ----
@@ -4802,9 +4867,10 @@ TEST(HoverShape, AHoverTankInViewGetsItsBarOverIt) {
     scenario.spawns.push_back(Spawn{UnitKind::Tank, Side::Player, 50, 50});
     scenario.spawns.push_back(Spawn{UnitKind::HoverTank, Side::Player, 52, 51});
     const auto sim = protekt::sim::Sim::create(scenario);
-    BarBattle b = bar_battle();
+    BarBattle b = bar_battle_bare();
     b.options.viewer_unit = sim.units().front().id;
-    const Scene scene = build_scene(sim, b.options);
+    const std::array<protekt::sim::UnitId, 1> selected{sim.units().at(1).id}; // a bar is on demand
+    const Scene scene = build_scene(sim, b.options, selected);
     const std::vector<UnitBar> bars = unit_bars_of(b.options, scene);
     ASSERT_EQ(bars.size(), 1U);
     const protekt::game::Projected top = top_of(b.options, sim.units().at(1));
@@ -5233,9 +5299,11 @@ TEST(MortarBikeModel, AMortarBikeAndARocketTankInViewEachGetABarLikeATank) {
     scenario.spawns.push_back(Spawn{UnitKind::MortarBike, Side::Player, 54, 51});
     scenario.spawns.push_back(Spawn{UnitKind::RocketTank, Side::Enemy, 46, 51});
     const auto sim = protekt::sim::Sim::create(scenario);
-    BarBattle b = bar_battle();
+    BarBattle b = bar_battle_bare();
     b.options.viewer_unit = sim.units().front().id;
-    const Scene scene = build_scene(sim, b.options);
+    const std::array<protekt::sim::UnitId, 1> selected{sim.units().at(1).id}; // yours, selected
+    b.options.assist_target = sim.units().at(2).id;                           // theirs, targeted
+    const Scene scene = build_scene(sim, b.options, selected);
     const std::vector<UnitBar> bars = unit_bars_of(b.options, scene);
     ASSERT_EQ(bars.size(), 2U);
     EXPECT_EQ(bars.at(0).fill_colour, kOwnBarRgb);
@@ -7046,6 +7114,9 @@ std::ptrdiff_t enemy_adds(UnitKind viewer, int enemy_east, bool with_readout = f
     const Sim with = battle(viewer, 0, enemy_east);
     const Sim without = battle(viewer, 0, 0);
     SceneOptions a = frame_options(with);
+    if (enemy_east > 0) {
+        a.assist_target = with.units().at(1).id; // the bar is on demand: the assist asks for it
+    }
     if (with_readout) {
         a.attack_target = with.units().at(1).id;
     }
@@ -7085,8 +7156,10 @@ TEST(WorldReach, TheAttackReadoutOverAHiddenHostileIsNotDrawnEither) {
 TEST(WorldReach, YourOwnUnitBeyondTheReachIsStillDrawn) {
     const Sim with = battle(UnitKind::Tank, 60, 0);
     const Sim without = battle(UnitKind::Tank, 0, 0);
+    const std::array<protekt::sim::UnitId, 1> selected{with.units().at(1).id}; // the bar's reason
     const std::ptrdiff_t added
-        = static_cast<std::ptrdiff_t>(frame(with, frame_options(with)).vertices.size())
+        = static_cast<std::ptrdiff_t>(
+              protekt::game::build_scene(with, frame_options(with), selected).vertices.size())
           - static_cast<std::ptrdiff_t>(frame(without, frame_options(without)).vertices.size());
     EXPECT_GE(added, static_cast<std::ptrdiff_t>(kTankVertices + protekt::game::kShadowVertexCount
                                                  + protekt::game::kUnitBarVertexCount))
@@ -7211,7 +7284,10 @@ Sim deploying(Side side, int east, int ticks) {
 
 std::vector<UnitBar> bars_of_deploy(Side side, int east, int ticks) {
     const Sim sim = deploying(side, east, ticks);
-    const SceneOptions options = frame_options(sim);
+    SceneOptions options = frame_options(sim);
+    // The health bar is on demand: the assist's latch asks for it, own recycler or not. The deploy
+    // bar needs no reason (`OnDemandBars.TheDeployBarIsNotAHealthBar...`).
+    options.assist_target = sim.units().at(1).id;
     return bars_in(options, frame(sim, options));
 }
 
@@ -7281,5 +7357,220 @@ TEST(DeployBar, YourOwnDeployingRecyclerBeyondTheReachStillShowsIt) {
 }
 
 } // namespace reach
+
+// ---- THE HEALTH BARS ARE ON DEMAND, AND LEVEL WITH GRAVITY (Harri, 2026-11-01)
+//
+// "The health bars over any asset should not be there until I either select something on my side,
+// or point approximately at it, or have it targetted with the t key." And: "The health bar should
+// always be horizontal with respect to gravity ... they tilt with my view. That doesn't look
+// right." The bars are found by pattern (`reach::bars_in`), because an aimed frame has a reticle
+// after them.
+namespace on_demand {
+
+using protekt::game::Aim;
+using protekt::game::kAssistConeDegrees;
+using protekt::sim::Side;
+using protekt::sim::Spawn;
+using protekt::sim::UnitId;
+using protekt::sim::UnitKind;
+
+constexpr float kRadiansPerDegree = 0.017453292519943295F;
+
+/// Whether some bar hangs over `unit`: centred on its projected top and a few pixels above it.
+bool bar_over(const SceneOptions& options, const std::vector<UnitBar>& bars,
+              const protekt::sim::Unit& unit) {
+    const protekt::game::Projected top = top_of(options, unit);
+    return std::any_of(bars.begin(), bars.end(), [&](const UnitBar& bar) {
+        return std::abs(bar.track.centre_x() - top.x) < 2.0F && bar.outline.bottom < top.y
+               && bar.outline.bottom > top.y - 14.0F;
+    });
+}
+
+std::vector<UnitBar> bars_with(const BarBattle& b, std::span<const UnitId> selected = {}) {
+    return reach::bars_in(b.options, build_scene(b.sim, b.options, selected));
+}
+
+/// The battle's first own tank besides the viewer, and its two hostiles, by position in the sim.
+const protekt::sim::Unit& own_of(const BarBattle& b) { return b.sim.units().at(1); }
+const protekt::sim::Unit& enemy_of(const BarBattle& b) { return b.sim.units().at(2); }
+
+/// The crosshair in the middle of the frame, the camera turned onto `unit`'s middle and then
+/// `degrees` further round -- so the angle the cone measures is the one the test names.
+void look_at(BarBattle& b, const protekt::sim::Unit& unit, float degrees) {
+    constexpr float kOne = static_cast<float>(protekt::sim::Fixed::kOne);
+    const float x = static_cast<float>(unit.x.raw) / kOne * kMetresPerTile;
+    const float z = static_cast<float>(unit.y.raw) / kOne * kMetresPerTile;
+    const float middle = protekt::game::ground_metres(b.options.seed, unit.x, unit.y)
+                         + (protekt::game::unit_box_height_metres(unit.kind) * 0.5F);
+    b.options.camera.y = middle; // level with it: the yaw offset IS the angle
+    b.options.camera.pitch = 0.0F;
+    b.options.camera.yaw = std::atan2(x - b.options.camera.x, z - b.options.camera.z)
+                           + (degrees * kRadiansPerDegree);
+    b.options.aim = Aim{static_cast<float>(b.options.extent.width) * 0.5F,
+                        static_cast<float>(b.options.extent.height) * 0.5F};
+}
+
+TEST(OnDemandBars, NothingSelectedPointedAtOrTargetedMeansNoBarAtAll) {
+    const BarBattle b = bar_battle_bare();
+    EXPECT_TRUE(bars_with(b).empty()) << "four tanks in view, and not one wears a bar";
+}
+
+TEST(OnDemandBars, ASelectedUnitOfYoursWearsABarAndNoOtherDoes) {
+    const BarBattle b = bar_battle_bare();
+    const std::array<UnitId, 1> selected{own_of(b).id};
+    const std::vector<UnitBar> bars = bars_with(b, selected);
+    ASSERT_EQ(bars.size(), 1U);
+    EXPECT_TRUE(bar_over(b.options, bars, own_of(b)));
+    EXPECT_EQ(bars.front().fill_colour, kOwnBarRgb);
+}
+
+TEST(OnDemandBars, EveryUnitOfASelectedGroupWearsOne) {
+    const BarBattle b = bar_battle_bare();
+    const std::array<UnitId, 2> selected{own_of(b).id, b.sim.units().at(0).id};
+    // The viewer's own tank never wears one (its hull is in the panel), selected or not.
+    EXPECT_EQ(bars_with(b, selected).size(), 1U);
+}
+
+TEST(OnDemandBars, AUnitTheCrosshairIsOnWearsABar) {
+    BarBattle b = bar_battle_bare();
+    look_at(b, enemy_of(b), 0.0F);
+    const std::vector<UnitBar> bars = bars_with(b);
+    ASSERT_EQ(bars.size(), 1U);
+    EXPECT_EQ(bars.front().fill_colour, kHostileBarRgb);
+}
+
+TEST(OnDemandBars, PointingApproximatelyIsTheAssistsOwnCone) {
+    // The same degrees, not a second cone: just inside `kAssistConeDegrees` the bar shows, just
+    // outside it does not -- on either side of the unit.
+    for (const float sign : {1.0F, -1.0F}) {
+        BarBattle inside = bar_battle_bare();
+        look_at(inside, enemy_of(inside), sign * (kAssistConeDegrees - 0.5F));
+        EXPECT_EQ(bars_with(inside).size(), 1U) << "inside, side " << sign;
+        BarBattle outside = bar_battle_bare();
+        look_at(outside, enemy_of(outside), sign * (kAssistConeDegrees + 0.5F));
+        EXPECT_TRUE(bars_with(outside).empty()) << "outside, side " << sign;
+    }
+}
+
+TEST(OnDemandBars, APointedAtUnitOfYoursWearsOneToo) {
+    BarBattle b = bar_battle_bare();
+    look_at(b, own_of(b), 0.0F);
+    const std::vector<UnitBar> bars = bars_with(b);
+    ASSERT_EQ(bars.size(), 1U) << "any asset, not only a hostile";
+    EXPECT_EQ(bars.front().fill_colour, kOwnBarRgb);
+}
+
+TEST(OnDemandBars, ATargetedUnitWearsABarWhereverTheCrosshairIs) {
+    BarBattle b = bar_battle_bare();
+    b.options.assist_target = enemy_of(b).id;
+    const std::vector<UnitBar> bars = bars_with(b);
+    ASSERT_EQ(bars.size(), 1U);
+    EXPECT_TRUE(bar_over(b.options, bars, enemy_of(b)));
+}
+
+TEST(OnDemandBars, ThreeReasonsMakeThreeBarsAndNoUnitWearsTwo) {
+    BarBattle b = bar_battle_bare();
+    const protekt::sim::Unit& far_enemy = b.sim.units().at(3);
+    const std::array<UnitId, 1> selected{own_of(b).id};
+    b.options.assist_target = far_enemy.id;
+    look_at(b, enemy_of(b), 0.0F);
+    // The assist's own line and dot are not bars; the bars are one per reason.
+    EXPECT_EQ(bars_with(b, selected).size(), 3U);
+    b.options.assist_target = enemy_of(b).id; // the unit the crosshair is on, targeted as well
+    EXPECT_EQ(bars_with(b, selected).size(), 2U) << "one unit, two reasons: still one bar";
+}
+
+TEST(OnDemandBars, AStructureWearsOneOnlyOnDemandToo) {
+    using protekt::sim::Scenario;
+    Scenario scenario;
+    scenario.seed = 42;
+    scenario.spawns.push_back(Spawn{UnitKind::Tank, Side::Player, 50, 50});
+    scenario.spawns.push_back(Spawn{UnitKind::Turret, Side::Player, 54, 51});
+    scenario.spawns.push_back(Spawn{UnitKind::Factory, Side::Enemy, 46, 51});
+    BarBattle b = bar_battle_bare();
+    b.sim = protekt::sim::Sim::create(scenario);
+    b.viewer = b.sim.units().front().id;
+    b.options.viewer_unit = b.viewer;
+    const protekt::sim::Unit& turret = b.sim.units().at(1);
+    const protekt::sim::Unit& factory = b.sim.units().at(2);
+    EXPECT_TRUE(bars_with(b).empty());
+    const std::array<UnitId, 1> selected{turret.id};
+    EXPECT_EQ(bars_with(b, selected).size(), 1U) << "a selected turret";
+    look_at(b, factory, 0.0F);
+    EXPECT_EQ(bars_with(b).size(), 1U) << "a pointed-at factory";
+}
+
+TEST(OnDemandBars, TheDeployBarIsNotAHealthBarAndStaysWithNothingSelected) {
+    // A deploy's wait is progress the player is owed whether or not he is looking at the unit, and
+    // the finished deploy command no longer leaves the recycler selected. It takes the first slot.
+    const reach::Sim sim = reach::deploying(Side::Player, 10, 100);
+    const SceneOptions options = reach::frame_options(sim);
+    const std::vector<UnitBar> bars = reach::bars_in(options, build_scene(sim, options));
+    ASSERT_EQ(bars.size(), 1U) << "the deploy bar alone";
+    EXPECT_NEAR(bars.front().fill.width() / bars.front().track.width(),
+                100.0F / static_cast<float>(protekt::sim::kDeployTicks), 0.01F);
+    const protekt::game::Projected top = top_of(options, sim.units().at(1));
+    EXPECT_LT(bars.front().outline.bottom, top.y);
+    EXPECT_GT(bars.front().outline.bottom, top.y - 8.0F) << "in the health bar's own slot";
+}
+
+// ---- level with gravity
+
+float degrees_of(float radians) { return radians / kRadiansPerDegree; }
+
+TEST(LevelBars, OnALevelViewTheBarIsHorizontalOnTheScreen) {
+    const BarBattle b = bar_battle_bare();
+    const std::array<UnitId, 1> selected{own_of(b).id};
+    const std::vector<Corners> bars
+        = fill_corners(b.options, build_scene(b.sim, b.options, selected));
+    ASSERT_EQ(bars.size(), 1U);
+    const Corners& c = bars.front();
+    EXPECT_NEAR(
+        degrees_of(std::atan2(c.at(1).at(1) - c.at(0).at(1), c.at(1).at(0) - c.at(0).at(0))), 0.0F,
+        0.1F);
+}
+
+TEST(LevelBars, OnALeaningViewTheBarLeansWithTheWorldAndStaysPerpendicularToGravity) {
+    BarBattle b = bar_battle_bare();
+    b.options.camera.up = kLeaningUp;
+    const std::array<UnitId, 1> selected{own_of(b).id};
+    const std::vector<Corners> bars
+        = fill_corners(b.options, build_scene(b.sim, b.options, selected));
+    ASSERT_EQ(bars.size(), 1U);
+    const Corners& c = bars.front();
+    const std::array<float, 2> along{c.at(1).at(0) - c.at(0).at(0), c.at(1).at(1) - c.at(0).at(1)};
+    const float length = std::hypot(along.at(0), along.at(1));
+    EXPECT_NEAR(length, 20.0F, 0.2F) << "the same size: it is turned, not stretched";
+    // It is NOT horizontal on this screen -- the lean must have moved it -- ...
+    EXPECT_GT(std::abs(degrees_of(std::atan2(along.at(1), along.at(0)))), 5.0F);
+    // ... and it IS square to where the world's up lies on the screen.
+    const std::array<float, 2> up = world_up_on_screen(b.options);
+    EXPECT_LT(std::abs(((along.at(0) * up.at(0)) + (along.at(1) * up.at(1))) / length), 0.02F)
+        << "within about a degree of perpendicular to gravity";
+    // And its height runs up that same line: the bar's left edge, bottom to top, IS world-up.
+    const std::array<float, 2> rise{c.at(0).at(0) - c.at(3).at(0), c.at(0).at(1) - c.at(3).at(1)};
+    const float height = std::hypot(rise.at(0), rise.at(1));
+    EXPECT_NEAR(height, 4.0F, 0.1F);
+    EXPECT_GT(((rise.at(0) * up.at(0)) + (rise.at(1) * up.at(1))) / height, 0.999F);
+}
+
+TEST(LevelBars, ALeaningBarStillSitsAboveItsTankAndKeepsItsSize) {
+    BarBattle b = bar_battle_bare();
+    b.options.camera.up = kLeaningUp;
+    const std::array<UnitId, 1> selected{own_of(b).id};
+    const std::vector<Corners> bars
+        = fill_corners(b.options, build_scene(b.sim, b.options, selected));
+    ASSERT_EQ(bars.size(), 1U);
+    const Corners& c = bars.front();
+    const protekt::game::Projected top = top_of(b.options, own_of(b));
+    // The bottom edge's middle is the 3 px gap and 1 px outline from the top, up the WORLD's up.
+    const std::array<float, 2> up = world_up_on_screen(b.options);
+    const float mid_x = (c.at(2).at(0) + c.at(3).at(0)) * 0.5F;
+    const float mid_y = (c.at(2).at(1) + c.at(3).at(1)) * 0.5F;
+    EXPECT_NEAR(mid_x, top.x + (up.at(0) * 4.0F), 0.3F);
+    EXPECT_NEAR(mid_y, top.y + (up.at(1) * 4.0F), 0.3F);
+}
+
+} // namespace on_demand
 
 } // namespace

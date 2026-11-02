@@ -695,8 +695,9 @@ TEST(AssistDraw, TheDotIsNearerThanTheLineAndFartherThanTheReticle) {
 }
 
 TEST(AssistDraw, ATurretWearsTheHealthBarWhileAssistedAndNotOtherwise) {
-    // A structure never wore a floating bar. The assisted one does, from the existing bar, so
-    // the shot at a Guardian shows its health. A shooter with no solution isolates the bar.
+    // A structure wears a floating bar only on demand (selected, pointed at, or latched by T). The
+    // latched one does, from the existing bar, so the shot at a Guardian shows its health. A
+    // shooter with no solution isolates the bar.
     Duel d = make_duel(20, 0, 0, 0, UnitKind::Turret); // 20 tiles: beyond the gun's 16-tile bolt
     d.options.viewer_unit = d.shooter;
     d.options.viewer_side = Side::Player;
@@ -705,6 +706,8 @@ TEST(AssistDraw, ATurretWearsTheHealthBarWhileAssistedAndNotOtherwise) {
     const sim::Unit* turret = d.sim.find(d.target);
     d.options.camera.yaw = std::atan2(tiles_of(turret->x) * kMetresPerTile - d.options.camera.x,
                                       tiles_of(turret->y) * kMetresPerTile - d.options.camera.z);
+    d.options.aim
+        .reset(); // the crosshair is not on it either: nothing but the latch asks for a bar
     const std::size_t plain = build_scene(d.sim, d.options).vertices.size();
     d.options.assist_target = d.target;
     const Scene assisted = build_scene(d.sim, d.options);

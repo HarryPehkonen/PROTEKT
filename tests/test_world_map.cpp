@@ -11,6 +11,7 @@
 
 #include "protekt/game/interaction.hpp"
 #include "protekt/game/nav_marks.hpp"
+#include "protekt/game/pick.hpp"
 #include "protekt/game/radar.hpp"
 #include "protekt/game/scene.hpp"
 #include "protekt/game/world_map.hpp"
@@ -475,6 +476,129 @@ TEST(WorldMap, TheNeedlePointsAlongTheTanksHeadingNotAwayFromIt) {
     // And its width is the nominal 1.8 px at the reference blip: 0.9 either side of the centre
     // line.
     EXPECT_NEAR(std::abs(needle.at(0).x - needle.at(1).x) * 0.5F, kMapHeadingLineHalfPixels, 0.01F);
+}
+
+// THE WHITE LINE ON THE MAP TRACKS TURNING (Harri, 2026-11-01: "the white line on the map that
+// shows my direction doesn't change until I start to move. It should track as I'm turning."). It
+// used to be the unit's VELOCITY heading, which a tank that is only turning does not have. He made
+// the design call himself: the line points where he WOULD MOVE going forward, the HULL's heading,
+// "that sounds wrong to me, but I think it's the right choice" -- and asked for the muzzle's
+// direction to be one change away. `kMapLineAims` is that one change.
+
+/// The frame with the world map up, the viewer's hull facing `heading` and its turret `turret`
+/// further round, the tank standing still. The headings table is the app's own: it was observed
+/// once, with the tank at rest, so it remembers the velocity heading 0.
+[[nodiscard]] Scene map_frame(Rig& rig, const Headings& headings, float heading, float turret) {
+    SceneOptions open = rig.options;
+    open.show_world_map = true;
+    open.headings = &headings;
+    open.facing = SceneOptions::Facing{rig.own.at(0), heading, turret, 0.0F};
+    return build_scene(rig.sim, open);
+}
+
+/// Whether the HUD halves of two frames are the same bytes. The facing also turns the drawn tank,
+/// so the WORLD half differs between frames that only the map's line should tell apart.
+[[nodiscard]] bool same_vertex(const SceneVertex& a, const SceneVertex& b) {
+    return a.position == b.position && a.colour == b.colour && a.alpha == b.alpha && a.u == b.u
+           && a.v == b.v && a.fog == b.fog;
+}
+
+[[nodiscard]] bool same_hud(const Scene& a, const Scene& b) {
+    if (a.vertices.size() != b.vertices.size() || a.world_vertex_count != b.world_vertex_count) {
+        return false;
+    }
+    for (std::size_t i = a.world_vertex_count; i < a.vertices.size(); ++i) {
+        if (!same_vertex(a.vertices.at(i), b.vertices.at(i))) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/// The screen direction (pixels, y down) from the driven blip's centre to the centroid of the
+/// vertices that differ between `with` and `without`: the needle, the only thing that moved.
+[[nodiscard]] std::array<float, 2> needle_direction(const Rig& rig, const Scene& with,
+                                                    const Scene& without) {
+    const WorldMap map = map_of(rig);
+    const MapAsset* blip = nullptr;
+    for (const MapAsset& asset : map.assets) {
+        if (asset.driven) {
+            blip = &asset;
+        }
+    }
+    if (blip == nullptr || with.vertices.size() != without.vertices.size()) {
+        ADD_FAILURE() << "the two frames must differ only in the needle";
+        return {0.0F, 0.0F};
+    }
+    float sum_x = 0.0F;
+    float sum_y = 0.0F;
+    int count = 0;
+    for (std::size_t i = with.world_vertex_count; i < with.vertices.size(); ++i) {
+        if (same_vertex(with.vertices.at(i), without.vertices.at(i))) {
+            continue;
+        }
+        const SceneVertex& v = with.vertices.at(i);
+        const Projected p
+            = project(rig.options.camera, kExtent, v.position[0], v.position[1], v.position[2]);
+        sum_x += p.x;
+        sum_y += p.y;
+        ++count;
+    }
+    if (count == 0) {
+        return {0.0F, 0.0F};
+    }
+    return {(sum_x / static_cast<float>(count)) - blip->px,
+            (sum_y / static_cast<float>(count)) - blip->py};
+}
+
+TEST(MapLine, TracksTheHullWhileTheTankOnlyTurns) {
+    Rig rig = make_rig();
+    Headings headings;
+    headings.observe(rig.sim); // standing still: the velocity heading is the remembered 0
+    const Scene north = map_frame(rig, headings, 0.0F, 0.0F);
+    const Scene east = map_frame(rig, headings, static_cast<float>(M_PI) * 0.5F, 0.0F);
+    EXPECT_FALSE(same_hud(north, east)) << "a turn with no movement must move the line";
+    // And it points where the hull points: east is right on the map, north is up.
+    const std::array<float, 2> to_east = needle_direction(rig, east, north);
+    EXPECT_GT(to_east.at(0), 3.0F);
+    EXPECT_LT(std::abs(to_east.at(1)), std::abs(to_east.at(0)) * 0.5F);
+    const std::array<float, 2> to_north = needle_direction(rig, north, east);
+    EXPECT_LT(to_north.at(1), -3.0F);
+    EXPECT_LT(std::abs(to_north.at(0)), std::abs(to_north.at(1)) * 0.5F);
+}
+
+TEST(MapLine, TheTurretsAimDoesNotMoveItWhileTheChoiceIsTheHull) {
+    Rig rig = make_rig();
+    Headings headings;
+    headings.observe(rig.sim);
+    ASSERT_EQ(kMapLineAims, MapLineAims::Hull) << "this test is about the shipped choice";
+    EXPECT_TRUE(
+        same_hud(map_frame(rig, headings, 0.7F, 0.0F), map_frame(rig, headings, 0.7F, 1.2F)))
+        << "the turret swinging round with the hull held still changes nothing on the map";
+}
+
+TEST(MapLine, TheOtherChoiceIsTheMuzzleAndIsOneConstantAway) {
+    Rig rig = make_rig();
+    SceneOptions options = rig.options;
+    options.facing = SceneOptions::Facing{rig.own.at(0), 0.7F, 0.5F, 0.0F};
+    const sim::Unit& you = *rig.sim.find(rig.own.at(0));
+    EXPECT_FLOAT_EQ(map_line_heading(options, you, MapLineAims::Hull), 0.7F);
+    EXPECT_FLOAT_EQ(map_line_heading(options, you, MapLineAims::Muzzle), 1.2F)
+        << "the muzzle is the hull's heading plus the turret's angle from it "
+           "(SceneOptions::Facing)";
+    EXPECT_FLOAT_EQ(map_line_heading(options, you), map_line_heading(options, you, kMapLineAims))
+        << "and the default is the named constant, not a second copy of the choice";
+}
+
+TEST(MapLine, AUnitWithNoFacingKeepsItsVelocityHeading) {
+    // A headless or observer frame has no facing; the line then reads the table as it always did.
+    Rig rig = make_rig();
+    Headings headings;
+    headings.observe(rig.sim);
+    SceneOptions options = rig.options;
+    options.headings = &headings;
+    const sim::Unit& you = *rig.sim.find(rig.own.at(0));
+    EXPECT_FLOAT_EQ(map_line_heading(options, you), headings.of(you));
 }
 
 } // namespace

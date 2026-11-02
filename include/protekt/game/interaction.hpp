@@ -63,13 +63,22 @@ public:
     ///    under the mark. Something selected: ATTACK the hostile `attack_target` names (the unit
     ///    under the mark, or the one within `kAttackAimToleranceDegrees` of it) when the selection
     ///    holds anything armed -- the menu's `SPACE Attack`, drawn from the same function -- else
-    ///    follow an own tank under the mark. It never adds to a selection
+    ///    follow an own tank under the mark -- and either order ENDS the command: it clears the
+    ///    selection and so closes the menu. It never adds to a selection, which is also why a
+    ///    command that left its selection standing used to make a turret unselectable
     ///  * right click: THE WEAPON SWITCH, one step of `next_weapon`'s wrap. It needs no mark, and
     ///    it is the ONLY switch since 2026-10-23 (`Q` and the mouse wheel stopped switching). The
     ///    orders this button used to give -- MoveTo the ground, Attack a hostile -- live on `M`,
     ///    SPACE and `G` below
     ///  * M with a selection: MoveTo the ground under the mark for every selected unit that is not
-    ///    the driven one, even with a unit under the mark; nothing selected: refused
+    ///    the driven one, even with a unit under the mark, then clears the selection (the command
+    ///    is done); nothing selected: refused
+    ///  * A FINISHED COMMAND CLOSES THE MENU AND CLEARS THE SELECTION (2026-11-01), whichever way
+    ///    it was given: a menu row (`1 Follow Me`, `4 Hold`, `3 Scavenge`, `0 Recycle`, the attack
+    ///    list's row, Go to Nav), SPACE's attack or follow, F, M, G and a mark, and the deploy
+    ///    click. The menu is derived from the selection, so an empty selection IS a closed menu.
+    ///    Not finished, so kept: a BUILD row (the factory stays selected for the next one), `3
+    ///    Deploy`'s arming (until its click lands), a refusal, and Escape of a prompt
     ///  * X: swap the driven unit to the own drivable unit under the mark (any kind but the
     ///    factory); the vacated one is told to Stop
     ///  * F1-F10: select the whole GROUP the command row (`game/row.hpp`) holds under that key,

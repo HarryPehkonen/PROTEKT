@@ -160,6 +160,19 @@ WorldMap world_map(const sim::Sim& sim, Extent extent, sim::Side own, sim::UnitI
     return map;
 }
 
+float map_line_heading(const SceneOptions& options, const sim::Unit& unit, MapLineAims aims) {
+    // THE ONE PLACE the white line's direction is chosen. The HULL is where the player would move
+    // going forward (his ruling); the MUZZLE is `facing->heading + facing->turret`, the turret's
+    // angle being measured from the hull. `aims` is `kMapLineAims`, in world_map.hpp: flip that one
+    // constant to point the line along the muzzle instead.
+    if (options.facing.has_value() && options.facing->unit == unit.id) {
+        const float hull = options.facing->heading;
+        return aims == MapLineAims::Muzzle ? hull + options.facing->turret : hull;
+    }
+    // Nothing is facing this unit (a headless or observer frame): the velocity heading it had.
+    return options.headings != nullptr ? options.headings->of(unit) : 0.0F;
+}
+
 std::array<MapPoint, 4> map_heading_needle(const MapAsset& asset, float heading_radians) noexcept {
     // The sim's heading drives a tank forward as world (sin h, cos h); the map's y is flipped into
     // the frame's y, so the needle points along (sin h, -cos h) in screen space. See world_map.hpp.

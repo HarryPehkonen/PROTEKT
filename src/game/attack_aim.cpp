@@ -29,8 +29,15 @@ Projected attack_point(const SceneOptions& options, const sim::Unit& unit) noexc
     return project(options.camera, options.extent, at.at(0), at.at(1), at.at(2));
 }
 
-sim::UnitId hostile_nearest_ray(const sim::Sim& sim, const SceneOptions& options,
-                                float degrees) noexcept {
+namespace {
+
+/// THE ONE SCAN behind every "near the crosshair" in the game: the living, available unit whose
+/// middle lies nearest the crosshair's ray within `degrees`, ties to the lower id. `hostile_only`
+/// narrows it to the other side's units (the attack offer and the assist); without it any asset
+/// counts (the health bar's "pointing approximately at it"). The driven hull is never a candidate:
+/// the eye sits on its barrel, so it is the thing being looked out of, as `pick` has it.
+sim::UnitId nearest_ray(const sim::Sim& sim, const SceneOptions& options, float degrees,
+                        bool hostile_only) noexcept {
     if (!options.aim.has_value()) {
         return sim::UnitId{};
     }
@@ -44,8 +51,8 @@ sim::UnitId hostile_nearest_ray(const sim::Sim& sim, const SceneOptions& options
     sim::UnitId best{};
     float best_cos = -1.0F;
     for (const sim::Unit& unit : sim.units()) {
-        if (!unit.alive || unit.side == sim::Side::Player
-            || !available_to_viewer(sim, options, unit)) {
+        if (!unit.alive || (hostile_only && unit.side == sim::Side::Player)
+            || unit.id == options.driven_unit || !available_to_viewer(sim, options, unit)) {
             continue;
         }
         const std::array<float, 3> at = world_middle(options, unit);
@@ -67,6 +74,18 @@ sim::UnitId hostile_nearest_ray(const sim::Sim& sim, const SceneOptions& options
         }
     }
     return best;
+}
+
+} // namespace
+
+sim::UnitId hostile_nearest_ray(const sim::Sim& sim, const SceneOptions& options,
+                                float degrees) noexcept {
+    return nearest_ray(sim, options, degrees, true);
+}
+
+sim::UnitId asset_nearest_ray(const sim::Sim& sim, const SceneOptions& options,
+                              float degrees) noexcept {
+    return nearest_ray(sim, options, degrees, false);
 }
 
 sim::UnitId attack_target(const sim::Sim& sim, const SceneOptions& options,

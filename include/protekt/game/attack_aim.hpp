@@ -30,6 +30,12 @@ inline constexpr float kAttackAimToleranceDegrees = 4.0F;
 [[nodiscard]] sim::UnitId hostile_nearest_ray(const sim::Sim& sim, const SceneOptions& options,
                                               float degrees) noexcept;
 
+/// The same scan over ANY living, available asset but the driven hull, of either side: the unit
+/// the crosshair is "pointing approximately at" for the health bars. It is `hostile_nearest_ray`
+/// with the side filter off and nothing else, so the two can never measure the cone differently.
+[[nodiscard]] sim::UnitId asset_nearest_ray(const sim::Sim& sim, const SceneOptions& options,
+                                            float degrees) noexcept;
+
 /// The hostile asset SPACE would attack, or an invalid id when it would attack nothing.
 ///
 ///  * `selected` must hold something ARMED that can take the order -- a living unit of the player's

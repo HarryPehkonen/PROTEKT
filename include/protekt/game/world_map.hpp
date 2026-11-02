@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "protekt/game/nav_marks.hpp"
+#include "protekt/game/scene.hpp"
 #include "protekt/game/scene_data.hpp"
 #include "protekt/sim/sim.hpp"
 #include "protekt/world/world.hpp"
@@ -133,6 +134,24 @@ struct MapMark {
     float half{};
     bool highlighted{false};
 };
+
+/// WHICH WAY THE MAP'S WHITE LINE POINTS, as one named choice (Harri, 2026-11-01). He ruled that
+/// the line shows where he WOULD MOVE going forward -- the HULL's heading -- and not where the
+/// turret is aimed ("that sounds wrong to me, but I think it's the right choice"), and he asked to
+/// be able to flip it to the MUZZLE's direction later. THIS CONSTANT IS THAT FLIP: change `Hull` to
+/// `Muzzle` and nothing else.
+enum class MapLineAims : std::uint8_t { Hull, Muzzle };
+inline constexpr MapLineAims kMapLineAims = MapLineAims::Hull;
+
+/// The heading, in the `Headings` convention (0 north, positive toward east), the driven unit's
+/// white line on the map points along, for `aims`. The unit's FACING (`SceneOptions::facing`: the
+/// hull's heading and the turret's angle from it) answers while it is turning on the spot, which a
+/// velocity cannot: the hull's own, or the hull's plus the turret's for the muzzle. A unit with no
+/// facing -- a headless or observer frame -- falls back on the velocity heading the headings table
+/// remembers, as the line always read it. `aims` defaults to `kMapLineAims`; passing the other
+/// choice is for the test that pins the alternative.
+[[nodiscard]] float map_line_heading(const SceneOptions& options, const sim::Unit& unit,
+                                     MapLineAims aims = kMapLineAims);
 
 /// The driven unit's direction needle: the four corners of a thin white quad running from the
 /// blip's edge outward along its heading, in the frame's pixels from the left and from the TOP.
