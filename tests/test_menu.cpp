@@ -968,10 +968,10 @@ TEST(Menu, DrawnDownTheLeftMarginUnderTheStripAndTheNotice) {
     SceneOptions options = menu_rig();
     options.row = &skirmish_row();
     const float scale = static_cast<float>(options.extent.height) / 720.0F;
-    // The strip's bottom edge (6 px margin, 34 px plate), and the bottom of the notice row's plate
-    // under it (the row is reserved whether or not a notice is up): the menu clears both.
-    constexpr float kStripBottomPixels = 40.0F;
-    constexpr float kNoticeBottomPixels = 40.0F + 6.0F + 3.0F + 10.0F + 3.0F;
+    // The strip's bottom edge (plate, 72 px icon, ticks: `kStripBottomPixels`), and the bottom of
+    // the notice row's plate under it (the row is reserved whether or not a notice is up): the menu
+    // clears both.
+    constexpr float kNoticeBottomPixels = protekt::game::kNoticeTopPixels + 10.0F + 3.0F;
     for (const MenuSubject subject : {MenuSubject::Recycler, MenuSubject::Deployment}) {
         MenuInput in;
         in.subject = subject;
@@ -983,11 +983,12 @@ TEST(Menu, DrawnDownTheLeftMarginUnderTheStripAndTheNotice) {
         for (const SceneVertex& v : drawn) {
             const Projected p = on_screen(options, v);
             ASSERT_GT(p.depth, 0.0F) << "a HUD vertex must be in front of the camera";
-            EXPECT_GE(p.y, kStripBottomPixels * scale) << "the menu reached up into the strip";
+            EXPECT_GE(p.y, protekt::game::kStripBottomPixels * scale)
+                << "the menu reached up into the strip";
             EXPECT_GE(p.y, kNoticeBottomPixels * scale - 0.05F) << "the menu overlaps the notice";
             EXPECT_LT(p.x, static_cast<float>(options.extent.width) / 3.0F)
                 << "the menu left the left third of the frame";
-            EXPECT_LT(p.y, static_cast<float>(options.extent.height) * 0.6F)
+            EXPECT_LT(p.y, radar_panel(options.extent).y)
                 << "the menu ran down into the radar's corner";
             left = std::min(left, p.x);
         }

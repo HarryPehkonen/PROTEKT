@@ -67,6 +67,10 @@ constexpr int kGroundVariantTiles = 4 * kGroundVariants;
 /// D7's three more per type, after the highest slot used so far: grass 33-35, dirt 36-38, rock
 /// 39-41, crater 42-44 (named _d, _e, _f), painted like the first three under their own indices.
 constexpr int kFirstMoreGroundVariantTile = 33;
+/// The three SITE tiles (`site_ground.hpp`): the ground a deployed thing alters, one tile a kind.
+constexpr int kSitePadTile = 45;  ///< under and round a deployed recycler
+constexpr int kSiteRigTile = 46;  ///< round a deployed scavenger
+constexpr int kSiteVentTile = 47; ///< a biometal pool's site
 
 constexpr Rgb kWhite{255, 255, 255};
 constexpr Rgb kMagenta{255, 0, 255};
@@ -633,6 +637,78 @@ Tile paint_crater(std::uint64_t seed, int tile_index) {
     return paint_bands(seed, tile_index, kWidths, tones, 6, [](int x, int y) { return x + y; });
 }
 
+/// THE SITE GROUND, the tiles a deployed thing turns the ground into (see `site_ground.hpp`). Like
+/// the ordinary ground they carry their own colour and WRAP, because one tile lies on every quad of
+/// a site side by side, and the plating tiles carry their seams on the tile's own edge so that a
+/// run of them reads as one plated apron rather than a field of stamps.
+/// Biometal ground: a sickly teal, nothing like the greens and browns it replaces.
+constexpr GroundTones kVentGround{{12, 38, 44}, {22, 76, 80}, {64, 150, 140}};
+constexpr Rgb kPlateBase{122, 126, 130};
+constexpr Rgb kPlateSeam{62, 66, 72};
+constexpr Rgb kPlateBevel{168, 172, 178};
+constexpr Rgb kPlateRivet{90, 94, 100};
+constexpr Rgb kGrateBase{50, 52, 56};
+constexpr Rgb kGrateBar{92, 94, 100};
+constexpr Rgb kGrateGap{26, 27, 30};
+constexpr Rgb kHazardYellow{200, 160, 36};
+constexpr int kPlateGrain = 7;    ///< +/- this much light across a plate, per texel
+constexpr int kGrateCell = 8;     ///< texels between the grate's bars
+constexpr int kHazardCorner = 10; ///< the hazard marking's reach in from each corner
+
+Rgb shaded(const Rgb& base, int delta) {
+    const auto at = [&](std::size_t i) {
+        return static_cast<std::uint8_t>(std::clamp(static_cast<int>(base.at(i)) + delta, 0, 255));
+    };
+    return Rgb{at(0), at(1), at(2)};
+}
+
+/// The recycler's pad: steel plating in four 32-texel plates. A dark seam on the tile's edge and
+/// down its middle, a light bevel inside each seam's top and left, a rivet in each plate's corner.
+Tile paint_site_pad(std::uint64_t seed, int tile_index) {
+    Tile tile{};
+    for (int y = 0; y < 64; ++y) {
+        for (int x = 0; x < 64; ++x) {
+            const int grit = ((grain(seed, tile_index, x, y) - 50) * kPlateGrain) / 50;
+            const int px = x % 32;
+            const int py = y % 32;
+            Rgb colour = shaded(kPlateBase, grit);
+            if (px == 31 || py == 31) {
+                colour = kPlateSeam;
+            } else if (px == 0 || py == 0) {
+                colour = kPlateBevel;
+            } else if ((px == 4 || px == 26) && (py == 4 || py == 26)) {
+                colour = kPlateRivet;
+            }
+            texel(tile, static_cast<std::uint32_t>(x), static_cast<std::uint32_t>(y)) = colour;
+        }
+    }
+    return tile;
+}
+
+/// The scavenger's rig: dark open grating, a light bar every `kGrateCell` texels each way with a
+/// shadow gap beside it, and a hazard-yellow diagonal marking across each corner of the tile.
+Tile paint_site_rig(std::uint64_t seed, int tile_index) {
+    Tile tile{};
+    for (int y = 0; y < 64; ++y) {
+        for (int x = 0; x < 64; ++x) {
+            const int grit = ((grain(seed, tile_index, x, y) - 50) * 4) / 50;
+            Rgb colour = shaded(kGrateBase, grit);
+            if (x % kGrateCell == 0 || y % kGrateCell == 0) {
+                colour = kGrateBar;
+            } else if (x % kGrateCell == 1 || y % kGrateCell == 1) {
+                colour = kGrateGap;
+            }
+            const int cx = x < 32 ? x : 63 - x; // distance in from the nearest corner
+            const int cy = y < 32 ? y : 63 - y;
+            if (cx + cy < kHazardCorner && ((cx + cy) % 4) < 2) {
+                colour = kHazardYellow;
+            }
+            texel(tile, static_cast<std::uint32_t>(x), static_cast<std::uint32_t>(y)) = colour;
+        }
+    }
+    return tile;
+}
+
 Tile solid(Rgb rgb) {
     Tile tile{};
     tile.fill(rgb);
@@ -700,6 +776,12 @@ Tile paint_tile(std::uint64_t seed, int index) {
         return paint_turret_housing(seed, index);
     case kHoverSkirtTile:
         return paint_hover_skirt();
+    case kSitePadTile:
+        return paint_site_pad(seed, index);
+    case kSiteRigTile:
+        return paint_site_rig(seed, index);
+    case kSiteVentTile:
+        return paint_patches(seed, index, kVentGround, 3, 1);
     case kGrassTile:
     case kDirtTile:
     case kRockTile:

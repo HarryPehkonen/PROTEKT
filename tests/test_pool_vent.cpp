@@ -60,8 +60,6 @@ std::vector<SceneVertex> in_ink(const Scene& scene, const std::array<float, 3>& 
     return found;
 }
 
-float centre_x() { return (static_cast<float>(kPoolX) + 0.5F) * protekt::game::kMetresPerTile; }
-float centre_z() { return (static_cast<float>(kPoolY) + 0.5F) * protekt::game::kMetresPerTile; }
 float ground() {
     return protekt::game::ground_metres(kSeed, static_cast<float>(kPoolX) + 0.5F,
                                         static_cast<float>(kPoolY) + 0.5F);
@@ -72,30 +70,23 @@ TEST(PoolVent, APoolIsDrawnInTheWorldAndNothingIsDrawnWhereThereIsNoPool) {
     const Scene with = protekt::game::build_scene(pool_world(true), options);
     const Scene without = protekt::game::build_scene(pool_world(false), options);
     EXPECT_GT(with.vertices.size(), without.vertices.size());
-    EXPECT_FALSE(in_ink(with, protekt::game::kPoolVentColour).empty());
-    EXPECT_TRUE(in_ink(without, protekt::game::kPoolVentColour).empty());
+    EXPECT_FALSE(in_ink(with, protekt::game::kPoolSteamColour).empty());
     EXPECT_TRUE(in_ink(without, protekt::game::kPoolSteamColour).empty());
 }
 
-TEST(PoolVent, TheVentIsAShallowDarkDiscWithAPaleRimLyingOnTheGround) {
-    const Scene scene = protekt::game::build_scene(pool_world(), rig());
-    const auto vent = in_ink(scene, protekt::game::kPoolVentColour);
-    const auto rim = in_ink(scene, protekt::game::kPoolRimColour);
-    ASSERT_FALSE(vent.empty());
-    ASSERT_FALSE(rim.empty());
-    for (const SceneVertex& v : vent) {
-        const float reach = std::hypot(v.position[0] - centre_x(), v.position[2] - centre_z());
-        EXPECT_LE(reach, protekt::game::kPoolVentRadiusMetres + 0.01F);
-        EXPECT_NEAR(v.position[1], ground(), 0.6F) << "shallow: it lies on the ground";
-    }
-    float rim_reach = 0.0F;
-    for (const SceneVertex& v : rim) {
-        rim_reach = std::max(rim_reach,
-                             std::hypot(v.position[0] - centre_x(), v.position[2] - centre_z()));
-    }
-    EXPECT_GT(rim_reach, protekt::game::kPoolVentRadiusMetres) << "the rim is outside the vent";
-    // Dark inside, pale rim: the vent reads as a hole with an edge, not a plate.
-    EXPECT_LT(protekt::game::kPoolVentColour.at(0), protekt::game::kPoolRimColour.at(0) * 0.5F);
+TEST(PoolVent, ThePoolsOnlyOwnGeometryIsTheSeeThroughPlumeNoDiscNoRim) {
+    // The pool's look on the ground is painted into the terrain (test_site_ground.cpp); the pool
+    // layer adds nothing solid. Switching it off leaves the opaque vertices exactly as they were.
+    SceneOptions off = rig();
+    off.show_pools = false;
+    const Scene on = protekt::game::build_scene(pool_world(), rig());
+    const Scene none = protekt::game::build_scene(pool_world(), off);
+    const auto opaque = [](const Scene& scene) {
+        return std::count_if(scene.vertices.begin(), scene.vertices.end(),
+                             [](const SceneVertex& v) { return v.alpha >= 1.0F; });
+    };
+    EXPECT_EQ(opaque(on), opaque(none));
+    EXPECT_GT(on.vertices.size(), none.vertices.size());
 }
 
 TEST(PoolVent, ASteamPlumeRisesWellAboveTheVentSoItIsObviousFromTheGround) {
@@ -127,21 +118,19 @@ TEST(PoolVent, ThePlumeMovesWithTheTickAndIsADerivedPictureNotStoredState) {
         moved = moved || a.at(i).position != b.at(i).position;
     }
     EXPECT_TRUE(moved) << "the steam rises";
-    EXPECT_EQ(in_ink(before, protekt::game::kPoolVentColour).size(),
-              in_ink(after, protekt::game::kPoolVentColour).size());
 }
 
 TEST(PoolVent, ThePoolsLayerCanBeSwitchedOffAndAFarPoolIsCulled) {
     SceneOptions off = rig();
     off.show_pools = false;
     EXPECT_TRUE(
-        in_ink(protekt::game::build_scene(pool_world(), off), protekt::game::kPoolVentColour)
+        in_ink(protekt::game::build_scene(pool_world(), off), protekt::game::kPoolSteamColour)
             .empty());
     SceneOptions far = rig();
     far.camera.x = 10.0F * protekt::game::kMetresPerTile;
     far.camera.z = 10.0F * protekt::game::kMetresPerTile;
     EXPECT_TRUE(
-        in_ink(protekt::game::build_scene(pool_world(), far), protekt::game::kPoolVentColour)
+        in_ink(protekt::game::build_scene(pool_world(), far), protekt::game::kPoolSteamColour)
             .empty())
         << "beyond the meshed radius, as litter is";
 }

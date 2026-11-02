@@ -12,12 +12,19 @@ namespace protekt::game {
 /// vehicle, which is turrets in this case"): a pale, plain, side-view silhouette of the kind, no
 /// shading and no colour for whose it is -- the TYPE is shown, not the side.
 ///
-/// A mask is `kIconCells` rows of `kIconCells` characters, '#' lit and '.' clear, the same
-/// bit-per-cell idea as the HUD's 5x5 letter masks only bigger and written as the picture it is, so
-/// the art can be read and edited in the source. It is 16 because the box the layout reserves
-/// under a plate is 16 px square at 720 and one cell is one pixel there; vehicles face right and
-/// stand on the bottom row.
-inline constexpr std::size_t kIconCells = 16;
+/// A mask is `kIconCells` rows of `kIconCells` characters, '#' lit and '.' clear. It is 72 because
+/// the box the layout reserves under a plate is 72 px square at 720 and one cell is one pixel there
+/// (Harri: "four to five times the current lengths", the 16 px icons of the first cut, and his BZ2
+/// capture shows icons 65-75 px wide under a ~65 px keycap). The art is RE-DRAWN for that size, not
+/// the old 16 cells scaled up: each kind is a recipe of boxes, discs and polygons -- lit parts and
+/// cut-outs, road wheels, hatches, barrels -- painted onto the grid once, on first use. Vehicles
+/// face right and stand on the grid's baseline, row `kIconGround`.
+inline constexpr std::size_t kIconCells = 72;
+
+/// The row a vehicle's tracks or wheels rest on (the last lit row of a standing silhouette). One
+/// row is left under it for the outline the plate draws round the ink, so an icon with its
+/// outline fills the box to its floor, as the first cut's did.
+inline constexpr std::size_t kIconGround = kIconCells - 2;
 
 using IconMask = std::array<std::string_view, kIconCells>;
 

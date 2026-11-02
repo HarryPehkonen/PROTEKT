@@ -8,6 +8,7 @@
 #include "protekt/game/pick.hpp"
 #include "protekt/game/radar.hpp"
 #include "protekt/game/row.hpp"
+#include "protekt/game/site_ground.hpp"
 #include "protekt/game/store_gauge.hpp"
 #include "protekt/game/weapon.hpp"
 #include "protekt/game/world_map.hpp"
@@ -132,7 +133,7 @@ Vec3 terrain_light(const Vec3& p00, const Vec3& p10, const Vec3& p11, const Vec3
 }
 
 void build_terrain(std::vector<SceneVertex>& out, const TerrainCache* cache, std::uint64_t seed,
-                   int centre_x, int centre_y, int radius) {
+                   int centre_x, int centre_y, int radius, const SiteGroundMap& sites) {
     // Each tile's corners are sampled one tile beyond it on the far edge (tx+1, ty+1); widening
     // the low edge by one tile too keeps the sampled HEIGHT field symmetric around the camera,
     // even though the tolerance on the mesh's visual extent absorbs the extra row.
@@ -148,11 +149,22 @@ void build_terrain(std::vector<SceneVertex>& out, const TerrainCache* cache, std
                 = atlas.rect(terrain_variant_name(static_cast<world::Terrain>(t), v));
         }
     }
+    // THE ALTERED GROUND (`site_ground.hpp`): a tile a deployed thing reaches is painted from its
+    // kind's own atlas tile, upright (orientation 0) so the plating's seams run on from tile to
+    // tile. Its HEIGHT is the ground's, untouched: only the paint changes.
+    std::array<UvRect, kSiteKindCount> site_tiles{};
+    for (std::size_t kind = 0; kind < site_tiles.size(); ++kind) {
+        site_tiles.at(kind) = atlas.rect(site_ground(static_cast<SiteKind>(kind)).tile);
+    }
     for (int ty = centre_y - radius - 1; ty <= centre_y + radius; ++ty) {
         for (int tx = centre_x - radius - 1; tx <= centre_x + radius; ++tx) {
             const world::Terrain terrain = cached_terrain(cache, seed, tx, ty);
-            const UvRect& tile = tiles.at(static_cast<std::size_t>(terrain))
-                                     .at(static_cast<std::size_t>(variant_index(terrain, tx, ty)));
+            const std::optional<SiteKind> site = sites.at(tx, ty);
+            const UvRect& tile
+                = site.has_value()
+                      ? site_tiles.at(static_cast<std::size_t>(*site))
+                      : tiles.at(static_cast<std::size_t>(terrain))
+                            .at(static_cast<std::size_t>(variant_index(terrain, tx, ty)));
             const float x0 = static_cast<float>(tx) * kMetresPerTile;
             const float x1 = static_cast<float>(tx + 1) * kMetresPerTile;
             const float z0 = static_cast<float>(ty) * kMetresPerTile;
@@ -162,7 +174,7 @@ void build_terrain(std::vector<SceneVertex>& out, const TerrainCache* cache, std
             const Vec3 p11{x1, cached_height_metres(cache, seed, tx + 1, ty + 1), z1};
             const Vec3 p01{x0, cached_height_metres(cache, seed, tx, ty + 1), z1};
             emit_tiled_quad(out, p00, p10, p11, p01, terrain_light(p00, p10, p11, p01), tile,
-                            orientation_index(terrain, tx, ty));
+                            site.has_value() ? 0 : orientation_index(terrain, tx, ty));
         }
     }
 }
@@ -2071,19 +2083,20 @@ void append_effects(std::vector<SceneVertex>& out, const SceneOptions& options,
     }
 }
 
-/// THE BIOMETAL POOLS, VENTING (see `kPoolVentColour`): per pool in view a dark disc lying on the
-/// ground, a pale ring round it, and a plume of see-through puffs climbing from it. Culled to the
-/// meshed radius like litter. EMITS NOTHING for a sim without pools. The plume is a pure function
-/// of the sim's tick: puff `n` of `kPoolPlumePuffs` is `n / kPoolPlumePuffs` of a cycle ahead of
-/// puff 0, climbs `kPoolPlumeHeightMetres` over `kPoolPlumeTicks`, widens as it goes and fades
-/// toward the top; each pool is phased by its own tile so the plumes do not breathe in step, and
-/// each puff sways a little on its own hash (`wake_fraction`, as the wrecks' smoke does).
+/// THE BIOMETAL POOLS, VENTING (see `kPoolSteamColour`): per pool in view a plume of see-through
+/// puffs climbing from it. The pool's GROUND is not drawn here: it is altered ground like a
+/// deployed building's (`site_ground.hpp`, painted by `build_terrain`), and there is no disc, rim
+/// or any other solid shape lying on it -- a disc under a deployed scavenger read as a decal.
+/// Culled to the meshed radius like litter. EMITS NOTHING for a sim without pools. The plume is a
+/// pure function of the sim's tick: puff `n` of `kPoolPlumePuffs` is `n / kPoolPlumePuffs` of a
+/// cycle ahead of puff 0, climbs `kPoolPlumeHeightMetres` over `kPoolPlumeTicks`, widens as it
+/// goes and fades toward the top; each pool is phased by its own tile so the plumes do not breathe
+/// in step, and each puff sways a little on its own hash (`wake_fraction`, as the wrecks' smoke
+/// does).
 void append_pools(std::vector<SceneVertex>& out, const SceneOptions& options, const sim::Sim& sim) {
     if (!options.show_pools) {
         return;
     }
-    constexpr float kTau = 6.2831853F;
-    constexpr int kSlices = 24;
     for (const sim::Pool& pool : sim.pools()) {
         const int dx
             = pool.tile_x - static_cast<int>(std::floor(options.camera.x / kMetresPerTile));
@@ -2097,26 +2110,6 @@ void append_pools(std::vector<SceneVertex>& out, const SceneOptions& options, co
         const float cx = tile_x * kMetresPerTile;
         const float cz = tile_y * kMetresPerTile;
         const float ground = ground_metres(options.seed, tile_x, tile_y);
-        const float rim_out = kPoolVentRadiusMetres + kPoolRimWidthMetres;
-        const Vec3 vent{kPoolVentColour.at(0), kPoolVentColour.at(1), kPoolVentColour.at(2)};
-        const Vec3 rim{kPoolRimColour.at(0), kPoolRimColour.at(1), kPoolRimColour.at(2)};
-        // The disc and its rim lie at the CENTRE's height: a pool is open ground, and the ring is
-        // lifted a hair more than the disc so it is never fought over by the depth test.
-        const auto spot = [&](float radius, float angle, float lift) {
-            return Vec3{cx + (std::cos(angle) * radius), ground + lift,
-                        cz + (std::sin(angle) * radius)};
-        };
-        for (int slice = 0; slice < kSlices; ++slice) {
-            const float a = kTau * static_cast<float>(slice) / kSlices;
-            const float b = kTau * static_cast<float>(slice + 1) / kSlices;
-            emit_triangle(out, Vec3{cx, ground + kPoolLiftMetres, cz},
-                          spot(kPoolVentRadiusMetres, b, kPoolLiftMetres),
-                          spot(kPoolVentRadiusMetres, a, kPoolLiftMetres), vent);
-            emit_quad(out, spot(kPoolVentRadiusMetres, a, kPoolLiftMetres * 1.5F),
-                      spot(kPoolVentRadiusMetres, b, kPoolLiftMetres * 1.5F),
-                      spot(rim_out, b, kPoolLiftMetres * 1.5F),
-                      spot(rim_out, a, kPoolLiftMetres * 1.5F), rim);
-        }
         const std::uint32_t phase = static_cast<std::uint32_t>(pool.tile_x * 31 + pool.tile_y * 17);
         const Vec3 steam{kPoolSteamColour.at(0), kPoolSteamColour.at(1), kPoolSteamColour.at(2)};
         for (std::uint32_t puff = 0; puff < kPoolPlumePuffs; ++puff) {
@@ -3312,33 +3305,29 @@ void append_ship_gauge(std::vector<SceneVertex>& out, const SceneOptions& option
 /// type, one row per enemy. It sits in the row BELOW the notice, which is reserved whether or not
 /// there is a notice, so the list never moves and never overlaps: the player is choosing under time
 /// pressure and a panel that jumps is a panel that gets misread.
-constexpr float kStripMarginPixels = 6.0F;
-constexpr float kStripSlotWidthPixels = 88.0F;
-constexpr float kStripSlotGapPixels = 6.0F;
-constexpr float kStripSlotHeightPixels = 34.0F;
 constexpr float kStripFramePixels = 2.0F;
-constexpr float kStripPadPixels = 3.0F;
 constexpr float kStripKeyCell = 2.0F;
-/// The gap between the things stacked under a key's plate (plate, icon square, ticks).
-constexpr float kStripStackGapPixels = 1.0F;
+/// (The gap between the things stacked under a plate, the icon's reserved square and the strip's
+/// bottom edge are in scene.hpp: `kStripStackGapPixels`, `kStripIconPixels`, `kStripBottomPixels`.)
+///
 /// The vehicle-type icon's reserved square under the plate (Harri: "an image of the type of
-/// vehicle", turrets in his crop); the ticks start below it. 16 px is the icon's room at 720:
-/// about half the plate's height, so it reads as a badge hanging off the key rather than a second
-/// plate. It is `kIconCells` masks cells of one pixel each, so a mask fills it exactly.
-constexpr float kStripIconPixels = 16.0F;
+/// vehicle", turrets in his crop, then "four to five times the current lengths ... re-draw the
+/// icons"). 72 px at 720 is 4.5 times the 16 px of the first cut and is the width of the key
+/// itself, so the icon hangs under its key as BZ2's do (a ~65 px keycap, 65-75 px icons). It is
+/// `kIconCells` mask cells of one pixel each, so a mask fills it exactly.
 static_assert(kStripIconPixels == static_cast<float>(kIconCells),
               "an icon mask is one pixel a cell, so the box is exactly the mask");
-/// One tick: 4 px wide and 14 tall, so it is 3.5 times taller than wide and cannot be read as a
-/// square, 3 px apart so neighbours stay distinct. Ten of them span 10 * 4 + 9 * 3 = 67 px, inside
-/// the 88 px slot with room to spare; a slot narrowed by a narrow frame scales the whole row down
-/// to fit, since a row wider than its key would run into the next key's.
+static_assert(kStripIconPixels <= kStripSlotWidthPixels,
+              "the icon hangs inside its key's width; it is never wider than the plate");
+/// One tick: 4 px wide and 14 tall (`kStripTickHeightPixels`), so it is 3.5 times taller than wide
+/// and cannot be read as a square, 3 px apart so neighbours stay distinct. Ten of them span
+/// 10 * 4 + 9 * 3 = 67 px, inside the 72 px slot; a slot narrowed by a narrow frame scales the
+/// whole row down to fit, since a row wider than its key would run into the next key's.
 constexpr float kStripTickWidthPixels = 4.0F;
-constexpr float kStripTickHeightPixels = 14.0F;
 constexpr float kStripTickGapPixels = 3.0F;
 /// How many ticks a key has room for: Harri's own count, "up to ten" (BZ2). An eleventh vehicle is
 /// not drawn: the ticks never shrink or wrap to make room.
 constexpr std::size_t kStripTicks = 10;
-constexpr float kStripNoticeCell = 2.0F;
 /// The corner radius of a HUD panel, at 720p. Panels are rounded like BZ2's rather than square, and
 /// the frame ring clamps the radius to at least its own width so the face inside it can never be
 /// handed a negative radius.
@@ -3810,25 +3799,11 @@ void append_hud_panels(std::vector<SceneVertex>& out, const SceneOptions& option
     const float pad = kStripPadPixels * px;
     // The notice's row, reserved whether or not there is a notice: the attack list is drawn under
     // it, and a panel that moves when a notice appears or expires is a panel that gets misread.
-    const float notice_top = top + slot_h + (kStripMarginPixels * px) + pad;
+    // The strip hangs 128 px (`kStripBottomPixels`) now that its icons are 72, so the rows under it
+    // start below ITS bottom edge, not the plate's: otherwise a notice would be drawn over the
+    // icons of the keys it sits under.
+    const float notice_top = kNoticeTopPixels * px;
     const float stack_gap = kStripStackGapPixels * px;
-    // THE PANELS DOWN THE LEFT, where each reaches and where each starts: what a vehicle key's
-    // row of ticks must not run into. The notice, the attack list and the command menu are all
-    // anchored at the margin, so a key's ticks are clear of them unless the panel reaches as far
-    // right as the key. Worked out once, here, because the row draws first and the panels after.
-    struct LeftPanel {
-        float right;
-        float top;
-        float bottom;
-    };
-    std::vector<LeftPanel> left_panels;
-    left_panels.reserve(2 + (wants_menu ? options.menu->size() : 0U));
-    if (!options.notice.empty()) {
-        const float cell = kStripNoticeCell * px;
-        left_panels.push_back(
-            {(kStripMarginPixels * px) + pad + word_width(options.notice, cell) + pad,
-             notice_top - pad, notice_top + (5.0F * cell) + pad});
-    }
     const float list_cell = kStripNoticeCell * px;
     const float list_key_left = (kStripMarginPixels * px) + pad;
     const float list_label_left = list_key_left + (7.0F * list_cell); // a glyph and a blank column
@@ -3844,27 +3819,11 @@ void append_hud_panels(std::vector<SceneVertex>& out, const SceneOptions& option
     }
     const float list_metres_left = list_label_left + list_label_width + (2.0F * list_cell);
     const float list_top = notice_top + (5.0F * list_cell) + (2.0F * pad);
-    if (wants_list) {
-        const float list_rows = static_cast<float>(options.attack_list->size());
-        left_panels.push_back(
-            {list_metres_left + list_metres_width + pad, list_top,
-             list_top + pad + ((list_rows - 1.0F) * 6.0F * list_cell) + (5.0F * list_cell) + pad});
-    }
     const float menu_cell = kMenuCell * px;
     MenuLayout menu_placed;
     if (wants_menu) {
         menu_placed = menu_layout(*options.menu, kStripMarginPixels * px,
                                   notice_top + (5.0F * menu_cell) + (2.0F * pad), menu_cell);
-        // One panel per menu row, not one box round them all: the rows differ in width, and a row
-        // that stops short of a key must not hide the ticks under it.
-        for (std::size_t i = 0; i < menu_placed.rows.size(); ++i) {
-            const MenuRowLayout& placed = menu_placed.rows.at(i);
-            const float right
-                = options.menu->at(i).right.empty()
-                      ? placed.verb_right
-                      : placed.right_left + word_width(options.menu->at(i).right, menu_cell);
-            left_panels.push_back({right, placed.top, placed.top + placed.height});
-        }
     }
     // THE COMMAND ROW. Every key has its own spot, by index, and a key that holds nothing is
     // skipped without moving the ones after it: its space stays blank for what is built next.
@@ -3919,49 +3878,67 @@ void append_hud_panels(std::vector<SceneVertex>& out, const SceneOptions& option
             continue; // marks have no hit points: no bar, and nothing to draw an icon of
         }
         // THE ICON, in its reserved square: one quad per horizontal run of lit cells of the kind's
-        // mask, a cell a pixel. A run a left panel reaches is left out like a covered tick. Every
-        // key but `~` has one, and only a living key gets this far (a dead one `continue`d above).
-        // The armory's key is the one that is drawn by position: it has no kind to look up.
-        const IconBox icon = key_icon_box(left, top, px);
+        // mask, a cell a pixel. Every key but `~` has one, and only a living key gets this far (a
+        // dead one `continue`d above). The armory's key is the one that is drawn by position: it
+        // has no kind to look up.
+        const IconBox icon = key_icon_box(left, top, px, slot_w);
         const float icon_bottom = icon.top + icon.size;
         const IconMask& mask = row_slot_kind(index) == RowSlotKind::ArmoryKey
                                    ? armory_icon()
                                    : kind_icon(reading_kind);
         const float cell = icon.size / static_cast<float>(kIconCells);
-        for (std::size_t row = 0; row < kIconCells; ++row) {
-            const std::string_view line = mask.at(row);
-            std::size_t col = 0;
-            while (col < kIconCells) {
-                if (line.at(col) != '#') {
-                    ++col;
-                    continue;
-                }
-                const std::size_t start = col;
-                while (col < kIconCells && line.at(col) == '#') {
-                    ++col;
-                }
-                const float run_left = icon.left + (static_cast<float>(start) * cell);
-                const bool covered = std::any_of(
-                    left_panels.begin(), left_panels.end(), [&](const LeftPanel& panel) {
-                        return panel.right > run_left && panel.top < icon_bottom
-                               && panel.bottom > icon.top;
-                    });
-                if (!covered) {
+        // One quad per horizontal run of the cells `wanted` picks out, in `rgb`. The ink is the lit
+        // cells; the OUTLINE is the clear cells that touch a lit one (the eight neighbours), a
+        // cell wide, in the keycap's own near-black: pale ink alone vanishes against the bright
+        // sky and the sand, and the outline is part of the icon, not a thing beside it.
+        const auto lit = [&mask](std::size_t row, std::size_t col) {
+            return row < kIconCells && col < kIconCells && mask.at(row).at(col) == '#';
+        };
+        const auto draw_runs = [&](auto&& wanted, const std::array<float, 3>& rgb) {
+            for (std::size_t row = 0; row < kIconCells; ++row) {
+                std::size_t col = 0;
+                while (col < kIconCells) {
+                    if (!wanted(row, col)) {
+                        ++col;
+                        continue;
+                    }
+                    const std::size_t start = col;
+                    while (col < kIconCells && wanted(row, col)) {
+                        ++col;
+                    }
+                    const float run_left = icon.left + (static_cast<float>(start) * cell);
                     const float run_top = icon.top + (static_cast<float>(row) * cell);
                     rect(marks_at, run_left, run_top, icon.left + (static_cast<float>(col) * cell),
-                         run_top + cell, kStripIconInk);
+                         run_top + cell, rgb);
                 }
             }
-        }
+        };
+        draw_runs(lit, kStripIconInk);
+        draw_runs(
+            [&lit](std::size_t row, std::size_t col) {
+                if (lit(row, col)) {
+                    return false;
+                }
+                // Unsigned wrap-around on row 0 / column 0 lands far outside the grid, which `lit`
+                // reads as clear, so the border needs no special case.
+                for (const std::size_t dr : {row - 1, row, row + 1}) {
+                    for (const std::size_t dc : {col - 1, col, col + 1}) {
+                        if (lit(dr, dc)) {
+                            return true;
+                        }
+                    }
+                }
+                return false;
+            },
+            kStripIconOutline);
         // THE TICKS. Under the plate come the icon's reserved square, then one upright tick per
         // living vehicle, in spawn order from the key's left edge, every one
         // `kStripTickWidthPixels` by `kStripTickHeightPixels` whatever its vehicle's health --
         // COLOUR says how hurt a vehicle is, never size (Harri, BZ2: "it only changes colour, never
         // the size"). A dead vehicle is not in `fractions` at all, so the ones after it close up
         // with no blank. A dark track behind them is what lets the ramp's near-black read against
-        // the world. Ten at most. A panel down the left that reaches this far right hides the ticks
-        // it would cover (the ones nearest the key's left edge) instead of being overlapped, and
-        // the rest stay put.
+        // the world. Ten at most. Nothing is ever drawn over them: the notice, the attack list and
+        // the command menu all start below the strip's bottom edge (`kStripBottomPixels`).
         const std::vector<BarSegment> segments = bar_segments(fractions);
         const float row_span = ((static_cast<float>(kStripTicks) * kStripTickWidthPixels)
                                 + (static_cast<float>(kStripTicks - 1) * kStripTickGapPixels))
@@ -3972,27 +3949,13 @@ void append_hud_panels(std::vector<SceneVertex>& out, const SceneOptions& option
         const float tick_top = icon_bottom + stack_gap;
         const float tick_bottom = tick_top + (kStripTickHeightPixels * px);
         const std::size_t shown = std::min(segments.size(), kStripTicks);
-        std::vector<std::size_t> placed;
-        placed.reserve(shown);
-        for (std::size_t i = 0; i < shown; ++i) {
-            const float tick_left = left + (static_cast<float>(i) * tick_pitch);
-            const bool covered
-                = std::any_of(left_panels.begin(), left_panels.end(), [&](const LeftPanel& panel) {
-                      return panel.right > tick_left && panel.top < tick_bottom
-                             && panel.bottom > tick_top;
-                  });
-            if (!covered) {
-                placed.push_back(i);
-            }
-        }
-        if (placed.empty()) {
+        if (shown == 0) {
             continue;
         }
-        rect(marks_at * kHudFaceRatio * 0.999F,
-             left + (static_cast<float>(placed.front()) * tick_pitch), tick_top,
-             left + (static_cast<float>(placed.back()) * tick_pitch) + tick_w, tick_bottom,
+        rect(marks_at * kHudFaceRatio * 0.999F, left, tick_top,
+             left + (static_cast<float>(shown - 1) * tick_pitch) + tick_w, tick_bottom,
              {0.25F, 0.25F, 0.25F});
-        for (const std::size_t i : placed) {
+        for (std::size_t i = 0; i < shown; ++i) {
             const float tick_left = left + (static_cast<float>(i) * tick_pitch);
             rect(marks_at, tick_left, tick_top, tick_left + tick_w, tick_bottom,
                  segments.at(i).rgb);
@@ -4646,9 +4609,9 @@ void append_world_map(std::vector<SceneVertex>& out, const SceneOptions& options
 
 } // namespace
 
-IconBox key_icon_box(float slot_left, float plate_top, float px) noexcept {
+IconBox key_icon_box(float slot_left, float plate_top, float px, float slot_width) noexcept {
     return IconBox{slot_left, plate_top + ((kStripSlotHeightPixels + kStripStackGapPixels) * px),
-                   kStripIconPixels * px};
+                   std::min(kStripIconPixels * px, slot_width)};
 }
 
 MenuLayout menu_layout(std::span<const MenuRow> rows, float left, float top, float cell) {
@@ -5083,6 +5046,31 @@ void tilt_to_ground(std::vector<SceneVertex>& out, std::size_t first, const sim:
     }
 }
 
+/// THE SITES IN VIEW, for `build_terrain`: every pool (when the pools layer is on) and every living
+/// deployed recycler and scavenger the viewer could see (`available_to_viewer`, the rule the unit's
+/// own mesh follows, so the ground never shows what the units do not). A building is anchored by
+/// its `footprint_around`, the sim's own answer to which tiles it stands on.
+SiteGroundMap sites_in_view(const sim::Sim& sim, const SceneOptions& options) {
+    SiteGroundMap sites;
+    if (options.show_pools) {
+        for (const sim::Pool& pool : sim.pools()) {
+            sites.add(SiteKind::Pool, pool.tile_x, pool.tile_y);
+        }
+    }
+    for (const sim::Unit& unit : sim.units()) {
+        if (!unit.alive || !available_to_viewer(sim, options, unit)) {
+            continue;
+        }
+        if (unit.kind == sim::UnitKind::DeployedRecycler) {
+            const sim::Footprint footprint = sim::footprint_around(unit.x, unit.y);
+            sites.add(SiteKind::DeployedRecycler, footprint.centre_x(), footprint.centre_y());
+        } else if (unit.kind == sim::UnitKind::DeployedScavenger) {
+            sites.add(SiteKind::DeployedScavenger, unit.x.floor_int(), unit.y.floor_int());
+        }
+    }
+    return sites;
+}
+
 } // namespace
 
 Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
@@ -5095,7 +5083,7 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
     const int centre_x = static_cast<int>(std::floor(options.camera.x / kMetresPerTile));
     const int centre_y = static_cast<int>(std::floor(options.camera.z / kMetresPerTile));
     build_terrain(scene.vertices, options.terrain, options.seed, centre_x, centre_y,
-                  options.radius_tiles);
+                  options.radius_tiles, sites_in_view(sim, options));
     const std::size_t terrain_end = scene.vertices.size();
     append_sky(scene.vertices, options.camera);
     const std::size_t sky_end = scene.vertices.size();

@@ -10,6 +10,8 @@
 # crater Crater. terrain_*_a..f are each type's six variants (same tones, another pattern; a-c are
 # slots 21-32, d-f 33-44);
 # the scene paints a world tile from the variant its (type, x, y) hashes to.
+# site_* are the ground a deployed thing alters (game/site_ground.hpp): site_pad round a deployed
+# recycler, site_rig round a deployed scavenger, site_vent at a biometal pool.
 tank_hull 7
 tank_tracks 1
 tank_turret 2
@@ -55,3 +57,6 @@ terrain_rock_f 41
 terrain_crater_d 42
 terrain_crater_e 43
 terrain_crater_f 44
+site_pad 45
+site_rig 46
+site_vent 47

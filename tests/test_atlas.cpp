@@ -35,8 +35,8 @@ constexpr std::array<std::array<int, 3>, 3> kHullSets{{{7, 8, 9}, {10, 11, 12}, 
 constexpr std::array<int, 6> kTeamHullTiles{10, 11, 12, 13, 14, 15};
 
 /// The tiles painted so far: the first quadrant, the hover skirt, the four ground tiles and their
-/// twelve variants (D6).
-constexpr int kAssignedTiles = 45;
+/// twelve variants (D6), and the three site tiles (45 pad, 46 rig, 47 vent).
+constexpr int kAssignedTiles = 48;
 
 /// Texel (x, y) of `tile` in a whole-atlas RGBA buffer.
 Rgb texel(const std::vector<std::uint8_t>& px, int tile, int x, int y) {
@@ -184,7 +184,10 @@ TEST(AtlasManifest, TheCommittedManifestAssignsTheDocumentedTiles) {
             EXPECT_NE(m.tile(name), kFallbackTile) << name << " is listed";
         }
     }
-    EXPECT_EQ(m.size(), std::size_t{45});
+    EXPECT_EQ(m.size(), std::size_t{48});
+    EXPECT_EQ(m.tile("site_pad"), 45);
+    EXPECT_EQ(m.tile("site_rig"), 46);
+    EXPECT_EQ(m.tile("site_vent"), 47);
 }
 
 TEST(AtlasManifest, TheEmbeddedTextIsTheCommittedFile) {
@@ -814,6 +817,62 @@ TEST(AtlasGround, TheGroundIsPaintedDeterministicallyFromTheSeed) {
         }
         EXPECT_TRUE(differs) << "tile " << tile << ": another seed paints another pattern";
     }
+}
+
+/// THE SITE TILES: the ground a deployed thing alters (game/site_ground.hpp). Each must read as
+/// ALTERED -- visibly unlike every ordinary ground tile -- or the mechanism changes nothing the eye
+/// can see, which is the failure Harri reported twice.
+constexpr std::array<int, 3> kSiteTiles{45, 46, 47};
+
+TEST(AtlasSite, EachSiteTileIsVisiblyUnlikeEveryOrdinaryGroundTile) {
+    const auto px = protekt::game::atlas_pixels();
+    constexpr double kMinSiteSeparation = 25.0; ///< in mean colour, 0..255 per channel
+    for (const int site : kSiteTiles) {
+        const auto a = mean_colour(px, site);
+        for (int ground = 17; ground <= 44; ++ground) {
+            const auto b = mean_colour(px, ground);
+            const double distance = std::sqrt(std::pow(a[0] - b[0], 2) + std::pow(a[1] - b[1], 2)
+                                              + std::pow(a[2] - b[2], 2));
+            EXPECT_GE(distance, kMinSiteSeparation) << "site " << site << " vs ground " << ground;
+        }
+    }
+}
+
+TEST(AtlasSite, EachSiteTileCarriesDetailAndIsPaintedFromTheSeed) {
+    const auto a = protekt::game::atlas_pixels(1);
+    const auto b = protekt::game::atlas_pixels(1);
+    const auto c = protekt::game::atlas_pixels(9);
+    for (const int site : kSiteTiles) {
+        double lo = 1.0;
+        double hi = 0.0;
+        bool differs = false;
+        for (int y = 0; y < 64; ++y) {
+            for (int x = 0; x < 64; ++x) {
+                const double l = luma(texel(a, site, x, y));
+                lo = std::min(lo, l);
+                hi = std::max(hi, l);
+                ASSERT_EQ(texel(a, site, x, y), texel(b, site, x, y));
+                differs = differs || texel(a, site, x, y) != texel(c, site, x, y);
+            }
+        }
+        EXPECT_GE(hi - lo, 0.15) << "site " << site << " is not a flat colour";
+        EXPECT_TRUE(differs) << "site " << site << ": another seed paints another grain";
+    }
+}
+
+TEST(AtlasSite, EachSiteTileWrapsSoNeighbouringQuadsShowNoSeamOfTheirOwn) {
+    // The vent is noise and wraps by construction; the plating's seam IS on the tile's edge, so it
+    // is checked for the lines it is supposed to draw there, not for a match across.
+    const auto px = protekt::game::atlas_pixels();
+    int match = 0;
+    for (int i = 0; i < 64; ++i) {
+        match += texel(px, 47, 0, i) == texel(px, 47, 63, i) ? 1 : 0;
+        match += texel(px, 47, i, 0) == texel(px, 47, i, 63) ? 1 : 0;
+    }
+    EXPECT_GE(match / 128.0, 0.5) << "the vent's ground wraps";
+    const Rgb seam = texel(px, 45, 31, 5);
+    EXPECT_EQ(texel(px, 45, 63, 5), seam) << "the pad's plate seam runs down the tile's edge";
+    EXPECT_EQ(texel(px, 45, 5, 63), seam);
 }
 
 } // namespace

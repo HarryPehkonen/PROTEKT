@@ -584,7 +584,7 @@ namespace {
 /// out: the HUD's 6 px margin, the notice row, the command row, all at the frame's scale.
 [[nodiscard]] MenuLayout layout_for(const std::vector<MenuRow>& rows, const Extent& extent) {
     const float px = static_cast<float>(extent.height) / 720.0F;
-    return menu_layout(rows, 6.0F * px, 65.0F * px, 2.0F * px);
+    return menu_layout(rows, 6.0F * px, protekt::game::kMenuTopPixels * px, 2.0F * px);
 }
 
 [[nodiscard]] std::vector<MenuRow> attack_rows() {

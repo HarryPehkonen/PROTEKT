@@ -426,19 +426,14 @@ inline constexpr std::size_t kPuffVertices = (kPuffSides * 6) + (2 * (kPuffSides
 /// A BIOMETAL POOL VENTING (Harri, 2026-11-01, from BattleZone 2, where a pool is "a shallow
 /// circular vent with a pale rim and a visible plume of steam"). Until now a pool was a white
 /// outline on the radar and NOTHING in the world, so it read as a decal. Each pool in view is a
-/// dark disc
-/// (`kPoolVentRadiusMetres`, a little over a tile) lying `kPoolLiftMetres` clear of the ground, a
-/// pale ring `kPoolRimWidthMetres` wide round it, and a plume: `kPoolPlumePuffs` see-through puffs
-/// that rise `kPoolPlumeHeightMetres` over `kPoolPlumeTicks`, each a fraction of a cycle behind the
-/// last, widening and fading as they climb. Every puff's place is a function of the sim's tick, so
-/// nothing is stored and a replay needs nothing in it. The plume is taller than a tank on purpose:
-/// from the ground it must be obvious that something is coming out of the ground there.
-inline constexpr std::array<float, 3> kPoolVentColour{0.10F, 0.09F, 0.10F};
-inline constexpr std::array<float, 3> kPoolRimColour{0.80F, 0.78F, 0.76F};
+/// plume: `kPoolPlumePuffs` see-through puffs that rise `kPoolPlumeHeightMetres` over
+/// `kPoolPlumeTicks`, each a fraction of a cycle behind the last, widening and fading as they
+/// climb, over ALTERED GROUND (`site_ground.hpp`: the pool's own look, painted into the terrain --
+/// there is no disc or rim lying on it any more, and a deployed scavenger stands on the ground
+/// itself). Every puff's place is a function of the sim's tick, so nothing is stored and a replay
+/// needs nothing in it. The plume is taller than a tank on purpose: from the ground it must be
+/// obvious that something is coming out of the ground there.
 inline constexpr std::array<float, 3> kPoolSteamColour{0.88F, 0.88F, 0.90F};
-inline constexpr float kPoolVentRadiusMetres = 3.0F;
-inline constexpr float kPoolRimWidthMetres = 0.6F;
-inline constexpr float kPoolLiftMetres = 0.06F;
 inline constexpr std::size_t kPoolPlumePuffs = 10;
 inline constexpr float kPoolPlumeHeightMetres = 14.0F;
 inline constexpr sim::Tick kPoolPlumeTicks = 150; ///< five seconds for a puff to climb the plume
@@ -1012,15 +1007,51 @@ struct SceneOptions {
 /// ONE place the box is computed, so the layout that reserves it (the ticks start under it) and the
 /// drawing that fills it cannot drift apart. `slot_left` is the key's left edge and `plate_top` its
 /// plate's top; the square is left-justified on the key, `size` on a side, a gap below the plate.
+/// `slot_width` is the key's drawn width, which the square never exceeds: at the design width the
+/// icon is 72 px and a frame too narrow for fourteen keys narrows the key and the icon with it.
 struct IconBox {
     float left{};
     float top{};
     float size{};
 };
-[[nodiscard]] IconBox key_icon_box(float slot_left, float plate_top, float px) noexcept;
+[[nodiscard]] IconBox key_icon_box(float slot_left, float plate_top, float px,
+                                   float slot_width) noexcept;
+
+/// THE COMMAND STRIP'S DESIGN SIZE, in pixels at 720 (see `append_hud_panels`): a key's plate is
+/// `kStripSlotWidthPixels` by `kStripSlotHeightPixels`, the icon square under it
+/// `kStripIconPixels` on a side, then the row of ticks; slots `kStripSlotWidthPixels +
+/// kStripSlotGapPixels` apart. Public because the panels hung under the strip start below its
+/// bottom edge, which `strip_bottom_pixels` gives, and a test holds the strip clear of the radar.
+inline constexpr float kStripMarginPixels = 6.0F;
+inline constexpr float kStripSlotWidthPixels = 72.0F;
+inline constexpr float kStripSlotGapPixels = 6.0F;
+inline constexpr float kStripSlotHeightPixels = 34.0F;
+inline constexpr float kStripStackGapPixels = 1.0F;
+inline constexpr float kStripIconPixels = 72.0F;
+inline constexpr float kStripTickHeightPixels = 14.0F;
+
+/// The bottom edge of the tallest thing a key hangs (plate, gap, icon, gap, ticks), in pixels at
+/// 720 from the frame's top: 6 + 34 + 1 + 72 + 1 + 14 = 128.
+inline constexpr float kStripBottomPixels = kStripMarginPixels + kStripSlotHeightPixels
+                                            + kStripStackGapPixels + kStripIconPixels
+                                            + kStripStackGapPixels + kStripTickHeightPixels;
+
+/// THE PANELS HUNG UNDER THE STRIP, at 720: the notice's plate pad and glyph cell, where the
+/// notice's text starts (`kNoticeTopPixels`: the strip's bottom, a margin, a pad), and where the
+/// command menu's first row starts under the notice's reserved row (`kMenuTopPixels`: the notice's
+/// text height of five 2 px cells, then two pads). The attack list is laid out the same way.
+inline constexpr float kStripPadPixels = 3.0F;
+inline constexpr float kStripNoticeCell = 2.0F;
+inline constexpr float kNoticeTopPixels = kStripBottomPixels + kStripMarginPixels + kStripPadPixels;
+inline constexpr float kMenuTopPixels
+    = kNoticeTopPixels + (5.0F * kStripNoticeCell) + (2.0F * kStripPadPixels);
 
 /// The icon's ink: pale and plain whatever the key's side or selection (the TYPE is shown, not
 /// whose it is), so a frame reading can tell it from the plate's frame and from the ticks.
 inline constexpr std::array<float, 3> kStripIconInk{0.80F, 0.80F, 0.80F};
+
+/// The icon's outline: one cell wide round the lit silhouette, the keycap's own near-black
+/// (`kStripOutline`), so the pale ink reads over bright sky and sand alike.
+inline constexpr std::array<float, 3> kStripIconOutline{0.02F, 0.03F, 0.05F};
 
 } // namespace protekt::game

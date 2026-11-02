@@ -23,6 +23,7 @@
 #include "protekt/game/interaction.hpp"
 #include "protekt/game/kind_icon.hpp"
 #include "protekt/game/pick.hpp"
+#include "protekt/game/radar.hpp"
 #include "protekt/game/row.hpp"
 #include "protekt/game/scene.hpp"
 #include "protekt/input/bindings.hpp"
@@ -678,10 +679,10 @@ struct Px {
 
 constexpr float kMarginPx = 6.0F;
 constexpr float kGapPx = 6.0F;
-constexpr float kSlotPx = 85.0F; ///< (1280 - 12 + 6) / 14 - 6: the 14 slots just fit the frame
-/// The plate ends at 6 + 34 = 40; the icon's reserved 16 px square hangs under it (1 px gap), and
-/// the ticks start 1 px under that.
-constexpr float kTickTopPx = 58.0F;
+constexpr float kSlotPx = 72.0F; ///< the design width: 14 of them and their gaps fit 1280 easily
+/// The plate ends at 6 + 34 = 40; the icon's reserved 72 px square hangs under it (1 px gap), and
+/// the ticks start 1 px under that: 40 + 1 + 72 + 1 = 114.
+constexpr float kTickTopPx = 114.0F;
 constexpr float kTickBottomPx = kTickTopPx + 14.0F;
 constexpr float kTickWidthPx = 4.0F;
 constexpr float kTickPitchPx = 7.0F; ///< 4 wide and 3 apart
@@ -1112,7 +1113,10 @@ TEST(RowDrawing, AnAbsurdGroupFillsTheRowsRoomOfTenAndStops) {
     return right;
 }
 
-TEST(RowDrawing, ANoticeThatReachesUnderAKeyCutsItsRowShortRatherThanBeingOverlapped) {
+TEST(RowDrawing, ANoticeStartsBelowTheWholeStripSoNothingOfTheRowIsEverCovered) {
+    // The strip hangs 128 px now (plate, a 72 px icon, the ticks), so the notice, which used to sit
+    // under the plates, is drawn below the ticks. A long one reaches under the keys by width and
+    // still covers nothing: every tick of the crowd is drawn, none cut, none moved.
     constexpr int kCrowd = 8;
     std::vector<Spawn> crowd;
     crowd.reserve(kCrowd);
@@ -1130,32 +1134,30 @@ TEST(RowDrawing, ANoticeThatReachesUnderAKeyCutsItsRowShortRatherThanBeingOverla
     rig.row.slots.at(group_slot(1)).units = tanks;
     const std::vector<TickRun> clear = tick_runs(row_pixels(rig.sim, rig.options), 4);
     ASSERT_EQ(clear.size(), static_cast<std::size_t>(kCrowd)) << "eight ticks with no notice";
-    // 32 capitals end 394 px from the left, 24 px into F1's key (which starts at 370): it covers
-    // the first four ticks and leaves the rest.
     rig.options.notice = "THIS NOTICE REACHES UNDER KEY F1";
-    const float notice_right = notice_right_px(rig.sim, rig.options);
-    ASSERT_GT(notice_right, slot_left(4)) << "the notice must reach under the key";
-    // The notice is in the row's pixels too (nothing else draws it without a row). Its yellow is
-    // the ramp's own 0.66 anchor, but these tanks are all unhurt, so no tick is yellow here and
-    // the notice can be told from the ticks by colour alone.
+    ASSERT_GT(notice_right_px(rig.sim, rig.options), slot_left(4))
+        << "the notice must reach under the key by width";
     constexpr std::array<float, 3> kNoticeYellow{1.0F, 0.85F, 0.10F};
     std::vector<Px> ticks_only;
+    float notice_top = 1.0e9F;
+    const Scene scene = build_scene(rig.sim, rig.options);
+    for (const SceneVertex& v : scene.vertices) {
+        if (v.colour == kNoticeYellow) {
+            const Projected p = project(rig.options.camera, rig.options.extent, v.position[0],
+                                        v.position[1], v.position[2]);
+            notice_top = std::min(notice_top, p.y);
+        }
+    }
+    EXPECT_GE(notice_top, kStripBottomPixels) << "the notice is under the strip's bottom edge";
     for (const Px& p : row_pixels(rig.sim, rig.options)) {
         if (p.colour != kNoticeYellow) {
             ticks_only.push_back(p);
         }
     }
-    const std::vector<TickRun> cut = tick_runs(ticks_only, 4);
-    ASSERT_FALSE(cut.empty()) << "the row is cut short, not removed";
-    EXPECT_LT(cut.size(), clear.size());
-    for (const TickRun& run : cut) {
-        EXPECT_GE(run.left, notice_right) << "a tick is under the notice's plate";
-    }
-    // The ticks that remain are the ones that were there, in the same places.
-    for (const TickRun& run : cut) {
-        EXPECT_TRUE(std::any_of(clear.begin(), clear.end(), [&run](const TickRun& was) {
-            return std::abs(was.left - run.left) < kEdgeTolerance;
-        })) << "a tick moved to make room";
+    const std::vector<TickRun> after = tick_runs(ticks_only, 4);
+    ASSERT_EQ(after.size(), clear.size()) << "no tick was cut short by the notice";
+    for (std::size_t i = 0; i < clear.size(); ++i) {
+        EXPECT_NEAR(after.at(i).left, clear.at(i).left, kEdgeTolerance) << "a tick moved";
     }
 }
 
@@ -1407,18 +1409,29 @@ TEST(KindIcon, TheThreeBuildingsEachHaveAMaskOfTheirOwn) {
 
 TEST(KindIcon, TheArmoryHasAMissileStandingOnEachSideOfIt) {
     // Harri: "the one with a missile on each side of it". The structure, not the exact pixels: a
-    // pointed nose over a three-wide body in the outer three columns of each side, a clear gap
-    // between each missile and the building, and the whole mask its own mirror.
+    // pointed nose over a body in the outer columns of each side, a clear gap between each missile
+    // and the building, and the whole mask its own mirror.
+    constexpr std::size_t kMissileLeft = 8; // the missile body's columns, [8, 14)
+    constexpr std::size_t kMissileRight = 14;
+    constexpr std::size_t kBuildingLeft = 18; // the bunker starts here: four clear columns between
     const IconMask& mask = armory_icon();
-    EXPECT_EQ(mask.at(1), ".#............#.") << "a pointed nose either side";
-    for (std::size_t row = 2; row < 14; ++row) {
+    const std::string_view nose = mask.at(kIconGround - 54);
+    EXPECT_NE(nose.find('#'), std::string_view::npos) << "a pointed nose well above the bunker";
+    EXPECT_LT(nose.find('#'), kMissileLeft + 4);
+    EXPECT_LT(std::count(nose.begin(), nose.end(), '#'), 8) << "narrow at the tip, two noses";
+    for (std::size_t row = kIconGround - 40; row < kIconGround - 2; ++row) {
         const std::string_view line = mask.at(row);
-        EXPECT_EQ(line.substr(0, 3), "###") << "left missile, row " << row;
-        EXPECT_EQ(line.substr(13, 3), "###") << "right missile, row " << row;
-        EXPECT_EQ(line.at(3), '.') << "a gap between the left missile and the building";
-        EXPECT_EQ(line.at(12), '.') << "a gap between the right missile and the building";
-        if (row >= 3) { // row 2 is the missiles' shoulders alone, above the building's antenna
-            EXPECT_NE(line.substr(4, 8).find('#'), std::string_view::npos)
+        for (std::size_t col = kMissileLeft; col < kMissileRight; ++col) {
+            EXPECT_EQ(line.at(col), '#') << "left missile, row " << row << " col " << col;
+            EXPECT_EQ(line.at(kIconCells - 1 - col), '#') << "right missile, row " << row;
+        }
+        for (std::size_t col = kMissileRight; col < kBuildingLeft; ++col) {
+            EXPECT_EQ(line.at(col), '.') << "a gap between a missile and the building, row " << row;
+            EXPECT_EQ(line.at(kIconCells - 1 - col), '.');
+        }
+        if (row >= kIconGround - 32) {
+            EXPECT_NE(line.substr(kBuildingLeft, kIconCells - (2 * kBuildingLeft)).find('#'),
+                      std::string_view::npos)
                 << "the building between them, row " << row;
         }
     }
@@ -1429,7 +1442,7 @@ TEST(KindIcon, TheArmoryHasAMissileStandingOnEachSideOfIt) {
     }
 }
 
-TEST(KindIcon, EveryMaskIsASixteenSquareOfDotsAndHashesWithSomethingLit) {
+TEST(KindIcon, EveryMaskIsAKIconCellsSquareOfDotsAndHashesWithSomethingLit) {
     for (const IconMask* mask : all_masks()) {
         std::size_t lit = 0;
         for (const std::string_view row : *mask) {
@@ -1437,7 +1450,7 @@ TEST(KindIcon, EveryMaskIsASixteenSquareOfDotsAndHashesWithSomethingLit) {
             EXPECT_EQ(row.find_first_not_of(".#"), std::string_view::npos);
             lit += static_cast<std::size_t>(std::count(row.begin(), row.end(), '#'));
         }
-        EXPECT_GT(lit, 20U) << "a silhouette, not a speck";
+        EXPECT_GT(lit, 600U) << "a silhouette, not a speck";
         EXPECT_LT(lit, kIconCells * kIconCells) << "not a filled square either";
     }
 }
@@ -1445,7 +1458,7 @@ TEST(KindIcon, EveryMaskIsASixteenSquareOfDotsAndHashesWithSomethingLit) {
 TEST(KindIconDrawing, TheIconFillsTheReservedBoxAndTheTicksStartUnderIt) {
     Rig rig = make_rig();
     const std::vector<Px> pixels = row_pixels(rig.sim, rig.options);
-    const IconBox box = key_icon_box(slot_left(4), kMarginPx, 1.0F);
+    const IconBox box = key_icon_box(slot_left(4), kMarginPx, 1.0F, kSlotPx);
     EXPECT_NEAR(box.left, slot_left(4), kEdgeTolerance) << "left-justified on the key";
     EXPECT_GT(box.size, 0.0F);
     EXPECT_NEAR(box.top + box.size + 1.0F, kTickTopPx, kEdgeTolerance)
@@ -1501,9 +1514,72 @@ TEST(KindIconDrawing, TheIconFillsTheReservedBoxAndTheTicksStartUnderIt) {
                                                 float floor) {
     std::vector<Px> out;
     std::copy_if(pixels.begin(), pixels.end(), std::back_inserter(out), [slot, floor](const Px& p) {
-        return slot_at(p.x) == slot && p.y >= floor && p.colour != kStripIconInk && is_fill(p);
+        return slot_at(p.x) == slot && p.y >= floor && p.colour != kStripIconInk
+               && p.colour != kStripIconOutline && is_fill(p);
     });
     return out;
+}
+
+TEST(StripLayout, TheIconIsSeventyTwoPixelsAndFourAndAHalfTimesTheOldSixteen) {
+    // Harri: "I would estimate width and height should be four to five times the current lengths"
+    // of the 16 px icon, and his BZ2 capture shows 65-75 px under a ~65 px keycap.
+    EXPECT_EQ(kIconCells, std::size_t{72});
+    EXPECT_GE(kStripIconPixels / 16.0F, 4.0F);
+    EXPECT_LE(kStripIconPixels / 16.0F, 5.0F);
+    const IconBox box = key_icon_box(slot_left(4), kMarginPx, 1.0F, kSlotPx);
+    EXPECT_FLOAT_EQ(box.size, 72.0F);
+    EXPECT_FLOAT_EQ(box.size, kSlotPx) << "the icon is as wide as the keycap it hangs under";
+    // The plate: 72 x 34, slots 78 apart.
+    EXPECT_FLOAT_EQ(kStripSlotWidthPixels, 72.0F);
+    EXPECT_FLOAT_EQ(kStripSlotHeightPixels, 34.0F);
+    EXPECT_FLOAT_EQ(kStripSlotWidthPixels + kStripSlotGapPixels, 78.0F);
+    EXPECT_FLOAT_EQ(kStripBottomPixels, 128.0F) << "6 + 34 + 1 + 72 + 1 + 14";
+}
+
+TEST(KindIconDrawing, TheIconIsOutlinedInNearBlackAndTheOutlineStaysInsideItsBox) {
+    Rig rig = make_rig();
+    const std::vector<Px> pixels = row_pixels(rig.sim, rig.options);
+    const IconBox box = key_icon_box(slot_left(4), kMarginPx, 1.0F, kSlotPx);
+    std::size_t outline = 0;
+    for (const Px& p : pixels) {
+        if (slot_at(p.x) != 4 || p.y < box.top - 0.01F || p.colour != kStripIconOutline) {
+            continue;
+        }
+        ++outline;
+        EXPECT_GE(p.x, box.left - kEdgeTolerance);
+        EXPECT_LE(p.x, box.left + box.size + kEdgeTolerance);
+        EXPECT_LE(p.y, box.top + box.size + kEdgeTolerance);
+    }
+    EXPECT_GT(outline, std::size_t{100}) << "an outline round a silhouette, not a speck";
+    // It is a ring round the ink, never on it: the lit cells and the outline cells are disjoint.
+    const std::size_t ink = icon_pixels(pixels, 4).size() / 6U;
+    EXPECT_GT(ink, std::size_t{20}) << "the ink is drawn too";
+}
+
+TEST(StripLayout, ANarrowFrameNarrowsTheKeyAndTheIconNeverSpillsOutOfIt) {
+    // 14 keys of 72 and their gaps need 1098 px; at 960 wide the keys narrow, and the icon with
+    // them.
+    const float slot = (960.0F - 12.0F + 6.0F) / 14.0F - 6.0F;
+    ASSERT_LT(slot, kStripSlotWidthPixels);
+    const IconBox box = key_icon_box(6.0F, 6.0F, 1.0F, slot);
+    EXPECT_FLOAT_EQ(box.size, slot);
+    EXPECT_LE(box.left + box.size, 6.0F + slot + 0.001F);
+}
+
+TEST(StripLayout, TheWholeStripAndTheRowsUnderItStayClearOfTheRadarAndTheLedger) {
+    // The radar is bottom-left, the strip top-left: at 720 the strip ends at 128 and its notice
+    // row under it at ~150, so the corner has hundreds of pixels of room. Measured against the
+    // radar's real panel, not a fraction.
+    Rig rig = make_rig();
+    const RadarPanel panel = radar_panel(rig.options.extent);
+    const float scale = static_cast<float>(rig.options.extent.height) / 720.0F;
+    EXPECT_GT(panel.y, (kMenuTopPixels + 250.0F) * scale)
+        << "room for the strip, the notice and the tallest menu above the radar's top edge";
+    const std::vector<Px> pixels = row_pixels(rig.sim, rig.options);
+    for (const Px& p : pixels) {
+        EXPECT_LE(p.y, kStripBottomPixels * scale + kEdgeTolerance)
+            << "the row is above its bottom";
+    }
 }
 
 TEST(KindIconDrawing,
@@ -1572,7 +1648,7 @@ TEST(KindIconDrawing,
 TEST(KeycapDrawing, TheBevelTheFaceAndTheOutlineAreThreeDifferentThingsOnTheDrawnPlate) {
     Rig rig = make_rig();
     const std::vector<Px> pixels = row_pixels(rig.sim, rig.options);
-    const IconBox box = key_icon_box(slot_left(4), kMarginPx, 1.0F);
+    const IconBox box = key_icon_box(slot_left(4), kMarginPx, 1.0F, kSlotPx);
     // The plate is what the slot draws above the icon's box.
     std::vector<Px> plate;
     std::copy_if(pixels.begin(), pixels.end(), std::back_inserter(plate),
@@ -1727,7 +1803,8 @@ constexpr std::array<float, 3> kFrameInk{0.95F, 0.95F, 0.95F};
 
 [[nodiscard]] DrawnPlate drawn_plate(const std::vector<Px>& pixels, int slot) {
     DrawnPlate plate;
-    const IconBox box = key_icon_box(slot_left(static_cast<std::size_t>(slot)), kMarginPx, 1.0F);
+    const IconBox box
+        = key_icon_box(slot_left(static_cast<std::size_t>(slot)), kMarginPx, 1.0F, kSlotPx);
     for (const Px& p : pixels) {
         if (slot_at(p.x) == slot && p.y < box.top - 0.01F) {
             plate.left = std::min(plate.left, p.x);
@@ -1907,12 +1984,16 @@ TEST(PlateContent, TheBuildingKeysDrawTheirOwnMasksUnderTheirLabels) {
         EXPECT_EQ(icon_pixels(pixels, slot).size(), mask_runs(*mask) * 6U)
             << "key " << slot << " draws its building's own silhouette";
         const IconBox box
-            = key_icon_box(slot_left(static_cast<std::size_t>(slot)), kMarginPx, 1.0F);
+            = key_icon_box(slot_left(static_cast<std::size_t>(slot)), kMarginPx, 1.0F, kSlotPx);
         float lowest = -1.0e9F;
         for (const Px& p : icon_pixels(pixels, slot)) {
             lowest = std::max(lowest, p.y);
         }
-        EXPECT_NEAR(lowest, box.top + box.size, kEdgeTolerance) << "standing on the box's floor";
+        // The ink stands one cell above the box's floor and its outline is that cell: the icon,
+        // outline included, stands on the floor.
+        const float outline_cell = box.size / static_cast<float>(kIconCells);
+        EXPECT_NEAR(lowest + outline_cell, box.top + box.size, kEdgeTolerance)
+            << "standing on the box's floor";
         const std::vector<TickRun> ticks = tick_runs(pixels, slot);
         ASSERT_EQ(ticks.size(), 1U) << "a building is one thing: one tick";
         EXPECT_NEAR(ticks.front().top, kTickTopPx, kEdgeTolerance);
