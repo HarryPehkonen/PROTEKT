@@ -160,8 +160,7 @@ speed), the **APC** (the fastest ground vehicle; it carries no troops yet, so it
 the **bomber** (a wide, flat hull that is an aircraft that drops the mortar's splash shell, 14 tiles, with the mortar's own muzzle speed and fixed-speed lob -- Harri: "The flying bomber just drops the mortar") and the **MSL
 Scout** (the scout's hull carrying the rocket tank's rocket; a vehicle of its own, not the Scout
 at a second price). Every number here is a first proposal, **provisional** until it has been
-played, and the new machines are placeholder shapes. The **scavenger** now has the tank's hull,
-100 hp (it was 60) -- 25 scout shots to kill instead of 15 -- because a hauler should take a
+played, and the new machines are placeholder shapes. The **scavenger** has 100 hp (it was 60) -- 25 scout shots to kill instead of 15 -- because a hauler should take a
 beating.
 
 **Names follow the faction, never the side.** A Scavenger and a Harvester are the same machine:
@@ -181,8 +180,24 @@ role is done: the alien **harvester**, the Scavenger kind drawn for an alien uni
 carapace on six legs that rises to its high point behind the head, a tapered proboscis dragging
 behind it, and a crest of the side's colour down the spine, all built from ten-cornered swept rings
 (`emit_loft`) rather than boxes. It is 5.5 m long and 2.3 m across, against the human hauler's 2.6 by
-1.2. The human Scavenger is drawn exactly as before. Every other kind is still the human kit for
-both factions. The shape is mine to propose and Harri's to judge by looking.
+1.2. The human Scavenger is no longer the tank's hull: it is the first kind built from ONE SHAPE
+(below). Every other kind is still hand-built, one mesh recipe in `scene.cpp` and one icon recipe
+in `kind_icon.cpp` that nothing keeps in step. The shape is mine to propose and Harri's to judge by
+looking.
+
+**One shape for a kind: the scavenger's model and its icon come from the same description.**
+Harri: "If the vehicles and buildings actually looked like [the icons]". Rather than modelling a mesh to
+match a drawing, the scavenger's silhouette is written ONCE, in `src/game/scavenger_shape.cpp`
+(`author()`; the types are in `game/scavenger_shape.hpp`): a list of convex side-on profiles in
+metres, each with a lateral extent, a bevel and a role, in paint order. The world mesh
+(`build_scavenger`) extrudes each part across its width with a chamfer; the 72 px plate under the
+command row (`draw_scavenger`, fitted to the box by length) is `scavenger_covers` sampled per cell --
+the same parts seen side-on, with the window and the wheels' rings cut. Neither holds a number about
+what the machine looks like, so they cannot disagree. The machine is 3.13 m long, 1.24 m wide and
+1.79 m tall: two tracked pods with five road wheels, an open-topped hopper heaped with scrap, a
+cabover with wrapped glass, a stack, and a twin-armed boom that kinks at an elbow into a pincer. The
+harvester (the same kind drawn for an alien faction) keeps its own organic mesh, so only the human
+look and the shared plate come from this shape. No other kind uses it yet.
 
 ### The health ticks and the ship instrument
 

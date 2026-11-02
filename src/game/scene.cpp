@@ -8,6 +8,7 @@
 #include "protekt/game/pick.hpp"
 #include "protekt/game/radar.hpp"
 #include "protekt/game/row.hpp"
+#include "protekt/game/scavenger_shape.hpp"
 #include "protekt/game/site_ground.hpp"
 #include "protekt/game/store_gauge.hpp"
 #include "protekt/game/weapon.hpp"
@@ -775,14 +776,119 @@ void build_facing_tank(std::vector<SceneVertex>& out, std::uint64_t seed, const 
                    turret_y0 + ((kTankBarrelBottom + kTankBarrelTop) * 0.5F), pitch);
 }
 
-/// THE SCAVENGER (C2), the HUMAN hauler (the alien one is `build_harvester`). It is built on the
-/// TANK's own hull -- tracks, compartment, fenders, engine deck -- with the turret ring left empty
-/// and a low sloped cab where the turret would sit: an unarmed hauler has no gun to show, and a
-/// hull cut down from the tank is what it is. It is turned by `heading` alone; there is nothing on
-/// it that aims. The cab and deck wear the team's camo (the fleet's tiles, as a tank does) and the
-/// cab's roof panel the plain turret metal, so the colour language stays the army's. A PLACEHOLDER
-/// look: the kind's own machine is a later slice, and this one exists so that a new kind is not an
-/// invisible one.
+/// The miter inset of a counter-clockwise convex `profile`: every edge moved `by` metres inward,
+/// the corners meeting where the moved edges do. It is the face of a chamfered part, smaller than
+/// the section behind it.
+std::vector<std::array<float, 2>> inset_profile(const std::vector<std::array<float, 2>>& profile,
+                                                float by) {
+    const std::size_t n = profile.size();
+    std::vector<std::array<float, 2>> moved;
+    moved.reserve(n);
+    for (std::size_t i = 0; i < n; ++i) {
+        const auto& before = profile.at((i + n - 1) % n);
+        const auto& here = profile.at(i);
+        const auto& after = profile.at((i + 1) % n);
+        const auto direction
+            = [](const std::array<float, 2>& from, const std::array<float, 2>& to) {
+                  const float dx = to[0] - from[0];
+                  const float dy = to[1] - from[1];
+                  const float length = std::hypot(dx, dy);
+                  return std::array<float, 2>{dx / length, dy / length};
+              };
+        const std::array<float, 2> in = direction(before, here);
+        const std::array<float, 2> out_of = direction(here, after);
+        // Inward is to the left of a counter-clockwise edge.
+        const std::array<float, 2> n1{-in[1], in[0]};
+        const std::array<float, 2> n2{-out_of[1], out_of[0]};
+        const float scale = by / (1.0F + (n1[0] * n2[0]) + (n1[1] * n2[1]));
+        moved.push_back({here[0] + ((n1[0] + n2[0]) * scale), here[1] + ((n1[1] + n2[1]) * scale)});
+    }
+    return moved;
+}
+
+/// One `ShapePart` swept across `[lo, hi]`, chamfered: the profile at full size from `lo + bevel`
+/// to `hi - bevel`, drawn in to its inset at the two outer faces, so the flanks and the top and
+/// bottom edges slope instead of meeting at a square corner. Each quad is shaded by its own world
+/// normal, flipped to point away from the part's centre (the part is convex), and the two faces are
+/// flat fans. A part with no bevel is a plain extrusion. Built in the unit's frame -- `across` over
+/// the heading, `up` over the ground -- then turned by `heading` about (x, z).
+void emit_shape_prism(std::vector<SceneVertex>& out, float x, float z, float ground, float heading,
+                      const ShapePart& part, float lo, float hi, const Vec3& colour,
+                      const UvRect& tile) {
+    struct Section {
+        std::vector<std::array<float, 2>> profile;
+        float across;
+    };
+    std::vector<Section> sections;
+    if (part.bevel > 0.0F) {
+        const std::vector<std::array<float, 2>> face = inset_profile(part.profile, part.bevel);
+        sections = {{face, lo},
+                    {part.profile, lo + part.bevel},
+                    {part.profile, hi - part.bevel},
+                    {face, hi}};
+    } else {
+        sections = {{part.profile, lo}, {part.profile, hi}};
+    }
+    std::vector<std::vector<Vec3>> rings;
+    Vec3 centre{0.0F, 0.0F, 0.0F};
+    std::size_t points = 0;
+    for (const Section& section : sections) {
+        std::vector<Vec3>& ring = rings.emplace_back();
+        for (const auto& corner : section.profile) {
+            const std::array<float, 2> at = rotate_offset(x, z, section.across, corner[0], heading);
+            ring.push_back(Vec3{at.at(0), ground + corner[1], at.at(1)});
+            for (std::size_t axis = 0; axis < 3; ++axis) {
+                centre.at(axis) += ring.back().at(axis);
+            }
+            ++points;
+        }
+    }
+    for (float& axis : centre) {
+        axis /= static_cast<float>(points);
+    }
+    const auto shaded = [&](const Vec3& a, const Vec3& b, const Vec3& c) {
+        const Vec3 ab{b[0] - a[0], b[1] - a[1], b[2] - a[2]};
+        const Vec3 ac{c[0] - a[0], c[1] - a[1], c[2] - a[2]};
+        Vec3 normal = normalise(cross(ab, ac));
+        if (dot(normal, Vec3{a[0] - centre[0], a[1] - centre[1], a[2] - centre[2]}) < 0.0F) {
+            normal = {-normal[0], -normal[1], -normal[2]};
+        }
+        const float light = face_light(normal);
+        return Vec3{colour[0] * light, colour[1] * light, colour[2] * light};
+    };
+    for (std::size_t i = 0; i + 1 < rings.size(); ++i) {
+        const std::size_t n = rings.at(i).size();
+        for (std::size_t corner = 0; corner < n; ++corner) {
+            const std::size_t next = (corner + 1) % n;
+            const Vec3& a = rings.at(i).at(corner);
+            const Vec3& b = rings.at(i).at(next);
+            const Vec3& c = rings.at(i + 1).at(next);
+            const Vec3& d = rings.at(i + 1).at(corner);
+            emit_tiled_quad(out, a, b, c, d, shaded(a, b, c), tile);
+        }
+    }
+    const float mid_u = (tile.u0 + tile.u1) * 0.5F;
+    const float mid_v = (tile.v0 + tile.v1) * 0.5F;
+    for (const std::vector<Vec3>& ring : {rings.front(), rings.back()}) {
+        for (std::size_t corner = 1; corner + 1 < ring.size(); ++corner) {
+            const Vec3 ink = shaded(ring.at(0), ring.at(corner), ring.at(corner + 1));
+            for (const Vec3* p : {&ring.at(0), &ring.at(corner), &ring.at(corner + 1)}) {
+                out.push_back(SceneVertex{*p, ink, 1.0F, mid_u, mid_v});
+            }
+        }
+    }
+}
+
+/// THE SCAVENGER (C2), the HUMAN hauler (the alien one is `build_harvester`). Built from
+/// `scavenger_shape()` and from nothing else: this function holds no number about what the machine
+/// looks like, and the 72 px plate under the command row is the same parts seen side-on, so the two
+/// cannot disagree. Every part is `emit_shape_prism`'d in the shape's paint order, in the colour
+/// and tile its role asks for, and a mirrored part is built twice, once each side of the
+/// centreline. It is turned by `heading` alone; nothing on it aims. A role is a tone and a tile, no
+/// more: Hull wears the team's camo in its pale tint as a tank's armour does, Track the side colour
+/// on the dark link tile, Metal the pale tint on the plain turret metal, Load a darkened camo for
+/// rough scrap, and Glass is the dark inlay of a CUT -- proud of the flank by a centimetre, which
+/// is how a window or a wheel's ring shows on a solid.
 void build_scavenger(std::vector<SceneVertex>& out, std::uint64_t seed, const sim::Unit& unit,
                      Mark mark, float lift_z, bool lifted, float heading) {
     const float x
@@ -796,12 +902,8 @@ void build_scavenger(std::vector<SceneVertex>& out, std::uint64_t seed, const si
                          .at(static_cast<std::size_t>(hull_variant(seed, unit.id.value))));
     const UvRect tracks_tile = atlas.rect("tank_tracks");
     const UvRect panel_tile = atlas.rect("tank_turret");
-    constexpr float kCabBase = 0.75F; ///< above the ground: the deck it stands on
-    constexpr float kCabFront = 0.1F; ///< along the hull from its centre
-    constexpr float kCabBack = -0.5F;
-    constexpr float kCabHalfAcross = 0.28F;
-    constexpr float kCabRoof = kCabBase + 0.3F;
-    constexpr float kRoofThickness = 0.03F;
+    constexpr float kLoadTone = 0.55F;
+    constexpr float kGlassTone = 0.25F;
 
     Vec3 colour = side_colour(unit.side);
     if (mark == Mark::Selected) {
@@ -813,12 +915,37 @@ void build_scavenger(std::vector<SceneVertex>& out, std::uint64_t seed, const si
     for (float& channel : camo_colour) {
         channel += (1.0F - channel) * kHullPaleMix;
     }
+    const auto scaled
+        = [](const Vec3& c, float by) { return Vec3{c[0] * by, c[1] * by, c[2] * by}; };
 
-    emit_tank_hull(out, x, z, ground, heading, colour, camo_colour, hull_tile, tracks_tile);
-    emit_turned_box(out, x, z, heading, kCabHalfAcross, kCabBack, kCabFront, ground + kCabBase,
-                    ground + kCabRoof, camo_colour, hull_tile);
-    emit_turned_box(out, x, z, heading, kCabHalfAcross, kCabBack, kCabFront, ground + kCabRoof,
-                    ground + kCabRoof + kRoofThickness, colour, panel_tile);
+    for (const ShapePart& part : scavenger_shape()) {
+        Vec3 ink = camo_colour;
+        UvRect tile = hull_tile;
+        switch (part.role) {
+        case ShapeRole::Hull:
+            break;
+        case ShapeRole::Track:
+            ink = colour;
+            tile = tracks_tile;
+            break;
+        case ShapeRole::Metal:
+            tile = panel_tile;
+            break;
+        case ShapeRole::Load:
+            ink = scaled(camo_colour, kLoadTone);
+            break;
+        case ShapeRole::Glass:
+            ink = scaled(colour, kGlassTone);
+            tile = tracks_tile;
+            break;
+        }
+        emit_shape_prism(out, x, z, ground, heading, part, part.across_lo, part.across_hi, ink,
+                         tile);
+        if (part.mirrored) {
+            emit_shape_prism(out, x, z, ground, heading, part, -part.across_hi, -part.across_lo,
+                             ink, tile);
+        }
+    }
 }
 
 /// One ring of a `emit_loft`: where it is in the unit's frame (`x` across, `y` over the ground, `z`

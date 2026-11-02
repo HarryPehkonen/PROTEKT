@@ -4,6 +4,8 @@
 #include <string>
 #include <vector>
 
+#include "protekt/game/scavenger_shape.hpp"
+
 namespace protekt::game {
 
 namespace {
@@ -53,6 +55,10 @@ public:
             return inside;
         });
     }
+
+    /// Lights every cell whose centre `inside` says is in the silhouette (same cell units, same
+    /// drop as the shapes above): how a kind whose shape is written elsewhere puts it on the plate.
+    template <typename Inside> void fill(const Inside& inside) { paint(true, inside); }
 
     /// Copies the left half onto the right, mirrored: for a silhouette that is its own reflection.
     void mirror_left_onto_right() {
@@ -273,17 +279,18 @@ void draw_bomber(Canvas& c) {
     c.poly({{26, 59}, {20, 56}, {20, 64}}); // its fins
 }
 
-/// A scavenger: the hauler -- a track run, a loaded bed, a cab with a window, and a boom arm
-/// reaching forward over the cab to a pincer that closes on scrap.
+/// A scavenger: NOT drawn here. Its shape is `scavenger_shape()`, written once and shared with the
+/// world mesh; this plate is that shape seen side-on, fitted to the box with a one-cell margin
+/// either side and its tracks on the ground line. Nothing about what the machine looks like is
+/// written in this function.
 void draw_scavenger(Canvas& c) {
-    track(c, 6, 62, 14, 5);
-    c.box(8, 38, 40, 52);                                       // the bed
-    c.box(11, 40, 37, 46, false);                               // its load, hollow
-    c.poly({{40, 52}, {40, 30}, {50, 26}, {58, 30}, {58, 52}}); // the cab
-    c.box(44, 31, 55, 38, false);                               // its glass
-    c.poly({{46, 26}, {50, 24}, {64, 40}, {60, 44}});           // the boom
-    c.poly({{60, 42}, {70, 36}, {71, 41}, {66, 46}});           // the upper claw
-    c.poly({{62, 47}, {71, 47}, {71, 53}, {64, 54}});           // the lower claw
+    const ShapeExtent extent = scavenger_extent();
+    constexpr float kMargin = 1.0F;
+    const float scale = (static_cast<float>(kIconCells) - (2.0F * kMargin))
+                        / (extent.along_max - extent.along_min); // cells per metre
+    c.fill([&](float x, float y) {
+        return scavenger_covers(extent.along_min + ((x - kMargin) / scale), (kGround - y) / scale);
+    });
 }
 
 /// The recycler on its tracks: a broad body on a long track run, two stacks, a cab at the front

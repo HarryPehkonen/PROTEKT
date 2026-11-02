@@ -27,15 +27,17 @@ using sim::UnitKind;
 constexpr std::uint64_t kSeed = 42;
 constexpr int kTile = 60;
 
-/// The human Scavenger's drawn vertices (its shadow and its body) as they were BEFORE the harvester
-/// existed, read off the build that preceded this slice: the count, and an FNV-1a hash over every
-/// float of every vertex (position, colour, alpha, uv) by its bits. A human mesh that moves moves
-/// this.
-constexpr std::size_t kHumanScavengerVertices = 330;
+/// The human Scavenger's drawn vertices (its shadow and its body): the count, and an FNV-1a hash
+/// over every float of every vertex (position, colour, alpha, uv) by its bits. Since the shape
+/// slice the body is built from `scavenger_shape()` (the one description its plate is also
+/// projected from) and not from the tank's hull: 3594 vertices where the tank-hull hauler had 330,
+/// the extra being the chamfered parts and the wheels. A human mesh that moves moves this; the
+/// shape's own size is pinned in test_scavenger_shape.cpp.
+constexpr std::size_t kHumanScavengerVertices = 3594;
 /// The alien harvester's, read off its first build: the shadow (6) and its ten-cornered carapace,
 /// proboscis, crest and six legs. Anti-vacuity's other half: a collapsed shape changes this.
 constexpr std::size_t kAlienHarvesterVertices = 1362;
-constexpr std::uint64_t kHumanScavengerHash = 15785359456797730901ULL;
+constexpr std::uint64_t kHumanScavengerHash = 11065493855963779442ULL;
 
 /// The vertices a lone unit adds to a frame: what is left between the terrain and sky both frames
 /// share before it, and the HUD both share after it. That is its shadow and its body.
@@ -111,7 +113,7 @@ constexpr std::uint64_t kHumanScavengerHash = 15785359456797730901ULL;
 constexpr Factions kHumanPlays{Faction::Human, Faction::Human};
 constexpr Factions kAlienPlays{Faction::Alien, Faction::Alien};
 
-TEST(FactionLook, TheHumanScavengerIsExactlyWhatItWasBeforeTheHarvesterExisted) {
+TEST(FactionLook, TheHumanScavengerIsTheSharedShapeBuilt) {
     const std::vector<SceneVertex> human = drawn(UnitKind::Scavenger, Side::Player, kHumanPlays);
     EXPECT_EQ(human.size(), kHumanScavengerVertices);
     EXPECT_EQ(hash_of(human), kHumanScavengerHash);
@@ -135,7 +137,7 @@ TEST(FactionLook, TheSameKindIsDrawnDifferentlyForAHumanAndAnAlien) {
         moved += human.at(i).position == alien.at(i).position ? 0U : 1U;
     }
     EXPECT_GT(moved * 10U, shared * 9U) << moved << " of " << shared << " vertices moved";
-    // The harvester's own count: 6 shadow vertices and 1356 body, against the hauler's 330 in all.
+    // The harvester's own count: 6 shadow vertices and 1356 body, against the hauler's 3594 in all.
     EXPECT_EQ(alien.size(), kAlienHarvesterVertices);
     EXPECT_EQ(human.size(), kHumanScavengerVertices);
 }
