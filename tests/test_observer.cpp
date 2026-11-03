@@ -362,7 +362,11 @@ TEST(Observer, RenamingTheSupportVehiclesMovedNoRecordedBattle) {
     ai::ScriptedCommander player(30);
     ai::ScriptedCommander enemy(30);
     const BattleLog log = run_battle(scenario, {}, 600, &player, &enemy);
-    EXPECT_EQ(log.final_hash, 3416926680840922879ULL);
+    // RE-RECORDED 2026-11-03 for the shove (a vehicle is pushed aside, not driven through): the
+    // skirmish's columns meet and jostle, so positions and the battle change. Old value
+    // 3416926680840922879 is the code at 5cf57ed; no constant restores it, because the behaviour
+    // itself changed.
+    EXPECT_EQ(log.final_hash, 16363647735023481582ULL);
 }
 
 TEST(Observer, TheFiredStreamForAScriptedBattleIsUnchanged) {
@@ -397,25 +401,29 @@ TEST(Observer, TheFiredStreamForAScriptedBattleIsUnchanged) {
     // exactly that map and then checked row by row against the run: 70 of 70 rows match, so this
     // is the SAME battle with shifted ids -- the unarmed scavenger neither fires nor is hit in
     // these 600 ticks -- and no golden was thrown away.
+    // RE-RECORDED 2026-11-03 for the shove: a vehicle can no longer be driven through another, it
+    // is pushed aside at the pusher's half speed, so units meeting on the way to the fight arrive
+    // at different ticks. The first five shots (ticks 438-453) are unchanged; from the sixth the
+    // battle is a different one, and it has 71 shots (was 70). Old stream: the code at 5cf57ed.
     static const std::vector<Expected> kExpected = {
         {438, 2, 13, 100}, {438, 13, 2, 100}, {451, 12, 2, 100}, {453, 2, 12, 100},
-        {453, 13, 2, 100}, {454, 15, 2, 100}, {459, 3, 13, 84},  {465, 1, 13, 84},
-        {466, 12, 2, 84},  {468, 2, 12, 84},  {468, 13, 2, 84},  {469, 15, 2, 84},
-        {471, 4, 13, 84},  {474, 3, 12, 68},  {480, 1, 12, 68},  {481, 12, 1, 100},
-        {483, 2, 12, 68},  {483, 13, 1, 100}, {484, 15, 1, 100}, {486, 4, 12, 52},
-        {486, 14, 1, 100}, {489, 3, 12, 52},  {495, 1, 12, 52},  {496, 12, 1, 100},
-        {498, 2, 12, 52},  {498, 13, 1, 100}, {499, 15, 1, 100}, {501, 4, 12, 36},
-        {501, 14, 1, 100}, {504, 3, 12, 36},  {510, 1, 12, 36},  {511, 12, 1, 100},
-        {513, 2, 12, 36},  {513, 13, 1, 100}, {514, 15, 1, 100}, {515, 9, 13, 60},
-        {516, 4, 12, 20},  {516, 14, 1, 100}, {519, 3, 12, 20},  {525, 1, 12, 20},
-        {526, 12, 1, 100}, {528, 2, 12, 20},  {528, 13, 1, 100}, {529, 15, 1, 100},
-        {531, 4, 12, 4},   {531, 14, 1, 100}, {540, 1, 12, 4},   {541, 12, 1, 100},
-        {543, 2, 12, 4},   {543, 13, 1, 100}, {544, 15, 1, 100}, {546, 4, 13, 44},
-        {546, 14, 1, 100}, {555, 1, 13, 36},  {558, 2, 13, 36},  {558, 13, 1, 100},
-        {559, 15, 1, 100}, {561, 4, 13, 36},  {561, 14, 1, 100}, {570, 1, 13, 28},
-        {573, 2, 13, 28},  {573, 13, 1, 100}, {574, 15, 1, 100}, {576, 14, 1, 100},
-        {585, 1, 13, 20},  {588, 2, 13, 20},  {588, 13, 1, 100}, {589, 15, 1, 100},
-        {590, 9, 13, 20},  {591, 14, 1, 100},
+        {453, 13, 2, 100}, {458, 3, 13, 84},  {460, 15, 2, 84},  {466, 1, 13, 84},
+        {466, 12, 2, 84},  {468, 2, 12, 92},  {468, 13, 2, 84},  {472, 4, 13, 84},
+        {473, 3, 12, 92},  {475, 15, 2, 68},  {481, 1, 13, 84},  {481, 12, 2, 68},
+        {483, 2, 13, 76},  {483, 13, 2, 68},  {487, 4, 13, 76},  {487, 14, 2, 60},
+        {488, 3, 13, 76},  {490, 15, 2, 44},  {496, 1, 13, 68},  {496, 12, 2, 44},
+        {498, 2, 13, 68},  {498, 13, 2, 44},  {502, 4, 13, 68},  {502, 14, 2, 44},
+        {503, 3, 13, 60},  {505, 15, 2, 28},  {511, 1, 13, 60},  {511, 12, 2, 28},
+        {513, 2, 13, 60},  {513, 13, 2, 28},  {514, 9, 13, 60},  {517, 4, 13, 60},
+        {517, 14, 2, 28},  {518, 3, 13, 52},  {520, 15, 2, 12},  {526, 1, 13, 52},
+        {526, 12, 2, 12},  {528, 2, 13, 52},  {528, 13, 2, 12},  {532, 4, 13, 52},
+        {532, 14, 2, 12},  {533, 3, 13, 44},  {535, 15, 3, 20},  {541, 1, 13, 44},
+        {541, 12, 3, 20},  {543, 13, 3, 20},  {547, 4, 13, 44},  {547, 14, 3, 20},
+        {548, 3, 13, 36},  {550, 15, 3, 4},   {556, 1, 13, 28},  {556, 12, 3, 4},
+        {558, 13, 3, 4},   {562, 4, 13, 28},  {562, 14, 3, 4},   {565, 15, 1, 100},
+        {571, 1, 13, 4},   {571, 12, 1, 100}, {573, 13, 1, 100}, {577, 4, 12, 28},
+        {577, 14, 1, 100}, {580, 15, 1, 100}, {586, 1, 12, 20},  {586, 12, 1, 100},
+        {589, 9, 12, 20},  {592, 4, 12, 20},  {592, 14, 1, 100},
     };
     const Scenario scenario = skirmish(42);
     ai::ScriptedCommander player(30);

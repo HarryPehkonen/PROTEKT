@@ -1228,10 +1228,91 @@ void steer(std::vector<Unit>& units, Unit& unit, const UnitProfile& prof, const 
     return false;
 }
 
+/// The vehicle a step would run into, or null: the first living MOBILE unit (by id) that the step
+/// brings inside `kBodyRadiusRaw` of `unit` AND closer than it was, so two vehicles already
+/// overlapping can always drive apart. A building is not a vehicle -- the ground already refuses
+/// it -- and a unit in the middle of deploying is a site, not a body: it is not moved.
+[[nodiscard]] Unit* vehicle_in_the_way(std::vector<Unit>& units, const Unit& unit, std::int64_t dx,
+                                       std::int64_t dy) noexcept {
+    constexpr std::int64_t kRadius = kBodyRadiusRaw;
+    for (Unit& other : units) {
+        if (!other.alive || other.id == unit.id || other.deploy_ticks != 0
+            || !profile(other.kind).mobile) {
+            continue;
+        }
+        const std::int64_t ox = other.x.raw - unit.x.raw;
+        const std::int64_t oy = other.y.raw - unit.y.raw;
+        const std::int64_t before = (ox * ox) + (oy * oy);
+        const std::int64_t after = ((ox - dx) * (ox - dx)) + ((oy - dy) * (oy - dy));
+        if (after < kRadius * kRadius && after < before) {
+            return &other;
+        }
+    }
+    return nullptr;
+}
+
+/// Whether a vehicle may be carried to (x, y): on the map and onto ground it can enter.
+[[nodiscard]] bool can_stand(const WorldGround& ground, std::int64_t x, std::int64_t y) noexcept {
+    if (x < 0 || y < 0 || x > kMaxPosRaw || y > kMaxPosRaw) {
+        return false;
+    }
+    const Fixed fx = Fixed::from_raw(static_cast<std::int32_t>(x));
+    const Fixed fy = Fixed::from_raw(static_cast<std::int32_t>(y));
+    return ground.factor(fx.floor_int(), fy.floor_int()) != 0;
+}
+
+/// THE SHOVE. `step` is where `unit` is about to go. If that runs it into another vehicle, the
+/// unit goes at `kShoveSpeedNumerator/kShoveSpeedDenominator` of the step and the vehicle is
+/// carried the same distance, with half as much again to the side it already lies on so a head-on
+/// pair slides past instead of cancelling out. Never a wall, three ways over:
+///   * a vehicle that cannot be carried (the map's edge, a crater, a building) is simply driven
+///     through, at the same reduced speed;
+///   * a unit that has shoved for `kShoveYieldTicks` in a row stops colliding until it has been
+///     clear of every vehicle for one tick;
+///   * nothing is ever refused, so the step always lands.
+/// `step` is rewritten to the step to take. Only the pusher moves a vehicle -- a shoved vehicle
+/// does not shove in turn, so a convoy is not a chain reaction.
+void shove_step(std::vector<Unit>& units, const WorldGround& ground, Unit& unit,
+                Step& step) noexcept {
+    Unit* other = vehicle_in_the_way(units, unit, step.dx, step.dy);
+    if (other == nullptr) {
+        unit.shove_ticks = 0;
+        return;
+    }
+    if (unit.shove_ticks >= kShoveYieldTicks) {
+        return; // yielding: through, at full speed, until clear
+    }
+    ++unit.shove_ticks;
+    step.dx = step.dx * kShoveSpeedNumerator / kShoveSpeedDenominator;
+    step.dy = step.dy * kShoveSpeedNumerator / kShoveSpeedDenominator;
+    if (!can_stand(ground, unit.x.raw + step.dx, unit.y.raw + step.dy)) {
+        step = Step{}; // the thinner step is not enterable; stand this tick, the next differs
+        return;
+    }
+    // Which side the vehicle lies on, from the cross product of the step and the offset to it;
+    // dead ahead (zero) is settled by id, which both vehicles agree on.
+    const std::int64_t cross
+        = (step.dx * (other->y.raw - unit.y.raw)) - (step.dy * (other->x.raw - unit.x.raw));
+    const std::int64_t side = cross > 0 ? 1 : (cross < 0 ? -1 : (unit.id < other->id ? 1 : -1));
+    const std::int64_t lx = -step.dy * side / 2;
+    const std::int64_t ly = step.dx * side / 2;
+    const std::array<Step, 3> carry{Step{step.dx + lx, step.dy + ly}, step, Step{lx, ly}};
+    for (const Step& c : carry) {
+        if (can_stand(ground, other->x.raw + c.dx, other->y.raw + c.dy)) {
+            other->x = Fixed::from_raw(static_cast<std::int32_t>(other->x.raw + c.dx));
+            other->y = Fixed::from_raw(static_cast<std::int32_t>(other->y.raw + c.dy));
+            other->still_ticks = 0; // carried: a turret is unmounted
+            return;
+        }
+    }
+}
+
 // Moves a unit by the step `plan_step` chose: straight on where it can, along a rim where it must,
 // and around an obstacle it cannot pass. The choice itself lives in sim/steering.hpp, which is the
-// seam a planned route will plug into.
-void move(const WorldGround& ground, const UnitProfile& prof, Unit& unit) noexcept {
+// seam a planned route will plug into. Another vehicle in the way is shoved, not walked through
+// (`shove_step`).
+void move(std::vector<Unit>& units, const WorldGround& ground, const UnitProfile& prof,
+          Unit& unit) noexcept {
     if (unit.vx.raw == 0 && unit.vy.raw == 0) {
         return;
     }
@@ -1250,10 +1331,12 @@ void move(const WorldGround& ground, const UnitProfile& prof, Unit& unit) noexce
         unit.vy = Fixed::zero();
         return;
     }
-    unit.x = Fixed::from_raw(static_cast<std::int32_t>(
-        std::clamp<std::int64_t>(unit.x.raw + plan.step.dx, 0, kMaxPosRaw)));
-    unit.y = Fixed::from_raw(static_cast<std::int32_t>(
-        std::clamp<std::int64_t>(unit.y.raw + plan.step.dy, 0, kMaxPosRaw)));
+    Step step = plan.step;
+    shove_step(units, ground, unit, step);
+    unit.x = Fixed::from_raw(
+        static_cast<std::int32_t>(std::clamp<std::int64_t>(unit.x.raw + step.dx, 0, kMaxPosRaw)));
+    unit.y = Fixed::from_raw(
+        static_cast<std::int32_t>(std::clamp<std::int64_t>(unit.y.raw + step.dy, 0, kMaxPosRaw)));
     unit.still_ticks = 0; // moved: a turret is unmounted
 }
 
@@ -1393,7 +1476,7 @@ void Sim::step() {
         if (unit.kind == UnitKind::Turret && !turret_may_move(unit)) {
             continue;
         }
-        move(ground, prof, unit);
+        move(units_, ground, prof, unit);
     }
 
     // 3. the bolts already in the air, in spawn order. Before the guns, so a unit killed here does
@@ -1671,6 +1754,9 @@ std::uint64_t Sim::state_hash() const noexcept {
         h.i32(u.aim_y.raw);
         h.u64(u.aim_target.value);
         h.u64(u.alive ? 1 : 0);
+        if (u.shove_ticks != 0) {
+            h.u64(u.shove_ticks); // only when set: a battle that never shoves hashes as before
+        }
         if (u.deploy_ticks != 0) {
             h.u64(
                 u.deploy_ticks); // only when set too: a battle that never deploys hashes as before

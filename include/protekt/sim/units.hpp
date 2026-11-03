@@ -235,6 +235,10 @@ struct Unit {
     /// `kDeployTicks`; zero whenever it is not standing there under one. Hashed only when non-zero,
     /// so a battle in which nothing deploys hashes exactly as it did before.
     std::uint16_t deploy_ticks{};
+    /// Consecutive ticks this unit has spent shoving another vehicle (`kShoveYieldTicks`); zero
+    /// whenever it is clear of every vehicle. Hashed only when non-zero, so a battle in which
+    /// nothing is ever shoved hashes as it did before.
+    std::uint16_t shove_ticks{};
     /// The batch this unit was BUILT in (BUILD-QUEUE): the id its queue entry carried. Zero for a
     /// unit the scenario placed, which belongs to no batch; a lone build gets an id of its own, so
     /// a built unit's is never zero. The row groups by it. Hashed only when non-zero,
@@ -296,6 +300,21 @@ inline constexpr std::int64_t kStrafeSpeedDenominator = 4;
 inline constexpr std::int32_t kTankRangeRaw = 12 << 16; ///< 12 tiles
 inline constexpr std::int32_t kTurretRangeRaw = 16 << 16;
 inline constexpr std::int32_t kArriveRadiusRaw = 1 << 16; ///< 1 tile
+
+// VEHICLES AND EACH OTHER. A vehicle cannot be driven through another, but it can be SHOVED: the
+// mover pushes what is in its way along with it, and pays for it. No wall -- see `shove_step`.
+/// How close two vehicle centres may come before one is "in" the other: three quarters of a tile.
+/// Spawn placement keeps units a whole tile apart, so a fresh battle starts with nobody touching.
+inline constexpr std::int32_t kBodyRadiusRaw = (3 << 16) / 4;
+/// THE COST OF A SHOVE: a unit pushing another moves at this fraction of its speed (1/2) -- the
+/// number "with difficulty" is. The shoved vehicle is carried the pusher's step, so the pair moves
+/// at half the pusher's free speed.
+inline constexpr std::int64_t kShoveSpeedNumerator = 1;
+inline constexpr std::int64_t kShoveSpeedDenominator = 2;
+/// The deadlock breaker: after this many consecutive ticks of shoving (1.5 s) a unit stops
+/// colliding until it has been clear of every vehicle for a tick. Two vehicles each shoving the
+/// other cancel out; without this they could hold one another for ever.
+inline constexpr std::uint16_t kShoveYieldTicks = 45;
 
 /// The scavenger (C2). Unarmed, and thickly armoured: the tank's own hull, 100 (Harri, 2026-10-30:
 /// "they should take a beating -- they have thick armour"; it WAS 3/5 of that, 60). The consequence
