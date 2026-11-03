@@ -4932,7 +4932,7 @@ std::vector<SceneVertex> hover_tank_of(Side side, std::span<const protekt::sim::
 /// The wedge is the shape's first three parts, each a bevelled four-cornered extrusion (84), then
 /// the fin (84) and the turret (108, five corners); the skirt and the barrel follow the shape.
 constexpr std::size_t kWedge = 0;
-constexpr std::size_t kWedgeEnd = 3U * 84U;
+constexpr std::size_t kWedgeEnd = std::size_t{3} * 84U;
 constexpr std::size_t kFinEnd = kWedgeEnd + 84U;
 constexpr std::size_t kShapeEnd = kFinEnd + 108U;
 constexpr std::size_t kSkirt = kShapeEnd;
