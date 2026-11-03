@@ -11,8 +11,10 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
+#include <optional>
 #include <variant>
 #include <vector>
 
@@ -20,6 +22,7 @@
 #include "protekt/cmd/command.hpp"
 #include "protekt/game/assist.hpp"
 #include "protekt/game/deploy_aim.hpp"
+#include "protekt/game/go_here_aim.hpp"
 #include "protekt/game/interaction.hpp"
 #include "protekt/game/menu.hpp"
 #include "protekt/game/pick.hpp"
@@ -303,13 +306,17 @@ TEST(ScavengerDeployPrompt, SpaceSendsTheScavengerToThePoolAndEndsTheCommand) {
     EXPECT_TRUE(player.selection().empty()) << "a finished command clears the selection";
 }
 
-TEST(ScavengerDeployPrompt, SpaceOutsideTheConeOrdersNothing) {
+TEST(ScavengerDeployPrompt, SpaceOutsideTheConeDeploysNothingAndSendsItThereInstead) {
+    // Out of the cone the prompt reads `SPACE Go Here` (2026-11-03), and that is all SPACE does:
+    // a move, never a deploy. What the menu does not offer, SPACE does not do.
     Field f = make_field();
     Interaction player = select(f, f.scav_a);
     f.options.camera.yaw = (kCone + 0.5F) * kRadiansPerDegree;
     player.handle(key_frame(input::kKeySpace), f.sim, f.options);
-    EXPECT_TRUE(player.take_orders().empty()) << "what the menu does not offer, SPACE does not do";
-    EXPECT_EQ(player.selection().size(), 1U);
+    const std::vector<sim::Order> orders = player.take_orders();
+    ASSERT_EQ(orders.size(), 1U);
+    EXPECT_EQ(orders.front().kind(), sim::OrderKind::MoveTo);
+    EXPECT_TRUE(player.selection().empty()) << "the command is done";
 }
 
 TEST(ScavengerDeployPrompt, TheOrderTheKeyGivesIsOneTheSimTakesAndTheScavengerThenDeploys) {
@@ -592,6 +599,147 @@ TEST(TurretCommands, TheCmdVerbsDropAnImpossibleOrderRatherThanRepairIt) {
     EXPECT_TRUE(cmd::deploy(roster, -1, 5).empty());
     EXPECT_TRUE(cmd::deploy(roster, 5, sim::kMapTiles).empty());
     EXPECT_TRUE(cmd::defend(roster, UnitId{}).empty());
+}
+
+// ============================================== the white line from SPACE Deploy to the pool
+
+namespace {
+
+[[nodiscard]] std::vector<MenuRow> deploy_rows() {
+    MenuInput in;
+    in.subject = MenuSubject::Harvester;
+    in.deploy = true;
+    return menu_rows(in);
+}
+
+/// The vertices the deploy line added to a scene: the scene with the option, less the same scene
+/// without, found as the run from the first vertex that differs.
+[[nodiscard]] std::vector<SceneVertex> added_by_deploy_line(const Field& f,
+                                                            const std::vector<MenuRow>& rows,
+                                                            std::optional<DeployLineTarget> to) {
+    SceneOptions options = f.options;
+    options.show_menu = true;
+    options.menu = &rows;
+    const Scene base = build_scene(f.sim, options);
+    options.deploy_pool = to;
+    const Scene with = build_scene(f.sim, options);
+    std::vector<SceneVertex> added;
+    if (with.vertices.size() < base.vertices.size()) {
+        ADD_FAILURE() << "the line removed geometry";
+        return added;
+    }
+    const auto same = [](const SceneVertex& a, const SceneVertex& b) {
+        return a.position == b.position && a.colour == b.colour && a.alpha == b.alpha;
+    };
+    std::size_t first = 0;
+    while (first < base.vertices.size() && same(base.vertices.at(first), with.vertices.at(first))) {
+        ++first;
+    }
+    for (std::size_t i = first; i < first + (with.vertices.size() - base.vertices.size()); ++i) {
+        added.push_back(with.vertices.at(i));
+    }
+    return added;
+}
+
+[[nodiscard]] std::array<float, 2> pixel_of(const SceneOptions& options, const SceneVertex& v) {
+    const Projected p
+        = project(options.camera, options.extent, v.position[0], v.position[1], v.position[2]);
+    return {p.x, p.y};
+}
+
+/// A session whose selection is `id`, reached through its F key the way the player does.
+[[nodiscard]] game::Session session_selecting(Field& f, UnitId id) {
+    game::Session session{f.driven};
+    std::vector<sim::Order> orders;
+    for (std::size_t slot = kRowFirstGroup; slot < kRowSlots; ++slot) {
+        const auto& units = f.row.slots.at(slot).units;
+        if (std::find(units.begin(), units.end(), id) != units.end()) {
+            session.frame(
+                key_frame(input::kKeyF1 + static_cast<std::int32_t>(slot - kRowFirstGroup)), f.sim,
+                f.options, orders);
+            break;
+        }
+    }
+    return session;
+}
+
+} // namespace
+
+TEST(DeployLine, AThinWhiteLineRunsFromTheSpaceDeployRowToTheCentreOfThePool) {
+    Field f = make_field();
+    const std::vector<MenuRow> rows = deploy_rows();
+    const std::vector<SceneVertex> added
+        = added_by_deploy_line(f, rows, DeployLineTarget{kPoolX, kPoolY});
+    ASSERT_EQ(added.size(), 6U) << "one slanted quad, and nothing else";
+    for (const SceneVertex& v : added) {
+        EXPECT_EQ(v.colour, kDeployLineInk) << "white";
+    }
+    // emit_quad's winding: a b c, a c d. a and d are the start edge, b and c the end edge.
+    const std::array<float, 2> a = pixel_of(f.options, added.at(0));
+    const std::array<float, 2> b = pixel_of(f.options, added.at(1));
+    const std::array<float, 2> c = pixel_of(f.options, added.at(2));
+    const std::array<float, 2> d = pixel_of(f.options, added.at(5));
+    const std::array<float, 2> start{(a.at(0) + d.at(0)) * 0.5F, (a.at(1) + d.at(1)) * 0.5F};
+    const std::array<float, 2> end{(b.at(0) + c.at(0)) * 0.5F, (b.at(1) + c.at(1)) * 0.5F};
+
+    const float px = static_cast<float>(f.options.extent.height) / 720.0F;
+    const MenuLayout layout = menu_layout(rows, 6.0F * px, kMenuTopPixels * px, 2.0F * px);
+    const std::array<float, 2> origin = attack_line_origin(layout);
+    EXPECT_NEAR(start.at(0), origin.at(0), 0.05F) << "it leaves the SPACE Deploy bar's right edge";
+    EXPECT_NEAR(start.at(1), origin.at(1), 0.05F) << "at the bar's vertical middle";
+
+    const float tile_x = static_cast<float>(kPoolX) + 0.5F;
+    const float tile_y = static_cast<float>(kPoolY) + 0.5F;
+    const Projected centre = project(f.options.camera, f.options.extent, tile_x * kMetresPerTile,
+                                     ground_metres(kSeed, tile_x, tile_y), tile_y * kMetresPerTile);
+    EXPECT_NEAR(end.at(0), centre.x, 0.05F) << "and ends on the pool's centre";
+    EXPECT_NEAR(end.at(1), centre.y, 0.05F);
+    // A literal, not the constant: one pixel at 720 is what "thin" was ruled to be, and a test
+    // that read the constant back could not fail when the constant changed.
+    EXPECT_NEAR(std::hypot(a.at(0) - d.at(0), a.at(1) - d.at(1)), 1.0F * px, 0.05F)
+        << "thin: one pixel, half the menu's own leader";
+}
+
+TEST(DeployLine, ThereIsNoLineWithoutAPoolOrWithoutTheDeployRow) {
+    Field f = make_field();
+    EXPECT_TRUE(added_by_deploy_line(f, deploy_rows(), std::nullopt).empty()) << "no pool offered";
+    MenuInput in;
+    in.subject = MenuSubject::Harvester; // SPACE with no verb of its own
+    EXPECT_TRUE(added_by_deploy_line(f, menu_rows(in), DeployLineTarget{kPoolX, kPoolY}).empty())
+        << "a line never points from a menu that is not offering the deploy";
+}
+
+TEST(DeployLine, TheAppNamesThePoolExactlyWhenTheDeployPromptShows) {
+    Field f = make_field();
+    game::Session session = session_selecting(f, f.scav_a);
+    ASSERT_EQ(session.selection().size(), 1U);
+    const std::optional<DeployLineTarget> target
+        = app::deploy_line_target(f.sim, session, f.options);
+    ASSERT_TRUE(target.has_value());
+    EXPECT_EQ(target.value_or(DeployLineTarget{}).tile_x, kPoolX);
+    EXPECT_EQ(target.value_or(DeployLineTarget{}).tile_y, kPoolY);
+    EXPECT_EQ(app::menu_for(f.sim, session, f.options, false).front().verb, "Deploy");
+
+    f.options.camera.yaw = (kCone + 0.5F) * kRadiansPerDegree;
+    EXPECT_FALSE(app::deploy_line_target(f.sim, session, f.options).has_value())
+        << "out of the cone the prompt goes, and the line with it";
+}
+
+TEST(DeployLine, TurretsDeployingOnBareGroundGetNoPoolLine) {
+    Field f = make_field();
+    look_at_ground(f);
+    game::Session session = session_selecting(f, f.turret_a);
+    ASSERT_EQ(session.selection().size(), 1U);
+    EXPECT_EQ(app::menu_for(f.sim, session, f.options, false).front().verb, "Deploy");
+    EXPECT_FALSE(app::deploy_line_target(f.sim, session, f.options).has_value())
+        << "the line is to a POOL's centre; a turret's spot has none";
+}
+
+TEST(DeployLine, ALoneScavengerPointingAtAPoolIsOfferedDeployNeverGoHere) {
+    Field f = make_field();
+    EXPECT_FALSE(
+        go_here_offer(f.sim, f.options, std::vector<UnitId>{f.scav_a}, f.driven).has_value())
+        << "the pool is the deploy's, so Go Here steps aside";
 }
 
 } // namespace

@@ -132,6 +132,11 @@ struct MenuInput {
     /// scavenger's menu. Ignored while a command is armed or an attack is offered -- those own
     /// SPACE.
     bool deploy{false};
+    /// SPACE would send the selection to the ground under the crosshair (`go_here_offer`): the
+    /// state row reads `SPACE Go Here`. Another CONTEXTUAL prompt, never a permanent row, and the
+    /// last in line: ignored while a command is armed, an attack is offered or the deploy is
+    /// offered.
+    bool go_here{false};
     /// A selected turret is DEPLOYED: `7 Undeploy` applies. False draws the row dimmed
     /// (`DoesNotApply`), like `5 Pick Me Up` when you are not outside a vehicle.
     bool deployed{false};
@@ -207,6 +212,8 @@ inline constexpr std::string_view kVerbFollowMe{"Follow Me"};
 inline constexpr std::string_view kVerbHold{"Hold"};
 /// `3 Deploy` on an un-deployed recycler, and the state row's verb once it has armed the deploy.
 inline constexpr std::string_view kVerbDeploy{"Deploy"};
+/// The state row's verb when SPACE would send the selection to the ground it is pointed at.
+inline constexpr std::string_view kVerbGoHere{"Go Here"};
 /// The selected-vehicle rows that act (RECYCLE and its neighbours), written once so the table and
 /// the layer that routes a digit cannot drift apart.
 inline constexpr std::string_view kVerbGoToNav{"Go to Nav"};

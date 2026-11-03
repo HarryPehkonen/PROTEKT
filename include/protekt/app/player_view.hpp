@@ -119,6 +119,15 @@ inline constexpr float kEyeGroundClearanceMetres = 0.5F;
 [[nodiscard]] sim::UnitId attack_offer(const sim::Sim& sim, const game::Session& session,
                                        const game::SceneOptions& options);
 
+/// The pool the white deploy line points at this frame, or nothing: the tile of the pool `SPACE
+/// Deploy` would send the selected scavenger to. It is present exactly when the menu's state row
+/// reads `SPACE Deploy` AND the deploy is onto a pool -- the same offer, withheld by the same armed
+/// commands and attack offer -- so the line appears and disappears with the prompt. Turrets'
+/// `SPACE Deploy` is onto bare ground, which has no pool to point at.
+[[nodiscard]] std::optional<game::DeployLineTarget>
+deploy_line_target(const sim::Sim& sim, const game::Session& session,
+                   const game::SceneOptions& options);
+
 /// The menu rows for this frame. The one command that arms is the deploy (DEPLOY): while it is
 /// armed the state row reads `SPACE DEPLOY` and, with the reticle on the ground, the distance to
 /// it. Empty when `attack_armed`: the attack list and the menu share one slot under the notice, and

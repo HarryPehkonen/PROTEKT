@@ -3741,19 +3741,29 @@ void append_hud_panels(std::vector<SceneVertex>& out, const SceneOptions& option
         const bool is_group = row_slot_kind(index) == RowSlotKind::Group;
         sim::UnitKind reading_kind{};
         std::vector<float> fractions;
+        // A key held for a shift batch still in a producer's queue (BATCH-PLATE): the units built
+        // so far are its ticks as ever, the ones still to come are BLANK ticks after them, and its
+        // icon fills as the unit on the line is built.
+        std::optional<BatchReading> batch;
         if (!is_navs) {
             const std::optional<SlotReading> reading = read_slot(sim, slot);
-            if (!reading.has_value()) {
+            if (is_group) {
+                batch = read_batch(sim, options.viewer_side, slot);
+            }
+            if (!reading.has_value() && !batch.has_value()) {
                 continue; // everything in it died since the row was last updated
             }
-            reading_kind = reading->kind;
+            reading_kind = reading.has_value() ? reading->kind : batch->kind;
             // A vehicle key has a segment per living vehicle; a building key is one thing, so one.
-            fractions = is_group
-                            ? reading->fractions
-                            : std::vector<float>{reading->max_hp == 0
-                                                     ? 0.0F
-                                                     : static_cast<float>(reading->hp)
-                                                           / static_cast<float>(reading->max_hp)};
+            if (reading.has_value()) {
+                fractions
+                    = is_group
+                          ? reading->fractions
+                          : std::vector<float>{reading->max_hp == 0
+                                                   ? 0.0F
+                                                   : static_cast<float>(reading->hp)
+                                                         / static_cast<float>(reading->max_hp)};
+            }
         }
         const float left = (kStripMarginPixels * px) + (static_cast<float>(index) * (slot_w + gap));
         // Lit when ANY unit of the group is selected: pressing the key selects the whole group,
@@ -3818,7 +3828,25 @@ void append_hud_panels(std::vector<SceneVertex>& out, const SceneOptions& option
                 }
             }
         };
-        draw_runs(lit, kStripIconInk);
+        if (batch.has_value()) {
+            // The build's countdown, run as a share of the icon's height: the rows from the bottom
+            // up to `filled` cells are the ink, the lit cells above them the ghost.
+            const std::size_t filled = static_cast<std::size_t>(
+                std::lround(batch->fill * static_cast<float>(kIconCells)));
+            const std::size_t first_filled = kIconCells - std::min(filled, kIconCells);
+            draw_runs(
+                [&lit, first_filled](std::size_t row, std::size_t col) {
+                    return row >= first_filled && lit(row, col);
+                },
+                kStripIconInk);
+            draw_runs(
+                [&lit, first_filled](std::size_t row, std::size_t col) {
+                    return row < first_filled && lit(row, col);
+                },
+                kStripIconGhost);
+        } else {
+            draw_runs(lit, kStripIconInk);
+        }
         draw_runs(
             [&lit](std::size_t row, std::size_t col) {
                 if (lit(row, col)) {
@@ -3853,7 +3881,9 @@ void append_hud_panels(std::vector<SceneVertex>& out, const SceneOptions& option
         const float tick_pitch = (kStripTickWidthPixels + kStripTickGapPixels) * px * fit;
         const float tick_top = icon_bottom + stack_gap;
         const float tick_bottom = tick_top + (kStripTickHeightPixels * px);
-        const std::size_t shown = std::min(segments.size(), kStripTicks);
+        // The blank ticks follow the units built so far, inside the same ten.
+        const std::size_t blanks = batch.has_value() ? batch->queued : 0;
+        const std::size_t shown = std::min(segments.size() + blanks, kStripTicks);
         if (shown == 0) {
             continue;
         }
@@ -3862,8 +3892,22 @@ void append_hud_panels(std::vector<SceneVertex>& out, const SceneOptions& option
              {0.25F, 0.25F, 0.25F});
         for (std::size_t i = 0; i < shown; ++i) {
             const float tick_left = left + (static_cast<float>(i) * tick_pitch);
-            rect(marks_at, tick_left, tick_top, tick_left + tick_w, tick_bottom,
-                 segments.at(i).rgb);
+            if (i < segments.size()) {
+                rect(marks_at, tick_left, tick_top, tick_left + tick_w, tick_bottom,
+                     segments.at(i).rgb);
+                continue;
+            }
+            // A blank tick: the tick's box as a frame, four bars that meet at the corners, the dark
+            // track showing through the middle.
+            const float edge = kStripBlankTickEdgePixels * px;
+            const float tick_right = tick_left + tick_w;
+            rect(marks_at, tick_left, tick_top, tick_right, tick_top + edge, kStripBlankTickEdge);
+            rect(marks_at, tick_left, tick_bottom - edge, tick_right, tick_bottom,
+                 kStripBlankTickEdge);
+            rect(marks_at, tick_left, tick_top + edge, tick_left + edge, tick_bottom - edge,
+                 kStripBlankTickEdge);
+            rect(marks_at, tick_right - edge, tick_top + edge, tick_right, tick_bottom - edge,
+                 kStripBlankTickEdge);
         }
     }
     if (!options.notice.empty()) {
@@ -4089,6 +4133,22 @@ void append_hud_panels(std::vector<SceneVertex>& out, const SceneOptions& option
             }
         }
 
+        // One slanted quad `width` px wide from `start` to `end` on the leader's layer: the shape
+        // both offers' lines are.
+        const auto line_between = [&](const std::array<float, 2>& start, const Projected& end,
+                                      float width, const std::array<float, 3>& ink) {
+            const float dx = end.x - start.at(0);
+            const float dy = end.y - start.at(1);
+            const float length = std::sqrt((dx * dx) + (dy * dy));
+            if (end.depth <= math::kNearPlane || length <= 0.0F) {
+                return;
+            }
+            const float nx = -dy / length * width * 0.5F;
+            const float ny = dx / length * width * 0.5F;
+            emit_quad(out, at(leader_at, start.at(0) + nx, start.at(1) + ny),
+                      at(leader_at, end.x + nx, end.y + ny), at(leader_at, end.x - nx, end.y - ny),
+                      at(leader_at, start.at(0) - nx, start.at(1) - ny), ink);
+        };
         // THE ATTACK LINE: only while the state row really reads `SPACE Attack`, so a line can
         // never point from a menu that is not offering the attack. From the row's own right edge
         // to the exact screen position of the unit, one slanted quad the leader's width, on the
@@ -4098,21 +4158,22 @@ void append_hud_panels(std::vector<SceneVertex>& out, const SceneOptions& option
             && state.verb == kVerbAttack) {
             const sim::Unit* target = sim.find(options.attack_target);
             if (target != nullptr && target->alive) {
-                const Projected end = attack_point(options, *target);
-                const std::array<float, 2> start = attack_line_origin(layout);
-                const float dx = end.x - start.at(0);
-                const float dy = end.y - start.at(1);
-                const float length = std::sqrt((dx * dx) + (dy * dy));
-                if (end.depth > math::kNearPlane && length > 0.0F) {
-                    const float half_width = kMenuLineCells * cell * 0.5F;
-                    const float nx = -dy / length * half_width;
-                    const float ny = dx / length * half_width;
-                    emit_quad(out, at(leader_at, start.at(0) + nx, start.at(1) + ny),
-                              at(leader_at, end.x + nx, end.y + ny),
-                              at(leader_at, end.x - nx, end.y - ny),
-                              at(leader_at, start.at(0) - nx, start.at(1) - ny), kAttackLineInk);
-                }
+                line_between(attack_line_origin(layout), attack_point(options, *target),
+                             kMenuLineCells * cell, kAttackLineInk);
             }
+        }
+        // THE DEPLOY LINE: only while the state row really reads `SPACE Deploy` and the app named
+        // a pool, so it appears and disappears with the prompt. From the same place the attack line
+        // leaves, to the middle of the pool's tile on the ground, one pixel wide and white.
+        if (options.deploy_pool.has_value() && state.key == kRowKeySpace
+            && state.verb == kVerbDeploy) {
+            const float tile_x = static_cast<float>(options.deploy_pool->tile_x) + 0.5F;
+            const float tile_y = static_cast<float>(options.deploy_pool->tile_y) + 0.5F;
+            line_between(attack_line_origin(layout),
+                         project(options.camera, options.extent, tile_x * kMetresPerTile,
+                                 ground_metres(options.seed, tile_x, tile_y),
+                                 tile_y * kMetresPerTile),
+                         kDeployLinePixels * px, kDeployLineInk);
         }
     }
 }

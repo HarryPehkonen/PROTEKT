@@ -30,6 +30,7 @@
 #include "protekt/input/input.hpp"
 #include "protekt/sim/scenario.hpp"
 #include "protekt/sim/sim.hpp"
+#include "protekt/sim/spec.hpp"
 
 namespace protekt::game {
 namespace {
@@ -1998,6 +1999,307 @@ TEST(PlateContent, TheBuildingKeysDrawTheirOwnMasksUnderTheirLabels) {
         ASSERT_EQ(ticks.size(), 1U) << "a building is one thing: one tick";
         EXPECT_NEAR(ticks.front().top, kTickTopPx, kEdgeTolerance);
     }
+}
+
+// ------------------------------------------------------------------ the batch plate (BATCH-PLATE)
+//
+// Harri, 2026-11-03: "When I start a batch build of scavengers, there should be some kind of
+// indication that that's what I'm doing under a new function key, and the count should show up as
+// blank health bars. As each item is being built, there could be something 'filling' in the icon."
+// The queue the sim already keeps (`Unit::queue`) is the whole source: nothing new is stored there.
+
+constexpr std::uint32_t kToken = 9; ///< a shift gesture's token (any value up to kMaxBatchToken)
+
+/// How many group keys are on the screen (a held key counts, as it is drawn).
+[[nodiscard]] std::size_t batch_keys_in_use(const RowState& row) {
+    std::size_t used = 0;
+    for (std::size_t slot = kRowFirstGroup; slot < kRowSlots; ++slot) {
+        used += row.occupied(slot) ? 1U : 0U;
+    }
+    return used;
+}
+
+[[nodiscard]] UnitId first_player_of(const sim::Sim& sim, UnitKind kind) {
+    for (const sim::Unit& unit : sim.units()) {
+        if (unit.side == Side::Player && unit.kind == kind) {
+            return unit.id;
+        }
+    }
+    return UnitId{};
+}
+
+struct BatchRig {
+    sim::Sim sim;
+    SceneOptions options;
+    RowState row;
+    UnitId factory;
+};
+
+/// A factory, three scavengers (F1, F2, F3 -- one key each, as `update` seats units it has not
+/// seen) and `pieces` of scrap to pay for the build; none means the queue never starts.
+[[nodiscard]] BatchRig make_batch_rig(int pieces, std::vector<Spawn> extra = {}) {
+    sim::Scenario scenario = batch_battle(pieces);
+    scenario.spawns.insert(scenario.spawns.end(), extra.begin(), extra.end());
+    BatchRig rig{sim::Sim::create(scenario), SceneOptions{}, RowState{}, UnitId{}};
+    rig.factory = the_factory(rig.sim);
+    rig.options.seed = kSeed;
+    rig.options.extent = kExtent;
+    rig.options.camera = Camera{80.0F, height_metres(kSeed, 40, 40) + 3.0F, 60.0F, 0.0F, -0.12F};
+    rig.options.aim = Aim{640.0F, 360.0F};
+    rig.row.update(rig.sim, Side::Player, 0);
+    rig.options.row = &rig.row;
+    return rig;
+}
+
+/// One frame of the game: the sim steps, then the row is updated, as the app does.
+void tick(BatchRig& rig) {
+    rig.sim.step();
+    rig.row.update(rig.sim, Side::Player, 0);
+}
+
+void queue_batch(BatchRig& rig, int n, std::uint32_t token = kToken) {
+    for (int i = 0; i < n; ++i) {
+        rig.sim.enqueue(queue_one(rig.factory, token));
+    }
+    tick(rig);
+}
+
+/// The slot reserved for `token`, or kRowSlots when none is.
+[[nodiscard]] std::size_t reserved_slot(const RowState& row, std::uint32_t token = kToken) {
+    for (std::size_t slot = kRowFirstGroup; slot < kRowSlots; ++slot) {
+        if (row.slots.at(slot).batch == token) {
+            return slot;
+        }
+    }
+    return kRowSlots;
+}
+
+/// Ticks until `done` is true or the budget runs out; true if it came true.
+template <typename Done> [[nodiscard]] bool tick_until(BatchRig& rig, Done done) {
+    for (int i = 0; i < 6000; ++i) {
+        if (done()) {
+            return true;
+        }
+        tick(rig);
+    }
+    return done();
+}
+
+[[nodiscard]] std::size_t scavengers_made(const BatchRig& rig) {
+    std::size_t made = 0;
+    for (const sim::Unit& unit : rig.sim.units()) {
+        made += (unit.batch == kToken && unit.alive) ? 1U : 0U;
+    }
+    return made;
+}
+
+TEST(BatchPlate, AShiftBatchTakesAKeyOfItsOwnBeforeAnyUnitHasArrived) {
+    BatchRig rig = make_batch_rig(0);
+    ASSERT_EQ(batch_keys_in_use(rig.row), 3U) << "the three scavengers: F1, F2, F3";
+    queue_batch(rig, 5);
+    const std::size_t slot = reserved_slot(rig.row);
+    EXPECT_EQ(slot, group_slot(4)) << "the first EMPTY group key, as any new thing takes";
+    ASSERT_LT(slot, kRowSlots);
+    EXPECT_TRUE(rig.row.slots.at(slot).units.empty()) << "nothing has been built yet";
+    EXPECT_TRUE(rig.row.occupied(slot)) << "and the key is on the screen all the same";
+    EXPECT_EQ(batch_keys_in_use(rig.row), 4U);
+}
+
+TEST(BatchPlate, ItReadsTheQueuedCountTheKindAndNoFillWhileItWaitsForScrap) {
+    BatchRig rig = make_batch_rig(0);
+    queue_batch(rig, 5);
+    const std::optional<BatchReading> reading
+        = read_batch(rig.sim, Side::Player, rig.row.slots.at(reserved_slot(rig.row)));
+    ASSERT_TRUE(reading.has_value());
+    EXPECT_EQ(reading.value_or(BatchReading{}).queued, 5U);
+    EXPECT_EQ(reading.value_or(BatchReading{}).kind, UnitKind::Scavenger);
+    EXPECT_FLOAT_EQ(reading.value_or(BatchReading{}).fill, 0.0F)
+        << "a build that has not started has nothing in its icon";
+}
+
+TEST(BatchPlate, ALoneBuildReservesNoKey) {
+    BatchRig rig = make_batch_rig(0);
+    rig.sim.enqueue(queue_one(rig.factory, 0));
+    tick(rig);
+    ASSERT_GT(rig.sim.find(rig.factory)->queue.count, 0U) << "it is queued";
+    EXPECT_EQ(reserved_slot(rig.row, rig.sim.find(rig.factory)->queue.entries.at(0).batch),
+              kRowSlots);
+    EXPECT_EQ(batch_keys_in_use(rig.row), 3U) << "a lone build takes its key when it ARRIVES";
+}
+
+TEST(BatchPlate, TheUnitsLandOnTheReservedKeyAndTheQueuedCountFallsAsTheyDo) {
+    BatchRig rig = make_batch_rig(90);
+    queue_batch(rig, 3);
+    const std::size_t slot = reserved_slot(rig.row);
+    ASSERT_EQ(slot, group_slot(4));
+    ASSERT_TRUE(tick_until(rig, [&] { return scavengers_made(rig) == 1; })) << "never built";
+    EXPECT_EQ(reserved_slot(rig.row), slot) << "still held: two more are queued";
+    EXPECT_EQ(rig.row.slots.at(slot).units.size(), 1U) << "the first landed on the reserved key";
+    EXPECT_EQ(
+        read_batch(rig.sim, Side::Player, rig.row.slots.at(slot)).value_or(BatchReading{}).queued,
+        2U);
+
+    ASSERT_TRUE(tick_until(rig, [&] { return scavengers_made(rig) == 3; })) << "never built";
+    EXPECT_EQ(rig.row.slots.at(slot).units.size(), 3U) << "the whole batch shares the key";
+    EXPECT_EQ(rig.row.slots.at(slot).batch, 0U) << "and the queue is done: the hold is let go";
+    EXPECT_FALSE(read_batch(rig.sim, Side::Player, rig.row.slots.at(slot)).has_value());
+    EXPECT_EQ(batch_keys_in_use(rig.row), 4U) << "no key was taken twice";
+}
+
+TEST(BatchPlate, TheFillIsTheCountdownRunAsAShareOfTheBuildTime) {
+    BatchRig rig = make_batch_rig(90);
+    queue_batch(rig, 2);
+    ASSERT_TRUE(tick_until(rig, [&] { return rig.sim.find(rig.factory)->queue.left > 0; }));
+    const float total = static_cast<float>(sim::spec_of(UnitKind::Scavenger).build_ticks);
+    float last = -1.0F;
+    for (int i = 0; i < 5; ++i) {
+        const float left = static_cast<float>(rig.sim.find(rig.factory)->queue.left);
+        const std::optional<BatchReading> reading
+            = read_batch(rig.sim, Side::Player, rig.row.slots.at(reserved_slot(rig.row)));
+        ASSERT_TRUE(reading.has_value());
+        const float fill = reading.value_or(BatchReading{}).fill;
+        EXPECT_NEAR(fill, 1.0F - (left / total), 1.0e-6F);
+        EXPECT_GT(fill, last) << "it only rises while the unit is on the line";
+        last = fill;
+        tick(rig);
+    }
+}
+
+TEST(BatchPlate, AKeyThatWillHoldScavengersTakesNoOtherKind) {
+    BatchRig rig = make_batch_rig(0, {Spawn{UnitKind::Tank, Side::Player, 30, 30}});
+    queue_batch(rig, 2);
+    const std::size_t slot = reserved_slot(rig.row);
+    ASSERT_LT(slot, kRowSlots);
+    const UnitId tank = first_player_of(rig.sim, UnitKind::Tank);
+    const std::vector<UnitId> moved{tank};
+    EXPECT_EQ(rig.row.move_into(rig.sim, moved, static_cast<int>(slot - kRowFirstGroup) + 1),
+              RowMove::DifferentKind);
+}
+
+// ---- the drawing
+
+/// The blank ticks of a slot, as the frame shows them: each is four thin bars in the blank edge
+/// colour, 24 vertices.
+[[nodiscard]] std::vector<Px> blank_pixels(const std::vector<Px>& pixels, int slot) {
+    std::vector<Px> out;
+    std::copy_if(pixels.begin(), pixels.end(), std::back_inserter(out), [slot](const Px& p) {
+        return slot_at(p.x) == slot && p.y >= kTickTopPx - 0.1F && p.colour == kStripBlankTickEdge;
+    });
+    return out;
+}
+
+/// The health ticks of a slot that carry a colour: neither the dark track nor a blank's edge.
+[[nodiscard]] std::size_t health_tick_quads(const std::vector<Px>& pixels, int slot) {
+    std::size_t vertices = 0;
+    for (const Px& p : pixels) {
+        if (slot_at(p.x) == slot && p.y >= kTickTopPx - 0.1F && is_fill(p)
+            && p.colour != kStripBlankTickEdge) {
+            ++vertices;
+        }
+    }
+    return vertices / 6;
+}
+
+TEST(BatchPlateDrawing, ABatchOfFiveShowsFiveBlankTicksAndNoHealthTick) {
+    BatchRig rig = make_batch_rig(0);
+    queue_batch(rig, 5);
+    const int slot = static_cast<int>(reserved_slot(rig.row));
+    const std::vector<Px> pixels = row_pixels(rig.sim, rig.options);
+    EXPECT_EQ(blank_pixels(pixels, slot).size(), 5U * 24U) << "five blanks, four bars each";
+    EXPECT_EQ(health_tick_quads(pixels, slot), 0U) << "nothing has been built to be hurt";
+    float left = 1.0e9F;
+    float right = -1.0e9F;
+    for (const Px& p : blank_pixels(pixels, slot)) {
+        left = std::min(left, p.x);
+        right = std::max(right, p.x);
+    }
+    EXPECT_NEAR(left, slot_left(static_cast<std::size_t>(slot)), kEdgeTolerance)
+        << "left-justified, as the health ticks are";
+    EXPECT_NEAR(right,
+                slot_left(static_cast<std::size_t>(slot)) + (4.0F * kTickPitchPx) + kTickWidthPx,
+                kEdgeTolerance)
+        << "at the same pitch";
+}
+
+TEST(BatchPlateDrawing, EachBlankFillsWithAHealthTickAsItsUnitCompletes) {
+    BatchRig rig = make_batch_rig(90);
+    queue_batch(rig, 5);
+    const int slot = static_cast<int>(reserved_slot(rig.row));
+    ASSERT_TRUE(tick_until(rig, [&] { return scavengers_made(rig) == 2; })) << "never built";
+    const std::vector<Px> pixels = row_pixels(rig.sim, rig.options);
+    EXPECT_EQ(health_tick_quads(pixels, slot), 2U) << "two built: two health ticks";
+    EXPECT_EQ(blank_pixels(pixels, slot).size(), 3U * 24U) << "three still to come: three blanks";
+}
+
+TEST(BatchPlateDrawing, TheIconFillsFromTheBottomAsTheBuildRuns) {
+    // Sampled a third of the way in: the fill line then cuts through the silhouette, and the fill
+    // and its complement (0.7) draw visibly different ink.
+    constexpr float kBuilt = 0.3F;
+    BatchRig rig = make_batch_rig(90);
+    queue_batch(rig, 2);
+    const std::size_t slot = reserved_slot(rig.row);
+    const float total = static_cast<float>(sim::spec_of(UnitKind::Scavenger).build_ticks);
+    ASSERT_TRUE(tick_until(rig, [&] {
+        return 1.0F - (static_cast<float>(rig.sim.find(rig.factory)->queue.left) / total) > kBuilt
+               && rig.sim.find(rig.factory)->queue.left > 0;
+    })) << "never reached the sampled point";
+    // The share built, read off the sim's own countdown and not off `read_batch`, so the drawing is
+    // held to the build and not to the function that reads it.
+    const float built = 1.0F - (static_cast<float>(rig.sim.find(rig.factory)->queue.left) / total);
+    const std::vector<Px> pixels = row_pixels(rig.sim, rig.options);
+    const IconBox box = key_icon_box(slot_left(slot), kMarginPx, 1.0F, kSlotPx);
+    const float cell = box.size / static_cast<float>(kIconCells);
+    const float first_filled_row
+        = static_cast<float>(kIconCells) - std::round(built * static_cast<float>(kIconCells));
+    std::vector<Px> ink = icon_pixels(pixels, static_cast<int>(slot));
+    ASSERT_FALSE(ink.empty()) << "part of the icon is filled";
+    float top_of_ink = 1.0e9F;
+    for (const Px& p : ink) {
+        top_of_ink = std::min(top_of_ink, p.y);
+    }
+    // The ink starts at the first row of the scavenger's mask, from the fill line down, that has a
+    // lit cell: exactly there, so too little fill and too much both fail.
+    const IconMask& mask = kind_icon(UnitKind::Scavenger);
+    std::size_t first_lit = static_cast<std::size_t>(first_filled_row);
+    while (first_lit < kIconCells && mask.at(first_lit).find('#') == std::string_view::npos) {
+        ++first_lit;
+    }
+    ASSERT_LT(first_lit, kIconCells);
+    EXPECT_NEAR(top_of_ink, box.top + (static_cast<float>(first_lit) * cell), kEdgeTolerance)
+        << "the ink stands below the fill line and reaches up to it";
+    std::size_t ghosts = 0;
+    for (const Px& p : pixels) {
+        ghosts += (slot_at(p.x) == static_cast<int>(slot) && p.colour == kStripIconGhost) ? 1U : 0U;
+    }
+    EXPECT_GT(ghosts, 0U) << "and the unfilled part of the silhouette is still there, dimmed";
+}
+
+TEST(BatchPlateDrawing, TheIconIsEmptyWhileTheBuildHasNotStarted) {
+    BatchRig rig = make_batch_rig(0);
+    queue_batch(rig, 2);
+    const int slot = static_cast<int>(reserved_slot(rig.row));
+    const std::vector<Px> pixels = row_pixels(rig.sim, rig.options);
+    EXPECT_TRUE(icon_pixels(pixels, slot).empty()) << "no ink at all";
+    EXPECT_FALSE(std::none_of(pixels.begin(), pixels.end(), [slot](const Px& p) {
+        return slot_at(p.x) == slot && p.colour == kStripIconGhost;
+    })) << "only the ghost of the silhouette";
+}
+
+TEST(BatchPlateDrawing, AnOrdinaryKeyDrawsNoBlankTickAndNoGhost) {
+    Rig rig = make_rig();
+    const std::vector<Px> pixels = row_pixels(rig.sim, rig.options);
+    for (const Px& p : pixels) {
+        EXPECT_NE(p.colour, kStripBlankTickEdge);
+        EXPECT_NE(p.colour, kStripIconGhost);
+    }
+}
+
+TEST(BatchPlateDrawing, AReservedKeyIsStillJustThreeThingsAndTheRowDoesNotCloseUp) {
+    BatchRig rig = make_batch_rig(0);
+    queue_batch(rig, 3);
+    const std::vector<Px> pixels = row_pixels(rig.sim, rig.options);
+    EXPECT_EQ(drawn_slots(pixels), (std::vector<int>{2, 4, 5, 6, 7}))
+        << "the factory's 2, F1..F3 and the batch's F4; the empty keys are not drawn";
 }
 
 } // namespace

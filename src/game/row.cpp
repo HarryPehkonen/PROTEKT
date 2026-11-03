@@ -9,6 +9,8 @@
 #include <span>
 #include <vector>
 
+#include "protekt/sim/spec.hpp"
+
 namespace protekt::game {
 namespace {
 
@@ -59,7 +61,7 @@ namespace {
 [[nodiscard]] std::array<RowSlot, kRowSlots>::iterator
 first_empty_group(std::array<RowSlot, kRowSlots>& slots) {
     return std::find_if(slots.begin() + kRowFirstGroup, slots.end(),
-                        [](const RowSlot& slot) { return slot.units.empty(); });
+                        [](const RowSlot& slot) { return slot.units.empty() && slot.batch == 0; });
 }
 
 /// Whether any slot already holds `id`.
@@ -75,6 +77,59 @@ bool is_held_in_group(const std::array<RowSlot, kRowSlots>& slots, sim::UnitId i
     return std::any_of(slots.begin() + kRowFirstGroup, slots.end(), [id](const RowSlot& slot) {
         return std::find(slot.units.begin(), slot.units.end(), id) != slot.units.end();
     });
+}
+
+/// The shift token a producer's queue is building right now, or 0: its front entry's batch when
+/// that is a token an order can carry. A lone build's id lies above every token (see
+/// `sim::kFirstLoneBatch`), so it is never one, and a queue is one batch, so the front names it.
+[[nodiscard]] std::uint32_t building_token(const sim::Unit& unit) noexcept {
+    if (unit.queue.count == 0 || unit.queue.entries.at(0).batch == 0
+        || unit.queue.entries.at(0).batch > sim::kMaxBatchToken) {
+        return 0;
+    }
+    return unit.queue.entries.at(0).batch;
+}
+
+/// Whether `slot` is the key of `token`: held for it, or holding a unit built under it.
+[[nodiscard]] bool is_key_of(const sim::Sim& sim, const RowSlot& slot, std::uint32_t token) {
+    return slot.batch == token
+           || std::any_of(slot.units.begin(), slot.units.end(), [&sim, token](sim::UnitId id) {
+                  const sim::Unit* unit = sim.find(id);
+                  return unit != nullptr && unit->batch == token;
+              });
+}
+
+/// THE BATCH KEY (BATCH-PLATE), after the frame's units are seated: let go every hold whose batch
+/// is no longer in a producer's queue, then give each batch that is a key -- the one a member
+/// already sits on, else the first empty group key, which is how any new thing takes one. With
+/// every group key taken a batch has none and its units are seated as they arrive, as before.
+void hold_keys_for_batches(const sim::Sim& sim, sim::Side side,
+                           std::array<RowSlot, kRowSlots>& slots) {
+    std::vector<std::uint32_t> building;
+    for (const sim::Unit& unit : sim.units()) {
+        if (unit.side == side && unit.alive) {
+            if (const std::uint32_t token = building_token(unit); token != 0) {
+                building.push_back(token);
+            }
+        }
+    }
+    for (std::size_t index = kRowFirstGroup; index < kRowSlots; ++index) {
+        RowSlot& slot = slots.at(index);
+        if (slot.batch != 0
+            && std::find(building.begin(), building.end(), slot.batch) == building.end()) {
+            slot.batch = 0;
+        }
+    }
+    for (const std::uint32_t token : building) {
+        const auto key = std::find_if(
+            slots.begin() + kRowFirstGroup, slots.end(),
+            [&sim, token](const RowSlot& slot) { return is_key_of(sim, slot, token); });
+        if (key != slots.end()) {
+            key->batch = token;
+        } else if (const auto free_slot = first_empty_group(slots); free_slot != slots.end()) {
+            free_slot->batch = token;
+        }
+    }
 }
 
 } // namespace
@@ -136,11 +191,12 @@ void RowState::update(const sim::Sim& sim, sim::Side side, std::size_t marks, si
             const auto seat = std::find_if(
                 slots.begin() + kRowFirstGroup, slots.end(),
                 [&sim, batch = unit.batch](const RowSlot& slot) {
-                    return std::any_of(slot.units.begin(), slot.units.end(),
-                                       [&sim, batch](sim::UnitId id) {
-                                           const sim::Unit* held = sim.find(id);
-                                           return held != nullptr && held->batch == batch;
-                                       });
+                    return slot.batch == batch
+                           || std::any_of(slot.units.begin(), slot.units.end(),
+                                          [&sim, batch](sim::UnitId id) {
+                                              const sim::Unit* held = sim.find(id);
+                                              return held != nullptr && held->batch == batch;
+                                          });
                 });
             if (seat != slots.end()) {
                 seat->units.push_back(unit.id);
@@ -152,12 +208,13 @@ void RowState::update(const sim::Sim& sim, sim::Side side, std::size_t marks, si
             free_slot->units.push_back(unit.id);
         }
     }
+    hold_keys_for_batches(sim, side, slots);
 }
 
 void RowState::seed_from_start(const sim::Sim& sim, sim::Side side, std::size_t marks,
                                sim::UnitId driven) {
     for (RowSlot& slot : slots) {
-        slot.units.clear();
+        slot = RowSlot{};
     }
     for (const sim::Unit& unit : sim.units()) {
         if (unit.side != side || !unit.alive || unit.id == driven) {
@@ -185,7 +242,8 @@ void RowState::seed_from_start(const sim::Sim& sim, sim::Side side, std::size_t 
 }
 
 bool RowState::occupied(std::size_t index) const {
-    return index == 0 ? nav_marks > 0 : !slots.at(index).units.empty();
+    return index == 0 ? nav_marks > 0
+                      : !slots.at(index).units.empty() || slots.at(index).batch != 0;
 }
 
 RowMove RowState::move_into(const sim::Sim& sim, std::span<const sim::UnitId> units,
@@ -216,6 +274,12 @@ RowMove RowState::move_into(const sim::Sim& sim, std::span<const sim::UnitId> un
     }
     const std::optional<SlotReading> held = read_slot(sim, slots.at(target));
     if (held.has_value() && held->kind != kind) {
+        return RowMove::DifferentKind;
+    }
+    // A key held for a batch will hold that batch's kind, though nothing of it has been built yet.
+    const std::optional<BatchReading> coming
+        = read_batch(sim, sim.find(moving.front())->side, slots.at(target));
+    if (coming.has_value() && coming->kind != kind) {
         return RowMove::DifferentKind;
     }
 
@@ -267,6 +331,28 @@ std::optional<SlotReading> read_slot(const sim::Sim& sim, const RowSlot& slot) {
         reading->max_hp = static_cast<std::uint16_t>(reading->max_hp + ceiling);
         reading->fractions.push_back(
             ceiling == 0 ? 0.0F : static_cast<float>(unit->hp) / static_cast<float>(ceiling));
+    }
+    return reading;
+}
+
+std::optional<BatchReading> read_batch(const sim::Sim& sim, sim::Side side, const RowSlot& slot) {
+    std::optional<BatchReading> reading;
+    for (const sim::Unit& producer : sim.units()) {
+        const std::uint32_t token
+            = producer.side == side && producer.alive ? building_token(producer) : 0U;
+        if (token == 0 || !is_key_of(sim, slot, token)) {
+            continue;
+        }
+        const sim::BuildEntry& front = producer.queue.entries.at(0);
+        if (!reading.has_value()) {
+            const float total = static_cast<float>(sim::spec_of(front.kind).build_ticks);
+            reading = BatchReading{front.kind, 0, 0.0F};
+            if (producer.queue.left > 0 && total > 0.0F) {
+                reading->fill = std::clamp(1.0F - (static_cast<float>(producer.queue.left) / total),
+                                           0.0F, 1.0F);
+            }
+        }
+        reading->queued += producer.queue.count;
     }
     return reading;
 }

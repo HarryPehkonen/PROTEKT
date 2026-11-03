@@ -554,6 +554,7 @@ public:
         // owns SPACE while it is open, so nothing is offered then.
         if (nav_menu_.state() == game::NavState::Closed) {
             scene_options.attack_target = attack_offer(sim_, session_, scene_options);
+            scene_options.deploy_pool = deploy_line_target(sim_, session_, scene_options);
         }
         // The rows live in a NAMED LOCAL that outlives the build below: SceneOptions holds a
         // pointer and nothing owned, so pointing it at a temporary would leave a dangling menu in

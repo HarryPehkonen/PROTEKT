@@ -252,7 +252,12 @@ TEST(AttackKeys, SpaceOutsideTheWindowAttacksNothing) {
 
     player.handle(key_frame(input::kKeySpace), f.sim, f.options);
 
-    EXPECT_TRUE(player.take_orders().empty()) << "what the menu does not offer, SPACE does not do";
+    // Outside the window the mark is on the ground, where SPACE reads `Go Here` (2026-11-03): a
+    // move is fine, an attack is what the menu does not offer.
+    for (const sim::Order& order : player.take_orders()) {
+        EXPECT_NE(order.kind(), sim::OrderKind::Attack)
+            << "what the menu does not offer, SPACE does not do";
+    }
 }
 
 TEST(AttackKeys, ThreeDoesNotAttackWhatTheCrosshairIsOn) {

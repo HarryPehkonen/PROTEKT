@@ -61,8 +61,15 @@ inline constexpr int kRowGroups = static_cast<int>(kRowSlots - kRowFirstGroup); 
 }
 
 struct RowSlot {
-    /// The living units held here, in spawn order. Empty means the key is not drawn.
+    /// The living units held here, in spawn order. Empty means the key is not drawn -- unless
+    /// `batch` holds it.
     std::vector<sim::UnitId> units{};
+    /// THE BATCH THIS KEY IS HELD FOR (BATCH-PLATE): the token of a SHIFT-queued batch that is
+    /// still being built, or 0. The batch's key is taken the moment its first entry is queued,
+    /// before any unit exists, so the plate can show the count as blank ticks and the icon filling;
+    /// the units land on it as they are built. It is let go the frame the queue holds no more of
+    /// the batch. A lone build is never held for: it takes its key when it arrives.
+    std::uint32_t batch{0};
 
     [[nodiscard]] bool operator==(const RowSlot&) const = default;
 };
@@ -103,7 +110,9 @@ struct RowState {
     ///
     /// The group keys are therefore not a function of the sim alone: they remember where the
     /// player put things (`move_into`), and `update` keeps those places -- it only prunes the dead
-    /// and seats newcomers in the gaps.
+    /// and seats newcomers in the gaps. A SHIFT batch still in a producer's queue is held a key too
+    /// (`RowSlot::batch`): the one a member already sits on, else the first empty group key, taken
+    /// the frame its first entry is queued and kept until the queue holds no more of it.
     void update(const sim::Sim& sim, sim::Side side, std::size_t marks, sim::UnitId driven = {});
 
     /// THE SWAP (X): the player leaves `vacated` for `entered`. The row is re-derived the way he
@@ -113,7 +122,7 @@ struct RowState {
     /// dead, unknown, or already on a key needs none.
     [[nodiscard]] bool swap_driven(const sim::Sim& sim, sim::UnitId vacated, sim::UnitId entered);
 
-    /// Whether the key at `index` is on the screen: it holds something.
+    /// Whether the key at `index` is on the screen: it holds something, or is held for a batch.
     [[nodiscard]] bool occupied(std::size_t index) const;
 
     /// SHIFT + F`group_key`: move `units` (a selection) into function key `group_key` (1-10). The
@@ -125,7 +134,8 @@ struct RowState {
     /// in the target stays where it is rather than going to the back.
     ///
     /// Refused, and then NOTHING changes: no unit to move; the units are of more than one kind (a
-    /// key holds one); the target holds a different kind. `Moved` otherwise.
+    /// key holds one); the target holds a different kind, or is held for a batch of another
+    /// kind. `Moved` otherwise.
     RowMove move_into(const sim::Sim& sim, std::span<const sim::UnitId> units, int group_key);
 };
 
@@ -157,6 +167,22 @@ struct BarSegment {
 /// The slot read against the sim as it is now, or nullopt when none of its units is alive -- so a
 /// frame drawn before the row is next updated still never shows a dead key.
 [[nodiscard]] std::optional<SlotReading> read_slot(const sim::Sim& sim, const RowSlot& slot);
+
+/// What a key reads of the batch still being built for it (BATCH-PLATE): read off the producers'
+/// own queues (`sim::BuildQueue`), never stored.
+struct BatchReading {
+    sim::UnitKind kind{}; ///< what is being built: a queue is one batch, so one kind
+    std::size_t queued{}; ///< entries still in the queue, the one on the line included
+    /// How far the front entry is through its build, 0..1: `1 - left / build_ticks`. Zero while it
+    /// waits for its scrap (a build that has not started has nothing in it to show).
+    float fill{};
+};
+
+/// The batch being built for `slot` by a producer of `side`, or nullopt when none is: a queue
+/// whose front entry carries a shift token that the slot holds (`RowSlot::batch`) or that one of
+/// the slot's units was built under. A lone build (its id lies above every token) never matches.
+[[nodiscard]] std::optional<BatchReading> read_batch(const sim::Sim& sim, sim::Side side,
+                                                     const RowSlot& slot);
 
 /// WHO BUILDING KEY `key` (1 or 2) BRINGS UP: the lowest-id living building of `side` that the row
 /// draws under that key, or an invalid id when it holds none (and for every other key -- `3`, the

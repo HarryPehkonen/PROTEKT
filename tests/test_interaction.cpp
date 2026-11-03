@@ -630,24 +630,27 @@ TEST(Interaction, SpaceOnTheDrivenTankFollowsIt) {
     EXPECT_FALSE(player.message().empty()) << "it says it is following";
 }
 
-TEST(Interaction, SpaceOverGroundOrNothingLeavesTheSelectionAlone) {
-    // U3: ground and no-aim are ignored (not refused); a hostile with a selection is attacked.
+TEST(Interaction, SpaceOverGroundSendsTheSelectionThereAndWithNoAimLeavesItAlone) {
+    // U3 said ground was ignored; since 2026-11-03 it is `SPACE Go Here` (go_here_offer). No aim
+    // point is still ignored, not refused; a hostile with a selection is attacked.
     Rig rig = make_rig();
     Interaction player{rig.tank_a};
     choose(rig, player, rig.tank_b);
     const std::vector<sim::UnitId> before = selected(player);
     ASSERT_EQ(before.size(), 1U);
 
-    static_cast<void>(ground_click(rig));
-    player.handle(with_key(input::kKeySpace), rig.sim, rig.options);
-    EXPECT_EQ(selected(player), before) << "ground";
-    EXPECT_TRUE(player.message().empty()) << "ignored, not refused";
-    EXPECT_TRUE(player.take_orders().empty());
-
     rig.options.aim.reset();
     player.handle(with_key(input::kKeySpace), rig.sim, rig.options);
     EXPECT_EQ(selected(player), before) << "no aim point";
+    EXPECT_TRUE(player.message().empty()) << "ignored, not refused";
     EXPECT_TRUE(player.take_orders().empty());
+
+    static_cast<void>(ground_click(rig));
+    player.handle(with_key(input::kKeySpace), rig.sim, rig.options);
+    const std::vector<sim::Order> orders = player.take_orders();
+    ASSERT_EQ(orders.size(), 1U) << "ground";
+    EXPECT_EQ(orders.front().kind(), sim::OrderKind::MoveTo);
+    EXPECT_TRUE(selected(player).empty()) << "the command is done";
 }
 
 TEST(HoverTank, SpaceSelectsItAndTheMarkKeysOrderItLikeATank) {
@@ -2102,7 +2105,12 @@ TEST(Availability, AHostileJustBeyondTheDrawnRadiusCannotBePickedMarkedOrNamed) 
     player.handle(with_key(input::kKeySpace), rig.sim, rig.options); // selects the wingman
     static_cast<void>(aim_at(rig, rig.hostile));
     player.handle(with_key(input::kKeySpace), rig.sim, rig.options);
-    EXPECT_TRUE(player.take_orders().empty()) << "Space over the undrawn hostile orders no attack";
+    // The undrawn hostile is not there to be picked, so what is under the mark is ground: SPACE
+    // may send the wingman to it (2026-11-03), but it must never ATTACK what is not drawn.
+    for (const sim::Order& order : player.take_orders()) {
+        EXPECT_NE(order.kind(), sim::OrderKind::Attack)
+            << "Space over the undrawn hostile orders no attack";
+    }
 }
 
 TEST(Availability, TheSameHostileAtTwentyTilesIsPickedAndNamedAsBefore) {

@@ -37,6 +37,7 @@ inline constexpr std::string_view kGoPrompt = "go where? 0-9 for a mark.";
 
 struct BuildItem;
 struct DeployOffer;
+struct GoHereOffer;
 
 /// Whether any living unit of `selected` is a `DeployedTurret`: the one fact `7 Undeploy`'s ink
 /// depends on, read by the menu's caller in the app and by the digit's own routing here.
@@ -70,7 +71,10 @@ public:
     ///    under the mark. Something selected: ATTACK the hostile `attack_target` names (the unit
     ///    under the mark, or the one within `kAttackAimToleranceDegrees` of it) when the selection
     ///    holds anything armed -- the menu's `SPACE Attack`, drawn from the same function -- else
-    ///    follow an own tank under the mark -- and either order ENDS the command: it clears the
+    ///    drive to the ground under the mark, `SPACE Go Here` (`go_here_offer`; any vehicle or
+    ///    group, where neither the attack nor the deploy applies), else follow an own tank under
+    ///    the mark
+    ///    -- and any of these orders ENDS the command: it clears the
     ///    selection and so closes the menu. It never adds to a selection, which is also why a
     ///    command that left its selection standing used to make a turret unselectable
     ///  * right click: THE WEAPON SWITCH, one step of `next_weapon`'s wrap. It needs no mark, and
@@ -244,6 +248,9 @@ private:
     /// SPACE with a deploy OFFERED (`deploy_offer`): the orderable selection drives to the offered
     /// tile and deploys there, and the command is done.
     void deploy_at(const DeployOffer& offer);
+    /// SPACE with a GO HERE OFFERED (`go_here_offer`): every orderable selected unit -- one vehicle
+    /// or a whole function-key group -- gets a MoveTo the offered tile, and the command is done.
+    void go_here(const GoHereOffer& offer);
     /// `6 DEFEND` on turrets: each selected turret is sent to defend against the hostile asset
     /// nearest it that the player can see; refused when there is none.
     void defend_selection(const sim::Sim& sim, const SceneOptions& options);

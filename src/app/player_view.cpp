@@ -5,6 +5,7 @@
 
 #include "protekt/game/attack_aim.hpp"
 #include "protekt/game/deploy_aim.hpp"
+#include "protekt/game/go_here_aim.hpp"
 #include "protekt/game/nav_marks.hpp"
 #include "protekt/game/pick.hpp"
 #include "protekt/math/math.hpp"
@@ -117,6 +118,31 @@ sim::UnitId attack_offer(const sim::Sim& sim, const game::Session& session,
     return game::attack_target(sim, options, session.selection().units(), session.driven());
 }
 
+namespace {
+
+std::optional<game::DeployOffer> deploy_offer_now(const sim::Sim& sim, const game::Session& session,
+                                                  const game::SceneOptions& options) {
+    // Never over the attack offer or an armed command, which own SPACE (the same order
+    // `Interaction` takes them in).
+    if (session.deploy_armed() || session.attack_armed()
+        || attack_offer(sim, session, options).valid()) {
+        return std::nullopt;
+    }
+    return game::deploy_offer(sim, options, session.selection().units(), session.driven());
+}
+
+} // namespace
+
+std::optional<game::DeployLineTarget> deploy_line_target(const sim::Sim& sim,
+                                                         const game::Session& session,
+                                                         const game::SceneOptions& options) {
+    const std::optional<game::DeployOffer> offer = deploy_offer_now(sim, session, options);
+    if (!offer.has_value() || offer->site != game::DeploySite::Pool) {
+        return std::nullopt;
+    }
+    return game::DeployLineTarget{offer->tile_x, offer->tile_y};
+}
+
 std::vector<game::MenuRow> menu_for(const sim::Sim& sim, const game::Session& session,
                                     const game::SceneOptions& options, bool attack_armed) {
     // The attack list and the menu share one slot under the notice: one panel at a time.
@@ -128,11 +154,14 @@ std::vector<game::MenuRow> menu_for(const sim::Sim& sim, const game::Session& se
                        menu_target_of(sim, options), static_cast<int>(sim.ore(sim::Side::Player))};
     in.attack = attack_offer(sim, session, options).valid();
     in.deployed = game::any_deployed_turret(sim, session.selection().units());
-    // `SPACE Deploy` only where SPACE would deploy, and never over the attack offer or an armed
+    // `SPACE Deploy` only where SPACE would deploy, then `SPACE Go Here` only where it would
+    // send the selection to the ground: each withheld over the offers before it and over an armed
     // command, which own SPACE (the same order `Interaction` takes them in).
-    if (!in.attack && !session.deploy_armed()) {
-        in.deploy = game::deploy_offer(sim, options, session.selection().units(), session.driven())
-                        .has_value();
+    in.deploy = deploy_offer_now(sim, session, options).has_value();
+    if (!in.attack && !in.deploy && !session.deploy_armed()) {
+        in.go_here
+            = game::go_here_offer(sim, options, session.selection().units(), session.driven())
+                  .has_value();
     }
     if (session.deploy_armed()) {
         // `un-deployed recycler menu -> 3`: the state row names the deploy and reads the distance

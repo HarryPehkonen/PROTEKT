@@ -925,6 +925,13 @@ struct MenuGlyphGrid {
 /// measured off BZ2's 7 px capitals and 5 px lowercase. It sits on the capitals' baseline.
 [[nodiscard]] MenuGlyphGrid menu_glyph_grid(char glyph, int cap) noexcept;
 
+/// The pool the deploy line points at: the tile of the pool `SPACE Deploy` would send a scavenger
+/// to. The line ends on the middle of that tile's ground.
+struct DeployLineTarget {
+    int tile_x{};
+    int tile_y{};
+};
+
 struct SceneOptions {
     std::uint64_t seed{};
     Camera camera{};
@@ -1045,6 +1052,12 @@ struct SceneOptions {
     /// the unit is hurt. An invalid id (the default) draws none of it, so a frame that never heard
     /// of the field is byte-identical.
     sim::UnitId attack_target{};
+    /// THE DEPLOY LINE (see `kDeployLineInk`): the pool `SPACE Deploy` would send the lone selected
+    /// scavenger to, filled by the app each frame from the same offer that puts the verb on the
+    /// menu. While present AND the menu's state row reads `SPACE Deploy`, the scene draws one thin
+    /// white line from that row to the pool's centre. ABSENT (the default) draws none of it, so a
+    /// frame that never heard of the field is byte-identical.
+    std::optional<DeployLineTarget> deploy_pool{};
     /// THE ASSIST (`T`, see game/assist.hpp): the hostile asset the player has latched. While it
     /// names a living, available unit the scene draws a thin red line from it to a small red dot
     /// where the barrel must point for `weapon` to hit it if it holds its course, and gives it the
@@ -1160,6 +1173,27 @@ inline constexpr float kMenuTopPixels
 /// The icon's ink: pale and plain whatever the key's side or selection (the TYPE is shown, not
 /// whose it is), so a frame reading can tell it from the plate's frame and from the ticks.
 inline constexpr std::array<float, 3> kStripIconInk{0.80F, 0.80F, 0.80F};
+
+/// THE BATCH PLATE (BATCH-PLATE). A key held for a shift batch that is still being built draws its
+/// icon as a ghost -- the silhouette dimmed -- and fills it with `kStripIconInk` from the bottom up
+/// as the unit on the line is built, one cell row at a time (`BatchReading::fill`). Dim enough to
+/// read as unfilled, light enough to stand off the outline (`kStripIconOutline`).
+inline constexpr std::array<float, 3> kStripIconGhost{0.38F, 0.40F, 0.44F};
+
+/// A tick that stands for a unit still to be built: BLANK, a hollow tick -- the tick's own box
+/// drawn as a frame `kStripBlankTickEdgePixels` wide (at 720) in this pale grey, the dark track
+/// showing through. Distinct from every colour of the health ramp (`bar_segments`), so a frame
+/// reading can tell a blank from a unit.
+inline constexpr std::array<float, 3> kStripBlankTickEdge{0.70F, 0.72F, 0.76F};
+inline constexpr float kStripBlankTickEdgePixels = 1.0F;
+
+/// THE DEPLOY LEADER LINE: while `SPACE Deploy` is the menu's state row, a thin white line runs
+/// from the end of that row's bar to the centre of the pool the deploy would go to (Harri,
+/// 2026-11-03: "a white thin line pointing from SPACE Deploy to the centre of the pool"). White so
+/// it is never the attack line's red or the leader's amber; one pixel wide at 720, thinner than
+/// either.
+inline constexpr std::array<float, 3> kDeployLineInk{1.0F, 1.0F, 1.0F};
+inline constexpr float kDeployLinePixels = 1.0F;
 
 /// The icon's outline: one cell wide round the lit silhouette, the keycap's own near-black
 /// (`kStripOutline`), so the pale ink reads over bright sky and sand alike.

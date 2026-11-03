@@ -15,6 +15,7 @@
 #include "protekt/game/assist.hpp"
 #include "protekt/game/attack_aim.hpp"
 #include "protekt/game/deploy_aim.hpp"
+#include "protekt/game/go_here_aim.hpp"
 #include "protekt/game/menu.hpp"
 #include "protekt/game/nav_marks.hpp"
 #include "protekt/game/pick.hpp"
@@ -317,6 +318,15 @@ void Interaction::handle(const input::InputFrame& frame, const sim::Sim& sim,
                 = deploy_offer(sim, options, selection_.units(), driven_);
                 offer.has_value()) {
                 deploy_at(*offer);
+                continue;
+            }
+            // Then GO HERE, offered where the mark is on bare ground (`go_here_offer`, the function
+            // the menu's `SPACE Go Here` row is drawn from): any vehicle, or a whole function-key
+            // group, drives to the tile.
+            if (const std::optional<GoHereOffer> go
+                = go_here_offer(sim, options, selection_.units(), driven_);
+                go.has_value()) {
+                go_here(*go);
                 continue;
             }
             // Otherwise follow a vehicle of ours under the mark.
@@ -702,6 +712,24 @@ void Interaction::deploy_at(const DeployOffer& offer) {
     remember(orders);
     pending_.insert(pending_.end(), orders.begin(), orders.end());
     message_ = "deploying.";
+    selection_.clear(); // the sequence is complete: the menu closes (see `menu_digit`)
+}
+
+void Interaction::go_here(const GoHereOffer& offer) {
+    const std::vector<sim::UnitId> roster = orderable();
+    if (roster.empty()) {
+        refuse("You are driving that one; select another unit to give orders.");
+        return;
+    }
+    const std::vector<sim::Order> orders = cmd::move_to(roster, sim::Fixed::from_int(offer.tile_x),
+                                                        sim::Fixed::from_int(offer.tile_y));
+    if (orders.empty()) {
+        refuse("That order cannot be carried out.");
+        return;
+    }
+    remember(orders);
+    pending_.insert(pending_.end(), orders.begin(), orders.end());
+    message_ = "SPACE Go Here";
     selection_.clear(); // the sequence is complete: the menu closes (see `menu_digit`)
 }
 
