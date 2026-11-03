@@ -1026,22 +1026,25 @@ TEST(AssaultTankFromShape, TheMeshHasDepthAndIsNotACutOut) {
 TEST(AssaultTankFromShape, TheBlockIsTallerAndWiderThanTheTanksTurretAndHasNoBustle) {
     // The tank's turret housing is 0.72 m across and 0.4 m tall with a bustle behind it; the
     // assault tank's block is 1.0 m across and 0.7 m tall, and nothing sticks out of its rear.
+    // The block is the widest part of the turret group, whatever its role; the rear is the rearmost
+    // corner of any part in it.
     float block_half = 0.0F;
     float block_height = 0.0F;
-    float rearmost = 0.0F;
+    float rearmost = kInfinity;
     for (const ShapePart& part : shape_of(UnitKind::AssaultTank)) {
-        if (part.group == ShapeGroup::Turret && part.role == ShapeRole::Hull) {
-            float lo = kInfinity;
-            float hi = -kInfinity;
-            float back = kInfinity;
-            for (const auto& corner : part.profile) {
-                lo = std::min(lo, corner[1]);
-                hi = std::max(hi, corner[1]);
-                back = std::min(back, corner[0]);
-            }
+        if (part.group != ShapeGroup::Turret) {
+            continue;
+        }
+        float lo = kInfinity;
+        float hi = -kInfinity;
+        for (const auto& corner : part.profile) {
+            lo = std::min(lo, corner[1]);
+            hi = std::max(hi, corner[1]);
+            rearmost = std::min(rearmost, corner[0]);
+        }
+        if (part.across_hi > block_half) {
             block_half = part.across_hi;
             block_height = hi - lo;
-            rearmost = back;
         }
     }
     EXPECT_NEAR(block_half, 0.5F, 0.005F) << "metres, half the block's width (the tank's is 0.36)";
