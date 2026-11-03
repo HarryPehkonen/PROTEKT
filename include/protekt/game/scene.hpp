@@ -574,6 +574,19 @@ inline constexpr std::size_t kHoverTankVertices = (4U * 36U) + (4U * 6U);
 inline constexpr float kTankTurretBase = 0.8F;    ///< sunk into the compartment roof
 inline constexpr float kTankBarrelBottom = 0.18F; ///< above the turret's base
 inline constexpr float kTankBarrelTop = 0.3F;
+/// The turret's height, so its roof is `kTankTurretRoof` over the hull's base. The shape
+/// (`vehicle_shape.cpp`) stands its turret on `kTankTurretBase` and tops it at the roof, and the
+/// team-colour panel lies on that roof, so the number lives once, here.
+inline constexpr float kTankTurretHeight = 0.4F;
+inline constexpr float kTankTurretRoof = kTankTurretBase + kTankTurretHeight;
+/// Where the barrel leaves the turret, along the aim from the tank's centre: the turret's front
+/// face, which is also the shape's.
+inline constexpr float kTankTurretFront = 0.35F;
+/// The muzzle collar at the barrel's tip: its length, and its bottom and top above the turret's
+/// base.
+inline constexpr float kTankCollarLength = 0.3F;
+inline constexpr float kTankCollarBottom = 0.14F;
+inline constexpr float kTankCollarTop = 0.34F;
 /// From the tank's centre along the aim, well past the hull front: the muzzle collar's far end.
 inline constexpr float kTankBarrelTip = 2.0F;
 /// The barrel's axis above the hull's base: the line the shot travels along when level, and the

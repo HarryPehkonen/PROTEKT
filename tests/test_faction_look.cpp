@@ -29,10 +29,10 @@ constexpr int kTile = 60;
 
 /// The human Scavenger's drawn vertices (its shadow and its body): the count, and an FNV-1a hash
 /// over every float of every vertex (position, colour, alpha, uv) by its bits. Since the shape
-/// slice the body is built from `scavenger_shape()` (the one description its plate is also
-/// projected from) and not from the tank's hull: 3594 vertices where the tank-hull hauler had 330,
-/// the extra being the chamfered parts and the wheels. A human mesh that moves moves this; the
-/// shape's own size is pinned in test_scavenger_shape.cpp.
+/// slice the body is built from `shape_of(UnitKind::Scavenger)` (the one description its plate is
+/// also projected from) and not from the tank's hull: 3594 vertices where the tank-hull hauler had
+/// 330, the extra being the chamfered parts and the wheels. A human mesh that moves moves this; the
+/// shape's own size is pinned in test_vehicle_shape.cpp.
 constexpr std::size_t kHumanScavengerVertices = 3594;
 /// The alien harvester's, read off its first build: the shadow (6) and its ten-cornered carapace,
 /// proboscis, crest and six legs. Anti-vacuity's other half: a collapsed shape changes this.

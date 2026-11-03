@@ -4,7 +4,8 @@
 #include <string>
 #include <vector>
 
-#include "protekt/game/scavenger_shape.hpp"
+#include "protekt/game/scene.hpp"
+#include "protekt/game/vehicle_shape.hpp"
 
 namespace protekt::game {
 
@@ -118,6 +119,9 @@ template <void (*Draw)(Canvas&)> const IconMask& art() {
 constexpr float kGround = static_cast<float>(kRecipeGround)
                           + 1.0F; ///< the first row under the feet, in the recipe's frame
 
+/// The empty cells either side of a shaped plate's silhouette.
+constexpr float kShapeMargin = 1.0F;
+
 /// A TRACK RUN, the shared part of every tracked kind: a rounded slab from `x0` to `x1` standing on
 /// the ground, `height` tall, an end roller at each end and `wheels` road wheels along it, each a
 /// clear ring round a lit hub so the run reads as links over wheels and not a bar.
@@ -144,20 +148,6 @@ void wheel(Canvas& c, float cx, float cy, float r) {
 }
 
 // ---------------------------------------------------------------------------- the kinds
-
-/// A tank: a track run, a low hull with a sloped glacis, a turret with a hatch and a long barrel
-/// ending in a muzzle brake. Long and thin barrel is what says "tank".
-void draw_tank(Canvas& c) {
-    track(c, 6, 64, 16, 5);
-    c.poly({{10, 48}, {16, 36}, {54, 36}, {64, 48}});
-    c.box(12, 47, 60, 48, false); // the fender line between hull and track
-    c.poly({{22, 36}, {27, 22}, {46, 22}, {52, 36}});
-    c.box(30, 17, 39, 22);        // the commander's hatch
-    c.box(31, 19, 38, 21, false); // its vision slit
-    c.box(48, 25, 71, 30);        // the barrel
-    c.box(65, 23, 70, 32);        // the muzzle brake
-    c.box(47, 23, 51, 33);        // the mantlet it comes out of
-}
 
 /// An assault tank: a heavier, boxier hull on a longer run, a tall slab turret and a thick barrel.
 void draw_assault_tank(Canvas& c) {
@@ -279,18 +269,45 @@ void draw_bomber(Canvas& c) {
     c.poly({{26, 59}, {20, 56}, {20, 64}}); // its fins
 }
 
-/// A scavenger: NOT drawn here. Its shape is `scavenger_shape()`, written once and shared with the
-/// world mesh; this plate is that shape seen side-on, fitted to the box with a one-cell margin
+/// A SHAPED KIND is NOT drawn here: its shape is `shape_of(kind)`, written once and shared with the
+/// world mesh, and the plate is that shape seen side-on, fitted to the box with a one-cell margin
 /// either side and its tracks on the ground line. Nothing about what the machine looks like is
-/// written in this function.
-void draw_scavenger(Canvas& c) {
-    const ShapeExtent extent = scavenger_extent();
-    constexpr float kMargin = 1.0F;
-    const float scale = (static_cast<float>(kIconCells) - (2.0F * kMargin))
-                        / (extent.along_max - extent.along_min); // cells per metre
+/// written in these functions. `reach` is the farthest the plate must hold, in metres along: the
+/// shape's own end, or more where something that is not a part sticks out past it.
+float shape_scale(sim::UnitKind kind, float reach) {
+    return (static_cast<float>(kIconCells) - (2.0F * kShapeMargin))
+           / (reach - shape_extent(kind).along_min); // cells per metre
+}
+
+void project_shape(Canvas& c, sim::UnitKind kind, float scale) {
+    const float along_min = shape_extent(kind).along_min;
     c.fill([&](float x, float y) {
-        return scavenger_covers(extent.along_min + ((x - kMargin) / scale), (kGround - y) / scale);
+        return shape_covers(kind, along_min + ((x - kShapeMargin) / scale), (kGround - y) / scale);
     });
+}
+
+/// A scavenger: its shape, projected.
+void draw_scavenger(Canvas& c) {
+    constexpr sim::UnitKind kKind = sim::UnitKind::Scavenger;
+    project_shape(c, kKind, shape_scale(kKind, shape_extent(kKind).along_max));
+}
+
+/// A tank: its shape, projected, and then the BARREL as a separate small piece. The barrel is not a
+/// part of the shape -- it elevates, and a side-on projection cannot say that -- so it is drawn
+/// level, from the turret's front face to the muzzle collar's far end, in the mesh's own metres
+/// (`kTankBarrelTip` and its neighbours in scene.hpp). The plate holds the barrel's tip as well as
+/// the hull, so the whole machine fits the box. The turret group is drawn as authored, at zero.
+void draw_tank(Canvas& c) {
+    constexpr sim::UnitKind kKind = sim::UnitKind::Tank;
+    const float scale = shape_scale(kKind, kTankBarrelTip);
+    project_shape(c, kKind, scale);
+    const float along_min = shape_extent(kKind).along_min;
+    const auto col = [&](float along) { return kShapeMargin + ((along - along_min) * scale); };
+    const auto row = [&](float up) { return kGround - (up * scale); };
+    c.box(col(kTankTurretFront), row(kTankTurretBase + kTankBarrelTop),
+          col(kTankBarrelTip - kTankCollarLength), row(kTankTurretBase + kTankBarrelBottom));
+    c.box(col(kTankBarrelTip - kTankCollarLength), row(kTankTurretBase + kTankCollarTop),
+          col(kTankBarrelTip), row(kTankTurretBase + kTankCollarBottom)); // the muzzle collar
 }
 
 /// The recycler on its tracks: a broad body on a long track run, two stacks, a cab at the front

@@ -116,7 +116,7 @@ add_library(protekt_game STATIC
     src/game/nav_marks.cpp
     src/game/row.cpp
     src/game/kind_icon.cpp
-    src/game/scavenger_shape.cpp
+    src/game/vehicle_shape.cpp
     src/game/menu.cpp
     src/game/targets.cpp
     src/game/world_map.cpp
@@ -326,7 +326,7 @@ if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
     target_compile_definitions(protekt_tests
         PRIVATE PROTEKT_CORPUS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fuzz/corpus/replay"
                 PROTEKT_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
-    target_sources(protekt_tests PRIVATE tests/test_scene.cpp tests/test_scavenger_shape.cpp tests/test_radar.cpp tests/test_player.cpp
+    target_sources(protekt_tests PRIVATE tests/test_scene.cpp tests/test_vehicle_shape.cpp tests/test_radar.cpp tests/test_player.cpp
                                         tests/test_game_cli.cpp tests/test_selection.cpp
                                         tests/test_command.cpp
                                         tests/test_pick.cpp tests/test_input.cpp

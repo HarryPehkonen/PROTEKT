@@ -187,17 +187,20 @@ looking.
 
 **One shape for a kind: the scavenger's model and its icon come from the same description.**
 Harri: "If the vehicles and buildings actually looked like [the icons]". Rather than modelling a mesh to
-match a drawing, the scavenger's silhouette is written ONCE, in `src/game/scavenger_shape.cpp`
-(`author()`; the types are in `game/scavenger_shape.hpp`): a list of convex side-on profiles in
+match a drawing, the scavenger's silhouette is written ONCE, in `src/game/vehicle_shape.cpp`
+(`author()`; the types are in `game/vehicle_shape.hpp`): a list of convex side-on profiles in
 metres, each with a lateral extent, a bevel and a role, in paint order. The world mesh
 (`build_scavenger`) extrudes each part across its width with a chamfer; the 72 px plate under the
-command row (`draw_scavenger`, fitted to the box by length) is `scavenger_covers` sampled per cell --
+command row (`draw_scavenger`, fitted to the box by length) is `shape_covers` sampled per cell --
 the same parts seen side-on, with the window and the wheels' rings cut. Neither holds a number about
 what the machine looks like, so they cannot disagree. The machine is 3.13 m long, 1.24 m wide and
 1.79 m tall: two tracked pods with five road wheels, an open-topped hopper heaped with scrap, a
 cabover with wrapped glass, a stack, and a twin-armed boom that kinks at an elbow into a pincer. The
 harvester (the same kind drawn for an alien faction) keeps its own organic mesh, so only the human
-look and the shared plate come from this shape. No other kind uses it yet.
+look and the shared plate come from this shape. The mechanism is now per kind (`shape_of(kind)`): the
+tank is drawn and iconed from one authored shape too -- tracks with road wheels, glacis hull, fenders,
+and a turret group that turns with the turret while the plate shows it level -- with the barrel kept
+apart, since it elevates. Every other kind keeps its own recipe until it is converted.
 
 ### The health ticks and the ship instrument
 
