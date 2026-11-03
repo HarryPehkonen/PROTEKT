@@ -719,6 +719,23 @@ once.
 Not built. The slice is: serialise the hashed state and the pending order queue, a version header, the
 round-trip test above, and `--save` / `--load` on the CLI so it can be exercised headlessly.
 
+### The quit never waits on the sound device (found by playing it)
+
+Harri reported the game freezing on `Ctrl`+`Q` and the shell then printing `Aborted (core dumped)`. That
+message is the window manager killing the wedged window when he accepted the close dialog, not the game
+aborting: the symptom is the freeze. His laptop's `coredumpctl` held four of them, and one backtrace named
+the block: `AudioOut::~AudioOut` -> `SDL_DestroyAudioStream` -> `SDL_CloseAudioDevice` -> the mutex
+guarding SDL's logical audio devices, held by an SDL thread parked inside the driver's device open (a
+default-device-change event; SDL 3.4.18 on PipeWire) while PipeWire's data loop waited for that same
+mutex. A deadlock inside SDL, so the game cannot cure it -- it can only refuse to freeze on it. The close
+now runs on a helper thread with a two-second budget (`kCloseBudgetMs`), and a close that has not returned
+leaves the process rather than the window: `std::_Exit(1)`, which also skips the later teardown steps, each
+of which takes the same wedged mutex. The status is non-zero on purpose -- the shutdown did not finish, and
+a zero would let a truncated close read as a clean exit, which is exactly how it would read inside a test
+run. A healthy close measures a couple of milliseconds, so the
+budget is the player's patience at a quit rather than a device parameter. This is a BOUND, not a fix: the
+SDL-side deadlock is still there to be hit, and the game now survives it.
+
 ## 6. How the work is split (Claude Code, Haiku, Opus, Hermes)
 
 **Haiku 4.5 is genuinely capable** — roughly 90% of Sonnet 4.5 on agentic coding evaluations

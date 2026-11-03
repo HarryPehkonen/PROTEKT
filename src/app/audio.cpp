@@ -5,6 +5,12 @@
 
 #ifdef PROTEKT_HAVE_SDL_AUDIO
 #include <SDL3/SDL.h>
+
+#include <atomic>
+#include <chrono>
+#include <cstdlib>
+#include <iostream>
+#include <thread>
 #endif
 
 namespace protekt::app {
@@ -20,6 +26,50 @@ struct AudioOut::Impl {
 AudioOut::AudioOut(std::unique_ptr<Impl> impl) noexcept : impl_(std::move(impl)) {}
 
 #ifdef PROTEKT_HAVE_SDL_AUDIO
+
+namespace {
+
+/// How long the device close may take before the game leaves without it.
+///
+/// A healthy close measures a couple of milliseconds, so anything near this budget is a block
+/// rather than slow work. The number is the player's patience at a quit, not a device parameter.
+constexpr int kCloseBudgetMs = 2000;
+
+/// Closes the device stream, or leaves the process instead of freezing the window on it.
+///
+/// SDL's close takes the mutex guarding its logical audio devices, and that mutex can be left held
+/// by SDL's own threads: on the report of 2026-11-03 (SDL 3.4.18 on PipeWire) a
+/// default-device-change event put an SDL thread inside the driver's device open while holding it,
+/// with PipeWire's data loop waiting for the same mutex, so a quit blocked here for ever. The game
+/// cannot repair the driver, so it bounds the wait: the close runs on a helper thread and the
+/// process leaves if it does not return.
+void close_stream_bounded(SDL_AudioStream* stream) {
+    std::atomic<bool> closed{false};
+    std::thread closer([stream, &closed] {
+        SDL_DestroyAudioStream(stream);
+        closed.store(true, std::memory_order_release);
+    });
+    const auto deadline
+        = std::chrono::steady_clock::now() + std::chrono::milliseconds(kCloseBudgetMs);
+    while (!closed.load(std::memory_order_acquire) && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    if (!closed.load(std::memory_order_acquire)) {
+        // `std::_Exit`, not `std::exit`: it skips the joinable closer's destructor (which would
+        // terminate the process anyway) and every later teardown step, all of which take the same
+        // wedged mutex. The status is NOT zero: the shutdown did not finish, and a zero here would
+        // let a truncated close read as a clean exit -- which is precisely how it would read inside
+        // a test run. The cout flush is for a redirected stdout, which is block-buffered: the quit
+        // line the player just saw must not be lost with it.
+        std::cout.flush();
+        std::cerr << "protekt-game: the audio device did not close within " << kCloseBudgetMs
+                  << " ms; exiting without it\n";
+        std::_Exit(1);
+    }
+    closer.join();
+}
+
+} // namespace
 
 std::unique_ptr<AudioOut> AudioOut::open(std::string& error) {
     if (!SDL_InitSubSystem(SDL_INIT_AUDIO)) {
@@ -89,7 +139,8 @@ float AudioOut::queued_seconds() const noexcept {
 
 AudioOut::~AudioOut() {
     if (impl_ != nullptr && impl_->stream != nullptr) {
-        SDL_DestroyAudioStream(impl_->stream); // closes the device it opened
+        close_stream_bounded(
+            impl_->stream); // closes the device it opened, or leaves rather than hangs
         SDL_QuitSubSystem(SDL_INIT_AUDIO);
     }
 }

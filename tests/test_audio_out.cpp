@@ -66,4 +66,26 @@ TEST(AudioOut, AnEmptyBufferAndAWrongRateAreIgnored) {
     EXPECT_TRUE(out->ok());
 }
 
+TEST(AudioOut, TheTeardownClosesTheDeviceWellInsideItsOwnBudget) {
+    // The destructor closes the device on a helper thread with a two-second budget and leaves the
+    // process if the close does not come back (a driver can deadlock SDL's own audio threads; see
+    // `close_stream_bounded`). That bound is what keeps a quit from freezing the window, so the
+    // healthy case has to stay far inside it -- this pins the fast path, not the wedged one, which
+    // no test here can reproduce.
+    ::setenv("SDL_AUDIODRIVER", "dummy", 1);
+    std::string error;
+    std::unique_ptr<AudioOut> out = AudioOut::open(error);
+    if (out == nullptr) {
+        GTEST_SKIP() << "no audio device here: " << error;
+    }
+    const std::vector<float> second(static_cast<std::size_t>(protekt::audio::kSampleRate) * 2,
+                                    0.1F);
+    out->play(second, protekt::audio::kSampleRate);
+    const auto start = std::chrono::steady_clock::now();
+    out.reset(); // the destructor: the close and the device teardown
+    const auto elapsed = std::chrono::steady_clock::now() - start;
+    EXPECT_LT(elapsed, std::chrono::milliseconds(500))
+        << "a healthy close takes milliseconds, and the budget is 2000 ms";
+}
+
 } // namespace
