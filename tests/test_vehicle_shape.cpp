@@ -175,6 +175,7 @@ struct MeshBox {
 /// Every kind the sim has, by index.
 [[nodiscard]] std::vector<UnitKind> every_kind() {
     std::vector<UnitKind> kinds;
+    kinds.reserve(sim::kUnitKindCount);
     for (int i = 0; i < sim::kUnitKindCount; ++i) {
         kinds.push_back(static_cast<UnitKind>(i));
     }

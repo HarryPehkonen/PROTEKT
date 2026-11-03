@@ -683,11 +683,11 @@ void emit_shape_prism(std::vector<SceneVertex>& out, float x, float z, float gro
 /// Glass is the dark inlay of a CUT -- proud of the flank by a centimetre, which is how a window or
 /// a wheel's ring shows on a solid. One mapping for every kind that has a shape.
 struct ShapeLook {
-    Vec3 colour;      ///< the marked side colour
-    Vec3 camo_colour; ///< its pale tint
-    UvRect hull_tile;
-    UvRect tracks_tile;
-    UvRect metal_tile;
+    Vec3 colour{};      ///< the marked side colour
+    Vec3 camo_colour{}; ///< its pale tint
+    UvRect hull_tile{};
+    UvRect tracks_tile{};
+    UvRect metal_tile{};
 };
 
 /// Every part of `parts` in its paint order, in the ink and tile its role asks for, a mirrored part
