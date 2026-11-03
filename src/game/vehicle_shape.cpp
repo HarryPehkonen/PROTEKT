@@ -269,6 +269,135 @@ std::vector<ShapePart> author_tank() {
     return parts;
 }
 
+/// THE HOVER TANK'S SHAPE. The machine seen from its right-hand side, front at the right: a low
+/// WEDGE that is deep at the tail and runs down to the nose, no track and no wheel anywhere, so it
+/// cannot be taken for a tank. A part is a side profile swept across, so the wedge's narrowing in
+/// plan is written as three STEPS, each as wide as the section it stands for (1.2 m at the tail,
+/// 0.8 m, then 0.4 m at the nose), the deck sloping through all three as one line. A swept-back
+/// dorsal fin stands at the tail -- the model's highest point -- and a small raked turret sits on
+/// the deck ahead of the wedge's tallest point. The SKIRT under the hull and the BARREL are not
+/// here: the skirt is raw unlit colour and the barrel elevates, so the mesh and the plate add them
+/// from the numbers in scene.hpp (`kHoverSkirtBottom`, `kHoverBarrelTip`, ...).
+std::vector<ShapePart> author_hover_tank() {
+    std::vector<ShapePart> parts;
+
+    // The deck, 0.85 m up at the tail and 0.5 m at the nose, a straight line between.
+    constexpr float kTailTop = 0.85F;
+    constexpr float kNoseTop = 0.5F;
+    const auto deck = [](float along) {
+        return kTailTop
+               + ((kNoseTop - kTailTop) * (along - kHoverTail) / (kHoverNose - kHoverTail));
+    };
+    struct Step {
+        float rear;
+        float front;
+        float half; ///< half the width across the step
+    };
+    constexpr std::array<Step, 3> kSteps{
+        {{kHoverTail, -0.4F, kHullHalfMetres}, {-0.4F, 0.55F, 0.4F}, {0.55F, kHoverNose, 0.2F}}};
+    for (const Step& step : kSteps) {
+        add_part(parts,
+                 {{step.rear, kHoverHullBottom},
+                  {step.front, kHoverHullBottom},
+                  {step.front, deck(step.front)},
+                  {step.rear, deck(step.rear)}},
+                 -step.half, step.half, false, 0.03F, ShapeRole::Hull);
+    }
+
+    // The fin, 8 cm thick, swept back, rooted 10 cm into the deck: 1.1 m, the model's top.
+    add_part(parts, {{-1.25F, 0.75F}, {-0.75F, 0.75F}, {-0.95F, 1.1F}, {-1.2F, 1.1F}}, -0.04F,
+             0.04F, false, 0.01F, ShapeRole::Metal);
+
+    // The turret group: 0.64 m long and 0.52 m across, its roof front raked, its base sunk into the
+    // sloping deck and its front face the barrel's root.
+    constexpr float kTurretTop = kHoverTurretBase + 0.3F;
+    add_part(parts,
+             {{-0.22F, kHoverTurretBase},
+              {kHoverTurretFront, kHoverTurretBase},
+              {kHoverTurretFront, kTurretTop - 0.08F},
+              {kHoverTurretFront - 0.1F, kTurretTop},
+              {-0.22F, kTurretTop}},
+             -0.26F, 0.26F, false, 0.03F, ShapeRole::Hull, true, ShapeGroup::Turret);
+    return parts;
+}
+
+/// The body the scout and the missile scout share: a low wedge on TWO SMALL WHEELS with a clear
+/// canopy cut through its flanks. The body is 0.8 m across and the wheels stand outside it, their
+/// outer hubs 0.60 m from the centreline -- the tank's own half-width, so the machine fits where a
+/// tank does. A wheel is a dark tyre, a clear ring cut into its face and a metal hub standing
+/// proud, as the tank's road wheels are. The scout adds a mast and the missile scout a rack to it.
+void add_scout_chassis(std::vector<ShapePart>& parts) {
+    // The wedge, rear to nose: a blunt tail, the roof's crest 0.86 m up, a nose that runs down.
+    add_part(parts,
+             {{-1.25F, 0.22F},
+              {1.15F, 0.22F},
+              {1.3F, 0.38F},
+              {0.9F, 0.66F},
+              {-0.2F, 0.86F},
+              {-1.25F, 0.66F}},
+             -0.4F, 0.4F, false, 0.04F, ShapeRole::Hull);
+
+    constexpr float kWheelRadius = 0.3F;
+    constexpr float kWheelAhead = 0.85F;
+    constexpr float kRingRadius = 0.17F;
+    constexpr float kHubRadius = 0.07F;
+    for (const float along : {-kWheelAhead, kWheelAhead}) {
+        add_part(parts, ngon(along, kWheelRadius, kWheelRadius, 12), 0.38F, 0.58F, true, 0.02F,
+                 ShapeRole::Track);
+        add_part(parts, ngon(along, kWheelRadius, kRingRadius, 8), 0.37F, 0.59F, true, 0.0F,
+                 ShapeRole::Glass, false);
+        add_part(parts, ngon(along, kWheelRadius, kHubRadius, 6), 0.38F, 0.6F, true, 0.0F,
+                 ShapeRole::Metal);
+    }
+
+    // The canopy, a window wrapped through both flanks 1 cm proud of the body's side, with a roof
+    // at least 9 cm thick over it.
+    add_part(parts, {{0.0F, 0.52F}, {0.6F, 0.52F}, {0.56F, 0.6F}, {0.25F, 0.68F}, {0.0F, 0.68F}},
+             -0.41F, 0.41F, false, 0.0F, ShapeRole::Glass, false);
+}
+
+/// THE SCOUT'S SHAPE. The chassis, and a thing that looks and points no gun: a slim mast rising
+/// from the rear deck on the centreline with a tilted radar dish on its head, 1.24 m up, the
+/// machine's top.
+std::vector<ShapePart> author_scout() {
+    std::vector<ShapePart> parts;
+    add_scout_chassis(parts);
+    add_part(parts, {{-0.64F, 0.6F}, {-0.56F, 0.6F}, {-0.56F, 1.06F}, {-0.64F, 1.06F}}, -0.05F,
+             0.05F, false, 0.01F, ShapeRole::Metal);
+    add_part(parts, {{-0.7F, 1.06F}, {-0.58F, 1.04F}, {-0.44F, 1.28F}, {-0.56F, 1.3F}}, -0.2F, 0.2F,
+             false, 0.02F, ShapeRole::Metal);
+    return parts;
+}
+
+/// THE MISSILE SCOUT'S SHAPE. The scout's chassis with, in place of the mast, a RACK of missile
+/// tubes on the rear deck, slanted up and forward: a block 0.56 m across with two dark slits cut
+/// down its length that make it three tubes, and a nose cone on each. The rack is the TURRET group:
+/// it turns to the bearing of the target. 1.24 m up at the noses.
+std::vector<ShapePart> author_msl_scout() {
+    std::vector<ShapePart> parts;
+    add_scout_chassis(parts);
+    constexpr float kRackLo = -0.28F;
+    constexpr float kRackHi = 0.28F;
+    add_part(parts, {{-1.1F, 0.66F}, {-0.4F, 0.66F}, {0.0F, 1.1F}, {-0.7F, 1.1F}}, kRackLo, kRackHi,
+             false, 0.03F, ShapeRole::Metal, true, ShapeGroup::Turret);
+    for (const float slit : {0.233F, 0.467F}) { // metres from the rack's rear edge, along the base
+        const auto at = [&](float offset, float rise) {
+            return std::array<float, 2>{-1.1F + (0.4F * rise) + slit + offset,
+                                        0.66F + (0.44F * rise)};
+        };
+        add_part(parts,
+                 {at(-0.015F, 0.05F), at(0.015F, 0.05F), at(0.015F, 0.95F), at(-0.015F, 0.95F)},
+                 kRackLo - 0.01F, kRackHi + 0.01F, false, 0.0F, ShapeRole::Glass, false,
+                 ShapeGroup::Turret);
+    }
+    for (const float tube : {0.1167F, 0.35F, 0.5833F}) { // each tube's nose cone
+        const float root = -0.7F + tube;
+        add_part(parts, {{root - 0.07F, 1.1F}, {root + 0.07F, 1.1F}, {root + 0.1F, 1.24F}}, -0.2F,
+                 0.2F, false, 0.02F, ShapeRole::Metal, true, ShapeGroup::Turret);
+    }
+    return parts;
+}
+
 bool inside(const Profile& convex, float along, float up) {
     for (std::size_t i = 0, j = convex.size() - 1; i < convex.size(); j = i++) {
         const auto& a = convex.at(j);
@@ -285,12 +414,21 @@ bool inside(const Profile& convex, float along, float up) {
 const std::vector<ShapePart>& shape_of(sim::UnitKind kind) {
     static const std::vector<ShapePart> scavenger = author_scavenger();
     static const std::vector<ShapePart> tank = author_tank();
+    static const std::vector<ShapePart> hover_tank = author_hover_tank();
+    static const std::vector<ShapePart> scout = author_scout();
+    static const std::vector<ShapePart> msl_scout = author_msl_scout();
     static const std::vector<ShapePart> none; // a kind with no authored shape has an empty one
     switch (kind) {
     case sim::UnitKind::Scavenger:
         return scavenger;
     case sim::UnitKind::Tank:
         return tank;
+    case sim::UnitKind::HoverTank:
+        return hover_tank;
+    case sim::UnitKind::Scout:
+        return scout;
+    case sim::UnitKind::MslScout:
+        return msl_scout;
     default:
         return none;
     }

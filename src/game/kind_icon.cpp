@@ -175,20 +175,6 @@ void draw_rocket_tank(Canvas& c) {
     c.disc(40, 11.5F, 2.5F, false);
 }
 
-/// A hover tank: no tracks -- a hull floating on a skirt with a clear gap under it and three
-/// thrust vents on the ground -- and a turret with a barrel. The air gap says "hover".
-void draw_hover_tank(Canvas& c) {
-    c.poly({{6, 50}, {12, 36}, {58, 36}, {68, 50}});
-    c.box(8, 52, 66, 57); // the skirt, held off the hull by a clear line
-    c.box(6, 50, 68, 52, false);
-    c.poly({{24, 36}, {29, 22}, {46, 22}, {51, 36}});
-    c.box(48, 25, 71, 30);
-    c.box(65, 23, 70, 32);
-    c.box(14, 60, 24, 63); // thrust over the ground
-    c.box(31, 60, 41, 63);
-    c.box(48, 60, 58, 63);
-}
-
 /// A mortar bike: two big spoked wheels, a slim frame, a seat and handlebars, and a mortar tube
 /// slanted up and forward off the back.
 void draw_mortar_bike(Canvas& c) {
@@ -200,32 +186,6 @@ void draw_mortar_bike(Canvas& c) {
     c.box(13, 33, 16, 46);                                                // the fork
     c.poly({{34, 36}, {42, 38}, {66, 12}, {58, 8}});                      // the mortar tube
     c.poly({{56, 6}, {68, 14}, {64, 18}, {52, 10}}, false);               // the open mouth
-}
-
-/// A scout: a low wedge on two small wheels with a clear canopy and a mast with a dish -- a thing
-/// that looks, so nothing on it points a gun.
-void draw_scout(Canvas& c) {
-    c.poly({{6, 54}, {16, 42}, {48, 38}, {68, 50}, {66, 58}, {10, 58}});
-    c.poly({{30, 42}, {37, 36}, {50, 38}, {58, 46}, {30, 46}}, false); // the canopy
-    wheel(c, 18, 57, 7);
-    wheel(c, 54, 57, 7);
-    c.box(18, 24, 21, 42); // the mast
-    c.disc(19.5F, 22, 6);  // its dish
-    c.disc(22, 22, 4, false);
-}
-
-/// The missile scout: the scout with a rack of missile tubes on its back.
-void draw_msl_scout(Canvas& c) {
-    c.poly({{6, 54}, {16, 42}, {48, 38}, {68, 50}, {66, 58}, {10, 58}});
-    c.poly({{34, 42}, {40, 37}, {50, 38}, {58, 46}, {34, 46}}, false);
-    wheel(c, 18, 57, 7);
-    wheel(c, 54, 57, 7);
-    c.box(8, 24, 36, 40); // the rack
-    for (const float x : {13.0F, 19.0F, 25.0F, 31.0F}) {
-        c.box(x, 26, x + 2, 38, false);
-    }
-    c.poly({{8, 24}, {12, 18}, {16, 24}}); // a nose on the first tube
-    c.poly({{20, 24}, {24, 18}, {28, 24}});
 }
 
 /// A walker: a two-legged machine -- bent legs ending in broad feet, a squat body, a head and a
@@ -308,6 +268,36 @@ void draw_tank(Canvas& c) {
           col(kTankBarrelTip - kTankCollarLength), row(kTankTurretBase + kTankBarrelBottom));
     c.box(col(kTankBarrelTip - kTankCollarLength), row(kTankTurretBase + kTankCollarTop),
           col(kTankBarrelTip), row(kTankTurretBase + kTankCollarBottom)); // the muzzle collar
+}
+
+/// A hover tank: its shape, projected, and then the SKIRT and the BARREL as separate pieces, as the
+/// tank's barrel is. The skirt is the band of lift under the hull, from `kHoverSkirtBottom` up to
+/// the hull's floor, which leaves the air gap under it on the plate; the barrel is drawn level
+/// from the turret's front face to the tip. Both in the mesh's own metres (scene.hpp), and the
+/// plate holds the barrel's tip as well as the nose.
+void draw_hover_tank(Canvas& c) {
+    constexpr sim::UnitKind kKind = sim::UnitKind::HoverTank;
+    const float scale = shape_scale(kKind, kHoverBarrelTip);
+    project_shape(c, kKind, scale);
+    const float along_min = shape_extent(kKind).along_min;
+    const auto col = [&](float along) { return kShapeMargin + ((along - along_min) * scale); };
+    const auto row = [&](float up) { return kGround - (up * scale); };
+    c.box(col(kHoverTail * kHoverSkirtInset), row(kHoverHullBottom),
+          col(kHoverNose * kHoverSkirtInset), row(kHoverSkirtBottom));
+    c.box(col(kHoverTurretFront), row(kHoverTurretBase + kHoverBarrelTop), col(kHoverBarrelTip),
+          row(kHoverTurretBase + kHoverBarrelBottom));
+}
+
+/// A scout: its shape, projected.
+void draw_scout(Canvas& c) {
+    constexpr sim::UnitKind kKind = sim::UnitKind::Scout;
+    project_shape(c, kKind, shape_scale(kKind, shape_extent(kKind).along_max));
+}
+
+/// The missile scout: its shape, projected.
+void draw_msl_scout(Canvas& c) {
+    constexpr sim::UnitKind kKind = sim::UnitKind::MslScout;
+    project_shape(c, kKind, shape_scale(kKind, shape_extent(kKind).along_max));
 }
 
 /// The recycler on its tracks: a broad body on a long track run, two stacks, a cab at the front

@@ -564,8 +564,29 @@ inline constexpr float kHullPaleMix = 0.85F;
 /// under a hover tank stays the brightest thing on it from every side and in every mark.
 inline constexpr math::Vec3 kHoverSkirtColour{0.70F, 1.0F, 1.0F};
 
-/// A drawn hover tank: the wedge, four skirt quads, the turret, the barrel and the fin.
-inline constexpr std::size_t kHoverTankVertices = (4U * 36U) + (4U * 6U);
+/// A drawn hover tank: the parts of `shape_of(UnitKind::HoverTank)` (three stepped wedge sections,
+/// the fin and the turret, each a chamfered extrusion), then the four skirt quads and the barrel,
+/// which are not shape parts. The shape is 444 vertices (3 x 84 + 84 + 108), 168 before it was
+/// derived.
+inline constexpr std::size_t kHoverTankVertices = 504;
+
+/// THE HOVER TANK'S SIZES that the shape (`vehicle_shape.cpp`), the mesh builder and the plate all
+/// read, here and nowhere else. Metres, along the heading from the centre and up from the ground.
+/// The wedge runs from the tail to the nose and rides on `kHoverHullBottom`; under it a bright band
+/// of lift, the SKIRT, hangs to `kHoverSkirtBottom` with the air under that. The skirt and the
+/// barrel are not shape parts -- the skirt is raw unlit colour and the barrel elevates -- so the
+/// mesh and the plate each add them from these numbers.
+inline constexpr float kHoverTail = -1.3F;
+inline constexpr float kHoverNose = 1.5F;
+inline constexpr float kHoverNoseHalf = 0.12F; ///< the skirt's plan narrows to this at the nose
+inline constexpr float kHoverHullBottom = 0.4F;
+inline constexpr float kHoverSkirtBottom = 0.15F;
+inline constexpr float kHoverSkirtInset = 0.9F; ///< of the hull's outline: tucked under the hull
+inline constexpr float kHoverTurretBase = 0.6F; ///< sunk into the sloping deck
+inline constexpr float kHoverTurretFront = 0.42F;
+inline constexpr float kHoverBarrelBottom = 0.1F; ///< above the turret's base
+inline constexpr float kHoverBarrelTop = 0.2F;
+inline constexpr float kHoverBarrelTip = 1.8F; ///< from the hover tank's centre, past the nose
 
 /// THE TANK'S BARREL, in metres above the hull's own base (the `ground` the tank is built on, which
 /// is the hull height once it hovers). Here, and not inside the tank builder, because the driver's

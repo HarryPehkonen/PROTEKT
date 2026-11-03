@@ -200,7 +200,9 @@ harvester (the same kind drawn for an alien faction) keeps its own organic mesh,
 look and the shared plate come from this shape. The mechanism is now per kind (`shape_of(kind)`): the
 tank is drawn and iconed from one authored shape too -- tracks with road wheels, glacis hull, fenders,
 and a turret group that turns with the turret while the plate shows it level -- with the barrel kept
-apart, since it elevates. Every other kind keeps its own recipe until it is converted.
+apart, since it elevates. The hover tank, the scout and the missile scout are drawn and iconed from
+one authored shape each too (the hover tank keeps its skirt and barrel apart, the scout carries no
+gun). Every other kind keeps its own recipe until it is converted.
 
 ### The health ticks and the ship instrument
 
