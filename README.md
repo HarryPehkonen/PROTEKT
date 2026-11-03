@@ -119,7 +119,7 @@ sized to be read rather than to be exact.
 ## Display/HUD
 
 The panel above is most of the HUD. Beyond it the screen carries a small amount of text, in a built-in
-five-by-five block font: the weapon's name beside the crosshair, a strip along the top with a plate for each key that holds something -- its key label
+five-by-five block font: a strip along the top with a plate for each key that holds something -- its key label
 centred on the plate, the icon under it and a row of health ticks under that -- a `DEPLOYING` plate over one of your turrets
 that is not yet mounted, and a notice line for a refused roster or nav-mark key. The radar is colour
 and length only. The ship instrument below carries two numbers.
@@ -140,7 +140,7 @@ The menu down the left (a selection's rows, the nav menu, an armed `N`) is drawn
 each row is two translucent **blue bars**, the key's and the verb's, lit from the top and fading
 down, with white text outlined in black. The keys are right-aligned on one edge, so a digit sits
 close to its verb and a wide key (`SPACE`, `TAB`) grows to the left; between the key bars and the
-verb bars runs one straight **amber line** (the `SCRAP` label's colour) from below the state row
+verb bars runs one straight **amber line** (the HUD's amber, once the `SCRAP` label's) from below the state row
 past the last row. The bars are rounded on their outer ends and square where the line runs. A row
 that does not apply, or that you cannot afford, keeps its place and its key on a flat dark bar in
 grey. The menu's text is smaller than the rest of the HUD's and smooth-edged (antialiased) inside
@@ -277,6 +277,10 @@ There is no health bar above the radar (retired 2026-10-23). The hull you are si
 **ship instrument**, bottom right: a C-shaped ring of segments, its upper arc the hull in green and its
 lower arc the ammunition in blue, the two readings as numbers in the ring's opening, and the four
 weapons beside it with the one you have up lit. A small **health bar floats over an asset only on demand** (2026-11-01, Harri: "should not be there until I either select something on my side, or point approximately at it, or have it targetted with the t key"): when that asset is **selected** (yours), or the crosshair is **on it or within 4 degrees of it** -- the same cone `T` and `Space` use, `kAssistConeDegrees`, any asset of either side -- or it is **`T`'s latched target**. Any asset: a tank, a turret or the factory alike (the viewer's own tank never has one). Green for yours, red for a hostile. The bar is **level with gravity, not with the screen**: when the view banks with the hull the bars bank with the world, parallel to the horizon, at the same size and the same place over the unit; the camera's own lean is unchanged. A unit counting down a **deploy** keeps its deploy bar whatever the above, since the wait is progress, not health; with no health bar showing it takes the health bar's place. The readout that names the enemy you have targeted is **red at every health** as well, so a hostile's bar can never be read as one of yours, whose colour falls with its damage.
+
+**The crosshair is the weapon** (2026-11-03, Harri: "the crosshairs should actually change to indicate what weapon I have any given moment. The lines in the crosshairs should be finer. Right now the lines are very bold, and it looks like a kids game"). Five thin shapes, one per carried weapon, each round an open centre with a small dot in it: the **gun** four ticks (up, down, left, right); the **rocket** four corner brackets, a lock-on frame; the **mortar** a ring, its splash; the **bouncer** four ticks on the diagonals, an X, for the ricochet; the **shotgun** four dots on the diagonals, its spread. The lines are 1.4 px at 720 high (they were 4.4 px, the rocket's 7.9) and the weapon's NAME is no longer drawn beside the crosshair: the ship instrument says it. The reticle keeps everything else it had: red, green or white by what a click would do, dimmed while the weapon reloads, pushed outward by a hit.
+
+**The map, the scrap gauge and the deployed buildings** (2026-11-03, Harri's nine rulings after playing). The world map (`R`) opens **half the size**, 165.12 px square at 1280x720 where it was 330.24 (half the radar's long axis, `kWorldMapRadarFraction`), and carries no `WORLD MAP - R CLOSES` caption. The amber `SCRAP` plate above the radar is gone: the **store gauge** beside the radar (or the map) writes the same number under its column. The gauge's column is now **separable chunks with a small gap between them** (1.5 text cells, 3 px at 720): one green chunk for the 40 base and one gold chunk for each deployed scavenger's 20, so counting the gold chunks counts your scavengers and a lost one is a missing chunk at a glance; the white bar is cut by the same gaps. The gauge was **broken in map mode**: its pill was one quad the panel's height and its middle sagged nearer to the eye than the sections in front of it, so beside the 330 px map only 62 of the green's 203 rows showed and none of the gold's (just the white bar over it); the pill is bands no taller than a chunk now, and a pixel test counts the chunks down the real rendered column. A **deployed scavenger** stands plumb on a slope like the factory, the turret and the deployed recycler (`stands_level`); it was the one building still leaning with the ground. The ground itself is untouched.
 
 ### The colour calibration view
 

@@ -295,7 +295,8 @@ struct Camera {
 [[nodiscard]] float ground_metres(std::uint64_t seed, float tile_x, float tile_y) noexcept;
 
 /// Structures stand level on whatever slope they sit on; only things that DRIVE follow the ground.
-/// The turret and the deployed recycler are structures, as the factory is.
+/// The turret and the two deployed buildings, the recycler and the scavenger, are structures, as
+/// the factory is.
 [[nodiscard]] bool stands_level(sim::UnitKind kind) noexcept;
 
 /// THE HOVER. A hover tank does not weld itself to the ground: its ride height follows the terrain
@@ -757,9 +758,13 @@ inline constexpr float kAssaultBarrelTip = 2.1F;
 /// carries no barrel. It was 108, three boxes (a flat slab, a nose and a panel).
 inline constexpr std::size_t kBomberVertices = 744;
 
-/// A reticle is four ticks (up, down, left, right) and a centre dot, six vertices each, in a
-/// triangle list: the ticks first, the dot last. The centre between the ticks is open.
+/// The GUN's reticle is four ticks (up, down, left, right) and a centre dot, six vertices each, in
+/// a triangle list: the ticks first, the dot last. The centre between the ticks is open. Every
+/// other weapon draws its own shape (`reticle_for`) with its own count, `reticle_vertex_count`; the
+/// dot is the last quad of every one.
 inline constexpr std::size_t kReticleVertexCount = 30;
+/// How many vertices the reticle of `weapon` is, the tail of the vertex list when there is an aim.
+[[nodiscard]] std::size_t reticle_vertex_count(Weapon weapon) noexcept;
 
 /// A floating health bar over a tank is three quads, six vertices each: an outline, a dark track
 /// and the fill. The bars follow the radar in the vertex list and come before the reticle, one per
@@ -833,7 +838,8 @@ struct DeployPreview {
     bool valid{false};
 };
 
-/// The ledger's amber (C6), the `SCRAP` label's ink. Public because the command menu's leader line
+/// The ledger's amber (C6), once the `SCRAP` label's ink and now only the command menu's. Public
+/// because the command menu's leader line
 /// and its dot are drawn in this exact colour -- the HUD's own, chosen by the user over a measured
 /// green -- and a test that pins the line to it must be able to name it rather than copy its
 /// numbers.
@@ -1002,12 +1008,11 @@ struct SceneOptions {
     /// The reticle's pulse, 0 (rest) to 1 (just connected): the app owns it. 0 draws the reticle
     /// at rest, byte-identical to one that never heard of it.
     float reticle_pulse{0.0F};
-    /// The weapon the driven craft has up, which picks the reticle (`reticle_for`): the gun is
-    /// E12's four ticks, unchanged, so a frame that never heard of it is byte-identical. The mortar
-    /// is the dot alone.
+    /// The weapon the driven craft has up, which picks the reticle's SHAPE (`reticle_for`): the
+    /// gun is four ticks round an open centre, so a frame that never heard of it is byte-identical.
+    /// The weapon's NAME is never drawn at the reticle (Harri, 2026-11-03: the ship instrument
+    /// says it).
     Weapon weapon{Weapon::Gun};
-    /// Draw the weapon's name by the reticle. Off by default for the same reason.
-    bool show_weapon{false};
     /// The driven weapon is reloading: the reticle is drawn spent (a dim ghost of itself) until it
     /// is ready again. False draws it as it always was.
     bool reloading{false};
@@ -1092,12 +1097,12 @@ struct SceneOptions {
     /// The biometal pools venting (`kPoolVentColour`): drawn in the world for every pool in view,
     /// ON by default because the game draws it, and emitting NOTHING for a sim with no pools.
     bool show_pools{true};
-    /// The ledger (C6) -- and, with it, THE STORE GAUGE beside the radar (`store_gauge.hpp`), one
-    /// HUD layer of the scrap economy: C3's per-side count of banked loads, drawn as a small
-    /// labelled reading on the HUD, so the player can see the currency a queue spends. ON by
-    /// default, because the game draws it; the shared test rigs turn it off, the same way they
-    /// already do for the ship instrument, because a HUD layer that always draws becomes the tail
-    /// of every vertex list.
+    /// THE STORE GAUGE beside the radar (`store_gauge.hpp`), the HUD layer of the scrap economy:
+    /// C3's per-side count of banked loads, drawn as a segmented column and the number under it, so
+    /// the player can see the currency a queue spends. (It was the ledger's `SCRAP` plate too,
+    /// until Harri dropped that, 2026-11-03.) ON by default, because the game draws it; the shared
+    /// test rigs turn it off, the same way they already do for the ship instrument, because a HUD
+    /// layer that always draws becomes the tail of every vertex list.
     bool show_ledger{true};
     /// The verdict (C8): the one line that says the war is over, drawn only once a recycler has
     /// died (`Sim::war_outcome`) and emitting NOTHING while it is undecided -- so a battle still

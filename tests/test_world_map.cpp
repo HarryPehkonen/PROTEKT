@@ -157,6 +157,37 @@ TEST(WorldMap, AClosedMapDrawsNothingAndAnOpenOneDrawsTheWorldInsteadOfTheRadar)
     EXPECT_TRUE(same_bytes(plain, build_scene(rig.sim, rig.options)));
 }
 
+TEST(WorldMap, NoCaptionIsDrawnAboveTheMap) {
+    // Harri, 2026-11-03: "Please remove the 'WORLD MAP - R CLOSES'. It's not needed." The caption
+    // was a black plate and light glyphs in the frame's own light grey, centred above the square.
+    // Nothing of the HUD may stand in the strip above the map's frame now: the strip the caption
+    // used to fill, from 25 reference pixels above the frame to the frame's top edge.
+    Rig rig = make_rig();
+    SceneOptions open = rig.options;
+    open.show_world_map = true;
+    const Scene scene = build_scene(rig.sim, open);
+    ASSERT_GT(scene.vertices.size(), scene.world_vertex_count);
+    const WorldMapLayout layout = world_map_layout(open.extent);
+    const float scale = map_furniture_scale(layout);
+    const float frame_top = layout.y - (3.0F * scale);
+    std::size_t in_strip = 0;
+    std::size_t on_map = 0;
+    for (std::size_t i = scene.world_vertex_count; i < scene.vertices.size(); ++i) {
+        const SceneVertex& v = scene.vertices.at(i);
+        const Projected p
+            = project(open.camera, open.extent, v.position[0], v.position[1], v.position[2]);
+        if (p.x >= layout.x && p.x <= layout.x + layout.size) {
+            if (p.y >= layout.y) {
+                ++on_map;
+            } else if (p.y > frame_top - (25.0F * scale) && p.y < frame_top - 0.5F) {
+                ++in_strip;
+            }
+        }
+    }
+    EXPECT_GT(on_map, 0U) << "the map itself is drawn, so the empty strip is not an empty frame";
+    EXPECT_EQ(in_strip, 0U) << "something is drawn where the caption was";
+}
+
 TEST(WorldMap, TheTransformPutsTheFirstLastAndMiddleTilesInTheirExactCells) {
     for (const Extent extent : {Extent{1280, 720}, Extent{720, 1280}, Extent{1920, 1080}}) {
         const WorldMapLayout layout = world_map_layout(extent);
@@ -226,16 +257,19 @@ TEST(WorldMap, TheMapIsSquareWhateverTheAspectOfTheScreen) {
     }
 }
 
-TEST(WorldMap, TheSquareIsTheRadarsMajorDiameter) {
-    // The map takes the elliptical radar's long axis, so its side IS the radar's width. The owner's
-    // call, 2026-10-23: "The map size should match the major diameter of the elliptical radar
-    // display" -- the earlier 12.7% of the frame width (BZ2's minimap footprint) read "a tiny bit
-    // smaller than what I expected".
+TEST(WorldMap, TheSquareIsHalfTheRadarsMajorDiameter) {
+    // Harri, 2026-11-03: "The map is too big. It should be about half the height and width." The
+    // square was the radar's whole width (330.24 px at 1280x720); it is now half of it, and its
+    // height is its width because it is a square.
     for (const Extent extent : {Extent{1280, 720}, Extent{1920, 1080}, Extent{2560, 1440}}) {
         const WorldMapLayout layout = world_map_layout(extent);
         const RadarPanel panel = radar_panel(extent);
-        EXPECT_NEAR(layout.size, panel.width, 0.01F) << extent.width << "x" << extent.height;
+        EXPECT_NEAR(layout.size, panel.width * 0.5F, 0.01F) << extent.width << "x" << extent.height;
     }
+    const RadarPanel radar = radar_panel(Extent{1280, 720});
+    const WorldMapLayout map = world_map_layout(Extent{1280, 720});
+    EXPECT_NEAR(radar.width, 330.24F, 0.01F) << "the size it was";
+    EXPECT_NEAR(map.size, 165.12F, 0.01F) << "the size it is, both ways";
     // A frame too short for the square shrinks it to fit between the two margins, not off the top.
     const WorldMapLayout short_frame = world_map_layout(Extent{2400, 200});
     EXPECT_LE(short_frame.size, 200.0F);
@@ -243,11 +277,10 @@ TEST(WorldMap, TheSquareIsTheRadarsMajorDiameter) {
 }
 
 TEST(WorldMap, FurnitureScalesWithThePanelNotTheFrame) {
-    // The furniture constants are drawn for BZ2's 162.56 px reference panel. The square is now the
-    // radar's diameter -- about 330 px at 1280 wide -- so the factor sits at its CEILING there, and
-    // the blobs keep a share of the bigger panel instead of staying frame-fixed.
+    // The furniture constants are drawn for BZ2's 162.56 px reference panel. The square is half the
+    // radar's diameter -- 165 px at 1280 wide -- so the factor sits at about 1.0 there.
     const float reference = map_furniture_scale(world_map_layout(Extent{1280, 720}));
-    EXPECT_NEAR(reference, protekt::game::kMapMaxFurnitureScale, 0.01F);
+    EXPECT_NEAR(reference, 1.0F, 0.05F);
     // A smaller frame's panel is smaller than the reference, and its blobs shrink in proportion.
     const float smaller = map_furniture_scale(world_map_layout(Extent{640, 360}));
     EXPECT_LT(smaller, reference);
@@ -255,6 +288,7 @@ TEST(WorldMap, FurnitureScalesWithThePanelNotTheFrame) {
     // The floor and ceiling keep the dots readable and the blobs blobs at the extremes.
     const float huge = map_furniture_scale(world_map_layout(Extent{3840, 2160}));
     EXPECT_LE(huge, protekt::game::kMapMaxFurnitureScale);
+    EXPECT_GT(huge, reference) << "a bigger frame's panel grows its blobs";
 }
 
 TEST(WorldMap, NoEnemyAssetIsEverDrawn) {

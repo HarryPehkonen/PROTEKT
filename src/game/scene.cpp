@@ -2125,21 +2125,33 @@ constexpr float kReticleDistanceMetres = 1.5F;
 /// Its half-size as a fraction of the half-screen at that distance, so it looks the same at any
 /// extent.
 constexpr float kReticleHalfFraction = 0.055F;
-/// How thick each bar is, as a fraction of the half-size.
+/// How thick each line is, as a fraction of the half-size: 0.07 of a half-size that is 19.8 px at
+/// the 720 reference is a 1.4 px line. Harri, 2026-11-03: "the lines are very bold, and it looks
+/// like a kids game" -- they were 0.22 (4.4 px), the rocket's 0.4 (7.9 px).
 constexpr float kTriangleBaseFraction = 0.85F;
 constexpr float kTriangleTurn = 2.35619449F; ///< 135 degrees: where a triangle's base corners sit
-constexpr float kReticleBarFraction = 0.22F;
+constexpr float kReticleBarFraction = 0.07F;
 /// The crosshair's shape, as fractions of the half-size: where the ticks start (the open centre is
 /// everything inside), the dot's half-width, and how far a full pulse pushes the ticks out and how
 /// much it swells the dot.
 constexpr float kReticleGapFraction = 0.35F;
-constexpr float kReticleDotFraction = 0.09F;
-/// THE ROCKET'S RETICLE (M1): the gun's family read heavier -- a dot 3.3x the gun's (the mortar's
-/// lone dot is this size too), ticks reaching 0.75 of the half-size instead of 1 (0.4 long, not
-/// 0.65) and nearly twice as thick.
-constexpr float kRocketDotFraction = 0.3F;
-constexpr float kRocketReachFraction = 0.75F;
-constexpr float kRocketBarFraction = 0.4F;
+constexpr float kReticleDotFraction = 0.08F;
+/// THE FIVE SHAPES (Harri, 2026-11-03: "the crosshairs should actually change to indicate what
+/// weapon I have"). Each is thin lines round an open centre and the centre dot, which is always
+/// the last quad. GUN: four ticks (above). ROCKET: four corner brackets, a lock-on frame, at
+/// `kBracketReachFraction` out with arms `kBracketArmFraction` long. MORTAR: a ring (its splash)
+/// of `kRingSegments` segments at `kRingRadiusFraction`. BOUNCER: four ticks on the diagonals
+/// (the ricochet's X) from `kDiagonalFromFraction` to `kDiagonalToFraction` out along each.
+/// SHOTGUN: the spread, four dots at `kScatterFraction` on each diagonal axis of the open centre,
+/// each `kScatterDotFraction` of the half-size, round the centre dot.
+constexpr float kBracketReachFraction = 0.8F;
+constexpr float kBracketArmFraction = 0.4F;
+constexpr float kRingRadiusFraction = 0.8F;
+constexpr int kRingSegments = 24;
+constexpr float kDiagonalFromFraction = 0.35F;
+constexpr float kDiagonalToFraction = 0.9F;
+constexpr float kScatterFraction = 0.55F;
+constexpr float kScatterDotFraction = 0.11F;
 constexpr float kReticlePulseSpread = 0.45F;
 constexpr float kReticlePulseDotGrowth = 1.5F;
 
@@ -2849,62 +2861,7 @@ void append_mount_plates(std::vector<SceneVertex>& out, const SceneOptions& opti
     }
 }
 
-/// THE WEAPON'S LABEL (M1), in frame pixels on the HUD layer like the DEPLOYING plate, scaled by
-/// the frame's height (the px below are at 720). It hangs off the aim point and comes BEFORE the
-/// reticle, so the reticle stays the tail of the vertex list. When `show_weapon` asks, the weapon's
-/// name in white 5x5 capitals, cell 4.8 px (24 px tall letters), on a black plate with 4.8 px of
-/// padding, its left edge 50 px right of the aim point and centred on it.
 constexpr float kHudPerFrameHeight = 1.0F / 720.0F;
-constexpr float kLabelGapPixels = 50.0F;
-constexpr std::array<float, 3> kLabelInk{0.95F, 0.95F, 0.95F};
-
-void append_weapon_hud(std::vector<SceneVertex>& out, const SceneOptions& options) {
-    if (!options.aim.has_value()) {
-        return;
-    }
-    if (!options.show_weapon) {
-        return;
-    }
-    const float px = static_cast<float>(options.extent.height) * kHudPerFrameHeight;
-    const float marks_at = math::kNearPlane * kHudClearance * corner_ray_length(options.extent);
-    const auto rect = [&](float distance, float ax, float ay, float bx, float by,
-                          const std::array<float, 3>& rgb) {
-        const auto at = [&](float x, float y) {
-            const RayPoint point = ray_point(options.camera, options.extent, x, y, distance);
-            return Vec3{point.x, point.y, point.z};
-        };
-        emit_quad(out, at(ax, ay), at(bx, ay), at(bx, by), at(ax, by), rgb);
-    };
-    constexpr std::array<float, 3> kPlate{0.0F, 0.0F, 0.0F};
-    // `word` with its top-left at (left, top), `cell` px a cell, on a plate `pad` px wider all
-    // round: the plate, then the ink.
-    const auto text = [&](std::string_view word, float left, float top, float cell, float pad,
-                          const std::array<float, 3>& ink) {
-        const float width = ((static_cast<float>(word.size()) * 6.0F) - 1.0F) * cell;
-        rect(marks_at * kHudFaceRatio, left - pad, top - pad, left + width + pad,
-             top + (5.0F * cell) + pad, kPlate);
-        for (std::size_t index = 0; index < word.size(); ++index) {
-            const std::array<std::uint8_t, 5> rows = mount_glyph(word.at(index));
-            const float glyph_left = left + (static_cast<float>(index) * 6.0F * cell);
-            for (std::size_t row = 0; row < rows.size(); ++row) {
-                for (int col = 0; col < 5; ++col) {
-                    if (((rows.at(row) >> (4 - col)) & 1U) == 0U) {
-                        continue;
-                    }
-                    const float x = glyph_left + (static_cast<float>(col) * cell);
-                    const float y = top + (static_cast<float>(row) * cell);
-                    rect(marks_at, x, y, x + cell, y + cell, ink);
-                }
-            }
-        }
-    };
-    const float aim_x = options.aim->x;
-    const float aim_y = options.aim->y;
-    const float cell = static_cast<float>(options.extent.height) * kMountCellFraction;
-    const float pad = static_cast<float>(options.extent.height) * kMountPadFraction;
-    text(weapon_name(options.weapon), aim_x + (kLabelGapPixels * px), aim_y - (2.5F * cell), cell,
-         pad, kLabelInk);
-}
 
 /// THE SHIP INSTRUMENT (SHIPGAUGE-1), bottom right: BZ2's own gauge -- a segmented C-shaped ring
 /// standing in for the hull and the magazine, the two readings in the ring's opening, and the four
@@ -3321,82 +3278,17 @@ constexpr float kMenuRingCells = 0.5F;
 constexpr float kMenuOutlineCells = 0.5F;
 constexpr float kMenuOutlineRatio = 1.3F;
 
-/// THE LEDGER (C6). C3 keeps a per-side count of the loads a hauler has banked and a producer's
-/// queue spends it: it is the war's only currency, and until this layer nothing showed it, so the
-/// player could not see how the build the factory was making got paid for. This draws the word and
-/// the side's own count on a black plate just above the bottom-left panel, so the reading sits with
-/// the map and the command area rather than on the ship instrument.
-///
-/// The cell is 2.0 at the 720 reference -- the HUD's ONE type scale, which is BZ2's measured glyph
-/// height. A fresh element joins that scale like every other one; "make it obvious" buys a brighter
-/// ink and an opaque plate, never a bigger cell.
-constexpr std::array<float, 3> kLedgerPlate{0.0F, 0.0F, 0.0F};
-// The ink is `kLedgerInk` (scene.hpp): amber, deliberately unlike the HUD's white, because it is a
-// resource reading and not a label. The command menu's leader line shares it.
-constexpr std::string_view kLedgerWord = "SCRAP";
+/// The HUD text cell: 2.0 at the 720 reference -- the HUD's ONE type scale, which is BZ2's measured
+/// glyph height. A fresh element joins that scale like every other one; "make it obvious" buys a
+/// brighter ink and an opaque plate, never a bigger cell. (The amber `SCRAP` plate that stood above
+/// the radar is gone, Harri 2026-11-03: the gauge below carries the same number.)
 constexpr float kLedgerCell = 2.0F;
-
-void append_ledger(std::vector<SceneVertex>& out, const SceneOptions& options,
-                   const sim::Sim& sim) {
-    if (!options.show_ledger) {
-        return;
-    }
-    const float px = static_cast<float>(options.extent.height) * kHudPerFrameHeight;
-    const float marks_at = math::kNearPlane * kHudClearance * corner_ray_length(options.extent);
-    const auto rect = [&](float distance, float ax, float ay, float bx, float by,
-                          const std::array<float, 3>& rgb) {
-        const auto at = [&](float x, float y) {
-            const RayPoint point = ray_point(options.camera, options.extent, x, y, distance);
-            return Vec3{point.x, point.y, point.z};
-        };
-        emit_quad(out, at(ax, ay), at(bx, ay), at(bx, by), at(ax, by), rgb);
-    };
-    const auto word_width = [](std::string_view word, float cell) {
-        return ((static_cast<float>(word.size()) * 6.0F) - 1.0F) * cell;
-    };
-    const std::string reading = std::to_string(sim.ore(options.viewer_side));
-    const float cell = kLedgerCell * px;
-    const float pad = cell;
-    const float text_h = 5.0F * cell;
-    // Above whichever view holds the bottom-left corner: R swaps the radar and the map, so the
-    // ledger clears the TALLER of the two rather than the one that happens to be up.
-    const float panel_x = radar_panel(options.extent).x;
-    const float panel_top = options.show_world_map ? world_map_layout(options.extent).y
-                                                   : radar_panel(options.extent).y;
-    const float top = panel_top - text_h - (3.0F * pad);
-    const float left = panel_x;
-    // The word, a cell's gap, then the number: the same walk `append_hud_panels` uses, over the
-    // same 5x5 cell font, so the ledger cannot drift into a second type scale.
-    const float word_left = left + pad;
-    const float number_left = word_left + word_width(kLedgerWord, cell) + cell;
-    const float right = number_left + word_width(reading, cell) + pad;
-    const float bottom = top + text_h + (2.0F * pad);
-    const auto draw = [&](std::string_view text, float start) {
-        for (std::size_t index = 0; index < text.size(); ++index) {
-            const std::array<std::uint8_t, 5> rows = mount_glyph(text.at(index));
-            const float glyph_left = start + (static_cast<float>(index) * 6.0F * cell);
-            for (std::size_t row = 0; row < rows.size(); ++row) {
-                for (int col = 0; col < 5; ++col) {
-                    if (((rows.at(row) >> (4 - col)) & 1U) == 0U) {
-                        continue;
-                    }
-                    const float x = glyph_left + (static_cast<float>(col) * cell);
-                    const float y = top + pad + (static_cast<float>(row) * cell);
-                    rect(marks_at, x, y, x + cell, y + cell, kLedgerInk);
-                }
-            }
-        }
-    };
-    rect(marks_at * kHudBorderRatio, left, top, right, bottom, kLedgerPlate);
-    draw(kLedgerWord, word_left);
-    draw(reading, number_left);
-}
 
 /// THE STORE GAUGE (Harri, 2026-11-01), beside the radar -- or beside the map when R has swapped
 /// them. Every rectangle comes from `store_gauge_layout`; this only paints them, in pixels through
-/// `ray_point` like every HUD layer, the pill first, then the sections, then the white bar over
+/// `ray_point` like every HUD layer, the pill first, then the chunks, then the white bar over
 /// them, then the number. Depth is the ledger's own layering: each later layer a step nearer.
-/// Drawn with the ledger (`show_ledger`), because it is the same reading of the same bank.
+/// Drawn under `show_ledger`, the layer's switch since the ledger plate was its sibling.
 void append_store_gauge(std::vector<SceneVertex>& out, const SceneOptions& options,
                         const sim::Sim& sim) {
     if (!options.show_ledger) {
@@ -3424,10 +3316,17 @@ void append_store_gauge(std::vector<SceneVertex>& out, const SceneOptions& optio
         emit_quad(out, at(r.x, r.y), at(r.x + r.width, r.y), at(r.x + r.width, r.y + r.height),
                   at(r.x, r.y + r.height), rgb);
     };
-    rect(marks_at * kHudBorderRatio, gauge.frame, kGaugePill);
-    rect(marks_at * kHudBorderRatio * 0.99F, gauge.green, kGaugeGreen);
-    rect(marks_at * kHudBorderRatio * 0.99F, gauge.gold, kGaugeGold);
-    rect(marks_at, gauge.level, kGaugeLevel);
+    // The pill in bands, each no taller than a chunk (`StoreGaugeLayout::pill`), then every chunk a
+    // hair nearer, then the white bar in the pieces the chunks cut it into, then the number.
+    for (const GaugeRect& band : gauge.pill) {
+        rect(marks_at * kHudBorderRatio, band, kGaugePill);
+    }
+    for (const GaugeChunk& chunk : gauge.chunks) {
+        rect(marks_at * kHudBorderRatio * 0.99F, chunk.box, chunk.gold ? kGaugeGold : kGaugeGreen);
+    }
+    for (const GaugeRect& fill : gauge.fills) {
+        rect(marks_at, fill, kGaugeLevel);
+    }
     // The number, centred under the column, in the HUD's one 5x5 cell font.
     const float text_width = ((static_cast<float>(gauge.text.size()) * 6.0F) - 1.0F) * cell;
     const float left = gauge.number.x + ((gauge.number.width - text_width) * 0.5F);
@@ -4338,10 +4237,27 @@ void append_assist(std::vector<SceneVertex>& out, const SceneOptions& options,
     }
 }
 
-/// Four ticks round an OPEN centre and a small dot in it, in the plane the camera looks along,
-/// centred on the point the click's own ray reaches. Six vertices per quad: two triangles, and no
-/// winding to get wrong, because the pipeline culls nothing. The ticks reach the old box's
-/// half-size; a pulse pushes them outward and swells the dot, and 0 is the reticle at rest.
+/// How many quads (six vertices each) a reticle shape is made of, the centre dot included.
+constexpr std::size_t reticle_quads(ReticleKind kind) noexcept {
+    switch (kind) {
+    case ReticleKind::FourTicks:
+    case ReticleKind::Diagonals:
+    case ReticleKind::Scatter:
+        return 5;
+    case ReticleKind::Brackets:
+        return 9;
+    case ReticleKind::Ring:
+        return static_cast<std::size_t>(kRingSegments) + 1U;
+    }
+    return 5;
+}
+
+/// The weapon's crosshair: thin lines round an OPEN centre and a small dot in it, in the plane the
+/// camera looks along, centred on the point the click's own ray reaches, in the shape
+/// `reticle_for(options.weapon)` names (see the constants above). Six vertices per quad: two
+/// triangles, and no winding to get wrong, because the pipeline culls nothing. The shapes reach the
+/// old box's half-size at most; a pulse pushes them outward and swells the dot, and 0 is the
+/// reticle at rest. The dot is the LAST quad of every shape.
 void append_reticle(std::vector<SceneVertex>& out, const SceneOptions& options, const sim::Sim& sim,
                     const Pick& picked) {
     if (!options.aim.has_value()) {
@@ -4356,13 +4272,10 @@ void append_reticle(std::vector<SceneVertex>& out, const SceneOptions& options, 
             channel *= kReticleSpentShade; // a ghost of itself until the gun is ready again
         }
     }
-    // The weapon picks the shape (M1): the gun's is E12's, untouched; the rocket's is heavier;
-    // the mortar's is the dot alone.
     const ReticleShape shape = reticle_for(options.weapon);
-    const bool heavy = shape.kind != ReticleKind::FourTicks;
     const RayPoint centre
         = ray_point(camera, options.extent, screen_x, screen_y, kReticleDistanceMetres);
-    // THE FRAME IS THE HULL'S, exactly as `ray_through` builds it (`pick.cpp`), so the ticks and
+    // THE FRAME IS THE HULL'S, exactly as `ray_through` builds it (`pick.cpp`), so the lines and
     // the dot are drawn in the VIEW's axes and a leaning camera shows them square on the screen --
     // which is what the player reads them as. Omitting `camera.up` here left the reticle as the one
     // mark on this layer still plumb with the WORLD, so it visibly rotated against a tilted horizon
@@ -4371,25 +4284,20 @@ void append_reticle(std::vector<SceneVertex>& out, const SceneOptions& options, 
     const float half
         = kReticleDistanceMetres * std::tan(math::kFovRadians * 0.5F) * kReticleHalfFraction;
     const float pulse = std::clamp(options.reticle_pulse, 0.0F, 1.0F);
-    const float thick
-        = half * (shape.kind == ReticleKind::Heavy ? kRocketBarFraction : kReticleBarFraction)
-          * 0.5F;
+    const float thick = half * kReticleBarFraction * 0.5F; // half the line's width
     const float spread = half * kReticlePulseSpread * pulse;
-    const float inner = (half * kReticleGapFraction) + spread;
-    const float outer
-        = (half * (shape.kind == ReticleKind::Heavy ? kRocketReachFraction : 1.0F)) + spread;
-    const float dot = half * (heavy ? kRocketDotFraction : kReticleDotFraction)
-                      * (1.0F + (kReticlePulseDotGrowth * pulse));
+    const float dot = half * kReticleDotFraction * (1.0F + (kReticlePulseDotGrowth * pulse));
     const auto corner = [&](float right, float up) {
         return std::array<float, 3>{centre.x + (right * basis.right.at(0)) + (up * basis.up.at(0)),
                                     centre.y + (right * basis.right.at(1)) + (up * basis.up.at(1)),
                                     centre.z + (right * basis.right.at(2)) + (up * basis.up.at(2))};
     };
-    const auto bar_quad = [&](float r0, float u0, float r1, float u1) {
-        const std::array<float, 3> a = corner(r0, u0);
-        const std::array<float, 3> b = corner(r1, u0);
-        const std::array<float, 3> c = corner(r1, u1);
-        const std::array<float, 3> d = corner(r0, u1);
+    using Local = std::array<float, 2>; // (right, up) metres from the centre
+    const auto quad = [&](const Local& p0, const Local& p1, const Local& p2, const Local& p3) {
+        const std::array<float, 3> a = corner(p0.at(0), p0.at(1));
+        const std::array<float, 3> b = corner(p1.at(0), p1.at(1));
+        const std::array<float, 3> c = corner(p2.at(0), p2.at(1));
+        const std::array<float, 3> d = corner(p3.at(0), p3.at(1));
         out.push_back(SceneVertex{a, colour});
         out.push_back(SceneVertex{b, colour});
         out.push_back(SceneVertex{c, colour});
@@ -4397,11 +4305,79 @@ void append_reticle(std::vector<SceneVertex>& out, const SceneOptions& options, 
         out.push_back(SceneVertex{c, colour});
         out.push_back(SceneVertex{d, colour});
     };
-    if (shape.kind != ReticleKind::Dot) {
+    const auto bar_quad = [&](float r0, float u0, float r1, float u1) {
+        quad({r0, u0}, {r1, u0}, {r1, u1}, {r0, u1});
+    };
+    // A line from `from` to `to` (both on the line's axis), `thick` either side of it.
+    const auto stroke = [&](const Local& from, const Local& to) {
+        const float dx = to.at(0) - from.at(0);
+        const float dy = to.at(1) - from.at(1);
+        const float length = std::hypot(dx, dy);
+        const float nx = -dy / length * thick;
+        const float ny = dx / length * thick;
+        quad({from.at(0) + nx, from.at(1) + ny}, {to.at(0) + nx, to.at(1) + ny},
+             {to.at(0) - nx, to.at(1) - ny}, {from.at(0) - nx, from.at(1) - ny});
+    };
+    switch (shape.kind) {
+    case ReticleKind::FourTicks: {
+        const float inner = (half * kReticleGapFraction) + spread;
+        const float outer = half + spread;
         bar_quad(-thick, inner, thick, outer);   // up
         bar_quad(-thick, -outer, thick, -inner); // down
         bar_quad(-outer, -thick, -inner, thick); // left
         bar_quad(inner, -thick, outer, thick);   // right
+        break;
+    }
+    case ReticleKind::Brackets: {
+        const float reach = (half * kBracketReachFraction) + spread;
+        const float arm = half * kBracketArmFraction;
+        for (const float sx : {-1.0F, 1.0F}) {
+            for (const float sy : {-1.0F, 1.0F}) {
+                // One corner: its horizontal arm along the top or bottom edge, its vertical one
+                // down the side, meeting at (sx, sy) * reach.
+                const float hx = reach - arm;
+                bar_quad(std::min(sx * hx, sx * reach), (sy * reach) - thick,
+                         std::max(sx * hx, sx * reach), (sy * reach) + thick);
+                bar_quad((sx * reach) - thick, std::min(sy * hx, sy * reach), (sx * reach) + thick,
+                         std::max(sy * hx, sy * reach));
+            }
+        }
+        break;
+    }
+    case ReticleKind::Ring: {
+        const float radius = (half * kRingRadiusFraction) + spread;
+        const auto at = [&](int step, float r) {
+            const float angle
+                = (2.0F * math::kPi * static_cast<float>(step)) / static_cast<float>(kRingSegments);
+            return Local{r * std::cos(angle), r * std::sin(angle)};
+        };
+        for (int step = 0; step < kRingSegments; ++step) {
+            quad(at(step, radius - thick), at(step, radius + thick), at(step + 1, radius + thick),
+                 at(step + 1, radius - thick));
+        }
+        break;
+    }
+    case ReticleKind::Diagonals: {
+        const float from = (half * kDiagonalFromFraction) + spread;
+        const float to = (half * kDiagonalToFraction) + spread;
+        const float side = std::sqrt(0.5F);
+        for (const float sx : {-1.0F, 1.0F}) {
+            for (const float sy : {-1.0F, 1.0F}) {
+                stroke({sx * side * from, sy * side * from}, {sx * side * to, sy * side * to});
+            }
+        }
+        break;
+    }
+    case ReticleKind::Scatter: {
+        const float at = (half * kScatterFraction) + spread;
+        const float size = half * kScatterDotFraction;
+        for (const float sx : {-1.0F, 1.0F}) {
+            for (const float sy : {-1.0F, 1.0F}) {
+                bar_quad((sx * at) - size, (sy * at) - size, (sx * at) + size, (sy * at) + size);
+            }
+        }
+        break;
+    }
     }
     bar_quad(-dot, -dot, dot, dot); // the centre dot
 }
@@ -4420,7 +4396,6 @@ constexpr float kMapEdgePixels = 3.0F;
 /// the white ring, because two layers at one distance lose the depth test to each other.
 constexpr float kMapPoolRingRatio = 1.04F;
 constexpr float kMapPoolEdgeRatio = 1.05F;
-constexpr std::string_view kMapCaption = "WORLD MAP - R CLOSES";
 
 void append_world_map(std::vector<SceneVertex>& out, const SceneOptions& options,
                       const sim::Sim& sim) {
@@ -4547,33 +4522,13 @@ void append_world_map(std::vector<SceneVertex>& out, const SceneOptions& options
         append_nav_glyph(out, options, marks_at * 0.89F, mark.px, mark.py, mark.half,
                          mark.highlighted);
     }
-
-    // The caption says what this is and how to close it. The map now sits in the bottom-left corner
-    // (BZ2's minimap footprint), so the caption goes ABOVE it: below it there is only the frame's
-    // margin, and the text would run off the bottom of the screen.
-    const float cell = 2.0F * scale;
-    const float width = ((static_cast<float>(kMapCaption.size()) * 6.0F) - 1.0F) * cell;
-    const float left = layout.x + ((layout.size - width) * 0.5F);
-    const float top = layout.y - edge - (17.0F * scale);
-    rect(0.9F, left - (4.0F * scale), top - (3.0F * scale), left + width + (4.0F * scale),
-         top + (13.0F * scale), kInk);
-    for (std::size_t index = 0; index < kMapCaption.size(); ++index) {
-        const std::array<std::uint8_t, 5> rows = mount_glyph(kMapCaption.at(index));
-        for (std::size_t row = 0; row < rows.size(); ++row) {
-            for (int col = 0; col < 5; ++col) {
-                if (((rows.at(row) >> (4 - col)) & 1U) == 0U) {
-                    continue;
-                }
-                const float x = left + (static_cast<float>(index) * 6.0F * cell)
-                                + (static_cast<float>(col) * cell);
-                const float y = top + (static_cast<float>(row) * cell);
-                rect(0.88F, x, y, x + cell, y + cell, kEdge);
-            }
-        }
-    }
 }
 
 } // namespace
+
+std::size_t reticle_vertex_count(Weapon weapon) noexcept {
+    return reticle_quads(reticle_for(weapon).kind) * 6U;
+}
 
 IconBox key_icon_box(float slot_left, float plate_top, float px, float slot_width) noexcept {
     return IconBox{slot_left, plate_top + ((kStripSlotHeightPixels + kStripStackGapPixels) * px),
@@ -4758,7 +4713,7 @@ math::Vec3 ground_normal(std::uint64_t seed, sim::Fixed x, sim::Fixed y) noexcep
 
 bool stands_level(sim::UnitKind kind) noexcept {
     return kind == sim::UnitKind::Factory || sim::is_turret(kind)
-           || kind == sim::UnitKind::DeployedRecycler;
+           || kind == sim::UnitKind::DeployedRecycler || kind == sim::UnitKind::DeployedScavenger;
 }
 
 Suspension suspend(Suspension state, float target_z, std::uint32_t ticks) noexcept {
@@ -5194,9 +5149,7 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
     append_unit_bars(scene.vertices, options, sim, selected, pointed);
     append_attack_readout(scene.vertices, options, sim);
     append_assist(scene.vertices, options, sim);
-    append_weapon_hud(scene.vertices, options);
     append_hud_panels(scene.vertices, options, sim, selected);
-    append_ledger(scene.vertices, options, sim);
     append_store_gauge(scene.vertices, options, sim);
     append_outcome(scene.vertices, options, sim);
     append_reticle(scene.vertices, options, sim, aimed);

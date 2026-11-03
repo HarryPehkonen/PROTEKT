@@ -115,14 +115,15 @@ struct WeaponLineup {
 /// turret not yet mounted, otherwise "the <weapon> is reloading.".
 [[nodiscard]] std::string_view trigger_refusal(Weapon weapon, const sim::Unit& unit) noexcept;
 
-/// The reticle a weapon draws.
-///  * FourTicks: E12's four ticks and dot, unchanged -- the gun, and the shotgun's (a scatter
-///    gun is aimed the same way; its cone is the shot's, not the sight's).
-///  * Heavy: the same family, a centre dot 3.3x as big, ticks 0.4 long instead of 0.65 and nearly
-///    twice as thick -- the rocket, one heavy hit.
-///  * Dot: the centre dot alone -- the mortar's, and the bouncer's too, whose FIRST landing is the
-///    same ballistics (the bounce carries it further). It has no ticks and no range ruler.
-enum class ReticleKind : std::uint8_t { FourTicks, Heavy, Dot };
+/// The reticle a weapon draws: FIVE SHAPES, one per carried weapon (Harri, 2026-11-03: "the
+/// crosshairs should actually change to indicate what weapon I have"), all thin lines round an open
+/// centre and a small dot in it.
+///  * FourTicks: four ticks up, down, left and right -- the gun, E12's reticle in a finer line.
+///  * Brackets: four corner brackets, a lock-on frame -- the rocket, one heavy hit.
+///  * Ring: a circle -- the mortar's, its shell's splash.
+///  * Diagonals: four ticks on the diagonals, an X -- the bouncer, which ricochets.
+///  * Scatter: four dots on the diagonals round the centre -- the shotgun's spread.
+enum class ReticleKind : std::uint8_t { FourTicks, Brackets, Ring, Diagonals, Scatter };
 
 struct ReticleShape {
     ReticleKind kind{ReticleKind::FourTicks};

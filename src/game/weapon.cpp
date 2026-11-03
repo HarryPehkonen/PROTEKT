@@ -111,13 +111,15 @@ std::string_view trigger_refusal(Weapon weapon, const sim::Unit& unit) noexcept 
 ReticleShape reticle_for(Weapon weapon) noexcept {
     switch (weapon) {
     case Weapon::Gun:
-    case Weapon::Shotgun:
         return ReticleShape{ReticleKind::FourTicks};
     case Weapon::Rocket:
-        return ReticleShape{ReticleKind::Heavy};
+        return ReticleShape{ReticleKind::Brackets};
     case Weapon::Mortar:
+        return ReticleShape{ReticleKind::Ring};
     case Weapon::Bouncer:
-        return ReticleShape{ReticleKind::Dot};
+        return ReticleShape{ReticleKind::Diagonals};
+    case Weapon::Shotgun:
+        return ReticleShape{ReticleKind::Scatter};
     }
     return ReticleShape{};
 }

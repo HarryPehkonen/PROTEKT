@@ -240,7 +240,10 @@ TEST(VehicleTilt, AStructureStandsUprightOnTheSlopeThatTiltsAVehicle) {
     std::array<int, 2> hill{};
     ASSERT_TRUE(find_tile(is_level, flat));
     ASSERT_TRUE(find_tile(is_gentle_slope, hill));
-    for (const UnitKind kind : {UnitKind::Factory, UnitKind::Turret}) {
+    // Every STRUCTURE: the factory and the turret, and the two buildings a vehicle becomes when it
+    // deploys (Harri, 2026-11-03: "the buildings should stand straight").
+    for (const UnitKind kind : {UnitKind::Factory, UnitKind::Turret, UnitKind::DeployedRecycler,
+                                UnitKind::DeployedScavenger}) {
         const Placed level = draw_unit(kind, flat.at(0), flat.at(1));
         const Placed sloped = draw_unit(kind, hill.at(0), hill.at(1));
         ASSERT_TRUE(level.drawn && sloped.drawn);
@@ -250,7 +253,7 @@ TEST(VehicleTilt, AStructureStandsUprightOnTheSlopeThatTiltsAVehicle) {
         for (std::size_t i = 0; i < level.body.size(); ++i) {
             for (std::size_t c = 0; c < 3; ++c) {
                 EXPECT_NEAR(sloped.body.at(i).at(c), level.body.at(i).at(c), kFlatTolerance)
-                    << "vertex " << i << " moved";
+                    << "kind " << static_cast<int>(kind) << " vertex " << i << " moved";
             }
         }
     }

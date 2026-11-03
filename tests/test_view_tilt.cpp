@@ -464,7 +464,9 @@ TEST(ViewTilt, TheReticleIsDrawnInTheViewsFrameSoItsTicksAndDotStaySquareToTheSc
         return hi - lo;
     };
     EXPECT_GT(width_of(24), 2.0F) << "the dot must be a couple of pixels wide";
-    EXPECT_GT(width_of(0), 2.0F) << "a tick must be a couple of pixels wide";
+    // The ticks are FINE lines now (Harri, 2026-11-03: "the lines in the crosshairs should be
+    // finer"), 1.4 px at this 720 frame, so the floor is a pixel, not the couple it was.
+    EXPECT_GT(width_of(0), 1.0F) << "a tick must still be a line a pixel or more wide";
     for (std::size_t a = 0; a < 4; ++a) {
         for (std::size_t b = a + 1; b < 4; ++b) {
             const float dx = px.at(a * 6).x - px.at(b * 6).x;

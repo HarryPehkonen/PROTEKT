@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -27,7 +28,10 @@
 #include "protekt/game/atlas.hpp"
 #include "protekt/game/radar.hpp"
 #include "protekt/game/scene.hpp"
+#include "protekt/game/store_gauge.hpp"
+#include "protekt/game/world_map.hpp"
 #include "protekt/render/renderer.hpp"
+#include "protekt/sim/orders.hpp"
 #include "protekt/sim/scenario.hpp"
 #include "protekt/world/world.hpp"
 
@@ -925,4 +929,104 @@ TEST_F(EdgePassTest, TheOffSwitchDrawsTheSceneUnfiltered) {
         protekt::render::FrameRequest{.extent = off.extent, .seed = 42, .tick = 0}, stats);
     EXPECT_EQ(off.colour_histogram().size(), 3U);
     EXPECT_GT(render_frame().colour_histogram().size(), 3U);
+}
+
+TEST_F(RenderTest, TheStoreGaugeShowsEveryChunkItShouldInRadarModeAndInMapMode) {
+    // THE BUG THIS COVERS (Harri, 2026-11-03: "the scrap bar is broken when I am in map mode"). The
+    // pill behind the gauge was ONE quad the height of the panel beside it, and the depth test is
+    // per PIXEL: in map mode (a tall panel) the pill's middle beat the sections drawn a hair
+    // nearer than it. Measured on the old code at 1280x720 (the map was 330 px then), down the
+    // column's centre line, rows drawn / rows the layout says: radar mode green 62/61.8, gold
+    // with its white bar 31/30.9; map mode green 62/203.2, gold with its white bar 46/101.6. Moving
+    // the pill 10% farther gave 203 and 102: the cause is depth order, not the layout.
+    // THIS test reads the pixels of the finished frame, so it pins what the player sees (every
+    // chunk drawn, the pill showing only in the gaps); at today's half-size map the old single-quad
+    // pill no longer hides anything here (the sag is under the sections' margin), which is why
+    // `StoreGauge.NoPillQuadIsTallerThanAChunk` pins the cause on the vertices.
+    using protekt::sim::Side;
+    protekt::sim::Scenario s;
+    s.seed = 20261101;
+    s.pools = {protekt::sim::Pool{70, 60}, protekt::sim::Pool{74, 60}, protekt::sim::Pool{78, 60}};
+    s.spawns = {protekt::sim::Spawn{protekt::sim::UnitKind::Factory, Side::Player, 50, 60},
+                protekt::sim::Spawn{protekt::sim::UnitKind::Scavenger, Side::Player, 70, 60},
+                protekt::sim::Spawn{protekt::sim::UnitKind::Scavenger, Side::Player, 74, 60},
+                protekt::sim::Spawn{protekt::sim::UnitKind::Scavenger, Side::Player, 78, 60}};
+    auto sim = protekt::sim::Sim::create(s);
+    for (std::uint32_t id = 2; id <= 4; ++id) {
+        sim.enqueue(protekt::sim::Order{
+            protekt::sim::UnitId{id},
+            protekt::sim::orders::Deploy{static_cast<int>(70 + (4 * (id - 2))), 60}});
+    }
+    for (int i = 0; i < 600 || sim.ore(Side::Player) < 5; ++i) {
+        sim.step();
+    }
+    ASSERT_EQ(sim.capacity(Side::Player), 100) << "three deployed scavengers on top of the 40";
+
+    // 1280x720 is the game's own; 2400x600 is a wide short frame, where the gauge's cell and the
+    // panel beside it are a different share of the frame.
+    for (const Extent extent : {Extent{1280, 720}, Extent{2400, 600}}) {
+        for (const bool map : {false, true}) {
+            protekt::game::SceneOptions o;
+            o.seed = s.seed;
+            o.radius_tiles = 8;
+            o.extent = extent;
+            o.camera.x = 100.0F;
+            o.camera.z = 100.0F;
+            o.camera.y = 8.0F;
+            o.show_ship_gauge = false;
+            o.show_ledger = true;
+            o.show_world_map = map;
+            o.viewer_unit = protekt::sim::UnitId{1};
+            const protekt::game::Scene scene = protekt::game::build_scene(sim, o);
+            Frame frame;
+            frame.extent = o.extent;
+            frame.pixels = renderer_->render(
+                protekt::render::FrameRequest{
+                    .extent = o.extent, .seed = s.seed, .tick = 0, .scene = &scene},
+                frame.stats);
+            protekt::game::RadarPanel beside = protekt::game::radar_panel(o.extent);
+            if (map) {
+                const protekt::game::WorldMapLayout m = protekt::game::world_map_layout(o.extent);
+                beside = protekt::game::RadarPanel{m.x, m.y, m.size, m.size};
+            }
+            const protekt::game::StoreGaugeLayout g = protekt::game::store_gauge_layout(
+                beside, sim.capacity(Side::Player), sim.fast_band(Side::Player),
+                sim.ore(Side::Player), 2.0F * static_cast<float>(extent.height) / 720.0F);
+            // Down the column's centre line: what colour each row is.
+            const std::uint32_t x
+                = static_cast<std::uint32_t>(g.column.x + (g.column.width * 0.5F));
+            const auto is = [](std::uint32_t rgb, const std::array<float, 3>& ink) {
+                const auto close = [](std::uint32_t got, float want) {
+                    return std::abs(static_cast<float>(got) - (want * 255.0F)) < 8.0F;
+                };
+                return close((rgb >> 16U) & 0xFFU, ink.at(0))
+                       && close((rgb >> 8U) & 0xFFU, ink.at(1)) && close(rgb & 0xFFU, ink.at(2));
+            };
+            std::size_t pill_rows = 0;
+            std::size_t runs = 0; // stretches of rows that are NOT the pill: the chunks, counted
+            bool in_chunk = false;
+            float drawn = 0.0F;
+            float wanted = 0.0F;
+            for (const auto& chunk : g.chunks) {
+                wanted += chunk.box.height;
+            }
+            for (std::uint32_t y = static_cast<std::uint32_t>(std::ceil(g.column.y));
+                 y < static_cast<std::uint32_t>(g.column.y + g.column.height); ++y) {
+                const bool pill = is(frame.rgb(x, y), protekt::game::kGaugePill);
+                pill_rows += pill ? 1U : 0U;
+                if (!pill) {
+                    drawn += 1.0F;
+                    runs += in_chunk ? 0U : 1U;
+                }
+                in_chunk = !pill;
+            }
+            EXPECT_EQ(runs, g.chunks.size())
+                << "one stretch down the column per chunk, with the pill showing in each gap; map "
+                << map << " at " << extent.width << "x" << extent.height;
+            EXPECT_EQ(g.chunks.size(), 4U);
+            EXPECT_NEAR(drawn, wanted, 2.0F * static_cast<float>(g.chunks.size()))
+                << "the chunks' rows drawn against the layout's, map " << map;
+            EXPECT_GE(pill_rows, 3U * 2U) << "three gaps of at least two rows";
+        }
+    }
 }

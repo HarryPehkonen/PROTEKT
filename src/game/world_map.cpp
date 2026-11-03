@@ -64,12 +64,12 @@ constexpr float kReferenceHeight = 720.0F;
 WorldMapLayout world_map_layout(Extent extent) noexcept {
     const float height = static_cast<float>(extent.height);
     // The corner inset is a fixed 24 px of the 720-high frame the UI was drawn at, so it scales
-    // with the frame height like the roster strip. The square's side is the RADAR'S MAJOR DIAMETER:
-    // the two views swap into the same corner, so the map takes the elliptical display's long axis
-    // rather than a fraction of its own (the owner's call, see world_map.hpp). The frame HEIGHT
+    // with the frame height like the roster strip. The square's side is HALF THE RADAR'S MAJOR
+    // DIAMETER (`kWorldMapRadarFraction`, the owner's call, see world_map.hpp). The frame HEIGHT
     // only caps it on a frame too short to hold the square.
     const float margin = kPanelMarginPixels * (height / kReferenceHeight);
-    const float side = std::min(radar_panel(extent).width, height - (2.0F * margin));
+    const float side
+        = std::min(radar_panel(extent).width * kWorldMapRadarFraction, height - (2.0F * margin));
     const float per_tile = std::max(side / static_cast<float>(kWorldMapTiles),
                                     1.0F / static_cast<float>(kWorldMapTiles));
     const float size = per_tile * static_cast<float>(kWorldMapTiles);

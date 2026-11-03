@@ -27,6 +27,7 @@
 #include "protekt/game/radar.hpp"
 #include "protekt/game/row.hpp"
 #include "protekt/game/scene.hpp"
+#include "protekt/game/store_gauge.hpp"
 #include "protekt/game/vehicle_shape.hpp"
 #include "protekt/game/weapon.hpp"
 #include "protekt/input/bindings.hpp"
@@ -941,10 +942,10 @@ using protekt::game::Weapon;
 
 TEST(WeaponReticle, TheChoiceIsAPureFunctionOfTheWeapon) {
     EXPECT_EQ(reticle_for(Weapon::Gun).kind, ReticleKind::FourTicks);
-    EXPECT_EQ(reticle_for(Weapon::Shotgun).kind, ReticleKind::FourTicks);
-    EXPECT_EQ(reticle_for(Weapon::Rocket).kind, ReticleKind::Heavy);
-    EXPECT_EQ(reticle_for(Weapon::Mortar).kind, ReticleKind::Dot);
-    EXPECT_EQ(reticle_for(Weapon::Bouncer).kind, ReticleKind::Dot);
+    EXPECT_EQ(reticle_for(Weapon::Rocket).kind, ReticleKind::Brackets);
+    EXPECT_EQ(reticle_for(Weapon::Mortar).kind, ReticleKind::Ring);
+    EXPECT_EQ(reticle_for(Weapon::Bouncer).kind, ReticleKind::Diagonals);
+    EXPECT_EQ(reticle_for(Weapon::Shotgun).kind, ReticleKind::Scatter);
 }
 
 /// A row of `length` + 1 tiles at seed 42 within six height units of each other, none a crater:
@@ -1063,60 +1064,194 @@ TEST(WeaponReticle, TheGunIsE12sReticleByteForByte) {
               0);
 }
 
-TEST(WeaponReticle, TheRocketHasABiggerDotAndShorterTicks) {
-    SceneOptions gun_options;
-    SceneOptions rocket_options;
-    const std::vector<LocalPoint> gun
-        = reticle_local(weapon_scene(Weapon::Gun, gun_options), gun_options);
-    const std::vector<LocalPoint> rocket
-        = reticle_local(weapon_scene(Weapon::Rocket, rocket_options), rocket_options);
-    ASSERT_EQ(rocket.size(), kReticleVertexCount);
-    const auto reach = [](const std::vector<LocalPoint>& pts, std::size_t from, std::size_t to) {
+/// The reticle of `weapon`, as (right, up) metres from its centre, and its raw vertices.
+struct DrawnReticle {
+    std::vector<LocalPoint> local;
+    std::vector<protekt::game::SceneVertex> raw;
+};
+
+DrawnReticle reticle_of_weapon(Weapon weapon) {
+    SceneOptions options;
+    const Scene scene = weapon_scene(weapon, options);
+    const std::size_t count = protekt::game::reticle_vertex_count(weapon);
+    DrawnReticle drawn;
+    drawn.raw = {scene.vertices.end() - static_cast<std::ptrdiff_t>(count), scene.vertices.end()};
+    // Local points about the centre dot, which is the last quad of every shape.
+    const protekt::math::Basis basis
+        = protekt::math::basis_from(options.camera.yaw, options.camera.pitch);
+    std::array<float, 3> centre{};
+    for (std::size_t i = drawn.raw.size() - 6; i < drawn.raw.size(); ++i) {
+        for (std::size_t axis = 0; axis < 3; ++axis) {
+            centre.at(axis) += drawn.raw.at(i).position.at(axis) / 6.0F;
+        }
+    }
+    for (const auto& v : drawn.raw) {
+        LocalPoint p;
+        for (std::size_t axis = 0; axis < 3; ++axis) {
+            const float d = v.position.at(axis) - centre.at(axis);
+            p.right += d * basis.right.at(axis);
+            p.up += d * basis.up.at(axis);
+        }
+        drawn.local.push_back(p);
+    }
+    return drawn;
+}
+
+TEST(WeaponReticle, EveryWeaponDrawsItsOwnShapeAndNoTwoAreTheSame) {
+    constexpr std::array<Weapon, 5> kAll{Weapon::Gun, Weapon::Rocket, Weapon::Mortar,
+                                         Weapon::Bouncer, Weapon::Shotgun};
+    std::array<DrawnReticle, 5> drawn;
+    for (std::size_t i = 0; i < kAll.size(); ++i) {
+        drawn.at(i) = reticle_of_weapon(kAll.at(i));
+        ASSERT_EQ(drawn.at(i).raw.size(), protekt::game::reticle_vertex_count(kAll.at(i)));
+    }
+    EXPECT_EQ(drawn.at(0).raw.size(), kReticleVertexCount) << "the gun's is E12's count";
+    for (std::size_t a = 0; a < kAll.size(); ++a) {
+        for (std::size_t b = a + 1; b < kAll.size(); ++b) {
+            bool same = drawn.at(a).local.size() == drawn.at(b).local.size();
+            for (std::size_t i = 0; same && i < drawn.at(a).local.size(); ++i) {
+                same = std::abs(drawn.at(a).local.at(i).right - drawn.at(b).local.at(i).right)
+                           < 1.0e-6F
+                       && std::abs(drawn.at(a).local.at(i).up - drawn.at(b).local.at(i).up)
+                              < 1.0e-6F;
+            }
+            EXPECT_FALSE(same) << "weapon " << a << " and weapon " << b << " draw one reticle";
+        }
+    }
+}
+
+TEST(WeaponReticle, EachShapeIsReadableAsItsWeapon) {
+    const float half = reticle_half();
+    const auto reach = [](const DrawnReticle& d, std::size_t from, std::size_t to) {
         float far = 0.0F;
         for (std::size_t i = from; i < to; ++i) {
-            far = std::max(far, std::max(std::abs(pts.at(i).right), std::abs(pts.at(i).up)));
+            far = std::max(far, std::hypot(d.local.at(i).right, d.local.at(i).up));
         }
         return far;
     };
-    EXPECT_GT(reach(rocket, 24, 30), reach(gun, 24, 30) * 2.0F) << "the dot reads heavier";
-    EXPECT_LT(reach(rocket, 0, 24), reach(gun, 0, 24) * 0.8F) << "the ticks are shorter";
+    // MORTAR: a ring -- every vertex of every segment sits at one radius, near the half-size.
+    const DrawnReticle ring = reticle_of_weapon(Weapon::Mortar);
+    ASSERT_EQ(ring.local.size(), std::size_t{150});
+    for (std::size_t i = 0; i < 144; ++i) {
+        EXPECT_NEAR(std::hypot(ring.local.at(i).right, ring.local.at(i).up), half * 0.8F,
+                    half * 0.05F);
+    }
+    // ROCKET: eight arms in four corners, each corner out on a diagonal, none on an axis.
+    const DrawnReticle brackets = reticle_of_weapon(Weapon::Rocket);
+    ASSERT_EQ(brackets.local.size(), std::size_t{54});
+    for (std::size_t quad = 0; quad < 8; ++quad) {
+        float cr = 0.0F;
+        float cu = 0.0F;
+        for (std::size_t i = quad * 6; i < (quad * 6) + 6; ++i) {
+            cr += brackets.local.at(i).right / 6.0F;
+            cu += brackets.local.at(i).up / 6.0F;
+        }
+        EXPECT_GT(std::max(std::abs(cr), std::abs(cu)), half * 0.55F) << "arm " << quad;
+        EXPECT_LE(std::max(std::abs(cr), std::abs(cu)), half * 0.85F) << "arm " << quad;
+    }
+    // BOUNCER: four ticks, every one centred on a diagonal (|right| == |up|).
+    const DrawnReticle x = reticle_of_weapon(Weapon::Bouncer);
+    for (std::size_t quad = 0; quad < 4; ++quad) {
+        float cr = 0.0F;
+        float cu = 0.0F;
+        for (std::size_t i = quad * 6; i < (quad * 6) + 6; ++i) {
+            cr += x.local.at(i).right / 6.0F;
+            cu += x.local.at(i).up / 6.0F;
+        }
+        EXPECT_NEAR(std::abs(cr), std::abs(cu), half * 0.01F) << "tick " << quad;
+        EXPECT_GT(std::abs(cr), half * 0.2F);
+    }
+    // SHOTGUN: four dots on the diagonals, each as small as a dot, so there is no line in it.
+    const DrawnReticle scatter = reticle_of_weapon(Weapon::Shotgun);
+    for (std::size_t quad = 0; quad < 4; ++quad) {
+        float far = 0.0F;
+        float near = 1.0e9F;
+        for (std::size_t i = quad * 6; i < (quad * 6) + 6; ++i) {
+            const float r = scatter.local.at(i).right;
+            const float u = scatter.local.at(i).up;
+            far = std::max(far, std::max(std::abs(r), std::abs(u)));
+            near = std::min(near, std::min(std::abs(r), std::abs(u)));
+        }
+        EXPECT_LT(far - near, half * 0.3F) << "dot " << quad << " is a square, not a stroke";
+    }
+    EXPECT_GT(reach(scatter, 0, 24), half * 0.3F);
 }
 
-TEST(WeaponReticle, TheMortarIsTheDotAloneAndDrawsNoRangeRuler) {
-    SceneOptions gun_options;
-    SceneOptions mortar_options;
-    const Scene gun = weapon_scene(Weapon::Gun, gun_options);
-    const Scene mortar = weapon_scene(Weapon::Mortar, mortar_options);
-    // The gun's reticle is four tick quads and the dot; the mortar's is the dot. Nothing else
-    // differs in the frame, so a ruler of any kind would show as extra vertices here.
-    constexpr std::size_t kTickVertices = 24;
-    ASSERT_GT(gun.vertices.size(), kTickVertices);
-    EXPECT_EQ(mortar.vertices.size(), gun.vertices.size() - kTickVertices);
-    SceneOptions again_options;
-    const Scene again = weapon_scene(Weapon::Mortar, again_options);
-    ASSERT_EQ(again.vertices.size(), mortar.vertices.size());
-    EXPECT_EQ(std::memcmp(again.vertices.data(), mortar.vertices.data(),
-                          again.vertices.size() * sizeof(protekt::game::SceneVertex)),
-              0)
-        << "the same weapon and pitch draw the same bytes";
-    SceneOptions steep_options;
-    const Scene steep = weapon_scene(Weapon::Mortar, steep_options, 1.0F);
-    EXPECT_EQ(steep.vertices.size(), mortar.vertices.size()) << "the pitch lights nothing";
+TEST(WeaponReticle, EveryShapeEndsInTheSameFineCentreDot) {
+    const float half = reticle_half();
+    for (const Weapon weapon :
+         {Weapon::Gun, Weapon::Rocket, Weapon::Mortar, Weapon::Bouncer, Weapon::Shotgun}) {
+        const DrawnReticle d = reticle_of_weapon(weapon);
+        for (std::size_t i = d.local.size() - 6; i < d.local.size(); ++i) {
+            EXPECT_LE(std::max(std::abs(d.local.at(i).right), std::abs(d.local.at(i).up)),
+                      half * 0.15F)
+                << "weapon " << static_cast<int>(weapon);
+        }
+    }
 }
 
-TEST(WeaponReticle, TheLabelIsDrawnOnlyWhenAsked) {
+TEST(WeaponReticle, TheLinesAreFineNotBold) {
+    // Harri, 2026-11-03: "the lines are very bold, and it looks like a kids game". A line is at
+    // most 1.5 px at the 720 reference: the half-size is 0.055 of the half-screen (19.8 px), so a
+    // line's width is half * 0.076 at most. The gun's ticks were 0.22 of it (4.4 px).
     SceneOptions options;
-    const Scene quiet = weapon_scene(Weapon::Rocket, options);
-    const auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(42));
-    options.show_weapon = true;
-    const Scene labelled = build_scene(sim, options);
-    EXPECT_GT(labelled.vertices.size(), quiet.vertices.size());
-    // The label goes in BEFORE the reticle, so the reticle is still the tail.
-    const std::vector<protekt::game::SceneVertex> a = reticle_of(quiet);
-    const std::vector<protekt::game::SceneVertex> b = reticle_of(labelled);
-    ASSERT_EQ(a.size(), b.size());
-    for (std::size_t i = 0; i < a.size(); ++i) {
-        EXPECT_EQ(a.at(i).position, b.at(i).position);
+    const std::vector<LocalPoint> p = reticle_local(reticle_scene(0.0F, options), options);
+    const float half = reticle_half();
+    const float screen_half_px = 360.0F;
+    const float px_per_metre
+        = screen_half_px / (1.5F * std::tan(protekt::math::kFovRadians * 0.5F));
+    // The up tick (the first quad) is as wide as its two side edges are apart.
+    float lo = 1.0e9F;
+    float hi = -1.0e9F;
+    for (std::size_t i = 0; i < 6; ++i) {
+        lo = std::min(lo, p.at(i).right);
+        hi = std::max(hi, p.at(i).right);
+    }
+    EXPECT_LE((hi - lo) * px_per_metre, 1.5F)
+        << "a tick is " << ((hi - lo) / half) << " of the half-size";
+    EXPECT_GE((hi - lo) * px_per_metre, 0.8F) << "and still a line";
+    const DrawnReticle rocket = reticle_of_weapon(Weapon::Rocket);
+    lo = 1.0e9F;
+    hi = -1.0e9F;
+    for (std::size_t i = 0; i < 6; ++i) {
+        lo = std::min(lo, rocket.local.at(i).up);
+        hi = std::max(hi, rocket.local.at(i).up);
+    }
+    EXPECT_LE((hi - lo) * px_per_metre, 1.5F) << "the rocket's arm is no heavier";
+}
+
+TEST(WeaponReticle, ThePitchLightsNothingAndTheSameWeaponDrawsTheSameBytes) {
+    for (const Weapon weapon :
+         {Weapon::Gun, Weapon::Rocket, Weapon::Mortar, Weapon::Bouncer, Weapon::Shotgun}) {
+        SceneOptions a_options;
+        SceneOptions b_options;
+        SceneOptions steep_options;
+        const Scene a = weapon_scene(weapon, a_options);
+        const Scene b = weapon_scene(weapon, b_options);
+        const Scene steep = weapon_scene(weapon, steep_options, 1.0F);
+        ASSERT_EQ(a.vertices.size(), b.vertices.size());
+        EXPECT_EQ(std::memcmp(a.vertices.data(), b.vertices.data(),
+                              a.vertices.size() * sizeof(protekt::game::SceneVertex)),
+                  0);
+        EXPECT_EQ(steep.vertices.size(), a.vertices.size()) << "the pitch lights nothing";
+    }
+}
+
+TEST(WeaponReticle, TheWeaponsNameIsNotDrawnByTheCrosshairs) {
+    // The name stood 50 px right of the aim point on a black plate and is gone (Harri, 2026-11-03:
+    // "I can see on the bottom right anyway"). The reticle is the whole of what the aim draws: with
+    // the aim and without it, the frame differs by exactly the reticle's vertices.
+    for (const Weapon weapon :
+         {Weapon::Gun, Weapon::Rocket, Weapon::Mortar, Weapon::Bouncer, Weapon::Shotgun}) {
+        SceneOptions with_aim;
+        const Scene aimed = weapon_scene(weapon, with_aim);
+        SceneOptions without_aim = with_aim;
+        without_aim.aim.reset();
+        const auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(42));
+        const Scene unaimed = build_scene(sim, without_aim);
+        EXPECT_EQ(aimed.vertices.size() - unaimed.vertices.size(),
+                  protekt::game::reticle_vertex_count(weapon))
+            << "weapon " << static_cast<int>(weapon);
     }
 }
 
@@ -6812,47 +6947,42 @@ TEST(Scene, TheDeployPreviewIsRedWhereTheDeployWouldBeRefusedAndGreenWhereItWoul
 
 } // namespace
 
-TEST(Scene, TheLedgerIsDrawnAndItIsTheSimsOwnNumber) {
+TEST(Scene, TheScrapPlateAboveTheRadarIsGoneAndTheNumberLivesInTheGauge) {
+    // Harri, 2026-11-03: "the 'SCRAPxxx' on the left side of the radar is not needed". The amber
+    // word and its number on a black plate above the radar are removed; the number is not lost,
+    // because the store gauge beside the radar writes the same Sim::ore() under its column.
     const SceneOptions options = ledger_options();
-
     const protekt::sim::Sim empty = bankable_battle();
-    ASSERT_EQ(empty.ore(protekt::sim::Side::Player), 0) << "the rig starts with an empty ledger";
     const Scene first = build_scene(empty, options);
-    const std::size_t when_empty = ledger_ink_vertices(first);
-    EXPECT_GT(when_empty, 0U)
-        << "the ledger is drawn from the first frame, so the player can see the currency exists";
+    EXPECT_EQ(ledger_ink_vertices(first), 0U) << "no amber word, no amber number";
 
+    // The gauge is the layer's remaining content: drawn when the layer is on, not a vertex when
+    // off.
+    const auto gauge_ink = [](const Scene& scene) {
+        std::size_t count = 0;
+        for (const auto& vertex : scene.vertices) {
+            if (vertex.colour == protekt::game::kGaugeInk) {
+                ++count;
+            }
+        }
+        return count;
+    };
+    EXPECT_GT(gauge_ink(first), 0U) << "the number is still written, under the gauge's column";
     SceneOptions hidden = options;
     hidden.show_ledger = false;
-    EXPECT_EQ(ledger_ink_vertices(build_scene(empty, hidden)), 0U)
-        << "with the layer off, not one vertex of the reading";
+    EXPECT_EQ(gauge_ink(build_scene(empty, hidden)), 0U);
 
-    // Every stroke of the reading is the same height and sits ABOVE the bottom-left panel, clear of
-    // the radar and the map that share that corner.
-    const protekt::game::RadarPanel panel = protekt::game::radar_panel(options.extent);
-    for (const auto& vertex : first.vertices) {
-        if (std::abs(vertex.colour.at(0) - 1.0F) >= kTolerance
-            || std::abs(vertex.colour.at(1) - 0.85F) >= kTolerance) {
-            continue;
-        }
-        const protekt::game::Projected p
-            = protekt::game::project(options.camera, options.extent, vertex.position[0],
-                                     vertex.position[1], vertex.position[2]);
-        EXPECT_LT(p.y, panel.y) << "the ledger belongs above the panel, not over it";
-        EXPECT_GT(p.y, 0.0F);
-    }
-
-    // THE ASSERTION THAT MATTERS: the reading is the sim's number, not a fixed string. A battle
-    // whose hauler has banked a load draws a different reading from one that has banked nothing.
+    // And the number is the sim's, not a constant: a bank of loads writes a different number.
     protekt::sim::Sim banked = bankable_battle();
     for (int i = 0; i < 4000 && banked.ore(protekt::sim::Side::Player) == 0; ++i) {
         banked.step();
     }
     ASSERT_GT(banked.ore(protekt::sim::Side::Player), 0)
         << "the rig must bank a load, or this proves nothing about the reading being live";
-    const std::size_t when_banked = ledger_ink_vertices(build_scene(banked, options));
-    EXPECT_NE(when_banked, when_empty)
-        << "the reading must come from Sim::ore(), not from a constant";
+    const Scene later = build_scene(banked, options);
+    EXPECT_EQ(ledger_ink_vertices(later), 0U);
+    EXPECT_NE(gauge_ink(later), gauge_ink(first))
+        << "the number must come from Sim::ore(), not from a constant";
 }
 
 TEST(Scene, TheWreckageIsDrawnWhereThePiecesLie) {

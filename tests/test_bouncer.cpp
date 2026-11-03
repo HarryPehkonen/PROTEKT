@@ -385,8 +385,8 @@ TEST(Bouncer, IsTheFourthOfFiveDrivenWeaponsAndTheRightClickWrapsPastIt) {
     EXPECT_EQ(game::next_weapon(Weapon::Bouncer), Weapon::Shotgun);
     EXPECT_EQ(game::next_weapon(Weapon::Shotgun), Weapon::Gun) << "the right click wraps";
     EXPECT_EQ(game::weapon_name(Weapon::Bouncer), "BOUNCER");
-    EXPECT_EQ(game::reticle_for(Weapon::Bouncer).kind, game::ReticleKind::Dot)
-        << "its first landing is the mortar's, so it is sighted the mortar's way";
+    EXPECT_EQ(game::reticle_for(Weapon::Bouncer).kind, game::ReticleKind::Diagonals)
+        << "it ricochets, so its sight is an X; it is no longer the mortar's dot";
 }
 
 } // namespace

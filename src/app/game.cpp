@@ -518,7 +518,6 @@ public:
             = wakes_.events(); // D4: every wreck still alight, not only this frame's
         scene_options.weapon = session_.weapon();
         scene_options.assist_target = session_.assist_target();
-        scene_options.show_weapon = !session_.destroyed();
         scene_options.reloading = game::weapon_reloading(sim_, driven);
         scene_options.landing_marks = &landing_marks_;
         scene_options.nav_marks = &nav_marks_;

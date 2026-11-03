@@ -15,6 +15,7 @@
 #include "protekt/game/radar.hpp"
 #include "protekt/game/scene.hpp"
 #include "protekt/game/store_gauge.hpp"
+#include "protekt/game/world_map.hpp"
 #include "protekt/sim/orders.hpp"
 #include "protekt/sim/pool.hpp"
 #include "protekt/sim/scenario.hpp"
@@ -88,6 +89,92 @@ TEST(StoreGauge, TheNumberIsTheScrapHeldBelowTheColumn) {
     EXPECT_GE(g.number.y, bottom(g.column) - kPx);
     EXPECT_LE(bottom(g.number), bottom(g.frame) + kPx);
     EXPECT_EQ(gauge(40, 0, 0).text, "0");
+}
+
+// ---- the chunks: one gold segment per deployed scavenger, a gap between each
+// ---------------------
+
+constexpr float kGap = protekt::game::kGaugeChunkGapCells * 2.0F; ///< the cell is 2.0 in `gauge()`
+
+TEST(StoreGauge, ThereIsOneChunkForTheBaseAndOneForEveryDeployedScavenger) {
+    // 40 base, then +20 a scavenger: counting the chunks counts the scavengers.
+    EXPECT_EQ(gauge(40, 0, 0).chunks.size(), 1U) << "the base alone";
+    EXPECT_EQ(gauge(60, 20, 0).chunks.size(), 2U) << "one scavenger";
+    EXPECT_EQ(gauge(80, 40, 0).chunks.size(), 3U) << "two";
+    EXPECT_EQ(gauge(160, 120, 0).chunks.size(), 7U) << "six";
+    const StoreGaugeLayout three = gauge(100, 60, 0);
+    ASSERT_EQ(three.chunks.size(), 4U);
+    EXPECT_FALSE(three.chunks.at(0).gold) << "the base is the green one, on top";
+    for (std::size_t i = 1; i < three.chunks.size(); ++i) {
+        EXPECT_TRUE(three.chunks.at(i).gold) << i;
+    }
+}
+
+TEST(StoreGauge, ASmallGapSeparatesEveryChunkFromTheNext) {
+    const StoreGaugeLayout g = gauge(100, 60, 0);
+    ASSERT_EQ(g.chunks.size(), 4U);
+    for (std::size_t i = 0; i + 1 < g.chunks.size(); ++i) {
+        const float gap = g.chunks.at(i + 1).box.y - bottom(g.chunks.at(i).box);
+        EXPECT_NEAR(gap, kGap, 0.01F) << "between chunk " << i << " and " << (i + 1);
+        EXPECT_GT(gap, 1.0F) << "a gap you can see";
+        EXPECT_LT(gap, g.chunks.at(i).box.height * 0.25F) << "and a small one";
+    }
+    EXPECT_NEAR(g.chunks.front().box.y, g.column.y, 0.01F) << "the outer edges stay flush";
+    EXPECT_NEAR(bottom(g.chunks.back().box), bottom(g.column), 0.01F);
+}
+
+TEST(StoreGauge, EachDeployedScavengersChunkIsTheSameSizeAndTheBaseIsTwiceOne) {
+    const StoreGaugeLayout g = gauge(100, 60, 0);
+    ASSERT_EQ(g.chunks.size(), 4U);
+    const float pitch = g.column.height * 20.0F / 100.0F;
+    EXPECT_NEAR(g.chunks.at(2).box.y - g.chunks.at(1).box.y, pitch, 0.01F);
+    EXPECT_NEAR(g.chunks.at(3).box.y - g.chunks.at(2).box.y, pitch, 0.01F);
+    EXPECT_NEAR(g.chunks.at(2).box.height, pitch - kGap, 0.01F) << "an inner gold chunk";
+    EXPECT_NEAR(g.chunks.at(0).box.height + (kGap * 0.5F), pitch * 2.0F, 0.01F)
+        << "the base is two scavengers' worth";
+}
+
+TEST(StoreGauge, TheWhiteBarIsCutByTheSameGapsAndReachesOnlyWhereTheScrapDoes) {
+    // Full: one piece of white per chunk, with the gaps open between them.
+    const StoreGaugeLayout full = gauge(100, 60, 100);
+    ASSERT_EQ(full.fills.size(), full.chunks.size());
+    for (std::size_t i = 0; i + 1 < full.fills.size(); ++i) {
+        EXPECT_NEAR(full.fills.at(i + 1).y - bottom(full.fills.at(i)), kGap, 0.01F);
+    }
+    // 49 of 60 reaches into the base chunk only a little: one gold chunk full, the base partly.
+    const StoreGaugeLayout part = gauge(60, 20, 49);
+    ASSERT_EQ(part.fills.size(), 2U);
+    EXPECT_NEAR(bottom(part.fills.back()), bottom(part.column), 0.01F);
+    EXPECT_NEAR(part.fills.front().y, part.level.y, 0.01F) << "the top of the bar is the scrap";
+    EXPECT_EQ(gauge(60, 20, 0).fills.size(), 0U) << "no scrap, no white";
+    EXPECT_EQ(gauge(100, 60, 20).fills.size(), 1U) << "20 is the bottom chunk and no more";
+}
+
+TEST(StoreGauge, ThePillIsBandsThatTileTheFrameExactlyAndNoneTallerThanAChunkSlice) {
+    const StoreGaugeLayout g = gauge(100, 60, 0);
+    ASSERT_GT(g.pill.size(), g.chunks.size());
+    float at = g.frame.y;
+    float tallest = 0.0F;
+    for (const GaugeRect& band : g.pill) {
+        EXPECT_NEAR(band.y, at, 0.001F) << "a band starts where the last ended";
+        EXPECT_FLOAT_EQ(band.x, g.frame.x);
+        EXPECT_FLOAT_EQ(band.width, g.frame.width);
+        EXPECT_GT(band.height, 0.0F);
+        at = band.y + band.height;
+        tallest = std::max(tallest, band.height);
+    }
+    EXPECT_NEAR(at, bottom(g.frame), 0.001F) << "and the last ends at the frame's bottom";
+    EXPECT_LE(tallest, g.column.height * 40.0F / 100.0F) << "none taller than the base chunk";
+}
+
+TEST(StoreGauge, TheNumberFitsTheHalfSizeMapsNarrowPill) {
+    // The map is half the radar's width now, 165 px: 16% of it (26 px) would clip "142".
+    const protekt::game::WorldMapLayout map = protekt::game::world_map_layout({1280, 720});
+    const protekt::game::RadarPanel square{map.x, map.y, map.size, map.size};
+    const StoreGaugeLayout g = protekt::game::store_gauge_layout(square, 180, 140, 142, 2.0F);
+    const float text_width = ((static_cast<float>(g.text.size()) * 6.0F) - 1.0F) * 2.0F;
+    EXPECT_GE(g.frame.width, text_width + 4.0F);
+    EXPECT_NEAR(g.frame.height, map.size, 0.01F) << "as tall as the map beside it";
 }
 
 // ---- in the scene ------------------------------------------------------------------------------
@@ -168,11 +255,100 @@ TEST(StoreGauge, TheSceneDrawsTheSimsOwnCapacityBandAndBankAsTheLayoutSays) {
         protekt::game::radar_panel(options.extent), sim.capacity(Side::Player),
         sim.fast_band(Side::Player), sim.ore(Side::Player), 2.0F);
     ASSERT_GT(g.column.height, 0.0F);
-    expect_box(ink_box(scene, options, protekt::game::kGaugeGreen), g.green, "green");
-    expect_box(ink_box(scene, options, protekt::game::kGaugeGold), g.gold, "gold");
+    ASSERT_EQ(g.chunks.size(), 2U);
+    expect_box(ink_box(scene, options, protekt::game::kGaugeGreen), g.chunks.at(0).box, "green");
+    expect_box(ink_box(scene, options, protekt::game::kGaugeGold), g.chunks.at(1).box, "gold");
     expect_box(ink_box(scene, options, protekt::game::kGaugePill), g.frame, "pill");
     EXPECT_GT(ink_box(scene, options, protekt::game::kGaugeLevel).height, 0.0F) << "the white bar";
     EXPECT_GT(ink_box(scene, options, protekt::game::kGaugeInk).width, 0.0F) << "the number";
+}
+
+/// How many quads of `ink` the scene drew (six vertices each).
+std::size_t quads_in(const Scene& scene, const std::array<float, 3>& ink) {
+    std::size_t vertices = 0;
+    for (const auto& v : scene.vertices) {
+        if (std::abs(v.colour.at(0) - ink.at(0)) < 0.005F
+            && std::abs(v.colour.at(1) - ink.at(1)) < 0.005F
+            && std::abs(v.colour.at(2) - ink.at(2)) < 0.005F) {
+            ++vertices;
+        }
+    }
+    return vertices / 6U;
+}
+
+TEST(StoreGauge, TheSceneDrawsOneQuadPerChunkAndTheGapsBetweenThemInBothViews) {
+    const Sim sim = banked_battle();
+    for (const bool map : {false, true}) {
+        SceneOptions options = rig();
+        options.show_world_map = map;
+        const Scene scene = protekt::game::build_scene(sim, options);
+        EXPECT_EQ(quads_in(scene, protekt::game::kGaugeGreen), 1U) << "map " << map;
+        EXPECT_EQ(quads_in(scene, protekt::game::kGaugeGold), 1U)
+            << "one deployed scavenger, one gold chunk, map " << map;
+        const GaugeRect green = ink_box(scene, options, protekt::game::kGaugeGreen);
+        const GaugeRect gold = ink_box(scene, options, protekt::game::kGaugeGold);
+        EXPECT_NEAR(gold.y - (green.y + green.height), kGap, 1.0F) << "the gap, map " << map;
+    }
+}
+
+/// The projected height of each quad drawn in `ink`, six vertices to a quad.
+std::vector<float> quad_heights(const Scene& scene, const SceneOptions& options,
+                                const std::array<float, 3>& ink) {
+    std::vector<float> heights;
+    std::size_t in_quad = 0;
+    float lo = 1.0e9F;
+    float hi = -1.0e9F;
+    for (const auto& v : scene.vertices) {
+        if (std::abs(v.colour.at(0) - ink.at(0)) > 0.005F
+            || std::abs(v.colour.at(1) - ink.at(1)) > 0.005F
+            || std::abs(v.colour.at(2) - ink.at(2)) > 0.005F) {
+            continue;
+        }
+        const auto p = protekt::game::project(options.camera, options.extent, v.position[0],
+                                              v.position[1], v.position[2]);
+        lo = std::min(lo, p.y);
+        hi = std::max(hi, p.y);
+        if (++in_quad == 6) {
+            heights.push_back(hi - lo);
+            in_quad = 0;
+            lo = 1.0e9F;
+            hi = -1.0e9F;
+        }
+    }
+    return heights;
+}
+
+TEST(StoreGauge, NoPillQuadIsTallerThanAChunk) {
+    // THE CAUSE of the map-mode bug, pinned on the vertices (Harri, 2026-11-03): the pill was one
+    // quad the height of the panel beside the gauge, and a tall flat quad's depth beat the sections
+    // a hair in front of it. Every pill quad is a band no taller than the base chunk's slice.
+    const Sim sim = banked_battle();
+    for (const bool map : {false, true}) {
+        SceneOptions options = rig();
+        options.show_world_map = map;
+        const Scene scene = protekt::game::build_scene(sim, options);
+        const GaugeRect pill = ink_box(scene, options, protekt::game::kGaugePill);
+        const std::vector<float> bands = quad_heights(scene, options, protekt::game::kGaugePill);
+        ASSERT_GT(bands.size(), 2U) << "the pill is bands, map " << map;
+        const float tallest = *std::max_element(bands.begin(), bands.end());
+        // The column is 60 of capacity and the base is 40 of it: two thirds of the column at most,
+        // and the frame is the column plus its padding and the number's room.
+        EXPECT_LT(tallest, pill.height * 0.75F) << "map " << map;
+    }
+}
+
+TEST(StoreGauge, InMapModeTheGaugeIsAsTallAsTheHalfSizeMapAndTheNumberStaysInsideThePill) {
+    const Sim sim = banked_battle();
+    SceneOptions options = rig();
+    options.show_world_map = true;
+    const protekt::game::WorldMapLayout map = protekt::game::world_map_layout(options.extent);
+    const Scene scene = protekt::game::build_scene(sim, options);
+    const GaugeRect pill = ink_box(scene, options, protekt::game::kGaugePill);
+    EXPECT_NEAR(pill.height, map.size, 1.5F);
+    EXPECT_NEAR(pill.x, map.x + map.size + protekt::game::kGaugeGapPixels, 1.5F);
+    const GaugeRect number = ink_box(scene, options, protekt::game::kGaugeInk);
+    EXPECT_GE(number.x, pill.x - 0.5F);
+    EXPECT_LE(number.x + number.width, pill.x + pill.width + 0.5F);
 }
 
 TEST(StoreGauge, WithoutADeployedScavengerTheSceneDrawsNoGold) {

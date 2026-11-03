@@ -37,13 +37,16 @@ struct WorldMapLayout {
     float pixels_per_tile{};
 };
 
-/// THE SQUARE IS THE RADAR'S MAJOR DIAMETER. The map and the radar swap into the same bottom-left
-/// corner, so the map takes the elliptical display's own width -- its long axis,
-/// `radar_panel(extent).width` (the `kRadarWidthFraction` of the frame's width, clamped) -- rather
-/// than a fraction of its own. It is a SQUARE, so its height is that width too; the frame HEIGHT
-/// only limits it on a frame too short to hold the square. The owner's call, 2026-10-23: "The map
-/// size should match the major diameter of the elliptical radar display" -- the earlier 12.7% of
-/// the frame width (BZ2's minimap footprint) read "a tiny bit smaller than what I expected".
+/// THE SQUARE IS HALF THE RADAR'S MAJOR DIAMETER. The map and the radar swap into the same
+/// bottom-left corner; the radar's long axis, `radar_panel(extent).width` (the
+/// `kRadarWidthFraction` of the frame's width, clamped), is the measure, and the map is
+/// `kWorldMapRadarFraction` of it on each side. It is a SQUARE, so its height is that too; the
+/// frame HEIGHT only limits it on a frame too short to hold the square. History of the owner's
+/// calls: 2026-10-23 "The map size should match the major diameter of the elliptical radar display"
+/// (the earlier 12.7% of the frame width read "a tiny bit smaller than what I expected"), then
+/// 2026-11-03 "The map is too big. It should be about half the height and width": 330.24 px at
+/// 1280x720 became 165.12.
+inline constexpr float kWorldMapRadarFraction = 0.5F;
 
 /// The panel size the furniture constants below were drawn for: BZ2's 12.7% minimap square at 1280
 /// wide. It stays the reference now the square is the radar's diameter, so the furniture GROWS with
