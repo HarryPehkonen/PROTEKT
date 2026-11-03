@@ -4563,7 +4563,12 @@ TEST(RecyclerShape, TheRecyclerIsExactlyItsThirtyThreePrisms) {
     EXPECT_EQ(protekt::game::kRecyclerVertices, std::size_t{1188});
 }
 
-TEST(RecyclerShape, ItIsLongerThanItIsWideAndStaysInsideTheFootprint) {
+// SLICE A re-pinned its numbers; the NAME was left saying the opposite of what is now true, so it
+// is renamed here: at `kRecyclerScale` the drawn recycler is 2.36 m across (inside the 4 m solid
+// square) and 5.2 m along, which OVERHANGS that square 0.6 m at each end. That overhang is the
+// disclosed consequence of "twice as big" (docs/PLAN.md), left for the sim's footprint to answer
+// one day.
+TEST(RecyclerShape, ItIsLongerThanItIsWideAndItsLengthOverhangsTheFootprint) {
     const auto recycler = unit_box_of(UnitKind::Recycler);
     ASSERT_EQ(recycler.size(), protekt::game::kRecyclerVertices);
     const std::size_t all = protekt::game::kRecyclerVertices / 36U;
@@ -4572,14 +4577,20 @@ TEST(RecyclerShape, ItIsLongerThanItIsWideAndStaysInsideTheFootprint) {
     const auto up = parts_span(recycler, 0, all, 1);
     EXPECT_GT(along[1] - along[0], 1.5F * (across[1] - across[0])) << "a long vehicle, not a block";
     EXPECT_LT(up[1] - up[0], 0.5F * (along[1] - along[0])) << "and a low one";
-    // The placeholder's envelope (unit at tile 100, 100): 0.3 tile across, the tank's 1.3 m along,
-    // and under the picker's 1.8 m box.
+    // ABSOLUTE numbers, never multiplied by `kRecyclerScale`: this test is about what the drawing
+    // does to the sim's SOLID SQUARE, and a bound that moves with the constant cannot state that.
+    // Measured at `kRecyclerScale` = 2.0: 2.36 m wide, 5.2 m along, 2.5 m up.
+    constexpr float kFootprintSide
+        = static_cast<float>(protekt::sim::kBuildingFootprintTiles) * kMetresPerTile;
     constexpr float kCentre = 100.0F * kMetresPerTile;
-    for (const SceneVertex& v : recycler) {
-        EXPECT_LE(std::abs(v.position[0] - kCentre), (0.3F * kMetresPerTile) + kTolerance);
-        EXPECT_LE(std::abs(v.position[2] - kCentre), 1.3F + kTolerance);
-        EXPECT_LE(v.position[1] - up[0], 1.8F);
-    }
+    const float across_half
+        = std::max(std::abs(across[0] - kCentre), std::abs(across[1] - kCentre));
+    EXPECT_LT(2.0F * across_half, kFootprintSide) << "2.36 m across: inside the 4 m square";
+    EXPECT_NEAR(along[1] - along[0], 5.2F, kTolerance) << "5.2 m along";
+    EXPECT_GT(along[1] - along[0], kFootprintSide)
+        << "and longer than the square it stands in: the length OVERHANGS it";
+    EXPECT_NEAR(along[1], kCentre + 2.6F, kTolerance) << "0.6 m past the square's own front edge";
+    EXPECT_LE(up[1] - up[0], 2.5F + kTolerance) << "2.5 m tall, twice the tank-scale model's 1.25";
 }
 
 TEST(RecyclerShape, TheCabIsTheTallestPartAndSitsTowardTheFront) {
@@ -4601,6 +4612,112 @@ TEST(RecyclerShape, TheCabIsTheTallestPartAndSitsTowardTheFront) {
     const auto cab = parts_span(recycler, kRecyclerCab, kRecyclerCab + 1, 2);
     EXPECT_GT(cab[0], kCentre) << "the whole cab is in the front half";
     EXPECT_GT(cab[1] - cab[0], 0.6F) << "and it is a big block, not a hatch";
+}
+
+/// A recycler of `kind` at tile (100, 100) of `sim_of`, drawn with the hull FACED along `heading`
+/// (as the driven unit is), its vertices only, off the level ground.
+std::vector<SceneVertex> recycler_facing(UnitKind kind, float heading) {
+    // A building's spawn tile is its footprint's north-west corner: 99, 99 stands it centred on
+    // 100.
+    const int tile = kind == UnitKind::DeployedRecycler ? 99 : 100;
+    const auto sim = sim_of({{Side::Player, kind, tile, tile}});
+    const protekt::sim::Unit& unit = sim.units().at(0);
+    SceneOptions options = at_tank(unit);
+    options.facing = SceneOptions::Facing{unit.id, heading, 0.0F, 0.0F};
+    const auto base = protekt::game::build_scene(sim, options, {});
+    options.hover = SceneOptions::Hovering{unit.id, 1000.0F};
+    const auto raised = protekt::game::build_scene(sim, options, {});
+    std::vector<SceneVertex> out;
+    for (std::size_t i = 0; i < base.vertices.size() && i < raised.vertices.size(); ++i) {
+        if (base.vertices.at(i).position != raised.vertices.at(i).position) {
+            out.push_back(base.vertices.at(i));
+        }
+    }
+    protekt::game::untilt::level(out, unit, options.seed);
+    return out;
+}
+
+// SLICE A: Harri, 2026-11-02, "Maybe twice as big." What it measured before (1.18 across, 2.6
+// along, 1.25 up) and what it measures now, from the drawn vertices.
+TEST(RecyclerScale, TheDrawnRecyclerMeasuresTwiceWhatItDid) {
+    const auto recycler = unit_box_of(UnitKind::Recycler);
+    ASSERT_EQ(recycler.size(), protekt::game::kRecyclerVertices);
+    const std::size_t all = protekt::game::kRecyclerVertices / 36U;
+    const auto across = parts_span(recycler, 0, all, 0);
+    const auto along = parts_span(recycler, 0, all, 2);
+    const auto up = parts_span(recycler, 0, all, 1);
+    EXPECT_NEAR(across[1] - across[0], 2.36F, kTolerance)
+        << "was 1.18 m across; kRecyclerScale doubles it";
+    EXPECT_NEAR(along[1] - along[0], 5.2F, kTolerance)
+        << "was 2.6 m along; kRecyclerScale doubles it";
+    EXPECT_NEAR(up[1] - up[0], 2.5F, kTolerance) << "was 1.25 m up; kRecyclerScale doubles it";
+    // About the base centre: the tank-scale model's half-length stands at 1.3 m either end.
+    constexpr float kCentre = 100.0F * kMetresPerTile;
+    EXPECT_NEAR(along[0], kCentre - 2.6F, kTolerance) << "scaled about the base centre";
+    EXPECT_NEAR(along[1], kCentre + 2.6F, kTolerance) << "scaled about the base centre";
+}
+
+TEST(RecyclerScale, TheSizeIsTheConstantTimesTheTankScaleModel) {
+    constexpr float kWasAcross = 1.18F;
+    constexpr float kWasAlong = 2.6F;
+    constexpr float kWasUp = 1.25F;
+    const auto recycler = unit_box_of(UnitKind::Recycler);
+    const std::size_t all = recycler.size() / 36U;
+    const auto across = parts_span(recycler, 0, all, 0);
+    const auto along = parts_span(recycler, 0, all, 2);
+    const auto up = parts_span(recycler, 0, all, 1);
+    EXPECT_GT(protekt::game::kRecyclerScale, 0.0F);
+    EXPECT_NEAR(across[1] - across[0], kWasAcross * protekt::game::kRecyclerScale, kTolerance);
+    EXPECT_NEAR(along[1] - along[0], kWasAlong * protekt::game::kRecyclerScale, kTolerance);
+    EXPECT_NEAR(up[1] - up[0], kWasUp * protekt::game::kRecyclerScale, kTolerance);
+}
+
+TEST(RecyclerScale, TheScaleMovesPositionsAndNeverTheTopology) {
+    EXPECT_EQ(unit_box_of(UnitKind::Recycler).size(), protekt::game::kRecyclerVertices)
+        << "kRecyclerScale moves vertices; it adds and drops none";
+    EXPECT_EQ(unit_box_of(UnitKind::DeployedRecycler).size(), protekt::game::kRecyclerVertices);
+    EXPECT_EQ(protekt::game::kRecyclerVertices, std::size_t{1188});
+}
+
+TEST(RecyclerScale, ADeployedOneStandsSquareOnItsFootprintAndAVehicleTurnsWithItsHeading) {
+    constexpr float kTurned = 0.7F;
+    constexpr float kCentre = 100.0F * kMetresPerTile; // footprint_around(100, 100) centres on it
+    const auto deployed_turned = recycler_facing(UnitKind::DeployedRecycler, kTurned);
+    const auto deployed_square = recycler_facing(UnitKind::DeployedRecycler, 0.0F);
+    const auto vehicle_square = recycler_facing(UnitKind::Recycler, 0.0F);
+    const auto vehicle_turned = recycler_facing(UnitKind::Recycler, kTurned);
+    ASSERT_EQ(deployed_turned.size(), protekt::game::kRecyclerVertices);
+    ASSERT_EQ(deployed_square.size(), protekt::game::kRecyclerVertices);
+    ASSERT_EQ(vehicle_square.size(), protekt::game::kRecyclerVertices);
+    ASSERT_EQ(vehicle_turned.size(), protekt::game::kRecyclerVertices);
+    const std::size_t all = protekt::game::kRecyclerVertices / 36U;
+
+    // Deployed: the heading it was handed changes nothing, and it is the vehicle at heading 0 (to
+    // a float's rounding: the two units' ground is levelled off their own ids).
+    for (std::size_t i = 0; i < deployed_turned.size(); ++i) {
+        const auto& turned = deployed_turned.at(i).position;
+        ASSERT_EQ(turned.at(0), deployed_square.at(i).position.at(0)) << "vertex " << i;
+        ASSERT_EQ(turned.at(2), deployed_square.at(i).position.at(2)) << "vertex " << i;
+        for (std::size_t axis = 0; axis < 3; ++axis) {
+            ASSERT_NEAR(turned.at(axis), vehicle_square.at(i).position.at(axis), kTolerance)
+                << "vertex " << i << " axis " << axis;
+        }
+    }
+    const auto along = parts_span(deployed_turned, 0, all, 2);
+    EXPECT_NEAR(along[0], kCentre - 2.6F, kTolerance) << "square to the pad's axes, long along Z";
+    EXPECT_NEAR(along[1], kCentre + 2.6F, kTolerance);
+    const auto across = parts_span(deployed_turned, 0, all, 0);
+    EXPECT_NEAR(across[1] - across[0], 2.36F, kTolerance);
+
+    // The vehicle: its own heading, so it is NOT the square one and its footprint on X has grown.
+    const auto turned_across = parts_span(vehicle_turned, 0, all, 0);
+    EXPECT_GT(turned_across[1] - turned_across[0], 3.0F * (across[1] - across[0]) / 2.0F)
+        << "a vehicle at 0.7 rad lies across the world's X; it must not snap square";
+    bool moved = false;
+    for (std::size_t i = 0; i < vehicle_turned.size(); ++i) {
+        moved = moved || vehicle_turned.at(i).position != vehicle_square.at(i).position;
+    }
+    EXPECT_TRUE(moved) << "a recycler that is still a vehicle keeps its own heading";
 }
 
 TEST(RecyclerShape, ItRunsOnTwoSeparateTrackAssemblies) {

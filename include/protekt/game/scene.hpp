@@ -633,6 +633,13 @@ inline constexpr std::size_t kTurretVertices = std::size_t{4} * 36U;
 /// annex, the stack and the band near its top.
 inline constexpr std::size_t kFactoryVertices = std::size_t{7} * 36U;
 
+/// HOW BIG THE RECYCLER IS DRAWN, as a multiple of the tank-scale model `build_recycler` describes
+/// (1.2 x 2.6 x 1.25 m). Harri's number: "I think the recycler should be bigger. Maybe twice as
+/// big. It's pretty big in BattleZone 2." (2026-11-02). Every vertex is scaled by it about the
+/// machine's base centre, once, so the shape stays one description and the size one dial: change
+/// this and nothing else. Presentation only -- the sim's solid footprint is 4 m square regardless.
+inline constexpr float kRecyclerScale = 2.0F;
+
 /// A drawn recycler: a track assembly each side (the track, six road wheels, the skirt), the
 /// belly, the side panel and its strip, the body, its spine, two grilles, the rear bumper, the
 /// plow and its slit, the cab and its vision band, the radiator, and the crane arm's four parts.

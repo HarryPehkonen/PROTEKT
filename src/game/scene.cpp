@@ -1168,12 +1168,25 @@ void build_harvester(std::vector<SceneVertex>& out, std::uint64_t seed, const si
 /// The armour wears the team's camo in the pale tint, as the tank's does; the silver is that tint
 /// on the metal tiles, the dark parts the track tile; the strip, the slit and the grilles' lit
 /// slots are the full side colour, the fleet's saturated accent.
+/// The parts are described at the tank's scale and drawn `kRecyclerScale` times that, about the
+/// base centre; a DEPLOYED one is centred on its footprint and square to the tiles.
 void build_recycler(std::vector<SceneVertex>& out, std::uint64_t seed, const sim::Unit& unit,
-                    Mark mark, float lift_z, bool lifted, float heading) {
-    const float x
-        = static_cast<float>(unit.x.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile;
-    const float z
-        = static_cast<float>(unit.y.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile;
+                    Mark mark, float lift_z, bool lifted, float drive_heading) {
+    // A DEPLOYED one stands square on its footprint, at its centre -- the pad's own square and axes
+    // (`sites_in_view`) -- whatever heading it is handed; a vehicle keeps its position and heading.
+    const bool deployed = unit.kind == sim::UnitKind::DeployedRecycler;
+    const sim::Footprint footprint = sim::footprint_around(unit.x, unit.y);
+    const float x = deployed ? static_cast<float>(footprint.centre_x()) * kMetresPerTile
+                             : static_cast<float>(unit.x.raw) / static_cast<float>(sim::Fixed::kOne)
+                                   * kMetresPerTile;
+    const float z = deployed ? static_cast<float>(footprint.centre_y()) * kMetresPerTile
+                             : static_cast<float>(unit.y.raw) / static_cast<float>(sim::Fixed::kOne)
+                                   * kMetresPerTile;
+    const float heading = deployed ? 0.0F : drive_heading;
+    // The parts are described at the tank's scale into `parts`; `kRecyclerScale` is applied once,
+    // at the end, about the machine's base centre.
+    std::vector<SceneVertex> parts;
+    parts.reserve(kRecyclerVertices);
     const float ground = lifted ? lift_z : ground_metres(seed, unit.x, unit.y);
     const AtlasManifest& atlas = atlas_manifest();
     const UvRect hull_tile
@@ -1193,7 +1206,7 @@ void build_recycler(std::vector<SceneVertex>& out, std::uint64_t seed, const sim
 
     // Across is from the centre line, along from the unit's centre (+ is the front), up from the
     // ground.
-    const float half_width = kHullHalfMetres; ///< the footprint, every part inside it
+    const float half_width = kHullHalfMetres; ///< the tank's footprint, every part inside it
     constexpr float kHalfLength = 1.3F;       ///< the tank's, fore and aft
     constexpr float kTrackInner = 0.36F;
     constexpr float kTrackOuter = 0.55F;
@@ -1316,7 +1329,7 @@ void build_recycler(std::vector<SceneVertex>& out, std::uint64_t seed, const sim
         return plate(l, r, back, back, front, front, y0, y1);
     };
     const auto part = [&](const Prism& s, const Vec3& tint, const UvRect& tile) {
-        emit_turned_prism(out, x, z, heading, s, tint, tile);
+        emit_turned_prism(parts, x, z, heading, s, tint, tile);
     };
     // Where a raked face from (`foot`, `bottom`) back to (`brow`, `top`) is at height `y`.
     const auto raked = [](float foot, float brow, float bottom, float top, float y) {
@@ -1357,7 +1370,7 @@ void build_recycler(std::vector<SceneVertex>& out, std::uint64_t seed, const sim
          colour, silver_tile);
 
     // The body: its rear face leans out from its foot to the deck's overhang.
-    emit_turned_chamfer(out, x, z, heading,
+    emit_turned_chamfer(parts, x, z, heading,
                         plate(-kBodyHalfAcross, kBodyHalfAcross, kBodyBack, -kHalfLength,
                               kBodyFront, kBodyFront, kBodyBottom, kDeck),
                         kBodyChamfer, pale, hull_tile, hull_tile);
@@ -1382,7 +1395,7 @@ void build_recycler(std::vector<SceneVertex>& out, std::uint64_t seed, const sim
                kSlitTop),
          colour, silver_tile);
 
-    emit_turned_chamfer(out, x, z, heading,
+    emit_turned_chamfer(parts, x, z, heading,
                         plate(-kCabHalfAcross, kCabHalfAcross, kCabBack, kCabBackTop, kCabFoot,
                               kCabBrow, kCabBottom, kCabRoof),
                         kCabChamfer, pale, hull_tile, hatch);
@@ -1402,6 +1415,12 @@ void build_recycler(std::vector<SceneVertex>& out, std::uint64_t seed, const sim
     part(plate(kUpperInner, kUpperOuter, kUpperTip, kUpperTipTop, kElbowBack, kElbowBack,
                kUpperBottom, kUpperTop),
          pale, silver_tile);
+    for (SceneVertex& vertex : parts) {
+        vertex.position[0] = x + ((vertex.position[0] - x) * kRecyclerScale);
+        vertex.position[1] = ground + ((vertex.position[1] - ground) * kRecyclerScale);
+        vertex.position[2] = z + ((vertex.position[2] - z) * kRecyclerScale);
+    }
+    out.insert(out.end(), parts.begin(), parts.end());
 }
 
 /// THE HOVER TANK, built to read as NOT a tank at a glance: no track skirts at all, a low wedge
