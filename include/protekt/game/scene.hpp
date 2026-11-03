@@ -659,9 +659,25 @@ private:
 /// convention: 0 is +Y on the map, positive turns toward +X.
 [[nodiscard]] float gun_yaw(const sim::Sim& sim, const sim::Unit& unit, float heading);
 
-/// A drawn defense turret: a pedestal turned by its heading, then a housing, a muzzle collar at
-/// the barrel's tip and the barrel, all three turned by `gun_yaw`.
-inline constexpr std::size_t kTurretVertices = std::size_t{4} * 36U;
+/// A drawn defense turret, driven or not (ONE builder, `build_defense_turret`): the parts of
+/// `shape_of(UnitKind::Turret)` (a flared base and a pedestal, turned by the heading; a dome with
+/// its vision slit and a whip aerial, turned by `gun_yaw`), then the muzzle collar and the barrel,
+/// which elevate and so are not parts. It was 144, four prisms, undriven and 432, a tank's hull
+/// under a squat turret, when a player drove it.
+inline constexpr std::size_t kTurretVertices = 492;
+
+/// THE TURRET'S GUN, in metres: the dome's front face (along the aim from the turret's centre),
+/// where the shape ends and the barrel begins, the barrel and its collar over the GROUND (a turret
+/// has no hull under it to measure from), and the tip. The barrel elevates when a player drives
+/// the turret, so it is not a part: the mesh builds it from these numbers and the plate draws it
+/// level from them, and nothing else says how long it is.
+inline constexpr float kTurretGunFront = 0.5F;
+inline constexpr float kTurretBarrelBottom = 1.2F;
+inline constexpr float kTurretBarrelTop = 1.36F;
+inline constexpr float kTurretCollarLength = 0.3F;
+inline constexpr float kTurretCollarBottom = 1.16F;
+inline constexpr float kTurretCollarTop = 1.4F;
+inline constexpr float kTurretBarrelTip = 2.0F;
 
 /// A drawn factory: the hall, the portal's two jambs and lintel round the recessed door, the
 /// annex, the stack and the band near its top.
@@ -734,6 +750,12 @@ inline constexpr float kAssaultCollarLength = 0.3F;
 inline constexpr float kAssaultCollarBottom = 0.26F;
 inline constexpr float kAssaultCollarTop = 0.5F;
 inline constexpr float kAssaultBarrelTip = 2.1F;
+
+/// A drawn bomber: all of it the parts of `shape_of(UnitKind::Bomber)` (the fuselage and its
+/// canopy, the nose, the tail fin, the wing, the bomb with its fins, and the team-colour stripe on
+/// the spine). Nothing is added to the shape: it drops the mortar's shell by the sim's lob and
+/// carries no barrel. It was 108, three boxes (a flat slab, a nose and a panel).
+inline constexpr std::size_t kBomberVertices = 744;
 
 /// A reticle is four ticks (up, down, left, right) and a centre dot, six vertices each, in a
 /// triangle list: the ticks first, the dot last. The centre between the ticks is open.

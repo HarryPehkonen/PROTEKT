@@ -142,19 +142,6 @@ void track(Canvas& c, float x0, float x1, float height, int wheels) {
 
 // ---------------------------------------------------------------------------- the kinds
 
-/// A bomber: a long fuselage with a nosecone and a canopy, a tall tail fin, a wing, and a bomb
-/// slung under it -- a ball on a slab.
-void draw_bomber(Canvas& c) {
-    c.box(8, 30, 56, 42);
-    c.poly({{56, 30}, {70, 36}, {56, 42}});           // the nose
-    c.poly({{8, 30}, {4, 8}, {20, 8}, {28, 30}});     // the tail fin
-    c.poly({{26, 42}, {50, 42}, {40, 56}, {20, 56}}); // the wing
-    c.poly({{44, 30}, {50, 24}, {58, 30}}, false);    // the canopy
-    c.box(4, 30, 10, 36, false);
-    c.disc(33, 60, 4.5F);                   // the bomb
-    c.poly({{26, 59}, {20, 56}, {20, 64}}); // its fins
-}
-
 /// A SHAPED KIND is NOT drawn here: its shape is `shape_of(kind)`, written once and shared with the
 /// world mesh, and the plate is that shape seen side-on, fitted to the box with a one-cell margin
 /// either side and its tracks on the ground line. Nothing about what the machine looks like is
@@ -244,6 +231,29 @@ void draw_apc(Canvas& c) {
     project_shape(c, kKind, shape_scale(kKind, shape_extent(kKind).along_max));
 }
 
+/// A bomber: its shape, projected. The bomb is a part, so nothing is added.
+void draw_bomber(Canvas& c) {
+    constexpr sim::UnitKind kKind = sim::UnitKind::Bomber;
+    project_shape(c, kKind, shape_scale(kKind, shape_extent(kKind).along_max));
+}
+
+/// A defence turret, driven or deployed: its shape, projected, and then the GUN as a separate
+/// piece, as the tank's barrel is -- level, from the dome's front face to the muzzle collar's far
+/// end, in the mesh's own metres (scene.hpp), the collar a thicker box at the tip. The plate holds
+/// the gun's tip as well as the base. The turret group is drawn as authored, at zero.
+void draw_turret(Canvas& c) {
+    constexpr sim::UnitKind kKind = sim::UnitKind::Turret;
+    const float scale = shape_scale(kKind, kTurretBarrelTip);
+    project_shape(c, kKind, scale);
+    const float along_min = shape_extent(kKind).along_min;
+    const auto col = [&](float along) { return kShapeMargin + ((along - along_min) * scale); };
+    const auto row = [&](float up) { return kGround - (up * scale); };
+    c.box(col(kTurretGunFront), row(kTurretBarrelTop), col(kTurretBarrelTip - kTurretCollarLength),
+          row(kTurretBarrelBottom));
+    c.box(col(kTurretBarrelTip - kTurretCollarLength), row(kTurretCollarTop), col(kTurretBarrelTip),
+          row(kTurretCollarBottom)); // the muzzle collar
+}
+
 /// A hover tank: its shape, projected, and then the SKIRT and the BARREL as separate pieces, as the
 /// tank's barrel is. The skirt is the band of lift under the hull, from `kHoverSkirtBottom` up to
 /// the hull's floor, which leaves the air gap under it on the plate; the barrel is drawn level
@@ -328,18 +338,6 @@ void draw_armory(Canvas& c) {
     c.poly({{8, 22}, {11, 8}, {14, 22}});          // its nose
     c.poly({{8, 50}, {3, kGround}, {8, kGround}}); // its fin
     c.mirror_left_onto_right();
-}
-
-/// A defence turret: a dome on a wide flared base with a gun out of it and no wheels or tracks at
-/// all.
-void draw_turret(Canvas& c) {
-    c.disc(34, 52, 20);
-    c.box(0, 52, 72, 72, false);
-    c.poly({{4, kGround}, {10, 50}, {58, 50}, {64, kGround}}); // the base
-    c.box(44, 32, 71, 39);                                     // the gun
-    c.box(64, 30, 69, 41);                                     // its muzzle brake
-    c.box(18, 40, 30, 46, false);                              // a vision slit across the dome
-    c.disc(34, 32, 3);                                         // an antenna knob on top
 }
 
 /// The deliberate "no art for this kind" mark: a hollow box with a dot in it.

@@ -2,10 +2,12 @@
 // from `shape_of(kind)`, so they cannot disagree. These tests pin each shape's size in metres and
 // then check that the plate and the mesh, measured SEPARATELY from what they emit, both say it.
 // Changing one number in `src/game/vehicle_shape.cpp` therefore moves the plate test and the mesh
-// test together. Ten kinds are authored so far -- the scavenger, the tank, the hover tank, the
-// scout, the missile scout, the rocket tank, the assault tank, the mortar bike, the walker and the
-// APC (the harvester shares the scavenger's kind and plate); every other kind has no shape and
-// keeps drawing what it always drew. Presentation only: the sim is never touched.
+// test together. Every vehicle is authored -- the scavenger, the tank, the hover tank, the scout,
+// the missile scout, the rocket tank, the assault tank, the mortar bike, the walker, the APC, the
+// bomber and the defence turret (the harvester shares the scavenger's kind and plate; the deployed
+// turret is the turret's kind in a new state and shares its shape); the buildings and the recycler
+// have no shape and keep drawing what they always drew. Presentation only: the sim is never
+// touched.
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -108,6 +110,29 @@ constexpr float kApcLengthMetres = 3.0F;
 constexpr float kApcWidthMetres = 1.2F;
 constexpr float kApcHeightMetres = 1.1F;
 constexpr float kApcWasHighMetres = 0.65F;
+// The bomber's, measured before this slice on the hand-built body: a mesh 2.004 m long (-0.898 to
+// 1.106), 2.402 m across and 0.449 m high (a flat slab, a nose and a panel, 108 vertices), on a
+// plate 65 cells wide by 56 high. Its shape is 2.4 m from the tail to the nosecone's tip, the same
+// 2.4 m across the wing, and 1.10 m to the top of the tail fin.
+constexpr float kBomberLengthMetres = 2.4F;
+constexpr float kBomberWidthMetres = 2.4F;
+constexpr float kBomberHeightMetres = 1.1F;
+constexpr float kBomberWasLongMetres = 2.004F;
+constexpr float kBomberWasWideMetres = 2.402F;
+constexpr float kBomberWasHighMetres = 0.449F;
+// The defence turret's, measured before this slice on BOTH hand-built bodies, which disagreed: the
+// undriven one a pedestal and a housing, 2.6 m long (-0.6 to the barrel's tip at 2.0), 1.2 m
+// across and 1.8 m high, on a plate 67 cells wide by 36 high; the DRIVEN one a tank's hull under a
+// squat turret, 3.3 m long (-1.3 to 2.0), 1.2 m across and 1.23 m high. Its shape is 1.4 m of
+// flared base (-0.7 to 0.7), 1.2 m across it and 1.8 m to the top of the aerial; the gun runs on to
+// 2.0 m, so the whole is 2.7 m from the rear of the base.
+constexpr float kTurretBaseMetres = 1.4F;
+constexpr float kTurretWholeMetres = 2.7F;
+constexpr float kTurretTipMetres = 2.0F;
+constexpr float kTurretWidthMetres = 1.2F;
+constexpr float kTurretHeightMetres = 1.8F;
+constexpr float kTurretWasLongUndrivenMetres = 2.6F;
+constexpr float kTurretWasHighDrivenMetres = 1.23F;
 
 struct PlateBox {
     int first_col = std::numeric_limits<int>::max();
@@ -270,10 +295,11 @@ void expect_parts_convex_with_room(UnitKind kind) {
 // ------------------------------------------------------------------------- the mechanism
 
 /// The kinds that have an authored shape.
-constexpr std::array<UnitKind, 10> kShaped{
-    UnitKind::Scavenger, UnitKind::Tank,       UnitKind::HoverTank,   UnitKind::Scout,
-    UnitKind::MslScout,  UnitKind::RocketTank, UnitKind::AssaultTank, UnitKind::MortarBike,
-    UnitKind::Walker,    UnitKind::Apc};
+constexpr std::array<UnitKind, 13> kShaped{
+    UnitKind::Scavenger,     UnitKind::Tank,       UnitKind::HoverTank,   UnitKind::Scout,
+    UnitKind::MslScout,      UnitKind::RocketTank, UnitKind::AssaultTank, UnitKind::MortarBike,
+    UnitKind::Walker,        UnitKind::Apc,        UnitKind::Bomber,      UnitKind::Turret,
+    UnitKind::DeployedTurret};
 
 TEST(VehicleShape, AKindWithNoShapeHasNoneAndIsNeverAnotherKindsShape) {
     // `shape_of` says "not converted" with an EMPTY list, and nothing about the other queries can
@@ -293,32 +319,38 @@ TEST(VehicleShape, AKindWithNoShapeHasNoneAndIsNeverAnotherKindsShape) {
         EXPECT_EQ(extent.up_max, 0.0F);
         EXPECT_EQ(extent.across_max, 0.0F);
     }
-    EXPECT_EQ(authored, std::size_t{10})
+    EXPECT_EQ(authored, std::size_t{13})
         << "the scavenger, tank, hover tank, scout, missile scout, rocket tank, assault tank, "
-           "mortar bike, walker and APC";
+           "mortar bike, walker, APC, bomber, turret and deployed turret";
+    // Twelve machines, twelve shapes: the deployed turret is the turret's own shape and plate.
     for (std::size_t a = 0; a < kShaped.size(); ++a) {
         for (std::size_t b = a + 1; b < kShaped.size(); ++b) {
+            if (kShaped.at(a) == UnitKind::Turret && kShaped.at(b) == UnitKind::DeployedTurret) {
+                continue;
+            }
             EXPECT_NE(&shape_of(kShaped.at(a)), &shape_of(kShaped.at(b))) << a << " and " << b;
         }
     }
+    EXPECT_EQ(&shape_of(UnitKind::Turret), &shape_of(UnitKind::DeployedTurret));
+    EXPECT_EQ(&kind_icon(UnitKind::Turret), &kind_icon(UnitKind::DeployedTurret));
 }
 
 TEST(VehicleShape, ThePlateOfAnUnconvertedKindIsStillItsOwnDrawing) {
-    // The bomber has no shape: its plate is a hand-drawn recipe, none of them the projection of any
-    // shaped kind's parts.
-    EXPECT_TRUE(shape_of(UnitKind::Bomber).empty());
+    // The recycler has no shape: its plate is a hand-drawn recipe, none of them the projection of
+    // any shaped kind's parts.
+    EXPECT_TRUE(shape_of(UnitKind::Recycler).empty());
     for (const UnitKind shaped : kShaped) {
-        EXPECT_NE(&kind_icon(UnitKind::Bomber), &kind_icon(shaped));
-        EXPECT_NE(kind_icon(UnitKind::Bomber), kind_icon(shaped)) << static_cast<int>(shaped);
+        EXPECT_NE(&kind_icon(UnitKind::Recycler), &kind_icon(shaped));
+        EXPECT_NE(kind_icon(UnitKind::Recycler), kind_icon(shaped)) << static_cast<int>(shaped);
     }
 }
 
 TEST(VehicleShape, TheShapedVehiclesAllHaveDifferentPlates) {
-    // No two of the nine shaped vehicles draw the same picture.
-    const std::array<UnitKind, 9> vehicles{
-        UnitKind::Tank,       UnitKind::HoverTank,  UnitKind::Scout,
-        UnitKind::MslScout,   UnitKind::RocketTank, UnitKind::AssaultTank,
-        UnitKind::MortarBike, UnitKind::Walker,     UnitKind::Apc};
+    // No two of the eleven shaped vehicles draw the same picture.
+    const std::array<UnitKind, 11> vehicles{
+        UnitKind::Tank,       UnitKind::HoverTank,   UnitKind::Scout,      UnitKind::MslScout,
+        UnitKind::RocketTank, UnitKind::AssaultTank, UnitKind::MortarBike, UnitKind::Walker,
+        UnitKind::Apc,        UnitKind::Bomber,      UnitKind::Turret};
     for (std::size_t a = 0; a < vehicles.size(); ++a) {
         for (std::size_t b = a + 1; b < vehicles.size(); ++b) {
             EXPECT_NE(kind_icon(vehicles.at(a)), kind_icon(vehicles.at(b))) << a << " and " << b;
@@ -349,7 +381,7 @@ TEST(VehicleShape, EveryShapedPlateThatStandsOnTheGroundStandsOnTheHandDrawnOnes
         EXPECT_EQ(plate_box(kind_icon(kind)).last_row, static_cast<int>(kIconGround))
             << "kind " << static_cast<int>(kind);
     }
-    EXPECT_EQ(grounded, std::size_t{9}) << "every shaped kind but the hover tank";
+    EXPECT_EQ(grounded, std::size_t{12}) << "every shaped kind but the hover tank";
 }
 
 // ------------------------------------------------------------------------- the scavenger
@@ -1465,6 +1497,241 @@ TEST(ApcFromShape, TheTurretAndItsGunAreTheTurretGroupAndTurn) {
         << "the gun is a part: it is in the shape";
     EXPECT_EQ(mask.at(plate_row(0.96F, 3.0F)).at(plate_col(1.1F, -1.5F, 3.0F)), '#');
     expect_turret_group_is_real(UnitKind::Apc, 2500, 80); // measured: 3220 and 116
+}
+
+// ------------------------------------------------------------------------- the bomber
+
+TEST(BomberFromShape, TheShapeIsAsLargeInMetresAsItWasAuthored) {
+    const ShapeExtent extent = shape_extent(UnitKind::Bomber);
+    EXPECT_NEAR(extent.along_max - extent.along_min, kBomberLengthMetres, 0.005F)
+        << "metres, tail to the nosecone's tip";
+    EXPECT_NEAR(extent.up_max, kBomberHeightMetres, 0.005F) << "metres, the tail fin";
+    EXPECT_NEAR(2.0F * extent.across_max, kBomberWidthMetres, 0.005F) << "metres, the wing's span";
+}
+
+TEST(BomberFromShape, EveryPartIsConvexAndHasRoomForItsBevel) {
+    expect_parts_convex_with_room(UnitKind::Bomber);
+}
+
+TEST(BomberFromShape, ThePlateIsTheShapeSeenSideOn) {
+    const PlateBox box = plate_box(kind_icon(UnitKind::Bomber));
+    EXPECT_EQ(box.width(), 70) << "cells, the 2.4 m from the tail to the nosecone's tip";
+    EXPECT_EQ(box.first_col, 1);
+    EXPECT_EQ(box.last_col, 70);
+    EXPECT_NEAR(static_cast<float>(box.height()), 32.0F, 1.0F) << "cells, 1.1 m at 29.2 per metre";
+    EXPECT_EQ(box.last_row, static_cast<int>(kIconGround)) << "the bomb stands on the ground line";
+}
+
+TEST(BomberFromShape, TheMeshIsTheShapeInMetres) {
+    const MeshBox mesh = mesh_of(UnitKind::Bomber);
+    ASSERT_GT(mesh.vertices, 0U);
+    EXPECT_NEAR(mesh.along(), kBomberLengthMetres, 0.06F) << "metres";
+    EXPECT_NEAR(mesh.high.at(1), kBomberHeightMetres, 0.06F) << "metres, the tail fin";
+    EXPECT_NEAR(mesh.across(), kBomberWidthMetres, 0.06F) << "metres, the wing's span";
+    EXPECT_LT(mesh.high.at(1), 1.2F) << "metres, under the health bar's anchor";
+}
+
+TEST(BomberFromShape, ItKeepsItsSpanAndIsLongerAndTallerThanTheSlabWas) {
+    // Measured before it had a shape: 2.004 m long, 2.402 m across, 0.449 m high. The span is the
+    // widest on the ground and stays; the slab had no fin and no bomb.
+    const MeshBox mesh = mesh_of(UnitKind::Bomber);
+    EXPECT_NEAR(mesh.across(), kBomberWasWideMetres, 0.06F) << "metres: the span is kept";
+    EXPECT_GT(mesh.along(), kBomberWasLongMetres + 0.3F) << "metres: a fuselage and a nosecone";
+    EXPECT_GT(mesh.high.at(1), kBomberWasHighMetres + 0.5F) << "metres: a tail fin and a bomb";
+}
+
+TEST(BomberFromShape, ThePlateAndTheMeshAreTheSameMachine) {
+    const PlateBox plate = plate_box(kind_icon(UnitKind::Bomber));
+    const MeshBox mesh = mesh_of(UnitKind::Bomber);
+    const float plate_ratio
+        = static_cast<float>(plate.height()) / static_cast<float>(plate.width());
+    EXPECT_NEAR(plate_ratio, mesh.high.at(1) / mesh.along(), 0.04F);
+}
+
+TEST(BomberFromShape, TheMeshHasDepthAndIsNotACutOut) {
+    const MeshBox mesh = mesh_of(UnitKind::Bomber);
+    EXPECT_GT(mesh.across(), 2.0F);
+    EXPECT_GE(mesh.layers.size(), std::size_t{25}) << "distinct lateral positions, in cm";
+    EXPECT_GT(mesh.vertices, std::size_t{500}) << "a cut-out is a few dozen";
+    for (const ShapePart& part : shape_of(UnitKind::Bomber)) {
+        if (part.lit && part.role == ShapeRole::Hull) {
+            EXPECT_GT(part.bevel, 0.0F) << "a body part with a square edge";
+        }
+    }
+}
+
+TEST(BomberFromShape, ItHasAFuselageAFinAWingAndABombAndNoWheelOrTrack) {
+    // Found by geometry. The wing is the widest part and shallower than it is long; the fin is the
+    // tallest, a thin blade; the bomb is the lit part that reaches the ground line, a dark body.
+    const ShapePart* widest = nullptr;
+    const ShapePart* tallest = nullptr;
+    std::size_t on_the_ground = 0;
+    for (const ShapePart& part : shape_of(UnitKind::Bomber)) {
+        EXPECT_EQ(part.group, ShapeGroup::Hull) << "nothing on a bomber aims";
+        EXPECT_LT(part.profile.size(), 12U) << "a wheel or a track end would be a ring of corners";
+        if (!part.lit) {
+            continue;
+        }
+        widest = widest == nullptr || part.across_hi > widest->across_hi ? &part : widest;
+        tallest
+            = tallest == nullptr || up_span(part).at(1) > up_span(*tallest).at(1) ? &part : tallest;
+        if (up_span(part).at(0) < 0.001F) {
+            ++on_the_ground;
+            EXPECT_EQ(part.role, ShapeRole::Track) << "the bomb is dark";
+        }
+    }
+    ASSERT_NE(widest, nullptr);
+    EXPECT_NEAR(widest->across_hi - widest->across_lo, 2.4F, 0.005F) << "metres: the wing";
+    EXPECT_LT(up_span(*widest).at(1) - up_span(*widest).at(0), 0.2F) << "metres: a thin wing";
+    EXPECT_LT(tallest->across_hi - tallest->across_lo, 0.1F) << "metres: the fin is a blade";
+    EXPECT_NEAR(up_span(*tallest).at(1), 1.1F, 0.005F) << "metres: the model's top";
+    EXPECT_GE(on_the_ground, std::size_t{1}) << "the bomb hangs to the ground line";
+    // The canopy is a cut through the fuselage: clear over solid, the roof lit above it.
+    EXPECT_FALSE(shape_covers(UnitKind::Bomber, 0.3F, 0.66F)) << "the canopy";
+    EXPECT_TRUE(shape_covers(UnitKind::Bomber, 0.3F, 0.76F)) << "the roof over it";
+}
+
+TEST(BomberFromShape, NothingOnItTurnsAndItCarriesNoGun) {
+    const std::vector<BodyVertex> before = body_of(UnitKind::Bomber, 0.0F);
+    const std::vector<BodyVertex> after = body_of(UnitKind::Bomber, 1.0F, 0.4F);
+    ASSERT_EQ(before.size(), after.size());
+    for (std::size_t i = 0; i < before.size(); ++i) {
+        EXPECT_EQ(before.at(i).across, after.at(i).across) << "vertex " << i;
+        EXPECT_EQ(before.at(i).along, after.at(i).along) << "vertex " << i;
+        EXPECT_EQ(before.at(i).up, after.at(i).up) << "vertex " << i;
+    }
+}
+
+// ------------------------------------------------------------------------- the defence turret
+
+TEST(TurretFromShape, TheShapeIsAsLargeInMetresAsItWasAuthored) {
+    const ShapeExtent extent = shape_extent(UnitKind::Turret);
+    EXPECT_NEAR(extent.along_max - extent.along_min, kTurretBaseMetres, 0.005F)
+        << "metres, the flared base's length";
+    EXPECT_NEAR(extent.up_max, kTurretHeightMetres, 0.005F) << "metres, the top of the aerial";
+    EXPECT_NEAR(2.0F * extent.across_max, kTurretWidthMetres, 0.005F) << "metres, the base";
+    // The deployed turret is this machine in another state.
+    const ShapeExtent deployed = shape_extent(UnitKind::DeployedTurret);
+    EXPECT_EQ(deployed.along_min, extent.along_min);
+    EXPECT_EQ(deployed.along_max, extent.along_max);
+    EXPECT_EQ(deployed.up_max, extent.up_max);
+}
+
+TEST(TurretFromShape, EveryPartIsConvexAndHasRoomForItsBevel) {
+    expect_parts_convex_with_room(UnitKind::Turret);
+}
+
+TEST(TurretFromShape, ThePlateIsTheShapeSeenSideOnPlusItsGun) {
+    for (const UnitKind kind : {UnitKind::Turret, UnitKind::DeployedTurret}) {
+        const PlateBox box = plate_box(kind_icon(kind));
+        EXPECT_EQ(box.width(), 70) << "cells, the base's rear to the gun's tip (2.7 m)";
+        EXPECT_EQ(box.first_col, 1);
+        EXPECT_EQ(box.last_col, 70);
+        EXPECT_NEAR(static_cast<float>(box.height()), 47.0F, 1.0F)
+            << "cells, 1.8 m at 25.9 per metre";
+        EXPECT_EQ(box.last_row, static_cast<int>(kIconGround)) << "the base stands on the ground";
+    }
+}
+
+TEST(TurretFromShape, TheMeshIsTheShapeInMetres) {
+    const MeshBox mesh = mesh_of(UnitKind::Turret);
+    ASSERT_GT(mesh.vertices, 0U);
+    // The gun, which is not a part, runs on to 2.0 m; the base's rear is 0.7 m behind the centre
+    // (the lowest 5 cm of the mesh is the shadow's and is not measured).
+    EXPECT_NEAR(mesh.high.at(2), kTurretTipMetres, 0.06F) << "metres, the muzzle collar's end";
+    EXPECT_NEAR(mesh.low.at(2), -0.7F, 0.1F) << "metres, the base's rear";
+    EXPECT_NEAR(mesh.high.at(1), kTurretHeightMetres, 0.06F) << "metres, the aerial";
+    EXPECT_NEAR(mesh.across(), kTurretWidthMetres, 0.06F) << "metres, the base";
+}
+
+TEST(TurretFromShape, ItIsAsHighAsTheUndrivenOneWasAndNoLongerATanksHullWhenDriven) {
+    // Measured before it had a shape: the undriven turret 2.6 m long, 1.2 m across, 1.8 m high;
+    // the DRIVEN one 3.3 m long and 1.23 m high. The mesh is one machine now: the tip is where the
+    // barrel always was, the height the undriven one's (and the picker's), the base a decimetre
+    // deeper, and the hull of a tank is gone.
+    const MeshBox mesh = mesh_of(UnitKind::Turret);
+    EXPECT_NEAR(mesh.high.at(2), kTurretTipMetres, 0.06F) << "metres: the tip is unmoved";
+    EXPECT_NEAR(mesh.high.at(1), kTurretHeightMetres, 0.06F) << "metres: the undriven one's top";
+    EXPECT_GT(mesh.high.at(1), kTurretWasHighDrivenMetres + 0.5F) << "metres";
+    EXPECT_LT(mesh.along(), 3.3F - 0.5F) << "metres: not the tank's hull's 3.3";
+    EXPECT_GT(mesh.along(), kTurretWasLongUndrivenMetres - 0.1F) << "metres";
+    EXPECT_NEAR(mesh.across(), kTurretWidthMetres, 0.06F) << "metres: the tank's width, kept";
+}
+
+TEST(TurretFromShape, ThePlateAndTheMeshAreTheSameMachine) {
+    const PlateBox plate = plate_box(kind_icon(UnitKind::Turret));
+    const MeshBox mesh = mesh_of(UnitKind::Turret);
+    const float plate_ratio
+        = static_cast<float>(plate.height()) / static_cast<float>(plate.width());
+    EXPECT_NEAR(plate_ratio, mesh.high.at(1) / kTurretWholeMetres, 0.04F);
+}
+
+TEST(TurretFromShape, TheGunIsOnThePlateAndNotInTheShape) {
+    // The gun is level from the dome's front face (0.5 m) to the tip (2.0 m), 1.2 to 1.36 m up. The
+    // shape stops at the base's front and the dome's face; the plate carries the rest.
+    EXPECT_FALSE(shape_covers(UnitKind::Turret, 1.2F, 1.28F));
+    const IconMask& mask = kind_icon(UnitKind::Turret);
+    const float cells_per_metre = 70.0F / kTurretWholeMetres;
+    const auto col = [&](float along) {
+        return static_cast<std::size_t>(1.0F + ((along + 0.7F) * cells_per_metre));
+    };
+    const auto row = [&](float up) {
+        return static_cast<std::size_t>(static_cast<float>(kIconGround) - (up * cells_per_metre));
+    };
+    EXPECT_EQ(mask.at(row(1.28F)).at(col(1.2F)), '#') << "the barrel, 0.7 m past the dome";
+    EXPECT_EQ(mask.at(row(1.28F)).at(col(1.9F)), '#') << "the muzzle collar";
+    EXPECT_EQ(plate_box(mask).last_col, 70) << "and the muzzle collar's end is the plate's edge";
+    EXPECT_EQ(mask.at(row(1.0F)).at(col(1.2F)), '.') << "the barrel is not a wall under it";
+}
+
+TEST(TurretFromShape, TheMeshHasDepthAndIsNotACutOut) {
+    const MeshBox mesh = mesh_of(UnitKind::Turret);
+    EXPECT_GT(mesh.across(), 1.0F);
+    EXPECT_GE(mesh.layers.size(), std::size_t{15}) << "distinct lateral positions, in cm";
+    EXPECT_GT(mesh.vertices, std::size_t{300}) << "a cut-out is a few dozen";
+    for (const ShapePart& part : shape_of(UnitKind::Turret)) {
+        if (part.lit && part.role != ShapeRole::Track) {
+            EXPECT_GT(part.bevel, 0.0F) << "a body part with a square edge";
+        }
+    }
+}
+
+TEST(TurretFromShape, NothingOnItIsATrackAWheelOrAHullOfATank) {
+    // The driven turret wore a tank's hull: tracks, wheels, fenders. None of that is here: no part
+    // is mirrored (no pair of runs), none is a ring of corners (a wheel), and nothing is wider than
+    // the base.
+    for (const ShapePart& part : shape_of(UnitKind::Turret)) {
+        EXPECT_FALSE(part.mirrored) << "a turret is not a machine with a left and a right track";
+        EXPECT_LT(part.profile.size(), 8U) << "a wheel is a ring of corners";
+        EXPECT_LE(part.across_hi, 0.6F);
+    }
+}
+
+TEST(TurretFromShape, TheGroupsAreTheMachinesOwn) {
+    // An oracle that does not read the tag: whatever stands wholly on or over the pedestal's top
+    // (1.1 m) is the dome group, and whatever reaches below it is the base.
+    std::size_t turret_parts = 0;
+    std::size_t hull_parts = 0;
+    for (const ShapePart& part : shape_of(UnitKind::Turret)) {
+        const bool on_the_pedestal = up_span(part).at(0) >= 1.1F - 0.001F;
+        EXPECT_EQ(part.group == ShapeGroup::Turret, on_the_pedestal);
+        (on_the_pedestal ? turret_parts : hull_parts) += 1U;
+    }
+    EXPECT_EQ(turret_parts, std::size_t{3}) << "the dome, its slit and the aerial";
+    EXPECT_EQ(hull_parts, std::size_t{2}) << "the base and the pedestal";
+}
+
+TEST(TurretFromShape, TheGroupIsRealTurnTheAimAndTheDomeMovesAndTheBaseDoesNot) {
+    // The player can DRIVE a turret and aim it: the same group helper as the tank's.
+    expect_turret_group_is_real(UnitKind::Turret, 100, 200); // measured: 120 and 246
+}
+
+TEST(TurretFromShape, TheDeployedTurretIsTheSameMachineAsTheTurret) {
+    const MeshBox turret = mesh_of(UnitKind::Turret);
+    const MeshBox deployed = mesh_of(UnitKind::DeployedTurret);
+    EXPECT_EQ(deployed.vertices, turret.vertices);
+    EXPECT_EQ(deployed.low, turret.low);
+    EXPECT_EQ(deployed.high, turret.high);
 }
 
 } // namespace

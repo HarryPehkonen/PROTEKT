@@ -3356,14 +3356,20 @@ TEST(SceneFacing, OnlyTheViewersTankChanges) {
     EXPECT_FALSE(same_vertices({without.vertices.begin() + shared, without.vertices.end()},
                                {with.vertices.begin() + shared, with.vertices.end()}));
     // A facing that names someone else rotates THAT unit and leaves the viewer's tank at its
-    // default facing.
-    SceneOptions elsewhere = plain;
-    elsewhere.facing = SceneOptions::Facing{sim.units().front().id, 0.7F, -0.4F};
-    const Scene other = protekt::game::build_scene(sim, elsewhere);
-    EXPECT_GT(other.vertices.size(), without.vertices.size());
+    // default facing. The other unit is a tank too: only a drivable kind is ever faced (the game
+    // never faces a factory, and a faced factory is no longer drawn as a tank's hull).
+    const auto two = sim_of(
+        {{Side::Enemy, UnitKind::Tank, 106, 100}, {Side::Player, UnitKind::Tank, 100, 100}});
+    const SceneOptions plain_two = facing_options(two);
+    const Scene still = protekt::game::build_scene(two, plain_two);
+    SceneOptions elsewhere = plain_two;
+    elsewhere.facing = SceneOptions::Facing{two.units().front().id, 0.7F, -0.4F};
+    const Scene other = protekt::game::build_scene(two, elsewhere);
+    EXPECT_EQ(other.vertices.size(), still.vertices.size());
+    EXPECT_FALSE(same_vertices(still.vertices, other.vertices)) << "the named unit turned";
     EXPECT_TRUE(
-        same_vertices({without.vertices.end() - static_cast<std::ptrdiff_t>(kFacingTankVertices),
-                       without.vertices.end()},
+        same_vertices({still.vertices.end() - static_cast<std::ptrdiff_t>(kFacingTankVertices),
+                       still.vertices.end()},
                       {other.vertices.end() - static_cast<std::ptrdiff_t>(kFacingTankVertices),
                        other.vertices.end()}));
 }
@@ -4643,15 +4649,6 @@ TEST(UnitBoxUv, AFactorysWallsTakeTheWallTileAndItsRoofTheRoofTile) {
     }
 }
 
-// Re-pinned DELIBERATELY (D5a-2): the turret was one box, it is four prisms of the metal tile now.
-TEST(UnitBoxUv, ATurretIsTurretBodyAllOver) {
-    const auto box = unit_box_of(UnitKind::Turret);
-    ASSERT_EQ(box.size(), protekt::game::kTurretVertices);
-    expect_corners_of(box, 0, protekt::game::kTurretVertices,
-                      tile_rect(protekt::game::atlas_manifest().tile("turret_body")),
-                      "turret body");
-}
-
 TEST(UnitBoxUv, ATintStillMultipliesOnTheBuildingsVertexColourAndNotItsUv) {
     const auto sim = sim_of({{Side::Player, UnitKind::Factory, 100, 100}});
     const auto plain = tank_only(sim, sim.units().at(0), {});
@@ -5151,9 +5148,10 @@ TEST(ShapeRoles, EachRoleTakesItsTileOnEveryShapedVehicle) {
     const auto& atlas = protekt::game::atlas_manifest();
     const UvRect tracks = tile_rect(atlas.tile("tank_tracks"));
     const UvRect metal = tile_rect(atlas.tile("tank_turret"));
-    for (const UnitKind kind : {UnitKind::Tank, UnitKind::HoverTank, UnitKind::Scout,
-                                UnitKind::MslScout, UnitKind::RocketTank, UnitKind::AssaultTank,
-                                UnitKind::MortarBike, UnitKind::Walker, UnitKind::Apc}) {
+    for (const UnitKind kind :
+         {UnitKind::Tank, UnitKind::HoverTank, UnitKind::Scout, UnitKind::MslScout,
+          UnitKind::RocketTank, UnitKind::AssaultTank, UnitKind::MortarBike, UnitKind::Walker,
+          UnitKind::Apc, UnitKind::Bomber, UnitKind::Turret}) {
         const auto sim = sim_of({{Side::Player, kind, 100, 100}});
         const auto body = tank_only(sim, sim.units().at(0), {});
         const auto name = protekt::game::kTeamHullNames.at(static_cast<std::size_t>(Side::Player))
@@ -5513,8 +5511,28 @@ TEST(SceneGunAim, ADefenseTurretsBarrelPointsAtWhatItShoots) {
     const auto model = tank_only(sim, turret, {});
     ASSERT_EQ(model.size(), kTurretVertices);
     EXPECT_NEAR(barrel_yaw(model, turret), bearing(turret, sim.units().at(1)), kYawTolerance);
-    // The housing turns with the barrel; the pedestal keeps the turret's own heading (+Y).
-    EXPECT_NEAR(yaw_of_part(model, 72, 144, turret), bearing(turret, sim.units().at(1)), 0.05F);
+    // The dome turns with the barrel; the base and pedestal keep the turret's own heading (+Y).
+    // The dome's two FRONT corners are the vertices of its band that lie ahead of the barrel and
+    // more than 0.55 m out (its sides are 0.45 m and its front face 0.5 m from the centre, so only
+    // a corner reaches 0.67): their mean is the dome's axis.
+    const float aim = bearing(turret, sim.units().at(1));
+    const float ux = static_cast<float>(turret.x.raw) / 65536.0F * kMetresPerTile;
+    const float uz = static_cast<float>(turret.y.raw) / 65536.0F * kMetresPerTile;
+    const float ground = protekt::game::ground_metres(42, turret.x, turret.y);
+    std::vector<SceneVertex> corners;
+    for (std::size_t i = 0; i + 72U < model.size(); ++i) { // the last two prisms are the gun
+        const auto& p = model.at(i).position;
+        const float height = p[1] - ground;
+        const float dx = p[0] - ux;
+        const float dz = p[2] - uz;
+        if (height > 1.12F && height < 1.45F && std::hypot(dx, dz) > 0.55F
+            && (dx * std::sin(aim)) + (dz * std::cos(aim)) > 0.0F) {
+            corners.push_back(model.at(i));
+        }
+    }
+    ASSERT_FALSE(corners.empty());
+    EXPECT_NEAR(yaw_of_part(corners, 0, corners.size(), turret), aim, 0.05F)
+        << "the dome's front corners lie along the aim, in radians";
 }
 
 TEST(SceneGunAim, AnIdleTurretLooksForwardAndAMovingOneAlongItsCourse) {
@@ -5532,10 +5550,23 @@ TEST(SceneGunAim, AnIdleTurretLooksForwardAndAMovingOneAlongItsCourse) {
     const auto model = tank_only(sim, turret, {});
     EXPECT_NEAR(barrel_yaw(model, turret), -protekt::math::kPi * 0.5F, kYawTolerance)
         << "crawling west";
-    // The pedestal turns to the course too. It is square, so read one face: the back one.
-    const float corner_yaw = yaw_of_part(model, 0, 6, turret);
-    EXPECT_NEAR(corner_yaw, protekt::math::kPi * 0.5F, kYawTolerance)
-        << "the back face is behind, to the east";
+    // The base turns to the course too: it is 1.4 m long and 1.2 m across, so heading west its
+    // span is 1.4 m in x and 1.2 m in z (heading north, the other way round).
+    const float ground = protekt::game::ground_metres(42, turret.x, turret.y);
+    float x_low = 1e9F;
+    float x_high = -1e9F;
+    float z_low = 1e9F;
+    float z_high = -1e9F;
+    for (const SceneVertex& v : model) {
+        if (v.position[1] - ground < 0.3F) {
+            x_low = std::min(x_low, v.position[0]);
+            x_high = std::max(x_high, v.position[0]);
+            z_low = std::min(z_low, v.position[2]);
+            z_high = std::max(z_high, v.position[2]);
+        }
+    }
+    EXPECT_NEAR(x_high - x_low, 1.4F, 0.01F) << "metres in x: the base's length lies east-west";
+    EXPECT_NEAR(z_high - z_low, 1.2F, 0.01F) << "metres in z: the base's width lies north-south";
 }
 
 TEST(SceneGunAim, TheDrivenTankKeepsThePlayersTurret) {
@@ -5552,31 +5583,76 @@ TEST(SceneGunAim, TheDrivenTankKeepsThePlayersTurret) {
     EXPECT_NEAR(barrel_yaw(tank, viewer_of(sim)), 0.3F + 0.4F, kYawTolerance);
 }
 
-// Re-pinned DELIBERATELY (D5a-2): a defense turret was one 36-vertex box; it is four prisms now.
-TEST(TurretModel, ADefenseTurretIsAPedestalAHousingAMuzzleCollarAndABarrel) {
+// Re-pinned DELIBERATELY (one shape per kind): a defense turret was a pedestal, a housing, a collar
+// and a barrel (144 vertices), and 432 when a player drove it, a tank's hull under a squat turret.
+// It is its shape's 420 now, driven or not, and the collar and the barrel after them.
+TEST(TurretModel, ADefenseTurretIsItsShapesPartsThenAMuzzleCollarAndABarrel) {
     const auto sim = sim_of({{Side::Player, UnitKind::Turret, 100, 100}});
     const auto& turret = sim.units().at(0);
     const auto model = unit_box_of(UnitKind::Turret);
-    ASSERT_EQ(model.size(), kTurretVertices);
-    EXPECT_EQ(kTurretVertices, std::size_t{144}) << "four prisms";
-    constexpr std::size_t kPedestal = 0;
-    constexpr std::size_t kHousing = 36;
-    constexpr std::size_t kCollar = 72;
-    constexpr std::size_t kBarrel = 108;
-    // The housing sits on the pedestal.
-    EXPECT_NEAR(lowest(model, kHousing, kCollar), highest(model, kPedestal, kHousing), kTolerance);
-    // The barrel runs from the housing's front face; the collar is AT THE TIP, past the barrel's
-    // end, and thicker than it.
-    const auto housing = reach_of(model, kHousing, kCollar, turret);
-    const auto collar = reach_of(model, kCollar, kBarrel, turret);
-    const auto barrel = reach_of(model, kBarrel, model.size(), turret);
-    EXPECT_LT(barrel[0], housing[1]) << "the barrel starts inside the housing's reach";
-    EXPECT_GT(collar[1], barrel[1]) << "the collar is the far end";
-    EXPECT_GT(collar[0], barrel[1] - 0.2F) << "the collar starts where the barrel ends";
-    EXPECT_GT(highest(model, kCollar, kBarrel) - lowest(model, kCollar, kBarrel),
-              highest(model, kBarrel, model.size()) - lowest(model, kBarrel, model.size()))
+    ASSERT_EQ(model.size(), protekt::game::kTurretVertices);
+    EXPECT_EQ(protekt::game::kTurretVertices, std::size_t{492})
+        << "the shape's 420 and the collar and the barrel's 72";
+    EXPECT_EQ(shape_vertices(UnitKind::Turret), std::size_t{420});
+    const std::size_t collar = shape_vertices(UnitKind::Turret);
+    const std::size_t barrel = collar + kPrismVertices;
+    ASSERT_EQ(barrel + kPrismVertices, model.size());
+    const UvRect barrel_tile = tile_rect(protekt::game::atlas_manifest().tile("tank_barrel"));
+    for (std::size_t i = 0; i < model.size(); ++i) {
+        EXPECT_EQ(on_rect(model.at(i), barrel_tile), i >= collar)
+            << "vertex " << i << ": only the collar and the barrel are on the barrel tile";
+    }
+    // The barrel runs from the dome's front face (0.5 m); the collar is AT THE TIP, 2.0 m out,
+    // past the barrel's end, and thicker than it.
+    const auto dome = reach_of(model, 0, collar, turret);
+    const auto collar_reach = reach_of(model, collar, barrel, turret);
+    const auto barrel_reach = reach_of(model, barrel, model.size(), turret);
+    EXPECT_NEAR(barrel_reach[0], 0.5F, 0.02F) << "metres: the barrel starts at the dome's front";
+    EXPECT_LT(barrel_reach[0], dome[1]) << "and inside the machine's own reach";
+    EXPECT_NEAR(collar_reach[1], 2.0F, 0.02F) << "metres: the collar is the far end";
+    EXPECT_GT(collar_reach[0], barrel_reach[1] - 0.2F) << "the collar starts where the barrel ends";
+    EXPECT_GT(highest(model, collar, barrel) - lowest(model, collar, barrel),
+              highest(model, barrel, model.size()) - lowest(model, barrel, model.size()))
         << "the collar is thicker than the barrel";
-    EXPECT_GT(collar[1], kHullHalfMetres * 2.0F) << "a barrel you can read, past the pedestal";
+    EXPECT_GT(collar_reach[1], kHullHalfMetres * 2.0F) << "a barrel you can read, past the base";
+    // And the machine stands 1.8 m, the height the picker tests, and no more.
+    const float ground = protekt::game::ground_metres(42, turret.x, turret.y);
+    EXPECT_NEAR(highest(model, 0, model.size()) - ground, 1.8F, 0.01F) << "metres, the aerial";
+}
+
+TEST(TurretModel, TheCollarAndBarrelCarryTheSideColourAndTheSidesDiffer) {
+    const auto mine = unit_box_of(UnitKind::Turret);
+    const auto theirs = [] {
+        const auto sim = sim_of({{Side::Enemy, UnitKind::Turret, 100, 100}});
+        return tank_only(sim, sim.units().at(0), {});
+    }();
+    ASSERT_EQ(mine.size(), theirs.size());
+    EXPECT_NE(mine.back().colour, theirs.back().colour) << "the barrel is the side's colour";
+    // The base is the pale camo: a vertex of it differs from the barrel's saturated accent.
+    EXPECT_NE(mine.front().colour, mine.back().colour);
+}
+
+// A turret is the same machine whether anybody drives it or not, and whether it has deployed or
+// not: the driven one used to wear a tank's hull (432 vertices), the undriven a pedestal (144).
+TEST(TurretModel, ADrivenTurretADeployedOneAndAnUndrivenOneAreOneMeshUpToTheBarrelsPitch) {
+    const auto undriven = unit_box_of(UnitKind::Turret);
+    const auto deployed = unit_box_of(UnitKind::DeployedTurret);
+    ASSERT_EQ(deployed.size(), undriven.size());
+    for (std::size_t i = 0; i < undriven.size(); ++i) {
+        ASSERT_EQ(deployed.at(i).position, undriven.at(i).position) << "vertex " << i;
+        ASSERT_EQ(deployed.at(i).colour, undriven.at(i).colour) << "vertex " << i;
+    }
+    const auto sim = sim_of({{Side::Player, UnitKind::Turret, 100, 100}});
+    const protekt::sim::Unit& unit = sim.units().at(0);
+    SceneOptions options = at_tank(unit);
+    const Scene still = protekt::game::build_scene(sim, options);
+    options.facing = SceneOptions::Facing{unit.id, 0.0F, 0.0F, 0.0F};
+    const Scene driven = protekt::game::build_scene(sim, options);
+    ASSERT_EQ(still.vertices.size(), driven.vertices.size());
+    for (std::size_t i = 0; i < still.vertices.size(); ++i) {
+        ASSERT_EQ(still.vertices.at(i).position, driven.vertices.at(i).position)
+            << "vertex " << i << ": driving a turret does not change its mesh";
+    }
 }
 
 // ---------------------------------------------------------------- the mortar bike and the rocket
@@ -5641,6 +5717,40 @@ TEST(MortarBikeModel, TheMortarBikeIsItsShapeAndNothingElse) {
 // hubs, the fork and the handlebars: 120 + 84 + 84).
 TEST(MortarBikeModel, ItsFrameIsCamoItsTyresTubeAndCollarAreTrackLinksAndItsHubsAreMetal) {
     EXPECT_EQ(tile_counts_of(UnitKind::MortarBike), (std::array<std::size_t, 3>{192, 1008, 288}));
+}
+
+TEST(BomberModel, TheBomberIsItsShapesPartsAndNothingElse) {
+    // Re-pinned DELIBERATELY (one shape per kind): the bomber was three boxes, 108 vertices, a flat
+    // slab with a nose and a panel; it is a fuselage, a nose, a fin, a wing and a bomb now.
+    const auto bomber = unit_box_of(UnitKind::Bomber);
+    ASSERT_EQ(bomber.size(), protekt::game::kBomberVertices);
+    EXPECT_EQ(protekt::game::kBomberVertices, std::size_t{744})
+        << "the shape's parts and nothing added; it was 108 before it had a shape";
+    EXPECT_EQ(shape_vertices(UnitKind::Bomber), std::size_t{744});
+    const UvRect barrel = tile_rect(protekt::game::atlas_manifest().tile("tank_barrel"));
+    for (const SceneVertex& v : bomber) {
+        ASSERT_FALSE(on_rect(v, barrel)) << "the bomber drops a shell and carries no barrel";
+    }
+    // Under the health bar's 1.2 m anchor and close enough that the bar does not float.
+    const auto sim = sim_of({{Side::Player, UnitKind::Bomber, 100, 100}});
+    const float ground = protekt::game::ground_metres(42, sim.units().at(0).x, sim.units().at(0).y);
+    EXPECT_LE(highest(bomber, 0, bomber.size()) - ground, 1.2F);
+    EXPECT_GE(highest(bomber, 0, bomber.size()) - ground, 0.9F);
+}
+
+// WHICH TILE EACH ROLE TAKES, for the bomber, as literals: Hull is the camo (the fuselage 108 and
+// the wing 84), Track and Glass the dark links in the side colour (the nose 84, the bomb 228 and
+// its fins 84, the spine stripe 36, the canopy glass 36), Metal the plain turret metal (the fin
+// 84).
+TEST(BomberModel, ItsFuselageAndWingAreCamoItsNoseBombAndStripeAreTrackLinksAndItsFinIsMetal) {
+    EXPECT_EQ(tile_counts_of(UnitKind::Bomber), (std::array<std::size_t, 3>{192, 468, 84}));
+}
+
+// WHICH TILE EACH ROLE TAKES, for the turret, as literals: Hull is the camo (the base and the
+// pedestal, 84 + 84), Track and Glass the dark links (the aerial 84 and the vision slit 36), Metal
+// the plain turret metal (the dome, 132).
+TEST(TurretModel, ItsBaseIsCamoItsAerialAndSlitAreTrackLinksAndItsDomeIsMetal) {
+    EXPECT_EQ(tile_counts_of(UnitKind::Turret), (std::array<std::size_t, 3>{168, 120, 132}));
 }
 
 TEST(MortarBikeModel, TheTubeAndCollarCarryTheSideColourAndTheSidesDiffer) {

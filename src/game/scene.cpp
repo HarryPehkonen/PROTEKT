@@ -524,56 +524,6 @@ void build_factory(std::vector<SceneVertex>& out, std::uint64_t seed, const sim:
                       colour, roof);
 }
 
-/// A defense turret, built of the same shaded prisms as a tank and all of the `turret_body` metal
-/// tile: a square pedestal on the ground turned by `heading` (the turret crawls, and faces its
-/// course as a tank does), a housing on top of it, and a barrel from the housing's front face with
-/// a thicker muzzle collar AT ITS TIP -- the fleet's convention. The housing, collar and barrel
-/// turn together by `aim`. The top of the housing is the old box's 1.8 m, which is what the picker
-/// tests against. The pedestal and housing are the pale tint the box was; the collar and barrel
-/// carry the full side colour, as a tank's barrel does.
-void build_defense_turret(std::vector<SceneVertex>& out, std::uint64_t seed, const sim::Unit& unit,
-                          Mark mark, float lift_z, bool lifted, float heading, float aim) {
-    const float x
-        = static_cast<float>(unit.x.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile;
-    const float z
-        = static_cast<float>(unit.y.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile;
-    const float ground = lifted ? lift_z : ground_metres(seed, unit.x, unit.y);
-    const float half_width = kHullHalfMetres;
-    constexpr float kPedestalHeight = 1.1F;
-    constexpr float kHousingHalfAcross = 0.45F;
-    constexpr float kHousingBack = -0.5F;
-    constexpr float kHousingFront = 0.45F;
-    constexpr float kHousingTop = 1.8F; ///< above the ground
-    constexpr float kBarrelHalfAcross = 0.08F;
-    constexpr float kBarrelBottom = 1.36F;
-    constexpr float kBarrelTop = 1.52F;
-    constexpr float kBarrelTip = 2.0F; ///< from the turret's centre, well past the pedestal
-    constexpr float kCollarLength = 0.3F;
-    constexpr float kCollarHalfAcross = 0.13F;
-    constexpr float kCollarBottom = 1.32F;
-    constexpr float kCollarTop = 1.56F;
-
-    Vec3 colour = side_colour(unit.side);
-    if (mark == Mark::Selected) {
-        colour = highlight(colour);
-    } else if (mark != Mark::None) {
-        colour = aim_tint(colour, mark == Mark::AimedOwn);
-    }
-    Vec3 pale = colour;
-    for (float& channel : pale) {
-        channel += (1.0F - channel) * kHullPaleMix;
-    }
-    const UvRect metal = atlas_manifest().rect("turret_body");
-    emit_turned_box(out, x, z, heading, half_width, -half_width, half_width, ground,
-                    ground + kPedestalHeight, pale, metal);
-    emit_turned_box(out, x, z, aim, kHousingHalfAcross, kHousingBack, kHousingFront,
-                    ground + kPedestalHeight, ground + kHousingTop, pale, metal);
-    emit_turned_box(out, x, z, aim, kCollarHalfAcross, kBarrelTip - kCollarLength, kBarrelTip,
-                    ground + kCollarBottom, ground + kCollarTop, colour, metal);
-    emit_turned_box(out, x, z, aim, kBarrelHalfAcross, kHousingFront, kBarrelTip - kCollarLength,
-                    ground + kBarrelBottom, ground + kBarrelTop, colour, metal);
-}
-
 /// The miter inset of a counter-clockwise convex `profile`: every edge moved `by` metres inward,
 /// the corners meeting where the moved edges do. It is the face of a chamfered part, smaller than
 /// the section behind it.
@@ -731,79 +681,6 @@ void emit_shape_parts(std::vector<SceneVertex>& out, float x, float z, float gro
     }
 }
 
-/// THE HAND-BUILT TANK HULL, worn by the one use left: a DEFENCE TURRET that the player drives,
-/// which comes through `build_facing_tank` with no shape (every vehicle has its own shape now, the
-/// rocket tank and the assault tank the last two): two dark tracks with a camo fender over each, a
-/// shelf a little wider than the track under it, and a hull between them whose raised fighting
-/// compartment meets the ground in a sloped front glacis and steps down aft to a lower engine deck
-/// with a dark grille band -- seven prisms, all turned by `heading`, in that order: tracks, the
-/// compartment, the engine deck, the grille, fenders. `colour` is the marked side colour (the
-/// tracks and grille), `camo_colour` its pale tint (the rest).
-void emit_tank_hull(std::vector<SceneVertex>& out, float x, float z, float ground, float heading,
-                    const Vec3& colour, const Vec3& camo_colour, const UvRect& hull_tile,
-                    const UvRect& tracks_tile) {
-    const float half_width = kHullHalfMetres; ///< the outer edge of a fender
-    constexpr float kTrackInner = 0.7F;       ///< of half_width; the hull fills the rest
-    constexpr float kTrackOuter = 0.95F;      ///< of half_width; the fender overhangs it
-    constexpr float kTrackHeight = 0.4F;
-    constexpr float kTrackBack = -1.3F; ///< metres along the heading from the centre
-    constexpr float kTrackFront = 1.3F;
-    constexpr float kHullBack = -1.2F;
-    constexpr float kHullFront = 1.2F;  ///< the foot of the glacis
-    constexpr float kGlacisTop = 0.55F; ///< where the glacis meets the compartment roof
-    constexpr float kDeckStep = -0.45F; ///< where the compartment steps down to the engine deck
-    constexpr float kCompartmentTop = 0.85F;
-    constexpr float kEngineDeckTop = 0.62F;
-    constexpr float kDeckTuck = 0.05F; ///< the engine deck runs on inside the compartment
-    constexpr float kGrilleHalfAcross = 0.28F;
-    constexpr float kGrilleBack = -1.1F;
-    constexpr float kGrilleFront = -0.55F;
-    constexpr float kGrilleThickness = 0.03F; ///< standing just proud of the deck
-    constexpr float kFenderInner = 0.65F;     ///< of half_width: just inside the hull's side
-    constexpr float kFenderBottom = 0.38F;    ///< a little into the track, so its top is hidden
-    constexpr float kFenderTop = 0.44F;
-
-    const float inner = half_width * kTrackInner;
-    for (const float side : {-1.0F, 1.0F}) {
-        const float a = side * inner;
-        const float b = side * half_width * kTrackOuter;
-        const Prism track{std::min(a, b), std::max(a, b),        kTrackBack,
-                          kTrackBack,     kTrackFront,           kTrackFront,
-                          ground,         ground + kTrackHeight, ground + kTrackHeight};
-        emit_turned_prism(out, x, z, heading, track, colour, tracks_tile);
-    }
-    // The fighting compartment: its front face leans back from the foot of the glacis to the roof.
-    const Prism hull{-inner,
-                     inner,
-                     kDeckStep,
-                     kDeckStep,
-                     kHullFront,
-                     kGlacisTop,
-                     ground,
-                     ground + kCompartmentTop,
-                     ground + kCompartmentTop};
-    emit_turned_prism(out, x, z, heading, hull, camo_colour, hull_tile);
-    emit_turned_box(out, x, z, heading, inner, kHullBack, kDeckStep + kDeckTuck, ground,
-                    ground + kEngineDeckTop, camo_colour, hull_tile);
-    const float deck = ground + kEngineDeckTop;
-    emit_turned_box(out, x, z, heading, kGrilleHalfAcross, kGrilleBack, kGrilleFront, deck,
-                    deck + kGrilleThickness, colour, tracks_tile);
-    for (const float side : {-1.0F, 1.0F}) {
-        const float a = side * half_width * kFenderInner;
-        const float b = side * half_width;
-        const Prism fender{std::min(a, b),
-                           std::max(a, b),
-                           kTrackBack,
-                           kTrackBack,
-                           kTrackFront,
-                           kTrackFront,
-                           ground + kFenderBottom,
-                           ground + kFenderTop,
-                           ground + kFenderTop};
-        emit_turned_prism(out, x, z, heading, fender, camo_colour, hull_tile);
-    }
-}
-
 /// How far a drawn barrel may point below the hull's horizontal before it would run into the
 /// hull. A barrel pivots at the turret's front face (0.35 m ahead of the tank's centre, its lower
 /// edge 0.98 m up) and the compartment roof's front edge is 0.2 m further on at 0.85 m: the barrel
@@ -849,10 +726,9 @@ void elevate_barrel(std::vector<SceneVertex>& out, std::size_t first, float x, f
 /// barrel with its muzzle collar, which elevates and which the weapon code owns, so it is always
 /// the last prism. The SCOUT and the MISSILE SCOUT come through here too and are built from their
 /// own shapes the same way, Hull parts by `heading` and Turret parts (the missile scout's rack) by
-/// `heading + turret`; they carry no gun, so they get neither panel nor barrel. A kind that comes
-/// through with NO shape (a driven defence turret) keeps the hand-built body it always had:
-/// `emit_tank_hull` (seven prisms), a squat turret and a rear bustle. Lateral extent stays the
-/// tank's 0.3 tile half-width either way.
+/// `heading + turret`; they carry no gun, so they get neither panel nor barrel. These three are the
+/// only kinds that do: every other kind has a builder of its own, so there is no body left here
+/// that is not a shape.
 void build_facing_tank(std::vector<SceneVertex>& out, std::uint64_t seed, const sim::Unit& unit,
                        Mark mark, float lift_z, bool lifted, float heading, float turret,
                        float pitch) {
@@ -862,10 +738,10 @@ void build_facing_tank(std::vector<SceneVertex>& out, std::uint64_t seed, const 
         = static_cast<float>(unit.y.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile;
     const float ground = lifted ? lift_z : ground_metres(seed, unit.x, unit.y);
     // The tracks and grille are dark, with their links, because the TRACK TILE is, and the hull,
-    // engine deck, fenders, turret and bustle wear the camo because their tile does: the vertex
-    // keeps the side colour, the selection tint and the face light, and the texel multiplies them.
-    // Which of its team's three camo tiles is this tank's -- one pattern for the whole tank. The
-    // roof panel wears the plain turret metal.
+    // engine deck, fenders and turret wear the camo because their tile does: the vertex keeps the
+    // side colour, the selection tint and the face light, and the texel multiplies them. Which of
+    // its team's three camo tiles is this tank's -- one pattern for the whole tank. The roof panel
+    // wears the plain turret metal.
     const AtlasManifest& atlas = atlas_manifest();
     const UvRect hull_tile
         = atlas.rect(kTeamHullNames.at(static_cast<std::size_t>(unit.side))
@@ -873,13 +749,7 @@ void build_facing_tank(std::vector<SceneVertex>& out, std::uint64_t seed, const 
     const UvRect tracks_tile = atlas.rect("tank_tracks");
     const UvRect panel_tile = atlas.rect("tank_turret");
     const UvRect barrel_tile = atlas.rect("tank_barrel");
-    constexpr float kTurretHalfAcross = 0.36F;
-    constexpr float kTurretCentre = -0.15F; ///< set back from the hull's centre
-    constexpr float kTurretHalfLength = 0.5F;
-    constexpr float kBustleLength = 0.25F;
-    constexpr float kBustleHalfAcross = 0.25F;
-    constexpr float kBustleBottom = 0.05F; ///< above the turret's base
-    constexpr float kBustleTop = 0.3F;
+    constexpr float kTurretCentre = -0.15F;   ///< set back from the hull's centre
     constexpr float kPanelHalfAcross = 0.22F; ///< of the turret's 0.36: camo shows either side
     constexpr float kPanelBack = -0.4F;       ///< along the turret from its centre
     constexpr float kPanelFront = 0.25F;
@@ -903,39 +773,13 @@ void build_facing_tank(std::vector<SceneVertex>& out, std::uint64_t seed, const 
     const float turret_angle = heading + turret;
     const float turret_y0 = ground + kTankTurretBase;
     const std::array<float, 2> turret_at = rotate_offset(x, z, 0.0F, kTurretCentre, turret_angle);
-    // A kind with an authored shape is built from it: Hull parts turned by the heading, Turret
-    // parts by the turret's bearing. Every other kind that comes through here (a driven kind with
-    // no art) keeps the hand-built hull and turret it always had.
-    const std::vector<ShapePart>& shape = shape_of(unit.kind);
-    if (!shape.empty()) {
-        emit_shape_parts(
-            out, x, z, ground, heading, turret_angle, shape,
-            ShapeLook{colour, camo_colour, hull_tile, tracks_tile, atlas.rect("tank_turret")});
-    } else {
-        emit_tank_hull(out, x, z, ground, heading, colour, camo_colour, hull_tile, tracks_tile);
-
-        // The turret group shares one frame at the turret's centre; the barrel starts at its front
-        // face and is measured from the tank's centre along the same axis, so it points where the
-        // turret looks. The turret and bustle are camo -- from the driver's seat they are most of
-        // the tank -- and the team reads from the two saturated accents: the roof panel and the
-        // barrel.
-        const Prism turret_box{-kTurretHalfAcross,
-                               kTurretHalfAcross,
-                               -kTurretHalfLength,
-                               -kTurretHalfLength,
-                               kTurretHalfLength,
-                               kTurretHalfLength,
-                               turret_y0,
-                               turret_y0 + kTankTurretHeight,
-                               turret_y0 + kTankTurretHeight};
-        emit_turned_prism(out, turret_at.at(0), turret_at.at(1), turret_angle, turret_box,
-                          camo_colour, hull_tile);
-        emit_turned_box(out, turret_at.at(0), turret_at.at(1), turret_angle, kBustleHalfAcross,
-                        -kTurretHalfLength - kBustleLength, -kTurretHalfLength,
-                        turret_y0 + kBustleBottom, turret_y0 + kBustleTop, camo_colour, hull_tile);
-    }
-    if (!shape.empty() && unit.kind != sim::UnitKind::Tank) {
-        return; // the scout and the missile scout are shaped and carry no gun: no panel, no barrel
+    // Built from the kind's shape: Hull parts turned by the heading, Turret parts by the turret's
+    // bearing.
+    emit_shape_parts(
+        out, x, z, ground, heading, turret_angle, shape_of(unit.kind),
+        ShapeLook{colour, camo_colour, hull_tile, tracks_tile, atlas.rect("tank_turret")});
+    if (unit.kind != sim::UnitKind::Tank) {
+        return; // the scout and the missile scout carry no gun: no panel, no barrel
     }
     const float roof = turret_y0 + kTankTurretHeight;
     emit_turned_box(out, turret_at.at(0), turret_at.at(1), turret_angle, kPanelHalfAcross,
@@ -1716,9 +1560,10 @@ void build_apc(std::vector<SceneVertex>& out, std::uint64_t seed, const sim::Uni
                                atlas.rect("tank_turret")});
 }
 
-/// THE BOMBER: a WIDE, FLAT body -- the widest profile on the ground, twice a tank's half-width --
-/// with no turret: one low camo slab, a team-colour bomb-bay panel along its middle and a short
-/// dark nose. Turned by `heading` alone; the bomb leaves it by the sim's lob, with no barrel.
+/// THE BOMBER, built from `shape_of(UnitKind::Bomber)` and from nothing else: this function holds
+/// no number about what the machine looks like, and the 72 px plate under the command row is the
+/// same parts seen side-on, so the two cannot disagree. Turned by `heading` alone; the bomb leaves
+/// it by the sim's lob, with no barrel.
 void build_bomber(std::vector<SceneVertex>& out, std::uint64_t seed, const sim::Unit& unit,
                   Mark mark, float lift_z, bool lifted, float heading) {
     const float x
@@ -1730,25 +1575,52 @@ void build_bomber(std::vector<SceneVertex>& out, std::uint64_t seed, const sim::
     const UvRect hull_tile
         = atlas.rect(kTeamHullNames.at(static_cast<std::size_t>(unit.side))
                          .at(static_cast<std::size_t>(hull_variant(seed, unit.id.value))));
-    const UvRect nose_tile = atlas.rect("tank_tracks");
-    const UvRect panel_tile = atlas.rect("tank_turret");
-    const float half_width = kHullHalfMetres * 2.0F; ///< twice a tank's: the widest on the ground
-    constexpr float kBackEnd = -0.9F;
-    constexpr float kFrontEnd = 0.7F;
-    constexpr float kNoseEnd = 1.1F;
-    constexpr float kNoseHalfAcross = 0.35F; ///< of half_width
-    constexpr float kBodyBottom = 0.1F;
-    constexpr float kBodyTop = 0.4F;       ///< flat: the tank's compartment is 0.85
-    constexpr float kBayHalfAcross = 0.5F; ///< of half_width
-    constexpr float kBayThickness = 0.03F;
 
     const auto [colour, camo_colour] = kind_colours(unit, mark);
-    emit_turned_box(out, x, z, heading, half_width, kBackEnd, kFrontEnd, ground + kBodyBottom,
-                    ground + kBodyTop, camo_colour, hull_tile);
-    emit_turned_box(out, x, z, heading, half_width * kNoseHalfAcross, kFrontEnd, kNoseEnd,
-                    ground + kBodyBottom, ground + kBodyTop, colour, nose_tile);
-    emit_turned_box(out, x, z, heading, half_width * kBayHalfAcross, kBackEnd, kFrontEnd,
-                    ground + kBodyTop, ground + kBodyTop + kBayThickness, colour, panel_tile);
+    emit_shape_parts(out, x, z, ground, heading, heading, shape_of(sim::UnitKind::Bomber),
+                     ShapeLook{colour, camo_colour, hull_tile, atlas.rect("tank_tracks"),
+                               atlas.rect("tank_turret")});
+}
+
+/// A DEFENCE TURRET, driven or not -- ONE builder for both paths, so its mesh cannot depend on
+/// whether a player is at the controls. It is built from `shape_of(UnitKind::Turret)` (the
+/// DeployedTurret's too), the one description its plate is also projected from: the base and the
+/// pedestal are Hull parts, turned by `heading` (the turret crawls and faces its course as a tank
+/// does), and the dome, its slit and its aerial the Turret group, turned by `aim`. What is not the
+/// body's shape is added here, from the numbers in scene.hpp: the muzzle collar and the barrel,
+/// which elevate (only a driven turret's, by `pitch`), so the barrel is always the last prism. The
+/// base wears the camo and the dome the plain turret metal, as a tank's turret does; the collar and
+/// barrel carry the full side colour, as a tank's do.
+void build_defense_turret(std::vector<SceneVertex>& out, std::uint64_t seed, const sim::Unit& unit,
+                          Mark mark, float lift_z, bool lifted, float heading, float aim,
+                          float pitch) {
+    const float x
+        = static_cast<float>(unit.x.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile;
+    const float z
+        = static_cast<float>(unit.y.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile;
+    const float ground = lifted ? lift_z : ground_metres(seed, unit.x, unit.y);
+    const AtlasManifest& atlas = atlas_manifest();
+    const UvRect hull_tile
+        = atlas.rect(kTeamHullNames.at(static_cast<std::size_t>(unit.side))
+                         .at(static_cast<std::size_t>(hull_variant(seed, unit.id.value))));
+    const UvRect barrel_tile = atlas.rect("tank_barrel");
+    constexpr float kBarrelHalfAcross = 0.08F;
+    constexpr float kCollarHalfAcross = 0.13F;
+
+    const auto [colour, camo_colour] = kind_colours(unit, mark);
+    emit_shape_parts(out, x, z, ground, heading, aim, shape_of(sim::UnitKind::Turret),
+                     ShapeLook{colour, camo_colour, hull_tile, atlas.rect("tank_tracks"),
+                               atlas.rect("tank_turret")});
+
+    const std::size_t barrel_first = out.size();
+    emit_turned_box(out, x, z, aim, kCollarHalfAcross, kTurretBarrelTip - kTurretCollarLength,
+                    kTurretBarrelTip, ground + kTurretCollarBottom, ground + kTurretCollarTop,
+                    colour, barrel_tile);
+    emit_turned_box(out, x, z, aim, kBarrelHalfAcross, kTurretGunFront,
+                    kTurretBarrelTip - kTurretCollarLength, ground + kTurretBarrelBottom,
+                    ground + kTurretBarrelTop, colour, barrel_tile);
+    elevate_barrel(out, barrel_first, x, z, aim, kTurretGunFront,
+                   ground + ((kTurretBarrelBottom + kTurretBarrelTop) * 0.5F), pitch);
 }
 
 /// A tracer is brighter than anything it flies over: a unit colour is a thing standing on the
@@ -5181,8 +5053,14 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
                           turret);
             } else if (unit.kind == sim::UnitKind::Bomber) {
                 build_bomber(scene.vertices, options.seed, unit, mark, lift_z, hovering, heading);
+            } else if (sim::is_turret(unit.kind)) {
+                // Before the tank branch below: a driven turret is FACED too, and it is built by
+                // the SAME function as one nobody drives -- the player's pitch reaches the barrel
+                // (`pitch` is 0 for every gun but the driven one), the mesh is otherwise the same.
+                build_defense_turret(scene.vertices, options.seed, unit, mark, lift_z, hovering,
+                                     heading, heading + turret, pitch);
             } else if (unit.kind == sim::UnitKind::Scavenger) {
-                // Before the tank fallback below: a driven scavenger is FACED too, and it must not
+                // Before the tank branch below: a driven scavenger is FACED too, and it must not
                 // borrow the tank's turret. Nothing on a scavenger aims. THE one place a kind's
                 // silhouette follows the unit's FACTION (never its side): the human hauler or the
                 // alien harvester, the same kind either way.
@@ -5195,22 +5073,18 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
                 }
             } else if (unit.kind == sim::UnitKind::Recycler
                        || unit.kind == sim::UnitKind::DeployedRecycler) {
-                // Beside the scavenger's, and before the tank fallback: a driven recycler is FACED
+                // Beside the scavenger's, and before the tank branch: a driven recycler is FACED
                 // too, and must neither borrow the tank's turret nor fall through to a factory. A
                 // DEPLOYED one is drawn as the hull that drove there, parked on its site: the
                 // building has no look of its own yet, and DEPLOY adds no art.
                 build_recycler(scene.vertices, options.seed, unit, mark, lift_z, hovering, heading);
-            } else if (faced || unit.kind == sim::UnitKind::Tank
-                       || unit.kind == sim::UnitKind::Scout
+            } else if (unit.kind == sim::UnitKind::Tank || unit.kind == sim::UnitKind::Scout
                        || unit.kind == sim::UnitKind::MslScout) {
-                // The scout and the missile scout have shapes of their own and are built here, by
-                // the tank's builder, which carries no gun for them: left to the final branch they
-                // would be drawn as a factory.
+                // The three kinds built by the tank's builder, each from its own shape. Tested by
+                // KIND, never by `faced`: a driven kind with no shape of its own used to be built
+                // here with the tank's hand-built hull, and every kind has a builder now.
                 build_facing_tank(scene.vertices, options.seed, unit, mark, lift_z, hovering,
                                   heading, turret, pitch);
-            } else if (sim::is_turret(unit.kind)) {
-                build_defense_turret(scene.vertices, options.seed, unit, mark, lift_z, hovering,
-                                     heading, heading + turret);
             } else {
                 build_factory(scene.vertices, options.seed, unit, mark, lift_z, hovering);
             }

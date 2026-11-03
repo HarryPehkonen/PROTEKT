@@ -669,6 +669,81 @@ std::vector<ShapePart> author_apc() {
     return parts;
 }
 
+/// THE BOMBER'S SHAPE. The machine seen from its right-hand side, front at the right: a long
+/// FUSELAGE with a dark nosecone and a canopy cut through both flanks, a tall swept tail fin, a
+/// broad WING slung low across it and a BOMB hung under the wing on the ground line, with its fins.
+/// A part is a side profile swept across, so the wing's span is its lateral extent: 2.4 m, twice a
+/// tank's half-width, the widest profile on the ground. A thin team-colour stripe lies along the
+/// spine, and the fin is the highest point, 1.1 m, under the health bar's 1.2 m anchor. Nothing on
+/// it aims: the bomb leaves it by the sim's lob and it carries no gun, so every part is Hull.
+std::vector<ShapePart> author_bomber() {
+    std::vector<ShapePart> parts;
+    constexpr float kBelly = 0.38F;
+    constexpr float kSpine = 0.8F;
+    // The fuselage, 0.6 m across, its tail rising to the fin.
+    add_part(parts,
+             {{-1.05F, 0.5F}, {-0.85F, kBelly}, {0.7F, kBelly}, {0.7F, kSpine}, {-0.6F, kSpine}},
+             -0.3F, 0.3F, false, 0.05F, ShapeRole::Hull);
+    // The canopy: a window wrapped through both flanks, a roof 8 cm thick over it.
+    add_part(parts, {{0.05F, 0.6F}, {0.55F, 0.6F}, {0.42F, 0.72F}, {0.05F, 0.72F}}, -0.31F, 0.31F,
+             false, 0.0F, ShapeRole::Glass, false);
+    // The nosecone, dark, 0.44 m across, running down to a blunt tip.
+    add_part(parts, {{0.7F, kBelly}, {1.35F, 0.46F}, {1.35F, 0.6F}, {0.7F, kSpine}}, -0.22F, 0.22F,
+             false, 0.04F, ShapeRole::Track);
+    // The tail fin, 8 cm thick and swept back, rooted in the fuselage.
+    add_part(parts, {{-0.95F, 0.48F}, {-0.4F, 0.68F}, {-0.62F, 1.1F}, {-1.0F, 1.1F}}, -0.04F, 0.04F,
+             false, 0.01F, ShapeRole::Metal);
+    // The wing, slung low: 2.4 m of span, 1.1 m of chord at the root, standing 10 cm under the
+    // belly.
+    add_part(parts, {{-0.6F, 0.28F}, {0.5F, 0.28F}, {0.3F, 0.44F}, {-0.6F, 0.44F}}, -1.2F, 1.2F,
+             false, 0.04F, ShapeRole::Hull);
+    // The bomb: a dark rounded body 0.32 m across hung under the wing, standing on the ground line,
+    // and its tail fins.
+    add_part(parts, stadium(-0.35F, 0.3F, 0.0F, 0.32F, 4), -0.16F, 0.16F, false, 0.03F,
+             ShapeRole::Track);
+    add_part(parts, {{-0.5F, 0.02F}, {-0.28F, 0.16F}, {-0.28F, 0.2F}, {-0.5F, 0.3F}}, -0.12F, 0.12F,
+             false, 0.005F, ShapeRole::Track);
+    // The team-colour stripe along the spine, 3 cm thick.
+    add_part(parts,
+             {{-0.5F, kSpine}, {0.0F, kSpine}, {0.0F, kSpine + 0.03F}, {-0.5F, kSpine + 0.03F}},
+             -0.15F, 0.15F, false, 0.0F, ShapeRole::Track);
+    return parts;
+}
+
+/// THE DEFENCE TURRET'S SHAPE, shared by the Turret and the DeployedTurret it becomes. The machine
+/// seen from its right-hand side, front at the right: no wheel and no track anywhere. In the Hull
+/// group, turned by the heading, a FLARED BASE standing on the ground and a PEDESTAL on it, 1.1 m
+/// up; in the TURRET group, turned by the aim, a DOME with its vision slit cut across it and a whip
+/// aerial on top, 1.8 m, which is the height the picker tests. The GUN is not here: it elevates
+/// when a player drives the turret, so the mesh and the plate add it from the numbers in scene.hpp
+/// (`kTurretGunFront`, `kTurretBarrelTip`, ...). 1.2 m across the base, the tank's width.
+std::vector<ShapePart> author_turret() {
+    std::vector<ShapePart> parts;
+    constexpr float kBaseHalf = kHullHalfMetres;
+    constexpr float kPedestalTop = 1.1F;
+    add_part(parts, {{-0.7F, 0.0F}, {0.7F, 0.0F}, {0.5F, 0.45F}, {-0.5F, 0.45F}}, -kBaseHalf,
+             kBaseHalf, false, 0.05F, ShapeRole::Hull);
+    add_part(parts, {{-0.5F, 0.4F}, {0.5F, 0.4F}, {0.5F, kPedestalTop}, {-0.5F, kPedestalTop}},
+             -0.5F, 0.5F, false, 0.04F, ShapeRole::Hull);
+
+    // The dome: a six-sided hood 0.9 m across, its front face the barrel's root.
+    add_part(parts,
+             {{-0.5F, kPedestalTop},
+              {kTurretGunFront, kPedestalTop},
+              {kTurretGunFront, 1.4F},
+              {0.3F, 1.7F},
+              {-0.3F, 1.7F},
+              {-0.5F, 1.4F}},
+             -0.45F, 0.45F, false, 0.05F, ShapeRole::Metal, true, ShapeGroup::Turret);
+    // The vision slit, wrapped through both flanks, 1 cm proud of the dome's side.
+    add_part(parts, {{-0.25F, 1.36F}, {0.2F, 1.36F}, {0.2F, 1.44F}, {-0.25F, 1.44F}}, -0.46F, 0.46F,
+             false, 0.0F, ShapeRole::Glass, false, ShapeGroup::Turret);
+    // The whip aerial on the crown, dark, 8 cm across, standing a decimetre over it.
+    add_part(parts, {{-0.2F, 1.68F}, {-0.12F, 1.68F}, {-0.12F, 1.8F}, {-0.2F, 1.8F}}, -0.04F, 0.04F,
+             false, 0.01F, ShapeRole::Track, true, ShapeGroup::Turret);
+    return parts;
+}
+
 bool inside(const Profile& convex, float along, float up) {
     for (std::size_t i = 0, j = convex.size() - 1; i < convex.size(); j = i++) {
         const auto& a = convex.at(j);
@@ -693,6 +768,8 @@ const std::vector<ShapePart>& shape_of(sim::UnitKind kind) {
     static const std::vector<ShapePart> mortar_bike = author_mortar_bike();
     static const std::vector<ShapePart> walker = author_walker();
     static const std::vector<ShapePart> apc = author_apc();
+    static const std::vector<ShapePart> bomber = author_bomber();
+    static const std::vector<ShapePart> turret = author_turret();
     static const std::vector<ShapePart> none; // a kind with no authored shape has an empty one
     switch (kind) {
     case sim::UnitKind::Scavenger:
@@ -715,6 +792,11 @@ const std::vector<ShapePart>& shape_of(sim::UnitKind kind) {
         return walker;
     case sim::UnitKind::Apc:
         return apc;
+    case sim::UnitKind::Bomber:
+        return bomber;
+    case sim::UnitKind::Turret:
+    case sim::UnitKind::DeployedTurret: // the same machine: it only becomes deployed
+        return turret;
     default:
         return none;
     }

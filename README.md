@@ -181,8 +181,8 @@ carapace on six legs that rises to its high point behind the head, a tapered pro
 behind it, and a crest of the side's colour down the spine, all built from ten-cornered swept rings
 (`emit_loft`) rather than boxes. It is 5.5 m long and 2.3 m across, against the human hauler's 2.6 by
 1.2. The human Scavenger is no longer the tank's hull: it is the first kind built from ONE SHAPE
-(below). Every other kind is still hand-built, one mesh recipe in `scene.cpp` and one icon recipe
-in `kind_icon.cpp` that nothing keeps in step. The shape is mine to propose and Harri's to judge by
+(below). The buildings and the recycler are still hand-built, one mesh recipe in `scene.cpp` and one icon
+recipe in `kind_icon.cpp` that nothing keeps in step; every other vehicle follows the scavenger, below. The shape is mine to propose and Harri's to judge by
 looking.
 
 **One shape for a kind: the scavenger's model and its icon come from the same description.**
@@ -203,11 +203,14 @@ and a turret group that turns with the turret while the plate shows it level -- 
 apart, since it elevates. The hover tank, the scout and the missile scout are drawn and iconed from
 one authored shape each too (the hover tank keeps its skirt and barrel apart, the scout carries no
 gun), and so are the rocket tank (the tank's chassis under a slanted launcher rack) and the assault tank
-(the same chassis under a taller, wider block, its barrel kept apart); the tank-hull recipe survives only
-under a defence turret the player drives. The mortar bike (two wheels in line, the mortar angled up), the
+(the same chassis under a taller, wider block, its barrel kept apart). The mortar bike (two wheels in line, the mortar angled up), the
 walker (two bent legs, its gun arm kept apart since it elevates) and the APC (four wheels a side, a turret
-that turns) are drawn and iconed from one authored shape each too. Every other kind keeps its own recipe
-until it is converted.
+that turns) are drawn and iconed from one authored shape each too, and so are the bomber (a fuselage and
+nosecone, a tall tail fin, a wing 2.4 m across and a bomb hung under it) and the defence turret (a flared
+base and pedestal, a dome with a vision slit, the gun kept apart since it elevates). One turret shape serves
+the turret, the deployed turret and a turret the player drives: they used to be built two different ways (a
+pedestal undriven, a tank's hull driven), and the tank's hand-built hull recipe is deleted with that. The
+buildings and the recycler keep their own recipes.
 
 ### The health ticks and the ship instrument
 

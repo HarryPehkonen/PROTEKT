@@ -21,9 +21,12 @@ namespace protekt::game {
 /// Kinds are converted one batch at a time. A kind with NO authored shape has an EMPTY one:
 /// `shape_of` returns an empty list, `shape_covers` is false everywhere and `shape_extent` is all
 /// zero. Empty means "not converted": that kind's builder and plate keep their own recipes, and the
-/// callers test `shape_of(kind).empty()` to know. Currently authored: the Scavenger (the human
-/// hauler; the alien harvester is the same kind with its own organic mesh and shares the plate) and
-/// the Tank.
+/// callers test `shape_of(kind).empty()` to know. Currently authored: every vehicle -- the
+/// Scavenger (the human hauler; the alien harvester is the same kind with its own organic mesh and
+/// shares the plate), the Tank, the Hover Tank, the Scout, the Missile Scout, the Rocket Tank, the
+/// Assault Tank, the Mortar Bike, the Walker, the Apc, the Bomber, and the defence Turret (one
+/// shape for the Turret and the DeployedTurret it becomes). The buildings and the recycler keep
+/// their own.
 ///
 /// Frame, in metres: `along` is forward (+) from the unit's centre, `up` is over the ground,
 /// `across` is the lateral offset from the centreline.
