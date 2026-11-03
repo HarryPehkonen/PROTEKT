@@ -510,6 +510,165 @@ std::vector<ShapePart> author_assault_tank() {
     return parts;
 }
 
+/// THE MORTAR BIKE'S SHAPE. The machine seen from its right-hand side, front at the right: a BIKE,
+/// two big wheels in line on the centreline (a dark tyre, a clear ring cut into its face and a
+/// metal hub standing proud, as the scout's wheels are), a slim frame between them, a seat, a fork
+/// raked up and back to the handlebars, and, in the TURRET group, the mortar: a mount on the frame
+/// and a SHORT STUBBY TUBE slanted up and forward at 45 degrees -- it lobs -- with a thicker collar
+/// at its mouth and the mouth's bore cut in it. Nothing stands outside the handlebars' 0.7 m, and
+/// the mortar's top stays under the 1.2 m the health bar is anchored at.
+std::vector<ShapePart> author_mortar_bike() {
+    std::vector<ShapePart> parts;
+
+    // The frame, 18 cm wide, a little narrower than the tyres so they show either side of it.
+    add_part(parts, {{-0.7F, 0.38F}, {0.65F, 0.38F}, {0.7F, 0.55F}, {0.2F, 0.62F}, {-0.55F, 0.62F}},
+             -0.09F, 0.09F, false, 0.03F, ShapeRole::Hull);
+    // The seat, dark, on the rear of the frame.
+    add_part(parts, {{-0.6F, 0.6F}, {-0.1F, 0.6F}, {-0.15F, 0.72F}, {-0.55F, 0.72F}}, -0.1F, 0.1F,
+             false, 0.02F, ShapeRole::Track);
+
+    constexpr float kWheelRadius = 0.33F;
+    constexpr float kWheelAhead = 0.65F;
+    constexpr float kRingRadius = 0.2F;
+    constexpr float kHubRadius = 0.08F;
+    for (const float along : {-kWheelAhead, kWheelAhead}) {
+        add_part(parts, ngon(along, kWheelRadius, kWheelRadius, 12), -0.1F, 0.1F, false, 0.02F,
+                 ShapeRole::Track);
+        add_part(parts, ngon(along, kWheelRadius, kRingRadius, 8), -0.11F, 0.11F, false, 0.0F,
+                 ShapeRole::Glass, false);
+        add_part(parts, ngon(along, kWheelRadius, kHubRadius, 6), -0.12F, 0.12F, false, 0.0F,
+                 ShapeRole::Metal);
+    }
+
+    // The fork, from the front hub up and back to the bars, and the handlebars across its head.
+    add_part(parts, {{0.62F, 0.33F}, {0.7F, 0.33F}, {0.5F, 0.85F}, {0.42F, 0.85F}}, -0.05F, 0.05F,
+             false, 0.01F, ShapeRole::Metal);
+    add_part(parts, {{0.38F, 0.85F}, {0.52F, 0.85F}, {0.52F, 0.92F}, {0.38F, 0.92F}}, -0.35F, 0.35F,
+             false, 0.02F, ShapeRole::Metal);
+
+    // THE TURRET GROUP. The mount, 0.5 m long and 0.44 m across, sunk into the frame; the tube,
+    // 0.2 m across and 0.5 m long, and the collar, 0.3 m across and 0.2 m long, both on the line
+    // from the breech (-0.2, 0.5) at 45 degrees.
+    constexpr float kElevation = 0.785398F;
+    constexpr float kBreechAlong = -0.2F;
+    constexpr float kBreechUp = 0.5F;
+    constexpr float kTubeLength = 0.5F;
+    constexpr float kCollarLength = 0.2F;
+    constexpr float kTubeHalf = 0.1F;
+    constexpr float kCollarHalf = 0.15F;
+    const auto along_axis = [&](float from, float to, float half) {
+        const float dx = std::cos(kElevation);
+        const float dy = std::sin(kElevation);
+        const auto at = [&](float distance, float side) {
+            return std::array<float, 2>{kBreechAlong + (dx * distance) - (dy * side),
+                                        kBreechUp + (dy * distance) + (dx * side)};
+        };
+        return Profile{at(from, -half), at(to, -half), at(to, half), at(from, half)};
+    };
+    add_part(parts, {{-0.45F, 0.45F}, {0.05F, 0.45F}, {0.05F, 0.6F}, {-0.45F, 0.6F}}, -0.22F, 0.22F,
+             false, 0.03F, ShapeRole::Hull, true, ShapeGroup::Turret);
+    add_part(parts, along_axis(0.0F, kTubeLength, kTubeHalf), -kTubeHalf, kTubeHalf, false, 0.02F,
+             ShapeRole::Track, true, ShapeGroup::Turret);
+    add_part(parts, along_axis(kTubeLength, kTubeLength + kCollarLength, kCollarHalf), -kCollarHalf,
+             kCollarHalf, false, 0.02F, ShapeRole::Track, true, ShapeGroup::Turret);
+    // The bore: a dark cut in the collar's mouth, standing 1 cm proud of its face.
+    add_part(
+        parts,
+        along_axis(kTubeLength + kCollarLength - 0.05F, kTubeLength + kCollarLength + 0.01F, 0.08F),
+        -0.08F, 0.08F, false, 0.0F, ShapeRole::Glass, false, ShapeGroup::Turret);
+    return parts;
+}
+
+/// THE WALKER'S SHAPE. The machine seen from its right-hand side, front at the right, MID-STRIDE:
+/// the left leg is the rear one and the right leg the front one, each a thigh and a shin bent at
+/// the knee, ending in a broad flat foot. Over the hips a squat body 1.0 m long with sloped
+/// shoulders and a cockpit glass wrapped through both flanks, and a thin team-colour panel on its
+/// roof. The GUN ARM is not here: it elevates, so the mesh and the plate add it from the numbers in
+/// scene.hpp (`kWalkerGunFront`, `kWalkerGunTip`, ...). Legs are what says walker.
+std::vector<ShapePart> author_walker() {
+    std::vector<ShapePart> parts;
+    // The rear leg, on the left of the centreline: across -0.40 to -0.24, its foot -0.44 to -0.20.
+    constexpr float kLegLo = 0.24F;
+    constexpr float kLegHi = 0.4F;
+    constexpr float kFootLo = 0.2F;
+    constexpr float kFootHi = 0.44F;
+    add_part(parts, {{-0.35F, 1.05F}, {-0.15F, 1.05F}, {-0.33F, 0.55F}, {-0.55F, 0.55F}}, -kLegHi,
+             -kLegLo, false, 0.02F, ShapeRole::Track);
+    add_part(parts, {{-0.55F, 0.6F}, {-0.33F, 0.6F}, {-0.5F, 0.2F}, {-0.72F, 0.2F}}, -kLegHi,
+             -kLegLo, false, 0.02F, ShapeRole::Track);
+    add_part(parts, {{-1.0F, 0.0F}, {-0.3F, 0.0F}, {-0.3F, 0.2F}, {-1.0F, 0.2F}}, -kFootHi,
+             -kFootLo, false, 0.03F, ShapeRole::Track);
+    // The front leg, on the right, stepping ahead.
+    add_part(parts, {{0.15F, 1.05F}, {0.35F, 1.05F}, {0.5F, 0.55F}, {0.28F, 0.55F}}, kLegLo, kLegHi,
+             false, 0.02F, ShapeRole::Track);
+    add_part(parts, {{0.28F, 0.6F}, {0.5F, 0.6F}, {0.72F, 0.2F}, {0.5F, 0.2F}}, kLegLo, kLegHi,
+             false, 0.02F, ShapeRole::Track);
+    add_part(parts, {{0.3F, 0.0F}, {1.0F, 0.0F}, {1.0F, 0.2F}, {0.3F, 0.2F}}, kFootLo, kFootHi,
+             false, 0.03F, ShapeRole::Track);
+
+    // The body, 1.0 m by 0.76 m by 0.68 m, standing on the hips at 1.0 m; its front face is the gun
+    // arm's root.
+    constexpr float kBodyTop = 1.68F;
+    add_part(parts,
+             {{-0.5F, 1.0F},
+              {kWalkerGunFront, 1.0F},
+              {kWalkerGunFront, 1.5F},
+              {0.35F, kBodyTop},
+              {-0.35F, kBodyTop},
+              {-0.5F, 1.5F}},
+             -0.38F, 0.38F, false, 0.04F, ShapeRole::Hull);
+    add_part(parts, {{-0.1F, 1.28F}, {0.3F, 1.28F}, {0.3F, 1.52F}, {-0.1F, 1.52F}}, -0.39F, 0.39F,
+             false, 0.0F, ShapeRole::Glass, false);
+    // The roof panel, 3 cm thick, the machine's top.
+    add_part(
+        parts,
+        {{-0.4F, kBodyTop}, {0.2F, kBodyTop}, {0.2F, kBodyTop + 0.03F}, {-0.4F, kBodyTop + 0.03F}},
+        -0.22F, 0.22F, false, 0.0F, ShapeRole::Track);
+    return parts;
+}
+
+/// THE APC'S SHAPE. The machine seen from its right-hand side, front at the right: a long
+/// slab-sided hull 3.0 m long with a sloped nose, on FOUR WHEELS a side (a dark tyre, a clear ring
+/// and a metal hub, as the scout's), a row of three firing ports cut through its flank, a
+/// team-colour panel along its roof, and, in the TURRET group, a small turret with a light gun that
+/// turns to the target. 1.2 m across the wheels' hubs, as a tank is.
+std::vector<ShapePart> author_apc() {
+    std::vector<ShapePart> parts;
+    add_part(parts, {{-1.5F, 0.28F}, {1.5F, 0.28F}, {1.5F, 0.55F}, {0.95F, 0.88F}, {-1.5F, 0.88F}},
+             -0.46F, 0.46F, false, 0.04F, ShapeRole::Hull);
+    for (const float port : {-1.15F, -0.65F, -0.15F}) {
+        add_part(parts,
+                 {{port - 0.15F, 0.5F},
+                  {port + 0.15F, 0.5F},
+                  {port + 0.15F, 0.64F},
+                  {port - 0.15F, 0.64F}},
+                 -0.47F, 0.47F, false, 0.0F, ShapeRole::Glass, false);
+    }
+    // The roof panel along the back, 3 cm thick.
+    add_part(parts, {{-1.45F, 0.88F}, {-0.7F, 0.88F}, {-0.7F, 0.91F}, {-1.45F, 0.91F}}, -0.2F, 0.2F,
+             false, 0.0F, ShapeRole::Track);
+
+    constexpr float kWheelRadius = 0.28F;
+    constexpr float kRingRadius = 0.16F;
+    constexpr float kHubRadius = 0.065F;
+    for (const float along : {-1.05F, -0.35F, 0.35F, 1.05F}) {
+        add_part(parts, ngon(along, kWheelRadius, kWheelRadius, 12), 0.4F, 0.58F, true, 0.02F,
+                 ShapeRole::Track);
+        add_part(parts, ngon(along, kWheelRadius, kRingRadius, 8), 0.39F, 0.59F, true, 0.0F,
+                 ShapeRole::Glass, false);
+        add_part(parts, ngon(along, kWheelRadius, kHubRadius, 6), 0.4F, 0.6F, true, 0.0F,
+                 ShapeRole::Metal);
+    }
+
+    // THE TURRET GROUP: a housing 1.0 m long and 0.68 m across with its roof front raked, and the
+    // gun, 8 cm across, level from its front face to 1.25 m.
+    add_part(parts, {{-0.6F, 0.85F}, {0.4F, 0.85F}, {0.4F, 0.98F}, {0.25F, 1.1F}, {-0.6F, 1.1F}},
+             -0.34F, 0.34F, false, 0.03F, ShapeRole::Hull, true, ShapeGroup::Turret);
+    add_part(parts, {{0.4F, 0.92F}, {1.25F, 0.92F}, {1.25F, 1.0F}, {0.4F, 1.0F}}, -0.04F, 0.04F,
+             false, 0.01F, ShapeRole::Track, true, ShapeGroup::Turret);
+    return parts;
+}
+
 bool inside(const Profile& convex, float along, float up) {
     for (std::size_t i = 0, j = convex.size() - 1; i < convex.size(); j = i++) {
         const auto& a = convex.at(j);
@@ -531,6 +690,9 @@ const std::vector<ShapePart>& shape_of(sim::UnitKind kind) {
     static const std::vector<ShapePart> msl_scout = author_msl_scout();
     static const std::vector<ShapePart> rocket_tank = author_rocket_tank();
     static const std::vector<ShapePart> assault_tank = author_assault_tank();
+    static const std::vector<ShapePart> mortar_bike = author_mortar_bike();
+    static const std::vector<ShapePart> walker = author_walker();
+    static const std::vector<ShapePart> apc = author_apc();
     static const std::vector<ShapePart> none; // a kind with no authored shape has an empty one
     switch (kind) {
     case sim::UnitKind::Scavenger:
@@ -547,6 +709,12 @@ const std::vector<ShapePart>& shape_of(sim::UnitKind kind) {
         return rocket_tank;
     case sim::UnitKind::AssaultTank:
         return assault_tank;
+    case sim::UnitKind::MortarBike:
+        return mortar_bike;
+    case sim::UnitKind::Walker:
+        return walker;
+    case sim::UnitKind::Apc:
+        return apc;
     default:
         return none;
     }

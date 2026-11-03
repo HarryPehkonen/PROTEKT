@@ -2,10 +2,10 @@
 // from `shape_of(kind)`, so they cannot disagree. These tests pin each shape's size in metres and
 // then check that the plate and the mesh, measured SEPARATELY from what they emit, both say it.
 // Changing one number in `src/game/vehicle_shape.cpp` therefore moves the plate test and the mesh
-// test together. Seven kinds are authored so far -- the scavenger, the tank, the hover tank, the
-// scout, the missile scout, the rocket tank and the assault tank (the harvester shares the
-// scavenger's kind and plate); every other kind has no shape and keeps drawing what it always drew.
-// Presentation only: the sim is never touched.
+// test together. Ten kinds are authored so far -- the scavenger, the tank, the hover tank, the
+// scout, the missile scout, the rocket tank, the assault tank, the mortar bike, the walker and the
+// APC (the harvester shares the scavenger's kind and plate); every other kind has no shape and
+// keeps drawing what it always drew. Presentation only: the sim is never touched.
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -80,6 +80,35 @@ constexpr float kAssaultHeightMetres = 1.58F;  ///< the shape's highest point: t
 constexpr float kAssaultTopMetres = 1.585F;    ///< measured on the mesh, the hatch's top
 constexpr float kAssaultWasTopMetres = 1.543F; ///< and what it was
 
+// The mortar bike's, measured before this slice on the hand-built body: a mesh 1.400 m long (-0.694
+// to 0.706), 1.200 m across and 1.140 m to the top of the collar, on a plate 66 cells wide by 53
+// high. Its shape is a bike: 1.96 m from the rear tyre to the front, 0.7 m across the handlebars
+// (the box was as wide as a tank), and 1.10 m to the top of the collar.
+constexpr float kMortarLengthMetres = 1.96F;
+constexpr float kMortarWidthMetres = 0.7F;
+constexpr float kMortarHeightMetres = 1.1F;
+constexpr float kMortarWasLongMetres = 1.4F;
+constexpr float kMortarWasWideMetres = 1.2F;
+constexpr float kMortarWasHighMetres = 1.14F;
+// The walker's, measured before on the hand-built body: a mesh 2.305 m long (-0.484 to the gun's
+// tip at 1.821), 0.780 m across and 1.739 m to the top of the roof panel, on a plate 63 cells wide
+// by 53 high. Its shape is 2.0 m from the rear foot to the front foot, 0.88 m across the feet and
+// 1.71 m to the top of the roof panel; the gun arm (to 1.8 m) is not a part.
+constexpr float kWalkerBodyMetres = 2.0F;
+constexpr float kWalkerWidthMetres = 0.88F;
+constexpr float kWalkerHeightMetres = 1.71F;
+constexpr float kWalkerGunTipMetres = 1.8F;
+constexpr float kWalkerWasHighMetres = 1.739F;
+constexpr float kWalkerWasWideMetres = 0.78F;
+// The APC's, measured before on the hand-built body: a mesh 3.005 m long (-1.496 to 1.509), 1.200 m
+// across and 0.650 m to the top of the roof panel, on a plate 64 cells wide by 42 high. Its shape
+// is the same 3.0 m by 1.2 m, and 1.10 m to the top of the turret: it grew 0.45 m taller, because
+// the box was lower than the wheels-and-turret machine its plate has always drawn.
+constexpr float kApcLengthMetres = 3.0F;
+constexpr float kApcWidthMetres = 1.2F;
+constexpr float kApcHeightMetres = 1.1F;
+constexpr float kApcWasHighMetres = 0.65F;
+
 struct PlateBox {
     int first_col = std::numeric_limits<int>::max();
     int last_col = -1;
@@ -136,7 +165,8 @@ struct BodyVertex {
 /// A lone human `kind` on level ground, faced exactly 0 (so along is z and across is x) with its
 /// turret at `turret` radians, measured from the vertices alone: the vertices it adds to the frame,
 /// its shadow left out by taking only what stands over the ground.
-[[nodiscard]] std::vector<BodyVertex> body_of(UnitKind kind, float turret = 0.0F) {
+[[nodiscard]] std::vector<BodyVertex> body_of(UnitKind kind, float turret = 0.0F,
+                                              float pitch = 0.0F) {
     const sim::Sim with = level_world(kind);
     const sim::Sim empty = sim::Sim::create(sim::Scenario{kSeed, {}});
     const sim::Unit& unit = with.units().front();
@@ -151,7 +181,7 @@ struct BodyVertex {
     options.show_ship_gauge = false;
     options.show_ledger = false;
     options.factions = Factions{Faction::Human, Faction::Human};
-    options.facing = SceneOptions::Facing{unit.id, 0.0F, turret, 0.0F}; // exactly along +z
+    options.facing = SceneOptions::Facing{unit.id, 0.0F, turret, pitch}; // exactly along +z
     options.camera.x = x;
     options.camera.z = z - 8.0F;
     options.camera.y = ground + 5.0F;
@@ -240,9 +270,10 @@ void expect_parts_convex_with_room(UnitKind kind) {
 // ------------------------------------------------------------------------- the mechanism
 
 /// The kinds that have an authored shape.
-constexpr std::array<UnitKind, 7> kShaped{
-    UnitKind::Scavenger, UnitKind::Tank,       UnitKind::HoverTank,  UnitKind::Scout,
-    UnitKind::MslScout,  UnitKind::RocketTank, UnitKind::AssaultTank};
+constexpr std::array<UnitKind, 10> kShaped{
+    UnitKind::Scavenger, UnitKind::Tank,       UnitKind::HoverTank,   UnitKind::Scout,
+    UnitKind::MslScout,  UnitKind::RocketTank, UnitKind::AssaultTank, UnitKind::MortarBike,
+    UnitKind::Walker,    UnitKind::Apc};
 
 TEST(VehicleShape, AKindWithNoShapeHasNoneAndIsNeverAnotherKindsShape) {
     // `shape_of` says "not converted" with an EMPTY list, and nothing about the other queries can
@@ -262,8 +293,9 @@ TEST(VehicleShape, AKindWithNoShapeHasNoneAndIsNeverAnotherKindsShape) {
         EXPECT_EQ(extent.up_max, 0.0F);
         EXPECT_EQ(extent.across_max, 0.0F);
     }
-    EXPECT_EQ(authored, std::size_t{7}) << "the scavenger, tank, hover tank, scout, missile scout, "
-                                           "rocket tank and assault tank";
+    EXPECT_EQ(authored, std::size_t{10})
+        << "the scavenger, tank, hover tank, scout, missile scout, rocket tank, assault tank, "
+           "mortar bike, walker and APC";
     for (std::size_t a = 0; a < kShaped.size(); ++a) {
         for (std::size_t b = a + 1; b < kShaped.size(); ++b) {
             EXPECT_NE(&shape_of(kShaped.at(a)), &shape_of(kShaped.at(b))) << a << " and " << b;
@@ -272,24 +304,21 @@ TEST(VehicleShape, AKindWithNoShapeHasNoneAndIsNeverAnotherKindsShape) {
 }
 
 TEST(VehicleShape, ThePlateOfAnUnconvertedKindIsStillItsOwnDrawing) {
-    // The mortar bike, the walker, the APC and the bomber have no shape: their plates are
-    // hand-drawn recipes, none of them the projection of any shaped kind's parts.
-    for (const UnitKind kind :
-         {UnitKind::MortarBike, UnitKind::Walker, UnitKind::Apc, UnitKind::Bomber}) {
-        EXPECT_TRUE(shape_of(kind).empty()) << "kind " << static_cast<int>(kind);
-        for (const UnitKind shaped : kShaped) {
-            EXPECT_NE(&kind_icon(kind), &kind_icon(shaped));
-            EXPECT_NE(kind_icon(kind), kind_icon(shaped))
-                << static_cast<int>(kind) << " and " << static_cast<int>(shaped);
-        }
+    // The bomber has no shape: its plate is a hand-drawn recipe, none of them the projection of any
+    // shaped kind's parts.
+    EXPECT_TRUE(shape_of(UnitKind::Bomber).empty());
+    for (const UnitKind shaped : kShaped) {
+        EXPECT_NE(&kind_icon(UnitKind::Bomber), &kind_icon(shaped));
+        EXPECT_NE(kind_icon(UnitKind::Bomber), kind_icon(shaped)) << static_cast<int>(shaped);
     }
 }
 
 TEST(VehicleShape, TheShapedVehiclesAllHaveDifferentPlates) {
-    // No two of the six shaped vehicles draw the same picture.
-    const std::array<UnitKind, 6> vehicles{UnitKind::Tank,       UnitKind::HoverTank,
-                                           UnitKind::Scout,      UnitKind::MslScout,
-                                           UnitKind::RocketTank, UnitKind::AssaultTank};
+    // No two of the nine shaped vehicles draw the same picture.
+    const std::array<UnitKind, 9> vehicles{
+        UnitKind::Tank,       UnitKind::HoverTank,  UnitKind::Scout,
+        UnitKind::MslScout,   UnitKind::RocketTank, UnitKind::AssaultTank,
+        UnitKind::MortarBike, UnitKind::Walker,     UnitKind::Apc};
     for (std::size_t a = 0; a < vehicles.size(); ++a) {
         for (std::size_t b = a + 1; b < vehicles.size(); ++b) {
             EXPECT_NE(kind_icon(vehicles.at(a)), kind_icon(vehicles.at(b))) << a << " and " << b;
@@ -298,11 +327,11 @@ TEST(VehicleShape, TheShapedVehiclesAllHaveDifferentPlates) {
 }
 
 TEST(VehicleShape, EveryShapedPlateThatStandsOnTheGroundStandsOnTheHandDrawnOnesLine) {
-    // The row's icons stand on one line, `kIconGround`: the hand-drawn walker's feet are on it, and
-    // so is every shaped plate whose shape starts at the ground (up_min 0). The hover tank's does
-    // not, deliberately: its air gap is that silhouette's one hover cue, so it keeps the baseline
-    // it was authored with and is not asserted here.
-    EXPECT_EQ(plate_box(kind_icon(UnitKind::Walker)).last_row, static_cast<int>(kIconGround))
+    // The row's icons stand on one line, `kIconGround`: the hand-drawn recycler's tracks are on it,
+    // and so is every shaped plate whose shape starts at the ground (up_min 0). The hover tank's
+    // does not, deliberately: its air gap is that silhouette's one hover cue, so it keeps the
+    // baseline it was authored with and is not asserted here.
+    EXPECT_EQ(plate_box(kind_icon(UnitKind::Recycler)).last_row, static_cast<int>(kIconGround))
         << "the hand-drawn baseline";
     std::size_t grounded = 0;
     for (const UnitKind kind : kShaped) {
@@ -320,7 +349,7 @@ TEST(VehicleShape, EveryShapedPlateThatStandsOnTheGroundStandsOnTheHandDrawnOnes
         EXPECT_EQ(plate_box(kind_icon(kind)).last_row, static_cast<int>(kIconGround))
             << "kind " << static_cast<int>(kind);
     }
-    EXPECT_EQ(grounded, std::size_t{6}) << "every shaped kind but the hover tank";
+    EXPECT_EQ(grounded, std::size_t{9}) << "every shaped kind but the hover tank";
 }
 
 // ------------------------------------------------------------------------- the scavenger
@@ -1056,6 +1085,386 @@ TEST(AssaultTankFromShape, TheBlockIsTallerAndWiderThanTheTanksTurretAndHasNoBus
     }
     EXPECT_EQ(turret_parts, std::size_t{2}) << "the block and the hatch";
     expect_turret_group_is_real(UnitKind::AssaultTank, 2000, 150); // measured: 2104 and 211;
+}
+
+/// The lowest and highest `up` of a part's profile.
+[[nodiscard]] std::array<float, 2> up_span(const ShapePart& part) {
+    float lowest = kInfinity;
+    float highest = -kInfinity;
+    for (const auto& corner : part.profile) {
+        lowest = std::min(lowest, corner[1]);
+        highest = std::max(highest, corner[1]);
+    }
+    return {lowest, highest};
+}
+
+/// Does `part` have a straight edge climbing at `degrees` over level, within half a degree?
+[[nodiscard]] bool has_edge_at(const ShapePart& part, float degrees) {
+    for (std::size_t i = 0; i < part.profile.size(); ++i) {
+        const auto& a = part.profile.at(i);
+        const auto& b = part.profile.at((i + 1) % part.profile.size());
+        const float rise = std::atan2(b[1] - a[1], b[0] - a[0]) * 180.0F / 3.14159265F;
+        if (std::abs(std::abs(rise) - degrees) < 0.5F
+            || std::abs(std::abs(rise) - (180.0F - degrees)) < 0.5F) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// ------------------------------------------------------------------------- the mortar bike
+
+/// Where a metre of `along` and of `up` lands on a plate fitted by length: 70 cells for `reach`
+/// metres from the shape's rear, one cell in from the left edge, the ground line at `kIconGround`.
+/// Written as numbers and not as the plate's own constants, so a plate that stops fitting this way
+/// fails here.
+[[nodiscard]] std::size_t plate_col(float along, float rear, float reach) {
+    return static_cast<std::size_t>(1.0F + ((along - rear) * 68.0F / reach));
+}
+[[nodiscard]] std::size_t plate_row(float up, float reach) {
+    return static_cast<std::size_t>(static_cast<float>(kIconGround) - (up * 68.0F / reach));
+}
+
+TEST(MortarBikeFromShape, TheShapeIsAsLargeInMetresAsItWasAuthored) {
+    const ShapeExtent extent = shape_extent(UnitKind::MortarBike);
+    EXPECT_NEAR(extent.along_max - extent.along_min, kMortarLengthMetres, 0.005F)
+        << "metres, rear tyre to front tyre";
+    EXPECT_NEAR(extent.up_max, kMortarHeightMetres, 0.005F) << "metres, the collar's top";
+    EXPECT_NEAR(2.0F * extent.across_max, kMortarWidthMetres, 0.005F)
+        << "metres, across the handlebars";
+}
+
+TEST(MortarBikeFromShape, EveryPartIsConvexAndHasRoomForItsBevel) {
+    expect_parts_convex_with_room(UnitKind::MortarBike);
+}
+
+TEST(MortarBikeFromShape, ThePlateIsTheShapeSeenSideOn) {
+    const PlateBox box = plate_box(kind_icon(UnitKind::MortarBike));
+    EXPECT_EQ(box.width(), 70) << "cells, fitted by length: the 1.96 m from tyre to tyre";
+    EXPECT_EQ(box.first_col, 1);
+    EXPECT_EQ(box.last_col, 70);
+    EXPECT_NEAR(static_cast<float>(box.height()), 39.0F, 1.0F) << "cells, 1.1 m at 34.7 per metre";
+    EXPECT_EQ(box.last_row, static_cast<int>(kIconGround)) << "the wheels stand on the ground line";
+}
+
+TEST(MortarBikeFromShape, TheMeshIsTheShapeInMetres) {
+    const MeshBox mesh = mesh_of(UnitKind::MortarBike);
+    ASSERT_GT(mesh.vertices, 0U);
+    EXPECT_NEAR(mesh.along(), kMortarLengthMetres, 0.06F) << "metres";
+    EXPECT_NEAR(mesh.high.at(1), kMortarHeightMetres, 0.06F) << "metres";
+    EXPECT_NEAR(mesh.across(), kMortarWidthMetres, 0.06F) << "metres";
+    EXPECT_LT(mesh.high.at(1), 1.2F) << "metres, under the health bar's anchor";
+}
+
+TEST(MortarBikeFromShape, ItIsABikeAndNoLongerTheBoxItWas) {
+    // Measured before it had a shape: 1.400 m long, 1.200 m across, 1.140 m high, a low wide box.
+    // The height is kept; the plate's two wheels in line make it longer and a good deal narrower.
+    const MeshBox mesh = mesh_of(UnitKind::MortarBike);
+    EXPECT_NEAR(mesh.high.at(1), kMortarWasHighMetres, 0.06F) << "metres, as tall as it was";
+    EXPECT_GT(mesh.along(), kMortarWasLongMetres + 0.4F) << "metres, longer than the box";
+    EXPECT_LT(mesh.across(), kMortarWasWideMetres - 0.4F) << "metres, narrower than the box";
+}
+
+TEST(MortarBikeFromShape, ThePlateAndTheMeshAreTheSameMachine) {
+    const PlateBox plate = plate_box(kind_icon(UnitKind::MortarBike));
+    const MeshBox mesh = mesh_of(UnitKind::MortarBike);
+    const float plate_ratio
+        = static_cast<float>(plate.height()) / static_cast<float>(plate.width());
+    EXPECT_NEAR(plate_ratio, mesh.high.at(1) / mesh.along(), 0.04F);
+}
+
+TEST(MortarBikeFromShape, TheMeshHasDepthAndIsNotACutOut) {
+    const MeshBox mesh = mesh_of(UnitKind::MortarBike);
+    EXPECT_GT(mesh.across(), 0.6F);
+    EXPECT_GE(mesh.layers.size(), std::size_t{20}) << "distinct lateral positions, in cm";
+    EXPECT_GT(mesh.vertices, std::size_t{1000}) << "a cut-out is a few dozen";
+    for (const ShapePart& part : shape_of(UnitKind::MortarBike)) {
+        if (part.lit && part.role == ShapeRole::Hull) {
+            EXPECT_GT(part.bevel, 0.0F) << "a body part with a square edge";
+        }
+    }
+}
+
+TEST(MortarBikeFromShape, ItHasTwoWheelsInLineOnTheCentrelineAndNoTrack) {
+    // A wheel is a lit dark disc of a dozen corners standing on the ground; found by its shape.
+    std::vector<std::array<float, 2>> centres;
+    for (const ShapePart& part : shape_of(UnitKind::MortarBike)) {
+        if (part.lit && part.role == ShapeRole::Track && part.profile.size() >= 12U) {
+            EXPECT_FALSE(part.mirrored) << "a bike's wheel is on the centreline, not one a side";
+            EXPECT_NEAR(part.across_lo, -part.across_hi, 0.001F);
+            float along = 0.0F;
+            float up = 0.0F;
+            for (const auto& corner : part.profile) {
+                along += corner[0] / static_cast<float>(part.profile.size());
+                up += corner[1] / static_cast<float>(part.profile.size());
+            }
+            centres.push_back({along, up});
+        }
+    }
+    ASSERT_EQ(centres.size(), std::size_t{2});
+    EXPECT_NEAR(centres.at(0)[1], centres.at(1)[1], 0.001F) << "both at one height: in line";
+    EXPECT_NEAR(std::abs(centres.at(0)[0] - centres.at(1)[0]), 1.3F, 0.005F)
+        << "metres, the wheelbase";
+}
+
+TEST(MortarBikeFromShape, TheMortarIsTheTurretGroupAngledUp45DegreesAndTurnsWithTheAim) {
+    // The mortar lobs: the tube and the collar, the two dark turret parts that are not wheels, both
+    // climb at 45 degrees. Four parts turn -- the mount, the tube, the collar and the bore.
+    std::size_t turret_parts = 0;
+    std::size_t slanted = 0;
+    for (const ShapePart& part : shape_of(UnitKind::MortarBike)) {
+        turret_parts += part.group == ShapeGroup::Turret ? 1U : 0U;
+        if (part.group == ShapeGroup::Turret && part.role == ShapeRole::Track && part.lit) {
+            EXPECT_TRUE(has_edge_at(part, 45.0F)) << "metres: the tube and its collar lean 45 deg";
+            ++slanted;
+        }
+    }
+    EXPECT_EQ(turret_parts, std::size_t{4}) << "the mount, the tube, the collar and the bore";
+    EXPECT_EQ(slanted, std::size_t{2}) << "the tube and the collar";
+    expect_turret_group_is_real(UnitKind::MortarBike, 800, 150); // measured: 1009 and 218
+}
+
+// ------------------------------------------------------------------------- the walker
+
+constexpr float kWalkerReach
+    = kWalkerGunTipMetres + 1.0F; ///< the rear foot (-1.0) to the gun's tip
+
+TEST(WalkerFromShape, TheShapeIsAsLargeInMetresAsItWasAuthored) {
+    const ShapeExtent extent = shape_extent(UnitKind::Walker);
+    EXPECT_NEAR(extent.along_max - extent.along_min, kWalkerBodyMetres, 0.005F)
+        << "metres, rear foot to front foot";
+    EXPECT_NEAR(extent.up_max, kWalkerHeightMetres, 0.005F) << "metres, the roof panel's top";
+    EXPECT_NEAR(2.0F * extent.across_max, kWalkerWidthMetres, 0.005F) << "metres, across the feet";
+}
+
+TEST(WalkerFromShape, EveryPartIsConvexAndHasRoomForItsBevel) {
+    expect_parts_convex_with_room(UnitKind::Walker);
+}
+
+TEST(WalkerFromShape, ThePlateIsTheShapeSeenSideOnPlusItsGunArm) {
+    const PlateBox box = plate_box(kind_icon(UnitKind::Walker));
+    EXPECT_EQ(box.width(), 70) << "cells, rear foot to the gun's tip (2.8 m)";
+    EXPECT_EQ(box.first_col, 1);
+    EXPECT_EQ(box.last_col, 70);
+    EXPECT_NEAR(static_cast<float>(box.height()), 43.0F, 1.0F) << "cells, 1.71 m at 24.3 per metre";
+    EXPECT_EQ(box.last_row, static_cast<int>(kIconGround)) << "the feet stand on the ground line";
+}
+
+TEST(WalkerFromShape, TheMeshIsTheShapeInMetres) {
+    const MeshBox mesh = mesh_of(UnitKind::Walker);
+    ASSERT_GT(mesh.vertices, 0U);
+    EXPECT_NEAR(mesh.high.at(2), kWalkerGunTipMetres, 0.06F) << "metres, the gun's tip";
+    EXPECT_NEAR(mesh.low.at(2), -1.0F, 0.06F) << "metres, the rear foot";
+    EXPECT_NEAR(mesh.high.at(1), kWalkerHeightMetres, 0.06F) << "metres, the roof panel";
+    EXPECT_NEAR(mesh.across(), kWalkerWidthMetres, 0.06F) << "metres, across the feet";
+}
+
+TEST(WalkerFromShape, ItIsAsTallAsItWasAndTheGunIsAsLongAndItIsWiderAcrossTheFeet) {
+    // Measured before it had a shape: a gun tip at 1.821 m, 1.739 m high, 0.780 m across.
+    const MeshBox mesh = mesh_of(UnitKind::Walker);
+    EXPECT_NEAR(mesh.high.at(2), 1.821F, 0.06F) << "metres";
+    EXPECT_NEAR(mesh.high.at(1), kWalkerWasHighMetres, 0.06F) << "metres";
+    EXPECT_GT(mesh.across(), kWalkerWasWideMetres) << "metres: broad feet";
+    EXPECT_GT(mesh.high.at(1), mesh.across() * 1.5F) << "taller than it is wide";
+}
+
+TEST(WalkerFromShape, ThePlateAndTheMeshAreTheSameMachine) {
+    const PlateBox plate = plate_box(kind_icon(UnitKind::Walker));
+    const MeshBox mesh = mesh_of(UnitKind::Walker);
+    const float plate_ratio
+        = static_cast<float>(plate.height()) / static_cast<float>(plate.width());
+    EXPECT_NEAR(plate_ratio, mesh.high.at(1) / mesh.along(), 0.04F);
+}
+
+TEST(WalkerFromShape, TheMeshHasDepthAndIsNotACutOut) {
+    const MeshBox mesh = mesh_of(UnitKind::Walker);
+    EXPECT_GT(mesh.across(), 0.8F);
+    EXPECT_GE(mesh.layers.size(), std::size_t{20}) << "distinct lateral positions, in cm";
+    EXPECT_GT(mesh.vertices, std::size_t{500}) << "a cut-out is a few dozen";
+    for (const ShapePart& part : shape_of(UnitKind::Walker)) {
+        if (part.lit && part.role == ShapeRole::Hull) {
+            EXPECT_GT(part.bevel, 0.0F) << "a body part with a square edge";
+        }
+    }
+}
+
+TEST(WalkerFromShape, LegsAreWhatSaysWalkerTwoFeetOnOppositeSidesWithAGapBetween) {
+    // A foot is a lit part whose lowest point is the ground. There are two, one a side of the
+    // centreline (it is mid-stride), neither mirrored, and nothing is under the body between them.
+    std::vector<const ShapePart*> feet;
+    for (const ShapePart& part : shape_of(UnitKind::Walker)) {
+        if (part.lit && up_span(part).at(0) < 0.001F) {
+            feet.push_back(&part);
+        }
+    }
+    ASSERT_EQ(feet.size(), std::size_t{2});
+    EXPECT_FALSE(feet.at(0)->mirrored);
+    EXPECT_FALSE(feet.at(1)->mirrored);
+    EXPECT_LT(feet.at(0)->across_hi * feet.at(1)->across_hi, 0.0F) << "one a side";
+    EXPECT_TRUE(shape_covers(UnitKind::Walker, -0.65F, 0.1F)) << "the rear foot";
+    EXPECT_TRUE(shape_covers(UnitKind::Walker, 0.65F, 0.1F)) << "the front foot";
+    EXPECT_FALSE(shape_covers(UnitKind::Walker, 0.0F, 0.5F)) << "daylight between the legs";
+    EXPECT_TRUE(shape_covers(UnitKind::Walker, 0.0F, 1.3F) == false) << "the cockpit glass is cut";
+}
+
+TEST(WalkerFromShape, TheGunArmIsOnThePlateAndNotInTheShape) {
+    const IconMask& mask = kind_icon(UnitKind::Walker);
+    EXPECT_FALSE(shape_covers(UnitKind::Walker, 1.4F, 1.28F));
+    EXPECT_EQ(mask.at(plate_row(1.28F, kWalkerReach)).at(plate_col(1.4F, -1.0F, kWalkerReach)), '#')
+        << "the arm, level, 0.9 m out from the body's front face";
+    EXPECT_EQ(mask.at(plate_row(1.28F, kWalkerReach)).at(plate_col(1.7F, -1.0F, kWalkerReach)), '#')
+        << "and near its tip";
+    EXPECT_EQ(mask.at(plate_row(1.6F, kWalkerReach)).at(plate_col(1.4F, -1.0F, kWalkerReach)), '.')
+        << "the sky over the arm";
+}
+
+TEST(WalkerFromShape, TheGunArmTurnsAndElevatesAndTheShapeDoesNeither) {
+    // The walker has no Turret part; its gun arm is the one thing that turns, and it elevates.
+    const std::vector<BodyVertex> level = body_of(UnitKind::Walker, 0.0F, 0.0F);
+    const std::vector<BodyVertex> turned = body_of(UnitKind::Walker, 1.0F, 0.0F);
+    const std::vector<BodyVertex> raised = body_of(UnitKind::Walker, 0.0F, 0.3F);
+    ASSERT_EQ(level.size(), turned.size());
+    ASSERT_EQ(level.size(), raised.size());
+    constexpr float kSlack = 0.04F;
+    std::size_t shape_vertices_seen = 0;
+    std::size_t gun_turned = 0;
+    std::size_t gun_raised = 0;
+    for (std::size_t i = 0; i < level.size(); ++i) {
+        const BodyVertex& v = level.at(i);
+        // The arm's root sits on the body's front face (0.5 m): a vertex there is either's.
+        if (std::abs(v.along - 0.5F) < 0.03F && std::abs(v.across) < 0.1F && v.up > 1.15F
+            && v.up < 1.4F) {
+            continue;
+        }
+        bool in_shape = false;
+        for (const ShapePart& part : shape_of(UnitKind::Walker)) {
+            in_shape = in_shape || in_box_of(part, level.at(i), kSlack);
+        }
+        const auto moved = [&](const BodyVertex& w) {
+            return std::abs(level.at(i).across - w.across) > 1.0e-4F
+                   || std::abs(level.at(i).along - w.along) > 1.0e-4F
+                   || std::abs(level.at(i).up - w.up) > 1.0e-4F;
+        };
+        if (in_shape) {
+            ++shape_vertices_seen;
+            EXPECT_FALSE(moved(turned.at(i))) << "a body vertex turned with the gun: " << i;
+            EXPECT_FALSE(moved(raised.at(i))) << "a body vertex rose with the gun: " << i;
+        } else {
+            gun_turned += moved(turned.at(i)) ? 1U : 0U;
+            gun_raised += moved(raised.at(i)) ? 1U : 0U;
+        }
+    }
+    EXPECT_GT(shape_vertices_seen, std::size_t{400});
+    EXPECT_GT(gun_turned, std::size_t{10}) << "the arm swings with the turret";
+    EXPECT_GT(gun_raised, std::size_t{10}) << "and lifts with the pitch";
+}
+
+// ------------------------------------------------------------------------- the APC
+
+TEST(ApcFromShape, TheShapeIsAsLargeInMetresAsItWasAuthored) {
+    const ShapeExtent extent = shape_extent(UnitKind::Apc);
+    EXPECT_NEAR(extent.along_max - extent.along_min, kApcLengthMetres, 0.005F)
+        << "metres, tail to nose";
+    EXPECT_NEAR(extent.up_max, kApcHeightMetres, 0.005F) << "metres, the turret's roof";
+    EXPECT_NEAR(2.0F * extent.across_max, kApcWidthMetres, 0.005F) << "metres, hub to hub";
+}
+
+TEST(ApcFromShape, EveryPartIsConvexAndHasRoomForItsBevel) {
+    expect_parts_convex_with_room(UnitKind::Apc);
+}
+
+TEST(ApcFromShape, ThePlateIsTheShapeSeenSideOn) {
+    const PlateBox box = plate_box(kind_icon(UnitKind::Apc));
+    EXPECT_EQ(box.width(), 70) << "cells, the 3.0 m from tail to nose";
+    EXPECT_EQ(box.first_col, 1);
+    EXPECT_EQ(box.last_col, 70);
+    EXPECT_NEAR(static_cast<float>(box.height()), 26.0F, 1.0F) << "cells, 1.1 m at 22.7 per metre";
+    EXPECT_EQ(box.last_row, static_cast<int>(kIconGround)) << "the wheels stand on the ground line";
+}
+
+TEST(ApcFromShape, TheMeshIsTheShapeInMetres) {
+    const MeshBox mesh = mesh_of(UnitKind::Apc);
+    ASSERT_GT(mesh.vertices, 0U);
+    EXPECT_NEAR(mesh.along(), kApcLengthMetres, 0.06F) << "metres";
+    EXPECT_NEAR(mesh.high.at(1), kApcHeightMetres, 0.06F) << "metres";
+    EXPECT_NEAR(mesh.across(), kApcWidthMetres, 0.06F) << "metres";
+}
+
+TEST(ApcFromShape, ItIsAsLongAndAsWideAsItWasAndTallerThanTheBoxWas) {
+    // Measured before it had a shape: 3.005 m long, 1.200 m across, 0.650 m high.
+    const MeshBox mesh = mesh_of(UnitKind::Apc);
+    EXPECT_NEAR(mesh.along(), 3.005F, 0.06F) << "metres";
+    EXPECT_NEAR(mesh.across(), 1.2F, 0.06F) << "metres";
+    EXPECT_GT(mesh.high.at(1), kApcWasHighMetres + 0.4F) << "metres: wheels and a turret";
+    EXPECT_LE(mesh.high.at(1), 1.2F) << "metres, the health bar's anchor";
+}
+
+TEST(ApcFromShape, ThePlateAndTheMeshAreTheSameMachine) {
+    const PlateBox plate = plate_box(kind_icon(UnitKind::Apc));
+    const MeshBox mesh = mesh_of(UnitKind::Apc);
+    const float plate_ratio
+        = static_cast<float>(plate.height()) / static_cast<float>(plate.width());
+    EXPECT_NEAR(plate_ratio, mesh.high.at(1) / mesh.along(), 0.04F);
+}
+
+TEST(ApcFromShape, TheMeshHasDepthAndIsNotACutOut) {
+    const MeshBox mesh = mesh_of(UnitKind::Apc);
+    EXPECT_GT(mesh.across(), 1.0F);
+    EXPECT_GE(mesh.layers.size(), std::size_t{25}) << "distinct lateral positions, in cm";
+    EXPECT_GT(mesh.vertices, std::size_t{2000}) << "a cut-out is a few dozen";
+    for (const ShapePart& part : shape_of(UnitKind::Apc)) {
+        if (part.lit && part.role == ShapeRole::Hull) {
+            EXPECT_GT(part.bevel, 0.0F) << "a body part with a square edge";
+        }
+    }
+}
+
+TEST(ApcFromShape, ItRidesOnFourWheelsASideAndHasNoTrack) {
+    // A wheel is a lit dark disc of a dozen corners, one a side mirrored; found by its shape.
+    std::vector<float> wheels;
+    for (const ShapePart& part : shape_of(UnitKind::Apc)) {
+        if (part.lit && part.role == ShapeRole::Track && part.profile.size() >= 12U) {
+            EXPECT_TRUE(part.mirrored);
+            float along = 0.0F;
+            for (const auto& corner : part.profile) {
+                along += corner[0] / static_cast<float>(part.profile.size());
+            }
+            wheels.push_back(along);
+            EXPECT_LT(up_span(part).at(1), 0.6F) << "a wheel, not a track run along the hull";
+        }
+    }
+    ASSERT_EQ(wheels.size(), std::size_t{4});
+    std::sort(wheels.begin(), wheels.end());
+    for (std::size_t i = 1; i < wheels.size(); ++i) {
+        EXPECT_NEAR(wheels.at(i) - wheels.at(i - 1), 0.7F, 0.005F) << "metres, the pitch";
+    }
+}
+
+TEST(ApcFromShape, ThreeFiringPortsAreCutThroughTheFlank) {
+    std::size_t ports = 0;
+    for (const ShapePart& part : shape_of(UnitKind::Apc)) {
+        if (!part.lit && part.role == ShapeRole::Glass && part.profile.size() == 4U
+            && !part.mirrored) {
+            ++ports;
+            EXPECT_GT(part.across_hi, 0.45F) << "through the hull's whole width";
+        }
+    }
+    EXPECT_EQ(ports, std::size_t{3});
+    EXPECT_FALSE(shape_covers(UnitKind::Apc, -0.65F, 0.57F)) << "a port";
+    EXPECT_TRUE(shape_covers(UnitKind::Apc, -0.65F, 0.75F)) << "the hull over it";
+}
+
+TEST(ApcFromShape, TheTurretAndItsGunAreTheTurretGroupAndTurn) {
+    std::size_t turret_parts = 0;
+    for (const ShapePart& part : shape_of(UnitKind::Apc)) {
+        turret_parts += part.group == ShapeGroup::Turret ? 1U : 0U;
+    }
+    EXPECT_EQ(turret_parts, std::size_t{2}) << "the housing and the gun";
+    const IconMask& mask = kind_icon(UnitKind::Apc);
+    EXPECT_TRUE(shape_covers(UnitKind::Apc, 1.1F, 0.96F))
+        << "the gun is a part: it is in the shape";
+    EXPECT_EQ(mask.at(plate_row(0.96F, 3.0F)).at(plate_col(1.1F, -1.5F, 3.0F)), '#');
+    expect_turret_group_is_real(UnitKind::Apc, 2500, 80); // measured: 3220 and 116
 }
 
 } // namespace

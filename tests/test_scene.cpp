@@ -5152,7 +5152,8 @@ TEST(ShapeRoles, EachRoleTakesItsTileOnEveryShapedVehicle) {
     const UvRect tracks = tile_rect(atlas.tile("tank_tracks"));
     const UvRect metal = tile_rect(atlas.tile("tank_turret"));
     for (const UnitKind kind : {UnitKind::Tank, UnitKind::HoverTank, UnitKind::Scout,
-                                UnitKind::MslScout, UnitKind::RocketTank, UnitKind::AssaultTank}) {
+                                UnitKind::MslScout, UnitKind::RocketTank, UnitKind::AssaultTank,
+                                UnitKind::MortarBike, UnitKind::Walker, UnitKind::Apc}) {
         const auto sim = sim_of({{Side::Player, kind, 100, 100}});
         const auto body = tank_only(sim, sim.units().at(0), {});
         const auto name = protekt::game::kTeamHullNames.at(static_cast<std::size_t>(Side::Player))
@@ -5588,34 +5589,58 @@ TEST(TurretModel, ADefenseTurretIsAPedestalAHousingAMuzzleCollarAndABarrel) {
 // be. [Both have a shape of their own now: see `shape_of(UnitKind::RocketTank)`. The rocket tank is
 // still the assault tank's chassis, and the tests below say so.]
 
-constexpr std::size_t kMortarBase = 0;
-constexpr std::size_t kMortarMount = 36;
-constexpr std::size_t kMortarTube = 72;
-constexpr std::size_t kMortarCollar = 108;
 constexpr std::size_t kRocketTankHull = kChassisVertices;      ///< the chassis: tracks .. fenders
 constexpr std::size_t kRocketTankRack = kRocketTankHull + 84U; ///< after the 84 of the mount
 constexpr std::size_t kRocketTankFender
     = 2100; ///< the fender: after the hull, deck, grille, tracks, wheels
 
-TEST(MortarBikeModel, TheMortarBikeIsALowWideBoxAMountAStubbyTubeAndACollar) {
+/// How many of a lone `kind`'s shape vertices sit on each of the three tiles a role can take, as
+/// {the team's camo, the dark track links, the plain turret metal}. `ShapeRoles` derives its
+/// expectation from the shape, so it cannot see a role edited in the shape's own author; the tests
+/// below pin the counts as literals instead.
+std::array<std::size_t, 3> tile_counts_of(UnitKind kind) {
+    const auto& atlas = protekt::game::atlas_manifest();
+    const auto sim = sim_of({{Side::Player, kind, 100, 100}});
+    const auto body = tank_only(sim, sim.units().at(0), {});
+    const auto name = protekt::game::kTeamHullNames.at(static_cast<std::size_t>(Side::Player))
+                          .at(static_cast<std::size_t>(
+                              protekt::game::hull_variant(42, sim.units().at(0).id.value)));
+    const std::array<UvRect, 3> tiles{tile_rect(atlas.tile(name)),
+                                      tile_rect(atlas.tile("tank_tracks")),
+                                      tile_rect(atlas.tile("tank_turret"))};
+    std::array<std::size_t, 3> counts{};
+    for (std::size_t i = 0; i < shape_vertices(kind); ++i) {
+        for (std::size_t tile = 0; tile < tiles.size(); ++tile) {
+            const UvRect& r = tiles.at(tile);
+            const SceneVertex& v = body.at(i);
+            const bool corner = (v.u == r.u0 || v.u == r.u1) && (v.v == r.v0 || v.v == r.v1);
+            const bool middle = v.u == (r.u0 + r.u1) * 0.5F && v.v == (r.v0 + r.v1) * 0.5F;
+            counts.at(tile) += (corner || middle) ? 1U : 0U;
+        }
+    }
+    return counts;
+}
+
+TEST(MortarBikeModel, TheMortarBikeIsItsShapeAndNothingElse) {
     const auto model = unit_box_of(UnitKind::MortarBike);
     ASSERT_EQ(model.size(), protekt::game::kMortarBikeVertices);
-    EXPECT_EQ(protekt::game::kMortarBikeVertices, std::size_t{144}) << "four prisms";
+    EXPECT_EQ(protekt::game::kMortarBikeVertices, std::size_t{1488})
+        << "the shape's parts and nothing added; it was 144, four prisms, before it had a shape";
+    EXPECT_EQ(shape_vertices(UnitKind::MortarBike), std::size_t{1488});
     const auto sim = sim_of({{Side::Player, UnitKind::MortarBike, 100, 100}});
     const protekt::sim::Unit& unit = sim.units().at(0);
     const float ground = protekt::game::ground_metres(42, unit.x, unit.y);
-    // Low and wide: the base is under half a metre tall and as wide as a tank.
-    EXPECT_LT(highest(model, kMortarBase, kMortarMount) - ground, 0.5F);
-    const auto base = reach_of(model, kMortarBase, kMortarMount, unit);
-    EXPECT_GT(base[1], kHullHalfMetres) << "as wide as a tank";
-    // The tube is angled UP: its mouth (the collar) stands well over its breech, and it is short.
-    EXPECT_GT(highest(model, kMortarCollar, model.size()),
-              lowest(model, kMortarTube, kMortarCollar) + 0.4F);
-    const auto tube = reach_of(model, kMortarTube, model.size(), unit);
-    EXPECT_LT(tube[1], 1.2F) << "stubby: nothing like the tank's 2 m barrel";
-    // And it stays under the health bar's 1.2 m anchor.
+    // And it stays under the health bar's 1.2 m anchor, close enough that the bar does not float.
     EXPECT_LE(highest(model, 0, model.size()) - ground, 1.2F);
     EXPECT_GE(highest(model, 0, model.size()) - ground, 0.9F);
+}
+
+// WHICH TILE EACH ROLE TAKES, for the mortar bike, as literals: Hull is the camo (the frame and the
+// mount, 108 + 84), Track and Glass the dark links (the seat, two tyres, the tube and the collar
+// 84 + 552 + 84 + 84, the two rings 168 and the bore 36), Metal the plain turret metal (the two
+// hubs, the fork and the handlebars: 120 + 84 + 84).
+TEST(MortarBikeModel, ItsFrameIsCamoItsTyresTubeAndCollarAreTrackLinksAndItsHubsAreMetal) {
+    EXPECT_EQ(tile_counts_of(UnitKind::MortarBike), (std::array<std::size_t, 3>{192, 1008, 288}));
 }
 
 TEST(MortarBikeModel, TheTubeAndCollarCarryTheSideColourAndTheSidesDiffer) {
@@ -5625,10 +5650,68 @@ TEST(MortarBikeModel, TheTubeAndCollarCarryTheSideColourAndTheSidesDiffer) {
         return tank_only(sim, sim.units().at(0), {});
     }();
     ASSERT_EQ(mine.size(), theirs.size());
-    EXPECT_NE(mine.at(kMortarTube).colour, theirs.at(kMortarTube).colour);
-    EXPECT_NE(mine.at(kMortarBase).colour, theirs.at(kMortarBase).colour);
-    // The base is the pale camo tint; the tube is the saturated accent, so they differ.
-    EXPECT_NE(mine.at(kMortarBase).colour, mine.at(kMortarTube).colour);
+    const auto& atlas = protekt::game::atlas_manifest();
+    const UvRect tracks = tile_rect(atlas.tile("tank_tracks"));
+    // The collar's top is the highest point of the machine: a vertex on the track-link tile, in the
+    // saturated side colour. Found by where it is, not by its place in the list.
+    const auto top_of = [](const std::vector<SceneVertex>& v) {
+        return *std::max_element(v.begin(), v.end(),
+                                 [](const SceneVertex& a, const SceneVertex& b) {
+                                     return a.position.at(1) < b.position.at(1);
+                                 });
+    };
+    const SceneVertex mine_top = top_of(mine);
+    const SceneVertex theirs_top = top_of(theirs);
+    EXPECT_TRUE(on_rect(mine_top, tracks)) << "the collar wears the track links";
+    EXPECT_NE(mine_top.colour, theirs_top.colour) << "and the side's colour";
+    // The frame is the first vertex on a camo tile (neither the tracks nor the metal), in the pale
+    // tint: it differs from the accent.
+    const UvRect metal = tile_rect(atlas.tile("tank_turret"));
+    const auto frame = std::find_if(mine.begin(), mine.end(), [&](const SceneVertex& v) {
+        return !on_rect(v, tracks) && !on_rect(v, metal);
+    });
+    ASSERT_NE(frame, mine.end());
+    EXPECT_NE(frame->colour, mine_top.colour) << "the pale camo against the saturated accent";
+}
+
+TEST(WalkerModel, TheWalkerIsItsShapesPartsAndThenTheGunArm) {
+    // New coverage, not converted: no test pinned the walker's mesh before it had a shape. It was
+    // five prisms, 180 vertices.
+    const auto walker = unit_box_of(UnitKind::Walker);
+    ASSERT_EQ(walker.size(), protekt::game::kWalkerVertices);
+    EXPECT_EQ(protekt::game::kWalkerVertices, std::size_t{744})
+        << "the shape's 708 and the gun arm's 36";
+    EXPECT_EQ(shape_vertices(UnitKind::Walker), std::size_t{708});
+    // The gun arm is the last prism, on the barrel tile; nothing else is.
+    const UvRect barrel = tile_rect(protekt::game::atlas_manifest().tile("tank_barrel"));
+    for (std::size_t i = 0; i < walker.size(); ++i) {
+        EXPECT_EQ(on_rect(walker.at(i), barrel), i >= shape_vertices(UnitKind::Walker))
+            << "vertex " << i;
+    }
+}
+
+// WHICH TILE EACH ROLE TAKES, for the walker, as literals: Hull is the camo (the body, 132), Track
+// and Glass the dark links in the side colour (four leg segments and two feet 6 x 84, the roof
+// panel 36, the cockpit glass 36), and it has no Metal part.
+TEST(WalkerModel, ItsBodyIsCamoItsLegsAndRoofPanelAreTrackLinksAndNothingIsMetal) {
+    EXPECT_EQ(tile_counts_of(UnitKind::Walker), (std::array<std::size_t, 3>{132, 576, 0}));
+}
+
+TEST(ApcModel, TheApcIsItsShapesPartsAndNothingElse) {
+    // New coverage, not converted: no test pinned the APC's mesh before it had a shape. It was
+    // four prisms, 144 vertices.
+    const auto apc = unit_box_of(UnitKind::Apc);
+    ASSERT_EQ(apc.size(), protekt::game::kApcVertices);
+    EXPECT_EQ(protekt::game::kApcVertices, std::size_t{3804});
+    EXPECT_EQ(shape_vertices(UnitKind::Apc), std::size_t{3804});
+}
+
+// WHICH TILE EACH ROLE TAKES, for the APC, as literals: Hull is the camo (the hull and the turret
+// housing, 108 + 108), Track and Glass the dark links (eight tyres 2208, the gun 84, the roof
+// panel 36, eight rings 672 and three ports 108), Metal the plain turret metal (the eight hubs
+// 480).
+TEST(ApcModel, ItsHullAndTurretAreCamoItsTyresAndGunAreTrackLinksAndItsHubsAreMetal) {
+    EXPECT_EQ(tile_counts_of(UnitKind::Apc), (std::array<std::size_t, 3>{216, 3108, 480}));
 }
 
 TEST(RocketTankModel, TheRocketTankIsATanksChassisWithAMountAndALauncherRack) {

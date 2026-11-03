@@ -204,7 +204,10 @@ apart, since it elevates. The hover tank, the scout and the missile scout are dr
 one authored shape each too (the hover tank keeps its skirt and barrel apart, the scout carries no
 gun), and so are the rocket tank (the tank's chassis under a slanted launcher rack) and the assault tank
 (the same chassis under a taller, wider block, its barrel kept apart); the tank-hull recipe survives only
-under a defence turret the player drives. Every other kind keeps its own recipe until it is converted.
+under a defence turret the player drives. The mortar bike (two wheels in line, the mortar angled up), the
+walker (two bent legs, its gun arm kept apart since it elevates) and the APC (four wheels a side, a turret
+that turns) are drawn and iconed from one authored shape each too. Every other kind keeps its own recipe
+until it is converted.
 
 ### The health ticks and the ship instrument
 

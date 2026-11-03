@@ -679,9 +679,31 @@ inline constexpr float kRecyclerScale = 2.0F;
 /// plow and its slit, the cab and its vision band, the radiator, and the crane arm's four parts.
 inline constexpr std::size_t kRecyclerVertices = std::size_t{33} * 36U;
 
-/// A drawn mortar bike: a low wide base turned by its heading, then a mount, a short stubby tube
-/// angled up and the collar at its mouth, all three turned by `gun_yaw`.
-inline constexpr std::size_t kMortarBikeVertices = std::size_t{4} * 36U;
+/// A drawn mortar bike: all of it the parts of `shape_of(UnitKind::MortarBike)` (the frame, the
+/// seat, two wheels with their rings and hubs, the fork and the handlebars; then, turned by
+/// `gun_yaw`, the mount, the stubby tube, the collar and the bore cut in it). Nothing is added to
+/// the shape. It was 144, four prisms, before it was derived: a low box where the plate had drawn a
+/// bike.
+inline constexpr std::size_t kMortarBikeVertices = 1488;
+
+/// A drawn walker: the parts of `shape_of(UnitKind::Walker)` (two bent legs and their feet, the
+/// body, its cockpit glass and the roof panel), then the gun arm, which is not a shape part. It
+/// was 180, five prisms, before it was derived, and no test pinned it.
+inline constexpr std::size_t kWalkerVertices = 744;
+
+/// THE WALKER'S GUN ARM, in metres: the body's front face (along the aim from the walker's centre),
+/// where the shape ends and the arm begins, the arm's bottom and top over the ground, and its tip.
+/// The arm elevates, so it is not a part: the mesh builds it from these numbers and the plate draws
+/// it level from them, and nothing else says how long it is.
+inline constexpr float kWalkerGunFront = 0.5F;
+inline constexpr float kWalkerGunBottom = 1.2F;
+inline constexpr float kWalkerGunTop = 1.36F;
+inline constexpr float kWalkerGunTip = 1.8F;
+
+/// A drawn APC: all of it the parts of `shape_of(UnitKind::Apc)` (the hull, its firing ports and
+/// roof panel, eight wheels with their rings and hubs, then, turned by `gun_yaw`, the turret and
+/// its gun). Nothing is added to the shape. It was 144, four prisms, and no test pinned it.
+inline constexpr std::size_t kApcVertices = 3804;
 
 /// A drawn rocket tank: the parts of `shape_of(UnitKind::RocketTank)` (the tank's chassis, a mount,
 /// the launcher rack and the lane cut in it), then the team-colour panel on the rack. The shape is

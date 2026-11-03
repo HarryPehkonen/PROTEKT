@@ -140,55 +140,7 @@ void track(Canvas& c, float x0, float x1, float height, int wheels) {
     }
 }
 
-/// A WHEEL: a lit tyre round a clear ring round a lit hub.
-void wheel(Canvas& c, float cx, float cy, float r) {
-    c.disc(cx, cy, r);
-    c.disc(cx, cy, r * 0.66F, false);
-    c.disc(cx, cy, r * 0.3F);
-}
-
 // ---------------------------------------------------------------------------- the kinds
-
-/// A mortar bike: two big spoked wheels, a slim frame, a seat and handlebars, and a mortar tube
-/// slanted up and forward off the back.
-void draw_mortar_bike(Canvas& c) {
-    wheel(c, 14, 53, 11);
-    wheel(c, 58, 53, 11);
-    c.poly({{14, 44}, {24, 38}, {52, 38}, {58, 46}, {52, 50}, {20, 50}}); // the frame
-    c.box(22, 32, 36, 38);                                                // the seat
-    c.box(10, 30, 16, 33);                                                // the handlebars
-    c.box(13, 33, 16, 46);                                                // the fork
-    c.poly({{34, 36}, {42, 38}, {66, 12}, {58, 8}});                      // the mortar tube
-    c.poly({{56, 6}, {68, 14}, {64, 18}, {52, 10}}, false);               // the open mouth
-}
-
-/// A walker: a two-legged machine -- bent legs ending in broad feet, a squat body, a head and a
-/// gun arm held out forward. Legs are what says "walker".
-void draw_walker(Canvas& c) {
-    c.poly({{22, 36}, {32, 36}, {30, 48}, {24, 58}, {14, 58}, {20, 48}}); // the rear leg
-    c.box(8, 60, 28, kGround);                                            // its foot
-    c.poly({{40, 36}, {50, 36}, {54, 48}, {60, 58}, {50, 58}, {44, 48}}); // the front leg
-    c.box(44, 60, 66, kGround);                                           // its foot
-    c.box(18, 18, 52, 38);                                                // the body
-    c.poly({{18, 18}, {52, 18}, {48, 12}, {26, 12}});                     // the shoulders
-    c.box(28, 22, 42, 28, false);                                         // the cockpit glass
-    c.box(50, 24, 71, 30);                                                // the gun arm
-    c.box(66, 22, 70, 32);
-}
-
-/// An APC: a long slab-sided hull with a sloped nose on four wheels, a small turret with a gun and
-/// a row of firing ports.
-void draw_apc(Canvas& c) {
-    c.poly({{4, 54}, {4, 32}, {50, 32}, {68, 44}, {68, 54}});
-    c.box(10, 36, 18, 42, false); // ports down the side
-    c.box(24, 36, 32, 42, false);
-    c.box(38, 36, 46, 42, false);
-    c.box(20, 22, 40, 32); // the turret
-    c.box(40, 25, 58, 29); // its gun
-    for (const float x : {14.0F, 28.0F, 42.0F, 56.0F}) {
-        wheel(c, x, 57, 7.5F);
-    }
-}
 
 /// A bomber: a long fuselage with a nosecone and a canopy, a tall tail fin, a wing, and a bomb
 /// slung under it -- a ball on a slab.
@@ -264,6 +216,31 @@ void draw_assault_tank(Canvas& c) {
 /// A rocket tank: its shape, projected. It has no gun, so nothing is added.
 void draw_rocket_tank(Canvas& c) {
     constexpr sim::UnitKind kKind = sim::UnitKind::RocketTank;
+    project_shape(c, kKind, shape_scale(kKind, shape_extent(kKind).along_max));
+}
+
+/// A mortar bike: its shape, projected. The mortar is all parts, so nothing is added.
+void draw_mortar_bike(Canvas& c) {
+    constexpr sim::UnitKind kKind = sim::UnitKind::MortarBike;
+    project_shape(c, kKind, shape_scale(kKind, shape_extent(kKind).along_max));
+}
+
+/// A walker: its shape, projected, and then the GUN ARM as a separate small piece, as the tank's
+/// barrel is -- level, from the body's front face to the tip, in the mesh's own metres (scene.hpp).
+/// The plate holds the arm's tip as well as the feet.
+void draw_walker(Canvas& c) {
+    constexpr sim::UnitKind kKind = sim::UnitKind::Walker;
+    const float scale = shape_scale(kKind, kWalkerGunTip);
+    project_shape(c, kKind, scale);
+    const float along_min = shape_extent(kKind).along_min;
+    c.box(kShapeMargin + ((kWalkerGunFront - along_min) * scale), kGround - (kWalkerGunTop * scale),
+          kShapeMargin + ((kWalkerGunTip - along_min) * scale),
+          kGround - (kWalkerGunBottom * scale));
+}
+
+/// An APC: its shape, projected. The gun is a part, so nothing is added.
+void draw_apc(Canvas& c) {
+    constexpr sim::UnitKind kKind = sim::UnitKind::Apc;
     project_shape(c, kKind, shape_scale(kKind, shape_extent(kKind).along_max));
 }
 

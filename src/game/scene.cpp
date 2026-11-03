@@ -1533,34 +1533,11 @@ void build_hover_tank(std::vector<SceneVertex>& out, std::uint64_t seed, const s
                    turret_y0 + ((kHoverBarrelBottom + kHoverBarrelTop) * 0.5F), pitch);
 }
 
-/// A solid tube in a frame turned by `angle` about (x, z), its axis in the frame's upright plane:
-/// from the breech at `breech` along the heading and `breech_y` up, `length` long, raised
-/// `elevation` radians from level. `half_across` is its half-width, `half_thick` its half-depth
-/// square to the axis. Corners in prism order, so it shades as any other part does.
-void emit_raised_tube(std::vector<SceneVertex>& out, float x, float z, float angle, float breech,
-                      float breech_y, float length, float elevation, float half_across,
-                      float half_thick, const Vec3& colour, const UvRect& tile) {
-    const float along = std::cos(elevation);
-    const float up = std::sin(elevation);
-    const auto corner = [&](float dx, float distance, float side) {
-        const float dz = breech + (distance * along) - (side * half_thick * up);
-        const float y = breech_y + (distance * up) + (side * half_thick * along);
-        const std::array<float, 2> at = rotate_offset(x, z, dx, dz, angle);
-        return Vec3{at.at(0), y, at.at(1)};
-    };
-    emit_shaded_solid(out,
-                      {{corner(-half_across, 0.0F, -1.0F), corner(half_across, 0.0F, -1.0F),
-                        corner(half_across, 0.0F, 1.0F), corner(-half_across, 0.0F, 1.0F),
-                        corner(-half_across, length, -1.0F), corner(half_across, length, -1.0F),
-                        corner(half_across, length, 1.0F), corner(-half_across, length, 1.0F)}},
-                      colour, tile, tile);
-}
-
-/// THE MORTAR BIKE: a low wide base box on the ground, turned by `heading`; a small mount on it;
-/// and a SHORT STUBBY TUBE angled up 45 degrees -- it lobs -- with a thicker collar at its mouth
-/// (the fleet's convention), all three turned by `gun_yaw`. The base and mount wear the team's
-/// camo; the tube and collar are the saturated side-colour accents, as a tank's barrel is. Its top
-/// stays under the health bar's anchor.
+/// THE MORTAR BIKE, built from `shape_of(UnitKind::MortarBike)`, the one description its plate is
+/// also projected from: two wheels in line, a frame, a seat, a fork and handlebars, turned by
+/// `heading`, and the mortar -- a mount, a stubby tube angled up 45 degrees (it lobs), the collar
+/// at its mouth and the bore cut in it -- turned by `aim`. Nothing is added to the shape. The frame
+/// wears the team's camo and the tube and collar the side colour, as a tank's barrel does.
 void build_mortar_bike(std::vector<SceneVertex>& out, std::uint64_t seed, const sim::Unit& unit,
                        Mark mark, float lift_z, bool lifted, float heading, float aim) {
     const float x
@@ -1572,20 +1549,6 @@ void build_mortar_bike(std::vector<SceneVertex>& out, std::uint64_t seed, const 
     const UvRect hull_tile
         = atlas.rect(kTeamHullNames.at(static_cast<std::size_t>(unit.side))
                          .at(static_cast<std::size_t>(hull_variant(seed, unit.id.value))));
-    const UvRect barrel_tile = atlas.rect("tank_barrel");
-    const float half_width = kHullHalfMetres; ///< a tank's: the base is as wide as one
-    constexpr float kBaseHalfLength = 0.7F;
-    constexpr float kBaseTop = 0.4F;
-    constexpr float kMountHalfAcross = 0.22F;
-    constexpr float kMountHalfLength = 0.25F;
-    constexpr float kMountTop = 0.58F;
-    constexpr float kBreech = -0.15F; ///< along the aim from the centre: the tube leans forward
-    constexpr float kBreechHeight = 0.5F;
-    constexpr float kElevation = 0.785398F; ///< 45 degrees: a lob, not a flat shot
-    constexpr float kTubeLength = 0.55F;
-    constexpr float kTubeHalf = 0.12F; ///< twice a tank barrel's: stubby
-    constexpr float kCollarLength = 0.2F;
-    constexpr float kCollarHalf = 0.16F;
 
     Vec3 colour = side_colour(unit.side);
     if (mark == Mark::Selected) {
@@ -1598,16 +1561,9 @@ void build_mortar_bike(std::vector<SceneVertex>& out, std::uint64_t seed, const 
         channel += (1.0F - channel) * kHullPaleMix;
     }
 
-    emit_turned_box(out, x, z, heading, half_width, -kBaseHalfLength, kBaseHalfLength, ground,
-                    ground + kBaseTop, camo_colour, hull_tile);
-    emit_turned_box(out, x, z, aim, kMountHalfAcross, -kMountHalfLength, kMountHalfLength,
-                    ground + kBaseTop, ground + kMountTop, camo_colour, hull_tile);
-    emit_raised_tube(out, x, z, aim, kBreech, ground + kBreechHeight, kTubeLength, kElevation,
-                     kTubeHalf, kTubeHalf, colour, barrel_tile);
-    const float mouth = kTubeLength;
-    emit_raised_tube(out, x, z, aim, kBreech + (mouth * std::cos(kElevation)),
-                     ground + kBreechHeight + (mouth * std::sin(kElevation)), kCollarLength,
-                     kElevation, kCollarHalf, kCollarHalf, colour, barrel_tile);
+    emit_shape_parts(out, x, z, ground, heading, aim, shape_of(sim::UnitKind::MortarBike),
+                     ShapeLook{colour, camo_colour, hull_tile, atlas.rect("tank_tracks"),
+                               atlas.rect("tank_turret")});
 }
 
 /// THE FOUR NEW KINDS' SHAPES (the factory's rows 5..8). Every silhouette below is PROVISIONAL and
@@ -1707,9 +1663,11 @@ void build_rocket_tank(std::vector<SceneVertex>& out, std::uint64_t seed, const 
                     colour, atlas.rect("tank_turret"));
 }
 
-/// THE WALKER: a body on TWO THIN LEG BOXES, so it stands taller than it is wide. The legs are
-/// dark, one each side under the body; the body wears the camo with a team-colour roof panel; a
-/// short gun juts from its front, turned by `heading + turret` (the legs and body by `heading`).
+/// THE WALKER, built from `shape_of(UnitKind::Walker)`, the one description its plate is also
+/// projected from: two bent legs and their feet, a body with a cockpit glass and a team-colour roof
+/// panel, all turned by `heading`. What is not the body's shape is added here, from the numbers in
+/// scene.hpp: the gun arm held out forward, turned by `heading + turret`, which elevates, so it is
+/// always the last prism.
 void build_walker(std::vector<SceneVertex>& out, std::uint64_t seed, const sim::Unit& unit,
                   Mark mark, float lift_z, bool lifted, float heading, float turret, float pitch) {
     const float x
@@ -1721,46 +1679,27 @@ void build_walker(std::vector<SceneVertex>& out, std::uint64_t seed, const sim::
     const UvRect hull_tile
         = atlas.rect(kTeamHullNames.at(static_cast<std::size_t>(unit.side))
                          .at(static_cast<std::size_t>(hull_variant(seed, unit.id.value))));
-    const UvRect legs_tile = atlas.rect("tank_tracks");
-    const UvRect panel_tile = atlas.rect("tank_turret");
-    const UvRect barrel_tile = atlas.rect("tank_barrel");
-    constexpr float kLegCentre = 0.32F; ///< across, from the centre line
-    constexpr float kLegHalfAcross = 0.07F;
-    constexpr float kLegHalfLength = 0.1F;
-    constexpr float kLegTop = 1.0F;
-    constexpr float kBodyHalfAcross = 0.38F;
-    constexpr float kBodyHalfLength = 0.5F;
-    constexpr float kBodyTop = 1.7F; ///< 1.7 m up on a 0.76 m width: taller than it is wide
-    constexpr float kPanelHalfAcross = 0.22F;
-    constexpr float kPanelThickness = 0.03F;
     constexpr float kGunHalfAcross = 0.07F;
-    constexpr float kGunBottom = 1.2F;
-    constexpr float kGunTop = 1.36F;
-    constexpr float kGunTip = 1.8F;
 
     const auto [colour, camo_colour] = kind_colours(unit, mark);
-    for (const float side : {-1.0F, 1.0F}) {
-        const float across = side * kLegCentre;
-        const std::array<float, 2> leg_at = rotate_offset(x, z, across, 0.0F, heading);
-        emit_turned_box(out, leg_at.at(0), leg_at.at(1), heading, kLegHalfAcross, -kLegHalfLength,
-                        kLegHalfLength, ground, ground + kLegTop, camo_colour, legs_tile);
-    }
-    emit_turned_box(out, x, z, heading, kBodyHalfAcross, -kBodyHalfLength, kBodyHalfLength,
-                    ground + kLegTop, ground + kBodyTop, camo_colour, hull_tile);
-    emit_turned_box(out, x, z, heading, kPanelHalfAcross, -kBodyHalfLength, kBodyHalfLength,
-                    ground + kBodyTop, ground + kBodyTop + kPanelThickness, colour, panel_tile);
+    emit_shape_parts(out, x, z, ground, heading, heading + turret, shape_of(sim::UnitKind::Walker),
+                     ShapeLook{colour, camo_colour, hull_tile, atlas.rect("tank_tracks"),
+                               atlas.rect("tank_turret")});
+
     const std::size_t gun_first = out.size();
-    emit_turned_box(out, x, z, heading + turret, kGunHalfAcross, kBodyHalfLength, kGunTip,
-                    ground + kGunBottom, ground + kGunTop, colour, barrel_tile);
-    elevate_barrel(out, gun_first, x, z, heading + turret, kBodyHalfLength,
-                   ground + ((kGunBottom + kGunTop) * 0.5F), pitch);
+    emit_turned_box(out, x, z, heading + turret, kGunHalfAcross, kWalkerGunFront, kWalkerGunTip,
+                    ground + kWalkerGunBottom, ground + kWalkerGunTop, colour,
+                    atlas.rect("tank_barrel"));
+    elevate_barrel(out, gun_first, x, z, heading + turret, kWalkerGunFront,
+                   ground + ((kWalkerGunBottom + kWalkerGunTop) * 0.5F), pitch);
 }
 
-/// THE APC: a LONGER, LOWER hull than the tank's with no turret -- two dark track boxes under one
-/// camo body, a team-colour roof panel along its back. The tank's hull is 1.3 m fore and aft and
-/// 0.85 m to the compartment roof; this runs 1.5 m fore and aft and stops at 0.6 m.
+/// THE APC, built from `shape_of(UnitKind::Apc)`, the one description its plate is also projected
+/// from: a long slab-sided hull with a sloped nose on four wheels a side, its firing ports and a
+/// team-colour roof panel, turned by `heading`, and a small turret with a light gun, turned by
+/// `heading + turret`. Nothing is added to the shape.
 void build_apc(std::vector<SceneVertex>& out, std::uint64_t seed, const sim::Unit& unit, Mark mark,
-               float lift_z, bool lifted, float heading) {
+               float lift_z, bool lifted, float heading, float turret) {
     const float x
         = static_cast<float>(unit.x.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile;
     const float z
@@ -1770,32 +1709,11 @@ void build_apc(std::vector<SceneVertex>& out, std::uint64_t seed, const sim::Uni
     const UvRect hull_tile
         = atlas.rect(kTeamHullNames.at(static_cast<std::size_t>(unit.side))
                          .at(static_cast<std::size_t>(hull_variant(seed, unit.id.value))));
-    const UvRect tracks_tile = atlas.rect("tank_tracks");
-    const UvRect panel_tile = atlas.rect("tank_turret");
-    const float half_width = kHullHalfMetres; ///< a tank's: the footprint, nothing wider
-    constexpr float kHalfLength = 1.5F;
-    constexpr float kTrackInner = 0.7F; ///< of half_width, as the tank's
-    constexpr float kTrackTop = 0.35F;
-    constexpr float kBodyHalfAcross = 0.85F; ///< of half_width
-    constexpr float kBodyBottom = 0.25F;
-    constexpr float kBodyTop = 0.6F;
-    constexpr float kPanelHalfAcross = 0.35F; ///< of half_width
-    constexpr float kPanelBack = -1.2F;
-    constexpr float kPanelFront = 0.6F;
-    constexpr float kPanelThickness = 0.03F;
 
     const auto [colour, camo_colour] = kind_colours(unit, mark);
-    for (const float side : {-1.0F, 1.0F}) {
-        const float a = side * half_width * kTrackInner;
-        const float b = side * half_width;
-        const std::array<float, 2> at = rotate_offset(x, z, (a + b) / 2.0F, 0.0F, heading);
-        emit_turned_box(out, at.at(0), at.at(1), heading, std::abs(b - a) / 2.0F, -kHalfLength,
-                        kHalfLength, ground, ground + kTrackTop, colour, tracks_tile);
-    }
-    emit_turned_box(out, x, z, heading, half_width * kBodyHalfAcross, -kHalfLength, kHalfLength,
-                    ground + kBodyBottom, ground + kBodyTop, camo_colour, hull_tile);
-    emit_turned_box(out, x, z, heading, half_width * kPanelHalfAcross, kPanelBack, kPanelFront,
-                    ground + kBodyTop, ground + kBodyTop + kPanelThickness, colour, panel_tile);
+    emit_shape_parts(out, x, z, ground, heading, heading + turret, shape_of(sim::UnitKind::Apc),
+                     ShapeLook{colour, camo_colour, hull_tile, atlas.rect("tank_tracks"),
+                               atlas.rect("tank_turret")});
 }
 
 /// THE BOMBER: a WIDE, FLAT body -- the widest profile on the ground, twice a tank's half-width --
@@ -5259,7 +5177,8 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
                 build_walker(scene.vertices, options.seed, unit, mark, lift_z, hovering, heading,
                              turret, pitch);
             } else if (unit.kind == sim::UnitKind::Apc) {
-                build_apc(scene.vertices, options.seed, unit, mark, lift_z, hovering, heading);
+                build_apc(scene.vertices, options.seed, unit, mark, lift_z, hovering, heading,
+                          turret);
             } else if (unit.kind == sim::UnitKind::Bomber) {
                 build_bomber(scene.vertices, options.seed, unit, mark, lift_z, hovering, heading);
             } else if (unit.kind == sim::UnitKind::Scavenger) {
