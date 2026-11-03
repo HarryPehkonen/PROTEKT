@@ -149,32 +149,6 @@ void wheel(Canvas& c, float cx, float cy, float r) {
 
 // ---------------------------------------------------------------------------- the kinds
 
-/// An assault tank: a heavier, boxier hull on a longer run, a tall slab turret and a thick barrel.
-void draw_assault_tank(Canvas& c) {
-    track(c, 3, 67, 18, 6);
-    c.poly({{7, 46}, {11, 30}, {58, 30}, {66, 46}});
-    c.box(9, 45, 63, 46, false);
-    c.box(19, 14, 47, 30); // the tall turret
-    c.poly({{19, 14}, {47, 14}, {51, 18}, {47, 22}, {19, 22}}, false);
-    c.box(21, 15, 45, 21);
-    c.box(47, 18, 71, 27); // the thick barrel
-    c.box(64, 16, 69, 29); // the muzzle brake
-    c.box(28, 8, 36, 14);  // a roof hatch
-}
-
-/// A rocket tank: the tank's hull with a slanted launcher box on top, three tubes open at its upper
-/// end.
-void draw_rocket_tank(Canvas& c) {
-    track(c, 6, 64, 16, 5);
-    c.poly({{10, 48}, {16, 36}, {54, 36}, {64, 48}});
-    c.box(12, 47, 60, 48, false);
-    c.poly({{14, 38}, {40, 12}, {58, 20}, {32, 42}});        // the launcher bank
-    c.poly({{22, 36}, {40, 20}, {44, 24}, {28, 40}}, false); // a clear lane down its middle
-    c.disc(46, 16, 3, false); // the muzzles, open ends of three tubes
-    c.disc(52, 21, 3, false);
-    c.disc(40, 11.5F, 2.5F, false);
-}
-
 /// A mortar bike: two big spoked wheels, a slim frame, a seat and handlebars, and a mortar tube
 /// slanted up and forward off the back.
 void draw_mortar_bike(Canvas& c) {
@@ -268,6 +242,29 @@ void draw_tank(Canvas& c) {
           col(kTankBarrelTip - kTankCollarLength), row(kTankTurretBase + kTankBarrelBottom));
     c.box(col(kTankBarrelTip - kTankCollarLength), row(kTankTurretBase + kTankCollarTop),
           col(kTankBarrelTip), row(kTankTurretBase + kTankCollarBottom)); // the muzzle collar
+}
+
+/// An assault tank: its shape, projected, and then the BARREL as a separate small piece, as the
+/// tank's is -- level, from the block's front face to the muzzle collar's far end, in the mesh's
+/// own metres (scene.hpp). The plate holds the barrel's tip as well as the hull.
+void draw_assault_tank(Canvas& c) {
+    constexpr sim::UnitKind kKind = sim::UnitKind::AssaultTank;
+    const float scale = shape_scale(kKind, kAssaultBarrelTip);
+    project_shape(c, kKind, scale);
+    const float along_min = shape_extent(kKind).along_min;
+    const auto col = [&](float along) { return kShapeMargin + ((along - along_min) * scale); };
+    const auto row = [&](float up) { return kGround - (up * scale); };
+    c.box(col(kAssaultTurretFront), row(kTankTurretBase + kAssaultBarrelTop),
+          col(kAssaultBarrelTip - kAssaultCollarLength),
+          row(kTankTurretBase + kAssaultBarrelBottom));
+    c.box(col(kAssaultBarrelTip - kAssaultCollarLength), row(kTankTurretBase + kAssaultCollarTop),
+          col(kAssaultBarrelTip), row(kTankTurretBase + kAssaultCollarBottom)); // the collar
+}
+
+/// A rocket tank: its shape, projected. It has no gun, so nothing is added.
+void draw_rocket_tank(Canvas& c) {
+    constexpr sim::UnitKind kKind = sim::UnitKind::RocketTank;
+    project_shape(c, kKind, shape_scale(kKind, shape_extent(kKind).along_max));
 }
 
 /// A hover tank: its shape, projected, and then the SKIRT and the BARREL as separate pieces, as the

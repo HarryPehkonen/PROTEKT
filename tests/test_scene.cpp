@@ -53,11 +53,12 @@ constexpr std::size_t kTankVertices = 2760;
 // roof panel and no barrel). 432 each before they had shapes: they wore the tank's hand-built body.
 constexpr std::size_t kScoutVertices = 2028;
 constexpr std::size_t kMslScoutVertices = 2196;
-// What the ASSAULT TANK is: the tank's hand-built hull (`emit_tank_hull`, seven prisms of 36) under
-// a block, its roof panel, the muzzle collar and the barrel -- eleven. The scout used to wear that
-// hull and was the stand-in for it in the shading and hull-shape tests below; it has a shape of its
-// own now (`shape_of(UnitKind::Scout)`), so those tests read the assault tank, which still does.
-constexpr std::size_t kAssaultTankVertices = std::size_t{11} * 36;
+// The rocket tank's and the assault tank's, each its own shape's parts and then what is not a part:
+// 2544 + the rack's panel, and 2508 + the roof panel, the muzzle collar and the barrel. Both were
+// hand-built before (324 and 396 vertices, nine and eleven prisms) and both share the tank's
+// chassis, 2340 vertices of tracks, wheels, hull and fenders.
+constexpr std::size_t kAssaultTankVertices = 2616;
+constexpr std::size_t kChassisVertices = 2340;
 
 using protekt::game::Camera;
 using protekt::game::kHullHalfMetres;
@@ -2172,80 +2173,130 @@ TEST(TankShape, TheTankIsExactlyItsShapesParts) {
 
 namespace {
 
-/// The [lo, hi] of `axis` (0 across at heading 0, 1 up, 2 along) over prism `prism` of `tank`.
-std::array<float, 2> prism_span(const std::vector<protekt::game::SceneVertex>& tank,
-                                std::size_t prism, std::size_t axis) {
-    float lo = 1e9F;
-    float hi = -1e9F;
-    for (std::size_t i = prism * 36U; i < (prism + 1U) * 36U; ++i) {
-        lo = std::min(lo, tank.at(i).position.at(axis));
-        hi = std::max(hi, tank.at(i).position.at(axis));
+/// The parts of the chassis the rocket tank and the assault tank share, found from what each IS and
+/// never from where it sits in the list: the compartment is the tallest Hull part on the ground,
+/// the engine deck the other, the grille the lit Track part standing on the deck, the track the
+/// long Track part and the fender the Hull part over it.
+struct Chassis {
+    const protekt::game::ShapePart* compartment = nullptr;
+    const protekt::game::ShapePart* deck = nullptr;
+    const protekt::game::ShapePart* grille = nullptr;
+    const protekt::game::ShapePart* track = nullptr;
+    const protekt::game::ShapePart* fender = nullptr;
+};
+
+float top_of_part(const protekt::game::ShapePart& part) {
+    float top = -1e9F;
+    for (const auto& corner : part.profile) {
+        top = std::max(top, corner[1]);
     }
-    return {lo, hi};
+    return top;
 }
 
-/// A lone assault tank, standing still, so it faces +Y: across is world X, along is world Z. It
-/// wears the HAND-BUILT tank hull (`emit_tank_hull`, seven prisms first, the rocket tank's too);
-/// the tank itself is derived from its shape and has its own tests in test_vehicle_shape.cpp, and
-/// the scout, which wore this hull until it got a shape, has its own there too.
-std::vector<protekt::game::SceneVertex> lone_tank() {
-    protekt::sim::Scenario scenario;
-    scenario.seed = 42;
-    scenario.spawns.push_back(protekt::sim::Spawn{protekt::sim::UnitKind::AssaultTank,
-                                                  protekt::sim::Side::Player, 100, 100});
-    const auto sim = protekt::sim::Sim::create(scenario);
-    return tank_only(sim, sim.units().at(0), {});
+float bottom_of_part(const protekt::game::ShapePart& part) {
+    float bottom = 1e9F;
+    for (const auto& corner : part.profile) {
+        bottom = std::min(bottom, corner[1]);
+    }
+    return bottom;
 }
 
-constexpr std::size_t kHullPart = 2;
-constexpr std::size_t kEngineDeckPart = 3;
-constexpr std::size_t kGrillePart = 4;
-constexpr std::size_t kFenderParts = 5; ///< and 6: left, then right
+float rear_of_part(const protekt::game::ShapePart& part) {
+    float rear = 1e9F;
+    for (const auto& corner : part.profile) {
+        rear = std::min(rear, corner[0]);
+    }
+    return rear;
+}
+
+Chassis chassis_of(protekt::sim::UnitKind kind) {
+    using protekt::game::ShapeGroup;
+    using protekt::game::ShapeRole;
+    Chassis chassis;
+    for (const protekt::game::ShapePart& part : protekt::game::shape_of(kind)) {
+        if (part.group != ShapeGroup::Hull || !part.lit) {
+            continue;
+        }
+        if (part.role == ShapeRole::Hull && bottom_of_part(part) < 0.01F) {
+            if (chassis.compartment == nullptr
+                || top_of_part(part) > top_of_part(*chassis.compartment)) {
+                chassis.deck = chassis.compartment;
+                chassis.compartment = &part;
+            } else {
+                chassis.deck = &part;
+            }
+        } else if (part.role == ShapeRole::Hull && part.mirrored) {
+            chassis.fender = &part;
+        } else if (part.role == ShapeRole::Track && part.mirrored && top_of_part(part) > 0.3F
+                   && part.profile.size() > 6U) {
+            chassis.track = &part;
+        } else if (part.role == ShapeRole::Track && !part.mirrored) {
+            chassis.grille = &part;
+        }
+    }
+    return chassis;
+}
 
 } // namespace
 
-TEST(TankHull, TheGlacisLeansBackFromItsFootToTheCompartmentRoof) {
-    const auto tank = lone_tank();
-    const auto height = prism_span(tank, kHullPart, 1);
-    float foot = -1e9F;
-    float crest = -1e9F;
-    for (std::size_t i = kHullPart * 36U; i < (kHullPart + 1U) * 36U; ++i) {
-        const auto& p = tank.at(i).position;
-        if (std::abs(p[1] - height[0]) < kTolerance) {
-            foot = std::max(foot, p[2]);
-        }
-        if (std::abs(p[1] - height[1]) < kTolerance) {
-            crest = std::max(crest, p[2]);
-        }
+// The chassis of the rocket tank and the assault tank, which used to be the hand-built hull
+// (`emit_tank_hull`, seven prisms) and is now the SHAPE they share. These were `TankHull` tests of
+// the assault tank's prisms by index; they are re-pointed at what the shapes say, for both kinds.
+TEST(TankChassis, TheGlacisLeansBackFromItsFootToTheCompartmentRoof) {
+    for (const protekt::sim::UnitKind kind :
+         {protekt::sim::UnitKind::RocketTank, protekt::sim::UnitKind::AssaultTank}) {
+        // The front edge of the silhouette at a height where only the compartment stands: from the
+        // front, the first covered point.
+        const auto front_edge = [&](float up) {
+            for (float along = 1.25F; along > -1.0F; along -= 0.005F) {
+                if (protekt::game::shape_covers(kind, along, up)) {
+                    return along;
+                }
+            }
+            return -1.0F;
+        };
+        // 1.2 m at the foot, 0.55 m at the roof, 0.85 m up: 0.82 m ahead at 0.5 m up and 0.63 m at
+        // 0.75 m up -- a plate sloped well off the vertical.
+        EXPECT_NEAR(front_edge(0.5F), 0.82F, 0.02F) << "kind " << static_cast<int>(kind);
+        EXPECT_NEAR(front_edge(0.75F), 0.63F, 0.02F) << "kind " << static_cast<int>(kind);
+        EXPECT_GT(front_edge(0.5F) - front_edge(0.75F), 0.15F)
+            << "the front face is a sloped plate, not a wall: kind " << static_cast<int>(kind);
     }
-    // Run 0.65 m over a rise of 0.85 m: a plate sloped well off the vertical.
-    EXPECT_GT(foot - crest, 0.5F) << "the front face is a sloped plate, not a wall";
 }
 
-TEST(TankHull, TheDeckStepsDownFromTheCompartmentToTheEngineDeckWithAGrilleOnIt) {
-    const auto tank = lone_tank();
-    const auto compartment = prism_span(tank, kHullPart, 1);
-    const auto deck = prism_span(tank, kEngineDeckPart, 1);
-    EXPECT_GT(compartment[1] - deck[1], 0.15F) << "two distinct top heights";
-    EXPECT_LT(prism_span(tank, kEngineDeckPart, 2)[0], prism_span(tank, kHullPart, 2)[0])
-        << "the engine deck is aft of the compartment";
-    const auto grille = prism_span(tank, kGrillePart, 1);
-    EXPECT_NEAR(grille[0], deck[1], kTolerance) << "the grille lies on the engine deck";
-    EXPECT_LT(grille[1], compartment[1]);
+TEST(TankChassis, TheDeckStepsDownFromTheCompartmentToTheEngineDeckWithAGrilleOnIt) {
+    for (const protekt::sim::UnitKind kind :
+         {protekt::sim::UnitKind::RocketTank, protekt::sim::UnitKind::AssaultTank}) {
+        const Chassis chassis = chassis_of(kind);
+        ASSERT_NE(chassis.compartment, nullptr) << "kind " << static_cast<int>(kind);
+        ASSERT_NE(chassis.deck, nullptr);
+        ASSERT_NE(chassis.grille, nullptr);
+        EXPECT_NEAR(top_of_part(*chassis.compartment), 0.85F, 0.005F) << "metres";
+        EXPECT_NEAR(top_of_part(*chassis.deck), 0.62F, 0.005F) << "metres";
+        EXPECT_GT(top_of_part(*chassis.compartment) - top_of_part(*chassis.deck), 0.15F)
+            << "two distinct top heights";
+        EXPECT_LT(rear_of_part(*chassis.deck), rear_of_part(*chassis.compartment))
+            << "the engine deck is aft of the compartment";
+        EXPECT_NEAR(bottom_of_part(*chassis.grille), top_of_part(*chassis.deck), 0.005F)
+            << "the grille lies on the engine deck";
+        EXPECT_LT(top_of_part(*chassis.grille), top_of_part(*chassis.compartment));
+    }
 }
 
-TEST(TankHull, EachFenderIsAShelfWiderThanTheTrackUnderIt) {
-    const auto tank = lone_tank();
-    for (std::size_t side = 0; side < 2; ++side) {
-        const auto track = prism_span(tank, side, 0);
-        const auto fender = prism_span(tank, kFenderParts + side, 0);
-        EXPECT_GT(fender[1] - fender[0], track[1] - track[0]) << "side " << side;
-        EXPECT_LT(fender[0], track[0]) << "side " << side << ": it overhangs the track inboard";
-        EXPECT_GT(fender[1], track[1]) << "side " << side << ": and outboard";
-        EXPECT_LE(prism_span(tank, kFenderParts + side, 1)[0], prism_span(tank, side, 1)[1])
-            << "side " << side << ": it sits on the track";
-        EXPECT_LT(prism_span(tank, kFenderParts + side, 1)[1] - prism_span(tank, side, 1)[1], 0.1F)
-            << "side " << side << ": a thin plate";
+TEST(TankChassis, EachFenderIsAShelfWiderThanTheTrackUnderIt) {
+    for (const protekt::sim::UnitKind kind :
+         {protekt::sim::UnitKind::RocketTank, protekt::sim::UnitKind::AssaultTank}) {
+        const Chassis chassis = chassis_of(kind);
+        ASSERT_NE(chassis.fender, nullptr) << "kind " << static_cast<int>(kind);
+        ASSERT_NE(chassis.track, nullptr);
+        const auto& fender = *chassis.fender;
+        const auto& track = *chassis.track;
+        EXPECT_GT(fender.across_hi - fender.across_lo, track.across_hi - track.across_lo);
+        EXPECT_LT(fender.across_lo, track.across_lo) << "it overhangs the track inboard";
+        EXPECT_GT(fender.across_hi, track.across_hi) << "and outboard";
+        EXPECT_LE(bottom_of_part(fender), top_of_part(track)) << "it sits on the track";
+        EXPECT_LT(top_of_part(fender) - top_of_part(track), 0.1F) << "a thin plate";
+        EXPECT_TRUE(fender.mirrored && track.mirrored) << "one each side";
     }
 }
 
@@ -3113,8 +3164,8 @@ protekt::sim::Sim facing_sim(UnitKind viewer = UnitKind::Tank) {
     return sim_of({{Side::Enemy, UnitKind::Factory, 106, 100}, {Side::Player, viewer, 100, 100}});
 }
 
-/// How many vertices the viewer's body is: the shape-built tank's, or the assault tank's, which
-/// wears the hand-built hull (the only other viewer these tests use).
+/// How many vertices the viewer's body is: the tank's, or the assault tank's (the only other
+/// viewer these tests use).
 std::size_t facing_body_vertices(const protekt::sim::Unit& viewer) {
     return viewer.kind == UnitKind::Tank ? kTankVertices : kAssaultTankVertices;
 }
@@ -3344,26 +3395,32 @@ TEST(SceneFacing, AFrameWithoutFacingIsByteIdentical) {
 
 namespace {
 
-/// Face `face` (0 near, 1 far, 2 left, 3 right, 4 top, 5 bottom) of prism `prism` of the viewer's
-/// HAND-BUILT body (0, 1 tracks; 2 hull), as the colour of its first vertex. The shaded tests below
-/// are of that body's builder, which the assault tank still uses, so their viewer is an assault
-/// tank: the tank's own body is derived from its shape and has no such prism order.
-std::array<float, 3> tank_face_colour(const Scene& scene, std::size_t prism, std::size_t face) {
+/// A colour in the viewer's body, as the colour of the vertex at `first + offset` from the start of
+/// the assault tank's 2616. The body is its shape's parts and then the roof panel, the muzzle
+/// collar and the barrel. A SHAPE PART with four corners and a bevel is 84 vertices: three bands of
+/// four quads (the near chamfer, the middle, the far chamfer) and a fan of two triangles on each
+/// end. So in the middle band the bottom edge is at 24 and the top edge at 36, and the fans, which
+/// face -x and +x at heading 0, are at 72 (the left) and 78 (the right). The panel, the collar and
+/// the barrel are plain boxes of 36 vertices: face `f` (0 near, 1 far, 2 left, 3 right, 4 top, 5
+/// bottom) starts at `6 f`. The shading tests below read the assault tank only because its body is
+/// that long; what they check is the light on a face, which no kind owns.
+std::array<float, 3> body_colour(const Scene& scene, std::size_t first, std::size_t offset) {
     const auto tail = scene.vertices.end() - static_cast<std::ptrdiff_t>(kAssaultTankVertices);
-    return (tail + static_cast<std::ptrdiff_t>((prism * kPrismVertices) + (face * 6)))->colour;
+    return (tail + static_cast<std::ptrdiff_t>(first + offset))->colour;
 }
 
-constexpr std::size_t kHull = 2;
-constexpr std::size_t kTurretPrism = 7; ///< the assault tank's block
-constexpr std::size_t kRoofPanel = 8;
-constexpr std::size_t kBarrelPrism = 10; ///< after the muzzle collar, 9
+constexpr std::size_t kHull = 0; ///< the shape's first part: the fighting compartment
+constexpr std::size_t kTurretBlock = kChassisVertices; ///< the block, the first part after it
+constexpr std::size_t kRoofPanel = kAssaultTankVertices - 108;
+constexpr std::size_t kBarrelPart = kAssaultTankVertices - 36;
+constexpr std::size_t kBottomFace = 24;
+constexpr std::size_t kTopFace = 36;
+constexpr std::size_t kLeftFace = 72;
+constexpr std::size_t kRightFace = 78;
+constexpr std::size_t kBoxTopFace = 24; ///< a plain box's top: its fifth quad
 
 /// `c` mixed toward white by `kHullPaleMix`: what the scene does to a hull's colour.
 float pale(float c) { return c + ((1.0F - c) * protekt::game::kHullPaleMix); }
-constexpr std::size_t kLeftFace = 2;
-constexpr std::size_t kRightFace = 3;
-constexpr std::size_t kTopFace = 4;
-constexpr std::size_t kBottomFace = 5;
 
 } // namespace
 
@@ -3372,10 +3429,10 @@ constexpr std::size_t kBottomFace = 5;
 TEST(SceneShading, TheTopIsBrighterThanTheSideAwayFromTheSunAndKeepsTheHue) {
     const auto sim = facing_sim(UnitKind::AssaultTank);
     const Scene scene = facing_scene(sim, 0.0F, 0.0F);
-    const auto top = tank_face_colour(scene, kHull, kTopFace);
-    const auto lit = tank_face_colour(scene, kHull, kLeftFace);
-    const auto shade = tank_face_colour(scene, kHull, kRightFace);
-    const auto under = tank_face_colour(scene, kHull, kBottomFace);
+    const auto top = body_colour(scene, kHull, kTopFace);
+    const auto lit = body_colour(scene, kHull, kLeftFace);
+    const auto shade = body_colour(scene, kHull, kRightFace);
+    const auto under = body_colour(scene, kHull, kBottomFace);
     EXPECT_GT(top[2], lit[2]);
     EXPECT_GT(lit[2], shade[2]);
     EXPECT_GT(shade[2], under[2]);
@@ -3396,8 +3453,7 @@ TEST(SceneShading, TheSunFollowsTheWorldAndNotTheTanksHeading) {
     const auto sim = facing_sim(UnitKind::AssaultTank);
     // Turned half a turn, the hull's RIGHT face now looks toward -x, so it is the lit one.
     const Scene turned = facing_scene(sim, protekt::math::kPi, 0.0F);
-    EXPECT_GT(tank_face_colour(turned, kHull, kRightFace)[2],
-              tank_face_colour(turned, kHull, kLeftFace)[2]);
+    EXPECT_GT(body_colour(turned, kHull, kRightFace)[2], body_colour(turned, kHull, kLeftFace)[2]);
 }
 
 TEST(SceneShading, ASelectedHullStillReadsAsTheHighlight) {
@@ -3407,8 +3463,8 @@ TEST(SceneShading, ASelectedHullStillReadsAsTheHighlight) {
     const Scene plain = protekt::game::build_scene(sim, o);
     const std::vector<protekt::sim::UnitId> chosen{viewer_of(sim).id};
     const Scene picked = protekt::game::build_scene(sim, o, chosen);
-    const auto before = tank_face_colour(plain, kHull, kTopFace);
-    const auto after = tank_face_colour(picked, kHull, kTopFace);
+    const auto before = body_colour(plain, kHull, kTopFace);
+    const auto after = body_colour(picked, kHull, kTopFace);
     // Brighter in every channel, and bluer-white: the mix toward white lifts red most.
     for (std::size_t i = 0; i < 3; ++i) {
         EXPECT_GT(after.at(i), before.at(i));
@@ -3424,60 +3480,61 @@ TEST(SceneShading, ASelectedHullStillReadsAsTheHighlight) {
 
 /// D2f: the hull takes only a PALE tint of the side colour, so its team camo tile dominates, and
 /// the turret keeps the full saturated side colour: the turret is the team-identity block.
-// The assault tank is a hand-built hull under a block: the block wears the same camo tile and pale
-// tint as the hull, and the team reads from two saturated accents: the roof panel and the barrel.
+// The assault tank is the tank's chassis under a block, all of it shape: the block wears the same
+// camo tile and pale tint as the hull, and the team reads from two saturated accents that are not
+// shape parts: the roof panel and the barrel.
 TEST(SceneShading, TheAssaultBlockWearsTheCamoAndTheRoofPanelAndBarrelCarryTheSideColour) {
     const auto sim = facing_sim(UnitKind::AssaultTank);
     const Scene scene = facing_scene(sim, 0.0F, 0.0F);
     const auto tail = scene.vertices.end() - static_cast<std::ptrdiff_t>(kAssaultTankVertices);
-    const auto first_of = [&](std::size_t prism) {
-        return *(tail + static_cast<std::ptrdiff_t>(prism * kPrismVertices));
-    };
+    const auto first_of
+        = [&](std::size_t first) { return *(tail + static_cast<std::ptrdiff_t>(first)); };
     // One pattern per tank: the block samples exactly the hull's camo tile.
-    EXPECT_EQ(first_of(kTurretPrism).u, first_of(kHull).u);
-    EXPECT_EQ(first_of(kTurretPrism).v, first_of(kHull).v);
+    EXPECT_EQ(first_of(kTurretBlock).u, first_of(kHull).u);
+    EXPECT_EQ(first_of(kTurretBlock).v, first_of(kHull).v);
     // Its colour is the hull's pale tint: the same light-free ratio on the top face.
-    const auto block_top = tank_face_colour(scene, kTurretPrism, kTopFace);
+    const auto block_top = body_colour(scene, kTurretBlock, kTopFace);
     const float block_light = block_top[2] / pale(0.85F);
     EXPECT_NEAR(block_top[0], pale(0.15F) * block_light, 1e-5F);
     EXPECT_NEAR(block_top[1], pale(0.35F) * block_light, 1e-5F);
     // The roof panel and the barrel are the side's own saturated blue.
-    for (const std::size_t part : {kRoofPanel, kBarrelPrism}) {
-        const auto top = tank_face_colour(scene, part, kTopFace);
+    for (const std::size_t part : {kRoofPanel, kBarrelPart}) {
+        const auto top = body_colour(scene, part, kBoxTopFace);
         const float light = top[2] / 0.85F;
-        EXPECT_NEAR(top[0], 0.15F * light, 1e-5F) << "prism " << part;
-        EXPECT_NEAR(top[1], 0.35F * light, 1e-5F) << "prism " << part;
+        EXPECT_NEAR(top[0], 0.15F * light, 1e-5F) << "part at " << part;
+        EXPECT_NEAR(top[1], 0.35F * light, 1e-5F) << "part at " << part;
     }
     const auto saturation = [](const std::array<float, 3>& c) {
         const float hi = std::max({c[0], c[1], c[2]});
         const float lo = std::min({c[0], c[1], c[2]});
         return (hi - lo) / hi;
     };
-    EXPECT_GT(saturation(tank_face_colour(scene, kRoofPanel, kTopFace)), 0.7F);
-    EXPECT_GT(saturation(tank_face_colour(scene, kBarrelPrism, kTopFace)), 0.7F);
-    EXPECT_LT(saturation(tank_face_colour(scene, kTurretPrism, kTopFace)), 0.15F);
+    EXPECT_GT(saturation(body_colour(scene, kRoofPanel, kBoxTopFace)), 0.7F);
+    EXPECT_GT(saturation(body_colour(scene, kBarrelPart, kBoxTopFace)), 0.7F);
+    EXPECT_LT(saturation(body_colour(scene, kTurretBlock, kTopFace)), 0.15F);
     // The panel sits on the block's roof, within it, and is big enough to read: over a quarter of
-    // the roof's area, with camo still showing either side of it.
-    const auto span = [&](std::size_t prism, std::size_t axis) {
+    // the roof's area, with camo still showing either side of it. The block is the 84 vertices at
+    // `kTurretBlock`, the panel the 36 at `kRoofPanel`.
+    const auto span = [&](std::size_t first, std::size_t count, std::size_t axis) {
         float lo = 1e9F;
         float hi = -1e9F;
-        for (std::size_t i = 0; i < kPrismVertices; ++i) {
-            const auto at = static_cast<std::ptrdiff_t>((prism * kPrismVertices) + i);
+        for (std::size_t i = 0; i < count; ++i) {
+            const auto at = static_cast<std::ptrdiff_t>(first + i);
             lo = std::min(lo, (tail + at)->position.at(axis));
             hi = std::max(hi, (tail + at)->position.at(axis));
         }
         return std::array<float, 2>{lo, hi};
     };
-    const auto extent = [&](std::size_t prism, std::size_t axis) {
-        const auto [lo, hi] = span(prism, axis);
+    const auto extent = [&](std::size_t first, std::size_t count, std::size_t axis) {
+        const auto [lo, hi] = span(first, count, axis);
         return hi - lo;
     };
-    EXPECT_NEAR(span(kRoofPanel, 1)[0], span(kTurretPrism, 1)[1], 1e-4F)
+    EXPECT_NEAR(span(kRoofPanel, 36, 1)[0], span(kTurretBlock, 84, 1)[1], 1e-4F)
         << "the panel stands on the roof";
-    const float panel_area = extent(kRoofPanel, 0) * extent(kRoofPanel, 2);
-    const float roof_area = extent(kTurretPrism, 0) * extent(kTurretPrism, 2);
+    const float panel_area = extent(kRoofPanel, 36, 0) * extent(kRoofPanel, 36, 2);
+    const float roof_area = extent(kTurretBlock, 84, 0) * extent(kTurretBlock, 84, 2);
     EXPECT_GT(panel_area, 0.25F * roof_area);
-    EXPECT_LT(extent(kRoofPanel, 0), extent(kTurretPrism, 0)) << "camo shows either side";
+    EXPECT_LT(extent(kRoofPanel, 36, 0), extent(kTurretBlock, 84, 0)) << "camo shows either side";
 }
 
 // The shape-built tank's accents, found from the END of its vertices, where nothing is a shape
@@ -3493,7 +3550,7 @@ TEST(SceneShading, TheShapeBuiltTanksPanelAndBarrelCarryTheSideColourAndItsBodyT
         return (hi - lo) / hi;
     };
     const auto top_of = [&](std::size_t first) { // the top face of a box: its fifth quad
-        return (tail + static_cast<std::ptrdiff_t>(first + (kTopFace * 6)))->colour;
+        return (tail + static_cast<std::ptrdiff_t>(first + kBoxTopFace))->colour;
     };
     EXPECT_GT(saturation(top_of(kTankVertices - 108)), 0.7F) << "the roof panel";
     EXPECT_GT(saturation(top_of(kTankVertices - 36)), 0.7F) << "the barrel";
@@ -5094,8 +5151,8 @@ TEST(ShapeRoles, EachRoleTakesItsTileOnEveryShapedVehicle) {
     const auto& atlas = protekt::game::atlas_manifest();
     const UvRect tracks = tile_rect(atlas.tile("tank_tracks"));
     const UvRect metal = tile_rect(atlas.tile("tank_turret"));
-    for (const UnitKind kind :
-         {UnitKind::Tank, UnitKind::HoverTank, UnitKind::Scout, UnitKind::MslScout}) {
+    for (const UnitKind kind : {UnitKind::Tank, UnitKind::HoverTank, UnitKind::Scout,
+                                UnitKind::MslScout, UnitKind::RocketTank, UnitKind::AssaultTank}) {
         const auto sim = sim_of({{Side::Player, kind, 100, 100}});
         const auto body = tank_only(sim, sim.units().at(0), {});
         const auto name = protekt::game::kTeamHullNames.at(static_cast<std::size_t>(Side::Player))
@@ -5528,14 +5585,17 @@ TEST(TurretModel, ADefenseTurretIsAPedestalAHousingAMuzzleCollarAndABarrel) {
 // new atlas tile. The mortar bike is a low wide box, a mount and a short stubby tube angled up with
 // a collar at its mouth (it lobs). The rocket tank is the tank's hull -- the same seven prisms,
 // byte for byte -- with a mount and a rectangular launcher rack where the turret and barrel would
-// be.
+// be. [Both have a shape of their own now: see `shape_of(UnitKind::RocketTank)`. The rocket tank is
+// still the assault tank's chassis, and the tests below say so.]
 
 constexpr std::size_t kMortarBase = 0;
 constexpr std::size_t kMortarMount = 36;
 constexpr std::size_t kMortarTube = 72;
 constexpr std::size_t kMortarCollar = 108;
-constexpr std::size_t kRocketTankHull = std::size_t{7} * 36U; ///< the tank's tracks .. fenders
-constexpr std::size_t kRocketTankRack = kRocketTankHull + 36U;
+constexpr std::size_t kRocketTankHull = kChassisVertices;      ///< the chassis: tracks .. fenders
+constexpr std::size_t kRocketTankRack = kRocketTankHull + 84U; ///< after the 84 of the mount
+constexpr std::size_t kRocketTankFender
+    = 2100; ///< the fender: after the hull, deck, grille, tracks, wheels
 
 TEST(MortarBikeModel, TheMortarBikeIsALowWideBoxAMountAStubbyTubeAndACollar) {
     const auto model = unit_box_of(UnitKind::MortarBike);
@@ -5571,14 +5631,15 @@ TEST(MortarBikeModel, TheTubeAndCollarCarryTheSideColourAndTheSidesDiffer) {
     EXPECT_NE(mine.at(kMortarBase).colour, mine.at(kMortarTube).colour);
 }
 
-TEST(RocketTankModel, TheRocketTankIsATanksHullWithAMountAndALauncherRack) {
+TEST(RocketTankModel, TheRocketTankIsATanksChassisWithAMountAndALauncherRack) {
     const auto rocket_tank = unit_box_of(UnitKind::RocketTank);
     ASSERT_EQ(rocket_tank.size(), protekt::game::kRocketTankVertices);
-    EXPECT_EQ(protekt::game::kRocketTankVertices, std::size_t{324}) << "nine prisms";
-    // The hull is the hand-built tank hull's, vertex for vertex: the same id at the same tile wears
-    // the same camo. The tank itself is derived from its shape now, and so is the scout that once
-    // wore the hand-built hull, so the hull to compare with is the assault tank's, which still
-    // does.
+    EXPECT_EQ(protekt::game::kRocketTankVertices, std::size_t{2580})
+        << "the shape's 2544 and the rack's panel; it was 324, nine prisms, before it had a shape";
+    EXPECT_EQ(shape_vertices(UnitKind::RocketTank), std::size_t{2544});
+    // The chassis is the assault tank's, vertex for vertex: the same id at the same tile wears the
+    // same camo, and the two kinds share one description of it. (It was the hand-built hull's,
+    // which both wore; the tank, the scout and the missile scout have shapes of their own.)
     const auto tank = unit_box_of(UnitKind::AssaultTank);
     for (std::size_t i = 0; i < kRocketTankHull; ++i) {
         ASSERT_EQ(rocket_tank.at(i).position, tank.at(i).position) << "vertex " << i;
@@ -5601,8 +5662,20 @@ TEST(RocketTankModel, TheRocketTankIsATanksHullWithAMountAndALauncherRack) {
     const float ground = protekt::game::ground_metres(42, unit.x, unit.y);
     EXPECT_LE(highest(rocket_tank, 0, rocket_tank.size()) - ground, 1.2F)
         << "under the bar's anchor";
-    EXPECT_NE(rocket_tank.at(kRocketTankRack).colour, rocket_tank.at(kRocketTankHull - 36U).colour)
-        << "the rack is the side-colour accent, the fender the pale camo";
+    // The panel is the last 36 vertices: the side-colour accent. The fender, in the chassis, is the
+    // pale camo.
+    EXPECT_NE(rocket_tank.at(protekt::game::kRocketTankVertices - 36U).colour,
+              rocket_tank.at(kRocketTankFender).colour)
+        << "the panel is the side-colour accent, the fender the pale camo";
+}
+
+TEST(AssaultTankModel, TheAssaultTankIsItsShapesPartsAndThenTheRoofPanelAndTheBarrel) {
+    const auto assault = unit_box_of(UnitKind::AssaultTank);
+    EXPECT_EQ(assault.size(), kAssaultTankVertices);
+    EXPECT_EQ(kAssaultTankVertices, std::size_t{2616})
+        << "the shape's 2508, the panel, the collar and the barrel; 396 before it had a shape";
+    EXPECT_EQ(protekt::game::kAssaultTankVertices, std::size_t{2616});
+    EXPECT_EQ(shape_vertices(UnitKind::AssaultTank), std::size_t{2508});
 }
 
 TEST(MortarBikeModel, AMortarBikeAndARocketTankInViewEachGetABarLikeATank) {

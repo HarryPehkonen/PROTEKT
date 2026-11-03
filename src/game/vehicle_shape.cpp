@@ -398,6 +398,118 @@ std::vector<ShapePart> author_msl_scout() {
     return parts;
 }
 
+/// The CHASSIS the rocket tank and the assault tank share, the tank's own: two track runs with five
+/// road wheels, the low hull whose front leans back in a glacis to the compartment roof and steps
+/// down aft to the engine deck with its dark grille, and a fender over each track with a dark line
+/// under it. 2.6 m of track, 1.2 m across the fenders. Each kind adds its own turret group on
+/// top, from `kTankTurretBase` (0.8 m) up.
+void add_tank_chassis(std::vector<ShapePart>& parts) {
+    constexpr float kHalfWidth = kHullHalfMetres;
+    constexpr float kTrackLo = kHalfWidth * 0.7F;
+    constexpr float kTrackHi = kHalfWidth * 0.93F;
+    constexpr float kTrackHeight = 0.4F;
+    constexpr float kTrackEnd = 1.3F;
+
+    // The hull between the tracks, painted FIRST so the wheels' cut rings clear it on the plate.
+    constexpr float kHullHalf = kTrackLo;
+    constexpr float kCompartmentTop = 0.85F;
+    constexpr float kEngineDeckTop = 0.62F;
+    add_part(parts,
+             {{-0.45F, 0.0F}, {1.2F, 0.0F}, {0.55F, kCompartmentTop}, {-0.45F, kCompartmentTop}},
+             -kHullHalf, kHullHalf, false, 0.03F, ShapeRole::Hull);
+    add_part(parts,
+             {{-1.2F, 0.0F}, {-0.4F, 0.0F}, {-0.4F, kEngineDeckTop}, {-1.2F, kEngineDeckTop}},
+             -kHullHalf, kHullHalf, false, 0.03F, ShapeRole::Hull);
+    // The grille on the deck, dark like the tracks and standing 3 cm proud of it.
+    add_part(parts,
+             {{-1.1F, kEngineDeckTop},
+              {-0.55F, kEngineDeckTop},
+              {-0.55F, kEngineDeckTop + 0.03F},
+              {-1.1F, kEngineDeckTop + 0.03F}},
+             -0.28F, 0.28F, false, 0.0F, ShapeRole::Track);
+
+    add_part(parts, stadium(-kTrackEnd, kTrackEnd, 0.0F, kTrackHeight, 4), kTrackLo, kTrackHi, true,
+             0.02F, ShapeRole::Track);
+
+    // Five road wheels: a dark ring cut into the run's face, a metal hub standing proud of it.
+    constexpr int kWheels = 5;
+    constexpr float kWheelFirst = -1.0F;
+    constexpr float kWheelPitch = 0.5F;
+    constexpr float kRingRadius = 0.13F;
+    constexpr float kHubRadius = 0.05F;
+    for (int i = 0; i < kWheels; ++i) {
+        const float cx = kWheelFirst + (kWheelPitch * static_cast<float>(i));
+        add_part(parts, ngon(cx, kTrackHeight * 0.5F, kRingRadius, 8), kTrackLo - 0.01F,
+                 kTrackHi + 0.01F, true, 0.0F, ShapeRole::Glass, false);
+    }
+    for (int i = 0; i < kWheels; ++i) {
+        const float cx = kWheelFirst + (kWheelPitch * static_cast<float>(i));
+        add_part(parts, ngon(cx, kTrackHeight * 0.5F, kHubRadius, 6), kTrackLo, kTrackHi + 0.02F,
+                 true, 0.0F, ShapeRole::Metal);
+    }
+
+    // The fenders over the tracks, a shelf wider than the run under it, and the dark line where
+    // each meets the run.
+    constexpr float kFenderLo = kHalfWidth * 0.65F;
+    constexpr float kFenderHi = kHalfWidth * 0.98F;
+    constexpr float kFenderBottom = 0.38F;
+    constexpr float kFenderTop = 0.44F;
+    add_part(
+        parts,
+        {{-1.2F, kFenderBottom}, {1.2F, kFenderBottom}, {1.2F, kFenderTop}, {-1.2F, kFenderTop}},
+        kFenderLo, kFenderHi, true, 0.015F, ShapeRole::Hull);
+    add_part(parts,
+             {{-1.15F, kFenderBottom - 0.025F},
+              {1.15F, kFenderBottom - 0.025F},
+              {1.15F, kFenderBottom + 0.015F},
+              {-1.15F, kFenderBottom + 0.015F}},
+             kFenderLo - 0.01F, kHalfWidth, true, 0.0F, ShapeRole::Glass, false);
+}
+
+/// THE ROCKET TANK'S SHAPE. The tank's chassis and, in the TURRET group where a gun would be, a
+/// low mount and a broad LAUNCHER RACK slanted up and forward, with a dark lane cut down its
+/// flank. No gun and no barrel anywhere. The rack is 0.84 m across and 1.3 m long on the slant,
+/// and its top, with the team-colour panel the builder lays on it, stays under the 1.2 m the
+/// health bar is anchored at.
+std::vector<ShapePart> author_rocket_tank() {
+    std::vector<ShapePart> parts;
+    add_tank_chassis(parts);
+    // The mount, 0.5 m long and 0.4 m across, sunk into the compartment roof.
+    add_part(parts,
+             {{-0.4F, kTankTurretBase}, {0.1F, kTankTurretBase}, {0.1F, 0.98F}, {-0.4F, 0.98F}},
+             -0.2F, 0.2F, false, 0.02F, ShapeRole::Hull, true, ShapeGroup::Turret);
+    // The rack: a parallelogram, its front 0.45 m forward of its rear over a 0.2 m rise.
+    add_part(parts,
+             {{-0.75F, 0.95F}, {0.1F, 0.95F}, {0.55F, kRocketRackTop}, {-0.3F, kRocketRackTop}},
+             -0.42F, 0.42F, false, 0.03F, ShapeRole::Metal, true, ShapeGroup::Turret);
+    add_part(parts, {{-0.4F, 1.0F}, {0.0F, 1.0F}, {0.225F, 1.1F}, {-0.175F, 1.1F}}, -0.43F, 0.43F,
+             false, 0.0F, ShapeRole::Glass, false, ShapeGroup::Turret);
+    return parts;
+}
+
+/// THE ASSAULT TANK'S SHAPE. The tank's chassis under a TALLER, WIDER turret block than the tank's:
+/// 1.2 m long, 1.0 m across and 0.7 m tall, with a plain flat roof and no bustle, and a commander's
+/// hatch low on the right of the roof. The BARREL is not here -- it elevates, and the weapon code
+/// owns it -- and neither is the team-colour panel on the roof; the mesh and the plate add them
+/// from the numbers in scene.hpp (`kAssaultTurretFront`, `kAssaultBarrelTip`, ...).
+std::vector<ShapePart> author_assault_tank() {
+    std::vector<ShapePart> parts;
+    add_tank_chassis(parts);
+    add_part(parts,
+             {{-0.7F, kTankTurretBase},
+              {kAssaultTurretFront, kTankTurretBase},
+              {kAssaultTurretFront, kAssaultTurretRoof},
+              {-0.7F, kAssaultTurretRoof}},
+             -0.5F, 0.5F, false, 0.04F, ShapeRole::Hull, true, ShapeGroup::Turret);
+    add_part(parts,
+             {{-0.55F, kAssaultTurretRoof},
+              {-0.25F, kAssaultTurretRoof},
+              {-0.28F, kAssaultTurretRoof + 0.08F},
+              {-0.52F, kAssaultTurretRoof + 0.08F}},
+             0.32F, 0.44F, false, 0.02F, ShapeRole::Metal, true, ShapeGroup::Turret);
+    return parts;
+}
+
 bool inside(const Profile& convex, float along, float up) {
     for (std::size_t i = 0, j = convex.size() - 1; i < convex.size(); j = i++) {
         const auto& a = convex.at(j);
@@ -417,6 +529,8 @@ const std::vector<ShapePart>& shape_of(sim::UnitKind kind) {
     static const std::vector<ShapePart> hover_tank = author_hover_tank();
     static const std::vector<ShapePart> scout = author_scout();
     static const std::vector<ShapePart> msl_scout = author_msl_scout();
+    static const std::vector<ShapePart> rocket_tank = author_rocket_tank();
+    static const std::vector<ShapePart> assault_tank = author_assault_tank();
     static const std::vector<ShapePart> none; // a kind with no authored shape has an empty one
     switch (kind) {
     case sim::UnitKind::Scavenger:
@@ -429,6 +543,10 @@ const std::vector<ShapePart>& shape_of(sim::UnitKind kind) {
         return scout;
     case sim::UnitKind::MslScout:
         return msl_scout;
+    case sim::UnitKind::RocketTank:
+        return rocket_tank;
+    case sim::UnitKind::AssaultTank:
+        return assault_tank;
     default:
         return none;
     }

@@ -683,9 +683,35 @@ inline constexpr std::size_t kRecyclerVertices = std::size_t{33} * 36U;
 /// angled up and the collar at its mouth, all three turned by `gun_yaw`.
 inline constexpr std::size_t kMortarBikeVertices = std::size_t{4} * 36U;
 
-/// A drawn rocket tank: the tank's seven hull prisms (tracks, compartment, engine deck, grille,
-/// fenders), then a mount and a rectangular launcher rack turned by `gun_yaw`.
-inline constexpr std::size_t kRocketTankVertices = std::size_t{9} * 36U;
+/// A drawn rocket tank: the parts of `shape_of(UnitKind::RocketTank)` (the tank's chassis, a mount,
+/// the launcher rack and the lane cut in it), then the team-colour panel on the rack. The shape is
+/// 2544 vertices (2340 of chassis); it was 324, nine prisms, before it was derived.
+inline constexpr std::size_t kRocketTankVertices = 2580;
+
+/// THE ROCKET TANK'S RACK, in metres over the hull's base: the top of the rack, which the shape
+/// (`vehicle_shape.cpp`) ends at and the panel lies on, so the number lives once, here. The panel
+/// stands `kRocketPanelThickness` on it, and the total stays under the health bar's 1.2 m anchor.
+inline constexpr float kRocketRackTop = 1.15F;
+inline constexpr float kRocketPanelThickness = 0.03F;
+
+/// A drawn assault tank: the parts of `shape_of(UnitKind::AssaultTank)` (the tank's chassis, the
+/// turret block and its hatch), then the roof panel, the muzzle collar and the barrel, which are
+/// not shape parts. The shape is 2508 vertices; the whole was 396, eleven prisms, before it was
+/// derived.
+inline constexpr std::size_t kAssaultTankVertices = 2616;
+
+/// THE ASSAULT TANK'S BLOCK AND BARREL, in metres: the block's roof (over the hull's base) and
+/// front face (along the aim from the tank's centre), where the shape ends and the panel and the
+/// barrel begin, and the barrel and its collar, which elevate and so are not parts, over the
+/// turret's base `kTankTurretBase`.
+inline constexpr float kAssaultTurretRoof = 1.5F;
+inline constexpr float kAssaultTurretFront = 0.5F;
+inline constexpr float kAssaultBarrelBottom = 0.3F;
+inline constexpr float kAssaultBarrelTop = 0.46F;
+inline constexpr float kAssaultCollarLength = 0.3F;
+inline constexpr float kAssaultCollarBottom = 0.26F;
+inline constexpr float kAssaultCollarTop = 0.5F;
+inline constexpr float kAssaultBarrelTip = 2.1F;
 
 /// A reticle is four ticks (up, down, left, right) and a centre dot, six vertices each, in a
 /// triangle list: the ticks first, the dot last. The centre between the ticks is open.

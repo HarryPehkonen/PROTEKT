@@ -202,7 +202,9 @@ tank is drawn and iconed from one authored shape too -- tracks with road wheels,
 and a turret group that turns with the turret while the plate shows it level -- with the barrel kept
 apart, since it elevates. The hover tank, the scout and the missile scout are drawn and iconed from
 one authored shape each too (the hover tank keeps its skirt and barrel apart, the scout carries no
-gun). Every other kind keeps its own recipe until it is converted.
+gun), and so are the rocket tank (the tank's chassis under a slanted launcher rack) and the assault tank
+(the same chassis under a taller, wider block, its barrel kept apart); the tank-hull recipe survives only
+under a defence turret the player drives. Every other kind keeps its own recipe until it is converted.
 
 ### The health ticks and the ship instrument
 

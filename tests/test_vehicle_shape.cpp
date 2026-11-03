@@ -2,10 +2,10 @@
 // from `shape_of(kind)`, so they cannot disagree. These tests pin each shape's size in metres and
 // then check that the plate and the mesh, measured SEPARATELY from what they emit, both say it.
 // Changing one number in `src/game/vehicle_shape.cpp` therefore moves the plate test and the mesh
-// test together. Six kinds are authored so far -- the scavenger, the tank, the hover tank, the
-// scout and the missile scout (the harvester shares the scavenger's kind and plate); every other
-// kind has no shape and keeps drawing what it always drew. Presentation only: the sim is never
-// touched.
+// test together. Seven kinds are authored so far -- the scavenger, the tank, the hover tank, the
+// scout, the missile scout, the rocket tank and the assault tank (the harvester shares the
+// scavenger's kind and plate); every other kind has no shape and keeps drawing what it always drew.
+// Presentation only: the sim is never touched.
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -61,6 +61,24 @@ constexpr float kScoutWidthMetres = 1.2F;
 constexpr float kScoutHeightMetres = 1.3F;     ///< the radar dish's top
 constexpr float kMslScoutHeightMetres = 1.24F; ///< the missile noses' tips
 constexpr float kMeshWasLongMetres = 3.312F;
+// The rocket tank's, measured before this slice on the hand-built body: a mesh 2.601 m long (-1.294
+// to 1.307), 1.201 m across and 1.195 m to the top of the rack, on a plate 58 cells wide by 52
+// high. Its shape is the tank's chassis (2.6 m of track, 1.2 m across the fenders) under a rack
+// that tops out at 1.15 m, with the 3 cm team-colour panel lying on it.
+constexpr float kRocketLengthMetres = 2.6F;
+constexpr float kRocketWidthMetres = 1.2F;
+constexpr float kRocketRackMetres = 1.15F; ///< the rack's top: the shape's highest point
+constexpr float kRocketTopMetres = 1.18F;  ///< and the panel on it: the mesh's
+constexpr float kRocketWasTopMetres = 1.195F;
+// The assault tank's, measured before on the hand-built body: a mesh 3.414 m long (-1.294 to the
+// barrel's tip at 2.120), 1.201 m across and 1.543 m to the top of the roof panel, on a plate 68
+// cells wide by 57 high. Its shape is the tank's chassis under a block 1.5 m to the roof and a
+// hatch to 1.58 m; the barrel (to 2.1 m) and the panel are not parts.
+constexpr float kAssaultLengthMetres = 3.4F; ///< the rear of the tracks (-1.3) to the barrel's tip
+constexpr float kAssaultWidthMetres = 1.2F;
+constexpr float kAssaultHeightMetres = 1.58F;  ///< the shape's highest point: the hatch
+constexpr float kAssaultTopMetres = 1.585F;    ///< measured on the mesh, the hatch's top
+constexpr float kAssaultWasTopMetres = 1.543F; ///< and what it was
 
 struct PlateBox {
     int first_col = std::numeric_limits<int>::max();
@@ -221,14 +239,18 @@ void expect_parts_convex_with_room(UnitKind kind) {
 
 // ------------------------------------------------------------------------- the mechanism
 
+/// The kinds that have an authored shape.
+constexpr std::array<UnitKind, 7> kShaped{
+    UnitKind::Scavenger, UnitKind::Tank,       UnitKind::HoverTank,  UnitKind::Scout,
+    UnitKind::MslScout,  UnitKind::RocketTank, UnitKind::AssaultTank};
+
 TEST(VehicleShape, AKindWithNoShapeHasNoneAndIsNeverAnotherKindsShape) {
     // `shape_of` says "not converted" with an EMPTY list, and nothing about the other queries can
     // turn it into a silhouette: no coverage, no extent. Callers test `.empty()` to keep their own
     // recipe, so an unconverted kind keeps drawing exactly what it drew.
     std::size_t authored = 0;
     for (const UnitKind kind : every_kind()) {
-        if (kind == UnitKind::Scavenger || kind == UnitKind::Tank || kind == UnitKind::HoverTank
-            || kind == UnitKind::Scout || kind == UnitKind::MslScout) {
+        if (std::find(kShaped.begin(), kShaped.end(), kind) != kShaped.end()) {
             EXPECT_FALSE(shape_of(kind).empty());
             ++authored;
             continue;
@@ -240,35 +262,65 @@ TEST(VehicleShape, AKindWithNoShapeHasNoneAndIsNeverAnotherKindsShape) {
         EXPECT_EQ(extent.up_max, 0.0F);
         EXPECT_EQ(extent.across_max, 0.0F);
     }
-    EXPECT_EQ(authored, std::size_t{5})
-        << "the scavenger, tank, hover tank, scout and missile scout";
-    const std::array<UnitKind, 5> shaped{UnitKind::Scavenger, UnitKind::Tank, UnitKind::HoverTank,
-                                         UnitKind::Scout, UnitKind::MslScout};
-    for (std::size_t a = 0; a < shaped.size(); ++a) {
-        for (std::size_t b = a + 1; b < shaped.size(); ++b) {
-            EXPECT_NE(&shape_of(shaped.at(a)), &shape_of(shaped.at(b))) << a << " and " << b;
+    EXPECT_EQ(authored, std::size_t{7}) << "the scavenger, tank, hover tank, scout, missile scout, "
+                                           "rocket tank and assault tank";
+    for (std::size_t a = 0; a < kShaped.size(); ++a) {
+        for (std::size_t b = a + 1; b < kShaped.size(); ++b) {
+            EXPECT_NE(&shape_of(kShaped.at(a)), &shape_of(kShaped.at(b))) << a << " and " << b;
         }
     }
 }
 
 TEST(VehicleShape, ThePlateOfAnUnconvertedKindIsStillItsOwnDrawing) {
-    // The assault tank and the rocket tank have no shape: their plates are not the tank's
-    // projection, and are still the hand-drawn recipes.
-    EXPECT_NE(&kind_icon(UnitKind::AssaultTank), &kind_icon(UnitKind::Tank));
-    EXPECT_NE(kind_icon(UnitKind::AssaultTank), kind_icon(UnitKind::Tank));
-    EXPECT_NE(kind_icon(UnitKind::RocketTank), kind_icon(UnitKind::Tank));
+    // The mortar bike, the walker, the APC and the bomber have no shape: their plates are
+    // hand-drawn recipes, none of them the projection of any shaped kind's parts.
+    for (const UnitKind kind :
+         {UnitKind::MortarBike, UnitKind::Walker, UnitKind::Apc, UnitKind::Bomber}) {
+        EXPECT_TRUE(shape_of(kind).empty()) << "kind " << static_cast<int>(kind);
+        for (const UnitKind shaped : kShaped) {
+            EXPECT_NE(&kind_icon(kind), &kind_icon(shaped));
+            EXPECT_NE(kind_icon(kind), kind_icon(shaped))
+                << static_cast<int>(kind) << " and " << static_cast<int>(shaped);
+        }
+    }
 }
 
 TEST(VehicleShape, TheShapedVehiclesAllHaveDifferentPlates) {
-    // The scout and the missile scout were the tank's body and each had a plate of its own; now
-    // each is its own shape, and no two of the five shaped vehicles draw the same picture.
-    const std::array<UnitKind, 4> vehicles{UnitKind::Tank, UnitKind::HoverTank, UnitKind::Scout,
-                                           UnitKind::MslScout};
+    // No two of the six shaped vehicles draw the same picture.
+    const std::array<UnitKind, 6> vehicles{UnitKind::Tank,       UnitKind::HoverTank,
+                                           UnitKind::Scout,      UnitKind::MslScout,
+                                           UnitKind::RocketTank, UnitKind::AssaultTank};
     for (std::size_t a = 0; a < vehicles.size(); ++a) {
         for (std::size_t b = a + 1; b < vehicles.size(); ++b) {
             EXPECT_NE(kind_icon(vehicles.at(a)), kind_icon(vehicles.at(b))) << a << " and " << b;
         }
     }
+}
+
+TEST(VehicleShape, EveryShapedPlateThatStandsOnTheGroundStandsOnTheHandDrawnOnesLine) {
+    // The row's icons stand on one line, `kIconGround`: the hand-drawn walker's feet are on it, and
+    // so is every shaped plate whose shape starts at the ground (up_min 0). The hover tank's does
+    // not, deliberately: its air gap is that silhouette's one hover cue, so it keeps the baseline
+    // it was authored with and is not asserted here.
+    EXPECT_EQ(plate_box(kind_icon(UnitKind::Walker)).last_row, static_cast<int>(kIconGround))
+        << "the hand-drawn baseline";
+    std::size_t grounded = 0;
+    for (const UnitKind kind : kShaped) {
+        float lowest = kInfinity;
+        for (const ShapePart& part : shape_of(kind)) {
+            for (const auto& corner : part.profile) {
+                lowest = part.lit ? std::min(lowest, corner[1]) : lowest;
+            }
+        }
+        if (lowest > 0.01F) {
+            EXPECT_EQ(kind, UnitKind::HoverTank) << "only the hover tank rides above the ground";
+            continue;
+        }
+        ++grounded;
+        EXPECT_EQ(plate_box(kind_icon(kind)).last_row, static_cast<int>(kIconGround))
+            << "kind " << static_cast<int>(kind);
+    }
+    EXPECT_EQ(grounded, std::size_t{6}) << "every shaped kind but the hover tank";
 }
 
 // ------------------------------------------------------------------------- the scavenger
@@ -357,12 +409,16 @@ TEST(TankFromShape, EveryPartIsConvexAndHasRoomForItsBevel) {
 
 TEST(TankFromShape, ThePlateIsTheShapeSeenSideOnPlusItsBarrel) {
     const PlateBox box = plate_box(kind_icon(UnitKind::Tank));
-    // The plate holds the hull's rear and the barrel's tip, one cell in from each edge.
+    // The plate holds the hull's rear and the barrel's tip, one cell in from each edge. Fitted by
+    // length with a one-cell margin each side: 70 cells for the 3.3 m from the rear of the tracks
+    // to the muzzle collar's end, exactly, not within a cell or two.
+    EXPECT_EQ(box.width(), 70) << "cells, rear of the tracks to the barrel's tip (3.3 m)";
+    EXPECT_EQ(box.first_col, 1);
+    EXPECT_EQ(box.last_col, 70);
     const float reach = kTankBarrelTip - shape_extent(UnitKind::Tank).along_min;
-    EXPECT_GE(box.width(), static_cast<int>(kIconCells) - 4);
-    EXPECT_LE(box.width(), static_cast<int>(kIconCells) - 2);
     const float scale = static_cast<float>(box.width()) / reach;
     EXPECT_NEAR(static_cast<float>(box.height()), kTankHeightMetres * scale, 1.5F);
+    EXPECT_NEAR(static_cast<float>(box.height()), 28.0F, 1.0F) << "cells, 1.3 m at 21.2 per metre";
     EXPECT_EQ(box.last_row, static_cast<int>(kIconGround)) << "the tracks stand on the ground line";
 }
 
@@ -791,6 +847,212 @@ TEST(MslScoutFromShape, TheRackIsTheTurretGroupAndTurnsWithTheTurret) {
     }
     EXPECT_EQ(turret_parts, std::size_t{6}) << "the rack, its two slits and three noses";
     expect_turret_group_is_real(UnitKind::MslScout, 1200, 150); // measured: 1677 and 258
+}
+
+// ------------------------------------------------------------------------- the rocket tank
+
+TEST(RocketTankFromShape, TheShapeIsAsLargeInMetresAsItWasAuthored) {
+    const ShapeExtent extent = shape_extent(UnitKind::RocketTank);
+    EXPECT_NEAR(extent.along_max - extent.along_min, kRocketLengthMetres, 0.005F)
+        << "metres, the tracks' rear to their front";
+    EXPECT_NEAR(extent.up_max, kRocketRackMetres, 0.005F) << "metres, the rack's top";
+    EXPECT_NEAR(2.0F * extent.across_max, kRocketWidthMetres, 0.005F)
+        << "metres, across the fenders";
+}
+
+TEST(RocketTankFromShape, EveryPartIsConvexAndHasRoomForItsBevel) {
+    expect_parts_convex_with_room(UnitKind::RocketTank);
+}
+
+TEST(RocketTankFromShape, ThePlateIsTheShapeSeenSideOn) {
+    const PlateBox box = plate_box(kind_icon(UnitKind::RocketTank));
+    // Fitted by length with a one-cell margin each side: the 2.6 m of track is 70 cells exactly.
+    EXPECT_EQ(box.width(), 70) << "cells, the tracks' rear to their front (2.6 m)";
+    EXPECT_EQ(box.first_col, 1);
+    EXPECT_EQ(box.last_col, 70);
+    // 1.15 m, the rack's top, at 26.9 cells to the metre: 31 rows, resting on the ground line.
+    EXPECT_EQ(box.height(), 31) << "cells, the ground to the rack's top (1.15 m)";
+    EXPECT_EQ(box.last_row, static_cast<int>(kIconGround)) << "the tracks stand on the ground line";
+}
+
+TEST(RocketTankFromShape, TheMeshIsTheShapeInMetres) {
+    const MeshBox mesh = mesh_of(UnitKind::RocketTank);
+    ASSERT_GT(mesh.vertices, 0U);
+    EXPECT_NEAR(mesh.along(), kRocketLengthMetres, 0.04F) << "metres, the tracks' length";
+    EXPECT_NEAR(mesh.high.at(2), 1.3F, 0.04F) << "metres, the tracks' front";
+    EXPECT_NEAR(mesh.low.at(2), -1.3F, 0.04F) << "metres, the tracks' rear";
+    EXPECT_NEAR(mesh.high.at(1), kRocketTopMetres, 0.04F) << "metres, the panel on the rack";
+    EXPECT_NEAR(mesh.across(), kRocketWidthMetres, 0.04F) << "metres";
+}
+
+TEST(RocketTankFromShape, ItIsAsBigAsTheHandBuiltOneWas) {
+    // Measured before it had a shape: 2.601 m long, 1.201 m across, 1.195 m high. The shape changes
+    // how it is described, not how big it is; only the plate grew, because a shaped plate is fitted
+    // to the box (70 cells, it was 58).
+    const MeshBox mesh = mesh_of(UnitKind::RocketTank);
+    EXPECT_NEAR(mesh.along(), 2.601F, 0.04F) << "metres";
+    EXPECT_NEAR(mesh.across(), 1.201F, 0.04F) << "metres";
+    EXPECT_NEAR(mesh.high.at(1), kRocketWasTopMetres, 0.04F) << "metres, and under the bar's 1.2";
+    EXPECT_LT(mesh.high.at(1), 1.2F) << "metres, the health bar's anchor";
+}
+
+TEST(RocketTankFromShape, ThePlateAndTheMeshAreTheSameMachine) {
+    const PlateBox plate = plate_box(kind_icon(UnitKind::RocketTank));
+    const MeshBox mesh = mesh_of(UnitKind::RocketTank);
+    const float plate_ratio
+        = static_cast<float>(plate.height()) / static_cast<float>(plate.width());
+    EXPECT_NEAR(plate_ratio, mesh.high.at(1) / mesh.along(), 0.02F);
+}
+
+TEST(RocketTankFromShape, TheMeshHasDepthAndIsNotACutOut) {
+    const MeshBox mesh = mesh_of(UnitKind::RocketTank);
+    EXPECT_GT(mesh.across(), 1.0F);
+    EXPECT_GE(mesh.layers.size(), std::size_t{30}) << "distinct lateral positions, in centimetres";
+    EXPECT_GT(mesh.vertices, std::size_t{1000}) << "a cut-out is a few dozen";
+    for (const ShapePart& part : shape_of(UnitKind::RocketTank)) {
+        if (part.lit && part.role == ShapeRole::Hull) {
+            EXPECT_GT(part.bevel, 0.0F) << "a body part with a square edge";
+        }
+    }
+}
+
+TEST(RocketTankFromShape, TheRackIsTheTurretGroupSlantedAndCutAndThereIsNoGun) {
+    // Whatever stands on the turret's base is the turret group: the mount and the rack, with the
+    // lane cut in it. The rack climbs towards the front and ends well inside the tracks.
+    std::size_t turret_parts = 0;
+    for (const ShapePart& part : shape_of(UnitKind::RocketTank)) {
+        turret_parts += part.group == ShapeGroup::Turret ? 1U : 0U;
+    }
+    EXPECT_EQ(turret_parts, std::size_t{3}) << "the mount, the rack, the lane";
+    EXPECT_FALSE(shape_covers(UnitKind::RocketTank, -0.6F, 1.1F)) << "the rack's rear is low";
+    EXPECT_TRUE(shape_covers(UnitKind::RocketTank, -0.6F, 0.97F)) << "its rear is 0.95 m up";
+    EXPECT_TRUE(shape_covers(UnitKind::RocketTank, 0.4F, 1.1F)) << "and its front reaches 1.15 m";
+    EXPECT_FALSE(shape_covers(UnitKind::RocketTank, 0.4F, 0.97F))
+        << "slanted: open under the front";
+    EXPECT_FALSE(shape_covers(UnitKind::RocketTank, 0.8F, 1.0F))
+        << "ends 0.55 m ahead of the centre";
+    EXPECT_FALSE(shape_covers(UnitKind::RocketTank, -0.1F, 1.05F))
+        << "the lane is cut in its flank";
+    EXPECT_TRUE(shape_covers(UnitKind::RocketTank, -0.1F, 1.13F)) << "with rack above it";
+    expect_turret_group_is_real(UnitKind::RocketTank, 2000, 150); // measured: 2124 and 198;
+}
+
+// ------------------------------------------------------------------------- the assault tank
+
+TEST(AssaultTankFromShape, TheShapeIsAsLargeInMetresAsItWasAuthored) {
+    const ShapeExtent extent = shape_extent(UnitKind::AssaultTank);
+    EXPECT_NEAR(extent.along_max - extent.along_min, kRocketLengthMetres, 0.005F)
+        << "metres, the tracks' rear to their front";
+    EXPECT_NEAR(extent.up_max, kAssaultHeightMetres, 0.005F) << "metres, the hatch's top";
+    EXPECT_NEAR(2.0F * extent.across_max, kAssaultWidthMetres, 0.005F)
+        << "metres, across the fenders";
+}
+
+TEST(AssaultTankFromShape, EveryPartIsConvexAndHasRoomForItsBevel) {
+    expect_parts_convex_with_room(UnitKind::AssaultTank);
+}
+
+TEST(AssaultTankFromShape, ThePlateIsTheShapeSeenSideOnPlusItsBarrel) {
+    const PlateBox box = plate_box(kind_icon(UnitKind::AssaultTank));
+    // Fitted by length with a one-cell margin each side: the rear of the tracks to the collar's end
+    // is 3.4 m, 70 cells exactly.
+    EXPECT_EQ(box.width(), 70) << "cells, rear of the tracks to the barrel's tip (3.4 m)";
+    EXPECT_EQ(box.first_col, 1);
+    EXPECT_EQ(box.last_col, 70);
+    // 1.58 m, the hatch's top, at 20.6 cells to the metre: 33 rows, resting on the ground line.
+    EXPECT_EQ(box.height(), 33) << "cells, the ground to the hatch's top (1.58 m)";
+    EXPECT_EQ(box.last_row, static_cast<int>(kIconGround)) << "the tracks stand on the ground line";
+}
+
+TEST(AssaultTankFromShape, TheMeshIsTheShapeInMetres) {
+    const MeshBox mesh = mesh_of(UnitKind::AssaultTank);
+    ASSERT_GT(mesh.vertices, 0U);
+    // The body is the shape; the barrel, which is not a part of it, runs on to 2.1 m.
+    EXPECT_NEAR(mesh.along(), kAssaultLengthMetres, 0.04F) << "metres, tracks' rear to barrel tip";
+    EXPECT_NEAR(mesh.high.at(2), 2.1F, 0.04F) << "metres, the barrel's tip";
+    EXPECT_NEAR(mesh.low.at(2), -1.3F, 0.04F) << "metres, the tracks' rear";
+    EXPECT_NEAR(mesh.high.at(1), kAssaultTopMetres, 0.04F) << "metres, the hatch";
+    EXPECT_NEAR(mesh.across(), kAssaultWidthMetres, 0.04F) << "metres";
+}
+
+TEST(AssaultTankFromShape, ItIsAsBigAsTheHandBuiltOneWas) {
+    // Measured before it had a shape: 3.414 m long, 1.201 m across, 1.543 m high. The shape changes
+    // how it is described, not how big it is: the one difference is the commander's hatch, 4 cm
+    // over the old top. The plate changed more: it was a 68 by 57 cell slab, taller than the mesh
+    // it stood for, and is now the mesh's own proportions, 70 by 33.
+    const MeshBox mesh = mesh_of(UnitKind::AssaultTank);
+    EXPECT_NEAR(mesh.along(), 3.414F, 0.04F) << "metres";
+    EXPECT_NEAR(mesh.across(), 1.201F, 0.04F) << "metres";
+    EXPECT_NEAR(mesh.high.at(1), kAssaultWasTopMetres, 0.05F) << "metres";
+}
+
+TEST(AssaultTankFromShape, ThePlateAndTheMeshAreTheSameMachine) {
+    const PlateBox plate = plate_box(kind_icon(UnitKind::AssaultTank));
+    const MeshBox mesh = mesh_of(UnitKind::AssaultTank);
+    const float plate_ratio
+        = static_cast<float>(plate.height()) / static_cast<float>(plate.width());
+    EXPECT_NEAR(plate_ratio, mesh.high.at(1) / mesh.along(), 0.02F);
+}
+
+TEST(AssaultTankFromShape, TheBarrelIsOnThePlateAndNotInTheShape) {
+    const ShapeExtent extent = shape_extent(UnitKind::AssaultTank);
+    EXPECT_FALSE(shape_covers(UnitKind::AssaultTank, 1.9F, 1.2F)) << "the barrel is not a part";
+    EXPECT_NEAR(extent.along_max, 1.3F, 0.005F) << "metres: the shape ends at the tracks' front";
+    // The plate's last lit column is the muzzle collar, 0.8 m past the tracks' front.
+    const IconMask& mask = kind_icon(UnitKind::AssaultTank);
+    const PlateBox box = plate_box(mask);
+    bool muzzle = false;
+    for (std::size_t row = 0; row < kIconCells; ++row) {
+        muzzle = muzzle || mask.at(row).at(static_cast<std::size_t>(box.last_col)) == '#';
+    }
+    EXPECT_TRUE(muzzle);
+    const float cells_per_metre = 70.0F / 3.4F;
+    const int tracks_front = 1 + static_cast<int>(2.6F * cells_per_metre);
+    EXPECT_GT(box.last_col, tracks_front + 10) << "the barrel reaches well past the tracks";
+}
+
+TEST(AssaultTankFromShape, TheMeshHasDepthAndIsNotACutOut) {
+    const MeshBox mesh = mesh_of(UnitKind::AssaultTank);
+    EXPECT_GT(mesh.across(), 1.0F);
+    EXPECT_GE(mesh.layers.size(), std::size_t{35}) << "distinct lateral positions, in centimetres";
+    EXPECT_GT(mesh.vertices, std::size_t{1000}) << "a cut-out is a few dozen";
+    for (const ShapePart& part : shape_of(UnitKind::AssaultTank)) {
+        if (part.lit && part.role == ShapeRole::Hull) {
+            EXPECT_GT(part.bevel, 0.0F) << "a body part with a square edge";
+        }
+    }
+}
+
+TEST(AssaultTankFromShape, TheBlockIsTallerAndWiderThanTheTanksTurretAndHasNoBustle) {
+    // The tank's turret housing is 0.72 m across and 0.4 m tall with a bustle behind it; the
+    // assault tank's block is 1.0 m across and 0.7 m tall, and nothing sticks out of its rear.
+    float block_half = 0.0F;
+    float block_height = 0.0F;
+    float rearmost = 0.0F;
+    for (const ShapePart& part : shape_of(UnitKind::AssaultTank)) {
+        if (part.group == ShapeGroup::Turret && part.role == ShapeRole::Hull) {
+            float lo = kInfinity;
+            float hi = -kInfinity;
+            float back = kInfinity;
+            for (const auto& corner : part.profile) {
+                lo = std::min(lo, corner[1]);
+                hi = std::max(hi, corner[1]);
+                back = std::min(back, corner[0]);
+            }
+            block_half = part.across_hi;
+            block_height = hi - lo;
+            rearmost = back;
+        }
+    }
+    EXPECT_NEAR(block_half, 0.5F, 0.005F) << "metres, half the block's width (the tank's is 0.36)";
+    EXPECT_NEAR(block_height, 0.7F, 0.005F) << "metres (the tank's is 0.4)";
+    EXPECT_NEAR(rearmost, -0.7F, 0.005F) << "metres: it ends there, with no bustle behind it";
+    std::size_t turret_parts = 0;
+    for (const ShapePart& part : shape_of(UnitKind::AssaultTank)) {
+        turret_parts += part.group == ShapeGroup::Turret ? 1U : 0U;
+    }
+    EXPECT_EQ(turret_parts, std::size_t{2}) << "the block and the hatch";
+    expect_turret_group_is_real(UnitKind::AssaultTank, 2000, 150); // measured: 2104 and 211;
 }
 
 } // namespace
