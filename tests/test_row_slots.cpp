@@ -1369,7 +1369,7 @@ TEST(RowBatch, TwoBatchesSitOnTwoKeysAndNeitherKeyMixesThem) {
 
 TEST(KindIcon, EveryKindAVehicleKeyCanHoldHasItsOwnMask) {
     const std::vector<UnitKind> kinds = vehicle_kinds();
-    ASSERT_EQ(kinds.size(), 13U) << "the kinds a key holds, less the two buildings";
+    ASSERT_EQ(kinds.size(), 17U) << "the kinds a key holds, less the two buildings";
     for (std::size_t i = 0; i < kinds.size(); ++i) {
         const IconMask& mask = kind_icon(kinds.at(i));
         EXPECT_NE(&mask, &fallback_icon()) << kind_label(kinds.at(i)) << " fell back";

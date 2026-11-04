@@ -710,6 +710,104 @@ std::vector<ShapePart> author_bomber() {
     return parts;
 }
 
+/// A wheel on both flanks, as the scout's and the APC's: a dark tyre, a clear ring and a metal hub.
+/// It stands on the ground line at `along`.
+void add_wheel(std::vector<ShapePart>& parts, float along, float radius) {
+    add_part(parts, ngon(along, radius, radius, 12), 0.4F, 0.58F, true, 0.02F, ShapeRole::Track);
+    add_part(parts, ngon(along, radius, radius * 0.57F, 8), 0.39F, 0.59F, true, 0.0F,
+             ShapeRole::Glass, false);
+    add_part(parts, ngon(along, radius, radius * 0.23F, 6), 0.4F, 0.6F, true, 0.0F,
+             ShapeRole::Metal);
+}
+
+/// THE TUG'S SHAPE. The machine seen from its right-hand side, front at the right: a short, low
+/// wheeled tractor, 2.4 m long and 0.9 m across, with a cab over its front axle and a tow hitch
+/// standing out behind. Nothing on it aims, so every part is Hull.
+std::vector<ShapePart> author_tug() {
+    std::vector<ShapePart> parts;
+    add_part(parts, {{-1.2F, 0.3F}, {1.1F, 0.3F}, {1.1F, 0.62F}, {-1.2F, 0.62F}}, -0.45F, 0.45F,
+             false, 0.04F, ShapeRole::Hull);
+    add_part(parts, {{0.1F, 0.62F}, {0.95F, 0.62F}, {0.85F, 1.1F}, {0.2F, 1.1F}}, -0.4F, 0.4F,
+             false, 0.04F, ShapeRole::Hull);
+    // The cab's glass, wrapped through both flanks.
+    add_part(parts, {{0.3F, 0.8F}, {0.8F, 0.8F}, {0.78F, 1.0F}, {0.32F, 1.0F}}, -0.41F, 0.41F,
+             false, 0.0F, ShapeRole::Glass, false);
+    // The tow hitch: a bare metal bar, 12 cm across, reaching 25 cm behind the chassis.
+    add_part(parts, {{-1.45F, 0.4F}, {-1.2F, 0.4F}, {-1.2F, 0.55F}, {-1.45F, 0.55F}}, -0.06F, 0.06F,
+             false, 0.01F, ShapeRole::Metal);
+    for (const float along : {-0.7F, 0.6F}) {
+        add_wheel(parts, along, 0.3F);
+    }
+    return parts;
+}
+
+/// THE CONSTRUCTOR'S SHAPE. The machine seen from its right-hand side, front at the right: the
+/// scavenger's tracked pods under a flat deck, a cab at the front with a raked windscreen, and a
+/// slim CRANE BOOM rising from the deck behind the cab and leaning forward. It raises nothing yet:
+/// the buildings a constructor places need a placement feature that does not exist.
+std::vector<ShapePart> author_constructor() {
+    std::vector<ShapePart> parts;
+    add_part(parts, stadium(-1.25F, 1.25F, 0.0F, 0.45F, 6), 0.36F, 0.6F, true, 0.04F,
+             ShapeRole::Track);
+    add_part(parts, {{-1.2F, 0.4F}, {1.15F, 0.4F}, {1.15F, 0.75F}, {-1.2F, 0.75F}}, -0.4F, 0.4F,
+             false, 0.04F, ShapeRole::Hull);
+    add_part(parts, {{0.3F, 0.75F}, {1.15F, 0.75F}, {1.15F, 1.1F}, {0.9F, 1.3F}, {0.3F, 1.3F}},
+             -0.4F, 0.4F, false, 0.04F, ShapeRole::Hull);
+    add_part(parts, {{0.7F, 0.95F}, {1.1F, 0.95F}, {0.95F, 1.2F}, {0.7F, 1.2F}}, -0.41F, 0.41F,
+             false, 0.0F, ShapeRole::Glass, false);
+    // The boom, 12 cm across, from the deck's rear to a tip 1.4 m up.
+    add_part(parts, {{-1.0F, 0.75F}, {-0.8F, 0.75F}, {0.1F, 1.4F}, {-0.1F, 1.4F}}, -0.06F, 0.06F,
+             false, 0.01F, ShapeRole::Metal);
+    return parts;
+}
+
+/// THE SERVICE TRUCK'S SHAPE. The machine seen from its right-hand side, front at the right: a
+/// 2.9 m box truck on three axles, its cab raked at the front and its box carrying a CROSS cut
+/// through both flanks, the sign of a repair vehicle. It repairs nothing yet.
+std::vector<ShapePart> author_service_truck() {
+    std::vector<ShapePart> parts;
+    add_part(parts, {{-1.5F, 0.3F}, {1.4F, 0.3F}, {1.4F, 0.6F}, {-1.5F, 0.6F}}, -0.46F, 0.46F,
+             false, 0.04F, ShapeRole::Hull);
+    add_part(parts, {{0.7F, 0.6F}, {1.4F, 0.6F}, {1.4F, 0.85F}, {1.1F, 1.2F}, {0.7F, 1.2F}}, -0.44F,
+             0.44F, false, 0.04F, ShapeRole::Hull);
+    add_part(parts, {{0.95F, 0.85F}, {1.38F, 0.85F}, {1.15F, 1.12F}, {0.95F, 1.12F}}, -0.45F, 0.45F,
+             false, 0.0F, ShapeRole::Glass, false);
+    add_part(parts, {{-1.45F, 0.6F}, {0.6F, 0.6F}, {0.6F, 1.2F}, {-1.45F, 1.2F}}, -0.46F, 0.46F,
+             false, 0.04F, ShapeRole::Hull);
+    // The cross, two bars 8 cm wide.
+    add_part(parts, {{-0.75F, 0.72F}, {-0.65F, 0.72F}, {-0.65F, 1.08F}, {-0.75F, 1.08F}}, -0.47F,
+             0.47F, false, 0.0F, ShapeRole::Glass, false);
+    add_part(parts, {{-0.93F, 0.86F}, {-0.47F, 0.86F}, {-0.47F, 0.94F}, {-0.93F, 0.94F}}, -0.47F,
+             0.47F, false, 0.0F, ShapeRole::Glass, false);
+    for (const float along : {-1.0F, -0.4F, 1.05F}) {
+        add_wheel(parts, along, 0.3F);
+    }
+    return parts;
+}
+
+/// THE SERVICE POD'S SHAPE. The machine seen from its right-hand side, front at the right: a small
+/// rounded capsule, 1.6 m long and 0.8 m across, with a canopy cut through both flanks, standing on
+/// two skids. The smallest hull in the game. It repairs nothing yet.
+std::vector<ShapePart> author_service_pod() {
+    std::vector<ShapePart> parts;
+    add_part(parts, stadium(-0.8F, 0.8F, 0.25F, 0.85F, 5), -0.4F, 0.4F, false, 0.05F,
+             ShapeRole::Hull);
+    add_part(parts, {{0.1F, 0.5F}, {0.65F, 0.5F}, {0.55F, 0.72F}, {0.1F, 0.72F}}, -0.41F, 0.41F,
+             false, 0.0F, ShapeRole::Glass, false);
+    // Two skids 10 cm across, 8 cm thick, each on a strut from the hull.
+    add_part(parts, {{-0.7F, 0.0F}, {0.7F, 0.0F}, {0.7F, 0.08F}, {-0.7F, 0.08F}}, 0.25F, 0.35F,
+             true, 0.01F, ShapeRole::Track);
+    for (const float along : {-0.4F, 0.4F}) {
+        add_part(parts,
+                 {{along - 0.05F, 0.08F},
+                  {along + 0.05F, 0.08F},
+                  {along + 0.05F, 0.28F},
+                  {along - 0.05F, 0.28F}},
+                 0.25F, 0.35F, true, 0.01F, ShapeRole::Metal);
+    }
+    return parts;
+}
+
 /// THE DEFENCE TURRET'S SHAPE, shared by the Turret and the DeployedTurret it becomes. The machine
 /// seen from its right-hand side, front at the right: no wheel and no track anywhere. In the Hull
 /// group, turned by the heading, a FLARED BASE standing on the ground and a PEDESTAL on it, 1.1 m
@@ -770,6 +868,10 @@ const std::vector<ShapePart>& shape_of(sim::UnitKind kind) {
     static const std::vector<ShapePart> apc = author_apc();
     static const std::vector<ShapePart> bomber = author_bomber();
     static const std::vector<ShapePart> turret = author_turret();
+    static const std::vector<ShapePart> tug = author_tug();
+    static const std::vector<ShapePart> constructor = author_constructor();
+    static const std::vector<ShapePart> service_truck = author_service_truck();
+    static const std::vector<ShapePart> service_pod = author_service_pod();
     static const std::vector<ShapePart> none; // a kind with no authored shape has an empty one
     switch (kind) {
     case sim::UnitKind::Scavenger:
@@ -797,6 +899,14 @@ const std::vector<ShapePart>& shape_of(sim::UnitKind kind) {
     case sim::UnitKind::Turret:
     case sim::UnitKind::DeployedTurret: // the same machine: it only becomes deployed
         return turret;
+    case sim::UnitKind::Tug:
+        return tug;
+    case sim::UnitKind::Constructor:
+        return constructor;
+    case sim::UnitKind::ServiceTruck:
+        return service_truck;
+    case sim::UnitKind::ServicePod:
+        return service_pod;
     default:
         return none;
     }

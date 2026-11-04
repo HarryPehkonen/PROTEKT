@@ -295,11 +295,12 @@ void expect_parts_convex_with_room(UnitKind kind) {
 // ------------------------------------------------------------------------- the mechanism
 
 /// The kinds that have an authored shape.
-constexpr std::array<UnitKind, 13> kShaped{
-    UnitKind::Scavenger,     UnitKind::Tank,       UnitKind::HoverTank,   UnitKind::Scout,
-    UnitKind::MslScout,      UnitKind::RocketTank, UnitKind::AssaultTank, UnitKind::MortarBike,
-    UnitKind::Walker,        UnitKind::Apc,        UnitKind::Bomber,      UnitKind::Turret,
-    UnitKind::DeployedTurret};
+constexpr std::array<UnitKind, 17> kShaped{
+    UnitKind::Scavenger,      UnitKind::Tank,       UnitKind::HoverTank,   UnitKind::Scout,
+    UnitKind::MslScout,       UnitKind::RocketTank, UnitKind::AssaultTank, UnitKind::MortarBike,
+    UnitKind::Walker,         UnitKind::Apc,        UnitKind::Bomber,      UnitKind::Turret,
+    UnitKind::DeployedTurret, UnitKind::Tug,        UnitKind::Constructor, UnitKind::ServiceTruck,
+    UnitKind::ServicePod};
 
 TEST(VehicleShape, AKindWithNoShapeHasNoneAndIsNeverAnotherKindsShape) {
     // `shape_of` says "not converted" with an EMPTY list, and nothing about the other queries can
@@ -319,10 +320,11 @@ TEST(VehicleShape, AKindWithNoShapeHasNoneAndIsNeverAnotherKindsShape) {
         EXPECT_EQ(extent.up_max, 0.0F);
         EXPECT_EQ(extent.across_max, 0.0F);
     }
-    EXPECT_EQ(authored, std::size_t{13})
+    EXPECT_EQ(authored, std::size_t{17})
         << "the scavenger, tank, hover tank, scout, missile scout, rocket tank, assault tank, "
-           "mortar bike, walker, APC, bomber, turret and deployed turret";
-    // Twelve machines, twelve shapes: the deployed turret is the turret's own shape and plate.
+           "mortar bike, walker, APC, bomber, turret, deployed turret, tug, constructor, service "
+           "truck and service pod";
+    // Sixteen machines, sixteen shapes: the deployed turret is the turret's own shape and plate.
     for (std::size_t a = 0; a < kShaped.size(); ++a) {
         for (std::size_t b = a + 1; b < kShaped.size(); ++b) {
             if (kShaped.at(a) == UnitKind::Turret && kShaped.at(b) == UnitKind::DeployedTurret) {
@@ -381,7 +383,7 @@ TEST(VehicleShape, EveryShapedPlateThatStandsOnTheGroundStandsOnTheHandDrawnOnes
         EXPECT_EQ(plate_box(kind_icon(kind)).last_row, static_cast<int>(kIconGround))
             << "kind " << static_cast<int>(kind);
     }
-    EXPECT_EQ(grounded, std::size_t{12}) << "every shaped kind but the hover tank";
+    EXPECT_EQ(grounded, std::size_t{16}) << "every shaped kind but the hover tank";
 }
 
 // ------------------------------------------------------------------------- the scavenger

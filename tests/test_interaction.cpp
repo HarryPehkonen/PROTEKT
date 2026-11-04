@@ -1928,8 +1928,10 @@ TEST(Interaction, ElevenShiftPressesInOneFrameStillMakeTenOrders) {
 }
 
 TEST(Interaction, ABuildRowThatNamesNoKindOrdersNothing) {
-    // Row 4 is the Hauler, which no UnitKind is yet: the key is drawn and does not act.
+    // The ALIEN recycler's row 4 is the Hauler, which no UnitKind is yet (the human list's Tug is
+    // one): the key is drawn and does not act.
     BuildRig rig = make_build_rig();
+    rig.options.factions.player = game::Faction::Alien;
     EXPECT_TRUE(press(rig, 4, false).empty());
     EXPECT_TRUE(press(rig, 4, true).empty());
     EXPECT_EQ(rig.sim.find(rig.producer)->queue.count, 0U);

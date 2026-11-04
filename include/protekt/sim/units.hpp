@@ -84,9 +84,23 @@ enum class UnitKind : std::uint8_t {
     /// it to a plain `Turret`. The scavenger's permanence exists for the capacity it grants; a
     /// turret grants none, so the two rules are different on purpose. Appended after
     /// DeployedScavenger so that no recorded value moves.
-    DeployedTurret = 16
+    DeployedTurret = 16,
+    /// The four support vehicles the human recycler's list names (build rows 4 to 7). Each is
+    /// appended after DeployedTurret, in the list's key order and never inserted, for the reason
+    /// every kind above was: the kind is hashed, packed into observations and serialised in
+    /// replays, so a value moved would move every recorded number. All four are UNARMED (`range`
+    /// zero) and move, like the scavenger, so each is selectable, takes an F key and can be driven.
+    /// The Tug hauls; its towing is not built yet.
+    Tug = 17,
+    /// Raises the buildings a recycler cannot. It is buildable and driveable and does NOT place
+    /// buildings: that needs a placement feature that does not exist yet.
+    Constructor = 18,
+    /// The repair vehicle. Repair is not built yet: it is a driveable hull for now.
+    ServiceTruck = 19,
+    /// The small, cheap repair craft. Repair is not built yet either.
+    ServicePod = 20
 };
-inline constexpr int kUnitKindCount = 17;
+inline constexpr int kUnitKindCount = 21;
 
 /// Tanks and hover tanks: every rule written "for a tank" (orders, retreat, defend, swap, the AI's
 /// hunters) takes both. The hover tank has the tank's profile and, until it is drivable, its

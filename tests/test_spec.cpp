@@ -202,7 +202,7 @@ TEST(SpecFactoryKinds, TheBomberDropsTheMortarsLobbedShellWithAOneAndAHalfTileSp
     const UnitSpec& s = spec_of(UnitKind::Bomber);
     const UnitSpec& mortar = spec_of(UnitKind::MortarBike);
     EXPECT_EQ(s.hp, 75);
-    EXPECT_EQ(s.max_speed.raw, 13107 * 3 / 4);
+    EXPECT_EQ(s.max_speed.raw, 26214) << "twice the tank's 13107: the fastest vehicle";
     EXPECT_EQ(s.range.raw, 14 << 16);
     EXPECT_EQ(s.damage, 16);
     EXPECT_EQ(s.cooldown, 45);
@@ -252,10 +252,16 @@ TEST(SpecFactoryKinds, EveryFactoryKindIsQueueableAndTheUnpricedOnesAreNot) {
                                 UnitKind::Apc, UnitKind::Bomber, UnitKind::MslScout}) {
         EXPECT_TRUE(is_queueable(kind)) << spec_of(kind).name;
     }
-    // The scavenger keeps its own 20/300 row; the rest have no price and are not buildable.
-    EXPECT_TRUE(is_queueable(UnitKind::Scavenger));
-    for (const UnitKind kind : {UnitKind::Factory, UnitKind::DeployedRecycler, UnitKind::Recycler,
-                                UnitKind::Turret, UnitKind::HoverTank}) {
+    // The scavenger keeps its own 20/300 row, and the recycler's list adds the turret and the four
+    // support vehicles; the rest have no price and are not buildable.
+    for (const UnitKind kind :
+         {UnitKind::Scavenger, UnitKind::Turret, UnitKind::Tug, UnitKind::Constructor,
+          UnitKind::ServiceTruck, UnitKind::ServicePod}) {
+        EXPECT_TRUE(is_queueable(kind)) << spec_of(kind).name;
+    }
+    for (const UnitKind kind :
+         {UnitKind::Factory, UnitKind::DeployedRecycler, UnitKind::Recycler,
+          UnitKind::DeployedTurret, UnitKind::DeployedScavenger, UnitKind::HoverTank}) {
         EXPECT_FALSE(is_queueable(kind)) << spec_of(kind).name;
     }
 }
@@ -280,6 +286,61 @@ TEST(SpecScavenger, ItHasTheTanksOwnHullAndTakesTwentyFiveScoutShotsToKill) {
     EXPECT_EQ(spec_of(UnitKind::Scavenger).range.raw, 0) << "still unarmed";
     EXPECT_EQ(spec_of(UnitKind::Scavenger).cost, 20);
     EXPECT_EQ(spec_of(UnitKind::Scavenger).build_ticks, 300);
+}
+
+// HARRI'S VEHICLE IDENTITIES (2026-11-03): "The bomber is the fastest-moving vehicle in the game.
+// Next, much slower, but still quite fast, is the mortar bike. It has next to no shields. Walkers
+// are the slowest ... very thick armour. Rocket tanks move fairly slowly, but not as slowly as
+// walkers." The ranking is the claim; the numbers below are written out, not read from a constant.
+TEST(SpecIdentity, SpeedRanksBomberThenMortarBikeThenRocketTankThenWalker) {
+    const std::int32_t bomber = spec_of(UnitKind::Bomber).max_speed.raw;
+    const std::int32_t bike = spec_of(UnitKind::MortarBike).max_speed.raw;
+    const std::int32_t rocket = spec_of(UnitKind::RocketTank).max_speed.raw;
+    const std::int32_t walker = spec_of(UnitKind::Walker).max_speed.raw;
+    EXPECT_GT(bomber, bike);
+    EXPECT_GT(bike, rocket);
+    EXPECT_GT(rocket, walker);
+    // "Much slower" than the bomber: the bike makes at most four fifths of its speed.
+    EXPECT_LE(bike * 5, bomber * 4);
+    // The tank is 13107 raw (0.2 tiles a tick); each rank in tank-speed terms.
+    EXPECT_EQ(bomber, 26214);
+    EXPECT_EQ(bike, 16383);
+    EXPECT_EQ(rocket, 9830);
+    EXPECT_EQ(walker, 6553);
+}
+
+TEST(SpecIdentity, TheBomberIsTheFastestKindInTheGame) {
+    const std::int32_t bomber = spec_of(UnitKind::Bomber).max_speed.raw;
+    for (int i = 0; i < kUnitKindCount; ++i) {
+        const UnitKind kind = static_cast<UnitKind>(i);
+        if (kind != UnitKind::Bomber) {
+            EXPECT_GT(bomber, spec_of(kind).max_speed.raw) << spec_of(kind).name;
+        }
+    }
+}
+
+TEST(SpecIdentity, TheWalkerIsTheSlowestVehicleBarTheCrawlingTurret) {
+    const std::int32_t walker = spec_of(UnitKind::Walker).max_speed.raw;
+    for (int i = 0; i < kUnitKindCount; ++i) {
+        const UnitKind kind = static_cast<UnitKind>(i);
+        const std::int32_t speed = spec_of(kind).max_speed.raw;
+        if (speed == 0 || kind == UnitKind::Walker || kind == UnitKind::Turret) {
+            continue; // a building never moves; the turret is a deployable weapon that crawls
+        }
+        EXPECT_GT(speed, walker) << spec_of(kind).name;
+    }
+}
+
+TEST(SpecIdentity, ArmourRanksWalkerThenRocketTankThenMortarBike) {
+    const std::uint16_t walker = spec_of(UnitKind::Walker).hp;
+    const std::uint16_t rocket = spec_of(UnitKind::RocketTank).hp;
+    const std::uint16_t bike = spec_of(UnitKind::MortarBike).hp;
+    EXPECT_GT(walker, rocket);
+    EXPECT_GT(rocket, bike);
+    EXPECT_GE(walker, bike * 4) << "the walker's armour is not merely more, it is far more";
+    EXPECT_EQ(walker, 200);
+    EXPECT_EQ(rocket, 100);
+    EXPECT_EQ(bike, 40);
 }
 
 } // namespace

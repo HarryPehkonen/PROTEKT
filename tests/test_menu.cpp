@@ -398,7 +398,7 @@ TEST(Menu, ABuildRowDrawsItsCostAndDimsWhenItIsUnaffordable) {
 TEST(Menu, ABuildRowThatNamesAKindDrawsTheScrapTheSimWillCharge) {
     // The row and the queue must be one number, not two that agree today: a row that says 45 while
     // the sim charges 50 would leave the player with a queue that pauses on a price he was never
-    // shown. A row with no kind (the Tug and the rest) has no sim price to disagree with.
+    // shown. A row with no kind (the alien Hauler and the rest) has no sim price to disagree with.
     for (const Faction faction : {Faction::Human, Faction::Alien}) {
         int with_kind = 0;
         for (const BuildItem& item : build_items(faction, MenuSubject::Deployment)) {
@@ -408,13 +408,16 @@ TEST(Menu, ABuildRowThatNamesAKindDrawsTheScrapTheSimWillCharge) {
                 EXPECT_GT(sim::spec_of(*item.kind).build_ticks, 0) << item.label;
             }
         }
-        EXPECT_EQ(with_kind, 2) << "the miner and the scout; the turret is a name row";
+        // The human list names a kind on every row; the alien list still names two (the harvester
+        // and the scout), its other five being name rows until Harri rules their prices.
+        EXPECT_EQ(with_kind, faction == Faction::Human ? 7 : 2);
         const std::span<const BuildItem> items = build_items(faction, MenuSubject::Deployment);
         ASSERT_EQ(items.size(), 7U);
         EXPECT_EQ(items[0].kind, sim::UnitKind::Scavenger);
         EXPECT_EQ(items[1].kind, sim::UnitKind::Scout);
-        EXPECT_FALSE(items[2].kind.has_value()) << "a turret needs structure placement";
-        EXPECT_FALSE(items[3].kind.has_value()) << "no UnitKind is the hauler or the tug yet";
+        EXPECT_EQ(items[2].kind.has_value(), faction == Faction::Human);
+        EXPECT_EQ(items[3].kind.has_value(), faction == Faction::Human)
+            << "the human Tug is a kind; the alien Hauler is not yet";
     }
 }
 

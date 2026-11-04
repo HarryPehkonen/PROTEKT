@@ -1582,6 +1582,28 @@ void build_bomber(std::vector<SceneVertex>& out, std::uint64_t seed, const sim::
                                atlas.rect("tank_turret")});
 }
 
+/// THE FOUR SUPPORT VEHICLES (the tug, the constructor, the service truck and the service pod),
+/// ONE builder for all of them: each is built from `shape_of(kind)` and from nothing else, the one
+/// description its plate is also projected from, so this function holds no number about what any
+/// of them looks like. Turned by `heading` alone; nothing on them aims.
+void build_support_vehicle(std::vector<SceneVertex>& out, std::uint64_t seed, const sim::Unit& unit,
+                           Mark mark, float lift_z, bool lifted, float heading) {
+    const float x
+        = static_cast<float>(unit.x.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile;
+    const float z
+        = static_cast<float>(unit.y.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile;
+    const float ground = lifted ? lift_z : ground_metres(seed, unit.x, unit.y);
+    const AtlasManifest& atlas = atlas_manifest();
+    const UvRect hull_tile
+        = atlas.rect(kTeamHullNames.at(static_cast<std::size_t>(unit.side))
+                         .at(static_cast<std::size_t>(hull_variant(seed, unit.id.value))));
+
+    const auto [colour, camo_colour] = kind_colours(unit, mark);
+    emit_shape_parts(out, x, z, ground, heading, heading, shape_of(unit.kind),
+                     ShapeLook{colour, camo_colour, hull_tile, atlas.rect("tank_tracks"),
+                               atlas.rect("tank_turret")});
+}
+
 /// A DEFENCE TURRET, driven or not -- ONE builder for both paths, so its mesh cannot depend on
 /// whether a player is at the controls. It is built from `shape_of(UnitKind::Turret)` (the
 /// DeployedTurret's too), the one description its plate is also projected from: the base and the
@@ -5069,6 +5091,11 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
                           turret);
             } else if (unit.kind == sim::UnitKind::Bomber) {
                 build_bomber(scene.vertices, options.seed, unit, mark, lift_z, hovering, heading);
+            } else if (unit.kind == sim::UnitKind::Tug || unit.kind == sim::UnitKind::Constructor
+                       || unit.kind == sim::UnitKind::ServiceTruck
+                       || unit.kind == sim::UnitKind::ServicePod) {
+                build_support_vehicle(scene.vertices, options.seed, unit, mark, lift_z, hovering,
+                                      heading);
             } else if (sim::is_turret(unit.kind)) {
                 // Before the tank branch below: a driven turret is FACED too, and it is built by
                 // the SAME function as one nobody drives -- the player's pitch reaches the barrel

@@ -366,7 +366,13 @@ TEST(Observer, RenamingTheSupportVehiclesMovedNoRecordedBattle) {
     // skirmish's columns meet and jostle, so positions and the battle change. Old value
     // 3416926680840922879 is the code at 5cf57ed; no constant restores it, because the behaviour
     // itself changed.
-    EXPECT_EQ(log.final_hash, 16363647735023481582ULL);
+    // RE-RECORDED 2026-11-03 for the vehicle identities (Harri's ruling on speed and armour): the
+    // skirmish fields a mortar bike and a rocket tank a side, whose speeds (and the bike's hp)
+    // changed, so they arrive and fight differently. Old value 16363647735023481582 is the code at
+    // 12f8b42; it is restored exactly by putting the mortar bike's row back to 75 hp and half the
+    // tank's speed and the rocket tank's to the tank's speed. Adding the four support kinds on
+    // their own moved NO recorded value: that was checked by running the suite before this change.
+    EXPECT_EQ(log.final_hash, 14972474625954707253ULL);
 }
 
 TEST(Observer, TheFiredStreamForAScriptedBattleIsUnchanged) {
@@ -405,25 +411,30 @@ TEST(Observer, TheFiredStreamForAScriptedBattleIsUnchanged) {
     // is pushed aside at the pusher's half speed, so units meeting on the way to the fight arrive
     // at different ticks. The first five shots (ticks 438-453) are unchanged; from the sixth the
     // battle is a different one, and it has 71 shots (was 70). Old stream: the code at 5cf57ed.
+    // RE-RECORDED 2026-11-03 for the vehicle identities: the skirmish fields a mortar bike and a
+    // rocket tank a side, and the bike is now thin (75 -> 40 hp) and quick (half the tank's speed
+    // -> 5/4), the rocket tank slower (the tank's speed -> 3/4), so they reach the fight at
+    // different ticks and the whole stream differs from the first shot (tick 430, was 438). It has
+    // 71 shots, as before. Old stream: the code at 12f8b42.
     static const std::vector<Expected> kExpected = {
-        {438, 2, 13, 100}, {438, 13, 2, 100}, {451, 12, 2, 100}, {453, 2, 12, 100},
-        {453, 13, 2, 100}, {458, 3, 13, 84},  {460, 15, 2, 84},  {466, 1, 13, 84},
-        {466, 12, 2, 84},  {468, 2, 12, 92},  {468, 13, 2, 84},  {472, 4, 13, 84},
-        {473, 3, 12, 92},  {475, 15, 2, 68},  {481, 1, 13, 84},  {481, 12, 2, 68},
-        {483, 2, 13, 76},  {483, 13, 2, 68},  {487, 4, 13, 76},  {487, 14, 2, 60},
-        {488, 3, 13, 76},  {490, 15, 2, 44},  {496, 1, 13, 68},  {496, 12, 2, 44},
-        {498, 2, 13, 68},  {498, 13, 2, 44},  {502, 4, 13, 68},  {502, 14, 2, 44},
-        {503, 3, 13, 60},  {505, 15, 2, 28},  {511, 1, 13, 60},  {511, 12, 2, 28},
-        {513, 2, 13, 60},  {513, 13, 2, 28},  {514, 9, 13, 60},  {517, 4, 13, 60},
-        {517, 14, 2, 28},  {518, 3, 13, 52},  {520, 15, 2, 12},  {526, 1, 13, 52},
-        {526, 12, 2, 12},  {528, 2, 13, 52},  {528, 13, 2, 12},  {532, 4, 13, 52},
-        {532, 14, 2, 12},  {533, 3, 13, 44},  {535, 15, 3, 20},  {541, 1, 13, 44},
-        {541, 12, 3, 20},  {543, 13, 3, 20},  {547, 4, 13, 44},  {547, 14, 3, 20},
-        {548, 3, 13, 36},  {550, 15, 3, 4},   {556, 1, 13, 28},  {556, 12, 3, 4},
-        {558, 13, 3, 4},   {562, 4, 13, 28},  {562, 14, 3, 4},   {565, 15, 1, 100},
-        {571, 1, 13, 4},   {571, 12, 1, 100}, {573, 13, 1, 100}, {577, 4, 12, 28},
-        {577, 14, 1, 100}, {580, 15, 1, 100}, {586, 1, 12, 20},  {586, 12, 1, 100},
-        {589, 9, 12, 20},  {592, 4, 12, 20},  {592, 14, 1, 100},
+        {430, 19, 2, 100}, {435, 2, 13, 100}, {435, 13, 2, 100}, {441, 8, 13, 100},
+        {447, 3, 13, 100}, {448, 4, 13, 100}, {449, 12, 2, 84},  {450, 2, 13, 100},
+        {450, 13, 2, 76},  {462, 3, 13, 84},  {463, 4, 13, 84},  {464, 12, 2, 68},
+        {464, 15, 2, 68},  {465, 2, 13, 76},  {465, 13, 2, 60},  {468, 1, 13, 68},
+        {475, 19, 2, 52},  {477, 3, 13, 60},  {478, 4, 13, 60},  {479, 12, 2, 52},
+        {479, 15, 2, 52},  {480, 2, 13, 60},  {480, 13, 2, 44},  {483, 1, 13, 52},
+        {486, 8, 13, 44},  {492, 3, 13, 36},  {493, 4, 13, 36},  {494, 12, 2, 28},
+        {494, 15, 2, 28},  {495, 2, 13, 36},  {495, 13, 2, 20},  {498, 1, 13, 28},
+        {499, 14, 3, 68},  {507, 3, 13, 4},   {508, 4, 13, 4},   {509, 12, 3, 60},
+        {509, 15, 3, 60},  {513, 1, 15, 60},  {514, 14, 3, 60},  {520, 19, 4, 52},
+        {522, 3, 15, 52},  {523, 4, 15, 52},  {524, 12, 1, 68},  {524, 15, 1, 68},
+        {528, 1, 15, 36},  {529, 14, 4, 52},  {531, 8, 15, 36},  {537, 3, 15, 36},
+        {538, 4, 15, 36},  {539, 12, 1, 68},  {539, 15, 1, 68},  {543, 1, 14, 92},
+        {544, 14, 4, 52},  {552, 3, 14, 92},  {553, 4, 14, 92},  {554, 12, 1, 68},
+        {554, 15, 1, 68},  {558, 1, 14, 92},  {559, 14, 4, 44},  {565, 19, 4, 28},
+        {567, 3, 14, 92},  {568, 4, 14, 92},  {569, 12, 1, 52},  {573, 1, 14, 92},
+        {574, 14, 4, 20},  {583, 4, 14, 76},  {584, 12, 1, 44},  {588, 1, 14, 76},
+        {589, 14, 4, 12},  {598, 4, 14, 60},  {599, 12, 1, 36},
     };
     const Scenario scenario = skirmish(42);
     ai::ScriptedCommander player(30);

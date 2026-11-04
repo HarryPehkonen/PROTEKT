@@ -99,22 +99,19 @@ constexpr std::array kDeploymentRows{
     return BuildItem{key, label, sim::spec_of(kind).cost, kind};
 }
 
-/// The HUMAN recycler's build list, in key order: Harri's own list, verbatim. The two rows that
-/// name a kind the sim has (the Scavenger and the Scout) take their cost from the spec table, so
-/// the number drawn is the number the queue charges; the rest keep his literal cost and name no
-/// kind. The Scavenger is the SAME `UnitKind` the alien list calls a Harvester (Harri's ruling: the
-/// faction names the machine, the sim keeps one kind).
+/// The HUMAN recycler's build list, in key order: Harri's own list, verbatim. Every row names a
+/// kind and takes its cost from the spec table, so the number drawn is the number the queue
+/// charges. The Scavenger is the SAME `UnitKind` the alien list calls a Harvester (Harri's ruling:
+/// the faction names the machine, the sim keeps one kind).
 constexpr std::array kHumanBuildList{
     kinded("1", "Scavenger", sim::UnitKind::Scavenger),
     kinded("2", "Scout", sim::UnitKind::Scout),
-    // A NAME row for now, not a buildable one: a turret is a structure, and making it buildable
-    // needs a structure-placement feature that does not exist yet. A row that named a kind would
-    // queue something the sim cannot place, so it names none and its key does nothing.
-    BuildItem{"3", "Turret", 40, std::nullopt},
-    BuildItem{"4", "Tug", 45, std::nullopt},
-    BuildItem{"5", "Constructor", 40, std::nullopt},
-    BuildItem{"6", "Service Truck", 50, std::nullopt},
-    BuildItem{"7", "Service Pod", 2, std::nullopt},
+    // The turret is a vehicle until it deploys, so row 3 queues the kind that already exists.
+    kinded("3", "Turret", sim::UnitKind::Turret),
+    kinded("4", "Tug", sim::UnitKind::Tug),
+    kinded("5", "Constructor", sim::UnitKind::Constructor),
+    kinded("6", "Service Truck", sim::UnitKind::ServiceTruck),
+    kinded("7", "Service Pod", sim::UnitKind::ServicePod),
 };
 
 /// The ALIEN recycler's build list, in key order: the names and costs the reference capture showed
@@ -257,6 +254,10 @@ MenuSubject menu_subject_of_kind(sim::UnitKind kind) noexcept {
     case sim::UnitKind::Apc:
     case sim::UnitKind::Bomber:
     case sim::UnitKind::MslScout:
+    case sim::UnitKind::Tug:
+    case sim::UnitKind::Constructor:
+    case sim::UnitKind::ServiceTruck:
+    case sim::UnitKind::ServicePod:
         return MenuSubject::Vehicle;
     }
     return MenuSubject::None;

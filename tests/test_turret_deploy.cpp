@@ -111,7 +111,7 @@ TEST(TurretDeploy, TheScavengerDeploysInFiveSecondsAndTheRecyclerStaysAtTen) {
 TEST(TurretDeploy, TheNewKindIsAppendedAndNoValueMoved) {
     EXPECT_EQ(static_cast<int>(UnitKind::DeployedScavenger), 15);
     EXPECT_EQ(static_cast<int>(UnitKind::DeployedTurret), 16);
-    EXPECT_EQ(protekt::sim::kUnitKindCount, 17);
+    EXPECT_EQ(protekt::sim::kUnitKindCount, 21); // the recycler list's four came after
     EXPECT_EQ(static_cast<int>(Stance::Recycle), 9);
     EXPECT_EQ(static_cast<int>(Stance::Undeploy), 10);
     EXPECT_EQ(static_cast<int>(Stance::Defend), 11);

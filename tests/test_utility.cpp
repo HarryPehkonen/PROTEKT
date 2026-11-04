@@ -15,6 +15,7 @@
 #include "protekt/sim/projectile.hpp"
 #include "protekt/sim/scenario.hpp"
 #include "protekt/sim/sim.hpp"
+#include "protekt/sim/spec.hpp"
 
 namespace protekt::ai {
 namespace {
@@ -849,6 +850,7 @@ TEST(UtilityRole, AMortarBikeWalksUpToItsRangeInTheSimAndThenStopsMoving) {
     sim::Fixed held_x{};
     sim::Fixed held_y{};
     int held_ticks = 0;
+    bool withdrew = false;
     for (int tick = 0; tick < 1500 && world.find(target)->alive; ++tick) {
         std::vector<sim::Order> orders;
         commander.think(sim::observe(world, Side::Player), orders);
@@ -856,12 +858,16 @@ TEST(UtilityRole, AMortarBikeWalksUpToItsRangeInTheSimAndThenStopsMoving) {
             world.enqueue(order);
         }
         world.step();
+        withdrew = withdrew || world.find(mortar_bike)->hp <= UtilityTuning{}.retreat_hp;
         if (first_inside < 0 && distance() <= 14) {
             first_inside = tick;
         } else if (first_inside >= 0 && tick == first_inside + 20) { // one decision cycle later
             held_x = world.find(mortar_bike)->x;
             held_y = world.find(mortar_bike)->y;
-        } else if (first_inside >= 0 && tick > first_inside + 20 && world.find(target)->alive) {
+        } else if (first_inside >= 0 && tick > first_inside + 20 && world.find(target)->alive
+                   && !withdrew) {
+            // Held until it withdraws: the bike's hull is thin (40), and the tank's return fire
+            // takes it to the retreat line, where going home is the right thing to do.
             ++held_ticks;
             EXPECT_EQ(world.find(mortar_bike)->x.raw, held_x.raw) << "tick " << tick;
             EXPECT_EQ(world.find(mortar_bike)->y.raw, held_y.raw) << "tick " << tick;
@@ -932,7 +938,10 @@ TEST(UtilityRole, AHurtMortarBikeAndAHurtRocketTankBothWithdrawToTheirFactory) {
         EXPECT_EQ(d.intent, Intent::Retreat) << static_cast<int>(kind);
         EXPECT_EQ(d.x, 100);
         EXPECT_EQ(d.y, 20);
-        const sim::UnitView healing = unit(kTank, kind, Side::Player, 100, 22, 60);
+        // Wounded but above the retreat line, below the top-up: capped by the kind's own hull, as
+        // the mortar bike's is 40 and 60 would be more than it can hold.
+        const int wounded = std::min(60, sim::spec_of(kind).hp - 10);
+        const sim::UnitView healing = unit(kTank, kind, Side::Player, 100, 22, wounded);
         EXPECT_EQ(decide(healing, war(healing, {}), UtilityTuning{}).intent, Intent::Retreat)
             << "and stays to heal";
     }

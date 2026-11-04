@@ -937,7 +937,7 @@ TEST(BuildQueue, AnOrderThatNamesNothingBuildableOrNoProducerIsRefused) {
     Sim sim = Sim::create(queue_battle(0));
     const UnitId factory = factory_of(sim);
     const UnitId hauler = sim.units().at(1).id;
-    sim.enqueue(build(factory, UnitKind::Turret)); // no cost, no time: not buildable
+    sim.enqueue(build(factory, UnitKind::HoverTank)); // no cost, no time: not buildable
     sim.enqueue(build(factory, UnitKind::Factory));
     sim.enqueue(build(hauler, UnitKind::Scavenger)); // a hauler is not a producer
     sim.enqueue(build(factory, static_cast<UnitKind>(sim::kUnitKindCount)));   // not a kind at all

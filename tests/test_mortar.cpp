@@ -74,8 +74,8 @@ TEST(MortarBike, SpecRowIsPinnedToExactIntegers) {
     const UnitSpec& s = spec_of(UnitKind::MortarBike);
     EXPECT_EQ(static_cast<int>(UnitKind::MortarBike), 4);
     EXPECT_STREQ(s.name, "mortarbike");
-    EXPECT_EQ(s.hp, 75);
-    EXPECT_EQ(s.max_speed.raw, 6553);
+    EXPECT_EQ(s.hp, 40) << "next to no shields (Harri, 2026-11-03)";
+    EXPECT_EQ(s.max_speed.raw, 16383) << "fast: 5/4 of the tank's 13107";
     EXPECT_EQ(s.range.raw, 14 * kTile);
     EXPECT_EQ(s.damage, 16);
     EXPECT_EQ(s.cooldown, 45);
@@ -97,7 +97,7 @@ TEST(RocketTank, SpecRowIsPinnedToExactIntegers) {
     EXPECT_EQ(static_cast<int>(UnitKind::RocketTank), 5);
     EXPECT_STREQ(s.name, "rockettank");
     EXPECT_EQ(s.hp, 100);
-    EXPECT_EQ(s.max_speed.raw, 13107);
+    EXPECT_EQ(s.max_speed.raw, 9830) << "fairly slow: 3/4 of the tank's 13107";
     EXPECT_EQ(s.range.raw, 15 * kTile);
     EXPECT_EQ(s.damage, 24);
     EXPECT_EQ(s.cooldown, 75);
@@ -297,7 +297,7 @@ TEST(Mortar, SplashHurtsAFriendlyInTheRadiusToo) {
     fly(units, impacts);
     EXPECT_EQ(units[1].hp, 84);
     EXPECT_EQ(units[2].hp, 84) << "friendly fire is real";
-    EXPECT_EQ(units[0].hp, 75) << "the mortar itself is seven tiles off";
+    EXPECT_EQ(units[0].hp, 40) << "the mortar itself is seven tiles off";
 }
 
 TEST(Mortar, AShellThatMissesEveryoneStillBurstsOnTheGround) {

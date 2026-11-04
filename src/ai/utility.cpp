@@ -95,6 +95,10 @@ Role role_of(sim::UnitKind kind) noexcept {
     case sim::UnitKind::Factory:
     case sim::UnitKind::Scavenger: // unarmed: it hauls, so there is no decision to make about it
     case sim::UnitKind::Recycler:  // unarmed too: it is the base-to-be, with no hunt to run
+    case sim::UnitKind::Tug:       // the four support vehicles are unarmed: nothing to decide
+    case sim::UnitKind::Constructor:
+    case sim::UnitKind::ServiceTruck:
+    case sim::UnitKind::ServicePod:
     case sim::UnitKind::DeployedRecycler:  // the base itself: it never moves, so nothing to decide
     case sim::UnitKind::DeployedScavenger: // a fixture on its pool: nothing to decide either
         return Role::None;
@@ -124,6 +128,10 @@ int threat_of(sim::UnitKind kind) noexcept {
         return 1;
     case sim::UnitKind::Scavenger: // unarmed: nothing to shoot back with, nothing to fear from it
     case sim::UnitKind::Recycler: // unarmed too: it cannot hurt anything, whatever it later becomes
+    case sim::UnitKind::Tug:      // and so are the four support vehicles
+    case sim::UnitKind::Constructor:
+    case sim::UnitKind::ServiceTruck:
+    case sim::UnitKind::ServicePod:
     case sim::UnitKind::DeployedRecycler:  // and deployed it is still unarmed
     case sim::UnitKind::DeployedScavenger: // unarmed on its pool, as it was on wheels
         return 0;

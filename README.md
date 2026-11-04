@@ -169,9 +169,25 @@ human or alien. By default the player plays the humans and the enemy the aliens,
 belongs to the scenario (`SceneOptions::factions`), so a story mission can swap it. The human
 recycler's rows are `1 Scavenger 20`, `2 Scout 50`, `3 Turret 40`, `4 Tug 45`, `5 Constructor 40`,
 `6 Service Truck 50`, `7 Service Pod 2`; the alien recycler's are `1 Harvester 20`, `2 Scout`,
-`3 Guardian 40`, `4 Hauler 30`, `5 Builder 40`, `6 Healer 50`, `7 Service Pod 2`. The Turret and
-Guardian rows are names only for now: a turret is a structure, and nothing can place one yet. The
-alien factory draws the human factory's eight rows until Harri supplies its own costs and names.
+`3 Guardian 40`, `4 Hauler 30`, `5 Builder 40`, `6 Healer 50`, `7 Service Pod 2`.
+
+**The human recycler builds all seven of its rows** (2026-11-03; Harri: "it's the recycler that isn't
+able to build everything"). `3 Turret` queues the turret the sim already has -- a vehicle until it
+deploys -- and `4 Tug`, `5 Constructor`, `6 Service Truck` and `7 Service Pod` are four new kinds
+(`UnitKind` 17 to 20). Each is unarmed, has a shape drawn on the map and on its key from one authored
+silhouette, takes an F key like any vehicle and drives. They do nothing else yet: the constructor
+raises no buildings (that needs a placement feature that does not exist), the truck and the pod repair
+nothing, and the tug tows nothing. The alien recycler's rows other than Harvester and Scout are still
+names only, and its Hauler is 30 against the tug's 45, which is Harri's to rule. The store opens at
+40 scrap, so the 45 and 50 rows (and the Scout) cannot be paid for until a deployed scavenger adds
+room. The alien factory draws the human factory's eight rows until Harri supplies its own costs and names.
+
+**Vehicle identities** (2026-11-03, Harri's ruling): the **bomber** is the fastest vehicle in the game
+(twice the tank's speed, was 3/4), the **mortar bike** next, fast and thin (5/4 of the tank's speed
+and 40 hp, was half its speed and 75 hp), the **rocket tank** fairly slow (3/4 of the tank's speed,
+was the tank's) and the **walker** the slowest and toughest (half the tank's speed, 200 hp, as
+before). The turret's 1/4 crawl is slower still; it is a deployable weapon. Flight for the bomber and
+the weapon-owned range are separate slices and are not here.
 
 **Shapes follow the faction too.** Harri: "The alien side assets need a different look -- not just
 colours, but shapes too; they should be more organic." A kind's silhouette is chosen by the unit's

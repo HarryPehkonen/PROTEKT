@@ -60,8 +60,9 @@ inline constexpr std::int32_t kBoltArcRaw = 2 * Fixed::kOne;
 inline constexpr Fixed kBoltTravel = kProjectileRange;
 
 /// The mortar bike's mortar: a lob (gravity 2.25 height units per tick squared; peak ~3 tiles over
-/// a 7-tile shot, ~12 over its 14), a 1.5-tile splash, 3/4 the tank's hp, half its speed, twice its
-/// damage, three times its cooldown; range 14 sits between the tank's 12 and the turret's 16.
+/// a 7-tile shot, ~12 over its 14), a 1.5-tile splash, two fifths of the tank's hp and 5/4 of its
+/// speed (fast and thin, Harri 2026-11-03), twice its damage, three times its cooldown; range 14
+/// sits between the tank's 12 and the turret's 16.
 inline constexpr std::int32_t kMortarRangeRaw = 14 << 16;
 inline constexpr std::int32_t kMortarGravityRaw = 9 * Fixed::kOne / 4;
 inline constexpr std::int32_t kMortarArcRaw = 4 * Fixed::kOne;
@@ -207,9 +208,11 @@ inline constexpr std::array<UnitSpec, static_cast<std::size_t>(kUnitKindCount)> 
     {"tank", kTankHp, Fixed::from_raw(kTankSpeedRaw), Fixed::from_raw(kTankRangeRaw), kTankDamage,
      kTankCooldownTicks, Fixed::from_raw(kProjectileSpeedRaw), Fixed::from_raw(kBoltArcRaw),
      kBoltTravel, Fixed::zero(), Fixed::zero(), false, 55, 900, 0, Fixed::zero()},
+    // The turret is a vehicle until it deploys, so the recycler's row 3 queues THIS kind: cost 40
+    // (Harri's recycler list) and the 20 ticks a scrap the other rows use.
     {"turret", kTurretHp, Fixed::from_raw(kTurretSpeedRaw), Fixed::from_raw(kTurretRangeRaw),
      kTurretDamage, kTurretCooldownTicks, Fixed::from_raw(kProjectileSpeedRaw),
-     Fixed::from_raw(kBoltArcRaw), kBoltTravel, Fixed::zero(), Fixed::zero(), false, 0, 0, 0,
+     Fixed::from_raw(kBoltArcRaw), kBoltTravel, Fixed::zero(), Fixed::zero(), false, 40, 800, 0,
      Fixed::zero()},
     {"factory", kFactoryHp, Fixed::zero(), Fixed::zero(), 0, 0, Fixed::zero(), Fixed::zero(),
      kBoltTravel, Fixed::zero(), Fixed::zero(), false, 0, 0, 0, Fixed::zero()},
@@ -218,15 +221,19 @@ inline constexpr std::array<UnitSpec, static_cast<std::size_t>(kUnitKindCount)> 
      kTankDamage, kTankCooldownTicks, Fixed::from_raw(kProjectileSpeedRaw),
      Fixed::from_raw(kBoltArcRaw), kBoltTravel, Fixed::zero(), Fixed::zero(), false, 0, 0, 0,
      Fixed::zero()},
-    {"mortarbike", kTankHp * 3 / 4, Fixed::from_raw(kTankSpeedRaw / 2),
+    // Harri's ruling (2026-11-03): "quite fast", with "next to no shields", so it has to be fast
+    // and nimble not to be hit. Second only to the bomber in speed among the named four.
+    {"mortarbike", kTankHp * 2 / 5, Fixed::from_raw(kTankSpeedRaw * 5 / 4),
      Fixed::from_raw(kMortarRangeRaw), kTankDamage * 2, kTankCooldownTicks * 3,
      Fixed::from_raw(kMortarMuzzleSpeedRaw), Fixed::from_raw(kMortarArcRaw), kBoltTravel,
      Fixed::from_raw(kMortarSplashRaw), Fixed::from_raw(kMortarGravityRaw), false, 45, 900, 0,
      Fixed::zero()},
-    {"rockettank", kTankHp, Fixed::from_raw(kTankSpeedRaw), Fixed::from_raw(kRocketRangeRaw),
-     kTankDamage * 3, kTankCooldownTicks * 5, Fixed::from_raw(kProjectileSpeedRaw * 3 / 4),
-     Fixed::from_raw(kBoltArcRaw), kBoltTravel, Fixed::zero(), Fixed::zero(), false, 65, 1300, 0,
-     Fixed::zero()},
+    // Harri's ruling (2026-11-03): moves "fairly slowly, but not as slowly as walkers" -- 3/4 of
+    // the tank's speed, between the mortar bike's 5/4 and the walker's 1/2.
+    {"rockettank", kTankHp, Fixed::from_raw(kTankSpeedRaw * 3 / 4),
+     Fixed::from_raw(kRocketRangeRaw), kTankDamage * 3, kTankCooldownTicks * 5,
+     Fixed::from_raw(kProjectileSpeedRaw * 3 / 4), Fixed::from_raw(kBoltArcRaw), kBoltTravel,
+     Fixed::zero(), Fixed::zero(), false, 65, 1300, 0, Fixed::zero()},
     // The scavenger (C2): no gun, no range, no damage -- `range` zero is what makes it unarmed
     // everywhere in the sim (fire, targeting, the AI's threat list). It is fast ENOUGH to reach
     // wreckage, not fast enough to outrun what killed it.
@@ -277,13 +284,15 @@ inline constexpr std::array<UnitSpec, static_cast<std::size_t>(kUnitKindCount)> 
      kTankDamage / 2, kTankCooldownTicks / 2, Fixed::from_raw(kProjectileSpeedRaw),
      Fixed::from_raw(kBoltArcRaw), kBoltTravel, Fixed::zero(), Fixed::zero(), false, 50, 1000, 0,
      Fixed::zero()},
-    // The bomber: 3/4 the tank's hull and speed, the mortar's 14-tile range, twice the tank's
-    // damage and three times its cooldown. The bomb IS the existing lobbed shell -- the mortar's
-    // gravity, arc, muzzle speed and 1.5-tile splash -- so the bomber needs no new ballistics. It
-    // is an AIRCRAFT dropping the mortar's shell, which is why its `bolt_speed` is the mortar's
-    // `kMortarMuzzleSpeedRaw` and not a number of its own: one shell, one flight model, whoever
-    // lets it go. (The bomber's own flight speed is the `speed` field above and is not this.)
-    {"bomber", kTankHp * 3 / 4, Fixed::from_raw(kTankSpeedRaw * 3 / 4),
+    // The bomber: 3/4 the tank's hull and TWICE its speed (Harri, 2026-11-03: "the fastest-moving
+    // vehicle in the game", so past the scout's and the APC's 3/2), the mortar's 14-tile range,
+    // twice the tank's damage and three times its cooldown. The bomb IS the existing lobbed shell
+    // -- the mortar's gravity, arc, muzzle speed and 1.5-tile splash -- so the bomber needs no new
+    // ballistics. It is an AIRCRAFT dropping the mortar's shell, which is why its `bolt_speed` is
+    // the mortar's `kMortarMuzzleSpeedRaw` and not a number of its own: one shell, one flight
+    // model, whoever lets it go. (The bomber's own flight speed is the `speed` field above and is
+    // not this.)
+    {"bomber", kTankHp * 3 / 4, Fixed::from_raw(kTankSpeedRaw * 2),
      Fixed::from_raw(kMortarRangeRaw), kTankDamage * 2, kTankCooldownTicks * 3,
      Fixed::from_raw(kMortarMuzzleSpeedRaw), Fixed::from_raw(kMortarArcRaw), kBoltTravel,
      Fixed::from_raw(kMortarSplashRaw), Fixed::from_raw(kMortarGravityRaw), false, 75, 1500, 0,
@@ -308,6 +317,22 @@ inline constexpr std::array<UnitSpec, static_cast<std::size_t>(kUnitKindCount)> 
     {"deployedturret", kTurretHp, Fixed::zero(), Fixed::from_raw(kTurretRangeRaw), kTurretDamage,
      kTurretCooldownTicks, Fixed::from_raw(kProjectileSpeedRaw), Fixed::from_raw(kBoltArcRaw),
      kBoltTravel, Fixed::zero(), Fixed::zero(), false, 0, 0, 0, Fixed::zero()},
+    // The four support vehicles of the human recycler's list. All are unarmed (`range` zero, and
+    // the ballistics block with it) and EVERY number is PROVISIONAL and Harri's to set; the costs
+    // are his recycler list's (Tug 45, Constructor 40, Service Truck 50, Service Pod 2) and the
+    // build time follows the 20 ticks a scrap of the rows above. The tug, constructor and truck
+    // have the tank's hull and three quarters of its speed (the scavenger's); the pod, a small
+    // craft, has half the hull and the tank's speed.
+    {"tug", kTankHp, Fixed::from_raw(kTankSpeedRaw * 3 / 4), Fixed::zero(), 0, 0, Fixed::zero(),
+     Fixed::zero(), kBoltTravel, Fixed::zero(), Fixed::zero(), false, 45, 900, 0, Fixed::zero()},
+    {"constructor", kTankHp, Fixed::from_raw(kTankSpeedRaw * 3 / 4), Fixed::zero(), 0, 0,
+     Fixed::zero(), Fixed::zero(), kBoltTravel, Fixed::zero(), Fixed::zero(), false, 40, 800, 0,
+     Fixed::zero()},
+    {"servicetruck", kTankHp, Fixed::from_raw(kTankSpeedRaw * 3 / 4), Fixed::zero(), 0, 0,
+     Fixed::zero(), Fixed::zero(), kBoltTravel, Fixed::zero(), Fixed::zero(), false, 50, 1000, 0,
+     Fixed::zero()},
+    {"servicepod", kTankHp / 2, Fixed::from_raw(kTankSpeedRaw), Fixed::zero(), 0, 0, Fixed::zero(),
+     Fixed::zero(), kBoltTravel, Fixed::zero(), Fixed::zero(), false, 2, 40, 0, Fixed::zero()},
 }};
 
 [[nodiscard]] constexpr const UnitSpec& spec_of(UnitKind kind) noexcept {

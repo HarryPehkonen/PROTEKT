@@ -237,6 +237,30 @@ void draw_bomber(Canvas& c) {
     project_shape(c, kKind, shape_scale(kKind, shape_extent(kKind).along_max));
 }
 
+/// A tug: its shape, projected. Nothing is added to it.
+void draw_tug(Canvas& c) {
+    constexpr sim::UnitKind kKind = sim::UnitKind::Tug;
+    project_shape(c, kKind, shape_scale(kKind, shape_extent(kKind).along_max));
+}
+
+/// A constructor: its shape, projected. Nothing is added to it.
+void draw_constructor(Canvas& c) {
+    constexpr sim::UnitKind kKind = sim::UnitKind::Constructor;
+    project_shape(c, kKind, shape_scale(kKind, shape_extent(kKind).along_max));
+}
+
+/// A service truck: its shape, projected. Nothing is added to it.
+void draw_service_truck(Canvas& c) {
+    constexpr sim::UnitKind kKind = sim::UnitKind::ServiceTruck;
+    project_shape(c, kKind, shape_scale(kKind, shape_extent(kKind).along_max));
+}
+
+/// A service pod: its shape, projected. Nothing is added to it.
+void draw_service_pod(Canvas& c) {
+    constexpr sim::UnitKind kKind = sim::UnitKind::ServicePod;
+    project_shape(c, kKind, shape_scale(kKind, shape_extent(kKind).along_max));
+}
+
 /// A defence turret, driven or deployed: its shape, projected, and then the GUN as a separate
 /// piece, as the tank's barrel is -- level, from the dome's front face to the muzzle collar's far
 /// end, in the mesh's own metres (scene.hpp), the collar a thicker box at the tip. The plate holds
@@ -379,6 +403,14 @@ const IconMask& kind_icon(sim::UnitKind kind) noexcept {
         return art<draw_bomber>();
     case sim::UnitKind::MslScout:
         return art<draw_msl_scout>();
+    case sim::UnitKind::Tug:
+        return art<draw_tug>();
+    case sim::UnitKind::Constructor:
+        return art<draw_constructor>();
+    case sim::UnitKind::ServiceTruck:
+        return art<draw_service_truck>();
+    case sim::UnitKind::ServicePod:
+        return art<draw_service_pod>();
     case sim::UnitKind::Factory:
         return art<draw_factory>();
     case sim::UnitKind::DeployedRecycler:

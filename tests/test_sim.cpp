@@ -137,9 +137,11 @@ TEST(Sim, TheScoutIsAppendedAfterTheDeployedRecyclerAndNoEarlierIndexMoved) {
     // The deployed turret was appended after the deployed scavenger (TURRET-CMD, 2026-11-01), again
     // without moving anything -- and it is the first kind that goes back to the one before it.
     EXPECT_EQ(static_cast<int>(UnitKind::DeployedTurret), 16);
-    EXPECT_EQ(kUnitKindCount, 17);
-    EXPECT_EQ(static_cast<int>(UnitKind::DeployedTurret), kUnitKindCount - 1)
-        << "the deployed turret stays last";
+    EXPECT_EQ(static_cast<int>(UnitKind::DeployedTurret), 16);
+    // The four support vehicles of the recycler's list came after it, again moving nothing.
+    EXPECT_EQ(kUnitKindCount, 21);
+    EXPECT_EQ(static_cast<int>(UnitKind::ServicePod), kUnitKindCount - 1)
+        << "the service pod is last";
 }
 
 TEST(Sim, TheScoutIsALightFastArmedVehicleThatCanBeDriven) {
@@ -171,7 +173,7 @@ TEST(Sim, TheDeployedRecyclerIsAStillUnarmedBuildingWithTheRecyclersHull) {
 }
 
 TEST(Sim, TheHoverTankHasTheTanksProfileExactly) {
-    EXPECT_EQ(kUnitKindCount, 17);
+    EXPECT_EQ(kUnitKindCount, 21);
     EXPECT_EQ(static_cast<int>(UnitKind::HoverTank), 3);
     const UnitProfile tank = profile(UnitKind::Tank);
     const UnitProfile hover = profile(UnitKind::HoverTank);
