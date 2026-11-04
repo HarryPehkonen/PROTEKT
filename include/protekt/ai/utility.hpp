@@ -96,8 +96,9 @@ struct Decision {
 /// What a unit is FOR, which decides how it moves. FRONTLINE units close on the enemy and fight
 /// where the fight is: the tank and hover tank by definition, and the rocket tank because its 3x
 /// damage at 5x the cooldown only pays when it is in the same fight as the tanks. A STANDOFF unit
-/// (the mortar bike) fights from the edge of its own range, never closes, and needs no line because
-/// its shell lobs. None: a turret or factory -- a post, not a soldier.
+/// (the mortar bike) fights from the edge of its own range, never closes past it, and needs no
+/// line because its shell lobs. It does not stand there either: the sim has a bike that is engaging
+/// move to another spot after every shot. None: a turret or factory -- a post, not a soldier.
 enum class Role : std::uint8_t { None = 0, Frontline = 1, Standoff = 2 };
 
 [[nodiscard]] Role role_of(sim::UnitKind kind) noexcept;

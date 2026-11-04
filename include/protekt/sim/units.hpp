@@ -330,6 +330,25 @@ inline constexpr std::int64_t kShoveSpeedDenominator = 2;
 /// other cancel out; without this they could hold one another for ever.
 inline constexpr std::uint16_t kShoveYieldTicks = 45;
 
+// THE MORTAR BIKE'S SHOOT-AND-SCOOT (Harri, 2026-11-03: "they go to a spot, fire their mortar, and
+// then move to a different spot immediately"). It is the VEHICLE's doctrine, not its weapon's: the
+// bomber shares the mortar and does not do it, and the weapon still owns the range. A bike that is
+// ENGAGING (an Attack stance) fires, picks a new spot at once and drives to it while it reloads; a
+// bike told to move, guard or patrol does what it was told. The relocation is a step round the
+// circle that keeps the target in range (`scoot_spot`), so the next shot still reaches it.
+/// Whether this kind relocates after every shot it fires from an Attack stance.
+[[nodiscard]] constexpr bool scoots(UnitKind kind) noexcept { return kind == UnitKind::MortarBike; }
+/// The circle it scoots round the target is this far inside the weapon's range, so the spot, which
+/// is snapped to a tile centre, is never past it. One tile.
+inline constexpr std::int32_t kScootMarginRaw = Fixed::kOne;
+/// The circle is cut into this many equal sectors; a spot is a sector's point on the circle.
+inline constexpr int kScootSectors = 16;
+/// A relocation moves one or two sectors, either way round -- on the 13-tile circle that is a
+/// 5-tile or a 10-tile hop, which the bike's speed covers inside its 45-tick reload. The SPOT is
+/// the hop; the INTERVAL is the reload itself (`UnitSpec::cooldown`), because a new spot is
+/// chosen exactly when a shot is fired and not otherwise.
+inline constexpr std::array<int, 4> kScootSectorSteps{-2, -1, 1, 2};
+
 /// The scavenger (C2). Unarmed, and thickly armoured: the tank's own hull, 100 (Harri, 2026-10-30:
 /// "they should take a beating -- they have thick armour"; it WAS 3/5 of that, 60). The consequence
 /// is the reason to stop there: a scout deals 4 damage a shot, so killing one now takes 25 shots

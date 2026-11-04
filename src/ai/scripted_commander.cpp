@@ -22,8 +22,8 @@ void ScriptedCommander::think(const sim::Observation& observation, std::vector<s
             // Every combatant is ordered to attack the nearest enemy. The sim's attack stance is
             // what makes the roles differ: a unit closes only until its OWN weapon range reaches
             // the target and then holds, so the mortar bike (range 14) stands off where a tank (12)
-            // would still be walking, and the rocket tank (15) closes with the tanks. No state
-            // needed.
+            // would still be walking, and the rocket tank closes with the tanks. The bike then
+            // moves between its shots (the sim's doing, not this order's). No state needed.
             const sim::UnitView* nearest = nullptr;
             std::int64_t nearest_d2 = 0;
             for (const sim::UnitView& enemy : observation.enemy) {

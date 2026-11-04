@@ -197,6 +197,19 @@ walker), minigun 10 (scout, APC), mortar 14 (mortar bike, bomber), turret gun 16
 turret), **rocket 18** (rocket tank, missile scout, and a rocket fired from any hull), shotgun 6.
 The rocket tank and the missile scout therefore reach 18 tiles, not 15, and their rockets fly 20.
 
+**The mortar bike shoots and scoots** (2026-11-03, Harri: "...they go to a spot, fire their mortar, and
+then move to a different spot immediately"; it is the bike's behaviour, not the mortar's -- "It's the
+automatic behaviour of the vehicle"). A bike that is attacking (an Attack order, which is also what
+the AI gives it) walks to its range, fires, and at once drives to another spot on the circle round
+its target, 1 tile inside its range, one or two sixteenths of the way round (a 5 or a 10 tile hop,
+which it covers inside its 45-tick reload), and fires again from there. The spot comes from the
+seed, the bike's id and the tick -- no runtime randomness -- and always keeps the target in range.
+Two bikes that choose one spot shove each other apart like any two vehicles. A bike told to move,
+guard or patrol does exactly that, and one you drive is yours. It does not make a bike safe: it is
+the thing that makes a turret's bolt miss, not a shield (measured: against one turret a standing
+bike lost about 39 hp per 100 ticks inside the turret's range and died in 31 of 32 duels; a
+scooting one lost about 3 and died in 12 of 32).
+
 **Shapes follow the faction too.** Harri: "The alien side assets need a different look -- not just
 colours, but shapes too; they should be more organic." A kind's silhouette is chosen by the unit's
 faction (`SceneOptions::factions`), in one place in `build_scene`, never by its side. So far one

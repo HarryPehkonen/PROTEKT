@@ -266,7 +266,8 @@ TEST(ScriptedRoles, EveryCombatKindOfTheRosterReceivesAnOrderAndTheMortarBikeAnd
     }
 }
 
-TEST(ScriptedRoles, TheMortarBikeHoldsInsideItsRangeWhileATankInTheSameSpotAdvances) {
+TEST(ScriptedRoles,
+     TheMortarBikeFiresFromInsideItsRangeAndKeepsMovingWhileATankInTheSameSpotAdvances) {
     // One target 13 tiles from both: inside the mortar bike's 14, outside the tank's 12.
     const Field f = open_field();
     ASSERT_NE(f.seed, 0U);
@@ -282,7 +283,8 @@ TEST(ScriptedRoles, TheMortarBikeHoldsInsideItsRangeWhileATankInTheSameSpotAdvan
     ASSERT_GT(tiles_between(sim, tank, target), 12.0);
     ASSERT_LT(tiles_between(sim, mortar_bike, target), 14.0);
     const double tank_before = tiles_between(sim, tank, target);
-    const double mortar_before = tiles_between(sim, mortar_bike, target);
+    const double range
+        = static_cast<double>(spec_of(UnitKind::MortarBike).range().raw) / Fixed::kOne;
 
     ScriptedCommander commander(30);
     std::vector<Order> orders;
@@ -293,16 +295,22 @@ TEST(ScriptedRoles, TheMortarBikeHoldsInsideItsRangeWhileATankInTheSameSpotAdvan
     for (const Order& o : orders) {
         sim.enqueue(o);
     }
+    double widest = 0.0;
+    int bike_shots = 0;
     for (int t = 0; t < 120; ++t) {
         sim.step();
+        widest = std::max(widest, tiles_between(sim, mortar_bike, target));
+        for (const Sim::Shot& shot : sim.shots()) {
+            bike_shots += shot.shooter == mortar_bike ? 1 : 0;
+        }
     }
     EXPECT_LT(tiles_between(sim, tank, target), tank_before - 0.5)
         << "the tank closes to its range";
-    EXPECT_NEAR(tiles_between(sim, mortar_bike, target), mortar_before, 0.01)
-        << "the mortar bike already has the target in range and does not move";
+    EXPECT_GE(bike_shots, 2) << "the mortar bike already has the target in range and fires";
+    EXPECT_LE(widest, range) << "and scoots round it, never out of its range";
 }
 
-TEST(ScriptedRoles, AMortarBikeOutOfRangeAdvancesUntilTheTargetIsInRangeThenStops) {
+TEST(ScriptedRoles, AMortarBikeOutOfRangeAdvancesUntilTheTargetIsInRangeThenScoots) {
     const Field f = open_field();
     ASSERT_NE(f.seed, 0U);
     Scenario s;
@@ -331,10 +339,17 @@ TEST(ScriptedRoles, AMortarBikeOutOfRangeAdvancesUntilTheTargetIsInRangeThenStop
     const double settled = tiles_between(sim, mortar_bike, target);
     EXPECT_LE(settled, range) << "it closed until the target was in range";
     EXPECT_GT(settled, range - 2.0) << "and stopped at the edge of its range, it did not charge";
-    for (int t = 0; t < 60; ++t) {
+    // It does not stand there: it fires and scoots, round the target and inside its range.
+    const double at_rest_x = tile_x(sim, mortar_bike);
+    const double at_rest_y = tile_y(sim, mortar_bike);
+    double moved = 0.0;
+    for (int t = 0; t < 120; ++t) {
         sim.step();
+        EXPECT_LE(tiles_between(sim, mortar_bike, target), range) << "tick " << t;
+        moved = std::max(moved, std::hypot(tile_x(sim, mortar_bike) - at_rest_x,
+                                           tile_y(sim, mortar_bike) - at_rest_y));
     }
-    EXPECT_NEAR(tiles_between(sim, mortar_bike, target), settled, 0.01) << "and stays put";
+    EXPECT_GT(moved, 3.0) << "it keeps moving between shots";
 }
 
 TEST(ScriptedRoles, ARocketTankClosesLikeATankAndFiresWhenInRange) {

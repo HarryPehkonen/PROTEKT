@@ -1,10 +1,12 @@
 #include "protekt/sim/sim.hpp"
 
+#include "protekt/rng.hpp"
 #include "protekt/sim/spec.hpp"
 
 #include <algorithm>
 #include <array>
 #include <cstddef>
+#include <optional>
 #include <span>
 #include <type_traits>
 #include <variant>
@@ -282,6 +284,12 @@ void apply_order(std::vector<Unit>& units, std::vector<Projectile>& projectiles,
         break;
     case OrderKind::Attack:
         if (const auto* o = std::get_if<orders::Attack>(&order.payload)) {
+            if (scoots(unit.kind) && unit.stance != Stance::Attack) {
+                // No spot is pending when an engagement begins: it holds the ground it stands on
+                // until its first shot picks the next. (A re-issued Attack keeps its spot.)
+                unit.guard_x = unit.x;
+                unit.guard_y = unit.y;
+            }
             unit.stance = Stance::Attack;
             unit.target = o->target;
             unit.route.age = kRouteAgeFresh;
@@ -494,6 +502,31 @@ bool standable(std::uint64_t seed, std::span<const Unit> units, int tx, int ty) 
     return tile_passable(seed, tx, ty) && !building_blocks(units, tx, ty);
 }
 
+/// The sim's own RNG stream for a scoot's first-tried hop: world 0, sim 1, ai 2, scenario 3 and the
+/// pool's 4 to 6 are taken elsewhere.
+constexpr std::uint64_t kScootStream = 7;
+
+/// cos and sin, Q16.16, of every sector's angle (`kScootSectors` of them, 22.5 degrees apart). A
+/// table, because the sim has no trigonometry.
+constexpr std::array<std::array<std::int32_t, 2>, kScootSectors> kSectorDirections{{
+    {65536, 0},
+    {60547, 25080},
+    {46341, 46341},
+    {25080, 60547},
+    {0, 65536},
+    {-25080, 60547},
+    {-46341, 46341},
+    {-60547, 25080},
+    {-65536, 0},
+    {-60547, -25080},
+    {-46341, -46341},
+    {-25080, -60547},
+    {0, -65536},
+    {25080, -60547},
+    {46341, -46341},
+    {60547, -25080},
+}};
+
 // The nearest tile a unit may stand on (`standable`), so a unit never starts inside a crater or a
 // building.
 Coord nearest_passable(std::uint64_t seed, std::span<const Unit> units, int x, int y) noexcept {
@@ -527,6 +560,58 @@ constexpr std::int64_t kWaypointArriveRaw = 1 << 15; ///< half a tile
 [[nodiscard]] Fixed tile_center(std::uint8_t tile) noexcept {
     return Fixed::from_raw((static_cast<std::int32_t>(tile) << Fixed::kShift) + (Fixed::kOne / 2));
 }
+
+} // namespace
+
+std::optional<ScootSpot> scoot_spot(std::uint64_t seed, std::span<const Unit> units,
+                                    const Unit& bike, const Unit& target, Tick tick) noexcept {
+    const std::int64_t range = spec_of(bike.kind).range().raw;
+    const std::int64_t reach = range - kScootMarginRaw;
+    if (reach <= 0) {
+        return std::nullopt;
+    }
+    // The sector the bike stands in, seen from the target: the direction its offset points most
+    // nearly along, the lower sector on a tie.
+    const std::int64_t ox = static_cast<std::int64_t>(bike.x.raw) - target.x.raw;
+    const std::int64_t oy = static_cast<std::int64_t>(bike.y.raw) - target.y.raw;
+    std::size_t here = 0;
+    std::int64_t best_dot = 0;
+    for (std::size_t k = 0; k < kSectorDirections.size(); ++k) {
+        const std::int64_t dot
+            = ox * kSectorDirections.at(k).at(0) + oy * kSectorDirections.at(k).at(1);
+        if (k == 0 || dot > best_dot) {
+            here = k;
+            best_dot = dot;
+        }
+    }
+    rng::SplitMix64 mix(rng::stream_seed(seed, kScootStream)
+                        ^ (static_cast<std::uint64_t>(bike.id.value) << 32)
+                        ^ static_cast<std::uint64_t>(tick));
+    const std::size_t first = static_cast<std::size_t>(mix.next() % kScootSectorSteps.size());
+    for (std::size_t i = 0; i < kScootSectorSteps.size(); ++i) {
+        const int step = kScootSectorSteps.at((first + i) % kScootSectorSteps.size());
+        const std::size_t sector
+            = (here + static_cast<std::size_t>(kScootSectors + step)) % kScootSectors;
+        const std::int64_t sx
+            = target.x.raw + (reach * kSectorDirections.at(sector).at(0) >> Fixed::kShift);
+        const std::int64_t sy
+            = target.y.raw + (reach * kSectorDirections.at(sector).at(1) >> Fixed::kShift);
+        const int tx = static_cast<int>(sx >> Fixed::kShift);
+        const int ty = static_cast<int>(sy >> Fixed::kShift);
+        if (!standable(seed, units, tx, ty)) {
+            continue; // off the map, a crater or a building: the next hop
+        }
+        const Fixed cx = tile_center(static_cast<std::uint8_t>(tx));
+        const Fixed cy = tile_center(static_cast<std::uint8_t>(ty));
+        if (dist2(cx, cy, target.x, target.y) > range * range) {
+            continue; // snapped to the tile's middle it would be out of range: never relocate there
+        }
+        return ScootSpot{cx, cy};
+    }
+    return std::nullopt;
+}
+
+namespace {
 
 /// Keeps `unit.route` serving `goal`: plans when the goal tile has drifted more than
 /// kReplanGoalDriftTiles from the one served, when the unit has strayed more than
@@ -1129,6 +1214,16 @@ void steer(std::vector<Unit>& units, Unit& unit, const UnitProfile& prof, const 
         if (prof.weapon_range.raw > 0) {
             stop_radius = prof.weapon_range.raw;
         }
+        // Shoot and scoot: while it reloads, with the target still in range, the bike drives to
+        // the spot its last shot chose (`guard_x/y`) instead of standing where it fired. Out of
+        // range, or loaded, it is the plain engagement above: close until in range, hold, fire.
+        const std::int64_t reach = prof.weapon_range.raw;
+        if (scoots(unit.kind) && unit.cooldown > 0
+            && dist2(unit.x, unit.y, target->x, target->y) <= reach * reach) {
+            goal_x = unit.guard_x;
+            goal_y = unit.guard_y;
+            stop_radius = kArriveRadiusRaw;
+        }
         break;
     }
     case Stance::Follow: {
@@ -1547,6 +1642,15 @@ void Sim::step() {
                 spec_of(unit.kind).cone_half_tan, projectiles_);
         shots_.push_back(Shot{unit.id, best->id});
         unit.cooldown = prof.cooldown_ticks;
+        // The bike scoots the moment it has fired: the spot it will reload at, for `steer`. Only
+        // an engaging bike (an Attack stance) does; one on a guard post fires from it.
+        if (scoots(unit.kind) && unit.stance == Stance::Attack) {
+            if (const std::optional<ScootSpot> spot
+                = scoot_spot(seed, units_, unit, *best, tick_)) {
+                unit.guard_x = spot->x;
+                unit.guard_y = spot->y;
+            }
+        }
         // The focus is spent by the shot it names: one click, one bolt. Whoever it was fired at,
         // the choice of target does not persist; auto-engagement resumes on the next chance.
         if (unit.focus_target.valid() && best->id == unit.focus_target) {

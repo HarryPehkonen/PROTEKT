@@ -828,7 +828,7 @@ TEST(UtilityRole, AMortarBikeOutOfRangeAdvancesAndOnceTheTargetIsInsideItsRangeI
     EXPECT_EQ(near.intent, Intent::Engage) << "fourteen tiles is inside it";
 }
 
-TEST(UtilityRole, AMortarBikeWalksUpToItsRangeInTheSimAndThenStopsMoving) {
+TEST(UtilityRole, AMortarBikeWalksUpToItsRangeInTheSimAndThenKeepsMovingBetweenShots) {
     sim::Scenario scenario{};
     scenario.seed = 42;
     scenario.spawns.push_back({UnitKind::Factory, Side::Player, 30, 60});
@@ -847,9 +847,10 @@ TEST(UtilityRole, AMortarBikeWalksUpToItsRangeInTheSimAndThenStopsMoving) {
         return sim::isqrt(dx * dx + dy * dy);
     };
     std::int64_t first_inside = -1;
-    sim::Fixed held_x{};
-    sim::Fixed held_y{};
-    int held_ticks = 0;
+    sim::Fixed arrived_x{};
+    sim::Fixed arrived_y{};
+    std::int64_t moved_tiles = 0;
+    int engaged_ticks = 0;
     bool withdrew = false;
     for (int tick = 0; tick < 1500 && world.find(target)->alive; ++tick) {
         std::vector<sim::Order> orders;
@@ -861,21 +862,23 @@ TEST(UtilityRole, AMortarBikeWalksUpToItsRangeInTheSimAndThenStopsMoving) {
         withdrew = withdrew || world.find(mortar_bike)->hp <= UtilityTuning{}.retreat_hp;
         if (first_inside < 0 && distance() <= 14) {
             first_inside = tick;
-        } else if (first_inside >= 0 && tick == first_inside + 20) { // one decision cycle later
-            held_x = world.find(mortar_bike)->x;
-            held_y = world.find(mortar_bike)->y;
-        } else if (first_inside >= 0 && tick > first_inside + 20 && world.find(target)->alive
-                   && !withdrew) {
-            // Held until it withdraws: the bike's hull is thin (40), and the tank's return fire
-            // takes it to the retreat line, where going home is the right thing to do.
-            ++held_ticks;
-            EXPECT_EQ(world.find(mortar_bike)->x.raw, held_x.raw) << "tick " << tick;
-            EXPECT_EQ(world.find(mortar_bike)->y.raw, held_y.raw) << "tick " << tick;
+            arrived_x = world.find(mortar_bike)->x;
+            arrived_y = world.find(mortar_bike)->y;
+        } else if (first_inside >= 0 && world.find(target)->alive && !withdrew) {
+            // Until it withdraws (the bike's hull is thin, and the tank's return fire takes it to
+            // the retreat line, where going home is the right thing to do) it fires and scoots:
+            // it keeps the target in range, and it does not stand where it arrived.
+            ++engaged_ticks;
+            EXPECT_LE(distance(), 14) << "tick " << tick;
+            const std::int64_t dx = (world.find(mortar_bike)->x.raw - arrived_x.raw) >> 16;
+            const std::int64_t dy = (world.find(mortar_bike)->y.raw - arrived_y.raw) >> 16;
+            moved_tiles = std::max(moved_tiles, sim::isqrt(dx * dx + dy * dy));
         }
     }
     ASSERT_GE(first_inside, 0) << "it closed until the tank was inside its range";
     EXPECT_GE(distance(), 10) << "and did not charge past it";
-    EXPECT_GT(held_ticks, 30) << "and it stood and shot rather than closing";
+    EXPECT_GT(engaged_ticks, 30) << "and it stayed to shoot rather than closing";
+    EXPECT_GE(moved_tiles, 3) << "from a different spot each time, not from where it arrived";
 }
 
 TEST(UtilityRole, ARocketTankDecidesExactlyAsATankDoesInEverySituation) {

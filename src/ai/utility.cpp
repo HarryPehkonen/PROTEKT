@@ -228,7 +228,8 @@ Decision decide(const sim::UnitView& self, const sim::Observation& observation,
         // sideways first, because charging a target behind a rise is how a unit ends up pressed
         // against the rise, and straight at it only when no step to either side gives a line.
         // A standoff unit needs no line: its shell lobs over the rise, so it engages from where it
-        // stands (the sim holds it at its weapon range) instead of walking up to the hill.
+        // stands (the sim closes it to its weapon range and moves it between shots) instead of
+        // walking up to the hill.
         if (role_of(self.kind) == Role::Frontline
             && terrain_hides(observation, sim::Fixed::from_raw(self.raw_x),
                              sim::Fixed::from_raw(self.raw_y), *target)) {

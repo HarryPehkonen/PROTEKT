@@ -77,6 +77,23 @@ protected:
 /// the deploy site's own check all ask it, so no unit walks through, or is placed inside, one.
 [[nodiscard]] bool building_blocks(std::span<const Unit> units, int tile_x, int tile_y) noexcept;
 
+/// Where a relocating unit (`scoots`) goes after a shot at `target` fired on `tick`.
+struct ScootSpot {
+    Fixed x{};
+    Fixed y{};
+};
+
+/// THE SPOT a mortar bike scoots to: a point on the circle round `target` that is `kScootMarginRaw`
+/// inside the weapon's range, one or two sectors (`kScootSectorSteps`) round from where the bike
+/// stands. Which of the four hops is the first tried comes from a hash of (seed, the bike's id,
+/// `tick`) -- no runtime randomness, so the same battle scoots the same way and two bikes do not
+/// choose alike. A hop onto ground nobody can stand on is skipped for the next; empty only when
+/// all four are, and then the bike stays. Never another unit's tile: two bikes that pick one spot
+/// shove each other apart, like every other pair of vehicles.
+[[nodiscard]] std::optional<ScootSpot> scoot_spot(std::uint64_t seed, std::span<const Unit> units,
+                                                  const Unit& bike, const Unit& target,
+                                                  Tick tick) noexcept;
+
 /// Whether a deploy aimed at tile (`tile_x`, `tile_y`) has somewhere to stand: the tile is on the
 /// map, and every tile of `footprint_at(tile_x, tile_y)` is ground a unit may enter
 /// (`tile_passable`) and inside no other building's footprint (`building_blocks`). Asked when the
