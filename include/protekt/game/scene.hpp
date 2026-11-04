@@ -771,6 +771,12 @@ inline constexpr std::size_t kReticleVertexCount = 30;
 /// living tank in view other than the viewer's own, and only when there is a viewer.
 inline constexpr std::size_t kUnitBarVertexCount = 18;
 
+/// The HUD's small lettering: 5x5 cell glyphs, each cell this many pixels square, on a plate with
+/// this margin. The radar's N S E W are drawn in it, and so are the name over and the distance
+/// under a unit the player points at -- one size for all of them, a letter 10 px tall.
+inline constexpr float kLetterCellPixels = 2.0F;
+inline constexpr float kLetterPlatePadPixels = 2.0F;
+
 /// THE AMMO READING IS A PLACEHOLDER (SHIPGAUGE-1). The driven craft has no magazine in the sim --
 /// nothing counts rounds and nothing ever runs dry -- so the ship instrument's blue arc is always
 /// full and its number is always the string "100". It is a CONSTANT, never a value the sim
@@ -1070,6 +1076,12 @@ struct SceneOptions {
     /// it, so a frame that never heard of the field is byte-identical. Filled by the app from the
     /// session; the scene stays a pure function of the sim and these options.
     sim::UnitId assist_target{};
+    /// THE READOUT LOCK (`T`, see game/attack_aim.hpp `pointed_asset`): an asset of either side
+    /// whose name, health bar and distance stay up while the crosshair is elsewhere, until `T`
+    /// again or it dies. Pointing at a unit shows the same readout without it. An invalid id (the
+    /// default) locks nothing, so a frame that never heard of the field is byte-identical. Filled
+    /// by the app from the session.
+    sim::UnitId readout_lock{};
     /// The world map (N4), drawn last over everything: the whole world as a square, your own
     /// assets and your nav marks. Off by default, so a frame that never heard of it is unchanged.
     bool show_world_map{false};

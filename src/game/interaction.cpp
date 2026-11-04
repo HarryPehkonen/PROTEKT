@@ -100,6 +100,12 @@ void Interaction::handle(const input::InputFrame& frame, const sim::Sim& sim,
             assist_ = sim::UnitId{};
         }
     }
+    if (readout_lock_.valid()) {
+        const sim::Unit* held = sim.find(readout_lock_);
+        if (held == nullptr || !held->alive || !available_to_viewer(sim, options, *held)) {
+            readout_lock_ = sim::UnitId{};
+        }
+    }
     // The deploy is armed on a recycler: once the selection is not one any more (it died, it
     // deployed, the selection went), there is nothing left to deploy and the arming goes with it.
     if (deploy_armed_ && menu_subject_of(sim, selection_.units()) != MenuSubject::Recycler) {
@@ -272,6 +278,14 @@ void Interaction::handle(const input::InputFrame& frame, const sim::Sim& sim,
             // with none held nothing happens at all -- no order, no prompt, no message. Nothing
             // here is a command: the dot draws, it never steers the shot.
             assist_ = assist_pick(sim, options);
+            // The readout lock rides the same key on ANY asset: the one pointed at, his own or
+            // not. The assist above is untouched by it.
+            const sim::UnitId pointed
+                = options.aim.has_value()
+                      ? pointed_asset(sim, options,
+                                      pick(sim, options, options.aim->x, options.aim->y))
+                      : sim::UnitId{};
+            readout_lock_ = pointed == readout_lock_ ? sim::UnitId{} : pointed;
         } else if (key.scancode == input::kKeyX) {
             swap_to_crosshair(sim, options);
         } else if (key.scancode == input::kKeyM) {
@@ -407,6 +421,8 @@ const cmd::Selection& Interaction::selection() const noexcept { return selection
 sim::UnitId Interaction::driven() const noexcept { return driven_; }
 
 sim::UnitId Interaction::assist_target() const noexcept { return assist_; }
+
+sim::UnitId Interaction::readout_lock() const noexcept { return readout_lock_; }
 
 Weapon Interaction::weapon() const noexcept { return weapon_; }
 

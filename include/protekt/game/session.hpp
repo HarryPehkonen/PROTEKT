@@ -73,6 +73,8 @@ public:
     /// The hostile asset `T` latched for the assist dot, or none (see
     /// `Interaction::assist_target`).
     [[nodiscard]] sim::UnitId assist_target() const noexcept;
+    /// The asset whose readout `T` holds up (see `Interaction::readout_lock`).
+    [[nodiscard]] sim::UnitId readout_lock() const noexcept;
     /// `3 DEPLOY` has armed the deploy on the selected recycler (DEPLOY): the menu reads
     /// `SPACE DEPLOY <distance>` and the footprint is previewed while it is.
     [[nodiscard]] bool deploy_armed() const noexcept;

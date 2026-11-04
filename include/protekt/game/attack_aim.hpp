@@ -46,6 +46,17 @@ inline constexpr float kAttackAimToleranceDegrees = 4.0F;
 [[nodiscard]] std::optional<float> degrees_off_ray(const SceneOptions& options,
                                                    const std::array<float, 3>& point) noexcept;
 
+/// The metres from the eye to an asset's middle (the same point `degrees_off_ray` and the red line
+/// use): the number the pointed-at readout prints under the unit.
+[[nodiscard]] float distance_metres(const SceneOptions& options, const sim::Unit& unit) noexcept;
+
+/// "POINTING AT IT", the one answer the health bars, the name and distance readout and `T`'s lock
+/// all take: the asset the crosshair is exactly on (`aimed`, the frame's `pick`), else the nearest
+/// any-side asset within `kAssistConeDegrees` of the ray (`asset_nearest_ray`). The driven hull is
+/// never it. Invalid when there is none or no crosshair.
+[[nodiscard]] sim::UnitId pointed_asset(const sim::Sim& sim, const SceneOptions& options,
+                                        const Pick& aimed) noexcept;
+
 /// The hostile asset SPACE would attack, or an invalid id when it would attack nothing.
 ///
 ///  * `selected` must hold something ARMED that can take the order -- a living unit of the player's

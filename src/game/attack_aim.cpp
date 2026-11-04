@@ -4,6 +4,7 @@
 #include <array>
 #include <cmath>
 
+#include "protekt/game/assist.hpp"
 #include "protekt/math/math.hpp"
 #include "protekt/sim/spec.hpp"
 
@@ -36,6 +37,14 @@ constexpr float kRayProbeMetres = 100.0F;
 Projected attack_point(const SceneOptions& options, const sim::Unit& unit) noexcept {
     const std::array<float, 3> at = world_middle(options, unit);
     return project(options.camera, options.extent, at.at(0), at.at(1), at.at(2));
+}
+
+float distance_metres(const SceneOptions& options, const sim::Unit& unit) noexcept {
+    const std::array<float, 3> at = world_middle(options, unit);
+    const float dx = at.at(0) - options.camera.x;
+    const float dy = at.at(1) - options.camera.y;
+    const float dz = at.at(2) - options.camera.z;
+    return std::sqrt((dx * dx) + (dy * dy) + (dz * dz));
 }
 
 std::optional<float> degrees_off_ray(const SceneOptions& options,
@@ -114,6 +123,14 @@ sim::UnitId hostile_nearest_ray(const sim::Sim& sim, const SceneOptions& options
 sim::UnitId asset_nearest_ray(const sim::Sim& sim, const SceneOptions& options,
                               float degrees) noexcept {
     return nearest_ray(sim, options, degrees, false);
+}
+
+sim::UnitId pointed_asset(const sim::Sim& sim, const SceneOptions& options,
+                          const Pick& aimed) noexcept {
+    if (aimed.has_unit() && aimed.unit != options.driven_unit) {
+        return aimed.unit;
+    }
+    return asset_nearest_ray(sim, options, kAssistConeDegrees);
 }
 
 sim::UnitId attack_target(const sim::Sim& sim, const SceneOptions& options,

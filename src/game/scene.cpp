@@ -18,6 +18,7 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cctype>
 
 #include <cmath>
@@ -2264,8 +2265,6 @@ std::array<float, 3> health_colour(std::uint32_t hp, std::uint32_t max_hp) {
 /// The compass letters: 5x5 cell glyphs, each cell a 2 px square, so a letter is 10x10 px, in white
 /// on a near-black plate with a pixel of margin. They go on the ring, over the dark face, which is
 /// what makes them readable on every mark and terrain colour. Rows are top to bottom, bit 4 left.
-constexpr float kLetterCellPixels = 2.0F;
-constexpr float kLetterPlatePadPixels = 2.0F;
 constexpr float kHudCompassRatio
     = 0.9F; ///< nearer than the marks, so the plate hides what it covers
 
@@ -2556,6 +2555,8 @@ std::array<float, 2> world_up_on_screen(const Camera& camera) noexcept {
     return {across / length, -rise / length};
 }
 
+std::array<std::uint8_t, 5> mount_glyph(char glyph);
+
 /// One small health bar over each living unit in view that the player has a reason to read, on the
 /// radar's HUD layers: a near-black outline, a dark track and a fill in the reticle's colours
 /// (green yours, red hostile), centred over the unit and sitting above its projected top. Fixed
@@ -2573,6 +2574,15 @@ std::array<float, 2> world_up_on_screen(const Camera& camera) noexcept {
 /// world's up as the screen sees them (`world_up_on_screen`), so a banked view shows the bars
 /// banked with the world. Only the BASIS turns: the anchor stays the unit's projected top and the
 /// size stays the same number of pixels, and the camera is not touched.
+///
+/// POINT AT A THING, READ WHAT IT IS (Harri, 2026-11-03): a unit that is `pointed`, or held by
+/// `SceneOptions::readout_lock` (`T`), also wears its NAME (`kind_label`, in the HUD's small
+/// capitals, `kLetterCellPixels` cells) right over its bars and its DISTANCE in metres UNDER its
+/// middle -- the plate's top as far below the middle as the bars' outer bottom edge is above it, so
+/// the pair above and the distance below sit symmetric about the unit. Both ride the projected top
+/// (higher the nearer he gets) and are the same pixels at any range. The ink is the bar's: green
+/// his, red theirs. The unit SPACE would attack keeps its own label from `append_attack_readout`,
+/// so it is not named twice.
 ///
 /// Always `kUnitBarVertexCount` vertices per bar, in sim order; a bar with a zero-width fill stays
 /// whole. A unit counting a deploy (`Unit::deploy_ticks` non-zero) wears a deploy bar of the same
@@ -2607,7 +2617,8 @@ void append_unit_bars(std::vector<SceneVertex>& out, const SceneOptions& options
         const bool wanted
             = (unit.side == options.viewer_side
                && std::find(selected.begin(), selected.end(), unit.id) != selected.end())
-              || unit.id == pointed || unit.id == options.assist_target;
+              || unit.id == pointed || unit.id == options.assist_target
+              || unit.id == options.readout_lock;
         if (!unit.alive || unit.id == options.viewer_unit || (!wanted && unit.deploy_ticks == 0)
             || hidden_by_reach(sim, options, unit)) {
             continue;
@@ -2662,6 +2673,60 @@ void append_unit_bars(std::vector<SceneVertex>& out, const SceneOptions& options
         if (unit.deploy_ticks != 0) {
             bar(next, std::min(1.0F, static_cast<float>(unit.deploy_ticks)
                                          / static_cast<float>(sim::kDeployTicks)));
+            next += height + (3.0F * outline);
+        }
+        if (unit.id != pointed && unit.id != options.readout_lock) {
+            continue;
+        }
+        // A plate of `text` centred `along` the bar's width, its bottom edge `bottom` above the
+        // unit's top: black plate behind, the letters in the unit's ink.
+        const auto label = [&](std::string_view text, float along, float bottom) {
+            const float letter = kLetterCellPixels;
+            const float text_w = ((static_cast<float>(text.size()) * 6.0F) - 1.0F) * letter;
+            const float plate_h = (5.0F * letter) + (2.0F * kLetterPlatePadPixels);
+            std::size_t lit = 1; // the plate
+            for (const char glyph : text) {
+                for (const std::uint8_t row : mount_glyph(glyph)) {
+                    lit += static_cast<std::size_t>(std::popcount(row));
+                }
+            }
+            out.reserve(out.size() + (lit * 6U));
+            rect(marks_at * kHudFaceRatio, along - (text_w * 0.5F) - kLetterPlatePadPixels,
+                 along + (text_w * 0.5F) + kLetterPlatePadPixels, bottom, bottom + plate_h,
+                 kOutline);
+            for (std::size_t index = 0; index < text.size(); ++index) {
+                const std::array<std::uint8_t, 5> rows = mount_glyph(text.at(index));
+                for (std::size_t row = 0; row < rows.size(); ++row) {
+                    for (int col = 0; col < 5; ++col) {
+                        if (((rows.at(row) >> (4 - col)) & 1U) == 0U) {
+                            continue;
+                        }
+                        const float left
+                            = along - (text_w * 0.5F)
+                              + ((static_cast<float>(index) * 6.0F + static_cast<float>(col))
+                                 * letter);
+                        const float upper = bottom + kLetterPlatePadPixels
+                                            + (static_cast<float>(5 - row) * letter);
+                        rect(marks_at, left, left + letter, upper - letter, upper, side_rgb);
+                    }
+                }
+            }
+        };
+        if (unit.id != options.attack_target) {
+            label(kind_label(unit.kind), 0.0F, next);
+        }
+        const Projected middle = attack_point(options, unit);
+        if (middle.depth > math::kNearPlane) {
+            const float mid_up
+                = ((middle.x - top.x) * rise.at(0)) + ((middle.y - top.y) * rise.at(1));
+            const float mid_along
+                = ((middle.x - top.x) * across.at(0)) + ((middle.y - top.y) * across.at(1));
+            const float plate_h = (5.0F * kLetterCellPixels) + (2.0F * kLetterPlatePadPixels);
+            // The plate's TOP edge is the mirror of the bars' outer bottom edge (`gap` over the
+            // top) in the unit's middle.
+            const std::string metres
+                = std::to_string(std::llround(distance_metres(options, unit))) + " M";
+            label(metres, mid_along, (2.0F * mid_up) - gap - plate_h);
         }
     }
 }
@@ -5171,8 +5236,7 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
     append_mount_plates(scene.vertices, options, sim);
     // "Pointing approximately at it": the unit the crosshair is on, else the nearest within the
     // assist's own cone (any side, unlike the assist's). One answer for the whole frame.
-    const sim::UnitId pointed
-        = aimed.has_unit() ? aimed.unit : asset_nearest_ray(sim, options, kAssistConeDegrees);
+    const sim::UnitId pointed = pointed_asset(sim, options, aimed);
     append_unit_bars(scene.vertices, options, sim, selected, pointed);
     append_attack_readout(scene.vertices, options, sim);
     append_assist(scene.vertices, options, sim);

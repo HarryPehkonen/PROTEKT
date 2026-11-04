@@ -184,6 +184,12 @@ public:
     /// and goes when the unit dies or the world view stops drawing it. It is a HUD fact only: it
     /// orders nothing, selects nothing and never reaches the shot (see game/assist.hpp).
     [[nodiscard]] sim::UnitId assist_target() const noexcept;
+    /// THE READOUT LOCK (`T`): the asset, of either side, whose name, health bar and distance are
+    /// held on screen, or none. `T` on the asset the crosshair is pointing at (`pointed_asset`)
+    /// locks it, `T` on the one already locked lets it go, `T` on another moves the lock, and `T`
+    /// with nothing pointed at lets go. It outlives the crosshair leaving the unit and goes when
+    /// the unit dies or the world view stops drawing it. A HUD fact only, like the assist.
+    [[nodiscard]] sim::UnitId readout_lock() const noexcept;
     /// The weapon the driven craft has up. The craft carries the set, so an X swap keeps it.
     [[nodiscard]] Weapon weapon() const noexcept;
     /// G has been pressed and the digit that names its mark has not: the next 0-9 is a MARK number
@@ -295,7 +301,8 @@ private:
     void remember(const std::vector<sim::Order>& orders);
 
     sim::UnitId driven_;
-    sim::UnitId assist_{}; ///< the latched assist target (`T`); none when zero
+    sim::UnitId assist_{};       ///< the latched assist target (`T`); none when zero
+    sim::UnitId readout_lock_{}; ///< the asset whose readout `T` holds up; none when zero
     std::map<sim::UnitId, sim::OrderPayload> remembered_; ///< each unit's last player order
     std::set<sim::UnitId> retreating_;                    ///< tanks sent home and not yet healed
     cmd::Selection selection_;
