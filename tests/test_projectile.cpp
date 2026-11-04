@@ -345,6 +345,8 @@ TEST(Projectile, AStationaryTankSendsOnlyTheFiredComponent) {
 TEST(Projectile, HitsItsOwnSideWhenItIsInTheWay) {
     // Friendly fire (Harri's ruling): our factory stands in the line of fire, four tiles out; the
     // enemy factory is eight. The bolt is stopped by the nearer, and the one behind is shielded.
+    // The player's trigger takes the shot the gun itself would now decline (`HoldFire`): the
+    // damage is the flight's rule and is unchanged.
     Sim sim = make({{Side::Player, UnitKind::Tank, 100, 100},
                     {Side::Player, UnitKind::Factory, 104, 100},
                     {Side::Enemy, UnitKind::Factory, 108, 100}});
@@ -353,6 +355,10 @@ TEST(Projectile, HitsItsOwnSideWhenItIsInTheWay) {
     const std::uint16_t friendly_hp = sim.find(friendly)->hp;
     const std::uint16_t enemy_hp = sim.find(enemy)->hp;
     for (int step = 0; step < 120; ++step) {
+        if (step == profile(UnitKind::Tank).cooldown_ticks) { // a new gun is still reloading
+            sim.enqueue(
+                Order{UnitId{1}, orders::FireTowards{Fixed::from_int(1), Fixed::zero(), enemy}});
+        }
         sim.step();
     }
     EXPECT_LT(sim.find(friendly)->hp, friendly_hp) << "the bolt passed through its own side";

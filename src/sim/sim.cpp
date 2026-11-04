@@ -1450,6 +1450,59 @@ private:
     std::uint64_t state_ = 0xCBF29CE484222325ULL;
 };
 
+/// How long the friendly-fire probe flies a shot before it gives up: ten seconds, far past the
+/// longest flight (a mortar lob lands in a couple), so a probe always ends with the shot.
+constexpr int kLaneProbeTicks = 10 * kTicksPerSecond;
+
+/// WOULD THIS SHOT HURT A UNIT ON THE SHOOTER'S OWN SIDE? (friendly fire: everybody should TRY to
+/// avoid it. The damage is untouched -- a round that hits a friend still hurts it; this only lets a
+/// gun decline the shot.) The shot is the very one `launch` builds for `target`, flown to its end
+/// on a copy of the nearby units by the real flight (`advance_projectiles`), so there is one
+/// geometry: a flat bolt is stopped by the first body in its lane, whichever side it is on (a
+/// hostile in front shields the friend behind it), and a lobbed shell flies OVER the friends under
+/// its arc and counts only the body it comes down on and the splash around the landing. The lane
+/// is the bolt's own hit radius, not a wider one, so a gun does not refuse a shot that would have
+/// missed. The shooter itself counts: a shell that comes down on its own gun is a friend hit.
+/// A target that is itself on the shooter's side is a DELIBERATE shot (an explicit order on a
+/// friendly): it is not second-guessed. Positions are as they are now; a friend who moves into the
+/// lane afterwards is not foreseen.
+[[nodiscard]] bool shot_hurts_friend(const std::vector<Unit>& units, const Unit& shooter,
+                                     const Unit& target, std::uint16_t damage, std::uint64_t seed) {
+    if (target.side == shooter.side) {
+        return false;
+    }
+    const UnitSpec& weapon = spec_of(shooter.kind);
+    // The aim estimate is about one target: judge the shot the gun would make at THIS one, not
+    // the belief it holds about another. A copy, so the real gun's belief is not thrown away.
+    Unit gun = shooter;
+    retarget_aim(gun, target.id);
+    Projectile bolt = launch(gun, target, damage, seed);
+    bolt.learns = false; // a probe teaches nobody
+    std::vector<Projectile> flight;
+    flight.reserve(std::max<std::size_t>(1, weapon.pellets));
+    fan_out(bolt, weapon.pellets, weapon.cone_half_tan, flight);
+
+    // Only what the shot can reach: within its travel and its splash of the gun.
+    const std::int64_t reach = static_cast<std::int64_t>(weapon.max_travel.raw)
+                               + static_cast<std::int64_t>(weapon.splash_radius.raw);
+    std::vector<Unit> near;
+    near.reserve(units.size());
+    for (const Unit& unit : units) {
+        if (unit.alive && dist2(shooter.x, shooter.y, unit.x, unit.y) <= reach * reach) {
+            near.push_back(unit);
+        }
+    }
+    std::vector<Impact> impacts;
+    for (int tick = 0; tick < kLaneProbeTicks && !flight.empty(); ++tick) {
+        advance_projectiles(flight, near, impacts, seed);
+    }
+    return std::any_of(impacts.begin(), impacts.end(), [&](const Impact& impact) {
+        return std::any_of(near.begin(), near.end(), [&](const Unit& unit) {
+            return unit.id == impact.victim && unit.side == shooter.side;
+        });
+    });
+}
+
 } // namespace
 
 Sim Sim::create(const Scenario& scenario) {
@@ -1603,7 +1656,8 @@ void Sim::step() {
         if (unit.focus_target.valid()) {
             Unit* focused = find_mut(units_, unit.focus_target);
             if (focused != nullptr && focused->alive
-                && dist2(unit.x, unit.y, focused->x, focused->y) <= range * range) {
+                && dist2(unit.x, unit.y, focused->x, focused->y) <= range * range
+                && !shot_hurts_friend(units_, unit, *focused, prof.damage, seed)) {
                 best = focused;
             }
         }
@@ -1613,7 +1667,8 @@ void Sim::step() {
             Unit* named = find_mut(units_, unit.target);
             if (named != nullptr && named->alive
                 && dist2(unit.x, unit.y, named->x, named->y) <= range * range
-                && has_line(unit, *named, seed)) {
+                && has_line(unit, *named, seed)
+                && !shot_hurts_friend(units_, unit, *named, prof.damage, seed)) {
                 best = named;
             }
         }
@@ -1626,8 +1681,11 @@ void Sim::step() {
                 const std::int64_t d2 = dist2(unit.x, unit.y, other.x, other.y);
                 // A gun does not shoot a hill: without a line the enemy is not a target, and a
                 // farther one it can see is.
+                // Nor does it shoot through a friend: a candidate whose shot would hurt one is
+                // passed over for the next (a gun TRIES not to; the damage itself is unchanged).
                 if (d2 <= range * range && d2 < best_d2 // strict: ties keep the lowest id
-                    && has_line(unit, other, seed)) {
+                    && has_line(unit, other, seed)
+                    && !shot_hurts_friend(units_, unit, other, prof.damage, seed)) {
                     best = &other;
                     best_d2 = d2;
                 }

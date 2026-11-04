@@ -376,7 +376,12 @@ TEST(Observer, RenamingTheSupportVehiclesMovedNoRecordedBattle) {
     // side and each now relocates after every shot, so positions and the battle change. Old value
     // 14972474625954707253 is the code at 22e481f; no constant restores it, because the behaviour
     // itself changed.
-    EXPECT_EQ(log.final_hash, 11108029709689596683ULL);
+    // RE-RECORDED 2026-11-04 for hold-fire (everybody tries to avoid friendly fire): a gun whose
+    // shot would hurt a friend no longer takes it, and the skirmish's columns stand within a bolt's
+    // half-tile of one another, so most of them hold fire from tick ~451. Old value
+    // 11108029709689596683 is the code at 39c2fc8; no constant restores it, because the behaviour
+    // itself changed.
+    EXPECT_EQ(log.final_hash, 16838413708508611782ULL);
 }
 
 TEST(Observer, TheFiredStreamForAScriptedBattleIsUnchanged) {
@@ -425,26 +430,17 @@ TEST(Observer, TheFiredStreamForAScriptedBattleIsUnchanged) {
     // The first three shots (ticks 430-435) are unchanged -- the enemy bike's first shot is the
     // last thing that happens before the first relocation -- and from the fourth the battle is a
     // different one: 73 shots (was 71). Old stream: the code at 22e481f.
+    // RE-RECORDED 2026-11-04 for hold-fire: a gun whose shot would hurt a friend holds fire, and
+    // the skirmish's columns stand within a bolt's half-tile of one another, so from tick ~451
+    // most of them go quiet. The first three shots (ticks 430-435) are unchanged; it has 21 shots
+    // (was 73). Old stream: the code at 39c2fc8.
     static const std::vector<Expected> kExpected = {
-        {430, 19, 2, 100}, {435, 2, 13, 100}, {435, 13, 2, 100}, {440, 8, 13, 100},
-        {444, 3, 13, 100}, {446, 4, 13, 100}, {450, 2, 13, 100}, {450, 13, 2, 76},
-        {452, 12, 2, 76},  {459, 3, 13, 100}, {461, 4, 13, 92},  {462, 1, 13, 92},
-        {465, 2, 13, 92},  {465, 13, 2, 52},  {467, 12, 2, 52},  {467, 15, 2, 52},
-        {474, 3, 13, 76},  {475, 19, 2, 20},  {476, 4, 13, 76},  {477, 1, 13, 76},
-        {480, 2, 13, 76},  {480, 13, 2, 4},   {482, 12, 2, 4},   {482, 15, 2, 4},
-        {485, 8, 13, 68},  {489, 3, 13, 68},  {491, 4, 13, 68},  {492, 1, 13, 68},
-        {495, 13, 3, 28},  {497, 12, 3, 28},  {497, 15, 3, 28},  {504, 3, 13, 60},
-        {506, 4, 13, 60},  {507, 1, 13, 60},  {510, 13, 1, 84},  {512, 12, 1, 84},
-        {512, 15, 3, 20},  {519, 3, 13, 44},  {519, 14, 3, 20},  {520, 19, 1, 84},
-        {521, 4, 13, 44},  {522, 1, 13, 44},  {525, 13, 1, 84},  {527, 12, 1, 84},
-        {527, 15, 1, 84},  {530, 8, 13, 36},  {534, 3, 13, 36},  {534, 14, 4, 68},
-        {536, 4, 13, 36},  {537, 1, 13, 36},  {540, 13, 1, 84},  {542, 15, 1, 84},
-        {549, 3, 15, 76},  {549, 14, 4, 68},  {551, 4, 15, 76},  {552, 1, 15, 76},
-        {555, 13, 1, 84},  {557, 15, 1, 84},  {564, 14, 4, 44},  {565, 19, 1, 60},
-        {566, 4, 15, 44},  {567, 1, 15, 44},  {570, 13, 4, 44},  {572, 15, 1, 60},
-        {575, 8, 15, 20},  {579, 14, 4, 36},  {581, 4, 15, 20},  {582, 1, 15, 20},
-        {585, 13, 4, 36},  {587, 15, 1, 60},  {594, 14, 4, 28},  {596, 4, 13, 12},
-        {597, 1, 13, 12},
+        {430, 19, 2, 100}, {435, 2, 13, 100}, {435, 13, 2, 100}, {441, 8, 13, 100},
+        {444, 3, 13, 100}, {450, 2, 13, 100}, {450, 13, 2, 100}, {451, 12, 2, 100},
+        {475, 19, 2, 60},  {486, 8, 19, 40},  {501, 14, 2, 60},  {516, 14, 2, 60},
+        {520, 19, 8, 40},  {531, 8, 19, 40},  {531, 14, 2, 52},  {546, 14, 2, 52},
+        {561, 14, 2, 52},  {565, 19, 2, 36},  {576, 8, 19, 24},  {576, 14, 2, 36},
+        {591, 14, 2, 36},
     };
     const Scenario scenario = skirmish(42);
     ai::ScriptedCommander player(30);

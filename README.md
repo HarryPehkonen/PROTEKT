@@ -341,6 +341,17 @@ deliberate: it means you can destroy your own tank or your own factory if you me
 ever turning on each other without being told. A unit may never name *itself*, though, so an accidental
 order cannot make a tank shoot itself.
 
+**Everybody tries not to shoot through a friend** (Harri: "not shooting at our own ships should be
+attempted"). Before a gun takes an automatic shot it flies that shot on a copy of the nearby units, by the
+real flight; if it would hurt a unit on its own side it does not take it and picks the next target it can
+shoot cleanly, or holds fire. A straight bolt is stopped by the first body in its lane (a hostile in front
+shields the friend behind it); a lobbed mortar shell goes *over* the friends under its arc and is judged by
+where it comes down: the body it lands on and the 1.5-tile splash. This is only the *decision*: **friendly
+fire damage is unchanged** -- a round that does reach a friend still hurts it, and your own trigger and an
+explicit order on a friendly are never second-guessed. It is a try, not a guarantee: it judges positions as
+they are now, so a friend who drives into the lane afterwards is still hit. Tightly packed units can go
+quiet while they are packed.
+
 The mark still warns you: **amber** over one of your own units ("do not shoot this"), **salmon** over a
 hostile. The warning is on the unit itself as well as on the mark.
 
