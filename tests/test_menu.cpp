@@ -28,6 +28,7 @@
 #include "protekt/game/radar.hpp"
 #include "protekt/game/row.hpp"
 #include "protekt/game/scene.hpp"
+#include "protekt/game/world_map.hpp"
 #include "protekt/sim/scenario.hpp"
 #include "protekt/sim/sim.hpp"
 #include "protekt/sim/spec.hpp"
@@ -1714,6 +1715,120 @@ TEST(Menu, DrawnTheLeadersDotIsInFrontOfTheBlipItMarks) {
     ASSERT_GT(corners, 0U) << "the radar drew no square for the selected unit";
     ASSERT_GT(dot_farthest, 0.0F) << "no dot";
     EXPECT_LT(dot_farthest, blip_nearest) << "the dot is behind the blip it marks";
+}
+
+/// The amber the leaders drew in `frame`, projected: `count` whole leaders (three segments and a
+/// dot each), and for each the dot's centre and the bottom of its last segment, in frame pixels.
+struct LeaderEnds {
+    std::vector<Projected> dots;
+    std::vector<float> last_bottom;
+    std::vector<float> run_y; ///< the middle of each leader's horizontal run
+};
+
+[[nodiscard]] LeaderEnds leader_ends(const SceneOptions& options,
+                                     const std::vector<SceneVertex>& frame, std::size_t count) {
+    std::vector<Projected> amber;
+    for (const SceneVertex& v : frame) {
+        if (v.colour == kLedgerInk) {
+            amber.push_back(on_screen(options, v));
+        }
+    }
+    LeaderEnds ends;
+    constexpr std::size_t kOne = kLegVertices + kDotVertices;
+    EXPECT_EQ(amber.size(), count * kOne) << "not one whole leader per unit";
+    if (amber.size() != count * kOne) {
+        return ends;
+    }
+    for (std::size_t k = 0; k < count; ++k) {
+        const std::size_t base = k * kOne;
+        ends.dots.push_back(amber.at(base + kLegVertices));
+        float bottom = std::numeric_limits<float>::lowest();
+        for (std::size_t i = kLegVertices - kLineVertices; i < kLegVertices; ++i) {
+            bottom = std::max(bottom, amber.at(base + i).y);
+        }
+        ends.last_bottom.push_back(bottom);
+        float top = std::numeric_limits<float>::max();
+        float low = std::numeric_limits<float>::lowest();
+        for (std::size_t i = kLineVertices; i < 2U * kLineVertices; ++i) {
+            top = std::min(top, amber.at(base + i).y);
+            low = std::max(low, amber.at(base + i).y);
+        }
+        ends.run_y.push_back((top + low) * 0.5F);
+    }
+    return ends;
+}
+
+TEST(Menu, LaidOutOneLeaderPerBlipEachTheWholePathAndNoBlipsIsTheBareOne) {
+    const MenuLayout layout = menu_layout(column_rows(), 6.0F, 65.0F, 2.0F);
+    constexpr float kTop = 578.0F;
+    using Point = std::array<float, 2>;
+    const std::array<Point, 3> blips{Point{200.0F, 640.0F}, Point{90.0F, 600.0F},
+                                     Point{300.0F, 650.0F}};
+    const std::vector<MenuLeader> fan = menu_leaders(layout, kTop, blips);
+    ASSERT_EQ(fan.size(), blips.size());
+    for (std::size_t i = 0; i < blips.size(); ++i) {
+        const MenuLeader single = menu_leader(layout, kTop, blips.at(i));
+        EXPECT_EQ(fan.at(i).points, single.points) << "leader " << i;
+        EXPECT_TRUE(fan.at(i).dot);
+        EXPECT_EQ(fan.at(i).points.back(), blips.at(i)) << "leader " << i << " misses its unit";
+    }
+    const std::vector<MenuLeader> none = menu_leaders(layout, kTop, std::span<const Point>{});
+    ASSERT_EQ(none.size(), 1U);
+    EXPECT_FALSE(none.front().dot);
+    EXPECT_EQ(none.front().points.size(), 2U);
+}
+
+TEST(Menu, DrawnTheMapsLeaderRunsAlongTheMapsTopAndEndsOnTheSelectedUnitsSquare) {
+    // The defect: with the map up the line went down the gutter and STOPPED at the menu's last row.
+    SceneOptions options = menu_rig();
+    options.show_world_map = true;
+    const sim::Sim& sim = skirmish_sim();
+    const WorldMap map
+        = world_map(sim, options.extent, options.viewer_side, options.viewer_unit, nullptr);
+    ASSERT_GE(map.assets.size(), 2U);
+    // One unit, then a group of two: every selected unit has its own leader, on its own square.
+    for (const std::size_t count : {std::size_t{1}, std::size_t{2}}) {
+        std::vector<sim::UnitId> selected;
+        selected.reserve(count);
+        for (std::size_t i = 0; i < count; ++i) {
+            selected.push_back(map.assets.at(i).id);
+        }
+        // The whole frame, not its tail: the map is drawn after the menu.
+        const std::vector<MenuRow> rows = column_rows();
+        options.menu = &rows;
+        options.show_menu = true;
+        const LeaderEnds ends
+            = leader_ends(options, build_scene(sim, options, selected).vertices, count);
+        ASSERT_EQ(ends.dots.size(), count);
+        for (std::size_t i = 0; i < count; ++i) {
+            EXPECT_NEAR(ends.dots.at(i).x, map.assets.at(i).px, 0.05F) << "unit " << i;
+            EXPECT_NEAR(ends.dots.at(i).y, map.assets.at(i).py, 0.05F) << "unit " << i;
+            EXPECT_NEAR(ends.last_bottom.at(i), map.assets.at(i).py, 0.05F) << "unit " << i;
+            EXPECT_NEAR(ends.run_y.at(i), map.layout.y, 0.05F)
+                << "the run is not along the map's top edge";
+        }
+    }
+}
+
+TEST(Menu, DrawnTheRadarsLeadersAreOnePerSelectedUnitEachOnItsOwnBlip) {
+    LegRig rig = leg_rig();
+    ASSERT_EQ(rig.selected.size(), 1U);
+    const RadarPanel panel = radar_panel(rig.options.extent);
+    std::vector<RadarMark> yours;
+    for (const RadarMark& mark : rig_marks(rig.options)) {
+        if (mark.shape == RadarShape::Square && mark.tone == RadarTone::Yours) {
+            yours.push_back(mark);
+        }
+    }
+    ASSERT_GE(yours.size(), 2U) << "the rig has no second friend on the radar";
+    rig.selected = {yours.at(0).unit, yours.at(1).unit};
+    const LeaderEnds ends = leader_ends(rig.options, leg_vertices(column_rows(), rig), 2U);
+    ASSERT_EQ(ends.dots.size(), 2U);
+    for (std::size_t i = 0; i < 2U; ++i) {
+        EXPECT_NEAR(ends.dots.at(i).x, panel.x + yours.at(i).px, 0.05F) << "unit " << i;
+        EXPECT_NEAR(ends.dots.at(i).y, panel.y + yours.at(i).py, 0.05F) << "unit " << i;
+        EXPECT_NEAR(ends.last_bottom.at(i), panel.y + yours.at(i).py, 0.05F) << "unit " << i;
+    }
 }
 
 TEST(Menu, DrawnEveryGlyphSitsWhereTheLayoutPutsIt) {

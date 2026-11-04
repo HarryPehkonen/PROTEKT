@@ -2476,6 +2476,21 @@ void append_radar(std::vector<SceneVertex>& out, const SceneOptions& options, co
     const std::vector<RadarMark> pools = radar_pools(sim.pools(), sim.units(), options.viewer_unit,
                                                      options.camera.yaw, panel, reach);
     drawn.insert(drawn.end(), pools.begin(), pools.end());
+    // A triangle pointing along its angle: the apex, and two corners 135 degrees either side. The
+    // blips' arrows and the nav marks' arrow heads are this one shape.
+    const auto triangle = [&](float distance, float cx, float cy, float half, float angle,
+                              const std::array<float, 3>& rgb) {
+        const auto corner = [&](float radius, float turn) {
+            return std::array<float, 2>{cx + (radius * std::sin(angle + turn)),
+                                        cy - (radius * std::cos(angle + turn))};
+        };
+        const std::array<float, 2> apex = corner(half, 0.0F);
+        const std::array<float, 2> side_a = corner(half * kTriangleBaseFraction, kTriangleTurn);
+        const std::array<float, 2> side_b = corner(half * kTriangleBaseFraction, -kTriangleTurn);
+        out.push_back(SceneVertex{at(distance, apex.at(0), apex.at(1)), rgb});
+        out.push_back(SceneVertex{at(distance, side_a.at(0), side_a.at(1)), rgb});
+        out.push_back(SceneVertex{at(distance, side_b.at(0), side_b.at(1)), rgb});
+    };
     for (const RadarMark& mark : drawn) {
         const std::array<float, 3> rgb = radar_colour(mark.tone);
         // The mark's own coordinates are PANEL pixels; the frame is what gets drawn into, so the
@@ -2499,20 +2514,7 @@ void append_radar(std::vector<SceneVertex>& out, const SceneOptions& options, co
             rect(marks_at, right - bar, top + bar, right, bottom - bar, rgb);
             continue;
         }
-        // A triangle pointing along its angle: the apex, and two corners 135 degrees either side.
-        const auto corner = [&](float radius, float turn) {
-            const float angle = mark.angle + turn;
-            return std::array<float, 2>{centre_x + (radius * std::sin(angle)),
-                                        centre_y - (radius * std::cos(angle))};
-        };
-        const std::array<float, 2> apex = corner(mark.half, 0.0F);
-        const std::array<float, 2> side_a
-            = corner(mark.half * kTriangleBaseFraction, kTriangleTurn);
-        const std::array<float, 2> side_b
-            = corner(mark.half * kTriangleBaseFraction, -kTriangleTurn);
-        out.push_back(SceneVertex{at(marks_at, apex.at(0), apex.at(1)), rgb});
-        out.push_back(SceneVertex{at(marks_at, side_a.at(0), side_a.at(1)), rgb});
-        out.push_back(SceneVertex{at(marks_at, side_b.at(0), side_b.at(1)), rgb});
+        triangle(marks_at, centre_x, centre_y, mark.half, mark.angle, rgb);
     }
 
     // THE NAV MARKS: `append_nav_glyph`'s plus, nearer than the compass so a mark pinned to the rim
@@ -2523,6 +2525,12 @@ void append_radar(std::vector<SceneVertex>& out, const SceneOptions& options, co
         for (const RadarNav& nav :
              radar_nav_marks(sim.units(), options.viewer_unit, options.nav_marks->marks(),
                              options.camera.yaw, panel, reach)) {
+            if (nav.at_rim) {
+                // Out of range and selected: a tiny arrow head at the edge, in the mark's yellow.
+                triangle(marks_at * kNavRatio, panel.x + nav.px, panel.y + nav.py, nav.half,
+                         nav.angle, nav_colour(true));
+                continue;
+            }
             append_nav_glyph(out, options, marks_at * kNavRatio, panel.x + nav.px, panel.y + nav.py,
                              nav.half, nav.highlighted);
         }
@@ -4085,54 +4093,73 @@ void append_hud_panels(std::vector<SceneVertex>& out, const SceneOptions& option
             smooth(row.right, std::round(placed.right_left), top, ink);
         }
         // THE LEADER LINE, in the ledger's amber, after every bar so it is never drawn under one:
-        // down the gutter at one x through every row's band, as BZ2 draws it, then on to the radar
-        // (MENU-LEG): along its top edge and down onto the selected unit's blip. The blip is the
-        // radar's OWN mark, from the call `append_radar` makes, so the dot is where the radar drew
-        // the unit and nowhere else. No radar, no leg: the world map has taken its corner.
-        const std::vector<RadarMark> marks
-            = options.show_world_map ? std::vector<RadarMark>{} : frame_radar_marks(options, sim);
+        // down the gutter at one x through every row's band, as BZ2 draws it, then on to the panel
+        // in the corner (MENU-LEG): along its top edge and down onto each selected unit. The panel
+        // is the radar's, or the world map's when R has put the map in its place, and the blips
+        // are that surface's OWN marks -- the radar's from the call `append_radar` makes, the
+        // map's from the call `append_world_map` makes -- so a dot is where the surface drew the
+        // unit and nowhere else. One leader per selected unit; a unit the surface does not show (a
+        // friend beyond the radar's range) has none.
         std::optional<float> radar_top;
-        std::optional<std::array<float, 2>> blip;
-        if (!marks.empty()) {
-            const RadarPanel panel = radar_panel(options.extent);
-            radar_top = panel.y;
-            const auto mark
-                = std::find_if(marks.begin(), marks.end(), [&](const RadarMark& candidate) {
-                      return !selected.empty() && candidate.unit == selected.front();
-                  });
-            if (mark != marks.end()) {
-                blip = std::array<float, 2>{panel.x + mark->px, panel.y + mark->py};
+        std::vector<std::array<float, 2>> blips;
+        blips.reserve(selected.size());
+        if (options.show_world_map) {
+            const WorldMap map
+                = world_map(sim, options.extent, options.viewer_side, options.viewer_unit, nullptr);
+            radar_top = map.layout.y;
+            for (const sim::UnitId id : selected) {
+                const auto asset = std::find_if(map.assets.begin(), map.assets.end(),
+                                                [id](const MapAsset& a) { return a.id == id; });
+                if (asset != map.assets.end()) {
+                    blips.push_back({asset->px, asset->py});
+                }
+            }
+        } else {
+            const std::vector<RadarMark> marks = frame_radar_marks(options, sim);
+            if (!marks.empty()) {
+                const RadarPanel panel = radar_panel(options.extent);
+                radar_top = panel.y;
+                for (const sim::UnitId id : selected) {
+                    const auto mark
+                        = std::find_if(marks.begin(), marks.end(),
+                                       [id](const RadarMark& m) { return m.unit == id; });
+                    if (mark != marks.end()) {
+                        blips.push_back({panel.x + mark->px, panel.y + mark->py});
+                    }
+                }
             }
         }
-        const MenuLeader leader = menu_leader(layout, radar_top, blip);
         // One quad per segment: the box round it, grown half the line's width each way so that
         // every elbow is filled square. The path starts and ends on vertical segments, so the
         // first's top and the last's bottom are the path's own ends and are NOT grown: the line
-        // starts under the state row and stops on the radar's edge or the blip.
+        // starts under the state row and stops on the panel's edge or the blip.
         const float half = (layout.line_right - layout.line_left) * 0.5F;
         const float leader_at = marks_at * kMenuLeaderRatio;
-        for (std::size_t i = 1; i < leader.points.size(); ++i) {
-            const std::array<float, 2>& a = leader.points.at(i - 1);
-            const std::array<float, 2>& b = leader.points.at(i);
-            const float upper = i == 1 ? a.at(1) : std::min(a.at(1), b.at(1)) - half;
-            const float lower
-                = i + 1 == leader.points.size() ? b.at(1) : std::max(a.at(1), b.at(1)) + half;
-            rect(leader_at, std::min(a.at(0), b.at(0)) - half, upper,
-                 std::max(a.at(0), b.at(0)) + half, lower, kLedgerInk);
-        }
-        // The dot: filled, a fan round the blip's centre, on the line's own layer.
-        if (leader.dot) {
-            const float cx = leader.points.back().at(0);
-            const float cy = leader.points.back().at(1);
-            const float radius = kMenuDotPixels * px;
-            const auto rim = [&](int slice) {
-                const float angle
-                    = (2.0F * kPi * static_cast<float>(slice)) / static_cast<float>(kMenuDotSlices);
-                return at(leader_at, cx + (radius * std::cos(angle)),
-                          cy + (radius * std::sin(angle)));
-            };
-            for (int slice = 0; slice < kMenuDotSlices; ++slice) {
-                emit_triangle(out, at(leader_at, cx, cy), rim(slice), rim(slice + 1), kLedgerInk);
+        for (const MenuLeader& leader : menu_leaders(layout, radar_top, blips)) {
+            for (std::size_t i = 1; i < leader.points.size(); ++i) {
+                const std::array<float, 2>& a = leader.points.at(i - 1);
+                const std::array<float, 2>& b = leader.points.at(i);
+                const float upper = i == 1 ? a.at(1) : std::min(a.at(1), b.at(1)) - half;
+                const float lower
+                    = i + 1 == leader.points.size() ? b.at(1) : std::max(a.at(1), b.at(1)) + half;
+                rect(leader_at, std::min(a.at(0), b.at(0)) - half, upper,
+                     std::max(a.at(0), b.at(0)) + half, lower, kLedgerInk);
+            }
+            // The dot: filled, a fan round the blip's centre, on the line's own layer.
+            if (leader.dot) {
+                const float cx = leader.points.back().at(0);
+                const float cy = leader.points.back().at(1);
+                const float radius = kMenuDotPixels * px;
+                const auto rim = [&](int slice) {
+                    const float angle = (2.0F * kPi * static_cast<float>(slice))
+                                        / static_cast<float>(kMenuDotSlices);
+                    return at(leader_at, cx + (radius * std::cos(angle)),
+                              cy + (radius * std::sin(angle)));
+                };
+                for (int slice = 0; slice < kMenuDotSlices; ++slice) {
+                    emit_triangle(out, at(leader_at, cx, cy), rim(slice), rim(slice + 1),
+                                  kLedgerInk);
+                }
             }
         }
 
@@ -4697,6 +4724,20 @@ std::array<float, 2> attack_line_origin(const MenuLayout& layout) noexcept {
     }
     const MenuRowLayout& state = layout.rows.front();
     return {state.verb_right, state.top + (state.height * 0.5F)};
+}
+
+std::vector<MenuLeader> menu_leaders(const MenuLayout& layout, std::optional<float> radar_top,
+                                     std::span<const std::array<float, 2>> blips) {
+    std::vector<MenuLeader> leaders;
+    if (blips.empty()) {
+        leaders.push_back(menu_leader(layout, radar_top, std::nullopt));
+        return leaders;
+    }
+    leaders.reserve(blips.size());
+    for (const std::array<float, 2>& blip : blips) {
+        leaders.push_back(menu_leader(layout, radar_top, blip));
+    }
+    return leaders;
 }
 
 MenuLeader menu_leader(const MenuLayout& layout, std::optional<float> radar_top,

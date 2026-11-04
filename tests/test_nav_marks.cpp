@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <string>
@@ -505,22 +506,92 @@ TEST(NavMarksRadar, ListsExactlyThePlacedMarksInSlotOrder) {
     EXPECT_LT(shown.at(1).py, middle_y);
 }
 
-TEST(NavMarksRadar, AMarkBeyondTheRadiusIsPinnedToTheRimInItsDirection) {
+// THE RADAR'S RULE (Harri, 2026-11-04): a nav mark is on the radar only inside its range. Outside
+// it, a plain mark is not there at all; a mark selected in the nav menu (highlighted) is one tiny
+// arrow head at the radar's edge, aimed along the bearing from its middle. The map shows every
+// mark at every range (`NavMarksMap` below).
+
+TEST(NavMarksRadar, AMarkBeyondTheRadiusIsNotListedUnlessItIsHighlighted) {
     Rig rig = make_rig();
     NavMarks marks;
     marks.place(40 + (3 * kRadarRadiusTiles), 40);
     const RadarPanel panel = radar_panel(kExtent);
+    EXPECT_TRUE(radar_nav_marks(rig.sim.units(), rig.tank_a, marks.marks(), 0.0F, panel).empty())
+        << "a plain mark out of range is on the radar";
+    marks.toggle(0);
     const std::vector<RadarNav> shown
         = radar_nav_marks(rig.sim.units(), rig.tank_a, marks.marks(), 0.0F, panel);
     ASSERT_EQ(shown.size(), 1U);
     EXPECT_TRUE(shown.at(0).at_rim);
-    const float middle = panel.width * 0.5F;
-    EXPECT_GT(shown.at(0).px, middle * 1.5F);
-    EXPECT_NEAR(shown.at(0).py, panel.height * 0.5F, 0.5F);
-    EXPECT_LE(shown.at(0).px + shown.at(0).half, panel.width);
+    EXPECT_TRUE(shown.at(0).highlighted);
 }
 
-TEST(NavMarksRadar, EveryMarkLiesInsideTheOvalAtAnyBearing) {
+TEST(NavMarksRadar, AMarkInsideTheRadiusIsListedPlainOrHighlighted) {
+    Rig rig = make_rig();
+    NavMarks marks;
+    marks.place(40 + kRadarRadiusTiles - 2, 40);
+    marks.place(40, 40 + kRadarRadiusTiles - 2);
+    marks.toggle(1);
+    const std::vector<RadarNav> shown
+        = radar_nav_marks(rig.sim.units(), rig.tank_a, marks.marks(), 0.0F, radar_panel(kExtent));
+    ASSERT_EQ(shown.size(), 2U);
+    EXPECT_FALSE(shown.at(0).at_rim);
+    EXPECT_FALSE(shown.at(1).at_rim) << "a highlighted mark in range is the mark, not an arrow";
+}
+
+TEST(NavMarksRadar, TheArrowHeadSitsAtTheEdgeAndPointsAlongTheBearingFromTheMiddle) {
+    Rig rig = make_rig();
+    const RadarPanel panel = radar_panel(kExtent);
+    const float middle_x = panel.width * 0.5F;
+    const float middle_y = panel.height * 0.5F;
+    constexpr int kFar = 3 * kRadarRadiusTiles;
+    for (const float yaw : {0.0F, 0.4F, 2.0F}) {
+        // The yaws turn the view round, so these four bearings of the world are every bearing of
+        // the panel; a mark cannot be placed west or south of the tank this near the world's edge.
+        for (const std::array<int, 2>& offset : {std::array<int, 2>{kFar, 0},
+                                                 {0, kFar},
+                                                 {kFar, kFar},
+                                                 {kFar, kFar / 3},
+                                                 {kFar / 3, kFar}}) {
+            NavMarks marks;
+            ASSERT_EQ(marks.place(40 + offset.at(0), 40 + offset.at(1)).outcome, Outcome::Placed);
+            marks.toggle(0);
+            const std::vector<RadarNav> shown
+                = radar_nav_marks(rig.sim.units(), rig.tank_a, marks.marks(), yaw, panel);
+            ASSERT_EQ(shown.size(), 1U);
+            const RadarNav& head = shown.at(0);
+            ASSERT_TRUE(head.at_rim);
+            // Not the mark's place (that is off the panel): a head, smaller than the plus.
+            EXPECT_LT(head.half, radar_nav_half(panel) * 1.5F);
+            EXPECT_GT(head.half, 0.0F);
+            // At the edge: in the outer quarter of the oval, wholly on the face.
+            const float ex = (head.px - middle_x) / middle_x;
+            const float ey = (head.py - middle_y) / middle_y;
+            const float reach = std::hypot(ex, ey);
+            EXPECT_GT(reach, 0.7F) << "the head is not at the edge";
+            EXPECT_LE(reach, 1.0F) << "the head is off the face";
+            // Aimed along the bearing: the screen direction the mark's own direction takes
+            // through the radar's projection, from the middle. The head's heading is that.
+            const float sine = std::sin(yaw);
+            const float cosine = std::cos(yaw);
+            const sim::Unit* tank = rig.sim.find(rig.tank_a);
+            ASSERT_NE(tank, nullptr);
+            const float kOne = static_cast<float>(sim::Fixed::kOne);
+            const float dx = (static_cast<float>(40 + offset.at(0)) + 0.5F)
+                             - (static_cast<float>(tank->x.raw) / kOne);
+            const float dz = (static_cast<float>(40 + offset.at(1)) + 0.5F)
+                             - (static_cast<float>(tank->y.raw) / kOne);
+            const RadarPoint toward = radar_project(panel, (dx * cosine) - (dz * sine),
+                                                    (dx * sine) + (dz * cosine), kRadarRadiusTiles);
+            const float want = std::atan2(toward.px - middle_x, middle_y - toward.py);
+            EXPECT_NEAR(std::sin(head.angle - want), 0.0F, 1.0e-3F)
+                << "yaw " << yaw << " offset " << offset.at(0) << "," << offset.at(1);
+            EXPECT_GT(std::cos(head.angle - want), 0.0F);
+        }
+    }
+}
+
+TEST(NavMarksRadar, EveryMarkOrHeadLiesInsideTheOvalAtAnyBearing) {
     Rig rig = make_rig();
     const RadarPanel panel = radar_panel(kExtent);
     for (const std::array<int, 2>& tile : {std::array<int, 2>{40, 140},
@@ -534,6 +605,7 @@ TEST(NavMarksRadar, EveryMarkLiesInsideTheOvalAtAnyBearing) {
                                            {1, 40}}) {
         NavMarks marks;
         marks.place(tile.at(0), tile.at(1));
+        marks.toggle(0); // highlighted: beyond the range it is a head, and still on the face
         const std::vector<RadarNav> shown
             = radar_nav_marks(rig.sim.units(), rig.tank_a, marks.marks(), 0.4F, panel);
         ASSERT_EQ(shown.size(), 1U);
@@ -582,6 +654,78 @@ TEST(NavMarksRadar, AHighlightedMarkIsAYellowPlusInADiamond) {
 
 TEST(NavMarksMap, AHighlightedMarkIsAYellowPlusInADiamond) {
     expect_highlight_is_drawn_differently(true);
+}
+
+/// The nav marks' vertices in a frame, by colour, with the world beacon out of the count: the
+/// marks used here are all beyond the scene's 24-tile radius of the camera.
+TEST(NavMarksRadar, DrawnInRangeAPlainMarkIsAPlus) {
+    Rig rig = make_rig();
+    NavMarks marks;
+    static_cast<void>(marks.place(70, 30)); // 31.6 tiles from the tank: inside the radar's 40
+    const Scene scene = scene_with(rig, &marks);
+    EXPECT_EQ(vertices_in(scene, kNavPlainColour), 12U);
+    EXPECT_EQ(vertices_in(scene, kNavHighlightColour), 0U);
+}
+
+TEST(NavMarksRadar, DrawnOutOfRangeAPlainMarkIsNotDrawnAtAll) {
+    Rig rig = make_rig();
+    NavMarks marks;
+    static_cast<void>(marks.place(40 + (3 * kRadarRadiusTiles), 40));
+    const Scene scene = scene_with(rig, &marks);
+    EXPECT_EQ(vertices_in(scene, kNavPlainColour), 0U);
+    EXPECT_EQ(vertices_in(scene, kNavHighlightColour), 0U);
+    EXPECT_EQ(scene.vertices.size(), scene_with(rig, nullptr).vertices.size())
+        << "the radar drew something for a mark it cannot see";
+}
+
+TEST(NavMarksRadar, DrawnOutOfRangeAHighlightedMarkIsOneYellowArrowHeadAtTheEdge) {
+    Rig rig = make_rig();
+    NavMarks marks;
+    static_cast<void>(marks.place(40 + (3 * kRadarRadiusTiles), 40 - (kRadarRadiusTiles / 2)));
+    marks.toggle(0);
+    const Scene scene = scene_with(rig, &marks);
+    EXPECT_EQ(vertices_in(scene, kNavPlainColour), 0U);
+    ASSERT_EQ(vertices_in(scene, kNavHighlightColour), 3U) << "one triangle, no plus, no diamond";
+    EXPECT_EQ(scene.vertices.size(), scene_with(rig, nullptr).vertices.size() + 3U);
+    const RadarPanel panel = radar_panel(kExtent);
+    const std::vector<RadarNav> shown = radar_nav_marks(rig.sim.units(), rig.tank_a, marks.marks(),
+                                                        rig.options.camera.yaw, panel);
+    ASSERT_EQ(shown.size(), 1U);
+    const RadarNav& head = shown.at(0);
+    std::vector<Projected> corners;
+    for (const SceneVertex& v : scene.vertices) {
+        if (has_colour(v, kNavHighlightColour)) {
+            corners.push_back(
+                project(rig.options.camera, kExtent, v.position[0], v.position[1], v.position[2]));
+        }
+    }
+    ASSERT_EQ(corners.size(), 3U);
+    // The apex (the first corner) is `half` from the head's centre, on the head's heading: so the
+    // head is where the radar says, and it points where the radar says.
+    constexpr float kTol = 0.1F;
+    const float cx = panel.x + head.px;
+    const float cy = panel.y + head.py;
+    EXPECT_NEAR(corners.at(0).x, cx + (head.half * std::sin(head.angle)), kTol);
+    EXPECT_NEAR(corners.at(0).y, cy - (head.half * std::cos(head.angle)), kTol);
+    // And it is the radar's edge, not the mark's place: the mark's tile is far off the panel.
+    EXPECT_GT(std::hypot((head.px / (panel.width * 0.5F)) - 1.0F,
+                         (head.py / (panel.height * 0.5F)) - 1.0F),
+              0.8F);
+}
+
+TEST(NavMarksMap, DrawnAMarkIsAlwaysThereAtAnyRangeAndWhetherOrNotItIsHighlighted) {
+    Rig rig = make_rig();
+    // Beyond the scene's 24-tile radius of the camera, so no world beacon shares the colour.
+    for (const std::array<int, 2>& tile :
+         {std::array<int, 2>{70, 30}, {40 + (3 * kRadarRadiusTiles), 40}, {1, 1}, {140, 140}}) {
+        NavMarks marks;
+        ASSERT_EQ(marks.place(tile.at(0), tile.at(1)).outcome, Outcome::Placed);
+        EXPECT_EQ(vertices_in(scene_with(rig, &marks, true), kNavPlainColour), 12U)
+            << "plain at " << tile.at(0) << "," << tile.at(1);
+        marks.toggle(0);
+        EXPECT_EQ(vertices_in(scene_with(rig, &marks, true), kNavHighlightColour), 12U + 24U)
+            << "highlighted at " << tile.at(0) << "," << tile.at(1);
+    }
 }
 
 TEST(NavMarksMap, TheMapsMarkIsTheRadarsMark) {

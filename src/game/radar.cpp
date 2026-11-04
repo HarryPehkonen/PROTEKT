@@ -28,6 +28,9 @@ constexpr float kArrowHalfFraction = 0.045F;
 /// of the rim by `kNavRimFraction`.
 constexpr float kNavHalfFraction = 0.019F;
 constexpr float kNavRimFraction = 0.02F;
+/// The arrow head that stands in for a highlighted nav mark beyond the radar's range: its half-size
+/// (apex to centre), of the panel -- 5 px at the 230 px panel, a head and not a marker.
+constexpr float kNavArrowHalfFraction = 0.022F;
 
 [[nodiscard]] float tiles(const sim::Fixed& value) noexcept {
     return static_cast<float>(value.raw) / static_cast<float>(sim::Fixed::kOne);
@@ -407,8 +410,10 @@ std::vector<RadarNav> radar_nav_marks(std::span<const sim::Unit> units, sim::Uni
         return shown;
     }
     const float half = radar_nav_half(panel);
+    const float arrow_half = panel.width * kNavArrowHalfFraction;
     // The plate stays wholly on the face: its centre never goes past the oval inset by this much.
     const float inset = (kNavRimFraction * panel.width) + (1.5F * half);
+    const float arrow_inset = (kNavRimFraction * panel.width) + arrow_half;
     const float sine = std::sin(yaw_radians);
     const float cosine = std::cos(yaw_radians);
     for (const NavMarks::Mark& mark : marks) {
@@ -418,18 +423,25 @@ std::vector<RadarNav> radar_nav_marks(std::span<const sim::Unit> units, sim::Uni
         const float distance = std::hypot(dx, dz);
         const float forward = (dx * sine) + (dz * cosine);
         const float right = (dx * cosine) - (dz * sine);
-        const bool in_range = distance <= static_cast<float>(radius_tiles);
-        // Out of range the mark is first put at the radius in its direction -- the rim -- and
-        // either way the pin then draws it in to where the whole plate is on the face.
-        float u = right;
-        float v = forward;
-        if (!in_range) {
-            const float scale = static_cast<float>(radius_tiles) / std::max(distance, 1.0e-3F);
-            u *= scale;
-            v *= scale;
+        if (distance <= static_cast<float>(radius_tiles)) {
+            const RadarPoint at
+                = pin_inside(panel, radar_project(panel, right, forward, radius_tiles), inset);
+            shown.push_back(RadarNav{at.px, at.py, half, mark.slot, mark.highlighted, false, 0.0F});
+            continue;
         }
-        const RadarPoint at = pin_inside(panel, radar_project(panel, u, v, radius_tiles), inset);
-        shown.push_back(RadarNav{at.px, at.py, half, mark.slot, mark.highlighted, !in_range});
+        if (!mark.highlighted) {
+            continue; // out of range and not selected: the radar knows nothing of it
+        }
+        // Out of range and selected: not the mark but an arrow head at the edge, on the ray from
+        // the middle of the panel through where the mark's direction meets the rim, and aimed
+        // along that ray -- the way it looks to turn on this panel.
+        const float scale = static_cast<float>(radius_tiles) / std::max(distance, 1.0e-3F);
+        const RadarPoint at = pin_inside(
+            panel, radar_project(panel, right * scale, forward * scale, radius_tiles), arrow_inset);
+        const float across = at.px - (panel.width * 0.5F);
+        const float up = (panel.height * 0.5F) - at.py;
+        shown.push_back(
+            RadarNav{at.px, at.py, arrow_half, mark.slot, true, true, std::atan2(across, up)});
     }
     return shown;
 }

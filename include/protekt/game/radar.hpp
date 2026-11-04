@@ -208,24 +208,30 @@ radar_mesh(std::uint64_t seed, float viewer_x, float viewer_z, float yaw_radians
 
 /// One navigational mark on the radar, in panel pixels like `RadarMark`: the centre of its plus,
 /// `half` the plus's half-size (`radar_nav_half`). No number is drawn: the slot is for the caller.
+/// Beyond the radar's range (`at_rim`) it is NOT a plus but a small arrow head at the edge: (px,
+/// py) is where the head sits and `half` its size, and `angle` is the way it points, in
+/// `RadarMark`'s convention (0 up the panel, positive clockwise), along the ray from the panel's
+/// middle.
 struct RadarNav {
     float px{};
     float py{};
     float half{};
     int slot{};
     bool highlighted{false}; ///< yellow inside a yellow diamond, not the plain green
-    bool at_rim{false};      ///< outside the radius: pinned to the rim, in the direction to turn
+    bool at_rim{false};      ///< outside the radius: an arrow head at the rim, not a plus
+    float angle{};           ///< the head's heading; meaningful only when `at_rim`
 };
 
 /// A nav mark's plus, half its span, in the frame's pixels: the ONE size, which the world map
 /// draws its marks at too, so the two surfaces show the same mark.
 [[nodiscard]] float radar_nav_half(const RadarPanel& panel) noexcept;
 
-/// The nav marks for one frame, in slot order, one per mark given -- a slot that was never written
-/// is not in `marks`, so it is not here. Inside `radius_tiles` a mark is where its tile is;
-/// outside it is pinned to the rim in its direction, the way your own base is: a mark exists so you
-/// can find your way back to it, and a mark that vanished when you drove away would be no use. With
-/// no viewer unit there is no centre and so no marks.
+/// The nav marks for one frame, in slot order. Inside `radius_tiles` a mark is its plus where its
+/// tile is. Outside it a mark is NOT drawn, unless it is highlighted (selected in the nav menu):
+/// then it is one arrow head at the edge of the panel, aimed along the bearing from the middle --
+/// an indicator, never the mark's own place, which is off the panel. (The map shows every mark at
+/// every range; this is the radar's rule only.) With no viewer unit there is no centre and so no
+/// marks.
 [[nodiscard]] std::vector<RadarNav> radar_nav_marks(std::span<const sim::Unit> units,
                                                     sim::UnitId viewer_unit,
                                                     std::span<const NavMarks::Mark> marks,

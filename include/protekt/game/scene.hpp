@@ -901,6 +901,16 @@ struct MenuLeader {
 [[nodiscard]] MenuLeader menu_leader(const MenuLayout& layout, std::optional<float> radar_top,
                                      std::optional<std::array<float, 2>> blip);
 
+/// ONE LEADER PER SELECTED UNIT (the group rule): `menu_leader` for each of `blips` in order, every
+/// one the whole path from the menu, so a group is a fan of lines sharing the gutter and the top
+/// edge, each ending in its own dot. With no blips it is the one bare leader, as `menu_leader`
+/// makes it with none. `radar_top` is the top edge of whatever panel is drawn -- the radar's, or
+/// the map's when the world map has taken its corner -- and the blips are on that panel, in FRAME
+/// pixels.
+[[nodiscard]] std::vector<MenuLeader> menu_leaders(const MenuLayout& layout,
+                                                   std::optional<float> radar_top,
+                                                   std::span<const std::array<float, 2>> blips);
+
 /// THE ATTACK OFFER'S RED LINE (`SceneOptions::attack_target`): it leaves the menu where the first
 /// row's verb bar ends -- the right side of the background round `SPACE Attack` -- at that bar's
 /// vertical middle, the way the amber leader runs from the rows' own edge. Pure in the layout.
