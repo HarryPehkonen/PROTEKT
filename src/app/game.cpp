@@ -414,7 +414,7 @@ public:
         // no selection menu, no G prompt, no attack list. The marks are the player's own pins,
         // held here and never given to the sim.
         const bool top_menu
-            = !session_.go_armed() && !session_.attack_armed()
+            = !session_.go_armed() && !session_.attack_armed() && !session_.tilde_steps()
               && menu_for(sim_, session_, scene_options, session_.attack_armed()).empty();
         input::InputFrame rest = hands;
         rest.keys = nav_menu_.handle(hands.keys, nav_marks_, game::nav_aim(sim_, scene_options),

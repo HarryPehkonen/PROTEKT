@@ -315,6 +315,7 @@ if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
         tests/test_turret_deploy.cpp
         tests/test_turret_commands.cpp
         tests/test_command_row.cpp
+        tests/test_tilde_step.cpp
         tests/test_faction_look.cpp
         tests/test_ai_aim.cpp
         tests/test_scenario.cpp

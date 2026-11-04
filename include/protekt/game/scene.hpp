@@ -1203,6 +1203,12 @@ inline constexpr std::array<float, 3> kStripIconGhost{0.38F, 0.40F, 0.44F};
 /// reading can tell a blank from a unit.
 inline constexpr std::array<float, 3> kStripBlankTickEdge{0.70F, 0.72F, 0.76F};
 inline constexpr float kStripBlankTickEdgePixels = 1.0F;
+/// THE PICKED TICK (`~` STEPPING): when only SOME of a key's vehicles are selected -- `~` has
+/// narrowed the group to one -- each selected vehicle's tick is ringed in the selected yellow
+/// (`kStripSelected`), this many pixels wide (at 720) just OUTSIDE the tick's box, so the health
+/// colour inside it still reads. The whole group selected rings nothing. Side by side the rings
+/// of neighbours stay apart because the gap between ticks is 3 px and a ring takes one of it.
+inline constexpr float kStripPickedTickEdgePixels = 1.0F;
 
 /// THE DEPLOY LEADER LINE: while `SPACE Deploy` is the menu's state row, a thin white line runs
 /// from the end of that row's bar to the centre of the pool the deploy would go to (Harri,

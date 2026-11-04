@@ -222,6 +222,10 @@ void Interaction::handle(const input::InputFrame& frame, const sim::Sim& sim,
         if (input::mark_digit(key) < 0) {
             shift_batch_ = 0;
         }
+        // Stepping lapses the moment the player takes up a selection of something else.
+        if (stepping_ && !selection_.empty() && !selection_in_group(sim, options)) {
+            stepping_ = false;
+        }
         if (deploy_armed_ && deploy_key(key, sim, options)) {
             continue;
         }
@@ -259,9 +263,13 @@ void Interaction::handle(const input::InputFrame& frame, const sim::Sim& sim,
             move_selection_to_key(sim, options, target);
         } else if (const int group = input::function_key(key); group != 0) {
             select_roster_key(options, group);
+        } else if (input::nav_menu_pressed(key)) {
+            // Reached only when the nav menu did not take the `~` (see `tilde_steps`).
+            step_group(sim, options);
         } else if (key.scancode == input::kKeyEscape || key.scancode == input::kKeyTab) {
             // Tab clears, as Escape does.
             selection_.clear();
+            stepping_ = false;
         } else if (const int digit = input::mark_digit(key); digit >= 0) {
             // Reached only with no prompt open: G and the attack list settle a digit above and
             // `continue`. A digit is the OPEN MENU's verb when a selection owns one; with nothing
@@ -413,6 +421,8 @@ bool Interaction::go_armed() const noexcept { return go_armed_; }
 bool Interaction::attack_armed() const noexcept { return attack_armed_; }
 
 bool Interaction::deploy_armed() const noexcept { return deploy_armed_; }
+
+bool Interaction::tilde_steps() const noexcept { return stepping_ && selection_.empty(); }
 
 const std::vector<TargetRow>& Interaction::attack_targets() const noexcept { return targets_; }
 
@@ -1146,6 +1156,57 @@ void Interaction::select_roster_key(const SceneOptions& options, int group_key) 
     selection_.clear();
     for (const sim::UnitId id : options.row->slots.at(group_slot(group_key)).units) {
         selection_.add(id);
+    }
+    group_key_ = group_key;
+    stepping_ = false;
+    current_ = sim::UnitId{};
+    current_pos_ = 0;
+}
+
+bool Interaction::selection_in_group(const sim::Sim& sim, const SceneOptions& options) const {
+    if (selection_.empty() || options.row == nullptr || group_key_ < 1 || group_key_ > kRowGroups) {
+        return false;
+    }
+    const std::vector<sim::UnitId>& units = options.row->slots.at(group_slot(group_key_)).units;
+    return std::all_of(selection_.units().begin(), selection_.units().end(),
+                       [&units, &sim](sim::UnitId id) {
+                           const sim::Unit* unit = sim.find(id);
+                           return unit == nullptr || !unit->alive
+                                  || std::find(units.begin(), units.end(), id) != units.end();
+                       });
+}
+
+void Interaction::step_group(const sim::Sim& sim, const SceneOptions& options) {
+    // Silent in every way it cannot act: no group, no row, a selection that is not that group's.
+    if (group_key_ < 1 || options.row == nullptr
+        || !(stepping_ || selection_in_group(sim, options))) {
+        return;
+    }
+    const std::vector<sim::UnitId>& units = options.row->slots.at(group_slot(group_key_)).units;
+    const auto answers = [&](sim::UnitId id) {
+        const sim::Unit* unit = sim.find(id);
+        return unit != nullptr && unit->alive && id != driven_;
+    };
+    // A group of one is already the one; so is a group with one left alive. Nothing is cleared.
+    if (std::count_if(units.begin(), units.end(), answers) < 2) {
+        return;
+    }
+    // After the vehicle `~` picked last; if the row has pruned it, its place is the next one's.
+    std::size_t start = 0;
+    if (current_.valid()) {
+        const auto found = std::find(units.begin(), units.end(), current_);
+        start = found == units.end() ? current_pos_
+                                     : static_cast<std::size_t>(found - units.begin()) + 1;
+    }
+    for (std::size_t step = 0; step < units.size(); ++step) {
+        const std::size_t pos = (start + step) % units.size();
+        if (answers(units.at(pos))) {
+            select_only(units.at(pos));
+            current_ = units.at(pos);
+            current_pos_ = pos;
+            stepping_ = true;
+            return;
+        }
     }
 }
 

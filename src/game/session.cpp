@@ -104,6 +104,8 @@ const cmd::Selection& Session::selection() const noexcept { return interaction_.
 
 bool Session::go_armed() const noexcept { return interaction_.go_armed(); }
 
+bool Session::tilde_steps() const noexcept { return interaction_.tilde_steps(); }
+
 bool Session::attack_armed() const noexcept { return interaction_.attack_armed(); }
 
 bool Session::deploy_armed() const noexcept { return interaction_.deploy_armed(); }

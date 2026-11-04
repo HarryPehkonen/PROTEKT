@@ -327,7 +327,7 @@ std::optional<SlotReading> read_slot(const sim::Sim& sim, const RowSlot& slot) {
             continue;
         }
         if (!reading.has_value()) {
-            reading = SlotReading{unit->kind, 0, 0, 0, {}};
+            reading = SlotReading{unit->kind, 0, 0, 0, {}, {}};
         }
         const std::uint16_t ceiling = sim::profile(unit->kind).hp;
         ++reading->count;
@@ -335,8 +335,23 @@ std::optional<SlotReading> read_slot(const sim::Sim& sim, const RowSlot& slot) {
         reading->max_hp = static_cast<std::uint16_t>(reading->max_hp + ceiling);
         reading->fractions.push_back(
             ceiling == 0 ? 0.0F : static_cast<float>(unit->hp) / static_cast<float>(ceiling));
+        reading->units.push_back(id);
     }
     return reading;
+}
+
+std::vector<std::size_t> picked_ticks(const SlotReading& reading,
+                                      std::span<const sim::UnitId> selected) {
+    std::vector<std::size_t> picked;
+    for (std::size_t i = 0; i < reading.units.size(); ++i) {
+        if (std::find(selected.begin(), selected.end(), reading.units.at(i)) != selected.end()) {
+            picked.push_back(i);
+        }
+    }
+    if (picked.size() == reading.units.size()) {
+        picked.clear(); // all of them is the whole group, not an individual
+    }
+    return picked;
 }
 
 std::optional<BatchReading> read_batch(const sim::Sim& sim, sim::Side side, const RowSlot& slot) {

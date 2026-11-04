@@ -3727,6 +3727,7 @@ void append_hud_panels(std::vector<SceneVertex>& out, const SceneOptions& option
         const bool is_group = row_slot_kind(index) == RowSlotKind::Group;
         sim::UnitKind reading_kind{};
         std::vector<float> fractions;
+        std::vector<std::size_t> picked; // the ticks `~` stepping has picked out (`picked_ticks`)
         // A key held for a shift batch still in a producer's queue (BATCH-PLATE): the units built
         // so far are its ticks as ever, the ones still to come are BLANK ticks after them, and its
         // icon fills as the unit on the line is built.
@@ -3742,6 +3743,9 @@ void append_hud_panels(std::vector<SceneVertex>& out, const SceneOptions& option
             reading_kind = reading.has_value() ? reading->kind : batch->kind;
             // A vehicle key has a segment per living vehicle; a building key is one thing, so one.
             if (reading.has_value()) {
+                if (is_group) {
+                    picked = picked_ticks(*reading, selected);
+                }
                 fractions
                     = is_group
                           ? reading->fractions
@@ -3881,6 +3885,19 @@ void append_hud_panels(std::vector<SceneVertex>& out, const SceneOptions& option
             if (i < segments.size()) {
                 rect(marks_at, tick_left, tick_top, tick_left + tick_w, tick_bottom,
                      segments.at(i).rgb);
+                if (std::find(picked.begin(), picked.end(), i) != picked.end()) {
+                    // The ring is four bars outside the box, meeting at the corners.
+                    const float ring = kStripPickedTickEdgePixels * px;
+                    const float outer_left = tick_left - ring;
+                    const float outer_right = tick_left + tick_w + ring;
+                    rect(marks_at, outer_left, tick_top - ring, outer_right, tick_top,
+                         kStripSelected);
+                    rect(marks_at, outer_left, tick_bottom, outer_right, tick_bottom + ring,
+                         kStripSelected);
+                    rect(marks_at, outer_left, tick_top, tick_left, tick_bottom, kStripSelected);
+                    rect(marks_at, tick_left + tick_w, tick_top, outer_right, tick_bottom,
+                         kStripSelected);
+                }
                 continue;
             }
             // A blank tick: the tick's box as a frame, four bars that meet at the corners, the dark

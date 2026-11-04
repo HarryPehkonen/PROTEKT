@@ -139,6 +139,15 @@ public:
     ///    menu is visible but inaccessible meanwhile: F1-F10 (shifted or not) and G do nothing.
     ///    The arming lapses on its own once the selection is no longer one un-deployed recycler of
     ///    the player's.
+    ///  * `~` after a function key (`~` STEPPING): narrow the selection to ONE vehicle of the group
+    ///    that key last selected -- the first, then the next on each press, around again past the
+    ///    last. The next order goes to that vehicle alone (`orderable` reads the selection, so no
+    ///    order path is added), and a finished order clears the selection as ever while the group
+    ///    and the vehicle stay remembered, so the next `~` moves on to the one after it. A dead
+    ///    vehicle is stepped over. It does nothing, and says nothing, with no group touched, with
+    ///    a selection that is not inside that group, and with fewer than two vehicles alive in it:
+    ///    a group of one is already the one. A function key, Tab and Escape end the stepping. With
+    ///    nothing selected and no stepping, `~` is the nav menu's, as it was.
     ///  * Tab or Escape: clear the selection
     ///
     /// Refusals never throw and never half-apply: either the whole intent is carried out or none of
@@ -207,6 +216,10 @@ public:
     /// deploys the selected recycler there. The state row reads `SPACE DEPLOY <distance>` and the
     /// footprint is previewed on the ground for exactly as long as this is true.
     [[nodiscard]] bool deploy_armed() const noexcept;
+    /// `~` has picked a vehicle of a function key's group out and the order it was given has used
+    /// the selection up: the next `~` is the stepping's, not the nav menu's. False while anything
+    /// is selected (the nav menu cannot open then anyway) and after a function key, Tab or Escape.
+    [[nodiscard]] bool tilde_steps() const noexcept;
 
     /// Why the last input was refused, for the HUD. Empty when it was carried out. Cleared at the
     /// start of every `handle`, so a message describes the frame that just happened and nothing
@@ -225,6 +238,12 @@ private:
     /// F1-F10: select the whole group the command row holds under that key (`options.row`). A key
     /// that holds nothing, or a frame with no row, is refused with `empty_key_message`.
     void select_roster_key(const SceneOptions& options, int group_key);
+    /// `~`: select the next living vehicle of the group F`group_key_` last selected, or do nothing.
+    void step_group(const sim::Sim& sim, const SceneOptions& options);
+    /// Whether the selection is non-empty and every living unit of it is one the row holds under
+    /// the remembered function key. A corpse is not held against it: the row prunes it a frame
+    /// late, and the vehicle `~` picked may be the one that just died.
+    [[nodiscard]] bool selection_in_group(const sim::Sim& sim, const SceneOptions& options) const;
     /// Shift + F1-F10: move the selection into the key through `options.row`; a refusal (or a
     /// frame with no row) says why on the notice line, and then nothing has changed.
     void move_selection_to_key(const sim::Sim& sim, const SceneOptions& options, int group_key);
@@ -312,6 +331,10 @@ private:
     bool go_armed_{false};
     bool attack_armed_{false};
     bool deploy_armed_{false};
+    int group_key_{0};      ///< the function key (1-10) last selected, or 0 when none was
+    bool stepping_{false};  ///< `~` has picked a vehicle of that group since the key was pressed
+    sim::UnitId current_{}; ///< the vehicle `~` last picked, or none
+    std::size_t current_pos_{}; ///< its place in the key's units, for when it has left them
     /// The token of the shift gesture under way, or zero when there is none (BUILD-QUEUE). A
     /// gesture is the run of shifted build presses at one producer: any other key press ends it, so
     /// the next shifted press takes a fresh token and so a function key of its own.

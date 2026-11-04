@@ -67,6 +67,9 @@ public:
     [[nodiscard]] std::string_view message() const noexcept;
     /// G is armed and waiting for its mark number (N3): the HUD must say so while it is.
     [[nodiscard]] bool go_armed() const noexcept;
+    /// `~` belongs to the stepping through a function key's group, not to the nav menu (see
+    /// `Interaction::tilde_steps`).
+    [[nodiscard]] bool tilde_steps() const noexcept;
     /// The attack list is armed and waiting for its row key (BZ2A), and the rows it offers.
     [[nodiscard]] bool attack_armed() const noexcept;
     [[nodiscard]] const std::vector<TargetRow>& attack_targets() const noexcept;

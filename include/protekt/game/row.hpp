@@ -149,6 +149,9 @@ struct SlotReading {
     /// points over its kind's ceiling.
     /// A corpse contributes none, so `fractions.size() == count`.
     std::vector<float> fractions{};
+    /// The same living units, in the same order: `units.at(i)` is the vehicle `fractions.at(i)`
+    /// reads, so the tick drawn for it can be told from the others (`picked_ticks`).
+    std::vector<sim::UnitId> units{};
 };
 
 /// One vehicle's piece of a key's health bar (BAR-LOOK). HIS RULING, 2026-10-24: one bar per
@@ -167,6 +170,13 @@ struct BarSegment {
 /// The slot read against the sim as it is now, or nullopt when none of its units is alive -- so a
 /// frame drawn before the row is next updated still never shows a dead key.
 [[nodiscard]] std::optional<SlotReading> read_slot(const sim::Sim& sim, const RowSlot& slot);
+
+/// WHICH TICKS OF A KEY ARE PICKED OUT (`~` STEPPING): the positions in `reading` (the same order
+/// as its `fractions`) of the living vehicles in `selected`, when that is SOME of the key and not
+/// all of it. Empty when none is selected or the whole group is -- a whole group is the key's
+/// lit frame already, and a tick marked on every vehicle would say nothing.
+[[nodiscard]] std::vector<std::size_t> picked_ticks(const SlotReading& reading,
+                                                    std::span<const sim::UnitId> selected);
 
 /// What a key reads of the batch still being built for it (BATCH-PLATE): read off the producers'
 /// own queues (`sim::BuildQueue`), never stored.
