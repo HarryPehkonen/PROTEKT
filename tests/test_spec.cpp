@@ -29,7 +29,7 @@ TEST(Spec, TankStats) {
     EXPECT_STREQ(s.name, "tank");
     EXPECT_EQ(s.hp, kTankHp);
     EXPECT_EQ(s.max_speed.raw, kTankSpeedRaw);
-    EXPECT_EQ(s.range.raw, kTankRangeRaw);
+    EXPECT_EQ(s.range().raw, kTankRangeRaw);
     EXPECT_EQ(s.damage, kTankDamage);
     EXPECT_EQ(s.cooldown, kTankCooldownTicks);
 }
@@ -39,7 +39,7 @@ TEST(Spec, HoverTankHasTheTanksNumbers) {
     EXPECT_STREQ(s.name, "hovertank");
     EXPECT_EQ(s.hp, kTankHp);
     EXPECT_EQ(s.max_speed.raw, kTankSpeedRaw);
-    EXPECT_EQ(s.range.raw, kTankRangeRaw);
+    EXPECT_EQ(s.range().raw, kTankRangeRaw);
     EXPECT_EQ(s.damage, kTankDamage);
     EXPECT_EQ(s.cooldown, kTankCooldownTicks);
 }
@@ -49,7 +49,7 @@ TEST(Spec, TurretStats) {
     EXPECT_STREQ(s.name, "turret");
     EXPECT_EQ(s.hp, kTurretHp);
     EXPECT_EQ(s.max_speed.raw, kTurretSpeedRaw);
-    EXPECT_EQ(s.range.raw, kTurretRangeRaw);
+    EXPECT_EQ(s.range().raw, kTurretRangeRaw);
     EXPECT_EQ(s.damage, kTurretDamage);
     EXPECT_EQ(s.cooldown, kTurretCooldownTicks);
 }
@@ -59,7 +59,7 @@ TEST(Spec, FactoryStats) {
     EXPECT_STREQ(s.name, "factory");
     EXPECT_EQ(s.hp, kFactoryHp);
     EXPECT_EQ(s.max_speed.raw, 0);
-    EXPECT_EQ(s.range.raw, 0);
+    EXPECT_EQ(s.range().raw, 0);
     EXPECT_EQ(s.damage, 0);
     EXPECT_EQ(s.cooldown, 0);
 }
@@ -79,7 +79,7 @@ TEST(Spec, ProfileIsTheTableRead) {
         const UnitProfile p = profile(kind);
         EXPECT_EQ(p.hp, s.hp) << s.name;
         EXPECT_EQ(p.max_speed.raw, s.max_speed.raw) << s.name;
-        EXPECT_EQ(p.weapon_range.raw, s.range.raw) << s.name;
+        EXPECT_EQ(p.weapon_range.raw, s.range().raw) << s.name;
         EXPECT_EQ(p.damage, s.damage) << s.name;
         EXPECT_EQ(p.cooldown_ticks, s.cooldown) << s.name;
         EXPECT_EQ(p.mobile, s.max_speed.raw > 0) << s.name;
@@ -102,7 +102,7 @@ TEST(SpecWeapon, FactoryWeaponColumnsAreAllZero) {
     const UnitSpec& s = spec_of(UnitKind::Factory);
     EXPECT_EQ(s.bolt_speed.raw, 0);
     EXPECT_EQ(s.arc.raw, 0);
-    EXPECT_EQ(s.range.raw, 0);
+    EXPECT_EQ(s.range().raw, 0);
     EXPECT_EQ(s.damage, 0);
     EXPECT_EQ(s.cooldown, 0);
 }
@@ -162,7 +162,7 @@ TEST(SpecFactoryKinds, TheAssaultTankIsTheTanksGunOnThreeHalvesTheHull) {
     const UnitSpec& s = spec_of(UnitKind::AssaultTank);
     EXPECT_EQ(s.hp, 150);
     EXPECT_EQ(s.max_speed.raw, 13107);
-    EXPECT_EQ(s.range.raw, 12 << 16);
+    EXPECT_EQ(s.range().raw, 12 << 16);
     EXPECT_EQ(s.damage, 12);
     EXPECT_EQ(s.cooldown, 15);
     EXPECT_EQ(s.splash_radius.raw, 0);
@@ -175,7 +175,7 @@ TEST(SpecFactoryKinds, TheWalkerIsSlowHeavyAndTwiceTheTanksHitAndReload) {
     const UnitSpec& s = spec_of(UnitKind::Walker);
     EXPECT_EQ(s.hp, 200);
     EXPECT_EQ(s.max_speed.raw, 13107 / 2);
-    EXPECT_EQ(s.range.raw, 12 << 16);
+    EXPECT_EQ(s.range().raw, 12 << 16);
     EXPECT_EQ(s.damage, 16);
     EXPECT_EQ(s.cooldown, 30);
     EXPECT_EQ(s.splash_radius.raw, 0);
@@ -188,14 +188,14 @@ TEST(SpecFactoryKinds, TheApcIsTheFastestGroundVehicleWithALightGun) {
     const UnitSpec& s = spec_of(UnitKind::Apc);
     EXPECT_EQ(s.hp, 100);
     EXPECT_EQ(s.max_speed.raw, 13107 * 3 / 2);
-    EXPECT_EQ(s.range.raw, spec_of(UnitKind::Scout).range.raw) << "the scout's 10 tiles";
+    EXPECT_EQ(s.range().raw, spec_of(UnitKind::Scout).range().raw) << "the scout's 10 tiles";
     EXPECT_EQ(s.damage, 4);
     EXPECT_EQ(s.cooldown, 7);
     EXPECT_EQ(s.splash_radius.raw, 0);
     EXPECT_EQ(s.gravity.raw, 0) << "a straight bolt";
     EXPECT_EQ(s.cost, 50);
     EXPECT_EQ(s.build_ticks, 1000);
-    EXPECT_GT(s.range.raw, 0) << "armed: it has no troops to carry yet, so it must fight";
+    EXPECT_GT(s.range().raw, 0) << "armed: it has no troops to carry yet, so it must fight";
 }
 
 TEST(SpecFactoryKinds, TheBomberDropsTheMortarsLobbedShellWithAOneAndAHalfTileSplash) {
@@ -203,7 +203,7 @@ TEST(SpecFactoryKinds, TheBomberDropsTheMortarsLobbedShellWithAOneAndAHalfTileSp
     const UnitSpec& mortar = spec_of(UnitKind::MortarBike);
     EXPECT_EQ(s.hp, 75);
     EXPECT_EQ(s.max_speed.raw, 26214) << "twice the tank's 13107: the fastest vehicle";
-    EXPECT_EQ(s.range.raw, 14 << 16);
+    EXPECT_EQ(s.range().raw, 14 << 16);
     EXPECT_EQ(s.damage, 16);
     EXPECT_EQ(s.cooldown, 45);
     EXPECT_EQ(s.splash_radius.raw, 3 * Fixed::kOne / 2) << "1.5 tiles";
@@ -234,11 +234,11 @@ TEST(SpecFactoryKinds, TheMissileScoutIsTheScoutsHullCarryingTheRocketTanksRocke
     const UnitSpec& rocket = spec_of(UnitKind::RocketTank);
     EXPECT_EQ(s.hp, scout.hp);
     EXPECT_EQ(s.max_speed.raw, scout.max_speed.raw);
-    EXPECT_EQ(s.range.raw, rocket.range.raw);
+    EXPECT_EQ(s.range().raw, rocket.range().raw);
     EXPECT_EQ(s.damage, rocket.damage);
     EXPECT_EQ(s.cooldown, rocket.cooldown);
     EXPECT_EQ(s.bolt_speed.raw, rocket.bolt_speed.raw);
-    EXPECT_GT(s.range.raw, 0) << "armed";
+    EXPECT_GT(s.range().raw, 0) << "armed";
     EXPECT_EQ(s.cost, 45);
     EXPECT_EQ(s.build_ticks, 900) << "20 ticks a scrap";
     EXPECT_NE(s.cost, scout.cost) << "two vehicles, two prices";
@@ -283,7 +283,7 @@ TEST(SpecScavenger, ItHasTheTanksOwnHullAndTakesTwentyFiveScoutShotsToKill) {
     const int shots = (spec_of(UnitKind::Scavenger).hp + scout_damage - 1) / scout_damage;
     EXPECT_EQ(shots, 25) << "it was 15 at 60 hp";
     // Everything else about it is as it was.
-    EXPECT_EQ(spec_of(UnitKind::Scavenger).range.raw, 0) << "still unarmed";
+    EXPECT_EQ(spec_of(UnitKind::Scavenger).range().raw, 0) << "still unarmed";
     EXPECT_EQ(spec_of(UnitKind::Scavenger).cost, 20);
     EXPECT_EQ(spec_of(UnitKind::Scavenger).build_ticks, 300);
 }

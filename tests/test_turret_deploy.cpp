@@ -353,7 +353,7 @@ TEST(TurretDefend, DrivesUntilWithinWeaponRangeOfTheEnemyThenDeploysThereAndShoo
     Field f = field(UnitKind::Factory, 30);
     const UnitId enemy{2};
     give(f.sim, kTurret, orders::Defend{enemy});
-    const std::int64_t range = protekt::sim::spec_of(UnitKind::Turret).range.raw;
+    const std::int64_t range = protekt::sim::spec_of(UnitKind::Turret).range().raw;
     ASSERT_EQ(range, protekt::sim::kTurretRangeRaw)
         << "within range means the turret's own 16 tiles";
 

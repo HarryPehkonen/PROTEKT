@@ -312,7 +312,8 @@ TEST(ScriptedRoles, AMortarBikeOutOfRangeAdvancesUntilTheTargetIsInRangeThenStop
     Sim sim = Sim::create(s);
     const UnitId mortar_bike = first_of(sim, UnitKind::MortarBike, Side::Player);
     const UnitId target = first_of(sim, UnitKind::Factory, Side::Enemy);
-    const double range = static_cast<double>(spec_of(UnitKind::MortarBike).range.raw) / Fixed::kOne;
+    const double range
+        = static_cast<double>(spec_of(UnitKind::MortarBike).range().raw) / Fixed::kOne;
     ASSERT_GT(tiles_between(sim, mortar_bike, target), range);
 
     ScriptedCommander commander(30);
@@ -346,7 +347,8 @@ TEST(ScriptedRoles, ARocketTankClosesLikeATankAndFiresWhenInRange) {
     Sim sim = Sim::create(s);
     const UnitId rocket_tank = first_of(sim, UnitKind::RocketTank, Side::Player);
     const UnitId target = first_of(sim, UnitKind::Factory, Side::Enemy);
-    const double range = static_cast<double>(spec_of(UnitKind::RocketTank).range.raw) / Fixed::kOne;
+    const double range
+        = static_cast<double>(spec_of(UnitKind::RocketTank).range().raw) / Fixed::kOne;
     const double before = tiles_between(sim, rocket_tank, target);
     ASSERT_GT(before, range);
     const std::uint16_t hp_before = sim.find(target)->hp;

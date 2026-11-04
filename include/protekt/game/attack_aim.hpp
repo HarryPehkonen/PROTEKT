@@ -50,7 +50,8 @@ inline constexpr float kAttackAimToleranceDegrees = 4.0F;
 ///
 ///  * `selected` must hold something ARMED that can take the order -- a living unit of the player's
 ///    that is not `driven` and whose kind has a weapon by the sim's own table
-///    (`spec_of(kind).range` above zero: a tank, a turret, a scout; not a scavenger or a recycler).
+///    (`spec_of(kind).range()` above zero: a tank, a turret, a scout; not a scavenger or a
+///    recycler).
 ///  * A unit the crosshair is exactly on is the answer if it is hostile; if it is the player's own,
 ///    nothing is offered (a friendly in the way is not a target, and not a hostile behind it).
 ///  * Otherwise the living hostile whose middle lies nearest the ray, within

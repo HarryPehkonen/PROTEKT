@@ -33,9 +33,10 @@ namespace {
 
 TEST(RocketWeapon, TheCarriedRocketOutreachesTheHullAndEveryGunInTheGame) {
     const UnitSpec& gun = spec_of(UnitKind::Tank);
-    EXPECT_GT(kRocketSpec.range.raw, gun.range.raw)
+    EXPECT_GT(kRocketSpec.range().raw, gun.range().raw)
         << "the ask: further than the gun that fires it";
-    EXPECT_GT(kRocketSpec.range.raw, kTurretRangeRaw) << "the longest reach there is, past turrets";
+    EXPECT_GT(kRocketSpec.range().raw, kTurretRangeRaw)
+        << "the longest reach there is, past turrets";
     EXPECT_GT(kRocketSpec.max_travel.raw, gun.max_travel.raw)
         << "and the bolt actually flies there";
 }

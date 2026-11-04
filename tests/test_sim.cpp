@@ -102,7 +102,7 @@ TEST(Sim, TheRecyclerKeepsIndexSevenAndIsDrivableButNotATank) {
 
 TEST(Sim, TheRecyclerNeverFiresAndIsNothingToFear) {
     const UnitSpec& spec = spec_of(UnitKind::Recycler);
-    EXPECT_EQ(spec.range.raw, 0) << "range zero is what makes a kind unarmed everywhere";
+    EXPECT_EQ(spec.range().raw, 0) << "range zero is what makes a kind unarmed everywhere";
     EXPECT_EQ(spec.damage, 0);
     EXPECT_EQ(spec.cooldown, 0);
     EXPECT_GT(spec.max_speed.raw, 0) << "it has to be able to reach a deploy site";
@@ -147,7 +147,7 @@ TEST(Sim, TheScoutIsAppendedAfterTheDeployedRecyclerAndNoEarlierIndexMoved) {
 TEST(Sim, TheScoutIsALightFastArmedVehicleThatCanBeDriven) {
     const UnitSpec& scout = spec_of(UnitKind::Scout);
     const UnitSpec& tank = spec_of(UnitKind::Tank);
-    EXPECT_GT(scout.range.raw, 0) << "armed: it can shoot back";
+    EXPECT_GT(scout.range().raw, 0) << "armed: it can shoot back";
     EXPECT_GT(scout.damage, 0);
     EXPECT_GT(scout.cooldown, 0);
     EXPECT_GT(scout.max_speed.raw, 0) << "mobile";
@@ -160,7 +160,7 @@ TEST(Sim, TheScoutIsALightFastArmedVehicleThatCanBeDriven) {
 TEST(Sim, TheDeployedRecyclerIsAStillUnarmedBuildingWithTheRecyclersHull) {
     const UnitSpec& spec = spec_of(UnitKind::DeployedRecycler);
     EXPECT_EQ(spec.max_speed.raw, 0) << "a building never moves";
-    EXPECT_EQ(spec.range.raw, 0) << "unarmed";
+    EXPECT_EQ(spec.range().raw, 0) << "unarmed";
     EXPECT_EQ(spec.damage, 0);
     EXPECT_EQ(spec.cooldown, 0);
     EXPECT_EQ(spec.hp, spec_of(UnitKind::Recycler).hp) << "the recycler's hull, by default";

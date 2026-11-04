@@ -100,7 +100,7 @@ TEST(RecyclerList, TheFourSupportKindsAreUnarmedMobileAndDrivable) {
         const sim::UnitSpec& spec = sim::spec_of(kind);
         EXPECT_GT(spec.hp, 0) << spec.name;
         EXPECT_GT(spec.max_speed.raw, 0) << spec.name << " must be able to move";
-        EXPECT_EQ(spec.range.raw, 0) << spec.name << " is unarmed";
+        EXPECT_EQ(spec.range().raw, 0) << spec.name << " is unarmed";
         EXPECT_EQ(spec.damage, 0) << spec.name;
         EXPECT_TRUE(sim::is_drivable(kind)) << spec.name;
         EXPECT_FALSE(sim::is_tank(kind)) << spec.name;

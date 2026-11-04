@@ -186,7 +186,7 @@ TEST(Scenario, TheRecyclerIsUnarmedSoTheArmedCountPerSideIsUnchanged) {
     for (const Side side : {Side::Player, Side::Enemy}) {
         int armed = 0;
         for (const Spawn& sp : s.spawns) {
-            if (sp.side == side && spec_of(sp.kind).range.raw > 0) {
+            if (sp.side == side && spec_of(sp.kind).range().raw > 0) {
                 ++armed;
             }
         }
@@ -194,7 +194,7 @@ TEST(Scenario, TheRecyclerIsUnarmedSoTheArmedCountPerSideIsUnchanged) {
             << "3 tanks, the hover tank, 2 turrets, the mortar bike and the rocket tank "
                "(the recycler adds none)";
     }
-    EXPECT_EQ(spec_of(UnitKind::Recycler).range.raw, 0);
+    EXPECT_EQ(spec_of(UnitKind::Recycler).range().raw, 0);
 }
 
 // RB1b: a battle with a recycler on each side is still a pure function of the seed.

@@ -130,7 +130,7 @@ TEST(Shotgun, TheWeaponSpecIsAFlatShortRangedFan) {
     EXPECT_GT(s.pellets, 1);
     EXPECT_LE(s.pellets, kMaxPellets);
     EXPECT_GT(s.cone_half_tan.raw, 0);
-    EXPECT_GT(s.max_travel.raw, s.range.raw) << "a stray pellet outlives the aim, as a bolt does";
+    EXPECT_GT(s.max_travel.raw, s.range().raw) << "a stray pellet outlives the aim, as a bolt does";
     EXPECT_LT(s.max_travel.raw, spec_of(UnitKind::Tank).max_travel.raw) << "short of reach";
     EXPECT_EQ(s.damage, static_cast<std::uint16_t>(kShotgunPelletDamage))
         << "damage is PER PELLET, not the hull's 8";

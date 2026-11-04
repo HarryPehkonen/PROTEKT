@@ -82,7 +82,7 @@ Scenario build_battle() {
 int armed_alive(const Sim& sim, Side side) {
     int n = 0;
     for (const Unit& unit : sim.units()) {
-        if (unit.alive && unit.side == side && protekt::sim::spec_of(unit.kind).range.raw > 0) {
+        if (unit.alive && unit.side == side && protekt::sim::spec_of(unit.kind).range().raw > 0) {
             ++n;
         }
     }

@@ -125,7 +125,7 @@ sim::UnitId attack_target(const sim::Sim& sim, const SceneOptions& options,
     for (const sim::UnitId id : selected) {
         const sim::Unit* unit = sim.find(id);
         if (unit != nullptr && unit->alive && unit->side == sim::Side::Player && id != driven
-            && sim::spec_of(unit->kind).range.raw > 0) {
+            && sim::spec_of(unit->kind).range().raw > 0) {
             armed = true;
             break;
         }

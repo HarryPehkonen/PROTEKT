@@ -10,12 +10,58 @@
 
 namespace protekt::sim {
 
+/// THE WEAPON AXIS: what a unit shoots with. RANGE BELONGS TO THE WEAPON, not to the hull that
+/// carries it (Harri, 2026-11-03: "'Rocket tank' has a long range because it has ROCKETS, not
+/// because it's a rocket tank. Other vehicles that use rockets also get the same range."). A kind's
+/// row names its weapon and nothing else about reach; `UnitSpec::range()` reads the weapon, so two
+/// kinds carrying one weapon cannot disagree.
+enum class WeaponId : std::uint8_t {
+    None,      ///< unarmed: range zero is what makes a kind unarmed everywhere in the sim
+    TankGun,   ///< the tank's cannon: tank, hover tank, assault tank, walker
+    TurretGun, ///< the turret's cannon: the turret, deployed or not
+    Minigun,   ///< the light gun: scout, APC
+    Mortar,    ///< the lobbed shell: the mortar bike, the bomber's bomb
+    Rocket,    ///< the rocket: the rocket tank, the missile scout, and a rocket carried by any hull
+    Shotgun,   ///< the carried shotgun
+};
+inline constexpr std::size_t kWeaponCount = 7;
+
+/// THE RANGES, each authored once and nowhere else. Tiles, raw Q16.16.
+inline constexpr std::int32_t kMortarRangeRaw = 14 << 16;
+/// The scout's minigun: a reach of 10 tiles, below the tank's 12 (`kTankRangeRaw`).
+inline constexpr std::int32_t kMinigunRangeRaw = kTankRangeRaw * 5 / 6;
+/// The rocket: 18 tiles, the longest reach in the game, past the turret's 16 (Harri, 2026-10-27:
+/// "can the rocket have more reach? I know that's cheating, but I want to try that"). Every
+/// vehicle that fires a rocket reaches this far.
+inline constexpr std::int32_t kRocketRangeRaw = 18 << 16;
+/// The shotgun's 6 tiles, where the fan is still a few tiles wide.
+inline constexpr std::int32_t kShotgunRangeRaw = 6 << 16;
+
+/// One weapon's reach. Indexed by the value of `WeaponId`.
+struct WeaponSpec {
+    const char* name{};
+    Fixed range{}; ///< tiles; zero means unarmed
+};
+inline constexpr std::array<WeaponSpec, kWeaponCount> kWeaponSpecs{{
+    {"none", Fixed::zero()},
+    {"tankgun", Fixed::from_raw(kTankRangeRaw)},
+    {"turretgun", Fixed::from_raw(kTurretRangeRaw)},
+    {"minigun", Fixed::from_raw(kMinigunRangeRaw)},
+    {"mortar", Fixed::from_raw(kMortarRangeRaw)},
+    {"rocket", Fixed::from_raw(kRocketRangeRaw)},
+    {"shotgun", Fixed::from_raw(kShotgunRangeRaw)},
+}};
+
+[[nodiscard]] constexpr const WeaponSpec& weapon_spec(WeaponId weapon) noexcept {
+    return kWeaponSpecs.at(static_cast<std::size_t>(weapon));
+}
+
 /// One unit kind's stats, as data. Q16.16 and integers only: this table is read by the tick loop.
 struct UnitSpec {
     const char* name{};
     std::uint16_t hp{};
     Fixed max_speed{}; ///< tiles per tick; zero means it never moves
-    Fixed range{};     ///< tiles; zero means unarmed
+    WeaponId weapon{}; ///< what it shoots with; its reach is the WEAPON's (`range()`)
     std::uint16_t damage{};
     std::uint16_t cooldown{}; ///< ticks between shots
     // The weapon block's ballistics. Zero for an unarmed kind.
@@ -52,6 +98,9 @@ struct UnitSpec {
     /// pellet leaves at this many tiles of sideways drift per tile flown. `pellet_fan` derives
     /// every pellet from it, so no pellet can leave the cone.
     Fixed cone_half_tan{};
+
+    /// How far it shoots, tiles; zero means unarmed. Read from the weapon, never authored here.
+    [[nodiscard]] constexpr Fixed range() const noexcept { return weapon_spec(weapon).range; }
 };
 
 /// Every armed kind today shoots at kProjectileSpeedRaw with a climb ceiling of 2.0.
@@ -63,7 +112,6 @@ inline constexpr Fixed kBoltTravel = kProjectileRange;
 /// a 7-tile shot, ~12 over its 14), a 1.5-tile splash, two fifths of the tank's hp and 5/4 of its
 /// speed (fast and thin, Harri 2026-11-03), twice its damage, three times its cooldown; range 14
 /// sits between the tank's 12 and the turret's 16.
-inline constexpr std::int32_t kMortarRangeRaw = 14 << 16;
 inline constexpr std::int32_t kMortarGravityRaw = 9 * Fixed::kOne / 4;
 inline constexpr std::int32_t kMortarArcRaw = 4 * Fixed::kOne;
 inline constexpr std::int32_t kMortarSplashRaw = 3 * Fixed::kOne / 2;
@@ -116,12 +164,9 @@ inline constexpr BouncerSpec kBouncer{Fixed::from_raw(Fixed::kOne / 2),
                                       Fixed::from_raw(3 * Fixed::kOne),
                                       12};
 
-/// The rocket TANK (`UnitKind::RocketTank`): the tank's hp and speed, range 15, three times the
-/// damage, five times the cooldown, three quarters of the bolt speed, a straight flight, no splash.
-inline constexpr std::int32_t kRocketRangeRaw = 15 << 16;
-
-/// The scout: a minigun's reach, 10 tiles, below the tank's 12 (`kTankRangeRaw`).
-inline constexpr std::int32_t kScoutRangeRaw = kTankRangeRaw * 5 / 6;
+/// The rocket TANK (`UnitKind::RocketTank`): the tank's hp and speed, the ROCKET's range, three
+/// times the damage, five times the cooldown, three quarters of the bolt speed, a straight flight,
+/// no splash.
 
 /// THE SHOTGUN (Harri's ruling, 2026-10-27: "the amount of damage depends on vicinity and aim"),
 /// a CARRIED WEAPON's numbers rather than a unit kind's (A): it rides the driven craft like the
@@ -150,7 +195,7 @@ inline constexpr std::uint16_t kShotgunReloadTicks = kTankCooldownTicks * 3;
 inline constexpr UnitSpec kShotgunSpec{"shotgun",
                                        kTankHp,
                                        Fixed::from_raw(kTankSpeedRaw),
-                                       Fixed::from_raw(6 << 16),
+                                       WeaponId::Shotgun,
                                        kShotgunPelletDamage,
                                        kShotgunReloadTicks,
                                        Fixed::from_raw(kProjectileSpeedRaw),
@@ -167,14 +212,15 @@ inline constexpr UnitSpec kShotgunSpec{"shotgun",
 /// THE ROCKET AS A CARRIED WEAPON (B), the second row on the weapon axis after the shotgun: the
 /// numbers a rocket fired from ANY hull uses, read by `orders::FireRocket`. Harri asked for it to
 /// reach further than the gun he is firing it from (2026-10-27: "can the rocket have more reach? I
-/// know that's cheating, but I want to try that"), so its range is 18 tiles against the tank gun's
-/// 12 and the rocket tank's 15 -- the longest reach in the game, past the turret's 16. Its other
+/// know that's cheating, but I want to try that"), so its range (`kRocketRangeRaw`, 18 tiles) is
+/// the longest reach in the game, past the turret's 16, and EVERY kind that fires a rocket has it:
+/// the rocket tank and the missile scout read it from this weapon too. Its other
 /// numbers are the rocket tank's own, because the round IS that rocket: three times the tank's
 /// damage, five times its reload, three quarters of the bolt speed, a straight flight, no splash.
 /// `max_travel` must be at least `range` or the bolt fizzles before it reaches the distance the
-/// engagement test allows, which is why travel is 20 and not the engine's `kBoltTravel` (16).
+/// engagement test allows, which is why travel is 20 and not the engine's `kBoltTravel` (16); a
+/// kind that fires the rocket flies it that far too.
 /// All provisional: these are Harri's to set in a balance pass.
-inline constexpr std::int32_t kRocketCarriedRangeRaw = 18 << 16;
 inline constexpr std::int32_t kRocketCarriedTravelRaw = 20 << 16;
 inline constexpr std::uint16_t kRocketCarriedDamage = kTankDamage * 3;
 inline constexpr std::uint16_t kRocketCarriedReloadTicks = kTankCooldownTicks * 5;
@@ -186,7 +232,7 @@ inline constexpr std::uint16_t kRocketCarriedReloadTicks = kTankCooldownTicks * 
 inline constexpr UnitSpec kRocketSpec{"rocket",
                                       kTankHp,
                                       Fixed::from_raw(kTankSpeedRaw),
-                                      Fixed::from_raw(kRocketCarriedRangeRaw),
+                                      WeaponId::Rocket,
                                       kRocketCarriedDamage,
                                       kRocketCarriedReloadTicks,
                                       Fixed::from_raw(kProjectileSpeedRaw * 3 / 4),
@@ -200,56 +246,53 @@ inline constexpr UnitSpec kRocketSpec{"rocket",
                                       0,
                                       Fixed::zero()};
 
-static_assert(kRocketSpec.max_travel.raw >= kRocketSpec.range.raw,
+static_assert(kRocketSpec.max_travel.raw >= kRocketSpec.range().raw,
               "a carried rocket must fly at least as far as its own range, or it fizzles short");
 
 /// Indexed by the value of `UnitKind`, which stays the index type; the order below is the enum's.
 inline constexpr std::array<UnitSpec, static_cast<std::size_t>(kUnitKindCount)> kUnitSpecs{{
-    {"tank", kTankHp, Fixed::from_raw(kTankSpeedRaw), Fixed::from_raw(kTankRangeRaw), kTankDamage,
+    {"tank", kTankHp, Fixed::from_raw(kTankSpeedRaw), WeaponId::TankGun, kTankDamage,
      kTankCooldownTicks, Fixed::from_raw(kProjectileSpeedRaw), Fixed::from_raw(kBoltArcRaw),
      kBoltTravel, Fixed::zero(), Fixed::zero(), false, 55, 900, 0, Fixed::zero()},
     // The turret is a vehicle until it deploys, so the recycler's row 3 queues THIS kind: cost 40
     // (Harri's recycler list) and the 20 ticks a scrap the other rows use.
-    {"turret", kTurretHp, Fixed::from_raw(kTurretSpeedRaw), Fixed::from_raw(kTurretRangeRaw),
-     kTurretDamage, kTurretCooldownTicks, Fixed::from_raw(kProjectileSpeedRaw),
-     Fixed::from_raw(kBoltArcRaw), kBoltTravel, Fixed::zero(), Fixed::zero(), false, 40, 800, 0,
-     Fixed::zero()},
-    {"factory", kFactoryHp, Fixed::zero(), Fixed::zero(), 0, 0, Fixed::zero(), Fixed::zero(),
+    {"turret", kTurretHp, Fixed::from_raw(kTurretSpeedRaw), WeaponId::TurretGun, kTurretDamage,
+     kTurretCooldownTicks, Fixed::from_raw(kProjectileSpeedRaw), Fixed::from_raw(kBoltArcRaw),
+     kBoltTravel, Fixed::zero(), Fixed::zero(), false, 40, 800, 0, Fixed::zero()},
+    {"factory", kFactoryHp, Fixed::zero(), WeaponId::None, 0, 0, Fixed::zero(), Fixed::zero(),
      kBoltTravel, Fixed::zero(), Fixed::zero(), false, 0, 0, 0, Fixed::zero()},
     // The hover tank has the tank's numbers: the look and the controls differ, not the stats.
-    {"hovertank", kTankHp, Fixed::from_raw(kTankSpeedRaw), Fixed::from_raw(kTankRangeRaw),
-     kTankDamage, kTankCooldownTicks, Fixed::from_raw(kProjectileSpeedRaw),
-     Fixed::from_raw(kBoltArcRaw), kBoltTravel, Fixed::zero(), Fixed::zero(), false, 0, 0, 0,
-     Fixed::zero()},
+    {"hovertank", kTankHp, Fixed::from_raw(kTankSpeedRaw), WeaponId::TankGun, kTankDamage,
+     kTankCooldownTicks, Fixed::from_raw(kProjectileSpeedRaw), Fixed::from_raw(kBoltArcRaw),
+     kBoltTravel, Fixed::zero(), Fixed::zero(), false, 0, 0, 0, Fixed::zero()},
     // Harri's ruling (2026-11-03): "quite fast", with "next to no shields", so it has to be fast
     // and nimble not to be hit. Second only to the bomber in speed among the named four.
-    {"mortarbike", kTankHp * 2 / 5, Fixed::from_raw(kTankSpeedRaw * 5 / 4),
-     Fixed::from_raw(kMortarRangeRaw), kTankDamage * 2, kTankCooldownTicks * 3,
-     Fixed::from_raw(kMortarMuzzleSpeedRaw), Fixed::from_raw(kMortarArcRaw), kBoltTravel,
-     Fixed::from_raw(kMortarSplashRaw), Fixed::from_raw(kMortarGravityRaw), false, 45, 900, 0,
-     Fixed::zero()},
+    {"mortarbike", kTankHp * 2 / 5, Fixed::from_raw(kTankSpeedRaw * 5 / 4), WeaponId::Mortar,
+     kTankDamage * 2, kTankCooldownTicks * 3, Fixed::from_raw(kMortarMuzzleSpeedRaw),
+     Fixed::from_raw(kMortarArcRaw), kBoltTravel, Fixed::from_raw(kMortarSplashRaw),
+     Fixed::from_raw(kMortarGravityRaw), false, 45, 900, 0, Fixed::zero()},
     // Harri's ruling (2026-11-03): moves "fairly slowly, but not as slowly as walkers" -- 3/4 of
     // the tank's speed, between the mortar bike's 5/4 and the walker's 1/2.
-    {"rockettank", kTankHp, Fixed::from_raw(kTankSpeedRaw * 3 / 4),
-     Fixed::from_raw(kRocketRangeRaw), kTankDamage * 3, kTankCooldownTicks * 5,
-     Fixed::from_raw(kProjectileSpeedRaw * 3 / 4), Fixed::from_raw(kBoltArcRaw), kBoltTravel,
-     Fixed::zero(), Fixed::zero(), false, 65, 1300, 0, Fixed::zero()},
+    {"rockettank", kTankHp, Fixed::from_raw(kTankSpeedRaw * 3 / 4), WeaponId::Rocket,
+     kTankDamage * 3, kTankCooldownTicks * 5, Fixed::from_raw(kProjectileSpeedRaw * 3 / 4),
+     Fixed::from_raw(kBoltArcRaw), Fixed::from_raw(kRocketCarriedTravelRaw), Fixed::zero(),
+     Fixed::zero(), false, 65, 1300, 0, Fixed::zero()},
     // The scavenger (C2): no gun, no range, no damage -- `range` zero is what makes it unarmed
     // everywhere in the sim (fire, targeting, the AI's threat list). It is fast ENOUGH to reach
     // wreckage, not fast enough to outrun what killed it.
-    {"scavenger", kScavengerHp, Fixed::from_raw(kScavengerSpeedRaw), Fixed::zero(), 0, 0,
+    {"scavenger", kScavengerHp, Fixed::from_raw(kScavengerSpeedRaw), WeaponId::None, 0, 0,
      Fixed::zero(), Fixed::zero(), kBoltTravel, Fixed::zero(), Fixed::zero(), false, 20, 300, 0,
      Fixed::zero()},
     // The recycler: unarmed like the scavenger (`range` zero, and the ballistics block with it).
     // Its hp and speed are BORROWED, not designed: the tank's hull (`kRecyclerHp`), so a base does
     // not die too easily, and the hauler's speed, so it can reach a deploy site. Its own numbers
     // are Harri's to set in a balance pass.
-    {"recycler", kRecyclerHp, Fixed::from_raw(kScavengerSpeedRaw), Fixed::zero(), 0, 0,
+    {"recycler", kRecyclerHp, Fixed::from_raw(kScavengerSpeedRaw), WeaponId::None, 0, 0,
      Fixed::zero(), Fixed::zero(), kBoltTravel, Fixed::zero(), Fixed::zero(), false, 0, 0, 0,
      Fixed::zero()},
     // The deployed recycler (DEPLOY): a building. Speed zero (it never moves), unarmed (no range,
     // damage or cooldown), and the recycler's hull, `kDeployedRecyclerHp`, a default of his.
-    {"deployedrecycler", kDeployedRecyclerHp, Fixed::zero(), Fixed::zero(), 0, 0, Fixed::zero(),
+    {"deployedrecycler", kDeployedRecyclerHp, Fixed::zero(), WeaponId::None, 0, 0, Fixed::zero(),
      Fixed::zero(), kBoltTravel, Fixed::zero(), Fixed::zero(), false, 0, 0, 0, Fixed::zero()},
     // The scout (VIS): light armour and fast, with the tank's bolt as a minigun -- half the tank's
     // hp, half again its speed (the fastest vehicle here: it has to scout), a 10-tile reach, half
@@ -257,7 +300,7 @@ inline constexpr std::array<UnitSpec, static_cast<std::size_t>(kUnitKindCount)> 
     // Outgunned by any tank, but it shoots back. Every number is DERIVED from the tank's and is
     // provisional: its own numbers are Harri's to set in a balance pass. Not buildable: the build
     // menu (RB3) is what fills that flag, and its display-only `SCOUT` row does not.
-    {"scout", kTankHp / 2, Fixed::from_raw(kTankSpeedRaw * 3 / 2), Fixed::from_raw(kScoutRangeRaw),
+    {"scout", kTankHp / 2, Fixed::from_raw(kTankSpeedRaw * 3 / 2), WeaponId::Minigun,
      (kTankDamage + 1) / 2, kTankCooldownTicks / 3, Fixed::from_raw(kProjectileSpeedRaw),
      Fixed::from_raw(kBoltArcRaw), kBoltTravel, Fixed::zero(), Fixed::zero(), false, 50, 900, 0,
      Fixed::zero()},
@@ -266,24 +309,22 @@ inline constexpr std::array<UnitSpec, static_cast<std::size_t>(kUnitKindCount)> 
     // the ladder stays readable; costs are from his own menu screenshot, and build times follow one
     // rule, 20 ticks per scrap (the scout's 45 -> 900), as the four rows above do bar the tank's
     // 900. The assault tank: the tank's gun at 3/2 the hull and 3/2 the damage, a straight bolt.
-    {"assaulttank", kTankHp * 3 / 2, Fixed::from_raw(kTankSpeedRaw), Fixed::from_raw(kTankRangeRaw),
+    {"assaulttank", kTankHp * 3 / 2, Fixed::from_raw(kTankSpeedRaw), WeaponId::TankGun,
      kTankDamage * 3 / 2, kTankCooldownTicks, Fixed::from_raw(kProjectileSpeedRaw),
      Fixed::from_raw(kBoltArcRaw), kBoltTravel, Fixed::zero(), Fixed::zero(), false, 70, 1400, 0,
      Fixed::zero()},
     // The walker: twice the tank's hull and damage and twice its cooldown, at half its speed (it
     // walks); the tank's range and a straight bolt.
-    {"walker", kTankHp * 2, Fixed::from_raw(kTankSpeedRaw / 2), Fixed::from_raw(kTankRangeRaw),
-     kTankDamage * 2, kTankCooldownTicks * 2, Fixed::from_raw(kProjectileSpeedRaw),
-     Fixed::from_raw(kBoltArcRaw), kBoltTravel, Fixed::zero(), Fixed::zero(), false, 100, 2000, 0,
-     Fixed::zero()},
+    {"walker", kTankHp * 2, Fixed::from_raw(kTankSpeedRaw / 2), WeaponId::TankGun, kTankDamage * 2,
+     kTankCooldownTicks * 2, Fixed::from_raw(kProjectileSpeedRaw), Fixed::from_raw(kBoltArcRaw),
+     kBoltTravel, Fixed::zero(), Fixed::zero(), false, 100, 2000, 0, Fixed::zero()},
     // The APC: the tank's hull, 3/2 its speed (the fastest ground vehicle, level with the scout),
     // the scout's 10-tile range. It has no troop-carrying role yet, so it carries a light gun --
     // half the tank's damage and half its cooldown -- rather than being a unit that cannot fight at
     // all. A straight bolt.
-    {"apc", kTankHp, Fixed::from_raw(kTankSpeedRaw * 3 / 2), Fixed::from_raw(kScoutRangeRaw),
-     kTankDamage / 2, kTankCooldownTicks / 2, Fixed::from_raw(kProjectileSpeedRaw),
-     Fixed::from_raw(kBoltArcRaw), kBoltTravel, Fixed::zero(), Fixed::zero(), false, 50, 1000, 0,
-     Fixed::zero()},
+    {"apc", kTankHp, Fixed::from_raw(kTankSpeedRaw * 3 / 2), WeaponId::Minigun, kTankDamage / 2,
+     kTankCooldownTicks / 2, Fixed::from_raw(kProjectileSpeedRaw), Fixed::from_raw(kBoltArcRaw),
+     kBoltTravel, Fixed::zero(), Fixed::zero(), false, 50, 1000, 0, Fixed::zero()},
     // The bomber: 3/4 the tank's hull and TWICE its speed (Harri, 2026-11-03: "the fastest-moving
     // vehicle in the game", so past the scout's and the APC's 3/2), the mortar's 14-tile range,
     // twice the tank's damage and three times its cooldown. The bomb IS the existing lobbed shell
@@ -292,29 +333,28 @@ inline constexpr std::array<UnitSpec, static_cast<std::size_t>(kUnitKindCount)> 
     // the mortar's `kMortarMuzzleSpeedRaw` and not a number of its own: one shell, one flight
     // model, whoever lets it go. (The bomber's own flight speed is the `speed` field above and is
     // not this.)
-    {"bomber", kTankHp * 3 / 4, Fixed::from_raw(kTankSpeedRaw * 2),
-     Fixed::from_raw(kMortarRangeRaw), kTankDamage * 2, kTankCooldownTicks * 3,
-     Fixed::from_raw(kMortarMuzzleSpeedRaw), Fixed::from_raw(kMortarArcRaw), kBoltTravel,
-     Fixed::from_raw(kMortarSplashRaw), Fixed::from_raw(kMortarGravityRaw), false, 75, 1500, 0,
-     Fixed::zero()},
+    {"bomber", kTankHp * 3 / 4, Fixed::from_raw(kTankSpeedRaw * 2), WeaponId::Mortar,
+     kTankDamage * 2, kTankCooldownTicks * 3, Fixed::from_raw(kMortarMuzzleSpeedRaw),
+     Fixed::from_raw(kMortarArcRaw), kBoltTravel, Fixed::from_raw(kMortarSplashRaw),
+     Fixed::from_raw(kMortarGravityRaw), false, 75, 1500, 0, Fixed::zero()},
     // The missile scout: the scout's own hull and speed carrying the rocket tank's rocket (its
     // range, damage, cooldown and bolt speed, a straight flight). EVERY number here is PROVISIONAL
     // and Harri's to set: he plays it and corrects it. The cost, 45, is his factory menu's; the
     // build time follows the same 20 ticks a scrap as the rows above (45 -> 900).
-    {"mslscout", kTankHp / 2, Fixed::from_raw(kTankSpeedRaw * 3 / 2),
-     Fixed::from_raw(kRocketRangeRaw), kTankDamage * 3, kTankCooldownTicks * 5,
-     Fixed::from_raw(kProjectileSpeedRaw * 3 / 4), Fixed::from_raw(kBoltArcRaw), kBoltTravel,
-     Fixed::zero(), Fixed::zero(), false, 45, 900, 0, Fixed::zero()},
+    {"mslscout", kTankHp / 2, Fixed::from_raw(kTankSpeedRaw * 3 / 2), WeaponId::Rocket,
+     kTankDamage * 3, kTankCooldownTicks * 5, Fixed::from_raw(kProjectileSpeedRaw * 3 / 4),
+     Fixed::from_raw(kBoltArcRaw), Fixed::from_raw(kRocketCarriedTravelRaw), Fixed::zero(),
+     Fixed::zero(), false, 45, 900, 0, Fixed::zero()},
     // The deployed scavenger: a fixture on a biometal pool. Speed zero, unarmed, and the
     // scavenger's own hull -- deploying neither heals nor wounds it. Not buildable: it is a
     // scavenger that has finished a deploy, never a row.
-    {"deployedscavenger", kScavengerHp, Fixed::zero(), Fixed::zero(), 0, 0, Fixed::zero(),
+    {"deployedscavenger", kScavengerHp, Fixed::zero(), WeaponId::None, 0, 0, Fixed::zero(),
      Fixed::zero(), kBoltTravel, Fixed::zero(), Fixed::zero(), false, 0, 0, 0, Fixed::zero()},
     // The deployed turret (TURRET-CMD): the turret's gun and hull, fixed to its spot. Speed zero is
     // what makes it immobile everywhere in the sim; every other number is the turret's own, so
     // deploying neither heals, wounds nor re-arms it. Not buildable: it is a turret that has
     // finished a deploy, never a row.
-    {"deployedturret", kTurretHp, Fixed::zero(), Fixed::from_raw(kTurretRangeRaw), kTurretDamage,
+    {"deployedturret", kTurretHp, Fixed::zero(), WeaponId::TurretGun, kTurretDamage,
      kTurretCooldownTicks, Fixed::from_raw(kProjectileSpeedRaw), Fixed::from_raw(kBoltArcRaw),
      kBoltTravel, Fixed::zero(), Fixed::zero(), false, 0, 0, 0, Fixed::zero()},
     // The four support vehicles of the human recycler's list. All are unarmed (`range` zero, and
@@ -323,17 +363,29 @@ inline constexpr std::array<UnitSpec, static_cast<std::size_t>(kUnitKindCount)> 
     // build time follows the 20 ticks a scrap of the rows above. The tug, constructor and truck
     // have the tank's hull and three quarters of its speed (the scavenger's); the pod, a small
     // craft, has half the hull and the tank's speed.
-    {"tug", kTankHp, Fixed::from_raw(kTankSpeedRaw * 3 / 4), Fixed::zero(), 0, 0, Fixed::zero(),
+    {"tug", kTankHp, Fixed::from_raw(kTankSpeedRaw * 3 / 4), WeaponId::None, 0, 0, Fixed::zero(),
      Fixed::zero(), kBoltTravel, Fixed::zero(), Fixed::zero(), false, 45, 900, 0, Fixed::zero()},
-    {"constructor", kTankHp, Fixed::from_raw(kTankSpeedRaw * 3 / 4), Fixed::zero(), 0, 0,
+    {"constructor", kTankHp, Fixed::from_raw(kTankSpeedRaw * 3 / 4), WeaponId::None, 0, 0,
      Fixed::zero(), Fixed::zero(), kBoltTravel, Fixed::zero(), Fixed::zero(), false, 40, 800, 0,
      Fixed::zero()},
-    {"servicetruck", kTankHp, Fixed::from_raw(kTankSpeedRaw * 3 / 4), Fixed::zero(), 0, 0,
+    {"servicetruck", kTankHp, Fixed::from_raw(kTankSpeedRaw * 3 / 4), WeaponId::None, 0, 0,
      Fixed::zero(), Fixed::zero(), kBoltTravel, Fixed::zero(), Fixed::zero(), false, 50, 1000, 0,
      Fixed::zero()},
-    {"servicepod", kTankHp / 2, Fixed::from_raw(kTankSpeedRaw), Fixed::zero(), 0, 0, Fixed::zero(),
+    {"servicepod", kTankHp / 2, Fixed::from_raw(kTankSpeedRaw), WeaponId::None, 0, 0, Fixed::zero(),
      Fixed::zero(), kBoltTravel, Fixed::zero(), Fixed::zero(), false, 2, 40, 0, Fixed::zero()},
 }};
+
+/// No armed kind's bolt may fizzle short of the reach its weapon lets it engage at.
+[[nodiscard]] constexpr bool every_bolt_outflies_its_range() noexcept {
+    for (const UnitSpec& row : kUnitSpecs) {
+        if (row.max_travel.raw < row.range().raw) {
+            return false;
+        }
+    }
+    return true;
+}
+static_assert(every_bolt_outflies_its_range(),
+              "a kind's bolt must fly at least as far as its weapon's range, or it fizzles short");
 
 [[nodiscard]] constexpr const UnitSpec& spec_of(UnitKind kind) noexcept {
     return kUnitSpecs.at(static_cast<std::size_t>(kind));

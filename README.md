@@ -186,8 +186,16 @@ room. The alien factory draws the human factory's eight rows until Harri supplie
 (twice the tank's speed, was 3/4), the **mortar bike** next, fast and thin (5/4 of the tank's speed
 and 40 hp, was half its speed and 75 hp), the **rocket tank** fairly slow (3/4 of the tank's speed,
 was the tank's) and the **walker** the slowest and toughest (half the tank's speed, 200 hp, as
-before). The turret's 1/4 crawl is slower still; it is a deployable weapon. Flight for the bomber and
-the weapon-owned range are separate slices and are not here.
+before). The turret's 1/4 crawl is slower still; it is a deployable weapon. Flight for the bomber is
+a separate slice and is not here.
+
+**Range belongs to the weapon** (2026-11-03, Harri: "'Rocket tank' has a long range because it has
+ROCKETS, not because it's a rocket tank. Other vehicles that use rockets also get the same range."):
+a kind's row names the weapon it mounts, and its reach is read from the weapon's, so two kinds
+carrying one weapon cannot disagree. The reaches: tank gun 12 (tank, hover tank, assault tank,
+walker), minigun 10 (scout, APC), mortar 14 (mortar bike, bomber), turret gun 16 (turret, deployed
+turret), **rocket 18** (rocket tank, missile scout, and a rocket fired from any hull), shotgun 6.
+The rocket tank and the missile scout therefore reach 18 tiles, not 15, and their rockets fly 20.
 
 **Shapes follow the faction too.** Harri: "The alien side assets need a different look -- not just
 colours, but shapes too; they should be more organic." A kind's silhouette is chosen by the unit's

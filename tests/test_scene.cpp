@@ -6751,7 +6751,7 @@ protekt::sim::Scenario an_outcome_battle() {
 int armed_alive_in(const protekt::sim::Sim& sim, protekt::sim::Side side) {
     int n = 0;
     for (const protekt::sim::Unit& unit : sim.units()) {
-        if (unit.alive && unit.side == side && protekt::sim::spec_of(unit.kind).range.raw > 0) {
+        if (unit.alive && unit.side == side && protekt::sim::spec_of(unit.kind).range().raw > 0) {
             ++n;
         }
     }

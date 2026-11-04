@@ -192,7 +192,7 @@ TEST(PitchLimit, TheMortarReachesItsWholeRangeAtItsBestPitchAndTopsOutAtTheLimit
     // At a fixed muzzle speed the range peaks near 45 degrees, not at the steepest aim: the top
     // pitch (the limit) is the HIGHEST lob, and the whole 14 tiles is reached by the pitch that
     // peaks.
-    const float range = as_float(sim::spec_of(UnitKind::MortarBike).range);
+    const float range = as_float(sim::spec_of(UnitKind::MortarBike).range());
     float best = 0.0F;
     for (const float pitch : kFlightPitches) {
         best = std::max(best, mortar_landing_tiles(pitch));
@@ -415,7 +415,7 @@ TEST(ManualFire, TheBestPitchLandsAtTheMortarsFullRangeAndTheLimitPitchLobsShort
     Rig rig = make_rig();
     const Flight flight = fire_along_x(rig, Weapon::Mortar, kFlightPitches.at(4));
     ASSERT_TRUE(flight.launched);
-    EXPECT_GE(flight.tiles, as_float(sim::spec_of(UnitKind::MortarBike).range) - 0.5F);
+    EXPECT_GE(flight.tiles, as_float(sim::spec_of(UnitKind::MortarBike).range()) - 0.5F);
     // The steepest aim the view allows is the high lob: it lands well inside that.
     Rig steep = make_rig();
     const Flight lob = fire_along_x(steep, Weapon::Mortar, kLookPitchLimit);

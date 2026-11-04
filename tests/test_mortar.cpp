@@ -76,7 +76,7 @@ TEST(MortarBike, SpecRowIsPinnedToExactIntegers) {
     EXPECT_STREQ(s.name, "mortarbike");
     EXPECT_EQ(s.hp, 40) << "next to no shields (Harri, 2026-11-03)";
     EXPECT_EQ(s.max_speed.raw, 16383) << "fast: 5/4 of the tank's 13107";
-    EXPECT_EQ(s.range.raw, 14 * kTile);
+    EXPECT_EQ(s.range().raw, 14 * kTile);
     EXPECT_EQ(s.damage, 16);
     EXPECT_EQ(s.cooldown, 45);
     EXPECT_EQ(s.bolt_speed.raw, 45977); // the MUZZLE speed: sqrt(14 tiles * gravity)
@@ -88,8 +88,8 @@ TEST(MortarBike, SpecRowIsPinnedToExactIntegers) {
 }
 
 TEST(MortarBike, OutranksATankAndIsOutrangedByATurret) {
-    EXPECT_GT(spec_of(UnitKind::MortarBike).range.raw, spec_of(UnitKind::Tank).range.raw);
-    EXPECT_LT(spec_of(UnitKind::MortarBike).range.raw, spec_of(UnitKind::Turret).range.raw);
+    EXPECT_GT(spec_of(UnitKind::MortarBike).range().raw, spec_of(UnitKind::Tank).range().raw);
+    EXPECT_LT(spec_of(UnitKind::MortarBike).range().raw, spec_of(UnitKind::Turret).range().raw);
 }
 
 TEST(RocketTank, SpecRowIsPinnedToExactIntegers) {
@@ -98,12 +98,12 @@ TEST(RocketTank, SpecRowIsPinnedToExactIntegers) {
     EXPECT_STREQ(s.name, "rockettank");
     EXPECT_EQ(s.hp, 100);
     EXPECT_EQ(s.max_speed.raw, 9830) << "fairly slow: 3/4 of the tank's 13107";
-    EXPECT_EQ(s.range.raw, 15 * kTile);
+    EXPECT_EQ(s.range().raw, 18 * kTile) << "the ROCKET's reach, not the hull's";
     EXPECT_EQ(s.damage, 24);
     EXPECT_EQ(s.cooldown, 75);
     EXPECT_EQ(s.bolt_speed.raw, 26214);
     EXPECT_EQ(s.arc.raw, 2 * kTile);
-    EXPECT_EQ(s.max_travel.raw, 16 * kTile);
+    EXPECT_EQ(s.max_travel.raw, 20 * kTile) << "the rocket flies as far as it reaches";
     EXPECT_EQ(s.splash_radius.raw, 0);
     EXPECT_EQ(s.gravity.raw, 0);
     EXPECT_FALSE(s.buildable);
