@@ -112,13 +112,14 @@ TEST(Shove, AVehicleDrivenIntoIsPushedAside) {
     EXPECT_GT(sim.find(ids[0])->x.raw, start.x.raw) << "and the pusher is past where it stood";
 }
 
-TEST(Shove, ShovingCostsThePusherHalfItsSpeed) {
+TEST(Shove, ShovingCostsThePusherAThirdOfItsSpeed) {
     // A fact about the world, with its numbers written out and none read from the code under test:
     // a tank drives 0.2 tiles a tick, so in ten ticks it covers two tiles when nothing is in its
-    // way, and a tank that spends those ten ticks pushing another covers one. The window is the
-    // ten ticks after the first contact, all of them shoving (`shove_ticks` reaches ten with no
-    // break), so no free tick blurs the measure -- the earlier version took twenty ticks of which
-    // only some were shoving, and could not tell half the speed from a seventh of it.
+    // way, and on a tick that it spends pushing another it covers two thirds of that, 2/15 of a
+    // tile (Harri's ruling). Contact is not unbroken -- the shoved vehicle is carried sideways and
+    // can slip free for a tick -- so only the ticks on which `shove_ticks` rose are counted, and
+    // the pusher's advance over them is compared to the literal. The slack is a hundredth of a
+    // tile, far narrower than the gap to a half (0.2 tile over twelve ticks) or three quarters.
     ASSERT_TRUE(open_row());
     Sim free_run = Sim::create(scenario_of({{105, kRowY}}));
     Sim shoving = Sim::create(scenario_of({{105, kRowY}, {106, kRowY}}));
@@ -130,21 +131,29 @@ TEST(Shove, ShovingCostsThePusherHalfItsSpeed) {
     shoving.step();
     ASSERT_EQ(shoving.find(shove_ids[0])->shove_ticks, 0) << "not yet in contact";
     const std::int64_t free_from = free_run.find(free_ids[0])->x.raw;
-    const std::int64_t shove_from = shoving.find(shove_ids[0])->x.raw;
     for (int tick = 0; tick < 10; ++tick) {
         free_run.step();
-        shoving.step();
     }
-    ASSERT_EQ(shoving.find(shove_ids[0])->shove_ticks, 10) << "ten ticks of unbroken shoving";
+    int shoving_ticks = 0;
+    std::int64_t shove_advance = 0;
+    for (int tick = 0; tick < 30; ++tick) {
+        const Unit before = *shoving.find(shove_ids[0]);
+        shoving.step();
+        const Unit* after = shoving.find(shove_ids[0]);
+        if (after->shove_ticks > before.shove_ticks) {
+            ++shoving_ticks;
+            shove_advance += after->x.raw - before.x.raw;
+        }
+    }
+    ASSERT_GE(shoving_ticks, 12) << "enough shoving ticks to measure";
     EXPECT_GT(shoving.find(shove_ids[1])->x.raw, 106 * Fixed::kOne) << "and the other was carried";
 
     const std::int64_t free_advance = free_run.find(free_ids[0])->x.raw - free_from;
-    const std::int64_t shove_advance = shoving.find(shove_ids[0])->x.raw - shove_from;
-    const std::int64_t slack = Fixed::kOne / 100; // a hundredth of a tile: rounding, not a rule
-    EXPECT_NEAR(static_cast<double>(free_advance), 2.0 * Fixed::kOne, static_cast<double>(slack))
+    const double slack = Fixed::kOne / 100.0; // rounding, not a rule
+    EXPECT_NEAR(static_cast<double>(free_advance), 2.0 * Fixed::kOne, slack)
         << "unobstructed, a tank covers two tiles in ten ticks";
-    EXPECT_NEAR(static_cast<double>(shove_advance), 1.0 * Fixed::kOne, static_cast<double>(slack))
-        << "pushing, it covers one: half";
+    EXPECT_NEAR(static_cast<double>(shove_advance), shoving_ticks * 2.0 * Fixed::kOne / 15.0, slack)
+        << "shoving, it covers 2/15 of a tile a tick: two thirds of its speed";
 }
 
 TEST(Shove, ABystanderThatIsNotInTheWayIsUntouched) {

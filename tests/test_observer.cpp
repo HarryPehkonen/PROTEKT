@@ -381,7 +381,10 @@ TEST(Observer, RenamingTheSupportVehiclesMovedNoRecordedBattle) {
     // half-tile of one another, so most of them hold fire from tick ~451. Old value
     // 11108029709689596683 is the code at 39c2fc8; no constant restores it, because the behaviour
     // itself changed.
-    EXPECT_EQ(log.final_hash, 16838413708508611782ULL);
+    // RE-RECORDED 2026-11-04 for the dearer shove (two thirds of the pusher's speed, was a half).
+    // Old value 16838413708508611782 is the code at dbb4adb; it is restored exactly by putting
+    // the shove back to 1/2.
+    EXPECT_EQ(log.final_hash, 369972452760822632ULL);
 }
 
 TEST(Observer, TheFiredStreamForAScriptedBattleIsUnchanged) {
@@ -434,13 +437,23 @@ TEST(Observer, TheFiredStreamForAScriptedBattleIsUnchanged) {
     // the skirmish's columns stand within a bolt's half-tile of one another, so from tick ~451
     // most of them go quiet. The first three shots (ticks 430-435) are unchanged; it has 21 shots
     // (was 73). Old stream: the code at 39c2fc8.
+    // RE-RECORDED 2026-11-04 for the dearer shove (two thirds of the pusher's speed, was a half): a
+    // pusher is quicker, so the columns meet earlier and jostle differently. First shot tick 425
+    // (was 430); 46 shots (was 21). Old stream: the code at dbb4adb; restored exactly by putting
+    // the shove back to 1/2.
     static const std::vector<Expected> kExpected = {
-        {430, 19, 2, 100}, {435, 2, 13, 100}, {435, 13, 2, 100}, {441, 8, 13, 100},
-        {444, 3, 13, 100}, {450, 2, 13, 100}, {450, 13, 2, 100}, {451, 12, 2, 100},
-        {475, 19, 2, 60},  {486, 8, 19, 40},  {501, 14, 2, 60},  {516, 14, 2, 60},
-        {520, 19, 8, 40},  {531, 8, 19, 40},  {531, 14, 2, 52},  {546, 14, 2, 52},
-        {561, 14, 2, 52},  {565, 19, 2, 36},  {576, 8, 19, 24},  {576, 14, 2, 36},
-        {591, 14, 2, 36},
+        {425, 19, 2, 100}, {427, 8, 13, 100}, {432, 2, 13, 100}, {432, 13, 2, 100},
+        {436, 3, 13, 100}, {447, 2, 13, 84},  {447, 13, 2, 100}, {451, 3, 13, 76},
+        {458, 4, 19, 40},  {462, 2, 19, 40},  {466, 3, 13, 68},  {470, 19, 2, 84},
+        {472, 8, 13, 60},  {473, 4, 19, 40},  {475, 1, 19, 40},  {477, 2, 19, 40},
+        {481, 3, 12, 84},  {488, 4, 19, 40},  {492, 2, 19, 40},  {496, 3, 12, 84},
+        {503, 4, 19, 40},  {507, 2, 19, 40},  {508, 1, 13, 36},  {511, 3, 12, 84},
+        {515, 19, 1, 84},  {517, 8, 12, 84},  {518, 4, 12, 84},  {522, 2, 12, 84},
+        {526, 3, 12, 84},  {533, 4, 12, 84},  {537, 2, 12, 84},  {541, 3, 12, 76},
+        {548, 4, 12, 76},  {552, 2, 12, 60},  {556, 3, 12, 52},  {560, 19, 2, 52},
+        {562, 8, 12, 44},  {563, 4, 12, 44},  {567, 2, 12, 36},  {571, 3, 12, 28},
+        {578, 4, 12, 20},  {582, 2, 12, 12},  {586, 3, 12, 4},   {587, 15, 2, 52},
+        {593, 4, 15, 60},  {597, 2, 15, 52},
     };
     const Scenario scenario = skirmish(42);
     ai::ScriptedCommander player(30);

@@ -320,11 +320,11 @@ inline constexpr std::int32_t kArriveRadiusRaw = 1 << 16; ///< 1 tile
 /// How close two vehicle centres may come before one is "in" the other: three quarters of a tile.
 /// Spawn placement keeps units a whole tile apart, so a fresh battle starts with nobody touching.
 inline constexpr std::int32_t kBodyRadiusRaw = (3 << 16) / 4;
-/// THE COST OF A SHOVE: a unit pushing another moves at this fraction of its speed (1/2) -- the
+/// THE COST OF A SHOVE: a unit pushing another moves at this fraction of its speed (2/3) -- the
 /// number "with difficulty" is. The shoved vehicle is carried the pusher's step, so the pair moves
-/// at half the pusher's free speed.
-inline constexpr std::int64_t kShoveSpeedNumerator = 1;
-inline constexpr std::int64_t kShoveSpeedDenominator = 2;
+/// at two thirds of the pusher's free speed.
+inline constexpr std::int64_t kShoveSpeedNumerator = 2;
+inline constexpr std::int64_t kShoveSpeedDenominator = 3;
 /// The deadlock breaker: after this many consecutive ticks of shoving (1.5 s) a unit stops
 /// colliding until it has been clear of every vehicle for a tick. Two vehicles each shoving the
 /// other cancel out; without this they could hold one another for ever.
