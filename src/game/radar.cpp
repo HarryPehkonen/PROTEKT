@@ -271,8 +271,42 @@ bool radar_unit_moving(const sim::Unit& unit) noexcept {
     return unit.vx.raw != 0 || unit.vy.raw != 0;
 }
 
-float radar_blip_alpha(const sim::Unit& hostile, sim::Tick tick) noexcept {
-    if (radar_unit_moving(hostile)) {
+void RadarActivity::touch(sim::UnitId unit, sim::Tick tick) {
+    const auto found = std::find_if(entries_.begin(), entries_.end(),
+                                    [unit](const Entry& entry) { return entry.unit == unit; });
+    if (found != entries_.end()) {
+        found->last = tick;
+        return;
+    }
+    entries_.reserve(entries_.size() + 1);
+    entries_.push_back(Entry{unit, tick});
+}
+
+void RadarActivity::observe(std::span<const sim::Unit> units, std::span<const sim::Sim::Shot> shots,
+                            sim::Tick tick) {
+    for (const sim::Unit& unit : units) {
+        if (unit.alive && radar_unit_moving(unit)) {
+            touch(unit.id, tick);
+        }
+    }
+    for (const sim::Sim::Shot& shot : shots) {
+        touch(shot.shooter, tick);
+    }
+    std::erase_if(entries_,
+                  [tick](const Entry& entry) { return tick - entry.last > kRadarActiveTailTicks; });
+}
+
+bool RadarActivity::recently_active(sim::UnitId unit, sim::Tick now) const noexcept {
+    const auto found = std::find_if(entries_.begin(), entries_.end(),
+                                    [unit](const Entry& entry) { return entry.unit == unit; });
+    return found != entries_.end() && now >= found->last
+           && now - found->last <= kRadarActiveTailTicks;
+}
+
+float radar_blip_alpha(const sim::Unit& hostile, sim::Tick tick,
+                       const RadarActivity* activity) noexcept {
+    if (radar_unit_moving(hostile)
+        || (activity != nullptr && activity->recently_active(hostile.id, tick))) {
         return 1.0F;
     }
     const sim::Tick since_sweep = tick % kRadarSweepIntervalTicks;
@@ -284,7 +318,7 @@ float radar_blip_alpha(const sim::Unit& hostile, sim::Tick tick) noexcept {
 
 std::vector<RadarDetection> radar_detections(std::span<const sim::Unit> units,
                                              sim::UnitId viewer_unit, int radius_tiles,
-                                             sim::Tick tick) {
+                                             sim::Tick tick, const RadarActivity* activity) {
     std::vector<RadarDetection> detections;
     const auto viewer = std::find_if(units.begin(), units.end(), [viewer_unit](const sim::Unit& u) {
         return u.id == viewer_unit;
@@ -297,7 +331,7 @@ std::vector<RadarDetection> radar_detections(std::span<const sim::Unit> units,
             || !within_radar(*viewer, unit, radius_tiles)) {
             continue;
         }
-        const float alpha = radar_blip_alpha(unit, tick);
+        const float alpha = radar_blip_alpha(unit, tick, activity);
         if (alpha > 0.0F) {
             detections.push_back(RadarDetection{unit.id, alpha});
         }
@@ -306,7 +340,7 @@ std::vector<RadarDetection> radar_detections(std::span<const sim::Unit> units,
 }
 
 std::vector<RadarMark> radar_detect(std::vector<RadarMark> marks, std::span<const sim::Unit> units,
-                                    sim::Tick tick) {
+                                    sim::Tick tick, const RadarActivity* activity) {
     std::vector<RadarMark> shown;
     shown.reserve(marks.size());
     for (RadarMark& mark : marks) {
@@ -314,7 +348,7 @@ std::vector<RadarMark> radar_detect(std::vector<RadarMark> marks, std::span<cons
             const auto unit = std::find_if(units.begin(), units.end(), [&mark](const sim::Unit& u) {
                 return u.id == mark.unit;
             });
-            mark.alpha = unit == units.end() ? 0.0F : radar_blip_alpha(*unit, tick);
+            mark.alpha = unit == units.end() ? 0.0F : radar_blip_alpha(*unit, tick, activity);
             if (mark.alpha <= 0.0F) {
                 continue;
             }

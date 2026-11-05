@@ -4,6 +4,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
@@ -767,6 +768,28 @@ TEST(WorldMapBlips, AMovingEnemyIsOnTheMapBetweenSweepsToo) {
         ASSERT_EQ(shown, tank->vx.raw != 0 || tank->vy.raw != 0) << rig.sim.tick();
         rig.sim.step();
     }
+}
+
+TEST(WorldMapBlips, AnEnemyThatFiredLatelyIsOnTheMapBetweenSweepsAndGoneAfterTheTail) {
+    Rig rig = make_rig();
+    const UnitId tank = rig.enemy.at(0);
+    protekt::game::RadarActivity activity;
+    const std::array<sim::Sim::Shot, 1> shots{sim::Sim::Shot{tank, rig.own.at(0)}};
+    activity.observe(rig.sim.units(), shots, 31);
+    const auto shown = [&](protekt::sim::Tick now) {
+        // The map reads `sim.tick()`, so step the rig to `now` (nothing here moves the enemy).
+        while (rig.sim.tick() < now) {
+            rig.sim.step();
+        }
+        const WorldMap map = world_map(rig.sim, kExtent, Side::Player, rig.options.viewer_unit,
+                                       nullptr, &activity);
+        return std::any_of(map.blips.begin(), map.blips.end(),
+                           [&](const MapBlip& b) { return b.id == tank && b.alpha == 1.0F; });
+    };
+    ASSERT_EQ(rig.sim.find(tank)->vx.raw, 0);
+    EXPECT_TRUE(shown(100)) << "between sweeps, because it fired";
+    EXPECT_TRUE(shown(181));
+    EXPECT_FALSE(shown(182)) << "five seconds on, and no sweep is passing";
 }
 
 } // namespace protekt::game

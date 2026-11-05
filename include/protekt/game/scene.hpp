@@ -515,6 +515,7 @@ inline constexpr std::size_t kLandingMarkVertexCount = 60;
 inline constexpr float kLandingMarkHeight = 4.0F;
 
 class NavMarks;
+class RadarActivity;
 struct RowState;
 
 class LandingMarks {
@@ -1038,6 +1039,9 @@ struct SceneOptions {
     /// The player's navigational marks (N1), drawn as a slim beacon at each tile. Null draws none.
     /// Not owned.
     const NavMarks* nav_marks{nullptr};
+    /// Who moved or fired lately, for the radar's and the map's detection model (the tail). Null
+    /// knows only physical motion. Not owned.
+    const RadarActivity* radar_activity{nullptr};
     /// DEPLOY's preview: the footprint the armed deploy would build where the reticle meets the
     /// ground, drawn lying on the terrain as its tile grid -- `kDeployPreviewColour` where the sim
     /// would accept it, `kDeployPreviewBlockedColour` where it would not. ABSENT draws nothing, so

@@ -44,8 +44,9 @@ TEST(AudioPipeline, StepsExactlyTheTicksAskedFor) {
     protekt::sim::Sim sim = make_sim();
     protekt::game::HitFlash flash;
     protekt::game::HitMark mark;
+    protekt::game::RadarActivity radar;
     AudioPipeline pipeline{nullptr};
-    pipeline.advance(sim, 5, frame_for(false), flash, mark);
+    pipeline.advance(sim, 5, frame_for(false), flash, mark, radar);
     EXPECT_EQ(sim.tick(), 5U);
 }
 
@@ -54,9 +55,10 @@ TEST(AudioPipeline, ListeningDoesNotMoveTheSimulation) {
     protekt::sim::Sim silent = make_sim();
     protekt::game::HitFlash flash;
     protekt::game::HitMark mark;
+    protekt::game::RadarActivity radar;
     FakeSink sink;
     AudioPipeline listening{&sink};
-    listening.advance(heard, 40, frame_for(true), flash, mark);
+    listening.advance(heard, 40, frame_for(true), flash, mark, radar);
     for (int i = 0; i < 40; ++i) {
         silent.step();
     }
@@ -89,6 +91,7 @@ TEST(AudioPipeline, ALaunchedShotIsOneMixHandedToTheDevice) {
     const protekt::sim::UnitId tank = loaded_tank(sim);
     protekt::game::HitFlash flash;
     protekt::game::HitMark mark;
+    protekt::game::RadarActivity radar;
     FakeSink sink;
     AudioPipeline pipeline{&sink};
     sim.enqueue(protekt::sim::Order{
@@ -96,7 +99,7 @@ TEST(AudioPipeline, ALaunchedShotIsOneMixHandedToTheDevice) {
                                                 protekt::sim::Fixed::zero(), protekt::sim::UnitId{},
                                                 protekt::sim::Fixed::zero()}});
     const protekt::app::AdvanceResult result
-        = pipeline.advance(sim, 3, trigger_for(tank), flash, mark);
+        = pipeline.advance(sim, 3, trigger_for(tank), flash, mark, radar);
     EXPECT_FALSE(result.trigger_refused);
     EXPECT_EQ(sink.plays, 1);
     EXPECT_GT(sink.last_samples, 0U);
@@ -107,10 +110,11 @@ TEST(AudioPipeline, ATriggerTheSimDeclinedMakesNoSoundAndIsReported) {
     const protekt::sim::UnitId tank = loaded_tank(sim);
     protekt::game::HitFlash flash;
     protekt::game::HitMark mark;
+    protekt::game::RadarActivity radar;
     FakeSink sink;
     AudioPipeline pipeline{&sink};
     const protekt::app::AdvanceResult result
-        = pipeline.advance(sim, 3, trigger_for(tank), flash, mark);
+        = pipeline.advance(sim, 3, trigger_for(tank), flash, mark, radar);
     EXPECT_TRUE(result.trigger_refused) << "no order was queued, so no shot was launched";
     EXPECT_EQ(sink.plays, 0);
 }
@@ -119,9 +123,10 @@ TEST(AudioPipeline, SilenceIsNotPlayed) {
     protekt::sim::Sim sim = make_sim();
     protekt::game::HitFlash flash;
     protekt::game::HitMark mark;
+    protekt::game::RadarActivity radar;
     FakeSink sink;
     AudioPipeline pipeline{&sink};
-    pipeline.advance(sim, 1, frame_for(false), flash, mark);
+    pipeline.advance(sim, 1, frame_for(false), flash, mark, radar);
     EXPECT_EQ(sink.plays, 0);
 }
 
@@ -129,10 +134,11 @@ TEST(AudioPipeline, AFailedDeviceIsNeverPlayedTo) {
     protekt::sim::Sim sim = make_sim();
     protekt::game::HitFlash flash;
     protekt::game::HitMark mark;
+    protekt::game::RadarActivity radar;
     FakeSink sink;
     sink.healthy = false;
     AudioPipeline pipeline{&sink};
-    pipeline.advance(sim, 3, frame_for(true), flash, mark);
+    pipeline.advance(sim, 3, frame_for(true), flash, mark, radar);
     EXPECT_EQ(sink.plays, 0);
     EXPECT_EQ(sim.tick(), 3U);
 }
@@ -144,19 +150,53 @@ TEST(AudioPipeline, TheRadarBlipsOnTheTickOfASweepAndOnlyThen) {
          {protekt::sim::UnitKind::Tank, protekt::sim::Side::Enemy, 200, 200}}});
     protekt::game::HitFlash flash;
     protekt::game::HitMark mark;
+    protekt::game::RadarActivity radar;
     FakeSink sink;
     AudioPipeline pipeline{&sink};
     const protekt::sim::UnitId player = sim.units().front().id;
     const AudioFrame frame{protekt::game::Listener{}, false, true, true, player};
-    pipeline.advance(sim, protekt::game::kRadarSweepIntervalTicks - 1, frame, flash, mark);
+    pipeline.advance(sim, protekt::game::kRadarSweepIntervalTicks - 1, frame, flash, mark, radar);
     EXPECT_EQ(sink.plays, 0) << "a quiet battle is silent between sweeps";
-    pipeline.advance(sim, 1, frame, flash, mark);
+    pipeline.advance(sim, 1, frame, flash, mark, radar);
     ASSERT_EQ(sim.tick(), protekt::game::kRadarSweepIntervalTicks);
     EXPECT_EQ(sink.plays, 1) << "the sweep is heard";
-    pipeline.advance(sim, protekt::game::kRadarSweepIntervalTicks - 1, frame, flash, mark);
+    pipeline.advance(sim, protekt::game::kRadarSweepIntervalTicks - 1, frame, flash, mark, radar);
     EXPECT_EQ(sink.plays, 1);
-    pipeline.advance(sim, 1, frame, flash, mark);
+    pipeline.advance(sim, 1, frame, flash, mark, radar);
     EXPECT_EQ(sink.plays, 2) << "and the next one, five seconds on";
+}
+
+// A real firing: a mounted enemy turret has no velocity and shoots the player's factory, which has
+// no gun, so the turret is only ever the SHOOTER here and never a target. The pipeline
+// is what feeds the radar's tail, from the sim's own shots; and feeding it changes nothing in the
+// sim.
+TEST(AudioPipeline, AnEnemyTurretThatFiresIsRememberedByTheRadarAndTheSimIsUntouched) {
+    const protekt::sim::Scenario scenario{
+        3,
+        {{protekt::sim::UnitKind::Factory, protekt::sim::Side::Player, 40, 40},
+         {protekt::sim::UnitKind::Turret, protekt::sim::Side::Enemy, 40, 48}}};
+    protekt::sim::Sim sim = protekt::sim::Sim::create(scenario);
+    protekt::sim::Sim plain = protekt::sim::Sim::create(scenario);
+    protekt::game::HitFlash flash;
+    protekt::game::HitMark mark;
+    protekt::game::RadarActivity radar;
+    AudioPipeline pipeline{nullptr};
+    const protekt::sim::UnitId player = sim.units().front().id;
+    const protekt::sim::UnitId turret = sim.units().back().id;
+    const AudioFrame frame{protekt::game::Listener{}, false, true, true, player};
+    bool fired = false;
+    for (int step = 0; step < 240; ++step) {
+        pipeline.advance(sim, 1, frame, flash, mark, radar);
+        plain.step();
+        for (const protekt::sim::Sim::Shot& shot : sim.shots()) {
+            fired = fired || shot.shooter == turret;
+        }
+    }
+    ASSERT_TRUE(fired) << "the turret shot at the tank";
+    EXPECT_EQ(sim.find(turret)->vx.raw, 0) << "and never moved";
+    EXPECT_EQ(sim.find(turret)->vy.raw, 0);
+    EXPECT_TRUE(radar.recently_active(turret, sim.tick())) << "the radar heard it fire";
+    EXPECT_EQ(sim.state_hash(), plain.state_hash()) << "observing is not in the sim";
 }
 
 } // namespace

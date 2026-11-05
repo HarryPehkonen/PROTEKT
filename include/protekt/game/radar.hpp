@@ -145,26 +145,67 @@ inline constexpr float kRadarLetterInsetPixels = 10.0F;
 /// seconds, you hear a blip as the radar does a sweep. Suddenly you see the red enemy dot on the
 /// radar, but it fades gradually and within a second. This is for enemy assets that are not moving.
 /// If they are moving, they show up at all times." "Radar blips happen every five seconds."
+/// Amended the same day: "Yes, firing counts as moving. If they stop firing, let's say they stay on
+/// the radar for another five seconds, and then become invisible in the radar for as long as they
+/// don't move or fire again." "Let's make them two different numbers."
 ///
-/// A sweep is the sim tick that is a multiple of `kRadarSweepIntervalTicks`. Derived from
-/// `Sim::tick()` alone, so there is no state to keep and a replay sweeps on the same ticks.
+/// THREE numbers, never to be conflated: the SWEEP (how often a stationary unit blips), the FADE
+/// (how long one blip lasts) and the TAIL (how long an active unit stays after it stops).
+///
+/// A sweep is the sim tick that is a multiple of `kRadarSweepIntervalTicks`, derived from
+/// `Sim::tick()` alone, so a replay sweeps on the same ticks.
 inline constexpr int kRadarSweepSeconds = 5;
 inline constexpr sim::Tick kRadarSweepIntervalTicks = kRadarSweepSeconds * sim::kTicksPerSecond;
 /// A swept blip is at full strength on the sweep's tick and gone this many ticks later (1 s), its
 /// strength falling in a straight line between: "fades gradually and within a second".
 inline constexpr sim::Tick kRadarBlipFadeTicks = sim::kTicksPerSecond;
+/// THE TAIL: a unit that was moving or firing stays on the radar this many seconds after the last
+/// tick it did either, then is invisible until it moves or fires again (the sweep still shows it,
+/// as it shows any stationary unit). It is deliberately NOT `kRadarSweepSeconds`, though both are
+/// five today: Harri asked for two numbers so that either can be changed without the other.
+inline constexpr int kRadarActiveTailSeconds = 5;
+inline constexpr sim::Tick kRadarActiveTailTicks = kRadarActiveTailSeconds * sim::kTicksPerSecond;
 
 /// True on the tick the radar sweeps (the sound is made on it, and every stationary hostile blips).
 [[nodiscard]] bool radar_sweeping(sim::Tick tick) noexcept;
 
-/// A unit that is MOVING: it has a velocity this tick. A turret, a building or a halted vehicle has
-/// none.
+/// A unit that is PHYSICALLY moving: it has a velocity this tick. A turret, a building or a halted
+/// vehicle has none. Firing is not in this predicate (the sim has no flag for it); it is
+/// `RadarActivity`'s.
 [[nodiscard]] bool radar_unit_moving(const sim::Unit& unit) noexcept;
 
-/// How strongly the radar shows `hostile` at `tick`, in [0, 1], 0 being "not at all": 1 for a
-/// moving unit, always; for a stationary one 1 on a sweep falling to 0 over `kRadarBlipFadeTicks`
-/// and 0 until the next. Selection and targeting do not enter into it. Range is not asked here.
-[[nodiscard]] float radar_blip_alpha(const sim::Unit& hostile, sim::Tick tick) noexcept;
+/// WHEN EACH UNIT LAST MOVED OR FIRED: the one fact the tail needs and the sim does not keep.
+/// Presentation state, owned by the app like `HitFlash`; the sim never reads it and it is not
+/// hashed. Fed once per sim STEP (`observe`), because a step's shots are gone by the next one.
+/// "Firing" is the sim's own `Sim::shots()`: a unit that launched a shot that step; "moving" is
+/// `radar_unit_moving`. Entries older than the tail are dropped as they are seen, so it stays as
+/// small as the number of recently active units.
+class RadarActivity {
+public:
+    /// Records `tick` for every unit in `units` that is moving and every shooter in `shots`, and
+    /// forgets whoever has been quiet for longer than the tail.
+    void observe(std::span<const sim::Unit> units, std::span<const sim::Sim::Shot> shots,
+                 sim::Tick tick);
+
+    /// Moved or fired at `now` or within the last `kRadarActiveTailTicks` ticks before it.
+    [[nodiscard]] bool recently_active(sim::UnitId unit, sim::Tick now) const noexcept;
+
+private:
+    struct Entry {
+        sim::UnitId unit{};
+        sim::Tick last{};
+    };
+    void touch(sim::UnitId unit, sim::Tick tick);
+    std::vector<Entry> entries_;
+};
+
+/// How strongly the radar shows `hostile` at `tick`, in [0, 1], 0 being "not at all": 1 for a unit
+/// that is moving now, or that `activity` says moved or fired within the tail, always; for any
+/// other 1 on a sweep falling to 0 over `kRadarBlipFadeTicks` and 0 until the next. With no
+/// `activity` only the physical motion counts. Selection and targeting do not enter into it. Range
+/// is not asked here.
+[[nodiscard]] float radar_blip_alpha(const sim::Unit& hostile, sim::Tick tick,
+                                     const RadarActivity* activity = nullptr) noexcept;
 
 /// One hostile the radar shows now, and how strongly.
 struct RadarDetection {
@@ -178,13 +219,15 @@ struct RadarDetection {
 /// same alpha (`radar_detect`). Empty when there is no such viewer.
 [[nodiscard]] std::vector<RadarDetection> radar_detections(std::span<const sim::Unit> units,
                                                            sim::UnitId viewer_unit,
-                                                           int radius_tiles, sim::Tick tick);
+                                                           int radius_tiles, sim::Tick tick,
+                                                           const RadarActivity* activity = nullptr);
 
 /// `radar_marks` as the detection model shows them: every hostile mark that `radar_blip_alpha`
 /// hides at `tick` is dropped and the others carry their alpha. Marks of any other tone are
 /// untouched.
 [[nodiscard]] std::vector<RadarMark> radar_detect(std::vector<RadarMark> marks,
-                                                  std::span<const sim::Unit> units, sim::Tick tick);
+                                                  std::span<const sim::Unit> units, sim::Tick tick,
+                                                  const RadarActivity* activity = nullptr);
 
 /// The marks for one frame, in panel pixels.
 ///

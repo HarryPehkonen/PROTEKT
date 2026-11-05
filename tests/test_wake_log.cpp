@@ -38,9 +38,10 @@ void run_frame(sim::Sim& sim, game::WakeLog& wakes) {
     static const AudioPipeline pipeline{nullptr};
     game::HitFlash flash;
     game::HitMark mark;
+    game::RadarActivity radar;
     const sim::UnitSnapshot before = sim.units();
     const sim::Tick stamp = sim.tick();
-    pipeline.advance(sim, 1, AudioFrame{}, flash, mark);
+    pipeline.advance(sim, 1, AudioFrame{}, flash, mark, radar);
     wakes.after_frame(before, sim, stamp);
 }
 

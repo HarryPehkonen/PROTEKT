@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "protekt/app/audio.hpp"
+#include "protekt/game/radar.hpp"
 #include "protekt/game/scene.hpp"
 #include "protekt/game/sounds.hpp"
 #include "protekt/sim/sim.hpp"
@@ -78,7 +79,8 @@ public:
     explicit AudioPipeline(SampleSink* sink) noexcept : sink_(sink) {}
 
     AdvanceResult advance(sim::Sim& sim, std::uint32_t steps, const AudioFrame& frame,
-                          game::HitFlash& hit_flash, game::HitMark& hit_mark) const;
+                          game::HitFlash& hit_flash, game::HitMark& hit_mark,
+                          game::RadarActivity& radar_activity) const;
 
 private:
     SampleSink* sink_;

@@ -2337,7 +2337,7 @@ void append_nav_glyph(std::vector<SceneVertex>& out, const SceneOptions& options
     return radar_detect(radar_marks(sim.units(), options.viewer_unit, options.camera.yaw,
                                     radar_panel(options.extent),
                                     viewer_radar_radius(sim, options.viewer_unit)),
-                        sim.units(), sim.tick());
+                        sim.units(), sim.tick(), options.radar_activity);
 }
 
 /// The radar, drawn in PANEL PIXELS: every corner goes through `ray_point`, the same pixel-to-world
@@ -4540,7 +4540,7 @@ void append_world_map(std::vector<SceneVertex>& out, const SceneOptions& options
         return;
     }
     const WorldMap map = world_map(sim, options.extent, options.viewer_side, options.viewer_unit,
-                                   options.nav_marks);
+                                   options.nav_marks, options.radar_activity);
     const WorldMapLayout& layout = map.layout;
     const float scale = map_furniture_scale(layout);
     const float marks_at = math::kNearPlane * kHudClearance * corner_ray_length(options.extent);

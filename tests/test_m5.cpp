@@ -92,6 +92,7 @@ struct Rig {
     app::AudioPipeline pipeline{&sink};
     HitFlash flash;
     HitMark mark;
+    RadarActivity radar;
     LandingMarks marks;
     int shots{0};
     int landings{0};
@@ -152,7 +153,8 @@ void frame(Rig& rig, bool pull) {
     }
     const bool pulled = rig.player.take_shot_voice();
     const app::AudioFrame audio{Listener{}, pulled, true, true, rig.tank};
-    const app::AdvanceResult result = rig.pipeline.advance(rig.sim, 1, audio, rig.flash, rig.mark);
+    const app::AdvanceResult result
+        = rig.pipeline.advance(rig.sim, 1, audio, rig.flash, rig.mark, rig.radar);
     for (const sim::Sim::Shot& shot : rig.sim.shots()) {
         if (shot.shooter == rig.tank) {
             ++rig.shots;

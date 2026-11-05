@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "protekt/game/nav_marks.hpp"
+#include "protekt/game/radar.hpp"
 #include "protekt/game/scene.hpp"
 #include "protekt/game/scene_data.hpp"
 #include "protekt/sim/sim.hpp"
@@ -214,8 +215,10 @@ struct WorldMap {
 /// Everything the map draws apart from the ground, for the side `own` and the unit `driven`.
 /// `marks` may be null. Only living units of `own` are included as assets; the enemy appears only
 /// as the radar's `blips` (empty when `driven` is not a unit of the sim); marks only if placed;
-/// every pool.
+/// every pool. `activity` (may be null) is what the radar knows of who moved or fired lately; the
+/// blips are the radar's detections made with it.
 [[nodiscard]] WorldMap world_map(const sim::Sim& sim, Extent extent, sim::Side own,
-                                 sim::UnitId driven, const NavMarks* marks);
+                                 sim::UnitId driven, const NavMarks* marks,
+                                 const RadarActivity* activity = nullptr);
 
 } // namespace protekt::game

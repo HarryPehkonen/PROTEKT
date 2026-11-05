@@ -1072,4 +1072,146 @@ TEST(RadarDetection, TheAlphaIsAFunctionOfTheTickAndTheUnitAlone) {
     EXPECT_EQ(radar_blip_alpha(still, kRadarBlipFadeTicks), 0.0F);
 }
 
+// ------------------------------------------------ firing counts as moving, and the five-second
+// tail
+//
+// Harri, 2026-11-04: "Yes, firing counts as moving. If they stop firing, let's say they stay on the
+// radar for another five seconds, and then become invisible in the radar for as long as they don't
+// move or fire again." The tests below that carry a LITERAL tick are the anchors for the tail's
+// length: they say 31 and 181 and 182 in plain numbers (30 ticks a second, five seconds, so 150
+// ticks after the last active tick, 31 + 150 = 181), and would go red if the constant moved. Tick
+// 31 is chosen so that 181 and 182 are both past the sweep at 150 and its one-second fade, which
+// would otherwise show the unit by a different rule and prove nothing about the tail.
+
+using protekt::game::RadarActivity;
+using Shot = protekt::sim::Sim::Shot;
+
+/// Whether the hostile is on the panel at `tick` as `activity` knows it, and with what alpha.
+float hostile_alpha_with(const std::vector<Unit>& units, protekt::sim::Tick tick,
+                         const RadarActivity& activity) {
+    const std::vector<RadarMark> shown
+        = radar_detect(radar_marks(units, UnitId{1}, 0.0F, kPanel), units, tick, &activity);
+    for (const RadarMark& mark : shown) {
+        if (mark.tone == RadarTone::Hostile) {
+            return mark.alpha;
+        }
+    }
+    return -1.0F;
+}
+
+/// One sim step at `tick` in which the hostile (unit 2) fired at the viewer and moved not at all.
+void fire_at(RadarActivity& activity, const std::vector<Unit>& units, protekt::sim::Tick tick) {
+    const std::array<Shot, 1> shots{Shot{UnitId{2}, UnitId{1}}};
+    activity.observe(units, shots, tick);
+}
+
+TEST(RadarTail, AnEnemyThatFiresButDoesNotMoveIsOnThePanelBetweenSweeps) {
+    const std::vector<Unit> units = with_viewer({at_bearing(2, 20.0F, 30.0F, Side::Enemy)});
+    ASSERT_EQ(units.at(1).vx.raw, 0);
+    ASSERT_EQ(units.at(1).vy.raw, 0);
+    RadarActivity activity;
+    // Time runs forward: a shot every 15 ticks from tick 31 to tick 181, never moving, and the
+    // radar asked on every tick. Tick 100 is between sweeps.
+    for (protekt::sim::Tick tick = 31; tick <= 181; ++tick) {
+        if ((tick - 31) % 15 == 0) {
+            fire_at(activity, units, tick);
+        }
+        EXPECT_EQ(hostile_alpha_with(units, tick, activity), 1.0F) << tick;
+    }
+    // Without the activity (a frame that never heard of it) the same unit is a stationary one.
+    EXPECT_EQ(hostile_alpha_at(units, 100), -1.0F);
+}
+
+TEST(RadarTail, AMovingEnemyThatStopsStaysForFiveSecondsThenGoesAndStaysGone) {
+    std::vector<Unit> units = with_viewer({at_bearing(2, 20.0F, 30.0F, Side::Enemy)});
+    RadarActivity activity;
+    units.at(1).vx.raw = 1000; // moving on tick 31 and no longer after
+    activity.observe(units, {}, 31);
+    units.at(1).vx.raw = 0;
+    EXPECT_EQ(hostile_alpha_with(units, 31, activity), 1.0F);
+    EXPECT_EQ(hostile_alpha_with(units, 100, activity), 1.0F) << "in the tail";
+    EXPECT_EQ(hostile_alpha_with(units, 181, activity), 1.0F)
+        << "31 + 150: the last tick of the five seconds";
+    EXPECT_EQ(hostile_alpha_with(units, 182, activity), -1.0F) << "one tick past it, it is gone";
+    // And it stays gone while it neither moves nor fires: observing quiet steps changes nothing.
+    for (protekt::sim::Tick tick = 182; tick < 299; ++tick) {
+        activity.observe(units, {}, tick);
+        EXPECT_EQ(hostile_alpha_with(units, tick, activity), -1.0F) << tick;
+    }
+}
+
+TEST(RadarTail, AnEnemyThatStopsFiringStaysForFiveSecondsThenGoes) {
+    const std::vector<Unit> units = with_viewer({at_bearing(2, 20.0F, 30.0F, Side::Enemy)});
+    RadarActivity activity;
+    fire_at(activity, units, 31);
+    EXPECT_EQ(hostile_alpha_with(units, 181, activity), 1.0F);
+    EXPECT_EQ(hostile_alpha_with(units, 182, activity), -1.0F);
+    // The tail runs from the LAST shot, not the first.
+    fire_at(activity, units, 100);
+    EXPECT_EQ(hostile_alpha_with(units, 182, activity), 1.0F);
+    EXPECT_EQ(hostile_alpha_with(units, 250, activity), 1.0F);
+    EXPECT_EQ(hostile_alpha_with(units, 251, activity), -1.0F) << "100 + 150 = 250";
+}
+
+TEST(RadarTail, AnEnemyThatMovesOrFiresAgainComesBack) {
+    std::vector<Unit> units = with_viewer({at_bearing(2, 20.0F, 30.0F, Side::Enemy)});
+    RadarActivity activity;
+    fire_at(activity, units, 31);
+    ASSERT_EQ(hostile_alpha_with(units, 200, activity), -1.0F) << "gone by now";
+    units.at(1).vy.raw = -1;
+    activity.observe(units, {}, 200);
+    units.at(1).vy.raw = 0;
+    EXPECT_EQ(hostile_alpha_with(units, 200, activity), 1.0F) << "moving again";
+    EXPECT_EQ(hostile_alpha_with(units, 350, activity), 1.0F);
+    EXPECT_EQ(hostile_alpha_with(units, 351, activity), -1.0F);
+    fire_at(activity, units, 400);
+    EXPECT_EQ(hostile_alpha_with(units, 400, activity), 1.0F) << "firing again";
+}
+
+TEST(RadarTail, TheTailIsItsOwnConstantAndNotTheSweepsOrTheFades) {
+    // Today all of 5 s and 5 s; the point is that they are three names. The tail is pinned in
+    // plain numbers here, and its behaviour in plain ticks in the tests above.
+    EXPECT_EQ(protekt::game::kRadarActiveTailSeconds, 5);
+    EXPECT_EQ(protekt::game::kRadarActiveTailTicks, 150U);
+    EXPECT_EQ(kRadarSweepIntervalTicks, 150U);
+    EXPECT_EQ(kRadarBlipFadeTicks, 30U);
+}
+
+TEST(RadarTail, OnlyTheShootersAndMoversAreRememberedAndOnlyForTheTail) {
+    std::vector<Unit> units = with_viewer(
+        {at_bearing(2, 20.0F, 30.0F, Side::Enemy), at_bearing(3, 25.0F, 90.0F, Side::Enemy)});
+    RadarActivity activity;
+    fire_at(activity, units, 31); // unit 2 fires; unit 3 is quiet
+    EXPECT_TRUE(activity.recently_active(UnitId{2}, 31));
+    EXPECT_FALSE(activity.recently_active(UnitId{3}, 31));
+    EXPECT_FALSE(activity.recently_active(UnitId{2}, 30)) << "not before it happened";
+    EXPECT_TRUE(activity.recently_active(UnitId{2}, 181));
+    EXPECT_FALSE(activity.recently_active(UnitId{2}, 182));
+    units.at(2).alive = false;
+    units.at(2).vx.raw = 5;
+    activity.observe(units, {}, 40);
+    EXPECT_FALSE(activity.recently_active(UnitId{3}, 40)) << "a dead unit does not move";
+    // Old entries are dropped as they are seen.
+    activity.observe(units, {}, 400);
+    EXPECT_FALSE(activity.recently_active(UnitId{2}, 31));
+}
+
+TEST(RadarTail, TheDetectionsAndTheMarksAgreeAboutAFiringEnemy) {
+    const std::vector<Unit> units = with_viewer({at_bearing(2, 20.0F, 30.0F, Side::Enemy)});
+    RadarActivity activity;
+    fire_at(activity, units, 31);
+    const std::vector<RadarDetection> seen
+        = radar_detections(units, UnitId{1}, kRadarRadiusTiles, 100, &activity);
+    ASSERT_EQ(seen.size(), 1U);
+    EXPECT_EQ(seen.front().unit, UnitId{2});
+    EXPECT_EQ(seen.front().alpha, 1.0F);
+    EXPECT_TRUE(radar_detections(units, UnitId{1}, kRadarRadiusTiles, 200, &activity).empty());
+    // Your own side is not filtered by it: hostile-only filtering is as it was.
+    const std::vector<Unit> mixed = with_viewer({at_bearing(2, 20.0F, 30.0F, Side::Player)});
+    const std::vector<RadarMark> shown
+        = radar_detect(radar_marks(mixed, UnitId{1}, 0.0F, kPanel), mixed, 200, &activity);
+    ASSERT_EQ(shown.size(), 2U);
+    EXPECT_EQ(shown.at(1).tone, RadarTone::Yours);
+}
+
 } // namespace

@@ -140,7 +140,7 @@ MapColour map_terrain_colour(world::Terrain terrain) {
 }
 
 WorldMap world_map(const sim::Sim& sim, Extent extent, sim::Side own, sim::UnitId driven,
-                   const NavMarks* marks) {
+                   const NavMarks* marks, const RadarActivity* activity) {
     WorldMap map;
     map.layout = world_map_layout(extent);
     const float scale = static_cast<float>(extent.height) / kReferenceHeight;
@@ -154,8 +154,8 @@ WorldMap world_map(const sim::Sim& sim, Extent extent, sim::Side own, sim::UnitI
             MapAsset{unit.id, unit.kind, at.x, at.y, blip_half(unit, scale), unit.id == driven});
     }
     // THE ENEMY, as the radar sees it and no more: the driven unit's detections, at its reach.
-    const std::vector<RadarDetection> seen
-        = radar_detections(sim.units(), driven, viewer_radar_radius(sim, driven), sim.tick());
+    const std::vector<RadarDetection> seen = radar_detections(
+        sim.units(), driven, viewer_radar_radius(sim, driven), sim.tick(), activity);
     map.blips.reserve(seen.size());
     for (const RadarDetection& detection : seen) {
         const sim::Unit* enemy = sim.find(detection.unit);

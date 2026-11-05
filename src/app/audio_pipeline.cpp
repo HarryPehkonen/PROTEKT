@@ -28,7 +28,8 @@ std::vector<game::Health> health_of(const sim::UnitSnapshot& snapshot) {
 } // namespace
 
 AdvanceResult AudioPipeline::advance(sim::Sim& sim, std::uint32_t steps, const AudioFrame& frame,
-                                     game::HitFlash& hit_flash, game::HitMark& hit_mark) const {
+                                     game::HitFlash& hit_flash, game::HitMark& hit_mark,
+                                     game::RadarActivity& radar_activity) const {
     AdvanceResult result;
     std::vector<audio::Voice> voices;
     // The trigger is judged on the first step: that is the one that applies the order it queued.
@@ -43,6 +44,9 @@ AdvanceResult AudioPipeline::advance(sim::Sim& sim, std::uint32_t steps, const A
             tick_number = sim.tick();
         }
         sim.step();
+        // Presentation only: who moved or fired this step, for the radar's tail. Read from the sim,
+        // never written to it.
+        radar_activity.observe(sim.units(), sim.shots(), sim.tick());
         // The sim's own word on it: a shot of the driven unit's, aimed at nothing, is the trigger.
         // No such shot means the sim declined it, and nothing is heard.
         if (!judged) {

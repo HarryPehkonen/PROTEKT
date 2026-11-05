@@ -471,7 +471,7 @@ public:
             = pipeline_.advance(sim_, steps,
                                 audio_frame_for(sim_, session_, scene_options.camera,
                                                 trigger_pulled, player_alive_before_),
-                                hit_flash_, hit_mark_);
+                                hit_flash_, hit_mark_, radar_activity_);
         // The sim's own answer to the trigger: it launched nothing, so say why.
         if (result.trigger_refused) {
             session_.trigger_refused(sim_);
@@ -522,6 +522,7 @@ public:
         scene_options.reloading = game::weapon_reloading(sim_, driven);
         scene_options.landing_marks = &landing_marks_;
         scene_options.nav_marks = &nav_marks_;
+        scene_options.radar_activity = &radar_activity_;
         scene_options.row = &row_;
         if (session_.deploy_armed()) {
             // The footprint the armed deploy would build, where the reticle meets the ground: the
@@ -580,6 +581,7 @@ private:
     game::WakeLog wakes_;
     game::HitFlash hit_flash_;
     game::HitMark hit_mark_;
+    game::RadarActivity radar_activity_; ///< who moved or fired lately: the radar's tail
     game::LandingMarks landing_marks_;
     game::NavMarks nav_marks_;
     game::NavMenu nav_menu_; ///< `top menu -> n` and `top menu -> ~`: app-side, like the marks
