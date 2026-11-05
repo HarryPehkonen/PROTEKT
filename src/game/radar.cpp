@@ -9,10 +9,11 @@ namespace protekt::game {
 
 namespace {
 
-/// An asset's blip, the green and red dots (half its side, of the panel's width): 0.014, so 4.6 px
-/// half and 9.2 px across at the 330 px panel of a 1280x720 frame. It was 0.022 -- 7.3 px half,
-/// 14.5 px across -- until Harri asked for them smaller (2026-11-02).
-constexpr float kDotHalfFraction = 0.014F;
+/// An asset's blip, the green and red dots (half its side, of the panel's width): 0.007, so 2.3 px
+/// half and 4.6 px across at the 330 px panel of a 1280x720 frame. It was 0.022 until Harri asked
+/// for them smaller (2026-11-02), then 0.014 (4.6 px half), then half of that again, "half the
+/// width and height of the current size" (round 10, 2026-11-05).
+constexpr float kDotHalfFraction = 0.007F;
 constexpr float kBaseHalfFraction = 0.05F;
 /// A piece of litter: a little under a unit's dot (it was half of it), so scrap still reads as
 /// specks among the blips.

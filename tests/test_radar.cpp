@@ -546,7 +546,29 @@ TEST(RadarMarks, AnAssetBlipIsAtMostTenPixelsAcrossOnTheReferenceFrame) {
     const std::vector<RadarMark> litter
         = radar_litter(std::span{&piece, 1}, units, UnitId{1}, 0.0F, kPanel);
     ASSERT_EQ(litter.size(), 1U);
-    EXPECT_GT(marks.at(1).half, litter.front().half) << "a dot is still more than a speck";
+    // (A dot was "still more than a speck" until round 10 halved the dots, 2026-11-05: the litter
+    // was NOT shrunk with them, Harri having asked for the dots alone, so a piece is now the bigger
+    // of the two. `TheLitterIsLeftAtItsOldSizeWhenTheDotsHalve` pins that, and it is reported.)
+}
+
+TEST(RadarMarks, TheUnitDotsAreHalfTheWidthAndHeightTheyWere) {
+    // Harri, round 10 (2026-11-05): "Maybe half the width and height of the current size." They
+    // were 0.014 of the panel's width a side-half (4.6 px at the 330 px panel). Literals, not the
+    // constant, so a test that read it back could not fail when it changed; the base's own mark
+    // and the viewer's triangle are not dots and keep their size.
+    const std::vector<Unit> units = with_viewer({
+        at_bearing(2, 20.0F, 30.0F, Side::Enemy),
+        at_bearing(3, 25.0F, 200.0F, Side::Player),
+        at_bearing(4, 6.0F, 0.0F, Side::Player, UnitKind::Factory),
+    });
+    const std::vector<RadarMark> marks = radar_marks(units, UnitId{1}, 0.0F, kPanel);
+    ASSERT_EQ(marks.size(), 4U);
+    for (std::size_t i = 1; i < 3; ++i) {
+        EXPECT_NEAR(marks.at(i).half, kPanel.width * 0.007F, 1.0e-4F) << "mark " << i;
+        EXPECT_NEAR(2.0F * marks.at(i).half, 4.62F, 0.01F) << "mark " << i << " side to side, px";
+    }
+    EXPECT_NEAR(marks.at(3).half, kPanel.width * 0.05F, 1.0e-4F) << "the base is not a dot";
+    EXPECT_NEAR(marks.at(0).half, kPanel.width * 0.03F, 1.0e-4F) << "nor is you";
 }
 
 /// R3b2: a mortar bike and a rocket tank are units like any other -- the same square dot a tank
@@ -908,7 +930,19 @@ TEST(RadarLitter, APieceInReachIsASmallWhiteMarkWhereAUnitAtThatSpotWouldBe) {
     EXPECT_EQ(litter.front().shape, RadarShape::Square);
     EXPECT_NEAR(litter.front().px, unit_marks.at(1).px, kTolerance);
     EXPECT_NEAR(litter.front().py, unit_marks.at(1).py, kTolerance);
-    EXPECT_LT(litter.front().half, unit_marks.at(1).half) << "small: smaller than a unit's blip";
+    EXPECT_LT(litter.front().half, unit_marks.at(0).half) << "small: smaller than you are";
+}
+
+TEST(RadarLitter, TheLitterIsLeftAtItsOldSizeWhenTheDotsHalve) {
+    // Round 10 asked for the red and green DOTS at half size and nothing else, so a piece of scrap
+    // keeps 0.011 of the panel's width a side-half (3.6 px at 330) -- which makes it larger than a
+    // dot now. Pinned as a literal so the next change to either is a decision and not a drift.
+    const std::vector<Unit> units = with_viewer({at_bearing(2, 20.0F, 30.0F, Side::Enemy)});
+    const protekt::sim::Scrap piece{units.at(1).x, units.at(1).y};
+    const std::vector<RadarMark> litter
+        = radar_litter(std::span{&piece, 1}, units, UnitId{1}, 0.0F, kPanel);
+    ASSERT_EQ(litter.size(), 1U);
+    EXPECT_NEAR(litter.front().half, kPanel.width * 0.011F, 1.0e-4F);
 }
 
 TEST(RadarLitter, APiecePastTheReachIsNotOnTheRadarAndNoViewerMeansNone) {

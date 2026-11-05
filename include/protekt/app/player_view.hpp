@@ -128,6 +128,14 @@ inline constexpr float kEyeGroundClearanceMetres = 0.5F;
 deploy_line_target(const sim::Sim& sim, const game::Session& session,
                    const game::SceneOptions& options);
 
+/// The ground tile the white Go Here line points at this frame, or nothing: the tile `SPACE Go
+/// Here` would send the selection to. Present exactly when the menu's state row reads `SPACE Go
+/// Here`
+/// -- the same offer, withheld by the same armed commands, attack offer and deploy offer.
+[[nodiscard]] std::optional<game::DeployLineTarget>
+go_here_line_target(const sim::Sim& sim, const game::Session& session,
+                    const game::SceneOptions& options);
+
 /// The menu rows for this frame. The one command that arms is the deploy (DEPLOY): while it is
 /// armed the state row reads `SPACE DEPLOY` and, with the reticle on the ground, the distance to
 /// it. Empty when `attack_armed`: the attack list and the menu share one slot under the notice, and

@@ -3288,6 +3288,11 @@ constexpr float kStripTickGapPixels = 3.0F;
 /// How many ticks a key has room for: Harri's own count, "up to ten" (BZ2). An eleventh vehicle is
 /// not drawn: the ticks never shrink or wrap to make room.
 constexpr std::size_t kStripTicks = 10;
+/// How far behind the glyphs and ticks (the marks layer) the strip's under-layers sit: the ticks'
+/// outlines and the build gauge's track a hair in front of a plate's face, and the gauge's fill a
+/// step nearer than that, so ink > fill > track > plate face at any range.
+constexpr float kStripUnderInkRatio = kHudFaceRatio * 0.99F;
+constexpr float kStripGaugeFillRatio = kHudFaceRatio * 0.98F;
 /// The corner radius of a HUD panel, at 720p. Panels are rounded like BZ2's rather than square, and
 /// the frame ring clamps the radius to at least its own width so the face inside it can never be
 /// handed a negative radius.
@@ -3835,6 +3840,16 @@ void append_hud_panels(std::vector<SceneVertex>& out, const SceneOptions& option
             const std::size_t filled = static_cast<std::size_t>(
                 std::lround(batch->fill * static_cast<float>(kIconCells)));
             const std::size_t first_filled = kIconCells - std::min(filled, kIconCells);
+            // THE GAUGE, on the plate and not on the glyph (the icon's square, which a short
+            // glyph does not fill): the track over the whole square, the fill over it up to the
+            // same line, both under the glyph.
+            rect(marks_at * kStripUnderInkRatio, icon.left, icon.top, icon.left + icon.size,
+                 icon_bottom, kStripBuildTrack);
+            if (filled > 0) {
+                rect(marks_at * kStripGaugeFillRatio, icon.left,
+                     icon_bottom - (static_cast<float>(std::min(filled, kIconCells)) * cell),
+                     icon.left + icon.size, icon_bottom, kStripBuildFill);
+            }
             draw_runs(
                 [&lit, first_filled](std::size_t row, std::size_t col) {
                     return row >= first_filled && lit(row, col);
@@ -3870,9 +3885,9 @@ void append_hud_panels(std::vector<SceneVertex>& out, const SceneOptions& option
         // `kStripTickWidthPixels` by `kStripTickHeightPixels` whatever its vehicle's health --
         // COLOUR says how hurt a vehicle is, never size (Harri, BZ2: "it only changes colour, never
         // the size"). A dead vehicle is not in `fractions` at all, so the ones after it close up
-        // with no blank. A dark track behind them is what lets the ramp's near-black read against
-        // the world. Ten at most. Nothing is ever drawn over them: the notice, the attack list and
-        // the command menu all start below the strip's bottom edge (`kStripBottomPixels`).
+        // with no blank. Each is ringed in dark grey, which is what lets the ramp's near-black read
+        // against the world. Ten at most. Nothing is ever drawn over them: the notice, the attack
+        // list and the command menu all start below the strip's bottom edge (`kStripBottomPixels`).
         const std::vector<BarSegment> segments = bar_segments(fractions);
         const float row_span = ((static_cast<float>(kStripTicks) * kStripTickWidthPixels)
                                 + (static_cast<float>(kStripTicks - 1) * kStripTickGapPixels))
@@ -3888,11 +3903,14 @@ void append_hud_panels(std::vector<SceneVertex>& out, const SceneOptions& option
         if (shown == 0) {
             continue;
         }
-        rect(marks_at * kHudFaceRatio * 0.999F, left, tick_top,
-             left + (static_cast<float>(shown - 1) * tick_pitch) + tick_w, tick_bottom,
-             {0.25F, 0.25F, 0.25F});
+        const float outline = kStripTickOutlinePixels * px;
         for (std::size_t i = 0; i < shown; ++i) {
             const float tick_left = left + (static_cast<float>(i) * tick_pitch);
+            // The tick's outline: its box grown a pixel each way, one quad BEHIND the tick, in
+            // dark grey. What lets the ramp's near-black read against the world, and the one
+            // thing between neighbours (it replaces the dark track that ran behind the row).
+            rect(marks_at * kStripUnderInkRatio, tick_left - outline, tick_top - outline,
+                 tick_left + tick_w + outline, tick_bottom + outline, kStripTickOutline);
             if (i < segments.size()) {
                 rect(marks_at, tick_left, tick_top, tick_left + tick_w, tick_bottom,
                      segments.at(i).rgb);
@@ -4195,19 +4213,26 @@ void append_hud_panels(std::vector<SceneVertex>& out, const SceneOptions& option
                              kMenuLineCells * cell, kAttackLineInk);
             }
         }
-        // THE DEPLOY LINE: only while the state row really reads `SPACE Deploy` and the app named
-        // a pool, so it appears and disappears with the prompt. From the same place the attack line
-        // leaves, to the middle of the pool's tile on the ground, one pixel wide and white.
-        if (options.deploy_pool.has_value() && state.key == kRowKeySpace
-            && state.verb == kVerbDeploy) {
-            const float tile_x = static_cast<float>(options.deploy_pool->tile_x) + 0.5F;
-            const float tile_y = static_cast<float>(options.deploy_pool->tile_y) + 0.5F;
-            line_between(attack_line_origin(layout),
-                         project(options.camera, options.extent, tile_x * kMetresPerTile,
-                                 ground_metres(options.seed, tile_x, tile_y),
-                                 tile_y * kMetresPerTile),
-                         kDeployLinePixels * px, kDeployLineInk);
-        }
+        // THE WHITE GROUND LINES: only while the state row really reads the verb that owns the
+        // line and the app named a tile, so each appears and disappears with its prompt. From the
+        // same place the attack line leaves, to the middle of the tile on the ground, one pixel
+        // wide and white. Two consumers of the one line: `SPACE Deploy` to the pool it would go
+        // to, and `SPACE Go Here` to the spot it would send the selection.
+        const auto ground_line
+            = [&](const std::optional<DeployLineTarget>& target, std::string_view verb) {
+                  if (!target.has_value() || state.key != kRowKeySpace || state.verb != verb) {
+                      return;
+                  }
+                  const float tile_x = static_cast<float>(target->tile_x) + 0.5F;
+                  const float tile_y = static_cast<float>(target->tile_y) + 0.5F;
+                  line_between(attack_line_origin(layout),
+                               project(options.camera, options.extent, tile_x * kMetresPerTile,
+                                       ground_metres(options.seed, tile_x, tile_y),
+                                       tile_y * kMetresPerTile),
+                               kDeployLinePixels * px, kDeployLineInk);
+              };
+        ground_line(options.deploy_pool, kVerbDeploy);
+        ground_line(options.go_here_spot, kVerbGoHere);
     }
 }
 

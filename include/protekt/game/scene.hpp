@@ -1083,6 +1083,12 @@ struct SceneOptions {
     /// white line from that row to the pool's centre. ABSENT (the default) draws none of it, so a
     /// frame that never heard of the field is byte-identical.
     std::optional<DeployLineTarget> deploy_pool{};
+    /// THE GO HERE LINE (round 10, 2026-11-05: "a white line from SPACE Go Here to the spot on the
+    /// ground"): the tile `SPACE Go Here` would send the selection to, filled by the app each frame
+    /// from the same offer that puts the verb on the menu. The same white line as the deploy's
+    /// (`kDeployLineInk`), drawn only while the menu's state row reads `SPACE Go Here`. ABSENT (the
+    /// default) draws none of it, so a frame that never heard of the field is byte-identical.
+    std::optional<DeployLineTarget> go_here_spot{};
     /// THE ASSIST (`T`, see game/assist.hpp): the hostile asset the player has latched. While it
     /// names a living, available unit the scene draws a thin red line from it to a small red dot
     /// where the barrel must point for `weapon` to hit it if it holds its course, and gives it the
@@ -1210,6 +1216,23 @@ inline constexpr std::array<float, 3> kStripIconInk{0.80F, 0.80F, 0.80F};
 /// as the unit on the line is built, one cell row at a time (`BatchReading::fill`). Dim enough to
 /// read as unfilled, light enough to stand off the outline (`kStripIconOutline`).
 inline constexpr std::array<float, 3> kStripIconGhost{0.38F, 0.40F, 0.44F};
+
+/// THE TICK OUTLINE (Harri, round 10, 2026-11-05: "a thin dark grey outline" in place of "the black
+/// gaps between them"): every tick of a key is ringed in this dark grey, `kStripTickOutlinePixels`
+/// wide (at 720) just OUTSIDE its box -- one quad behind the tick, so a blank tick's hollow middle
+/// shows it too. Neighbours stay apart because the gap between ticks is 3 px and two outlines take
+/// one each. It replaces the one dark track that ran behind the whole row.
+inline constexpr std::array<float, 3> kStripTickOutline{0.30F, 0.30F, 0.30F};
+inline constexpr float kStripTickOutlinePixels = 1.0F;
+
+/// THE BUILD GAUGE (Harri, round 10: "the visual effect should be visible in areas that don't have
+/// any part of the icon"): while a key holds a batch still being built, its icon's whole reserved
+/// square is a gauge on the plate -- `kStripBuildTrack` where the build has yet to reach, and
+/// `kStripBuildFill` from the bottom up to the share built (`BatchReading::fill`, one cell row at
+/// a time), the glyph drawn over it. Both go with the batch: a key with nothing left to build
+/// draws neither.
+inline constexpr std::array<float, 3> kStripBuildFill{0.18F, 0.46F, 0.66F};
+inline constexpr std::array<float, 3> kStripBuildTrack{0.10F, 0.12F, 0.15F};
 
 /// A tick that stands for a unit still to be built: BLANK, a hollow tick -- the tick's own box
 /// drawn as a frame `kStripBlankTickEdgePixels` wide (at 720) in this pale grey, the dark track

@@ -688,6 +688,7 @@ struct Px {
     float x{};
     float y{};
     std::array<float, 3> colour{};
+    float depth{}; ///< along the ray: nearer is smaller, as the renderer's depth test reads it
 };
 
 constexpr float kMarginPx = 6.0F;
@@ -740,18 +741,25 @@ constexpr float kTickPitchPx = 7.0F; ///< 4 wide and 3 apart
         const SceneVertex& v = with.vertices.at(i);
         const Projected p
             = project(options.camera, options.extent, v.position[0], v.position[1], v.position[2]);
-        out.push_back(Px{p.x, p.y, v.colour});
+        out.push_back(Px{p.x, p.y, v.colour, p.depth});
     }
     return out;
 }
 
-/// The slot a pixel belongs to, or -1 for the gaps between them (nothing is ever drawn there).
+/// How far past a key's own edges a pixel still belongs to it: the first tick's outline is one
+/// pixel (`kStripTickOutlinePixels`) outside its box, which stands on the key's left edge, plus
+/// half a pixel of slack for the projection. The keys are 6 px apart, so nothing is ambiguous.
+constexpr float kSlotReachPx = 1.5F;
+
+/// The slot a pixel belongs to, or -1 for the gaps between them (nothing but an outline's pixel is
+/// ever drawn there).
 [[nodiscard]] int slot_at(float x) {
-    const int index = static_cast<int>(std::floor((x - kMarginPx + 0.5F) / (kSlotPx + kGapPx)));
+    const int index
+        = static_cast<int>(std::floor((x - kMarginPx + kSlotReachPx) / (kSlotPx + kGapPx)));
     if (index < 0 || index >= static_cast<int>(kRowSlots)) {
         return -1;
     }
-    return x <= slot_left(static_cast<std::size_t>(index)) + kSlotPx + 0.5F ? index : -1;
+    return x <= slot_left(static_cast<std::size_t>(index)) + kSlotPx + kSlotReachPx ? index : -1;
 }
 
 [[nodiscard]] std::vector<int> drawn_slots(const std::vector<Px>& pixels) {
@@ -830,8 +838,7 @@ TEST(RowDrawing, TheFactoryIsDrawnOnKeyTwoAndTheNavKeyOnlyWithAMark) {
 /// plate's black face. The ticks' colours are a continuous ramp, so they are found by what they
 /// are not.
 [[nodiscard]] bool is_fill(const Px& p) {
-    return p.colour != std::array<float, 3>{0.25F, 0.25F, 0.25F}
-           && p.colour != std::array<float, 3>{0.95F, 0.95F, 0.95F}
+    return p.colour != kStripTickOutline && p.colour != std::array<float, 3>{0.95F, 0.95F, 0.95F}
            && p.colour != std::array<float, 3>{0.0F, 0.0F, 0.0F};
 }
 
@@ -1590,7 +1597,10 @@ TEST(StripLayout, TheWholeStripAndTheRowsUnderItStayClearOfTheRadarAndTheLedger)
         << "room for the strip, the notice and the tallest menu above the radar's top edge";
     const std::vector<Px> pixels = row_pixels(rig.sim, rig.options);
     for (const Px& p : pixels) {
-        EXPECT_LE(p.y, kStripBottomPixels * scale + kEdgeTolerance)
+        // The ticks' outline hangs ONE pixel past the ticks' own bottom (round 10), into the 6 px
+        // margin the notice's plate stays clear of; nothing else does.
+        const float reach = p.colour == kStripTickOutline ? 1.0F * scale : 0.0F;
+        EXPECT_LE(p.y, (kStripBottomPixels * scale) + reach + kEdgeTolerance)
             << "the row is above its bottom";
     }
 }
@@ -2312,6 +2322,219 @@ TEST(BatchPlateDrawing, AReservedKeyIsStillJustThreeThingsAndTheRowDoesNotCloseU
     const std::vector<Px> pixels = row_pixels(rig.sim, rig.options);
     EXPECT_EQ(drawn_slots(pixels), (std::vector<int>{2, 4, 5, 6, 7}))
         << "the factory's 2, F1..F3 and the batch's F4; the empty keys are not drawn";
+}
+
+// ---- round 10: the tick outline and the build gauge (Harri, 2026-11-05)
+
+/// The quads of one colour in a slot, between two heights, as screen boxes with their depth. Every
+/// quad is six vertices in emission order, so the matching vertices chunk into them.
+struct QuadBox {
+    float left{};
+    float top{};
+    float right{};
+    float bottom{};
+    float depth{};
+};
+
+[[nodiscard]] std::vector<QuadBox> quads_of(const std::vector<Px>& pixels, int slot,
+                                            const std::array<float, 3>& colour, float from_y,
+                                            float to_y) {
+    std::vector<Px> mine;
+    std::copy_if(pixels.begin(), pixels.end(), std::back_inserter(mine), [&](const Px& p) {
+        return slot_at(p.x) == slot && p.colour == colour && p.y >= from_y && p.y <= to_y;
+    });
+    std::vector<QuadBox> out;
+    if (mine.size() % 6 != 0) {
+        ADD_FAILURE() << "vertices of one colour are not whole quads: " << mine.size();
+        return out;
+    }
+    for (std::size_t i = 0; i < mine.size(); i += 6) {
+        QuadBox box{1.0e9F, 1.0e9F, -1.0e9F, -1.0e9F, mine.at(i).depth};
+        for (std::size_t j = i; j < i + 6; ++j) {
+            box.left = std::min(box.left, mine.at(j).x);
+            box.right = std::max(box.right, mine.at(j).x);
+            box.top = std::min(box.top, mine.at(j).y);
+            box.bottom = std::max(box.bottom, mine.at(j).y);
+        }
+        out.push_back(box);
+    }
+    return out;
+}
+
+constexpr float kAnyY = 1.0e9F;
+
+TEST(TickOutline, EveryTickIsRingedInDarkGreyOnePixelOutsideItsBoxAndBehindIt) {
+    // Two units built and three blanks to come: five ticks of both kinds.
+    BatchRig rig = make_batch_rig(90);
+    queue_batch(rig, 5);
+    const int slot = static_cast<int>(reserved_slot(rig.row));
+    ASSERT_TRUE(tick_until(rig, [&] { return scavengers_made(rig) == 2; })) << "never built";
+    const std::vector<Px> pixels = row_pixels(rig.sim, rig.options);
+    const std::vector<QuadBox> rings
+        = quads_of(pixels, slot, kStripTickOutline, kTickTopPx - 2.0F, kAnyY);
+    ASSERT_EQ(rings.size(), 5U) << "one outline a tick, health and blank alike";
+    for (std::size_t i = 0; i < rings.size(); ++i) {
+        // Literals: 1 px at 720 outside a 4 x 14 box that starts on the key's left edge, 7 px
+        // apart.
+        const float left
+            = slot_left(static_cast<std::size_t>(slot)) + (7.0F * static_cast<float>(i));
+        EXPECT_NEAR(rings.at(i).left, left - 1.0F, kEdgeTolerance) << "tick " << i;
+        EXPECT_NEAR(rings.at(i).right, left + 4.0F + 1.0F, kEdgeTolerance) << "tick " << i;
+        EXPECT_NEAR(rings.at(i).top, 114.0F - 1.0F, kEdgeTolerance) << "tick " << i;
+        EXPECT_NEAR(rings.at(i).bottom, 128.0F + 1.0F, kEdgeTolerance) << "tick " << i;
+    }
+    for (std::size_t i = 1; i < rings.size(); ++i) {
+        EXPECT_NEAR(rings.at(i).left - rings.at(i - 1).right, 1.0F, kEdgeTolerance)
+            << "two outlines leave one pixel of the world between the ticks";
+    }
+    // Dark grey: equal channels, neither black nor light.
+    EXPECT_FLOAT_EQ(kStripTickOutline.at(0), kStripTickOutline.at(1));
+    EXPECT_FLOAT_EQ(kStripTickOutline.at(1), kStripTickOutline.at(2));
+    EXPECT_GE(kStripTickOutline.at(0), 0.2F) << "not black";
+    EXPECT_LE(kStripTickOutline.at(0), 0.45F) << "not light";
+    // Behind: every other thing in the tick row is nearer than the outline.
+    float nearest_ring = 1.0e9F;
+    for (const QuadBox& ring : rings) {
+        nearest_ring = std::min(nearest_ring, ring.depth);
+    }
+    for (const Px& p : pixels) {
+        if (slot_at(p.x) == slot && p.y >= kTickTopPx - 0.1F && p.colour != kStripTickOutline) {
+            EXPECT_LT(p.depth, nearest_ring) << "the outline lies under the tick, never over it";
+        }
+    }
+}
+
+TEST(TickOutline, NoSingleDarkTrackRunsBehindTheWholeRowAnyMore) {
+    Rig rig = make_rig();
+    for (const Px& p : row_pixels(rig.sim, rig.options)) {
+        EXPECT_NE(p.colour, (std::array<float, 3>{0.25F, 0.25F, 0.25F}))
+            << "the row's old shared track";
+    }
+}
+
+TEST(TickOutline, AKeyWithOneVehicleHasExactlyOneOutline) {
+    Rig rig = make_rig();
+    const std::vector<Px> pixels = row_pixels(rig.sim, rig.options);
+    EXPECT_EQ(quads_of(pixels, 4, kStripTickOutline, kTickTopPx - 2.0F, kAnyY).size(), 1U);
+}
+
+/// The icon's lit extent across, in cells: the glyph is narrower than its square, which is the
+/// whole reason the gauge has to be the plate's and not the glyph's.
+[[nodiscard]] std::size_t lit_width(const IconMask& mask) {
+    std::size_t left = kIconCells;
+    std::size_t right = 0;
+    for (const std::string_view row : mask) {
+        const std::size_t first = row.find('#');
+        const std::size_t last = row.rfind('#');
+        if (first != std::string_view::npos) {
+            left = std::min(left, first);
+            right = std::max(right, last + 1);
+        }
+    }
+    return right > left ? right - left : 0;
+}
+
+TEST(BuildGauge, TheFillRisesAcrossTheWholeSquareAndNotOnlyWhereTheGlyphIs) {
+    // Harri: "It only affects the part of the icon that is visible. Some icons are not that tall,
+    // and you can't tell how close to the end the build is."
+    constexpr float kBuilt = 0.3F;
+    BatchRig rig = make_batch_rig(90);
+    queue_batch(rig, 2);
+    const std::size_t slot = reserved_slot(rig.row);
+    const float total = static_cast<float>(sim::spec_of(UnitKind::Scavenger).build_ticks);
+    ASSERT_TRUE(tick_until(rig, [&] {
+        return 1.0F - (static_cast<float>(rig.sim.find(rig.factory)->queue.left) / total) > kBuilt
+               && rig.sim.find(rig.factory)->queue.left > 0;
+    })) << "never reached the sampled point";
+    const float built = 1.0F - (static_cast<float>(rig.sim.find(rig.factory)->queue.left) / total);
+    const std::vector<Px> pixels = row_pixels(rig.sim, rig.options);
+    const IconBox box = key_icon_box(slot_left(slot), kMarginPx, 1.0F, kSlotPx);
+    ASSERT_LT(static_cast<float>(lit_width(kind_icon(UnitKind::Scavenger))), box.size)
+        << "the glyph does not fill its square, or this test proves nothing";
+
+    const std::vector<QuadBox> fill
+        = quads_of(pixels, static_cast<int>(slot), kStripBuildFill, 0.0F, kTickTopPx);
+    ASSERT_EQ(fill.size(), 1U) << "one rectangle";
+    const float rows = std::round(built * static_cast<float>(kIconCells));
+    EXPECT_NEAR(fill.front().left, box.left, kEdgeTolerance) << "from the square's left edge";
+    EXPECT_NEAR(fill.front().right, box.left + box.size, kEdgeTolerance)
+        << "to its right edge: the width of the plate, not of the glyph";
+    EXPECT_NEAR(fill.front().bottom, box.top + box.size, kEdgeTolerance) << "up from the bottom";
+    EXPECT_NEAR(fill.front().top, box.top + box.size - rows, kEdgeTolerance)
+        << "to the share built, a cell row at a time";
+}
+
+TEST(BuildGauge, TheWholeSquareIsTheTrackSoTheRemainingBuildCanBeRead) {
+    BatchRig rig = make_batch_rig(0);
+    queue_batch(rig, 2);
+    const std::size_t slot = reserved_slot(rig.row);
+    const std::vector<Px> pixels = row_pixels(rig.sim, rig.options);
+    const IconBox box = key_icon_box(slot_left(slot), kMarginPx, 1.0F, kSlotPx);
+    const std::vector<QuadBox> track
+        = quads_of(pixels, static_cast<int>(slot), kStripBuildTrack, 0.0F, kTickTopPx);
+    ASSERT_EQ(track.size(), 1U);
+    EXPECT_NEAR(track.front().left, box.left, kEdgeTolerance);
+    EXPECT_NEAR(track.front().right, box.left + box.size, kEdgeTolerance);
+    EXPECT_NEAR(track.front().top, box.top, kEdgeTolerance);
+    EXPECT_NEAR(track.front().bottom, box.top + box.size, kEdgeTolerance);
+    EXPECT_TRUE(quads_of(pixels, static_cast<int>(slot), kStripBuildFill, 0.0F, kTickTopPx).empty())
+        << "nothing built yet, nothing filled";
+}
+
+TEST(BuildGauge, ItLiesUnderTheGlyphAndTheFillLiesOverTheTrack) {
+    BatchRig rig = make_batch_rig(90);
+    queue_batch(rig, 2);
+    const std::size_t slot = reserved_slot(rig.row);
+    const float total = static_cast<float>(sim::spec_of(UnitKind::Scavenger).build_ticks);
+    ASSERT_TRUE(tick_until(rig, [&] {
+        const std::uint32_t left = rig.sim.find(rig.factory)->queue.left;
+        return left > 0 && 1.0F - (static_cast<float>(left) / total) > 0.3F;
+    })) << "never reached a build with something in the gauge";
+    const std::vector<Px> pixels = row_pixels(rig.sim, rig.options);
+    const int s = static_cast<int>(slot);
+    const std::vector<QuadBox> fill = quads_of(pixels, s, kStripBuildFill, 0.0F, kTickTopPx);
+    const std::vector<QuadBox> track = quads_of(pixels, s, kStripBuildTrack, 0.0F, kTickTopPx);
+    ASSERT_EQ(fill.size(), 1U);
+    ASSERT_EQ(track.size(), 1U);
+    // Depth is along the camera's axis, so it varies across a quad as the ray slants: compare the
+    // two at ONE screen point, the square's bottom-left corner, where both have a vertex.
+    const auto depth_at_corner = [&](const std::array<float, 3>& colour) {
+        const IconBox box = key_icon_box(slot_left(slot), kMarginPx, 1.0F, kSlotPx);
+        for (const Px& p : pixels) {
+            if (p.colour == colour && std::abs(p.x - box.left) < kEdgeTolerance
+                && std::abs(p.y - (box.top + box.size)) < kEdgeTolerance) {
+                return p.depth;
+            }
+        }
+        ADD_FAILURE() << "no vertex on the square's bottom-left corner";
+        return 0.0F;
+    };
+    EXPECT_LT(depth_at_corner(kStripBuildFill), depth_at_corner(kStripBuildTrack))
+        << "the fill is over the track";
+    for (const Px& p : pixels) {
+        if (slot_at(p.x) == s && (p.colour == kStripIconInk || p.colour == kStripIconGhost)) {
+            EXPECT_LT(p.depth, fill.front().depth) << "the glyph is over the fill";
+        }
+    }
+}
+
+TEST(BuildGauge, AnOrdinaryKeyAndAFinishedBatchDrawNeitherTrackNorFill) {
+    Rig plain = make_rig();
+    for (const Px& p : row_pixels(plain.sim, plain.options)) {
+        EXPECT_NE(p.colour, kStripBuildFill);
+        EXPECT_NE(p.colour, kStripBuildTrack);
+    }
+    // "The visual effect can then go away once the build is complete."
+    BatchRig rig = make_batch_rig(90);
+    queue_batch(rig, 2);
+    const std::size_t slot = reserved_slot(rig.row);
+    ASSERT_TRUE(tick_until(rig, [&] { return scavengers_made(rig) == 2; })) << "never built";
+    ASSERT_FALSE(read_batch(rig.sim, Side::Player, rig.row.slots.at(slot)).has_value())
+        << "the batch is done";
+    for (const Px& p : row_pixels(rig.sim, rig.options)) {
+        EXPECT_NE(p.colour, kStripBuildFill);
+        EXPECT_NE(p.colour, kStripBuildTrack);
+    }
 }
 
 } // namespace

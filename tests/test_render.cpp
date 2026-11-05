@@ -537,7 +537,9 @@ TEST_F(RenderTest, DrawsTheRadarWithAFaceMarksAndABorderThatSurviveTheDepthTest)
     EXPECT_GT(near_enemy.at(1), 100U) << "the border must be visible";
     EXPECT_GT(near_enemy.at(2), 5U) << "you are on the panel";
     EXPECT_EQ(near_enemy.at(4), 1U) << "you are at the middle of it";
-    EXPECT_GT(near_enemy.at(3), 10U) << "a hostile in range is red on the panel";
+    // A hostile's dot is 4.6 px across since round 10 halved it (2026-11-05), so a handful of red
+    // pixels, not the dozen a 9 px dot gave; the far frame below still has none.
+    EXPECT_GT(near_enemy.at(3), 4U) << "a hostile in range is red on the panel";
 
     // The same frame with the enemy three hundred tiles away: everything else identical, and no red
     // at all. The radius is the promise, and this is where it is kept in pixels.

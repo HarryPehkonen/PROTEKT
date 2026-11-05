@@ -584,10 +584,10 @@ struct MenuRows {
 };
 
 [[nodiscard]] MenuRows menu_rows_in_band(const Frame& frame, double top_fraction,
-                                         double bottom_fraction) {
+                                         double bottom_fraction, double width_fraction = 0.4) {
     const int top = static_cast<int>(top_fraction * static_cast<double>(frame.height));
     const int bottom = static_cast<int>(bottom_fraction * static_cast<double>(frame.height));
-    const int limit = static_cast<int>(0.4 * static_cast<double>(frame.width));
+    const int limit = static_cast<int>(width_fraction * static_cast<double>(frame.width));
     MenuRows rows;
     bool in_row = false;
     bool row_live = false;
@@ -651,11 +651,60 @@ TEST_F(GameCliTest, TheMenuIsOnScreenWhenTheRowSelectsTheRecycler) {
     // the radar. Both frames are measured the same way, which is what makes the pair a proof.
     constexpr double kTopFraction = 45.0 / 720.0;
     constexpr double kBottomFraction = 560.0 / 720.0;
-    const MenuRows empty = menu_rows_in_band(read_ppm(before), kTopFraction, kBottomFraction);
-    const MenuRows menu = menu_rows_in_band(read_ppm(after), kTopFraction, kBottomFraction);
+    // Only the menu's own text column (the left 15%, where the glyphs are), not the left 40%: with
+    // the crosshair on bare ground the state row reads `SPACE Go Here` and a one-pixel WHITE line
+    // runs from its bar down and across the frame to the spot (round 10, 2026-11-05), and a white
+    // line is the live ink's colour, so across the wider band it joined the rows into one.
+    constexpr double kMenuColumn = 0.15;
+    const MenuRows empty
+        = menu_rows_in_band(read_ppm(before), kTopFraction, kBottomFraction, kMenuColumn);
+    const MenuRows menu
+        = menu_rows_in_band(read_ppm(after), kTopFraction, kBottomFraction, kMenuColumn);
     EXPECT_EQ(empty.total(), 0) << "a frame with no menu must draw no rows in that band";
     EXPECT_EQ(menu.live, 5) << "SPACE, TAB, ~, 1 FOLLOW ME and 2 GO TO NAV are the live rows";
     EXPECT_EQ(menu.dim, 1) << "`~` is dim: an undeployed recycler has nothing to rotate";
+}
+
+TEST_F(GameCliTest, TheGoHereLineIsDrawnInTheRealFrameWhenTheTanksAreSelectedOverGround) {
+    if (kUnderThreadSanitizer) {
+        GTEST_SKIP() << kTsanReason;
+    }
+    // Round 10 (2026-11-05): F1 selects the tanks, the crosshair is on bare ground, the state row
+    // reads `SPACE Go Here` and a one-pixel white line runs from it to the spot. This is the wiring
+    // from the app to the scene (`go_here_spot`), which no unit test reaches. Counted in the band
+    // beyond the menu's glyphs (x from 25% to 40% of the width, where no text is), pure white only.
+    const std::string before = temp_path("go-before.ppm");
+    const std::string after = temp_path("go-after.ppm");
+    std::string err;
+    ASSERT_EQ(run({"--headless", "--seed", "42", "--frames", "6", "--capture", before}, err), 0)
+        << err;
+    ASSERT_EQ(
+        run({"--headless", "--seed", "42", "--frames", "6", "--key", "1", "f1", "--capture", after},
+            err),
+        0)
+        << err;
+    const auto white_beyond_the_text = [](const Frame& frame) {
+        int white = 0;
+        const int top = static_cast<int>(45.0 / 720.0 * static_cast<double>(frame.height));
+        const int bottom = static_cast<int>(560.0 / 720.0 * static_cast<double>(frame.height));
+        const int left = static_cast<int>(0.25 * static_cast<double>(frame.width));
+        const int right = static_cast<int>(0.4 * static_cast<double>(frame.width));
+        for (int y = top; y < bottom; ++y) {
+            for (int x = left; x < right; ++x) {
+                const std::size_t at
+                    = ((static_cast<std::size_t>(y) * static_cast<std::size_t>(frame.width))
+                       + static_cast<std::size_t>(x))
+                      * 3U;
+                white += (frame.rgb.at(at) == 255 && frame.rgb.at(at + 1U) == 255
+                          && frame.rgb.at(at + 2U) == 255)
+                             ? 1
+                             : 0;
+            }
+        }
+        return white;
+    };
+    EXPECT_EQ(white_beyond_the_text(read_ppm(before)), 0) << "nothing selected, no line";
+    EXPECT_GT(white_beyond_the_text(read_ppm(after)), 100) << "the white line, a pixel wide";
 }
 
 TEST_F(GameCliTest, FailsWithAReasonWhenTheNamedGpuDoesNotExist) {

@@ -742,5 +742,135 @@ TEST(DeployLine, ALoneScavengerPointingAtAPoolIsOfferedDeployNeverGoHere) {
         << "the pool is the deploy's, so Go Here steps aside";
 }
 
+// ============================================ the white line from SPACE Go Here to the ground
+
+namespace {
+
+[[nodiscard]] std::vector<MenuRow> go_here_rows() {
+    MenuInput in;
+    in.subject = MenuSubject::Vehicle;
+    in.go_here = true;
+    return menu_rows(in);
+}
+
+/// The vertices a scene gains when `set` fills one of its leader options: the same run-from-the-
+/// first-difference reading `added_by_deploy_line` takes, for any option.
+template <typename Set>
+[[nodiscard]] std::vector<SceneVertex>
+added_by_leader(const Field& f, const std::vector<MenuRow>& rows, const Set& set) {
+    SceneOptions options = f.options;
+    options.show_menu = true;
+    options.menu = &rows;
+    const Scene base = build_scene(f.sim, options);
+    set(options);
+    const Scene with = build_scene(f.sim, options);
+    std::vector<SceneVertex> added;
+    if (with.vertices.size() < base.vertices.size()) {
+        ADD_FAILURE() << "the line removed geometry";
+        return added;
+    }
+    const auto same = [](const SceneVertex& a, const SceneVertex& b) {
+        return a.position == b.position && a.colour == b.colour && a.alpha == b.alpha;
+    };
+    std::size_t first = 0;
+    while (first < base.vertices.size() && same(base.vertices.at(first), with.vertices.at(first))) {
+        ++first;
+    }
+    for (std::size_t i = first; i < first + (with.vertices.size() - base.vertices.size()); ++i) {
+        added.push_back(with.vertices.at(i));
+    }
+    return added;
+}
+
+} // namespace
+
+TEST(GoHereLine, AThinWhiteLineRunsFromTheSpaceGoHereRowToTheSpotOnTheGround) {
+    // Harri, round 10 (2026-11-05): "a white line from SPACE Go Here to the spot on the ground",
+    // the Deploy line's own white, one pixel wide at 720, to the middle of the tile SPACE sends
+    // the selection to.
+    Field f = make_field();
+    const std::vector<MenuRow> rows = go_here_rows();
+    ASSERT_EQ(rows.front().verb, "Go Here");
+    constexpr int kSpotX = 44;
+    constexpr int kSpotY = 52;
+    const std::vector<SceneVertex> added = added_by_leader(
+        f, rows, [](SceneOptions& o) { o.go_here_spot = DeployLineTarget{kSpotX, kSpotY}; });
+    ASSERT_EQ(added.size(), 6U) << "one slanted quad, and nothing else";
+    for (const SceneVertex& v : added) {
+        EXPECT_EQ(v.colour, (std::array<float, 3>{1.0F, 1.0F, 1.0F})) << "white";
+    }
+    const std::array<float, 2> a = pixel_of(f.options, added.at(0));
+    const std::array<float, 2> b = pixel_of(f.options, added.at(1));
+    const std::array<float, 2> c = pixel_of(f.options, added.at(2));
+    const std::array<float, 2> d = pixel_of(f.options, added.at(5));
+    const std::array<float, 2> start{(a.at(0) + d.at(0)) * 0.5F, (a.at(1) + d.at(1)) * 0.5F};
+    const std::array<float, 2> end{(b.at(0) + c.at(0)) * 0.5F, (b.at(1) + c.at(1)) * 0.5F};
+
+    const float px = static_cast<float>(f.options.extent.height) / 720.0F;
+    const MenuLayout layout = menu_layout(rows, 6.0F * px, kMenuTopPixels * px, 2.0F * px);
+    const std::array<float, 2> origin = attack_line_origin(layout);
+    EXPECT_NEAR(start.at(0), origin.at(0), 0.05F) << "it leaves the SPACE Go Here bar's right edge";
+    EXPECT_NEAR(start.at(1), origin.at(1), 0.05F) << "at the bar's vertical middle";
+    const float tile_x = static_cast<float>(kSpotX) + 0.5F;
+    const float tile_y = static_cast<float>(kSpotY) + 0.5F;
+    const Projected centre = project(f.options.camera, f.options.extent, tile_x * kMetresPerTile,
+                                     ground_metres(kSeed, tile_x, tile_y), tile_y * kMetresPerTile);
+    EXPECT_NEAR(end.at(0), centre.x, 0.05F) << "and ends on the spot's middle";
+    EXPECT_NEAR(end.at(1), centre.y, 0.05F);
+    EXPECT_NEAR(std::hypot(a.at(0) - d.at(0), a.at(1) - d.at(1)), 1.0F * px, 0.05F)
+        << "thin: one pixel";
+}
+
+TEST(GoHereLine, ThereIsNoLineWithoutASpotOrOutsideTheGoHereRow) {
+    Field f = make_field();
+    const auto spot = [](SceneOptions& o) { o.go_here_spot = DeployLineTarget{44, 52}; };
+    EXPECT_TRUE(added_by_leader(f, go_here_rows(), [](SceneOptions&) {}).empty())
+        << "no spot offered";
+    EXPECT_TRUE(added_by_leader(f, deploy_rows(), spot).empty())
+        << "a line never points from a menu that is offering the deploy";
+    MenuInput in;
+    in.subject = MenuSubject::Vehicle; // SPACE with no verb of its own
+    EXPECT_TRUE(added_by_leader(f, menu_rows(in), spot).empty()) << "nor from one with no SPACE";
+    EXPECT_TRUE(added_by_leader(f, go_here_rows(),
+                                [](SceneOptions& o) { o.deploy_pool = DeployLineTarget{44, 52}; })
+                    .empty())
+        << "the pool's own option is the Deploy row's alone";
+}
+
+TEST(GoHereLine, TheAppNamesTheSpotExactlyWhenTheGoHerePromptShows) {
+    Field f = make_field();
+    look_at_ground(f);
+    game::Session session = session_selecting(f, f.scav_a);
+    ASSERT_EQ(session.selection().size(), 1U);
+    ASSERT_EQ(app::menu_for(f.sim, session, f.options, false).front().verb, "Go Here");
+    const std::optional<GoHereOffer> offer
+        = go_here_offer(f.sim, f.options, session.selection().units(), f.driven);
+    ASSERT_TRUE(offer.has_value());
+    const std::optional<DeployLineTarget> spot
+        = app::go_here_line_target(f.sim, session, f.options);
+    ASSERT_TRUE(spot.has_value());
+    EXPECT_EQ(spot.value_or(DeployLineTarget{}).tile_x, offer.value_or(GoHereOffer{}).tile_x)
+        << "the tile SPACE would send it to, and no other";
+    EXPECT_EQ(spot.value_or(DeployLineTarget{}).tile_y, offer.value_or(GoHereOffer{}).tile_y);
+
+    f.options.aim.reset();
+    EXPECT_NE(app::menu_for(f.sim, session, f.options, false).front().verb, "Go Here");
+    EXPECT_FALSE(app::go_here_line_target(f.sim, session, f.options).has_value())
+        << "no crosshair: the prompt goes, and the line with it";
+}
+
+TEST(GoHereLine, ThereIsNoSpotWhereTheDeployOrTheAttackOwnsSpace) {
+    Field f = make_field();
+    game::Session scavenger = session_selecting(f, f.scav_a);
+    ASSERT_EQ(app::menu_for(f.sim, scavenger, f.options, false).front().verb, "Deploy")
+        << "the rig points at the pool";
+    EXPECT_FALSE(app::go_here_line_target(f.sim, scavenger, f.options).has_value())
+        << "the pool is the deploy's, so Go Here steps aside, line and all";
+    game::Session nobody{f.driven};
+    look_at_ground(f);
+    EXPECT_FALSE(app::go_here_line_target(f.sim, nobody, f.options).has_value())
+        << "nothing selected, nothing to send";
+}
+
 } // namespace
 } // namespace protekt::game

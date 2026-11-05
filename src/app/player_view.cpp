@@ -131,6 +131,20 @@ std::optional<game::DeployOffer> deploy_offer_now(const sim::Sim& sim, const gam
     return game::deploy_offer(sim, options, session.selection().units(), session.driven());
 }
 
+/// The Go Here offer, withheld wherever an offer before it owns SPACE: an armed command or the
+/// attack here, and the deploy inside `go_here_offer` itself -- the order `Interaction` takes
+/// them in. The menu's `SPACE Go Here` row and the white line to its spot are both drawn from this
+/// one answer.
+std::optional<game::GoHereOffer> go_here_offer_now(const sim::Sim& sim,
+                                                   const game::Session& session,
+                                                   const game::SceneOptions& options) {
+    if (session.deploy_armed() || session.attack_armed()
+        || attack_offer(sim, session, options).valid()) {
+        return std::nullopt;
+    }
+    return game::go_here_offer(sim, options, session.selection().units(), session.driven());
+}
+
 } // namespace
 
 std::optional<game::DeployLineTarget> deploy_line_target(const sim::Sim& sim,
@@ -138,6 +152,16 @@ std::optional<game::DeployLineTarget> deploy_line_target(const sim::Sim& sim,
                                                          const game::SceneOptions& options) {
     const std::optional<game::DeployOffer> offer = deploy_offer_now(sim, session, options);
     if (!offer.has_value() || offer->site != game::DeploySite::Pool) {
+        return std::nullopt;
+    }
+    return game::DeployLineTarget{offer->tile_x, offer->tile_y};
+}
+
+std::optional<game::DeployLineTarget> go_here_line_target(const sim::Sim& sim,
+                                                          const game::Session& session,
+                                                          const game::SceneOptions& options) {
+    const std::optional<game::GoHereOffer> offer = go_here_offer_now(sim, session, options);
+    if (!offer.has_value()) {
         return std::nullopt;
     }
     return game::DeployLineTarget{offer->tile_x, offer->tile_y};
@@ -158,11 +182,7 @@ std::vector<game::MenuRow> menu_for(const sim::Sim& sim, const game::Session& se
     // send the selection to the ground: each withheld over the offers before it and over an armed
     // command, which own SPACE (the same order `Interaction` takes them in).
     in.deploy = deploy_offer_now(sim, session, options).has_value();
-    if (!in.attack && !in.deploy && !session.deploy_armed()) {
-        in.go_here
-            = game::go_here_offer(sim, options, session.selection().units(), session.driven())
-                  .has_value();
-    }
+    in.go_here = go_here_offer_now(sim, session, options).has_value();
     if (session.deploy_armed()) {
         // `un-deployed recycler menu -> 3`: the state row names the deploy and reads the distance
         // to the ground under the reticle, by the nav chain's own rule (`nav_metres`).

@@ -68,8 +68,11 @@ inline constexpr float kMapMaxFurnitureScale = 1.6F;
 
 /// Marks and dots at the REFERENCE panel size; multiply by `map_furniture_scale(layout)`. So they
 /// keep their share of the map when the panel grows or shrinks, instead of staying fixed in frame
-/// pixels and overwhelming a small minimap.
-inline constexpr float kMapUnitHalf = 3.0F;
+/// pixels and overwhelming a small minimap. A vehicle's dot is 1.5 a side-half, half of the 3.0 it
+/// was (Harri, round 10, 2026-11-05: "half the width and height of the current size", on the map as
+/// on the radar). The heading needle is scaled by the panel's furniture scale (`asset.half` over
+/// this), so halving the dot leaves the needle its 3 mm.
+inline constexpr float kMapUnitHalf = 1.5F;
 inline constexpr float kMapBuildingHalf = 5.0F;
 /// A BIOMETAL POOL's marker (Harri, 2026-11-02: "the map shows the locations of all biometal
 /// pools"): a hollow square, `kMapPoolHalf` out from the pool's middle and `kMapPoolRing` thick,
