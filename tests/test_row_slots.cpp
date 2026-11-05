@@ -508,6 +508,18 @@ TEST(RowSlots, TheLabelsAreTheShortNames) {
     EXPECT_EQ(kind_label(UnitKind::MslScout), "MSL SCOUT");
 }
 
+// Harri: "EXTRACTOR ... is the correct BattleZone 2 name of a deployed scavenger". The name is the
+// kind's own, read from `kind_label`; the scavenger on wheels keeps its name and nothing else
+// moves.
+TEST(RowSlots, ADeployedScavengerIsAnExtractorAndTheScavengerOnWheelsIsNot) {
+    EXPECT_EQ(kind_label(UnitKind::DeployedScavenger), "EXTRACTOR");
+    EXPECT_EQ(kind_label(UnitKind::Scavenger), "SCAVENGER");
+    EXPECT_NE(kind_label(UnitKind::DeployedScavenger), kind_label(UnitKind::Scavenger));
+    EXPECT_EQ(static_cast<int>(UnitKind::DeployedScavenger), 15) << "the identity did not move";
+    EXPECT_EQ(kind_label(UnitKind::DeployedRecycler), "RECYCLER");
+    EXPECT_EQ(kind_label(UnitKind::DeployedTurret), "TURRET");
+}
+
 // ------------------------------------------------------------------ the bar's look (BAR-LOOK)
 
 constexpr std::array<float, 3> kBrightGreen{0.15F, 0.95F, 0.25F};

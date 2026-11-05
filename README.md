@@ -173,6 +173,11 @@ recycler's rows are `1 Scavenger 20`, `2 Scout 50`, `3 Turret 40`, `4 Tug 45`, `
 `6 Service Truck 50`, `7 Service Pod 2`; the alien recycler's are `1 Harvester 20`, `2 Scout`,
 `3 Guardian 40`, `4 Hauler 30`, `5 Builder 40`, `6 Healer 50`, `7 Service Pod 2`.
 
+A **deployed scavenger is an EXTRACTOR** (Harri, 2026-11-05: "the correct BattleZone 2 name of a deployed
+scavenger"): the readout names it so, the name coming from the kind's own `kind_label` row. The scavenger
+on wheels is still a SCAVENGER. The kind is shared with the alien side, whose deployed name the tree does not
+give, so the alien harvester's deployed form reads the same row.
+
 **The human recycler builds all seven of its rows** (2026-11-03; Harri: "it's the recycler that isn't
 able to build everything"). `3 Turret` queues the turret the sim already has -- a vehicle until it
 deploys -- and `4 Tug`, `5 Constructor`, `6 Service Truck` and `7 Service Pod` are four new kinds

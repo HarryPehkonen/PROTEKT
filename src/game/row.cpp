@@ -446,8 +446,9 @@ std::string_view kind_label(sim::UnitKind kind) noexcept {
     case sim::UnitKind::Factory:
         return "FACTORY";
     case sim::UnitKind::Scavenger:
-    case sim::UnitKind::DeployedScavenger:
         return "SCAVENGER";
+    case sim::UnitKind::DeployedScavenger: // BZ2's own name for a deployed scavenger
+        return "EXTRACTOR";
     case sim::UnitKind::Scout:
         return "SCOUT";
     case sim::UnitKind::AssaultTank:
