@@ -341,6 +341,10 @@ inline constexpr std::uint16_t kShoveYieldTicks = 45;
 /// The circle it scoots round the target is this far inside the weapon's range, so the spot, which
 /// is snapped to a tile centre, is never past it. One tile.
 inline constexpr std::int32_t kScootMarginRaw = Fixed::kOne;
+/// How far, in tiles each way from where it stands, a unit with an Attack order and no line to its
+/// target looks for a tile that has one (`firing_spot`). A square of 13 x 13 tiles: it bounds the
+/// search, and a hill wider than that leaves the unit where it is.
+inline constexpr int kFiringSpotReachTiles = 6;
 /// The circle is cut into this many equal sectors; a spot is a sector's point on the circle.
 inline constexpr int kScootSectors = 16;
 /// A relocation moves one or two sectors, either way round -- on the 13-tile circle that is a

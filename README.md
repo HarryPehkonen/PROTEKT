@@ -211,6 +211,17 @@ the thing that makes a turret's bolt miss, not a shield (measured: against one t
 bike lost about 39 hp per 100 ticks inside the turret's range and died in 31 of 32 duels; a
 scooting one lost about 3 and died in 12 of 32).
 
+**An attacker that cannot hit its target goes where it can** (2026-11-04, Harri: "I sometimes get units
+to attack the enemy, but they just sit there, doing nothing. I assume it's because they are behind a
+hill ... They should go to a different spot where they can actually hit the target from."). A unit
+under an Attack order stops at its weapon's range, and a gun does not fire into a hill, so a unit
+in range with a rise between it and its target used to stand there for ever. Now it drives to the
+nearest tile within 6 tiles of where it stands that it can stand on, that is inside the weapon's
+range of the target and from which it has a line, and fires from there. The same state always
+picks the same tile. A mortar or bomber (its shell lobs over a hill) needs no line and does not
+move; a turret cannot move, so one with no line simply does not fire; a hill wider than the 6
+tiles of reach leaves the unit where it is.
+
 **Shapes follow the faction too.** Harri: "The alien side assets need a different look -- not just
 colours, but shapes too; they should be more organic." A kind's silhouette is chosen by the unit's
 faction (`SceneOptions::factions`), in one place in `build_scene`, never by its side. So far one

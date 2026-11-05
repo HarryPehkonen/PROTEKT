@@ -287,6 +287,7 @@ if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
         tests/test_focus_fire.cpp
         tests/test_follow.cpp
         tests/test_shove.cpp
+        tests/test_firing_spot.cpp
         tests/test_recycler_list.cpp
         tests/test_mount.cpp
         tests/test_spec.cpp

@@ -415,13 +415,18 @@ bool can_see(std::uint64_t seed, Fixed from_x, Fixed from_y, Fixed at_x, Fixed a
 }
 
 bool has_line(const Unit& shooter, const Unit& target, std::uint64_t seed) noexcept {
+    return has_line_from(shooter, shooter.x, shooter.y, target, seed);
+}
+
+bool has_line_from(const Unit& shooter, Fixed from_x, Fixed from_y, const Unit& target,
+                   std::uint64_t seed) noexcept {
     if (spec_of(shooter.kind).gravity.raw > 0) {
         return true; // a lob clears the ground between
     }
     // The aim point `launch` uses: where the target is plus what this gun has learned of the lead.
     const std::int64_t point_x = static_cast<std::int64_t>(target.x.raw) + shooter.aim_x.raw;
     const std::int64_t point_y = static_cast<std::int64_t>(target.y.raw) + shooter.aim_y.raw;
-    return can_see(seed, shooter.x, shooter.y, Fixed::from_raw(static_cast<std::int32_t>(point_x)),
+    return can_see(seed, from_x, from_y, Fixed::from_raw(static_cast<std::int32_t>(point_x)),
                    Fixed::from_raw(static_cast<std::int32_t>(point_y)), target.kind);
 }
 

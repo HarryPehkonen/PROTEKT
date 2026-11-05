@@ -611,6 +611,37 @@ std::optional<ScootSpot> scoot_spot(std::uint64_t seed, std::span<const Unit> un
     return std::nullopt;
 }
 
+std::optional<ScootSpot> firing_spot(std::uint64_t seed, std::span<const Unit> units,
+                                     const Unit& shooter, const Unit& target) noexcept {
+    const std::int64_t range = profile(shooter.kind).weapon_range.raw;
+    if (!profile(shooter.kind).mobile || range <= 0) {
+        return std::nullopt;
+    }
+    const int home_x = shooter.x.raw >> Fixed::kShift;
+    const int home_y = shooter.y.raw >> Fixed::kShift;
+    std::optional<ScootSpot> best{};
+    std::int64_t best_d2 = 0;
+    for (int ty = home_y - kFiringSpotReachTiles; ty <= home_y + kFiringSpotReachTiles; ++ty) {
+        for (int tx = home_x - kFiringSpotReachTiles; tx <= home_x + kFiringSpotReachTiles; ++tx) {
+            if (!standable(seed, units, tx, ty)) {
+                continue;
+            }
+            const Fixed cx = tile_center(static_cast<std::uint8_t>(tx));
+            const Fixed cy = tile_center(static_cast<std::uint8_t>(ty));
+            const std::int64_t d2 = dist2(shooter.x, shooter.y, cx, cy);
+            // Strict: ties keep the first found. The line is the dear question, so it is asked
+            // last, and only of a tile that would beat the best so far.
+            if ((best && d2 >= best_d2) || dist2(cx, cy, target.x, target.y) > range * range
+                || !has_line_from(shooter, cx, cy, target, seed)) {
+                continue;
+            }
+            best = ScootSpot{cx, cy};
+            best_d2 = d2;
+        }
+    }
+    return best;
+}
+
 namespace {
 
 /// Keeps `unit.route` serving `goal`: plans when the goal tile has drifted more than
@@ -1223,6 +1254,19 @@ void steer(std::vector<Unit>& units, Unit& unit, const UnitProfile& prof, const 
             goal_x = unit.guard_x;
             goal_y = unit.guard_y;
             stop_radius = kArriveRadiusRaw;
+        }
+        // An attacker in range with no line to the target (a hill between) would stand there for
+        // ever: it goes to the nearest tile that has one. Loaded or not, it keeps the target.
+        if (dist2(unit.x, unit.y, target->x, target->y) < reach * reach
+            && !has_line(unit, *target, ground.seed)) {
+            if (const std::optional<ScootSpot> spot
+                = firing_spot(ground.seed, units, unit, *target)) {
+                goal_x = spot->x;
+                goal_y = spot->y;
+                // Not the arrival radius: the nearest tile with a line can be inside it, and a
+                // unit "arrived" there would stand in the hill's shadow. Having a line ends this.
+                stop_radius = 0;
+            }
         }
         break;
     }

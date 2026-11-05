@@ -94,6 +94,16 @@ struct ScootSpot {
                                                   const Unit& bike, const Unit& target,
                                                   Tick tick) noexcept;
 
+/// THE SPOT an attacker with no line goes to: the tile centre nearest the unit, within
+/// `kFiringSpotReachTiles` of it, that can be stood on, is inside the weapon's range of `target`
+/// and from which `has_line_from` holds. Nearest by squared distance from where the unit stands;
+/// a tie goes to the lowest row and then the lowest column. Integer only and a pure function of the
+/// state, so the same battle chooses the same spot. Empty when the unit has no such tile within
+/// reach (it then stays), and for a kind that cannot move.
+[[nodiscard]] std::optional<ScootSpot> firing_spot(std::uint64_t seed, std::span<const Unit> units,
+                                                   const Unit& shooter,
+                                                   const Unit& target) noexcept;
+
 /// Whether a deploy aimed at tile (`tile_x`, `tile_y`) has somewhere to stand: the tile is on the
 /// map, and every tile of `footprint_at(tile_x, tile_y)` is ground a unit may enter
 /// (`tile_passable`) and inside no other building's footprint (`building_blocks`). Asked when the

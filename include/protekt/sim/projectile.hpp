@@ -168,6 +168,11 @@ void retarget_aim(Unit& shooter, UnitId target) noexcept;
 /// shooter's aim estimate. A gun that would fire into a hill has no line.
 [[nodiscard]] bool has_line(const Unit& shooter, const Unit& target, std::uint64_t seed) noexcept;
 
+/// `has_line` as if `shooter` stood at (`from_x`, `from_y`): the question a unit asks of a spot it
+/// is not yet at.
+[[nodiscard]] bool has_line_from(const Unit& shooter, Fixed from_x, Fixed from_y,
+                                 const Unit& target, std::uint64_t seed) noexcept;
+
 /// The bolt `shooter` fires along (`dir_x`, `dir_y`, `dir_z`) and nowhere else: the direction
 /// normalised, times kProjectileSpeed, PLUS the shooter's own velocity (map plane only) exactly as
 /// `launch` does. `dir_z` is up: it is the vertical component of the same world-space direction
