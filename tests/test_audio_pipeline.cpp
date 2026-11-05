@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "protekt/app/audio_pipeline.hpp"
+#include "protekt/game/radar.hpp"
 #include "protekt/game/scene.hpp"
 #include "protekt/sim/orders.hpp"
 #include "protekt/sim/scenario.hpp"
@@ -134,6 +135,28 @@ TEST(AudioPipeline, AFailedDeviceIsNeverPlayedTo) {
     pipeline.advance(sim, 3, frame_for(true), flash, mark);
     EXPECT_EQ(sink.plays, 0);
     EXPECT_EQ(sim.tick(), 3U);
+}
+
+TEST(AudioPipeline, TheRadarBlipsOnTheTickOfASweepAndOnlyThen) {
+    protekt::sim::Sim sim = protekt::sim::Sim::create(protekt::sim::Scenario{
+        1,
+        {{protekt::sim::UnitKind::Tank, protekt::sim::Side::Player, 20, 20},
+         {protekt::sim::UnitKind::Tank, protekt::sim::Side::Enemy, 200, 200}}});
+    protekt::game::HitFlash flash;
+    protekt::game::HitMark mark;
+    FakeSink sink;
+    AudioPipeline pipeline{&sink};
+    const protekt::sim::UnitId player = sim.units().front().id;
+    const AudioFrame frame{protekt::game::Listener{}, false, true, true, player};
+    pipeline.advance(sim, protekt::game::kRadarSweepIntervalTicks - 1, frame, flash, mark);
+    EXPECT_EQ(sink.plays, 0) << "a quiet battle is silent between sweeps";
+    pipeline.advance(sim, 1, frame, flash, mark);
+    ASSERT_EQ(sim.tick(), protekt::game::kRadarSweepIntervalTicks);
+    EXPECT_EQ(sink.plays, 1) << "the sweep is heard";
+    pipeline.advance(sim, protekt::game::kRadarSweepIntervalTicks - 1, frame, flash, mark);
+    EXPECT_EQ(sink.plays, 1);
+    pipeline.advance(sim, 1, frame, flash, mark);
+    EXPECT_EQ(sink.plays, 2) << "and the next one, five seconds on";
 }
 
 } // namespace

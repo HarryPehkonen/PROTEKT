@@ -21,8 +21,9 @@ enum class SoundKind : std::uint8_t {
     YourShot = 0,  ///< a short noise crack over a low thump that sags from 120 Hz to 60 Hz
     HitTaken = 1,  ///< a low thud with a sharp attack: the "you are being hit" alarm
     Explosion = 2, ///< decaying, filtered noise
+    RadarBlip = 3, ///< a short, soft, high ping: the radar's sweep
 };
-inline constexpr int kSoundKindCount = 3;
+inline constexpr int kSoundKindCount = 4;
 
 /// One channel of samples, K frames. Deterministic: same kind, same bytes, everywhere. The first
 /// and last frame are exactly 0.0F (a sample that starts or ends off zero clicks), and the peak is

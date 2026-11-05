@@ -59,6 +59,13 @@ constexpr float kReferenceHeight = 720.0F;
     return kPalette;
 }
 
+/// A building's blip is the larger square, a vehicle's the smaller: the same for an asset and for
+/// an enemy sighting of it.
+[[nodiscard]] float blip_half(const sim::Unit& unit, float scale) noexcept {
+    const bool building = unit.kind == sim::UnitKind::Factory || sim::is_turret(unit.kind);
+    return (building ? kMapBuildingHalf : kMapUnitHalf) * scale;
+}
+
 } // namespace
 
 WorldMapLayout world_map_layout(Extent extent) noexcept {
@@ -143,10 +150,21 @@ WorldMap world_map(const sim::Sim& sim, Extent extent, sim::Side own, sim::UnitI
             continue;
         }
         const MapPoint at = map_point(map.layout, tiles(unit.x), tiles(unit.y));
-        const bool building = unit.kind == sim::UnitKind::Factory || sim::is_turret(unit.kind);
-        map.assets.push_back(MapAsset{unit.id, unit.kind, at.x, at.y,
-                                      (building ? kMapBuildingHalf : kMapUnitHalf) * scale,
-                                      unit.id == driven});
+        map.assets.push_back(
+            MapAsset{unit.id, unit.kind, at.x, at.y, blip_half(unit, scale), unit.id == driven});
+    }
+    // THE ENEMY, as the radar sees it and no more: the driven unit's detections, at its reach.
+    const std::vector<RadarDetection> seen
+        = radar_detections(sim.units(), driven, viewer_radar_radius(sim, driven), sim.tick());
+    map.blips.reserve(seen.size());
+    for (const RadarDetection& detection : seen) {
+        const sim::Unit* enemy = sim.find(detection.unit);
+        if (enemy == nullptr) {
+            continue;
+        }
+        const MapPoint at = map_point(map.layout, tiles(enemy->x), tiles(enemy->y));
+        map.blips.push_back(
+            MapBlip{enemy->id, at.x, at.y, blip_half(*enemy, scale), detection.alpha});
     }
     for (const sim::Pool& pool : sim.pools()) {
         const MapPoint at = map_point(map.layout, static_cast<float>(pool.tile_x) + 0.5F,

@@ -17,7 +17,8 @@ using protekt::audio::kSoundKindCount;
 using protekt::audio::SoundKind;
 using protekt::audio::synthesise;
 
-const std::vector<SoundKind> kKinds{SoundKind::YourShot, SoundKind::HitTaken, SoundKind::Explosion};
+const std::vector<SoundKind> kKinds{SoundKind::YourShot, SoundKind::HitTaken, SoundKind::Explosion,
+                                    SoundKind::RadarBlip};
 
 float peak_of(const std::vector<float>& samples) {
     float peak = 0.0F;

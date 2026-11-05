@@ -7,6 +7,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <optional>
 #include <utility>
 #include <vector>
 
@@ -690,4 +691,82 @@ TEST(WorldMapPools, AMarkerIsDrawnForEachPool) {
 }
 
 } // namespace
+// ---------------------------------------------------------------- the enemy, as the radar's blips
+
+TEST(WorldMapBlips, AStationaryEnemyBlipsOnASweepFadesWithinASecondAndIsGoneBetween) {
+    Rig rig = make_rig();
+    const UnitId tank = rig.enemy.at(0); // 20 tiles from the viewer: inside the radar's 40
+    ASSERT_EQ(rig.sim.tick(), 0U);
+    ASSERT_EQ(rig.sim.find(tank)->vx.raw, 0);
+    const auto blip_of = [&](UnitId id) -> std::optional<MapBlip> {
+        const WorldMap map = map_of(rig);
+        for (const MapBlip& blip : map.blips) {
+            if (blip.id == id) {
+                return blip;
+            }
+        }
+        return std::nullopt;
+    };
+    float last = 2.0F;
+    for (int tick = 0; tick <= 2 * static_cast<int>(protekt::game::kRadarSweepIntervalTicks) + 5;
+         ++tick) {
+        const protekt::sim::Tick now = rig.sim.tick();
+        const std::optional<MapBlip> blip = blip_of(tank);
+        const bool sweeping
+            = now % protekt::game::kRadarSweepIntervalTicks < protekt::game::kRadarBlipFadeTicks;
+        ASSERT_EQ(blip.has_value(), sweeping) << "tick " << now;
+        ASSERT_EQ(rig.sim.find(tank)->vx.raw, 0) << "this enemy never moves in the rig";
+        if (blip.has_value()) {
+            const MapPoint where = map_point(
+                map_of(rig).layout, static_cast<float>(rig.sim.find(tank)->x.raw) / 65536.0F,
+                static_cast<float>(rig.sim.find(tank)->y.raw) / 65536.0F);
+            EXPECT_FLOAT_EQ(blip->px, where.x);
+            EXPECT_FLOAT_EQ(blip->py, where.y);
+            if (now % protekt::game::kRadarSweepIntervalTicks == 0) {
+                EXPECT_EQ(blip->alpha, 1.0F);
+            } else {
+                EXPECT_LT(blip->alpha, last) << "fading, tick " << now;
+            }
+            last = blip->alpha;
+        }
+        rig.sim.step();
+    }
+}
+
+TEST(WorldMapBlips, OnlyWhatTheRadarCanReachAndNeverAnAsset) {
+    Rig rig = make_rig();
+    const WorldMap map = map_of(rig); // tick 0 is a sweep
+    ASSERT_EQ(map.blips.size(), 1U) << "the tank at 20 tiles; the factory and turret are far off";
+    EXPECT_EQ(map.blips.front().id, rig.enemy.at(0));
+    EXPECT_EQ(map.assets.size(), rig.own.size()) << "assets are still your side alone";
+    for (const MapAsset& asset : map.assets) {
+        EXPECT_NE(asset.id, map.blips.front().id);
+    }
+    // No driven unit, no radar, no blips.
+    EXPECT_TRUE(world_map(rig.sim, kExtent, Side::Player, UnitId{}, nullptr).blips.empty());
+}
+
+TEST(WorldMapBlips, AMovingEnemyIsOnTheMapBetweenSweepsToo) {
+    Rig rig = make_rig();
+    rig.sim.enqueue(protekt::sim::Order{
+        rig.enemy.at(0), protekt::sim::orders::MoveTo{protekt::sim::Fixed::from_int(38),
+                                                      protekt::sim::Fixed::from_int(75)}});
+    for (int step = 0; step < 20; ++step) {
+        rig.sim.step();
+    }
+    ASSERT_NE(rig.sim.tick() % protekt::game::kRadarSweepIntervalTicks, 0U);
+    ASSERT_GE(rig.sim.tick() % protekt::game::kRadarSweepIntervalTicks,
+              protekt::game::kRadarBlipFadeTicks - 10U);
+    ASSERT_NE(rig.sim.find(rig.enemy.at(0))->vy.raw, 0) << "it is moving";
+    for (int step = 0; step < 60; ++step) {
+        const WorldMap map = map_of(rig);
+        const bool shown = std::any_of(map.blips.begin(), map.blips.end(), [&](const MapBlip& b) {
+            return b.id == rig.enemy.at(0) && b.alpha == 1.0F;
+        });
+        const sim::Unit* tank = rig.sim.find(rig.enemy.at(0));
+        ASSERT_EQ(shown, tank->vx.raw != 0 || tank->vy.raw != 0) << rig.sim.tick();
+        rig.sim.step();
+    }
+}
+
 } // namespace protekt::game

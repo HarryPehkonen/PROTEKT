@@ -48,4 +48,8 @@ inline constexpr float kExplosionEarshotTiles = 90.0F;
                                                    std::span<const sim::Unit> units,
                                                    std::span<const Health> health_before) noexcept;
 
+/// The radar's sweep: one soft ping, dead centre -- it is your own instrument, with no place in
+/// the world to come from. Made on the tick the radar sweeps (`radar_sweeping`), by the pipeline.
+[[nodiscard]] audio::Voice radar_blip_voice() noexcept;
+
 } // namespace protekt::game

@@ -2333,8 +2333,11 @@ void append_nav_glyph(std::vector<SceneVertex>& out, const SceneOptions& options
 /// opinion of where the unit is.
 [[nodiscard]] std::vector<RadarMark> frame_radar_marks(const SceneOptions& options,
                                                        const sim::Sim& sim) {
-    return radar_marks(sim.units(), options.viewer_unit, options.camera.yaw,
-                       radar_panel(options.extent), viewer_radar_radius(sim, options.viewer_unit));
+    // Through the detection model: a stationary hostile is on the panel only as a sweep passes.
+    return radar_detect(radar_marks(sim.units(), options.viewer_unit, options.camera.yaw,
+                                    radar_panel(options.extent),
+                                    viewer_radar_radius(sim, options.viewer_unit)),
+                        sim.units(), sim.tick());
 }
 
 /// The radar, drawn in PANEL PIXELS: every corner goes through `ray_point`, the same pixel-to-world
@@ -2362,9 +2365,9 @@ void append_radar(std::vector<SceneVertex>& out, const SceneOptions& options, co
         return Vec3{point.x, point.y, point.z};
     };
     const auto rect = [&](float distance, float ax, float ay, float bx, float by,
-                          const std::array<float, 3>& rgb) {
+                          const std::array<float, 3>& rgb, float alpha = 1.0F) {
         emit_quad(out, at(distance, ax, ay), at(distance, bx, ay), at(distance, bx, by),
-                  at(distance, ax, by), rgb);
+                  at(distance, ax, by), rgb, alpha);
     };
     constexpr std::array<float, 3> kBorder{0.80F, 0.82F, 0.85F};
     constexpr std::array<float, 3> kFace{0.04F, 0.05F, 0.06F};
@@ -2503,15 +2506,15 @@ void append_radar(std::vector<SceneVertex>& out, const SceneOptions& options, co
         const float top = centre_y - mark.half;
         const float bottom = centre_y + mark.half;
         if (mark.shape == RadarShape::Square) {
-            rect(marks_at, left, top, right, bottom, rgb);
+            rect(marks_at, left, top, right, bottom, rgb, mark.alpha);
             continue;
         }
         if (mark.shape == RadarShape::Hollow) {
             const float bar = mark.half * kRadarOutlineFraction;
-            rect(marks_at, left, top, right, top + bar, rgb);
-            rect(marks_at, left, bottom - bar, right, bottom, rgb);
-            rect(marks_at, left, top + bar, left + bar, bottom - bar, rgb);
-            rect(marks_at, right - bar, top + bar, right, bottom - bar, rgb);
+            rect(marks_at, left, top, right, top + bar, rgb, mark.alpha);
+            rect(marks_at, left, bottom - bar, right, bottom, rgb, mark.alpha);
+            rect(marks_at, left, top + bar, left + bar, bottom - bar, rgb, mark.alpha);
+            rect(marks_at, right - bar, top + bar, right, bottom - bar, rgb, mark.alpha);
             continue;
         }
         triangle(marks_at, centre_x, centre_y, mark.half, mark.angle, rgb);
@@ -4527,6 +4530,9 @@ constexpr float kMapEdgePixels = 3.0F;
 /// the white ring, because two layers at one distance lose the depth test to each other.
 constexpr float kMapPoolRingRatio = 1.04F;
 constexpr float kMapPoolEdgeRatio = 1.05F;
+/// An enemy blip is NEARER than your assets (fill 1.0, edge 1.02), edge behind fill.
+constexpr float kMapBlipRatio = 0.99F;
+constexpr float kMapBlipEdgeRatio = 1.01F;
 
 void append_world_map(std::vector<SceneVertex>& out, const SceneOptions& options,
                       const sim::Sim& sim) {
@@ -4539,13 +4545,13 @@ void append_world_map(std::vector<SceneVertex>& out, const SceneOptions& options
     const float scale = map_furniture_scale(layout);
     const float marks_at = math::kNearPlane * kHudClearance * corner_ray_length(options.extent);
     const auto rect = [&](float ratio, float ax, float ay, float bx, float by,
-                          const std::array<float, 3>& rgb) {
+                          const std::array<float, 3>& rgb, float alpha = 1.0F) {
         const auto at = [&](float x, float y) {
             const RayPoint point
                 = ray_point(options.camera, options.extent, x, y, marks_at * ratio);
             return Vec3{point.x, point.y, point.z};
         };
-        emit_quad(out, at(ax, ay), at(bx, ay), at(bx, by), at(ax, by), rgb);
+        emit_quad(out, at(ax, ay), at(bx, ay), at(bx, by), at(ax, by), rgb, alpha);
     };
     constexpr std::array<float, 3> kInk{0.0F, 0.0F, 0.0F};
     constexpr std::array<float, 3> kEdge{0.80F, 0.82F, 0.85F};
@@ -4646,6 +4652,16 @@ void append_world_map(std::vector<SceneVertex>& out, const SceneOptions& options
         };
         emit_quad(out, at_needle(needle.at(0)), at_needle(needle.at(1)), at_needle(needle.at(2)),
                   at_needle(needle.at(3)), kDriven);
+    }
+
+    // The enemy, as the radar's blips (`WorldMap::blips`): the radar's red, fading with the radar's
+    // own alpha, a hair NEARER than your assets so a blip over one is not lost to the depth test.
+    for (const MapBlip& blip : map.blips) {
+        const float h = blip.half;
+        rect(kMapBlipEdgeRatio, blip.px - h - scale, blip.py - h - scale, blip.px + h + scale,
+             blip.py + h + scale, kInk, blip.alpha);
+        rect(kMapBlipRatio, blip.px - h, blip.py - h, blip.px + h, blip.py + h,
+             radar_colour(RadarTone::Hostile), blip.alpha);
     }
 
     // The nav marks, over the units, exactly as the radar draws them.

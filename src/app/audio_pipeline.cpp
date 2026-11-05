@@ -4,6 +4,8 @@
 
 #include "protekt/audio/mixer.hpp"
 #include "protekt/game/interaction.hpp"
+#include "protekt/game/radar.hpp"
+#include "protekt/game/sounds.hpp"
 #include "protekt/sim/observer.hpp"
 
 namespace protekt::app {
@@ -72,6 +74,9 @@ AdvanceResult AudioPipeline::advance(sim::Sim& sim, std::uint32_t steps, const A
         }
         if (!listening) {
             continue;
+        }
+        if (game::radar_sweeping(sim.tick())) {
+            voices.push_back(game::radar_blip_voice());
         }
         const std::vector<game::Health> health = health_of(before);
         const std::vector<audio::Voice> heard

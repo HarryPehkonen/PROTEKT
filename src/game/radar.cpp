@@ -47,6 +47,15 @@ constexpr float kNavArrowHalfFraction = 0.022F;
     return height_metres(seed, tile_x, tile_y);
 }
 
+/// Whether `other` is inside `radius_tiles` of `viewer`: the radar's one reach test, inclusive at
+/// the rim, shared by the marks and the detections so they cannot disagree about who is in range.
+[[nodiscard]] bool within_radar(const sim::Unit& viewer, const sim::Unit& other,
+                                int radius_tiles) noexcept {
+    const float dx = tiles(other.x) - tiles(viewer.x);
+    const float dz = tiles(other.y) - tiles(viewer.y);
+    return std::hypot(dx, dz) <= static_cast<float>(radius_tiles);
+}
+
 } // namespace
 
 int viewer_radar_radius(const sim::Sim& sim, sim::UnitId viewer) noexcept {
@@ -256,6 +265,65 @@ std::array<RadarLetter, 4> radar_compass(float yaw_radians, const RadarPanel& pa
     return {at('N', 0.0F, 1.0F), at('E', 1.0F, 0.0F), at('S', 0.0F, -1.0F), at('W', -1.0F, 0.0F)};
 }
 
+bool radar_sweeping(sim::Tick tick) noexcept { return tick % kRadarSweepIntervalTicks == 0; }
+
+bool radar_unit_moving(const sim::Unit& unit) noexcept {
+    return unit.vx.raw != 0 || unit.vy.raw != 0;
+}
+
+float radar_blip_alpha(const sim::Unit& hostile, sim::Tick tick) noexcept {
+    if (radar_unit_moving(hostile)) {
+        return 1.0F;
+    }
+    const sim::Tick since_sweep = tick % kRadarSweepIntervalTicks;
+    if (since_sweep >= kRadarBlipFadeTicks) {
+        return 0.0F;
+    }
+    return 1.0F - (static_cast<float>(since_sweep) / static_cast<float>(kRadarBlipFadeTicks));
+}
+
+std::vector<RadarDetection> radar_detections(std::span<const sim::Unit> units,
+                                             sim::UnitId viewer_unit, int radius_tiles,
+                                             sim::Tick tick) {
+    std::vector<RadarDetection> detections;
+    const auto viewer = std::find_if(units.begin(), units.end(), [viewer_unit](const sim::Unit& u) {
+        return u.id == viewer_unit;
+    });
+    if (!viewer_unit.valid() || radius_tiles <= 0 || viewer == units.end()) {
+        return detections;
+    }
+    for (const sim::Unit& unit : units) {
+        if (!unit.alive || unit.side == viewer->side
+            || !within_radar(*viewer, unit, radius_tiles)) {
+            continue;
+        }
+        const float alpha = radar_blip_alpha(unit, tick);
+        if (alpha > 0.0F) {
+            detections.push_back(RadarDetection{unit.id, alpha});
+        }
+    }
+    return detections;
+}
+
+std::vector<RadarMark> radar_detect(std::vector<RadarMark> marks, std::span<const sim::Unit> units,
+                                    sim::Tick tick) {
+    std::vector<RadarMark> shown;
+    shown.reserve(marks.size());
+    for (RadarMark& mark : marks) {
+        if (mark.tone == RadarTone::Hostile) {
+            const auto unit = std::find_if(units.begin(), units.end(), [&mark](const sim::Unit& u) {
+                return u.id == mark.unit;
+            });
+            mark.alpha = unit == units.end() ? 0.0F : radar_blip_alpha(*unit, tick);
+            if (mark.alpha <= 0.0F) {
+                continue;
+            }
+        }
+        shown.push_back(mark);
+    }
+    return shown;
+}
+
 std::vector<RadarMark> radar_marks(std::span<const sim::Unit> units, sim::UnitId viewer_unit,
                                    float yaw_radians, const RadarPanel& panel, int radius_tiles) {
     std::vector<RadarMark> marks;
@@ -287,7 +355,7 @@ std::vector<RadarMark> radar_marks(std::span<const sim::Unit> units, sim::UnitId
         const float dx = tiles(unit.x) - tiles(viewer->x);
         const float dz = tiles(unit.y) - tiles(viewer->y);
         const float distance = std::hypot(dx, dz);
-        const bool in_range = distance <= static_cast<float>(radius_tiles);
+        const bool in_range = within_radar(*viewer, unit, radius_tiles);
         const bool base = unit.kind == sim::UnitKind::Factory && unit.side == viewer->side;
         if (!in_range && !base) {
             continue; // outside the radius the player knows nothing, and this is where that is kept

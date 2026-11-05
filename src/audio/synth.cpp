@@ -27,6 +27,8 @@ Spec spec_of(SoundKind kind) noexcept {
         return Spec{0.30F, 0.95F, 0x9E3779B9U};
     case SoundKind::Explosion:
         return Spec{0.60F, 0.9F, 0x6C078965U};
+    case SoundKind::RadarBlip:
+        return Spec{0.18F, 0.35F, 0x1B873593U};
     }
     return Spec{0.25F, 0.8F, 1U};
 }
@@ -159,6 +161,21 @@ void explosion(std::vector<float>& out, int rate, Noise& noise) noexcept {
     }
 }
 
+/// The radar's blip: a pure 1.2 kHz tone with a quiet octave over it, dying in about 50 ms. No
+/// noise, so it can never be taken for a shot or a hit.
+void radar_blip(std::vector<float>& out, int rate) noexcept {
+    const float ring_decay = decay_factor(0.05F, rate);
+    float ring = 1.0F;
+    float phase = 0.0F;
+    float octave = 0.0F;
+    for (std::size_t i = 0; i < out.size(); ++i) {
+        phase = advance(phase, 1200.0F, rate);
+        octave = advance(octave, 2400.0F, rate);
+        out[i] = attack(i, rate) * ring * (sine_turns(phase) + (0.25F * sine_turns(octave)));
+        ring *= ring_decay;
+    }
+}
+
 } // namespace
 
 float sine_turns(float turns) noexcept {
@@ -199,6 +216,9 @@ std::vector<float> synthesise(SoundKind kind, int sample_rate) noexcept {
         break;
     case SoundKind::Explosion:
         explosion(samples, sample_rate, noise);
+        break;
+    case SoundKind::RadarBlip:
+        radar_blip(samples, sample_rate);
         break;
     }
     finish(samples, spec.target_peak, sample_rate);

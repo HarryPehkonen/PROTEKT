@@ -18,15 +18,22 @@ namespace {
 
 using protekt::game::Extent;
 using protekt::game::kRadarAspect;
+using protekt::game::kRadarBlipFadeTicks;
 using protekt::game::kRadarElevationRadians;
 using protekt::game::kRadarRadiusTiles;
+using protekt::game::kRadarSweepIntervalTicks;
 using protekt::game::kScoutRadarRadiusTiles;
+using protekt::game::radar_blip_alpha;
 using protekt::game::radar_compass;
+using protekt::game::radar_detect;
+using protekt::game::radar_detections;
 using protekt::game::radar_litter;
 using protekt::game::radar_marks;
 using protekt::game::radar_panel;
 using protekt::game::radar_pools;
 using protekt::game::radar_project;
+using protekt::game::radar_sweeping;
+using protekt::game::RadarDetection;
 using protekt::game::RadarLetter;
 using protekt::game::RadarMark;
 using protekt::game::RadarPanel;
@@ -943,6 +950,126 @@ TEST(RadarPools, ThePoolsReachIsTheViewersRadarAndNoViewerMeansNone) {
     EXPECT_EQ(radar_pools(std::span{&in, 1}, units, UnitId{1}, 0.0F, kPanel).size(), 1U);
     EXPECT_TRUE(radar_pools(std::span{&out, 1}, units, UnitId{1}, 0.0F, kPanel).empty());
     EXPECT_TRUE(radar_pools(std::span{&in, 1}, units, UnitId{}, 0.0F, kPanel).empty());
+}
+
+// ---------------------------------------------------------------- the detection model
+//
+// Harri, 2026-11-03: a stationary enemy shows only as a sweep passes and fades within a second; a
+// moving one shows at all times; a sweep happens every five seconds.
+
+/// Whether the hostile (the second unit) is on the panel at `tick`, and with what alpha (-1 = no).
+float hostile_alpha_at(const std::vector<Unit>& units, protekt::sim::Tick tick) {
+    const std::vector<RadarMark> shown
+        = radar_detect(radar_marks(units, UnitId{1}, 0.0F, kPanel), units, tick);
+    for (const RadarMark& mark : shown) {
+        if (mark.tone == RadarTone::Hostile) {
+            return mark.alpha;
+        }
+    }
+    return -1.0F;
+}
+
+TEST(RadarDetection, ASweepHappensEveryFiveSeconds) {
+    EXPECT_EQ(protekt::game::kRadarSweepSeconds, 5);
+    EXPECT_EQ(kRadarSweepIntervalTicks, 5U * protekt::sim::kTicksPerSecond);
+    EXPECT_TRUE(radar_sweeping(0));
+    EXPECT_FALSE(radar_sweeping(kRadarSweepIntervalTicks - 1));
+    EXPECT_TRUE(radar_sweeping(kRadarSweepIntervalTicks));
+    EXPECT_FALSE(radar_sweeping(kRadarSweepIntervalTicks + 1));
+    EXPECT_TRUE(radar_sweeping(3 * kRadarSweepIntervalTicks));
+    int sweeps = 0;
+    for (protekt::sim::Tick tick = 1; tick <= 10 * protekt::sim::kTicksPerSecond; ++tick) {
+        sweeps += radar_sweeping(tick) ? 1 : 0;
+    }
+    EXPECT_EQ(sweeps, 2) << "two sweeps in ten seconds";
+}
+
+TEST(RadarDetection, AStationaryEnemyIsAbsentThenBlipsAtASweepThenIsGoneWithinASecond) {
+    const std::vector<Unit> units = with_viewer({at_bearing(2, 20.0F, 30.0F, Side::Enemy)});
+    const protekt::sim::Tick sweep = 2 * kRadarSweepIntervalTicks;
+    EXPECT_EQ(hostile_alpha_at(units, sweep - 1), -1.0F) << "between sweeps it is not there";
+    EXPECT_EQ(hostile_alpha_at(units, sweep - 70), -1.0F);
+    EXPECT_EQ(hostile_alpha_at(units, sweep), 1.0F) << "the sweep shows it at full strength";
+    float last = 1.0F;
+    for (protekt::sim::Tick after = 1; after < kRadarBlipFadeTicks; ++after) {
+        const float alpha = hostile_alpha_at(units, sweep + after);
+        EXPECT_GT(alpha, 0.0F) << after;
+        EXPECT_LT(alpha, last) << "it fades gradually, a little each tick: " << after;
+        last = alpha;
+    }
+    EXPECT_EQ(hostile_alpha_at(units, sweep + kRadarBlipFadeTicks), -1.0F)
+        << "gone within a second";
+    EXPECT_EQ(hostile_alpha_at(units, sweep + kRadarSweepIntervalTicks - 1), -1.0F);
+    EXPECT_EQ(hostile_alpha_at(units, sweep + kRadarSweepIntervalTicks), 1.0F)
+        << "and the next sweep shows it again";
+    EXPECT_LE(kRadarBlipFadeTicks, protekt::sim::kTicksPerSecond) << "within a second";
+}
+
+TEST(RadarDetection, AMovingEnemyIsOnThePanelAtAllTimes) {
+    std::vector<Unit> units = with_viewer({at_bearing(2, 20.0F, 30.0F, Side::Enemy)});
+    units.at(1).vy.raw = 1; // any velocity at all is moving
+    for (protekt::sim::Tick tick = 0; tick < 3 * kRadarSweepIntervalTicks; ++tick) {
+        EXPECT_EQ(hostile_alpha_at(units, tick), 1.0F) << tick;
+    }
+    units.at(1).vy.raw = 0;
+    units.at(1).vx.raw = -1;
+    EXPECT_EQ(hostile_alpha_at(units, kRadarSweepIntervalTicks / 2), 1.0F) << "either axis counts";
+}
+
+TEST(RadarDetection, OnlyHostilesAreSweptYourOwnAndYouAreAlwaysThere) {
+    const std::vector<Unit> units = with_viewer(
+        {at_bearing(2, 20.0F, 30.0F, Side::Enemy), at_bearing(3, 15.0F, -40.0F, Side::Player)});
+    const std::vector<RadarMark> shown
+        = radar_detect(radar_marks(units, UnitId{1}, 0.0F, kPanel), units, 75);
+    ASSERT_EQ(shown.size(), 2U) << "you and your friend, but no hostile between sweeps";
+    EXPECT_EQ(shown.at(0).tone, RadarTone::You);
+    EXPECT_EQ(shown.at(1).tone, RadarTone::Yours);
+    EXPECT_EQ(shown.at(1).alpha, 1.0F);
+}
+
+TEST(RadarDetection, TheDetectionsAreTheMarksThatSurviveAndNeverReachPastTheRadius) {
+    std::vector<Unit> units = with_viewer(
+        {at_bearing(2, 20.0F, 30.0F, Side::Enemy), at_bearing(3, 50.0F, 90.0F, Side::Enemy),
+         at_bearing(4, 30.0F, 200.0F, Side::Enemy), at_bearing(5, 10.0F, 10.0F, Side::Player)});
+    units.at(3).vx.raw = 100; // 30 tiles away, moving
+    units.at(2).vx.raw = 100; // 50 tiles away, moving: out of reach
+    const std::vector<RadarDetection> seen
+        = radar_detections(units, UnitId{1}, kRadarRadiusTiles, 75);
+    ASSERT_EQ(seen.size(), 1U) << "only the moving hostile in reach: 20 tiles is between sweeps";
+    EXPECT_EQ(seen.front().unit, UnitId{4});
+    EXPECT_EQ(seen.front().alpha, 1.0F);
+    // On a sweep the same call finds the stationary one too, and the marks agree id for id.
+    const std::vector<RadarDetection> swept
+        = radar_detections(units, UnitId{1}, kRadarRadiusTiles, kRadarSweepIntervalTicks);
+    std::vector<UnitId> from_detections;
+    from_detections.reserve(swept.size());
+    for (const RadarDetection& d : swept) {
+        from_detections.push_back(d.unit);
+    }
+    std::vector<UnitId> from_marks;
+    from_marks.reserve(swept.size());
+    for (const RadarMark& mark : radar_detect(radar_marks(units, UnitId{1}, 0.0F, kPanel), units,
+                                              kRadarSweepIntervalTicks)) {
+        if (mark.tone == RadarTone::Hostile) {
+            from_marks.push_back(mark.unit);
+        }
+    }
+    EXPECT_EQ(from_detections, from_marks);
+    EXPECT_EQ(from_detections.size(), 2U);
+    EXPECT_TRUE(radar_detections(units, UnitId{99}, kRadarRadiusTiles, 0).empty());
+    EXPECT_TRUE(radar_detections(units, UnitId{1}, 0, 0).empty());
+    units.at(1).alive = false;
+    EXPECT_EQ(
+        radar_detections(units, UnitId{1}, kRadarRadiusTiles, kRadarSweepIntervalTicks).size(), 1U)
+        << "a dead hostile is not detected";
+}
+
+TEST(RadarDetection, TheAlphaIsAFunctionOfTheTickAndTheUnitAlone) {
+    Unit still = unit_at(2, 10.0F, 10.0F, Side::Enemy);
+    EXPECT_EQ(radar_blip_alpha(still, 0), 1.0F);
+    EXPECT_EQ(radar_blip_alpha(still, kRadarSweepIntervalTicks), 1.0F);
+    EXPECT_FLOAT_EQ(radar_blip_alpha(still, kRadarBlipFadeTicks / 2), 0.5F);
+    EXPECT_EQ(radar_blip_alpha(still, kRadarBlipFadeTicks), 0.0F);
 }
 
 } // namespace

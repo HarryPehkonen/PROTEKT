@@ -85,6 +85,9 @@ struct RadarMark {
     /// Whose mark this is, so a layer that has to point AT one unit's blip (the command menu's
     /// leader line) finds it here rather than projecting the unit a second time.
     sim::UnitId unit{};
+    /// How opaque the mark is drawn, 1 for everything but a stationary hostile fading after a sweep
+    /// (`radar_blip_alpha`). A mark that is not drawn at all is not in the list, never alpha 0.
+    float alpha{1.0F};
 };
 
 /// The panel's bounding rectangle in the frame, with the y as the frame's y: from the top. The face
@@ -137,6 +140,51 @@ inline constexpr float kRadarLetterInsetPixels = 10.0F;
 /// at the top; a quarter turn to the right puts N on the left. Never diagonals.
 [[nodiscard]] std::array<RadarLetter, 4> radar_compass(float yaw_radians,
                                                        const RadarPanel& panel) noexcept;
+
+/// THE DETECTION MODEL (Harri, 2026-11-03), one rule for the radar and the world map. "Every few
+/// seconds, you hear a blip as the radar does a sweep. Suddenly you see the red enemy dot on the
+/// radar, but it fades gradually and within a second. This is for enemy assets that are not moving.
+/// If they are moving, they show up at all times." "Radar blips happen every five seconds."
+///
+/// A sweep is the sim tick that is a multiple of `kRadarSweepIntervalTicks`. Derived from
+/// `Sim::tick()` alone, so there is no state to keep and a replay sweeps on the same ticks.
+inline constexpr int kRadarSweepSeconds = 5;
+inline constexpr sim::Tick kRadarSweepIntervalTicks = kRadarSweepSeconds * sim::kTicksPerSecond;
+/// A swept blip is at full strength on the sweep's tick and gone this many ticks later (1 s), its
+/// strength falling in a straight line between: "fades gradually and within a second".
+inline constexpr sim::Tick kRadarBlipFadeTicks = sim::kTicksPerSecond;
+
+/// True on the tick the radar sweeps (the sound is made on it, and every stationary hostile blips).
+[[nodiscard]] bool radar_sweeping(sim::Tick tick) noexcept;
+
+/// A unit that is MOVING: it has a velocity this tick. A turret, a building or a halted vehicle has
+/// none.
+[[nodiscard]] bool radar_unit_moving(const sim::Unit& unit) noexcept;
+
+/// How strongly the radar shows `hostile` at `tick`, in [0, 1], 0 being "not at all": 1 for a
+/// moving unit, always; for a stationary one 1 on a sweep falling to 0 over `kRadarBlipFadeTicks`
+/// and 0 until the next. Selection and targeting do not enter into it. Range is not asked here.
+[[nodiscard]] float radar_blip_alpha(const sim::Unit& hostile, sim::Tick tick) noexcept;
+
+/// One hostile the radar shows now, and how strongly.
+struct RadarDetection {
+    sim::UnitId unit{};
+    float alpha{};
+};
+
+/// Every living hostile of `viewer_unit` that is within `radius_tiles` (the same reach and the
+/// same boundary as `radar_marks`) and has a non-zero `radar_blip_alpha` at `tick`, in unit-table
+/// order. THE list the world map draws its enemy blips from; the radar's marks are filtered by the
+/// same alpha (`radar_detect`). Empty when there is no such viewer.
+[[nodiscard]] std::vector<RadarDetection> radar_detections(std::span<const sim::Unit> units,
+                                                           sim::UnitId viewer_unit,
+                                                           int radius_tiles, sim::Tick tick);
+
+/// `radar_marks` as the detection model shows them: every hostile mark that `radar_blip_alpha`
+/// hides at `tick` is dropped and the others carry their alpha. Marks of any other tone are
+/// untouched.
+[[nodiscard]] std::vector<RadarMark> radar_detect(std::vector<RadarMark> marks,
+                                                  std::span<const sim::Unit> units, sim::Tick tick);
 
 /// The marks for one frame, in panel pixels.
 ///

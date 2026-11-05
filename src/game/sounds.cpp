@@ -140,4 +140,6 @@ std::vector<Voice> sounds_for(std::span<const sim::BattleEvent> events, const Li
     return voices;
 }
 
+audio::Voice radar_blip_voice() noexcept { return Voice{SoundKind::RadarBlip, 1.0F, 0.0F}; }
+
 } // namespace protekt::game

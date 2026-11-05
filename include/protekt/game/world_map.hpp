@@ -21,6 +21,11 @@
 /// side's living units into `assets`; there is no other path from a unit to the map, so the one
 /// hard rule is a property of one loop, and a test scans the result by id.
 ///
+/// WHAT IT SHOWS OF THE ENEMY IS THE RADAR'S BLIPS and nothing else (Harri, 2026-11-03): `blips`,
+/// from `radar_detections` -- the radar's own model, so the two views cannot disagree. A moving
+/// enemy in the driven unit's reach is there always; a stationary one only as a sweep passes, and
+/// it fades within a second. A blip is a sighting, not an asset: it is in its own list.
+///
 /// NORTH IS UP and east is right, the way the camera sees the world at yaw 0 (z north, x east), so
 /// tile (0, 0) is the map's bottom-left cell and tile (255, 255) its top-right one. The map is a
 /// SQUARE with one pixels-per-tile figure for both axes, whatever the screen's aspect.
@@ -188,15 +193,28 @@ struct MapPool {
     float half{};
 };
 
+/// An enemy the radar is showing right now, centred at (px, py), `half` its half-size in frame
+/// pixels, `alpha` how strongly (`RadarDetection::alpha`).
+struct MapBlip {
+    sim::UnitId id{};
+    float px{};
+    float py{};
+    float half{};
+    float alpha{};
+};
+
 struct WorldMap {
     WorldMapLayout layout{};
     std::vector<MapAsset> assets;
+    std::vector<MapBlip> blips;
     std::vector<MapMark> marks;
     std::vector<MapPool> pools;
 };
 
 /// Everything the map draws apart from the ground, for the side `own` and the unit `driven`.
-/// `marks` may be null. Only living units of `own` are included; marks only if placed; every pool.
+/// `marks` may be null. Only living units of `own` are included as assets; the enemy appears only
+/// as the radar's `blips` (empty when `driven` is not a unit of the sim); marks only if placed;
+/// every pool.
 [[nodiscard]] WorldMap world_map(const sim::Sim& sim, Extent extent, sim::Side own,
                                  sim::UnitId driven, const NavMarks* marks);
 
