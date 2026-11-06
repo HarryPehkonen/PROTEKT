@@ -7102,6 +7102,8 @@ namespace sim = protekt::sim;
 using protekt::game::build_scene;
 using protekt::game::kBlastAlpha;
 using protekt::game::kBlastPuffs;
+using protekt::game::kBlastSparks;
+using protekt::game::kBlastSparkTicks;
 using protekt::game::kBlastTicks;
 using protekt::game::kMetresPerTile;
 using protekt::game::kSmokeAlpha;
@@ -7250,14 +7252,17 @@ TEST(SceneWake, NothingIsDrawnWithoutADeath) {
 TEST(SceneWake, AKilledEventLaysAHotBurstAtTheWreckAndItBurnsOut) {
     const WakeFrame frame = wake_at(0);
     ASSERT_TRUE(frame.wreck_valid);
-    ASSERT_EQ(frame.wake.size(), kBlastPuffs * kPuffVertices);
+    // The burst is its puffs and then its sparks (AG): the puffs come first in the layer.
+    ASSERT_EQ(frame.wake.size(),
+              (kBlastPuffs * kPuffVertices) + (kBlastSparks * protekt::game::kSparkVertices));
     // The ground under the wreck, from the rig's own seed: a puff sits ABOVE it, never in the hill.
     const float ground = protekt::game::ground_metres(42ULL, static_cast<float>(frame.tile_x),
                                                       static_cast<float>(frame.tile_y));
     // A Killed event is stamped with the tick before the blow lands, so the freshest burst a frame
     // can show is one tick old: the full burst alpha less one tick's worth of fade.
     const float fresh = kBlastAlpha * (1.0F - (1.0F / static_cast<float>(kBlastTicks)));
-    for (const SceneVertex& v : frame.wake) {
+    for (const SceneVertex& v :
+         std::span<const SceneVertex>(frame.wake).first(kBlastPuffs * kPuffVertices)) {
         EXPECT_NEAR(v.alpha, fresh, 1e-4F) << "a fresh puff is at the burst's own alpha";
         EXPECT_LT(v.alpha, 1.0F) << "it blends; it is not a solid";
         EXPECT_GT(v.position[1], ground) << "and it is off the ground";
@@ -7270,6 +7275,72 @@ TEST(SceneWake, AKilledEventLaysAHotBurstAtTheWreckAndItBurnsOut) {
     const WakeFrame later = wake_at(kBlastTicks);
     ASSERT_TRUE(later.wreck_valid);
     EXPECT_EQ(later.wake.size(), kSmokePuffs * kPuffVertices) << "the burst outlived kBlastTicks";
+}
+
+// --- AG / AI: the explosion's SPARKS -- small, bright, opaque, sized against the fireball
+// ---------
+
+/// The sparks of a wake frame: the opaque vertices (every puff and every smoke puff blends).
+[[nodiscard]] std::vector<SceneVertex> blast_sparks(const WakeFrame& frame) {
+    std::vector<SceneVertex> found;
+    for (const SceneVertex& v : frame.wake) {
+        if (v.alpha == 1.0F) {
+            found.push_back(v);
+        }
+    }
+    return found;
+}
+
+TEST(SceneWake, TheExplosionThrowsSparksAndTheSmokeDoesNot) {
+    const WakeFrame burst = wake_at(0);
+    ASSERT_TRUE(burst.wreck_valid);
+    EXPECT_EQ(blast_sparks(burst).size(), kBlastSparks * protekt::game::kSparkVertices);
+    // Past the sparks' flight the fireball is still burning but nothing opaque is left...
+    const WakeFrame late = wake_at(kBlastSparkTicks + 1);
+    ASSERT_FALSE(late.wake.empty());
+    EXPECT_TRUE(blast_sparks(late).empty()) << "a spark outlived kBlastSparkTicks";
+    // ...and the smoke column, which follows the burst, never has one.
+    const WakeFrame smoke = wake_at(kBlastTicks + 1);
+    EXPECT_EQ(smoke.wake.size(), kSmokePuffs * kPuffVertices);
+    EXPECT_TRUE(blast_sparks(smoke).empty());
+}
+
+TEST(SceneWake, ABlastSparkIsOpaqueBrightSmallAndSizedAgainstTheFireball) {
+    const WakeFrame burst = wake_at(0);
+    const std::vector<SceneVertex> sparks = blast_sparks(burst);
+    ASSERT_FALSE(sparks.empty());
+    for (const SceneVertex& v : sparks) {
+        const float luma
+            = (0.2126F * v.colour[0]) + (0.7152F * v.colour[1]) + (0.0722F * v.colour[2]);
+        EXPECT_GE(luma, 0.75F);
+    }
+    for (std::size_t first = 0; first < sparks.size(); first += protekt::game::kSparkVertices) {
+        float lo = 1e9F;
+        float hi = -1e9F;
+        for (std::size_t i = 0; i < protekt::game::kSparkVertices; ++i) {
+            lo = std::min(lo, sparks.at(first + i).position[0]);
+            hi = std::max(hi, sparks.at(first + i).position[0]);
+        }
+        const float width = hi - lo;
+        // Never under the minimum drawn size...
+        EXPECT_GE(width, 2.0F * protekt::game::kBlastSparkHalfMetres - 1e-4F);
+        // ...and small against the 2 m fireball box (a tenth, not a golf ball).
+        EXPECT_LE(width, 2.0F * protekt::game::kBlastHalfMetres * 0.2F);
+    }
+}
+
+TEST(SceneWake, ABlastSparkFliesOutwardFromTheFireball) {
+    const std::vector<SceneVertex> a = blast_sparks(wake_at(1));
+    const std::vector<SceneVertex> b = blast_sparks(wake_at(8));
+    ASSERT_EQ(a.size(), b.size());
+    const auto spread = [](const std::vector<SceneVertex>& v) {
+        float sum = 0.0F;
+        for (std::size_t first = 0; first < v.size(); first += protekt::game::kSparkVertices) {
+            sum += std::hypot(v.at(first).position[0], v.at(first).position[2]);
+        }
+        return sum;
+    };
+    EXPECT_NE(spread(a), spread(b)) << "the sparks did not move";
 }
 
 TEST(SceneWake, TheBurstBecomesASlowGreyColumnAndTheColumnGoesInItsTurn) {

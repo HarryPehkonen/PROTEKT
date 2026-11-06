@@ -213,6 +213,15 @@ patient) and it trembles: every cube is thrown about a third of a metre off the 
 each sim tick, while the two ends stay put on the truck and the patient. A truck beside a unit at full
 health, out of reach, or on the other side draws nothing. Drawing only: no recorded battle moved.
 
+**The beam is spheres, and there are sparks** (2026-11-06; Harri: "the shapes should be fairly
+transparent and spherical ... What about little tiny sparks?", and on the explosion, "I never see any
+sparks"). The beam's 28 beads are now translucent spheres (20-sided icosahedra, alpha 0.4), and the weld at
+the patient's end throws a constant shower of 8 sparks. The explosion throws 14 sparks too. A spark is
+SMALL, BRIGHT and OPAQUE -- near-white hot cooling to amber, alpha 1, never faded -- because the
+view's FXAA pulls a lone bright speck toward its neighbours, so each is kept about 2.5 pixels wide at
+any distance rather than turning FXAA down for everything. The blast, the smoke and the sparks are
+all drawn by one extracted spawn (`game::Particle`). Presentation only; no recorded battle moved.
+
 **Repair by pointing** (2026-11-05; Harri: "maybe the same logic that's used to attack an enemy can be
 used to repair a friendly. You know, targetting."). Select a service truck, point the crosshair at a
 damaged friendly (within the same 4 degrees the attack offer uses) and the menu's top row reads `SPACE

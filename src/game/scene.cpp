@@ -1894,27 +1894,28 @@ float wake_fraction(std::uint64_t seed, std::uint32_t wreck, std::uint32_t salt)
 /// half a step round from the axes, which puts the flats on the box's own faces. Winding is the
 /// box's: the sides run the way the box's near face does, the top counter-clockwise seen from
 /// above, the bottom the reverse. Each cap is a fan from its first corner, so the prism costs
-/// `kPuffVertices` and every edge is shared by exactly two triangles.
+/// `prism_vertices(sides)` and every edge is shared by exactly two triangles. `sides` is at most
+/// `kPuffSides`: a spark is the same prism with four.
 void emit_puff(std::vector<SceneVertex>& out, float x, float centre, float z, float half,
-               const Vec3& colour, float alpha) {
+               const Vec3& colour, float alpha, std::size_t sides = kPuffSides) {
     constexpr float kTau = 6.2831853F;
-    constexpr float kStep = kTau / static_cast<float>(kPuffSides);
+    const float step = kTau / static_cast<float>(sides);
     // The flat is `half` away, so the corner is `half / cos(step / 2)`.
-    const float radius = half / std::cos(kStep * 0.5F);
-    std::array<std::array<float, 2>, kPuffSides> rim{};
-    for (std::size_t corner = 0; corner < kPuffSides; ++corner) {
-        const float angle = (static_cast<float>(corner) + 0.5F) * kStep;
+    const float radius = half / std::cos(step * 0.5F);
+    std::array<std::array<float, 2>, kPuffSides> rim{}; // a particle has at most a puff's corners
+    for (std::size_t corner = 0; corner < sides; ++corner) {
+        const float angle = (static_cast<float>(corner) + 0.5F) * step;
         rim.at(corner) = {x + (std::cos(angle) * radius), z + (std::sin(angle) * radius)};
     }
     const float y0 = centre - half;
     const float y1 = centre + half;
-    for (std::size_t corner = 0; corner < kPuffSides; ++corner) {
+    for (std::size_t corner = 0; corner < sides; ++corner) {
         const auto& a = rim.at(corner);
-        const auto& b = rim.at((corner + 1) % kPuffSides);
+        const auto& b = rim.at((corner + 1) % sides);
         emit_quad(out, Vec3{a.at(0), y0, a.at(1)}, Vec3{b.at(0), y0, b.at(1)},
                   Vec3{b.at(0), y1, b.at(1)}, Vec3{a.at(0), y1, a.at(1)}, colour, alpha);
     }
-    for (std::size_t corner = 1; corner + 1 < kPuffSides; ++corner) {
+    for (std::size_t corner = 1; corner + 1 < sides; ++corner) {
         const auto& b = rim.at(corner);
         const auto& c = rim.at(corner + 1);
         emit_triangle(out, Vec3{rim.at(0).at(0), y1, rim.at(0).at(1)}, Vec3{b.at(0), y1, b.at(1)},
@@ -1922,6 +1923,59 @@ void emit_puff(std::vector<SceneVertex>& out, float x, float centre, float z, fl
         emit_triangle(out, Vec3{rim.at(0).at(0), y0, rim.at(0).at(1)}, Vec3{c.at(0), y0, c.at(1)},
                       Vec3{b.at(0), y0, b.at(1)}, colour, alpha);
     }
+}
+
+/// A SPHERE of the repair beam: an icosahedron (`kSphereFaces` = 20 triangles) whose twelve corners
+/// all stand `radius` from (x, y, z). Corners are the three golden rectangles' (0, +-1, +-phi)
+/// and its two rotations, pushed out to the radius; the faces are the classic twenty, wound
+/// outward. The renderer does not cull, so winding only matters to a lit shader, which this is not.
+void emit_sphere(std::vector<SceneVertex>& out, float x, float y, float z, float radius,
+                 const Vec3& colour, float alpha) {
+    constexpr float kPhi = 1.6180340F;
+    constexpr std::array<std::array<float, 3>, 12> kCorners{{{-1.0F, kPhi, 0.0F},
+                                                             {1.0F, kPhi, 0.0F},
+                                                             {-1.0F, -kPhi, 0.0F},
+                                                             {1.0F, -kPhi, 0.0F},
+                                                             {0.0F, -1.0F, kPhi},
+                                                             {0.0F, 1.0F, kPhi},
+                                                             {0.0F, -1.0F, -kPhi},
+                                                             {0.0F, 1.0F, -kPhi},
+                                                             {kPhi, 0.0F, -1.0F},
+                                                             {kPhi, 0.0F, 1.0F},
+                                                             {-kPhi, 0.0F, -1.0F},
+                                                             {-kPhi, 0.0F, 1.0F}}};
+    constexpr std::array<std::array<std::size_t, 3>, kSphereFaces> kFaces{
+        {{0, 11, 5},  {0, 5, 1},  {0, 1, 7},  {0, 7, 10}, {0, 10, 11}, {1, 5, 9}, {5, 11, 4},
+         {11, 10, 2}, {10, 7, 6}, {7, 1, 8},  {3, 9, 4},  {3, 4, 2},   {3, 2, 6}, {3, 6, 8},
+         {3, 8, 9},   {4, 9, 5},  {2, 4, 11}, {6, 2, 10}, {8, 6, 7},   {9, 8, 1}}};
+    const float scale = radius / std::sqrt(1.0F + (kPhi * kPhi));
+    const auto corner = [&](std::size_t index) {
+        const auto& c = kCorners.at(index);
+        return Vec3{x + (c.at(0) * scale), y + (c.at(1) * scale), z + (c.at(2) * scale)};
+    };
+    for (const auto& face : kFaces) {
+        emit_triangle(out, corner(face.at(0)), corner(face.at(1)), corner(face.at(2)), colour,
+                      alpha);
+    }
+}
+
+/// A SPARK as a `Particle` (AG, AI): `half` wide, near white-hot cooling to amber over its
+/// `lifetime`, OPAQUE for all of it, falling under `kSparkGravity`, and kept
+/// `kSparkFloorPerMetre` wide per metre of distance so it never drops under a few pixels. The
+/// blast's sparks and the weld's are both this, from different origins and velocities.
+Particle spark_spawn(const Vec3& origin, const Vec3& velocity, sim::Tick lifetime, float half) {
+    Particle spark;
+    spark.origin = origin;
+    spark.velocity = velocity;
+    spark.gravity = kSparkGravity;
+    spark.lifetime = lifetime;
+    spark.half_from = half;
+    spark.half_to = half;
+    spark.colour_from = kSparkHotColour;
+    spark.colour_to = kSparkCoolColour;
+    spark.sides = kSparkSides;
+    spark.floor_per_metre = kSparkFloorPerMetre;
+    return spark;
 }
 
 /// THE WAKE A WRECK LEAVES (D4): a burnt-out unit throws a burst of hot puffs for `kBlastTicks`,
@@ -1940,6 +1994,7 @@ void append_effects(std::vector<SceneVertex>& out, const SceneOptions& options,
     constexpr float kOne = static_cast<float>(sim::Fixed::kOne);
     constexpr float kTau = 6.2831853F;
     const sim::Tick now = sim.tick();
+    const Vec3 eye{options.camera.x, options.camera.y, options.camera.z};
     for (const sim::BattleEvent& event : options.events) {
         if (event.kind != sim::EventKind::Killed || event.tick > now) {
             continue;
@@ -1969,44 +2024,75 @@ void append_effects(std::vector<SceneVertex>& out, const SceneOptions& options,
         const std::uint32_t id = wreck->id.value;
         if (age < kBlastTicks) {
             // The burst: thrown out and up, shrinking and cooling as it goes.
-            const float t = static_cast<float>(age) / static_cast<float>(kBlastTicks);
-            const float half = kBlastHalfMetres + ((kBlastLastHalfMetres - kBlastHalfMetres) * t);
-            const float alpha = kBlastAlpha * (1.0F - t);
-            Vec3 colour{};
-            for (std::size_t channel = 0; channel < colour.size(); ++channel) {
-                colour.at(channel)
-                    = kBlastHotColour.at(channel)
-                      + ((kBlastCoolColour.at(channel) - kBlastHotColour.at(channel)) * t);
-            }
             for (std::uint32_t puff = 0; puff < kBlastPuffs; ++puff) {
                 const float heading = wake_fraction(options.seed, id, puff) * kTau;
                 const float out_at = 0.35F + (0.65F * wake_fraction(options.seed, id, puff + 64U));
                 const float up_at = 0.2F + (0.8F * wake_fraction(options.seed, id, puff + 128U));
                 // Wide at the instant of the kill and carried outward as it burns: the puffs start
-                // at the hull and end at the burst's reach.
-                const float reach = kBlastSpreadMetres * out_at * (0.4F + (0.6F * t));
-                emit_puff(out, cx + (std::cos(heading) * reach),
-                          ground + half + (kBlastRiseMetres * up_at * t),
-                          cz + (std::sin(heading) * reach), half, colour, alpha);
+                // 0.4 of the way to the burst's reach and cover the other 0.6 over the burst. The
+                // centre rides the shrinking box (it rests on the ground, so it sinks by the
+                // change in `half`) and climbs `kBlastRiseMetres * up_at`: both linear in age.
+                const float reach = kBlastSpreadMetres * out_at;
+                const float ticks = static_cast<float>(kBlastTicks);
+                Particle puff_spawn;
+                puff_spawn.origin
+                    = {cx + (std::cos(heading) * reach * 0.4F), ground + kBlastHalfMetres,
+                       cz + (std::sin(heading) * reach * 0.4F)};
+                puff_spawn.velocity
+                    = {std::cos(heading) * reach * 0.6F / ticks,
+                       ((kBlastRiseMetres * up_at) + (kBlastLastHalfMetres - kBlastHalfMetres))
+                           / ticks,
+                       std::sin(heading) * reach * 0.6F / ticks};
+                puff_spawn.lifetime = kBlastTicks;
+                puff_spawn.half_from = kBlastHalfMetres;
+                puff_spawn.half_to = kBlastLastHalfMetres;
+                puff_spawn.colour_from = kBlastHotColour;
+                puff_spawn.colour_to = kBlastCoolColour;
+                puff_spawn.alpha_from = kBlastAlpha;
+                puff_spawn.alpha_to = 0.0F;
+                emit_particle(out, puff_spawn, age, eye);
+            }
+            // The sparks, after the puffs: small, bright and OPAQUE, thrown out of the fireball's
+            // centre on their own seeded headings and falling as they go (AI).
+            for (std::uint32_t spark = 0; spark < kBlastSparks; ++spark) {
+                const float heading = wake_fraction(options.seed, id, spark + 400U) * kTau;
+                const float speed
+                    = kBlastSparkSpeedMetres
+                      * (0.4F + (0.6F * wake_fraction(options.seed, id, spark + 440U)));
+                const float lift
+                    = kBlastSparkLiftMetres
+                      * (0.3F + (0.7F * wake_fraction(options.seed, id, spark + 480U)));
+                emit_particle(
+                    out,
+                    spark_spawn({cx, ground + kBlastHalfMetres, cz},
+                                {std::cos(heading) * speed, lift, std::sin(heading) * speed},
+                                kBlastSparkTicks, kBlastSparkHalfMetres),
+                    age, eye);
             }
             continue;
         }
         // The column: a slow grey stack, drifting on a wind that comes off the frame's own seed, so
         // wrecks on one map lean the same way -- weather, not seven private breezes.
         const sim::Tick since = age - kBlastTicks;
-        const float t = static_cast<float>(since) / static_cast<float>(kSmokeTicks - kBlastTicks);
-        const float alpha = kSmokeAlpha * (1.0F - t);
         const float wind = wake_fraction(options.seed, 0U, 1U) * kTau;
-        const float drift = kSmokeDriftMetresPerTick * static_cast<float>(since);
-        const float rise = kSmokeRiseMetresPerTick * static_cast<float>(since);
         for (std::uint32_t puff = 0; puff < kSmokePuffs; ++puff) {
             const float jitter = (wake_fraction(options.seed, id, puff + 256U) - 0.5F) * 0.5F;
             const float sway = (wake_fraction(options.seed, id, puff + 320U) - 0.5F) * 0.5F;
-            emit_puff(out, cx + (std::cos(wind) * drift) + jitter,
-                      ground + kSmokeBaseMetres + (static_cast<float>(puff) * kSmokeSpacingMetres)
-                          + rise,
-                      cz + (std::sin(wind) * drift) + sway, kSmokeHalfMetres,
-                      Vec3{kSmokeColour.at(0), kSmokeColour.at(1), kSmokeColour.at(2)}, alpha);
+            Particle smoke;
+            smoke.origin
+                = {cx + jitter,
+                   ground + kSmokeBaseMetres + (static_cast<float>(puff) * kSmokeSpacingMetres),
+                   cz + sway};
+            smoke.velocity = {std::cos(wind) * kSmokeDriftMetresPerTick, kSmokeRiseMetresPerTick,
+                              std::sin(wind) * kSmokeDriftMetresPerTick};
+            smoke.lifetime = kSmokeTicks - kBlastTicks;
+            smoke.half_from = kSmokeHalfMetres;
+            smoke.half_to = kSmokeHalfMetres;
+            smoke.colour_from = kSmokeColour;
+            smoke.colour_to = kSmokeColour;
+            smoke.alpha_from = kSmokeAlpha;
+            smoke.alpha_to = 0.0F;
+            emit_particle(out, smoke, since, eye);
         }
     }
 }
@@ -2024,9 +2110,12 @@ void append_repair_beams(std::vector<SceneVertex>& out, const SceneOptions& opti
     if (links.empty()) {
         return;
     }
-    out.reserve(out.size() + (links.size() * kRepairBeamBeads * 36));
+    out.reserve(out.size()
+                + (links.size()
+                   * ((kRepairBeamBeads * kSphereVertices) + (kRepairSparks * kSparkVertices))));
     const auto tile = [](sim::Fixed v) { return static_cast<float>(v.raw) / sim::Fixed::kOne; };
     const std::size_t flow = static_cast<std::size_t>(sim.tick() / kRepairBeamFlowTicks);
+    const Vec3 eye{options.camera.x, options.camera.y, options.camera.z};
     for (const RepairLink& link : links) {
         const sim::Unit* truck = sim.find(link.truck);
         const sim::Unit* patient = sim.find(link.patient);
@@ -2057,8 +2146,29 @@ void append_repair_beams(std::vector<SceneVertex>& out, const SceneOptions& opti
             }
             const std::array<float, 3>& ink
                 = kRepairBeamPalette.at((bead + flow) % kRepairBeamPalette.size());
-            emit_bolt_box(out, at.at(0), at.at(1), at.at(2), kRepairBeamBeadHalfMetres,
-                          Vec3{ink.at(0), ink.at(1), ink.at(2)});
+            emit_sphere(out, at.at(0), at.at(1), at.at(2), kRepairBeamBeadRadiusMetres,
+                        Vec3{ink.at(0), ink.at(1), ink.at(2)}, kRepairBeamAlpha);
+        }
+        // The weld's sparks, after the translucent beads: opaque, thrown from the patient's end.
+        // Spark `n` is `n / kRepairSparks` of its life ahead of spark 0, so one is always being
+        // born; each life gets its own seeded heading from the cycle it is in.
+        for (std::size_t spark = 0; spark < kRepairSparks; ++spark) {
+            const std::uint32_t shifted
+                = static_cast<std::uint32_t>(sim.tick())
+                  + static_cast<std::uint32_t>(spark * kRepairSparkTicks / kRepairSparks);
+            const sim::Tick age = shifted % kRepairSparkTicks;
+            const std::uint32_t salt = 0x8000U + ((shifted / kRepairSparkTicks) * 64U)
+                                       + (static_cast<std::uint32_t>(spark) * 4U);
+            const float heading = wake_fraction(options.seed, pair, salt) * 2.0F * kPi;
+            const float speed = kRepairSparkSpeedMetres
+                                * (0.4F + (0.6F * wake_fraction(options.seed, pair, salt + 1U)));
+            const float lift = kRepairSparkLiftMetres
+                               * (0.3F + (0.7F * wake_fraction(options.seed, pair, salt + 2U)));
+            emit_particle(out,
+                          spark_spawn({to.at(0), to.at(1), to.at(2)},
+                                      {std::cos(heading) * speed, lift, std::sin(heading) * speed},
+                                      kRepairSparkTicks, kRepairSparkHalfMetres),
+                          age, eye);
         }
     }
 }
@@ -2889,6 +2999,34 @@ std::array<std::uint8_t, 5> mount_glyph(char glyph) {
 }
 
 } // namespace
+
+void emit_particle(std::vector<SceneVertex>& out, const Particle& particle, sim::Tick age,
+                   const math::Vec3& eye) {
+    if (age >= particle.lifetime) {
+        return;
+    }
+    const float t = static_cast<float>(age) / static_cast<float>(particle.lifetime);
+    const float a = static_cast<float>(age);
+    const float x = particle.origin.at(0) + (particle.velocity.at(0) * a);
+    const float y
+        = particle.origin.at(1) + (particle.velocity.at(1) * a) - (0.5F * particle.gravity * a * a);
+    const float z = particle.origin.at(2) + (particle.velocity.at(2) * a);
+    const float dx = x - eye.at(0);
+    const float dy = y - eye.at(1);
+    const float dz = z - eye.at(2);
+    const float half
+        = std::max(particle.half_from + ((particle.half_to - particle.half_from) * t),
+                   particle.floor_per_metre * std::sqrt((dx * dx) + (dy * dy) + (dz * dz)));
+    Vec3 colour{};
+    for (std::size_t channel = 0; channel < colour.size(); ++channel) {
+        colour.at(channel)
+            = particle.colour_from.at(channel)
+              + ((particle.colour_to.at(channel) - particle.colour_from.at(channel)) * t);
+    }
+    emit_puff(out, x, y, z, half, colour,
+              particle.alpha_from + ((particle.alpha_to - particle.alpha_from) * t),
+              particle.sides);
+}
 
 // The overlaps are taken in integers: across, the mask is scaled by `cols` and the pixels by 5, so
 // mask cell c spans [c*cols, (c+1)*cols) and pixel j spans [5j, 5j+5); down, likewise with `rows`.

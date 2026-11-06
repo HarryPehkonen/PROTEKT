@@ -291,6 +291,7 @@ if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
         tests/test_shove.cpp
         tests/test_service_repair.cpp
         tests/test_repair_beam.cpp
+        tests/test_particles.cpp
         tests/test_repair_order.cpp
         tests/test_repair_offer.cpp
         tests/test_repair_list.cpp

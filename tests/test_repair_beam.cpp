@@ -129,12 +129,12 @@ TEST(RepairBeam, TheBeamRunsFromTheTruckToThePatient) {
         return static_cast<float>(sim.units().at(index).x.raw)
                / static_cast<float>(protekt::sim::Fixed::kOne) * protekt::game::kMetresPerTile;
     };
-    const float pad = protekt::game::kRepairBeamBeadHalfMetres + 0.01F;
+    const float pad = protekt::game::kRepairBeamBeadRadiusMetres + 0.01F;
     const float patient_x = centre_x(0);
     const float truck_x = centre_x(1);
     // It reaches both: the end beads sit on the endpoints (the tremble fades to nothing there)...
-    EXPECT_NEAR(lo, patient_x - protekt::game::kRepairBeamBeadHalfMetres, pad);
-    EXPECT_NEAR(hi, truck_x + protekt::game::kRepairBeamBeadHalfMetres, pad);
+    EXPECT_NEAR(lo, patient_x - protekt::game::kRepairBeamBeadRadiusMetres, pad);
+    EXPECT_NEAR(hi, truck_x + protekt::game::kRepairBeamBeadRadiusMetres, pad);
     // ...and does not run past either.
     EXPECT_GE(lo, patient_x - pad);
     EXPECT_LE(hi, truck_x + pad);
@@ -203,6 +203,136 @@ TEST(RepairBeam, ALinkMeansTheSimIsAdvancingThatRepair) {
         const bool advanced = after.hp != before.hp || after.repair_frac != before.repair_frac;
         EXPECT_EQ(linked, advanced) << "tick " << t;
     }
+}
+
+// --- AG: the beam's shapes are transparent SPHERES, and the weld throws SPARKS
+// ---------------------
+
+/// The repair's sparks, picked out of the frame by WHERE they are: the weld's sparks are emitted
+/// straight after the beam's last bead, so they are the `kRepairSparks` boxes that follow the last
+/// vertex in a beam ink. (Colour alone cannot pick them: a lit patch of ground can be any warm
+/// colour.) Empty when there is no beam.
+std::vector<SceneVertex> sparks_of(const Scene& scene) {
+    std::size_t after_beam = 0;
+    for (std::size_t i = 0; i < scene.vertices.size(); ++i) {
+        if (is_beam_ink(scene.vertices.at(i))) {
+            after_beam = i + 1;
+        }
+    }
+    std::vector<SceneVertex> found;
+    if (after_beam == 0) {
+        return found;
+    }
+    const std::size_t count = protekt::game::kRepairSparks * protekt::game::kSparkVertices;
+    for (std::size_t i = after_beam; i < after_beam + count && i < scene.vertices.size(); ++i) {
+        found.push_back(scene.vertices.at(i));
+    }
+    return found;
+}
+
+TEST(RepairBeam, ItsShapesAreSpheresOfTwentyFacesEach) {
+    const Sim sim = rig(1);
+    const std::vector<SceneVertex> beam = beam_of(protekt::game::build_scene(sim, view()));
+    EXPECT_EQ(protekt::game::kSphereFaces, std::size_t{20});
+    EXPECT_EQ(beam.size(), protekt::game::kRepairBeamBeads * protekt::game::kSphereVertices);
+    // A cube has eight corners; a sphere's vertices all stand one radius from the bead's centre.
+    // Measured: every vertex of the first bead is the same distance from the bead's centre.
+    const std::size_t each = protekt::game::kSphereVertices;
+    std::array<float, 3> centre{};
+    for (std::size_t i = 0; i < each; ++i) {
+        for (std::size_t axis = 0; axis < 3; ++axis) {
+            centre.at(axis) += beam.at(i).position.at(axis) / static_cast<float>(each);
+        }
+    }
+    for (std::size_t i = 0; i < each; ++i) {
+        float sq = 0.0F;
+        for (std::size_t axis = 0; axis < 3; ++axis) {
+            const float d = beam.at(i).position.at(axis) - centre.at(axis);
+            sq += d * d;
+        }
+        EXPECT_NEAR(std::sqrt(sq), protekt::game::kRepairBeamBeadRadiusMetres, 0.01F);
+    }
+}
+
+TEST(RepairBeam, ItsShapesAreFairlyTransparent) {
+    const Sim sim = rig(1);
+    const std::vector<SceneVertex> beam = beam_of(protekt::game::build_scene(sim, view()));
+    ASSERT_FALSE(beam.empty());
+    for (const SceneVertex& v : beam) {
+        EXPECT_LT(v.alpha, 0.6F) << "fairly transparent";
+        EXPECT_GT(v.alpha, 0.1F) << "but it must still be seen";
+        EXPECT_EQ(v.alpha, protekt::game::kRepairBeamAlpha);
+    }
+}
+
+TEST(RepairBeam, TheWeldThrowsSparksThatAreOpaqueAndBright) {
+    const Sim sim = rig(1);
+    const std::vector<SceneVertex> sparks = sparks_of(protekt::game::build_scene(sim, view()));
+    ASSERT_EQ(sparks.size(), protekt::game::kRepairSparks * protekt::game::kSparkVertices);
+    for (const SceneVertex& v : sparks) {
+        EXPECT_EQ(v.alpha, 1.0F) << "the opposite of the beam: a soft spark is an invisible one";
+        const float luma
+            = (0.2126F * v.colour[0]) + (0.7152F * v.colour[1]) + (0.0722F * v.colour[2]);
+        EXPECT_GE(luma, 0.75F);
+    }
+}
+
+/// The width of each spark's box (every kSparkVertices vertices), along x.
+std::vector<float> spark_widths(const std::vector<SceneVertex>& sparks) {
+    std::vector<float> widths;
+    for (std::size_t first = 0; first + protekt::game::kSparkVertices <= sparks.size();
+         first += protekt::game::kSparkVertices) {
+        float lo = 1e9F;
+        float hi = -1e9F;
+        for (std::size_t i = 0; i < protekt::game::kSparkVertices; ++i) {
+            lo = std::min(lo, sparks.at(first + i).position.at(0));
+            hi = std::max(hi, sparks.at(first + i).position.at(0));
+        }
+        widths.push_back(hi - lo);
+    }
+    return widths;
+}
+
+TEST(RepairBeam, ASparkIsSmallButNeverSmallerThanItsMinimumDrawnSize) {
+    const Sim sim = rig(1);
+    for (const float w : spark_widths(sparks_of(protekt::game::build_scene(sim, view())))) {
+        EXPECT_GE(w, 2.0F * protekt::game::kRepairSparkHalfMetres - 1e-4F);
+        EXPECT_LE(w, 0.25F) << "small: his instruction, not golf balls";
+    }
+    // From far away the floor in PIXELS takes over: ~2.5 rows wide, however far the camera.
+    SceneOptions far = view();
+    far.radius_tiles = 60;
+    far.camera.z = static_cast<float>(kRowY) * protekt::game::kMetresPerTile - 100.0F;
+    const std::vector<SceneVertex> distant = sparks_of(protekt::game::build_scene(sim, far));
+    ASSERT_EQ(distant.size(), protekt::game::kRepairSparks * protekt::game::kSparkVertices);
+    const float metres = 100.0F; // at least this far from every spark
+    for (const float w : spark_widths(distant)) {
+        EXPECT_GE(w, 2.0F * protekt::game::kSparkFloorPerMetre * metres * 0.9F);
+    }
+}
+
+TEST(RepairBeam, TheSparksFlyFromTheWeldAndMoveFromOneTickToTheNext) {
+    Sim sim = rig(1);
+    const std::vector<SceneVertex> before = sparks_of(protekt::game::build_scene(sim, view()));
+    sim.step();
+    const std::vector<SceneVertex> after = sparks_of(protekt::game::build_scene(sim, view()));
+    ASSERT_EQ(before.size(), after.size());
+    int moved = 0;
+    for (std::size_t i = 0; i < before.size(); ++i) {
+        if (before.at(i).position != after.at(i).position) {
+            ++moved;
+        }
+    }
+    EXPECT_GT(moved, static_cast<int>(before.size()) / 2);
+}
+
+TEST(RepairBeam, NoRepairMeansNoSparks) {
+    // The repairing frame is bigger than the idle one by the beam and the sparks, and by nothing
+    // else: the sparks are part of the beam's layer, not a standing decoration.
+    const std::size_t idle = protekt::game::build_scene(rig(0), view()).vertices.size();
+    const std::size_t mending = protekt::game::build_scene(rig(1), view()).vertices.size();
+    EXPECT_EQ(mending - idle, (protekt::game::kRepairBeamBeads * protekt::game::kSphereVertices)
+                                  + (protekt::game::kRepairSparks * protekt::game::kSparkVertices));
 }
 
 } // namespace

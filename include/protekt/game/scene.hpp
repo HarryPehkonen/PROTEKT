@@ -389,10 +389,11 @@ private:
 /// puffs stacked over the wreck, rising and drifting on a wind that comes off the frame's seed,
 /// thinning out until `kSmokeTicks` have passed and it is gone.
 ///
-/// The sizes are set against the hull that died: a tank is `2 * kHullHalfMetres` = 1.2 m across,
-/// and a puff a sixteenth of that is a spark nobody sees. The fireball opens at about twice the
-/// hull
-/// (`kBlastHalfMetres` = 1.0 m, a 2 m box) and is big, bright and brief, as BZ2's were.
+/// The sizes are set against the hull that died: a tank is `2 * kHullHalfMetres` = 1.2 m across.
+/// The fireball opens at about twice the hull (`kBlastHalfMetres` = 1.0 m, a 2 m box) and is big,
+/// bright and brief, as BZ2's were. A PUFF a sixteenth of the hull is a speck nobody sees, so the
+/// burst's sparks are not puffs: they are `Particle`s of their own (`kBlastSparks`), small but
+/// bright and opaque, and sized against the fireball.
 inline constexpr std::size_t kBlastPuffs = 20;
 inline constexpr sim::Tick kBlastTicks = 30; ///< one second at 30 Hz
 inline constexpr float kBlastHalfMetres = 1.0F;
@@ -403,6 +404,17 @@ inline constexpr float kBlastRiseMetres = 2.4F;   ///< and how high the burst re
 inline constexpr float kBlastAlpha = 0.92F;
 inline constexpr std::array<float, 3> kBlastHotColour{1.00F, 0.78F, 0.30F}; ///< near white-hot
 inline constexpr std::array<float, 3> kBlastCoolColour{0.40F, 0.36F, 0.33F};
+
+/// THE BLAST'S SPARKS (AI). The fireball is a 2 m box, so a spark of `kBlastSparkHalfMetres` (18 cm
+/// across, a ninth of it) is small beside it and still a few pixels at the distances the camera
+/// keeps. `kBlastSparks` of them leave the fireball's centre at up to `kBlastSparkSpeedMetres` a
+/// tick outward and `kBlastSparkLiftMetres` up, fall under `kSparkGravity`, and are gone after
+/// `kBlastSparkTicks` -- before the burst itself ends, so the smoke column has none.
+inline constexpr std::size_t kBlastSparks = 14;
+inline constexpr sim::Tick kBlastSparkTicks = 24;
+inline constexpr float kBlastSparkHalfMetres = 0.09F;
+inline constexpr float kBlastSparkSpeedMetres = 0.22F;
+inline constexpr float kBlastSparkLiftMetres = 0.28F;
 
 /// The column is wider than the hull (`kSmokeHalfMetres` = 1.1 m, a 2.2 m box), nine puffs deep so
 /// the boxes overlap into one plume, and rises 6 m over the 390 ticks after the burst. It ends at
@@ -423,7 +435,56 @@ inline constexpr std::array<float, 3> kSmokeColour{0.44F, 0.44F, 0.46F};
 /// faces did, so it is exactly as wide across as the box it replaced and no wider. The vertex
 /// count is two rim-fan caps (`kPuffSides - 2` triangles each) and `kPuffSides` side quads.
 inline constexpr std::size_t kPuffSides = 8;
-inline constexpr std::size_t kPuffVertices = (kPuffSides * 6) + (2 * (kPuffSides - 2) * 3);
+[[nodiscard]] constexpr std::size_t prism_vertices(std::size_t sides) noexcept {
+    return (sides * 6) + (2 * (sides - 2) * 3);
+}
+inline constexpr std::size_t kPuffVertices = prism_vertices(kPuffSides);
+
+/// THE PARTICLE (AG): the one spawn the blast's puffs, the wreck's smoke and every spark are made
+/// by. A particle is a prism of `sides` corners whose centre, size, colour and alpha are all
+/// FUNCTIONS OF ITS AGE and of nothing stored: it stands at `origin + velocity * age` less
+/// `gravity` (metres per tick squared) pulling it down, and `half`, `colour` and `alpha` run from
+/// their `_from` value to their `_to` value over `lifetime` ticks. At `age >= lifetime` it is gone
+/// and `emit_particle` draws nothing. `floor_per_metre` keeps it at least that many metres of half
+/// width per metre between it and the eye (0 = no floor), which is how a spark stays a few pixels
+/// wide however far away it is. The caller derives its particles from the sim's tick and the
+/// frame's seed, so a replay needs nothing in it.
+struct Particle {
+    math::Vec3 origin{};
+    math::Vec3 velocity{}; ///< metres per tick
+    float gravity{0.0F};   ///< metres per tick squared, downward
+    sim::Tick lifetime{1};
+    float half_from{0.0F};
+    float half_to{0.0F};
+    math::Vec3 colour_from{};
+    math::Vec3 colour_to{};
+    float alpha_from{1.0F};
+    float alpha_to{1.0F};
+    std::size_t sides{kPuffSides};
+    float floor_per_metre{0.0F};
+};
+
+/// Draw `particle` as it is `age` ticks after it was spawned, seen from `eye`.
+void emit_particle(std::vector<SceneVertex>& out, const Particle& particle, sim::Tick age,
+                   const math::Vec3& eye);
+
+/// A SPARK (AG, AI). Harri: "leave the sparks small, and just not remove them in the view ...
+/// that's probably mostly because the sparks are very bright". So a spark is a four-sided prism (a
+/// cube, 36 vertices), OPAQUE (alpha 1: the softness that makes the beam good is what makes a spark
+/// invisible) and near white-hot, cooling only to a bright amber -- never dim. The view's FXAA
+/// pulls a lone one-pixel speck three quarters toward its neighbours (`renderer.cpp`,
+/// `subpixel_blend`), and that is NOT lowered here: a spark is instead kept `kSparkMinPixels` wide
+/// on screen, at the reference height `kSparkReferenceRows`, by `kSparkFloorPerMetre` -- half
+/// of 2.5 px of a 60 degree view's `2 * tan(30 degrees) / 720` metres-per-metre-of-distance pixel.
+inline constexpr std::size_t kSparkSides = 4;
+inline constexpr std::size_t kSparkVertices = prism_vertices(kSparkSides);
+inline constexpr std::array<float, 3> kSparkHotColour{1.00F, 0.97F, 0.82F};
+inline constexpr std::array<float, 3> kSparkCoolColour{1.00F, 0.80F, 0.35F};
+inline constexpr float kSparkMinPixels = 2.5F;
+inline constexpr int kSparkReferenceRows = 720;
+inline constexpr float kSparkFloorPerMetre
+    = 0.57735F * kSparkMinPixels / static_cast<float>(kSparkReferenceRows);
+inline constexpr float kSparkGravity = 0.008F; ///< metres per tick squared
 
 /// A BIOMETAL POOL VENTING (Harri, 2026-11-01, from BattleZone 2, where a pool is "a shallow
 /// circular vent with a pale rim and a visible plume of steam"). Until now a pool was a white
@@ -444,16 +505,28 @@ inline constexpr float kPoolPuffHalfTopMetres = 2.4F;
 inline constexpr float kPoolSteamAlpha = 0.34F;
 
 /// THE REPAIR BEAM (Harri, 2026-11-05: "a bright, trembling beam of different colours coming from
-/// the service truck to the item being repaired"). One beam per (truck, patient) pair the sim is
-/// mending this tick, and none otherwise (`repair_links`): a chain of `kRepairBeamBeads` small
-/// opaque cubes from the truck to the patient, each in the next colour of `kRepairBeamPalette`
-/// and the whole run of colours slid along the beam one step every `kRepairBeamFlowTicks` so it
-/// pours toward the patient. Multi-coloured on purpose: the one exception to the HUD's flat
-/// single-colour look, because it was asked for. It TREMBLES: every bead is thrown off the straight
-/// line by up to `kRepairBeamTrembleMetres` on each axis, a fresh throw every sim tick (a function
-/// of the tick, the pair and the bead -- nothing stored, nothing hashed), fading to nothing at both
-/// ends so the beam always lands on the truck and on the patient. The ends sit
-/// `kRepairBeamLiftMetres` above the ground under each unit.
+/// the service truck to the item being repaired"; 2026-11-06: "the shapes should be fairly
+/// transparent and spherical"). One beam per (truck, patient) pair the sim is mending this tick,
+/// and none otherwise (`repair_links`): a chain of `kRepairBeamBeads` SPHERES from the truck to the
+/// patient, each in the next colour of `kRepairBeamPalette` at `kRepairBeamAlpha`, and the whole
+/// run of colours slid along the beam one step every `kRepairBeamFlowTicks` so it pours toward the
+/// patient. Multi-coloured on purpose: the one exception to the HUD's flat single-colour look,
+/// because it was asked for. It TREMBLES: every bead is thrown off the straight line by up to
+/// `kRepairBeamTrembleMetres` on each axis, a fresh throw every sim tick (a function of the tick,
+/// the pair and the bead -- nothing stored, nothing hashed), fading to nothing at both ends so the
+/// beam always lands on the truck and on the patient. The ends sit `kRepairBeamLiftMetres` above
+/// the ground under each unit.
+///
+/// A sphere is an icosahedron: `kSphereFaces` = 20 triangles, 60 vertices, twelve corners all one
+/// radius from the centre. It is the fewest faces that still read round: at the 10 m a player
+/// watches a repair from a bead is about 25 px across at 720 rows, and a second subdivision
+/// (80 faces, four times the vertices on 28 beads a beam) would add a silhouette nobody can tell.
+///
+/// At the patient's end the weld throws `kRepairSparks` SPARKS (`Particle`), each living
+/// `kRepairSparkTicks` and restarted from the weld on a fresh seeded heading when it dies, so the
+/// shower never stops while the beam stands and never needs a spawn event.
+inline constexpr std::size_t kSphereFaces = 20;
+inline constexpr std::size_t kSphereVertices = kSphereFaces * 3;
 inline constexpr std::array<std::array<float, 3>, 6> kRepairBeamPalette{{{1.0F, 0.15F, 0.15F},
                                                                          {1.0F, 0.65F, 0.05F},
                                                                          {1.0F, 1.0F, 0.2F},
@@ -461,10 +534,16 @@ inline constexpr std::array<std::array<float, 3>, 6> kRepairBeamPalette{{{1.0F, 
                                                                          {0.1F, 0.9F, 1.0F},
                                                                          {0.85F, 0.3F, 1.0F}}};
 inline constexpr std::size_t kRepairBeamBeads = 28;
-inline constexpr float kRepairBeamBeadHalfMetres = 0.16F;
+inline constexpr float kRepairBeamBeadRadiusMetres = 0.2F;
+inline constexpr float kRepairBeamAlpha = 0.4F;
 inline constexpr float kRepairBeamTrembleMetres = 0.3F;
 inline constexpr float kRepairBeamLiftMetres = 1.0F;
 inline constexpr sim::Tick kRepairBeamFlowTicks = 2;
+inline constexpr std::size_t kRepairSparks = 8;
+inline constexpr sim::Tick kRepairSparkTicks = 12;
+inline constexpr float kRepairSparkHalfMetres = 0.05F;
+inline constexpr float kRepairSparkSpeedMetres = 0.12F;
+inline constexpr float kRepairSparkLiftMetres = 0.1F;
 
 /// A truck and the unit it is mending this tick.
 struct RepairLink {
