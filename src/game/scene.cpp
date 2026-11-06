@@ -2011,6 +2011,58 @@ void append_effects(std::vector<SceneVertex>& out, const SceneOptions& options,
     }
 }
 
+/// THE REPAIR BEAMS (see `kRepairBeamPalette`): per `repair_links` pair whose two ends the viewer
+/// could see, `kRepairBeamBeads` cubes strung from the truck to the patient. Bead `n` stands
+/// `n / (beads - 1)` of the way along, takes palette colour `n + tick / kRepairBeamFlowTicks`
+/// (so the colours pour along the beam), and is thrown off the line on each axis by a hash of
+/// (seed, tick, pair, bead, axis), times `sin(pi * fraction)` so the ends do not move. A pure
+/// function of the sim: it EMITS NOTHING when no repair is advancing.
+void append_repair_beams(std::vector<SceneVertex>& out, const SceneOptions& options,
+                         const sim::Sim& sim) {
+    constexpr float kPi = 3.14159265F;
+    const std::vector<RepairLink> links = repair_links(sim);
+    if (links.empty()) {
+        return;
+    }
+    out.reserve(out.size() + (links.size() * kRepairBeamBeads * 36));
+    const auto tile = [](sim::Fixed v) { return static_cast<float>(v.raw) / sim::Fixed::kOne; };
+    const std::size_t flow = static_cast<std::size_t>(sim.tick() / kRepairBeamFlowTicks);
+    for (const RepairLink& link : links) {
+        const sim::Unit* truck = sim.find(link.truck);
+        const sim::Unit* patient = sim.find(link.patient);
+        if (truck == nullptr || patient == nullptr || !available_to_viewer(sim, options, *truck)
+            || !available_to_viewer(sim, options, *patient)) {
+            continue;
+        }
+        const std::array<float, 3> from{tile(truck->x) * kMetresPerTile,
+                                        ground_metres(options.seed, truck->x, truck->y)
+                                            + kRepairBeamLiftMetres,
+                                        tile(truck->y) * kMetresPerTile};
+        const std::array<float, 3> to{tile(patient->x) * kMetresPerTile,
+                                      ground_metres(options.seed, patient->x, patient->y)
+                                          + kRepairBeamLiftMetres,
+                                      tile(patient->y) * kMetresPerTile};
+        const std::uint32_t pair = (truck->id.value * 977U) + patient->id.value;
+        for (std::size_t bead = 0; bead < kRepairBeamBeads; ++bead) {
+            const float along = static_cast<float>(bead) / static_cast<float>(kRepairBeamBeads - 1);
+            const float shake = kRepairBeamTrembleMetres * std::sin(kPi * along);
+            std::array<float, 3> at{};
+            for (std::size_t axis = 0; axis < at.size(); ++axis) {
+                const std::uint32_t salt = (static_cast<std::uint32_t>(sim.tick()) * 256U)
+                                           + (static_cast<std::uint32_t>(bead) * 4U)
+                                           + static_cast<std::uint32_t>(axis);
+                const float throw_at = (wake_fraction(options.seed, pair, salt) * 2.0F) - 1.0F;
+                at.at(axis)
+                    = from.at(axis) + ((to.at(axis) - from.at(axis)) * along) + (throw_at * shake);
+            }
+            const std::array<float, 3>& ink
+                = kRepairBeamPalette.at((bead + flow) % kRepairBeamPalette.size());
+            emit_bolt_box(out, at.at(0), at.at(1), at.at(2), kRepairBeamBeadHalfMetres,
+                          Vec3{ink.at(0), ink.at(1), ink.at(2)});
+        }
+    }
+}
+
 /// THE BIOMETAL POOLS, VENTING (see `kPoolSteamColour`): per pool in view a plume of see-through
 /// puffs climbing from it. The pool's GROUND is not drawn here: it is altered ground like a
 /// deployed building's (`site_ground.hpp`, painted by `build_terrain`), and there is no disc, rim
@@ -4833,6 +4885,30 @@ int hull_variant(std::uint64_t seed, std::uint32_t unit_id) noexcept {
     return static_cast<int>(z % static_cast<std::uint64_t>(kHullVariantCount));
 }
 
+std::vector<RepairLink> repair_links(const sim::Sim& sim) {
+    const std::int64_t radius
+        = static_cast<std::int64_t>(sim::kServiceRepairRadiusTiles) * sim::Fixed::kOne;
+    std::vector<RepairLink> links;
+    for (const sim::Unit& patient : sim.units()) {
+        if (!patient.alive || patient.hp >= sim::profile(patient.kind).hp) {
+            continue;
+        }
+        for (const sim::Unit& truck : sim.units()) {
+            if (!truck.alive || truck.kind != sim::UnitKind::ServiceTruck
+                || truck.side != patient.side || truck.id == patient.id) {
+                continue;
+            }
+            const std::int64_t dx = truck.x.raw - patient.x.raw;
+            const std::int64_t dy = truck.y.raw - patient.y.raw;
+            if ((dx * dx) + (dy * dy) <= radius * radius) {
+                links.reserve(links.size() + 1);
+                links.push_back(RepairLink{truck.id, patient.id});
+            }
+        }
+    }
+    return links;
+}
+
 float height_metres(std::uint64_t seed, int tile_x, int tile_y) noexcept {
     return static_cast<float>(world::sample(seed, tile_x, tile_y).height) * kMetresPerHeightUnit;
 }
@@ -5309,6 +5385,7 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
     append_landing_marks(scene.vertices, options, sim.tick());
     append_scrap(scene.vertices, options, sim);
     append_pools(scene.vertices, options, sim);
+    append_repair_beams(scene.vertices, options, sim);
     append_effects(scene.vertices, options, sim);
     append_nav_beacons(scene.vertices, options);
     append_deploy_preview(scene.vertices, options);

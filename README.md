@@ -195,7 +195,7 @@ names only, and its Hauler is 30 against the tug's 45, which is Harri's to rule.
 room. The alien factory draws the human factory's eight rows until Harri supplies its own costs and names.
 
 **The Service Truck repairs** (2026-11-05; Harri, playtest round 10: "Service Trucks should work"; the
-sim half -- the repair beam is the next slice). A truck mends, by itself, every living friendly unit
+sim half; the beam below is its look). A truck mends, by itself, every living friendly unit
 within 6 tiles that is hurt: buildings, vehicles, mounted and unmounted turrets, the deployed
 scavenger -- one rule for every kind. One truck at its closest restores `max_hp / 600` a tick, so a
 tank goes from nearly dead to whole in 20 s and a factory (four times the hit points) takes 80 s.
@@ -203,6 +203,14 @@ Closer is faster (the rate falls with the squared distance to half at 6 tiles) a
 range adds its own share. The player's job is to drive the truck there; there is no order for it. A
 truck does not mend itself, and the service pod does not mend at all. The rate (`kServiceRepairTicks`)
 and the 6 tiles are Harri's to tune. No recorded battle contains a truck, so none moved.
+
+**The repair beam** (2026-11-05; Harri: "a bright, trembling beam of different colours coming from the
+service truck to the item being repaired"). While a truck is actually mending something, a beam of
+28 bright cubes runs from the truck to that unit, one beam per truck and patient. It is
+multi-coloured on purpose (red, orange, yellow, green, cyan, violet, pouring along toward the
+patient) and it trembles: every cube is thrown about a third of a metre off the straight line, afresh
+each sim tick, while the two ends stay put on the truck and the patient. A truck beside a unit at full
+health, out of reach, or on the other side draws nothing. Drawing only: no recorded battle moved.
 
 **Vehicle identities** (2026-11-03, Harri's ruling): the **bomber** is the fastest vehicle in the game
 (twice the tank's speed, was 3/4), the **mortar bike** next, fast and thin (5/4 of the tank's speed

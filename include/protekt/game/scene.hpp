@@ -442,6 +442,42 @@ inline constexpr float kPoolPuffHalfBaseMetres = 0.7F;
 inline constexpr float kPoolPuffHalfTopMetres = 2.4F;
 inline constexpr float kPoolSteamAlpha = 0.34F;
 
+/// THE REPAIR BEAM (Harri, 2026-11-05: "a bright, trembling beam of different colours coming from
+/// the service truck to the item being repaired"). One beam per (truck, patient) pair the sim is
+/// mending this tick, and none otherwise (`repair_links`): a chain of `kRepairBeamBeads` small
+/// opaque cubes from the truck to the patient, each in the next colour of `kRepairBeamPalette`
+/// and the whole run of colours slid along the beam one step every `kRepairBeamFlowTicks` so it
+/// pours toward the patient. Multi-coloured on purpose: the one exception to the HUD's flat
+/// single-colour look, because it was asked for. It TREMBLES: every bead is thrown off the straight
+/// line by up to `kRepairBeamTrembleMetres` on each axis, a fresh throw every sim tick (a function
+/// of the tick, the pair and the bead -- nothing stored, nothing hashed), fading to nothing at both
+/// ends so the beam always lands on the truck and on the patient. The ends sit
+/// `kRepairBeamLiftMetres` above the ground under each unit.
+inline constexpr std::array<std::array<float, 3>, 6> kRepairBeamPalette{{{1.0F, 0.15F, 0.15F},
+                                                                         {1.0F, 0.65F, 0.05F},
+                                                                         {1.0F, 1.0F, 0.2F},
+                                                                         {0.2F, 1.0F, 0.3F},
+                                                                         {0.1F, 0.9F, 1.0F},
+                                                                         {0.85F, 0.3F, 1.0F}}};
+inline constexpr std::size_t kRepairBeamBeads = 28;
+inline constexpr float kRepairBeamBeadHalfMetres = 0.16F;
+inline constexpr float kRepairBeamTrembleMetres = 0.3F;
+inline constexpr float kRepairBeamLiftMetres = 1.0F;
+inline constexpr sim::Tick kRepairBeamFlowTicks = 2;
+
+/// A truck and the unit it is mending this tick.
+struct RepairLink {
+    sim::UnitId truck{};
+    sim::UnitId patient{};
+};
+
+/// Every (truck, patient) pair the sim's service repair is advancing right now: a living truck, a
+/// living friendly unit of its side that is not itself and is hurt, within
+/// `sim::kServiceRepairRadiusTiles`. The sim's own rule (`service_repair_step`) asked of the same
+/// state, read-only -- a unit at full health is nobody's patient, so a truck beside one has no
+/// link. Ascending patient id, then truck id.
+[[nodiscard]] std::vector<RepairLink> repair_links(const sim::Sim& sim);
+
 /// THE KILLS A WAKE IS DRAWN FROM. The scene derives a wreck's burst and its column from
 /// `now - event.tick`, so the `Killed` event has to reach the scene on every frame of the wreck's
 /// life, not only on the frame that stepped the kill. The app owns this, like `HitMark`: it diffs
