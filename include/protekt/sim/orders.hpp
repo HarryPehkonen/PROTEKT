@@ -192,6 +192,13 @@ struct Defend {
     UnitId target{};
 };
 
+/// CANCEL the rest of a producer's build queue: every entry still waiting goes, and so does the
+/// one under way, whose cost comes back to the side's bank (nothing of it was ever built). What the
+/// queue has already delivered stays where it stands. Empty -- the order already addresses the
+/// producer. Refused for any kind but a producer (`is_producer`); a producer with an empty queue
+/// takes it and nothing changes.
+struct CancelBuild {};
+
 } // namespace orders
 
 using OrderPayload
@@ -199,7 +206,7 @@ using OrderPayload
                    orders::FocusFire, orders::FireTowards, orders::Strafe, orders::Follow,
                    orders::FireLob, orders::Deploy, orders::Recycle, orders::FireFan,
                    orders::FireRocket, orders::TakeControl, orders::Build, orders::Undeploy,
-                   orders::Defend>;
+                   orders::Defend, orders::CancelBuild>;
 
 /// How each payload alternative is named and reported. This is the payload's index, in the
 /// payload's order, and the assertions below make that true rather than intended.
@@ -228,9 +235,11 @@ enum class OrderKind : std::uint8_t {
     /// Appended after Build, never inserted, for the reason every value above was.
     Undeploy = 16,
     Defend = 17,
+    /// Appended after Defend, never inserted, for the reason every value above was.
+    CancelBuild = 18,
 };
 
-inline constexpr std::size_t kOrderKindCount = static_cast<std::size_t>(OrderKind::Defend) + 1;
+inline constexpr std::size_t kOrderKindCount = static_cast<std::size_t>(OrderKind::CancelBuild) + 1;
 
 static_assert(std::variant_size_v<OrderPayload> == kOrderKindCount,
               "every alternative needs a kind, and every kind an alternative");
@@ -259,6 +268,7 @@ static_assert(std::is_same_v<PayloadOf<OrderKind::TakeControl>, orders::TakeCont
 static_assert(std::is_same_v<PayloadOf<OrderKind::Build>, orders::Build>);
 static_assert(std::is_same_v<PayloadOf<OrderKind::Undeploy>, orders::Undeploy>);
 static_assert(std::is_same_v<PayloadOf<OrderKind::Defend>, orders::Defend>);
+static_assert(std::is_same_v<PayloadOf<OrderKind::CancelBuild>, orders::CancelBuild>);
 
 /// The kind is the payload's own index. There is no second field that can disagree with it, which
 /// is precisely what the flat record could not promise.

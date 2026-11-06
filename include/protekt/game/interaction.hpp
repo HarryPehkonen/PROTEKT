@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <map>
 #include <set>
@@ -260,6 +261,11 @@ private:
     /// run -- while the producer's queue is non-empty; and any press once that queue (the sim's
     /// entries plus the orders already made this frame) holds `sim::kBuildQueueDepth`.
     void queue_build(const sim::Sim& sim, const BuildItem& item, bool shift);
+    /// Shift is up: the gesture ends, and the presses it kept back go to the sim as one batch.
+    void release_shift();
+    /// SHIFT-TAB (Harri): cancel the rest of the build at every selected producer that has one --
+    /// its queue, or builds ordered this frame the sim has not seen. What is built stays.
+    void cancel_selected_builds(const sim::Sim& sim);
     /// `1 FOLLOW ME`: every orderable selected unit follows the driven craft. Refused when there is
     /// no living craft, or nothing but that craft is selected.
     void follow_driven(const sim::Sim& sim);
@@ -342,6 +348,15 @@ private:
     sim::UnitId shift_producer_{};
     sim::UnitKind shift_kind_{};    ///< the one kind the gesture under way builds
     std::uint32_t batch_tokens_{0}; ///< the last token handed out, 1..sim::kMaxBatchToken, wrapping
+    /// THE SHIFT-BATCH (Harri, round 10, 2026-11-05). The shifted build presses of a gesture are
+    /// KEPT HERE, not in `pending_`, until shift goes up: the sim never hears of a batch that is
+    /// still being typed, so Tab can call it off with nothing to undo. This is player intent and
+    /// lives in the game layer; the sim sees ordinary `Build` orders at the release and a
+    /// `CancelBuild` for a Shift-Tab.
+    std::vector<sim::Order> held_;
+    /// Which of the two shift KEYS (left, right) are down, from their own events. Letting go of one
+    /// while the other is still down is not a release.
+    std::array<bool, 2> shift_keys_{};
     std::vector<TargetRow> targets_{};
     bool has_fired_{false};
     sim::Tick last_shot_tick_{};

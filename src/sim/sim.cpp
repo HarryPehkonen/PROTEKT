@@ -148,6 +148,12 @@ bool order_is_valid(const std::vector<Unit>& units, const std::vector<Pool>& poo
                && build->batch <= kMaxBatchToken
                && build_fits(unit->queue, build->kind, build->batch);
     }
+    // CANCELLING a queue is a producer's, whatever the queue holds (an empty one takes it and is
+    // unchanged), so an order laid down in the same tick as a build is never judged against a
+    // queue it has not seen yet.
+    if (std::holds_alternative<orders::CancelBuild>(order.payload)) {
+        return is_producer(unit->kind);
+    }
     if (const auto* recycle = std::get_if<orders::Recycle>(&order.payload)) {
         // A RECYCLE goes into a LIVING recycler of the unit's OWN side: the base is the side's, and
         // recycling into the enemy's would hand it the scrap. A unit may not name itself (the
@@ -256,7 +262,8 @@ void apply_strafe(Unit& unit, const orders::Strafe& strafe, const WorldGround& g
 
 void apply_order(std::vector<Unit>& units, std::vector<Projectile>& projectiles,
                  std::vector<Sim::Shot>& shots, UnitId& driven, std::uint32_t& lone_batches,
-                 const std::vector<Pool>& pools, const Order& order, std::uint64_t seed) noexcept {
+                 std::array<std::uint16_t, 2>& ore, const std::vector<Pool>& pools,
+                 const Order& order, std::uint64_t seed) noexcept {
     // Re-validated here: the unit may have died between enqueue and the tick it takes effect.
     if (!order_is_valid(units, pools, order, seed)) {
         return;
@@ -447,6 +454,18 @@ void apply_order(std::vector<Unit>& units, std::vector<Projectile>& projectiles,
             unit.queue.entries.at(unit.queue.count) = BuildEntry{o->kind, batch};
             ++unit.queue.count;
         }
+        break;
+    case OrderKind::CancelBuild:
+        // The rest of the queue goes, the entry under way included. That entry paid its whole cost
+        // on the tick it started (`production_step`), and nothing of it was built, so the cost
+        // comes back; an entry still waiting for scrap paid nothing and returns nothing. The
+        // units the queue already delivered are units like any other and stay. Step 6b clamps a
+        // bank the refund pushed past its store.
+        if (unit.queue.count > 0 && unit.queue.left > 0) {
+            std::uint16_t& bank = ore.at(static_cast<std::size_t>(unit.side));
+            bank = static_cast<std::uint16_t>(bank + spec_of(unit.queue.entries.at(0).kind).cost);
+        }
+        unit.queue = BuildQueue{};
         break;
     case OrderKind::Undeploy:
         // The count itself is `turret_deploy_step`'s; the order only says "take it down".
@@ -1623,8 +1642,8 @@ void Sim::step() {
         }
     }
     for (const Order& order : pending_) {
-        apply_order(units_, projectiles_, shots_, driven_, lone_batches_, scenario_.pools, order,
-                    scenario_.seed);
+        apply_order(units_, projectiles_, shots_, driven_, lone_batches_, ore_, scenario_.pools,
+                    order, scenario_.seed);
     }
     pending_.clear();
 

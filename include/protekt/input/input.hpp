@@ -31,6 +31,10 @@ inline constexpr std::int32_t kKeyR = 21;
 inline constexpr std::int32_t kKeyT = 23;
 inline constexpr std::int32_t kKeyEscape = 41;
 inline constexpr std::int32_t kKeyTab = 43;
+/// The two shift keys. Shift is a key event of its own as well as a flag on the others, because a
+/// batch build begins when shift is RELEASED and only the release event says so.
+inline constexpr std::int32_t kKeyLShift = 225;
+inline constexpr std::int32_t kKeyRShift = 229;
 inline constexpr std::int32_t kKeySpace = 44;
 /// The key left of "1" on a US board (grave / `~`): the command row's `~` cell, the nav menu.
 inline constexpr std::int32_t kKeyGrave = 53;

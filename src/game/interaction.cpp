@@ -69,6 +69,13 @@ namespace {
     return best;
 }
 
+/// Whether an order is a build for this producer: the test the queue's cap counts by.
+auto is_build_for(sim::UnitId producer) {
+    return [producer](const sim::Order& order) {
+        return order.unit == producer && order.kind() == sim::OrderKind::Build;
+    };
+}
+
 } // namespace
 
 bool any_deployed_turret(const sim::Sim& sim, std::span<const sim::UnitId> selected) noexcept {
@@ -214,8 +221,33 @@ void Interaction::handle(const input::InputFrame& frame, const sim::Sim& sim,
     }
 
     for (const input::KeyEvent& key : frame.keys) {
+        // Shift is a key of its own: the batch begins when the LAST shift key goes up.
+        if (key.scancode == input::kKeyLShift || key.scancode == input::kKeyRShift) {
+            shift_keys_.at(key.scancode == input::kKeyRShift ? 1 : 0) = key.pressed;
+            if (!key.pressed && !shift_keys_.at(0) && !shift_keys_.at(1)) {
+                release_shift();
+            }
+            continue;
+        }
         if (!key.pressed) {
             continue;
+        }
+        // A key pressed with no shift modifier proves shift is up, whether or not its release
+        // was ever seen (focus lost while it was down): the held batch begins.
+        if (!key.shift) {
+            shift_keys_ = {};
+            release_shift();
+        }
+        // TAB (Harri): before shift is released it calls the whole batch off, and nothing is
+        // built; shifted with nothing held, it cancels the rest of a batch under way. The Tab
+        // then goes on to clear the selection, as it always did.
+        if (key.scancode == input::kKeyTab && !key.ctrl && !key.alt && key.shift) {
+            if (!held_.empty()) {
+                held_.clear();
+                shift_batch_ = 0;
+            } else {
+                cancel_selected_builds(sim);
+            }
         }
         // A shift gesture is a run of digit presses: any other key ends it (a digit that is not a
         // build row ends it in `menu_digit`).
@@ -644,9 +676,8 @@ void Interaction::queue_build(const sim::Sim& sim, const BuildItem& item, bool s
     }
     // The queue as the sim will find it: what it holds, and what this frame has already asked for.
     const auto asked = static_cast<std::size_t>(
-        std::count_if(pending_.begin(), pending_.end(), [producer](const sim::Order& order) {
-            return order.unit == producer->id && order.kind() == sim::OrderKind::Build;
-        }));
+        std::count_if(pending_.begin(), pending_.end(), is_build_for(producer->id))
+        + std::count_if(held_.begin(), held_.end(), is_build_for(producer->id)));
     const std::size_t queued = producer->queue.count + asked;
     // A press CONTINUES a run when it is shifted into the run already open at this producer; any
     // other press would start a batch of its own (THE RULING, Harri 2026-10-28).
@@ -677,7 +708,30 @@ void Interaction::queue_build(const sim::Sim& sim, const BuildItem& item, bool s
         }
         batch = shift_batch_;
     }
-    pending_.push_back(sim::Order{producer->id, sim::orders::Build{*item.kind, batch}});
+    // A shifted press waits for shift to go up; a bare one is a lone build and goes at once.
+    (shift ? held_ : pending_)
+        .push_back(sim::Order{producer->id, sim::orders::Build{*item.kind, batch}});
+}
+
+void Interaction::release_shift() {
+    shift_batch_ = 0; // the next shifted press is a gesture of its own
+    pending_.insert(pending_.end(), held_.begin(), held_.end());
+    held_.clear();
+}
+
+void Interaction::cancel_selected_builds(const sim::Sim& sim) {
+    const std::span<const sim::UnitId> held = selection_.units();
+    std::vector<sim::UnitId> chosen(held.begin(), held.end());
+    std::sort(chosen.begin(), chosen.end());
+    for (const sim::UnitId id : chosen) {
+        const sim::Unit* unit = sim.find(id);
+        if (unit != nullptr && unit->alive && unit->side == sim::Side::Player
+            && sim::is_producer(unit->kind)
+            && (unit->queue.count > 0
+                || std::any_of(pending_.begin(), pending_.end(), is_build_for(id)))) {
+            pending_.push_back(sim::Order{id, sim::orders::CancelBuild{}});
+        }
+    }
 }
 
 void Interaction::bring_up_building(const sim::Sim& sim, int key) {

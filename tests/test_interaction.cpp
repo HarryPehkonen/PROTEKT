@@ -1779,6 +1779,20 @@ struct BuildRig {
     return orders;
 }
 
+/// Shift comes up (SHIFT-BATCH, 2026-11-05): a shifted run is held until then, and the frame that
+/// lets go is the one that orders it. Returns the orders that frame made.
+[[nodiscard]] std::vector<Order> let_go(BuildRig& rig) {
+    InputFrame frame{};
+    frame.keys.push_back(KeyEvent{input::kKeyLShift, false, false});
+    rig.player.handle(frame, rig.sim, rig.options);
+    std::vector<Order> orders = rig.player.take_orders();
+    for (const Order& order : orders) {
+        rig.sim.enqueue(order);
+    }
+    rig.sim.step();
+    return orders;
+}
+
 } // namespace
 
 TEST(Interaction, APlainBuildKeyOrdersOneLoneBuildEvenWhenTheBankIsEmpty) {
@@ -1800,11 +1814,10 @@ TEST(Interaction, APlainBuildKeyOrdersOneLoneBuildEvenWhenTheBankIsEmpty) {
 
 TEST(Interaction, ShiftBuildKeysOfOneGestureShareOneTokenAndABarePressDoesNotJoinIt) {
     BuildRig rig = make_build_rig();
-    std::vector<Order> orders;
     for (int n = 0; n < 3; ++n) {
-        const std::vector<Order> made = press(rig, 1, true);
-        orders.insert(orders.end(), made.begin(), made.end());
+        EXPECT_TRUE(press(rig, 1, true).empty()) << "held until shift comes up";
     }
+    const std::vector<Order> orders = let_go(rig);
     ASSERT_EQ(orders.size(), 3U);
     const auto* first = build_of(orders.at(0));
     ASSERT_NE(first, nullptr);
@@ -1820,7 +1833,8 @@ TEST(Interaction, ShiftBuildKeysOfOneGestureShareOneTokenAndABarePressDoesNotJoi
 TEST(Interaction, TwoGesturesOfOneProducerGetTwoTokensOnceTheFirstBatchIsDone) {
     BuildRig rig = make_funded_build_rig();
     const auto token_of_gesture = [&rig](int row) {
-        const std::vector<Order> made = press(rig, row, true);
+        EXPECT_TRUE(press(rig, row, true).empty());
+        const std::vector<Order> made = let_go(rig);
         EXPECT_EQ(made.size(), 1U);
         return made.empty() ? 0U : build_of(made.front())->batch;
     };
@@ -1837,7 +1851,8 @@ TEST(Interaction, TwoGesturesOfOneProducerGetTwoTokensOnceTheFirstBatchIsDone) {
 
 TEST(Interaction, ABarePressAfterTheBatchIsDoneBuildsALoneUnit) {
     BuildRig rig = make_funded_build_rig();
-    ASSERT_EQ(press(rig, 1, true).size(), 1U);
+    ASSERT_TRUE(press(rig, 1, true).empty());
+    ASSERT_EQ(let_go(rig).size(), 1U);
     ASSERT_TRUE(run_batch_out(rig));
     const std::vector<Order> orders = press(rig, 2, false);
     ASSERT_EQ(orders.size(), 1U) << "an idle producer takes any single build";
@@ -1848,14 +1863,16 @@ TEST(Interaction, ABarePressAfterTheBatchIsDoneBuildsALoneUnit) {
 TEST(Interaction, ShiftingAnotherKindIntoARunIsRefusedAloudAndTheRunGoesOn) {
     // THE RULING: SHIFT+scavenger then SHIFT+scout in one run must not put both in one batch.
     BuildRig rig = make_build_rig();
-    ASSERT_EQ(press(rig, 1, true).size(), 1U);
+    ASSERT_TRUE(press(rig, 1, true).empty());
     ASSERT_TRUE(rig.player.message().empty());
     EXPECT_TRUE(press(rig, 2, true).empty()) << "a batch is one kind";
     EXPECT_FALSE(rig.player.message().empty()) << "and the refusal is said, not silent";
     EXPECT_NE(rig.player.message(), "The build queue is full.")
         << "the queue has room; the reason is the kind";
-    EXPECT_EQ(rig.sim.find(rig.producer)->queue.count, 1U);
-    EXPECT_EQ(press(rig, 1, true).size(), 1U) << "the run is still open for its own kind";
+    EXPECT_TRUE(press(rig, 1, true).empty()) << "the run is still open for its own kind";
+    EXPECT_TRUE(rig.player.message().empty());
+    EXPECT_EQ(let_go(rig).size(), 2U) << "the refused press never joined the run";
+    EXPECT_EQ(rig.sim.find(rig.producer)->queue.count, 2U);
 }
 
 TEST(Interaction, ShiftingAnotherKindInTheSameFrameIsRefusedToo) {
@@ -1864,6 +1881,7 @@ TEST(Interaction, ShiftingAnotherKindInTheSameFrameIsRefusedToo) {
     InputFrame frame{};
     frame.keys.push_back(KeyEvent{input::kKey1, true, true});
     frame.keys.push_back(KeyEvent{input::kKey1 + 1, true, true});
+    frame.keys.push_back(KeyEvent{input::kKeyLShift, false, false});
     rig.player.handle(frame, rig.sim, rig.options);
     EXPECT_EQ(rig.player.take_orders().size(), 1U);
     EXPECT_FALSE(rig.player.message().empty());
@@ -1905,12 +1923,12 @@ TEST(Interaction, ARunOpenedAfterABarePressIsRefusedNotJoinedToIt) {
 TEST(Interaction, TheEleventhShiftPressIsRefusedAloudAndOrdersNothing) {
     BuildRig rig = make_build_rig();
     for (std::size_t n = 1; n <= sim::kBuildQueueDepth; ++n) {
-        ASSERT_EQ(press(rig, 1, true).size(), 1U) << "press " << n << " is within the cap";
-        ASSERT_TRUE(rig.player.message().empty());
+        ASSERT_TRUE(press(rig, 1, true).empty()) << "press " << n << " is held";
+        ASSERT_TRUE(rig.player.message().empty()) << "press " << n << " is within the cap";
     }
-    ASSERT_EQ(rig.sim.find(rig.producer)->queue.count, sim::kBuildQueueDepth);
     EXPECT_TRUE(press(rig, 1, true).empty()) << "ten fill the queue; the eleventh is not an entry";
     EXPECT_FALSE(rig.player.message().empty()) << "a refused press says why on the notice line";
+    EXPECT_EQ(let_go(rig).size(), sim::kBuildQueueDepth) << "the held ten, not eleven";
     EXPECT_EQ(rig.sim.find(rig.producer)->queue.count, sim::kBuildQueueDepth);
 }
 
@@ -1922,6 +1940,7 @@ TEST(Interaction, ElevenShiftPressesInOneFrameStillMakeTenOrders) {
     for (int n = 0; n < 11; ++n) {
         frame.keys.push_back(KeyEvent{input::kKey1, true, true});
     }
+    frame.keys.push_back(KeyEvent{input::kKeyLShift, false, false});
     rig.player.handle(frame, rig.sim, rig.options);
     EXPECT_EQ(rig.player.take_orders().size(), sim::kBuildQueueDepth);
     EXPECT_FALSE(rig.player.message().empty());

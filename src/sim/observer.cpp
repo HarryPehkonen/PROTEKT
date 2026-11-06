@@ -410,6 +410,8 @@ const char* to_string(OrderKind kind) noexcept {
         return "undeploy";
     case OrderKind::Defend:
         return "defend";
+    case OrderKind::CancelBuild:
+        return "cancelbuild";
     }
     return "unknown";
 }
