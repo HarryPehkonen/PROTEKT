@@ -7111,7 +7111,7 @@ using protekt::game::kSmokePuffs;
 using protekt::game::kSmokeTicks;
 using protekt::game::SceneVertex;
 
-using protekt::game::kPuffVertices;
+using protekt::game::kSphereVertices;
 constexpr float kWakeTolerance = 0.01F;
 
 /// The rig these tests read a wake out of: a world frame with the HUD layers that would otherwise
@@ -7186,7 +7186,7 @@ struct WakeFrame {
     std::vector<SceneVertex> wake;
 };
 
-[[nodiscard]] WakeFrame wake_at(sim::Tick age) {
+[[nodiscard]] WakeFrame wake_at(sim::Tick age, float back_metres = 0.0F) {
     WakeFrame frame;
     const Wreck wreck = a_wreck_just_made();
     frame.wreck_valid = wreck.valid;
@@ -7208,8 +7208,9 @@ struct WakeFrame {
     for (sim::Tick tick = 0; tick < age; ++tick) {
         sim.step();
     }
-    SceneOptions plain = wake_options(static_cast<float>(wreck.tile_x) * kMetresPerTile,
-                                      static_cast<float>(wreck.tile_y) * kMetresPerTile);
+    SceneOptions plain
+        = wake_options(static_cast<float>(wreck.tile_x) * kMetresPerTile,
+                       static_cast<float>(wreck.tile_y) * kMetresPerTile + back_metres);
     SceneOptions with = plain;
     with.events = wreck.events;
     const Scene before = build_scene(sim, plain);
@@ -7254,7 +7255,7 @@ TEST(SceneWake, AKilledEventLaysAHotBurstAtTheWreckAndItBurnsOut) {
     ASSERT_TRUE(frame.wreck_valid);
     // The burst is its puffs and then its sparks (AG): the puffs come first in the layer.
     ASSERT_EQ(frame.wake.size(),
-              (kBlastPuffs * kPuffVertices) + (kBlastSparks * protekt::game::kSparkVertices));
+              (kBlastPuffs * kSphereVertices) + (kBlastSparks * protekt::game::kSparkVertices));
     // The ground under the wreck, from the rig's own seed: a puff sits ABOVE it, never in the hill.
     const float ground = protekt::game::ground_metres(42ULL, static_cast<float>(frame.tile_x),
                                                       static_cast<float>(frame.tile_y));
@@ -7262,10 +7263,16 @@ TEST(SceneWake, AKilledEventLaysAHotBurstAtTheWreckAndItBurnsOut) {
     // can show is one tick old: the full burst alpha less one tick's worth of fade.
     const float fresh = kBlastAlpha * (1.0F - (1.0F / static_cast<float>(kBlastTicks)));
     for (const SceneVertex& v :
-         std::span<const SceneVertex>(frame.wake).first(kBlastPuffs * kPuffVertices)) {
+         std::span<const SceneVertex>(frame.wake).first(kBlastPuffs * kSphereVertices)) {
         EXPECT_NEAR(v.alpha, fresh, 1e-4F) << "a fresh puff is at the burst's own alpha";
         EXPECT_LT(v.alpha, 1.0F) << "it blends; it is not a solid";
-        EXPECT_GT(v.position[1], ground) << "and it is off the ground";
+        // The ball's centre rides where the box's did, so a corner may dip under the ground by the
+        // sphere's overshoot of the box (0.2 of the half width) and by nothing more.
+        EXPECT_GT(
+            v.position[1],
+            ground - ((protekt::game::kPuffRadiusPerHalf - 1.0F) * protekt::game::kBlastHalfMetres)
+                - 1e-3F)
+            << "and it is off the ground";
     }
     // And it cools as it burns: the same burst halfway through its window is thinner.
     const WakeFrame fading = wake_at(10);
@@ -7274,7 +7281,7 @@ TEST(SceneWake, AKilledEventLaysAHotBurstAtTheWreckAndItBurnsOut) {
     // The burst is OUT by the end of its window: what is left at `kBlastTicks` is the column.
     const WakeFrame later = wake_at(kBlastTicks);
     ASSERT_TRUE(later.wreck_valid);
-    EXPECT_EQ(later.wake.size(), kSmokePuffs * kPuffVertices) << "the burst outlived kBlastTicks";
+    EXPECT_EQ(later.wake.size(), kSmokePuffs * kSphereVertices) << "the burst outlived kBlastTicks";
 }
 
 // --- AG / AI: the explosion's SPARKS -- small, bright, opaque, sized against the fireball
@@ -7301,7 +7308,7 @@ TEST(SceneWake, TheExplosionThrowsSparksAndTheSmokeDoesNot) {
     EXPECT_TRUE(blast_sparks(late).empty()) << "a spark outlived kBlastSparkTicks";
     // ...and the smoke column, which follows the burst, never has one.
     const WakeFrame smoke = wake_at(kBlastTicks + 1);
-    EXPECT_EQ(smoke.wake.size(), kSmokePuffs * kPuffVertices);
+    EXPECT_EQ(smoke.wake.size(), kSmokePuffs * kSphereVertices);
     EXPECT_TRUE(blast_sparks(smoke).empty());
 }
 
@@ -7346,7 +7353,7 @@ TEST(SceneWake, ABlastSparkFliesOutwardFromTheFireball) {
 TEST(SceneWake, TheBurstBecomesASlowGreyColumnAndTheColumnGoesInItsTurn) {
     const WakeFrame frame = wake_at(kBlastTicks + 1);
     ASSERT_TRUE(frame.wreck_valid);
-    ASSERT_EQ(frame.wake.size(), kSmokePuffs * kPuffVertices);
+    ASSERT_EQ(frame.wake.size(), kSmokePuffs * kSphereVertices);
     for (const SceneVertex& v : frame.wake) {
         EXPECT_LT(v.alpha, 0.5F) << "smoke is thin, not a wall";
         const float spread = std::max({v.colour[0], v.colour[1], v.colour[2]})
@@ -7360,7 +7367,7 @@ TEST(SceneWake, TheBurstBecomesASlowGreyColumnAndTheColumnGoesInItsTurn) {
 [[nodiscard]] float first_puff_width(const WakeFrame& frame) {
     float lo = frame.wake.at(0).position[0];
     float hi = lo;
-    for (std::size_t i = 0; i < kPuffVertices; ++i) {
+    for (std::size_t i = 0; i < kSphereVertices; ++i) {
         lo = std::min(lo, frame.wake.at(i).position[0]);
         hi = std::max(hi, frame.wake.at(i).position[0]);
     }
@@ -7387,15 +7394,15 @@ TEST(SceneWake, TheColumnIsStillThereOnItsLastTickAndGoneOnTheNext) {
     // `wake_at(n)` is a frame whose scene age is n + 1 (the frame after the stamp is age 1).
     const WakeFrame last = wake_at(kSmokeTicks - 2);
     ASSERT_TRUE(last.wreck_valid);
-    EXPECT_EQ(last.wake.size(), kSmokePuffs * kPuffVertices)
+    EXPECT_EQ(last.wake.size(), kSmokePuffs * kSphereVertices)
         << "the wreck went cold before kSmokeTicks";
     EXPECT_TRUE(wake_at(kSmokeTicks - 1).wake.empty()) << "and it must be cold at age kSmokeTicks";
 }
 
-/// One puff of a wake frame, `kPuffVertices` vertices from the front of its list.
+/// One puff of a wake frame, `kSphereVertices` vertices from the front of its list.
 [[nodiscard]] std::vector<SceneVertex> puff_of(const WakeFrame& frame, std::size_t which) {
-    const auto first = frame.wake.begin() + static_cast<std::ptrdiff_t>(which * kPuffVertices);
-    return {first, first + static_cast<std::ptrdiff_t>(kPuffVertices)};
+    const auto first = frame.wake.begin() + static_cast<std::ptrdiff_t>(which * kSphereVertices);
+    return {first, first + static_cast<std::ptrdiff_t>(kSphereVertices)};
 }
 
 struct PuffBounds {
@@ -7414,61 +7421,97 @@ struct PuffBounds {
     return bounds;
 }
 
-/// The corners of a puff's cross-section, MEASURED: the distinct (x, z) places among the vertices
-/// at its top, to a millimetre. A box gives four; nothing here reads `kPuffSides`.
-[[nodiscard]] std::size_t measured_corners(const std::vector<SceneVertex>& puff) {
-    const float top = bounds_of(puff).hi.at(1);
-    std::set<std::pair<long, long>> places;
+/// The centre of a puff: the mean of its vertices (an icosphere's corners are symmetric about it,
+/// whatever its roll).
+[[nodiscard]] std::array<float, 3> puff_centre(const std::vector<SceneVertex>& puff) {
+    std::array<float, 3> sum{};
     for (const SceneVertex& v : puff) {
-        if (std::abs(v.position[1] - top) < 1e-4F) {
-            places.emplace(std::lround(v.position[0] * 1000.0F),
-                           std::lround(v.position[2] * 1000.0F));
+        for (std::size_t axis = 0; axis < 3; ++axis) {
+            sum.at(axis) += v.position.at(axis);
         }
     }
-    return places.size();
+    for (float& c : sum) {
+        c /= static_cast<float>(puff.size());
+    }
+    return sum;
 }
 
-TEST(SceneWake, APuffIsRoundNotABox) {
-    const WakeFrame frame = wake_at(kBlastTicks + 1);
-    ASSERT_TRUE(frame.wreck_valid);
-    const std::vector<SceneVertex> puff = puff_of(frame, 0);
-    EXPECT_GT(measured_corners(puff), std::size_t{4}) << "a four-cornered puff is a box";
-    EXPECT_EQ(measured_corners(puff), std::size_t{8}) << "an octagon, measured from the vertices";
-    // The guard against a vacuous pass: a box was 36 vertices, and the round puff must be more
-    // than that in the list the scene really built (not only in the constant).
-    EXPECT_GT(frame.wake.size(), kSmokePuffs * std::size_t{36});
-    EXPECT_EQ(frame.wake.size(), kSmokePuffs * std::size_t{84});
+/// Which way a puff is turned: the unit vector from its centre to its first vertex. Size and place
+/// divide out, so two puffs of different sizes at different spots can still be compared.
+[[nodiscard]] std::array<float, 3> orientation_of(const std::vector<SceneVertex>& puff) {
+    const std::array<float, 3> centre = puff_centre(puff);
+    std::array<float, 3> d{};
+    float length = 0.0F;
+    for (std::size_t axis = 0; axis < 3; ++axis) {
+        d.at(axis) = puff.front().position.at(axis) - centre.at(axis);
+        length += d.at(axis) * d.at(axis);
+    }
+    length = std::sqrt(length);
+    for (float& c : d) {
+        c /= length;
+    }
+    return d;
 }
 
-TEST(SceneWake, APuffIsClosedAndConvexAndFacesOutward) {
+[[nodiscard]] float apart(const std::array<float, 3>& a, const std::array<float, 3>& b) {
+    return std::sqrt(((a[0] - b[0]) * (a[0] - b[0])) + ((a[1] - b[1]) * (a[1] - b[1]))
+                     + ((a[2] - b[2]) * (a[2] - b[2])));
+}
+
+[[nodiscard]] std::array<long, 3> mm_of(const SceneVertex& v) {
+    return {std::lround(v.position[0] * 1000.0F), std::lround(v.position[1] * 1000.0F),
+            std::lround(v.position[2] * 1000.0F)};
+}
+
+TEST(SceneWake, APuffIsAnIcosphereNotAPrismOrABox) {
+    // AH: Harri's research: an icosphere is uniform equilateral triangles with no pinching poles.
+    // Measured from the vertices the scene built, not read off a constant.
     for (const sim::Tick age : {sim::Tick{5}, sim::Tick{kBlastTicks + 1}}) {
         const WakeFrame frame = wake_at(age);
         ASSERT_TRUE(frame.wreck_valid);
         const std::vector<SceneVertex> puff = puff_of(frame, 0);
-        const PuffBounds b = bounds_of(puff);
-        std::array<float, 3> centre{};
-        for (std::size_t axis = 0; axis < 3; ++axis) {
-            centre.at(axis) = (b.lo.at(axis) + b.hi.at(axis)) * 0.5F;
+        ASSERT_EQ(puff.size(), std::size_t{60}) << "twenty triangles";
+        std::map<std::array<long, 3>, int> triangles_at;
+        for (std::size_t tri = 0; tri < puff.size(); tri += 3) {
+            std::array<float, 3> edge{};
+            for (std::size_t e = 0; e < 3; ++e) {
+                const auto& p = puff.at(tri + e).position;
+                const auto& q = puff.at(tri + ((e + 1) % 3)).position;
+                edge.at(e)
+                    = std::sqrt(((p[0] - q[0]) * (p[0] - q[0])) + ((p[1] - q[1]) * (p[1] - q[1]))
+                                + ((p[2] - q[2]) * (p[2] - q[2])));
+                ++triangles_at[mm_of(puff.at(tri + e))];
+            }
+            EXPECT_NEAR(edge[0], edge[1], edge[0] * 0.01F) << "triangle " << tri / 3;
+            EXPECT_NEAR(edge[1], edge[2], edge[1] * 0.01F) << "triangle " << tri / 3;
         }
+        EXPECT_EQ(triangles_at.size(), std::size_t{12}) << "twelve corners";
+        for (const auto& [corner, count] : triangles_at) {
+            EXPECT_EQ(count, 5) << "a corner with more triangles than five is a pole";
+        }
+    }
+    // The guard against a vacuous pass: the list the scene built holds only icospheres.
+    EXPECT_EQ(wake_at(kBlastTicks + 1).wake.size(), kSmokePuffs * std::size_t{60});
+}
+
+TEST(SceneWake, APuffIsClosedAndConvex) {
+    for (const sim::Tick age : {sim::Tick{5}, sim::Tick{kBlastTicks + 1}}) {
+        const WakeFrame frame = wake_at(age);
+        ASSERT_TRUE(frame.wreck_valid);
+        const std::vector<SceneVertex> puff = puff_of(frame, 0);
+        const std::array<float, 3> centre = puff_centre(puff);
         std::map<std::array<long, 6>, int> edge_faces;
-        const auto key = [&](const SceneVertex& v) {
-            return std::array<long, 3>{std::lround(v.position[0] * 1000.0F),
-                                       std::lround(v.position[1] * 1000.0F),
-                                       std::lround(v.position[2] * 1000.0F)};
-        };
         for (std::size_t tri = 0; tri < puff.size(); tri += 3) {
             for (std::size_t edge = 0; edge < 3; ++edge) {
-                auto p = key(puff.at(tri + edge));
-                auto q = key(puff.at(tri + ((edge + 1) % 3)));
+                auto p = mm_of(puff.at(tri + edge));
+                auto q = mm_of(puff.at(tri + ((edge + 1) % 3)));
                 if (q < p) {
                     std::swap(p, q);
                 }
                 ++edge_faces[{p[0], p[1], p[2], q[0], q[1], q[2]}];
             }
-            // Convex and outward: every vertex of the puff is behind this face's plane, and the
-            // face's normal points away from the puff's centre. The box's own near face (z0, a to
-            // b along +x, then up) has e1 x e2 = +z while it faces -z, so in this winding the
-            // OUTWARD normal is minus the cross product, and `dot_from_face` negates it.
+            // Convex: every vertex, and the centre, is on one side of this face's plane. Which
+            // side is the winding's business (the renderer does not cull).
             const auto at = [&](std::size_t i, std::size_t axis) {
                 return puff.at(tri + i).position.at(axis);
             };
@@ -7481,19 +7524,98 @@ TEST(SceneWake, APuffIsClosedAndConvexAndFacesOutward) {
             const std::array<float, 3> n{(e1[1] * e2[2]) - (e1[2] * e2[1]),
                                          (e1[2] * e2[0]) - (e1[0] * e2[2]),
                                          (e1[0] * e2[1]) - (e1[1] * e2[0])};
-            const auto dot_from_face = [&](const std::array<float, 3>& point) {
-                return -((n[0] * (point[0] - at(0, 0))) + (n[1] * (point[1] - at(0, 1)))
-                         + (n[2] * (point[2] - at(0, 2))));
+            const auto side = [&](const std::array<float, 3>& point) {
+                return (n[0] * (point[0] - at(0, 0))) + (n[1] * (point[1] - at(0, 1)))
+                       + (n[2] * (point[2] - at(0, 2)));
             };
-            EXPECT_LT(dot_from_face(centre), 0.0F) << "triangle " << tri / 3 << " faces inward";
+            const float inside = side(centre);
+            EXPECT_NE(inside, 0.0F);
             for (const SceneVertex& v : puff) {
-                EXPECT_LE(dot_from_face({v.position[0], v.position[1], v.position[2]}), 1e-3F)
+                EXPECT_GE(side({v.position[0], v.position[1], v.position[2]}) * inside,
+                          -1e-3F * inside * inside)
                     << "the puff is not convex at triangle " << tri / 3;
             }
         }
         for (const auto& [edge, faces] : edge_faces) {
             EXPECT_EQ(faces, 2) << "an edge not shared by exactly two faces: the puff has a hole";
         }
+    }
+}
+
+TEST(SceneWake, NoTwoPuffsOfTheBurstShareAnOrientation) {
+    // AH: puffs that share one orientation are what makes overlapping ones look identical. Each
+    // puff's roll is drawn from the frame's seed, so the twenty are turned twenty ways.
+    const WakeFrame frame = wake_at(5);
+    ASSERT_TRUE(frame.wreck_valid);
+    for (std::size_t a = 0; a < kBlastPuffs; ++a) {
+        for (std::size_t b = a + 1; b < kBlastPuffs; ++b) {
+            EXPECT_GT(apart(orientation_of(puff_of(frame, a)), orientation_of(puff_of(frame, b))),
+                      1e-3F)
+                << "puffs " << a << " and " << b << " are turned the same way";
+        }
+    }
+}
+
+TEST(SceneWake, NoTwoPuffsOfTheColumnShareAnOrientation) {
+    const WakeFrame frame = wake_at(kBlastTicks + 1);
+    ASSERT_TRUE(frame.wreck_valid);
+    for (std::size_t a = 0; a < kSmokePuffs; ++a) {
+        for (std::size_t b = a + 1; b < kSmokePuffs; ++b) {
+            EXPECT_GT(apart(orientation_of(puff_of(frame, a)), orientation_of(puff_of(frame, b))),
+                      1e-3F)
+                << "smoke puffs " << a << " and " << b << " are turned the same way";
+        }
+    }
+}
+
+TEST(SceneWake, APuffKeepsRollingAsTheTicksPass) {
+    // The slow continuous roll: the same puff, five ticks later, is turned further round.
+    EXPECT_GT(apart(orientation_of(puff_of(wake_at(3), 0)), orientation_of(puff_of(wake_at(8), 0))),
+              1e-3F);
+    EXPECT_GT(apart(orientation_of(puff_of(wake_at(kBlastTicks + 3), 0)),
+                    orientation_of(puff_of(wake_at(kBlastTicks + 8), 0))),
+              1e-3F);
+}
+
+// --- AH: the spark's SHAPE, and its exemption from the fog (both declared by AG) ---------------
+
+TEST(SceneWake, ABlastSparkIsACubeOfEightCorners) {
+    // AG's own sabotage found the tests pinned a spark's colour and size and NOT its shape. A spark
+    // is a four-cornered prism: a CUBE, eight distinct places, as wide as it is tall as it is deep.
+    // An icosphere gives twelve, an eight-sided prism sixteen, and neither is a cube.
+    const WakeFrame burst = wake_at(0);
+    ASSERT_TRUE(burst.wreck_valid);
+    const std::vector<SceneVertex> sparks = blast_sparks(burst);
+    ASSERT_EQ(sparks.size(), kBlastSparks * protekt::game::kSparkVertices);
+    for (std::size_t first = 0; first < sparks.size(); first += protekt::game::kSparkVertices) {
+        const std::vector<SceneVertex> one(
+            sparks.begin() + static_cast<std::ptrdiff_t>(first),
+            sparks.begin() + static_cast<std::ptrdiff_t>(first + protekt::game::kSparkVertices));
+        std::set<std::array<long, 3>> places;
+        for (const SceneVertex& v : one) {
+            places.insert(mm_of(v));
+        }
+        EXPECT_EQ(places.size(), std::size_t{8}) << "spark " << first / one.size();
+        const PuffBounds b = bounds_of(one);
+        EXPECT_NEAR(b.hi[0] - b.lo[0], b.hi[1] - b.lo[1], 2e-3F) << "wider than it is tall";
+        EXPECT_NEAR(b.hi[0] - b.lo[0], b.hi[2] - b.lo[2], 2e-3F) << "wider than it is deep";
+    }
+}
+
+TEST(SceneWake, TheSparksAreExemptFromTheFogAndTheFireballIsNot) {
+    // A spark is emissive: a hot thing does not fade into the horizon. Camera six metres back, so
+    // the burst is well past the fog's near distance and the puffs ARE fogged.
+    const WakeFrame burst = wake_at(0, 6.0F);
+    ASSERT_TRUE(burst.wreck_valid);
+    ASSERT_EQ(burst.wake.size(),
+              (kBlastPuffs * kSphereVertices) + (kBlastSparks * protekt::game::kSparkVertices));
+    float fogged_puffs = 0.0F;
+    for (std::size_t i = 0; i < kBlastPuffs * kSphereVertices; ++i) {
+        fogged_puffs = std::max(fogged_puffs, burst.wake.at(i).fog);
+    }
+    EXPECT_GT(fogged_puffs, 0.0F) << "the rig is too near for the fog to touch anything";
+    for (const SceneVertex& v : blast_sparks(burst)) {
+        EXPECT_EQ(v.fog, 0.0F) << "a spark faded toward the horizon";
     }
 }
 
@@ -7510,8 +7632,8 @@ TEST(SceneWake, APuffIsClosedAndConvexAndFacesOutward) {
 }
 
 TEST(SceneWake, ARoundPuffIsTheSamePuffInCentreSizeAndColour) {
-    // Numbers read off the BOX puffs of the same seed (7), wreck and tick before this change:
-    // the slice changes the silhouette, not the plume.
+    // Numbers read off the BOX puffs of the same seed (7), wreck and tick before the prisms: the
+    // shape has changed twice (AH: an icosphere of corner radius 1.2 x half), the plume has not.
     struct Expected {
         sim::Tick age;
         std::size_t puff;
@@ -7545,11 +7667,14 @@ TEST(SceneWake, ARoundPuffIsTheSamePuffInCentreSizeAndColour) {
         const WakeFrame frame = wake_at(want.age);
         ASSERT_TRUE(frame.wreck_valid);
         const std::vector<SceneVertex> puff = puff_of(frame, want.puff);
-        const PuffBounds b = bounds_of(puff);
+        const std::array<float, 3> centre = puff_centre(puff);
         for (std::size_t axis = 0; axis < 3; ++axis) {
-            EXPECT_NEAR((b.lo.at(axis) + b.hi.at(axis)) * 0.5F, want.centre.at(axis), 2e-3F);
-            EXPECT_NEAR((b.hi.at(axis) - b.lo.at(axis)) * 0.5F, want.half, 2e-3F)
-                << "the round puff is not as wide across the flats and as tall as the box was";
+            EXPECT_NEAR(centre.at(axis), want.centre.at(axis), 2e-3F);
+        }
+        for (const SceneVertex& v : puff) {
+            const std::array<float, 3> at{v.position[0], v.position[1], v.position[2]};
+            EXPECT_NEAR(apart(at, centre), protekt::game::kPuffRadiusPerHalf * want.half, 2e-3F)
+                << "an icosphere's twelve corners all stand one radius from its centre";
         }
         for (const SceneVertex& v : puff) {
             // The plume's own colours: the literals above are the inks (they match

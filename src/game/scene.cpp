@@ -246,8 +246,8 @@ void append_sky(std::vector<SceneVertex>& out, const Camera& camera) {
 /// Fog the vertices in [first, last) by their distance from the eye: store each one's fog AMOUNT
 /// and leave its colour the raw lighting colour, because the fragment shader mixes the fog in after
 /// the texture (mixing it into the colour let the texture's multiply crush it). THE ONE PLACE the
-/// fog is applied: `build_scene` calls it on the world's runs of the vertex list and on nothing
-/// else.
+/// fog is applied: `build_scene` calls it, through `fog_world`, on the world's runs of the vertex
+/// list less the sparks' (AH) and on nothing else.
 void fog_range(std::vector<SceneVertex>& vertices, std::size_t first, std::size_t last,
                const Camera& camera, int radius_tiles) {
     const float far = fog_far_metres(radius_tiles);
@@ -258,6 +258,26 @@ void fog_range(std::vector<SceneVertex>& vertices, std::size_t first, std::size_
         const float dz = v.position[2] - camera.z;
         v.fog = fog_amount(std::sqrt((dx * dx) + (dy * dy) + (dz * dz)), far);
     }
+}
+
+/// A run [first, last) of the vertex list that the fog must leave alone: EMISSIVE geometry, which
+/// is to say a spark (AH). A hot thing does not fade into the horizon, and Harri asked for sparks
+/// he can see from farther away -- the distance fog is what was taking them, not their size.
+struct VertexRun {
+    std::size_t first{};
+    std::size_t last{};
+};
+
+/// `fog_range` over [first, last) EXCEPT the `emissive` runs, which are in list order. Their
+/// vertices keep the fog amount they were built with, which is none.
+void fog_world(std::vector<SceneVertex>& vertices, std::size_t first, std::size_t last,
+               const std::vector<VertexRun>& emissive, const Camera& camera, int radius_tiles) {
+    std::size_t at = first;
+    for (const VertexRun& run : emissive) {
+        fog_range(vertices, at, run.first, camera, radius_tiles);
+        at = run.last;
+    }
+    fog_range(vertices, at, last, camera, radius_tiles);
 }
 
 /// A selected unit keeps its side's colour and is mixed towards white, so a glance tells you both
@@ -1889,6 +1909,12 @@ float wake_fraction(std::uint64_t seed, std::uint32_t wreck, std::uint32_t salt)
     return static_cast<float>(z & 0xFFFFFFU) / static_cast<float>(0x1000000U);
 }
 
+/// How fast a puff rolls, radians per tick, either way and never faster than
+/// `kPuffRollRadiansPerTick`: a seeded fraction of the range, as the puff's other numbers are.
+float puff_roll_rate(std::uint64_t seed, std::uint32_t owner, std::uint32_t salt) noexcept {
+    return ((wake_fraction(seed, owner, salt) * 2.0F) - 1.0F) * kPuffRollRadiansPerTick;
+}
+
 /// One puff: a `kPuffSides`-cornered prism centred on (x, centre, z), `half` from the centre to
 /// each flat and to each cap, so it is as wide and as tall as the box it replaced. Corners sit
 /// half a step round from the axes, which puts the flats on the box's own faces. Winding is the
@@ -1929,8 +1955,10 @@ void emit_puff(std::vector<SceneVertex>& out, float x, float centre, float z, fl
 /// all stand `radius` from (x, y, z). Corners are the three golden rectangles' (0, +-1, +-phi)
 /// and its two rotations, pushed out to the radius; the faces are the classic twenty, wound
 /// outward. The renderer does not cull, so winding only matters to a lit shader, which this is not.
+/// `roll` (radians, 0 = the corners as listed) turns it about the vertical and leans it over by
+/// 0.6 of the same angle, so two spheres with different rolls are not the same picture (AH).
 void emit_sphere(std::vector<SceneVertex>& out, float x, float y, float z, float radius,
-                 const Vec3& colour, float alpha) {
+                 const Vec3& colour, float alpha, float roll = 0.0F) {
     constexpr float kPhi = 1.6180340F;
     constexpr std::array<std::array<float, 3>, 12> kCorners{{{-1.0F, kPhi, 0.0F},
                                                              {1.0F, kPhi, 0.0F},
@@ -1949,9 +1977,17 @@ void emit_sphere(std::vector<SceneVertex>& out, float x, float y, float z, float
          {11, 10, 2}, {10, 7, 6}, {7, 1, 8},  {3, 9, 4},  {3, 4, 2},   {3, 2, 6}, {3, 6, 8},
          {3, 8, 9},   {4, 9, 5},  {2, 4, 11}, {6, 2, 10}, {8, 6, 7},   {9, 8, 1}}};
     const float scale = radius / std::sqrt(1.0F + (kPhi * kPhi));
+    const float yaw_cos = std::cos(roll);
+    const float yaw_sin = std::sin(roll);
+    const float lean_cos = std::cos(roll * 0.6F);
+    const float lean_sin = std::sin(roll * 0.6F);
     const auto corner = [&](std::size_t index) {
         const auto& c = kCorners.at(index);
-        return Vec3{x + (c.at(0) * scale), y + (c.at(1) * scale), z + (c.at(2) * scale)};
+        const float turned_x = (c.at(0) * yaw_cos) + (c.at(2) * yaw_sin);
+        const float turned_z = (c.at(2) * yaw_cos) - (c.at(0) * yaw_sin);
+        const float leaned_y = (c.at(1) * lean_cos) - (turned_z * lean_sin);
+        const float leaned_z = (c.at(1) * lean_sin) + (turned_z * lean_cos);
+        return Vec3{x + (turned_x * scale), y + (leaned_y * scale), z + (leaned_z * scale)};
     };
     for (const auto& face : kFaces) {
         emit_triangle(out, corner(face.at(0)), corner(face.at(1)), corner(face.at(2)), colour,
@@ -1973,6 +2009,7 @@ Particle spark_spawn(const Vec3& origin, const Vec3& velocity, sim::Tick lifetim
     spark.half_to = half;
     spark.colour_from = kSparkHotColour;
     spark.colour_to = kSparkCoolColour;
+    spark.shape = ParticleShape::Prism;
     spark.sides = kSparkSides;
     spark.floor_per_metre = kSparkFloorPerMetre;
     return spark;
@@ -1986,11 +2023,12 @@ Particle spark_spawn(const Vec3& origin, const Vec3& velocity, sim::Tick lifetim
 ///
 /// EMITS NOTHING without a `Killed` event: the layer is free for every frame that lost no unit, and
 /// a wreck beyond the meshed radius is skipped rather than floated over bare void.
-void append_effects(std::vector<SceneVertex>& out, const SceneOptions& options,
-                    const sim::Sim& sim) {
+void append_effects(std::vector<SceneVertex>& out, std::vector<VertexRun>& emissive,
+                    const SceneOptions& options, const sim::Sim& sim) {
     if (options.events.empty()) {
         return;
     }
+    emissive.reserve(emissive.size() + options.events.size());
     constexpr float kOne = static_cast<float>(sim::Fixed::kOne);
     constexpr float kTau = 6.2831853F;
     const sim::Tick now = sim.tick();
@@ -2050,10 +2088,14 @@ void append_effects(std::vector<SceneVertex>& out, const SceneOptions& options,
                 puff_spawn.colour_to = kBlastCoolColour;
                 puff_spawn.alpha_from = kBlastAlpha;
                 puff_spawn.alpha_to = 0.0F;
+                puff_spawn.roll = wake_fraction(options.seed, id, puff + 192U) * kTau;
+                puff_spawn.roll_rate = puff_roll_rate(options.seed, id, puff + 224U);
                 emit_particle(out, puff_spawn, age, eye);
             }
             // The sparks, after the puffs: small, bright and OPAQUE, thrown out of the fireball's
-            // centre on their own seeded headings and falling as they go (AI).
+            // centre on their own seeded headings and falling as they go (AI). They are one run
+            // of the list, and the fog leaves it alone.
+            const std::size_t sparks_first = out.size();
             for (std::uint32_t spark = 0; spark < kBlastSparks; ++spark) {
                 const float heading = wake_fraction(options.seed, id, spark + 400U) * kTau;
                 const float speed
@@ -2068,6 +2110,9 @@ void append_effects(std::vector<SceneVertex>& out, const SceneOptions& options,
                                 {std::cos(heading) * speed, lift, std::sin(heading) * speed},
                                 kBlastSparkTicks, kBlastSparkHalfMetres),
                     age, eye);
+            }
+            if (out.size() > sparks_first) {
+                emissive.push_back({sparks_first, out.size()});
             }
             continue;
         }
@@ -2092,6 +2137,8 @@ void append_effects(std::vector<SceneVertex>& out, const SceneOptions& options,
             smoke.colour_to = kSmokeColour;
             smoke.alpha_from = kSmokeAlpha;
             smoke.alpha_to = 0.0F;
+            smoke.roll = wake_fraction(options.seed, id, puff + 352U) * kTau;
+            smoke.roll_rate = puff_roll_rate(options.seed, id, puff + 384U);
             emit_particle(out, smoke, since, eye);
         }
     }
@@ -2103,8 +2150,8 @@ void append_effects(std::vector<SceneVertex>& out, const SceneOptions& options,
 /// (so the colours pour along the beam), and is thrown off the line on each axis by a hash of
 /// (seed, tick, pair, bead, axis), times `sin(pi * fraction)` so the ends do not move. A pure
 /// function of the sim: it EMITS NOTHING when no repair is advancing.
-void append_repair_beams(std::vector<SceneVertex>& out, const SceneOptions& options,
-                         const sim::Sim& sim) {
+void append_repair_beams(std::vector<SceneVertex>& out, std::vector<VertexRun>& emissive,
+                         const SceneOptions& options, const sim::Sim& sim) {
     constexpr float kPi = 3.14159265F;
     const std::vector<RepairLink> links = repair_links(sim);
     if (links.empty()) {
@@ -2113,6 +2160,7 @@ void append_repair_beams(std::vector<SceneVertex>& out, const SceneOptions& opti
     out.reserve(out.size()
                 + (links.size()
                    * ((kRepairBeamBeads * kSphereVertices) + (kRepairSparks * kSparkVertices))));
+    emissive.reserve(emissive.size() + links.size());
     const auto tile = [](sim::Fixed v) { return static_cast<float>(v.raw) / sim::Fixed::kOne; };
     const std::size_t flow = static_cast<std::size_t>(sim.tick() / kRepairBeamFlowTicks);
     const Vec3 eye{options.camera.x, options.camera.y, options.camera.z};
@@ -2151,7 +2199,9 @@ void append_repair_beams(std::vector<SceneVertex>& out, const SceneOptions& opti
         }
         // The weld's sparks, after the translucent beads: opaque, thrown from the patient's end.
         // Spark `n` is `n / kRepairSparks` of its life ahead of spark 0, so one is always being
-        // born; each life gets its own seeded heading from the cycle it is in.
+        // born; each life gets its own seeded heading from the cycle it is in. They are one run of
+        // the list, and the fog leaves it alone.
+        const std::size_t sparks_first = out.size();
         for (std::size_t spark = 0; spark < kRepairSparks; ++spark) {
             const std::uint32_t shifted
                 = static_cast<std::uint32_t>(sim.tick())
@@ -2169,6 +2219,9 @@ void append_repair_beams(std::vector<SceneVertex>& out, const SceneOptions& opti
                                       {std::cos(heading) * speed, lift, std::sin(heading) * speed},
                                       kRepairSparkTicks, kRepairSparkHalfMetres),
                           age, eye);
+        }
+        if (out.size() > sparks_first) {
+            emissive.push_back({sparks_first, out.size()});
         }
     }
 }
@@ -2214,6 +2267,62 @@ void append_pools(std::vector<SceneVertex>& out, const SceneOptions& options, co
             emit_puff(out, cx + sway, ground + half + (kPoolPlumeHeightMetres * t), cz + sway_z,
                       half, steam, kPoolSteamAlpha * (1.0F - (0.7F * t)));
         }
+    }
+}
+
+/// THE FLOATING MOTES (see `kMoteCount`): `kMoteCount` icosphere `Particle`s hanging in the air
+/// round the camera. Mote `n` has a place in a square `kMoteBoxMetres` across, a height, a speed, a
+/// bob and a roll, all hashed from the frame's seed (`wake_fraction`, as the smoke's wind is), and
+/// is slid along that same wind by the sim's tick. The square follows the camera by WRAPPING: a
+/// mote's place relative to the eye is its world place modulo the box, so it stays where it hangs
+/// while the camera moves and re-enters on the far side when it leaves the near one, fading out
+/// toward the edge so the wrap is not seen. Nothing is stored and nothing reaches the sim: the
+/// tick is read, never written. EMITS NOTHING unless `show_motes`.
+void append_motes(std::vector<SceneVertex>& out, const SceneOptions& options, const sim::Sim& sim) {
+    if (!options.show_motes) {
+        return;
+    }
+    constexpr float kTau = 6.2831853F;
+    constexpr std::uint32_t kOwner = 0x4D4F5445U; // "MOTE": its own hash stream, apart from wrecks'
+    constexpr float kHalfBox = kMoteBoxMetres * 0.5F;
+    const float ticks = static_cast<float>(sim.tick());
+    const float wind = wake_fraction(options.seed, 0U, 1U) * kTau; // the smoke's wind
+    const Vec3 eye{options.camera.x, options.camera.y, options.camera.z};
+    const auto wrapped = [](float distance) {
+        const float inside = std::fmod(distance, kMoteBoxMetres);
+        return (inside < 0.0F ? inside + kMoteBoxMetres : inside) - kHalfBox;
+    };
+    out.reserve(out.size() + (kMoteCount * kSphereVertices));
+    for (std::uint32_t mote = 0; mote < kMoteCount; ++mote) {
+        const std::uint32_t salt = mote * 8U;
+        const auto draw = [&](std::uint32_t which) {
+            return wake_fraction(options.seed, kOwner, salt + which);
+        };
+        const float drift = kMoteDriftMetresPerTick * (0.5F + draw(3U)) * ticks;
+        const float across_x
+            = wrapped((draw(0U) * kMoteBoxMetres) + (std::cos(wind) * drift) - options.camera.x);
+        const float across_z
+            = wrapped((draw(1U) * kMoteBoxMetres) + (std::sin(wind) * drift) - options.camera.z);
+        const float x = options.camera.x + across_x;
+        const float z = options.camera.z + across_z;
+        const float bob = std::sin((draw(4U) * kTau) + (ticks * kMoteBobRadiansPerTick));
+        Particle speck;
+        speck.origin
+            = {x,
+               ground_metres(options.seed, x / kMetresPerTile, z / kMetresPerTile) + kMoteLowMetres
+                   + (draw(2U) * (kMoteCeilingMetres - kMoteLowMetres)) + (bob * kMoteBobMetres),
+               z};
+        speck.half_from = kMoteHalfMetres;
+        speck.half_to = kMoteHalfMetres;
+        speck.colour_from = kMoteColour;
+        speck.colour_to = kMoteColour;
+        const float edge = std::max(std::abs(across_x), std::abs(across_z)) / kHalfBox;
+        speck.alpha_from = kMoteAlpha * std::min(1.0F, (1.0F - edge) * 4.0F);
+        speck.alpha_to = speck.alpha_from;
+        const float rate = puff_roll_rate(options.seed, kOwner, salt + 6U);
+        speck.roll = (draw(5U) * kTau) + (rate * ticks);
+        speck.roll_rate = 0.0F;
+        emit_particle(out, speck, 0, eye);
     }
 }
 
@@ -3023,9 +3132,13 @@ void emit_particle(std::vector<SceneVertex>& out, const Particle& particle, sim:
             = particle.colour_from.at(channel)
               + ((particle.colour_to.at(channel) - particle.colour_from.at(channel)) * t);
     }
-    emit_puff(out, x, y, z, half, colour,
-              particle.alpha_from + ((particle.alpha_to - particle.alpha_from) * t),
-              particle.sides);
+    const float alpha = particle.alpha_from + ((particle.alpha_to - particle.alpha_from) * t);
+    if (particle.shape == ParticleShape::Icosphere) {
+        emit_sphere(out, x, y, z, half * kPuffRadiusPerHalf, colour, alpha,
+                    particle.roll + (particle.roll_rate * a));
+        return;
+    }
+    emit_puff(out, x, y, z, half, colour, alpha, particle.sides);
 }
 
 // The overlaps are taken in integers: across, the mask is scaled by `cols` and the pixels by 5, so
@@ -5707,8 +5820,10 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
     append_landing_marks(scene.vertices, options, sim.tick());
     append_scrap(scene.vertices, options, sim);
     append_pools(scene.vertices, options, sim);
-    append_repair_beams(scene.vertices, options, sim);
-    append_effects(scene.vertices, options, sim);
+    std::vector<VertexRun> emissive; // the sparks: the fog leaves these runs alone
+    append_repair_beams(scene.vertices, emissive, options, sim);
+    append_effects(scene.vertices, emissive, options, sim);
+    append_motes(scene.vertices, options, sim);
     append_nav_beacons(scene.vertices, options);
     append_deploy_preview(scene.vertices, options);
     // THE LINE BETWEEN WORLD AND HUD, DRAWN HERE: everything above is the world -- the terrain,
@@ -5719,7 +5834,8 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
     // read like the one over a unit 5 m away, so none of it is fogged. Nav GLYPHS are the radar's
     // and the world map's marks, and sit on the HUD side of this line.
     fog_range(scene.vertices, 0, terrain_end, options.camera, options.radius_tiles);
-    fog_range(scene.vertices, sky_end, scene.vertices.size(), options.camera, options.radius_tiles);
+    fog_world(scene.vertices, sky_end, scene.vertices.size(), emissive, options.camera,
+              options.radius_tiles);
     // The renderer smooths the world's edges and draws everything past this index after it.
     scene.world_vertex_count = scene.vertices.size();
     // The map and the radar share the bottom-left corner: BZ2's R turns one into the other rather

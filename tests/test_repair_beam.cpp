@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <set>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -324,6 +325,47 @@ TEST(RepairBeam, TheSparksFlyFromTheWeldAndMoveFromOneTickToTheNext) {
         }
     }
     EXPECT_GT(moved, static_cast<int>(before.size()) / 2);
+}
+
+TEST(RepairBeam, AWeldSparkIsACubeOfEightCorners) {
+    // AH: the tests pinned a spark's colour and size, not its shape. Eight distinct places, as wide
+    // as tall as deep: an icosphere gives twelve and an eight-sided prism sixteen.
+    const std::vector<SceneVertex> sparks = sparks_of(protekt::game::build_scene(rig(1), view()));
+    ASSERT_EQ(sparks.size(), protekt::game::kRepairSparks * protekt::game::kSparkVertices);
+    for (std::size_t first = 0; first < sparks.size(); first += protekt::game::kSparkVertices) {
+        std::set<std::array<long, 3>> places;
+        std::array<float, 3> lo{1e9F, 1e9F, 1e9F};
+        std::array<float, 3> hi{-1e9F, -1e9F, -1e9F};
+        for (std::size_t i = first; i < first + protekt::game::kSparkVertices; ++i) {
+            const auto& at = sparks.at(i).position;
+            places.insert({std::lround(at[0] * 1000.0F), std::lround(at[1] * 1000.0F),
+                           std::lround(at[2] * 1000.0F)});
+            for (std::size_t axis = 0; axis < 3; ++axis) {
+                lo.at(axis) = std::min(lo.at(axis), at.at(axis));
+                hi.at(axis) = std::max(hi.at(axis), at.at(axis));
+            }
+        }
+        EXPECT_EQ(places.size(), std::size_t{8})
+            << "spark " << first / protekt::game::kSparkVertices;
+        EXPECT_NEAR(hi[0] - lo[0], hi[1] - lo[1], 2e-3F);
+        EXPECT_NEAR(hi[0] - lo[0], hi[2] - lo[2], 2e-3F);
+    }
+}
+
+TEST(RepairBeam, TheWeldsSparksAreExemptFromTheFogAndTheBeamIsNot) {
+    // A spark is emissive: it does not fade into the horizon. The beam beside it does.
+    const Sim sim = rig(1);
+    const Scene scene = protekt::game::build_scene(sim, view());
+    float beam_fog = 0.0F;
+    for (const SceneVertex& v : beam_of(scene)) {
+        beam_fog = std::max(beam_fog, v.fog);
+    }
+    EXPECT_GT(beam_fog, 0.0F) << "the rig is too near for the fog to touch anything";
+    const std::vector<SceneVertex> sparks = sparks_of(scene);
+    ASSERT_FALSE(sparks.empty());
+    for (const SceneVertex& v : sparks) {
+        EXPECT_EQ(v.fog, 0.0F) << "a spark faded toward the horizon";
+    }
 }
 
 TEST(RepairBeam, NoRepairMeansNoSparks) {

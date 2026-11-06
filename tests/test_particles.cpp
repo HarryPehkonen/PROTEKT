@@ -6,6 +6,8 @@
 #include <array>
 #include <cmath>
 #include <cstddef>
+#include <map>
+#include <set>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -32,7 +34,18 @@ Particle sample() {
     p.colour_to = {0.0F, 0.0F, 1.0F};
     p.alpha_from = 0.8F;
     p.alpha_to = 0.0F;
+    p.shape = protekt::game::ParticleShape::Prism;
     p.sides = protekt::game::kPuffSides;
+    return p;
+}
+
+/// The same particle as a PUFF: an icosphere, standing still, so only its roll is in play.
+Particle puff() {
+    Particle p = sample();
+    p.shape = protekt::game::ParticleShape::Icosphere;
+    p.velocity = {0.0F, 0.0F, 0.0F};
+    p.gravity = 0.0F;
+    p.half_to = p.half_from;
     return p;
 }
 
@@ -90,11 +103,115 @@ TEST(Particle, IsGoneAtItsLifetimeAndNotBefore) {
     EXPECT_TRUE(drawn(sample(), 10).empty());
 }
 
-TEST(Particle, ItsSidesSetItsVertexCount) {
+TEST(Particle, ItsSidesSetAPrismsVertexCount) {
     Particle p = sample();
     EXPECT_EQ(drawn(p, 0).size(), protekt::game::kPuffVertices);
     p.sides = protekt::game::kSparkSides;
     EXPECT_EQ(drawn(p, 0).size(), protekt::game::kSparkVertices);
+}
+
+std::array<float, 3> mean_of(const std::vector<SceneVertex>& v) {
+    std::array<float, 3> sum{};
+    for (const SceneVertex& vertex : v) {
+        for (std::size_t axis = 0; axis < 3; ++axis) {
+            sum.at(axis) += vertex.position.at(axis);
+        }
+    }
+    for (float& c : sum) {
+        c /= static_cast<float>(v.size());
+    }
+    return sum;
+}
+
+float distance_between(const std::array<float, 3>& a, const std::array<float, 3>& b) {
+    return std::sqrt(((a[0] - b[0]) * (a[0] - b[0])) + ((a[1] - b[1]) * (a[1] - b[1]))
+                     + ((a[2] - b[2]) * (a[2] - b[2])));
+}
+
+/// Which way the first vertex points from the centre: where a puff is turned to.
+std::array<float, 3> facing_of(const std::vector<SceneVertex>& v) {
+    const std::array<float, 3> centre = mean_of(v);
+    std::array<float, 3> d{};
+    for (std::size_t axis = 0; axis < 3; ++axis) {
+        d.at(axis) = v.front().position.at(axis) - centre.at(axis);
+    }
+    const float length = distance_between(d, {0.0F, 0.0F, 0.0F});
+    return {d[0] / length, d[1] / length, d[2] / length};
+}
+
+TEST(Particle, AnIcosphereIsTwentyEqualTrianglesOfTwelveCornersOneRadiusOut) {
+    // The shape Harri asked for: an ICOSPHERE, uniform equilateral triangles, not a UV sphere.
+    const std::vector<SceneVertex> v = drawn(puff(), 0);
+    ASSERT_EQ(v.size(), protekt::game::kSphereVertices);
+    EXPECT_EQ(v.size(), std::size_t{60});
+    const std::array<float, 3> centre = mean_of(v);
+    EXPECT_NEAR(centre[0], 10.0F, 1e-3F);
+    EXPECT_NEAR(centre[1], 5.0F, 1e-3F);
+    EXPECT_NEAR(centre[2], 10.0F, 1e-3F);
+    std::set<std::array<long, 3>> corners;
+    std::map<std::array<long, 3>, int> triangles_at;
+    for (const SceneVertex& vertex : v) {
+        EXPECT_NEAR(distance_between(vertex.position, centre),
+                    protekt::game::kPuffRadiusPerHalf * 1.0F, 1e-3F);
+        const std::array<long, 3> key{std::lround(vertex.position[0] * 1000.0F),
+                                      std::lround(vertex.position[1] * 1000.0F),
+                                      std::lround(vertex.position[2] * 1000.0F)};
+        corners.insert(key);
+        ++triangles_at[key];
+    }
+    EXPECT_EQ(corners.size(), std::size_t{12});
+    for (const auto& [corner, count] : triangles_at) {
+        EXPECT_EQ(count, 5) << "a UV sphere's pole gathers many triangles; an icosphere's never do";
+    }
+    for (std::size_t tri = 0; tri < v.size(); tri += 3) {
+        const float ab = distance_between(v.at(tri).position, v.at(tri + 1).position);
+        const float bc = distance_between(v.at(tri + 1).position, v.at(tri + 2).position);
+        const float ca = distance_between(v.at(tri + 2).position, v.at(tri).position);
+        EXPECT_NEAR(ab, bc, ab * 0.01F);
+        EXPECT_NEAR(bc, ca, bc * 0.01F);
+    }
+}
+
+TEST(Particle, TwoPuffsAtOneSpotWithDifferentRollsAreTurnedDifferently) {
+    Particle a = puff();
+    Particle b = puff();
+    a.roll = 0.3F;
+    b.roll = 1.9F;
+    EXPECT_GT(distance_between(facing_of(drawn(a, 0)), facing_of(drawn(b, 0))), 0.05F)
+        << "overlapping puffs share one orientation, which is what makes them look identical";
+    // The control: the same roll is the same picture, so the difference above is the roll's.
+    Particle c = puff();
+    c.roll = 0.3F;
+    EXPECT_LT(distance_between(facing_of(drawn(a, 0)), facing_of(drawn(c, 0))), 1e-4F);
+    // And the centre and size do not move with the roll.
+    EXPECT_LT(distance_between(mean_of(drawn(a, 0)), mean_of(drawn(b, 0))), 1e-3F);
+}
+
+TEST(Particle, AnIcospheresRollRunsOnWithItsAge) {
+    Particle p = puff();
+    p.roll = 0.5F;
+    p.roll_rate = 0.05F;
+    EXPECT_GT(distance_between(facing_of(drawn(p, 0)), facing_of(drawn(p, 6))), 0.05F);
+    p.roll_rate = 0.0F;
+    EXPECT_LT(distance_between(facing_of(drawn(p, 0)), facing_of(drawn(p, 6))), 1e-4F);
+}
+
+TEST(Particle, APrismDoesNotRoll) {
+    Particle p = sample();
+    p.velocity = {0.0F, 0.0F, 0.0F};
+    p.gravity = 0.0F;
+    p.roll = 1.0F;
+    p.roll_rate = 0.2F;
+    Particle q = p;
+    q.roll = 0.0F;
+    q.roll_rate = 0.0F;
+    const auto turned = drawn(p, 3);
+    const auto still = drawn(q, 3);
+    ASSERT_EQ(turned.size(), still.size());
+    for (std::size_t i = 0; i < turned.size(); ++i) {
+        EXPECT_EQ(turned.at(i).position, still.at(i).position)
+            << "a spark is a cube; it keeps its faces";
+    }
 }
 
 TEST(Particle, AFloorPerMetreKeepsItAtLeastThatWideWhateverItsSize) {

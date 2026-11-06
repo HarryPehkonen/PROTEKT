@@ -436,6 +436,7 @@ public:
         scene_options.aim = game::aim_from(hands, extent);
         scene_options.viewer_unit = radar_viewer(session_, options_.no_radar);
         scene_options.driven_unit = session_.driven();
+        scene_options.show_motes = true;       // the specks in the air (AH): view-only
         scene_options.nav_marks = &nav_marks_; // G-then-a-number reads the marks
         scene_options.row = &row_;             // F1-F10 select what the row holds
         player_alive_before_ = is_alive(sim_, session_.driven());

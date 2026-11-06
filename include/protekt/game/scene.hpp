@@ -440,15 +440,30 @@ inline constexpr std::size_t kPuffSides = 8;
 }
 inline constexpr std::size_t kPuffVertices = prism_vertices(kPuffSides);
 
-/// THE PARTICLE (AG): the one spawn the blast's puffs, the wreck's smoke and every spark are made
-/// by. A particle is a prism of `sides` corners whose centre, size, colour and alpha are all
-/// FUNCTIONS OF ITS AGE and of nothing stored: it stands at `origin + velocity * age` less
-/// `gravity` (metres per tick squared) pulling it down, and `half`, `colour` and `alpha` run from
-/// their `_from` value to their `_to` value over `lifetime` ticks. At `age >= lifetime` it is gone
-/// and `emit_particle` draws nothing. `floor_per_metre` keeps it at least that many metres of half
-/// width per metre between it and the eye (0 = no floor), which is how a spark stays a few pixels
-/// wide however far away it is. The caller derives its particles from the sim's tick and the
-/// frame's seed, so a replay needs nothing in it.
+/// A particle's SHAPE (AH). A PUFF is an `Icosphere` -- twenty uniform triangles, twelve corners
+/// evenly spread, no poles to pinch (Harri, from his own research: a UV sphere pinches, an
+/// icosphere does not) -- and each one carries its own roll. A SPARK stays a `Prism` of four
+/// corners, a cube: at 2.5 px nothing rounder can be told from it, and it costs a third of a
+/// sphere's vertices.
+enum class ParticleShape : std::uint8_t { Icosphere, Prism };
+
+/// An icosphere puff's corners stand `kPuffRadiusPerHalf * half` from its centre, so a puff of
+/// `half` is about as big as the box it replaced (the sphere's flats are nearer than its corners).
+inline constexpr float kPuffRadiusPerHalf = 1.2F;
+/// How fast a puff may roll, in radians per tick either way (0.05 = 1.5 rad a second, slow).
+inline constexpr float kPuffRollRadiansPerTick = 0.05F;
+
+/// THE PARTICLE (AG): the one spawn the blast's puffs, the wreck's smoke, every spark and (AH)
+/// every mote are made by. A particle is an icosphere, or a prism of `sides` corners, whose centre,
+/// size, colour and alpha are all FUNCTIONS OF ITS AGE and of nothing stored: it stands at `origin
+/// + velocity * age` less `gravity` (metres per tick squared) pulling it down, and `half`, `colour`
+/// and `alpha` run from their `_from` value to their `_to` value over `lifetime` ticks. At `age >=
+/// lifetime` it is gone and `emit_particle` draws nothing. `floor_per_metre` keeps it at least that
+/// many metres of half width per metre between it and the eye (0 = no floor), which is how a spark
+/// stays a few pixels wide however far away it is. The caller derives its particles from the sim's
+/// tick and the frame's seed, so a replay needs nothing in it. An icosphere turns about the
+/// vertical by `roll + roll_rate * age` (and leans over by 0.6 of that), so puffs that overlap are
+/// not copies of one another; a prism does not turn.
 struct Particle {
     math::Vec3 origin{};
     math::Vec3 velocity{}; ///< metres per tick
@@ -460,8 +475,11 @@ struct Particle {
     math::Vec3 colour_to{};
     float alpha_from{1.0F};
     float alpha_to{1.0F};
-    std::size_t sides{kPuffSides};
+    ParticleShape shape{ParticleShape::Icosphere};
+    std::size_t sides{kPuffSides}; ///< a prism's corners; an icosphere ignores it
     float floor_per_metre{0.0F};
+    float roll{0.0F};      ///< radians at age 0 (an icosphere's)
+    float roll_rate{0.0F}; ///< radians per tick (an icosphere's)
 };
 
 /// Draw `particle` as it is `age` ticks after it was spawned, seen from `eye`.
@@ -485,6 +503,25 @@ inline constexpr int kSparkReferenceRows = 720;
 inline constexpr float kSparkFloorPerMetre
     = 0.57735F * kSparkMinPixels / static_cast<float>(kSparkReferenceRows);
 inline constexpr float kSparkGravity = 0.008F; ///< metres per tick squared
+
+/// FLOATING MOTES (AH; Harri: "I would eventually like particles floating in the air for effect").
+/// `kMoteCount` pale specks drifting near the viewer, VIEW-ONLY: each is a `Particle` icosphere
+/// rebuilt every frame (there is no manager and no pool), its place and its roll hashed from the
+/// frame's seed and slid along the seed's wind by the sim's tick, so nothing is stored and nothing
+/// is hashed. They live in a square `kMoteBoxMetres` across centred on the camera and WRAP at its
+/// edge -- a mote leaving one side re-enters the other -- fading out toward the edge so the wrap is
+/// never seen; each floats between `kMoteLowMetres` and `kMoteCeilingMetres` over the ground
+/// beneath it. A dozen is the budget: this is a camera-local garnish, not weather.
+inline constexpr std::size_t kMoteCount = 12;
+inline constexpr float kMoteBoxMetres = 32.0F;
+inline constexpr float kMoteLowMetres = 0.4F;
+inline constexpr float kMoteCeilingMetres = 6.0F;
+inline constexpr float kMoteHalfMetres = 0.05F;
+inline constexpr float kMoteAlpha = 0.5F;
+inline constexpr float kMoteDriftMetresPerTick = 0.008F;
+inline constexpr float kMoteBobMetres = 0.3F;
+inline constexpr float kMoteBobRadiansPerTick = 0.02F;
+inline constexpr std::array<float, 3> kMoteColour{0.95F, 0.92F, 0.80F};
 
 /// A BIOMETAL POOL VENTING (Harri, 2026-11-01, from BattleZone 2, where a pool is "a shallow
 /// circular vent with a pale rim and a visible plume of steam"). Until now a pool was a white
@@ -1263,6 +1300,9 @@ struct SceneOptions {
     /// The biometal pools venting (`kPoolVentColour`): drawn in the world for every pool in view,
     /// ON by default because the game draws it, and emitting NOTHING for a sim with no pools.
     bool show_pools{true};
+    /// The floating motes (`kMoteCount`): a dozen specks drifting near the camera. OFF by default
+    /// so a frame that never heard of them is byte-identical; the game turns them on.
+    bool show_motes{false};
     /// THE STORE GAUGE beside the radar (`store_gauge.hpp`), the HUD layer of the scrap economy:
     /// C3's per-side count of banked loads, drawn as a segmented column and the number under it, so
     /// the player can see the currency a queue spends. (It was the ledger's `SCRAP` plate too,

@@ -222,6 +222,15 @@ view's FXAA pulls a lone bright speck toward its neighbours, so each is kept abo
 any distance rather than turning FXAA down for everything. The blast, the smoke and the sparks are
 all drawn by one extracted spawn (`game::Particle`). Presentation only; no recorded battle moved.
 
+**Smoke is round, puffs roll, and there are motes in the air** (2026-11-06; Harri: "I would eventually
+like particles floating in the air for effect", and, of the eight-sided puff, "It's not what I had in
+mind"). A puff of the explosion and of a wreck's smoke is now an ICOSPHERE (20 equal triangles, 12
+corners, no pinching poles), and each carries its own slow roll drawn from the frame's seed, so
+overlapping puffs are not copies. A dozen pale motes drift in the air round the camera: they are
+rebuilt every frame from the seed and the tick, wrap at the edge of a 32 m box so they stay where they
+hang as you move, and are view-only (no battle can depend on them). Sparks no longer fade into the
+distance fog. Presentation only; no recorded battle moved.
+
 **Repair by pointing** (2026-11-05; Harri: "maybe the same logic that's used to attack an enemy can be
 used to repair a friendly. You know, targetting."). Select a service truck, point the crosshair at a
 damaged friendly (within the same 4 degrees the attack offer uses) and the menu's top row reads `SPACE
@@ -485,7 +494,7 @@ change a verification run.
 | **Little feedback that YOUR shot happened** | the bolt is drawn, your gun is heard, the reticle spreads for 0.2 seconds when your shot damages an enemy and a mortar shell leaves a landing mark. There is no muzzle flash and no recoil, and a shot that misses gives no reticle response |
 | **No positional audio beyond left and right** | a sound is placed on a line between the speakers: no front or back, no height, no echo or occlusion. A shot behind a hill sounds exactly like one in the open |
 | **Sounds are generated, not recorded** | they are made of noise and sine waves and sound like it. A recording would sound better and bring files, licences and a loader; that trade has not been made |
-| **A wreck's smoke is round across, not round up the side** | each puff of a kill's burst and column is an eight-cornered prism (84 vertices; it was a 36-vertex box), as wide across its flats and as tall as the box was, so from above or at a slant it reads as a drum and not a die. From the side a plume is still a stack of drums, because the prism is flat-topped; a rounder profile (a bevelled or sphere-like puff) is not built |
+| **A wreck's smoke is round across, not round up the side** | each puff of a kill's burst and column is an eight-cornered prism (84 vertices; it was a 36-vertex box), as wide across its flats and as tall as the box was, so from above or at a slant it reads as a drum and not a die. From the side a plume is still a stack of drums, because the prism is flat-topped; a rounder profile (a bevelled or sphere-like puff) is not built (SUPERSEDED, AH: a puff is now an icosphere; only the pool's steam is still the prism) |
 | **Silence beyond earshot is deliberate** | 60 tiles for a shot, 90 for a death; past it there is no voice at all. It is not a bug to report when a distant fight makes no noise |
 | **Sounds queue, they do not overlap across frames** | the device plays what it is given in order, so a burst of fire within one sound's length waits its turn, and a buffer arriving with more than about three quarters of a second already queued is dropped rather than played late |
 | **A quit never waits on the sound device** | the device is closed with a two-second budget. A driver can deadlock SDL's own audio threads (seen on SDL 3.4.18 with PipeWire, where a device-change event wedges SDL's close for ever), so a close that has not returned makes the game leave without it and print `protekt-game: the audio device did not close within 2000 ms; exiting without it`. Nothing is lost: the process is quitting anyway, and a healthy close takes a couple of milliseconds. It leaves with status 1, because its shutdown did not finish |

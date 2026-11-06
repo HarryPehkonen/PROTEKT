@@ -105,7 +105,7 @@ TEST(WakeLog, TheRetainedKillDrawsAColumnOnALaterFrameOfTheRealGame) {
     with.events = wakes.events();
     EXPECT_EQ(game::build_scene(sim, with).vertices.size()
                   - game::build_scene(sim, plain).vertices.size(),
-              game::kSmokePuffs * game::kPuffVertices)
+              game::kSmokePuffs * game::kSphereVertices)
         << "a hundred ticks after the kill the wreck should be carrying its whole column";
 }
 
