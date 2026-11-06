@@ -35,7 +35,10 @@ AdvanceResult AudioPipeline::advance(sim::Sim& sim, std::uint32_t steps, const A
     // The trigger is judged on the first step: that is the one that applies the order it queued.
     bool judged = !frame.trigger_pulled;
     const bool listening = sink_ != nullptr && sink_->ok() && frame.player_alive_now;
-    for (std::uint32_t tick = 0; tick < steps; ++tick) {
+    // A paused game steps nothing, and a sound is only ever derived from a stepped tick: gating the
+    // step count here silences the radar's ping and every other voice at once.
+    const std::uint32_t ticks = frame.paused ? 0U : steps;
+    for (std::uint32_t tick = 0; tick < ticks; ++tick) {
         const bool observing = listening || frame.player_alive_before;
         sim::UnitSnapshot before;
         sim::Tick tick_number = 0;
@@ -44,6 +47,9 @@ AdvanceResult AudioPipeline::advance(sim::Sim& sim, std::uint32_t steps, const A
             tick_number = sim.tick();
         }
         sim.step();
+        if (frame.stats != nullptr) {
+            frame.stats->observe(sim);
+        }
         // Presentation only: who moved or fired this step, for the radar's tail. Read from the sim,
         // never written to it.
         radar_activity.observe(sim.units(), sim.shots(), sim.tick());

@@ -192,6 +192,11 @@ public:
     /// How many loads a side has delivered to its own factory (C3). The war's ledger: the only
     /// currency, spent by a producer's queue. A count, so repair stays free.
     [[nodiscard]] std::uint16_t ore(Side side) const noexcept;
+    /// How many pieces of biometal a side's store has TAKEN IN over the battle: litter a scavenger
+    /// picked up and the pool extraction a deployed scavenger banks. A tally for the statistics
+    /// screen -- output, not state: never spent, never hashed, and nothing in the sim reads it. A
+    /// recycle's refund and a cancelled build's refund are not collecting and are not counted.
+    [[nodiscard]] std::uint32_t collected(Side side) const noexcept;
     /// How much a side's store can hold now: the scenario's `store_capacity` plus 20 per living
     /// DEPLOYED scavenger (`store_capacity`). The bank never exceeds it.
     [[nodiscard]] std::uint16_t capacity(Side side) const noexcept;
@@ -280,6 +285,8 @@ private:
     std::uint32_t tick_{};
     std::uint32_t next_id_{1};
     std::uint32_t route_plans_{};
+    /// `collected`'s tally, per `Side`. Not hashed.
+    std::array<std::uint32_t, 2> collected_{};
 };
 
 } // namespace protekt::sim

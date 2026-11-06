@@ -95,7 +95,9 @@ private:
     int next_{0}; ///< the slot the next placement writes
 };
 
-/// Where the nav chain stands. One state at a time, and the game never pauses in any of them.
+/// Where the nav chain stands. One state at a time, and the sim never stops for any of them: the
+/// chain is a menu over a battle still being fought. (Escape pauses the game, but only when no
+/// prompt is up -- with a chain open it closes the chain instead; see `Game::take_pause_key`.)
 enum class NavState : std::uint8_t {
     Closed,  ///< the top menu: `n` arms placing, and `~` opens the nav menu once a mark exists
     Placing, ///< `top menu -> n`: SPACE places a mark on the ground under the reticle

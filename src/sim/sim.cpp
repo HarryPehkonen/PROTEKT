@@ -888,8 +888,9 @@ void settle_litter(std::vector<Scrap>& scraps, std::size_t first, std::uint64_t 
 /// Only an IDLE scavenger collects: any order (a move, a follow, a hold) is a stance of its own and
 /// the sim never argues with one. The beat is phased by unit id (`tick + id`), so a group does not
 /// all take on the same tick and the bank rises evenly, with no per-unit timer to hash.
-void scavenge_step(std::vector<Scrap>& scraps, std::array<std::uint16_t, 2>& ore, const Unit& unit,
-                   std::uint32_t tick, std::uint16_t capacity) noexcept {
+void scavenge_step(std::vector<Scrap>& scraps, std::array<std::uint16_t, 2>& ore,
+                   std::array<std::uint32_t, 2>& collected, const Unit& unit, std::uint32_t tick,
+                   std::uint16_t capacity) noexcept {
     if (unit.stance != Stance::Idle
         || (tick + unit.id.value) % static_cast<std::uint32_t>(kScavengeIntervalTicks) != 0) {
         return;
@@ -908,6 +909,7 @@ void scavenge_step(std::vector<Scrap>& scraps, std::array<std::uint16_t, 2>& ore
     scraps.erase(scraps.begin() + static_cast<std::ptrdiff_t>(pick));
     std::uint16_t& bank = ore.at(static_cast<std::size_t>(unit.side));
     bank = static_cast<std::uint16_t>(std::min(static_cast<int>(bank) + 1, 0xFFFF));
+    ++collected.at(static_cast<std::size_t>(unit.side));
 }
 
 /// A SCAVENGER WITH NO ORDER DEPLOYS ITSELF (Harri, 2026-11-01, watched in BattleZone 2: pointed at
@@ -1014,7 +1016,8 @@ bool scavenger_deploy_step(const std::vector<Unit>& units, const std::vector<Poo
 /// whatever number of pools it holds (the rate does not scale), into whatever room is left. The
 /// beat is the fast one inside the gold band and the slow one above it.
 void store_step(const std::vector<Unit>& units, std::array<std::uint16_t, 2>& ore,
-                std::uint16_t base, std::uint32_t tick) noexcept {
+                std::array<std::uint32_t, 2>& collected, std::uint16_t base,
+                std::uint32_t tick) noexcept {
     for (const Side side : {Side::Player, Side::Enemy}) {
         std::uint16_t& bank = ore.at(static_cast<std::size_t>(side));
         const std::uint16_t capacity = store_capacity(units, side, base);
@@ -1032,6 +1035,7 @@ void store_step(const std::vector<Unit>& units, std::array<std::uint16_t, 2>& or
         });
         if (extracting) {
             ++bank;
+            ++collected.at(static_cast<std::size_t>(side));
         }
     }
 }
@@ -1764,7 +1768,7 @@ void Sim::step() {
         // Scavenging, before the mover: it takes from where the unit stands and sets no goal (C2).
         if (unit.kind == UnitKind::Scavenger) {
             auto_deploy_step(units_, scenario_.pools, scraps_, unit, tick_);
-            scavenge_step(scraps_, ore_, unit, tick_,
+            scavenge_step(scraps_, ore_, collected_, unit, tick_,
                           store_capacity(units_, unit.side, scenario_.store_capacity));
         }
         if (!prof.mobile) {
@@ -1921,7 +1925,7 @@ void Sim::step() {
     }
     // 6b. THE STORE: the bank is clamped to what the side can hold, then the side's deployed
     //     scavengers extract on the global beat (see `store_step`).
-    store_step(units_, ore_, scenario_.store_capacity, tick_);
+    store_step(units_, ore_, collected_, scenario_.store_capacity, tick_);
     // 7. THE QUEUES (BUILD-QUEUE). Every producer's line runs, in ascending id, over the producers
     //    that existed when the tick began, because an arrival appends to the table and a new unit
     //    is nobody's producer yet.
@@ -2018,6 +2022,10 @@ const std::vector<Projectile>& Sim::projectiles() const noexcept { return projec
 const std::vector<Scrap>& Sim::scraps() const noexcept { return scraps_; }
 
 std::uint16_t Sim::ore(Side side) const noexcept { return ore_.at(static_cast<std::size_t>(side)); }
+
+std::uint32_t Sim::collected(Side side) const noexcept {
+    return collected_.at(static_cast<std::size_t>(side));
+}
 
 std::uint16_t Sim::capacity(Side side) const noexcept {
     return store_capacity(units_, side, scenario_.store_capacity);

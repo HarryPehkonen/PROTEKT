@@ -41,6 +41,11 @@ public:
     void frame(const input::InputFrame& frame, const sim::Sim& sim, const SceneOptions& options,
                std::vector<sim::Order>& out);
 
+    /// Only the keyboard's STATE: which of the movement keys are down, and nothing else. A paused
+    /// game feeds the session no frames, so without this a key let go during the pause would still
+    /// read as held when play resumes.
+    void track_keys(const input::InputFrame& frame) noexcept;
+
     /// Whether the last frame pulled the trigger: a bolt is queued as a FireTowards order, and the
     /// shot is heard through `shot_voice` -- the sim reports no Fired event for it.
     /// Drained by reading.

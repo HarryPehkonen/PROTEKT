@@ -164,6 +164,12 @@ inline void apply(HeldKeys& keys, const KeyEvent& event) noexcept {
     return bare_press(key, kKeyGrave);
 }
 
+/// Escape: pause the game, and resume it (AF). Bare only. Whether a given Escape is THIS or the
+/// cancelling of a prompt it has always been is the game's to say (`Game::take_pause_key`).
+[[nodiscard]] inline bool pause_pressed(const KeyEvent& key) noexcept {
+    return bare_press(key, kKeyEscape);
+}
+
 /// R: toggle the map view (N4, BZ2R -- BZ2 puts the map on R). Bare only; a pure view, so the
 /// caller flips a flag and nothing else. (Tab clears the selection, M orders a move, so neither is
 /// free.) O no longer does this: O is BZ2's OBJECTIVES key and stays unbound until objectives

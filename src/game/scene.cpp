@@ -3589,6 +3589,132 @@ void append_outcome(std::vector<SceneVertex>& out, const SceneOptions& options,
     }
 }
 
+/// THE STATISTICS SCREEN (AF). Drawn while the game is paused, over the whole frame, and meant to
+/// be read from across a room: an opaque black plate, white ink, a title in the ledger's gold, a
+/// cell 2.5 times the HUD's own and the two sides in the verdict's two colours (green yours, red
+/// theirs). The owner's eyesight is a known constraint, so nothing here is subtle or small.
+///
+/// EMITS NOTHING unless `SceneOptions::statistics` is set. It sits in front of every other HUD
+/// layer (the nearest of them is the nav glyph at 0.87 of the marks), the ink in front of the
+/// plate, so the HUD under it cannot show through. Letters come from the HUD's own font, which has
+/// no colon: the time reads `12 MIN 07 SEC`.
+constexpr std::array<float, 3> kStatsPlate{0.0F, 0.0F, 0.0F};
+constexpr std::array<float, 3> kStatsInk{1.0F, 1.0F, 1.0F};
+constexpr std::array<float, 3> kStatsTitleInk{1.0F, 0.85F, 0.30F};
+constexpr std::array<float, 3> kStatsYouInk = kOutcomeWonInk;
+constexpr std::array<float, 3> kStatsEnemyInk = kOutcomeLostInk;
+constexpr float kStatsPlateRatio = 0.82F;
+constexpr int kStatsPlateColumns = 32; ///< the plate's grid: see `append_statistics`
+constexpr int kStatsPlateRows = 18;
+constexpr float kStatsInkRatio = 0.78F;
+constexpr float kStatsCell = 5.0F;       ///< the glyph cell at the 720 reference
+constexpr float kStatsTitleScale = 1.6F; ///< the title's cell, relative to the rows'
+/// The lines the screen stacks (title, the pause hint, the time, the sides' header and the six
+/// counts, with a blank between), in row pitches, and the character advances the widest row takes:
+/// the cell is the largest that fits both.
+constexpr float kStatsRowPitches = 14.0F;
+constexpr float kStatsRowAdvances = 36.0F;
+constexpr float kStatsPitchCells = 9.0F; ///< a row's pitch, in cells: 5 of glyph and 4 of air
+constexpr float kStatsFillFraction = 0.9F;
+
+void append_statistics(std::vector<SceneVertex>& out, const SceneOptions& options,
+                       const sim::Sim& sim) {
+    if (options.statistics == nullptr) {
+        return;
+    }
+    const BattleStats& stats = *options.statistics;
+    const float frame_w = static_cast<float>(options.extent.width);
+    const float frame_h = static_cast<float>(options.extent.height);
+    const float marks_at = math::kNearPlane * kHudClearance * corner_ray_length(options.extent);
+    const auto rect = [&](float distance, float ax, float ay, float bx, float by,
+                          const std::array<float, 3>& rgb) {
+        const auto at = [&](float x, float y) {
+            const RayPoint point = ray_point(options.camera, options.extent, x, y, distance);
+            return Vec3{point.x, point.y, point.z};
+        };
+        emit_quad(out, at(ax, ay), at(bx, ay), at(bx, by), at(ax, by), rgb);
+    };
+    // The plate is a GRID of small quads, not one big one: a quad is flat, so one the size of the
+    // frame sits at the depth of its corners (the longest rays) and the ink near the middle of the
+    // frame would lie BEHIND it. Small cells follow the same ray-distance surface every other HUD
+    // layer sits on, so the ratios below order the layers everywhere.
+    for (int row = 0; row < kStatsPlateRows; ++row) {
+        for (int col = 0; col < kStatsPlateColumns; ++col) {
+            const auto edge = [](int index, int count, float extent) {
+                return extent * static_cast<float>(index) / static_cast<float>(count);
+            };
+            rect(marks_at * kStatsPlateRatio, edge(col, kStatsPlateColumns, frame_w),
+                 edge(row, kStatsPlateRows, frame_h), edge(col + 1, kStatsPlateColumns, frame_w),
+                 edge(row + 1, kStatsPlateRows, frame_h), kStatsPlate);
+        }
+    }
+
+    const float px = frame_h * kHudPerFrameHeight;
+    const float cell
+        = std::min({kStatsCell * px, kStatsFillFraction * frame_w / (kStatsRowAdvances * 6.0F),
+                    kStatsFillFraction * frame_h / (kStatsRowPitches * kStatsPitchCells)});
+    const float pitch = cell * kStatsPitchCells;
+    const auto text = [&](std::string_view word, float left, float top, float size,
+                          const std::array<float, 3>& ink) {
+        for (std::size_t index = 0; index < word.size(); ++index) {
+            const std::array<std::uint8_t, 5> rows = mount_glyph(word.at(index));
+            const float glyph_left = left + (static_cast<float>(index) * 6.0F * size);
+            for (std::size_t row = 0; row < rows.size(); ++row) {
+                for (int col = 0; col < 5; ++col) {
+                    if (((rows.at(row) >> (4 - col)) & 1U) == 0U) {
+                        continue;
+                    }
+                    const float x = glyph_left + (static_cast<float>(col) * size);
+                    const float y = top + (static_cast<float>(row) * size);
+                    rect(marks_at * kStatsInkRatio, x, y, x + size, y + size, ink);
+                }
+            }
+        }
+    };
+    const auto centred
+        = [&](std::string_view word, float top, float size, const std::array<float, 3>& ink) {
+              const float width = ((static_cast<float>(word.size()) * 6.0F) - 1.0F) * size;
+              text(word, (frame_w - width) * 0.5F, top, size, ink);
+          };
+
+    const float label_left = frame_w * 0.5F - (kStatsRowAdvances * 6.0F * cell * 0.5F);
+    const float you_left = label_left + (20.0F * 6.0F * cell);
+    const float enemy_left = label_left + (28.0F * 6.0F * cell);
+    float top = (frame_h - (kStatsRowPitches * pitch)) * 0.5F;
+    const float title_cell = cell * kStatsTitleScale;
+    centred("STATISTICS", top, title_cell, kStatsTitleInk);
+    top += pitch * kStatsTitleScale;
+    centred("PAUSED - ESC TO RESUME", top, cell, kStatsInk);
+    top += pitch * 1.5F;
+
+    const std::uint32_t seconds = sim.tick() / static_cast<std::uint32_t>(sim::kTicksPerSecond);
+    const std::string played = std::to_string(seconds / 60U) + " MIN "
+                               + (seconds % 60U < 10U ? "0" : "") + std::to_string(seconds % 60U)
+                               + " SEC";
+    text("TIME PLAYED", label_left, top, cell, kStatsInk);
+    text(played, you_left, top, cell, kStatsInk);
+    top += pitch * 1.5F;
+
+    text("YOU", you_left, top, cell, kStatsYouInk);
+    text("ENEMY", enemy_left, top, cell, kStatsEnemyInk);
+    top += pitch;
+    const auto row = [&](std::string_view label, std::uint32_t yours, std::uint32_t theirs) {
+        text(label, label_left, top, cell, kStatsInk);
+        text(std::to_string(yours), you_left, top, cell, kStatsYouInk);
+        text(std::to_string(theirs), enemy_left, top, cell, kStatsEnemyInk);
+        top += pitch;
+    };
+    const auto of = [&](sim::Side side) -> const SideTally& { return stats.of(side); };
+    constexpr sim::Side kYou = sim::Side::Player;
+    constexpr sim::Side kThem = sim::Side::Enemy;
+    row("VEHICLES BUILT", of(kYou).built, of(kThem).built);
+    row("VEHICLES DESTROYED", of(kYou).destroyed, of(kThem).destroyed);
+    row("BIOMETAL SCRAP", sim.collected(kYou), sim.collected(kThem));
+    row("SHOTS FIRED", of(kYou).fired, of(kThem).fired);
+    row("SHOTS HIT", of(kYou).hit, of(kThem).hit);
+    row("SHOTS MISSED", stats.missed(kYou), stats.missed(kThem));
+}
+
 void append_hud_panels(std::vector<SceneVertex>& out, const SceneOptions& options,
                        const sim::Sim& sim, std::span<const sim::UnitId> selected) {
     const bool wants_list = options.attack_list != nullptr && !options.attack_list->empty();
@@ -5481,6 +5607,7 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
     append_outcome(scene.vertices, options, sim);
     append_reticle(scene.vertices, options, sim, aimed);
     append_world_map(scene.vertices, options, sim);
+    append_statistics(scene.vertices, options, sim);
 
     // LAST, so it tints everything under it. The vertex format has no alpha, so the wash is each
     // colour taken a fraction of the way to deep red; zero returns before touching anything.

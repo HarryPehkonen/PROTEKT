@@ -8,6 +8,7 @@
 #include "protekt/game/radar.hpp"
 #include "protekt/game/scene.hpp"
 #include "protekt/game/sounds.hpp"
+#include "protekt/game/stats.hpp"
 #include "protekt/sim/sim.hpp"
 
 namespace protekt::app {
@@ -53,6 +54,14 @@ struct AudioFrame {
     /// The tank being driven THIS frame, whose hits flash the screen. Read from the session each
     /// frame, never kept: a swap changes it.
     sim::UnitId player{};
+    /// The game is PAUSED (AF): nothing is stepped, so nothing is heard -- the radar's ping, the
+    /// guns and the rest all come out of a stepped tick, and this is the ONE place they are gated.
+    /// View state, not sim state: it is never given to the sim, and the tick count is the only
+    /// thing a pause leaves behind.
+    bool paused{false};
+    /// Where to count each stepped tick for the statistics screen (AF), or null to count nothing.
+    /// Not owned.
+    game::BattleStats* stats{nullptr};
 };
 
 /// What a call to `advance` learned that the caller must act on.

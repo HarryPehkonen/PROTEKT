@@ -14,6 +14,7 @@
 #include "protekt/game/faction.hpp"
 #include "protekt/game/menu.hpp"
 #include "protekt/game/scene_data.hpp"
+#include "protekt/game/stats.hpp"
 #include "protekt/game/targets.hpp"
 #include "protekt/game/terrain_cache.hpp"
 #include "protekt/game/weapon.hpp"
@@ -1194,6 +1195,12 @@ struct SceneOptions {
     /// died (`Sim::war_outcome`) and emitting NOTHING while it is undecided -- so a battle still
     /// being fought is byte-identical to one that never heard of this field.
     bool show_outcome{true};
+    /// THE STATISTICS SCREEN (AF): when set, the counts it points at are drawn over the whole frame
+    /// -- built and destroyed, scrap, shots, and the time played -- for BOTH sides, on a black
+    /// plate in the nearest layer there is. Null (the default) emits NOTHING, so every frame that
+    /// is not paused is byte-identical to one that never heard of this field. The game points it at
+    /// its tally only while it is paused. Not owned.
+    const BattleStats* statistics{nullptr};
 };
 
 /// Triangles for the terrain mesh (two per tile, painted by `Terrain`) followed by one box per

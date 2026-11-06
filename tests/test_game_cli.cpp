@@ -365,8 +365,8 @@ TEST_F(GameCliTest, TIsANamedKeyForCapturesSoTheAssistCanBePressed) {
 }
 
 TEST_F(GameCliTest, ARefusedKeyNameNamesTheAcceptedOnes) {
-    // `--key` takes space, tab, tilde, t, v and f1-f10, in lower case: anything else is a refusal
-    // that says so.
+    // `--key` takes space, tab, tilde, t, v, escape and f1-f10, in lower case: anything else is a
+    // refusal that says so.
     for (const std::string_view bad : {"f11", "f0", "f01", "F3", "enter", "3", "~", "grave"}) {
         std::string err;
         EXPECT_EQ(run({"--headless", "--key", "1", bad}, err), 2) << bad;

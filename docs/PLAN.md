@@ -736,6 +736,29 @@ run. A healthy close measures a couple of milliseconds, so the
 budget is the player's patience at a quit rather than a device parameter. This is a BOUND, not a fix: the
 SDL-side deadlock is still there to be hit, and the game now survives it.
 
+### Pause and the statistics screen (AF, Harri's call, playtest round 11)
+
+`Escape` pauses and shows what has happened so far, for both sides. The design call is that **a pause is not
+sim state**: the outcome of a battle cannot depend on when the player opened a menu, so nothing about it
+reaches the hash. The pause lives in `app/game.cpp` as a bool; a paused frame takes no orders and asks the
+enemy commander nothing (an order enqueued during a pause would sit in the hashed pending list), and the
+audio pipeline's `advance` steps zero ticks when `AudioFrame::paused` is set. That is the ONE gate: the
+tick, the radar's ping and every other voice all come out of a stepped tick, so none of them needs its own
+silence. The wall clock is still read while paused, so the minutes in the menu do not come due as a burst of
+ticks on resume. The keyboard's held-key state is still tracked while paused, so a key let go during the
+pause is not held on resume.
+
+The counts are derived, not instrumented, because the sim already reports what is needed each step:
+`game::BattleStats` (`game/stats.hpp`) reads the unit table's growth (built), `Sim::impacts()` (hit, and
+destroyed when the victim is left with no hit points) and `Sim::shots()` (fired), per side of the shooter or
+victim. One mechanism sees both sides because the human and the AI emit the same orders through one queue.
+Time played is the sim's tick over 30. **Shots missed is computed, fired minus hit**, floored at zero (a
+scatter-gun's pellets and a splash can strike more than was fired). The one counter that could not be
+derived is scrap collected: the bank is spent by builds and refunded by recycles in the same ticks it is
+credited, so a before-and-after read cannot separate them. `Sim::collected` is a tally at the two places a
+load lands in the store (a scavenger's pick-up and a deployed scavenger's extraction), not hashed, nothing in
+the sim reads it. Nothing in his list was hard enough to skip.
+
 ## 6. How the work is split (Claude Code, Haiku, Opus, Hermes)
 
 **Haiku 4.5 is genuinely capable** — roughly 90% of Sonnet 4.5 on agentic coding evaluations

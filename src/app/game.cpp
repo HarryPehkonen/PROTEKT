@@ -29,6 +29,7 @@
 #include "protekt/game/scene.hpp"
 #include "protekt/game/session.hpp"
 #include "protekt/game/sounds.hpp"
+#include "protekt/game/stats.hpp"
 #include "protekt/input/bindings.hpp"
 #include "protekt/input/input.hpp"
 #include "protekt/render/renderer.hpp"
@@ -148,6 +149,10 @@ struct Options {
 bool parse_key_name(std::string_view name, std::int32_t& scancode) {
     if (name == "space") {
         scancode = input::kKeySpace;
+        return true;
+    }
+    if (name == "escape") {
+        scancode = input::kKeyEscape;
         return true;
     }
     if (name == "tab") {
@@ -277,7 +282,7 @@ int parse_args(std::span<const std::string_view> args, Options& options, std::os
             if (!next(value) || !next(name) || !parse_number(value, press.frame) || press.frame == 0
                 || !parse_key_name(name, press.scancode)) {
                 err << "protekt-game: --key wants a frame number (1-based) and one of space, tab, "
-                       "tilde, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, t, v\n";
+                       "tilde, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, t, v, escape\n";
                 return 2;
             }
             options.key_presses.push_back(press);
@@ -378,7 +383,7 @@ class Game {
 public:
     Game(Options options, sim::Sim sim, const game::Session& session, const AudioPipeline& pipeline)
         : options_(std::move(options)), sim_(std::move(sim)), session_(session),
-          terrain_cache_(options_.seed), pipeline_(pipeline),
+          terrain_cache_(options_.seed), stats_(sim_), pipeline_(pipeline),
           // 30 Hz is the rate the sim is designed and balanced at: 6 tiles/s at 30 ticks/s is the
           // 12 m/s hover tank in docs/PLAN.md. A stall is capped at 250 ms of catch-up.
           play_clock_(std::chrono::nanoseconds{1'000'000'000LL / 30},
@@ -390,6 +395,32 @@ public:
     [[nodiscard]] std::uint64_t state_hash() const { return sim_.state_hash(); }
     void toggle_calibration() { calibration_ = !calibration_; }
     void toggle_world_map() { world_map_ = !world_map_; }
+
+    /// ESCAPE (AF). A paused game steps nothing, hears nothing and takes no orders; Escape toggles
+    /// it. Escape has always cancelled an armed prompt (G's mark number, the attack and repair
+    /// lists, an armed deploy, the nav chain), and a player in the middle of one means THAT, so an
+    /// unpaused Escape with a prompt up is left for the session to spend. Otherwise it is the pause
+    /// and is taken out of the frame, so pausing does not also clear the selection. While paused
+    /// the keyboard's state is still tracked, so a key let go during the pause is not held on
+    /// resume.
+    void take_pause_key(input::InputFrame& hands) {
+        if (paused_) {
+            session_.track_keys(hands);
+        }
+        const bool prompt = session_.go_armed() || session_.attack_armed()
+                            || session_.repair_armed() || session_.deploy_armed()
+                            || session_.tilde_steps()
+                            || nav_menu_.state() != game::NavState::Closed;
+        const auto is_pause = [&](const input::KeyEvent& key) {
+            return input::pause_pressed(key) && (paused_ || !prompt);
+        };
+        if (std::any_of(hands.keys.begin(), hands.keys.end(), is_pause)) {
+            paused_ = !paused_;
+            hands.keys.erase(std::remove_if(hands.keys.begin(), hands.keys.end(), is_pause),
+                             hands.keys.end());
+        }
+    }
+    [[nodiscard]] bool paused() const noexcept { return paused_; }
 
     /// What the player does with this frame's hands: the orders, the enemy's reply, and the
     /// message to say. Returns the scene options as of the end of the last frame -- the picking
@@ -408,6 +439,12 @@ public:
         scene_options.nav_marks = &nav_marks_; // G-then-a-number reads the marks
         scene_options.row = &row_;             // F1-F10 select what the row holds
         player_alive_before_ = is_alive(sim_, session_.driven());
+        if (paused_) {
+            // Nothing is asked of the sim: not the player's orders, not the enemy's reply. An order
+            // enqueued now would sit in the hashed pending list and the battle would depend on
+            // when the menu was opened.
+            return scene_options;
+        }
 
         // THE NAV CHAIN (MENU-NAV) sees the keys first: while its left menu is open it owns SPACE,
         // TAB and the digits and shuts the top menu out, and it may only open from the top menu --
@@ -455,23 +492,26 @@ public:
     /// advances exactly ticks_per_frame times and never reads a clock, so its capture stays
     /// reproducible.
     void advance(const game::SceneOptions& scene_options) {
+        // The wall clock is read while paused too, and its ticks are thrown away by the pipeline:
+        // the time spent in the menu must not come due as a burst of ticks on resume.
         const std::uint32_t steps = options_.frames == 0
                                         ? play_clock_.steps_at(TimeAccumulator::Clock::now())
                                         : options_.ticks_per_frame;
         // The trigger waits for a step to be judged on: with none this frame, the pull stays
         // pending (the flag is drained only when the sim is stepped).
-        const bool trigger_pulled = steps > 0 && session_.take_shot_voice();
+        const bool trigger_pulled = steps > 0 && !paused_ && session_.take_shot_voice();
         // D4: the wakes this frame must draw come out of the sim's own before-and-after, rather
         // than out of the audio path -- a headless capture has no ear, and a wreck smokes whether
         // or not anyone is alive to hear it. One snapshot per FRAME, not per tick. A frame that
         // stepped nothing keeps the last frame's deaths, because a frozen sim has a frozen picture.
         const sim::UnitSnapshot before = sim_.units();
         const sim::Tick stamp = sim_.tick();
+        AudioFrame audio = audio_frame_for(sim_, session_, scene_options.camera, trigger_pulled,
+                                           player_alive_before_);
+        audio.paused = paused_;
+        audio.stats = &stats_;
         const AdvanceResult result
-            = pipeline_.advance(sim_, steps,
-                                audio_frame_for(sim_, session_, scene_options.camera,
-                                                trigger_pulled, player_alive_before_),
-                                hit_flash_, hit_mark_, radar_activity_);
+            = pipeline_.advance(sim_, steps, audio, hit_flash_, hit_mark_, radar_activity_);
         // The sim's own answer to the trigger: it launched nothing, so say why.
         if (result.trigger_refused) {
             session_.trigger_refused(sim_);
@@ -479,7 +519,7 @@ public:
         for (const AdvanceResult::Touchdown& down : result.touchdowns) {
             landing_marks_.land(down.tick, down.landing.tile_x, down.landing.tile_y);
         }
-        if (steps > 0) {
+        if (steps > 0 && !paused_) {
             wakes_.after_frame(before, sim_, stamp);
         }
         refresh_row();
@@ -513,7 +553,9 @@ public:
         headings_.observe(sim_);
         scene_options.headings = &headings_;
         scene_options.terrain = &terrain_cache_; // the per-seed memo the mesh reads through
-        scene_options.hit_flash = hit_flash_.level(sim_.tick());
+        // The red wash would tint the statistics screen; a frozen tick would hold it forever.
+        scene_options.hit_flash = paused_ ? 0.0F : hit_flash_.level(sim_.tick());
+        scene_options.statistics = paused_ ? &stats_ : nullptr;
         scene_options.events
             = wakes_.events(); // D4: every wreck still alight, not only this frame's
         scene_options.weapon = session_.weapon();
@@ -596,6 +638,11 @@ private:
     bool world_map_{false};   // R toggles the map view; a view, it never touches the sim
     bool calibration_{false}; // C toggles the colour calibration view; it never touches the sim
     bool player_alive_before_{false};
+    /// ESC pauses (AF). VIEW STATE: it is not in the sim and not in its hash, and the only trace a
+    /// pause leaves in a battle is the ticks that were not stepped.
+    bool paused_{false};
+    /// The statistics screen's counts, read off the sim a step at a time (game/stats.hpp).
+    game::BattleStats stats_;
     ai::ScriptedCommander enemy_;
     AudioPipeline pipeline_;
     TimeAccumulator play_clock_;
@@ -697,6 +744,7 @@ int play(Game& game, GamePresenter& presenter, const Options& options, std::ostr
             break;
         }
         script_hands(options, frame, hands);
+        game.take_pause_key(hands);
         const game::Extent extent = presenter.follow(hands);
         if (input::calibration_toggled(hands)) {
             game.toggle_calibration();

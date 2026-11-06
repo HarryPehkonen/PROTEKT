@@ -34,8 +34,8 @@ void Session::frame(const input::InputFrame& frame, const sim::Sim& sim,
     }
     // The keyboard is a STATE, not a stream: a tank keeps moving while W is held, and the window
     // sends a key-down for every OS repeat, which must change nothing.
+    track_keys(frame);
     for (const input::KeyEvent& key : frame.keys) {
-        input::apply(keys_, key);
         if (input::camera_cycled(key)) {
             camera_position_ = next_camera_position(camera_position_);
         }
@@ -81,6 +81,12 @@ void Session::frame(const input::InputFrame& frame, const sim::Sim& sim,
     interaction_.tend(seen);
     for (const sim::Order& order : interaction_.take_orders()) {
         out.push_back(order);
+    }
+}
+
+void Session::track_keys(const input::InputFrame& frame) noexcept {
+    for (const input::KeyEvent& key : frame.keys) {
+        input::apply(keys_, key);
     }
 }
 
