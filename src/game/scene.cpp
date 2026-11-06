@@ -2283,7 +2283,6 @@ constexpr float kHudBorderRatio = 2.2F; ///< and its border, relative to the mar
     const float rx = (static_cast<float>(extent.width) / height) * half_tan;
     return std::sqrt(1.0F + (rx * rx) + (half_tan * half_tan));
 }
-constexpr float kRadarOutlineFraction = 0.5F; ///< an outline's bar thickness, of its half-size
 
 std::array<float, 3> radar_colour(RadarTone tone) {
     switch (tone) {
@@ -2562,7 +2561,7 @@ void append_radar(std::vector<SceneVertex>& out, const SceneOptions& options, co
             continue;
         }
         if (mark.shape == RadarShape::Hollow) {
-            const float bar = mark.half * kRadarOutlineFraction;
+            const float bar = radar_outline_bar(mark);
             rect(marks_at, left, top, right, top + bar, rgb, mark.alpha);
             rect(marks_at, left, bottom - bar, right, bottom, rgb, mark.alpha);
             rect(marks_at, left, top + bar, left + bar, bottom - bar, rgb, mark.alpha);

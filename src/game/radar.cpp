@@ -407,9 +407,15 @@ std::vector<RadarMark> radar_marks(std::span<const sim::Unit> units, sim::UnitId
                   * (unit.kind == sim::UnitKind::Factory ? kBaseHalfFraction : kDotHalfFraction);
             const RadarPoint at
                 = fit_box(panel, radar_project(panel, right, forward, radius_tiles), half);
-            marks.push_back(RadarMark{
-                at.px, at.py, half, 0.0F, base ? RadarShape::Hollow : RadarShape::Square,
-                unit.side == viewer->side ? RadarTone::Yours : RadarTone::Hostile, unit.id});
+            RadarMark mark{at.px,
+                           at.py,
+                           half,
+                           0.0F,
+                           base ? RadarShape::Hollow : RadarShape::Square,
+                           unit.side == viewer->side ? RadarTone::Yours : RadarTone::Hostile,
+                           unit.id};
+            mark.outline = kRadarBaseOutlineFraction;
+            marks.push_back(mark);
             continue;
         }
         // Your own base, out of range: a mark at the rim, pointing the way to turn. The arrow
@@ -493,6 +499,8 @@ std::vector<RadarMark> radar_pools(std::span<const sim::Pool> pools,
     }
     return marks;
 }
+
+float radar_outline_bar(const RadarMark& mark) noexcept { return mark.half * mark.outline; }
 
 float radar_nav_half(const RadarPanel& panel) noexcept { return panel.width * kNavHalfFraction; }
 

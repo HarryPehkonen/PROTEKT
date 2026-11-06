@@ -70,15 +70,18 @@ inline constexpr float kMapMaxFurnitureScale = 1.6F;
 /// keep their share of the map when the panel grows or shrinks, instead of staying fixed in frame
 /// pixels and overwhelming a small minimap. A vehicle's dot is 1.5 a side-half, half of the 3.0 it
 /// was (Harri, round 10, 2026-11-05: "half the width and height of the current size", on the map as
-/// on the radar). The heading needle is scaled by the panel's furniture scale (`asset.half` over
-/// this), so halving the dot leaves the needle its 3 mm.
-inline constexpr float kMapUnitHalf = 1.5F;
-inline constexpr float kMapBuildingHalf = 5.0F;
+/// on the radar). The MAP's dots then went a third of the way back (round 11, AE: "slightly larger
+/// ... a bit too small now"): 3.0 -> 1.5 -> 2.0 for a vehicle, 10.0 -> 5.0 -> 6.5 for a building.
+/// The RADAR's sizes are its own fractions of its panel (`radar.cpp`) and did not move. The heading
+/// needle is scaled by the panel's furniture scale (`asset.half` over this), so resizing the dot
+/// leaves the needle its 3 mm.
+inline constexpr float kMapUnitHalf = 2.0F;
+inline constexpr float kMapBuildingHalf = 6.5F;
 /// A BIOMETAL POOL's marker (Harri, 2026-11-02: "the map shows the locations of all biometal
 /// pools"): a hollow square, `kMapPoolHalf` out from the pool's middle and `kMapPoolRing` thick,
 /// white inside a black edge. As big as a building's square so it stands clear of the blip of the
 /// scavenger deployed on it, and hollow so it reads as a place and not as one of your units.
-inline constexpr float kMapPoolHalf = 5.0F;
+inline constexpr float kMapPoolHalf = kMapBuildingHalf;
 inline constexpr float kMapPoolRing = 1.5F;
 
 /// The driven unit's direction line: 3 mm on the reference frame. A frame pixel is treated as a CSS

@@ -234,10 +234,11 @@ TEST(WorldMap, AnAssetAndAMarkLandInTheCellOfTheirOwnTile) {
     }
 }
 
-TEST(WorldMap, TheUnitDotsAreHalfTheWidthAndHeightTheyWereAndTheBuildingsAreNot) {
-    // Harri, round 10 (2026-11-05): "half the width and height of the current size", on the map as
-    // on the radar. A vehicle's dot was 3 px a side-half at 720, now 1.5; a building's square (the
-    // factory) stays 5. Literals, so the test cannot follow the constant, and two frame heights so
+TEST(WorldMap, TheDotsAreSlightlyLargerThanRound10LeftThem) {
+    // Harri, round 11 (AE): "can they be slightly larger? I know I asked for them to be smaller,
+    // but I think they are a bit too small now." Round 10 halved a vehicle's dot to 1.5 a side-half
+    // at 720 (it was 3.0) and a building's square to 5.0 (it was 10.0); a third of the way back
+    // is 2.0 and 6.5. Literals, so the test cannot follow the constant, and two frame heights so
     // the scale is seen to apply.
     for (const std::uint32_t height : {720U, 1440U}) {
         Rig rig = make_rig();
@@ -250,10 +251,10 @@ TEST(WorldMap, TheUnitDotsAreHalfTheWidthAndHeightTheyWereAndTheBuildingsAreNot)
             const sim::Unit* unit = rig.sim.find(asset.id);
             ASSERT_NE(unit, nullptr);
             if (unit->kind == UnitKind::Factory) {
-                EXPECT_NEAR(asset.half, 5.0F * scale, 1.0e-4F) << "height " << height;
+                EXPECT_NEAR(asset.half, 6.5F * scale, 1.0e-4F) << "height " << height;
                 ++buildings;
             } else {
-                EXPECT_NEAR(asset.half, 1.5F * scale, 1.0e-4F)
+                EXPECT_NEAR(asset.half, 2.0F * scale, 1.0e-4F)
                     << "a vehicle's own dot, height " << height;
                 ++vehicles;
             }
@@ -263,9 +264,9 @@ TEST(WorldMap, TheUnitDotsAreHalfTheWidthAndHeightTheyWereAndTheBuildingsAreNot)
     }
 }
 
-TEST(WorldMap, HalvingTheDotLeavesTheDrivenNeedleItsThreeMillimetres) {
+TEST(WorldMap, ResizingTheDotLeavesTheDrivenNeedleItsThreeMillimetres) {
     // The needle is scaled by the frame's scale (the blip's half over the reference half), not by
-    // the dot's own size, so the half-size dot keeps the 3 mm line Harri asked for (2026-10-23):
+    // the dot's own size, so a resized dot keeps the 3 mm line Harri asked for (2026-10-23):
     // 11.34 px at 720, a literal.
     Rig rig = make_rig();
     const WorldMap map = map_of(rig);
@@ -276,14 +277,14 @@ TEST(WorldMap, HalvingTheDotLeavesTheDrivenNeedleItsThreeMillimetres) {
     const float base_y = (needle.at(0).y + needle.at(1).y) * 0.5F;
     const float tip_y = (needle.at(2).y + needle.at(3).y) * 0.5F;
     EXPECT_NEAR(base_y - tip_y, 11.34F, 0.01F) << "its length";
-    EXPECT_NEAR(driven->py - base_y, 1.5F, 0.01F) << "starting at the smaller dot's edge";
+    EXPECT_NEAR(driven->py - base_y, 2.0F, 0.01F) << "starting at the dot's edge";
 }
 
-TEST(WorldMap, AnEnemyBlipOnTheMapIsTheSameHalfSizeDotAsYours) {
+TEST(WorldMap, AnEnemyBlipOnTheMapIsTheSameSizeDotAsYours) {
     Rig rig = make_rig();
     const WorldMap map = map_of(rig);
     ASSERT_EQ(map.blips.size(), 1U) << "the tank at 20 tiles";
-    EXPECT_NEAR(map.blips.front().half, 1.5F, 1.0e-4F) << "at 720, a literal";
+    EXPECT_NEAR(map.blips.front().half, 2.0F, 1.0e-4F) << "at 720, a literal";
 }
 
 TEST(WorldMap, TheMapIsSquareWhateverTheAspectOfTheScreen) {
@@ -720,6 +721,16 @@ TEST(WorldMapPools, EveryPoolIsOnTheMapWhereverItIsAndNotOnlyThoseInSight) {
         EXPECT_FLOAT_EQ(map.pools.at(i).py, at.y);
         EXPECT_GT(map.pools.at(i).half, 0.0F);
     }
+}
+
+TEST(WorldMapPools, APoolMarkerIsAsBigAsABuildingSoADeployedOneNeverCoversIt) {
+    // The pool marker sits on a farther layer than the assets, so a building deployed on a pool
+    // hides any part of the ring inside its own square. It is therefore at least a building's size
+    // (6.5 a side-half at 720, a literal): the round-11 growth of the building took it along.
+    const Rig rig = make_pool_rig({sim::Pool{128, 128}});
+    const WorldMap map = map_of(rig);
+    ASSERT_EQ(map.pools.size(), 1U);
+    EXPECT_NEAR(map.pools.front().half, 6.5F, 1.0e-4F);
 }
 
 TEST(WorldMapPools, AMapWithNoPoolsShowsNone) {

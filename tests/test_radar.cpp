@@ -551,6 +551,55 @@ TEST(RadarMarks, AnAssetBlipIsAtMostTenPixelsAcrossOnTheReferenceFrame) {
     // of the two. `TheLitterIsLeftAtItsOldSizeWhenTheDotsHalve` pins that, and it is reported.)
 }
 
+TEST(RadarBase, YourBaseOutlineIsAThinLineAndAPoolsIsLeftAsItWas) {
+    // Harri, round 11 (AD): "a large thick square around my base ... Can it be made with a thinner
+    // line? It obscures a lot." The base's hollow square (0.05 of the panel's width a side-half,
+    // 16.5 px) had bars HALF its half-size thick, 8.25 px at the 330 px panel; they are now 0.15 of
+    // it, 2.5 px. The square's SIZE is not touched. A pool's outline, drawn by the same code, keeps
+    // its 0.5. Literals, so the test cannot follow the constants.
+    const std::vector<Unit> units = with_viewer({
+        at_bearing(2, 10.0F, 45.0F, Side::Player, UnitKind::Factory),
+    });
+    const std::vector<RadarMark> marks = radar_marks(units, UnitId{1}, 0.0F, kPanel);
+    ASSERT_EQ(marks.size(), 2U);
+    ASSERT_EQ(marks.at(1).shape, RadarShape::Hollow);
+    EXPECT_NEAR(marks.at(1).half, kPanel.width * 0.05F, 1.0e-4F) << "the square is the same size";
+    EXPECT_NEAR(radar_outline_bar(marks.at(1)), kPanel.width * 0.05F * 0.15F, 1.0e-4F);
+    EXPECT_LT(radar_outline_bar(marks.at(1)), 3.0F) << "a line a few pixels thick, not a slab";
+    const protekt::sim::Pool pool{units.at(1).x.floor_int(), units.at(1).y.floor_int()};
+    const std::vector<RadarMark> pools
+        = radar_pools(std::span{&pool, 1}, units, UnitId{1}, 0.0F, kPanel);
+    ASSERT_EQ(pools.size(), 1U);
+    EXPECT_NEAR(radar_outline_bar(pools.front()), kPanel.width * 0.011F * 2.0F * 0.5F, 1.0e-4F);
+}
+
+TEST(RadarMarks, EverySizeOnTheRadarIsPinnedAndNoneFollowsTheMapsConstants) {
+    // Harri, round 11 (AE): "The sizes on the radar view are perfect, so don't change those." The
+    // map's dots were made larger in the same slice; this pins every size the radar draws, as a
+    // fraction of the panel's width and as a literal, so an edit to a SHARED constant (the radar
+    // once scaled with the map's) cannot drag the radar along unseen. The dots, the base and the
+    // viewer are also pinned above; this adds the rim arrow, the pool and the nav plus.
+    const std::vector<Unit> units = with_viewer({
+        at_bearing(2, 20.0F, 30.0F, Side::Enemy),
+        at_bearing(3, 120.0F, 0.0F, Side::Player, UnitKind::Factory),
+    });
+    const std::vector<RadarMark> marks = radar_marks(units, UnitId{1}, 0.0F, kPanel);
+    ASSERT_EQ(marks.size(), 3U);
+    EXPECT_NEAR(marks.at(0).half, kPanel.width * 0.03F, 1.0e-4F) << "you";
+    EXPECT_NEAR(marks.at(1).half, kPanel.width * 0.007F, 1.0e-4F) << "a dot";
+    EXPECT_EQ(marks.at(2).shape, RadarShape::Arrow);
+    EXPECT_NEAR(marks.at(2).half, kPanel.width * 0.045F, 1.0e-4F) << "the rim arrow";
+    const protekt::sim::Pool pool{units.at(1).x.floor_int(), units.at(1).y.floor_int()};
+    const std::vector<RadarMark> pools
+        = radar_pools(std::span{&pool, 1}, units, UnitId{1}, 0.0F, kPanel);
+    ASSERT_EQ(pools.size(), 1U);
+    EXPECT_NEAR(pools.front().half, kPanel.width * 0.022F, 1.0e-4F) << "a pool's outline";
+    EXPECT_NEAR(radar_nav_half(kPanel), kPanel.width * 0.019F, 1.0e-4F) << "the nav plus";
+    // The 330 px panel of a 1280x720 frame, in pixels, so the numbers Harri sees are the ones held.
+    EXPECT_NEAR(kPanel.width * 0.007F * 2.0F, 4.62F, 0.01F) << "a dot, side to side";
+    EXPECT_NEAR(kPanel.width * 0.05F * 2.0F, 33.0F, 0.1F) << "a base, side to side";
+}
+
 TEST(RadarMarks, TheUnitDotsAreHalfTheWidthAndHeightTheyWere) {
     // Harri, round 10 (2026-11-05): "Maybe half the width and height of the current size." They
     // were 0.014 of the panel's width a side-half (4.6 px at the 330 px panel). Literals, not the

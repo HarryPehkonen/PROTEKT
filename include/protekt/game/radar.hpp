@@ -75,6 +75,14 @@ enum class RadarShape : std::uint8_t {
 /// One thing the radar draws, in PANEL pixels: from the panel's left, from its TOP, like the frame.
 /// `angle` is in radians, 0 pointing at the panel's top and increasing clockwise, for the shapes
 /// that point.
+/// How thick a hollow mark's bars are, of its half-size: a biometal pool's outline (a place, drawn
+/// bold).
+inline constexpr float kRadarOutlineFraction = 0.5F;
+/// ...and YOUR BASE's, which is a big square (0.05 of the panel's width a side-half) and was drawn
+/// with the pool's bars, 8 px thick, until Harri (round 11, AD) found "a large thick square around
+/// my base ... It obscures a lot": 0.15 of the half-size is 2.5 px at the 330 px panel.
+inline constexpr float kRadarBaseOutlineFraction = 0.15F;
+
 struct RadarMark {
     float px{};
     float py{};
@@ -88,7 +96,12 @@ struct RadarMark {
     /// How opaque the mark is drawn, 1 for everything but a stationary hostile fading after a sweep
     /// (`radar_blip_alpha`). A mark that is not drawn at all is not in the list, never alpha 0.
     float alpha{1.0F};
+    /// For a `Hollow` mark: how thick its bars are, as a fraction of `half` (`radar_outline_bar`).
+    float outline{kRadarOutlineFraction};
 };
+
+/// A hollow mark's bar thickness in pixels: `half` times `outline`.
+[[nodiscard]] float radar_outline_bar(const RadarMark& mark) noexcept;
 
 /// The panel's bounding rectangle in the frame, with the y as the frame's y: from the top. The face
 /// is the oval inscribed in it; `height` is `width * kRadarAspect`.
