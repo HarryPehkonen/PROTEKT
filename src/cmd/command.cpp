@@ -92,6 +92,13 @@ std::vector<sim::Order> defend(std::span<const sim::UnitId> roster, sim::UnitId 
     return make(roster, sim::orders::Defend{target});
 }
 
+std::vector<sim::Order> repair(std::span<const sim::UnitId> roster, sim::UnitId target) {
+    if (!target.valid()) {
+        return {};
+    }
+    return make(roster, sim::orders::Repair{target});
+}
+
 std::vector<sim::Order> undeploy(std::span<const sim::UnitId> roster) {
     return make(roster, sim::orders::Undeploy{});
 }

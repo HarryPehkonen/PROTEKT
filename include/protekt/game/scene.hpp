@@ -957,6 +957,12 @@ struct MenuLeader {
 /// fill, so the line is its own thing to find in a frame and to test.
 inline constexpr std::array<float, 3> kAttackLineInk{1.0F, 0.10F, 0.10F};
 
+/// THE REPAIR OFFER'S GREEN LINE (`SceneOptions::repair_target`): the attack line's mirror, leaving
+/// the same place and as thick, ending in a dot on the patient. Green is the colour of what is
+/// yours (Harri's rule: "the line says whose the thing is"), and deliberately not the reticle's or
+/// a unit bar's green, so the line is its own thing to find in a frame and to test.
+inline constexpr std::array<float, 3> kRepairLineInk{0.10F, 1.0F, 0.10F};
+
 /// A menu bar's face is drawn as this many horizontal bands, top to bottom, one quad each.
 inline constexpr int kMenuFaceBands = 8;
 
@@ -1113,6 +1119,12 @@ struct SceneOptions {
     /// the unit is hurt. An invalid id (the default) draws none of it, so a frame that never heard
     /// of the field is byte-identical.
     sim::UnitId attack_target{};
+    /// THE REPAIR OFFER (SPACE REPAIR), the attack offer's mirror: the damaged friendly SPACE would
+    /// send a service truck to mend (`repair_target`, filled by the app each frame). While it names
+    /// a living unit AND the menu's state row reads `SPACE Repair` the scene draws a green line
+    /// from that row to the unit, with a green dot on it. An invalid id (the default) draws none of
+    /// it, so a frame that never heard of the field is byte-identical.
+    sim::UnitId repair_target{};
     /// THE DEPLOY LINE (see `kDeployLineInk`): the pool `SPACE Deploy` would send the lone selected
     /// scavenger to, filled by the app each frame from the same offer that puts the verb on the
     /// menu. While present AND the menu's state row reads `SPACE Deploy`, the scene draws one thin

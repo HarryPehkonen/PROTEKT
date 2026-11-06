@@ -20,6 +20,7 @@
 #include "protekt/game/nav_marks.hpp"
 #include "protekt/game/pick.hpp"
 #include "protekt/game/radar.hpp"
+#include "protekt/game/repair_aim.hpp"
 #include "protekt/game/row.hpp"
 #include "protekt/input/bindings.hpp"
 #include "protekt/math/math.hpp"
@@ -363,6 +364,15 @@ void Interaction::handle(const input::InputFrame& frame, const sim::Sim& sim,
             if (const sim::UnitId target = attack_target(sim, options, selection_.units(), driven_);
                 target.valid()) {
                 attack(target);
+                continue;
+            }
+            // Then the REPAIR, the attack's mirror (`repair_target`, the function the menu's
+            // `SPACE Repair` row and the green line are drawn from): a truck pointed at a damaged
+            // friendly.
+            if (const sim::UnitId patient
+                = repair_target(sim, options, selection_.units(), driven_);
+                patient.valid()) {
+                repair(sim, patient);
                 continue;
             }
             // Then the DEPLOY, which is offered only where it is true (`deploy_offer`, the same
@@ -767,6 +777,25 @@ void Interaction::attack(sim::UnitId target) {
     remember(orders);
     pending_.insert(pending_.end(), orders.begin(), orders.end());
     message_ = "SPACE Attack";
+    selection_.clear(); // the sequence is complete: the menu closes (see `menu_digit`)
+}
+
+void Interaction::repair(const sim::Sim& sim, sim::UnitId patient) {
+    std::vector<sim::UnitId> trucks;
+    for (const sim::UnitId id : orderable()) {
+        const sim::Unit* unit = sim.find(id);
+        if (unit != nullptr && unit->kind == sim::UnitKind::ServiceTruck && id != patient) {
+            trucks.push_back(id);
+        }
+    }
+    const std::vector<sim::Order> orders = cmd::repair(trucks, patient);
+    if (orders.empty()) {
+        refuse("That order cannot be carried out.");
+        return;
+    }
+    remember(orders);
+    pending_.insert(pending_.end(), orders.begin(), orders.end());
+    message_ = "SPACE Repair";
     selection_.clear(); // the sequence is complete: the menu closes (see `menu_digit`)
 }
 

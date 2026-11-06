@@ -8,6 +8,7 @@
 #include "protekt/game/go_here_aim.hpp"
 #include "protekt/game/nav_marks.hpp"
 #include "protekt/game/pick.hpp"
+#include "protekt/game/repair_aim.hpp"
 #include "protekt/math/math.hpp"
 
 namespace protekt::app {
@@ -118,28 +119,41 @@ sim::UnitId attack_offer(const sim::Sim& sim, const game::Session& session,
     return game::attack_target(sim, options, session.selection().units(), session.driven());
 }
 
+sim::UnitId repair_offer(const sim::Sim& sim, const game::Session& session,
+                         const game::SceneOptions& options) {
+    // The attack owns SPACE first (`Interaction` takes them in that order), as does an armed
+    // command.
+    if (session.deploy_armed() || session.attack_armed()
+        || attack_offer(sim, session, options).valid()) {
+        return sim::UnitId{};
+    }
+    return game::repair_target(sim, options, session.selection().units(), session.driven());
+}
+
 namespace {
 
 std::optional<game::DeployOffer> deploy_offer_now(const sim::Sim& sim, const game::Session& session,
                                                   const game::SceneOptions& options) {
-    // Never over the attack offer or an armed command, which own SPACE (the same order
+    // Never over the attack or repair offers or an armed command, which own SPACE (the same order
     // `Interaction` takes them in).
     if (session.deploy_armed() || session.attack_armed()
-        || attack_offer(sim, session, options).valid()) {
+        || attack_offer(sim, session, options).valid()
+        || repair_offer(sim, session, options).valid()) {
         return std::nullopt;
     }
     return game::deploy_offer(sim, options, session.selection().units(), session.driven());
 }
 
-/// The Go Here offer, withheld wherever an offer before it owns SPACE: an armed command or the
-/// attack here, and the deploy inside `go_here_offer` itself -- the order `Interaction` takes
-/// them in. The menu's `SPACE Go Here` row and the white line to its spot are both drawn from this
-/// one answer.
+/// The Go Here offer, withheld wherever an offer before it owns SPACE: an armed command, the
+/// attack or the repair here, and the deploy inside `go_here_offer` itself -- the order
+/// `Interaction` takes them in. The menu's `SPACE Go Here` row and the white line to its spot are
+/// both drawn from this one answer.
 std::optional<game::GoHereOffer> go_here_offer_now(const sim::Sim& sim,
                                                    const game::Session& session,
                                                    const game::SceneOptions& options) {
     if (session.deploy_armed() || session.attack_armed()
-        || attack_offer(sim, session, options).valid()) {
+        || attack_offer(sim, session, options).valid()
+        || repair_offer(sim, session, options).valid()) {
         return std::nullopt;
     }
     return game::go_here_offer(sim, options, session.selection().units(), session.driven());
@@ -177,6 +191,7 @@ std::vector<game::MenuRow> menu_for(const sim::Sim& sim, const game::Session& se
                        game::faction_of(options.factions, sim::Side::Player), game::ArmedCommand{},
                        menu_target_of(sim, options), static_cast<int>(sim.ore(sim::Side::Player))};
     in.attack = attack_offer(sim, session, options).valid();
+    in.repair = repair_offer(sim, session, options).valid();
     in.deployed = game::any_deployed_turret(sim, session.selection().units());
     // `SPACE Deploy` only where SPACE would deploy, then `SPACE Go Here` only where it would
     // send the selection to the ground: each withheld over the offers before it and over an armed

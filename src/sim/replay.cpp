@@ -43,6 +43,7 @@ constexpr std::array<VerbInfo, kOrderKindCount> kVerbs{{
     {"undeploy", OrderKind::Undeploy},
     {"defend", OrderKind::Defend},
     {"cancelbuild", OrderKind::CancelBuild},
+    {"repair", OrderKind::Repair},
 }};
 
 const VerbInfo* find_verb(OrderKind kind) {
@@ -96,6 +97,8 @@ OrderPayload blank_payload(OrderKind kind) {
         return orders::Defend{};
     case OrderKind::CancelBuild:
         return orders::CancelBuild{};
+    case OrderKind::Repair:
+        return orders::Repair{};
     }
     return orders::Stop{};
 }
@@ -146,6 +149,8 @@ OrderPayload payload_from(OrderKind kind, const OrderFields& f) {
         return orders::Defend{f.target};
     case OrderKind::CancelBuild:
         return orders::CancelBuild{};
+    case OrderKind::Repair:
+        return orders::Repair{f.target};
     }
     return orders::Stop{};
 }

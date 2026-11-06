@@ -181,6 +181,9 @@ constexpr std::array kFactoryBuildList{
     if (in.attack) {
         return std::string{kVerbAttack};
     }
+    if (in.repair) {
+        return std::string{kVerbRepair};
+    }
     if (in.deploy) {
         return std::string{kVerbDeploy};
     }
@@ -295,7 +298,7 @@ std::vector<MenuRow> menu_rows(const MenuInput& in) {
     std::vector<MenuRow> rows;
     // Nothing selected: no menu, so nothing is drawn and a frame without a menu stays
     // byte-identical to one that never heard of this model.
-    if (in.subject == MenuSubject::None && !in.attack && !in.go_here) {
+    if (in.subject == MenuSubject::None && !in.attack && !in.repair && !in.go_here) {
         return rows;
     }
     rows.push_back(state_row(in));

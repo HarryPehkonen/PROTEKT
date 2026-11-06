@@ -104,6 +104,7 @@ add_library(protekt_game STATIC
     src/game/atlas.cpp
     src/game/site_ground.cpp
     src/game/deploy_aim.cpp
+    src/game/repair_aim.cpp
     src/game/go_here_aim.cpp
     src/game/png.cpp
     src/game/scene.cpp
@@ -289,6 +290,8 @@ if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
         tests/test_shove.cpp
         tests/test_service_repair.cpp
         tests/test_repair_beam.cpp
+        tests/test_repair_order.cpp
+        tests/test_repair_offer.cpp
         tests/test_firing_spot.cpp
         tests/test_recycler_list.cpp
         tests/test_shift_batch.cpp

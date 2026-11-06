@@ -119,6 +119,13 @@ inline constexpr float kEyeGroundClearanceMetres = 0.5F;
 [[nodiscard]] sim::UnitId attack_offer(const sim::Sim& sim, const game::Session& session,
                                        const game::SceneOptions& options);
 
+/// The damaged friendly SPACE would send a service truck to mend this frame, or an invalid id:
+/// `game::repair_target`, withheld exactly as `attack_offer` is and over the attack offer itself,
+/// which owns SPACE first. The menu's `SPACE Repair` row and the scene's green line and dot are
+/// both drawn from this one answer.
+[[nodiscard]] sim::UnitId repair_offer(const sim::Sim& sim, const game::Session& session,
+                                       const game::SceneOptions& options);
+
 /// The pool the white deploy line points at this frame, or nothing: the tile of the pool `SPACE
 /// Deploy` would send the selected scavenger to. It is present exactly when the menu's state row
 /// reads `SPACE Deploy` AND the deploy is onto a pool -- the same offer, withheld by the same armed

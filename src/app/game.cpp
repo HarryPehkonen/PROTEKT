@@ -555,6 +555,7 @@ public:
         // owns SPACE while it is open, so nothing is offered then.
         if (nav_menu_.state() == game::NavState::Closed) {
             scene_options.attack_target = attack_offer(sim_, session_, scene_options);
+            scene_options.repair_target = repair_offer(sim_, session_, scene_options);
             scene_options.deploy_pool = deploy_line_target(sim_, session_, scene_options);
             scene_options.go_here_spot = go_here_line_target(sim_, session_, scene_options);
         }

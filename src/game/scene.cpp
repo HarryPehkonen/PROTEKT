@@ -4267,6 +4267,32 @@ void append_hud_panels(std::vector<SceneVertex>& out, const SceneOptions& option
                              kMenuLineCells * cell, kAttackLineInk);
             }
         }
+        // THE REPAIR LINE, the attack line's mirror: only while the state row really reads `SPACE
+        // Repair`. The same origin, thickness and layer, in the green of what is yours, ending in
+        // a dot on the patient -- the menu's own leader dot (`kMenuDotPixels`, `kMenuDotSlices`)
+        // in the line's ink, on the line's layer.
+        if (options.repair_target.valid() && state.key == kRowKeySpace
+            && state.verb == kVerbRepair) {
+            const sim::Unit* patient = sim.find(options.repair_target);
+            if (patient != nullptr && patient->alive) {
+                const Projected middle = attack_point(options, *patient);
+                line_between(attack_line_origin(layout), middle, kMenuLineCells * cell,
+                             kRepairLineInk);
+                if (middle.depth > math::kNearPlane) {
+                    const float radius = kMenuDotPixels * px;
+                    const auto rim = [&](int slice) {
+                        const float angle = (2.0F * kPi * static_cast<float>(slice))
+                                            / static_cast<float>(kMenuDotSlices);
+                        return at(leader_at, middle.x + (radius * std::cos(angle)),
+                                  middle.y + (radius * std::sin(angle)));
+                    };
+                    for (int slice = 0; slice < kMenuDotSlices; ++slice) {
+                        emit_triangle(out, at(leader_at, middle.x, middle.y), rim(slice),
+                                      rim(slice + 1), kRepairLineInk);
+                    }
+                }
+            }
+        }
         // THE WHITE GROUND LINES: only while the state row really reads the verb that owns the
         // line and the app named a tile, so each appears and disappears with its prompt. From the
         // same place the attack line leaves, to the middle of the tile on the ground, one pixel

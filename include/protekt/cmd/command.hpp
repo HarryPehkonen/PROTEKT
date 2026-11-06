@@ -56,6 +56,12 @@ namespace protekt::cmd {
 [[nodiscard]] std::vector<sim::Order> deploy(std::span<const sim::UnitId> roster, int tile_x,
                                              int tile_y);
 
+/// Every unit in the roster is sent to mend `target` (`orders::Repair`): a service truck drives
+/// to it and the automatic mending does the rest. Refuses an invalid target for the reason attack
+/// does; the sim refuses any kind but a truck, a target of the other side, and the truck itself.
+[[nodiscard]] std::vector<sim::Order> repair(std::span<const sim::UnitId> roster,
+                                             sim::UnitId target);
+
 /// Every unit in the roster -- turrets -- drives to within weapon range of `target`, deploys there
 /// and fires. Refuses an invalid target for the reason attack does.
 [[nodiscard]] std::vector<sim::Order> defend(std::span<const sim::UnitId> roster,

@@ -86,6 +86,9 @@ const UnitId* order_target(const Order& order) noexcept {
     if (const auto* defend = std::get_if<orders::Defend>(&order.payload)) {
         return &defend->target; // chosen by the issuer, as an attack's is: the same rule again
     }
+    if (const auto* repair = std::get_if<orders::Repair>(&order.payload)) {
+        return &repair->target; // living and never the truck itself, as the rest are
+    }
     return nullptr;
 }
 
@@ -138,6 +141,15 @@ bool order_is_valid(const std::vector<Unit>& units, const std::vector<Pool>& poo
     // target rule below (a living unit, never itself) is the rest of it.
     if (std::holds_alternative<orders::Defend>(order.payload) && !is_turret(unit->kind)) {
         return false;
+    }
+    // REPAIR is a truck's, and only for a patient of its own side: a truck mends what is its
+    // side's, and the generic target rule below is the rest of it (living, never itself).
+    if (const auto* repair = std::get_if<orders::Repair>(&order.payload)) {
+        const Unit* patient = find_const(units, repair->target);
+        if (unit->kind != UnitKind::ServiceTruck || patient == nullptr
+            || patient->side != unit->side) {
+            return false;
+        }
     }
     if (const auto* build = std::get_if<orders::Build>(&order.payload)) {
         // A BUILD goes to a producer, by KIND (a side may have several), for a kind that has a
@@ -480,6 +492,13 @@ void apply_order(std::vector<Unit>& units, std::vector<Projectile>& projectiles,
             if (unit.kind == UnitKind::Turret) {
                 unit.deploy_ticks = 0; // a deployed turret's count is its un-deploy: keep it
             }
+        }
+        break;
+    case OrderKind::Repair:
+        if (const auto* o = std::get_if<orders::Repair>(&order.payload)) {
+            unit.stance = Stance::Repair;
+            unit.target = o->target;
+            unit.route.age = kRouteAgeFresh;
         }
         break;
     case OrderKind::TakeControl:
@@ -1076,6 +1095,7 @@ bool wants_to_leave(const Unit& unit) noexcept {
     case Stance::Deploy:
     case Stance::Defend:
     case Stance::Recycle:
+    case Stance::Repair:
         return true;
     case Stance::GuardAt: {
         constexpr std::int64_t kArrive = kArriveRadiusRaw;
@@ -1302,6 +1322,20 @@ void steer(std::vector<Unit>& units, Unit& unit, const UnitProfile& prof, const 
         goal_x = target->x;
         goal_y = target->y;
         stop_radius = static_cast<std::int64_t>(kFollowRadiusTiles) << Fixed::kShift;
+        break;
+    }
+    case Stance::Repair: {
+        // Close on the patient's CURRENT position to the approach radius and hold; the mending is
+        // `service_repair_step`'s. A patient that is whole or gone ends the errand.
+        const Unit* target = find_const(units, unit.target);
+        if (target == nullptr || !target->alive || target->hp >= profile(target->kind).hp) {
+            unit.stance = Stance::Idle;
+            unit.target = UnitId{};
+            return;
+        }
+        goal_x = target->x;
+        goal_y = target->y;
+        stop_radius = static_cast<std::int64_t>(kServiceRepairApproachTiles) << Fixed::kShift;
         break;
     }
     case Stance::Idle:

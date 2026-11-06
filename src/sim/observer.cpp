@@ -368,6 +368,8 @@ const char* to_string(Stance stance) noexcept {
         return "undeploy";
     case Stance::Defend:
         return "defend";
+    case Stance::Repair:
+        return "repair";
     }
     return "unknown";
 }
@@ -412,6 +414,8 @@ const char* to_string(OrderKind kind) noexcept {
         return "defend";
     case OrderKind::CancelBuild:
         return "cancelbuild";
+    case OrderKind::Repair:
+        return "repair";
     }
     return "unknown";
 }

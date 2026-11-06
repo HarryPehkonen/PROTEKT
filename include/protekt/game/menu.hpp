@@ -122,6 +122,11 @@ struct MenuInput {
     /// selection with no menu of its own (a mixed one) still gets that single row, because the
     /// offer is about the crosshair and the weapons, not about the subject.
     bool attack{false};
+    /// SPACE would send a selected service truck to mend the damaged friendly the crosshair is on
+    /// (`repair_target`): the state row reads `SPACE Repair`. A CONTEXTUAL prompt like `attack`,
+    /// never a permanent row, and the attack's mirror: ignored while a command is armed or an
+    /// attack is offered, which own SPACE.
+    bool repair{false};
     /// Whether MORE THAN ONE unit is selected. It decides one row's ink and nothing else: `~
     /// Select Unit` applies to a group and not to a lone unit (the plan's measured dim rule), so a
     /// single selection draws it dimmed. Defaulted, so a caller that does not know still compiles.
@@ -218,6 +223,8 @@ inline constexpr std::string_view kVerbGoHere{"Go Here"};
 /// the layer that routes a digit cannot drift apart.
 inline constexpr std::string_view kVerbGoToNav{"Go to Nav"};
 inline constexpr std::string_view kVerbAttack{"Attack"};
+/// The state row's verb when SPACE would send a service truck to a damaged friendly.
+inline constexpr std::string_view kVerbRepair{"Repair"};
 inline constexpr std::string_view kVerbRecycle{"Recycle"};
 /// Drawn on a vehicle's menu; `Pick Me Up` and `Bailout` are inert in this slice: the row is the
 /// reference's, the behaviour is not built. (`Scavenge` acts: see `Interaction`.) Written here so

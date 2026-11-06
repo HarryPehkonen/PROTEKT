@@ -199,6 +199,17 @@ struct Defend {
 /// takes it and nothing changes.
 struct CancelBuild {};
 
+/// REPAIR a friendly unit, by being SENT to it (D1b, Harri 2026-11-05: "the same logic that's used
+/// to attack an enemy can be used to repair a friendly"): a service truck drives at `target` until
+/// it is within `kServiceRepairApproachTiles` of it, and holds there; the mending itself is D1's,
+/// automatic for any truck in reach, so this order only brings the truck. It LAPSES to idle when
+/// the patient is whole or gone -- which is why `Follow` could not carry it: a follow never ends,
+/// so a truck sent to a tank would trail it for ever. Refused for any kind but a `ServiceTruck`,
+/// and for a target that is not a living unit of the truck's own side other than the truck itself.
+struct Repair {
+    UnitId target{};
+};
+
 } // namespace orders
 
 using OrderPayload
@@ -206,7 +217,7 @@ using OrderPayload
                    orders::FocusFire, orders::FireTowards, orders::Strafe, orders::Follow,
                    orders::FireLob, orders::Deploy, orders::Recycle, orders::FireFan,
                    orders::FireRocket, orders::TakeControl, orders::Build, orders::Undeploy,
-                   orders::Defend, orders::CancelBuild>;
+                   orders::Defend, orders::CancelBuild, orders::Repair>;
 
 /// How each payload alternative is named and reported. This is the payload's index, in the
 /// payload's order, and the assertions below make that true rather than intended.
@@ -237,9 +248,11 @@ enum class OrderKind : std::uint8_t {
     Defend = 17,
     /// Appended after Defend, never inserted, for the reason every value above was.
     CancelBuild = 18,
+    /// Appended after CancelBuild, never inserted, for the reason every value above was.
+    Repair = 19,
 };
 
-inline constexpr std::size_t kOrderKindCount = static_cast<std::size_t>(OrderKind::CancelBuild) + 1;
+inline constexpr std::size_t kOrderKindCount = static_cast<std::size_t>(OrderKind::Repair) + 1;
 
 static_assert(std::variant_size_v<OrderPayload> == kOrderKindCount,
               "every alternative needs a kind, and every kind an alternative");
@@ -269,6 +282,7 @@ static_assert(std::is_same_v<PayloadOf<OrderKind::Build>, orders::Build>);
 static_assert(std::is_same_v<PayloadOf<OrderKind::Undeploy>, orders::Undeploy>);
 static_assert(std::is_same_v<PayloadOf<OrderKind::Defend>, orders::Defend>);
 static_assert(std::is_same_v<PayloadOf<OrderKind::CancelBuild>, orders::CancelBuild>);
+static_assert(std::is_same_v<PayloadOf<OrderKind::Repair>, orders::Repair>);
 
 /// The kind is the payload's own index. There is no second field that can disagree with it, which
 /// is precisely what the flat record could not promise.
@@ -367,6 +381,9 @@ struct OrderFields {
         out.positions[1] = Fixed::from_int(static_cast<std::int32_t>(p->batch));
         out.position_count = 2;
     } else if (const auto* p = std::get_if<orders::Defend>(&payload)) {
+        out.has_target = true;
+        out.target = p->target;
+    } else if (const auto* p = std::get_if<orders::Repair>(&payload)) {
         out.has_target = true;
         out.target = p->target;
     } else if (const auto* p = std::get_if<orders::Recycle>(&payload)) {

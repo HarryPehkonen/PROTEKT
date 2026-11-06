@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdint>
 
 #include "protekt/game/assist.hpp"
 #include "protekt/math/math.hpp"
@@ -71,13 +72,17 @@ std::optional<float> degrees_off_ray(const SceneOptions& options,
 
 namespace {
 
+/// Whose assets the one scan below counts.
+enum class Whose : std::uint8_t { Hostile, Friendly, Any };
+
 /// THE ONE SCAN behind every "near the crosshair" in the game: the living, available unit whose
-/// middle lies nearest the crosshair's ray within `degrees`, ties to the lower id. `hostile_only`
-/// narrows it to the other side's units (the attack offer and the assist); without it any asset
-/// counts (the health bar's "pointing approximately at it"). The driven hull is never a candidate:
-/// the eye sits on its barrel, so it is the thing being looked out of, as `pick` has it.
+/// middle lies nearest the crosshair's ray within `degrees`, ties to the lower id. `Whose` narrows
+/// it to the other side's units (the attack offer and the assist) or to the player's own (the
+/// repair offer); `Any` counts every asset (the health bar's "pointing approximately at it"). The
+/// driven hull is never a candidate: the eye sits on its barrel, so it is the thing being looked
+/// out of, as `pick` has it.
 sim::UnitId nearest_ray(const sim::Sim& sim, const SceneOptions& options, float degrees,
-                        bool hostile_only) noexcept {
+                        Whose whose) noexcept {
     if (!options.aim.has_value()) {
         return sim::UnitId{};
     }
@@ -88,7 +93,8 @@ sim::UnitId nearest_ray(const sim::Sim& sim, const SceneOptions& options, float 
     sim::UnitId best{};
     float best_cos = -1.0F;
     for (const sim::Unit& unit : sim.units()) {
-        if (!unit.alive || (hostile_only && unit.side == sim::Side::Player)
+        if (!unit.alive || (whose == Whose::Hostile && unit.side == sim::Side::Player)
+            || (whose == Whose::Friendly && unit.side != sim::Side::Player)
             || unit.id == options.driven_unit || !available_to_viewer(sim, options, unit)) {
             continue;
         }
@@ -117,12 +123,17 @@ sim::UnitId nearest_ray(const sim::Sim& sim, const SceneOptions& options, float 
 
 sim::UnitId hostile_nearest_ray(const sim::Sim& sim, const SceneOptions& options,
                                 float degrees) noexcept {
-    return nearest_ray(sim, options, degrees, true);
+    return nearest_ray(sim, options, degrees, Whose::Hostile);
+}
+
+sim::UnitId friendly_nearest_ray(const sim::Sim& sim, const SceneOptions& options,
+                                 float degrees) noexcept {
+    return nearest_ray(sim, options, degrees, Whose::Friendly);
 }
 
 sim::UnitId asset_nearest_ray(const sim::Sim& sim, const SceneOptions& options,
                               float degrees) noexcept {
-    return nearest_ray(sim, options, degrees, false);
+    return nearest_ray(sim, options, degrees, Whose::Any);
 }
 
 sim::UnitId pointed_asset(const sim::Sim& sim, const SceneOptions& options,

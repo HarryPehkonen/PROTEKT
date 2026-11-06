@@ -200,8 +200,8 @@ within 6 tiles that is hurt: buildings, vehicles, mounted and unmounted turrets,
 scavenger -- one rule for every kind. One truck at its closest restores `max_hp / 600` a tick, so a
 tank goes from nearly dead to whole in 20 s and a factory (four times the hit points) takes 80 s.
 Closer is faster (the rate falls with the squared distance to half at 6 tiles) and every truck in
-range adds its own share. The player's job is to drive the truck there; there is no order for it. A
-truck does not mend itself, and the service pod does not mend at all. The rate (`kServiceRepairTicks`)
+range adds its own share. The mending is automatic for any truck in reach; sending one is the next
+paragraph. A truck does not mend itself, and the service pod does not mend at all. The rate (`kServiceRepairTicks`)
 and the 6 tiles are Harri's to tune. No recorded battle contains a truck, so none moved.
 
 **The repair beam** (2026-11-05; Harri: "a bright, trembling beam of different colours coming from the
@@ -211,6 +211,17 @@ multi-coloured on purpose (red, orange, yellow, green, cyan, violet, pouring alo
 patient) and it trembles: every cube is thrown about a third of a metre off the straight line, afresh
 each sim tick, while the two ends stay put on the truck and the patient. A truck beside a unit at full
 health, out of reach, or on the other side draws nothing. Drawing only: no recorded battle moved.
+
+**Repair by pointing** (2026-11-05; Harri: "maybe the same logic that's used to attack an enemy can be
+used to repair a friendly. You know, targetting."). Select a service truck, point the crosshair at a
+damaged friendly (within the same 4 degrees the attack offer uses) and the menu's top row reads `SPACE
+Repair`, with a green line to that unit and a green dot on it -- the mirror of `SPACE Attack`'s red.
+SPACE sends the truck: it drives to within 3 tiles of the patient (a new order, `Repair`) and its
+automatic mending does the rest, then the order ends on its own when the patient is whole or gone. A
+unit at full health, an enemy, a selection with no truck, or nothing selected is offered nothing; turn
+away and the row and line go. In a mixed selection only the trucks go. The automatic mending stays as
+it was (whether it should is Harri's call), and the AI does not yet send trucks to the wounded. No
+recorded battle issues a `Repair`, so none moved.
 
 **Vehicle identities** (2026-11-03, Harri's ruling): the **bomber** is the fastest vehicle in the game
 (twice the tank's speed, was 3/4), the **mortar bike** next, fast and thin (5/4 of the tank's speed

@@ -32,6 +32,13 @@ inline constexpr float kAttackAimToleranceDegrees = 4.0F;
 [[nodiscard]] sim::UnitId hostile_nearest_ray(const sim::Sim& sim, const SceneOptions& options,
                                               float degrees) noexcept;
 
+/// The same scan over the PLAYER'S OWN living, available assets alone: the unit the crosshair is
+/// "pointing approximately at" when the verb is a friendly one (`repair_target`). It is
+/// `hostile_nearest_ray` with the side filter turned round and nothing else, so the repair offer
+/// and the attack offer can never measure the cone differently.
+[[nodiscard]] sim::UnitId friendly_nearest_ray(const sim::Sim& sim, const SceneOptions& options,
+                                               float degrees) noexcept;
+
 /// The same scan over ANY living, available asset but the driven hull, of either side: the unit
 /// the crosshair is "pointing approximately at" for the health bars. It is `hostile_nearest_ray`
 /// with the side filter off and nothing else, so the two can never measure the cone differently.

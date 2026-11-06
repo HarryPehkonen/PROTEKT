@@ -167,7 +167,11 @@ enum class Stance : std::uint8_t {
     Undeploy = 10,
     /// A DEFEND order (TURRET-CMD): drive at the named enemy until within the turret's weapon
     /// range of it, then count `kTurretDeployTicks` standing there and become a `DeployedTurret`.
-    Defend = 11
+    Defend = 11,
+    /// A REPAIR order (D1b) on a service truck: drive at the named friendly until within
+    /// `kServiceRepairApproachTiles` of it and hold, until it is whole or gone. Appended for the
+    /// same reason as every value above.
+    Repair = 12
 };
 
 struct UnitId {
@@ -304,6 +308,9 @@ inline constexpr int kRepairTickInterval = 6; ///< ...by 1 hp every this many ti
 /// rate; no kind has a number of its own.
 inline constexpr int kServiceRepairTicks = 20 * kTicksPerSecond;
 inline constexpr int kServiceRepairRadiusTiles = 6; ///< a truck mends only what is this close
+/// How near a truck SENT to a patient (`orders::Repair`) comes before it holds: well inside the
+/// radius, so it mends at over four fifths of the full rate, and clear of a 2x2 building's edge.
+inline constexpr int kServiceRepairApproachTiles = 3;
 /// How hard one truck mends at distance `d`, in 65536ths of the full rate: the full rate at
 /// d = 0, falling LINEARLY IN d^2 (integers all the way; no square root) to `kServiceRepairEdge`
 /// at the radius. Closer is faster, and a truck on the very edge still mends, half as quickly.

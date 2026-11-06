@@ -167,6 +167,7 @@ TEST(Replay, EveryOrderKindSurvivesARoundTripAndNoneIsDropped) {
         Command{17, Order{UnitId{3}, orders::Undeploy{}}},
         Command{18, Order{UnitId{4}, orders::Defend{UnitId{9}}}},
         Command{19, Order{UnitId{2}, orders::CancelBuild{}}},
+        Command{20, Order{UnitId{5}, orders::Repair{UnitId{6}}}},
     };
     ASSERT_EQ(r.commands.size(), kOrderKindCount) << "this test must cover every kind";
     for (std::size_t i = 0; i < r.commands.size(); ++i) {
@@ -199,6 +200,8 @@ TEST(Replay, EveryOrderKindSurvivesARoundTripAndNoneIsDropped) {
         << "a defend names its enemy as the target, as an attack does: " << text;
     EXPECT_NE(text.find("19 cancelbuild 2\n"), std::string::npos)
         << "a cancel carries the producer and nothing else: " << text;
+    EXPECT_NE(text.find("20 repair 5 6\n"), std::string::npos)
+        << "a repair names its patient as the target, as an attack does: " << text;
 
     const Replay again = must_parse(text);
     ASSERT_EQ(again.commands.size(), r.commands.size());

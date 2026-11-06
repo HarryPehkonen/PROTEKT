@@ -73,8 +73,10 @@ public:
     ///    under the mark, or the one within `kAttackAimToleranceDegrees` of it) when the selection
     ///    holds anything armed -- the menu's `SPACE Attack`, drawn from the same function -- else
     ///    drive to the ground under the mark, `SPACE Go Here` (`go_here_offer`; any vehicle or
-    ///    group, where neither the attack nor the deploy applies), else follow an own tank under
-    ///    the mark
+    ///    group, where neither the attack nor the deploy applies). Between the attack and the
+    ///    deploy comes `SPACE Repair` (`repair_target`): a selected SERVICE TRUCK pointed at a
+    ///    damaged friendly is sent to mend it (`orders::Repair`), the attack's mirror, else follow
+    ///    an own tank under the mark
     ///    -- and any of these orders ENDS the command: it clears the
     ///    selection and so closes the menu. It never adds to a selection, which is also why a
     ///    command that left its selection standing used to make a turret unselectable
@@ -292,6 +294,9 @@ private:
     void go_to_highlighted_mark(const SceneOptions& options);
     /// Order every orderable selected unit to attack `target`, or refuse and say why.
     void attack(sim::UnitId target);
+    /// SPACE REPAIR: sends the selection's service trucks to mend `target`; the rest of a mixed
+    /// selection takes no part. Finishes the command like `attack` does.
+    void repair(const sim::Sim& sim, sim::UnitId target);
     /// A digit with nothing selected (the top menu): `1` selects the player's recycler and `2` the
     /// factory (`building_key_holder`), wherever they are. A building that is not alive is refused
     /// aloud and selects nothing; `3` (no armory yet) and the other digits do nothing.
