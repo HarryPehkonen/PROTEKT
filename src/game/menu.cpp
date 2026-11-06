@@ -35,10 +35,10 @@ constexpr std::array kRecyclerRows{
 /// A harvester / scavenger. Note what is NOT here: 6, 7 and 8 are missing on purpose and the gap is
 /// drawn, because the reference shows a visible one -- keys are a pair of {key, verb}, never a
 /// position in a list, and the free keys are left free for whatever fills them later. `~ SELECT
-/// UNIT` and `5 Pick Me Up` are dimmed because they do not apply to this selection; their ink is
+/// UNIT` is NOT here because its ink depends on the selection size (`select_unit_row`, drawn first
+/// by `menu_rows`); `5 Pick Me Up` is dimmed because it does not apply to this selection, its ink
 /// the same as a build row that is merely too expensive, and only `MenuDim` tells them apart.
 constexpr std::array kHarvesterRows{
-    FixedRow{kTilde, kVerbSelectUnit, MenuDim::DoesNotApply},
     FixedRow{"1", kVerbFollowMe, MenuDim::None},
     FixedRow{"2", kVerbGoToNav, MenuDim::None},
     FixedRow{"3", kVerbScavenge, MenuDim::None},
@@ -48,6 +48,14 @@ constexpr std::array kHarvesterRows{
     FixedRow{"9", kVerbBailout, MenuDim::None},
     FixedRow{"0", kVerbRecycle, MenuDim::None},
 };
+
+/// `~ Select Unit`, the one row whose ink is the selection's size: it narrows a group to one of its
+/// units, so a lone unit has nothing to select within itself and the row is dim for it. Every
+/// subject that draws the row draws it through here, so the rule has one home.
+[[nodiscard]] MenuRow select_unit_row(const MenuInput& in) {
+    return MenuRow{kTilde, std::string{kVerbSelectUnit}, in.group,
+                   in.group ? MenuDim::None : MenuDim::DoesNotApply};
+}
 
 /// A selected VEHICLE -- a tank, hover tank, mortar bike, rocket tank or scout. The same ten rows
 /// as the reference's tank and scout captures (2026-10-26); only the state row's default verb
@@ -300,6 +308,7 @@ std::vector<MenuRow> menu_rows(const MenuInput& in) {
         append_fixed(rows, kRecyclerRows);
         break;
     case MenuSubject::Harvester:
+        rows.push_back(select_unit_row(in));
         append_fixed(rows, kHarvesterRows);
         break;
     case MenuSubject::Deployment:
@@ -308,15 +317,12 @@ std::vector<MenuRow> menu_rows(const MenuInput& in) {
         append_build_list(rows, in);
         break;
     case MenuSubject::Vehicle:
-        // `~ Select Unit` first: the reference's row order, and the one row whose ink depends on
-        // the selection size. A lone unit cannot select within itself, so the row is dim for one.
-        rows.push_back(MenuRow{kTilde, std::string{kVerbSelectUnit}, in.group,
-                               in.group ? MenuDim::None : MenuDim::DoesNotApply});
+        // `~ Select Unit` first: the reference's row order.
+        rows.push_back(select_unit_row(in));
         append_fixed(rows, kVehicleRows);
         break;
     case MenuSubject::Turret:
-        rows.push_back(MenuRow{kTilde, std::string{kVerbSelectUnit}, in.group,
-                               in.group ? MenuDim::None : MenuDim::DoesNotApply});
+        rows.push_back(select_unit_row(in));
         append_fixed(rows, kTurretHeadRows);
         rows.push_back(MenuRow{kUndeployKey, std::string{kVerbUndeploy}, in.deployed,
                                in.deployed ? MenuDim::None : MenuDim::DoesNotApply});

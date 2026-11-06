@@ -337,7 +337,8 @@ TEST(PointReadout, ABuildingIsReadToo) {
     const Projected middle = attack_point(f.options, *f.sim.find(f.turret));
     const std::vector<Cell> cells = cells_of(f.options, scene, kHostileInk);
     const Block name = block_of(cells, true, middle.y);
-    EXPECT_NEAR(name.right - name.left, text_width("TURRET"), 0.1F);
+    // The turret is the ENEMY's, and the enemy plays the aliens by default: their name for it.
+    EXPECT_NEAR(name.right - name.left, text_width("GUARDIAN"), 0.1F);
     EXPECT_GT(block_of(cells, false, middle.y).cells, 0U);
 }
 

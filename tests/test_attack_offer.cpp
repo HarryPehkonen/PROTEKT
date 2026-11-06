@@ -576,7 +576,7 @@ TEST(AttackReadout, TheLabelIsTheKindsNameFromTheRowAndNotASecondTable) {
     const Readout r = read_readout(w, scene_of(w, false), scene_of(w, true));
     // "TANK" is four glyphs of the 5x5 face: T, A, N, K light 9 + 12 + 11 + 10 = at most 42 cells,
     // and a name three times as long would light far more than a table that said something else.
-    ASSERT_EQ(kind_label(UnitKind::Tank), "TANK");
+    ASSERT_EQ(kind_label(UnitKind::Tank, Faction::Human), "TANK");
     EXPECT_GE(r.glyph_quads, 4U);
     EXPECT_LE(r.glyph_quads, 4U * 25U);
     // The plate is as wide as the text: four glyphs, three gaps, two pads, at 2 px cells.

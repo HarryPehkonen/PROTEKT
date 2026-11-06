@@ -430,7 +430,16 @@ std::string_view row_key_label(std::size_t index) noexcept {
     return index < kRowSlots ? kLabels.at(index) : std::string_view{};
 }
 
-std::string_view kind_label(sim::UnitKind kind) noexcept {
+namespace {
+/// A name that differs by faction: the same machine is a Scavenger to the humans and a Harvester
+/// to the aliens, and a name that does not differ is simply written once in `kind_label`.
+constexpr std::string_view by_faction(Faction faction, std::string_view human,
+                                      std::string_view alien) noexcept {
+    return faction == Faction::Alien ? alien : human;
+}
+} // namespace
+
+std::string_view kind_label(sim::UnitKind kind, Faction faction) noexcept {
     switch (kind) {
     case sim::UnitKind::Tank:
         return "TANK";
@@ -442,12 +451,12 @@ std::string_view kind_label(sim::UnitKind kind) noexcept {
         return "ROCKET TANK";
     case sim::UnitKind::Turret:
     case sim::UnitKind::DeployedTurret:
-        return "TURRET";
+        return by_faction(faction, "TURRET", "GUARDIAN");
     case sim::UnitKind::Factory:
         return "FACTORY";
     case sim::UnitKind::Scavenger:
-        return "SCAVENGER";
-    case sim::UnitKind::DeployedScavenger: // BZ2's own name for a deployed scavenger
+        return by_faction(faction, "SCAVENGER", "HARVESTER");
+    case sim::UnitKind::DeployedScavenger: // BZ2's name for a deployed miner, BOTH factions
         return "EXTRACTOR";
     case sim::UnitKind::Scout:
         return "SCOUT";
@@ -462,7 +471,7 @@ std::string_view kind_label(sim::UnitKind kind) noexcept {
     case sim::UnitKind::MslScout:
         return "MSL SCOUT";
     case sim::UnitKind::Tug:
-        return "TUG";
+        return by_faction(faction, "TUG", "HAULER");
     case sim::UnitKind::Constructor:
         return "CONSTRUCTOR";
     case sim::UnitKind::ServiceTruck:

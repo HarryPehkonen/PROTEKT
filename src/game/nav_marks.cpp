@@ -134,15 +134,15 @@ std::vector<input::KeyEvent> NavMenu::handle(std::span<const input::KeyEvent> ke
             continue;
         }
         if (state_ == NavState::Closed) {
-            // `n` and `~` are the top menu's: with another left menu open they do nothing at all.
+            // `n` and `~` are the top menu's: with another left menu open they do nothing here.
+            // A `~` this menu does not open is NOT eaten: it is the session's (`~ Select Unit`
+            // steps a group, the deployment menu's `~` rotates), and swallowing it killed both.
             if (input::nav_arm_pressed(key)) {
                 if (top_menu) {
                     state_ = NavState::Placing;
                 }
-            } else if (input::nav_menu_pressed(key)) {
-                if (top_menu && !marks.marks().empty()) {
-                    state_ = NavState::Menu;
-                }
+            } else if (input::nav_menu_pressed(key) && top_menu && !marks.marks().empty()) {
+                state_ = NavState::Menu;
             } else {
                 rest.push_back(key);
             }

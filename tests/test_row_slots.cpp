@@ -20,6 +20,7 @@
 #include <variant>
 #include <vector>
 
+#include "protekt/game/faction.hpp"
 #include "protekt/game/interaction.hpp"
 #include "protekt/game/kind_icon.hpp"
 #include "protekt/game/pick.hpp"
@@ -497,27 +498,59 @@ TEST(RowSlots, ADeadUnitDoesNotReadEvenBeforeTheRowIsUpdated) {
 }
 
 TEST(RowSlots, TheLabelsAreTheShortNames) {
-    EXPECT_EQ(kind_label(UnitKind::Tank), "TANK");
-    EXPECT_EQ(kind_label(UnitKind::HoverTank), "HOVER");
-    EXPECT_EQ(kind_label(UnitKind::MortarBike), "MORTAR BIKE");
-    EXPECT_EQ(kind_label(UnitKind::RocketTank), "ROCKET TANK");
-    EXPECT_EQ(kind_label(UnitKind::Turret), "TURRET");
-    EXPECT_EQ(kind_label(UnitKind::Factory), "FACTORY");
-    EXPECT_EQ(kind_label(UnitKind::Recycler), "RECYCLER");
-    EXPECT_EQ(kind_label(UnitKind::Scout), "SCOUT");
-    EXPECT_EQ(kind_label(UnitKind::MslScout), "MSL SCOUT");
+    EXPECT_EQ(kind_label(UnitKind::Tank, Faction::Human), "TANK");
+    EXPECT_EQ(kind_label(UnitKind::HoverTank, Faction::Human), "HOVER");
+    EXPECT_EQ(kind_label(UnitKind::MortarBike, Faction::Human), "MORTAR BIKE");
+    EXPECT_EQ(kind_label(UnitKind::RocketTank, Faction::Human), "ROCKET TANK");
+    EXPECT_EQ(kind_label(UnitKind::Turret, Faction::Human), "TURRET");
+    EXPECT_EQ(kind_label(UnitKind::Factory, Faction::Human), "FACTORY");
+    EXPECT_EQ(kind_label(UnitKind::Recycler, Faction::Human), "RECYCLER");
+    EXPECT_EQ(kind_label(UnitKind::Scout, Faction::Human), "SCOUT");
+    EXPECT_EQ(kind_label(UnitKind::MslScout, Faction::Human), "MSL SCOUT");
+}
+
+// THE NAME TABLE IS KEYED BY (KIND, FACTION) (REQUIREMENTS.md section 9). The human and the alien
+// build lists already name the same kinds differently; the readout, the command row and the attack
+// list now read the same table. The deployed scavenger is an EXTRACTOR to BOTH (Harri, BZ2,
+// 2026-11-05).
+TEST(RowSlots, AnAlienMinerIsAHarvesterAndAHumanOneIsAScavenger) {
+    EXPECT_EQ(kind_label(UnitKind::Scavenger, Faction::Human), "SCAVENGER");
+    EXPECT_EQ(kind_label(UnitKind::Scavenger, Faction::Alien), "HARVESTER");
+}
+
+TEST(RowSlots, ADeployedMinerIsAnExtractorWhicheverFactionOwnsIt) {
+    EXPECT_EQ(kind_label(UnitKind::DeployedScavenger, Faction::Human), "EXTRACTOR");
+    EXPECT_EQ(kind_label(UnitKind::DeployedScavenger, Faction::Alien), "EXTRACTOR");
+}
+
+TEST(RowSlots, TheAliensNameTheirTurretAndTugAsTheirBuildListDoes) {
+    EXPECT_EQ(kind_label(UnitKind::Turret, Faction::Human), "TURRET");
+    EXPECT_EQ(kind_label(UnitKind::Turret, Faction::Alien), "GUARDIAN");
+    EXPECT_EQ(kind_label(UnitKind::DeployedTurret, Faction::Human), "TURRET");
+    EXPECT_EQ(kind_label(UnitKind::DeployedTurret, Faction::Alien), "GUARDIAN");
+    EXPECT_EQ(kind_label(UnitKind::Tug, Faction::Human), "TUG");
+    EXPECT_EQ(kind_label(UnitKind::Tug, Faction::Alien), "HAULER");
+}
+
+TEST(RowSlots, AKindWithOneNameKeepsItForBothFactions) {
+    for (const Faction faction : {Faction::Human, Faction::Alien}) {
+        EXPECT_EQ(kind_label(UnitKind::Tank, faction), "TANK");
+        EXPECT_EQ(kind_label(UnitKind::Recycler, faction), "RECYCLER");
+        EXPECT_EQ(kind_label(UnitKind::Scout, faction), "SCOUT");
+    }
 }
 
 // Harri: "EXTRACTOR ... is the correct BattleZone 2 name of a deployed scavenger". The name is the
 // kind's own, read from `kind_label`; the scavenger on wheels keeps its name and nothing else
 // moves.
 TEST(RowSlots, ADeployedScavengerIsAnExtractorAndTheScavengerOnWheelsIsNot) {
-    EXPECT_EQ(kind_label(UnitKind::DeployedScavenger), "EXTRACTOR");
-    EXPECT_EQ(kind_label(UnitKind::Scavenger), "SCAVENGER");
-    EXPECT_NE(kind_label(UnitKind::DeployedScavenger), kind_label(UnitKind::Scavenger));
+    EXPECT_EQ(kind_label(UnitKind::DeployedScavenger, Faction::Human), "EXTRACTOR");
+    EXPECT_EQ(kind_label(UnitKind::Scavenger, Faction::Human), "SCAVENGER");
+    EXPECT_NE(kind_label(UnitKind::DeployedScavenger, Faction::Human),
+              kind_label(UnitKind::Scavenger, Faction::Human));
     EXPECT_EQ(static_cast<int>(UnitKind::DeployedScavenger), 15) << "the identity did not move";
-    EXPECT_EQ(kind_label(UnitKind::DeployedRecycler), "RECYCLER");
-    EXPECT_EQ(kind_label(UnitKind::DeployedTurret), "TURRET");
+    EXPECT_EQ(kind_label(UnitKind::DeployedRecycler, Faction::Human), "RECYCLER");
+    EXPECT_EQ(kind_label(UnitKind::DeployedTurret, Faction::Human), "TURRET");
 }
 
 // ------------------------------------------------------------------ the bar's look (BAR-LOOK)
@@ -1391,10 +1424,12 @@ TEST(KindIcon, EveryKindAVehicleKeyCanHoldHasItsOwnMask) {
     ASSERT_EQ(kinds.size(), 17U) << "the kinds a key holds, less the two buildings";
     for (std::size_t i = 0; i < kinds.size(); ++i) {
         const IconMask& mask = kind_icon(kinds.at(i));
-        EXPECT_NE(&mask, &fallback_icon()) << kind_label(kinds.at(i)) << " fell back";
+        EXPECT_NE(&mask, &fallback_icon())
+            << kind_label(kinds.at(i), Faction::Human) << " fell back";
         for (std::size_t j = 0; j < i; ++j) {
             EXPECT_NE(mask, kind_icon(kinds.at(j)))
-                << kind_label(kinds.at(i)) << " and " << kind_label(kinds.at(j)) << " are one mask";
+                << kind_label(kinds.at(i), Faction::Human) << " and "
+                << kind_label(kinds.at(j), Faction::Human) << " are one mask";
         }
     }
 }

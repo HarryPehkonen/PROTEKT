@@ -8,6 +8,7 @@
 #include <string_view>
 #include <vector>
 
+#include "protekt/game/faction.hpp"
 #include "protekt/sim/sim.hpp"
 
 /// THE COMMAND ROW (ROW-SLOTS): `~`, `1`, `2`, `3`, then `F1`..`F10`, fourteen keys that each sit
@@ -202,8 +203,11 @@ struct BatchReading {
 /// when no deployed one is alive, so the key does not care which side of the deployment it is on.
 [[nodiscard]] sim::UnitId building_key_holder(const sim::Sim& sim, sim::Side side, int key);
 
-/// The strip's short name for a kind, in the capitals the HUD font has.
-[[nodiscard]] std::string_view kind_label(sim::UnitKind kind) noexcept;
+/// The short name of a kind, in the capitals the HUD font has, keyed by (kind, FACTION): the one
+/// name table every readout, command row and list reads. A faction names the machine -- the human
+/// Scavenger is the alien Harvester, the Turret a Guardian, the Tug a Hauler -- and never the side,
+/// so a caller passes the faction of the unit's own side. A DEPLOYED miner is an EXTRACTOR to both.
+[[nodiscard]] std::string_view kind_label(sim::UnitKind kind, Faction faction) noexcept;
 
 /// What pressing F`key` says when its slot holds nothing. A literal, because a message is a view.
 [[nodiscard]] std::string_view empty_key_message(int key) noexcept;

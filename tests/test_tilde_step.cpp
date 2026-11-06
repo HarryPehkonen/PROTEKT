@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "protekt/game/interaction.hpp"
+#include "protekt/game/nav_marks.hpp"
 #include "protekt/game/row.hpp"
 #include "protekt/game/scene.hpp"
 #include "protekt/input/bindings.hpp"
@@ -271,6 +272,45 @@ TEST(TildeStep, TheSceneRingsThePickedTickAndNothingWhenTheWholeGroupIsHeld) {
     const std::size_t picked = build_scene(rig.sim, rig.options, one).vertices.size();
     EXPECT_EQ(all, none) << "a whole group adds no ring";
     EXPECT_GT(picked, all) << "one vehicle's tick is ringed";
+}
+
+// THE ROW'S OWN KEY, THROUGH THE WHOLE KEY CHAIN. Harri selected the three scavengers under F2, the
+// menu opened, and `~` did nothing: the app hands every key to the nav menu first, and it kept the
+// `~` for itself. The other tests here call `Interaction` directly and so never met it.
+TEST(TildeStep, ThreeScavengersUnderAFunctionKeyAreSteppedThroughTheNavMenuToo) {
+    sim::Sim sim = sim::Sim::create(sim::Scenario{kSeed,
+                                                  {{UnitKind::Tank, Side::Player, 4, 8},
+                                                   {UnitKind::Scavenger, Side::Player, 4, 4},
+                                                   {UnitKind::Scavenger, Side::Player, 8, 4},
+                                                   {UnitKind::Scavenger, Side::Player, 12, 4}}});
+    const UnitId driven = sim.units().at(0).id;
+    RowState row;
+    row.seed_from_start(sim, Side::Player, 0, driven);
+    SceneOptions options;
+    options.row = &row;
+    options.seed = kSeed;
+    options.extent = kExtent;
+    options.driven_unit = driven;
+    options.viewer_unit = driven;
+    Interaction player{driven};
+    NavMenu nav;
+    NavMarks marks;
+    // A mark exists, so the nav menu WOULD open on a `~` it was allowed to take.
+    static_cast<void>(marks.place(5, 5));
+    const auto send = [&](std::int32_t scancode) {
+        InputFrame hands = key_frame(scancode);
+        InputFrame rest = hands;
+        // `top_menu` is false whenever a selection's own menu is open, as in the app.
+        rest.keys = nav.handle(hands.keys, marks, NavAim{}, player.selection().empty());
+        player.handle(rest, sim, options);
+    };
+    send(input::kKeyF1);
+    ASSERT_EQ(player.selection().size(), 3U) << "F1 holds the three scavengers";
+
+    send(input::kKeyGrave);
+
+    EXPECT_EQ(player.selection().size(), 1U) << "`~` narrowed the group to one";
+    EXPECT_EQ(player.selection().units().front(), sim.units().at(1).id);
 }
 
 } // namespace

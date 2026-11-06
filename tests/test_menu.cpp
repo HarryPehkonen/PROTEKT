@@ -263,6 +263,26 @@ TEST(Menu, TheThreeKeyMeansWhateverTheSelectionMakesIt) {
     EXPECT_EQ(row_for(harvester, "5")->verb, "Pick Me Up");
 }
 
+// Harri, 2026-11-05: "I selected the three scavengers under F2 ... '~ Select Unit' appears, but
+// it's greyed out." A scavenger's menu had the row baked in as DoesNotApply; the rule
+// (`MenuInput::group`) is the vehicle's and the turret's: dim for a lone unit, live for a group.
+TEST(Menu, ASelectedGroupOfScavengersHasSelectUnitLiveAndALoneOneHasItDim) {
+    MenuInput group = query(MenuSubject::Harvester);
+    group.group = true;
+    const std::vector<MenuRow> many = menu_rows(group);
+    ASSERT_NE(row_for(many, "~"), nullptr);
+    EXPECT_EQ(row_for(many, "~")->verb, "Select Unit");
+    EXPECT_TRUE(row_for(many, "~")->enabled);
+    EXPECT_EQ(row_for(many, "~")->reason, MenuDim::None);
+
+    MenuInput lone = query(MenuSubject::Harvester);
+    lone.group = false;
+    const std::vector<MenuRow> one = menu_rows(lone);
+    ASSERT_NE(row_for(one, "~"), nullptr);
+    EXPECT_FALSE(row_for(one, "~")->enabled);
+    EXPECT_EQ(row_for(one, "~")->reason, MenuDim::DoesNotApply);
+}
+
 TEST(Menu, ADimmedRowCarriesTheReasonItIsDimmed) {
     // An ACTION row that does not apply to this selection: dim ink, and the reason says so.
     const std::vector<MenuRow> harvester = menu_rows(query(MenuSubject::Harvester));

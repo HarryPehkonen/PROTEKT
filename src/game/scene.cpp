@@ -2724,7 +2724,7 @@ void append_unit_bars(std::vector<SceneVertex>& out, const SceneOptions& options
             }
         };
         if (unit.id != options.attack_target) {
-            label(kind_label(unit.kind), 0.0F, next);
+            label(kind_label(unit.kind, faction_of(options.factions, unit.side)), 0.0F, next);
         }
         const Projected middle = attack_point(options, unit);
         if (middle.depth > math::kNearPlane) {
@@ -3714,12 +3714,14 @@ void append_hud_panels(std::vector<SceneVertex>& out, const SceneOptions& option
     const float list_cell = kStripNoticeCell * px;
     const float list_key_left = (kStripMarginPixels * px) + pad;
     const float list_label_left = list_key_left + (7.0F * list_cell); // a glyph and a blank column
+    // The attack list names the player's HOSTILES (`nearest_enemies`), so by the enemy's faction.
+    const Faction list_faction = faction_of(options.factions, sim::Side::Enemy);
     float list_label_width = 0.0F;
     float list_metres_width = 0.0F;
     if (wants_list) {
         for (const TargetRow& row : *options.attack_list) {
-            list_label_width
-                = std::max(list_label_width, word_width(kind_label(row.kind), list_cell));
+            list_label_width = std::max(list_label_width,
+                                        word_width(kind_label(row.kind, list_faction), list_cell));
             list_metres_width
                 = std::max(list_metres_width, word_width(metres_text(row.metres), list_cell));
         }
@@ -3966,8 +3968,8 @@ void append_hud_panels(std::vector<SceneVertex>& out, const SceneOptions& option
             const float row_top = list_top + pad + (static_cast<float>(index) * pitch);
             const char key = static_cast<char>('0' + rows.at(index).key);
             ink_text(std::string_view{&key, 1}, list_key_left, row_top, list_cell, kStripFrame);
-            ink_text(kind_label(rows.at(index).kind), list_label_left, row_top, list_cell,
-                     kStripFrame);
+            ink_text(kind_label(rows.at(index).kind, list_faction), list_label_left, row_top,
+                     list_cell, kStripFrame);
             ink_text(metres_text(rows.at(index).metres), list_metres_left, row_top, list_cell,
                      kStripFrame);
         }
@@ -4301,7 +4303,7 @@ void append_attack_readout(std::vector<SceneVertex>& out, const SceneOptions& op
     const float bar_top = bar_bottom - bar_h;
     const float bar_left = top.x - (bar_w * 0.5F);
 
-    const std::string_view label = kind_label(unit->kind);
+    const std::string_view label = kind_label(unit->kind, faction_of(options.factions, unit->side));
     const float text_w = ((static_cast<float>(label.size()) * 6.0F) - 1.0F) * cell;
     const float plate_bottom = bar_top - gap;
     const float plate_top = plate_bottom - (5.0F * cell) - (2.0F * pad);

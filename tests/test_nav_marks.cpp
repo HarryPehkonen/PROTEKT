@@ -321,6 +321,24 @@ TEST(NavMenu, TildeOpensTheNavMenuOnlyFromTheTopMenuAndOnlyWithAMark) {
     EXPECT_EQ(menu.state(), NavState::Closed);
 }
 
+// The key the nav menu does not take is the session's: `~` steps through a function-key group
+// (`Interaction::step_group`) and is the deployment menu's Rotate Buildings. It used to be
+// swallowed here whatever the answer, so the left menu's `~ Select Unit` never saw a press (Harri,
+// 2026-11-05).
+TEST(NavMenu, ATildeTheNavMenuDoesNotTakeReachesTheSession) {
+    NavMarks marks;
+    NavMenu menu;
+    const std::array tilde{press(input::kKeyGrave)};
+    EXPECT_EQ(menu.handle(tilde, marks, on(5, 5), true).size(), 1U) << "no mark: nothing to open";
+    static_cast<void>(marks.place(5, 5));
+    const std::vector<input::KeyEvent> rest = menu.handle(tilde, marks, on(5, 5), false);
+    ASSERT_EQ(rest.size(), 1U) << "another left menu is open: the `~` is that menu's";
+    EXPECT_EQ(rest.at(0).scancode, input::kKeyGrave);
+    EXPECT_EQ(menu.state(), NavState::Closed);
+    EXPECT_TRUE(menu.handle(tilde, marks, on(5, 5), true).empty()) << "taken: it opens the menu";
+    EXPECT_EQ(menu.state(), NavState::Menu);
+}
+
 TEST(NavMenu, TheNavMenuRowsAreSpaceTabThenEverySlotInSlotOrder) {
     NavMarks marks = placed(12);
     Camera from{};

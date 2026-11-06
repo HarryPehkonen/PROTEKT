@@ -305,7 +305,7 @@ TEST(PlayerView, TheSkirmishRecyclerIsLabelledRecyclerAndAsksForTheSixRowMenu) {
         return; // unreachable once the ASSERT above has passed: for the analyzer, not the test
     }
     ASSERT_EQ(reading->kind, UnitKind::Recycler);
-    EXPECT_EQ(game::kind_label(reading->kind), "RECYCLER");
+    EXPECT_EQ(game::kind_label(reading->kind, game::Faction::Human), "RECYCLER");
     // HAULER: the player's ten vehicles fill the row's ten group keys exactly; F10 is the last.
     EXPECT_EQ(game::group_slot(10) + 1, game::kRowSlots) << "F10 is the row's last group key";
 
@@ -522,7 +522,7 @@ TEST(PlayerView, TheSkirmishScavengerIsLabelledScavengerAndAsksForTheHarvesterMe
         return; // unreachable once the ASSERT above has passed: for the analyzer, not the test
     }
     ASSERT_EQ(reading->kind, UnitKind::Scavenger);
-    EXPECT_EQ(game::kind_label(reading->kind), "SCAVENGER");
+    EXPECT_EQ(game::kind_label(reading->kind, game::Faction::Human), "SCAVENGER");
     const std::vector<sim::UnitId> selected{group.units.front()};
     EXPECT_EQ(game::menu_subject_of(sim, selected), MenuSubject::Harvester);
 }
