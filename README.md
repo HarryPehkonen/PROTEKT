@@ -223,6 +223,21 @@ away and the row and line go. In a mixed selection only the trucks go. The autom
 it was (whether it should is Harri's call), and the AI does not yet send trucks to the wounded. No
 recorded battle issues a `Repair`, so none moved.
 
+**The service truck's own menu** (2026-11-06; Harri, playtest round 11: "The left side menu should be
+different for service truckes. '3 Repair'. ... it should come up with the nearest ten assets of mine that
+need repair, in order of vicinity. If something does not need repair, it is not listed. You don't always
+see ten. The max range for anything to be repaired on the list is within radar range."). A selected
+service truck's menu is the vehicle's with row `3` turned from `Attack` into `Repair`. Choosing it
+replaces the menu with a list: `TAB Close Menu`, then up to ten of your own assets that are hurt, nearest
+first, each on its digit (the tenth on `0`) with its name and its distance in metres, and a green line
+and dot from the row to the asset. Anything at full health is not listed, so there are often fewer than
+ten; with none to mend, `3` says so and the menu stays. The reach is the radar of the craft you are
+DRIVING (Harri: "Whichever vehicle I'm in at the time sets the radar range"), not the truck's: the same
+reach the attack list uses, so a scout's 80 tiles list what a tank's 40 would not. A digit sends the
+selected truck (or trucks) to that asset with the `Repair` order above; Escape leaves the list. The list
+is taken when `3` is pressed so the numbers hold still, and a patient that has died or been mended by
+the time its key is pressed is refused. Menu and drawing only: no recorded battle moved.
+
 **Vehicle identities** (2026-11-03, Harri's ruling): the **bomber** is the fastest vehicle in the game
 (twice the tank's speed, was 3/4), the **mortar bike** next, fast and thin (5/4 of the tank's speed
 and 40 hp, was half its speed and 75 hp), the **rocket tank** fairly slow (3/4 of the tank's speed,

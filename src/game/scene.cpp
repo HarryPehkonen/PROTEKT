@@ -4254,6 +4254,24 @@ void append_hud_panels(std::vector<SceneVertex>& out, const SceneOptions& option
                       at(leader_at, end.x + nx, end.y + ny), at(leader_at, end.x - nx, end.y - ny),
                       at(leader_at, start.at(0) - nx, start.at(1) - ny), ink);
         };
+        // The menu's leader dot, a filled disc of `kMenuDotSlices` triangles on `middle`, on the
+        // leader's layer: what ends the repair line and every repair-list line.
+        const auto dot_on = [&](const Projected& middle, const std::array<float, 3>& ink) {
+            if (middle.depth <= math::kNearPlane) {
+                return;
+            }
+            const float radius = kMenuDotPixels * px;
+            const auto rim = [&](int slice) {
+                const float angle
+                    = (2.0F * kPi * static_cast<float>(slice)) / static_cast<float>(kMenuDotSlices);
+                return at(leader_at, middle.x + (radius * std::cos(angle)),
+                          middle.y + (radius * std::sin(angle)));
+            };
+            for (int slice = 0; slice < kMenuDotSlices; ++slice) {
+                emit_triangle(out, at(leader_at, middle.x, middle.y), rim(slice), rim(slice + 1),
+                              ink);
+            }
+        };
         // THE ATTACK LINE: only while the state row really reads `SPACE Attack`, so a line can
         // never point from a menu that is not offering the attack. From the row's own right edge
         // to the exact screen position of the unit, one slanted quad the leader's width, on the
@@ -4278,20 +4296,22 @@ void append_hud_panels(std::vector<SceneVertex>& out, const SceneOptions& option
                 const Projected middle = attack_point(options, *patient);
                 line_between(attack_line_origin(layout), middle, kMenuLineCells * cell,
                              kRepairLineInk);
-                if (middle.depth > math::kNearPlane) {
-                    const float radius = kMenuDotPixels * px;
-                    const auto rim = [&](int slice) {
-                        const float angle = (2.0F * kPi * static_cast<float>(slice))
-                                            / static_cast<float>(kMenuDotSlices);
-                        return at(leader_at, middle.x + (radius * std::cos(angle)),
-                                  middle.y + (radius * std::sin(angle)));
-                    };
-                    for (int slice = 0; slice < kMenuDotSlices; ++slice) {
-                        emit_triangle(out, at(leader_at, middle.x, middle.y), rim(slice),
-                                      rim(slice + 1), kRepairLineInk);
-                    }
-                }
+                dot_on(middle, kRepairLineInk);
             }
+        }
+        // THE REPAIR LIST'S LEADERS: every list row that names an asset (`MenuRow::unit`) draws the
+        // same green line and dot to that asset, from the right edge of its own row. Green, because
+        // a line says whose the thing is and these are yours.
+        for (std::size_t index = 0; index < rows.size(); ++index) {
+            const sim::Unit* named
+                = rows.at(index).unit.valid() ? sim.find(rows.at(index).unit) : nullptr;
+            if (named == nullptr || !named->alive) {
+                continue;
+            }
+            const Projected middle = attack_point(options, *named);
+            line_between(row_line_origin(layout, index, rows.at(index).right.size(), cell), middle,
+                         kMenuLineCells * cell, kRepairLineInk);
+            dot_on(middle, kRepairLineInk);
         }
         // THE WHITE GROUND LINES: only while the state row really reads the verb that owns the
         // line and the app named a tile, so each appears and disappears with its prompt. From the
@@ -4845,6 +4865,19 @@ std::array<float, 2> attack_line_origin(const MenuLayout& layout) noexcept {
     }
     const MenuRowLayout& state = layout.rows.front();
     return {state.verb_right, state.top + (state.height * 0.5F)};
+}
+
+std::array<float, 2> row_line_origin(const MenuLayout& layout, std::size_t index,
+                                     std::size_t right_glyphs, float cell) noexcept {
+    if (index >= layout.rows.size()) {
+        return {0.0F, 0.0F};
+    }
+    const MenuRowLayout& row = layout.rows.at(index);
+    const float edge
+        = right_glyphs == 0
+              ? row.verb_right
+              : row.right_left + (((static_cast<float>(right_glyphs) * 6.0F) - 1.0F) * cell);
+    return {edge + cell, row.top + (row.height * 0.5F)};
 }
 
 std::vector<MenuLeader> menu_leaders(const MenuLayout& layout, std::optional<float> radar_top,

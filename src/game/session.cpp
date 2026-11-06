@@ -114,6 +114,12 @@ const std::vector<TargetRow>& Session::attack_targets() const noexcept {
     return interaction_.attack_targets();
 }
 
+bool Session::repair_armed() const noexcept { return interaction_.repair_armed(); }
+
+const std::vector<TargetRow>& Session::repair_targets() const noexcept {
+    return interaction_.repair_targets();
+}
+
 sim::UnitId Session::assist_target() const noexcept { return interaction_.assist_target(); }
 
 sim::UnitId Session::readout_lock() const noexcept { return interaction_.readout_lock(); }

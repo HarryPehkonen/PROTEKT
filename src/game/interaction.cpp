@@ -289,6 +289,19 @@ void Interaction::handle(const input::InputFrame& frame, const sim::Sim& sim,
                 continue;
             }
         }
+        if (repair_armed_) {
+            // The repair list is waiting (`3 Repair` opened it), and it settles as the attack list
+            // does: a digit is a ROW key, Escape only cancels, any other key cancels and acts.
+            const std::vector<TargetRow> rows = std::move(repairs_);
+            disarm_repair();
+            if (const int row = input::mark_digit(key); row >= 0) {
+                repair_row(sim, rows, row);
+                continue;
+            }
+            if (key.scancode == input::kKeyEscape) {
+                continue;
+            }
+        }
         if (key.scancode == input::kKeyG && !key.ctrl && !key.alt) {
             go_armed_ = true;
         } else if (const int target = input::shift_function_key(key); target != 0) {
@@ -467,6 +480,10 @@ bool Interaction::deploy_armed() const noexcept { return deploy_armed_; }
 bool Interaction::tilde_steps() const noexcept { return stepping_ && selection_.empty(); }
 
 const std::vector<TargetRow>& Interaction::attack_targets() const noexcept { return targets_; }
+
+bool Interaction::repair_armed() const noexcept { return repair_armed_; }
+
+const std::vector<TargetRow>& Interaction::repair_targets() const noexcept { return repairs_; }
 
 const cmd::Selection& Interaction::selection() const noexcept { return selection_; }
 
@@ -656,6 +673,8 @@ void Interaction::menu_digit(const sim::Sim& sim, const SceneOptions& options, i
         go_to_highlighted_mark(options);
     } else if (row->verb == kVerbAttack) {
         attack_from_menu(sim, options);
+    } else if (row->verb == kVerbRepair) {
+        arm_repair_list(sim);
     } else if (row->verb == kVerbRecycle) {
         recycle_selection(sim);
     } else if (row->verb == kVerbDefend) {
@@ -1183,6 +1202,54 @@ void Interaction::arm_attack_list(const sim::Sim& sim, const SceneOptions& optio
 void Interaction::disarm_attack() noexcept {
     attack_armed_ = false;
     targets_.clear();
+}
+
+void Interaction::arm_repair_list(const sim::Sim& sim) {
+    std::vector<sim::UnitId> trucks;
+    for (const sim::UnitId id : orderable()) {
+        const sim::Unit* unit = sim.find(id);
+        if (unit != nullptr && unit->kind == sim::UnitKind::ServiceTruck) {
+            trucks.push_back(id);
+        }
+    }
+    if (trucks.empty()) {
+        refuse("You are driving that one; select another unit to give orders.");
+        return;
+    }
+    // Captured once, here, so the numbers on the screen are the numbers the next key means. The
+    // centre is the driven craft and the reach is ITS radar (Harri: "whichever vehicle I'm in at
+    // the time sets the radar range"), the same `viewer_radar_radius` the attack list uses.
+    std::vector<TargetRow> rows = nearest_wounded(sim, sim::Side::Player, driven_,
+                                                  viewer_radar_radius(sim, driven_), trucks);
+    if (rows.empty()) {
+        refuse("nothing within radar range needs repair.");
+        return;
+    }
+    repairs_ = std::move(rows);
+    repair_armed_ = true;
+}
+
+void Interaction::disarm_repair() noexcept {
+    repair_armed_ = false;
+    repairs_.clear();
+}
+
+void Interaction::repair_row(const sim::Sim& sim, const std::vector<TargetRow>& rows, int key) {
+    const auto row = std::find_if(rows.begin(), rows.end(), [key](const TargetRow& candidate) {
+        return candidate.key == key;
+    });
+    if (row == rows.end()) {
+        refuse("no patient on that key.");
+        return;
+    }
+    // The board has moved since the list opened: a patient that has died, or been mended, is no
+    // longer one.
+    const sim::Unit* patient = sim.find(row->id);
+    if (patient == nullptr || !patient->alive || patient->hp >= sim::spec_of(patient->kind).hp) {
+        refuse("that one no longer needs repair.");
+        return;
+    }
+    repair(sim, row->id);
 }
 
 void Interaction::attack_row(const std::vector<TargetRow>& rows, int key) {

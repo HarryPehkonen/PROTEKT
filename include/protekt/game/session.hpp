@@ -73,6 +73,9 @@ public:
     /// The attack list is armed and waiting for its row key (BZ2A), and the rows it offers.
     [[nodiscard]] bool attack_armed() const noexcept;
     [[nodiscard]] const std::vector<TargetRow>& attack_targets() const noexcept;
+    /// The service truck's repair list (AC): open from `3 Repair` until a key settles it.
+    [[nodiscard]] bool repair_armed() const noexcept;
+    [[nodiscard]] const std::vector<TargetRow>& repair_targets() const noexcept;
     /// The hostile asset `T` latched for the assist dot, or none (see
     /// `Interaction::assist_target`).
     [[nodiscard]] sim::UnitId assist_target() const noexcept;

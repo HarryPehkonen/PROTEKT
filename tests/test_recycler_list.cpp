@@ -104,7 +104,11 @@ TEST(RecyclerList, TheFourSupportKindsAreUnarmedMobileAndDrivable) {
         EXPECT_EQ(spec.damage, 0) << spec.name;
         EXPECT_TRUE(sim::is_drivable(kind)) << spec.name;
         EXPECT_FALSE(sim::is_tank(kind)) << spec.name;
-        EXPECT_EQ(menu_subject_of_kind(kind), MenuSubject::Vehicle) << spec.name;
+        // The service truck owns a menu of its own (AC: `3 Repair`); the other three share the
+        // vehicle's.
+        EXPECT_EQ(menu_subject_of_kind(kind),
+                  kind == UnitKind::ServiceTruck ? MenuSubject::ServiceTruck : MenuSubject::Vehicle)
+            << spec.name;
     }
 }
 

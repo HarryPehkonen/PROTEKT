@@ -113,7 +113,7 @@ game::MenuTarget menu_target_of(const sim::Sim& sim, const game::SceneOptions& o
 
 sim::UnitId attack_offer(const sim::Sim& sim, const game::Session& session,
                          const game::SceneOptions& options) {
-    if (session.deploy_armed() || session.attack_armed()) {
+    if (session.deploy_armed() || session.attack_armed() || session.repair_armed()) {
         return sim::UnitId{};
     }
     return game::attack_target(sim, options, session.selection().units(), session.driven());
@@ -123,7 +123,7 @@ sim::UnitId repair_offer(const sim::Sim& sim, const game::Session& session,
                          const game::SceneOptions& options) {
     // The attack owns SPACE first (`Interaction` takes them in that order), as does an armed
     // command.
-    if (session.deploy_armed() || session.attack_armed()
+    if (session.deploy_armed() || session.attack_armed() || session.repair_armed()
         || attack_offer(sim, session, options).valid()) {
         return sim::UnitId{};
     }
@@ -136,7 +136,7 @@ std::optional<game::DeployOffer> deploy_offer_now(const sim::Sim& sim, const gam
                                                   const game::SceneOptions& options) {
     // Never over the attack or repair offers or an armed command, which own SPACE (the same order
     // `Interaction` takes them in).
-    if (session.deploy_armed() || session.attack_armed()
+    if (session.deploy_armed() || session.attack_armed() || session.repair_armed()
         || attack_offer(sim, session, options).valid()
         || repair_offer(sim, session, options).valid()) {
         return std::nullopt;
@@ -151,7 +151,7 @@ std::optional<game::DeployOffer> deploy_offer_now(const sim::Sim& sim, const gam
 std::optional<game::GoHereOffer> go_here_offer_now(const sim::Sim& sim,
                                                    const game::Session& session,
                                                    const game::SceneOptions& options) {
-    if (session.deploy_armed() || session.attack_armed()
+    if (session.deploy_armed() || session.attack_armed() || session.repair_armed()
         || attack_offer(sim, session, options).valid()
         || repair_offer(sim, session, options).valid()) {
         return std::nullopt;
@@ -190,6 +190,11 @@ std::vector<game::MenuRow> menu_for(const sim::Sim& sim, const game::Session& se
     game::MenuInput in{game::menu_subject_of(sim, session.selection().units()),
                        game::faction_of(options.factions, sim::Side::Player), game::ArmedCommand{},
                        menu_target_of(sim, options), static_cast<int>(sim.ore(sim::Side::Player))};
+    if (session.repair_armed()) {
+        // `service truck menu -> 3 Repair`: the list is the menu.
+        in.repair_list = &session.repair_targets();
+        return game::menu_rows(in);
+    }
     in.attack = attack_offer(sim, session, options).valid();
     in.repair = repair_offer(sim, session, options).valid();
     in.deployed = game::any_deployed_turret(sim, session.selection().units());

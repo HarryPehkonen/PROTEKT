@@ -953,6 +953,12 @@ struct MenuLeader {
 /// vertical middle, the way the amber leader runs from the rows' own edge. Pure in the layout.
 [[nodiscard]] std::array<float, 2> attack_line_origin(const MenuLayout& layout) noexcept;
 
+/// WHERE A LIST ROW'S GREEN LEADER LEAVES (the repair list, AC): the right edge of what the row
+/// draws -- past its right column's `right_glyphs` glyphs of `cell` px when it has one, else past
+/// its verb bar -- a cell clear of the text, at the row's vertical middle. Pure in the layout.
+[[nodiscard]] std::array<float, 2> row_line_origin(const MenuLayout& layout, std::size_t index,
+                                                   std::size_t right_glyphs, float cell) noexcept;
+
 /// The attack line's ink: red, and deliberately not the reticle's `kReticleHostile` or a unit bar's
 /// fill, so the line is its own thing to find in a frame and to test.
 inline constexpr std::array<float, 3> kAttackLineInk{1.0F, 0.10F, 0.10F};

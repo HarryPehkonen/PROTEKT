@@ -215,6 +215,15 @@ public:
     /// The rows the armed list offers, nearest first, captured when `3 ATTACK` armed it so the
     /// numbers cannot shift under the player's finger. Empty whenever the list is not armed.
     [[nodiscard]] const std::vector<TargetRow>& attack_targets() const noexcept;
+    /// `service truck menu -> 3 Repair` has opened the list of the wounded and the key that names a
+    /// row has not been pressed (AC): the next 0-9 is a ROW of `repair_targets()`, and the menu IS
+    /// that list for as long as this is true. Settled exactly as the attack list is: a digit uses
+    /// it up, Escape cancels it (and is spent doing so), any other key cancels it and does its own
+    /// job. Player intent, held here and never in the sim, so no hash can see it.
+    [[nodiscard]] bool repair_armed() const noexcept;
+    /// The rows the open repair list offers, nearest first, captured when `3 Repair` opened it so
+    /// the numbers cannot shift under the player's finger. Empty whenever the list is not open.
+    [[nodiscard]] const std::vector<TargetRow>& repair_targets() const noexcept;
     /// `un-deployed recycler menu -> 3`: the deploy is armed, and the next SPACE over the ground
     /// deploys the selected recycler there. The state row reads `SPACE DEPLOY <distance>` and the
     /// footprint is previewed on the ground for exactly as long as this is true.
@@ -319,6 +328,13 @@ private:
     /// or refuse when there are none. A refusal leaves nothing armed.
     void arm_attack_list(const sim::Sim& sim, const SceneOptions& options);
     void disarm_attack() noexcept;
+    /// `3 Repair`: capture the nearest wounded friends within the DRIVEN craft's radar and open the
+    /// list, or refuse when there are none. A refusal leaves nothing open.
+    void arm_repair_list(const sim::Sim& sim);
+    void disarm_repair() noexcept;
+    /// The key that settles the open list: send the selection's trucks to the patient it names, or
+    /// refuse when no row has that key or the patient has died or been mended since.
+    void repair_row(const sim::Sim& sim, const std::vector<TargetRow>& rows, int key);
     /// The key that settles the armed list: Attack the row it names for every orderable selected
     /// unit, or refuse when no row has that key.
     void attack_row(const std::vector<TargetRow>& rows, int key);
@@ -341,6 +357,7 @@ private:
     bool shot_voice_{false};
     bool go_armed_{false};
     bool attack_armed_{false};
+    bool repair_armed_{false};
     bool deploy_armed_{false};
     int group_key_{0};      ///< the function key (1-10) last selected, or 0 when none was
     bool stepping_{false};  ///< `~` has picked a vehicle of that group since the key was pressed
@@ -363,6 +380,7 @@ private:
     /// while the other is still down is not a release.
     std::array<bool, 2> shift_keys_{};
     std::vector<TargetRow> targets_{};
+    std::vector<TargetRow> repairs_{}; ///< the open repair list's rows; empty when it is not open
     bool has_fired_{false};
     sim::Tick last_shot_tick_{};
     std::string_view message_;

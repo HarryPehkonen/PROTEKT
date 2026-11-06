@@ -5,6 +5,7 @@
 #include <optional>
 #include <utility>
 
+#include "protekt/game/row.hpp"
 #include "protekt/sim/spec.hpp"
 
 namespace protekt::game {
@@ -66,6 +67,20 @@ constexpr std::array kVehicleRows{
     FixedRow{"1", kVerbFollowMe, MenuDim::None},
     FixedRow{"2", kVerbGoToNav, MenuDim::None},
     FixedRow{"3", kVerbAttack, MenuDim::None},
+    FixedRow{"4", kVerbHold, MenuDim::None},
+    FixedRow{"5", kVerbPickMeUp, MenuDim::DoesNotApply},
+    // 6, 7, 8: the gap.
+    FixedRow{"9", kVerbBailout, MenuDim::None},
+    FixedRow{"0", kVerbRecycle, MenuDim::None},
+};
+
+/// A SERVICE TRUCK (AC): the vehicle's rows with `3` turned from `Attack` to `Repair`. A truck is
+/// unarmed, so Attack was never its verb; Repair is the job it exists for, and choosing it lists
+/// the wounded. `~ Select Unit` is drawn first by `menu_rows`, as for a vehicle.
+constexpr std::array kServiceTruckRows{
+    FixedRow{"1", kVerbFollowMe, MenuDim::None},
+    FixedRow{"2", kVerbGoToNav, MenuDim::None},
+    FixedRow{"3", kVerbRepair, MenuDim::None},
     FixedRow{"4", kVerbHold, MenuDim::None},
     FixedRow{"5", kVerbPickMeUp, MenuDim::DoesNotApply},
     // 6, 7, 8: the gap.
@@ -219,6 +234,26 @@ void append_build_list(std::vector<MenuRow>& rows, const MenuInput& in) {
     }
 }
 
+/// The keys a list row is pressed with, by position in the list: 1-9, then 0 for the tenth.
+/// Statics, so a row's key view outlives the row (see `MenuRow`'s deleted constructor).
+constexpr std::array<std::string_view, kAttackListRows> kListKeys{"1", "2", "3", "4", "5",
+                                                                  "6", "7", "8", "9", "0"};
+
+/// The repair list as rows: each names its asset by the player's faction (they are the player's
+/// own), reads its distance in the right column, and carries the unit it is about.
+void append_repair_list(std::vector<MenuRow>& rows, const MenuInput& in) {
+    rows.reserve(rows.size() + in.repair_list->size());
+    for (const TargetRow& entry : *in.repair_list) {
+        // `TargetRow::key` is the digit (1-9, 0 for the tenth); its position is the digit less one.
+        MenuRow row{kListKeys.at(static_cast<std::size_t>((entry.key + kAttackListRows - 1)
+                                                          % kAttackListRows)),
+                    std::string{kind_label(entry.kind, in.faction)}, true, MenuDim::None};
+        row.right = metres_text(entry.metres);
+        row.unit = entry.id;
+        rows.push_back(std::move(row));
+    }
+}
+
 } // namespace
 
 std::string metres_text(int metres) { return std::to_string(metres) + "m"; }
@@ -235,6 +270,7 @@ std::span<const BuildItem> build_items(Faction faction, MenuSubject subject) noe
     case MenuSubject::Harvester:
     case MenuSubject::Turret:
     case MenuSubject::Vehicle:
+    case MenuSubject::ServiceTruck:
         break;
     }
     return {};
@@ -267,9 +303,10 @@ MenuSubject menu_subject_of_kind(sim::UnitKind kind) noexcept {
     case sim::UnitKind::MslScout:
     case sim::UnitKind::Tug:
     case sim::UnitKind::Constructor:
-    case sim::UnitKind::ServiceTruck:
     case sim::UnitKind::ServicePod:
         return MenuSubject::Vehicle;
+    case sim::UnitKind::ServiceTruck:
+        return MenuSubject::ServiceTruck;
     }
     return MenuSubject::None;
 }
@@ -296,6 +333,12 @@ MenuSubject menu_subject_of(const sim::Sim& sim, std::span<const sim::UnitId> se
 
 std::vector<MenuRow> menu_rows(const MenuInput& in) {
     std::vector<MenuRow> rows;
+    // An open repair list IS the menu: no state row, no verbs, only the way out and the patients.
+    if (in.repair_list != nullptr && !in.repair_list->empty()) {
+        rows.push_back(MenuRow{kRowKeyTab, std::string{kVerbCloseMenu}, true, MenuDim::None});
+        append_repair_list(rows, in);
+        return rows;
+    }
     // Nothing selected: no menu, so nothing is drawn and a frame without a menu stays
     // byte-identical to one that never heard of this model.
     if (in.subject == MenuSubject::None && !in.attack && !in.repair && !in.go_here) {
@@ -323,6 +366,10 @@ std::vector<MenuRow> menu_rows(const MenuInput& in) {
         // `~ Select Unit` first: the reference's row order.
         rows.push_back(select_unit_row(in));
         append_fixed(rows, kVehicleRows);
+        break;
+    case MenuSubject::ServiceTruck:
+        rows.push_back(select_unit_row(in));
+        append_fixed(rows, kServiceTruckRows);
         break;
     case MenuSubject::Turret:
         rows.push_back(select_unit_row(in));

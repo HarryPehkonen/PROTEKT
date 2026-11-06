@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "protekt/game/faction.hpp"
+#include "protekt/game/targets.hpp"
 #include "protekt/sim/sim.hpp"
 #include "protekt/sim/units.hpp"
 
@@ -68,6 +69,11 @@ enum class MenuSubject : std::uint8_t {
     /// default verb differs between a tank and a scout, and this model leaves that to the caller's
     /// target readout.
     Vehicle,
+    /// A selected SERVICE TRUCK (AC, Harri: "The left side menu should be different for service
+    /// truckes. '3 Repair'"). The vehicle's table with the one row its unarmed hull cannot use
+    /// turned into its own: `3` is `Repair`, which opens the list of the wounded, where the
+    /// ordinary vehicle's `3` is `Attack`.
+    ServiceTruck,
 };
 
 /// The command that is currently armed, if any. Arming is a two-key flow: the menu's own row picks
@@ -145,6 +151,11 @@ struct MenuInput {
     /// A selected turret is DEPLOYED: `7 Undeploy` applies. False draws the row dimmed
     /// (`DoesNotApply`), like `5 Pick Me Up` when you are not outside a vehicle.
     bool deployed{false};
+    /// THE REPAIR LIST, once `3 Repair` has opened it (AC): the wounded friends nearest the driven
+    /// craft, keyed 1-9 then 0, as `nearest_wounded` made them. While it is non-null and not empty
+    /// the menu IS the list -- `TAB Close Menu`, then one row per entry -- and nothing else: the
+    /// list replaces the menu rather than sitting beside it. Not owned. Null is the ordinary menu.
+    const std::vector<TargetRow>* repair_list{nullptr};
 };
 
 /// WHY a row is dimmed. The three values are exhaustive on purpose: `None` means the row is NOT
@@ -176,6 +187,9 @@ struct MenuRow {
     /// rows (MENU-NAV), in a column of its own past the widest verb. Empty on every other row, and
     /// then nothing is drawn there.
     std::string right{};
+    /// The asset a LIST row names (the repair list's patient), or none for every other row. The
+    /// scene draws a leader from a row that has one to the asset it names.
+    sim::UnitId unit{};
 
     MenuRow() = default;
     MenuRow(std::string_view key_in, std::string verb_in, bool enabled_in, MenuDim reason_in)

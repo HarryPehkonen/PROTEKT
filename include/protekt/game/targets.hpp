@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <span>
 #include <vector>
 
 #include "protekt/sim/sim.hpp"
@@ -29,5 +30,21 @@ struct TargetRow {
 [[nodiscard]] std::vector<TargetRow> nearest_enemies(const sim::Sim& sim, sim::Side from,
                                                      sim::UnitId centre, int radius_tiles,
                                                      const SceneOptions* view = nullptr);
+
+/// THE REPAIR LIST (AC, Harri: "the nearest ten assets of mine that need repair, in order of
+/// vicinity ... the max range ... is within radar range"): the living units of `side` that are
+/// HURT -- below their kind's full hit points, the same test `repair_target` makes -- within
+/// `radius_tiles` of `centre`, nearest first, ties to the lower id, at most `kAttackListRows`,
+/// keyed and measured exactly as the attack list is. Anything whole is not here, so there are
+/// often fewer than ten.
+///
+/// `trucks` are the service trucks that would be sent. A patient is listed only if one of them is
+/// NOT the patient (a truck cannot mend itself, and the sim refuses the order), and `centre` --
+/// the driven hull -- is never a patient either, as `repair_target` already rules. EMPTY when
+/// `centre` is not a living unit of `side`. Pure: same sim, same list. The reach is the caller's:
+/// the driven craft's radar (`viewer_radar_radius`).
+[[nodiscard]] std::vector<TargetRow> nearest_wounded(const sim::Sim& sim, sim::Side side,
+                                                     sim::UnitId centre, int radius_tiles,
+                                                     std::span<const sim::UnitId> trucks);
 
 } // namespace protekt::game
