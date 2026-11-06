@@ -23,6 +23,10 @@ struct Spawn {
     Side side{};
     int tile_x{}; ///< whole tiles; converted internally
     int tile_y{};
+    /// The hit points it starts with; zero (the default) is the kind's full complement, and a
+    /// larger number than that is clamped to it. A battle that begins with a wounded unit is the
+    /// only way a repair can be told apart from a unit that was never hurt.
+    std::uint16_t hp{};
 };
 
 /// A battle is a seed plus its starting units. Everything else is derived.
@@ -147,6 +151,9 @@ struct ScootSpot {
 ///      there is no spread, so the sim needs no RNG;
 ///   5. every living unit near a living friendly factory mends 1 hp on the global repair beat
 ///      (`tick % kRepairTickInterval`), after the shooting, so repair never undoes a kill;
+///   5b. every friendly SERVICE TRUCK mends the hurt units within `kServiceRepairRadiusTiles`, each
+///      by `max_hp / kServiceRepairTicks` a tick at the truck's own spot, falling linearly in the
+///      squared distance to half that at the radius, the trucks adding (`service_repair_step`);
 ///   6. every unit this tick's damage killed leaves its wreckage on the ground (C1): scrap pieces
 ///      around the tile it stood on, in ascending victim id, so the litter is a function of the
 ///      battle and not of the order the bolts happened to fly in;

@@ -188,11 +188,21 @@ able to build everything"). `3 Turret` queues the turret the sim already has -- 
 deploys -- and `4 Tug`, `5 Constructor`, `6 Service Truck` and `7 Service Pod` are four new kinds
 (`UnitKind` 17 to 20). Each is unarmed, has a shape drawn on the map and on its key from one authored
 silhouette, takes an F key like any vehicle and drives. They do nothing else yet: the constructor
-raises no buildings (that needs a placement feature that does not exist), the truck and the pod repair
-nothing, and the tug tows nothing. The alien recycler's rows other than Harvester and Scout are still
+raises no buildings (that needs a placement feature that does not exist), the pod repairs nothing
+(the truck does, below), and the tug tows nothing. The alien recycler's rows other than Harvester and Scout are still
 names only, and its Hauler is 30 against the tug's 45, which is Harri's to rule. The store opens at
 40 scrap, so the 45 and 50 rows (and the Scout) cannot be paid for until a deployed scavenger adds
 room. The alien factory draws the human factory's eight rows until Harri supplies its own costs and names.
+
+**The Service Truck repairs** (2026-11-05; Harri, playtest round 10: "Service Trucks should work"; the
+sim half -- the repair beam is the next slice). A truck mends, by itself, every living friendly unit
+within 6 tiles that is hurt: buildings, vehicles, mounted and unmounted turrets, the deployed
+scavenger -- one rule for every kind. One truck at its closest restores `max_hp / 600` a tick, so a
+tank goes from nearly dead to whole in 20 s and a factory (four times the hit points) takes 80 s.
+Closer is faster (the rate falls with the squared distance to half at 6 tiles) and every truck in
+range adds its own share. The player's job is to drive the truck there; there is no order for it. A
+truck does not mend itself, and the service pod does not mend at all. The rate (`kServiceRepairTicks`)
+and the 6 tiles are Harri's to tune. No recorded battle contains a truck, so none moved.
 
 **Vehicle identities** (2026-11-03, Harri's ruling): the **bomber** is the fastest vehicle in the game
 (twice the tank's speed, was 3/4), the **mortar bike** next, fast and thin (5/4 of the tank's speed

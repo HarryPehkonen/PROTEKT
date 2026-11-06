@@ -95,9 +95,9 @@ enum class UnitKind : std::uint8_t {
     /// Raises the buildings a recycler cannot. It is buildable and driveable and does NOT place
     /// buildings: that needs a placement feature that does not exist yet.
     Constructor = 18,
-    /// The repair vehicle. Repair is not built yet: it is a driveable hull for now.
+    /// The repair vehicle: mends every friendly unit within `kServiceRepairRadiusTiles` on its own.
     ServiceTruck = 19,
-    /// The small, cheap repair craft. Repair is not built yet either.
+    /// The small, cheap craft. It does not repair: only the truck does.
     ServicePod = 20
 };
 inline constexpr int kUnitKindCount = 21;
@@ -258,6 +258,11 @@ struct Unit {
     /// a built unit's is never zero. The row groups by it. Hashed only when non-zero,
     /// so a battle that builds nothing hashes exactly as it did before there was a queue.
     std::uint32_t batch{};
+    /// SERVICE TRUCKS: the part of a hit point the trucks have mended so far, in
+    /// `kServiceRepairHitPoint`ths -- always less than one hit point, because the whole ones are
+    /// paid out as they complete. Zero whenever the unit is whole. Hashed only when non-zero, so
+    /// a battle no truck ever mends in hashes exactly as it did before there were trucks.
+    std::uint32_t repair_frac{};
     /// This unit's build queue, if it is a producer (see `is_producer`). Hashed only when it holds
     /// an entry, for the same reason.
     BuildQueue queue{};
@@ -293,6 +298,21 @@ inline constexpr std::uint16_t kFactoryHp = 400;
 inline constexpr int kFollowRadiusTiles = 4;
 inline constexpr int kRepairRadiusTiles = 6;  ///< a living friendly factory mends units this close
 inline constexpr int kRepairTickInterval = 6; ///< ...by 1 hp every this many ticks
+/// SERVICE TRUCKS. A truck mends a friendly unit by `max_hp / kServiceRepairTicks` a tick at its
+/// closest, whatever the unit is, so the time to mend scales with max hit points exactly as the
+/// time to destroy it does: 20 s for a tank (Harri's figure), 80 s for a factory. This is the ONE
+/// rate; no kind has a number of its own.
+inline constexpr int kServiceRepairTicks = 20 * kTicksPerSecond;
+inline constexpr int kServiceRepairRadiusTiles = 6; ///< a truck mends only what is this close
+/// How hard one truck mends at distance `d`, in 65536ths of the full rate: the full rate at
+/// d = 0, falling LINEARLY IN d^2 (integers all the way; no square root) to `kServiceRepairEdge`
+/// at the radius. Closer is faster, and a truck on the very edge still mends, half as quickly.
+inline constexpr std::int64_t kServiceRepairFull = 1 << 16;
+inline constexpr std::int64_t kServiceRepairEdge = 1 << 15;
+/// The unit `Unit::repair_frac` counts in: a hit point is this many `max_hp * weight` units, so
+/// that a full-rate truck adds `max_hp * kServiceRepairFull` of them a tick and the hit point
+/// completes after `kServiceRepairTicks` of that for a unit with one hit point to its name.
+inline constexpr std::int64_t kServiceRepairHitPoint = kServiceRepairTicks * kServiceRepairFull;
 /// RECYCLE. What one recycled unit returns to its side's scrap reserve, in the same delivered loads
 /// the ledger counts. PROVISIONAL: one flat number is refunded for every kind, chosen to be tunable
 /// in one place, not a designed economy; a refund that follows each kind's own `spec_of(kind).cost`

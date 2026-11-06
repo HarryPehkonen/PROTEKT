@@ -1568,6 +1568,58 @@ constexpr int kLaneProbeTicks = 10 * kTicksPerSecond;
 
 } // namespace
 
+namespace {
+
+/// SERVICE TRUCKS. For each living, hurt unit, the sum over every OTHER living friendly truck
+/// within `kServiceRepairRadiusTiles` of that truck's weight (`kServiceRepairFull` at the truck's
+/// own spot, falling linearly in the squared distance to `kServiceRepairEdge` at the radius). The
+/// unit gains `max_hp * weight / (kServiceRepairTicks * kServiceRepairFull)` hit points that tick,
+/// carried as a remainder (`repair_frac`) so a fraction of a hit point is not lost: a tank's
+/// 100 / 600 is a sixth of one. One rule for every kind -- a building, a vehicle, a turret
+/// mounted or not -- and the trucks add, so two mend twice as fast.
+///
+/// Ascending id and integers throughout, so the order of units is the only order there is. It runs
+/// after the shooting: a unit shot dead this tick is already !alive and is skipped, and the hit
+/// points land on what the tick's damage left.
+void service_repair_step(std::vector<Unit>& units) {
+    const std::int64_t radius_raw
+        = static_cast<std::int64_t>(kServiceRepairRadiusTiles) * Fixed::kOne;
+    const std::int64_t radius2 = radius_raw * radius_raw;
+    for (Unit& unit : units) {
+        if (!unit.alive) {
+            continue;
+        }
+        const std::uint16_t max_hp = profile(unit.kind).hp;
+        if (unit.hp >= max_hp) {
+            unit.repair_frac = 0;
+            continue;
+        }
+        std::int64_t weight = 0;
+        for (const Unit& truck : units) {
+            if (!truck.alive || truck.kind != UnitKind::ServiceTruck || truck.side != unit.side
+                || truck.id == unit.id) {
+                continue;
+            }
+            const std::int64_t d2 = dist2(unit.x, unit.y, truck.x, truck.y);
+            if (d2 <= radius2) {
+                weight += kServiceRepairFull
+                          - (kServiceRepairFull - kServiceRepairEdge) * d2 / radius2;
+            }
+        }
+        if (weight == 0) {
+            continue;
+        }
+        std::int64_t frac = unit.repair_frac + static_cast<std::int64_t>(max_hp) * weight;
+        while (frac >= kServiceRepairHitPoint && unit.hp < max_hp) {
+            frac -= kServiceRepairHitPoint;
+            ++unit.hp;
+        }
+        unit.repair_frac = unit.hp >= max_hp ? 0 : static_cast<std::uint32_t>(frac);
+    }
+}
+
+} // namespace
+
 Sim Sim::create(const Scenario& scenario) {
     Sim sim;
     sim.scenario_ = scenario;
@@ -1590,6 +1642,9 @@ Sim Sim::create(const Scenario& scenario) {
             tile = nearest_passable(scenario.seed, placed, x, y);
         }
         sim.units_.push_back(fresh_unit(sim.next_id_++, spawn.kind, spawn.side, tile));
+        if (spawn.hp != 0) {
+            sim.units_.back().hp = std::min(spawn.hp, sim.units_.back().hp);
+        }
     }
     // C0: the ground the battle starts on. The scenario placed it as a pure function of its seed;
     // it settles here because settling needs the units that now stand on the map (a piece under a
@@ -1802,6 +1857,9 @@ void Sim::step() {
         }
     }
 
+    // 5b. THE TRUCKS. Every friendly truck in reach mends what is hurt, on every tick.
+    service_repair_step(units_);
+
     // 6. THE WRECKS (C1). Every unit this tick's damage killed leaves scrap on the ground. The dead
     //    are read off `impacts_` -- an impact reports the victim's hit points AFTER the hit, so
     //    hp == 0 is exactly a kill -- and scattered in ASCENDING VICTIM ID, so the litter's order
@@ -1981,6 +2039,9 @@ std::uint64_t Sim::state_hash() const noexcept {
         h.u64(u.alive ? 1 : 0);
         if (u.shove_ticks != 0) {
             h.u64(u.shove_ticks); // only when set: a battle that never shoves hashes as before
+        }
+        if (u.repair_frac != 0) {
+            h.u64(u.repair_frac); // only when set: a battle no truck mends in hashes as before
         }
         if (u.deploy_ticks != 0) {
             h.u64(
