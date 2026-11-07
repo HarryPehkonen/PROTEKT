@@ -67,7 +67,7 @@ enum class RadarTone : std::uint8_t { You = 0, Yours = 1, Hostile = 2, Litter = 
 /// A mark's shape. Shape carries meaning as well as colour, so your base is not just a bigger dot.
 enum class RadarShape : std::uint8_t {
     Square = 0,   ///< a unit
-    Hollow = 1,   ///< your base in range: an outline, which reads at a glance
+    Hollow = 1,   ///< a base in range, either side's: an outline, which reads at a glance
     Triangle = 2, ///< you, at the centre, always pointing up
     Arrow = 3     ///< your base out of range: a mark at the rim pointing the way to turn
 };

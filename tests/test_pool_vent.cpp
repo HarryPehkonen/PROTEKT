@@ -5,6 +5,7 @@
 #include <array>
 #include <cmath>
 #include <cstddef>
+#include <map>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -100,6 +101,49 @@ TEST(PoolVent, ASteamPlumeRisesWellAboveTheVentSoItIsObviousFromTheGround) {
     }
     EXPECT_GE(top - ground(), protekt::game::kPoolPlumeHeightMetres * 0.7F)
         << "taller than a tank, a column and not a puddle";
+}
+
+TEST(PoolVent, EveryPuffOfTheSteamIsTheIcosphereAnExplosionUses) {
+    // AK: ONE shape source for a puff. The steam used to call the eight-sided prism (84 vertices)
+    // directly while the blast and the weld drew icospheres; a plume may differ in size and colour
+    // but not in shape. Measured from the vertices the scene built: each run of 60 is twenty
+    // equilateral triangles on twelve corners, every corner in five triangles and the same
+    // distance from the run's centre, with the edge of an icosahedron (1.0515 of that radius).
+    const Scene scene = protekt::game::build_scene(pool_world(), rig());
+    const auto steam = in_ink(scene, protekt::game::kPoolSteamColour);
+    constexpr std::size_t kSphere = 60;
+    ASSERT_EQ(steam.size(), protekt::game::kPoolPlumePuffs * kSphere)
+        << "ten puffs of sixty vertices (a prism is eighty-four)";
+    const auto dist = [](const std::array<float, 3>& p, const std::array<float, 3>& q) {
+        return std::sqrt(((p[0] - q[0]) * (p[0] - q[0])) + ((p[1] - q[1]) * (p[1] - q[1]))
+                         + ((p[2] - q[2]) * (p[2] - q[2])));
+    };
+    for (std::size_t puff = 0; puff < protekt::game::kPoolPlumePuffs; ++puff) {
+        const std::size_t first = puff * kSphere;
+        std::map<std::array<long, 3>, int> triangles_at;
+        std::array<float, 3> centre{};
+        for (std::size_t i = 0; i < kSphere; ++i) {
+            const auto& p = steam.at(first + i).position;
+            for (std::size_t axis = 0; axis < 3; ++axis) {
+                centre.at(axis) += p.at(axis) / static_cast<float>(kSphere);
+            }
+            ++triangles_at[{std::lround(p[0] * 1000.0F), std::lround(p[1] * 1000.0F),
+                            std::lround(p[2] * 1000.0F)}];
+        }
+        EXPECT_EQ(triangles_at.size(), std::size_t{12}) << "puff " << puff << ": twelve corners";
+        for (const auto& [corner, count] : triangles_at) {
+            EXPECT_EQ(count, 5) << "puff " << puff << ": five triangles at a corner";
+        }
+        const float radius = dist(steam.at(first).position, centre);
+        for (std::size_t tri = 0; tri < kSphere; tri += 3) {
+            for (std::size_t e = 0; e < 3; ++e) {
+                const auto& p = steam.at(first + tri + e).position;
+                const auto& q = steam.at(first + tri + ((e + 1) % 3)).position;
+                EXPECT_NEAR(dist(p, centre), radius, radius * 0.01F) << "puff " << puff;
+                EXPECT_NEAR(dist(p, q), radius * 1.0515F, radius * 0.02F) << "puff " << puff;
+            }
+        }
+    }
 }
 
 TEST(PoolVent, ThePlumeMovesWithTheTickAndIsADerivedPictureNotStoredState) {

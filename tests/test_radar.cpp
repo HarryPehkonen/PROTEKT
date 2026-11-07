@@ -371,13 +371,25 @@ TEST(RadarBase, AnEnemyBaseOutOfRangeIsNotMarkedJustBecauseItIsABase) {
     EXPECT_EQ(radar_marks(units, UnitId{1}, 0.0F, kPanel).size(), 1U);
 }
 
-TEST(RadarBase, AnEnemyBaseInRangeIsARedSquareAndNotYourBase) {
-    const std::vector<Unit> units
-        = with_viewer({at_bearing(2, 10.0F, 45.0F, Side::Enemy, UnitKind::Factory)});
+TEST(RadarBase, AnEnemyBaseInRangeIsARedOutlineAndNotAFilledBlock) {
+    // AK: "An enemy factory in radar range is a filled red 33 px square, not an outline." Yours has
+    // been a thin hollow line since AD; theirs is the same square, the same size and the same thin
+    // bars, in the hostile red, so the two sides match and neither is a block that hides the map.
+    const std::vector<Unit> units = with_viewer({
+        at_bearing(2, 10.0F, 45.0F, Side::Enemy, UnitKind::Factory),
+        at_bearing(3, 10.0F, 200.0F, Side::Player, UnitKind::Factory),
+    });
     const std::vector<RadarMark> marks = radar_marks(units, UnitId{1}, 0.0F, kPanel);
-    ASSERT_EQ(marks.size(), 2U);
-    EXPECT_EQ(marks.at(1).shape, RadarShape::Square);
-    EXPECT_EQ(marks.at(1).tone, RadarTone::Hostile);
+    ASSERT_EQ(marks.size(), 3U);
+    const RadarMark& theirs = marks.at(1);
+    const RadarMark& ours = marks.at(2);
+    EXPECT_EQ(theirs.shape, RadarShape::Hollow);
+    EXPECT_EQ(theirs.tone, RadarTone::Hostile);
+    EXPECT_NEAR(theirs.half, kPanel.width * 0.05F, 1.0e-4F) << "the size is not touched";
+    EXPECT_NEAR(radar_outline_bar(theirs), kPanel.width * 0.05F * 0.15F, 1.0e-4F);
+    EXPECT_FLOAT_EQ(theirs.half, ours.half);
+    EXPECT_FLOAT_EQ(radar_outline_bar(theirs), radar_outline_bar(ours));
+    EXPECT_LT(radar_outline_bar(theirs), 3.0F) << "a line a few pixels thick, not a slab";
 }
 
 // ---------------------------------------------------------------- the panel's own frame

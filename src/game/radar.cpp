@@ -411,7 +411,8 @@ std::vector<RadarMark> radar_marks(std::span<const sim::Unit> units, sim::UnitId
                            at.py,
                            half,
                            0.0F,
-                           base ? RadarShape::Hollow : RadarShape::Square,
+                           unit.kind == sim::UnitKind::Factory ? RadarShape::Hollow
+                                                               : RadarShape::Square,
                            unit.side == viewer->side ? RadarTone::Yours : RadarTone::Hostile,
                            unit.id};
             mark.outline = kRadarBaseOutlineFraction;

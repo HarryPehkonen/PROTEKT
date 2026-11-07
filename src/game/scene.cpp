@@ -2240,6 +2240,7 @@ void append_pools(std::vector<SceneVertex>& out, const SceneOptions& options, co
     if (!options.show_pools) {
         return;
     }
+    constexpr float kTau = 6.2831853F;
     for (const sim::Pool& pool : sim.pools()) {
         const int dx
             = pool.tile_x - static_cast<int>(std::floor(options.camera.x / kMetresPerTile));
@@ -2255,6 +2256,7 @@ void append_pools(std::vector<SceneVertex>& out, const SceneOptions& options, co
         const float ground = ground_metres(options.seed, tile_x, tile_y);
         const std::uint32_t phase = static_cast<std::uint32_t>(pool.tile_x * 31 + pool.tile_y * 17);
         const Vec3 steam{kPoolSteamColour.at(0), kPoolSteamColour.at(1), kPoolSteamColour.at(2)};
+        const Vec3 eye{options.camera.x, options.camera.y, options.camera.z}; // no floor: unused
         for (std::uint32_t puff = 0; puff < kPoolPlumePuffs; ++puff) {
             const sim::Tick offset
                 = (kPoolPlumeTicks * puff) / static_cast<sim::Tick>(kPoolPlumePuffs);
@@ -2264,8 +2266,22 @@ void append_pools(std::vector<SceneVertex>& out, const SceneOptions& options, co
                                + ((kPoolPuffHalfTopMetres - kPoolPuffHalfBaseMetres) * t);
             const float sway = (wake_fraction(options.seed, phase, puff) - 0.5F) * 1.2F * t;
             const float sway_z = (wake_fraction(options.seed, phase, puff + 64U) - 0.5F) * 1.2F * t;
-            emit_puff(out, cx + sway, ground + half + (kPoolPlumeHeightMetres * t), cz + sway_z,
-                      half, steam, kPoolSteamAlpha * (1.0F - (0.7F * t)));
+            // The one puff: an icosphere `Particle` frozen at age 0 (its place is already the
+            // plume's function of the tick), rolling at the blast's rate.
+            Particle vapour;
+            vapour.origin = {cx + sway, ground + half + (kPoolPlumeHeightMetres * t), cz + sway_z};
+            vapour.half_from = half;
+            vapour.half_to = half;
+            vapour.colour_from = steam;
+            vapour.colour_to = steam;
+            vapour.alpha_from = kPoolSteamAlpha * (1.0F - (0.7F * t));
+            vapour.alpha_to = vapour.alpha_from;
+            // Rolling with the plume's CYCLE, not the raw tick: the plume repeats every
+            // `kPoolPlumeTicks`, and a roll that did not would break the picture's period.
+            vapour.roll = (wake_fraction(options.seed, phase, puff + 128U) * kTau)
+                          + (puff_roll_rate(options.seed, phase, puff + 192U)
+                             * static_cast<float>(kPoolPlumeTicks) * t);
+            emit_particle(out, vapour, 0, eye);
         }
     }
 }
