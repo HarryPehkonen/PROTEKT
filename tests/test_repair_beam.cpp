@@ -347,6 +347,53 @@ TEST(RepairBeam, TheSparksFlyFromTheWeldAndMoveFromOneTickToTheNext) {
     EXPECT_GT(moved, static_cast<int>(before.size()) / 2);
 }
 
+/// Where the weld is: the patient's middle, lifted as the beam's end is (the sparks' origin).
+std::array<float, 3> weld_of(const Sim& sim) {
+    for (const protekt::sim::Unit& unit : sim.units()) {
+        if (unit.kind == UnitKind::Tank) {
+            const float one = static_cast<float>(protekt::sim::Fixed::kOne);
+            return {static_cast<float>(unit.x.raw) / one * protekt::game::kMetresPerTile,
+                    protekt::game::ground_metres(kSeed, unit.x, unit.y)
+                        + protekt::game::kRepairBeamLiftMetres,
+                    static_cast<float>(unit.y.raw) / one * protekt::game::kMetresPerTile};
+        }
+    }
+    return {};
+}
+
+TEST(RepairBeam, TheSparksThrowOutFromTheWeldAndUpBeforeTheyFall) {
+    // AG's debt: "only check that something moved, not the direction". The eight sparks are
+    // staggered through their life, so together they are a fountain: on average out from the weld,
+    // above it, and none farther than its fastest spark could have flown. Sums over the swarm,
+    // never one seeded spark.
+    const Sim sim = rig(1);
+    const std::array<float, 3> weld = weld_of(sim);
+    const std::vector<SceneVertex> sparks = sparks_of(protekt::game::build_scene(sim, view()));
+    ASSERT_EQ(sparks.size(), protekt::game::kRepairSparks * protekt::game::kSparkVertices);
+    float radius = 0.0F;
+    float rise = 0.0F;
+    float widest = 0.0F;
+    for (std::size_t first = 0; first < sparks.size(); first += protekt::game::kSparkVertices) {
+        std::array<float, 3> centre{};
+        for (std::size_t i = 0; i < protekt::game::kSparkVertices; ++i) {
+            for (std::size_t axis = 0; axis < 3; ++axis) {
+                centre.at(axis) += sparks.at(first + i).position.at(axis)
+                                   / static_cast<float>(protekt::game::kSparkVertices);
+            }
+        }
+        const float out = std::hypot(centre.at(0) - weld.at(0), centre.at(2) - weld.at(2));
+        radius += out;
+        widest = std::max(widest, out);
+        rise += centre.at(1) - weld.at(1);
+    }
+    const float n = static_cast<float>(protekt::game::kRepairSparks);
+    EXPECT_GT(radius / n, 0.2F) << "the sparks hang on the weld instead of leaving it";
+    EXPECT_GT(rise / n, 0.1F) << "a weld's sparks are thrown up";
+    EXPECT_LE(widest, protekt::game::kRepairSparkSpeedMetres
+                          * static_cast<float>(protekt::game::kRepairSparkTicks))
+        << "none may be farther than the fastest spark's whole flight";
+}
+
 TEST(RepairBeam, AWeldSparkIsACubeOfEightCorners) {
     // AH: the tests pinned a spark's colour and size, not its shape. Eight distinct places, as wide
     // as tall as deep: an icosphere gives twelve and an eight-sided prism sixteen.

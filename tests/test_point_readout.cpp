@@ -258,6 +258,40 @@ TEST(PointReadout, TheNameIsAboveTheBarAndTheDistanceBelowTheUnit) {
     EXPECT_NEAR(name.bottom - name.top, kLetterHeight, 0.1F);
 }
 
+TEST(PointReadout, TheNameSitsAFixedTwoOutlinesOverTheBarsOuterEdge) {
+    // The earlier sabotage hit a text-size constant, not an offset, so the name's OFFSET was never
+    // proven pinned: the old test allows the bar to be anywhere in eight pixels of the name. The
+    // stack is exact: the name plate's lower edge is two bar outlines (1/450 of the frame each)
+    // over the bar's outer top edge, at any range.
+    const float outline = static_cast<float>(kExtent.height) / 450.0F;
+    for (const float back : {30.0F, 8.0F}) {
+        Field f = make_field(back);
+        look_at(f, f.enemy, 0.0F);
+        const Scene scene = build_scene(f.sim, f.options);
+        const Projected middle = attack_point(f.options, *f.sim.find(f.enemy));
+        const Block name = block_of(cells_of(f.options, scene, kHostileInk), true, middle.y);
+        ASSERT_GT(name.cells, 0U) << back;
+        const BarBox bar = bar_over(f.options, scene, middle.x, middle.y);
+        ASSERT_TRUE(bar.found) << back;
+        const float plate_bottom = name.bottom + kLetterPlatePadPixels;
+        EXPECT_NEAR(bar.top - plate_bottom, 2.0F * outline, 0.15F) << "back " << back;
+    }
+}
+
+TEST(PointReadout, TheNameAndTheDistanceAreCentredOnTheUnit) {
+    Field f = make_field();
+    look_at(f, f.enemy, 0.0F);
+    const Scene scene = build_scene(f.sim, f.options);
+    const Projected middle = attack_point(f.options, *f.sim.find(f.enemy));
+    const std::vector<Cell> cells = cells_of(f.options, scene, kHostileInk);
+    const Block name = block_of(cells, true, middle.y);
+    const Block distance = block_of(cells, false, middle.y);
+    ASSERT_GT(name.cells, 0U);
+    ASSERT_GT(distance.cells, 0U);
+    EXPECT_NEAR((name.left + name.right) * 0.5F, middle.x, 0.3F);
+    EXPECT_NEAR((distance.left + distance.right) * 0.5F, middle.x, 0.3F);
+}
+
 TEST(PointReadout, TheDistanceIsAsFarUnderTheMiddleAsTheBarIsOverIt) {
     for (const float back : {20.0F, 8.0F}) {
         Field f = make_field(back);

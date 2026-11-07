@@ -7136,6 +7136,8 @@ struct Wreck {
     std::vector<sim::BattleEvent> events;
     int tile_x{};
     int tile_y{};
+    float centre_x{}; ///< where the burst stands, in metres: the dead unit's own fractional place
+    float centre_z{};
 };
 
 /// A wreck with its own history: an enemy hauler four tiles from a player tank. The tank is armed
@@ -7167,6 +7169,9 @@ struct Wreck {
                 const sim::Unit* dead = sim.find(hauler);
                 wreck.tile_x = dead->x.floor_int();
                 wreck.tile_y = dead->y.floor_int();
+                const float one = static_cast<float>(sim::Fixed::kOne);
+                wreck.centre_x = static_cast<float>(dead->x.raw) / one * kMetresPerTile;
+                wreck.centre_z = static_cast<float>(dead->y.raw) / one * kMetresPerTile;
                 return wreck;
             }
         }
@@ -7183,6 +7188,8 @@ struct WakeFrame {
     std::size_t first{};
     int tile_x{};
     int tile_y{};
+    float centre_x{}; ///< the burst's centre in metres (see `Wreck`)
+    float centre_z{};
     std::vector<SceneVertex> wake;
 };
 
@@ -7192,6 +7199,8 @@ struct WakeFrame {
     frame.wreck_valid = wreck.valid;
     frame.tile_x = wreck.tile_x;
     frame.tile_y = wreck.tile_y;
+    frame.centre_x = wreck.centre_x;
+    frame.centre_z = wreck.centre_z;
     if (!wreck.valid) {
         return frame;
     }
@@ -7336,18 +7345,73 @@ TEST(SceneWake, ABlastSparkIsOpaqueBrightSmallAndSizedAgainstTheFireball) {
     }
 }
 
-TEST(SceneWake, ABlastSparkFliesOutwardFromTheFireball) {
-    const std::vector<SceneVertex> a = blast_sparks(wake_at(1));
-    const std::vector<SceneVertex> b = blast_sparks(wake_at(8));
-    ASSERT_EQ(a.size(), b.size());
-    const auto spread = [](const std::vector<SceneVertex>& v) {
-        float sum = 0.0F;
-        for (std::size_t first = 0; first < v.size(); first += protekt::game::kSparkVertices) {
-            sum += std::hypot(v.at(first).position[0], v.at(first).position[2]);
+/// Where each spark's box stands: the mean of its corners (the box is centred on the spark).
+[[nodiscard]] std::vector<std::array<float, 3>> spark_centres(const WakeFrame& frame) {
+    const std::vector<SceneVertex> sparks = blast_sparks(frame);
+    std::vector<std::array<float, 3>> centres;
+    centres.reserve(sparks.size() / protekt::game::kSparkVertices);
+    for (std::size_t first = 0; first + protekt::game::kSparkVertices <= sparks.size();
+         first += protekt::game::kSparkVertices) {
+        std::array<float, 3> sum{};
+        for (std::size_t i = 0; i < protekt::game::kSparkVertices; ++i) {
+            for (std::size_t axis = 0; axis < 3; ++axis) {
+                sum.at(axis) += sparks.at(first + i).position.at(axis);
+            }
         }
-        return sum;
-    };
-    EXPECT_NE(spread(a), spread(b)) << "the sparks did not move";
+        for (float& c : sum) {
+            c /= static_cast<float>(protekt::game::kSparkVertices);
+        }
+        centres.push_back(sum);
+    }
+    return centres;
+}
+
+/// What the sparks do TOGETHER, measured from the burst's true centre. The headings are seeded, so
+/// no single spark's direction is asserted -- that would pin the seed, not the behaviour.
+struct SparkSpread {
+    float mean_radius{}; ///< mean horizontal distance from the burst's centre
+    float mean_rise{};   ///< mean height above the fireball's centre
+    float drift{};       ///< length of the mean horizontal offset: a burst has none, a stream has
+};
+
+[[nodiscard]] SparkSpread spark_spread(const WakeFrame& frame) {
+    const std::vector<std::array<float, 3>> centres = spark_centres(frame);
+    const float origin_y = protekt::game::ground_metres(42ULL, static_cast<float>(frame.tile_x),
+                                                        static_cast<float>(frame.tile_y))
+                           + protekt::game::kBlastHalfMetres;
+    SparkSpread out;
+    float dx = 0.0F;
+    float dz = 0.0F;
+    for (const std::array<float, 3>& c : centres) {
+        const float ox = c.at(0) - frame.centre_x;
+        const float oz = c.at(2) - frame.centre_z;
+        out.mean_radius += std::hypot(ox, oz);
+        out.mean_rise += c.at(1) - origin_y;
+        dx += ox;
+        dz += oz;
+    }
+    const float n = static_cast<float>(centres.size());
+    out.mean_radius /= n;
+    out.mean_rise /= n;
+    out.drift = std::hypot(dx / n, dz / n);
+    return out;
+}
+
+TEST(SceneWake, ABlastSparkFliesOutwardFromTheFireball) {
+    // The sparks as a SWARM: they leave the burst's centre (the radius from it grows by about the
+    // mean speed times the ticks between), they go UP before gravity wins (above the fireball's
+    // centre, and higher a little later), and they go every way (the mean offset is a small
+    // fraction of the mean radius -- a stream would be all drift). Pinned by the sums, not by any
+    // one spark, so the seed can change and the behaviour may not.
+    const SparkSpread early = spark_spread(wake_at(1));
+    const SparkSpread later = spark_spread(wake_at(8));
+    const SparkSpread rising = spark_spread(wake_at(3));
+    EXPECT_GT(later.mean_radius - early.mean_radius, 0.5F)
+        << "the sparks did not move away from the burst";
+    EXPECT_GT(later.mean_radius, 3.0F * early.mean_radius);
+    EXPECT_GT(early.mean_rise, 0.0F) << "a spark is thrown up";
+    EXPECT_GT(rising.mean_rise, early.mean_rise + 0.15F) << "and keeps rising while it is young";
+    EXPECT_LT(later.drift, 0.5F * later.mean_radius) << "the burst goes every way, not one way";
 }
 
 TEST(SceneWake, TheBurstBecomesASlowGreyColumnAndTheColumnGoesInItsTurn) {
