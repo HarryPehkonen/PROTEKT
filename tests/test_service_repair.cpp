@@ -11,7 +11,8 @@
 /// SERVICE TRUCKS (D1, the sim half). A truck mends, on its own, whatever friendly unit is within
 /// `kServiceRepairRadiusTiles` and hurt: `max_hp / kServiceRepairTicks` a tick at the closest, so
 /// a tank goes from nearly dead to whole in about 20 s and a thing with twice the hit points takes
-/// twice as long. Closer is faster; every truck in range adds its own share.
+/// twice as long. Closer is faster; every truck in range adds its own share. (The trucks face
+/// the patient throughout: what is ahead of a truck is `test_repair_cone.cpp`'s.)
 ///
 /// The ground is asserted open rather than described, and the enemy base is unarmed and far away:
 /// nothing here is shot, so every hit point gained is the trucks'.
@@ -71,7 +72,11 @@ void run(Sim& sim, int ticks) {
 [[nodiscard]] Sim ward(UnitKind kind, std::uint16_t hp, const std::vector<int>& truck_columns) {
     std::vector<Spawn> spawns{spawn(kind, Side::Player, kPatientX, hp)};
     for (const int column : truck_columns) {
-        spawns.push_back(spawn(UnitKind::ServiceTruck, Side::Player, column));
+        // Every truck faces the patient: these tests are about the DISTANCE rule, so the shotgun
+        // cone (`RepairCone.*`) is held at its centre and takes nothing off.
+        Spawn truck = spawn(UnitKind::ServiceTruck, Side::Player, column);
+        truck.face_x = column < kPatientX ? 1 : -1;
+        spawns.push_back(truck);
     }
     return rig(std::move(spawns));
 }

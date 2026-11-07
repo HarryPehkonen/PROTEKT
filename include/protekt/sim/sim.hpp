@@ -27,6 +27,11 @@ struct Spawn {
     /// larger number than that is clamped to it. A battle that begins with a wounded unit is the
     /// only way a repair can be told apart from a unit that was never hurt.
     std::uint16_t hp{};
+    /// A SERVICE TRUCK's facing at the start (AJ): a direction, in whole numbers and any length
+    /// (only the direction counts). Zero in both (the default) is +Y, which is how a hull that has
+    /// never moved is drawn. Like `hp`, a fixture: the replay format does not carry it.
+    int face_x{};
+    int face_y{};
 };
 
 /// A battle is a seed plus its starting units. Everything else is derived.

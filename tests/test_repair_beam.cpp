@@ -47,6 +47,7 @@ Sim rig(std::uint16_t patient_hp, Side truck_side = Side::Player) {
     s.spawns = {spawn(UnitKind::Tank, Side::Player, kPatientX, patient_hp),
                 spawn(UnitKind::ServiceTruck, truck_side, kTruckX),
                 spawn(UnitKind::Factory, Side::Enemy, 200, 0)};
+    s.spawns.at(1).face_x = -1; // the truck points at the patient: the beam is ahead of it
     s.spawns.back().tile_y = 200;
     return Sim::create(s);
 }
@@ -106,6 +107,25 @@ TEST(RepairBeam, ATruckOutOfReachDrawsNone) {
                 spawn(UnitKind::ServiceTruck, Side::Player,
                       kPatientX + protekt::sim::kServiceRepairRadiusTiles + 1)};
     EXPECT_TRUE(protekt::game::repair_links(Sim::create(s)).empty());
+}
+
+TEST(RepairBeam, ATruckThatIsNotMendingAPatientBesideItDrawsNone) {
+    // The shotgun cone (AJ): a patient abeam of the truck, or behind it, gets no repair and so no
+    // beam. The truck here points away from the patient, four tiles off its tail.
+    protekt::sim::Scenario s;
+    s.seed = kSeed;
+    s.spawns = {spawn(UnitKind::Tank, Side::Player, kPatientX, 1),
+                spawn(UnitKind::ServiceTruck, Side::Player, kTruckX),
+                spawn(UnitKind::Factory, Side::Enemy, 200, 0)};
+    s.spawns.back().tile_y = 200;
+    s.spawns.at(1).face_x = 1;
+    EXPECT_TRUE(protekt::game::repair_links(Sim::create(s)).empty()) << "behind";
+    s.spawns.at(1).face_x = 0;
+    s.spawns.at(1).face_y = 1;
+    EXPECT_TRUE(protekt::game::repair_links(Sim::create(s)).empty()) << "abeam";
+    s.spawns.at(1).face_x = -1;
+    s.spawns.at(1).face_y = 0;
+    EXPECT_EQ(protekt::game::repair_links(Sim::create(s)).size(), 1U) << "ahead";
 }
 
 TEST(RepairBeam, TheLinkNamesTheTruckAndThePatient) {

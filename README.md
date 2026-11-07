@@ -205,6 +205,21 @@ range adds its own share. The mending is automatic for any truck in reach; sendi
 paragraph. A truck does not mend itself, and the service pod does not mend at all. The rate (`kServiceRepairTicks`)
 and the 6 tiles are Harri's to tune. No recorded battle contains a truck, so none moved.
 
+**The repair beam is a shotgun cone** (2026-11-06; Harri, round 11 item AJ: "the beam is like a shotgun where
+anything in that general direction will also get repaired. Dead centre would mean lots of repair there.
+Off to the side means barely any"; ruled: "distance picks the axis, cone decides the share ... I don't want
+anything BEHIND a service vehicle repaired ... 90 degrees to the side, I would say no effect"; and the
+shape, "a shotgun microphone pattern"). The cone's axis is the way the truck POINTS, which is the way it
+last moved (a truck that has never moved points the way a stopped hull is drawn, up the map). A patient's
+share of the repair is the distance rule above times cos^2 of the angle between that axis and the line to
+the patient: 100% dead ahead, 75% at 30 degrees, 50% at 45, 25% at 60 and nothing at 90 degrees or behind
+the truck. So everything in reach and in front of the truck is mended and the centre gets the most; a
+truck sent to a patient (`3 Repair`, or the crosshair) arrives pointing at it. The beam is drawn only to
+patients that are actually being mended. The drop-off is one number, `kServiceRepairConePower` in
+`units.hpp` (1 is cos^2, a wide shotgun; 2 is cos^4, a tighter one). A truck that is sitting still with the
+wounded beside it mends nothing until it is turned to face them (drive it a little). Battles with a service
+truck in them mend differently; no recorded battle contains one, so none moved.
+
 **The repair beam** (2026-11-05; Harri: "a bright, trembling beam of different colours coming from the
 service truck to the item being repaired"). While a truck is actually mending something, a beam of
 28 bright cubes runs from the truck to that unit, one beam per truck and patient. It is

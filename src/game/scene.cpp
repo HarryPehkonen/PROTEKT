@@ -5321,8 +5321,6 @@ int hull_variant(std::uint64_t seed, std::uint32_t unit_id) noexcept {
 }
 
 std::vector<RepairLink> repair_links(const sim::Sim& sim) {
-    const std::int64_t radius
-        = static_cast<std::int64_t>(sim::kServiceRepairRadiusTiles) * sim::Fixed::kOne;
     std::vector<RepairLink> links;
     for (const sim::Unit& patient : sim.units()) {
         if (!patient.alive || patient.hp >= sim::profile(patient.kind).hp) {
@@ -5333,9 +5331,8 @@ std::vector<RepairLink> repair_links(const sim::Sim& sim) {
                 || truck.side != patient.side || truck.id == patient.id) {
                 continue;
             }
-            const std::int64_t dx = truck.x.raw - patient.x.raw;
-            const std::int64_t dy = truck.y.raw - patient.y.raw;
-            if ((dx * dx) + (dy * dy) <= radius * radius) {
+            // The sim's own weight, cone and all: a link stands exactly when the truck mends.
+            if (sim::service_repair_weight(truck, patient) > 0) {
                 links.reserve(links.size() + 1);
                 links.push_back(RepairLink{truck.id, patient.id});
             }

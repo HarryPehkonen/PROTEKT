@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <array>
 #include <cstddef>
+#include <cstdlib>
 #include <optional>
 #include <span>
 #include <type_traits>
@@ -1606,11 +1607,61 @@ constexpr int kLaneProbeTicks = 10 * kTicksPerSecond;
 
 } // namespace
 
+std::int64_t service_repair_weight(const Unit& truck, const Unit& patient) noexcept {
+    const std::int64_t radius_raw
+        = static_cast<std::int64_t>(kServiceRepairRadiusTiles) * Fixed::kOne;
+    const std::int64_t radius2 = radius_raw * radius_raw;
+    const std::int64_t d2 = dist2(patient.x, patient.y, truck.x, truck.y);
+    if (d2 > radius2) {
+        return 0;
+    }
+    const std::int64_t distance
+        = kServiceRepairFull - (kServiceRepairFull - kServiceRepairEdge) * d2 / radius2;
+    // THE CONE. cos^2 of the angle between the truck's facing and the line to the patient, in
+    // 65536ths, from the squared dot product over the squared lengths: no root, no float. The
+    // line is read a 256th of a tile at a time so the squares fit; a patient nearer than that is
+    // on the truck and takes the whole share.
+    const bool moved = truck.face_x != 0 || truck.face_y != 0;
+    const std::int64_t face_x = moved ? truck.face_x : 0;
+    const std::int64_t face_y = moved ? truck.face_y : kServiceFacingScale; // +Y until it moves
+    const std::int64_t to_x
+        = (static_cast<std::int64_t>(patient.x.raw) - truck.x.raw) / kServiceConeStep;
+    const std::int64_t to_y
+        = (static_cast<std::int64_t>(patient.y.raw) - truck.y.raw) / kServiceConeStep;
+    if (to_x == 0 && to_y == 0) {
+        return distance;
+    }
+    const std::int64_t dot = (to_x * face_x) + (to_y * face_y);
+    if (dot <= 0) {
+        return 0; // abeam or behind: his "90 degrees, no effect" and "nothing BEHIND"
+    }
+    const std::int64_t cos2
+        = (dot * dot * kServiceRepairFull)
+          / (((to_x * to_x) + (to_y * to_y)) * ((face_x * face_x) + (face_y * face_y)));
+    std::int64_t share = cos2;
+    for (int power = 1; power < kServiceRepairConePower; ++power) {
+        share = share * cos2 / kServiceRepairFull;
+    }
+    return distance * share / kServiceRepairFull;
+}
+
 namespace {
 
-/// SERVICE TRUCKS. For each living, hurt unit, the sum over every OTHER living friendly truck
-/// within `kServiceRepairRadiusTiles` of that truck's weight (`kServiceRepairFull` at the truck's
-/// own spot, falling linearly in the squared distance to `kServiceRepairEdge` at the radius). The
+/// Points `truck` along (`vx`, `vy`), scaled so the larger component is `kServiceFacingScale`. No
+/// motion leaves the facing as it was.
+void face_along(Unit& truck, std::int64_t vx, std::int64_t vy) noexcept {
+    const std::int64_t major = std::max(std::abs(vx), std::abs(vy));
+    if (major == 0) {
+        return;
+    }
+    truck.face_x = static_cast<std::int16_t>(vx * kServiceFacingScale / major);
+    truck.face_y = static_cast<std::int16_t>(vy * kServiceFacingScale / major);
+}
+
+/// SERVICE TRUCKS. For each living, hurt unit, the sum over every OTHER living friendly truck of
+/// `service_repair_weight`: the weight (`kServiceRepairFull` at the truck's own spot, falling
+/// linearly in the squared distance to `kServiceRepairEdge` at `kServiceRepairRadiusTiles`) times
+/// the cone's share. The
 /// unit gains `max_hp * weight / (kServiceRepairTicks * kServiceRepairFull)` hit points that tick,
 /// carried as a remainder (`repair_frac`) so a fraction of a hit point is not lost: a tank's
 /// 100 / 600 is a sixth of one. One rule for every kind -- a building, a vehicle, a turret
@@ -1618,11 +1669,10 @@ namespace {
 ///
 /// Ascending id and integers throughout, so the order of units is the only order there is. It runs
 /// after the shooting: a unit shot dead this tick is already !alive and is skipped, and the hit
-/// points land on what the tick's damage left.
+/// points land on what the tick's damage left. Last, each truck takes the direction it moved this
+/// tick as its facing, so the cone a tick mends by is the one the tick before left, which is what
+/// `game::repair_links` reads between steps.
 void service_repair_step(std::vector<Unit>& units) {
-    const std::int64_t radius_raw
-        = static_cast<std::int64_t>(kServiceRepairRadiusTiles) * Fixed::kOne;
-    const std::int64_t radius2 = radius_raw * radius_raw;
     for (Unit& unit : units) {
         if (!unit.alive) {
             continue;
@@ -1638,11 +1688,7 @@ void service_repair_step(std::vector<Unit>& units) {
                 || truck.id == unit.id) {
                 continue;
             }
-            const std::int64_t d2 = dist2(unit.x, unit.y, truck.x, truck.y);
-            if (d2 <= radius2) {
-                weight += kServiceRepairFull
-                          - (kServiceRepairFull - kServiceRepairEdge) * d2 / radius2;
-            }
+            weight += service_repair_weight(truck, unit);
         }
         if (weight == 0) {
             continue;
@@ -1653,6 +1699,11 @@ void service_repair_step(std::vector<Unit>& units) {
             ++unit.hp;
         }
         unit.repair_frac = unit.hp >= max_hp ? 0 : static_cast<std::uint32_t>(frac);
+    }
+    for (Unit& truck : units) {
+        if (truck.alive && truck.kind == UnitKind::ServiceTruck) {
+            face_along(truck, truck.vx.raw, truck.vy.raw);
+        }
     }
 }
 
@@ -1682,6 +1733,9 @@ Sim Sim::create(const Scenario& scenario) {
         sim.units_.push_back(fresh_unit(sim.next_id_++, spawn.kind, spawn.side, tile));
         if (spawn.hp != 0) {
             sim.units_.back().hp = std::min(spawn.hp, sim.units_.back().hp);
+        }
+        if (spawn.kind == UnitKind::ServiceTruck) {
+            face_along(sim.units_.back(), spawn.face_x, spawn.face_y);
         }
     }
     // C0: the ground the battle starts on. The scenario placed it as a pure function of its seed;
@@ -2084,6 +2138,10 @@ std::uint64_t Sim::state_hash() const noexcept {
         }
         if (u.repair_frac != 0) {
             h.u64(u.repair_frac); // only when set: a battle no truck mends in hashes as before
+        }
+        if (u.face_x != 0 || u.face_y != 0) {
+            h.i32(u.face_x); // a truck that has moved: no other unit's is ever set
+            h.i32(u.face_y);
         }
         if (u.deploy_ticks != 0) {
             h.u64(

@@ -267,6 +267,13 @@ struct Unit {
     /// paid out as they complete. Zero whenever the unit is whole. Hashed only when non-zero, so
     /// a battle no truck ever mends in hashes exactly as it did before there were trucks.
     std::uint32_t repair_frac{};
+    /// SERVICE TRUCKS (AJ): which way the truck points -- the axis of its repair cone -- as the
+    /// direction it last moved, scaled so the larger of the two is `kServiceFacingScale`. Both zero
+    /// means it has never moved and points +Y, as the presentation draws a hull that has not
+    /// (`Headings`). Only a truck's is ever set, and it is hashed only when it is, so a battle
+    /// with no moving truck in it hashes exactly as it did before the cone.
+    std::int16_t face_x{};
+    std::int16_t face_y{};
     /// This unit's build queue, if it is a producer (see `is_producer`). Hashed only when it holds
     /// an entry, for the same reason.
     BuildQueue queue{};
@@ -316,6 +323,25 @@ inline constexpr int kServiceRepairApproachTiles = 3;
 /// at the radius. Closer is faster, and a truck on the very edge still mends, half as quickly.
 inline constexpr std::int64_t kServiceRepairFull = 1 << 16;
 inline constexpr std::int64_t kServiceRepairEdge = 1 << 15;
+/// THE SHOTGUN BEAM (AJ). A truck's mending of a patient is the distance weight above times a SHARE
+/// set by how near the truck's facing the patient lies: cos^2 of the angle between them, which is
+/// 1.00 dead ahead, 0.75 at 30 degrees, 0.50 at 45, 0.25 at 60 and 0.00 at 90 -- Harri's "shotgun
+/// microphone" -- and ZERO for anything behind. In integers it is
+/// `dot^2 / (|to patient|^2 * |facing|^2)`, no square root. Everything in reach and ahead of the
+/// truck's side-line is mended; the centre simply gets the most.
+/// THE KNOB: the share is raised to this power. 1 is cos^2, the wide shotgun; 2 is cos^4, a tighter
+/// one (0.56 at 30 degrees, 0.25 at 45). It is the one number that sets the angle and the drop-off.
+inline constexpr int kServiceRepairConePower = 1;
+/// A truck's stored facing is scaled so its larger component is this (`Unit::face_x`).
+inline constexpr int kServiceFacingScale = 1024;
+/// The vector to the patient is read in this many raw Q16.16 units at a time (1/256 of a tile), so
+/// that the squared products below stay inside 64 bits at the reach of `kServiceRepairRadiusTiles`.
+inline constexpr std::int64_t kServiceConeStep = 256;
+/// What truck `truck` gives patient `patient` per tick, in 65536ths of the full rate: the distance
+/// weight times the cone's share, or zero when the patient is out of reach, behind the truck, or
+/// abeam of it. `service_repair_step` sums it over trucks; the scene asks it to draw only the beams
+/// that mend.
+[[nodiscard]] std::int64_t service_repair_weight(const Unit& truck, const Unit& patient) noexcept;
 /// The unit `Unit::repair_frac` counts in: a hit point is this many `max_hp * weight` units, so
 /// that a full-rate truck adds `max_hp * kServiceRepairFull` of them a tick and the hit point
 /// completes after `kServiceRepairTicks` of that for a unit with one hit point to its name.
