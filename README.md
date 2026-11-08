@@ -220,6 +220,17 @@ patients that are actually being mended. The drop-off is one number, `kServiceRe
 wounded beside it mends nothing until it is turned to face them (drive it a little). Battles with a service
 truck in them mend differently; no recorded battle contains one, so none moved.
 
+**The enemy sends its service trucks to the wounded** (2026-11-07; slice AN; playtest round 1, D1: "The AI
+does not send trucks to the wounded"). An enemy service truck with nothing to do drives, by the very order your
+`3 Repair` sends, to the NEAREST friend of its own side that is hurt below 80 hp (the line the factory already
+keeps a hurt unit at home for; a unit whose full health is lower, like the mortar bike, counts as mended
+at its own full health), as far as its own radar reaches, and it mends with the cone on arrival. A scratch
+(80 hp or more) is not worth the trip; a unit already inside its factory's mending reach is left to the
+factory; a truck on its way never drops its patient for a nearer or worse-hurt one, and goes on to the next
+only when the first is whole (or dead -- the order simply ends). Two idle trucks may pick the same patient:
+their mending adds. Nothing else about the AI moved, and no recorded battle contains a truck, so no recorded
+battle changed.
+
 **The repair beam** (2026-11-05; Harri: "a bright, trembling beam of different colours coming from the
 service truck to the item being repaired"). While a truck is actually mending something, a beam of
 28 bright cubes runs from the truck to that unit, one beam per truck and patient. It is

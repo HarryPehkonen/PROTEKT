@@ -28,6 +28,10 @@ struct UnitView {
     bool mounted{true}; ///< `is_mounted` passed through: false only for a turret still redeploying
     std::int32_t raw_vx{}; ///< the velocity in Q16.16 tiles a tick: the direction a vehicle faces
     std::int32_t raw_vy{};
+    /// `unit.stance == Stance::Idle`: it holds no order. The one fact about a unit's own errand a
+    /// commander needs to avoid re-sending a truck that is already on its way to a patient. Last,
+    /// and true by default, so a hand-built view is an idle unit.
+    bool idle{true};
 };
 
 struct Observation {

@@ -981,4 +981,170 @@ TEST(UtilityRole, TwoSameSeedBattlesWithMortarBikesAndRocketTanksAreByteIdentica
     EXPECT_EQ(run(), run());
 }
 
+// ---------------------------------------------------------------------------------------------
+// THE TRUCK DISPATCH (slice AN; playtest round 1, D1: "The AI does not send trucks to the
+// wounded."). An idle service truck is sent, by the order the player's `3 Repair` sends, to the
+// nearest friend that is hurt below the line `return_hp` draws; one that is already on an errand
+// keeps it.
+// ---------------------------------------------------------------------------------------------
+namespace {
+
+constexpr std::uint16_t kHurt = 50; ///< between the retreat line (20) and the repair line (80)
+constexpr int kTruckRow = 22;       ///< the open ground `RepairOrder.TheGroundIsOpen` checks
+
+[[nodiscard]] sim::Spawn spawn_at(UnitKind kind, int x, std::uint16_t hp = 0) {
+    sim::Spawn s{};
+    s.kind = kind;
+    s.side = Side::Player;
+    s.tile_x = x;
+    s.tile_y = kTruckRow;
+    s.hp = hp;
+    return s;
+}
+
+/// A side of one idle truck at x = 124 and the given friends, and no enemy anywhere: nothing else
+/// has a reason to order anything, so every order seen is the dispatcher's.
+[[nodiscard]] sim::Sim truck_rig(const std::vector<sim::Spawn>& friends) {
+    sim::Scenario scenario{};
+    scenario.seed = 42;
+    scenario.spawns = {spawn_at(UnitKind::ServiceTruck, 124)};
+    scenario.spawns.insert(scenario.spawns.end(), friends.begin(), friends.end());
+    return sim::Sim::create(scenario);
+}
+
+/// Think every tick, as the CLI does, and apply what it orders before the step.
+void drive(sim::Sim& world, UtilityCommander& commander, int ticks) {
+    for (int tick = 0; tick < ticks; ++tick) {
+        std::vector<sim::Order> orders;
+        commander.think(sim::observe(world, Side::Player), orders);
+        for (const sim::Order& order : orders) {
+            world.enqueue(order);
+        }
+        world.step();
+    }
+}
+
+} // namespace
+
+TEST(UtilityTruck, AnIdleTruckWithABadlyHurtFriendNearbyTakesARepairTrip) {
+    sim::Sim world = truck_rig({spawn_at(UnitKind::Tank, 102, kHurt)});
+    UtilityCommander commander{UtilityTuning{}};
+    const std::int32_t start = world.find(UnitId{1})->x.raw;
+    drive(world, commander, 31); // two beats: the order, then the truck seen on its way
+    const sim::Unit* truck = world.find(UnitId{1});
+    EXPECT_EQ(truck->stance, sim::Stance::Repair);
+    EXPECT_EQ(truck->target, UnitId{2});
+    EXPECT_LT(truck->x.raw, start) << "and it is driving toward the tank";
+}
+
+TEST(UtilityTruck, TheTripEndsWithThePatientMendedByTheTrucksOwnFacing) {
+    // The cone points along the truck's own heading, which a drive at the patient makes the line
+    // to it: the patient is mended to full, not merely approached.
+    sim::Sim world = truck_rig({spawn_at(UnitKind::Tank, 102, kHurt)});
+    UtilityCommander commander{UtilityTuning{}};
+    drive(world, commander, 3000);
+    EXPECT_EQ(world.find(UnitId{2})->hp, sim::spec_of(UnitKind::Tank).hp);
+    EXPECT_EQ(world.find(UnitId{1})->stance, sim::Stance::Idle) << "the order lapsed when it was";
+}
+
+TEST(UtilityTruck, ATruckDoesNotSetOutForAScratch) {
+    sim::Sim world = truck_rig({spawn_at(UnitKind::Tank, 102, 90)});
+    UtilityCommander commander{UtilityTuning{}};
+    const std::int32_t start = world.find(UnitId{1})->x.raw;
+    for (int tick = 0; tick < 300; ++tick) {
+        std::vector<sim::Order> orders;
+        commander.think(sim::observe(world, Side::Player), orders);
+        EXPECT_TRUE(orders.empty()) << "tick " << tick;
+        world.step();
+    }
+    EXPECT_EQ(world.find(UnitId{1})->x.raw, start);
+    EXPECT_EQ(world.find(UnitId{1})->stance, sim::Stance::Idle);
+}
+
+TEST(UtilityTruck, TheLineIsReturnHpAndAUnitAtItIsNotWorthTheTrip) {
+    const UtilityTuning tuning{};
+    const sim::UnitView truck = unit(1, UnitKind::ServiceTruck, Side::Player, 124, 22);
+    const auto sent_for = [&](std::uint16_t hp) {
+        const sim::Observation o
+            = field({truck, unit(2, UnitKind::Tank, Side::Player, 102, 22, hp)}, {});
+        return decide(truck, o, tuning).intent;
+    };
+    EXPECT_EQ(sent_for(static_cast<std::uint16_t>(tuning.return_hp - 1)), Intent::Mend);
+    EXPECT_EQ(sent_for(static_cast<std::uint16_t>(tuning.return_hp)), Intent::Hold);
+    EXPECT_EQ(sent_for(1), Intent::Mend);
+}
+
+TEST(UtilityTruck, ATruckAlreadyMendingDoesNotAbandonItsPatientForABetterOne) {
+    // Decision level: a truck holding an order is left alone, whatever is hurt nearer to it.
+    sim::UnitView busy = unit(1, UnitKind::ServiceTruck, Side::Player, 124, 22);
+    busy.idle = false;
+    const sim::Observation o
+        = field({busy, unit(2, UnitKind::Tank, Side::Player, 120, 22, 10)}, {});
+    EXPECT_EQ(decide(busy, o, UtilityTuning{}).intent, Intent::Hold);
+    sim::UnitView idle = busy;
+    idle.idle = true;
+    EXPECT_EQ(decide(idle, o, UtilityTuning{}).intent, Intent::Mend) << "the control";
+}
+
+TEST(UtilityTruck, AWorseHurtButFartherFriendDoesNotPullTheTruckOffItsPatient) {
+    // Battle level: A (hp 50) is nearer, B (hp 25) farther and worse. The truck goes to A and, on
+    // every beat until A is whole, its target is still A; only then does it go on to B.
+    sim::Sim world
+        = truck_rig({spawn_at(UnitKind::Tank, 118, kHurt), spawn_at(UnitKind::Tank, 100, 25)});
+    UtilityCommander commander{UtilityTuning{}};
+    int beats_on_a = 0;
+    for (int tick = 0; tick < 3000 && world.find(UnitId{2})->hp < sim::spec_of(UnitKind::Tank).hp;
+         ++tick) {
+        drive(world, commander, 1);
+        if (tick > 15 && world.find(UnitId{1})->stance == sim::Stance::Repair) {
+            EXPECT_EQ(world.find(UnitId{1})->target, UnitId{2}) << "tick " << tick;
+            ++beats_on_a;
+        }
+    }
+    EXPECT_GT(beats_on_a, 0);
+    ASSERT_EQ(world.find(UnitId{2})->hp, sim::spec_of(UnitKind::Tank).hp);
+    drive(world, commander, 3000);
+    EXPECT_EQ(world.find(UnitId{3})->hp, sim::spec_of(UnitKind::Tank).hp) << "then B, in turn";
+}
+
+TEST(UtilityTruck, ThePatientIsTheNearestAndAFriendTheFactoryIsMendingIsSkipped) {
+    const UtilityTuning tuning{};
+    const sim::UnitView truck = unit(1, UnitKind::ServiceTruck, Side::Player, 124, 22);
+    const sim::Observation near_first
+        = field({truck, unit(2, UnitKind::Tank, Side::Player, 100, 22, 30),
+                 unit(3, UnitKind::Tank, Side::Player, 110, 22, 60)},
+                {});
+    EXPECT_EQ(decide(truck, near_first, tuning).target, UnitId{3});
+
+    const sim::Observation at_home
+        = field({truck, unit(2, UnitKind::Factory, Side::Player, 100, 22, 400),
+                 unit(3, UnitKind::Tank, Side::Player, 100 + sim::kRepairRadiusTiles, 22, 30)},
+                {});
+    EXPECT_EQ(decide(truck, at_home, tuning).intent, Intent::Hold)
+        << "the factory is mending it already";
+    const sim::Observation out_of_radar = field(
+        {truck, unit(2, UnitKind::Tank, Side::Player, 124 - sim::kRadarRadiusTiles - 1, 22, 30)},
+        {});
+    EXPECT_EQ(decide(truck, out_of_radar, tuning).intent, Intent::Hold) << "past its own radar";
+}
+
+TEST(UtilityTruck, TheSameSeedGivesTheSameBattleWithATruckInIt) {
+    const auto run = [] {
+        sim::Sim world
+            = truck_rig({spawn_at(UnitKind::Tank, 118, kHurt), spawn_at(UnitKind::Tank, 100, 25),
+                         spawn_at(UnitKind::Scout, 130, 30)});
+        UtilityCommander commander{UtilityTuning{}};
+        std::vector<std::uint64_t> hashes;
+        hashes.reserve(40);
+        for (int beat = 0; beat < 40; ++beat) {
+            drive(world, commander, 60);
+            hashes.push_back(world.state_hash());
+        }
+        return std::make_pair(hashes, world.find(UnitId{1})->x.raw);
+    };
+    const auto first = run();
+    EXPECT_EQ(first, run());
+    EXPECT_NE(first.second, 124 * sim::Fixed::kOne) << "the truck did go somewhere: not vacuous";
+}
+
 } // namespace protekt::ai

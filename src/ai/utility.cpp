@@ -67,6 +67,8 @@ namespace {
     case Intent::Advance:
         return sim::Order{decision.unit, sim::orders::MoveTo{sim::Fixed::from_int(decision.x),
                                                              sim::Fixed::from_int(decision.y)}};
+    case Intent::Mend:
+        return sim::Order{decision.unit, sim::orders::Repair{decision.target}};
     case Intent::Hold:
         return sim::Order{decision.unit, sim::orders::GuardAt{sim::Fixed::from_int(self.x),
                                                               sim::Fixed::from_int(self.y)}};
@@ -199,10 +201,53 @@ const sim::UnitView* choose_target(const sim::UnitView& self, const sim::Observa
     return best;
 }
 
+int topped_up_hp(sim::UnitKind kind, const UtilityTuning& tuning) noexcept {
+    return std::min<int>(tuning.return_hp, sim::profile(kind).hp);
+}
+
+const sim::UnitView* choose_patient(const sim::UnitView& truck, const sim::Observation& observation,
+                                    const UtilityTuning& tuning) noexcept {
+    if (truck.kind != sim::UnitKind::ServiceTruck || !truck.idle) {
+        return nullptr;
+    }
+    const sim::UnitView* home = home_factory(observation);
+    const std::int64_t reach = sim::radar_radius_tiles(truck.kind);
+    const std::int64_t home_reach = sim::kRepairRadiusTiles;
+    const sim::UnitView* best = nullptr;
+    std::int64_t best_distance = 0;
+    for (const sim::UnitView& friend_unit : observation.own) {
+        if (friend_unit.id == truck.id
+            || friend_unit.hp >= topped_up_hp(friend_unit.kind, tuning)) {
+            continue;
+        }
+        const std::int64_t distance = distance_squared(truck, friend_unit);
+        if (distance > reach * reach
+            || (home != nullptr
+                && distance_squared(*home, friend_unit) <= home_reach * home_reach)) {
+            continue;
+        }
+        if (best == nullptr || distance < best_distance) { // strict: ties keep the lower id
+            best = &friend_unit;
+            best_distance = distance;
+        }
+    }
+    return best;
+}
+
 Decision decide(const sim::UnitView& self, const sim::Observation& observation,
                 const UtilityTuning& tuning) noexcept {
     Decision decision{};
     decision.unit = self.id;
+    // The one unarmed kind with an errand: an idle service truck goes to the nearest friend worth
+    // mending. It is not a combatant, so none of the options below (retreat, engage, advance)
+    // applies to it; this sits first because they all assume a gun.
+    if (self.kind == sim::UnitKind::ServiceTruck) {
+        if (const sim::UnitView* patient = choose_patient(self, observation, tuning)) {
+            decision.intent = Intent::Mend;
+            decision.target = patient->id;
+        }
+        return decision;
+    }
     // Only combatants move and hunt; turrets and factories hold whatever happens.
     if (!is_combatant(self.kind)) {
         return decision;
@@ -214,7 +259,7 @@ Decision decide(const sim::UnitView& self, const sim::Observation& observation,
     // The band's top is capped at the kind's own full health: a mortar bike is built at 75 hp, so
     // an absolute 80 would read a mortar bike at full health as forever "still healing" and keep it
     // home.
-    const int topped_up = std::min<int>(tuning.return_hp, sim::profile(self.kind).hp);
+    const int topped_up = topped_up_hp(self.kind, tuning);
     const bool healing_at_home = home != nullptr && self.hp < topped_up
                                  && distance_squared(self, *home) <= repair_radius * repair_radius;
     if (self.hp <= tuning.retreat_hp || healing_at_home) {

@@ -35,8 +35,9 @@ enum class Intent : std::uint8_t {
     Retreat = 3,    ///< hurt: withdraw toward the base, whatever is in front of it
     Advance = 4,    ///< nothing in range and a war to go to: close the distance. Also a target in
                     ///< range with no line to it and no step aside that gives one.
+    Mend = 5, ///< a service truck with nothing to do: drive to the nearest hurt friend (`target`)
 };
-inline constexpr int kIntentCount = 5;
+inline constexpr int kIntentCount = 6;
 
 /// The numbers, in one place, because they are balance rather than logic. Whole tiles and hit
 /// points.
@@ -53,6 +54,9 @@ struct UtilityTuning {
                              ///< what makes two of these commanders actually meet.
     int sidestep_tiles{3};   ///< how far to step aside, per try, when the target is behind a rise
     int sidestep_reach{4};   ///< how many such steps, each farther than the last, to try
+    // There is no `mend_hp`: a friend is worth a truck's trip below the line a unit is "still
+    // healing" at (`return_hp`, capped at its own full health) -- the number the factory already
+    // keeps a hurt unit at home for.
     int deploy_claim_ticks{1800}; ///< how long a pool stays spoken for once a scavenger is sent to
                                   ///< it (60 s): long enough to drive across the map and deploy
 };
@@ -136,6 +140,20 @@ enum class Role : std::uint8_t { None = 0, Frontline = 1, Standoff = 2 };
 [[nodiscard]] const sim::UnitView* choose_target(const sim::UnitView& self,
                                                  const sim::Observation& observation,
                                                  const UtilityTuning& tuning) noexcept;
+
+/// The most hit points a unit of `kind` is asked to have before it counts as mended: `return_hp`,
+/// capped at the kind's own full health (a mortar bike is built at 40, and an absolute 80 would
+/// read it as forever hurt). Below it, a unit at its factory stays and heals, and a unit anywhere
+/// is worth a service truck's trip. One definition for both.
+[[nodiscard]] int topped_up_hp(sim::UnitKind kind, const UtilityTuning& tuning) noexcept;
+
+/// The friend an idle `truck` should be sent to, or nullptr: the NEAREST (lower id on a tie) other
+/// unit of its side, inside the truck's own radar, hurt below `topped_up_hp`, and not already in
+/// reach of the home factory's own mending (it is being healed there). Nothing for a truck that
+/// holds an order: it finishes its patient, it does not trade up.
+[[nodiscard]] const sim::UnitView* choose_patient(const sim::UnitView& truck,
+                                                  const sim::Observation& observation,
+                                                  const UtilityTuning& tuning) noexcept;
 
 /// The whole decision for one unit, in one pure function, so the policy can be read without reading
 /// the loop that applies it.
