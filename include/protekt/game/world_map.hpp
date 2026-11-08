@@ -79,11 +79,16 @@ inline constexpr float kMapMaxFurnitureScale = 1.6F;
 inline constexpr float kMapUnitHalf = 2.0F;
 inline constexpr float kMapBuildingHalf = 6.5F;
 /// A BIOMETAL POOL's marker (Harri, 2026-11-02: "the map shows the locations of all biometal
-/// pools"): a hollow square, `kMapPoolHalf` out from the pool's middle and `kMapPoolRing` thick,
-/// white inside a black edge. As big as a building's square so it stands clear of the blip of the
-/// scavenger deployed on it, and hollow so it reads as a place and not as one of your units.
-inline constexpr float kMapPoolHalf = kMapBuildingHalf;
-inline constexpr float kMapPoolRing = 1.5F;
+/// pools"; round 11, AS: "Can the white squares around biometal pools be thin round circles
+/// instead? They could be just a bit bigger than the dots that represent assets like tanks"): a
+/// thin white RING in a black edge. `kMapPoolRingRadius` is its OUTER radius and is its OWN size,
+/// tied to no dot's: 3.5 reference pixels, 1.75 times a vehicle's dot (`kMapUnitHalf`, 2.0), so
+/// 7 px across against the dot's 4. It is no longer building-sized (6.5), which was the square he
+/// found too much. `kMapPoolRingBar` is how thick the ring is, inward from that radius; the ring
+/// is `kMapPoolRingSegments` quads round.
+inline constexpr float kMapPoolRingRadius = 3.5F;
+inline constexpr float kMapPoolRingBar = 1.0F;
+inline constexpr int kMapPoolRingSegments = 24;
 
 /// The driven unit's direction line: 3 mm on the reference frame. A frame pixel is treated as a CSS
 /// pixel at 96 dpi (1280 px across is 13.3 in), so 3 mm is 3 / 25.4 * 96 = 11.34 px. The line runs
@@ -192,14 +197,30 @@ inline constexpr MapLineAims kMapLineAims = MapLineAims::Hull;
 [[nodiscard]] std::array<MapPoint, 4> map_heading_needle(const MapAsset& asset,
                                                          float heading_radians) noexcept;
 
-/// A pool's marker, centred at (px, py), `half` its half-size in frame pixels at the current frame
-/// height. ALL the world's pools, in the sim's order: a pool is terrain, not an asset, so unlike an
-/// enemy unit there is nothing to hide, and the map shows the ones out of sight too.
+/// A pool's marker, centred at (px, py), `radius` the ring's outer radius in frame pixels at the
+/// current frame height. ALL the world's pools, in the sim's order: a pool is terrain, not an
+/// asset, so unlike an enemy unit there is nothing to hide, and the map shows the ones out of sight
+/// too.
 struct MapPool {
     float px{};
     float py{};
-    float half{};
+    float radius{};
 };
+
+/// One slice of a ring: a quad from the outer edge to the inner, corners in the order outer `a`,
+/// outer `b`, inner `b`, inner `a` (clockwise on a screen whose y runs down).
+struct RingSegment {
+    std::array<float, 2> outer_a{};
+    std::array<float, 2> outer_b{};
+    std::array<float, 2> inner_b{};
+    std::array<float, 2> inner_a{};
+};
+
+/// A ring about (cx, cy) as `segments` slices, starting at the top and going clockwise, each corner
+/// exactly `outer` or `inner` from the middle. Neighbouring slices share their corners, so the ring
+/// is closed. Empty for fewer than three segments or a non-positive or inverted radius.
+[[nodiscard]] std::vector<RingSegment> ring_segments(float cx, float cy, float outer, float inner,
+                                                     int segments);
 
 /// An enemy the radar is showing right now, centred at (px, py), `half` its half-size in frame
 /// pixels, `alpha` how strongly (`RadarDetection::alpha`).

@@ -719,25 +719,86 @@ TEST(WorldMapPools, EveryPoolIsOnTheMapWhereverItIsAndNotOnlyThoseInSight) {
                                       static_cast<float>(pool.tile_y) + 0.5F);
         EXPECT_FLOAT_EQ(map.pools.at(i).px, at.x) << "pool " << i << " at the middle of its tile";
         EXPECT_FLOAT_EQ(map.pools.at(i).py, at.y);
-        EXPECT_GT(map.pools.at(i).half, 0.0F);
+        EXPECT_GT(map.pools.at(i).radius, 0.0F);
     }
 }
 
-TEST(WorldMapPools, APoolMarkerIsAsBigAsABuildingSoADeployedOneNeverCoversIt) {
-    // The pool marker sits on a farther layer than the assets, so a building deployed on a pool
-    // hides any part of the ring inside its own square. It is therefore at least a building's size
-    // (6.5 a side-half at 720, a literal): the round-11 growth of the building took it along.
+TEST(WorldMapPools, APoolsMarkIsJustABitBiggerThanAnAssetDotAndHasItsOwnSize) {
+    // Harri, round 11 (AS): "They could be just a bit bigger than the dots that represent assets
+    // like tanks." A vehicle's dot is `kMapUnitHalf` (2.0) a side-half. The ring's OUTER radius is
+    // its own constant, 3.5 reference pixels (1.75 times the dot's half-size, 7 px across against
+    // the dot's 4), pinned as a literal so neither the dot's nor the building's constant can drag
+    // it along.
+    EXPECT_FLOAT_EQ(kMapPoolRingRadius, 3.5F);
     const Rig rig = make_pool_rig({sim::Pool{128, 128}});
     const WorldMap map = map_of(rig);
     ASSERT_EQ(map.pools.size(), 1U);
-    EXPECT_NEAR(map.pools.front().half, 6.5F, 1.0e-4F);
+    ASSERT_FALSE(map.assets.empty());
+    float dot = map.assets.front().half;
+    for (const MapAsset& asset : map.assets) {
+        dot = std::min(dot, asset.half);
+    }
+    const float ratio = map.pools.front().radius / dot;
+    EXPECT_GT(ratio, 1.2F) << "bigger than the dot, or it hides behind a unit on the pool";
+    EXPECT_LE(ratio, 2.0F) << "but only a bit: not twice the dot";
+    EXPECT_NEAR(ratio, 1.75F, 1.0e-4F);
+    EXPECT_LT(map.pools.front().radius, kMapBuildingHalf * map_furniture_scale(map.layout))
+        << "no longer building-sized: that was the square";
 }
 
-TEST(WorldMapPools, AMapWithNoPoolsShowsNone) {
-    EXPECT_TRUE(map_of(make_pool_rig({})).pools.empty());
+TEST(WorldMapPools, TheRingGeometryIsRoundAndNotASquare) {
+    const int n = kMapPoolRingSegments;
+    ASSERT_GE(n, 16) << "few enough segments and a circle is a polygon you can see";
+    const std::vector<RingSegment> ring = ring_segments(10.0F, 20.0F, 3.5F, 2.5F, n);
+    ASSERT_EQ(ring.size(), static_cast<std::size_t>(n));
+    const auto distance = [](const std::array<float, 2>& p) {
+        return std::hypot(p.at(0) - 10.0F, p.at(1) - 20.0F);
+    };
+    for (const RingSegment& seg : ring) {
+        // Every corner of the outer edge is the same distance from the middle, and so is every
+        // corner of the inner edge: a square's corners are 1.41 times its edges' middles.
+        EXPECT_NEAR(distance(seg.outer_a), 3.5F, 1.0e-4F);
+        EXPECT_NEAR(distance(seg.outer_b), 3.5F, 1.0e-4F);
+        EXPECT_NEAR(distance(seg.inner_a), 2.5F, 1.0e-4F);
+        EXPECT_NEAR(distance(seg.inner_b), 2.5F, 1.0e-4F);
+        // ...and an edge's middle is within the polygon's own sag of the true circle.
+        const std::array<float, 2> mid{(seg.outer_a.at(0) + seg.outer_b.at(0)) / 2.0F,
+                                       (seg.outer_a.at(1) + seg.outer_b.at(1)) / 2.0F};
+        EXPECT_GT(distance(mid), 3.5F * 0.99F);
+    }
+    // Neighbours share a corner: a closed ring with no gap.
+    for (int i = 0; i < n; ++i) {
+        const RingSegment& now = ring.at(static_cast<std::size_t>(i));
+        const RingSegment& next = ring.at(static_cast<std::size_t>((i + 1) % n));
+        EXPECT_NEAR(now.outer_b.at(0), next.outer_a.at(0), 1.0e-4F);
+        EXPECT_NEAR(now.outer_b.at(1), next.outer_a.at(1), 1.0e-4F);
+    }
 }
 
-TEST(WorldMapPools, AMarkerIsDrawnForEachPool) {
+TEST(WorldMapPools, TheRingIsThinAndNotADisc) {
+    EXPECT_LE(kMapPoolRingBar, 1.5F) << "no thicker than the old square's bar";
+    EXPECT_LE(kMapPoolRingBar, kMapPoolRingRadius * 0.35F)
+        << "an outline, a fraction of the radius";
+    EXPECT_GT(kMapPoolRingBar, 0.0F);
+    const float inner = kMapPoolRingRadius - kMapPoolRingBar;
+    EXPECT_LT(1.0F - ((inner * inner) / (kMapPoolRingRadius * kMapPoolRingRadius)), 0.6F)
+        << "less than 60% of the circle's area is ink: the middle is open";
+}
+
+/// The vertices a map adds for its pools: `with` minus `without` (same map, no pools), which is one
+/// run in the middle because the pools' marks are laid down together.
+[[nodiscard]] std::vector<SceneVertex> pool_vertices(const Rig& with, const Rig& without) {
+    const std::vector<SceneVertex> a = build_scene(with.sim, with.options).vertices;
+    const std::vector<SceneVertex> b = build_scene(without.sim, without.options).vertices;
+    std::size_t first = 0;
+    while (first < b.size() && a.at(first).position == b.at(first).position) {
+        ++first;
+    }
+    return {a.begin() + static_cast<std::ptrdiff_t>(first),
+            a.begin() + static_cast<std::ptrdiff_t>(first + (a.size() - b.size()))};
+}
+
+TEST(WorldMapPools, ThePoolsMarkIsDrawnAsTwoRingsOfSegmentsAndEveryCornerIsOnACircle) {
     // Both far past the radar's reach: the map replaces the radar, so a pool the radar outlined
     // would take its outline off the frame as the map comes up and muddy the count.
     const Rig with = make_pool_rig({sim::Pool{128, 128}, sim::Pool{220, 30}});
@@ -748,10 +809,53 @@ TEST(WorldMapPools, AMarkerIsDrawnForEachPool) {
         return build_scene(rig.sim, rig.options).vertices.size()
                - build_scene(rig.sim, off).vertices.size();
     };
-    // A marker is a black ring under a white ring, four bars each, a quad a bar: 8 quads.
-    EXPECT_EQ(map_part(with) - map_part(without), 2U * 8U * 6U);
-
+    // A marker is a black ring under a white ring, each `kMapPoolRingSegments` quads of 6 vertices.
+    const std::size_t per_pool = 2U * static_cast<std::size_t>(kMapPoolRingSegments) * 6U;
+    EXPECT_EQ(map_part(with) - map_part(without), 2U * per_pool);
     EXPECT_GT(map_part(without), 0U) << "the map itself is drawn either way";
+
+    // ONE pool, and the corners it puts on the screen: about the middle of them, every one lies at
+    // one of four distances (the black edge's outer and inner, the white ring's outer and inner),
+    // which a square outline could not do (its corners are 1.41 times further than its sides).
+    const Rig one = make_pool_rig({sim::Pool{128, 128}});
+    const std::vector<SceneVertex> marks = pool_vertices(one, without);
+    ASSERT_EQ(marks.size(), per_pool);
+    // In PIXELS: a vertex projected back through the camera (a circle on the screen is an ellipse
+    // in the world once the panel is off the view's axis, so the world's own distances prove
+    // nothing).
+    std::vector<std::array<double, 2>> pixels;
+    pixels.reserve(marks.size());
+    std::array<double, 2> centre{};
+    for (const SceneVertex& v : marks) {
+        const Projected at = project(one.options.camera, one.options.extent, v.position.at(0),
+                                     v.position.at(1), v.position.at(2));
+        pixels.push_back({static_cast<double>(at.x), static_cast<double>(at.y)});
+        centre.at(0) += static_cast<double>(at.x) / static_cast<double>(marks.size());
+        centre.at(1) += static_cast<double>(at.y) / static_cast<double>(marks.size());
+    }
+    std::vector<double> reach;
+    reach.reserve(marks.size());
+    for (const std::array<double, 2>& p : pixels) {
+        reach.push_back(std::hypot(p.at(0) - centre.at(0), p.at(1) - centre.at(1)));
+    }
+    const double widest = *std::max_element(reach.begin(), reach.end());
+    // As fractions of the widest: radius + 1 edge px (black outer), radius (white outer),
+    // radius - bar (white inner), radius - bar - 1 edge px (black inner), all at one scale.
+    const double outer = kMapPoolRingRadius + 1.0F;
+    const std::array<double, 4> expected{1.0, kMapPoolRingRadius / outer,
+                                         (kMapPoolRingRadius - kMapPoolRingBar) / outer,
+                                         (kMapPoolRingRadius - kMapPoolRingBar - 1.0F) / outer};
+    for (const double r : reach) {
+        bool on_a_circle = false;
+        for (const double e : expected) {
+            on_a_circle = on_a_circle || std::abs((r / widest) - e) < 0.03;
+        }
+        EXPECT_TRUE(on_a_circle) << "a corner at " << (r / widest) << " of the widest";
+    }
+}
+
+TEST(WorldMapPools, AMapWithNoPoolsShowsNone) {
+    EXPECT_TRUE(map_of(make_pool_rig({})).pools.empty());
 }
 
 } // namespace

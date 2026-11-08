@@ -139,6 +139,26 @@ MapColour map_terrain_colour(world::Terrain terrain) {
     return palette().at(at < palette().size() ? at : 0U);
 }
 
+std::vector<RingSegment> ring_segments(float cx, float cy, float outer, float inner, int segments) {
+    std::vector<RingSegment> ring;
+    if (segments < 3 || inner <= 0.0F || outer <= inner) {
+        return ring;
+    }
+    ring.reserve(static_cast<std::size_t>(segments));
+    constexpr float kTurn = 6.2831853F;
+    // From the top, clockwise on a screen whose y runs down: x follows sin, y follows -cos.
+    const auto corner = [&](float radius, int step) {
+        const float angle = kTurn * static_cast<float>(step) / static_cast<float>(segments);
+        return std::array<float, 2>{cx + (radius * std::sin(angle)),
+                                    cy - (radius * std::cos(angle))};
+    };
+    for (int step = 0; step < segments; ++step) {
+        ring.push_back(RingSegment{corner(outer, step), corner(outer, step + 1),
+                                   corner(inner, step + 1), corner(inner, step)});
+    }
+    return ring;
+}
+
 WorldMap world_map(const sim::Sim& sim, Extent extent, sim::Side own, sim::UnitId driven,
                    const NavMarks* marks, const RadarActivity* activity, sim::UnitId target) {
     WorldMap map;
@@ -180,7 +200,7 @@ WorldMap world_map(const sim::Sim& sim, Extent extent, sim::Side own, sim::UnitI
     for (const sim::Pool& pool : sim.pools()) {
         const MapPoint at = map_point(map.layout, static_cast<float>(pool.tile_x) + 0.5F,
                                       static_cast<float>(pool.tile_y) + 0.5F);
-        map.pools.push_back(MapPool{at.x, at.y, kMapPoolHalf * scale});
+        map.pools.push_back(MapPool{at.x, at.y, kMapPoolRingRadius * scale});
     }
     if (marks != nullptr) {
         const float half = radar_nav_half(radar_panel(extent));

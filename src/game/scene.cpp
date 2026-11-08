@@ -5167,20 +5167,26 @@ void append_world_map(std::vector<SceneVertex>& out, const SceneOptions& options
         }
     }
 
-    // The biometal pools, ALL of them (`world_map`): a white hollow square in a black edge, drawn
-    // under the assets (a farther layer than their edge) so a scavenger deployed on one still
-    // shows.
+    // The biometal pools, ALL of them (`world_map`): a thin white RING in a black edge, a bit
+    // bigger than a vehicle's dot (`kMapPoolRingRadius`), drawn under the assets (a farther layer
+    // than their edge) so a scavenger deployed on one still shows inside it.
     for (const MapPool& pool : map.pools) {
-        const float h = pool.half;
-        const float ring = kMapPoolRing * scale;
-        const auto square = [&](float ratio, float out, float in, const std::array<float, 3>& rgb) {
-            rect(ratio, pool.px - out, pool.py - out, pool.px + out, pool.py - in, rgb);
-            rect(ratio, pool.px - out, pool.py + in, pool.px + out, pool.py + out, rgb);
-            rect(ratio, pool.px - out, pool.py - in, pool.px - in, pool.py + in, rgb);
-            rect(ratio, pool.px + in, pool.py - in, pool.px + out, pool.py + in, rgb);
-        };
-        square(kMapPoolEdgeRatio, h + scale, h - ring - scale, kInk);
-        square(kMapPoolRingRatio, h, h - ring, kPoolRing);
+        const float bar = kMapPoolRingBar * scale;
+        const auto ring
+            = [&](float ratio, float outer, float inner, const std::array<float, 3>& rgb) {
+                  for (const RingSegment& seg :
+                       ring_segments(pool.px, pool.py, outer, inner, kMapPoolRingSegments)) {
+                      const auto at = [&](const std::array<float, 2>& p) {
+                          const RayPoint point = ray_point(options.camera, options.extent, p.at(0),
+                                                           p.at(1), marks_at * ratio);
+                          return Vec3{point.x, point.y, point.z};
+                      };
+                      emit_quad(out, at(seg.outer_a), at(seg.outer_b), at(seg.inner_b),
+                                at(seg.inner_a), rgb, 1.0F);
+                  }
+              };
+        ring(kMapPoolEdgeRatio, pool.radius + scale, pool.radius - bar - scale, kInk);
+        ring(kMapPoolRingRatio, pool.radius, pool.radius - bar, kPoolRing);
     }
 
     // Your assets: a black edge, then the green square. Buildings are the larger squares. The
