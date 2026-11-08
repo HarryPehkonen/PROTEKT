@@ -140,7 +140,7 @@ MapColour map_terrain_colour(world::Terrain terrain) {
 }
 
 WorldMap world_map(const sim::Sim& sim, Extent extent, sim::Side own, sim::UnitId driven,
-                   const NavMarks* marks, const RadarActivity* activity) {
+                   const NavMarks* marks, const RadarActivity* activity, sim::UnitId target) {
     WorldMap map;
     map.layout = world_map_layout(extent);
     const float scale = static_cast<float>(extent.height) / kReferenceHeight;
@@ -165,6 +165,17 @@ WorldMap world_map(const sim::Sim& sim, Extent extent, sim::Side own, sim::UnitI
         const MapPoint at = map_point(map.layout, tiles(enemy->x), tiles(enemy->y));
         map.blips.push_back(
             MapBlip{enemy->id, at.x, at.y, blip_half(*enemy, scale), detection.alpha});
+    }
+    // THE TARGET DIAMOND: the radar's own question (`radar_target`: a living hostile in reach), so
+    // the two views can never disagree about whether there is a target. It is NOT one of `blips`:
+    // those come and go with the sweep, this lasts as long as the player's mark.
+    if (radar_target(sim.units(), driven, 0.0F, radar_panel(extent),
+                     viewer_radar_radius(sim, driven), target)
+            .has_value()) {
+        if (const sim::Unit* marked = sim.find(target); marked != nullptr) {
+            const MapPoint at = map_point(map.layout, tiles(marked->x), tiles(marked->y));
+            map.target = MapTarget{at.x, at.y, blip_half(*marked, scale) * kMapTargetFit};
+        }
     }
     for (const sim::Pool& pool : sim.pools()) {
         const MapPoint at = map_point(map.layout, static_cast<float>(pool.tile_x) + 0.5F,

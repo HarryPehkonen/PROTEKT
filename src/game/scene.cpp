@@ -2624,6 +2624,35 @@ void append_nav_glyph(std::vector<SceneVertex>& out, const SceneOptions& options
     }
 }
 
+/// The target diamond's depth on the radar: nearer than the blips (1.0) and than the nav marks
+/// (0.87's neighbours are far from it), so the ring over a blip is not lost to the depth test.
+constexpr float kRadarTargetRatio = 0.93F;
+
+/// A diamond ring centred at (cx, cy) in FRAME pixels: four bars, one per side, `half` the distance
+/// from the centre to a corner and `bar` the thickness. One shape for the radar and the map; each
+/// side is a quad whose outer edge runs corner to corner and whose inner edge is the same line
+/// pulled toward the centre. Pixels in, through `ray_point` like every HUD layer.
+void append_target_diamond(std::vector<SceneVertex>& out, const SceneOptions& options,
+                           float distance, float cx, float cy, float half, float bar) {
+    constexpr std::array<float, 3> kInk{1.0F, 0.15F, 0.12F};
+    const auto at = [&](float x, float y) {
+        const RayPoint point = ray_point(options.camera, options.extent, x, y, distance);
+        return Vec3{point.x, point.y, point.z};
+    };
+    // Pulling an edge in by `bar` along the diagonal normal moves each corner by bar * sqrt(2).
+    const float inner = std::max(0.0F, half - (bar * 1.41421356F));
+    const std::array<std::array<float, 2>, 4> dirs{
+        {{0.0F, -1.0F}, {1.0F, 0.0F}, {0.0F, 1.0F}, {-1.0F, 0.0F}}}; // top, right, bottom, left
+    for (std::size_t side = 0; side < dirs.size(); ++side) {
+        const std::array<float, 2>& a = dirs.at(side);
+        const std::array<float, 2>& b = dirs.at((side + 1) % dirs.size());
+        emit_quad(out, at(cx + (a.at(0) * half), cy + (a.at(1) * half)),
+                  at(cx + (b.at(0) * half), cy + (b.at(1) * half)),
+                  at(cx + (b.at(0) * inner), cy + (b.at(1) * inner)),
+                  at(cx + (a.at(0) * inner), cy + (a.at(1) * inner)), kInk);
+    }
+}
+
 /// The radar's marks for this frame, in panel pixels: the ONE call both the radar and the command
 /// menu's leader line make, so the line's dot lands on the blip the radar drew and not on a second
 /// opinion of where the unit is.
@@ -2814,6 +2843,17 @@ void append_radar(std::vector<SceneVertex>& out, const SceneOptions& options, co
             continue;
         }
         triangle(marks_at, centre_x, centre_y, mark.half, mark.angle, rgb);
+    }
+
+    // THE TARGET DIAMOND (AQ): the ring round the hostile `t` holds, from `radar_target` -- the
+    // unit's place, not its blip -- so it is drawn on every frame the mark lasts, sweep or no
+    // sweep.
+    if (const std::optional<RadarTarget> target
+        = radar_target(sim.units(), options.viewer_unit, options.camera.yaw, panel, reach,
+                       options.readout_lock);
+        target.has_value()) {
+        append_target_diamond(out, options, marks_at * kRadarTargetRatio, panel.x + target->px,
+                              panel.y + target->py, target->half, kTargetDiamondBar * target->half);
     }
 
     // THE NAV MARKS: `append_nav_glyph`'s plus, nearer than the compass so a mark pinned to the rim
@@ -5060,6 +5100,8 @@ constexpr float kMapPoolEdgeRatio = 1.05F;
 /// An enemy blip is NEARER than your assets (fill 1.0, edge 1.02), edge behind fill.
 constexpr float kMapBlipRatio = 0.99F;
 constexpr float kMapBlipEdgeRatio = 1.01F;
+/// The target diamond is NEARER than the blips (0.99): it rings one, and equal depth would lose.
+constexpr float kMapTargetRatio = 0.97F;
 
 void append_world_map(std::vector<SceneVertex>& out, const SceneOptions& options,
                       const sim::Sim& sim) {
@@ -5067,7 +5109,7 @@ void append_world_map(std::vector<SceneVertex>& out, const SceneOptions& options
         return;
     }
     const WorldMap map = world_map(sim, options.extent, options.viewer_side, options.viewer_unit,
-                                   options.nav_marks, options.radar_activity);
+                                   options.nav_marks, options.radar_activity, options.readout_lock);
     const WorldMapLayout& layout = map.layout;
     const float scale = map_furniture_scale(layout);
     const float marks_at = math::kNearPlane * kHudClearance * corner_ray_length(options.extent);
@@ -5189,6 +5231,12 @@ void append_world_map(std::vector<SceneVertex>& out, const SceneOptions& options
              blip.py + h + scale, kInk, blip.alpha);
         rect(kMapBlipRatio, blip.px - h, blip.py - h, blip.px + h, blip.py + h,
              radar_colour(RadarTone::Hostile), blip.alpha);
+    }
+
+    // The target diamond, over the blips: the map's mark for the hostile `t` holds.
+    if (map.target.has_value()) {
+        append_target_diamond(out, options, marks_at * kMapTargetRatio, map.target->px,
+                              map.target->py, map.target->half, kMapTargetBar * map.target->half);
     }
 
     // The nav marks, over the units, exactly as the radar draws them.

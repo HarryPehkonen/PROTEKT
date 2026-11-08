@@ -2,6 +2,7 @@
 
 #include <array>
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <vector>
 
@@ -255,6 +256,31 @@ struct RadarDetection {
                                                  sim::UnitId viewer_unit, float yaw_radians,
                                                  const RadarPanel& panel,
                                                  int radius_tiles = kRadarRadiusTiles);
+
+/// THE TARGET DIAMOND (AQ): where the radar draws the ring round the hostile the player marked
+/// with `t`. Its lifetime is the MARK's -- until `t` again or the target dies -- and NOT a blip's,
+/// so it is made from the unit's position alone: no tick, no activity, no sweep. A stationary
+/// hostile has no blip between sweeps and still has this.
+struct RadarTarget {
+    float px{}; ///< centre, panel pixels
+    float py{};
+    float half{}; ///< the diamond's half-diagonal, panel pixels
+};
+
+/// The diamond's half-diagonal as a multiple of the dot it surrounds. A square's corner is
+/// sqrt(2) times its half away from the centre, so 2 clears the dot with a gap. Its own constant:
+/// the dot sizes (`kDotHalfFraction`, `kBaseHalfFraction`) are pinned and are not touched.
+inline constexpr float kTargetDiamondFit = 2.0F;
+/// The diamond's bar thickness as a fraction of its half-diagonal.
+inline constexpr float kTargetDiamondBar = 0.22F;
+
+/// The diamond for `target`, or nothing: when `target` is not a living hostile of `viewer_unit`,
+/// or is outside `radius_tiles` (the radar's reach, the same boundary `radar_marks` uses), or there
+/// is no viewer. A dead target is therefore never drawn, whatever still remembers its id.
+[[nodiscard]] std::optional<RadarTarget> radar_target(std::span<const sim::Unit> units,
+                                                      sim::UnitId viewer_unit, float yaw_radians,
+                                                      const RadarPanel& panel, int radius_tiles,
+                                                      sim::UnitId target);
 
 /// Scrap on the radar: a small white mark for every piece of litter inside `radius_tiles` of the
 /// viewer, placed exactly as a unit at that spot would be. Whatever a scavenger can collect shows

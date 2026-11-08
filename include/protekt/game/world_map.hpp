@@ -2,6 +2,7 @@
 
 #include <array>
 #include <cstdint>
+#include <optional>
 #include <vector>
 
 #include "protekt/game/nav_marks.hpp"
@@ -210,21 +211,41 @@ struct MapBlip {
     float alpha{};
 };
 
+/// The target diamond (AQ): the ring round the hostile marked with `t`, centred at (px, py), `half`
+/// its half-diagonal in frame pixels. Not a blip: it is there while the MARK is, whatever the
+/// radar's sweep is showing.
+struct MapTarget {
+    float px{};
+    float py{};
+    float half{};
+};
+
+/// The map's diamond is the dot it rings times this: the radar's own `kTargetDiamondFit`, so the
+/// two views draw one shape in proportion. A name of its own so the dot pins are never the ones
+/// read.
+inline constexpr float kMapTargetFit = kTargetDiamondFit;
+/// The bar thickness as a fraction of the half-diagonal: the radar's, for the same reason.
+inline constexpr float kMapTargetBar = kTargetDiamondBar;
+
 struct WorldMap {
     WorldMapLayout layout{};
     std::vector<MapAsset> assets;
     std::vector<MapBlip> blips;
     std::vector<MapMark> marks;
     std::vector<MapPool> pools;
+    std::optional<MapTarget> target; ///< the marked hostile's diamond, if there is one to draw
 };
 
 /// Everything the map draws apart from the ground, for the side `own` and the unit `driven`.
 /// `marks` may be null. Only living units of `own` are included as assets; the enemy appears only
 /// as the radar's `blips` (empty when `driven` is not a unit of the sim); marks only if placed;
 /// every pool. `activity` (may be null) is what the radar knows of who moved or fired lately; the
-/// blips are the radar's detections made with it.
+/// blips are the radar's detections made with it. `target` is the unit `t` marked (none by
+/// default): it gets a diamond if it is a living hostile inside the driven unit's radar reach --
+/// the radar's own test (`radar_target`) -- and NOT otherwise, sweep or no sweep.
 [[nodiscard]] WorldMap world_map(const sim::Sim& sim, Extent extent, sim::Side own,
                                  sim::UnitId driven, const NavMarks* marks,
-                                 const RadarActivity* activity = nullptr);
+                                 const RadarActivity* activity = nullptr,
+                                 sim::UnitId target = sim::UnitId{});
 
 } // namespace protekt::game

@@ -437,6 +437,26 @@ std::vector<RadarMark> radar_marks(std::span<const sim::Unit> units, sim::UnitId
     return marks;
 }
 
+std::optional<RadarTarget> radar_target(std::span<const sim::Unit> units, sim::UnitId viewer_unit,
+                                        float yaw_radians, const RadarPanel& panel,
+                                        int radius_tiles, sim::UnitId target) {
+    if (!target.valid()) {
+        return std::nullopt;
+    }
+    // The dot's own place, through the one projection (`radar_marks`): the diamond is centred on
+    // the dot a blip would be, whether or not the sweep is showing one.
+    for (const RadarMark& mark :
+         radar_marks(units, viewer_unit, yaw_radians, panel, radius_tiles)) {
+        if (mark.unit != target || mark.tone != RadarTone::Hostile) {
+            continue;
+        }
+        const float half = mark.half * kTargetDiamondFit;
+        const RadarPoint at = fit_box(panel, RadarPoint{mark.px, mark.py}, half);
+        return RadarTarget{at.px, at.py, half};
+    }
+    return std::nullopt;
+}
+
 std::vector<RadarMark> radar_litter(std::span<const sim::Scrap> scrap,
                                     std::span<const sim::Unit> units, sim::UnitId viewer_unit,
                                     float yaw_radians, const RadarPanel& panel, int radius_tiles) {

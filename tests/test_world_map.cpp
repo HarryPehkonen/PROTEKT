@@ -855,4 +855,166 @@ TEST(WorldMapBlips, AnEnemyThatFiredLatelyIsOnTheMapBetweenSweepsAndGoneAfterThe
     EXPECT_FALSE(shown(182)) << "five seconds on, and no sweep is passing";
 }
 
+// ---- AQ: the target diamond. `t` marks a hostile; the radar and the map each draw a diamond round
+// it that lives as long as the MARK does (until `t` again, or it dies), not as long as the blip.
+
+/// The rig plus a hostile turret that never moves: a stationary enemy is on the radar only as a
+/// sweep passes, which is the case where a mark tied to the blip would flicker.
+struct TargetRig {
+    Rig rig;
+    UnitId target;
+};
+
+[[nodiscard]] TargetRig make_target_rig() {
+    TargetRig out{make_rig({{UnitKind::Turret, Side::Enemy, 40, 55}}), UnitId{}};
+    out.target = out.rig.enemy.back();
+    return out;
+}
+
+[[nodiscard]] std::size_t scene_size(const TargetRig& t, bool map, UnitId lock) {
+    SceneOptions options = t.rig.options;
+    options.show_world_map = map;
+    options.readout_lock = lock;
+    return build_scene(t.rig.sim, options).vertices.size();
+}
+
+/// Look straight at `id` with the crosshair on it, as the point-readout tests do.
+void look_at_unit(SceneOptions& options, const sim::Sim& world, UnitId id) {
+    const sim::Unit* unit = world.find(id);
+    const float one = static_cast<float>(sim::Fixed::kOne);
+    const float x = static_cast<float>(unit->x.raw) / one * kMetresPerTile;
+    const float z = static_cast<float>(unit->y.raw) / one * kMetresPerTile;
+    options.camera.y
+        = ground_metres(kSeed, unit->x, unit->y) + (unit_box_height_metres(unit->kind) * 0.5F);
+    options.camera.pitch = 0.0F;
+    options.viewer_side = Side::Player;
+    options.driven_unit = options.viewer_unit;
+    options.radius_tiles = 60;
+    options.camera.yaw = std::atan2(x - options.camera.x, z - options.camera.z);
+    options.aim = Aim{640.0F, 360.0F};
+}
+
+TEST(TargetMark, TheRadarDrawsADiamondRoundTheTarget) {
+    TargetRig t = make_target_rig();
+    const RadarPanel panel = radar_panel(kExtent);
+    const int reach = viewer_radar_radius(t.rig.sim, t.rig.options.viewer_unit);
+    const std::optional<RadarTarget> mark
+        = radar_target(t.rig.sim.units(), t.rig.options.viewer_unit, 0.0F, panel, reach, t.target);
+    if (!mark.has_value()) {
+        FAIL() << "no diamond on the radar";
+    }
+    const RadarTarget ring = *mark;
+    EXPECT_GT(ring.half, 0.0F);
+    // The diamond is round the dot: it is the dot's own centre, and it is bigger than the dot.
+    for (const RadarMark& dot :
+         radar_marks(t.rig.sim.units(), t.rig.options.viewer_unit, 0.0F, panel, reach)) {
+        if (dot.unit == t.target) {
+            EXPECT_NEAR(ring.px, dot.px, 1.0F);
+            EXPECT_NEAR(ring.py, dot.py, 1.0F);
+            EXPECT_GT(ring.half, dot.half);
+        }
+    }
+    EXPECT_GT(scene_size(t, false, t.target), scene_size(t, false, UnitId{}))
+        << "and the radar's frame draws it";
+}
+
+TEST(TargetMark, TheMapDrawsTheSameDiamond) {
+    TargetRig t = make_target_rig();
+    const WorldMap with = world_map(t.rig.sim, kExtent, Side::Player, t.rig.options.viewer_unit,
+                                    nullptr, nullptr, t.target);
+    if (!with.target.has_value()) {
+        FAIL() << "no diamond on the map";
+    }
+    const MapTarget ring = *with.target;
+    const MapPoint where = map_point(with.layout, 40.0F, 55.0F);
+    EXPECT_NEAR(ring.px, where.x, 1.0F);
+    EXPECT_NEAR(ring.py, where.y, 1.0F);
+    EXPECT_GT(ring.half, 0.0F);
+    EXPECT_FALSE(map_of(t.rig).target.has_value()) << "no lock, no diamond";
+    EXPECT_GT(scene_size(t, true, t.target), scene_size(t, true, UnitId{}));
+}
+
+TEST(TargetMark, ItSurvivesTheSweepThatTakesTheBlipAway) {
+    // THE LIFETIME RULE. The turret is still, so its blip is there for the first second of each
+    // five-second sweep and gone for the rest. The diamond is player intent: it is drawn at every
+    // tick of the sweep, by the same four bars, and does not follow the blip.
+    TargetRig t = make_target_rig();
+    bool blip_seen = false;
+    bool blip_gone = false;
+    for (int tick = 0; tick < 2 * static_cast<int>(kRadarSweepIntervalTicks); ++tick) {
+        const WorldMap plain = map_of(t.rig);
+        const bool blip = std::any_of(plain.blips.begin(), plain.blips.end(),
+                                      [&](const MapBlip& b) { return b.id == t.target; });
+        (blip ? blip_seen : blip_gone) = true;
+        const WorldMap marked = world_map(t.rig.sim, kExtent, Side::Player,
+                                          t.rig.options.viewer_unit, nullptr, nullptr, t.target);
+        ASSERT_TRUE(marked.target.has_value()) << "tick " << t.rig.sim.tick();
+        if (tick % 25 == 0) {
+            EXPECT_EQ(scene_size(t, false, t.target) - scene_size(t, false, UnitId{}), 24U)
+                << "radar, tick " << t.rig.sim.tick();
+            EXPECT_EQ(scene_size(t, true, t.target) - scene_size(t, true, UnitId{}), 24U)
+                << "map, tick " << t.rig.sim.tick();
+        }
+        t.rig.sim.step();
+    }
+    EXPECT_TRUE(blip_seen);
+    EXPECT_TRUE(blip_gone) << "the test only means something if the blip really does go";
+}
+
+TEST(TargetMark, TAgainClearsItAndTheViewsLoseTheDiamond) {
+    TargetRig t = make_target_rig();
+    Rig& rig = t.rig;
+    // Point the crosshair at the turret, as the point-readout tests do.
+    look_at_unit(rig.options, rig.sim, t.target);
+    Interaction player{rig.options.viewer_unit};
+    input::InputFrame press{};
+    press.keys.push_back(input::KeyEvent{input::kKeyT, true, false});
+    player.handle(press, rig.sim, rig.options);
+    ASSERT_EQ(player.readout_lock(), t.target) << "t on an enemy asset marks it";
+    EXPECT_TRUE(world_map(rig.sim, kExtent, Side::Player, rig.options.viewer_unit, nullptr, nullptr,
+                          player.readout_lock())
+                    .target.has_value());
+    player.handle(press, rig.sim, rig.options);
+    EXPECT_FALSE(player.readout_lock().valid()) << "t again clears it";
+    EXPECT_FALSE(world_map(rig.sim, kExtent, Side::Player, rig.options.viewer_unit, nullptr,
+                           nullptr, player.readout_lock())
+                     .target.has_value());
+}
+
+TEST(TargetMark, DestroyingTheTargetClearsItEverywhere) {
+    TargetRig t = make_target_rig();
+    sim::Sim& world = t.rig.sim;
+    // Kill it by hand: a dead unit is `alive == false` in the table, and that is all the views see.
+    const sim::UnitId id = t.target;
+    sim::Sim alive = world;
+    ASSERT_TRUE(radar_target(alive.units(), t.rig.options.viewer_unit, 0.0F, radar_panel(kExtent),
+                             viewer_radar_radius(alive, t.rig.options.viewer_unit), id)
+                    .has_value());
+    std::vector<sim::Unit> units(alive.units().begin(), alive.units().end());
+    for (sim::Unit& unit : units) {
+        if (unit.id == id) {
+            unit.alive = false;
+        }
+    }
+    EXPECT_FALSE(radar_target(units, t.rig.options.viewer_unit, 0.0F, radar_panel(kExtent),
+                              viewer_radar_radius(alive, t.rig.options.viewer_unit), id)
+                     .has_value())
+        << "a dead unit has no diamond on the radar";
+    // The map: a target that is not in the sim at all (an empty world) is no diamond either.
+    const sim::Sim gone
+        = sim::Sim::create(sim::Scenario{kSeed, {{UnitKind::Tank, Side::Player, 40, 40}}});
+    EXPECT_FALSE(
+        world_map(gone, kExtent, Side::Player, t.rig.options.viewer_unit, nullptr, nullptr, id)
+            .target.has_value());
+    // And the key's own lock goes with the unit (Interaction's update, as the readout tests pin).
+    Interaction player{t.rig.options.viewer_unit};
+    look_at_unit(t.rig.options, world, id);
+    input::InputFrame press{};
+    press.keys.push_back(input::KeyEvent{input::kKeyT, true, false});
+    player.handle(press, world, t.rig.options);
+    ASSERT_EQ(player.readout_lock(), id);
+    player.handle(input::InputFrame{}, gone, t.rig.options);
+    EXPECT_FALSE(player.readout_lock().valid());
+}
+
 } // namespace protekt::game
