@@ -7,6 +7,8 @@
 
 #include <gtest/gtest.h>
 
+#include "protekt/ai/utility.hpp"
+#include "protekt/sim/commander.hpp"
 #include "protekt/sim/orders.hpp"
 #include "protekt/sim/outcome.hpp"
 #include "protekt/sim/replay.hpp"
@@ -141,12 +143,10 @@ TEST(Scavenger, TheGroundIsWorkUntilThereIsWreckageOnIt) {
     EXPECT_EQ(after.stance, Stance::Idle) << "no wreckage: there is nothing to be sent to";
 }
 
-TEST(Scavenger, AWreckIsBankedFromWhereTheScavengerStands) {
-    // The whole loop, end to end: one wreck's four pieces, taken one at a time from the spot the
-    // scavenger was put on, until the ground is bare and the ledger reads four. It never moves.
+TEST(Scavenger, AWreckIsBankedPieceByPieceOnTrips) {
+    // The whole loop, end to end: one wreck's four pieces, each driven to and taken, until the
+    // ground is bare and the ledger reads four.
     Sim sim = Sim::create(fetch_battle());
-    const auto x0 = sim.units().at(1).x.raw;
-    const auto y0 = sim.units().at(1).y.raw;
     ASSERT_TRUE(step_until(sim, 600, [](const Sim& s) { return !s.scraps().empty(); }))
         << "the wreck never appeared";
     ASSERT_TRUE(step_until(sim, 4000, [](const Sim& s) {
@@ -155,8 +155,6 @@ TEST(Scavenger, AWreckIsBankedFromWhereTheScavengerStands) {
     EXPECT_EQ(sim.ore(Side::Player), protekt::sim::kScrapPerWreck) << "one wreck, a unit a piece";
     EXPECT_TRUE(sim.scraps().empty()) << "everything on the ground was taken";
     EXPECT_EQ(sim.units().at(1).stance, Stance::Idle);
-    EXPECT_EQ(sim.units().at(1).x.raw, x0);
-    EXPECT_EQ(sim.units().at(1).y.raw, y0);
     EXPECT_EQ(living_sides(sim, Side::Player), 5U) << "the factory, the scavenger and three tanks";
 }
 
@@ -1218,7 +1216,11 @@ TEST(BuildQueue, AReplayThatQueuesBuildsReproducesTickForTick) {
     }
 }
 
-// ------------------------------------------------------------------ SCAVENGE IN PLACE (no haul)
+// ------------------------------------------------------------------ SCAVENGE (no haul)
+//
+// (AR: the scavenger now has to be AT a pile to take it -- the trip tests at the end of this file;
+// these keep the rest of the C2 rule: no carrying, no factory, the radar's range, the beat,
+// orders.)
 //
 // Harri: "Scavengers don't need to bring scrap anywhere ... they just collect, and scrap magically
 // appears in your stores. It's immediately available!" A scavenger takes scrap from inside its
@@ -1270,7 +1272,7 @@ Sim rig(const Scenario& scenario) {
 } // namespace
 
 TEST(ScavengeInPlace, ScrapIsCreditedOnTheTickItLeavesTheGround) {
-    Sim sim = rig(scavenge_rig({5}));
+    Sim sim = rig(scavenge_rig({0}));
     ASSERT_EQ(sim.scraps().size(), 1U);
     ASSERT_EQ(sim.ore(Side::Player), 0);
     bool taken = false;
@@ -1278,7 +1280,7 @@ TEST(ScavengeInPlace, ScrapIsCreditedOnTheTickItLeavesTheGround) {
         sim.step();
         taken = sim.scraps().empty();
     }
-    ASSERT_TRUE(taken) << "an idle scavenger with scrap in its radar never took it";
+    ASSERT_TRUE(taken) << "an idle scavenger at a pile never took it";
     EXPECT_EQ(sim.ore(Side::Player), 1) << "the bank rises in the very step the piece goes: there "
                                            "is no trip, no load, no unload";
 }
@@ -1286,26 +1288,10 @@ TEST(ScavengeInPlace, ScrapIsCreditedOnTheTickItLeavesTheGround) {
 TEST(ScavengeInPlace, NoFactoryIsNeededAndNothingIsEverCarried) {
     // The rig has no factory at all. Under the old haul the load stayed aboard for ever.
     Sim sim = rig(scavenge_rig({5, 6, 7}));
-    for (int i = 0; i < 3 * protekt::sim::kScavengeIntervalTicks; ++i) {
+    for (int i = 0; i < 20 * protekt::sim::kScavengeIntervalTicks; ++i) {
         sim.step();
     }
     EXPECT_EQ(sim.ore(Side::Player), 3);
-    EXPECT_TRUE(sim.scraps().empty());
-}
-
-TEST(ScavengeInPlace, ItCollectsFromWhereItStandsAndNeverWalksToTheScrap) {
-    // A piece thirty tiles off, inside the 40-tile radar: it is taken, and the scavenger has not
-    // moved a hair -- leading it to new litter is the player's job (1 Follow Me).
-    Sim sim = rig(scavenge_rig({30}));
-    const auto x0 = the_scavenger(sim).x.raw;
-    const auto y0 = the_scavenger(sim).y.raw;
-    for (int i = 0; i < protekt::sim::kScavengeIntervalTicks; ++i) {
-        sim.step();
-        EXPECT_EQ(the_scavenger(sim).x.raw, x0);
-        EXPECT_EQ(the_scavenger(sim).y.raw, y0);
-        EXPECT_EQ(the_scavenger(sim).stance, Stance::Idle) << "it is not sent anywhere";
-    }
-    EXPECT_EQ(sim.ore(Side::Player), 1);
     EXPECT_TRUE(sim.scraps().empty());
 }
 
@@ -1327,12 +1313,13 @@ TEST(ScavengeInPlace, WithNothingInItsRadarItStops) {
     EXPECT_EQ(the_scavenger(sim).stance, Stance::Idle);
 }
 
-TEST(ScavengeInPlace, ThePieceJustInsideTheRadarIsTakenAndTheRangeIsTheRadars) {
+TEST(ScavengeInPlace, ThePieceJustInsideTheRadarSendsItAndTheRangeIsTheRadars) {
     Sim sim = rig(scavenge_rig({protekt::sim::kRadarRadiusTiles - 1}));
     for (int i = 0; i < protekt::sim::kScavengeIntervalTicks; ++i) {
         sim.step();
     }
-    EXPECT_EQ(sim.ore(Side::Player), 1) << "39.5 tiles away is on a 40-tile radar";
+    EXPECT_EQ(the_scavenger(sim).stance, Stance::Fetch) << "39.5 tiles away is on a 40-tile radar";
+    EXPECT_EQ(sim.ore(Side::Player), 0) << "seen is not taken: it has a drive ahead of it";
     static_assert(protekt::sim::radar_radius_tiles(UnitKind::Scavenger)
                   == protekt::sim::kRadarRadiusTiles);
     static_assert(protekt::sim::radar_radius_tiles(UnitKind::Scout)
@@ -1341,7 +1328,7 @@ TEST(ScavengeInPlace, ThePieceJustInsideTheRadarIsTakenAndTheRangeIsTheRadars) {
 
 TEST(ScavengeInPlace, UnderAnOrderItDoesNotCollectAndStopStartsItAgain) {
     // Hold (GuardAt its own spot) is an order: the scrap is in range and is left alone. `3` is a
-    // Stop, which returns it to scavenging where it stands.
+    // Stop, which returns it to scavenging (a trip to the pile).
     Sim sim = rig(scavenge_rig({5}));
     const UnitId id = the_scavenger(sim).id;
     sim.enqueue(
@@ -1352,31 +1339,174 @@ TEST(ScavengeInPlace, UnderAnOrderItDoesNotCollectAndStopStartsItAgain) {
     EXPECT_EQ(sim.ore(Side::Player), 0) << "a held scavenger takes nothing";
     EXPECT_EQ(sim.scraps().size(), 1U);
     sim.enqueue(Order{id, protekt::sim::orders::Stop{}});
-    for (int i = 0; i < protekt::sim::kScavengeIntervalTicks; ++i) {
+    for (int i = 0; i < 20 * protekt::sim::kScavengeIntervalTicks; ++i) {
         sim.step();
     }
-    EXPECT_EQ(sim.ore(Side::Player), 1) << "Stop sends it back to scavenging in place";
+    EXPECT_EQ(sim.ore(Side::Player), 1) << "Stop sends it back to scavenging";
 }
 
 TEST(ScavengeInPlace, EachScavengerTakesOneAnIntervalSoMoreScavengersAreFaster) {
     const std::vector<int> ample{3, 4, 5, 6, 7, 8, 9, 10};
     Sim one = rig(scavenge_rig(ample, Side::Player, 1));
     Sim three = rig(scavenge_rig(ample, Side::Player, 3));
-    for (int i = 0; i < protekt::sim::kScavengeIntervalTicks; ++i) {
+    for (int i = 0; i < 12 * protekt::sim::kScavengeIntervalTicks; ++i) {
         one.step();
         three.step();
     }
-    EXPECT_EQ(one.ore(Side::Player), 1);
-    EXPECT_EQ(three.ore(Side::Player), 3);
+    EXPECT_GE(one.ore(Side::Player), 1);
+    EXPECT_GT(three.ore(Side::Player), one.ore(Side::Player));
 }
 
 TEST(ScavengeInPlace, ItTakesTheNearestPieceAndCreditsItsOwnSide) {
     Sim sim = rig(scavenge_rig({20, 5}, Side::Enemy));
-    for (int i = 0; i < protekt::sim::kScavengeIntervalTicks; ++i) {
+    for (int i = 0; i < 60 * protekt::sim::kTicksPerSecond && sim.ore(Side::Enemy) < 1; ++i) {
         sim.step();
     }
     ASSERT_EQ(sim.scraps().size(), 1U);
     EXPECT_EQ(sim.scraps().front().x.raw, centre_of(60).raw) << "the nearer piece went first";
     EXPECT_EQ(sim.ore(Side::Enemy), 1);
     EXPECT_EQ(sim.ore(Side::Player), 0);
+}
+
+// ---- THE TRIP (AR) ----------------------------------------------------------------------------
+// Litter is collected BY A TRIP: the scavenger drives to a pile and only the pile it is standing at
+// is taken (Harri: "it has to actually go to the spot where the scraps are... They shouldn't just
+// magically disappear"). The rig is `scavenge_rig`'s: scavenger at tile (40, 70), piles due east.
+
+namespace {
+
+constexpr std::int64_t kTripReach = protekt::sim::kScavengeCollectRadiusRaw;
+
+std::int64_t gap_to(const Unit& unit, const Scrap& piece) {
+    const std::int64_t dx = static_cast<std::int64_t>(unit.x.raw) - piece.x.raw;
+    const std::int64_t dy = static_cast<std::int64_t>(unit.y.raw) - piece.y.raw;
+    return (dx * dx) + (dy * dy);
+}
+
+} // namespace
+
+TEST(ScavengeTrip, APileItIsNotAtIsNotTakenWhereverItStandsInItsRadar) {
+    Sim sim = rig(scavenge_rig({10}));
+    const Scrap piece = sim.scraps().front();
+    ASSERT_GT(gap_to(the_scavenger(sim), piece), kTripReach * kTripReach);
+    // One full beat and a little more: long enough for the old rule to have taken it (the pile is
+    // ten tiles off) and far too short to cross ten tiles at the scavenger's speed.
+    for (int i = 0; i < protekt::sim::kScavengeIntervalTicks + 5; ++i) {
+        sim.step();
+    }
+    EXPECT_EQ(sim.ore(Side::Player), 0) << "ten tiles off is not where the pile is";
+    EXPECT_EQ(sim.scraps().size(), 1U) << "the pile is still on the ground";
+}
+
+TEST(ScavengeTrip, APileItIsStandingAtIsTakenWhereItStands) {
+    Sim sim = rig(scavenge_rig({0}));
+    const auto x0 = the_scavenger(sim).x.raw;
+    const auto y0 = the_scavenger(sim).y.raw;
+    for (int i = 0; i < protekt::sim::kScavengeIntervalTicks; ++i) {
+        sim.step();
+    }
+    EXPECT_EQ(sim.ore(Side::Player), 1) << "already there: nothing to travel";
+    EXPECT_TRUE(sim.scraps().empty());
+    EXPECT_EQ(the_scavenger(sim).x.raw, x0);
+    EXPECT_EQ(the_scavenger(sim).y.raw, y0);
+    EXPECT_EQ(the_scavenger(sim).stance, Stance::Idle);
+}
+
+TEST(ScavengeTrip, APileOutOfReachIsDrivenToAndOnlyThenTakenAndCounted) {
+    Sim sim = rig(scavenge_rig({10}));
+    const Scrap piece = sim.scraps().front();
+    const auto x0 = the_scavenger(sim).x.raw;
+    bool took = false;
+    for (int i = 0; i < 60 * protekt::sim::kTicksPerSecond && !took; ++i) {
+        sim.step();
+        took = sim.ore(Side::Player) == 1;
+        if (took) {
+            EXPECT_LE(gap_to(the_scavenger(sim), piece), kTripReach * kTripReach)
+                << "the pile went while the scavenger was not at it";
+        }
+    }
+    ASSERT_TRUE(took) << "it never made the trip";
+    EXPECT_GT(the_scavenger(sim).x.raw, x0) << "it drove east to the pile";
+    EXPECT_TRUE(sim.scraps().empty());
+    EXPECT_EQ(sim.collected(Side::Player), 1U);
+    EXPECT_EQ(the_scavenger(sim).stance, Stance::Idle) << "the errand ends with the pickup";
+}
+
+TEST(ScavengeTrip, ItGoesToTheNearestPileFirstThenOnToTheNext) {
+    // Two piles, the farther one listed first: the trip is to the NEAREST, and after it the next.
+    Sim sim = rig(scavenge_rig({20, 6}));
+    const Scrap far_pile = sim.scraps().at(0);
+    const Scrap near_pile = sim.scraps().at(1);
+    bool first = false;
+    for (int i = 0; i < 60 * protekt::sim::kTicksPerSecond && !first; ++i) {
+        sim.step();
+        first = sim.ore(Side::Player) == 1;
+    }
+    ASSERT_TRUE(first);
+    ASSERT_EQ(sim.scraps().size(), 1U);
+    EXPECT_EQ(sim.scraps().front().x.raw, far_pile.x.raw) << "the near one went first";
+    EXPECT_LE(gap_to(the_scavenger(sim), near_pile), kTripReach * kTripReach);
+    bool second = false;
+    for (int i = 0; i < 120 * protekt::sim::kTicksPerSecond && !second; ++i) {
+        sim.step();
+        second = sim.ore(Side::Player) == 2;
+    }
+    EXPECT_TRUE(second) << "then it went on to the far one";
+    EXPECT_LE(gap_to(the_scavenger(sim), far_pile), kTripReach * kTripReach);
+}
+
+TEST(ScavengeTrip, ItIsOnTheRoadBetweenPilesAndCarriesOnFromOneToTheNext) {
+    Sim sim = rig(scavenge_rig({12, 16}));
+    for (int i = 0; i < 2 * protekt::sim::kScavengeIntervalTicks; ++i) {
+        sim.step();
+    }
+    EXPECT_EQ(the_scavenger(sim).stance, Stance::Fetch) << "on its way to the nearer pile";
+    EXPECT_EQ(sim.ore(Side::Player), 0);
+    for (int i = 0; i < 120 * protekt::sim::kTicksPerSecond && sim.ore(Side::Player) < 2; ++i) {
+        sim.step();
+    }
+    EXPECT_EQ(sim.ore(Side::Player), 2);
+}
+
+TEST(ScavengeTrip, ADeployedScavengerAtAPoolIsUntouchedAndLitterNearItIsNotFetchedByIt) {
+    // A scavenger already deployed on a pool earns by the pool's own beat and goes nowhere: a pile
+    // lying near it stays where it lies (a deployed scavenger is not a mobile scavenger).
+    Scenario s = scavenge_rig({3});
+    s.pools = {protekt::sim::Pool{40, kRigRow}};
+    s.spawns.at(1).kind = UnitKind::DeployedScavenger;
+    Sim sim = rig(s);
+    for (int i = 0; i < 10 * protekt::sim::kTicksPerSecond; ++i) {
+        sim.step();
+    }
+    EXPECT_EQ(sim.scraps().size(), 1U) << "a deployed scavenger does not collect litter";
+    EXPECT_GE(sim.ore(Side::Player), 1) << "the pool still draws in";
+    EXPECT_EQ(the_scavenger(sim).kind, UnitKind::DeployedScavenger);
+}
+
+TEST(ScavengeTrip, TheEnemyAiDoesNotStallItsScavengerOnTheTripAndStillBanksEveryPile) {
+    // The real UtilityCommander thinks for the enemy every tick (as the game does) while its
+    // scavenger drives to and takes four piles. The AI orders nothing that cancels the trip, and
+    // the scavenger neither deadlocks at a pile nor leaves one behind.
+    Sim sim = rig(scavenge_rig({6, 8, 10, 12}, Side::Enemy));
+    protekt::ai::UtilityCommander ai;
+    std::uint32_t last_change = 0;
+    int last_ore = 0;
+    for (std::uint32_t i = 0; i < 90 * protekt::sim::kTicksPerSecond && !sim.scraps().empty();
+         ++i) {
+        std::vector<Order> orders;
+        ai.think(protekt::sim::observe(sim, Side::Enemy), orders);
+        for (const Order& order : orders) {
+            sim.enqueue(order);
+        }
+        sim.step();
+        if (sim.ore(Side::Enemy) != last_ore) {
+            last_ore = sim.ore(Side::Enemy);
+            last_change = i;
+        }
+        // Never idle for long with litter in sight: a stall would show as a long silence.
+        ASSERT_LT(i - last_change, 20U * protekt::sim::kTicksPerSecond)
+            << "the AI's scavenger stalled";
+    }
+    EXPECT_TRUE(sim.scraps().empty());
+    EXPECT_EQ(sim.ore(Side::Enemy), 4);
 }

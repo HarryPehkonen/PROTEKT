@@ -150,9 +150,10 @@ enum class Stance : std::uint8_t {
     Attack = 4,
     Dead = 5,
     Follow = 6, ///< appended after Dead, so every recorded stance value (and hash) is unchanged
-    /// RETIRED. The fetch (C2) drove a scavenger at scrap and home; scavengers now collect where
-    /// they stand and nothing sets this. The value stays so every recorded stance, observation and
-    /// replay still names the same thing (`scavenge_step`).
+    /// A scavenger on a trip to a pile of litter (AR): `scavenge_step` sets it with the pile's spot
+    /// in `guard_x/y`, `steer` drives it there like a MoveTo, and the pickup on arrival ends it.
+    /// Any order the player gives replaces it. (It was retired for a while, when scavengers took
+    /// scrap from where they stood; the value never changed, so a recorded one still names it.)
     Fetch = 7,
     /// A recycler under a `Deploy` order (DEPLOY), appended for the same reason: it drives to the
     /// site's centre (`guard_x`/`guard_y`) and, once there, counts `Unit::deploy_ticks` up to
@@ -426,6 +427,14 @@ inline constexpr int kScoutRadarRadiusTiles = 80;
 /// How often one idle scavenger takes a piece of scrap from inside its radar, in ticks: once a
 /// second. A dial, Harri's to set; several scavengers over ample scrap multiply it.
 inline constexpr int kScavengeIntervalTicks = kTicksPerSecond;
+
+/// HOW CLOSE A SCAVENGER MUST BE TO A PILE OF LITTER TO TAKE IT (AR): one tile, the very radius a
+/// MoveTo stops in (`kArriveRadiusRaw`). That is the point: a scavenger sent to a pile is, on
+/// arrival, by construction inside the radius that collects it, so there is no gap in which it
+/// stands "arrived" yet cannot take the pile; and it is tight enough that a pile two tiles off is
+/// a drive, not a reach. Litter is collected by a trip (Harri: "it has to actually go to the spot
+/// where the scraps are"); the deployed scavenger's pool is a different thing and has no radius.
+inline constexpr std::int32_t kScavengeCollectRadiusRaw = kArriveRadiusRaw;
 
 /// The recycler's hull, and the deployed recycler's. The recycler's is BORROWED from the tank (see
 /// its spec entry). The deployed recycler's equals it -- a building that heals or wounds itself by

@@ -250,7 +250,9 @@ TEST(StoreRates, LitterKeepsItsOwnFastRateWhateverBandTheLevelSitsIn) {
     // The follower is not collecting; the deployed one does not collect litter either. Freed, it
     // is the one thing that does.
     sim.enqueue(Order{UnitId{3}, orders::Stop{}});
-    EXPECT_GE(gained_in(sim, 300), 300 / protekt::sim::kScavengeIntervalTicks - 2)
+    // AR: the freed scavenger first DRIVES to the litter (a few seconds' trip), so the window is
+    // longer and the allowance for the drive is wider than it was when it took from where it stood.
+    EXPECT_GE(gained_in(sim, 450), 450 / protekt::sim::kScavengeIntervalTicks - 5)
         << "litter is not slowed by the band";
 }
 

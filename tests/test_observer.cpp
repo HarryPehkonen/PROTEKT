@@ -384,7 +384,12 @@ TEST(Observer, RenamingTheSupportVehiclesMovedNoRecordedBattle) {
     // RE-RECORDED 2026-11-04 for the dearer shove (two thirds of the pusher's speed, was a half).
     // Old value 16838413708508611782 is the code at dbb4adb; it is restored exactly by putting
     // the shove back to 1/2.
-    EXPECT_EQ(log.final_hash, 369972452760822632ULL);
+    // RE-RECORDED 2026-11-08 for the scavenger's trip (AR): the skirmish fields scavengers and its
+    // wrecks leave litter, which a scavenger now DRIVES to and takes at the pile instead of taking
+    // from where it stood, so positions (and with them the battle) change. Old value
+    // 369972452760822632 is the code at bc4592e; no constant restores it, because the behaviour
+    // itself changed. No battle without a scavenger moved.
+    EXPECT_EQ(log.final_hash, 16859089903070589840ULL);
 }
 
 TEST(Observer, TheFiredStreamForAScriptedBattleIsUnchanged) {

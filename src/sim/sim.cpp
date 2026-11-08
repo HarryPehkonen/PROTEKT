@@ -875,40 +875,79 @@ void settle_litter(std::vector<Scrap>& scraps, std::size_t first, std::uint64_t 
     }
 }
 
-/// SCAVENGING IN PLACE (C2). Called for every living scavenger before it is steered, in ascending
-/// unit order, so a piece a lower id took this tick is already gone when a higher id looks.
+/// SCAVENGING BY A TRIP (C2, AR). Called for every living scavenger before it is steered, in
+/// ascending unit order, so a piece a lower id took this tick is already gone when a higher id
+/// looks.
 ///
 /// Nothing is carried and nothing is delivered (Harri: scavengers "just collect, and scrap
 /// magically appears in your stores. It's immediately available!"): a piece taken goes straight
-/// into its side's bank in the same tick. And nothing is walked to -- the scavenger takes from
-/// where it STANDS, the nearest piece inside its own radar (`radar_radius_tiles`, the one number
-/// the game layer's radar draws at), once every `kScavengeIntervalTicks` ticks. Nothing in range
-/// and it does nothing at all: no search, no wander, no stance. Leading it to new litter is the
-/// player's order (`Follow`), and `Stop` -- the `3 Scavenge` row -- sets it taking again.
-///
-/// Only an IDLE scavenger collects: any order (a move, a follow, a hold) is a stance of its own and
-/// the sim never argues with one. The beat is phased by unit id (`tick + id`), so a group does not
-/// all take on the same tick and the bank rises evenly, with no per-unit timer to hash.
+/// into its side's bank in the same tick. But the scavenger must be AT the pile
+/// (`kScavengeCollectRadiusRaw`, one tile) to take it (Harri, 2026-11-08: "it has to actually go to
+/// the spot where the scraps are to pick them up. They shouldn't just magically disappear"):
+///   - Idle, on the beat (`kScavengeIntervalTicks`, phased by unit id so a group does not all act
+///   on
+///     the same tick), it looks at the NEAREST pile inside its own radar (`radar_radius_tiles`).
+///     One it is standing at is taken there and then; a farther one sends it off: stance `Fetch`,
+///     the pile's spot in `guard_x/y`, driven there by `steer` like a MoveTo.
+///   - Under `Fetch` it is committed to that pile (no flip between two equally near ones). On
+///     the first beat after it arrives it takes the pile and is Idle again (so it may stand a
+///     moment, under a second, at the pile: the pickup keeps the beat, which is what keeps the
+///     bank rising one piece per scavenger per second and never two on a tick); the beat after
+///     picks the next pile. If the pile is gone on the way (another scavenger took it) it re-aims
+///     at the nearest in its radar, and with none it stands down. A full store also stands it down.
+/// Only an IDLE or FETCHING scavenger collects: any order the player gives (a move, a follow, a
+/// hold) replaces `Fetch` and is a stance of its own that the sim never argues with; `Stop` -- the
+/// `3 Scavenge` row -- sets it scavenging again. A DEPLOYED scavenger is another kind altogether
+/// and never comes here: its pool is drawn in by `store_step`, with no pile and no trip.
 void scavenge_step(std::vector<Scrap>& scraps, std::array<std::uint16_t, 2>& ore,
-                   std::array<std::uint32_t, 2>& collected, const Unit& unit, std::uint32_t tick,
+                   std::array<std::uint32_t, 2>& collected, Unit& unit, std::uint32_t tick,
                    std::uint16_t capacity) noexcept {
-    if (unit.stance != Stance::Idle
-        || (tick + unit.id.value) % static_cast<std::uint32_t>(kScavengeIntervalTicks) != 0) {
+    const bool fetching = unit.stance == Stance::Fetch;
+    if (unit.stance != Stance::Idle && !fetching) {
         return;
     }
+    if ((tick + unit.id.value) % static_cast<std::uint32_t>(kScavengeIntervalTicks) != 0) {
+        return; // the beat: everything below, driving off included, happens once a second
+    }
+    std::uint16_t& bank = ore.at(static_cast<std::size_t>(unit.side));
     // A FULL STORE STOPS COLLECTION: the piece stays where it lies, not taken and not destroyed.
-    if (ore.at(static_cast<std::size_t>(unit.side)) >= capacity) {
+    if (bank >= capacity) {
+        if (fetching) {
+            unit.stance = Stance::Idle;
+        }
         return;
     }
     const std::int64_t reach = static_cast<std::int64_t>(radar_radius_tiles(unit.kind))
                                << Fixed::kShift;
-    const std::size_t pick = nearest_scrap(scraps, unit.x, unit.y);
+    const std::int64_t arrive = kScavengeCollectRadiusRaw;
+    // A trip in hand keeps its pile while the pile is there; otherwise the nearest in the radar.
+    std::size_t pick = nearest_scrap(scraps, unit.x, unit.y);
+    if (fetching) {
+        const auto held = std::find_if(scraps.begin(), scraps.end(), [&](const Scrap& piece) {
+            return piece.x == unit.guard_x && piece.y == unit.guard_y;
+        });
+        if (held != scraps.end()) {
+            pick = static_cast<std::size_t>(held - scraps.begin());
+        }
+    }
     if (pick == kNoScrap
         || dist2(unit.x, unit.y, scraps.at(pick).x, scraps.at(pick).y) > reach * reach) {
+        if (fetching) {
+            unit.stance = Stance::Idle; // nothing left in sight: the errand is over
+        }
+        return;
+    }
+    if (dist2(unit.x, unit.y, scraps.at(pick).x, scraps.at(pick).y) > arrive * arrive) {
+        // Not at it: drive there. Re-aiming at an unchanged pile keeps the route (steer re-plans
+        // only on a new goal), so this costs nothing each tick.
+        if (!fetching || unit.guard_x != scraps.at(pick).x || unit.guard_y != scraps.at(pick).y) {
+            apply_posted(unit, Stance::Fetch, scraps.at(pick).x, scraps.at(pick).y, Fixed{},
+                         Fixed{});
+        }
         return;
     }
     scraps.erase(scraps.begin() + static_cast<std::ptrdiff_t>(pick));
-    std::uint16_t& bank = ore.at(static_cast<std::size_t>(unit.side));
+    unit.stance = Stance::Idle;
     bank = static_cast<std::uint16_t>(std::min(static_cast<int>(bank) + 1, 0xFFFF));
     ++collected.at(static_cast<std::size_t>(unit.side));
 }
@@ -1261,8 +1300,8 @@ void steer(std::vector<Unit>& units, Unit& unit, const UnitProfile& prof, const 
     case Stance::MoveTo:
     case Stance::GuardAt:
     case Stance::Patrol:
-    // RETIRED: nothing sets `Fetch` since scavengers stopped walking to scrap; a recorded replay
-    // that names it steers as it did.
+    // A scavenger on a trip to a pile of litter (`scavenge_step`) drives at the pile's spot, which
+    // it wrote into guard_x/y.
     case Stance::Fetch:
     // A deploy drives to its site's centre, which the order wrote into guard_x/guard_y.
     case Stance::Deploy:
