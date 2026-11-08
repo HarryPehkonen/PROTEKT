@@ -137,6 +137,15 @@ constant, `kFxaaSettings` in `src/render/renderer.cpp`. `--no-fxaa` turns it off
 byte-identical to what the renderer drew before the filter existed. Same seed, same frames, one capture each
 -- see "Build, run, watch" for the two commands. No history buffer: a frame is a function of itself.
 
+**Smooth shading (AP, a try-it).** Everything lit -- terrain, hulls, buildings, turrets, wrecks and the
+spheres of the repair beam and the smoke -- is shaded from a per-vertex NORMAL in the fragment stage, not
+per flat face, so a faceted hull reads as a curved surface (Harri's "rounded soap bar", after
+Battlezone 2). A vertex's normal is the AREA-WEIGHTED average of the faces that share its position,
+except across a crease: faces whose normals are more than `kCreaseAngleDegrees` (75) apart are not
+averaged, so a box keeps its square edges while a chamfered panel or a sphere rounds. The sky, the HUD and
+the smoke/spark prisms carry no normal and are drawn exactly as before. It is a presentation change only:
+no sim hash moves. It is meant to be judged by eye; to put it back, revert the commit.
+
 ### The command menu
 
 The menu down the left (a selection's rows, the nav menu, an armed `N`) is drawn as BZ2 draws it:

@@ -204,118 +204,156 @@ TEST(SceneTerrain, MeshesTwoTrianglesPerTile) {
 
 // ---------------------------------------------------------------- the ground is lit by its slope
 //
-// A terrain quad's vertex colour is the light on its own surface, relative to a FLAT tile: the same
-// half-Lambert ramp the solids use (`face_light`), divided by what that ramp gives for straight up
-// (0.958, not 1.0), so a flat tile keeps exactly the colour it always had. The oracle here is
-// written out independently of the scene's code: the quad's mean gradient, the normal it implies,
-// and the ramp, from `kSunDirection`.
+// Since AP (smooth shading) the terrain's vertex colour is ONE colour everywhere -- the flat
+// ground's, `terrain_base_colour()` -- and the slope lives in the vertex NORMAL, which the fragment
+// stage lights with the half-Lambert ramp (`face_light`) the solids use. The normal at a tile
+// corner is the average of the faces that meet there, so it is the SAME at all (up to six, in each
+// of four tiles) vertices that share the corner: that is what makes the ground a surface rather
+// than a patchwork of tiles. The oracle here is written out independently of the scene's code, from
+// the heights alone: each tile's quad normal (the cross product of its diagonals), weighted by the
+// area of each of the tile's two triangles that touches the corner, summed and normalised.
 
 namespace {
 
 constexpr std::uint64_t kSlopeSeedForLight = 42; // the sloped world, see "smooth elevation" below
+constexpr int kLightRadius = 2;
 
-struct ShadedTile {
-    protekt::math::Vec3 colour;
-    float h00;
-    float h10;
-    float h01;
-    float h11;
-    std::size_t vertices; ///< the scene's own vertex count, for the count guard
+Vec3 ground_point(std::uint64_t seed, int tx, int ty) {
+    return Vec3{static_cast<float>(tx) * kMetresPerTile, protekt::game::height_metres(seed, tx, ty),
+                static_cast<float>(ty) * kMetresPerTile};
+}
+
+Vec3 minus(const Vec3& a, const Vec3& b) { return Vec3{a[0] - b[0], a[1] - b[1], a[2] - b[2]}; }
+
+float length_of(const Vec3& v) { return std::sqrt(protekt::math::dot(v, v)); }
+
+/// What the smoothed normal at tile corner (cx, cy) must be, from the heights alone; nullopt where
+/// the four tiles' normals are more than the crease angle apart, because there the corner is not
+/// one normal (the crease keeps it sharp) and the test for that is elsewhere.
+std::optional<Vec3> oracle_corner_normal(std::uint64_t seed, int cx, int cy) {
+    Vec3 sum{0.0F, 0.0F, 0.0F};
+    std::vector<Vec3> quads;
+    for (int dy = -1; dy <= 0; ++dy) {
+        for (int dx = -1; dx <= 0; ++dx) {
+            const int tx = cx + dx;
+            const int ty = cy + dy;
+            const Vec3 p00 = ground_point(seed, tx, ty);
+            const Vec3 p10 = ground_point(seed, tx + 1, ty);
+            const Vec3 p11 = ground_point(seed, tx + 1, ty + 1);
+            const Vec3 p01 = ground_point(seed, tx, ty + 1);
+            const Vec3 n
+                = protekt::math::normalise(protekt::math::cross(minus(p01, p10), minus(p11, p00)));
+            quads.push_back(n);
+            // The mesh cuts each quad (p00, p10, p11) and (p00, p11, p01); the corner (cx, cy) is
+            // p11 of tile (-1,-1), p01 of (0,-1), p10 of (-1,0) and p00 of (0,0).
+            const auto area = [](const Vec3& a, const Vec3& b, const Vec3& c) {
+                return 0.5F * length_of(protekt::math::cross(minus(b, a), minus(c, a)));
+            };
+            const float first = area(p00, p10, p11);
+            const float second = area(p00, p11, p01);
+            const float weight = dx == -1 && dy == -1  ? first + second
+                                 : dx == 0 && dy == -1 ? second
+                                 : dx == -1 && dy == 0 ? first
+                                                       : first + second;
+            for (std::size_t c = 0; c < 3; ++c) {
+                sum.at(c) += n.at(c) * weight;
+            }
+        }
+    }
+    const float cos_crease
+        = std::cos(protekt::game::kCreaseAngleDegrees * protekt::math::kPi / 180.0F);
+    for (const Vec3& a : quads) {
+        for (const Vec3& b : quads) {
+            if (protekt::math::dot(a, b) < cos_crease) {
+                return std::nullopt;
+            }
+        }
+    }
+    return protekt::math::normalise(sum);
+}
+
+struct CornerRead {
+    std::vector<SceneVertex> vertices; ///< every terrain vertex of the scene AT the corner
 };
 
-/// The colour of tile (tx, ty)'s quad, read from a scene whose camera hangs just above it, so the
-/// fog (which leaves a vertex within 12 m alone) has not touched it.
-ShadedTile shaded_tile(std::uint64_t seed, int tx, int ty) {
-    constexpr int kRadius = 2;
+/// The terrain vertices at tile corner (tx, ty) -- p00 of tile (tx, ty) -- in a scene whose camera
+/// hangs just above it, so the fog has not touched them and all four tiles around it are meshed.
+CornerRead read_corner(std::uint64_t seed, int tx, int ty) {
     const float centre_x = (static_cast<float>(tx) + 0.5F) * kMetresPerTile;
     const float centre_z = (static_cast<float>(ty) + 0.5F) * kMetresPerTile;
-    SceneOptions o = options_at(centre_x, centre_z, seed, kRadius);
+    SceneOptions o = options_at(centre_x, centre_z, seed, kLightRadius);
     o.camera.y = protekt::game::height_metres(seed, tx, ty) + 1.0F;
     // Terrain does not depend on the sim, so one sim serves every tile (all on the one seed).
     static const protekt::sim::Sim sim = protekt::sim::Sim::create(protekt::sim::skirmish(42));
     const Scene scene = protekt::game::build_scene(sim, o);
-    // Quads are emitted row by row from (centre - radius - 1); the camera's tile is tx, ty.
-    const auto side = static_cast<std::size_t>(kRadius) * 2U + 2U;
-    const std::size_t quad = ((static_cast<std::size_t>(kRadius) + 1U) * side)
-                             + static_cast<std::size_t>(kRadius) + 1U;
-    return ShadedTile{scene.vertices.at(quad * 6U).colour,
-                      protekt::game::height_metres(seed, tx, ty),
-                      protekt::game::height_metres(seed, tx + 1, ty),
-                      protekt::game::height_metres(seed, tx, ty + 1),
-                      protekt::game::height_metres(seed, tx + 1, ty + 1),
-                      scene.vertices.size()};
-}
-
-float oracle_ramp(const protekt::math::Vec3& normal) {
-    const protekt::math::Vec3 sun = protekt::math::normalise(protekt::game::kSunDirection);
-    const float facing = std::clamp(protekt::math::dot(normal, sun), -1.0F, 1.0F);
-    return 0.45F + (0.55F * (0.5F + (0.5F * facing)));
-}
-
-/// What the colour of this tile must be: the ramp on the mean-gradient normal over the ramp on up.
-float oracle_light(const ShadedTile& t) {
-    const float dhdx = ((t.h10 + t.h11) - (t.h00 + t.h01)) / (2.0F * kMetresPerTile);
-    const float dhdz = ((t.h01 + t.h11) - (t.h00 + t.h10)) / (2.0F * kMetresPerTile);
-    const protekt::math::Vec3 normal = protekt::math::normalise({-dhdx, 1.0F, -dhdz});
-    return oracle_ramp(normal) / oracle_ramp({0.0F, 1.0F, 0.0F});
+    const Vec3 corner = ground_point(seed, tx, ty);
+    CornerRead read;
+    for (std::size_t i = 0; i < terrain_vertex_count(kLightRadius); ++i) {
+        if (scene.vertices.at(i).position == corner) {
+            read.vertices.push_back(scene.vertices.at(i));
+        }
+    }
+    return read;
 }
 
 } // namespace
 
-TEST(SceneTerrainLight, ASlopedQuadIsShadedByTheSolidsRampAndTheDirectionIsRight) {
+TEST(SceneTerrainLight, EveryVertexAtATileCornerCarriesTheAverageOfTheFacesThatMeetThere) {
+    std::size_t compared = 0;
+    std::size_t sloped = 0;
     float brightest = 0.0F;
     float darkest = 2.0F;
+    const float flat = protekt::game::face_light(Vec3{0.0F, 1.0F, 0.0F});
     for (int ty = 90; ty < 120; ++ty) {
         for (int tx = 100; tx < 130; ++tx) {
-            const ShadedTile t = shaded_tile(kSlopeSeedForLight, tx, ty);
-            const float want = oracle_light(t);
-            for (std::size_t c = 0; c < 3; ++c) {
-                EXPECT_NEAR(t.colour.at(c), want, 2e-4F) << "tile " << tx << "," << ty;
-            }
-            brightest = std::max(brightest, t.colour[0]);
-            darkest = std::min(darkest, t.colour[0]);
-        }
-    }
-    EXPECT_GT(brightest, 1.02F) << "a slope toward the sun is brighter than flat ground";
-    EXPECT_LT(darkest, 0.90F) << "a slope away from the sun is darker than flat ground";
-}
-
-TEST(SceneTerrainLight, TwoTilesWithTheSameCornerHeightsGetTheSameColour) {
-    // Heights relative to the tile's own p00: the colour is a function of the corners' shape, not
-    // of where the tile is or how high it sits.
-    using Shape = std::array<int, 3>;
-    std::map<Shape, std::pair<int, int>> seen;
-    bool compared = false;
-    for (int ty = 90; ty < 110 && !compared; ++ty) {
-        for (int tx = 100; tx < 120 && !compared; ++tx) {
-            const ShadedTile t = shaded_tile(kSlopeSeedForLight, tx, ty);
-            const auto units = [&](float h) {
-                return static_cast<int>(std::lround((h - t.h00) / kMetresPerHeightUnit));
-            };
-            const Shape shape{units(t.h10), units(t.h01), units(t.h11)};
-            if (shape == Shape{0, 0, 0}) {
+            const std::optional<Vec3> want = oracle_corner_normal(kSlopeSeedForLight, tx, ty);
+            if (!want.has_value()) {
                 continue;
             }
-            const auto [it, inserted] = seen.emplace(shape, std::pair{tx, ty});
-            if (!inserted) {
-                const ShadedTile other
-                    = shaded_tile(kSlopeSeedForLight, it->second.first, it->second.second);
-                EXPECT_EQ(t.colour, other.colour);
-                EXPECT_NE(t.colour, protekt::game::kTerrainLight) << "the pair must be sloped";
-                compared = true;
+            const CornerRead read = read_corner(kSlopeSeedForLight, tx, ty);
+            ASSERT_GE(read.vertices.size(), 4U)
+                << "a corner touches four tiles, at least one vertex each";
+            for (const SceneVertex& v : read.vertices) {
+                for (std::size_t c = 0; c < 3; ++c) {
+                    ASSERT_NEAR(v.normal.at(c), want->at(c), 2e-3F)
+                        << "corner " << tx << "," << ty << ": one normal for every vertex there";
+                }
+            }
+            ++compared;
+            sloped += (*want)[1] < 0.9999F ? 1U : 0U;
+            const float light = protekt::game::face_light(*want) / flat;
+            brightest = std::max(brightest, light);
+            darkest = std::min(darkest, light);
+        }
+    }
+    EXPECT_GT(compared, 800U) << "most corners are one normal; the crease is for cliffs";
+    EXPECT_GT(sloped, 100U) << "the scan must cover sloped ground";
+    EXPECT_GT(brightest, 1.0F) << "ground sloping toward the sun is brighter than flat ground";
+    EXPECT_LT(darkest, 0.95F) << "ground sloping away from the sun is darker than flat ground";
+}
+
+TEST(SceneTerrainLight, TheTerrainColourIsOneColourEverywhereAndTheSlopeIsInTheNormal) {
+    const protekt::math::Vec3 base = protekt::game::terrain_base_colour();
+    bool saw_tilted = false;
+    for (int ty = 100; ty < 106; ++ty) {
+        for (int tx = 100; tx < 106; ++tx) {
+            const CornerRead read = read_corner(kSlopeSeedForLight, tx, ty);
+            for (const SceneVertex& v : read.vertices) {
+                EXPECT_EQ(v.colour, base);
+                saw_tilted = saw_tilted || v.normal[1] < 0.99F;
             }
         }
     }
-    EXPECT_TRUE(compared) << "the scan found no two sloped tiles of one shape";
+    EXPECT_TRUE(saw_tilted) << "a sloped world must show a normal that leans";
 }
 
-TEST(SceneTerrainLight, AFlatTileKeepsExactlyTheColourItHadBefore) {
-    // (32,13), (33,13), (32,14), (33,14) are one height on seed 42.
-    const ShadedTile t = shaded_tile(kSlopeSeedForLight, 32, 13);
-    ASSERT_EQ(t.h00, t.h10);
-    ASSERT_EQ(t.h00, t.h01);
-    ASSERT_EQ(t.h00, t.h11);
-    EXPECT_EQ(t.colour, protekt::game::kTerrainLight);
+TEST(SceneTerrainLight, FlatGroundIsLitToExactlyTheColourItHadBeforeTheGroundWasLit) {
+    // The base colour times the ramp at straight up is the terrain's flat colour.
+    const protekt::math::Vec3 base = protekt::game::terrain_base_colour();
+    const float flat = protekt::game::face_light(Vec3{0.0F, 1.0F, 0.0F});
+    for (std::size_t c = 0; c < 3; ++c) {
+        EXPECT_NEAR(base.at(c) * flat, protekt::game::kTerrainLight.at(c), 1e-6F);
+    }
 }
 
 TEST(SceneTerrainLight, TheVertexCountIsUnchanged) {
@@ -438,21 +476,14 @@ TEST(SceneTerrain, EveryQuadSamplesTheWholeTileOfItsTypeTheSameWayRound) {
             const auto& v = scene.vertices.at(q + i);
             ASSERT_EQ(v.u, want.at(i).at(0)) << "tile " << tx << "," << ty << " vertex " << i;
             ASSERT_EQ(v.v, want.at(i).at(1)) << "tile " << tx << "," << ty << " vertex " << i;
-            const ShadedTile corners{{},
-                                     protekt::game::height_metres(seed, tx, ty),
-                                     protekt::game::height_metres(seed, tx + 1, ty),
-                                     protekt::game::height_metres(seed, tx, ty + 1),
-                                     protekt::game::height_metres(seed, tx + 1, ty + 1),
-                                     0};
-            const float light = oracle_light(corners);
+            const protekt::math::Vec3 base = protekt::game::terrain_base_colour();
             ASSERT_TRUE(protekt::game::haze::fog_is_right(view, v))
                 << "tile " << tx << "," << ty << " vertex " << i << ": the fog is its distance's";
-            const auto want_colour
-                = protekt::game::haze::seen(v, protekt::math::Vec3{light, light, light});
+            const auto want_colour = protekt::game::haze::seen(v, base);
             const auto got_colour = protekt::game::haze::seen(v, v.colour);
             for (std::size_t c = 0; c < 3; ++c) {
-                ASSERT_NEAR(v.colour.at(c), light, 2e-4F)
-                    << "the tile carries the colour; the light is the slope's, grey";
+                ASSERT_NEAR(v.colour.at(c), base.at(c), 2e-4F)
+                    << "the tile carries the colour; the slope's light is the normal's, lit later";
                 ASSERT_NEAR(got_colour.at(c), want_colour.at(c), 2e-4F)
                     << "and the frame draws it hazed by the vertex's own amount";
             }
@@ -3550,6 +3581,17 @@ std::array<float, 3> body_colour(const Scene& scene, std::size_t first, std::siz
     return (tail + static_cast<std::ptrdiff_t>(first + offset))->colour;
 }
 
+/// The same vertex's colour AS THE FRAME DRAWS IT: the unlit ink times the light of its normal
+/// (AP). The fragment stage does that multiply; this is the CPU-side oracle of it. A face's
+/// ordering by light (top, then the sun's side, then the shade, then the underside) is read from
+/// this, not from the raw colour, which is the same unlit ink on every face.
+std::array<float, 3> lit_body_colour(const Scene& scene, std::size_t first, std::size_t offset) {
+    const auto tail = scene.vertices.end() - static_cast<std::ptrdiff_t>(kAssaultTankVertices);
+    const SceneVertex& v = *(tail + static_cast<std::ptrdiff_t>(first + offset));
+    const float light = protekt::game::face_light(Vec3{v.normal[0], v.normal[1], v.normal[2]});
+    return {v.colour[0] * light, v.colour[1] * light, v.colour[2] * light};
+}
+
 constexpr std::size_t kHull = 0; ///< the shape's first part: the fighting compartment
 constexpr std::size_t kTurretBlock = kChassisVertices; ///< the block, the first part after it
 constexpr std::size_t kRoofPanel = kAssaultTankVertices - 108;
@@ -3570,10 +3612,10 @@ float pale(float c) { return c + ((1.0F - c) * protekt::game::kHullPaleMix); }
 TEST(SceneShading, TheTopIsBrighterThanTheSideAwayFromTheSunAndKeepsTheHue) {
     const auto sim = facing_sim(UnitKind::AssaultTank);
     const Scene scene = facing_scene(sim, 0.0F, 0.0F);
-    const auto top = body_colour(scene, kHull, kTopFace);
-    const auto lit = body_colour(scene, kHull, kLeftFace);
-    const auto shade = body_colour(scene, kHull, kRightFace);
-    const auto under = body_colour(scene, kHull, kBottomFace);
+    const auto top = lit_body_colour(scene, kHull, kTopFace);
+    const auto lit = lit_body_colour(scene, kHull, kLeftFace);
+    const auto shade = lit_body_colour(scene, kHull, kRightFace);
+    const auto under = lit_body_colour(scene, kHull, kBottomFace);
     EXPECT_GT(top[2], lit[2]);
     EXPECT_GT(lit[2], shade[2]);
     EXPECT_GT(shade[2], under[2]);
@@ -3594,7 +3636,8 @@ TEST(SceneShading, TheSunFollowsTheWorldAndNotTheTanksHeading) {
     const auto sim = facing_sim(UnitKind::AssaultTank);
     // Turned half a turn, the hull's RIGHT face now looks toward -x, so it is the lit one.
     const Scene turned = facing_scene(sim, protekt::math::kPi, 0.0F);
-    EXPECT_GT(body_colour(turned, kHull, kRightFace)[2], body_colour(turned, kHull, kLeftFace)[2]);
+    EXPECT_GT(lit_body_colour(turned, kHull, kRightFace)[2],
+              lit_body_colour(turned, kHull, kLeftFace)[2]);
 }
 
 TEST(SceneShading, ASelectedHullStillReadsAsTheHighlight) {
@@ -4549,9 +4592,11 @@ TEST(SceneUv, ASkirmishPastItsTerrainAndTheCalibrationSceneLeaveTheUvAtZeroToo) 
     }
 }
 
-TEST(SceneUv, TheVertexIsTenFloatsWithNoPaddingBecauseItIsUploadedVerbatim) {
-    // Ten since the fog amount was appended to the tail: position, colour, alpha, uv, fog.
-    EXPECT_EQ(sizeof(SceneVertex), std::size_t{10} * sizeof(float));
+TEST(SceneUv, TheVertexIsThirteenFloatsWithNoPaddingBecauseItIsUploadedVerbatim) {
+    // Thirteen since the normal (AP) was appended to the tail: position, colour, alpha, uv, fog,
+    // normal. The renderer's `Vertex` static_asserts the same size.
+    EXPECT_EQ(sizeof(SceneVertex), std::size_t{13} * sizeof(float));
+    EXPECT_EQ(offsetof(SceneVertex, normal), std::size_t{10} * sizeof(float));
     EXPECT_EQ(offsetof(SceneVertex, alpha), std::size_t{6} * sizeof(float));
     EXPECT_EQ(offsetof(SceneVertex, u), std::size_t{7} * sizeof(float));
     EXPECT_EQ(offsetof(SceneVertex, v), std::size_t{8} * sizeof(float));
@@ -4561,7 +4606,7 @@ TEST(SceneUv, TheVertexIsTenFloatsWithNoPaddingBecauseItIsUploadedVerbatim) {
 TEST(SceneUv, PinnedVertexCountsSurviveTheWiderVertex) {
     const Scene scene = protekt::game::build_calibration_scene(options_at(60.0F, 60.0F, 5, 4));
     EXPECT_EQ(scene.vertices.size(), std::size_t{18});
-    EXPECT_EQ(scene.vertices.size() * sizeof(SceneVertex), std::size_t{18} * 40U);
+    EXPECT_EQ(scene.vertices.size() * sizeof(SceneVertex), std::size_t{18} * 52U);
 }
 
 } // namespace
@@ -5186,10 +5231,13 @@ TEST(HoverShape, TheSkirtIsFourRawBrightQuadsUnderTheHull) {
     EXPECT_EQ(on_skirt, std::size_t{24}) << "one quad on each of the wedge's four sides";
     EXPECT_LE(highest(hover, kSkirt, kHoverBarrel), lowest(hover, kWedge, kWedgeEnd) + kTolerance)
         << "the band is under the hull";
-    // The brightest thing on it: brighter than any lit face of the wedge.
+    // The brightest thing on it: brighter than any lit face of the wedge, AS DRAWN -- the wedge's
+    // ink times the light of its normal (AP), the skirt having no normal and so no light taken.
     const auto sum = [](const SceneVertex& v) { return v.colour[0] + v.colour[1] + v.colour[2]; };
     for (std::size_t i = kWedge; i < kWedgeEnd; ++i) {
-        EXPECT_LT(sum(hover.at(i)), sum(hover.at(kSkirt)));
+        const SceneVertex& v = hover.at(i);
+        const float light = protekt::game::face_light(Vec3{v.normal[0], v.normal[1], v.normal[2]});
+        EXPECT_LT(sum(v) * light, sum(hover.at(kSkirt)));
     }
 }
 
@@ -8544,3 +8592,359 @@ TEST(LevelBars, ALeaningBarStillSitsAboveItsTankAndKeepsItsSize) {
 } // namespace on_demand
 
 } // namespace
+
+// =================================================================== smooth shading (AP)
+//
+// A vertex carries a NORMAL; the fragment stage lights from it; and the normal is the AVERAGE of
+// the faces that share the vertex's position -- except across a crease, where the faces' normals
+// are more than `kCreaseAngleDegrees` apart and the edge stays sharp. These tests pin the averaging
+// (with its area weights), the crease, the range it works on, and that the shapes come out round
+// where they should and square where they should.
+
+namespace {
+
+using Normal = std::array<float, 3>;
+
+SceneVertex vertex_at(const Vec3& position, const Normal& normal) {
+    SceneVertex v;
+    v.position = position;
+    v.normal = normal;
+    return v;
+}
+
+void push_triangle(std::vector<SceneVertex>& out, const Vec3& a, const Vec3& b, const Vec3& c,
+                   const Normal& normal) {
+    out.push_back(vertex_at(a, normal));
+    out.push_back(vertex_at(b, normal));
+    out.push_back(vertex_at(c, normal));
+}
+
+constexpr float kDegrees = protekt::math::kPi / 180.0F;
+
+/// A unit normal tilted `degrees` from straight up toward +z.
+Normal tilted_up(float degrees) {
+    return {0.0F, std::cos(degrees * kDegrees), std::sin(degrees * kDegrees)};
+}
+
+float angle_degrees(const Normal& a, const Normal& b) {
+    const float d = (a[0] * b[0]) + (a[1] * b[1]) + (a[2] * b[2]);
+    return std::acos(std::clamp(d, -1.0F, 1.0F)) / kDegrees;
+}
+
+/// Two triangles of area 0.5 sharing the edge (0,0,0)-(1,0,0): A in the ground plane with normal
+/// up, B leaning away over the edge with the normal `tilted_up(degrees)`.
+std::vector<SceneVertex> hinge(float degrees) {
+    std::vector<SceneVertex> v;
+    push_triangle(v, Vec3{0, 0, 0}, Vec3{1, 0, 0}, Vec3{0, 0, 1}, tilted_up(0.0F));
+    push_triangle(v, Vec3{0, 0, 0}, Vec3{1, 0, 0},
+                  Vec3{0.0F, std::sin(degrees * kDegrees), -std::cos(degrees * kDegrees)},
+                  tilted_up(degrees));
+    return v;
+}
+
+} // namespace
+
+TEST(SmoothShading, CoplanarFacesKeepTheirSharedNormal) {
+    auto v = hinge(0.0F);
+    protekt::game::smooth_vertex_normals(v, 0, v.size());
+    for (const SceneVertex& vertex : v) {
+        EXPECT_NEAR(angle_degrees(vertex.normal, tilted_up(0.0F)), 0.0F, 1e-3F);
+    }
+}
+
+TEST(SmoothShading, TwoFacesInsideTheCreaseAreAveragedAtTheirSharedEdgeAndNowhereElse) {
+    auto v = hinge(30.0F);
+    protekt::game::smooth_vertex_normals(v, 0, v.size());
+    // Equal areas, so the shared corners (0,0,0) and (1,0,0) get the bisector: 15 degrees.
+    for (const std::size_t shared :
+         {std::size_t{0}, std::size_t{1}, std::size_t{3}, std::size_t{4}}) {
+        EXPECT_NEAR(angle_degrees(v.at(shared).normal, tilted_up(15.0F)), 0.0F, 1e-2F) << shared;
+    }
+    // The corners only one face owns keep that face's normal.
+    EXPECT_NEAR(angle_degrees(v.at(2).normal, tilted_up(0.0F)), 0.0F, 1e-3F);
+    EXPECT_NEAR(angle_degrees(v.at(5).normal, tilted_up(30.0F)), 0.0F, 1e-3F);
+}
+
+TEST(SmoothShading, AFaceAcrossTheCreaseIsNotAveragedInSoABoxEdgeStaysSharp) {
+    auto v = hinge(90.0F);
+    protekt::game::smooth_vertex_normals(v, 0, v.size());
+    for (const std::size_t shared : {std::size_t{0}, std::size_t{1}}) {
+        EXPECT_NEAR(angle_degrees(v.at(shared).normal, tilted_up(0.0F)), 0.0F, 1e-3F)
+            << "face A at the edge keeps its own normal";
+    }
+    for (const std::size_t shared : {std::size_t{3}, std::size_t{4}}) {
+        EXPECT_NEAR(angle_degrees(v.at(shared).normal, tilted_up(90.0F)), 0.0F, 1e-3F)
+            << "face B at the edge keeps its own normal";
+    }
+}
+
+TEST(SmoothShading, TheDefaultCreaseSitsBetweenTheRoundShapesAndTheSquareOnes) {
+    // Round things meet at up to 63.4 degrees (an icosphere's faces that share only a corner) and
+    // must blend; corners meet at 85 to 90 and must not. The default has to separate 65 (blend)
+    // from 85 (keep), whatever its exact value.
+    auto blend = hinge(65.0F);
+    protekt::game::smooth_vertex_normals(blend, 0, blend.size());
+    EXPECT_NEAR(angle_degrees(blend.at(0).normal, tilted_up(32.5F)), 0.0F, 1e-2F);
+    auto keep = hinge(85.0F);
+    protekt::game::smooth_vertex_normals(keep, 0, keep.size());
+    EXPECT_NEAR(angle_degrees(keep.at(0).normal, tilted_up(0.0F)), 0.0F, 1e-3F);
+    EXPECT_NEAR(angle_degrees(keep.at(3).normal, tilted_up(85.0F)), 0.0F, 1e-3F);
+}
+
+TEST(SmoothShading, TheCreaseAngleIsTheCallersToChoose) {
+    auto tight = hinge(30.0F);
+    protekt::game::smooth_vertex_normals(tight, 0, tight.size(), 10.0F);
+    EXPECT_NEAR(angle_degrees(tight.at(0).normal, tilted_up(0.0F)), 0.0F, 1e-3F)
+        << "30 degrees apart is a crease under a 10 degree threshold";
+    auto loose = hinge(30.0F);
+    protekt::game::smooth_vertex_normals(loose, 0, loose.size(), 35.0F);
+    EXPECT_NEAR(angle_degrees(loose.at(0).normal, tilted_up(15.0F)), 0.0F, 1e-2F);
+}
+
+TEST(SmoothShading, AVertexSharedByThreeFacesBlendsTheTwoThatAgreeAndKeepsTheOneThatDoesNot) {
+    std::vector<SceneVertex> v;
+    const Vec3 corner{0, 0, 0};
+    // Three triangles of equal area meeting at the origin: up, 10 degrees over, and a wall (80
+    // degrees from the second, 90 from the first: both past the crease).
+    push_triangle(v, corner, Vec3{1, 0, 0}, Vec3{0, 0, 1}, tilted_up(0.0F));
+    push_triangle(v, corner, Vec3{0, 0, 1}, Vec3{-1, 0, 0}, tilted_up(10.0F));
+    push_triangle(v, corner, Vec3{-1, 0, 0}, Vec3{0, 1, 0}, Normal{0.0F, 0.0F, 1.0F});
+    protekt::game::smooth_vertex_normals(v, 0, v.size());
+    EXPECT_NEAR(angle_degrees(v.at(0).normal, tilted_up(5.0F)), 0.0F, 1e-2F);
+    EXPECT_EQ(v.at(0).normal, v.at(3).normal) << "the two that agree end with one normal";
+    EXPECT_EQ(v.at(6).normal, (Normal{0.0F, 0.0F, 1.0F})) << "the wall keeps its own";
+}
+
+TEST(SmoothShading, TheAverageIsWeightedByAreaSoARecutQuadDoesNotMoveIt) {
+    std::vector<SceneVertex> v;
+    // A is area 0.5; B shares only the origin with it and has TWICE the area (a 2 m edge).
+    push_triangle(v, Vec3{0, 0, 0}, Vec3{1, 0, 0}, Vec3{0, 0, 1}, tilted_up(0.0F));
+    const float s = std::sin(30.0F * kDegrees);
+    const float c = std::cos(30.0F * kDegrees);
+    push_triangle(v, Vec3{0, 0, 0}, Vec3{-2, 0, 0}, Vec3{0, s, -c}, tilted_up(30.0F));
+    protekt::game::smooth_vertex_normals(v, 0, v.size());
+    const Normal a = tilted_up(0.0F);
+    const Normal b = tilted_up(30.0F);
+    Normal want{(a[0] * 0.5F) + (b[0] * 1.0F), (a[1] * 0.5F) + (b[1] * 1.0F),
+                (a[2] * 0.5F) + (b[2] * 1.0F)};
+    const float length = std::sqrt((want[0] * want[0]) + (want[1] * want[1]) + (want[2] * want[2]));
+    want = {want[0] / length, want[1] / length, want[2] / length};
+    EXPECT_NEAR(angle_degrees(v.at(0).normal, want), 0.0F, 1e-2F);
+    EXPECT_GT(angle_degrees(v.at(0).normal, a), angle_degrees(v.at(0).normal, b))
+        << "the bigger face pulls harder";
+}
+
+TEST(SmoothShading, AVertexWithNoNormalIsNeitherLitNorCounted) {
+    auto v = hinge(30.0F);
+    // Strip the second face's normals: it is now an unlit face (a shadow, a HUD plate).
+    for (std::size_t i = 3; i < 6; ++i) {
+        v.at(i).normal = {};
+    }
+    protekt::game::smooth_vertex_normals(v, 0, v.size());
+    EXPECT_EQ(v.at(0).normal, tilted_up(0.0F)) << "an unlit neighbour averages into nothing";
+    for (std::size_t i = 3; i < 6; ++i) {
+        EXPECT_EQ(v.at(i).normal, (Normal{})) << "and stays unlit";
+    }
+}
+
+TEST(SmoothShading, OnlyTheRequestedRunIsTouched) {
+    auto v = hinge(30.0F);
+    const auto second = hinge(30.0F);
+    v.insert(v.end(), second.begin(), second.end());
+    protekt::game::smooth_vertex_normals(v, 6, 12);
+    EXPECT_EQ(v.at(0).normal, tilted_up(0.0F)) << "the first pair is outside the run";
+    EXPECT_NEAR(angle_degrees(v.at(6).normal, tilted_up(15.0F)), 0.0F, 1e-2F);
+}
+
+TEST(SmoothShading, AnIcosphereBecomesABallItsNormalsPointingStraightOutFromTheCentre) {
+    protekt::game::Particle ball;
+    ball.origin = {5.0F, 3.0F, 7.0F};
+    ball.lifetime = 10;
+    ball.half_from = 1.0F;
+    ball.half_to = 1.0F;
+    ball.shape = protekt::game::ParticleShape::Icosphere;
+    std::vector<SceneVertex> v;
+    protekt::game::emit_particle(v, ball, 0, Vec3{0.0F, 20.0F, 0.0F});
+    ASSERT_EQ(v.size(), std::size_t{60});
+    float worst_face = 0.0F;
+    for (const SceneVertex& vertex : v) {
+        const Vec3 out{vertex.position[0] - 5.0F, vertex.position[1] - 3.0F,
+                       vertex.position[2] - 7.0F};
+        const float length = std::sqrt(protekt::math::dot(out, out));
+        const Normal radial{out[0] / length, out[1] / length, out[2] / length};
+        worst_face = std::max(worst_face, angle_degrees(vertex.normal, radial));
+    }
+    EXPECT_GT(worst_face, 30.0F)
+        << "before smoothing, a face's normal is far off a corner's radial";
+    protekt::game::smooth_vertex_normals(v, 0, v.size());
+    for (const SceneVertex& vertex : v) {
+        const Vec3 out{vertex.position[0] - 5.0F, vertex.position[1] - 3.0F,
+                       vertex.position[2] - 7.0F};
+        const float length = std::sqrt(protekt::math::dot(out, out));
+        const Normal radial{out[0] / length, out[1] / length, out[2] / length};
+        EXPECT_NEAR(angle_degrees(vertex.normal, radial), 0.0F, 0.1F);
+    }
+}
+
+TEST(SmoothShading, ASceneCarriesUnitNormalsOnTheLitWorldAndNoneOnTheSkyOrTheHud) {
+    // A tank on the camera's own tile: the skirmish's units are elsewhere on the map.
+    const auto sim = sim_of({{Side::Player, UnitKind::Tank, 60, 60}});
+    const SceneOptions options = options_at(121.0F, 121.0F); // metres: tile 60's centre
+    const Scene scene = protekt::game::build_scene(sim, options);
+    const std::size_t terrain = terrain_vertex_count(options.radius_tiles);
+    std::size_t lit_terrain = 0;
+    std::size_t lit_after_terrain = 0;
+    for (std::size_t i = 0; i < scene.vertices.size(); ++i) {
+        const Normal& n = scene.vertices.at(i).normal;
+        const float length = std::sqrt((n[0] * n[0]) + (n[1] * n[1]) + (n[2] * n[2]));
+        if (length != 0.0F) {
+            ASSERT_NEAR(length, 1.0F, 1e-3F) << "vertex " << i << " is lit by a UNIT normal";
+            ASSERT_LT(i, scene.world_vertex_count) << "the HUD is never lit by a normal";
+            if (i < terrain) {
+                ++lit_terrain;
+                EXPECT_GT(n[1], 0.0F) << "ground faces up";
+            } else {
+                ++lit_after_terrain;
+            }
+        }
+    }
+    EXPECT_EQ(lit_terrain, terrain) << "every terrain vertex is lit";
+    EXPECT_GT(lit_after_terrain, std::size_t{1000}) << "the units are lit too";
+    // The sky starts where the terrain ends and carries no normal: it is the light source.
+    for (std::size_t i = terrain; i < terrain + 200; ++i) {
+        EXPECT_EQ(scene.vertices.at(i).normal, (Normal{})) << "sky vertex " << i;
+    }
+}
+
+TEST(SmoothShading, ATankKeepsItsSquareEdgesAndRoundsItsChamfersAndIsNeverMelted) {
+    const auto sim = facing_sim(UnitKind::AssaultTank);
+    const Scene scene = facing_scene(sim, 0.0F, 0.0F);
+    const std::span<const SceneVertex> body
+        = std::span<const SceneVertex>(scene.vertices).last(kAssaultTankVertices);
+    // Positions holding more than one normal are the creases; those holding one are blends.
+    std::map<std::array<float, 3>, std::vector<Normal>> at;
+    std::size_t curved = 0;
+    for (std::size_t i = 0; i + 2 < body.size(); i += 3) {
+        const Vec3 ab = minus(body[i + 1].position, body[i].position);
+        const Vec3 ac = minus(body[i + 2].position, body[i].position);
+        const Vec3 raw = protekt::math::cross(ab, ac);
+        if (length_of(raw) < 1e-6F) {
+            continue;
+        }
+        const Vec3 face = protekt::math::normalise(raw);
+        for (std::size_t k = 0; k < 3; ++k) {
+            const Normal& n = body[i + k].normal;
+            at[body[i + k].position].push_back(n);
+            const float along = std::abs((n[0] * face[0]) + (n[1] * face[1]) + (n[2] * face[2]));
+            // A smoothed normal is never farther than the crease angle from its own face's.
+            EXPECT_GE(along, std::cos(protekt::game::kCreaseAngleDegrees * kDegrees) - 1e-3F);
+            curved += along < 0.995F ? 1U : 0U;
+        }
+    }
+    std::size_t creases = 0;
+    for (const auto& [position, normals] : at) {
+        float widest = 0.0F;
+        for (const Normal& a : normals) {
+            for (const Normal& b : normals) {
+                widest = std::max(widest, angle_degrees(a, b));
+            }
+        }
+        creases += widest >= 80.0F ? 1U : 0U;
+    }
+    EXPECT_GT(curved, std::size_t{100}) << "the chamfers and slants must come out round";
+    EXPECT_GT(creases, std::size_t{50}) << "and the square edges must stay square";
+}
+
+namespace {
+
+/// The share of `body`'s vertices whose normal is (nearly) their own triangle's: the flat panels,
+/// as against the ones the smoothing has bent. A property of the SHAPE, so it must not depend on
+/// how the body is turned.
+float flat_panel_share(const std::vector<SceneVertex>& body) {
+    std::size_t flat = 0;
+    std::size_t counted = 0;
+    for (std::size_t i = 0; i + 2 < body.size(); i += 3) {
+        const Vec3 raw = protekt::math::cross(minus(body[i + 1].position, body[i].position),
+                                              minus(body[i + 2].position, body[i].position));
+        if (length_of(raw) < 1e-6F) {
+            continue;
+        }
+        const Vec3 face = protekt::math::normalise(raw);
+        for (std::size_t k = 0; k < 3; ++k) {
+            const Normal& n = body[i + k].normal;
+            ++counted;
+            flat += std::abs((n[0] * face[0]) + (n[1] * face[1]) + (n[2] * face[2])) >= 0.9995F
+                        ? 1U
+                        : 0U;
+        }
+    }
+    return counted == 0 ? 0.0F : static_cast<float>(flat) / static_cast<float>(counted);
+}
+
+/// One tank's vertices exactly as the scene drew them (turned onto the ground, NOT levelled).
+std::vector<SceneVertex> leaning_tank(std::uint32_t tile_x, std::uint32_t tile_y) {
+    const auto sim = sim_of(
+        {{Side::Player, UnitKind::Tank, static_cast<int>(tile_x), static_cast<int>(tile_y)}});
+    const protekt::sim::Unit& tank = sim.units().at(0);
+    SceneOptions options = at_tank(tank);
+    const Scene base = protekt::game::build_scene(sim, options);
+    options.hover = SceneOptions::Hovering{tank.id, 1000.0F};
+    const Scene raised = protekt::game::build_scene(sim, options);
+    std::vector<SceneVertex> out;
+    for (std::size_t i = 0; i < base.vertices.size() && i < raised.vertices.size(); ++i) {
+        if (base.vertices.at(i).position != raised.vertices.at(i).position) {
+            out.push_back(base.vertices.at(i));
+        }
+    }
+    return out;
+}
+
+} // namespace
+
+TEST(SmoothShading, ATankOnASlopeCarriesNormalsThatLeanWithItsHull) {
+    // The flattest and the steepest tile on seed 42 (the sim puts a tank on a tile's centre).
+    std::pair<int, int> level{0, 0};
+    std::pair<int, int> steep{0, 0};
+    float flattest = 0.0F;
+    float steepest = 2.0F;
+    for (int ty = 20; ty < 100; ++ty) {
+        for (int tx = 20; tx < 100; ++tx) {
+            const auto sim = sim_of({{Side::Player, UnitKind::Tank, tx, ty}});
+            const protekt::sim::Unit& tank = sim.units().at(0);
+            const float up = protekt::game::ground_normal(42, tank.x, tank.y)[1];
+            if (up > flattest) {
+                flattest = up;
+                level = {tx, ty};
+            }
+            if (up < steepest) {
+                steepest = up;
+                steep = {tx, ty};
+            }
+        }
+    }
+    ASSERT_GT(flattest - steepest, 0.01F)
+        << "flattest " << flattest << " steepest " << steepest << ": need a real slope to test on";
+    const auto flat = leaning_tank(static_cast<std::uint32_t>(level.first),
+                                   static_cast<std::uint32_t>(level.second));
+    const auto leaned = leaning_tank(static_cast<std::uint32_t>(steep.first),
+                                     static_cast<std::uint32_t>(steep.second));
+    ASSERT_EQ(flat.size(), leaned.size());
+    ASSERT_GT(flat_panel_share(flat), 0.05F) << "the tank has flat panels to lose";
+    EXPECT_NEAR(flat_panel_share(leaned), flat_panel_share(flat), 0.01F)
+        << "turning a body onto a slope must turn its normals with it";
+}
+
+TEST(SmoothShading, ARaisedBarrelsNormalsRaiseWithIt) {
+    const auto sim = facing_sim(UnitKind::AssaultTank);
+    const Scene level_gun = facing_scene(sim, 0.0F, 0.0F, 0.0F);
+    const Scene raised_gun = facing_scene(sim, 0.0F, 0.0F, 0.4F);
+    // The barrel is a plain box (every edge a crease), so its vertex normals ARE its faces'.
+    for (const Scene* scene : {&level_gun, &raised_gun}) {
+        const std::vector<SceneVertex> barrel(scene->vertices.end() - 36, scene->vertices.end());
+        EXPECT_GE(flat_panel_share(barrel), 0.999F);
+    }
+    // And the raise really moved it: the barrel's top normal is no longer straight up.
+    EXPECT_GT(std::abs(raised_gun.vertices.at(raised_gun.vertices.size() - 12).normal[2]
+                       - level_gun.vertices.at(level_gun.vertices.size() - 12).normal[2]),
+              0.1F);
+}

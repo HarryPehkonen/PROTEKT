@@ -53,10 +53,10 @@ Vec3 side_colour(sim::Side side) {
 /// `alpha` defaults to 1, which makes the renderer's blend a no-op, so every caller that does not
 /// ask for transparency emits exactly the vertices it always did.
 void emit_triangle(std::vector<SceneVertex>& out, const Vec3& a, const Vec3& b, const Vec3& c,
-                   const Vec3& colour, float alpha = 1.0F) {
-    out.push_back(SceneVertex{a, colour, alpha});
-    out.push_back(SceneVertex{b, colour, alpha});
-    out.push_back(SceneVertex{c, colour, alpha});
+                   const Vec3& colour, float alpha = 1.0F, const Vec3& normal = Vec3{}) {
+    for (const Vec3* corner : {&a, &b, &c}) {
+        out.push_back(SceneVertex{*corner, colour, alpha, 0.0F, 0.0F, 0.0F, normal});
+    }
 }
 
 void emit_quad(std::vector<SceneVertex>& out, const Vec3& a, const Vec3& b, const Vec3& c,
@@ -66,12 +66,15 @@ void emit_quad(std::vector<SceneVertex>& out, const Vec3& a, const Vec3& b, cons
 }
 
 /// A quad that samples one whole atlas tile: its corners a, b, c, d take the tile's corners
-/// top-left, top-right, bottom-right, bottom-left. The colour still multiplies the texel.
+/// top-left, top-right, bottom-right, bottom-left. The colour still multiplies the texel. `normal`
+/// is the quad's outward unit normal for the fragment stage's light (AP), carried by all four
+/// corners; the zero default is "not lit", the colour as it is.
 void emit_tiled_quad(std::vector<SceneVertex>& out, const Vec3& a, const Vec3& b, const Vec3& c,
-                     const Vec3& d, const Vec3& colour, const UvRect& tile, int orientation = 0) {
+                     const Vec3& d, const Vec3& colour, const UvRect& tile, int orientation = 0,
+                     const Vec3& normal = Vec3{}) {
     const auto corner = [&](const Vec3& p, int which) {
         const auto uv = oriented_corner_uv(tile, orientation, which);
-        return SceneVertex{p, colour, 1.0F, uv.at(0), uv.at(1)};
+        return SceneVertex{p, colour, 1.0F, uv.at(0), uv.at(1), 0.0F, normal};
     };
     const SceneVertex va = corner(a, 0);
     const SceneVertex vb = corner(b, 1);
@@ -103,35 +106,29 @@ void emit_tiled_quad(std::vector<SceneVertex>& out, const Vec3& a, const Vec3& b
     return height_metres(seed, tile_x, tile_y);
 }
 
-/// How lit a face is: its outward unit normal against the sun (`kSunDirection`), mapped so a face
-/// square to the sun is 1.0 and one square away is `kShadeFloor` -- never black. A half-Lambert
-/// ramp rather than a clamped dot, so a face turned away from the sun still differs from the
-/// underside: top > sun side > shade side > bottom.
-float face_light(const Vec3& normal) {
-    constexpr float kShadeFloor = 0.45F;
-    const float facing = std::clamp(dot(normal, normalise(kSunDirection)), -1.0F, 1.0F);
-    return kShadeFloor + ((1.0F - kShadeFloor) * (0.5F + (0.5F * facing)));
+/// The outward unit normal of a face from a normal vector `raw` (a cross product, of any length),
+/// turned to point away from the solid's centre: `away` is a vector from that centre to a point on
+/// the face. The zero vector for a degenerate face, which has no area to light and so reads as
+/// "not lit".
+Vec3 outward_unit(const Vec3& raw, const Vec3& away) {
+    const float length = std::sqrt(dot(raw, raw));
+    if (!(length > 1.0e-12F)) {
+        return Vec3{};
+    }
+    const float sign = dot(raw, away) < 0.0F ? -1.0F : 1.0F;
+    return Vec3{sign * raw[0] / length, sign * raw[1] / length, sign * raw[2] / length};
 }
 
-/// The light on one terrain quad: `face_light` of the quad's own surface, relative to a flat tile.
+/// The normal of one terrain quad, for the fragment stage's light.
 ///
 /// THE NORMAL is the cross product of the quad's two diagonals, (p01 - p10) x (p11 - p00). That is
 /// the area-weighted mean of the two triangles' normals for EITHER split of the quad (so it does
 /// not care that the mesh cuts along p00-p11), and for a flat quad it is exactly straight up. One
-/// normal, one colour: the quad stays six vertices.
-///
-/// RELATIVE TO FLAT: straight up is 0.958 on the ramp, not 1.0, so the raw light would darken every
-/// flat tile by 4%. Dividing by `face_light(up)` makes flat ground exactly 1.0 (the colour it had
-/// before the ground was lit) and leaves the slope's difference from flat as the whole effect; a
-/// tile tilted toward the sun comes out a little above 1. The tile atlas supplies the colour, this
-/// only scales it. Fog is applied afterwards by `fog_range`, so a far tile still ends at the
-/// horizon.
-Vec3 terrain_light(const Vec3& p00, const Vec3& p10, const Vec3& p11, const Vec3& p01) {
+/// normal for the quad's six vertices; `smooth_vertex_normals` then blends it with the neighbours'.
+Vec3 terrain_normal(const Vec3& p00, const Vec3& p10, const Vec3& p11, const Vec3& p01) {
     const Vec3 across{p01[0] - p10[0], p01[1] - p10[1], p01[2] - p10[2]};
     const Vec3 along{p11[0] - p00[0], p11[1] - p00[1], p11[2] - p00[2]};
-    const float flat = face_light(Vec3{0.0F, 1.0F, 0.0F});
-    const float light = face_light(normalise(cross(across, along))) / flat;
-    return Vec3{kTerrainLight[0] * light, kTerrainLight[1] * light, kTerrainLight[2] * light};
+    return normalise(cross(across, along));
 }
 
 void build_terrain(std::vector<SceneVertex>& out, const TerrainCache* cache, std::uint64_t seed,
@@ -175,8 +172,9 @@ void build_terrain(std::vector<SceneVertex>& out, const TerrainCache* cache, std
             const Vec3 p10{x1, cached_height_metres(cache, seed, tx + 1, ty), z0};
             const Vec3 p11{x1, cached_height_metres(cache, seed, tx + 1, ty + 1), z1};
             const Vec3 p01{x0, cached_height_metres(cache, seed, tx, ty + 1), z1};
-            emit_tiled_quad(out, p00, p10, p11, p01, terrain_light(p00, p10, p11, p01), tile,
-                            site.has_value() ? 0 : orientation_index(terrain, tx, ty));
+            emit_tiled_quad(out, p00, p10, p11, p01, terrain_base_colour(), tile,
+                            site.has_value() ? 0 : orientation_index(terrain, tx, ty),
+                            terrain_normal(p00, p10, p11, p01));
         }
     }
 }
@@ -340,24 +338,20 @@ struct Prism {
     float front_y1;
 };
 
-/// One face of a prism, shaded by its WORLD normal. The normal comes from the face's own corners,
-/// so the turn by `angle` and any slant are already in it; it is flipped to point away from the
-/// prism's centre, so it does not depend on the winding.
+/// One face of a prism, with its WORLD normal. The normal comes from the face's own corners, so the
+/// turn by `angle` and any slant are already in it; it is flipped to point away from the prism's
+/// centre, so it does not depend on the winding. The colour is left UNLIT: the fragment stage
+/// multiplies the light in from the (smoothed) normal.
 void emit_shaded_face(std::vector<SceneVertex>& out, const std::array<Vec3, 8>& p,
                       const Vec3& centre, std::size_t a, std::size_t b, std::size_t c,
                       std::size_t d, const Vec3& colour, const UvRect& tile) {
     const Vec3 ab{p.at(b)[0] - p.at(a)[0], p.at(b)[1] - p.at(a)[1], p.at(b)[2] - p.at(a)[2]};
     const Vec3 ac{p.at(c)[0] - p.at(a)[0], p.at(c)[1] - p.at(a)[1], p.at(c)[2] - p.at(a)[2]};
-    Vec3 normal = normalise(cross(ab, ac));
     const Vec3 outward{(p.at(a)[0] + p.at(c)[0]) * 0.5F - centre[0],
                        (p.at(a)[1] + p.at(c)[1]) * 0.5F - centre[1],
                        (p.at(a)[2] + p.at(c)[2]) * 0.5F - centre[2]};
-    if (dot(normal, outward) < 0.0F) {
-        normal = {-normal[0], -normal[1], -normal[2]};
-    }
-    const float light = face_light(normal);
-    const Vec3 shaded{colour[0] * light, colour[1] * light, colour[2] * light};
-    emit_tiled_quad(out, p.at(a), p.at(b), p.at(c), p.at(d), shaded, tile);
+    emit_tiled_quad(out, p.at(a), p.at(b), p.at(c), p.at(d), colour, tile, 0,
+                    outward_unit(cross(ab, ac), outward));
 }
 
 /// The eight corners of a prism in a frame turned by `angle` about (x, z), in the order the faces
@@ -577,7 +571,7 @@ std::vector<std::array<float, 2>> inset_profile(const std::vector<std::array<flo
 
 /// One `ShapePart` swept across `[lo, hi]`, chamfered: the profile at full size from `lo + bevel`
 /// to `hi - bevel`, drawn in to its inset at the two outer faces, so the flanks and the top and
-/// bottom edges slope instead of meeting at a square corner. Each quad is shaded by its own world
+/// bottom edges slope instead of meeting at a square corner. Each quad carries its own world
 /// normal, flipped to point away from the part's centre (the part is convex), and the two faces are
 /// flat fans. A part with no bevel is a plain extrusion. Built in the unit's frame -- `across` over
 /// the heading, `up` over the ground -- then turned by `heading` about (x, z).
@@ -615,15 +609,11 @@ void emit_shape_prism(std::vector<SceneVertex>& out, float x, float z, float gro
     for (float& axis : centre) {
         axis /= static_cast<float>(points);
     }
-    const auto shaded = [&](const Vec3& a, const Vec3& b, const Vec3& c) {
+    const auto facing = [&](const Vec3& a, const Vec3& b, const Vec3& c) {
         const Vec3 ab{b[0] - a[0], b[1] - a[1], b[2] - a[2]};
         const Vec3 ac{c[0] - a[0], c[1] - a[1], c[2] - a[2]};
-        Vec3 normal = normalise(cross(ab, ac));
-        if (dot(normal, Vec3{a[0] - centre[0], a[1] - centre[1], a[2] - centre[2]}) < 0.0F) {
-            normal = {-normal[0], -normal[1], -normal[2]};
-        }
-        const float light = face_light(normal);
-        return Vec3{colour[0] * light, colour[1] * light, colour[2] * light};
+        return outward_unit(cross(ab, ac),
+                            Vec3{a[0] - centre[0], a[1] - centre[1], a[2] - centre[2]});
     };
     for (std::size_t i = 0; i + 1 < rings.size(); ++i) {
         const std::size_t n = rings.at(i).size();
@@ -633,16 +623,19 @@ void emit_shape_prism(std::vector<SceneVertex>& out, float x, float z, float gro
             const Vec3& b = rings.at(i).at(next);
             const Vec3& c = rings.at(i + 1).at(next);
             const Vec3& d = rings.at(i + 1).at(corner);
-            emit_tiled_quad(out, a, b, c, d, shaded(a, b, c), tile);
+            // A ring pinched to a point leaves (a, b, c) with no area; the quad's other half has.
+            const Vec3 first = facing(a, b, c);
+            emit_tiled_quad(out, a, b, c, d, colour, tile, 0,
+                            first == Vec3{} ? facing(a, c, d) : first);
         }
     }
     const float mid_u = (tile.u0 + tile.u1) * 0.5F;
     const float mid_v = (tile.v0 + tile.v1) * 0.5F;
     for (const std::vector<Vec3>& ring : {rings.front(), rings.back()}) {
         for (std::size_t corner = 1; corner + 1 < ring.size(); ++corner) {
-            const Vec3 ink = shaded(ring.at(0), ring.at(corner), ring.at(corner + 1));
+            const Vec3 normal = facing(ring.at(0), ring.at(corner), ring.at(corner + 1));
             for (const Vec3* p : {&ring.at(0), &ring.at(corner), &ring.at(corner + 1)}) {
-                out.push_back(SceneVertex{*p, ink, 1.0F, mid_u, mid_v});
+                out.push_back(SceneVertex{*p, colour, 1.0F, mid_u, mid_v, 0.0F, normal});
             }
         }
     }
@@ -737,6 +730,14 @@ void elevate_barrel(std::vector<SceneVertex>& out, std::size_t first, float x, f
         p[0] = pivot_x + (dx - (along * forward_x)) + (ahead * forward_x);
         p[2] = pivot_z + (dz - (along * forward_z)) + (ahead * forward_z);
         p[1] = pivot_y + lift;
+        // The normal turns with the barrel (a direction: no pivot, no translation).
+        Vec3& n = out.at(i).normal;
+        const float n_along = (n[0] * forward_x) + (n[2] * forward_z);
+        const float n_lift = (n_along * sine) + (n[1] * cosine);
+        const float n_ahead = (n_along * cosine) - (n[1] * sine);
+        n[0] = (n[0] - (n_along * forward_x)) + (n_ahead * forward_x);
+        n[2] = (n[2] - (n_along * forward_z)) + (n_ahead * forward_z);
+        n[1] = n_lift;
     }
 }
 
@@ -865,8 +866,8 @@ struct LoftStation {
 /// square to the sweep's direction there (the line from the station before to the station after),
 /// and neighbouring rings are joined by quads -- the renderer's own way of approximating a curve, a
 /// fan of facets. The two end rings are closed by a fan, so the solid is watertight. Built level,
-/// in the unit's frame, then turned by `heading` about (x, z) over `ground`; every quad is shaded
-/// by its own world normal, flipped to point away from its ring's centre, so a sweep with a bend in
+/// in the unit's frame, then turned by `heading` about (x, z) over `ground`; every quad carries
+/// its own world normal, flipped to point away from its ring's centre, so a sweep with a bend in
 /// it still lights as one body. A ring with a zero size is a point: that is how a sweep tapers to a
 /// tip.
 template <std::size_t N>
@@ -902,15 +903,11 @@ void emit_loft(std::vector<SceneVertex>& out, float x, float z, float ground, fl
                                       here.z + (right[2] * a) + (over[2] * u)}));
         }
     }
-    const auto shaded = [&](const Vec3& a, const Vec3& b, const Vec3& c, const Vec3& centre) {
+    const auto facing = [&](const Vec3& a, const Vec3& b, const Vec3& c, const Vec3& centre) {
         const Vec3 ab{b[0] - a[0], b[1] - a[1], b[2] - a[2]};
         const Vec3 ac{c[0] - a[0], c[1] - a[1], c[2] - a[2]};
-        Vec3 normal = normalise(cross(ab, ac));
-        if (dot(normal, Vec3{a[0] - centre[0], a[1] - centre[1], a[2] - centre[2]}) < 0.0F) {
-            normal = {-normal[0], -normal[1], -normal[2]};
-        }
-        const float light = face_light(normal);
-        return Vec3{colour[0] * light, colour[1] * light, colour[2] * light};
+        return outward_unit(cross(ab, ac),
+                            Vec3{a[0] - centre[0], a[1] - centre[1], a[2] - centre[2]});
     };
     const auto centre_of = [&](const std::vector<Vec3>& ring) {
         Vec3 sum{0.0F, 0.0F, 0.0F};
@@ -929,7 +926,10 @@ void emit_loft(std::vector<SceneVertex>& out, float x, float z, float ground, fl
             const Vec3& b = rings.at(i).at(next);
             const Vec3& c = rings.at(i + 1).at(next);
             const Vec3& d = rings.at(i + 1).at(corner);
-            emit_tiled_quad(out, a, b, c, d, shaded(a, b, c, centre), tile);
+            // A ring pinched to a point leaves (a, b, c) with no area; the quad's other half has.
+            const Vec3 first = facing(a, b, c, centre);
+            emit_tiled_quad(out, a, b, c, d, colour, tile, 0,
+                            first == Vec3{} ? facing(a, c, d, centre) : first);
         }
     }
     // The caps are flat fans from a ring's first corner, sampling the tile's middle texel.
@@ -939,9 +939,9 @@ void emit_loft(std::vector<SceneVertex>& out, float x, float z, float ground, fl
         const std::vector<Vec3>& ring = rings.at(end);
         const Vec3 neighbour = centre_of(rings.at(end == 0 ? 1 : end - 1));
         for (std::size_t corner = 1; corner + 1 < sides; ++corner) {
-            const Vec3 ink = shaded(ring.at(0), ring.at(corner), ring.at(corner + 1), neighbour);
+            const Vec3 normal = facing(ring.at(0), ring.at(corner), ring.at(corner + 1), neighbour);
             for (const Vec3* p : {&ring.at(0), &ring.at(corner), &ring.at(corner + 1)}) {
-                out.push_back(SceneVertex{*p, ink, 1.0F, mid_u, mid_v});
+                out.push_back(SceneVertex{*p, colour, 1.0F, mid_u, mid_v, 0.0F, normal});
             }
         }
     }
@@ -1954,7 +1954,8 @@ void emit_puff(std::vector<SceneVertex>& out, float x, float centre, float z, fl
 /// A SPHERE of the repair beam: an icosahedron (`kSphereFaces` = 20 triangles) whose twelve corners
 /// all stand `radius` from (x, y, z). Corners are the three golden rectangles' (0, +-1, +-phi)
 /// and its two rotations, pushed out to the radius; the faces are the classic twenty, wound
-/// outward. The renderer does not cull, so winding only matters to a lit shader, which this is not.
+/// outward. The renderer does not cull; each face carries its outward normal (AP), and the
+/// smoothing pass blends the twelve corners' into a ball's, so the sphere is lit as a round thing.
 /// `roll` (radians, 0 = the corners as listed) turns it about the vertical and leans it over by
 /// 0.6 of the same angle, so two spheres with different rolls are not the same picture (AH).
 void emit_sphere(std::vector<SceneVertex>& out, float x, float y, float z, float radius,
@@ -1989,9 +1990,18 @@ void emit_sphere(std::vector<SceneVertex>& out, float x, float y, float z, float
         const float leaned_z = (c.at(1) * lean_sin) + (turned_z * lean_cos);
         return Vec3{x + (turned_x * scale), y + (leaned_y * scale), z + (leaned_z * scale)};
     };
+    const Vec3 centre{x, y, z};
     for (const auto& face : kFaces) {
-        emit_triangle(out, corner(face.at(0)), corner(face.at(1)), corner(face.at(2)), colour,
-                      alpha);
+        const Vec3 a = corner(face.at(0));
+        const Vec3 b = corner(face.at(1));
+        const Vec3 c = corner(face.at(2));
+        // Outward by construction (the corners stand `radius` from the centre), whatever the
+        // winding: the face's normal is turned to point away from the centre.
+        const Vec3 ab{b[0] - a[0], b[1] - a[1], b[2] - a[2]};
+        const Vec3 ac{c[0] - a[0], c[1] - a[1], c[2] - a[2]};
+        emit_triangle(out, a, b, c, colour, alpha,
+                      outward_unit(cross(ab, ac),
+                                   Vec3{a[0] - centre[0], a[1] - centre[1], a[2] - centre[2]}));
     }
 }
 
@@ -5656,6 +5666,138 @@ Vec3 GroundTilt::apply(const Vec3& point) const noexcept {
     return out;
 }
 
+Vec3 GroundTilt::turn(const Vec3& direction) const noexcept {
+    if (level()) {
+        return direction;
+    }
+    const Vec3 swung = cross(axis, direction);
+    const float along = dot(axis, direction) * (1.0F - cosine);
+    Vec3 out{};
+    for (std::size_t c = 0; c < 3; ++c) {
+        out.at(c) = (direction.at(c) * cosine) + (swung.at(c) * sine) + (axis.at(c) * along);
+    }
+    return out;
+}
+
+float face_light(const Vec3& normal) {
+    const float facing = std::clamp(dot(normal, normalise(kSunDirection)), -1.0F, 1.0F);
+    return kShadeFloor + ((1.0F - kShadeFloor) * (0.5F + (0.5F * facing)));
+}
+
+Vec3 terrain_base_colour() {
+    const float flat = face_light(Vec3{0.0F, 1.0F, 0.0F});
+    return Vec3{kTerrainLight[0] / flat, kTerrainLight[1] / flat, kTerrainLight[2] / flat};
+}
+
+void smooth_vertex_normals(std::vector<SceneVertex>& vertices, std::size_t first, std::size_t last,
+                           float crease_degrees) {
+    last = std::min(last, vertices.size());
+    if (first >= last) {
+        return;
+    }
+    const float cos_crease = std::cos(crease_degrees * (kPi / 180.0F));
+    // One entry per LIT corner: its position, its face's unit normal and the face's area (the
+    // weight), found from the triangle it belongs to.
+    struct Corner {
+        std::array<float, 3> at;
+        Vec3 normal;
+        float weight;
+        std::size_t index;
+    };
+    std::vector<Corner> corners;
+    corners.reserve(last - first);
+    for (std::size_t i = first; i + 2 < last; i += 3) {
+        const Vec3& a = vertices.at(i).position;
+        const Vec3& b = vertices.at(i + 1).position;
+        const Vec3& c = vertices.at(i + 2).position;
+        const Vec3 ab{b[0] - a[0], b[1] - a[1], b[2] - a[2]};
+        const Vec3 ac{c[0] - a[0], c[1] - a[1], c[2] - a[2]};
+        const Vec3 doubled = cross(ab, ac);
+        const float weight = std::sqrt(dot(doubled, doubled)) * 0.5F;
+        for (std::size_t k = 0; k < 3; ++k) {
+            const Vec3& given = vertices.at(i + k).normal;
+            const float length = std::sqrt(dot(given, given));
+            if (length > 0.0F) {
+                corners.push_back(Corner{
+                    vertices.at(i + k).position,
+                    Vec3{given[0] / length, given[1] / length, given[2] / length}, weight, i + k});
+            }
+        }
+    }
+    // Sorted by a 64-bit hash of the position, which keeps the sort's comparisons to integers (this
+    // runs every frame on tens of thousands of corners). A run is then cut by the EXACT position,
+    // so a hash collision between two different positions can only fail to blend them, never blend
+    // two that are not the same place.
+    struct Keyed {
+        std::uint64_t key;
+        std::size_t corner;
+    };
+    std::vector<Keyed> order;
+    order.reserve(corners.size());
+    for (std::size_t i = 0; i < corners.size(); ++i) {
+        std::uint64_t key = 0x9E3779B97F4A7C15ULL;
+        for (const float coordinate : corners.at(i).at) {
+            key = (key ^ std::bit_cast<std::uint32_t>(coordinate)) * 0x100000001B3ULL;
+            key ^= key >> 29U;
+        }
+        order.push_back(Keyed{key, i});
+    }
+    std::sort(order.begin(), order.end(), [](const Keyed& l, const Keyed& r) {
+        return l.key != r.key ? l.key < r.key : l.corner < r.corner;
+    });
+    std::vector<Vec3> smoothed(corners.size());
+    std::vector<Vec3> sums; // one running sum per corner of the run being worked on, reused
+    std::size_t run_first = 0;
+    while (run_first < order.size()) {
+        std::size_t run_last = run_first + 1;
+        while (run_last < order.size()
+               && corners.at(order.at(run_last).corner).at
+                      == corners.at(order.at(run_first).corner).at) {
+            ++run_last;
+        }
+        const std::size_t count = run_last - run_first;
+        if (count == 1) {
+            // Alone at its position: nothing to blend with, and a unit normal averaged with
+            // itself is itself.
+            const Corner& only = corners.at(order.at(run_first).corner);
+            smoothed.at(order.at(run_first).corner) = only.normal;
+            run_first = run_last;
+            continue;
+        }
+        // Each corner's sum starts with its own face, then takes in every other face of the run
+        // within the crease of it. The angle test is symmetric, so each PAIR is tested once and
+        // credits both ends.
+        sums.assign(count, Vec3{0.0F, 0.0F, 0.0F});
+        for (std::size_t i = 0; i < count; ++i) {
+            const Corner& own = corners.at(order.at(run_first + i).corner);
+            for (std::size_t axis = 0; axis < 3; ++axis) {
+                sums.at(i).at(axis) += own.normal.at(axis) * own.weight;
+            }
+            for (std::size_t j = i + 1; j < count; ++j) {
+                const Corner& other = corners.at(order.at(run_first + j).corner);
+                if (dot(own.normal, other.normal) >= cos_crease) {
+                    for (std::size_t axis = 0; axis < 3; ++axis) {
+                        sums.at(i).at(axis) += other.normal.at(axis) * other.weight;
+                        sums.at(j).at(axis) += own.normal.at(axis) * own.weight;
+                    }
+                }
+            }
+        }
+        for (std::size_t i = 0; i < count; ++i) {
+            const Vec3& sum = sums.at(i);
+            const float length = std::sqrt(dot(sum, sum));
+            const std::size_t corner = order.at(run_first + i).corner;
+            smoothed.at(corner) = length > 0.0F
+                                      ? Vec3{sum[0] / length, sum[1] / length, sum[2] / length}
+                                      : corners.at(corner).normal;
+        }
+        run_first = run_last;
+    }
+    for (std::size_t i = 0; i < corners.size(); ++i) {
+        vertices.at(corners.at(i).index).normal = smoothed.at(i);
+    }
+}
+
 namespace {
 
 /// Turns the vertices from `first` on (one vehicle, just built level) so its up is the ground's
@@ -5676,6 +5818,7 @@ void tilt_to_ground(std::vector<SceneVertex>& out, std::size_t first, const sim:
     }
     for (std::size_t i = first; i < out.size(); ++i) {
         out.at(i).position = tilt.apply(out.at(i).position);
+        out.at(i).normal = tilt.turn(out.at(i).normal);
     }
 }
 
@@ -5846,6 +5989,10 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
     // screen space on the near-plane layers: a bar over a unit 50 m away is a label, and it must
     // read like the one over a unit 5 m away, so none of it is fogged. Nav GLYPHS are the radar's
     // and the world map's marks, and sit on the HUD side of this line.
+    // SMOOTH SHADING (AP): the world's face normals become blended vertex normals, here, once the
+    // units have been turned, tilted and scaled into place, so "faces that share a position" is
+    // judged on the final geometry. The sky and the HUD carry no normal and are not touched.
+    smooth_vertex_normals(scene.vertices, 0, scene.vertices.size());
     fog_range(scene.vertices, 0, terrain_end, options.camera, options.radius_tiles);
     fog_world(scene.vertices, sky_end, scene.vertices.size(), emissive, options.camera,
               options.radius_tiles);

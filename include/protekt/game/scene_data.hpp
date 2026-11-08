@@ -19,11 +19,12 @@ struct Extent {
 /// each carrying its own.
 inline constexpr float kPanelMarginPixels = 24.0F;
 
-/// One vertex of a scene: position in world metres, a flat colour, an alpha, then a texture
-/// coordinate. The layout is part of the contract because the vertex buffer is uploaded verbatim.
-/// The fragment stage multiplies the texel at (u, v) by the colour and outputs the alpha, so a quad
-/// drawn with an alpha under 1 blends with whatever is already behind it. Alpha defaults to 1, so
-/// every existing caller is unchanged and every world triangle stays opaque.
+/// One vertex of a scene: position in world metres, a colour (the surface's UNLIT colour where it
+/// has a normal), an alpha, a texture coordinate, a fog amount and a normal. The layout is part of
+/// the contract because the vertex buffer is uploaded verbatim. The fragment stage multiplies the
+/// texel at (u, v) by the colour and outputs the alpha, so a quad drawn with an alpha under 1
+/// blends with whatever is already behind it. Alpha defaults to 1, so every existing caller is
+/// unchanged and every world triangle stays opaque.
 struct SceneVertex {
     std::array<float, 3> position{};
     std::array<float, 3> colour{};
@@ -33,6 +34,10 @@ struct SceneVertex {
     /// How much of the distance fog covers this vertex, 0..1 (`fog_amount`). The fragment shader
     /// mixes the fog colour in AFTER the texture; 0 is the old expression exactly.
     float fog{};
+    /// The surface's outward unit normal, for the fragment stage's light (AP). All zero means "not
+    /// lit by a normal": the sky, every HUD plate, the particles and the shadows keep exactly the
+    /// colour they carry, so the zero default leaves every existing caller as it was.
+    std::array<float, 3> normal{};
 };
 
 /// A frame's worth of geometry, already in world space, plus whose camera it is.

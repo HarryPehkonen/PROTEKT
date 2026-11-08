@@ -1032,3 +1032,61 @@ TEST_F(RenderTest, TheStoreGaugeShowsEveryChunkItShouldInRadarModeAndInMapMode) 
         }
     }
 }
+
+// ---------------------------------------------------------------- the fragment stage's light (AP)
+
+// The light is computed in the shader from the interpolated vertex normal, and a shader cannot be
+// unit-tested except by drawing it. Three flat quads of ONE colour, one normal each: toward the sun
+// (full light), square to the sun (the ramp's middle) and square away from it (the floor), plus a
+// fourth with NO normal (unlit: the colour as it is). The pixels' ratios are the ramp, whatever the
+// texture sample or the palette is.
+TEST_F(EdgePassTest, TheFragmentStageLightsAVertexFromItsNormalAndLeavesAnUnlitOneAlone) {
+    const auto unfiltered = make(false);
+    ASSERT_NE(unfiltered, nullptr);
+    protekt::game::Scene scene = clip_space_scene();
+    const std::array<float, 3> colour{0.9F, 0.8F, 0.7F};
+    const protekt::math::Vec3 sun = protekt::math::normalise(protekt::game::kSunDirection);
+    // Any unit vector perpendicular to the sun: its cross with up, normalised.
+    const protekt::math::Vec3 side = protekt::math::normalise(
+        protekt::math::cross(sun, protekt::math::Vec3{0.0F, 1.0F, 0.0F}));
+    struct Quad {
+        float x0;
+        std::array<float, 3> normal;
+    };
+    const std::array<Quad, 4> quads{{{-0.9F, {sun[0], sun[1], sun[2]}},
+                                     {-0.45F, {side[0], side[1], side[2]}},
+                                     {0.0F, {-sun[0], -sun[1], -sun[2]}},
+                                     {0.45F, {0.0F, 0.0F, 0.0F}}}};
+    for (const Quad& quad : quads) {
+        const float x1 = quad.x0 + 0.4F;
+        const std::array<std::array<float, 2>, 6> corners{{{quad.x0, -0.5F},
+                                                           {x1, -0.5F},
+                                                           {x1, 0.5F},
+                                                           {quad.x0, -0.5F},
+                                                           {x1, 0.5F},
+                                                           {quad.x0, 0.5F}}};
+        for (const auto& corner : corners) {
+            protekt::game::SceneVertex v;
+            v.position = {corner.at(0), corner.at(1), 0.5F};
+            v.colour = colour;
+            v.normal = quad.normal;
+            scene.vertices.push_back(v);
+        }
+    }
+    const Frame frame = draw(*unfiltered, scene);
+    const auto red_at = [&](float clip_x) {
+        const auto px = static_cast<std::uint32_t>((clip_x + 1.0F) * 0.5F * kWidth);
+        return static_cast<float>((frame.rgb(px, kHeight / 2U) >> 16U) & 0xFFU);
+    };
+    const float toward = red_at(-0.7F);
+    const float square = red_at(-0.25F);
+    const float away = red_at(0.2F);
+    const float unlit = red_at(0.65F);
+    ASSERT_GT(toward, 100.0F) << "the quad is on screen and bright";
+    // The ramp: 1 toward the sun, floor + (1 - floor) / 2 square to it, `kShadeFloor` away.
+    const float floor = protekt::game::kShadeFloor;
+    EXPECT_NEAR(square / toward, floor + ((1.0F - floor) * 0.5F), 0.02F);
+    EXPECT_NEAR(away / toward, floor, 0.02F);
+    EXPECT_NEAR(unlit, toward, 1.5F) << "no normal: the colour as it is, the same as full light";
+    EXPECT_EQ(unfiltered->validation_errors(), 0U);
+}

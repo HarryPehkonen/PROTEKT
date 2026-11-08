@@ -1,5 +1,6 @@
 #version 450
-// One vertex format for the whole frame: world position and a flat colour. The depth buffer does
+// One vertex format for the whole frame: world position, a colour, an alpha, a uv, a fog amount and
+// a normal. The depth buffer does
 // the work, not the submission order -- the unit's triangles are submitted FIRST on purpose, so a
 // frame in which it is visible proves the depth test ran.
 layout(location = 0) in vec3 in_position;
@@ -7,10 +8,12 @@ layout(location = 1) in vec3 in_colour;
 layout(location = 2) in float in_alpha;
 layout(location = 3) in vec2 in_uv;
 layout(location = 4) in float in_fog;
+layout(location = 5) in vec3 in_normal;
 layout(location = 0) out vec3 v_colour;
 layout(location = 1) out vec2 v_uv;
 layout(location = 2) out float v_alpha;
 layout(location = 3) out float v_fog;
+layout(location = 4) out vec3 v_normal;
 
 layout(push_constant) uniform Push {
     mat4 view_proj;
@@ -21,5 +24,6 @@ void main() {
     v_uv = in_uv;
     v_alpha = in_alpha;
     v_fog = in_fog;
+    v_normal = in_normal;
     gl_Position = push.view_proj * vec4(in_position, 1.0);
 }

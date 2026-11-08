@@ -204,7 +204,7 @@ if(PROTEKT_RENDER)
         add_custom_command(
             OUTPUT ${PROTEKT_SHADER_DIR}/${shader}.h
             COMMAND ${CMAKE_COMMAND} -E make_directory ${PROTEKT_SHADER_DIR}
-            COMMAND ${GLSLANG_VALIDATOR} -V --target-env vulkan1.3 --vn ${shader}_spv
+            COMMAND ${GLSLANG_VALIDATOR} -V --target-env vulkan1.2 --vn ${shader}_spv
                     ${CMAKE_CURRENT_SOURCE_DIR}/shaders/${source} -o ${PROTEKT_SHADER_DIR}/${shader}.h
             DEPENDS shaders/${source}
             COMMENT "Compiling shaders/${source} to SPIR-V")

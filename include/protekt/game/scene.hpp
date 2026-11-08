@@ -50,10 +50,48 @@ inline constexpr float kHullHalfMetres = kMetresPerTile * 0.3F;
 /// THE SUN. Where the light comes FROM, as a world-space direction (x east, y up, z north): high
 /// overhead and a little toward -x / -z, so a unit's top face is brightest, the faces turned toward
 /// -x and -z come next, the faces turned away are darker, and the underside is darkest. Fixed data,
-/// not a function of the camera or the clock: the same scene bytes every frame. Used only to shade
-/// the prisms that make units (`emit_turned_prism`); terrain, bolts, radar and reticle keep their
-/// flat colours.
+/// not a function of the camera or the clock: the same scene bytes every frame. Since AP the
+/// FRAGMENT STAGE lights from it: every vertex that carries a normal (terrain, hulls, buildings,
+/// turrets, wrecks, spheres) is lit by `face_light` of its interpolated normal; the sky, the HUD,
+/// bolts and the particles' prisms have no normal and keep their flat colours.
 inline constexpr math::Vec3 kSunDirection{-0.35F, 0.85F, -0.40F};
+
+/// THE DARKEST A LIT SURFACE GETS, the light of a face square away from the sun. Never black. The
+/// fragment shader reads this and `kSunDirection` from push constants, so the ramp's two numbers
+/// have one definition, here.
+inline constexpr float kShadeFloor = 0.45F;
+
+/// How lit a surface is: its outward unit normal against the sun, mapped so a normal square to the
+/// sun is 1.0 and one square away is `kShadeFloor`. A half-Lambert ramp rather than a clamped dot,
+/// so a face turned away from the sun still differs from the underside: top > sun side > shade side
+/// > bottom. THE SAME EXPRESSION IS IN `shaders/scene.frag` -- the one place the ramp is written
+/// twice, because a CPU-side oracle and a GPU-side light cannot share a line of code. The CPU copy
+/// is used only to give flat ground its identity colour (`terrain_base_colour`).
+[[nodiscard]] float face_light(const math::Vec3& normal);
+
+/// THE CREASE ANGLE of the smooth shading (AP), in degrees: two faces that meet at a vertex have
+/// their normals averaged there only if their normals are within this angle of each other; farther
+/// apart, the edge stays sharp. 75 degrees is chosen from the angles the shapes actually have,
+/// MEASURED between every pair of faces that share a position over a scene holding one of every
+/// unit kind: two crowds, about 3,900 pairs at 40 to 50 degrees (chamfers, eight-sided rings --
+/// meant to be round) and about 6,900 at 85 to 90 (boxes, decks against walls -- meant to be
+/// corners), with a thin valley of about 230 pairs between 65 and 80. And one hard lower bound: an
+/// icosphere's faces that share a corner but no edge are 63.4 degrees apart, and a threshold under
+/// that leaves each face of a sphere ignoring two of its five neighbours (measured: a ball 22
+/// degrees off radial at 60). 75 sits 11.6 above the sphere and 10 below the nearest box edge.
+inline constexpr float kCreaseAngleDegrees = 75.0F;
+
+/// SMOOTH SHADING (AP): replaces the normal of each vertex in [first, last) -- a run of triangles,
+/// each vertex carrying its FACE's outward unit normal -- with the average of the normals of the
+/// faces that share its position, which is what turns a faceted hull into a curved surface.
+/// "Share" is exact position equality. Per vertex and per face, only the faces whose normals are
+/// within `crease_degrees` of THIS face's normal are averaged in, so a box's edge (90 degrees)
+/// stays sharp while the panels of a rounded hull blend; a vertex on a crease thus carries a
+/// different normal for each side of it. The average is weighted by each triangle's AREA, so it
+/// does not depend on how a quad was cut into two triangles. A vertex whose normal is all zero is
+/// not lit and is left alone, and so is a vertex that is the only one at its position.
+void smooth_vertex_normals(std::vector<SceneVertex>& vertices, std::size_t first, std::size_t last,
+                           float crease_degrees = kCreaseAngleDegrees);
 
 /// THE SKY. A dome centred on the camera every frame and fixed in ORIENTATION (north stays north
 /// as you turn), built from raw vertex colours: it is the light source, so it never goes through
@@ -264,9 +302,15 @@ inline constexpr int kOrientationCount = 8;
     return type < kGroundVariantNames.size() ? kGroundVariantNames.at(type).at(at)
                                              : kGroundVariantNames.front().front();
 }
-/// The terrain quad's vertex colour on FLAT ground; a sloped quad scales it by its light
-/// (`terrain_light`).
+/// The terrain's colour AS LIT on FLAT ground -- what flat ground looks like; the slope's
+/// difference from it is the whole effect of the light (`terrain_base_colour`).
 inline constexpr math::Vec3 kTerrainLight{1.0F, 1.0F, 1.0F};
+
+/// The terrain's vertex colour: `kTerrainLight` divided by what the ramp gives for straight up
+/// (0.958, not 1.0), so that after the fragment stage multiplies the light back in, flat ground is
+/// exactly the colour it had before the ground was lit, and a tile tilted toward the sun comes out
+/// a little above it. The slope's difference from flat is the whole effect.
+[[nodiscard]] math::Vec3 terrain_base_colour();
 
 /// Where the player's eye is, in world metres and radians. Yaw 0 looks down +Z.
 struct Camera {
@@ -335,6 +379,8 @@ struct GroundTilt {
     [[nodiscard]] bool level() const noexcept { return sine == 0.0F; }
     /// `point` turned about the pivot; `point` itself when level.
     [[nodiscard]] math::Vec3 apply(const math::Vec3& point) const noexcept;
+    /// `direction` (a normal, not a point) turned by the same rotation, about no pivot.
+    [[nodiscard]] math::Vec3 turn(const math::Vec3& direction) const noexcept;
 };
 [[nodiscard]] GroundTilt tilt_about(const math::Vec3& pivot, const math::Vec3& normal) noexcept;
 

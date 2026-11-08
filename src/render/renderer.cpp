@@ -64,6 +64,16 @@ struct Vertex {
     float u{};
     float v{};
     float fog{};
+    Vec3 normal{}; ///< outward unit normal, lit in the fragment stage; all zero = not lit
+};
+
+/// The fragment stage's push constants, after the vertex stage's matrix: the fog's colour and the
+/// sun's light. Both come from `scene.hpp` (the sky's horizon ring, `kSunDirection`, `kShadeFloor`)
+/// so each has one definition. The layout is std430's: the float packs after the vec3.
+struct FragmentPush {
+    Vec3 fog_colour;
+    float shade_floor;
+    Vec3 sun_direction;
 };
 
 constexpr std::uint32_t kUnitVertices = 36;
@@ -720,7 +730,7 @@ private:
         // The matrix for the vertex stage, then the fog colour for the fragment stage after it.
         const std::array<VkPushConstantRange, 2> push{{
             {VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(Mat4)},
-            {VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(Mat4), sizeof(Vec3)},
+            {VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(Mat4), sizeof(FragmentPush)},
         }};
         VkPipelineLayoutCreateInfo layout{};
         layout.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
@@ -745,12 +755,13 @@ private:
         stages[1].pName = "main";
 
         VkVertexInputBindingDescription binding{0, sizeof(Vertex), VK_VERTEX_INPUT_RATE_VERTEX};
-        std::array<VkVertexInputAttributeDescription, 5> attributes{{
+        std::array<VkVertexInputAttributeDescription, 6> attributes{{
             {0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, position)},
             {1, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, colour)},
             {2, 0, VK_FORMAT_R32_SFLOAT, offsetof(Vertex, alpha)},
             {3, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex, u)},
             {4, 0, VK_FORMAT_R32_SFLOAT, offsetof(Vertex, fog)},
+            {5, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, normal)},
         }};
         VkPipelineVertexInputStateCreateInfo vertex_input{};
         vertex_input.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
@@ -1425,9 +1436,10 @@ private:
             vkCmdPushConstants(cmd_, pipeline_layout_, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(Mat4),
                                mvp.data());
             // The fog is the sky's own horizon ring: one source, never restated here.
-            const Vec3& fog_colour = game::kSkyRingColours.at(game::kSkyHorizonRing);
+            const FragmentPush light{game::kSkyRingColours.at(game::kSkyHorizonRing),
+                                     game::kShadeFloor, math::normalise(game::kSunDirection)};
             vkCmdPushConstants(cmd_, pipeline_layout_, VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(Mat4),
-                               sizeof(Vec3), fog_colour.data());
+                               sizeof(FragmentPush), &light);
             const VkDeviceSize offset = 0;
             vkCmdBindVertexBuffers(cmd_, 0, 1, &vertex_buffer_, &offset);
             vkCmdDraw(cmd_, count, 1, first, 0);

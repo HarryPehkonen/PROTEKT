@@ -315,6 +315,35 @@ sky nor ground" as the unit, which is now an edge blend, so it takes the most co
 along every patch border shortens by construction, so it now measures the paint with the pass OFF and a
 new test holds the filtered frame to the same luma-range gate.
 
+**Smooth shading on everything (AP, 2026-11-07; Harri reversed his own "tanks look like tanks" ruling as a
+try-it: "smooth shading for EVERYTHING ... if I don't like it, just revert").** One change. The vertex grew
+from ten floats to thirteen: `position, colour, alpha, u, v, fog` then a NORMAL (`SceneVertex::normal`,
+`scene_data.hpp`; `Vertex::normal` and vertex attribute 5 in `renderer.cpp`). The light used to be baked
+into each face's colour on the CPU at four sites (`emit_shaded_face`, the shape prism, the loft, the terrain
+quad); those now emit the UNLIT colour and the face's outward unit normal, and `shaders/scene.frag` applies
+the same half-Lambert ramp (`face_light`, written in both places -- the one duplication, said so in the
+header) to the interpolated, renormalised normal. A vertex with NO normal (all zero) is not lit and keeps
+its colour exactly, which is how the sky, the HUD and the particle prisms are untouched. The sun's direction
+and `kShadeFloor` reach the shader as push constants from `scene.hpp`'s own constants. `build_scene` then
+runs `smooth_vertex_normals` once over the world's vertices (after units are turned, tilted and scaled into
+place, so "shares a position" is judged on final geometry): each corner's normal becomes the AREA-weighted
+average of the faces at its exact position whose normals are within `kCreaseAngleDegrees` of its own face's.
+*The threshold, 75 degrees, was measured, not guessed*: over a scene with one of every unit kind, the angle
+between faces sharing a position is two crowds -- about 3,900 pairs at 40-50 degrees (chamfers, eight-sided
+rings) and about 6,900 at 85-90 (box edges) -- with a thin valley of about 230 between 65 and 80. The first
+choice, 60, was wrong and a test caught it: an icosphere's faces that share a corner but no edge are 63.4
+degrees apart, and at 60 the ball came out 22 degrees off radial.
+Vehicles' normals are turned with their bodies (`GroundTilt::turn`, the barrel's elevation), so a tank on a
+hillside is now lit by its lean, where before its baked light ignored it. *Terrain* is smoothed by the same
+generic pass, not from the heightmap -- that is a separate ruled item. Flat ground keeps its old colour
+exactly: the terrain's vertex colour is `kTerrainLight / face_light(up)` (`terrain_base_colour`).
+*Cost, measured (Release, this laptop, the game's 40-tile view):* the pass is about 7-8 ms of a 19 ms
+`build_scene` every frame. Caching the terrain's normals per seed and tile would remove most of it and
+belongs with the heightmap-normals item. *Build note:* the shaders now compile with `--target-env vulkan1.2`
+(SPIR-V 1.5): the validation layer on this machine's Vulkan-1.2 device rejects the 1.6 that `vulkan1.3`
+emits, and had only ever been passing because it cached the OLD shaders as valid by hash
+(`~/.cache/shader_validation_cache-1000.bin`), so any shader edit failed the validation tests.
+
 **Known gap:** the Vulkan tests are skipped under ThreadSanitizer, because lavapipe races inside
 itself and a driver cannot be instrumented. So the renderer's CPU-side code has ASan and UBSan
 coverage but no TSan coverage. A suppression keyed to `libvulkan_lvp.so` was rejected on purpose:

@@ -15,7 +15,8 @@
 /// high the deck is, what colour the roof panel is -- off terrain that happens to be sloped. They
 /// are about the design, not the lean, so they read it through this: the inverse of the scene's
 /// turn, about the same point on the ground, by the same `ground_normal`. A body that was never
-/// tilted (a structure, or level ground) comes back unchanged, to the bit.
+/// tilted (a structure, or level ground) comes back unchanged, to the bit. Its normals are turned
+/// back with it.
 namespace protekt::game::untilt {
 
 /// `body` (one vehicle's vertices, as `build_scene` drew them) turned back to level.
@@ -42,6 +43,14 @@ inline void level(std::span<SceneVertex> body, const sim::Unit& unit, std::uint6
         for (std::size_t c = 0; c < 3; ++c) {
             vertex.position.at(c)
                 = pivot.at(c) + (v.at(c) * cosine) - (swung.at(c) * sine) + (axis.at(c) * along);
+        }
+        // The normal is a direction: the same inverse turn, about no pivot (AP).
+        const math::Vec3 n{vertex.normal[0], vertex.normal[1], vertex.normal[2]};
+        const math::Vec3 n_swung = math::cross(axis, n);
+        const float n_along = math::dot(axis, n) * (1.0F - cosine);
+        for (std::size_t c = 0; c < 3; ++c) {
+            vertex.normal.at(c)
+                = (n.at(c) * cosine) - (n_swung.at(c) * sine) + (axis.at(c) * n_along);
         }
     }
 }
