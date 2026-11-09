@@ -158,6 +158,19 @@ two bevelled prisms are a lean, not a curve). The silhouette changes (and with i
 same shape seen side on); the crease angle, the sim and every battle hash do not. Drawn triangles for the sixteen:
 9,577 -> 10,500 (+9.6%).
 
+**Round barrels (BA).** Harri: "I think all of the barrels should be round." Every gun and every muzzle collar was
+a four-cornered BOX, which read as a square rod. They are now one round barrel (`emit_barrel`, built on `emit_loft`):
+a ring of `kBarrelSides` = 12 corners swept from the gun's root to its tip, both ends closed, as wide and as tall as
+the box it replaced, so no gun got longer, shorter or fatter and the sim, the aim and every battle hash are untouched.
+Used by the tank, the hover tank, the assault tank, the defence turret and the walker's gun arm (the collars of
+the tank, assault tank and turret are rings too). **This is the ONE place where MORE sides is right**: elsewhere a
+higher side count destroys detail, because smooth shading averages any panels closer than the 75 degree crease and
+the facets are lost; a barrel's goal IS the average, a cylinder, so 12 flats 30 degrees apart blend into one curved
+surface while each end cap stays 90 degrees from the side and keeps its edge. A barrel is 132 vertices (44
+triangles) where the box was 36 (12). The HUD icon draws the barrel side-on, where a cylinder is the same rectangle
+as the box, so it is unchanged. The APC's light gun and the mortar bike's tube are authored parts of their shapes,
+not barrels of this kind, and are left as they were.
+
 **Smooth shading (AP, a try-it).** Everything lit -- terrain, hulls, buildings, turrets, wrecks and the
 spheres of the repair beam and the smoke -- is shaded from a per-vertex NORMAL in the fragment stage, not
 per flat face, so a faceted hull reads as a curved surface (Harri's "rounded soap bar", after

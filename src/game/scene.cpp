@@ -407,6 +407,126 @@ void emit_turned_box(std::vector<SceneVertex>& out, float x, float z, float angl
                       Prism{-across, across, back, back, front, front, y0, y1, y1}, colour, tile);
 }
 
+/// One ring of a `emit_loft`: where it is in the unit's frame (`x` across, `y` over the ground, `z`
+/// along the heading) and its two half-sizes, `across` on the horizontal and `up` on the other axis
+/// of the plane the sweep's direction leaves it.
+struct LoftStation {
+    float x;
+    float y;
+    float z;
+    float across;
+    float up;
+};
+
+/// A smooth-looking solid swept through `stations`: each ring is `sides` corners of an ellipse, set
+/// square to the sweep's direction there (the line from the station before to the station after),
+/// and neighbouring rings are joined by quads -- the renderer's own way of approximating a curve, a
+/// fan of facets. The two end rings are closed by a fan, so the solid is watertight. Built level,
+/// in the unit's frame, then turned by `heading` about (x, z) over `ground`; every quad carries
+/// its own world normal, flipped to point away from its ring's centre, so a sweep with a bend in
+/// it still lights as one body. A ring with a zero size is a point: that is how a sweep tapers to a
+/// tip.
+template <std::size_t N>
+void emit_loft(std::vector<SceneVertex>& out, float x, float z, float ground, float heading,
+               const std::array<LoftStation, N>& stations, std::size_t sides, const Vec3& colour,
+               const UvRect& tile) {
+    constexpr float kTau = 6.2831853F;
+    constexpr float kParallel = 1.0e-4F; ///< a sweep this close to straight up has no "across"
+    const auto world = [&](const Vec3& local) {
+        const std::array<float, 2> at = rotate_offset(x, z, local[0], local[2], heading);
+        return Vec3{at.at(0), ground + local[1], at.at(1)};
+    };
+    std::vector<std::vector<Vec3>> rings;
+    rings.reserve(stations.size());
+    for (std::size_t i = 0; i < stations.size(); ++i) {
+        const LoftStation& here = stations.at(i);
+        const LoftStation& before = stations.at(i == 0 ? 0 : i - 1);
+        const LoftStation& after = stations.at(std::min(i + 1, N - 1));
+        const Vec3 along
+            = normalise(Vec3{after.x - before.x, after.y - before.y, after.z - before.z});
+        Vec3 right = cross(Vec3{0.0F, 1.0F, 0.0F}, along);
+        right = std::hypot(right[0], right[1], right[2]) < kParallel ? Vec3{1.0F, 0.0F, 0.0F}
+                                                                     : normalise(right);
+        const Vec3 over = cross(along, right);
+        std::vector<Vec3>& ring = rings.emplace_back();
+        ring.reserve(sides);
+        for (std::size_t corner = 0; corner < sides; ++corner) {
+            const float angle = kTau * static_cast<float>(corner) / static_cast<float>(sides);
+            const float a = std::cos(angle) * here.across;
+            const float u = std::sin(angle) * here.up;
+            ring.push_back(world(Vec3{here.x + (right[0] * a) + (over[0] * u),
+                                      here.y + (right[1] * a) + (over[1] * u),
+                                      here.z + (right[2] * a) + (over[2] * u)}));
+        }
+    }
+    const auto facing = [&](const Vec3& a, const Vec3& b, const Vec3& c, const Vec3& centre) {
+        const Vec3 ab{b[0] - a[0], b[1] - a[1], b[2] - a[2]};
+        const Vec3 ac{c[0] - a[0], c[1] - a[1], c[2] - a[2]};
+        return outward_unit(cross(ab, ac),
+                            Vec3{a[0] - centre[0], a[1] - centre[1], a[2] - centre[2]});
+    };
+    const auto centre_of = [&](const std::vector<Vec3>& ring) {
+        Vec3 sum{0.0F, 0.0F, 0.0F};
+        for (const Vec3& p : ring) {
+            for (std::size_t axis = 0; axis < 3; ++axis) {
+                sum.at(axis) += p.at(axis) / static_cast<float>(ring.size());
+            }
+        }
+        return sum;
+    };
+    for (std::size_t i = 0; i + 1 < rings.size(); ++i) {
+        const Vec3 centre = centre_of(rings.at(i));
+        for (std::size_t corner = 0; corner < sides; ++corner) {
+            const std::size_t next = (corner + 1) % sides;
+            const Vec3& a = rings.at(i).at(corner);
+            const Vec3& b = rings.at(i).at(next);
+            const Vec3& c = rings.at(i + 1).at(next);
+            const Vec3& d = rings.at(i + 1).at(corner);
+            // A ring pinched to a point leaves (a, b, c) with no area; the quad's other half has.
+            const Vec3 first = facing(a, b, c, centre);
+            emit_tiled_quad(out, a, b, c, d, colour, tile, 0,
+                            first == Vec3{} ? facing(a, c, d, centre) : first);
+        }
+    }
+    // The caps are flat fans from a ring's first corner, sampling the tile's middle texel.
+    const float mid_u = (tile.u0 + tile.u1) * 0.5F;
+    const float mid_v = (tile.v0 + tile.v1) * 0.5F;
+    for (const std::size_t end : {std::size_t{0}, rings.size() - 1}) {
+        const std::vector<Vec3>& ring = rings.at(end);
+        const Vec3 neighbour = centre_of(rings.at(end == 0 ? 1 : end - 1));
+        for (std::size_t corner = 1; corner + 1 < sides; ++corner) {
+            const Vec3 normal = facing(ring.at(0), ring.at(corner), ring.at(corner + 1), neighbour);
+            for (const Vec3* p : {&ring.at(0), &ring.at(corner), &ring.at(corner + 1)}) {
+                out.push_back(SceneVertex{*p, colour, 1.0F, mid_u, mid_v, 0.0F, normal});
+            }
+        }
+    }
+}
+
+/// ONE ROUND BARREL (BA), for every gun and every collar: a ring of `kBarrelSides` corners swept
+/// from `back` to `front` along the heading and closed at both ends, as wide (`across` each side)
+/// and as tall (`y0` to `y1`) as the box it replaces, so a gun is no longer, shorter or fatter than
+/// it was. The corners are at angle 0, 90, 180 and 270 degrees among others, so the ring touches
+/// the box's four faces' extents exactly.
+///
+/// MORE SIDES IS RIGHT HERE, AND ONLY HERE. Everywhere else a higher side count destroys a read,
+/// because smooth shading (`smooth_vertex_normals`, `kCreaseAngleDegrees`) averages the panels of a
+/// pair closer than the crease and the facets are lost: the alien shell must stay faceted, and
+/// raising its count only smooths it. A barrel's goal IS that average -- a cylinder -- so the
+/// sides meet 30 degrees apart, well inside the crease, and blend into one curved surface, while
+/// each cap is 90 degrees from the side and keeps its edge. Do not "fix" this back to four
+/// corners, and do not mistake it for the alien-shell mistake.
+void emit_barrel(std::vector<SceneVertex>& out, float x, float z, float angle, float across,
+                 float back, float front, float y0, float y1, const Vec3& colour,
+                 const UvRect& tile) {
+    const float centre = (y0 + y1) * 0.5F;
+    const float half = (y1 - y0) * 0.5F;
+    emit_loft(out, x, z, 0.0F, angle,
+              std::array<LoftStation, 2>{
+                  {{0.0F, centre, back, across, half}, {0.0F, centre, front, across, half}}},
+              static_cast<std::size_t>(kBarrelSides), colour, tile);
+}
+
 /// A prism whose top is `inset` narrower than its base on each side, so its long sides lean in --
 /// an armour plate's chamfer, which a `Prism` (upright sides) cannot be. The base is `s` as given,
 /// the top's corners are those of `s` drawn `inset` in from `left` and `right`.
@@ -808,12 +928,12 @@ void build_facing_tank(std::vector<SceneVertex>& out, std::uint64_t seed, const 
                     kPanelBack, kPanelFront, roof, roof + kPanelThickness, colour, panel_tile);
     const float turret_front = kTankTurretFront;
     const std::size_t barrel_first = out.size();
-    emit_turned_box(out, x, z, turret_angle, kCollarHalfAcross, kTankBarrelTip - kTankCollarLength,
-                    kTankBarrelTip, turret_y0 + kTankCollarBottom, turret_y0 + kTankCollarTop,
-                    colour, barrel_tile);
-    emit_turned_box(out, x, z, turret_angle, kBarrelHalfAcross, turret_front,
-                    kTankBarrelTip - kTankCollarLength, turret_y0 + kTankBarrelBottom,
-                    turret_y0 + kTankBarrelTop, colour, barrel_tile);
+    emit_barrel(out, x, z, turret_angle, kCollarHalfAcross, kTankBarrelTip - kTankCollarLength,
+                kTankBarrelTip, turret_y0 + kTankCollarBottom, turret_y0 + kTankCollarTop, colour,
+                barrel_tile);
+    emit_barrel(out, x, z, turret_angle, kBarrelHalfAcross, turret_front,
+                kTankBarrelTip - kTankCollarLength, turret_y0 + kTankBarrelBottom,
+                turret_y0 + kTankBarrelTop, colour, barrel_tile);
     // The barrel is the last thing built, in the hull's frame: raised to the aim's elevation about
     // its root at the turret's front, and then the lean to the ground takes it along with the rest.
     elevate_barrel(out, barrel_first, x, z, turret_angle, turret_front,
@@ -849,102 +969,6 @@ void build_scavenger(std::vector<SceneVertex>& out, std::uint64_t seed, const si
     emit_shape_parts(out, x, z, ground, heading, heading, shape_of(sim::UnitKind::Scavenger),
                      ShapeLook{colour, camo_colour, hull_tile, atlas.rect("tank_tracks"),
                                atlas.rect("tank_turret")});
-}
-
-/// One ring of a `emit_loft`: where it is in the unit's frame (`x` across, `y` over the ground, `z`
-/// along the heading) and its two half-sizes, `across` on the horizontal and `up` on the other axis
-/// of the plane the sweep's direction leaves it.
-struct LoftStation {
-    float x;
-    float y;
-    float z;
-    float across;
-    float up;
-};
-
-/// A smooth-looking solid swept through `stations`: each ring is `sides` corners of an ellipse, set
-/// square to the sweep's direction there (the line from the station before to the station after),
-/// and neighbouring rings are joined by quads -- the renderer's own way of approximating a curve, a
-/// fan of facets. The two end rings are closed by a fan, so the solid is watertight. Built level,
-/// in the unit's frame, then turned by `heading` about (x, z) over `ground`; every quad carries
-/// its own world normal, flipped to point away from its ring's centre, so a sweep with a bend in
-/// it still lights as one body. A ring with a zero size is a point: that is how a sweep tapers to a
-/// tip.
-template <std::size_t N>
-void emit_loft(std::vector<SceneVertex>& out, float x, float z, float ground, float heading,
-               const std::array<LoftStation, N>& stations, std::size_t sides, const Vec3& colour,
-               const UvRect& tile) {
-    constexpr float kTau = 6.2831853F;
-    constexpr float kParallel = 1.0e-4F; ///< a sweep this close to straight up has no "across"
-    const auto world = [&](const Vec3& local) {
-        const std::array<float, 2> at = rotate_offset(x, z, local[0], local[2], heading);
-        return Vec3{at.at(0), ground + local[1], at.at(1)};
-    };
-    std::vector<std::vector<Vec3>> rings;
-    rings.reserve(stations.size());
-    for (std::size_t i = 0; i < stations.size(); ++i) {
-        const LoftStation& here = stations.at(i);
-        const LoftStation& before = stations.at(i == 0 ? 0 : i - 1);
-        const LoftStation& after = stations.at(std::min(i + 1, N - 1));
-        const Vec3 along
-            = normalise(Vec3{after.x - before.x, after.y - before.y, after.z - before.z});
-        Vec3 right = cross(Vec3{0.0F, 1.0F, 0.0F}, along);
-        right = std::hypot(right[0], right[1], right[2]) < kParallel ? Vec3{1.0F, 0.0F, 0.0F}
-                                                                     : normalise(right);
-        const Vec3 over = cross(along, right);
-        std::vector<Vec3>& ring = rings.emplace_back();
-        ring.reserve(sides);
-        for (std::size_t corner = 0; corner < sides; ++corner) {
-            const float angle = kTau * static_cast<float>(corner) / static_cast<float>(sides);
-            const float a = std::cos(angle) * here.across;
-            const float u = std::sin(angle) * here.up;
-            ring.push_back(world(Vec3{here.x + (right[0] * a) + (over[0] * u),
-                                      here.y + (right[1] * a) + (over[1] * u),
-                                      here.z + (right[2] * a) + (over[2] * u)}));
-        }
-    }
-    const auto facing = [&](const Vec3& a, const Vec3& b, const Vec3& c, const Vec3& centre) {
-        const Vec3 ab{b[0] - a[0], b[1] - a[1], b[2] - a[2]};
-        const Vec3 ac{c[0] - a[0], c[1] - a[1], c[2] - a[2]};
-        return outward_unit(cross(ab, ac),
-                            Vec3{a[0] - centre[0], a[1] - centre[1], a[2] - centre[2]});
-    };
-    const auto centre_of = [&](const std::vector<Vec3>& ring) {
-        Vec3 sum{0.0F, 0.0F, 0.0F};
-        for (const Vec3& p : ring) {
-            for (std::size_t axis = 0; axis < 3; ++axis) {
-                sum.at(axis) += p.at(axis) / static_cast<float>(ring.size());
-            }
-        }
-        return sum;
-    };
-    for (std::size_t i = 0; i + 1 < rings.size(); ++i) {
-        const Vec3 centre = centre_of(rings.at(i));
-        for (std::size_t corner = 0; corner < sides; ++corner) {
-            const std::size_t next = (corner + 1) % sides;
-            const Vec3& a = rings.at(i).at(corner);
-            const Vec3& b = rings.at(i).at(next);
-            const Vec3& c = rings.at(i + 1).at(next);
-            const Vec3& d = rings.at(i + 1).at(corner);
-            // A ring pinched to a point leaves (a, b, c) with no area; the quad's other half has.
-            const Vec3 first = facing(a, b, c, centre);
-            emit_tiled_quad(out, a, b, c, d, colour, tile, 0,
-                            first == Vec3{} ? facing(a, c, d, centre) : first);
-        }
-    }
-    // The caps are flat fans from a ring's first corner, sampling the tile's middle texel.
-    const float mid_u = (tile.u0 + tile.u1) * 0.5F;
-    const float mid_v = (tile.v0 + tile.v1) * 0.5F;
-    for (const std::size_t end : {std::size_t{0}, rings.size() - 1}) {
-        const std::vector<Vec3>& ring = rings.at(end);
-        const Vec3 neighbour = centre_of(rings.at(end == 0 ? 1 : end - 1));
-        for (std::size_t corner = 1; corner + 1 < sides; ++corner) {
-            const Vec3 normal = facing(ring.at(0), ring.at(corner), ring.at(corner + 1), neighbour);
-            for (const Vec3* p : {&ring.at(0), &ring.at(corner), &ring.at(corner + 1)}) {
-                out.push_back(SceneVertex{*p, colour, 1.0F, mid_u, mid_v, 0.0F, normal});
-            }
-        }
-    }
 }
 
 /// THE HARVESTER, the alien Scavenger: the SAME kind as the human hauler, drawn when the unit's
@@ -1391,9 +1415,8 @@ void build_hover_tank(std::vector<SceneVertex>& out, std::uint64_t seed, const s
     // The barrel, last: raised to the aim's elevation about its root at the turret's front.
     const float turret_y0 = ground + kHoverTurretBase;
     const std::size_t barrel_first = out.size();
-    emit_turned_box(out, x, z, turret_angle, kBarrelHalfAcross, kHoverTurretFront, kHoverBarrelTip,
-                    turret_y0 + kHoverBarrelBottom, turret_y0 + kHoverBarrelTop, colour,
-                    barrel_tile);
+    emit_barrel(out, x, z, turret_angle, kBarrelHalfAcross, kHoverTurretFront, kHoverBarrelTip,
+                turret_y0 + kHoverBarrelBottom, turret_y0 + kHoverBarrelTop, colour, barrel_tile);
     elevate_barrel(out, barrel_first, x, z, turret_angle, kHoverTurretFront,
                    turret_y0 + ((kHoverBarrelBottom + kHoverBarrelTop) * 0.5F), pitch);
 }
@@ -1489,12 +1512,12 @@ void build_assault_tank(std::vector<SceneVertex>& out, std::uint64_t seed, const
                     roof, roof + kPanelThickness, colour, atlas.rect("tank_turret"));
     const float base = ground + kTankTurretBase;
     const std::size_t barrel_first = out.size();
-    emit_turned_box(out, x, z, turret_angle, kCollarHalfAcross,
-                    kAssaultBarrelTip - kAssaultCollarLength, kAssaultBarrelTip,
-                    base + kAssaultCollarBottom, base + kAssaultCollarTop, colour, barrel_tile);
-    emit_turned_box(out, x, z, turret_angle, kBarrelHalfAcross, kAssaultTurretFront,
-                    kAssaultBarrelTip - kAssaultCollarLength, base + kAssaultBarrelBottom,
-                    base + kAssaultBarrelTop, colour, barrel_tile);
+    emit_barrel(out, x, z, turret_angle, kCollarHalfAcross,
+                kAssaultBarrelTip - kAssaultCollarLength, kAssaultBarrelTip,
+                base + kAssaultCollarBottom, base + kAssaultCollarTop, colour, barrel_tile);
+    emit_barrel(out, x, z, turret_angle, kBarrelHalfAcross, kAssaultTurretFront,
+                kAssaultBarrelTip - kAssaultCollarLength, base + kAssaultBarrelBottom,
+                base + kAssaultBarrelTop, colour, barrel_tile);
     elevate_barrel(out, barrel_first, x, z, turret_angle, kAssaultTurretFront,
                    base + ((kAssaultBarrelBottom + kAssaultBarrelTop) * 0.5F), pitch);
 }
@@ -1552,9 +1575,9 @@ void build_walker(std::vector<SceneVertex>& out, std::uint64_t seed, const sim::
                                atlas.rect("tank_turret")});
 
     const std::size_t gun_first = out.size();
-    emit_turned_box(out, x, z, heading + turret, kGunHalfAcross, kWalkerGunFront, kWalkerGunTip,
-                    ground + kWalkerGunBottom, ground + kWalkerGunTop, colour,
-                    atlas.rect("tank_barrel"));
+    emit_barrel(out, x, z, heading + turret, kGunHalfAcross, kWalkerGunFront, kWalkerGunTip,
+                ground + kWalkerGunBottom, ground + kWalkerGunTop, colour,
+                atlas.rect("tank_barrel"));
     elevate_barrel(out, gun_first, x, z, heading + turret, kWalkerGunFront,
                    ground + ((kWalkerGunBottom + kWalkerGunTop) * 0.5F), pitch);
 }
@@ -1656,12 +1679,12 @@ void build_defense_turret(std::vector<SceneVertex>& out, std::uint64_t seed, con
                                atlas.rect("tank_turret")});
 
     const std::size_t barrel_first = out.size();
-    emit_turned_box(out, x, z, aim, kCollarHalfAcross, kTurretBarrelTip - kTurretCollarLength,
-                    kTurretBarrelTip, ground + kTurretCollarBottom, ground + kTurretCollarTop,
-                    colour, barrel_tile);
-    emit_turned_box(out, x, z, aim, kBarrelHalfAcross, kTurretGunFront,
-                    kTurretBarrelTip - kTurretCollarLength, ground + kTurretBarrelBottom,
-                    ground + kTurretBarrelTop, colour, barrel_tile);
+    emit_barrel(out, x, z, aim, kCollarHalfAcross, kTurretBarrelTip - kTurretCollarLength,
+                kTurretBarrelTip, ground + kTurretCollarBottom, ground + kTurretCollarTop, colour,
+                barrel_tile);
+    emit_barrel(out, x, z, aim, kBarrelHalfAcross, kTurretGunFront,
+                kTurretBarrelTip - kTurretCollarLength, ground + kTurretBarrelBottom,
+                ground + kTurretBarrelTop, colour, barrel_tile);
     elevate_barrel(out, barrel_first, x, z, aim, kTurretGunFront,
                    ground + ((kTurretBarrelBottom + kTurretBarrelTop) * 0.5F), pitch);
 }

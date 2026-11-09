@@ -8,6 +8,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <map>
 #include <optional>
 #include <vector>
 
@@ -259,16 +260,26 @@ TEST(VehicleTilt, AStructureStandsUprightOnTheSlopeThatTiltsAVehicle) {
     }
 }
 
-/// The way the barrel points, read off a driven tank's body: from the middle of the barrel prism to
-/// the middle of the muzzle collar, which is emitted first and sits at the tip. The tank's last two
-/// prisms are the collar and then the barrel.
+/// The way the barrel points, read off a driven tank's body: from the middle of the barrel to the
+/// middle of the muzzle collar, which is emitted first and sits at the tip. The tank's last two
+/// parts are the collar and then the barrel, each a ROUND barrel (BA): its middle is the mean of
+/// its DISTINCT corners, which sit symmetrically about its axis (the mean of all its vertices is
+/// pulled toward the end fans' shared first corner).
 [[nodiscard]] Vec3 barrel_axis(const Placed& tank) {
-    constexpr std::size_t kPrism = 36;
+    constexpr std::size_t kPrism = kBarrelVertices;
     const auto centre = [&](std::size_t from) {
-        Vec3 sum{};
+        std::map<std::array<long, 3>, Vec3> seen;
         for (std::size_t i = from; i < from + kPrism; ++i) {
+            const auto& p = tank.body.at(i);
+            seen.emplace(std::array<long, 3>{std::lround(p.at(0) * 1.0e4F),
+                                             std::lround(p.at(1) * 1.0e4F),
+                                             std::lround(p.at(2) * 1.0e4F)},
+                         Vec3{p.at(0), p.at(1), p.at(2)});
+        }
+        Vec3 sum{};
+        for (const auto& entry : seen) {
             for (std::size_t c = 0; c < 3; ++c) {
-                sum.at(c) += tank.body.at(i).at(c) / static_cast<float>(kPrism);
+                sum.at(c) += entry.second.at(c) / static_cast<float>(seen.size());
             }
         }
         return sum;
@@ -320,12 +331,21 @@ TEST(VehicleTilt, TheDrawnBarrelStandsOnTheAxisTheDriversEyeIsDerivedFrom) {
     ASSERT_TRUE(find_tile(is_level, flat));
     const Placed tank = draw_unit(UnitKind::Tank, flat.at(0), flat.at(1), std::array<float, 3>{});
     ASSERT_TRUE(tank.drawn);
-    constexpr std::size_t kPrism = 36;
+    constexpr std::size_t kPrism = kBarrelVertices;
     ASSERT_GT(tank.body.size(), kPrism * 2) << "no tank was found";
     float height = 0.0F;
     float far_end = 0.0F;
+    // The barrel's axis height: the mean of its distinct corners (a ring is symmetric about it).
+    std::map<std::array<long, 3>, float> corners;
     for (std::size_t i = tank.body.size() - kPrism; i < tank.body.size(); ++i) {
-        height += tank.body.at(i)[1] / static_cast<float>(kPrism);
+        const auto& p = tank.body.at(i);
+        corners.emplace(std::array<long, 3>{std::lround(p.at(0) * 1.0e4F),
+                                            std::lround(p.at(1) * 1.0e4F),
+                                            std::lround(p.at(2) * 1.0e4F)},
+                        p.at(1));
+    }
+    for (const auto& corner : corners) {
+        height += corner.second / static_cast<float>(corners.size());
     }
     for (std::size_t i = tank.body.size() - (2 * kPrism); i < tank.body.size(); ++i) {
         far_end = std::max(far_end, tank.body.at(i)[2]);

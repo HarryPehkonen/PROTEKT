@@ -50,7 +50,7 @@ namespace {
 // which are not shape parts. A derived body emits a different number of prisms, and 3312 is that
 // count (2760 before AT cut the hull's box corners, which added corners to six parts). Its parts
 // are in `src/game/vehicle_shape.cpp`.
-constexpr std::size_t kTankVertices = 3312;
+constexpr std::size_t kTankVertices = 3504; // 3312 before BA made the collar and barrel round
 // The scout's and the missile scout's, each its own shape's parts and nothing else (no gun, so no
 // roof panel and no barrel). 432 each before they had shapes: they wore the tank's hand-built body.
 constexpr std::size_t kScoutVertices = 2100;    // 2028 before AY cut the chassis' corners
@@ -59,7 +59,7 @@ constexpr std::size_t kMslScoutVertices = 2268; // and 2196
 // 2544 + the rack's panel, and 2508 + the roof panel, the muzzle collar and the barrel. Both were
 // hand-built before (324 and 396 vertices, nine and eleven prisms) and both share the tank's
 // chassis, 2340 vertices of tracks, wheels, hull and fenders.
-constexpr std::size_t kAssaultTankVertices = 3072; // 2616 before AY cut the chassis' corners
+constexpr std::size_t kAssaultTankVertices = 3264; // 3072 before BA round barrels, 2616 before AY
 constexpr std::size_t kChassisVertices = 2700;     // and 2340
 
 using protekt::game::Camera;
@@ -227,6 +227,41 @@ Vec3 ground_point(std::uint64_t seed, int tx, int ty) {
 Vec3 minus(const Vec3& a, const Vec3& b) { return Vec3{a[0] - b[0], a[1] - b[1], a[2] - b[2]}; }
 
 float length_of(const Vec3& v) { return std::sqrt(protekt::math::dot(v, v)); }
+
+/// The distinct positions among vertices [first, last), to a tenth of a millimetre.
+std::vector<Vec3> distinct_positions(const std::vector<SceneVertex>& v, std::size_t first,
+                                     std::size_t last) {
+    std::map<std::array<long, 3>, Vec3> seen;
+    for (std::size_t i = first; i < last; ++i) {
+        const Vec3& p = v.at(i).position;
+        seen.emplace(std::array<long, 3>{std::lround(p[0] * 1.0e4F), std::lround(p[1] * 1.0e4F),
+                                         std::lround(p[2] * 1.0e4F)},
+                     p);
+    }
+    std::vector<Vec3> out;
+    out.reserve(seen.size());
+    for (const auto& entry : seen) {
+        out.push_back(entry.second);
+    }
+    return out;
+}
+
+Vec3 mean_of(const std::vector<Vec3>& points) {
+    Vec3 sum{0.0F, 0.0F, 0.0F};
+    for (const Vec3& p : points) {
+        for (std::size_t axis = 0; axis < 3; ++axis) {
+            sum.at(axis) += p.at(axis) / static_cast<float>(points.size());
+        }
+    }
+    return sum;
+}
+
+/// The point a ROUND barrel's vertices are centred on: the mean of its DISTINCT corner positions,
+/// which sit symmetrically about its axis. (The mean of all its vertices is pulled toward the end
+/// fans' shared first corner, so it is not on the axis, as a box's was.)
+Vec3 axis_centre(const std::vector<SceneVertex>& v, std::size_t first, std::size_t last) {
+    return mean_of(distinct_positions(v, first, last));
+}
 
 /// What the smoothed normal at tile corner (cx, cy) must be, from the heights alone; nullopt where
 /// the four tiles' normals are more than the crease angle apart, because there the corner is not
@@ -2334,8 +2369,8 @@ TEST(Hover, TheHoveringUnitIsDrawnAtTheHullHeightAndOthersStayOnTheGround) {
 TEST(TankShape, TheTankIsExactlyItsShapesParts) {
     const auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(42));
     const auto tank = tank_only(sim, sim.units().at(0), {});
-    EXPECT_EQ(tank.size(), std::size_t{3312}) << "the shape's parts, 432 before they were derived";
-    EXPECT_EQ(kTankVertices, std::size_t{3312});
+    EXPECT_EQ(tank.size(), std::size_t{3504}) << "the shape's parts, 432 before they were derived";
+    EXPECT_EQ(kTankVertices, std::size_t{3504});
 }
 
 namespace {
@@ -3318,8 +3353,7 @@ namespace {
 
 using protekt::sim::UnitId;
 
-constexpr std::size_t kPrismVertices = 36;
-constexpr std::size_t kBarrelVertices = kPrismVertices;
+constexpr std::size_t kBarrelVertices = protekt::game::kBarrelVertices; ///< a ROUND barrel (BA)
 /// Two tracks, hull, turret, bustle, roof panel, muzzle collar, barrel -- the barrel is the last
 /// prism -- and
 /// which is the end of the tank.
@@ -3364,18 +3398,13 @@ std::vector<protekt::game::SceneVertex> barrel_of(const Scene& scene) {
     return {first, first + static_cast<std::ptrdiff_t>(kBarrelVertices)};
 }
 
-/// Where the barrel lies from the tank's own centre, on the map plane: the mean of its vertices.
+/// Where the barrel lies from the tank's own centre, on the map plane: the centre of its corners.
 /// The barrel is symmetric about its own axis, so this points along it.
 std::array<float, 2> barrel_direction(const Scene& scene, const protekt::sim::Unit& unit) {
     const auto barrel = barrel_of(scene);
-    float x = 0.0F;
-    float z = 0.0F;
-    for (const auto& v : barrel) {
-        x += v.position[0];
-        z += v.position[2];
-    }
-    x /= static_cast<float>(barrel.size());
-    z /= static_cast<float>(barrel.size());
+    const Vec3 centre = axis_centre(barrel, 0, barrel.size());
+    float x = centre[0];
+    float z = centre[2];
     x -= static_cast<float>(unit.x.raw) / 65536.0F * kMetresPerTile;
     z -= static_cast<float>(unit.y.raw) / 65536.0F * kMetresPerTile;
     const float length = std::hypot(x, z);
@@ -3595,8 +3624,11 @@ std::array<float, 3> lit_body_colour(const Scene& scene, std::size_t first, std:
 
 constexpr std::size_t kHull = 0; ///< the shape's first part: the fighting compartment
 constexpr std::size_t kTurretBlock = kChassisVertices; ///< the block, the first part after it
-constexpr std::size_t kRoofPanel = kAssaultTankVertices - 108;
-constexpr std::size_t kBarrelPart = kAssaultTankVertices - 36;
+constexpr std::size_t kRoofPanel = kAssaultTankVertices - 36 - (2 * kBarrelVertices);
+constexpr std::size_t kBarrelPart = kAssaultTankVertices - kBarrelVertices;
+/// A round barrel's UPPERMOST vertex: ring corner 3 (90 degrees) of its first side quad, whose
+/// smoothed normal is straight up -- where a box's top face was `kBoxTopFace`.
+constexpr std::size_t kRoundTop = std::size_t{3} * 6U;
 // The compartment is a 7-corner part since the cut (AY): three bands of seven quads (42 vertices a
 // band), the middle band from 42, then a fan of five triangles on each end. Its bottom flat is the
 // middle band's second quad, its top flat the fifth; the fans are at 126 (left) and 141 (right).
@@ -3690,7 +3722,7 @@ TEST(SceneShading, TheAssaultBlockWearsTheCamoAndTheRoofPanelAndBarrelCarryTheSi
     EXPECT_NEAR(block_top[1], pale(0.35F) * block_light, 1e-5F);
     // The roof panel and the barrel are the side's own saturated blue.
     for (const std::size_t part : {kRoofPanel, kBarrelPart}) {
-        const auto top = body_colour(scene, part, kBoxTopFace);
+        const auto top = body_colour(scene, part, part == kBarrelPart ? kRoundTop : kBoxTopFace);
         const float light = top[2] / 0.85F;
         EXPECT_NEAR(top[0], 0.15F * light, 1e-5F) << "part at " << part;
         EXPECT_NEAR(top[1], 0.35F * light, 1e-5F) << "part at " << part;
@@ -3701,7 +3733,7 @@ TEST(SceneShading, TheAssaultBlockWearsTheCamoAndTheRoofPanelAndBarrelCarryTheSi
         return (hi - lo) / hi;
     };
     EXPECT_GT(saturation(body_colour(scene, kRoofPanel, kBoxTopFace)), 0.7F);
-    EXPECT_GT(saturation(body_colour(scene, kBarrelPart, kBoxTopFace)), 0.7F);
+    EXPECT_GT(saturation(body_colour(scene, kBarrelPart, kRoundTop)), 0.7F);
     EXPECT_LT(saturation(body_colour(scene, kTurretBlock, kBlockTopFace)), 0.15F);
     // The panel sits on the block's roof, within it, and is big enough to read: over a quarter of
     // the roof's area, with camo still showing either side of it. The block is the 84 vertices at
@@ -3743,8 +3775,13 @@ TEST(SceneShading, TheShapeBuiltTanksPanelAndBarrelCarryTheSideColourAndItsBodyT
     const auto top_of = [&](std::size_t first) { // the top face of a box: its fifth quad
         return (tail + static_cast<std::ptrdiff_t>(first + kBoxTopFace))->colour;
     };
-    EXPECT_GT(saturation(top_of(kTankVertices - 108)), 0.7F) << "the roof panel";
-    EXPECT_GT(saturation(top_of(kTankVertices - 36)), 0.7F) << "the barrel";
+    EXPECT_GT(saturation(top_of(kTankVertices - 36 - (2 * kBarrelVertices))), 0.7F)
+        << "the roof panel";
+    EXPECT_GT(
+        saturation((tail + static_cast<std::ptrdiff_t>(kTankVertices - kBarrelVertices + kRoundTop))
+                       ->colour),
+        0.7F)
+        << "the barrel";
     // The shape's first part is the fighting compartment, Hull role: the camo in its pale tint.
     const std::size_t compartment
         = (24U * protekt::game::shape_of(UnitKind::Tank).front().profile.size()) - 12U;
@@ -4659,6 +4696,25 @@ void expect_corners_of(const std::vector<SceneVertex>& tank, std::size_t first, 
     EXPECT_EQ(seen.size(), std::size_t{4}) << what << " uses all four corners of its tile";
 }
 
+/// A ROUND barrel's vertices lie on `rect`'s corners (its side quads) or on its middle texel (the
+/// fans that close its ends, as every fan in the project samples), and all four corners are used.
+void expect_corners_or_middle_of(const std::vector<SceneVertex>& tank, std::size_t first,
+                                 std::size_t last, const UvRect& rect, const char* what) {
+    std::set<std::pair<float, float>> seen;
+    for (std::size_t i = first; i < last; ++i) {
+        const SceneVertex& v = tank.at(i);
+        const bool on_u = v.u == rect.u0 || v.u == rect.u1;
+        const bool on_v = v.v == rect.v0 || v.v == rect.v1;
+        const bool middle = v.u == (rect.u0 + rect.u1) * 0.5F && v.v == (rect.v0 + rect.v1) * 0.5F;
+        ASSERT_TRUE((on_u && on_v) || middle)
+            << what << " vertex " << i << " has uv (" << v.u << ", " << v.v << ")";
+        if (on_u && on_v) {
+            seen.insert({v.u, v.v});
+        }
+    }
+    EXPECT_EQ(seen.size(), std::size_t{4}) << what << " uses all four corners of its tile";
+}
+
 /// The tile of the camo variant the facing scene's tank wears.
 UvRect viewer_hull_rect() {
     const auto sim = facing_sim();
@@ -4707,15 +4763,16 @@ TEST(TankUv, EachRoleAddressesItsTilesExactRect) {
     const UvRect hull = viewer_hull_rect();
     EXPECT_GE(hull.v0, 0.125F) << "the camo tiles are on the second and third rows";
     const UvRect metal = cell(0.25F, 0.0F, 0.375F, 0.125F);
-    EXPECT_EQ(
-        tiles_used(tank, kTankVertices - 72, {hull, cell(0.125F, 0.0F, 0.25F, 0.125F), metal}),
-        std::size_t{3})
+    EXPECT_EQ(tiles_used(tank, kTankVertices - 36 - (2 * kBarrelVertices),
+                         {hull, cell(0.125F, 0.0F, 0.25F, 0.125F), metal}),
+              std::size_t{3})
         << "the body wears its camo, its track links and its metal, and nothing else";
-    expect_corners_of(tank, kTankVertices - 108, kTankVertices - 72, metal, "roof panel");
-    expect_corners_of(tank, kTankVertices - 72, kTankVertices - 36,
-                      cell(0.375F, 0.0F, 0.5F, 0.125F), "collar");
-    expect_corners_of(tank, kTankVertices - 36, kTankVertices, cell(0.375F, 0.0F, 0.5F, 0.125F),
-                      "barrel");
+    const std::size_t panel = kTankVertices - 36 - (2 * kBarrelVertices);
+    expect_corners_of(tank, panel, panel + 36, metal, "roof panel");
+    expect_corners_or_middle_of(tank, panel + 36, panel + 36 + kBarrelVertices,
+                                cell(0.375F, 0.0F, 0.5F, 0.125F), "collar");
+    expect_corners_or_middle_of(tank, kTankVertices - kBarrelVertices, kTankVertices,
+                                cell(0.375F, 0.0F, 0.5F, 0.125F), "barrel");
 }
 
 TEST(TankUv, EveryHullFaceCarriesTheHullTilesCorners) {
@@ -5186,6 +5243,13 @@ constexpr std::size_t kShapeEnd = kFinEnd + 180U;
 constexpr std::size_t kSkirt = kShapeEnd;
 constexpr std::size_t kHoverBarrel = kSkirt + 24U;
 
+/// On the tile of a ROUND barrel: a corner of `r` (its side quads) or its middle texel (its end
+/// fans).
+bool on_barrel_tile(const SceneVertex& v, const UvRect& r) {
+    const bool middle = v.u == (r.u0 + r.u1) * 0.5F && v.v == (r.v0 + r.v1) * 0.5F;
+    return ((v.u == r.u0 || v.u == r.u1) && (v.v == r.v0 || v.v == r.v1)) || middle;
+}
+
 bool on_rect(const SceneVertex& v, const UvRect& r) {
     return (v.u == r.u0 || v.u == r.u1) && (v.v == r.v0 || v.v == r.v1);
 }
@@ -5213,10 +5277,11 @@ float highest(const std::vector<SceneVertex>& v, std::size_t first, std::size_t 
 TEST(HoverShape, TheHoverTankIsItsShapesPartsThenTheSkirtAndTheBarrel) {
     const auto hover = hover_tank_of(Side::Player, {});
     EXPECT_EQ(hover.size(), protekt::game::kHoverTankVertices);
-    EXPECT_EQ(protekt::game::kHoverTankVertices, std::size_t{864}) << "168 before it had a shape";
+    EXPECT_EQ(protekt::game::kHoverTankVertices, std::size_t{960}) << "168 before it had a shape";
     EXPECT_EQ(shape_vertices(UnitKind::HoverTank), kShapeEnd)
         << "804: the parts, as they are drawn";
-    EXPECT_EQ(hover.size(), kShapeEnd + 24U + 36U) << "then four skirt quads and a barrel";
+    EXPECT_EQ(hover.size(), kShapeEnd + 24U + kBarrelVertices)
+        << "then four skirt quads and a round barrel";
 }
 
 TEST(HoverShape, NoPartOfItIsATrack) {
@@ -5331,8 +5396,8 @@ TEST(HoverShape, ItWearsItsTeamsCamoItsFinIsMetalAndTheBarrelCarriesTheSideColou
         EXPECT_EQ(tiles_used(hover, kWedgeEnd, {camo}, kWedge), std::size_t{1}) << "the wedge";
         EXPECT_EQ(tiles_used(hover, kFinEnd, {metal}, kWedgeEnd), std::size_t{1}) << "the fin";
         EXPECT_EQ(tiles_used(hover, kShapeEnd, {camo}, kFinEnd), std::size_t{1}) << "the turret";
-        expect_corners_of(hover, kHoverBarrel, hover.size(), tile_rect(atlas.tile("tank_barrel")),
-                          "barrel");
+        expect_corners_or_middle_of(hover, kHoverBarrel, hover.size(),
+                                    tile_rect(atlas.tile("tank_barrel")), "barrel");
         // The barrel is saturated toward the side's hue; the camo parts and the metal fin only a
         // pale tint of it.
         const auto& barrel = hover.at(kHoverBarrel).colour;
@@ -5587,24 +5652,18 @@ float bearing(const protekt::sim::Unit& from, const protekt::sim::Unit& to) {
                       static_cast<float>(to.y.raw - from.y.raw));
 }
 
-/// The yaw from a unit's centre to the mean of vertices [first, last) on the map plane. A barrel is
-/// symmetric about its own axis, so for a barrel this is the way it points.
+/// The yaw from a unit's centre to the centre of vertices [first, last) on the map plane. A barrel
+/// is symmetric about its own axis, so for a barrel this is the way it points.
 float yaw_of_part(const std::vector<SceneVertex>& v, std::size_t first, std::size_t last,
                   const protekt::sim::Unit& unit) {
-    float x = 0.0F;
-    float z = 0.0F;
-    for (std::size_t i = first; i < last; ++i) {
-        x += v.at(i).position[0];
-        z += v.at(i).position[2];
-    }
-    const auto n = static_cast<float>(last - first);
-    return std::atan2((x / n) - (static_cast<float>(unit.x.raw) / 65536.0F * kMetresPerTile),
-                      (z / n) - (static_cast<float>(unit.y.raw) / 65536.0F * kMetresPerTile));
+    const Vec3 centre = axis_centre(v, first, last);
+    return std::atan2(centre[0] - (static_cast<float>(unit.x.raw) / 65536.0F * kMetresPerTile),
+                      centre[2] - (static_cast<float>(unit.y.raw) / 65536.0F * kMetresPerTile));
 }
 
 /// The barrel is the last prism of every gun model.
 float barrel_yaw(const std::vector<SceneVertex>& model, const protekt::sim::Unit& unit) {
-    return yaw_of_part(model, model.size() - kPrismVertices, model.size(), unit);
+    return yaw_of_part(model, model.size() - kBarrelVertices, model.size(), unit);
 }
 
 /// Steps until some gun has fired, so `aim_target` names what it engaged.
@@ -5797,15 +5856,15 @@ TEST(TurretModel, ADefenseTurretIsItsShapesPartsThenAMuzzleCollarAndABarrel) {
     const auto& turret = sim.units().at(0);
     const auto model = unit_box_of(UnitKind::Turret);
     ASSERT_EQ(model.size(), protekt::game::kTurretVertices);
-    EXPECT_EQ(protekt::game::kTurretVertices, std::size_t{636})
-        << "the shape's 564 (420 before AY cut the corners) and the collar and the barrel's 72";
+    EXPECT_EQ(protekt::game::kTurretVertices, std::size_t{828})
+        << "the shape's 564 (420 before AY cut the corners) and the round collar and barrel's 264";
     EXPECT_EQ(shape_vertices(UnitKind::Turret), std::size_t{564});
     const std::size_t collar = shape_vertices(UnitKind::Turret);
-    const std::size_t barrel = collar + kPrismVertices;
-    ASSERT_EQ(barrel + kPrismVertices, model.size());
+    const std::size_t barrel = collar + kBarrelVertices;
+    ASSERT_EQ(barrel + kBarrelVertices, model.size());
     const UvRect barrel_tile = tile_rect(protekt::game::atlas_manifest().tile("tank_barrel"));
     for (std::size_t i = 0; i < model.size(); ++i) {
-        EXPECT_EQ(on_rect(model.at(i), barrel_tile), i >= collar)
+        EXPECT_EQ(on_barrel_tile(model.at(i), barrel_tile), i >= collar)
             << "vertex " << i << ": only the collar and the barrel are on the barrel tile";
     }
     // The barrel runs from the dome's front face (0.5 m); the collar is AT THE TIP, 2.0 m out,
@@ -5995,13 +6054,13 @@ TEST(WalkerModel, TheWalkerIsItsShapesPartsAndThenTheGunArm) {
     // five prisms, 180 vertices.
     const auto walker = unit_box_of(UnitKind::Walker);
     ASSERT_EQ(walker.size(), protekt::game::kWalkerVertices);
-    EXPECT_EQ(protekt::game::kWalkerVertices, std::size_t{792})
-        << "the shape's 756 (708 before AY cut the body's corners) and the gun arm's 36";
+    EXPECT_EQ(protekt::game::kWalkerVertices, std::size_t{888})
+        << "the shape's 756 (708 before AY cut the body's corners) and the round gun arm's 132";
     EXPECT_EQ(shape_vertices(UnitKind::Walker), std::size_t{756});
     // The gun arm is the last prism, on the barrel tile; nothing else is.
     const UvRect barrel = tile_rect(protekt::game::atlas_manifest().tile("tank_barrel"));
     for (std::size_t i = 0; i < walker.size(); ++i) {
-        EXPECT_EQ(on_rect(walker.at(i), barrel), i >= shape_vertices(UnitKind::Walker))
+        EXPECT_EQ(on_barrel_tile(walker.at(i), barrel), i >= shape_vertices(UnitKind::Walker))
             << "vertex " << i;
     }
 }
@@ -6071,9 +6130,9 @@ TEST(RocketTankModel, TheRocketTankIsATanksChassisWithAMountAndALauncherRack) {
 TEST(AssaultTankModel, TheAssaultTankIsItsShapesPartsAndThenTheRoofPanelAndTheBarrel) {
     const auto assault = unit_box_of(UnitKind::AssaultTank);
     EXPECT_EQ(assault.size(), kAssaultTankVertices);
-    EXPECT_EQ(kAssaultTankVertices, std::size_t{3072})
+    EXPECT_EQ(kAssaultTankVertices, std::size_t{3264})
         << "the shape's 2964, the panel, the collar and the barrel; 396 before it had a shape";
-    EXPECT_EQ(protekt::game::kAssaultTankVertices, std::size_t{3072});
+    EXPECT_EQ(protekt::game::kAssaultTankVertices, std::size_t{3264});
     EXPECT_EQ(shape_vertices(UnitKind::AssaultTank), std::size_t{2964});
 }
 
@@ -8845,13 +8904,188 @@ TEST(SmoothShading, ARaisedBarrelsNormalsRaiseWithIt) {
     const auto sim = facing_sim(UnitKind::AssaultTank);
     const Scene level_gun = facing_scene(sim, 0.0F, 0.0F, 0.0F);
     const Scene raised_gun = facing_scene(sim, 0.0F, 0.0F, 0.4F);
-    // The barrel is a plain box (every edge a crease), so its vertex normals ARE its faces'.
+    // The barrel is ROUND (BA): its side is smoothed into a cylinder (so well under half its
+    // vertices keep their face's own normal -- only the two end caps do) and it stays so raised.
+    std::array<float, 2> share{0.0F, 0.0F};
+    std::size_t at = 0;
     for (const Scene* scene : {&level_gun, &raised_gun}) {
-        const std::vector<SceneVertex> barrel(scene->vertices.end() - 36, scene->vertices.end());
-        EXPECT_GE(flat_panel_share(barrel), 0.999F);
+        const std::vector<SceneVertex> barrel(scene->vertices.end() - kBarrelVertices,
+                                              scene->vertices.end());
+        share.at(at) = flat_panel_share(barrel);
+        EXPECT_LT(share.at(at), 0.6F) << "a cylinder's side is smooth";
+        EXPECT_GT(share.at(at), 0.3F) << "and its two end caps stay flat";
+        ++at;
     }
-    // And the raise really moved it: the barrel's top normal is no longer straight up.
-    EXPECT_GT(std::abs(raised_gun.vertices.at(raised_gun.vertices.size() - 12).normal[2]
-                       - level_gun.vertices.at(level_gun.vertices.size() - 12).normal[2]),
+    EXPECT_NEAR(share.at(0), share.at(1), 0.01F)
+        << "turning a barrel up must turn its normals with it";
+    // And the raise really moved it: the front cap's normal (the barrel's last vertices) leans up.
+    EXPECT_GT(std::abs(raised_gun.vertices.at(raised_gun.vertices.size() - 12).normal[1]
+                       - level_gun.vertices.at(level_gun.vertices.size() - 12).normal[1]),
               0.1F);
+}
+
+// ---------------------------------------------------------------- every barrel is round (BA)
+
+namespace {
+
+/// What a round barrel has to be: the box it replaced, as a cylinder. `across` is its half-width,
+/// `height` its full height, `back` and `front` where it starts and ends along the gun, in metres
+/// from the unit's centre.
+struct RoundBarrel {
+    std::size_t first;
+    float across;
+    float height;
+    float back;
+    float front;
+};
+
+/// The barrel at [b.first, b.first + kBarrelVertices) of `model`, whatever way the unit is turned
+/// or leaned: its two end rings are each `kBarrelSides` distinct corners (a box has four), every
+/// corner stands the gun's own half-width or half-height from the axis, never the box's diagonal,
+/// and it is as long and as far from the unit's centre as the box was.
+void expect_round_barrel(const std::vector<SceneVertex>& model, const RoundBarrel& b,
+                         const protekt::sim::Unit& unit, const char* what) {
+    ASSERT_GE(model.size(), b.first + kBarrelVertices) << what;
+    const std::size_t end = b.first + kBarrelVertices;
+    constexpr std::size_t kCap = (static_cast<std::size_t>(protekt::game::kBarrelSides) - 2U) * 3U;
+    // The last two runs are the end fans, back then front: 10 triangles of 30 vertices each.
+    const auto back_ring = distinct_positions(model, end - (2U * kCap), end - kCap);
+    const auto front_ring = distinct_positions(model, end - kCap, end);
+    ASSERT_EQ(back_ring.size(), static_cast<std::size_t>(protekt::game::kBarrelSides)) << what;
+    ASSERT_EQ(front_ring.size(), static_cast<std::size_t>(protekt::game::kBarrelSides)) << what;
+    const Vec3 back = mean_of(back_ring);
+    const Vec3 front = mean_of(front_ring);
+    const Vec3 axis = protekt::math::normalise(minus(front, back));
+    EXPECT_NEAR(length_of(minus(front, back)), b.front - b.back, 1.0e-3F) << what << ": length";
+    const float ux = static_cast<float>(unit.x.raw) / 65536.0F * kMetresPerTile;
+    const float uz = static_cast<float>(unit.y.raw) / 65536.0F * kMetresPerTile;
+    EXPECT_NEAR(std::hypot(back.at(0) - ux, back.at(2) - uz), b.back, 0.06F) << what << ": root";
+    EXPECT_NEAR(std::hypot(front.at(0) - ux, front.at(2) - uz), b.front, 0.06F) << what << ": tip";
+    const float lo = std::min(b.across, b.height * 0.5F);
+    const float hi = std::max(b.across, b.height * 0.5F);
+    float nearest = 1.0e9F;
+    float farthest = 0.0F;
+    for (const auto* ring : {&back_ring, &front_ring}) {
+        const Vec3 centre = mean_of(*ring);
+        for (const Vec3& p : *ring) {
+            const Vec3 rel = minus(p, centre);
+            const float along
+                = (rel.at(0) * axis.at(0)) + (rel.at(1) * axis.at(1)) + (rel.at(2) * axis.at(2));
+            EXPECT_NEAR(along, 0.0F, 1.0e-3F) << what << ": a ring is square to the gun";
+            const float radial = length_of(
+                minus(rel, Vec3{axis.at(0) * along, axis.at(1) * along, axis.at(2) * along}));
+            nearest = std::min(nearest, radial);
+            farthest = std::max(farthest, radial);
+        }
+    }
+    EXPECT_NEAR(nearest, lo, 1.0e-3F) << what << ": as thin across as the box";
+    EXPECT_NEAR(farthest, hi, 1.0e-3F) << what << ": as thick across as the box, and no more";
+}
+
+} // namespace
+
+TEST(RoundBarrel, TheTankBarrelAndCollarAreRingsOfTheBoxesSizes) {
+    const auto sim = sim_of({{Side::Player, UnitKind::Tank, 100, 100}});
+    const auto& unit = sim.units().at(0);
+    const auto tank = tank_only(sim, unit, {});
+    ASSERT_EQ(tank.size(), kTankVertices);
+    expect_round_barrel(tank,
+                        {kTankVertices - kBarrelVertices, 0.06F,
+                         protekt::game::kTankBarrelTop - protekt::game::kTankBarrelBottom,
+                         protekt::game::kTankTurretFront,
+                         protekt::game::kTankBarrelTip - protekt::game::kTankCollarLength},
+                        unit, "tank barrel");
+    expect_round_barrel(tank,
+                        {kTankVertices - (2 * kBarrelVertices), 0.1F,
+                         protekt::game::kTankCollarTop - protekt::game::kTankCollarBottom,
+                         protekt::game::kTankBarrelTip - protekt::game::kTankCollarLength,
+                         protekt::game::kTankBarrelTip},
+                        unit, "tank collar");
+}
+
+TEST(RoundBarrel, TheAssaultTankBarrelAndCollarAreRingsOfTheBoxesSizes) {
+    const auto sim = sim_of({{Side::Player, UnitKind::AssaultTank, 100, 100}});
+    const auto& unit = sim.units().at(0);
+    const auto tank = tank_only(sim, unit, {});
+    ASSERT_EQ(tank.size(), kAssaultTankVertices);
+    expect_round_barrel(tank,
+                        {kAssaultTankVertices - kBarrelVertices, 0.08F,
+                         protekt::game::kAssaultBarrelTop - protekt::game::kAssaultBarrelBottom,
+                         protekt::game::kAssaultTurretFront,
+                         protekt::game::kAssaultBarrelTip - protekt::game::kAssaultCollarLength},
+                        unit, "assault barrel");
+    expect_round_barrel(tank,
+                        {kAssaultTankVertices - (2 * kBarrelVertices), 0.12F,
+                         protekt::game::kAssaultCollarTop - protekt::game::kAssaultCollarBottom,
+                         protekt::game::kAssaultBarrelTip - protekt::game::kAssaultCollarLength,
+                         protekt::game::kAssaultBarrelTip},
+                        unit, "assault collar");
+}
+
+TEST(RoundBarrel, TheHoverTanksAndTheWalkersGunAreRingsOfTheBoxesSizes) {
+    {
+        const auto sim = sim_of({{Side::Player, UnitKind::HoverTank, 100, 100}});
+        const auto hover = tank_only(sim, sim.units().at(0), {});
+        ASSERT_EQ(hover.size(), protekt::game::kHoverTankVertices);
+        expect_round_barrel(hover,
+                            {protekt::game::kHoverTankVertices - kBarrelVertices, 0.05F,
+                             protekt::game::kHoverBarrelTop - protekt::game::kHoverBarrelBottom,
+                             protekt::game::kHoverTurretFront, protekt::game::kHoverBarrelTip},
+                            sim.units().at(0), "hover barrel");
+    }
+    {
+        const auto sim = sim_of({{Side::Player, UnitKind::Walker, 100, 100}});
+        const auto walker = tank_only(sim, sim.units().at(0), {});
+        ASSERT_EQ(walker.size(), protekt::game::kWalkerVertices);
+        expect_round_barrel(walker,
+                            {protekt::game::kWalkerVertices - kBarrelVertices, 0.07F,
+                             protekt::game::kWalkerGunTop - protekt::game::kWalkerGunBottom,
+                             protekt::game::kWalkerGunFront, protekt::game::kWalkerGunTip},
+                            sim.units().at(0), "walker gun");
+    }
+}
+
+TEST(RoundBarrel, TheDefenceTurretBarrelAndCollarAreRingsOfTheBoxesSizes) {
+    const auto sim = sim_of({{Side::Player, UnitKind::Turret, 100, 100}});
+    const auto& unit = sim.units().at(0);
+    const auto turret = tank_only(sim, unit, {});
+    ASSERT_EQ(turret.size(), protekt::game::kTurretVertices);
+    expect_round_barrel(turret,
+                        {protekt::game::kTurretVertices - kBarrelVertices, 0.08F,
+                         protekt::game::kTurretBarrelTop - protekt::game::kTurretBarrelBottom,
+                         protekt::game::kTurretGunFront,
+                         protekt::game::kTurretBarrelTip - protekt::game::kTurretCollarLength},
+                        unit, "turret barrel");
+    expect_round_barrel(turret,
+                        {protekt::game::kTurretVertices - (2 * kBarrelVertices), 0.13F,
+                         protekt::game::kTurretCollarTop - protekt::game::kTurretCollarBottom,
+                         protekt::game::kTurretBarrelTip - protekt::game::kTurretCollarLength,
+                         protekt::game::kTurretBarrelTip},
+                        unit, "turret collar");
+}
+
+// The point of the barrel (BA): lit as a CYLINDER. With the gun level, every vertex on the side of
+// the barrel carries (nearly) the outward radial direction of its own ring -- the average of the
+// two 15-degree-off face normals that meet there -- where a box's edge was a hard 90-degree crease.
+// "Nearly": the smoothing weights by TRIANGLE area and a quad's corner touches one or two of its
+// two triangles, so the average leans about 5 degrees toward one face; 8 degrees is the bound, a
+// third of the 30 degrees between neighbouring flats and nothing like a box's 90.
+TEST(RoundBarrel, ItsSideIsSmoothedIntoACylinderAndItsEndsStayFlat) {
+    const auto sim = facing_sim();
+    const Scene scene = facing_scene(sim, 0.0F, 0.0F, 0.0F);
+    const std::vector<SceneVertex> barrel(scene.vertices.end() - kBarrelVertices,
+                                          scene.vertices.end());
+    constexpr std::size_t kSide = static_cast<std::size_t>(protekt::game::kBarrelSides) * 6U;
+    const auto ring = distinct_positions(barrel, kSide, kBarrelVertices);
+    const Vec3 centre = mean_of(ring);
+    for (std::size_t i = 0; i < kSide; ++i) {
+        const Vec3 radial = protekt::math::normalise(
+            Vec3{barrel.at(i).position[0] - centre[0], barrel.at(i).position[1] - centre[1], 0.0F});
+        const Normal& n = barrel.at(i).normal;
+        EXPECT_GT((n[0] * radial[0]) + (n[1] * radial[1]), 0.99F) << "side vertex " << i;
+        EXPECT_NEAR(n[2], 0.0F, 1.0e-3F) << "side vertex " << i << " is square to the gun";
+    }
+    for (std::size_t i = kSide; i < kBarrelVertices; ++i) {
+        EXPECT_NEAR(std::abs(barrel.at(i).normal[2]), 1.0F, 1.0e-3F) << "cap vertex " << i;
+    }
 }

@@ -81,6 +81,25 @@ inline constexpr float kShadeFloor = 0.45F;
 /// degrees off radial at 60). 75 sits 11.6 above the sphere and 10 below the nearest box edge.
 inline constexpr float kCreaseAngleDegrees = 75.0F;
 
+/// EVERY BARREL IS ROUND (BA): a gun and its collar are a ring of this many corners swept along the
+/// gun, with both ends closed (`emit_barrel`, the one helper every barrel site calls), where each
+/// was a four-cornered box. TWELVE, because a gun is seen from a long way and from behind and above
+/// as well as side-on, and a 12-gon's flats are 30 degrees apart: well inside the crease angle, so
+/// the smooth shading blends them into one curved surface at any range the player sees a gun from,
+/// where eight (45 degrees) still shows a lit flat edge on a thick collar close up. It is a
+/// multiple of four, so the ring touches the box's four extents exactly and a barrel is as wide and
+/// tall as the box it replaced.
+///
+/// THE ONE PLACE WHERE MORE SIDES IS RIGHT. Everywhere else a higher side count destroys detail,
+/// because smooth shading averages any panels closer than `kCreaseAngleDegrees` and the facets are
+/// lost (the alien shell is faceted on purpose; more sides there only smooths it). A barrel's goal
+/// IS the average: a cylinder. Do not "fix" this back to four corners.
+inline constexpr int kBarrelSides = 12;
+
+/// The vertices of ONE round barrel (or collar): `kBarrelSides` quads round the side (two triangles
+/// each), and a fan of `kBarrelSides - 2` triangles on each end. A box was 36.
+inline constexpr std::size_t kBarrelVertices = (static_cast<std::size_t>(kBarrelSides) * 12U) - 12U;
+
 /// SMOOTH SHADING (AP): replaces the normal of each vertex in [first, last) -- a run of triangles,
 /// each vertex carrying its FACE's outward unit normal -- with the average of the normals of the
 /// faces that share its position, which is what turns a faceted hull into a curved surface.
@@ -770,9 +789,10 @@ inline constexpr math::Vec3 kHoverSkirtColour{0.78F, 1.0F, 1.0F};
 
 /// A drawn hover tank: the parts of `shape_of(UnitKind::HoverTank)` (three stepped wedge sections,
 /// the fin and the turret, each a chamfered extrusion), then the four skirt quads and the barrel,
-/// which are not shape parts. The shape is 804 vertices (AY cut the corners of the three wedge
+/// which are not shape parts (the barrel is round since BA: 132 vertices where the box was 36, 864
+/// before). The shape is 804 vertices (AY cut the corners of the three wedge
 /// sections and the turret; 444 before), 168 before it was derived.
-inline constexpr std::size_t kHoverTankVertices = 864;
+inline constexpr std::size_t kHoverTankVertices = 960;
 
 /// THE HOVER TANK'S SIZES that the shape (`vehicle_shape.cpp`), the mesh builder and the plate all
 /// read, here and nowhere else. Metres, along the heading from the centre and up from the ground.
@@ -868,8 +888,8 @@ private:
 /// its vision slit and a whip aerial, turned by `gun_yaw`), then the muzzle collar and the barrel,
 /// which elevate and so are not parts. It was 144, four prisms, undriven and 432, a tank's hull
 /// under a squat turret, when a player drove it. 492 before AY cut the base's and the pedestal's
-/// corners.
-inline constexpr std::size_t kTurretVertices = 636;
+/// corners, and 636 before BA made the collar and the barrel round (132 each, 36 each as boxes).
+inline constexpr std::size_t kTurretVertices = 828;
 
 /// THE TURRET'S GUN, in metres: the dome's front face (along the aim from the turret's centre),
 /// where the shape ends and the barrel begins, the barrel and its collar over the GROUND (a turret
@@ -910,8 +930,8 @@ inline constexpr std::size_t kMortarBikeVertices = 1656;
 /// A drawn walker: the parts of `shape_of(UnitKind::Walker)` (two bent legs and their feet, the
 /// body, its cockpit glass and the roof panel), then the gun arm, which is not a shape part. It
 /// was 180, five prisms, before it was derived, and no test pinned it. 744 before AY cut the body's
-/// corners.
-inline constexpr std::size_t kWalkerVertices = 792;
+/// corners, and 792 before BA made the gun arm round.
+inline constexpr std::size_t kWalkerVertices = 888;
 
 /// THE WALKER'S GUN ARM, in metres: the body's front face (along the aim from the walker's centre),
 /// where the shape ends and the arm begins, the arm's bottom and top over the ground, and its tip.
@@ -942,9 +962,10 @@ inline constexpr float kRocketPanelThickness = 0.03F;
 
 /// A drawn assault tank: the parts of `shape_of(UnitKind::AssaultTank)` (the tank's chassis, the
 /// turret block and its hatch), then the roof panel, the muzzle collar and the barrel, which are
-/// not shape parts. The shape is 2964 vertices (2508 before AY); the whole was 396, eleven prisms,
-/// before it was derived.
-inline constexpr std::size_t kAssaultTankVertices = 3072;
+/// not shape parts (the collar and the barrel are round since BA, 132 each, 3072 in all before).
+/// The shape is 2964 vertices (2508 before AY); the whole was 396, eleven prisms, before it was
+/// derived.
+inline constexpr std::size_t kAssaultTankVertices = 3264;
 
 /// THE ASSAULT TANK'S BLOCK AND BARREL, in metres: the block's roof (over the hull's base) and
 /// front face (along the aim from the tank's centre), where the shape ends and the panel and the
