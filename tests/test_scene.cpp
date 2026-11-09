@@ -47,9 +47,10 @@ namespace {
 // prisms (432 vertices, `kLegacyTankVertices`) but every part of `shape_of(UnitKind::Tank)` --
 // tracks with their ring-and-hub road wheels, hull, fenders, turret, bustle, hatch -- extruded and
 // chamfered, mirrored parts built twice, then the roof panel, the muzzle collar and the barrel,
-// which are not shape parts. A derived body emits a different number of prisms, and 2760 is that
-// count. Its parts are in `src/game/vehicle_shape.cpp`.
-constexpr std::size_t kTankVertices = 2760;
+// which are not shape parts. A derived body emits a different number of prisms, and 3312 is that
+// count (2760 before AT cut the hull's box corners, which added corners to six parts). Its parts
+// are in `src/game/vehicle_shape.cpp`.
+constexpr std::size_t kTankVertices = 3312;
 // The scout's and the missile scout's, each its own shape's parts and nothing else (no gun, so no
 // roof panel and no barrel). 432 each before they had shapes: they wore the tank's hand-built body.
 constexpr std::size_t kScoutVertices = 2028;
@@ -2333,8 +2334,8 @@ TEST(Hover, TheHoveringUnitIsDrawnAtTheHullHeightAndOthersStayOnTheGround) {
 TEST(TankShape, TheTankIsExactlyItsShapesParts) {
     const auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(42));
     const auto tank = tank_only(sim, sim.units().at(0), {});
-    EXPECT_EQ(tank.size(), std::size_t{2760}) << "the shape's parts, 432 before they were derived";
-    EXPECT_EQ(kTankVertices, std::size_t{2760});
+    EXPECT_EQ(tank.size(), std::size_t{3312}) << "the shape's parts, 432 before they were derived";
+    EXPECT_EQ(kTankVertices, std::size_t{3312});
 }
 
 namespace {
@@ -3739,7 +3740,9 @@ TEST(SceneShading, TheShapeBuiltTanksPanelAndBarrelCarryTheSideColourAndItsBodyT
     EXPECT_GT(saturation(top_of(kTankVertices - 108)), 0.7F) << "the roof panel";
     EXPECT_GT(saturation(top_of(kTankVertices - 36)), 0.7F) << "the barrel";
     // The shape's first part is the fighting compartment, Hull role: the camo in its pale tint.
-    for (std::size_t i = 0; i < 72; ++i) {
+    const std::size_t compartment
+        = (24U * protekt::game::shape_of(UnitKind::Tank).front().profile.size()) - 12U;
+    for (std::size_t i = 0; i < compartment; ++i) {
         EXPECT_LT(saturation((tail + static_cast<std::ptrdiff_t>(i))->colour), 0.15F)
             << "vertex " << i;
     }
@@ -4711,9 +4714,12 @@ TEST(TankUv, EachRoleAddressesItsTilesExactRect) {
 
 TEST(TankUv, EveryHullFaceCarriesTheHullTilesCorners) {
     const auto tank = drawn_tank(0.0F, 0.0F);
-    // The first part of the shape is the fighting compartment: a four-cornered profile chamfered
-    // into three bands, twelve quads, each one whole tile of the tank's camo.
-    for (std::size_t face = 0; face < 12; ++face) {
+    // The first part of the shape is the fighting compartment: a profile chamfered into three
+    // bands, a quad per corner per band, each one whole tile of the tank's camo. Since AT its box
+    // corners are cut, so it has seven corners and 21 quads where it had four and twelve.
+    const std::size_t quads = 3U * protekt::game::shape_of(UnitKind::Tank).front().profile.size();
+    ASSERT_EQ(quads, std::size_t{21});
+    for (std::size_t face = 0; face < quads; ++face) {
         std::set<std::pair<float, float>> seen;
         for (std::size_t i = face * 6; i < (face * 6) + 6; ++i) {
             seen.insert({tank.at(i).u, tank.at(i).v});

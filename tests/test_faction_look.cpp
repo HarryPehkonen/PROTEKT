@@ -30,18 +30,20 @@ constexpr int kTile = 60;
 /// The human Scavenger's drawn vertices (its shadow and its body): the count, and an FNV-1a hash
 /// over every float of every vertex (position, colour, alpha, uv, normal) by its bits. Since the
 /// shape slice the body is built from `shape_of(UnitKind::Scavenger)` (the one description its
-/// plate is also projected from) and not from the tank's hull: 3594 vertices where the tank-hull
-/// hauler had 330, the extra being the chamfered parts and the wheels. A human mesh that moves
-/// moves this; the shape's own size is pinned in test_vehicle_shape.cpp.
-constexpr std::size_t kHumanScavengerVertices = 3594;
+/// plate is also projected from) and not from the tank's hull: 4098 vertices (3594 before AT cut
+/// the hull's box corners) where the tank-hull hauler had 330, the extra being the chamfered parts
+/// and the wheels. A human mesh that moves moves this; the shape's own size is pinned in
+/// test_vehicle_shape.cpp.
+constexpr std::size_t kHumanScavengerVertices = 4098;
 /// The alien harvester's, read off its first build: the shadow (6) and its ten-cornered carapace,
 /// proboscis, crest and six legs. Anti-vacuity's other half: a collapsed shape changes this.
 constexpr std::size_t kAlienHarvesterVertices = 1362;
 /// RE-PINNED DELIBERATELY (AP, smooth shading): the hauler's geometry is unchanged (the count and
 /// every position are as they were) but the frame now draws it from an UNLIT ink and a smoothed
 /// NORMAL (quantised to 1e-4), both of which the hash covers. Was 11065493855963779442 with the
-/// light baked into the colour face by face.
-constexpr std::uint64_t kHumanScavengerHash = 16841904087840096574ULL;
+/// light baked into the colour face by face. RE-PINNED AGAIN (AT): the hull's box corners are cut,
+/// so there are more vertices and different positions (was 16841904087840096574).
+constexpr std::uint64_t kHumanScavengerHash = 17356007928199366683ULL;
 
 /// The vertices a lone unit adds to a frame: what is left between the terrain and sky both frames
 /// share before it, and the HUD both share after it. That is its shadow and its body.

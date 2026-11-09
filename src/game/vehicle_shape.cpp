@@ -66,6 +66,55 @@ void add_part(std::vector<ShapePart>& parts, Profile profile, float lo, float hi
                               lit, group});
 }
 
+/// How far a hull's box corner is cut, in metres along each edge of the corner (AT). Every body
+/// part of the scavenger and the tank has its corners cut by this, so the hull has no 90 degree
+/// edge for smooth shading to leave sharp; a thin part's cut is held to 0.4 of its shortest edge.
+constexpr float kHullChamfer = 0.10F;
+
+/// The corners of `profile` that turn more than `kMaxUncutTurnDegrees` -- the ones smooth shading
+/// (crease 75 degrees) would leave as hard edges -- each cut into two, `cut` metres in from the
+/// corner along both its edges (never more than 0.4 of the shorter edge, so neighbouring cuts do
+/// not meet). The two cuts are the same distance out, so a corner that turned t degrees becomes two
+/// that turn t/2: a 90 degree box corner becomes two 45s, the band smooth shading rounds. A profile
+/// that was convex stays convex, and a corner already gentle is kept as it was.
+Profile chamfer_corners(const Profile& profile, float cut) {
+    constexpr float kMaxUncutTurnDegrees = 60.0F;
+    constexpr float kDegrees = 180.0F / std::numbers::pi_v<float>;
+    const std::size_t n = profile.size();
+    Profile cut_profile;
+    cut_profile.reserve(2 * n);
+    for (std::size_t i = 0; i < n; ++i) {
+        const auto& before = profile.at((i + n - 1) % n);
+        const auto& here = profile.at(i);
+        const auto& after = profile.at((i + 1) % n);
+        const float in_x = here[0] - before[0];
+        const float in_y = here[1] - before[1];
+        const float out_x = after[0] - here[0];
+        const float out_y = after[1] - here[1];
+        const float in_length = std::hypot(in_x, in_y);
+        const float out_length = std::hypot(out_x, out_y);
+        const float turn
+            = std::abs(std::atan2((in_x * out_y) - (in_y * out_x), (in_x * out_x) + (in_y * out_y)))
+              * kDegrees;
+        if (turn <= kMaxUncutTurnDegrees) {
+            cut_profile.push_back(here);
+            continue;
+        }
+        const float d = std::min({cut, 0.4F * in_length, 0.4F * out_length});
+        cut_profile.push_back({here[0] - (in_x / in_length * d), here[1] - (in_y / in_length * d)});
+        cut_profile.push_back(
+            {here[0] + (out_x / out_length * d), here[1] + (out_y / out_length * d)});
+    }
+    return cut_profile;
+}
+
+/// A hull or load part's profile as the scavenger and the tank are authored: chamfered. A cut (not
+/// lit) and a metal or track part keep the corners they were written with.
+Profile hull_profile(Profile profile, ShapeRole role, bool lit) {
+    const bool body = lit && (role == ShapeRole::Hull || role == ShapeRole::Load);
+    return body ? chamfer_corners(counter_clockwise(std::move(profile)), kHullChamfer) : profile;
+}
+
 /// THE SCAVENGER'S SHAPE. Every number the scavenger's look is made of is in this function. Read it
 /// as the machine seen from its right-hand side, front at the right: two tracked pods with road
 /// wheels, a floor between them, an open-topped HOPPER (two side walls and a tailgate) heaped with
@@ -76,7 +125,8 @@ std::vector<ShapePart> author_scavenger() {
     std::vector<ShapePart> parts;
     const auto add = [&parts](Profile profile, float lo, float hi, bool mirrored, float bevel,
                               ShapeRole role, bool lit = true) {
-        add_part(parts, std::move(profile), lo, hi, mirrored, bevel, role, lit);
+        add_part(parts, hull_profile(std::move(profile), role, lit), lo, hi, mirrored, bevel, role,
+                 lit);
     };
 
     // The track pods: 2.5 m by 0.45 m, 0.24 m wide each, their outer faces 0.60 m from the
@@ -176,7 +226,8 @@ std::vector<ShapePart> author_tank() {
     const auto add
         = [&parts](Profile profile, float lo, float hi, bool mirrored, float bevel, ShapeRole role,
                    bool lit = true, ShapeGroup group = ShapeGroup::Hull) {
-              add_part(parts, std::move(profile), lo, hi, mirrored, bevel, role, lit, group);
+              add_part(parts, hull_profile(std::move(profile), role, lit), lo, hi, mirrored, bevel,
+                       role, lit, group);
           };
 
     // The fenders' outer edge, 0.60 m, is the tank's half-width and the widest thing on it.

@@ -16,6 +16,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <limits>
+#include <numbers>
 #include <set>
 #include <string_view>
 #include <vector>
@@ -1734,6 +1735,105 @@ TEST(TurretFromShape, TheDeployedTurretIsTheSameMachineAsTheTurret) {
     EXPECT_EQ(deployed.vertices, turret.vertices);
     EXPECT_EQ(deployed.low, turret.low);
     EXPECT_EQ(deployed.high, turret.high);
+}
+
+// ------------------------------------------------------------------------- the chamfered hulls
+// (AT)
+
+/// The sharpest turn, in degrees, any corner of `profile` makes: 90 for a box's corner, 45 for a
+/// box's corner that has been cut once.
+[[nodiscard]] float sharpest_turn_degrees(const std::vector<std::array<float, 2>>& profile) {
+    float sharpest = 0.0F;
+    for (std::size_t i = 0; i < profile.size(); ++i) {
+        const auto& a = profile.at(i);
+        const auto& b = profile.at((i + 1) % profile.size());
+        const auto& c = profile.at((i + 2) % profile.size());
+        const float ux = b[0] - a[0];
+        const float uy = b[1] - a[1];
+        const float vx = c[0] - b[0];
+        const float vy = c[1] - b[1];
+        const float turn = std::atan2((ux * vy) - (uy * vx), (ux * vx) + (uy * vy));
+        sharpest = std::max(sharpest, std::abs(turn) * 180.0F / std::numbers::pi_v<float>);
+    }
+    return sharpest;
+}
+
+/// The corners smooth shading cannot blend start at `kCreaseAngleDegrees` (75); a chamfered hull's
+/// every turn stays at least 5 under that. A cut 90 is two 45s -- the 40 to 50 degree crowd AP
+/// measured as "meant to be round" -- and the tank's glacis foot, a 127 degree turn, is two 63.7s.
+constexpr float kChamferedTurnDegrees = kCreaseAngleDegrees - 5.0F;
+
+[[nodiscard]] bool is_hull_body(const ShapePart& part) {
+    return part.lit && (part.role == ShapeRole::Hull || part.role == ShapeRole::Load);
+}
+
+TEST(ChamferedHull, NoScavengerBodyPartHasACornerSmoothShadingCouldNotBlend) {
+    std::size_t checked = 0;
+    for (const ShapePart& part : shape_of(UnitKind::Scavenger)) {
+        if (is_hull_body(part)) {
+            ++checked;
+            EXPECT_LT(sharpest_turn_degrees(part.profile), kChamferedTurnDegrees)
+                << "a hull or load part with a box corner";
+        }
+    }
+    EXPECT_GE(checked, std::size_t{5}) << "the floor, the wall, the gate, the scrap and the cab";
+}
+
+TEST(ChamferedHull, NoTankBodyPartHasACornerSmoothShadingCouldNotBlend) {
+    std::size_t checked = 0;
+    for (const ShapePart& part : shape_of(UnitKind::Tank)) {
+        if (is_hull_body(part)) {
+            ++checked;
+            EXPECT_LT(sharpest_turn_degrees(part.profile), kChamferedTurnDegrees)
+                << "a hull part with a box corner";
+        }
+    }
+    EXPECT_GE(checked, std::size_t{5}) << "two hull blocks, a fender, the turret and its bustle";
+}
+
+TEST(ChamferedHull, TheCutsAreTheFortyToFiftyDegreeBandAndNotASoapBar) {
+    // READABLE: a cut is a band, not a dissolve. The sharpest corner of a hull part is still a real
+    // turn of 30 degrees or more -- a cut 90 is two 45s -- and a part has few corners, so it is a
+    // chamfered block and not a smear; the extent tests above pin the overall size.
+    for (const UnitKind kind : {UnitKind::Scavenger, UnitKind::Tank}) {
+        for (const ShapePart& part : shape_of(kind)) {
+            if (is_hull_body(part)) {
+                EXPECT_GE(sharpest_turn_degrees(part.profile), 30.0F)
+                    << "dissolved into a ball: kind " << static_cast<int>(kind);
+                EXPECT_LE(part.profile.size(), std::size_t{14})
+                    << "a cut is two corners, not a curve";
+            }
+        }
+    }
+}
+
+TEST(ChamferedHull, OnlyTheScavengerAndTheTankWereChamfered) {
+    // The rocket tank and the assault tank share a chassis the owner did not name: it keeps its box
+    // corners, as does every other kind's hull.
+    for (const UnitKind kind : {UnitKind::RocketTank, UnitKind::AssaultTank, UnitKind::Apc,
+                                UnitKind::Tug, UnitKind::ServiceTruck, UnitKind::Walker}) {
+        float sharpest = 0.0F;
+        for (const ShapePart& part : shape_of(kind)) {
+            if (is_hull_body(part)) {
+                sharpest = std::max(sharpest, sharpest_turn_degrees(part.profile));
+            }
+        }
+        EXPECT_GT(sharpest, 85.0F) << "kind " << static_cast<int>(kind) << " lost its box corners";
+    }
+}
+
+TEST(ChamferedHull, TheMeshGainsFacetsButStaysTheSameSizeOfMachine) {
+    // Measured before the chamfer, in vertices as the frame draws them (shadow excluded, three to a
+    // triangle): the scavenger 3,436 (1,145 triangles) and the tank 2,544 (848). A cut adds facets
+    // -- more than before, under double -- and the extent tests above pin the size.
+    constexpr std::size_t kScavengerBefore = 3436;
+    constexpr std::size_t kTankBefore = 2544;
+    const std::size_t scavenger = mesh_of(UnitKind::Scavenger).vertices;
+    const std::size_t tank = mesh_of(UnitKind::Tank).vertices;
+    EXPECT_GT(scavenger, kScavengerBefore);
+    EXPECT_LT(scavenger, 2 * kScavengerBefore);
+    EXPECT_GT(tank, kTankBefore);
+    EXPECT_LT(tank, 2 * kTankBefore);
 }
 
 } // namespace

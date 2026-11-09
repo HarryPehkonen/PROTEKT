@@ -137,6 +137,15 @@ constant, `kFxaaSettings` in `src/render/renderer.cpp`. `--no-fxaa` turns it off
 byte-identical to what the renderer drew before the filter existed. Same seed, same frames, one capture each
 -- see "Build, run, watch" for the two commands. No history buffer: a frame is a function of itself.
 
+**Chamfered hulls (AT, scavenger and tank).** Smooth shading had nothing to blend on a box hull: AP measured
+about 6,900 face pairs at 85-90 degrees (boxes) against about 3,900 at 40-50 (chamfers), so the arm's
+eight-sided knuckle read round and the hull did not. The scavenger's and the tank's Hull and Load parts now
+have their box corners CUT (`chamfer_corners` in `src/game/vehicle_shape.cpp`, `kHullChamfer` 0.10 m): a corner
+that turns more than 60 degrees becomes two corners that each turn half as much, so a 90 degree edge is two
+45s and the tank's 127 degree glacis foot two 63.7s, all under the 75 degree crease. Every other kind,
+including the rocket and assault tanks' shared chassis, keeps its shape. The silhouette changes (and with it
+the 72 px plate, which is the same shape seen side on); the crease angle, the sim and every battle hash do not.
+
 **Smooth shading (AP, a try-it).** Everything lit -- terrain, hulls, buildings, turrets, wrecks and the
 spheres of the repair beam and the smoke -- is shaded from a per-vertex NORMAL in the fragment stage, not
 per flat face, so a faceted hull reads as a curved surface (Harri's "rounded soap bar", after
