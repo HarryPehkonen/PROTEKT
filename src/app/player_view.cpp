@@ -191,13 +191,16 @@ std::optional<game::DeployLineTarget> nav_line_target(game::NavState state,
 
 std::vector<game::MenuRow> menu_for(const sim::Sim& sim, const game::Session& session,
                                     const game::SceneOptions& options, bool attack_armed) {
-    // The attack list and the menu share one slot under the notice: one panel at a time.
-    if (attack_armed) {
-        return {};
-    }
     game::MenuInput in{game::menu_subject_of(sim, session.selection().units()),
                        game::faction_of(options.factions, sim::Side::Player), game::ArmedCommand{},
                        menu_target_of(sim, options), static_cast<int>(sim.ore(sim::Side::Player))};
+    if (attack_armed) {
+        // `vehicle menu -> 3 Attack`: the list is the menu (AW), its rows named by the hostiles'
+        // own faction.
+        in.faction = game::faction_of(options.factions, sim::Side::Enemy);
+        in.attack_list = &session.attack_targets();
+        return game::menu_rows(in);
+    }
     if (session.repair_armed()) {
         // `service truck menu -> 3 Repair`: the list is the menu.
         in.repair_list = &session.repair_targets();

@@ -578,12 +578,6 @@ public:
         }
         scene_options.show_radar_mesh = !options_.no_radar_mesh;
         scene_options.show_world_map = world_map_;
-        if (session_.attack_armed()) {
-            // The list lives in the Session's own vector and is captured when `3 ATTACK` arms it;
-            // pointing at it is enough, and nothing here is owned. A frame that is not arming stays
-            // null.
-            scene_options.attack_list = &session_.attack_targets();
-        }
         if (session_.go_armed()) {
             // Never expires: the prompt is on screen for exactly as long as the mode lasts.
             scene_options.notice = std::string(game::kGoPrompt);

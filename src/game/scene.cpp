@@ -3685,19 +3685,20 @@ constexpr std::array<float, 3> kStripOutline{0.02F, 0.03F, 0.05F};
 constexpr std::array<float, 3> kStripBevelLight{0.50F, 0.57F, 0.67F};
 constexpr std::array<float, 3> kStripBevelDark{0.08F, 0.10F, 0.14F};
 constexpr std::array<float, 3> kStripKeycapFace{0.16F, 0.21F, 0.29F};
-/// How a plate is painted: the glass the notice and the attack list wear (black, one frame ring),
+/// How a plate is painted: the glass the notice wears (black, one frame ring),
 /// or the keycap a command-row key wears. One drawing each; every key is a keycap.
 enum class PlateStyle : std::uint8_t { Glass, Keycap };
 constexpr std::array<float, 3> kStripSelected{1.0F, 0.85F, 0.10F};
 /// THE COMMAND MENU (RB0.5, the look MENU-READ): `menu_rows`'s rows, key then verb, down the left
-/// margin in the row under the notice -- the same reserved slot the attack list takes, so neither
-/// panel moves. Each row is two of BZ2's translucent blue bars, laid out by `menu_layout`: a key
-/// bar right-aligned on one column edge and a verb bar a gutter past it, rounded on their OUTER
-/// ends and square where they face the gutter, so the amber leader line down it reads as cutting a
-/// slice out of the background (the user's correction, 2026-10-27). A live row is the strip's white
-/// on a blue face that fades top to bottom; a dimmed row is grey on a flat dark face whatever the
-/// reason, because `MenuRow::reason` is for the code and the look is the same for both. The glyphs
-/// gain weight from a 1 px black outline, never from a bigger cell.
+/// margin in the row under the notice. Every list is rows of it (AW): `~ Select Unit`, `3 Repair`,
+/// `3 Attack` and the nav marks, so no list has a look of its own. Each row is two of BZ2's
+/// translucent blue bars, laid out by `menu_layout`: a key bar right-aligned on one column edge and
+/// a verb bar a gutter past it, rounded on their OUTER ends and square where they face the gutter,
+/// so the amber leader line down it reads as cutting a slice out of the background (the user's
+/// correction, 2026-10-27). A live row is the strip's white on a blue face that fades top to
+/// bottom; a dimmed row is grey on a flat dark face whatever the reason, because `MenuRow::reason`
+/// is for the code and the look is the same for both. The glyphs gain weight from a 1 px black
+/// outline, never from a bigger cell.
 ///
 /// `kMenuCell` is the LAYOUT cell: every bar is measured in it, the HUD's 2 px. The TYPE is drawn
 /// at `kMenuTypeCell`, smaller, inside the same bars (MENU-FONT): the user's "only the font would
@@ -3742,6 +3743,16 @@ constexpr std::array<float, 3> kMenuUnlitFace{0.055F, 0.063F, 0.086F};
 constexpr float kMenuUnlitAlpha = 0.74F;
 /// The pale ring round a live bar's rounded end, half a cell (1 px) wide. A dimmed bar has none.
 constexpr std::array<float, 3> kMenuRing{0.82F, 0.90F, 1.0F};
+/// THE LIST ROWS' TWO THIN LINES (AW), under a unit's name on the verb bar: health, then ammunition
+/// capacity. Each is a dark track the width of the name with the fill laid on it,
+/// `kMenuBarLineCells` thick, at these heights down the 13-cell bar -- clear of the type, which is
+/// centred.
+constexpr float kMenuBarLineCells = 0.5F;
+constexpr float kMenuHealthLineCells = 9.0F;
+constexpr float kMenuAmmoLineCells = 10.5F;
+constexpr std::array<float, 3> kMenuAmmoInk{0.35F, 0.70F, 1.0F};
+constexpr float kMenuTrackAlpha = 0.6F;
+constexpr std::array<float, 3> kMenuTrackInk{0.0F, 0.0F, 0.0F};
 constexpr float kMenuRingAlpha = 0.55F;
 constexpr float kMenuRingCells = 0.5F;
 /// The glyphs' outline is their coverage grown by half a layout cell (1 px) all round, in black at
@@ -4034,9 +4045,8 @@ void append_statistics(std::vector<SceneVertex>& out, const SceneOptions& option
 
 void append_hud_panels(std::vector<SceneVertex>& out, const SceneOptions& options,
                        const sim::Sim& sim, std::span<const sim::UnitId> selected) {
-    const bool wants_list = options.attack_list != nullptr && !options.attack_list->empty();
     const bool wants_menu = options.show_menu && options.menu != nullptr && !options.menu->empty();
-    if (options.row == nullptr && !wants_list && !wants_menu) {
+    if (options.row == nullptr && !wants_menu) {
         return;
     }
     const float px = static_cast<float>(options.extent.height) * kHudPerFrameHeight;
@@ -4198,30 +4208,13 @@ void append_hud_panels(std::vector<SceneVertex>& out, const SceneOptions& option
             - gap);
     const float slot_h = kStripSlotHeightPixels * px;
     const float pad = kStripPadPixels * px;
-    // The notice's row, reserved whether or not there is a notice: the attack list is drawn under
+    // The notice's row, reserved whether or not there is a notice: the menu is drawn under
     // it, and a panel that moves when a notice appears or expires is a panel that gets misread.
     // The strip hangs 128 px (`kStripBottomPixels`) now that its icons are 72, so the rows under it
     // start below ITS bottom edge, not the plate's: otherwise a notice would be drawn over the
     // icons of the keys it sits under.
     const float notice_top = kNoticeTopPixels * px;
     const float stack_gap = kStripStackGapPixels * px;
-    const float list_cell = kStripNoticeCell * px;
-    const float list_key_left = (kStripMarginPixels * px) + pad;
-    const float list_label_left = list_key_left + (7.0F * list_cell); // a glyph and a blank column
-    // The attack list names the player's HOSTILES (`nearest_enemies`), so by the enemy's faction.
-    const Faction list_faction = faction_of(options.factions, sim::Side::Enemy);
-    float list_label_width = 0.0F;
-    float list_metres_width = 0.0F;
-    if (wants_list) {
-        for (const TargetRow& row : *options.attack_list) {
-            list_label_width = std::max(list_label_width,
-                                        word_width(kind_label(row.kind, list_faction), list_cell));
-            list_metres_width
-                = std::max(list_metres_width, word_width(metres_text(row.metres), list_cell));
-        }
-    }
-    const float list_metres_left = list_label_left + list_label_width + (2.0F * list_cell);
-    const float list_top = notice_top + (5.0F * list_cell) + (2.0F * pad);
     const float menu_cell = kMenuCell * px;
     MenuLayout menu_placed;
     if (wants_menu) {
@@ -4446,28 +4439,6 @@ void append_hud_panels(std::vector<SceneVertex>& out, const SceneOptions& option
               notice_top + (5.0F * cell) + pad, kStripSelected, PlateStyle::Glass);
         ink_text(options.notice, notice_left, notice_top, cell, kStripSelected);
     }
-    // THE ATTACK LIST. The key to press, the kind in a column of its own, then the distance in
-    // whole metres: the hundred-metre figures are the ones worth comparing, and a column of them
-    // reads down the panel. The metres column is as wide as the widest row, so no row is pushed
-    // out of the plate by a number longer than its neighbours.
-    if (wants_list) {
-        const std::vector<TargetRow>& rows = *options.attack_list;
-        const float pitch = 6.0F * list_cell; // a 5-cell glyph and one blank row between rows
-        const float list_left = kStripMarginPixels * px;
-        plate(list_left, list_top, list_metres_left + list_metres_width + pad,
-              list_top + pad + (static_cast<float>(rows.size() - 1) * pitch) + (5.0F * list_cell)
-                  + pad,
-              kStripFrame, PlateStyle::Glass);
-        for (std::size_t index = 0; index < rows.size(); ++index) {
-            const float row_top = list_top + pad + (static_cast<float>(index) * pitch);
-            const char key = static_cast<char>('0' + rows.at(index).key);
-            ink_text(std::string_view{&key, 1}, list_key_left, row_top, list_cell, kStripFrame);
-            ink_text(kind_label(rows.at(index).kind, list_faction), list_label_left, row_top,
-                     list_cell, kStripFrame);
-            ink_text(metres_text(rows.at(index).metres), list_metres_left, row_top, list_cell,
-                     kStripFrame);
-        }
-    }
     // THE COMMAND MENU, in the order it was handed: never sorted, never renumbered, and the key is
     // drawn as the label it is ("SPACE", "~", "9"), so the harvester's missing 6, 7 and 8 stay a
     // visible gap. `menu_layout` places every bar; this draws them, then the glyphs, then the line.
@@ -4597,6 +4568,28 @@ void append_hud_panels(std::vector<SceneVertex>& out, const SceneOptions& option
             bar(placed.key_left, placed.key_right, placed, true);
             if (!row.verb.empty()) {
                 bar(placed.verb_left, placed.verb_right, placed, false);
+            }
+            // THE TWO LINES, for a row that names a unit: health in the ramp's colour, ammunition
+            // in blue. The sim has no magazine (`kAmmoPlaceholderFraction`, Harri 2026-10-23:
+            // always full), so the blue line is the placeholder and says so by being full.
+            const sim::Unit* named
+                = row.unit.valid() && !row.verb.empty() ? sim.find(row.unit) : nullptr;
+            if (named != nullptr && named->alive) {
+                const std::uint32_t max_hp = sim::spec_of(named->kind).hp;
+                const std::uint32_t hp = std::min<std::uint32_t>(named->hp, max_hp);
+                const float health
+                    = max_hp > 0 ? static_cast<float>(hp) / static_cast<float>(max_hp) : 0.0F;
+                const float from = placed.verb_text;
+                const float span = placed.verb_right - (kMenuVerbPadCells * cell) - from;
+                const auto line = [&](float cells, float fraction,
+                                      const std::array<float, 3>& ink) {
+                    const float y = placed.top + (cells * cell);
+                    const float thick = kMenuBarLineCells * cell;
+                    rect(ring_at, from, y, from + span, y + thick, kMenuTrackInk, kMenuTrackAlpha);
+                    rect(marks_at, from, y, from + (span * fraction), y + thick, ink);
+                };
+                line(kMenuHealthLineCells, health, health_colour(hp, max_hp));
+                line(kMenuAmmoLineCells, kAmmoPlaceholderFraction, kMenuAmmoInk);
             }
             const std::array<float, 3>& ink = row.enabled ? kStripFrame : kMenuDimInk;
             // The capitals centred down the layout's text slot; the key still ends on its pad and
@@ -4745,8 +4738,9 @@ void append_hud_panels(std::vector<SceneVertex>& out, const SceneOptions& option
         // same green line and dot to that asset, from the right edge of its own row. Green, because
         // a line says whose the thing is and these are yours.
         for (std::size_t index = 0; index < rows.size(); ++index) {
-            const sim::Unit* named
-                = rows.at(index).unit.valid() ? sim.find(rows.at(index).unit) : nullptr;
+            const sim::Unit* named = rows.at(index).unit.valid() && rows.at(index).leads
+                                         ? sim.find(rows.at(index).unit)
+                                         : nullptr;
             if (named == nullptr || !named->alive) {
                 continue;
             }

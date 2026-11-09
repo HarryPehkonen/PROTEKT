@@ -160,6 +160,12 @@ struct MenuInput {
     /// health bars' order, keyed 1-9 then 0. Handled exactly as `repair_list` is -- while non-null
     /// and not empty the menu IS the list -- but its rows read no distance. Not owned.
     const std::vector<TargetRow>* unit_list{nullptr};
+    /// THE ATTACK LIST (AW), once `3 Attack` has opened it: the nearest hostiles, keyed 1-9 then 0.
+    /// Handled as the other two lists are (the menu IS the list), but its rows are named by THIS
+    /// input's `faction` -- the caller sets it to the enemy's, since they are the hostiles -- and
+    /// they draw no leader line: green says "yours". Before AW the list was its own glass plate in
+    /// its own drawing code; now it is rows of the one menu. Not owned.
+    const std::vector<TargetRow>* attack_list{nullptr};
 };
 
 /// WHY a row is dimmed. The three values are exhaustive on purpose: `None` means the row is NOT
@@ -194,6 +200,10 @@ struct MenuRow {
     /// The asset a LIST row names (the repair list's patient), or none for every other row. The
     /// scene draws a leader from a row that has one to the asset it names.
     sim::UnitId unit{};
+    /// Whether a list row draws its green leader line to `unit`. Every list row that names a friend
+    /// does; an attack row names a hostile and does not (AW). The health and ammunition lines read
+    /// `unit` either way.
+    bool leads{true};
 
     MenuRow() = default;
     MenuRow(std::string_view key_in, std::string verb_in, bool enabled_in, MenuDim reason_in)

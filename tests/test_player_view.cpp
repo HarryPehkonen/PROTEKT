@@ -434,13 +434,15 @@ TEST(PlayerView, WithNoCursorAtAllTheStateRowNamesNothing) {
     EXPECT_EQ(menu_target_of(rig.sim, rig.options), MenuTarget::None);
 }
 
-TEST(PlayerView, AnArmedAttackListTakesTheSlotTheMenuWouldUse) {
+// AW: the armed attack list is rows of the menu now (ListLook.AttackGoesThroughTheSharedDrawer), so
+// it no longer blanks the menu; with no hostiles on the list there is nothing to replace it with.
+TEST(PlayerView, AnAttackListWithNoTargetsLeavesTheOrdinaryMenu) {
     Rig rig = make_base_rig();
     Session session{unit_id(rig.sim, 3)};
     select_with_space(rig, session, unit_id(rig.sim, 0));
     ASSERT_FALSE(session.selection().empty()) << "the rig must have selected the factory";
     EXPECT_FALSE(menu_for(rig.sim, session, rig.options, false).empty());
-    EXPECT_TRUE(menu_for(rig.sim, session, rig.options, true).empty());
+    EXPECT_FALSE(menu_for(rig.sim, session, rig.options, true).empty());
 }
 
 TEST(PlayerView, TheMenuWeighsTheScrapTheSimHasBanked) {

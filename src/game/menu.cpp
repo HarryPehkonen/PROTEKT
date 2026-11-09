@@ -243,7 +243,7 @@ constexpr std::array<std::string_view, kAttackListRows> kListKeys{"1", "2", "3",
 /// own), reads its distance in the right column when `with_distance`, and carries the unit it is
 /// about. The repair list and the function key's unit list are drawn by this one function.
 void append_unit_rows(std::vector<MenuRow>& rows, const MenuInput& in,
-                      const std::vector<TargetRow>& list, bool with_distance) {
+                      const std::vector<TargetRow>& list, bool with_distance, bool leads) {
     rows.reserve(rows.size() + list.size());
     for (const TargetRow& entry : list) {
         // `TargetRow::key` is the digit (1-9, 0 for the tenth); its position is the digit less one.
@@ -254,6 +254,7 @@ void append_unit_rows(std::vector<MenuRow>& rows, const MenuInput& in,
             row.right = metres_text(entry.metres);
         }
         row.unit = entry.id;
+        row.leads = leads;
         rows.push_back(std::move(row));
     }
 }
@@ -340,13 +341,19 @@ std::vector<MenuRow> menu_rows(const MenuInput& in) {
     // An open repair list IS the menu: no state row, no verbs, only the way out and the patients.
     if (in.repair_list != nullptr && !in.repair_list->empty()) {
         rows.push_back(MenuRow{kRowKeyTab, std::string{kVerbCloseMenu}, true, MenuDim::None});
-        append_unit_rows(rows, in, *in.repair_list, true);
+        append_unit_rows(rows, in, *in.repair_list, true, true);
         return rows;
     }
     // ... and so is an open unit list: `~` on a function key.
     if (in.unit_list != nullptr && !in.unit_list->empty()) {
         rows.push_back(MenuRow{kRowKeyTab, std::string{kVerbCloseMenu}, true, MenuDim::None});
-        append_unit_rows(rows, in, *in.unit_list, false);
+        append_unit_rows(rows, in, *in.unit_list, false, true);
+        return rows;
+    }
+    // ... and so is an open attack list (AW): `3 Attack`. Any key closes it, as it does the others.
+    if (in.attack_list != nullptr && !in.attack_list->empty()) {
+        rows.push_back(MenuRow{kRowKeyTab, std::string{kVerbCloseMenu}, true, MenuDim::None});
+        append_unit_rows(rows, in, *in.attack_list, true, false);
         return rows;
     }
     // Nothing selected: no menu, so nothing is drawn and a frame without a menu stays

@@ -1267,18 +1267,14 @@ struct SceneOptions {
     /// One line under the row, for what a function key just said ("Unit 4 is destroyed."). Empty
     /// draws none. The app holds it for a few seconds; the scene only draws it.
     std::string notice{};
-    /// The attack list (BZ2A): the nearest enemies keyed 1-9 and 0, drawn as a panel of its own
-    /// under the strip and the notice line while the player chooses one. Null or empty draws
-    /// nothing, so a frame that never heard of it is byte-identical -- the same discipline as
-    /// `nav_marks`. NOT owned.
-    const std::vector<TargetRow>* attack_list{nullptr};
     /// The numbered command menu (RB0.5): `menu_rows`'s rows drawn down the left of the frame,
     /// under the strip and the notice line, in the order given -- the gap where 6, 7 and 8 would
     /// be is the data and stays open. Off by default, so a frame that never heard of it is
     /// unchanged.
     bool show_menu{false};
     /// The rows `show_menu` draws. Null or empty draws nothing, so a frame that never heard of it
-    /// is byte-identical -- the same discipline as `attack_list`. NOT owned.
+    /// is byte-identical. NOT owned. The attack list, the repair list, the unit list and the nav
+    /// marks are all rows of THIS menu (AW): no list has a drawing of its own.
     const std::vector<MenuRow>* menu{nullptr};
     /// THE ATTACK OFFER (SPACE ATTACK): the hostile asset SPACE would attack right now -- the
     /// crosshair's target (`attack_target`, filled by the app each frame, so the scene stays a pure
