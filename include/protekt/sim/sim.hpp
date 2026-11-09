@@ -86,6 +86,13 @@ protected:
 /// the deploy site's own check all ask it, so no unit walks through, or is placed inside, one.
 [[nodiscard]] bool building_blocks(std::span<const Unit> units, int tile_x, int tile_y) noexcept;
 
+/// SETTLES WRECKAGE (see sim.cpp): moves each of `scraps[first..]` onto a tile a hauler can stand
+/// on and, when `home_x >= 0`, onto one a hauler could DRIVE to from the wreck's tile (`home_x/y`)
+/// -- a bounded flood fill, so a piece is never left on a tile ringed by craters. `home_x < 0` is a
+/// scenario's own pile: placed on standable ground, with no connectivity check.
+void settle_litter(std::vector<Scrap>& scraps, std::size_t first, std::uint64_t seed,
+                   std::span<const Unit> units, int home_x, int home_y) noexcept;
+
 /// Where a relocating unit (`scoots`) goes after a shot at `target` fired on `tick`.
 struct ScootSpot {
     Fixed x{};

@@ -233,6 +233,7 @@ void apply_posted(Unit& unit, Stance stance, Fixed x, Fixed y, Fixed x2, Fixed y
     unit.patrol_y = clamp_pos(y2);
     unit.target = UnitId{};
     unit.route.age = kRouteAgeFresh; // a new goal re-plans at once; the same goal keeps its route
+    unit.fetch_beats = 0; // a new order is a new trip: nothing carries over from the old one
 }
 
 /// One tick of sideways drift. Applied where the order is, not stored: the lateral term is an input
@@ -828,13 +829,38 @@ void production_step(std::vector<Unit>& units, std::array<std::uint16_t, 2>& ore
     units.push_back(made);
 }
 
+/// Whether `unit` has given up on this pile (`give_up_pile`): it is not offered it again.
+bool gave_up_on(const Unit& unit, const Scrap& piece) noexcept {
+    const std::size_t known
+        = std::min(static_cast<std::size_t>(unit.shunned_count), unit.shunned.size());
+    const TileXY tile = tile_of(piece.x, piece.y);
+    return std::any_of(unit.shunned.begin(),
+                       unit.shunned.begin() + static_cast<std::ptrdiff_t>(known),
+                       [&](const TileXY& shunned) { return shunned == tile; });
+}
+
+/// The unit gives up the pile at `piece`: it remembers its tile (the ring overwrites the oldest)
+/// and the trip is over.
+void give_up_pile(Unit& unit, const Scrap& piece) noexcept {
+    unit.shunned.at(static_cast<std::size_t>(unit.shunned_count) % unit.shunned.size())
+        = tile_of(piece.x, piece.y);
+    if (unit.shunned_count < 0xFF) {
+        ++unit.shunned_count;
+    }
+    unit.stance = Stance::Idle;
+    unit.fetch_beats = 0;
+}
+
 /// The nearest piece of wreckage, ties broken by the order the pieces were made in -- which is the
 /// order `scraps_` itself is in, so "the nearest" is a function of the litter and not of the walk.
-std::size_t nearest_scrap(const std::vector<Scrap>& scraps, Fixed x, Fixed y) noexcept {
+std::size_t nearest_scrap(const std::vector<Scrap>& scraps, const Unit& unit) noexcept {
     std::size_t best = kNoScrap;
     std::int64_t best_d = 0;
     for (std::size_t i = 0; i < scraps.size(); ++i) {
-        const std::int64_t d = dist2(x, y, scraps.at(i).x, scraps.at(i).y);
+        if (gave_up_on(unit, scraps.at(i))) {
+            continue;
+        }
+        const std::int64_t d = dist2(unit.x, unit.y, scraps.at(i).x, scraps.at(i).y);
         if (best == kNoScrap || d < best_d) {
             best = i;
             best_d = d;
@@ -843,18 +869,99 @@ std::size_t nearest_scrap(const std::vector<Scrap>& scraps, Fixed x, Fixed y) no
     return best;
 }
 
+/// How far from a wreck its litter may settle, in tiles: the scatter's reach plus the walk east
+/// that finds a free tile. This bounds the connectivity check below to a (2R+1)^2 window of tiles.
+constexpr int kLitterRegionRadius = kScrapScatterRadius + kScrapSpan;
+constexpr int kLitterRegionSide = (2 * kLitterRegionRadius) + 1;
+constexpr std::size_t kLitterRegionCells
+    = static_cast<std::size_t>(kLitterRegionSide) * static_cast<std::size_t>(kLitterRegionSide);
+
+/// THE TILES A COLLECTOR COULD DRIVE TO FROM A WRECK: a flood fill, over the window of
+/// `kLitterRegionRadius` tiles about `home`, of the standable tiles joined to `home` the way the
+/// route planner joins them (eight ways, no corner cut). Integer, deterministic, and bounded: at
+/// most 15 x 15 = 225 tiles, once per wreck. A tile outside the window is "not in the region" --
+/// the safe answer, since a pile placed only where this says yes is always reachable.
+class LitterRegion {
+public:
+    LitterRegion(std::uint64_t seed, std::span<const Unit> units, Coord home) noexcept
+        : seed_(seed), units_(units), left_(home.x - kLitterRegionRadius),
+          top_(home.y - kLitterRegionRadius) {
+        std::array<Coord, kLitterRegionCells> queue{};
+        std::size_t head = 0;
+        std::size_t tail = 0;
+        mark(home.x, home.y);
+        queue.at(tail++) = home;
+        while (head < tail) {
+            const Coord at = queue.at(head++);
+            for (int dy = -1; dy <= 1; ++dy) {
+                for (int dx = -1; dx <= 1; ++dx) {
+                    const bool diagonal = dx != 0 && dy != 0;
+                    if ((dx == 0 && dy == 0) || !open(at.x + dx, at.y + dy)
+                        || (diagonal
+                            && (!standable(seed_, units_, at.x + dx, at.y)
+                                || !standable(seed_, units_, at.x, at.y + dy)))) {
+                        continue;
+                    }
+                    mark(at.x + dx, at.y + dy);
+                    queue.at(tail++) = Coord{at.x + dx, at.y + dy};
+                }
+            }
+        }
+    }
+    [[nodiscard]] bool contains(int x, int y) const noexcept {
+        return inside(x, y) && seen_.at(index(x, y));
+    }
+
+private:
+    [[nodiscard]] bool inside(int x, int y) const noexcept {
+        return x >= left_ && y >= top_ && x < left_ + kLitterRegionSide
+               && y < top_ + kLitterRegionSide;
+    }
+    [[nodiscard]] std::size_t index(int x, int y) const noexcept {
+        return (static_cast<std::size_t>(y - top_) * static_cast<std::size_t>(kLitterRegionSide))
+               + static_cast<std::size_t>(x - left_);
+    }
+    /// A tile the fill may enter: in the window, standable, and not yet visited.
+    [[nodiscard]] bool open(int x, int y) const noexcept {
+        return inside(x, y) && !seen_.at(index(x, y)) && standable(seed_, units_, x, y);
+    }
+    void mark(int x, int y) noexcept { seen_.at(index(x, y)) = true; }
+
+    std::uint64_t seed_;
+    std::span<const Unit> units_;
+    int left_;
+    int top_;
+    std::array<bool, kLitterRegionCells> seen_{};
+};
+
+} // namespace
+
 /// Wreckage settles where a hauler can reach it: a piece the hash dropped on ground no vehicle may
 /// enter -- a crater -- moves to the nearest tile one can, and never onto a tile another piece of
 /// the same wreck already holds. Deterministic, like the scatter itself: the same battle settles
 /// the same way. Without this a piece can lie in a crater where the only way to it is a tile the
 /// hauler cannot stand on, and a scavenger drives at the crater rim forever.
+///
+/// AND WHERE A HAULER CAN GET TO: a wreck's pieces settle only in the region the wreck itself lay
+/// in (`LitterRegion`), so the scatter can no longer drop a piece on a tile ringed by craters --
+/// an island nothing can drive onto. `home_x/y` is the wreck's tile; with `home_x < 0` (a
+/// scenario's own pile, which its author put where he meant it) there is no check, as before.
 void settle_litter(std::vector<Scrap>& scraps, std::size_t first, std::uint64_t seed,
-                   std::span<const Unit> units) noexcept {
+                   std::span<const Unit> units, int home_x, int home_y) noexcept {
+    std::optional<LitterRegion> region;
+    if (home_x >= 0 && first < scraps.size()) {
+        region.emplace(seed, units, nearest_where(home_x, home_y, [seed, units](int tx, int ty) {
+                           return standable(seed, units, tx, ty);
+                       }));
+    }
+    const auto lands = [&](int tx, int ty) {
+        return standable(seed, units, tx, ty) && (!region || region->contains(tx, ty));
+    };
     for (std::size_t i = first; i < scraps.size(); ++i) {
         TileXY at = tile_of(scraps.at(i).x, scraps.at(i).y);
         // A building's footprint is no more reachable than a crater: a piece never settles in one.
-        if (!standable(seed, units, at.x, at.y)) {
-            const Coord spot = nearest_passable(seed, units, at.x, at.y);
+        if (!lands(at.x, at.y)) {
+            const Coord spot = nearest_where(at.x, at.y, lands);
             at = TileXY{static_cast<std::uint8_t>(spot.x), static_cast<std::uint8_t>(spot.y)};
         }
         // One tile, one piece of this wreck: step east (a standable tile, the same way every time)
@@ -868,12 +975,14 @@ void settle_litter(std::vector<Scrap>& scraps, std::size_t first, std::uint64_t 
             if (!taken) {
                 break;
             }
-            const Coord next = nearest_passable(seed, units, static_cast<int>(at.x) + 1, at.y);
+            const Coord next = nearest_where(static_cast<int>(at.x) + 1, at.y, lands);
             at = TileXY{static_cast<std::uint8_t>(next.x), static_cast<std::uint8_t>(next.y)};
         }
         scraps.at(i) = Scrap{tile_center(at.x), tile_center(at.y)};
     }
 }
+
+namespace {
 
 /// SCAVENGING BY A TRIP (C2, AR). Called for every living scavenger before it is steered, in
 /// ascending unit order, so a piece a lower id took this tick is already gone when a higher id
@@ -895,6 +1004,9 @@ void settle_litter(std::vector<Scrap>& scraps, std::size_t first, std::uint64_t 
 ///     bank rising one piece per scavenger per second and never two on a tick); the beat after
 ///     picks the next pile. If the pile is gone on the way (another scavenger took it) it re-aims
 ///     at the nearest in its radar, and with none it stands down. A full store also stands it down.
+///   - A pile it CANNOT REACH is given up, not waited for: if the route planner found no route to
+///     the pile's tile, or the trip has taken `kFetchGiveUpBeats` beats, it goes Idle and does not
+///     choose that pile again (`give_up_pile`), so the next beat takes another pile or none.
 /// Only an IDLE or FETCHING scavenger collects: any order the player gives (a move, a follow, a
 /// hold) replaces `Fetch` and is a stance of its own that the sim never argues with; `Stop` -- the
 /// `3 Scavenge` row -- sets it scavenging again. A DEPLOYED scavenger is another kind altogether
@@ -914,6 +1026,7 @@ void scavenge_step(std::vector<Scrap>& scraps, std::array<std::uint16_t, 2>& ore
     if (bank >= capacity) {
         if (fetching) {
             unit.stance = Stance::Idle;
+            unit.fetch_beats = 0;
         }
         return;
     }
@@ -921,7 +1034,7 @@ void scavenge_step(std::vector<Scrap>& scraps, std::array<std::uint16_t, 2>& ore
                                << Fixed::kShift;
     const std::int64_t arrive = kScavengeCollectRadiusRaw;
     // A trip in hand keeps its pile while the pile is there; otherwise the nearest in the radar.
-    std::size_t pick = nearest_scrap(scraps, unit.x, unit.y);
+    std::size_t pick = nearest_scrap(scraps, unit);
     if (fetching) {
         const auto held = std::find_if(scraps.begin(), scraps.end(), [&](const Scrap& piece) {
             return piece.x == unit.guard_x && piece.y == unit.guard_y;
@@ -934,6 +1047,7 @@ void scavenge_step(std::vector<Scrap>& scraps, std::array<std::uint16_t, 2>& ore
         || dist2(unit.x, unit.y, scraps.at(pick).x, scraps.at(pick).y) > reach * reach) {
         if (fetching) {
             unit.stance = Stance::Idle; // nothing left in sight: the errand is over
+            unit.fetch_beats = 0;
         }
         return;
     }
@@ -943,11 +1057,27 @@ void scavenge_step(std::vector<Scrap>& scraps, std::array<std::uint16_t, 2>& ore
         if (!fetching || unit.guard_x != scraps.at(pick).x || unit.guard_y != scraps.at(pick).y) {
             apply_posted(unit, Stance::Fetch, scraps.at(pick).x, scraps.at(pick).y, Fixed{},
                          Fixed{});
+            return;
+        }
+        // A TRIP IT CANNOT FINISH IS GIVEN UP (the stalled-fetch fix). Held on a pile for a beat or
+        // more, the route planner has had its say: a plan that found no route to the pile's tile
+        // means no drive ends there (`steer` would only press on the rim), and `kFetchGiveUpBeats`
+        // on one trip is the backstop for any wedge the plan did not foresee.
+        if (unit.fetch_beats < 0xFF) {
+            ++unit.fetch_beats;
+        }
+        const TileXY pile_tile = tile_of(scraps.at(pick).x, scraps.at(pick).y);
+        const bool no_route = unit.route.has_goal && unit.route.count == 0
+                              && unit.route.goal == pile_tile
+                              && !(tile_of(unit.x, unit.y) == pile_tile);
+        if (no_route || unit.fetch_beats >= kFetchGiveUpBeats) {
+            give_up_pile(unit, scraps.at(pick));
         }
         return;
     }
     scraps.erase(scraps.begin() + static_cast<std::ptrdiff_t>(pick));
     unit.stance = Stance::Idle;
+    unit.fetch_beats = 0;
     bank = static_cast<std::uint16_t>(std::min(static_cast<int>(bank) + 1, 0xFFFF));
     ++collected.at(static_cast<std::size_t>(unit.side));
 }
@@ -974,7 +1104,7 @@ void auto_deploy_step(const std::vector<Unit>& units, const std::vector<Pool>& p
     }
     const std::int64_t reach = static_cast<std::int64_t>(radar_radius_tiles(unit.kind))
                                << Fixed::kShift;
-    const std::size_t litter = nearest_scrap(scraps, unit.x, unit.y);
+    const std::size_t litter = nearest_scrap(scraps, unit);
     if (litter != kNoScrap
         && dist2(unit.x, unit.y, scraps.at(litter).x, scraps.at(litter).y) <= reach * reach) {
         return; // it sees litter: collecting comes first
@@ -1284,7 +1414,7 @@ bool recycle_step(std::vector<Unit>& units, std::vector<Scrap>& scraps, Unit& un
     if (banked < static_cast<int>(kRecycleOre)) {
         const std::size_t first = scraps.size();
         scatter(scraps, seed, unit.id, unit.x, unit.y, static_cast<int>(kRecycleOre) - banked);
-        settle_litter(scraps, first, seed, units);
+        settle_litter(scraps, first, seed, units, unit.x.floor_int(), unit.y.floor_int());
     }
     return true;
 }
@@ -1781,7 +1911,7 @@ Sim Sim::create(const Scenario& scenario) {
     // it settles here because settling needs the units that now stand on the map (a piece under a
     // hull is invisible and unfetchable at once).
     sim.scraps_ = scenario.scrap;
-    settle_litter(sim.scraps_, 0, scenario.seed, sim.units_);
+    settle_litter(sim.scraps_, 0, scenario.seed, sim.units_, -1, -1);
     return sim;
 }
 
@@ -2012,7 +2142,8 @@ void Sim::step() {
                 scatter(scraps_, scenario_.seed, id, dead->x, dead->y);
                 // The pieces land where the hash says; then they settle where a hauler can reach
                 // them (and where a second piece of the same wreck is not already lying).
-                settle_litter(scraps_, first, scenario_.seed, units_);
+                settle_litter(scraps_, first, scenario_.seed, units_, dead->x.floor_int(),
+                              dead->y.floor_int());
             }
         }
     }
@@ -2172,6 +2303,16 @@ std::uint64_t Sim::state_hash() const noexcept {
         h.i32(u.aim_y.raw);
         h.u64(u.aim_target.value);
         h.u64(u.alive ? 1 : 0);
+        if (u.fetch_beats != 0) {
+            h.u64(u.fetch_beats); // only while on a trip: a battle with none hashes as before
+        }
+        if (u.shunned_count != 0) {
+            h.u64(u.shunned_count); // only once it has given up a pile
+            for (const TileXY& tile : u.shunned) {
+                h.u64(tile.x);
+                h.u64(tile.y);
+            }
+        }
         if (u.shove_ticks != 0) {
             h.u64(u.shove_ticks); // only when set: a battle that never shoves hashes as before
         }

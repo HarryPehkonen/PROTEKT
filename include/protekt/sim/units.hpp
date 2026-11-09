@@ -213,6 +213,16 @@ struct BuildQueue {
     std::uint16_t left{}; ///< ticks until the front entry's unit arrives; 0 = not started
 };
 
+/// A scavenger GIVES UP A PILE it cannot reach (the stalled-fetch fix). Two ways to find out, both
+/// deterministic: the route planner says the pile's tile is not joined to the scavenger's (so no
+/// drive can end there) and it gives up on the next beat; or, whatever the reason -- a wedge the
+/// planner did not foresee -- it has spent `kFetchGiveUpBeats` beats on the one trip. 60 beats is a
+/// minute: a 40-tile radar over the roughest ground at the slowest speed is a trip of well under
+/// that. It then goes IDLE, which is what lets it look for another pile, and a pile it has given
+/// up is not chosen again (the last `kFetchShunned` of them are remembered).
+inline constexpr std::uint8_t kFetchGiveUpBeats = 60;
+inline constexpr std::size_t kFetchShunned = 4;
+
 struct Unit {
     UnitId id{};
     UnitKind kind{};
@@ -258,6 +268,16 @@ struct Unit {
     /// whenever it is clear of every vehicle. Hashed only when non-zero, so a battle in which
     /// nothing is ever shoved hashes as it did before.
     std::uint16_t shove_ticks{};
+    /// A SCAVENGER'S TRIP IN HAND: how many beats (`kScavengeIntervalTicks`) it has spent under
+    /// `Fetch` for the pile in `guard_x/y`; `kFetchGiveUpBeats` of them and the pile is given up.
+    /// Zero whenever it is not fetching. Hashed only when non-zero, so a battle with no scavenger
+    /// on a trip hashes as it did before.
+    std::uint8_t fetch_beats{};
+    /// The tiles of the piles this scavenger GAVE UP ON (a ring of `kFetchShunned`, oldest
+    /// overwritten first), and how many it has ever given up, which also says where the ring is
+    /// full. It does not choose these piles again. Hashed only when `shunned_count` is non-zero.
+    std::array<TileXY, kFetchShunned> shunned{};
+    std::uint8_t shunned_count{};
     /// The batch this unit was BUILT in (BUILD-QUEUE): the id its queue entry carried. Zero for a
     /// unit the scenario placed, which belongs to no batch; a lone build gets an id of its own, so
     /// a built unit's is never zero. The row groups by it. Hashed only when non-zero,
