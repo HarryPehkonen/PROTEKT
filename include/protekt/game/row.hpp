@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "protekt/game/faction.hpp"
+#include "protekt/game/targets.hpp"
 #include "protekt/sim/sim.hpp"
 
 /// THE COMMAND ROW (ROW-SLOTS): `~`, `1`, `2`, `3`, then `F1`..`F10`, fourteen keys that each sit
@@ -154,6 +155,12 @@ struct SlotReading {
     /// reads, so the tick drawn for it can be told from the others (`picked_ticks`).
     std::vector<sim::UnitId> units{};
 };
+
+/// THE LIST `~` OPENS ON A FUNCTION KEY (AV): one row per living unit the slot's health bar draws,
+/// in the bars' own order (`read_slot`'s -- this is built FROM it, so the two cannot disagree),
+/// keyed 1-9 then 0 for the tenth. At most `kAttackListRows` rows: a key holding more lists the
+/// first ten, as only ten digits exist. Empty when nothing in the slot is alive. `metres` is 0.
+[[nodiscard]] std::vector<TargetRow> unit_list_rows(const sim::Sim& sim, const RowSlot& slot);
 
 /// One vehicle's piece of a key's health bar (BAR-LOOK). HIS RULING, 2026-10-24: one bar per
 /// vehicle, varying in COLOUR, not length -- bright green when whole, then yellow, red and black.

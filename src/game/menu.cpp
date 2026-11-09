@@ -239,16 +239,20 @@ void append_build_list(std::vector<MenuRow>& rows, const MenuInput& in) {
 constexpr std::array<std::string_view, kAttackListRows> kListKeys{"1", "2", "3", "4", "5",
                                                                   "6", "7", "8", "9", "0"};
 
-/// The repair list as rows: each names its asset by the player's faction (they are the player's
-/// own), reads its distance in the right column, and carries the unit it is about.
-void append_repair_list(std::vector<MenuRow>& rows, const MenuInput& in) {
-    rows.reserve(rows.size() + in.repair_list->size());
-    for (const TargetRow& entry : *in.repair_list) {
+/// A list of units as rows: each names its asset by the player's faction (they are the player's
+/// own), reads its distance in the right column when `with_distance`, and carries the unit it is
+/// about. The repair list and the function key's unit list are drawn by this one function.
+void append_unit_rows(std::vector<MenuRow>& rows, const MenuInput& in,
+                      const std::vector<TargetRow>& list, bool with_distance) {
+    rows.reserve(rows.size() + list.size());
+    for (const TargetRow& entry : list) {
         // `TargetRow::key` is the digit (1-9, 0 for the tenth); its position is the digit less one.
         MenuRow row{kListKeys.at(static_cast<std::size_t>((entry.key + kAttackListRows - 1)
                                                           % kAttackListRows)),
                     std::string{kind_label(entry.kind, in.faction)}, true, MenuDim::None};
-        row.right = metres_text(entry.metres);
+        if (with_distance) {
+            row.right = metres_text(entry.metres);
+        }
         row.unit = entry.id;
         rows.push_back(std::move(row));
     }
@@ -336,7 +340,13 @@ std::vector<MenuRow> menu_rows(const MenuInput& in) {
     // An open repair list IS the menu: no state row, no verbs, only the way out and the patients.
     if (in.repair_list != nullptr && !in.repair_list->empty()) {
         rows.push_back(MenuRow{kRowKeyTab, std::string{kVerbCloseMenu}, true, MenuDim::None});
-        append_repair_list(rows, in);
+        append_unit_rows(rows, in, *in.repair_list, true);
+        return rows;
+    }
+    // ... and so is an open unit list: `~` on a function key.
+    if (in.unit_list != nullptr && !in.unit_list->empty()) {
+        rows.push_back(MenuRow{kRowKeyTab, std::string{kVerbCloseMenu}, true, MenuDim::None});
+        append_unit_rows(rows, in, *in.unit_list, false);
         return rows;
     }
     // Nothing selected: no menu, so nothing is drawn and a frame without a menu stays

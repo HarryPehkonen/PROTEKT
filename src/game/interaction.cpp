@@ -302,6 +302,19 @@ void Interaction::handle(const input::InputFrame& frame, const sim::Sim& sim,
                 continue;
             }
         }
+        if (unit_list_armed_) {
+            // The unit list is waiting (`~` opened it): a digit is a ROW key and selects that
+            // unit, `~` and Escape only close it, any other key closes it and acts.
+            const std::vector<TargetRow> rows = std::move(unit_rows_);
+            disarm_unit_list();
+            if (const int row = input::mark_digit(key); row >= 0) {
+                unit_list_row(sim, options, rows, row);
+                continue;
+            }
+            if (input::nav_menu_pressed(key) || key.scancode == input::kKeyEscape) {
+                continue;
+            }
+        }
         if (key.scancode == input::kKeyG && !key.ctrl && !key.alt) {
             go_armed_ = true;
         } else if (const int target = input::shift_function_key(key); target != 0) {
@@ -311,7 +324,7 @@ void Interaction::handle(const input::InputFrame& frame, const sim::Sim& sim,
             select_roster_key(options, group);
         } else if (input::nav_menu_pressed(key)) {
             // Reached only when the nav menu did not take the `~` (see `tilde_steps`).
-            step_group(sim, options);
+            open_unit_list(sim, options);
         } else if (key.scancode == input::kKeyEscape || key.scancode == input::kKeyTab) {
             // Tab clears, as Escape does.
             selection_.clear();
@@ -484,6 +497,20 @@ const std::vector<TargetRow>& Interaction::attack_targets() const noexcept { ret
 bool Interaction::repair_armed() const noexcept { return repair_armed_; }
 
 const std::vector<TargetRow>& Interaction::repair_targets() const noexcept { return repairs_; }
+
+bool Interaction::unit_list_armed() const noexcept { return unit_list_armed_; }
+
+const std::vector<TargetRow>& Interaction::unit_list() const noexcept { return unit_rows_; }
+
+bool Interaction::unit_key_holds_several(const sim::Sim& sim, const SceneOptions& options) const {
+    if (group_key_ < 1 || group_key_ > kRowGroups || options.row == nullptr
+        || !(stepping_ || selection_in_group(sim, options))) {
+        return false;
+    }
+    const std::optional<SlotReading> reading
+        = read_slot(sim, options.row->slots.at(group_slot(group_key_)));
+    return reading.has_value() && reading->count >= 2;
+}
 
 const cmd::Selection& Interaction::selection() const noexcept { return selection_; }
 
@@ -1309,8 +1336,6 @@ void Interaction::select_roster_key(const SceneOptions& options, int group_key) 
     }
     group_key_ = group_key;
     stepping_ = false;
-    current_ = sim::UnitId{};
-    current_pos_ = 0;
 }
 
 bool Interaction::selection_in_group(const sim::Sim& sim, const SceneOptions& options) const {
@@ -1326,38 +1351,40 @@ bool Interaction::selection_in_group(const sim::Sim& sim, const SceneOptions& op
                        });
 }
 
-void Interaction::step_group(const sim::Sim& sim, const SceneOptions& options) {
-    // Silent in every way it cannot act: no group, no row, a selection that is not that group's.
-    if (group_key_ < 1 || options.row == nullptr
-        || !(stepping_ || selection_in_group(sim, options))) {
+void Interaction::open_unit_list(const sim::Sim& sim, const SceneOptions& options) {
+    // Silent in every way it cannot act: no group, no row, a selection that is not that group's,
+    // and a key with a single living unit (a group of one is already the one).
+    if (!unit_key_holds_several(sim, options)) {
         return;
     }
-    const std::vector<sim::UnitId>& units = options.row->slots.at(group_slot(group_key_)).units;
-    const auto answers = [&](sim::UnitId id) {
-        const sim::Unit* unit = sim.find(id);
-        return unit != nullptr && unit->alive && id != driven_;
-    };
-    // A group of one is already the one; so is a group with one left alive. Nothing is cleared.
-    if (std::count_if(units.begin(), units.end(), answers) < 2) {
+    unit_rows_ = unit_list_rows(sim, options.row->slots.at(group_slot(group_key_)));
+    unit_list_armed_ = !unit_rows_.empty();
+}
+
+void Interaction::unit_list_row(const sim::Sim& sim, const SceneOptions& options,
+                                const std::vector<TargetRow>& rows, int key) {
+    const auto row = std::find_if(rows.begin(), rows.end(), [key](const TargetRow& candidate) {
+        return candidate.key == key;
+    });
+    if (row == rows.end()) {
+        refuse("no unit on that key.");
         return;
     }
-    // After the vehicle `~` picked last; if the row has pruned it, its place is the next one's.
-    std::size_t start = 0;
-    if (current_.valid()) {
-        const auto found = std::find(units.begin(), units.end(), current_);
-        start = found == units.end() ? current_pos_
-                                     : static_cast<std::size_t>(found - units.begin()) + 1;
+    // The board has moved since the list opened: a unit that has died, or left the key, is gone.
+    const sim::Unit* unit = sim.find(row->id);
+    const std::vector<sim::UnitId>& held = options.row->slots.at(group_slot(group_key_)).units;
+    if (unit == nullptr || !unit->alive
+        || std::find(held.begin(), held.end(), row->id) == held.end()) {
+        refuse("that unit is gone.");
+        return;
     }
-    for (std::size_t step = 0; step < units.size(); ++step) {
-        const std::size_t pos = (start + step) % units.size();
-        if (answers(units.at(pos))) {
-            select_only(units.at(pos));
-            current_ = units.at(pos);
-            current_pos_ = pos;
-            stepping_ = true;
-            return;
-        }
-    }
+    select_only(row->id);
+    stepping_ = true;
+}
+
+void Interaction::disarm_unit_list() noexcept {
+    unit_list_armed_ = false;
+    unit_rows_.clear();
 }
 
 void Interaction::move_selection_to_key(const sim::Sim& sim, const SceneOptions& options,

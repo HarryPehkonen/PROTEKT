@@ -203,6 +203,12 @@ std::vector<game::MenuRow> menu_for(const sim::Sim& sim, const game::Session& se
         in.repair_list = &session.repair_targets();
         return game::menu_rows(in);
     }
+    if (session.unit_list_armed()) {
+        // `function key -> ~ Select Unit`: the list is the menu.
+        in.unit_list = &session.unit_list();
+        return game::menu_rows(in);
+    }
+    in.group = session.unit_key_holds_several(sim, options);
     in.attack = attack_offer(sim, session, options).valid();
     in.repair = repair_offer(sim, session, options).valid();
     in.deployed = game::any_deployed_turret(sim, session.selection().units());

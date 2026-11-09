@@ -224,6 +224,18 @@ public:
     /// The rows the open repair list offers, nearest first, captured when `3 Repair` opened it so
     /// the numbers cannot shift under the player's finger. Empty whenever the list is not open.
     [[nodiscard]] const std::vector<TargetRow>& repair_targets() const noexcept;
+    /// `~` on a function key has opened that key's UNIT LIST and the key that names a row has not
+    /// been pressed (AV): the next 0-9 is a ROW of `unit_list()`, and the menu IS that list for as
+    /// long as this is true. Settled as the repair list is: a digit uses it up (and selects that
+    /// unit alone), `~` and Escape close it, any other key closes it and does its own job.
+    [[nodiscard]] bool unit_list_armed() const noexcept;
+    /// The rows the open unit list offers, in the health bars' order (`unit_list_rows`), captured
+    /// when `~` opened it. Empty whenever the list is not open.
+    [[nodiscard]] const std::vector<TargetRow>& unit_list() const noexcept;
+    /// Whether `~` has a list to open: the selection is within the function key last pressed and
+    /// that key holds at least two living units. It is the ink of the `~ Select Unit` row.
+    [[nodiscard]] bool unit_key_holds_several(const sim::Sim& sim,
+                                              const SceneOptions& options) const;
     /// `un-deployed recycler menu -> 3`: the deploy is armed, and the next SPACE over the ground
     /// deploys the selected recycler there. The state row reads `SPACE DEPLOY <distance>` and the
     /// footprint is previewed on the ground for exactly as long as this is true.
@@ -250,8 +262,12 @@ private:
     /// F1-F10: select the whole group the command row holds under that key (`options.row`). A key
     /// that holds nothing, or a frame with no row, is refused with `empty_key_message`.
     void select_roster_key(const SceneOptions& options, int group_key);
-    /// `~`: select the next living vehicle of the group F`group_key_` last selected, or do nothing.
-    void step_group(const sim::Sim& sim, const SceneOptions& options);
+    /// `~`: open the list of the units of the group F`group_key_` last selected, or do nothing.
+    void open_unit_list(const sim::Sim& sim, const SceneOptions& options);
+    /// A digit on the open unit list: select that row's unit alone, if it is still on the key.
+    void unit_list_row(const sim::Sim& sim, const SceneOptions& options,
+                       const std::vector<TargetRow>& rows, int key);
+    void disarm_unit_list() noexcept;
     /// Whether the selection is non-empty and every living unit of it is one the row holds under
     /// the remembered function key. A corpse is not held against it: the row prunes it a frame
     /// late, and the vehicle `~` picked may be the one that just died.
@@ -358,11 +374,12 @@ private:
     bool go_armed_{false};
     bool attack_armed_{false};
     bool repair_armed_{false};
+    bool unit_list_armed_{false};
+    std::vector<TargetRow> unit_rows_; ///< the open unit list (`unit_list()`)
     bool deploy_armed_{false};
-    int group_key_{0};      ///< the function key (1-10) last selected, or 0 when none was
-    bool stepping_{false};  ///< `~` has picked a vehicle of that group since the key was pressed
-    sim::UnitId current_{}; ///< the vehicle `~` last picked, or none
-    std::size_t current_pos_{}; ///< its place in the key's units, for when it has left them
+    int group_key_{0}; ///< the function key (1-10) last selected, or 0 when none was
+    bool stepping_{
+        false}; ///< `~`'s list has picked a vehicle of that group since the key was pressed
     /// The token of the shift gesture under way, or zero when there is none (BUILD-QUEUE). A
     /// gesture is the run of shifted build presses at one producer: any other key press ends it, so
     /// the next shifted press takes a fresh token and so a function key of its own.

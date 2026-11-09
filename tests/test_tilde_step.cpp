@@ -1,8 +1,9 @@
-// `~` STEPS THROUGH THE INDIVIDUALS INSIDE A FUNCTION-KEY GROUP (Harri, 2026-11-03: "~ to select a
-// unit after hitting a function key."). F1 holds three tanks; after `~` the NEXT ONE answers the
-// next order alone, `~` again moves on, and past the last it comes round. One test per rule, each
-// isolating its own number, so a red names the rule that broke. `~` is selection state: nothing
-// here steps the sim to see it, and the battle hashes are pinned by their own tests.
+// `~` PICKS AN INDIVIDUAL OUT OF A FUNCTION-KEY GROUP (Harri, 2026-11-03: "~ to select a unit after
+// hitting a function key."). F1 holds three tanks; `~` opens the key's LIST (AV, 2026-11-08, which
+// replaced the stepping this file first pinned: tests/test_unit_list.cpp owns the list itself) and
+// the digit of a row makes that one the selection, so the next order is its alone. One test per
+// rule, each isolating its own number, so a red names the rule that broke. `~` is selection state:
+// nothing here steps the sim to see it, and the battle hashes are pinned by their own tests.
 #include <gtest/gtest.h>
 
 #include <cstddef>
@@ -84,6 +85,12 @@ void press(Interaction& player, Rig& rig, std::int32_t scancode) {
     player.handle(key_frame(scancode), rig.sim, rig.options);
 }
 
+/// `~`, then the digit of list row `row` (1-9): the individual the key's bars put there.
+void pick(Interaction& player, Rig& rig, int row) {
+    press(player, rig, input::kKeyGrave);
+    press(player, rig, input::kKey1 + row - 1);
+}
+
 // ------------------------------------------------------------------ the rule
 
 TEST(TildeStep, TheRigHoldsTheThreeTanksUnderF1) {
@@ -97,7 +104,7 @@ TEST(TildeStep, NarrowsTheNextOrderToExactlyOneUnit) {
     press(player, rig, input::kKeyF1);
     ASSERT_EQ(player.selection().size(), 3U) << "F1 is the whole group";
 
-    press(player, rig, input::kKeyGrave);
+    pick(player, rig, 1);
     EXPECT_EQ(selected(player), (std::vector<UnitId>{rig.a}));
 
     press(player, rig, input::kKey1); // 1 FOLLOW ME, no aim needed
@@ -106,15 +113,16 @@ TEST(TildeStep, NarrowsTheNextOrderToExactlyOneUnit) {
     EXPECT_EQ(orders.front().unit, rig.a) << "the order went to the individual, not the group";
 }
 
-TEST(TildeStep, ItCyclesAndPastTheLastItComesRound) {
+TEST(TildeStep, TheListOpensAgainFromAnIndividualOfTheKey) {
     Rig rig = make_rig();
     Interaction player{rig.driven};
     press(player, rig, input::kKeyF1);
-    const std::vector<UnitId> expected{rig.a, rig.b, rig.c, rig.a, rig.b};
-    for (const UnitId want : expected) {
-        press(player, rig, input::kKeyGrave);
-        EXPECT_EQ(selected(player), (std::vector<UnitId>{want}));
-    }
+    pick(player, rig, 3);
+    EXPECT_EQ(selected(player), (std::vector<UnitId>{rig.c}));
+    pick(player, rig, 1);
+    EXPECT_EQ(selected(player), (std::vector<UnitId>{rig.a}));
+    pick(player, rig, 2);
+    EXPECT_EQ(selected(player), (std::vector<UnitId>{rig.b}));
 }
 
 TEST(TildeStep, AGroupOfOneIsANoOpAndClearsNothing) {
@@ -183,14 +191,15 @@ TEST(TildeStep, AfterTheOrderTheGroupAndTheIndividualAreIntact) {
     Rig rig = make_rig();
     Interaction player{rig.driven};
     press(player, rig, input::kKeyF1);
-    press(player, rig, input::kKeyGrave); // a
+    pick(player, rig, 1); // a
     press(player, rig, input::kKey1);
     ASSERT_EQ(player.take_orders().size(), 1U);
     ASSERT_TRUE(player.selection().empty()) << "a finished order clears the selection, as ever";
-    EXPECT_TRUE(player.tilde_steps()) << "and `~` is still the stepping's, not the nav menu's";
+    EXPECT_TRUE(player.tilde_steps()) << "and `~` is still the list's, not the nav menu's";
 
-    press(player, rig, input::kKeyGrave);
-    EXPECT_EQ(selected(player), (std::vector<UnitId>{rig.b})) << "moved on from a, not back to it";
+    pick(player, rig, 2);
+    EXPECT_EQ(selected(player), (std::vector<UnitId>{rig.b}))
+        << "the list still opens: the key is in hand";
     press(player, rig, input::kKey1);
     const std::vector<sim::Order> orders = player.take_orders();
     ASSERT_EQ(orders.size(), 1U);
@@ -218,20 +227,20 @@ TEST(TildeStep, ADeadIndividualIsSteppedOver) {
     rig.row.update(rig.sim, Side::Player, 0, rig.driven);
 
     press(player, rig, input::kKeyF1);
-    std::vector<UnitId> seen;
-    for (int i = 0; i < 4; ++i) {
-        press(player, rig, input::kKeyGrave);
-        seen.push_back(selected(player).front());
-    }
-    EXPECT_EQ(seen, (std::vector<UnitId>{rig.a, rig.c, rig.a, rig.c}));
+    // The bars draw a and c now, so rows 1 and 2 are those two and there is no third.
+    pick(player, rig, 2);
+    EXPECT_EQ(selected(player), (std::vector<UnitId>{rig.c}));
+    pick(player, rig, 1);
+    EXPECT_EQ(selected(player), (std::vector<UnitId>{rig.a}));
+    pick(player, rig, 3);
+    EXPECT_EQ(selected(player), (std::vector<UnitId>{rig.a})) << "no third row: nothing moved";
 }
 
 TEST(TildeStep, TheIndividualThatDiesUnderTheCursorIsLeftForTheNextOne) {
     Rig rig = make_rig(true);
     Interaction player{rig.driven};
     press(player, rig, input::kKeyF1);
-    press(player, rig, input::kKeyGrave); // a
-    press(player, rig, input::kKeyGrave); // b, the one about to die
+    pick(player, rig, 2); // b, the one about to die
     ASSERT_EQ(selected(player), (std::vector<UnitId>{rig.b}));
     for (int tick = 0; tick < 8000 && rig.sim.find(rig.b)->alive; ++tick) {
         rig.sim.step();
@@ -240,7 +249,7 @@ TEST(TildeStep, TheIndividualThatDiesUnderTheCursorIsLeftForTheNextOne) {
     ASSERT_TRUE(rig.sim.find(rig.c)->alive);
     rig.row.update(rig.sim, Side::Player, 0, rig.driven);
 
-    press(player, rig, input::kKeyGrave);
+    pick(player, rig, 2); // the bars draw a and c now: row 2 is c
 
     EXPECT_EQ(selected(player), (std::vector<UnitId>{rig.c}));
 }
@@ -258,7 +267,7 @@ TEST(TildeStep, TheRowPicksOutTheTickOfTheIndividualTheGameHolds) {
     press(player, rig, input::kKeyF1);
     EXPECT_TRUE(picked().empty()) << "the whole group is the key's lit frame, not a tick";
     for (std::size_t want = 0; want < 3; ++want) {
-        press(player, rig, input::kKeyGrave);
+        pick(player, rig, static_cast<int>(want) + 1);
         EXPECT_EQ(picked(), (std::vector<std::size_t>{want}));
     }
 }
@@ -277,7 +286,7 @@ TEST(TildeStep, TheSceneRingsThePickedTickAndNothingWhenTheWholeGroupIsHeld) {
 // THE ROW'S OWN KEY, THROUGH THE WHOLE KEY CHAIN. Harri selected the three scavengers under F2, the
 // menu opened, and `~` did nothing: the app hands every key to the nav menu first, and it kept the
 // `~` for itself. The other tests here call `Interaction` directly and so never met it.
-TEST(TildeStep, ThreeScavengersUnderAFunctionKeyAreSteppedThroughTheNavMenuToo) {
+TEST(TildeStep, ThreeScavengersUnderAFunctionKeyAreListedThroughTheNavMenuToo) {
     sim::Sim sim = sim::Sim::create(sim::Scenario{kSeed,
                                                   {{UnitKind::Tank, Side::Player, 4, 8},
                                                    {UnitKind::Scavenger, Side::Player, 4, 4},
@@ -308,9 +317,11 @@ TEST(TildeStep, ThreeScavengersUnderAFunctionKeyAreSteppedThroughTheNavMenuToo) 
     ASSERT_EQ(player.selection().size(), 3U) << "F1 holds the three scavengers";
 
     send(input::kKeyGrave);
+    EXPECT_TRUE(player.unit_list_armed()) << "`~` reached the session and opened the list";
+    send(input::kKey1 + 1); // row 2
 
-    EXPECT_EQ(player.selection().size(), 1U) << "`~` narrowed the group to one";
-    EXPECT_EQ(player.selection().units().front(), sim.units().at(1).id);
+    EXPECT_EQ(player.selection().size(), 1U) << "the list narrowed the group to one";
+    EXPECT_EQ(player.selection().units().front(), sim.units().at(2).id);
 }
 
 } // namespace

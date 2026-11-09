@@ -126,6 +126,16 @@ const std::vector<TargetRow>& Session::repair_targets() const noexcept {
     return interaction_.repair_targets();
 }
 
+bool Session::unit_list_armed() const noexcept { return interaction_.unit_list_armed(); }
+
+const std::vector<TargetRow>& Session::unit_list() const noexcept {
+    return interaction_.unit_list();
+}
+
+bool Session::unit_key_holds_several(const sim::Sim& sim, const SceneOptions& options) const {
+    return interaction_.unit_key_holds_several(sim, options);
+}
+
 sim::UnitId Session::assist_target() const noexcept { return interaction_.assist_target(); }
 
 sim::UnitId Session::readout_lock() const noexcept { return interaction_.readout_lock(); }

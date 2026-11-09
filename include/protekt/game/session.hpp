@@ -81,6 +81,12 @@ public:
     /// The service truck's repair list (AC): open from `3 Repair` until a key settles it.
     [[nodiscard]] bool repair_armed() const noexcept;
     [[nodiscard]] const std::vector<TargetRow>& repair_targets() const noexcept;
+    /// `~` on a function key (AV): the key's unit list is open, and its rows.
+    [[nodiscard]] bool unit_list_armed() const noexcept;
+    [[nodiscard]] const std::vector<TargetRow>& unit_list() const noexcept;
+    /// Whether `~` has a list to open, which is also whether `~ Select Unit` is live.
+    [[nodiscard]] bool unit_key_holds_several(const sim::Sim& sim,
+                                              const SceneOptions& options) const;
     /// The hostile asset `T` latched for the assist dot, or none (see
     /// `Interaction::assist_target`).
     [[nodiscard]] sim::UnitId assist_target() const noexcept;

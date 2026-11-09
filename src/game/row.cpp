@@ -340,6 +340,24 @@ std::optional<SlotReading> read_slot(const sim::Sim& sim, const RowSlot& slot) {
     return reading;
 }
 
+std::vector<TargetRow> unit_list_rows(const sim::Sim& sim, const RowSlot& slot) {
+    std::vector<TargetRow> rows;
+    const std::optional<SlotReading> reading = read_slot(sim, slot);
+    if (!reading.has_value()) {
+        return rows;
+    }
+    rows.reserve(std::min(reading->units.size(), kAttackListRows));
+    for (const sim::UnitId id : reading->units) {
+        if (rows.size() == kAttackListRows) {
+            break;
+        }
+        // The tenth row is the key `0`: the digit the player would press, not its position.
+        rows.push_back(TargetRow{static_cast<int>((rows.size() + 1U) % kAttackListRows),
+                                 sim.find(id)->kind, id, 0});
+    }
+    return rows;
+}
+
 std::vector<std::size_t> picked_ticks(const SlotReading& reading,
                                       std::span<const sim::UnitId> selected) {
     std::vector<std::size_t> picked;

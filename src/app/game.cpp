@@ -409,7 +409,7 @@ public:
         }
         const bool prompt = session_.go_armed() || session_.attack_armed()
                             || session_.repair_armed() || session_.deploy_armed()
-                            || session_.tilde_steps()
+                            || session_.unit_list_armed() || session_.tilde_steps()
                             || nav_menu_.state() != game::NavState::Closed;
         const auto is_pause = [&](const input::KeyEvent& key) {
             return input::pause_pressed(key) && (paused_ || !prompt);

@@ -156,6 +156,10 @@ struct MenuInput {
     /// the menu IS the list -- `TAB Close Menu`, then one row per entry -- and nothing else: the
     /// list replaces the menu rather than sitting beside it. Not owned. Null is the ordinary menu.
     const std::vector<TargetRow>* repair_list{nullptr};
+    /// THE UNIT LIST (AV), once `~` on a function key has opened it: that key's units, in the
+    /// health bars' order, keyed 1-9 then 0. Handled exactly as `repair_list` is -- while non-null
+    /// and not empty the menu IS the list -- but its rows read no distance. Not owned.
+    const std::vector<TargetRow>* unit_list{nullptr};
 };
 
 /// WHY a row is dimmed. The three values are exhaustive on purpose: `None` means the row is NOT
