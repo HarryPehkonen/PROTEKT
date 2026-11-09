@@ -6,6 +6,7 @@
 
 #include "protekt/app/audio_pipeline.hpp"
 #include "protekt/game/menu.hpp"
+#include "protekt/game/nav_marks.hpp"
 #include "protekt/game/scene.hpp"
 #include "protekt/game/session.hpp"
 #include "protekt/math/math.hpp"
@@ -142,6 +143,12 @@ deploy_line_target(const sim::Sim& sim, const game::Session& session,
 [[nodiscard]] std::optional<game::DeployLineTarget>
 go_here_line_target(const sim::Sim& sim, const game::Session& session,
                     const game::SceneOptions& options);
+
+/// The ground tile the white Get Nav line points at this frame, or nothing: the tile under the
+/// crosshair while the nav chain is placing (`SPACE GET NAV` is on the menu, which `nav_menu_rows`
+/// draws only with the reticle on the ground). Nothing in any other state.
+[[nodiscard]] std::optional<game::DeployLineTarget> nav_line_target(game::NavState state,
+                                                                    const game::NavAim& aim);
 
 /// The menu rows for this frame. The one command that arms is the deploy (DEPLOY): while it is
 /// armed the state row reads `SPACE DEPLOY` and, with the reticle on the ground, the distance to

@@ -233,6 +233,8 @@ inline constexpr std::string_view kVerbHold{"Hold"};
 inline constexpr std::string_view kVerbDeploy{"Deploy"};
 /// The state row's verb when SPACE would send the selection to the ground it is pointed at.
 inline constexpr std::string_view kVerbGoHere{"Go Here"};
+/// The nav chain's state row's verb while the player is choosing where the beacon would go.
+inline constexpr std::string_view kVerbGetNav{"GET NAV"};
 /// The selected-vehicle rows that act (RECYCLE and its neighbours), written once so the table and
 /// the layer that routes a digit cannot drift apart.
 inline constexpr std::string_view kVerbGoToNav{"Go to Nav"};

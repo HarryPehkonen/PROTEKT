@@ -1306,6 +1306,13 @@ struct SceneOptions {
     /// (`kDeployLineInk`), drawn only while the menu's state row reads `SPACE Go Here`. ABSENT (the
     /// default) draws none of it, so a frame that never heard of the field is byte-identical.
     std::optional<DeployLineTarget> go_here_spot{};
+    /// THE GET NAV LINE (round 12, AU: "a thin white line going to the spot where the nav beacon
+    /// would go"): the ground tile `SPACE GET NAV` would drop a mark on -- the crosshair's own
+    /// ground point (`nav_aim`), filled by the app only while the nav chain is placing. The same
+    /// white line as the deploy's and Go Here's (`kDeployLineInk`), drawn only while the menu's
+    /// state row reads `SPACE GET NAV`. ABSENT (the default) draws none of it, so a frame that
+    /// never heard of the field is byte-identical.
+    std::optional<DeployLineTarget> nav_spot{};
     /// THE ASSIST (`T`, see game/assist.hpp): the hostile asset the player has latched. While it
     /// names a living, available unit the scene draws a thin red line from it to a small red dot
     /// where the barrel must point for `weapon` to hit it if it holds its course, and gives it the

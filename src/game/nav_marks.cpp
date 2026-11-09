@@ -27,7 +27,6 @@ static_assert(
     }(),
     "a slot's label is its digit");
 
-constexpr std::string_view kVerbGetNav{"GET NAV"};
 constexpr std::string_view kVerbNav{"NAV"};
 
 [[nodiscard]] std::string nav_name(int slot) {

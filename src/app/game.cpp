@@ -596,6 +596,11 @@ public:
         // The target SPACE would attack: one answer for the menu's `SPACE Attack` row (through
         // `menu_for`) and for the red line, label and bar the scene draws from it. The nav chain
         // owns SPACE while it is open, so nothing is offered then.
+        // The nav chain's own white line, to the tile SPACE GET NAV would mark.
+        if (nav_menu_.state() == game::NavState::Placing) {
+            scene_options.nav_spot
+                = app::nav_line_target(nav_menu_.state(), game::nav_aim(sim_, scene_options));
+        }
         if (nav_menu_.state() == game::NavState::Closed) {
             scene_options.attack_target = attack_offer(sim_, session_, scene_options);
             scene_options.repair_target = repair_offer(sim_, session_, scene_options);

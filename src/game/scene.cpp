@@ -4758,8 +4758,9 @@ void append_hud_panels(std::vector<SceneVertex>& out, const SceneOptions& option
         // THE WHITE GROUND LINES: only while the state row really reads the verb that owns the
         // line and the app named a tile, so each appears and disappears with its prompt. From the
         // same place the attack line leaves, to the middle of the tile on the ground, one pixel
-        // wide and white. Two consumers of the one line: `SPACE Deploy` to the pool it would go
-        // to, and `SPACE Go Here` to the spot it would send the selection.
+        // wide and white. Three consumers of the one line: `SPACE Deploy` to the pool it would go
+        // to, `SPACE Go Here` to the spot it would send the selection, and `SPACE GET NAV` to the
+        // tile the beacon would be dropped on.
         const auto ground_line
             = [&](const std::optional<DeployLineTarget>& target, std::string_view verb) {
                   if (!target.has_value() || state.key != kRowKeySpace || state.verb != verb) {
@@ -4775,6 +4776,7 @@ void append_hud_panels(std::vector<SceneVertex>& out, const SceneOptions& option
               };
         ground_line(options.deploy_pool, kVerbDeploy);
         ground_line(options.go_here_spot, kVerbGoHere);
+        ground_line(options.nav_spot, kVerbGetNav);
     }
 }
 

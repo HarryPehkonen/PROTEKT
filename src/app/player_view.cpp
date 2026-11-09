@@ -181,6 +181,14 @@ std::optional<game::DeployLineTarget> go_here_line_target(const sim::Sim& sim,
     return game::DeployLineTarget{offer->tile_x, offer->tile_y};
 }
 
+std::optional<game::DeployLineTarget> nav_line_target(game::NavState state,
+                                                      const game::NavAim& aim) {
+    if (state != game::NavState::Placing || !aim.on_ground()) {
+        return std::nullopt;
+    }
+    return game::DeployLineTarget{aim.tile_x, aim.tile_y};
+}
+
 std::vector<game::MenuRow> menu_for(const sim::Sim& sim, const game::Session& session,
                                     const game::SceneOptions& options, bool attack_armed) {
     // The attack list and the menu share one slot under the notice: one panel at a time.

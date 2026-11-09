@@ -25,6 +25,7 @@
 #include "protekt/game/go_here_aim.hpp"
 #include "protekt/game/interaction.hpp"
 #include "protekt/game/menu.hpp"
+#include "protekt/game/nav_marks.hpp"
 #include "protekt/game/pick.hpp"
 #include "protekt/game/row.hpp"
 #include "protekt/game/scene.hpp"
@@ -870,6 +871,82 @@ TEST(GoHereLine, ThereIsNoSpotWhereTheDeployOrTheAttackOwnsSpace) {
     look_at_ground(f);
     EXPECT_FALSE(app::go_here_line_target(f.sim, nobody, f.options).has_value())
         << "nothing selected, nothing to send";
+}
+
+// ============================================ the white line from SPACE GET NAV to the spot
+
+namespace {
+
+[[nodiscard]] std::vector<MenuRow> get_nav_rows(const Field& f, int tile_x, int tile_y) {
+    const NavMarks marks;
+    return nav_menu_rows(NavState::Placing, marks, NavAim{tile_x, tile_y, 10}, f.options.camera);
+}
+
+} // namespace
+
+TEST(GetNavLine, AThinWhiteLineRunsFromTheSpaceGetNavRowToTheSpotTheBeaconWouldGo) {
+    // Harri, round 12: "a thin white line going to the spot where the nav beacon would go" -- the
+    // Deploy and Go Here lines' own white, one pixel at 720, leaving the state row where they do.
+    Field f = make_field();
+    constexpr int kSpotX = 44;
+    constexpr int kSpotY = 52;
+    const std::vector<MenuRow> rows = get_nav_rows(f, kSpotX, kSpotY);
+    ASSERT_EQ(rows.size(), 1U);
+    ASSERT_EQ(rows.front().verb, kVerbGetNav);
+    const std::vector<SceneVertex> added = added_by_leader(
+        f, rows, [](SceneOptions& o) { o.nav_spot = DeployLineTarget{kSpotX, kSpotY}; });
+    ASSERT_EQ(added.size(), 6U) << "one slanted quad, and nothing else";
+    for (const SceneVertex& v : added) {
+        EXPECT_EQ(v.colour, (std::array<float, 3>{1.0F, 1.0F, 1.0F})) << "white";
+    }
+    const std::array<float, 2> a = pixel_of(f.options, added.at(0));
+    const std::array<float, 2> b = pixel_of(f.options, added.at(1));
+    const std::array<float, 2> c = pixel_of(f.options, added.at(2));
+    const std::array<float, 2> d = pixel_of(f.options, added.at(5));
+    const std::array<float, 2> start{(a.at(0) + d.at(0)) * 0.5F, (a.at(1) + d.at(1)) * 0.5F};
+    const std::array<float, 2> end{(b.at(0) + c.at(0)) * 0.5F, (b.at(1) + c.at(1)) * 0.5F};
+    const float px = static_cast<float>(f.options.extent.height) / 720.0F;
+    const MenuLayout layout = menu_layout(rows, 6.0F * px, kMenuTopPixels * px, 2.0F * px);
+    const std::array<float, 2> origin = attack_line_origin(layout);
+    EXPECT_NEAR(start.at(0), origin.at(0), 0.05F);
+    EXPECT_NEAR(start.at(1), origin.at(1), 0.05F);
+    const float tile_x = static_cast<float>(kSpotX) + 0.5F;
+    const float tile_y = static_cast<float>(kSpotY) + 0.5F;
+    const Projected centre = project(f.options.camera, f.options.extent, tile_x * kMetresPerTile,
+                                     ground_metres(kSeed, tile_x, tile_y), tile_y * kMetresPerTile);
+    EXPECT_NEAR(end.at(0), centre.x, 0.05F);
+    EXPECT_NEAR(end.at(1), centre.y, 0.05F);
+    EXPECT_NEAR(std::hypot(a.at(0) - d.at(0), a.at(1) - d.at(1)), 1.0F * px, 0.05F);
+}
+
+TEST(GetNavLine, ThereIsNoLineWithoutASpotOrOutsideTheGetNavRow) {
+    Field f = make_field();
+    const auto spot = [](SceneOptions& o) { o.nav_spot = DeployLineTarget{44, 52}; };
+    EXPECT_TRUE(added_by_leader(f, get_nav_rows(f, 44, 52), [](SceneOptions&) {}).empty());
+    EXPECT_TRUE(added_by_leader(f, go_here_rows(), spot).empty())
+        << "not from a menu offering Go Here";
+    EXPECT_TRUE(added_by_leader(f, get_nav_rows(f, 44, 52),
+                                [](SceneOptions& o) { o.go_here_spot = DeployLineTarget{44, 52}; })
+                    .empty())
+        << "Go Here's own option is not this row's";
+}
+
+TEST(GetNavLine, TheAppNamesTheSpotExactlyWhileTheRowIsOffered) {
+    Field f = make_field();
+    const NavMarks marks;
+    const NavAim on{31, 47, 9};
+    const std::optional<DeployLineTarget> spot = app::nav_line_target(NavState::Placing, on);
+    ASSERT_TRUE(spot.has_value());
+    EXPECT_EQ(spot.value_or(DeployLineTarget{}).tile_x, 31) << "the tile SPACE would mark";
+    EXPECT_EQ(spot.value_or(DeployLineTarget{}).tile_y, 47);
+    ASSERT_EQ(nav_menu_rows(NavState::Placing, marks, on, f.options.camera).size(), 1U);
+
+    const NavAim off{};
+    EXPECT_TRUE(nav_menu_rows(NavState::Placing, marks, off, f.options.camera).empty());
+    EXPECT_FALSE(app::nav_line_target(NavState::Placing, off).has_value())
+        << "reticle off the ground: no row, no line";
+    EXPECT_FALSE(app::nav_line_target(NavState::Closed, on).has_value());
+    EXPECT_FALSE(app::nav_line_target(NavState::Menu, on).has_value());
 }
 
 } // namespace
