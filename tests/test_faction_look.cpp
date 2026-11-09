@@ -43,7 +43,9 @@ constexpr std::size_t kAlienHarvesterVertices = 1362;
 /// NORMAL (quantised to 1e-4), both of which the hash covers. Was 11065493855963779442 with the
 /// light baked into the colour face by face. RE-PINNED AGAIN (AT): the hull's box corners are cut,
 /// so there are more vertices and different positions (was 16841904087840096574).
-constexpr std::uint64_t kHumanScavengerHash = 17356007928199366683ULL;
+/// RE-PINNED AGAIN (AY): the cut grew from 0.10 m to 0.25 m (the count is the same, 4098; the
+/// positions and normals moved; was 17356007928199366683).
+constexpr std::uint64_t kHumanScavengerHash = 9572317917685338920ULL;
 
 /// The vertices a lone unit adds to a frame: what is left between the terrain and sky both frames
 /// share before it, and the HUD both share after it. That is its shadow and its body.

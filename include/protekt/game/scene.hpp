@@ -761,15 +761,18 @@ private:
 /// full side colour: they are the team-identity accents.
 inline constexpr float kHullPaleMix = 0.85F;
 
-/// The hover skirt's colour: a hot pale cyan, RAW -- never lit, never marked -- so the band of lift
-/// under a hover tank stays the brightest thing on it from every side and in every mark.
-inline constexpr math::Vec3 kHoverSkirtColour{0.70F, 1.0F, 1.0F};
+/// The hover skirt's colour: a hot pale cyan (red 0.78; AY raised it from 0.70 because a rounded
+/// hull has faces that turn straight into the sun, and the lit pale camo reaches 2.75 in channel
+/// sum where the old square hull's best face was under 2.70), RAW -- never lit, never marked -- so
+/// the band of lift under a hover tank stays the brightest thing on it from every side and in every
+/// mark.
+inline constexpr math::Vec3 kHoverSkirtColour{0.78F, 1.0F, 1.0F};
 
 /// A drawn hover tank: the parts of `shape_of(UnitKind::HoverTank)` (three stepped wedge sections,
 /// the fin and the turret, each a chamfered extrusion), then the four skirt quads and the barrel,
-/// which are not shape parts. The shape is 444 vertices (3 x 84 + 84 + 108), 168 before it was
-/// derived.
-inline constexpr std::size_t kHoverTankVertices = 504;
+/// which are not shape parts. The shape is 804 vertices (AY cut the corners of the three wedge
+/// sections and the turret; 444 before), 168 before it was derived.
+inline constexpr std::size_t kHoverTankVertices = 864;
 
 /// THE HOVER TANK'S SIZES that the shape (`vehicle_shape.cpp`), the mesh builder and the plate all
 /// read, here and nowhere else. Metres, along the heading from the centre and up from the ground.
@@ -864,8 +867,9 @@ private:
 /// `shape_of(UnitKind::Turret)` (a flared base and a pedestal, turned by the heading; a dome with
 /// its vision slit and a whip aerial, turned by `gun_yaw`), then the muzzle collar and the barrel,
 /// which elevate and so are not parts. It was 144, four prisms, undriven and 432, a tank's hull
-/// under a squat turret, when a player drove it.
-inline constexpr std::size_t kTurretVertices = 492;
+/// under a squat turret, when a player drove it. 492 before AY cut the base's and the pedestal's
+/// corners.
+inline constexpr std::size_t kTurretVertices = 636;
 
 /// THE TURRET'S GUN, in metres: the dome's front face (along the aim from the turret's centre),
 /// where the shape ends and the barrel begins, the barrel and its collar over the GROUND (a turret
@@ -900,13 +904,14 @@ inline constexpr std::size_t kRecyclerVertices = std::size_t{33} * 36U;
 /// seat, two wheels with their rings and hubs, the fork and the handlebars; then, turned by
 /// `gun_yaw`, the mount, the stubby tube, the collar and the bore cut in it). Nothing is added to
 /// the shape. It was 144, four prisms, before it was derived: a low box where the plate had drawn a
-/// bike.
-inline constexpr std::size_t kMortarBikeVertices = 1488;
+/// bike. 1488 before AY cut the frame's and the mount's corners.
+inline constexpr std::size_t kMortarBikeVertices = 1656;
 
 /// A drawn walker: the parts of `shape_of(UnitKind::Walker)` (two bent legs and their feet, the
 /// body, its cockpit glass and the roof panel), then the gun arm, which is not a shape part. It
-/// was 180, five prisms, before it was derived, and no test pinned it.
-inline constexpr std::size_t kWalkerVertices = 744;
+/// was 180, five prisms, before it was derived, and no test pinned it. 744 before AY cut the body's
+/// corners.
+inline constexpr std::size_t kWalkerVertices = 792;
 
 /// THE WALKER'S GUN ARM, in metres: the body's front face (along the aim from the walker's centre),
 /// where the shape ends and the arm begins, the arm's bottom and top over the ground, and its tip.
@@ -919,13 +924,15 @@ inline constexpr float kWalkerGunTip = 1.8F;
 
 /// A drawn APC: all of it the parts of `shape_of(UnitKind::Apc)` (the hull, its firing ports and
 /// roof panel, eight wheels with their rings and hubs, then, turned by `gun_yaw`, the turret and
-/// its gun). Nothing is added to the shape. It was 144, four prisms, and no test pinned it.
-inline constexpr std::size_t kApcVertices = 3804;
+/// its gun). Nothing is added to the shape. It was 144, four prisms, and no test pinned it. 3804
+/// before AY cut the hull's and the housing's corners.
+inline constexpr std::size_t kApcVertices = 3948;
 
 /// A drawn rocket tank: the parts of `shape_of(UnitKind::RocketTank)` (the tank's chassis, a mount,
 /// the launcher rack and the lane cut in it), then the team-colour panel on the rack. The shape is
-/// 2544 vertices (2340 of chassis); it was 324, nine prisms, before it was derived.
-inline constexpr std::size_t kRocketTankVertices = 2580;
+/// 3000 vertices (2700 of chassis; AY cut the chassis' corners, 2340 before); it was 324, nine
+/// prisms, before it was derived.
+inline constexpr std::size_t kRocketTankVertices = 3036;
 
 /// THE ROCKET TANK'S RACK, in metres over the hull's base: the top of the rack, which the shape
 /// (`vehicle_shape.cpp`) ends at and the panel lies on, so the number lives once, here. The panel
@@ -935,9 +942,9 @@ inline constexpr float kRocketPanelThickness = 0.03F;
 
 /// A drawn assault tank: the parts of `shape_of(UnitKind::AssaultTank)` (the tank's chassis, the
 /// turret block and its hatch), then the roof panel, the muzzle collar and the barrel, which are
-/// not shape parts. The shape is 2508 vertices; the whole was 396, eleven prisms, before it was
-/// derived.
-inline constexpr std::size_t kAssaultTankVertices = 2616;
+/// not shape parts. The shape is 2964 vertices (2508 before AY); the whole was 396, eleven prisms,
+/// before it was derived.
+inline constexpr std::size_t kAssaultTankVertices = 3072;
 
 /// THE ASSAULT TANK'S BLOCK AND BARREL, in metres: the block's roof (over the hull's base) and
 /// front face (along the aim from the tank's centre), where the shape ends and the panel and the
@@ -955,8 +962,9 @@ inline constexpr float kAssaultBarrelTip = 2.1F;
 /// A drawn bomber: all of it the parts of `shape_of(UnitKind::Bomber)` (the fuselage and its
 /// canopy, the nose, the tail fin, the wing, the bomb with its fins, and the team-colour stripe on
 /// the spine). Nothing is added to the shape: it drops the mortar's shell by the sim's lob and
-/// carries no barrel. It was 108, three boxes (a flat slab, a nose and a panel).
-inline constexpr std::size_t kBomberVertices = 744;
+/// carries no barrel. It was 108, three boxes (a flat slab, a nose and a panel); 744 before AY cut
+/// the fuselage's and the wing's corners.
+inline constexpr std::size_t kBomberVertices = 984;
 
 /// The GUN's reticle is four ticks (up, down, left, right) and a centre dot, six vertices each, in
 /// a triangle list: the ticks first, the dot last. The centre between the ticks is open. Every

@@ -138,14 +138,25 @@ constant, `kFxaaSettings` in `src/render/renderer.cpp`. `--no-fxaa` turns it off
 byte-identical to what the renderer drew before the filter existed. Same seed, same frames, one capture each
 -- see "Build, run, watch" for the two commands. No history buffer: a frame is a function of itself.
 
-**Chamfered hulls (AT, scavenger and tank).** Smooth shading had nothing to blend on a box hull: AP measured
-about 6,900 face pairs at 85-90 degrees (boxes) against about 3,900 at 40-50 (chamfers), so the arm's
-eight-sided knuckle read round and the hull did not. The scavenger's and the tank's Hull and Load parts now
-have their box corners CUT (`chamfer_corners` in `src/game/vehicle_shape.cpp`, `kHullChamfer` 0.10 m): a corner
-that turns more than 60 degrees becomes two corners that each turn half as much, so a 90 degree edge is two
-45s and the tank's 127 degree glacis foot two 63.7s, all under the 75 degree crease. Every other kind,
-including the rocket and assault tanks' shared chassis, keeps its shape. The silhouette changes (and with it
-the 72 px plate, which is the same shape seen side on); the crease angle, the sim and every battle hash do not.
+**Chamfered hulls (AT, then AY: every vehicle, more).** Smooth shading had nothing to blend on a box hull: AP
+measured about 6,900 face pairs at 85-90 degrees (boxes) against about 3,900 at 40-50 (chamfers), so the arm's
+eight-sided knuckle read round and the hull did not. `add_part` in `src/game/vehicle_shape.cpp` now cuts the box
+corners of every lit Hull and Load part of EVERY authored kind (the sixteen: scavenger, tank, hover tank, scout,
+missile scout, rocket tank, assault tank, mortar bike, walker, APC, bomber, defence turret, tug, constructor,
+service truck, service pod): a corner that turns more than 60 degrees becomes two that each turn half as much, so a
+90 degree edge is two 45s and the tank's 127 degree glacis foot two 63.7s; a second pass cuts what is still over 66
+(the bomber wing's 141 degree tip), all under the 75 degree crease. AT cut 0.10 m; AY cuts `kHullChamfer` 0.25 m,
+held to `kMaxCutShare` 0.45 of the shorter adjacent edge (two cuts on an edge leave a tenth flat; 0.5 would meet).
+The 0.25 is MEASURED: the tank's engine deck, the scavenger's cab and the tank's compartment are the big blocks, and
+0.25 m is the most they all take in full; the 0.25 m bustle, the 6 cm fender and the thin walls take the 0.45 share of
+their own edge instead. Metal, Track and Glass parts (hatches, arms, wheels, aerials, racks) keep their corners, as
+in AT. A tip that a cut would shorten (the scout's nose, the bomber's tail, the turret's base) is authored out by
+what its cut takes, so no machine got smaller. The defence turret's base and pedestal round with it; the **factory
+and the recycler are NOT rounded**: they are hand-written prisms whose faces carry painted-door and ribbed-wall
+texels addressed by column, so rounding them is a rewrite as profile extrusions, not a constant (the recycler's own
+two bevelled prisms are a lean, not a curve). The silhouette changes (and with it the 72 px plate, which is the
+same shape seen side on); the crease angle, the sim and every battle hash do not. Drawn triangles for the sixteen:
+9,577 -> 10,500 (+9.6%).
 
 **Smooth shading (AP, a try-it).** Everything lit -- terrain, hulls, buildings, turrets, wrecks and the
 spheres of the repair beam and the smoke -- is shaded from a per-vertex NORMAL in the fragment stage, not

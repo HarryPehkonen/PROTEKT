@@ -1705,7 +1705,9 @@ TEST(TurretFromShape, NothingOnItIsATrackAWheelOrAHullOfATank) {
     // the base.
     for (const ShapePart& part : shape_of(UnitKind::Turret)) {
         EXPECT_FALSE(part.mirrored) << "a turret is not a machine with a left and a right track";
-        EXPECT_LT(part.profile.size(), 8U) << "a wheel is a ring of corners";
+        // A tyre is a ring of twelve; a cut hull block is at most eight (a box with every corner
+        // cut).
+        EXPECT_LT(part.profile.size(), 12U) << "a wheel is a ring of corners";
         EXPECT_LE(part.across_hi, 0.6F);
     }
 }
@@ -1794,8 +1796,9 @@ TEST(ChamferedHull, NoTankBodyPartHasACornerSmoothShadingCouldNotBlend) {
 TEST(ChamferedHull, TheCutsAreTheFortyToFiftyDegreeBandAndNotASoapBar) {
     // READABLE: a cut is a band, not a dissolve. The sharpest corner of a hull part is still a real
     // turn of 30 degrees or more -- a cut 90 is two 45s -- and a part has few corners, so it is a
-    // chamfered block and not a smear; the extent tests above pin the overall size.
-    for (const UnitKind kind : {UnitKind::Scavenger, UnitKind::Tank}) {
+    // chamfered block and not a smear; the extent tests above pin the overall size. Every shaped
+    // kind (AY), not only the scavenger and the tank.
+    for (const UnitKind kind : kShaped) {
         for (const ShapePart& part : shape_of(kind)) {
             if (is_hull_body(part)) {
                 EXPECT_GE(sharpest_turn_degrees(part.profile), 30.0F)
@@ -1807,18 +1810,119 @@ TEST(ChamferedHull, TheCutsAreTheFortyToFiftyDegreeBandAndNotASoapBar) {
     }
 }
 
-TEST(ChamferedHull, OnlyTheScavengerAndTheTankWereChamfered) {
-    // The rocket tank and the assault tank share a chassis the owner did not name: it keeps its box
-    // corners, as does every other kind's hull.
-    for (const UnitKind kind : {UnitKind::RocketTank, UnitKind::AssaultTank, UnitKind::Apc,
-                                UnitKind::Tug, UnitKind::ServiceTruck, UnitKind::Walker}) {
-        float sharpest = 0.0F;
+TEST(ChamferedHull, EveryShapedKindHasItsHullAndLoadCornersCut) {
+    // AY: the cut is every authored kind's, not only the scavenger's and the tank's. No hull or
+    // load part of any of the sixteen (the turret and its deployed form share one) keeps a corner
+    // that smooth shading would leave hard.
+    std::size_t checked = 0;
+    for (const UnitKind kind : kShaped) {
         for (const ShapePart& part : shape_of(kind)) {
             if (is_hull_body(part)) {
-                sharpest = std::max(sharpest, sharpest_turn_degrees(part.profile));
+                ++checked;
+                EXPECT_LT(sharpest_turn_degrees(part.profile), kChamferedTurnDegrees)
+                    << "a hull or load part with a box corner: kind " << static_cast<int>(kind);
             }
         }
-        EXPECT_GT(sharpest, 85.0F) << "kind " << static_cast<int>(kind) << " lost its box corners";
+    }
+    EXPECT_GE(checked, std::size_t{40});
+}
+
+/// The lengths of the edges of `profile` that run on neither axis: the chords a cut leaves.
+[[nodiscard]] std::vector<float> chord_lengths(const std::vector<std::array<float, 2>>& profile) {
+    std::vector<float> chords;
+    chords.reserve(profile.size());
+    for (std::size_t i = 0; i < profile.size(); ++i) {
+        const auto& a = profile.at(i);
+        const auto& b = profile.at((i + 1) % profile.size());
+        const float dx = std::abs(b[0] - a[0]);
+        const float dy = std::abs(b[1] - a[1]);
+        if (dx > 1.0e-4F && dy > 1.0e-4F && std::abs(dx - dy) < 1.0e-3F) {
+            chords.push_back(std::hypot(dx, dy)); // a 45 degree cut: the box corner's own
+        }
+    }
+    return chords;
+}
+
+/// The hull part of `kind` whose profile starts at `along_lo` and spans `up_lo` to `up_hi`. (The
+/// far end is not asked: a cut corner there is no longer at the box's edge.)
+[[nodiscard]] const ShapePart& part_spanning(UnitKind kind, float along_lo, float up_lo,
+                                             float up_hi) {
+    for (const ShapePart& part : shape_of(kind)) {
+        float a_lo = kInfinity;
+        float u_lo = kInfinity;
+        float u_hi = -kInfinity;
+        for (const auto& corner : part.profile) {
+            a_lo = std::min(a_lo, corner[0]);
+            u_lo = std::min(u_lo, corner[1]);
+            u_hi = std::max(u_hi, corner[1]);
+        }
+        if (part.lit && part.role == ShapeRole::Hull && std::abs(a_lo - along_lo) < 1.0e-3F
+            && std::abs(u_lo - up_lo) < 1.0e-3F && std::abs(u_hi - up_hi) < 1.0e-3F) {
+            return part;
+        }
+    }
+    ADD_FAILURE() << "no such hull part";
+    return shape_of(kind).front();
+}
+
+TEST(ChamferedHull, TheCutIsPronouncedOnTheTankAndTheScavenger) {
+    // AY, MEASURED: AT cut 0.10 m and the owner asked for more. The tank's engine deck (0.8 m by
+    // 0.62 m) is the largest cut the two machines' big blocks can ALL take in full -- its cap,
+    // 0.4 of its 0.62 m edge, is 0.248 -- so the cut is 0.25 m on the blocks that can take it:
+    // a chord of 0.25 * sqrt(2) = 0.354 m, 2.5 times AT's 0.141.
+    constexpr float kChordMetres = 0.25F * 1.41421356F;
+    const ShapePart& deck = part_spanning(UnitKind::Tank, -1.2F, 0.0F, 0.62F);
+    const std::vector<float> deck_chords = chord_lengths(deck.profile);
+    ASSERT_EQ(deck_chords.size(), std::size_t{4}) << "four box corners, four cuts";
+    for (const float chord : deck_chords) {
+        EXPECT_GE(chord, kChordMetres * 0.99F);
+        EXPECT_LE(chord, kChordMetres * 1.01F) << "past the cap two cuts would meet";
+    }
+    // The compartment (0.85 m tall) takes the same cut in full on its rear corners.
+    const ShapePart& compartment = part_spanning(UnitKind::Tank, -0.45F, 0.0F, 0.85F);
+    const std::vector<float> compartment_chords = chord_lengths(compartment.profile);
+    ASSERT_FALSE(compartment_chords.empty());
+    EXPECT_GE(*std::max_element(compartment_chords.begin(), compartment_chords.end()),
+              kChordMetres * 0.99F);
+    // The scavenger's cab (0.9 m by 0.8 m) too.
+    const ShapePart& cab = part_spanning(UnitKind::Scavenger, 0.3F, 0.45F, 1.25F);
+    const std::vector<float> cab_chords = chord_lengths(cab.profile);
+    ASSERT_FALSE(cab_chords.empty());
+    EXPECT_GE(*std::max_element(cab_chords.begin(), cab_chords.end()), kChordMetres * 0.99F);
+}
+
+TEST(ChamferedHull, NoCutOverlapsItsNeighboursAndNoPartIsMostlyGone) {
+    // The ceiling: a cut is at most 0.45 of the shorter edge it lands on, so two cuts sharing an
+    // edge leave a tenth of it flat. An edge that has collapsed to nothing (or past it, which the
+    // convexity test above also catches) is two cuts that met. And a part is not dissolved: it
+    // keeps more than 55% of its bounding box: a square with all four
+    // corners cut at the 0.45 cap keeps 1 - 4 * (0.45^2 / 2) = 59.5%, so the floor is under the
+    // most the cap can take.
+    for (const UnitKind kind : kShaped) {
+        for (const ShapePart& part : shape_of(kind)) {
+            if (!is_hull_body(part)) {
+                continue;
+            }
+            float a_lo = kInfinity;
+            float a_hi = -kInfinity;
+            float u_lo = kInfinity;
+            float u_hi = -kInfinity;
+            float area = 0.0F;
+            for (std::size_t i = 0; i < part.profile.size(); ++i) {
+                const auto& a = part.profile.at(i);
+                const auto& b = part.profile.at((i + 1) % part.profile.size());
+                EXPECT_GT(std::hypot(b[0] - a[0], b[1] - a[1]), 0.004F)
+                    << "two cuts met: kind " << static_cast<int>(kind);
+                a_lo = std::min(a_lo, a[0]);
+                a_hi = std::max(a_hi, a[0]);
+                u_lo = std::min(u_lo, a[1]);
+                u_hi = std::max(u_hi, a[1]);
+                area += (a[0] * b[1]) - (b[0] * a[1]);
+            }
+            area *= 0.5F;
+            EXPECT_GT(area, 0.55F * (a_hi - a_lo) * (u_hi - u_lo))
+                << "dissolved: kind " << static_cast<int>(kind);
+        }
     }
 }
 

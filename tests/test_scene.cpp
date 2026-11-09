@@ -53,14 +53,14 @@ namespace {
 constexpr std::size_t kTankVertices = 3312;
 // The scout's and the missile scout's, each its own shape's parts and nothing else (no gun, so no
 // roof panel and no barrel). 432 each before they had shapes: they wore the tank's hand-built body.
-constexpr std::size_t kScoutVertices = 2028;
-constexpr std::size_t kMslScoutVertices = 2196;
+constexpr std::size_t kScoutVertices = 2100;    // 2028 before AY cut the chassis' corners
+constexpr std::size_t kMslScoutVertices = 2268; // and 2196
 // The rocket tank's and the assault tank's, each its own shape's parts and then what is not a part:
 // 2544 + the rack's panel, and 2508 + the roof panel, the muzzle collar and the barrel. Both were
 // hand-built before (324 and 396 vertices, nine and eleven prisms) and both share the tank's
 // chassis, 2340 vertices of tracks, wheels, hull and fenders.
-constexpr std::size_t kAssaultTankVertices = 2616;
-constexpr std::size_t kChassisVertices = 2340;
+constexpr std::size_t kAssaultTankVertices = 3072; // 2616 before AY cut the chassis' corners
+constexpr std::size_t kChassisVertices = 2700;     // and 2340
 
 using protekt::game::Camera;
 using protekt::game::kHullHalfMetres;
@@ -3597,10 +3597,16 @@ constexpr std::size_t kHull = 0; ///< the shape's first part: the fighting compa
 constexpr std::size_t kTurretBlock = kChassisVertices; ///< the block, the first part after it
 constexpr std::size_t kRoofPanel = kAssaultTankVertices - 108;
 constexpr std::size_t kBarrelPart = kAssaultTankVertices - 36;
-constexpr std::size_t kBottomFace = 24;
-constexpr std::size_t kTopFace = 36;
-constexpr std::size_t kLeftFace = 72;
-constexpr std::size_t kRightFace = 78;
+// The compartment is a 7-corner part since the cut (AY): three bands of seven quads (42 vertices a
+// band), the middle band from 42, then a fan of five triangles on each end. Its bottom flat is the
+// middle band's second quad, its top flat the fifth; the fans are at 126 (left) and 141 (right).
+// The turret block is an 8-corner part (a cut at each of its four corners): its middle band starts
+// at 48 and its top flat is the sixth quad.
+constexpr std::size_t kBottomFace = 48;
+constexpr std::size_t kTopFace = 66;
+constexpr std::size_t kBlockTopFace = 78;
+constexpr std::size_t kLeftFace = 126;
+constexpr std::size_t kRightFace = 141;
 constexpr std::size_t kBoxTopFace = 24; ///< a plain box's top: its fifth quad
 
 /// `c` mixed toward white by `kHullPaleMix`: what the scene does to a hull's colour.
@@ -3678,7 +3684,7 @@ TEST(SceneShading, TheAssaultBlockWearsTheCamoAndTheRoofPanelAndBarrelCarryTheSi
     EXPECT_EQ(first_of(kTurretBlock).u, first_of(kHull).u);
     EXPECT_EQ(first_of(kTurretBlock).v, first_of(kHull).v);
     // Its colour is the hull's pale tint: the same light-free ratio on the top face.
-    const auto block_top = body_colour(scene, kTurretBlock, kTopFace);
+    const auto block_top = body_colour(scene, kTurretBlock, kBlockTopFace);
     const float block_light = block_top[2] / pale(0.85F);
     EXPECT_NEAR(block_top[0], pale(0.15F) * block_light, 1e-5F);
     EXPECT_NEAR(block_top[1], pale(0.35F) * block_light, 1e-5F);
@@ -3696,7 +3702,7 @@ TEST(SceneShading, TheAssaultBlockWearsTheCamoAndTheRoofPanelAndBarrelCarryTheSi
     };
     EXPECT_GT(saturation(body_colour(scene, kRoofPanel, kBoxTopFace)), 0.7F);
     EXPECT_GT(saturation(body_colour(scene, kBarrelPart, kBoxTopFace)), 0.7F);
-    EXPECT_LT(saturation(body_colour(scene, kTurretBlock, kTopFace)), 0.15F);
+    EXPECT_LT(saturation(body_colour(scene, kTurretBlock, kBlockTopFace)), 0.15F);
     // The panel sits on the block's roof, within it, and is big enough to read: over a quarter of
     // the roof's area, with camo still showing either side of it. The block is the 84 vertices at
     // `kTurretBlock`, the panel the 36 at `kRoofPanel`.
@@ -5172,9 +5178,11 @@ std::vector<SceneVertex> hover_tank_of(Side side, std::span<const protekt::sim::
 /// The wedge is the shape's first three parts, each a bevelled four-cornered extrusion (84), then
 /// the fin (84) and the turret (108, five corners); the skirt and the barrel follow the shape.
 constexpr std::size_t kWedge = 0;
-constexpr std::size_t kWedgeEnd = std::size_t{3} * 84U;
+// AY cut the wedge's three sections and the turret at every box corner: 8 corners, 24 * 8 - 12 =
+// 180 vertices each, where each was 84 (4 corners) and the turret 108 (5). The fin is metal.
+constexpr std::size_t kWedgeEnd = std::size_t{3} * 180U;
 constexpr std::size_t kFinEnd = kWedgeEnd + 84U;
-constexpr std::size_t kShapeEnd = kFinEnd + 108U;
+constexpr std::size_t kShapeEnd = kFinEnd + 180U;
 constexpr std::size_t kSkirt = kShapeEnd;
 constexpr std::size_t kHoverBarrel = kSkirt + 24U;
 
@@ -5199,14 +5207,15 @@ float highest(const std::vector<SceneVertex>& v, std::size_t first, std::size_t 
 }
 
 // Re-pinned DELIBERATELY (one shape per kind): the hover tank is its shape's parts, then the skirt
-// and the barrel. The count moved from 168 (four solids and four quads) to 504 because the wedge
-// is three chamfered steps, and the fin and the turret are chamfered parts, where each was a box.
+// and the barrel. The count moved from 168 (four solids and four quads) to 504, and to 864 when AY
+// cut the corners, because the wedge is three chamfered steps, and the fin and the turret are
+// chamfered parts, where each was a box.
 TEST(HoverShape, TheHoverTankIsItsShapesPartsThenTheSkirtAndTheBarrel) {
     const auto hover = hover_tank_of(Side::Player, {});
     EXPECT_EQ(hover.size(), protekt::game::kHoverTankVertices);
-    EXPECT_EQ(protekt::game::kHoverTankVertices, std::size_t{504}) << "168 before it had a shape";
+    EXPECT_EQ(protekt::game::kHoverTankVertices, std::size_t{864}) << "168 before it had a shape";
     EXPECT_EQ(shape_vertices(UnitKind::HoverTank), kShapeEnd)
-        << "444: the parts, as they are drawn";
+        << "804: the parts, as they are drawn";
     EXPECT_EQ(hover.size(), kShapeEnd + 24U + 36U) << "then four skirt quads and a barrel";
 }
 
@@ -5265,9 +5274,9 @@ TEST(HoverShape, TheWedgeIsShallowerAndPointierThanATanksHull) {
     const auto depth = [](const std::vector<SceneVertex>& v, std::size_t first, std::size_t last) {
         return highest(v, first, last) - lowest(v, first, last);
     };
-    // The tank's first part is its fighting compartment (84 vertices): 0.85 m deep against the
-    // wedge's 0.45 m from floor to deck at the tail.
-    EXPECT_LT(depth(hover, kWedge, kWedgeEnd), depth(tank, 0, 84))
+    // The tank's first part is its fighting compartment (156 vertices: 7 corners): 0.85 m deep
+    // against the wedge's 0.45 m from floor to deck at the tail.
+    EXPECT_LT(depth(hover, kWedge, kWedgeEnd), depth(tank, 0, 156))
         << "a slab is deeper than the wedge";
     float nose_z = -1e9F;
     float tail_z = 1e9F;
@@ -5279,6 +5288,10 @@ TEST(HoverShape, TheWedgeIsShallowerAndPointierThanATanksHull) {
     float tail_width = 0.0F;
     float nose_top = -1e9F;
     float tail_top = -1e9F;
+    // The top of the deck is read over the last 0.3 m at each end, not on the end face alone: a cut
+    // corner (AY) ends the face a hand's breadth under the deck, by more at the deep tail than at
+    // the shallow nose.
+    constexpr float kEndBand = 0.3F;
     const float centre_x = static_cast<float>(sim.units().at(0).x.raw)
                            / static_cast<float>(protekt::sim::Fixed::kOne) * kMetresPerTile;
     for (std::size_t i = kWedge; i < kWedgeEnd; ++i) {
@@ -5286,10 +5299,14 @@ TEST(HoverShape, TheWedgeIsShallowerAndPointierThanATanksHull) {
         const float across = std::abs(p[0] - centre_x);
         if (std::abs(p[2] - nose_z) < kTolerance) {
             nose_width = std::max(nose_width, across);
-            nose_top = std::max(nose_top, p[1]);
         }
         if (std::abs(p[2] - tail_z) < kTolerance) {
             tail_width = std::max(tail_width, across);
+        }
+        if (p[2] > nose_z - kEndBand) {
+            nose_top = std::max(nose_top, p[1]);
+        }
+        if (p[2] < tail_z + kEndBand) {
             tail_top = std::max(tail_top, p[1]);
         }
     }
@@ -5780,9 +5797,9 @@ TEST(TurretModel, ADefenseTurretIsItsShapesPartsThenAMuzzleCollarAndABarrel) {
     const auto& turret = sim.units().at(0);
     const auto model = unit_box_of(UnitKind::Turret);
     ASSERT_EQ(model.size(), protekt::game::kTurretVertices);
-    EXPECT_EQ(protekt::game::kTurretVertices, std::size_t{492})
-        << "the shape's 420 and the collar and the barrel's 72";
-    EXPECT_EQ(shape_vertices(UnitKind::Turret), std::size_t{420});
+    EXPECT_EQ(protekt::game::kTurretVertices, std::size_t{636})
+        << "the shape's 564 (420 before AY cut the corners) and the collar and the barrel's 72";
+    EXPECT_EQ(shape_vertices(UnitKind::Turret), std::size_t{564});
     const std::size_t collar = shape_vertices(UnitKind::Turret);
     const std::size_t barrel = collar + kPrismVertices;
     ASSERT_EQ(barrel + kPrismVertices, model.size());
@@ -5889,9 +5906,9 @@ std::array<std::size_t, 3> tile_counts_of(UnitKind kind) {
 TEST(MortarBikeModel, TheMortarBikeIsItsShapeAndNothingElse) {
     const auto model = unit_box_of(UnitKind::MortarBike);
     ASSERT_EQ(model.size(), protekt::game::kMortarBikeVertices);
-    EXPECT_EQ(protekt::game::kMortarBikeVertices, std::size_t{1488})
+    EXPECT_EQ(protekt::game::kMortarBikeVertices, std::size_t{1656})
         << "the shape's parts and nothing added; it was 144, four prisms, before it had a shape";
-    EXPECT_EQ(shape_vertices(UnitKind::MortarBike), std::size_t{1488});
+    EXPECT_EQ(shape_vertices(UnitKind::MortarBike), std::size_t{1656});
     const auto sim = sim_of({{Side::Player, UnitKind::MortarBike, 100, 100}});
     const protekt::sim::Unit& unit = sim.units().at(0);
     const float ground = protekt::game::ground_metres(42, unit.x, unit.y);
@@ -5905,7 +5922,7 @@ TEST(MortarBikeModel, TheMortarBikeIsItsShapeAndNothingElse) {
 // 84 + 552 + 84 + 84, the two rings 168 and the bore 36), Metal the plain turret metal (the two
 // hubs, the fork and the handlebars: 120 + 84 + 84).
 TEST(MortarBikeModel, ItsFrameIsCamoItsTyresTubeAndCollarAreTrackLinksAndItsHubsAreMetal) {
-    EXPECT_EQ(tile_counts_of(UnitKind::MortarBike), (std::array<std::size_t, 3>{192, 1008, 288}));
+    EXPECT_EQ(tile_counts_of(UnitKind::MortarBike), (std::array<std::size_t, 3>{360, 1008, 288}));
 }
 
 TEST(BomberModel, TheBomberIsItsShapesPartsAndNothingElse) {
@@ -5913,9 +5930,9 @@ TEST(BomberModel, TheBomberIsItsShapesPartsAndNothingElse) {
     // slab with a nose and a panel; it is a fuselage, a nose, a fin, a wing and a bomb now.
     const auto bomber = unit_box_of(UnitKind::Bomber);
     ASSERT_EQ(bomber.size(), protekt::game::kBomberVertices);
-    EXPECT_EQ(protekt::game::kBomberVertices, std::size_t{744})
+    EXPECT_EQ(protekt::game::kBomberVertices, std::size_t{984})
         << "the shape's parts and nothing added; it was 108 before it had a shape";
-    EXPECT_EQ(shape_vertices(UnitKind::Bomber), std::size_t{744});
+    EXPECT_EQ(shape_vertices(UnitKind::Bomber), std::size_t{984});
     const UvRect barrel = tile_rect(protekt::game::atlas_manifest().tile("tank_barrel"));
     for (const SceneVertex& v : bomber) {
         ASSERT_FALSE(on_rect(v, barrel)) << "the bomber drops a shell and carries no barrel";
@@ -5932,14 +5949,14 @@ TEST(BomberModel, TheBomberIsItsShapesPartsAndNothingElse) {
 // its fins 84, the spine stripe 36, the canopy glass 36), Metal the plain turret metal (the fin
 // 84).
 TEST(BomberModel, ItsFuselageAndWingAreCamoItsNoseBombAndStripeAreTrackLinksAndItsFinIsMetal) {
-    EXPECT_EQ(tile_counts_of(UnitKind::Bomber), (std::array<std::size_t, 3>{192, 468, 84}));
+    EXPECT_EQ(tile_counts_of(UnitKind::Bomber), (std::array<std::size_t, 3>{432, 468, 84}));
 }
 
 // WHICH TILE EACH ROLE TAKES, for the turret, as literals: Hull is the camo (the base and the
-// pedestal, 84 + 84), Track and Glass the dark links (the aerial 84 and the vision slit 36), Metal
-// the plain turret metal (the dome, 132).
+// pedestal: 312 since AY cut their corners, 84 + 84 before), Track and Glass the dark links (the
+// aerial 84 and the vision slit 36), Metal the plain turret metal (the dome, 132).
 TEST(TurretModel, ItsBaseIsCamoItsAerialAndSlitAreTrackLinksAndItsDomeIsMetal) {
-    EXPECT_EQ(tile_counts_of(UnitKind::Turret), (std::array<std::size_t, 3>{168, 120, 132}));
+    EXPECT_EQ(tile_counts_of(UnitKind::Turret), (std::array<std::size_t, 3>{312, 120, 132}));
 }
 
 TEST(MortarBikeModel, TheTubeAndCollarCarryTheSideColourAndTheSidesDiffer) {
@@ -5978,9 +5995,9 @@ TEST(WalkerModel, TheWalkerIsItsShapesPartsAndThenTheGunArm) {
     // five prisms, 180 vertices.
     const auto walker = unit_box_of(UnitKind::Walker);
     ASSERT_EQ(walker.size(), protekt::game::kWalkerVertices);
-    EXPECT_EQ(protekt::game::kWalkerVertices, std::size_t{744})
-        << "the shape's 708 and the gun arm's 36";
-    EXPECT_EQ(shape_vertices(UnitKind::Walker), std::size_t{708});
+    EXPECT_EQ(protekt::game::kWalkerVertices, std::size_t{792})
+        << "the shape's 756 (708 before AY cut the body's corners) and the gun arm's 36";
+    EXPECT_EQ(shape_vertices(UnitKind::Walker), std::size_t{756});
     // The gun arm is the last prism, on the barrel tile; nothing else is.
     const UvRect barrel = tile_rect(protekt::game::atlas_manifest().tile("tank_barrel"));
     for (std::size_t i = 0; i < walker.size(); ++i) {
@@ -5993,7 +6010,7 @@ TEST(WalkerModel, TheWalkerIsItsShapesPartsAndThenTheGunArm) {
 // and Glass the dark links in the side colour (four leg segments and two feet 6 x 84, the roof
 // panel 36, the cockpit glass 36), and it has no Metal part.
 TEST(WalkerModel, ItsBodyIsCamoItsLegsAndRoofPanelAreTrackLinksAndNothingIsMetal) {
-    EXPECT_EQ(tile_counts_of(UnitKind::Walker), (std::array<std::size_t, 3>{132, 576, 0}));
+    EXPECT_EQ(tile_counts_of(UnitKind::Walker), (std::array<std::size_t, 3>{180, 576, 0}));
 }
 
 TEST(ApcModel, TheApcIsItsShapesPartsAndNothingElse) {
@@ -6001,8 +6018,8 @@ TEST(ApcModel, TheApcIsItsShapesPartsAndNothingElse) {
     // four prisms, 144 vertices.
     const auto apc = unit_box_of(UnitKind::Apc);
     ASSERT_EQ(apc.size(), protekt::game::kApcVertices);
-    EXPECT_EQ(protekt::game::kApcVertices, std::size_t{3804});
-    EXPECT_EQ(shape_vertices(UnitKind::Apc), std::size_t{3804});
+    EXPECT_EQ(protekt::game::kApcVertices, std::size_t{3948});
+    EXPECT_EQ(shape_vertices(UnitKind::Apc), std::size_t{3948});
 }
 
 // WHICH TILE EACH ROLE TAKES, for the APC, as literals: Hull is the camo (the hull and the turret
@@ -6010,15 +6027,15 @@ TEST(ApcModel, TheApcIsItsShapesPartsAndNothingElse) {
 // panel 36, eight rings 672 and three ports 108), Metal the plain turret metal (the eight hubs
 // 480).
 TEST(ApcModel, ItsHullAndTurretAreCamoItsTyresAndGunAreTrackLinksAndItsHubsAreMetal) {
-    EXPECT_EQ(tile_counts_of(UnitKind::Apc), (std::array<std::size_t, 3>{216, 3108, 480}));
+    EXPECT_EQ(tile_counts_of(UnitKind::Apc), (std::array<std::size_t, 3>{360, 3108, 480}));
 }
 
 TEST(RocketTankModel, TheRocketTankIsATanksChassisWithAMountAndALauncherRack) {
     const auto rocket_tank = unit_box_of(UnitKind::RocketTank);
     ASSERT_EQ(rocket_tank.size(), protekt::game::kRocketTankVertices);
-    EXPECT_EQ(protekt::game::kRocketTankVertices, std::size_t{2580})
-        << "the shape's 2544 and the rack's panel; it was 324, nine prisms, before it had a shape";
-    EXPECT_EQ(shape_vertices(UnitKind::RocketTank), std::size_t{2544});
+    EXPECT_EQ(protekt::game::kRocketTankVertices, std::size_t{3036})
+        << "the shape's 3000 and the rack's panel; it was 324, nine prisms, before it had a shape";
+    EXPECT_EQ(shape_vertices(UnitKind::RocketTank), std::size_t{3000});
     // The chassis is the assault tank's, vertex for vertex: the same id at the same tile wears the
     // same camo, and the two kinds share one description of it. (It was the hand-built hull's,
     // which both wore; the tank, the scout and the missile scout have shapes of their own.)
@@ -6054,10 +6071,10 @@ TEST(RocketTankModel, TheRocketTankIsATanksChassisWithAMountAndALauncherRack) {
 TEST(AssaultTankModel, TheAssaultTankIsItsShapesPartsAndThenTheRoofPanelAndTheBarrel) {
     const auto assault = unit_box_of(UnitKind::AssaultTank);
     EXPECT_EQ(assault.size(), kAssaultTankVertices);
-    EXPECT_EQ(kAssaultTankVertices, std::size_t{2616})
-        << "the shape's 2508, the panel, the collar and the barrel; 396 before it had a shape";
-    EXPECT_EQ(protekt::game::kAssaultTankVertices, std::size_t{2616});
-    EXPECT_EQ(shape_vertices(UnitKind::AssaultTank), std::size_t{2508});
+    EXPECT_EQ(kAssaultTankVertices, std::size_t{3072})
+        << "the shape's 2964, the panel, the collar and the barrel; 396 before it had a shape";
+    EXPECT_EQ(protekt::game::kAssaultTankVertices, std::size_t{3072});
+    EXPECT_EQ(shape_vertices(UnitKind::AssaultTank), std::size_t{2964});
 }
 
 TEST(MortarBikeModel, AMortarBikeAndARocketTankInViewEachGetABarLikeATank) {

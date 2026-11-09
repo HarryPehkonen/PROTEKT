@@ -59,26 +59,27 @@ Profile stadium(float x0, float x1, float y0, float y1, int segments) {
     return corners;
 }
 
-/// Appends a part, its corners counter-clockwise whatever order they were written in.
-void add_part(std::vector<ShapePart>& parts, Profile profile, float lo, float hi, bool mirrored,
-              float bevel, ShapeRole role, bool lit = true, ShapeGroup group = ShapeGroup::Hull) {
-    parts.push_back(ShapePart{counter_clockwise(std::move(profile)), lo, hi, mirrored, bevel, role,
-                              lit, group});
-}
+/// How far a hull's box corner is cut, in metres along each edge of the corner. AT cut 0.10 m on
+/// the scavenger and the tank; the owner asked for more, on every vehicle (AY). MEASURED: the
+/// tank's engine deck is 0.8 m by 0.62 m and takes at most 0.45 * 0.62 = 0.279 m, its compartment
+/// 0.38, the scavenger's cab 0.29 (all at the 0.45 share below), so 0.25 m is the largest cut those
+/// big blocks all take IN FULL; smaller parts (the tank's 0.25 m bustle, a 6 cm fender) take the
+/// share of their own edge instead. Every lit hull or load part of every authored kind has its
+/// corners cut by this, so the hull has no 90 degree edge for smooth shading to leave sharp.
+constexpr float kHullChamfer = 0.25F;
 
-/// How far a hull's box corner is cut, in metres along each edge of the corner (AT). Every body
-/// part of the scavenger and the tank has its corners cut by this, so the hull has no 90 degree
-/// edge for smooth shading to leave sharp; a thin part's cut is held to 0.4 of its shortest edge.
-constexpr float kHullChamfer = 0.10F;
+/// The most of an edge one cut may take (AY; AT held 0.4). Two cuts share an edge, so each at most
+/// this share leaves `1 - 2 * 0.45` = a tenth of it flat; at 0.5 they would meet at its middle and
+/// leave a zero-length edge for the mesh's miter, and past 0.5 they would cross.
+constexpr float kMaxCutShare = 0.45F;
 
-/// The corners of `profile` that turn more than `kMaxUncutTurnDegrees` -- the ones smooth shading
+/// The corners of `profile` that turn more than `max_uncut_turn` degrees -- the ones smooth shading
 /// (crease 75 degrees) would leave as hard edges -- each cut into two, `cut` metres in from the
-/// corner along both its edges (never more than 0.4 of the shorter edge, so neighbouring cuts do
-/// not meet). The two cuts are the same distance out, so a corner that turned t degrees becomes two
-/// that turn t/2: a 90 degree box corner becomes two 45s, the band smooth shading rounds. A profile
-/// that was convex stays convex, and a corner already gentle is kept as it was.
-Profile chamfer_corners(const Profile& profile, float cut) {
-    constexpr float kMaxUncutTurnDegrees = 60.0F;
+/// corner along both its edges (never more than `kMaxCutShare` of the shorter edge, so neighbouring
+/// cuts do not meet). The two cuts are the same distance out, so a corner that turned t degrees
+/// becomes two that turn t/2: a 90 degree box corner becomes two 45s, the band smooth shading
+/// rounds. A profile that was convex stays convex, and a corner already gentle is kept as it was.
+Profile chamfer_corners(const Profile& profile, float cut, float max_uncut_turn) {
     constexpr float kDegrees = 180.0F / std::numbers::pi_v<float>;
     const std::size_t n = profile.size();
     Profile cut_profile;
@@ -96,11 +97,11 @@ Profile chamfer_corners(const Profile& profile, float cut) {
         const float turn
             = std::abs(std::atan2((in_x * out_y) - (in_y * out_x), (in_x * out_x) + (in_y * out_y)))
               * kDegrees;
-        if (turn <= kMaxUncutTurnDegrees) {
+        if (turn <= max_uncut_turn) {
             cut_profile.push_back(here);
             continue;
         }
-        const float d = std::min({cut, 0.4F * in_length, 0.4F * out_length});
+        const float d = std::min({cut, kMaxCutShare * in_length, kMaxCutShare * out_length});
         cut_profile.push_back({here[0] - (in_x / in_length * d), here[1] - (in_y / in_length * d)});
         cut_profile.push_back(
             {here[0] + (out_x / out_length * d), here[1] + (out_y / out_length * d)});
@@ -108,11 +109,25 @@ Profile chamfer_corners(const Profile& profile, float cut) {
     return cut_profile;
 }
 
-/// A hull or load part's profile as the scavenger and the tank are authored: chamfered. A cut (not
-/// lit) and a metal or track part keep the corners they were written with.
-Profile hull_profile(Profile profile, ShapeRole role, bool lit) {
+/// Appends a part, its corners counter-clockwise whatever order they were written in. A lit HULL or
+/// LOAD part -- the body of the machine -- has its corners cut (`chamfer_corners`); a cut, and a
+/// metal, glass or track part, keeps the corners it was written with.
+void add_part(std::vector<ShapePart>& parts, Profile profile, float lo, float hi, bool mirrored,
+              float bevel, ShapeRole role, bool lit = true, ShapeGroup group = ShapeGroup::Hull) {
     const bool body = lit && (role == ShapeRole::Hull || role == ShapeRole::Load);
-    return body ? chamfer_corners(counter_clockwise(std::move(profile)), kHullChamfer) : profile;
+    Profile corners = counter_clockwise(std::move(profile));
+    if (body) {
+        // Two passes: the first cuts every corner over 60 degrees (a 90 becomes two 45s); the
+        // second cuts again the few the first left over 66 -- a corner of more than 132 degrees
+        // (the bomber wing's tip, 141) would otherwise be two of 70 and more, too close to the
+        // crease for smooth shading to blend. The tank's glacis foot, 127 degrees, is two 63.7s and
+        // stays so, as AT left it.
+        constexpr float kFirstPassTurnDegrees = 60.0F;
+        constexpr float kSecondPassTurnDegrees = 66.0F;
+        corners = chamfer_corners(corners, kHullChamfer, kFirstPassTurnDegrees);
+        corners = chamfer_corners(corners, kHullChamfer, kSecondPassTurnDegrees);
+    }
+    parts.push_back(ShapePart{std::move(corners), lo, hi, mirrored, bevel, role, lit, group});
 }
 
 /// THE SCAVENGER'S SHAPE. Every number the scavenger's look is made of is in this function. Read it
@@ -125,8 +140,7 @@ std::vector<ShapePart> author_scavenger() {
     std::vector<ShapePart> parts;
     const auto add = [&parts](Profile profile, float lo, float hi, bool mirrored, float bevel,
                               ShapeRole role, bool lit = true) {
-        add_part(parts, hull_profile(std::move(profile), role, lit), lo, hi, mirrored, bevel, role,
-                 lit);
+        add_part(parts, std::move(profile), lo, hi, mirrored, bevel, role, lit);
     };
 
     // The track pods: 2.5 m by 0.45 m, 0.24 m wide each, their outer faces 0.60 m from the
@@ -226,8 +240,7 @@ std::vector<ShapePart> author_tank() {
     const auto add
         = [&parts](Profile profile, float lo, float hi, bool mirrored, float bevel, ShapeRole role,
                    bool lit = true, ShapeGroup group = ShapeGroup::Hull) {
-              add_part(parts, hull_profile(std::move(profile), role, lit), lo, hi, mirrored, bevel,
-                       role, lit, group);
+              add_part(parts, std::move(profile), lo, hi, mirrored, bevel, role, lit, group);
           };
 
     // The fenders' outer edge, 0.60 m, is the tank's half-width and the widest thing on it.
@@ -372,6 +385,12 @@ std::vector<ShapePart> author_hover_tank() {
     return parts;
 }
 
+/// Where the scout's nose is authored to, before its tip is cut. The tests pin the nose at 1.3 m,
+/// and cutting a tip takes its point off, so the corner is written 0.123 m further out and the
+/// rounded nose ends at 1.3 (AY). The same holds for the bomber's tail and the turret's base below:
+/// each outermost corner is pushed out by what its own cut takes, so the machine does not shrink.
+constexpr float kScoutNoseTip = 1.423F;
+
 /// The body the scout and the missile scout share: a low wedge on TWO SMALL WHEELS with a clear
 /// canopy cut through its flanks. The body is 0.8 m across and the wheels stand outside it, their
 /// outer hubs 0.60 m from the centreline -- the tank's own half-width, so the machine fits where a
@@ -382,7 +401,7 @@ void add_scout_chassis(std::vector<ShapePart>& parts) {
     add_part(parts,
              {{-1.25F, 0.22F},
               {1.15F, 0.22F},
-              {1.3F, 0.38F},
+              {kScoutNoseTip, 0.38F},
               {0.9F, 0.66F},
               {-0.2F, 0.86F},
               {-1.25F, 0.66F}},
@@ -730,11 +749,13 @@ std::vector<ShapePart> author_apc() {
 std::vector<ShapePart> author_bomber() {
     std::vector<ShapePart> parts;
     constexpr float kBelly = 0.38F;
+    constexpr float kBomberTail = -1.205F; ///< authored; the cut leaves the tail at -1.05
     constexpr float kSpine = 0.8F;
     // The fuselage, 0.6 m across, its tail rising to the fin.
-    add_part(parts,
-             {{-1.05F, 0.5F}, {-0.85F, kBelly}, {0.7F, kBelly}, {0.7F, kSpine}, {-0.6F, kSpine}},
-             -0.3F, 0.3F, false, 0.05F, ShapeRole::Hull);
+    add_part(
+        parts,
+        {{kBomberTail, 0.5F}, {-0.85F, kBelly}, {0.7F, kBelly}, {0.7F, kSpine}, {-0.6F, kSpine}},
+        -0.3F, 0.3F, false, 0.05F, ShapeRole::Hull);
     // The canopy: a window wrapped through both flanks, a roof 8 cm thick over it.
     add_part(parts, {{0.05F, 0.6F}, {0.55F, 0.6F}, {0.42F, 0.72F}, {0.05F, 0.72F}}, -0.31F, 0.31F,
              false, 0.0F, ShapeRole::Glass, false);
@@ -869,9 +890,10 @@ std::vector<ShapePart> author_service_pod() {
 std::vector<ShapePart> author_turret() {
     std::vector<ShapePart> parts;
     constexpr float kBaseHalf = kHullHalfMetres;
+    constexpr float kTurretFoot = 0.855F; ///< authored; the cut leaves the base at 0.7 either side
     constexpr float kPedestalTop = 1.1F;
-    add_part(parts, {{-0.7F, 0.0F}, {0.7F, 0.0F}, {0.5F, 0.45F}, {-0.5F, 0.45F}}, -kBaseHalf,
-             kBaseHalf, false, 0.05F, ShapeRole::Hull);
+    add_part(parts, {{-kTurretFoot, 0.0F}, {kTurretFoot, 0.0F}, {0.5F, 0.45F}, {-0.5F, 0.45F}},
+             -kBaseHalf, kBaseHalf, false, 0.05F, ShapeRole::Hull);
     add_part(parts, {{-0.5F, 0.4F}, {0.5F, 0.4F}, {0.5F, kPedestalTop}, {-0.5F, kPedestalTop}},
              -0.5F, 0.5F, false, 0.04F, ShapeRole::Hull);
 
