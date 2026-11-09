@@ -77,6 +77,8 @@ void press(Session& session, Rig& rig, std::int32_t scancode) {
     return app::menu_for(rig.sim, session, rig.options, session.attack_armed());
 }
 
+/// The row that `key` draws, or nullptr when this list has no such row. The rows must be a NAMED
+/// LOCAL: the pointer is into them.
 [[nodiscard]] const MenuRow* row_keyed(const std::vector<MenuRow>& rows, std::string_view key) {
     for (const MenuRow& row : rows) {
         if (row.key == key) {
@@ -85,6 +87,12 @@ void press(Session& session, Rig& rig, std::int32_t scancode) {
     }
     return nullptr;
 }
+
+/// `row_keyed(rows_now(...), key)` would hand back a pointer into a vector that dies with the call,
+/// and reading it is a heap-use-after-free -- which ASan caught here in
+/// `ADigitSelectsTheUnitTheBarsPutThere` on 2026-11-09.  Deleted so that mistake is a COMPILE
+/// error, exactly as `test_menu.cpp`'s `row_for` and `game/roster.hpp` already do it.
+const MenuRow* row_keyed(std::vector<MenuRow>&& rows, std::string_view key) = delete;
 
 [[nodiscard]] std::vector<UnitId> selected(const Session& session) {
     const auto units = session.selection().units();
@@ -156,7 +164,8 @@ TEST(UnitList, ADigitSelectsTheUnitTheBarsPutThere) {
     press(session, rig, input::kKey1 + 1); // `2`: the second bar
 
     EXPECT_EQ(selected(session), (std::vector<UnitId>{rig.others.at(0)}));
-    const MenuRow* one = row_keyed(rows_now(rig, session), "1");
+    const std::vector<MenuRow> after = rows_now(rig, session);
+    const MenuRow* one = row_keyed(after, "1");
     ASSERT_NE(one, nullptr);
     EXPECT_EQ(one->verb, "Follow Me") << "the list is spent: the vehicle's own menu is back";
 }
@@ -193,7 +202,8 @@ TEST(UnitList, EscapeClosesItWithoutSelecting) {
     press(session, rig, input::kKeyEscape);
 
     EXPECT_EQ(selected(session).size(), 3U);
-    EXPECT_NE(row_keyed(rows_now(rig, session), "~"), nullptr);
+    const std::vector<MenuRow> after = rows_now(rig, session);
+    EXPECT_NE(row_keyed(after, "~"), nullptr);
 }
 
 TEST(UnitList, SelectUnitIsLiveWhenTheKeyHoldsSeveral) {
@@ -231,7 +241,8 @@ TEST(UnitList, AKeyWithOneUnitIsUnchanged) {
     press(session, rig, input::kKeyGrave);
 
     EXPECT_EQ(selected(session).size(), 1U);
-    EXPECT_NE(row_keyed(rows_now(rig, session), "1"), nullptr) << "no list opened";
+    const std::vector<MenuRow> closed = rows_now(rig, session);
+    EXPECT_NE(row_keyed(closed, "1"), nullptr) << "no list opened";
     EXPECT_TRUE(session.message().empty());
 }
 
