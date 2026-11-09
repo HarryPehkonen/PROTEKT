@@ -104,6 +104,13 @@ enum class MenuTarget : std::uint8_t {
     Hostile,    ///< an enemy: the TRIGGER is what a mark there is for, not SPACE
 };
 
+/// One row of the nav list (AX): the mark's nav slot digit (`nav_slot_digit`: 1-9, then 0) and how
+/// far its tile is, in whole metres (`nav_metres`), both read when `2 Go to Nav` opened the list.
+struct NavRow {
+    int key{};
+    int metres{};
+};
+
 /// Everything the rows are a function of. No file, no clock, no sim: the caller derives each field
 /// from what it already holds (the selection, `Interaction`'s armed state, the banked scrap and
 /// what the cursor is over).
@@ -166,6 +173,11 @@ struct MenuInput {
     /// they draw no leader line: green says "yours". Before AW the list was its own glass plate in
     /// its own drawing code; now it is rows of the one menu. Not owned.
     const std::vector<TargetRow>* attack_list{nullptr};
+    /// THE NAV LIST (AX), once `2 Go to Nav` has opened it: every mark the player has set, keyed by
+    /// its nav slot digit, each reading its distance. Handled as the other lists are (the menu IS
+    /// the list), but a mark is a place and names no unit, so its rows carry no health or
+    /// ammunition lines. Not owned.
+    const std::vector<NavRow>* nav_list{nullptr};
 };
 
 /// WHY a row is dimmed. The three values are exhaustive on purpose: `None` means the row is NOT
@@ -252,6 +264,8 @@ inline constexpr std::string_view kVerbGetNav{"GET NAV"};
 /// The selected-vehicle rows that act (RECYCLE and its neighbours), written once so the table and
 /// the layer that routes a digit cannot drift apart.
 inline constexpr std::string_view kVerbGoToNav{"Go to Nav"};
+/// The name a nav mark's row carries, on the nav chain's menu and on the nav list alike.
+inline constexpr std::string_view kVerbNav{"NAV"};
 inline constexpr std::string_view kVerbAttack{"Attack"};
 /// The state row's verb when SPACE would send a service truck to a damaged friendly.
 inline constexpr std::string_view kVerbRepair{"Repair"};

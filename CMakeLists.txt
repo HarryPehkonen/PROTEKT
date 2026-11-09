@@ -300,6 +300,7 @@ if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
         tests/test_repair_list_parts.cpp
         tests/test_unit_list.cpp
         tests/test_list_look.cpp
+        tests/test_nav_list.cpp
         tests/test_firing_spot.cpp
         tests/test_recycler_list.cpp
         tests/test_shift_batch.cpp

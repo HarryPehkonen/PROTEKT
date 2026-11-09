@@ -81,6 +81,9 @@ public:
     /// The service truck's repair list (AC): open from `3 Repair` until a key settles it.
     [[nodiscard]] bool repair_armed() const noexcept;
     [[nodiscard]] const std::vector<TargetRow>& repair_targets() const noexcept;
+    /// `2 Go to Nav` (AX): the list of the nav points is open, and its rows.
+    [[nodiscard]] bool nav_list_armed() const noexcept;
+    [[nodiscard]] const std::vector<NavRow>& nav_list() const noexcept;
     /// `~` on a function key (AV): the key's unit list is open, and its rows.
     [[nodiscard]] bool unit_list_armed() const noexcept;
     [[nodiscard]] const std::vector<TargetRow>& unit_list() const noexcept;

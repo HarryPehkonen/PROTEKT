@@ -126,6 +126,10 @@ const std::vector<TargetRow>& Session::repair_targets() const noexcept {
     return interaction_.repair_targets();
 }
 
+bool Session::nav_list_armed() const noexcept { return interaction_.nav_list_armed(); }
+
+const std::vector<NavRow>& Session::nav_list() const noexcept { return interaction_.nav_list(); }
+
 bool Session::unit_list_armed() const noexcept { return interaction_.unit_list_armed(); }
 
 const std::vector<TargetRow>& Session::unit_list() const noexcept {

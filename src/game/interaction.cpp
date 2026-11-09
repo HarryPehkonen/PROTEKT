@@ -302,6 +302,28 @@ void Interaction::handle(const input::InputFrame& frame, const sim::Sim& sim,
                 continue;
             }
         }
+        if (nav_list_armed_) {
+            // The nav list is waiting (`2 Go to Nav` opened it): a digit is a nav SLOT digit and
+            // sends the selection to that mark (`send_to_mark`, the path G takes), Escape only
+            // cancels, any other key cancels and acts.
+            const std::vector<NavRow> rows = std::move(nav_rows_);
+            disarm_nav_list();
+            if (const int mark = input::mark_digit(key); mark >= 0) {
+                const bool listed
+                    = std::any_of(rows.begin(), rows.end(), [mark](const NavRow& candidate) {
+                          return candidate.key == mark;
+                      });
+                if (listed) {
+                    send_to_mark(mark, options);
+                } else {
+                    refuse("no nav point on that key.");
+                }
+                continue;
+            }
+            if (key.scancode == input::kKeyEscape) {
+                continue;
+            }
+        }
         if (unit_list_armed_) {
             // The unit list is waiting (`~` opened it): a digit is a ROW key and selects that
             // unit, `~` and Escape only close it, any other key closes it and acts.
@@ -497,6 +519,10 @@ const std::vector<TargetRow>& Interaction::attack_targets() const noexcept { ret
 bool Interaction::repair_armed() const noexcept { return repair_armed_; }
 
 const std::vector<TargetRow>& Interaction::repair_targets() const noexcept { return repairs_; }
+
+bool Interaction::nav_list_armed() const noexcept { return nav_list_armed_; }
+
+const std::vector<NavRow>& Interaction::nav_list() const noexcept { return nav_rows_; }
 
 bool Interaction::unit_list_armed() const noexcept { return unit_list_armed_; }
 
@@ -697,7 +723,7 @@ void Interaction::menu_digit(const sim::Sim& sim, const SceneOptions& options, i
     } else if (row->verb == kVerbDeploy) {
         arm_deploy();
     } else if (row->verb == kVerbGoToNav) {
-        go_to_highlighted_mark(options);
+        arm_nav_list(options);
     } else if (row->verb == kVerbAttack) {
         attack_from_menu(sim, options);
     } else if (row->verb == kVerbRepair) {
@@ -1075,45 +1101,32 @@ void Interaction::scavenge_selection() {
     selection_.clear(); // the sequence is complete: the menu closes (see `menu_digit`)
 }
 
-void Interaction::go_to_highlighted_mark(const SceneOptions& options) {
-    if (options.nav_marks == nullptr) {
-        refuse("No nav point is highlighted.");
-        return;
-    }
-    // `marks()` returns its list BY VALUE, so a pointer to one of its elements outlives nothing:
-    // the temporary is gone by the time the order below reads the tile. Copy the mark instead --
-    // the pointer version read freed memory and ordered moves to whatever tile happened to be
-    // there.
-    std::optional<NavMarks::Mark> target;
-    for (const NavMarks::Mark& mark : options.nav_marks->marks()) {
-        if (mark.highlighted) {
-            target = mark;
-            break;
+void Interaction::arm_nav_list(const SceneOptions& options) {
+    // `marks()` returns its list by value, so it is walked, never pointed into.
+    std::vector<NavRow> rows;
+    if (options.nav_marks != nullptr) {
+        const std::vector<NavMarks::Mark> marks = options.nav_marks->marks();
+        rows.reserve(marks.size());
+        for (const NavMarks::Mark& mark : marks) {
+            rows.push_back(NavRow{nav_slot_digit(mark.slot),
+                                  nav_metres(options.camera, mark.tile_x, mark.tile_y)});
         }
     }
-    if (!target.has_value()) {
-        refuse("No nav point is highlighted.");
+    if (rows.empty()) {
+        refuse("no nav points are set.");
         return;
     }
-    if (selection_.empty()) {
-        refuse("Nothing is selected to give an order to.");
-        return;
-    }
-    const std::vector<sim::UnitId> roster = orderable();
-    if (roster.empty()) {
+    if (orderable().empty()) {
         refuse("You are driving that one; select another unit to give orders.");
         return;
     }
-    const std::vector<sim::Order> orders = cmd::move_to(
-        roster, sim::Fixed::from_int(target->tile_x), sim::Fixed::from_int(target->tile_y));
-    if (orders.empty()) {
-        refuse("That order cannot be carried out.");
-        return;
-    }
-    remember(orders);
-    pending_.insert(pending_.end(), orders.begin(), orders.end());
-    message_ = "moving to the highlighted nav point.";
-    selection_.clear(); // the sequence is complete: the menu closes (see `menu_digit`)
+    nav_rows_ = std::move(rows);
+    nav_list_armed_ = true;
+}
+
+void Interaction::disarm_nav_list() noexcept {
+    nav_list_armed_ = false;
+    nav_rows_.clear();
 }
 
 void Interaction::attack_from_menu(const sim::Sim& sim, const SceneOptions& options) {

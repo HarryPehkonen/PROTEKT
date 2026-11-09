@@ -259,6 +259,20 @@ void append_unit_rows(std::vector<MenuRow>& rows, const MenuInput& in,
     }
 }
 
+/// The nav list as rows: each is named `NAV`, keyed by its mark's slot digit (the key the list
+/// carries is already that digit, 1-9 then 0) and reads its distance. A mark names no unit, so no
+/// row carries one and the drawer gives it no health or ammunition lines.
+void append_nav_rows(std::vector<MenuRow>& rows, const std::vector<NavRow>& list) {
+    rows.reserve(rows.size() + list.size());
+    for (const NavRow& entry : list) {
+        MenuRow row{kListKeys.at(static_cast<std::size_t>((entry.key + kAttackListRows - 1)
+                                                          % kAttackListRows)),
+                    std::string{kVerbNav}, true, MenuDim::None};
+        row.right = metres_text(entry.metres);
+        rows.push_back(std::move(row));
+    }
+}
+
 } // namespace
 
 std::string metres_text(int metres) { return std::to_string(metres) + "m"; }
@@ -354,6 +368,12 @@ std::vector<MenuRow> menu_rows(const MenuInput& in) {
     if (in.attack_list != nullptr && !in.attack_list->empty()) {
         rows.push_back(MenuRow{kRowKeyTab, std::string{kVerbCloseMenu}, true, MenuDim::None});
         append_unit_rows(rows, in, *in.attack_list, true, false);
+        return rows;
+    }
+    // ... and so is an open nav list (AX): `2 Go to Nav`.
+    if (in.nav_list != nullptr && !in.nav_list->empty()) {
+        rows.push_back(MenuRow{kRowKeyTab, std::string{kVerbCloseMenu}, true, MenuDim::None});
+        append_nav_rows(rows, *in.nav_list);
         return rows;
     }
     // Nothing selected: no menu, so nothing is drawn and a frame without a menu stays

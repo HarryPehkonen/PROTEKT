@@ -10,6 +10,7 @@
 
 #include "protekt/audio/mixer.hpp"
 #include "protekt/cmd/selection.hpp"
+#include "protekt/game/menu.hpp"
 #include "protekt/game/scene.hpp"
 #include "protekt/game/targets.hpp"
 #include "protekt/game/weapon.hpp"
@@ -232,6 +233,14 @@ public:
     /// The rows the open unit list offers, in the health bars' order (`unit_list_rows`), captured
     /// when `~` opened it. Empty whenever the list is not open.
     [[nodiscard]] const std::vector<TargetRow>& unit_list() const noexcept;
+    /// `2 Go to Nav` has opened the list of the nav points and the key that names one has not been
+    /// pressed (AX): the next 0-9 is a nav SLOT digit, and the menu IS the list for as long as this
+    /// is true. Settled as the repair list is: a digit uses it up, Escape cancels it, any other key
+    /// cancels it and does its own job.
+    [[nodiscard]] bool nav_list_armed() const noexcept;
+    /// The rows the open nav list offers, in slot order, captured when `2` opened it. Empty
+    /// whenever the list is not open.
+    [[nodiscard]] const std::vector<NavRow>& nav_list() const noexcept;
     /// Whether `~` has a list to open: the selection is within the function key last pressed and
     /// that key holds at least two living units. It is the ink of the `~ Select Unit` row.
     [[nodiscard]] bool unit_key_holds_several(const sim::Sim& sim,
@@ -277,7 +286,7 @@ private:
     void move_selection_to_key(const sim::Sim& sim, const SceneOptions& options, int group_key);
     /// A digit with no prompt open: the menu row it names, if that row acts and the model says it
     /// is enabled; otherwise nothing at all (RB-DIGITS). `options` is read only by the rows that
-    /// need the world outside the sim -- `2 GO TO NAV` reads the highlighted nav mark from it.
+    /// need the world outside the sim -- `2 GO TO NAV` reads the nav marks from it.
     void menu_digit(const sim::Sim& sim, const SceneOptions& options, int digit, bool shift);
     /// A build row of the selected producer's menu (BUILD-QUEUE): queue one `item` at the lowest-id
     /// selected producer. Taken whether or not the row is affordable -- a queue short of scrap
@@ -314,9 +323,11 @@ private:
     void defend_selection(const sim::Sim& sim, const SceneOptions& options);
     /// `7 UNDEPLOY`: every selected DEPLOYED turret takes its gun down; refused when none is.
     void undeploy_selection(const sim::Sim& sim);
-    /// `2 GO TO NAV`: MoveTo the highlighted nav mark for every orderable selected unit. Refused
-    /// when no mark is highlighted, or when nothing but the driven craft is selected.
-    void go_to_highlighted_mark(const SceneOptions& options);
+    /// `2 GO TO NAV` (AX): capture every nav point the player has set, with its distance from the
+    /// camera, and open the list; refused when there are none or when nothing but the driven craft
+    /// is selected. The digit that names a row is settled by `send_to_mark`.
+    void arm_nav_list(const SceneOptions& options);
+    void disarm_nav_list() noexcept;
     /// Order every orderable selected unit to attack `target`, or refuse and say why.
     void attack(sim::UnitId target);
     /// SPACE REPAIR: sends the selection's service trucks to mend `target`; the rest of a mixed
@@ -375,6 +386,8 @@ private:
     bool attack_armed_{false};
     bool repair_armed_{false};
     bool unit_list_armed_{false};
+    bool nav_list_armed_{false};
+    std::vector<NavRow> nav_rows_;     ///< the open nav list (`nav_list()`)
     std::vector<TargetRow> unit_rows_; ///< the open unit list (`unit_list()`)
     bool deploy_armed_{false};
     int group_key_{0}; ///< the function key (1-10) last selected, or 0 when none was

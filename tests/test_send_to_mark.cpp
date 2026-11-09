@@ -859,34 +859,33 @@ TEST(MenuDigit, EveryRowThatCannotActYetDoesNothingAndTheSimIsUntouched) {
 // vehicle -- FOLLOW ME, GO TO NAV, ATTACK, RECYCLE -- plus the refusals each of them owes when its
 // precondition is not met.
 
-TEST(MenuDigit, TwoOnARecyclerGoesToTheHighlightedNavPoint) {
+TEST(MenuDigit, TwoOnARecyclerOpensTheNavListAndTheMarksDigitSendsIt) {
     MenuRig rig = make_menu_rig();
     NavMarks marks;
-    static_cast<void>(marks.place(50, 50)); // the first mark takes slot 0
-    marks.toggle(0);                        // ...and only a HIGHLIGHTED one is a destination
+    static_cast<void>(
+        marks.place(50, 50)); // slot 0, drawn as 1 -- never highlighted: it is listed anyway
     rig.options.nav_marks = &marks;
-    ASSERT_EQ(marks.marks().size(), 1U);
-    EXPECT_EQ(marks.marks().at(0).tile_x, 50);
-    EXPECT_EQ(marks.marks().at(0).tile_y, 50);
-    EXPECT_TRUE(marks.marks().at(0).highlighted);
     Interaction player{rig.tank};
     select_kind(rig, player, UnitKind::Recycler);
     player.handle(digit(2), rig.sim, rig.options);
+    EXPECT_TRUE(player.nav_list_armed());
+    EXPECT_TRUE(player.take_orders().empty()) << "2 only opens the list";
+    player.handle(digit(1), rig.sim, rig.options);
     const std::vector<sim::Order> orders = player.take_orders();
     ASSERT_EQ(orders.size(), 1U) << "message: " << player.message();
     expect_move_to(orders.at(0), rig.recycler, 50, 50);
 }
 
-TEST(MenuDigit, TwoWithNoHighlightedNavPointRefusesAndOrdersNothing) {
+TEST(MenuDigit, TwoWithNoNavPointsRefusesAndOrdersNothing) {
     MenuRig rig = make_menu_rig();
     NavMarks marks;
-    static_cast<void>(marks.place(50, 50)); // placed, never highlighted
     rig.options.nav_marks = &marks;
     Interaction player{rig.tank};
     select_kind(rig, player, UnitKind::Recycler);
     player.handle(digit(2), rig.sim, rig.options);
     EXPECT_TRUE(player.take_orders().empty());
-    EXPECT_EQ(player.message(), "No nav point is highlighted.");
+    EXPECT_FALSE(player.nav_list_armed());
+    EXPECT_EQ(player.message(), "no nav points are set.");
 }
 
 TEST(MenuDigit, ThreeOnAVehicleOpensTheAttackList) {

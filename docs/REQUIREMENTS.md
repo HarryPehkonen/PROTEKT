@@ -326,7 +326,7 @@ meaning, and those are in section 14.
 | `Ctrl`+`Q` | quit from anywhere; deliberately a modified key | [SHIPPED 47ba745] |
 | digits `1`–`9`, `0`, no prompt open | act on the selected subject's command menu, for the two rows that can act: `1 Follow Me` (the selection follows the craft you are driving) and `4 Hold` (each unit guards its own position with `GuardAt`). A digit the menu has no row for, a row the model dims, or a subject with no menu does nothing at all — and the recycler's menu has no `4` | [SHIPPED d80ce95] |
 | digits `1`–`9`, `0`, a prompt open | answer `G` and the attack list exactly as before: the prompt swallows the digit first, and the menu never sees it | [SHIPPED 160dec4, precedence pinned d80ce95] |
-| digits in a command menu, rows that cannot act yet | inert, with no message: `2 Go to Nav` (which mark it means is unruled), `3 Scavenge` (the fetch is automatic), `3 Deploy` (RB3), `5 Pick Me Up`, `9 Bailout`, `0 Recycle`, `~`, and the factory's seven build rows (RB5) | [SHIPPED d80ce95] |
+| digits in a command menu, rows that cannot act yet (`2 Go to Nav` was one: RULED 2026-11-09, it opens a list of the nav points numbered by slot, each with its distance, and the digit sends the selection and closes the menu -- AX) | inert, with no message: `3 Scavenge` (the fetch is automatic), `3 Deploy` (RB3), `5 Pick Me Up`, `9 Bailout`, `0 Recycle`, `~`, and the factory's seven build rows (RB5) | [SHIPPED d80ce95] |
 
 Selection and orders, the rules behind the rows:
 
@@ -845,7 +845,7 @@ not -- pinned by `Swap.XOnAnOwnScavengerDrivesItEvenThoughItIsUnarmed` and
     `0 Recycle`, …) does nothing.~~ **CLOSED in two steps**: the subject became reachable when the recycler
     kind and its spawn landed (`ddc6423`, `a584683`), and the rows that CAN act now act (`d80ce95` — `1`
     and `4`). The rows still inert are inert because the SIM has nothing for them to do (`3 Deploy` awaits
-    RB3, the build rows await RB5, `2 Go to Nav` awaits a ruling), not because no code routes the digits.
+    RB3, the build rows await RB5), not because no code routes the digits.
 24. **Names are not keyed by team**, and the player's own list prints `Scavenger` for the scavenger kind and `Tank` for the tank, while `Harvester`/`Guardian` are the same two vehicles on the alien faction.
     Section 9.
 25. **Menu costs are on another scale from the sim's.** The menu quotes HARVESTER 20 to SERVICE POD 2;
