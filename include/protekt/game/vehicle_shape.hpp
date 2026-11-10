@@ -63,6 +63,14 @@ struct ShapePart {
     ShapeGroup group = ShapeGroup::Hull;
 };
 
+/// A convex (along, up) polygon with its corners cut the way every lit hull part's are (AT, AY):
+/// counter-clockwise, each corner over 60 degrees cut into two by `kHullChamfer` (never more than
+/// 0.45 of the shorter edge meeting it), then the few corners the first pass left over 66 degrees
+/// cut again. It is the ONE rounding the vehicles use, public so the recycler's hull (BC), which
+/// is described in scene.cpp and not authored here, is rounded by the same rule and not a copy.
+[[nodiscard]] std::vector<std::array<float, 2>>
+rounded_profile(std::vector<std::array<float, 2>> profile);
+
 /// The parts of `kind` in PAINT ORDER: later parts paint over earlier ones, on the plate and in the
 /// mesh. EMPTY for a kind with no authored shape (see the top of this file), never another kind's.
 [[nodiscard]] const std::vector<ShapePart>& shape_of(sim::UnitKind kind);

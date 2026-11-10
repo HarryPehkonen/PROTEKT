@@ -908,9 +908,11 @@ inline constexpr float kTurretCollarBottom = 1.16F;
 inline constexpr float kTurretCollarTop = 1.4F;
 inline constexpr float kTurretBarrelTip = 2.0F;
 
-/// A drawn factory: the hall, the portal's two jambs and lintel round the recessed door, the
-/// annex, the stack and the band near its top.
-inline constexpr std::size_t kFactoryVertices = std::size_t{7} * 36U;
+/// A drawn factory (BC): the rounded hall (288: ten plan corners, a crown of three steps, a floor
+/// and a roof fan), the portal's two jambs and lintel round the recessed door, which stay flat
+/// prisms of 36 (108), the rounded annex (468) and the stack and its band near its top, each a
+/// twelve-sided loft of 132. It was seven prisms of 36 (252 vertices, 84 triangles).
+inline constexpr std::size_t kFactoryVertices = 288U + (3U * 36U) + 468U + (2U * 132U);
 
 /// HOW BIG THE RECYCLER IS DRAWN, as a multiple of the tank-scale model `build_recycler` describes
 /// (1.2 x 2.6 x 1.25 m). Harri's number: "I think the recycler should be bigger. Maybe twice as
@@ -921,8 +923,11 @@ inline constexpr float kRecyclerScale = 2.0F;
 
 /// A drawn recycler: a track assembly each side (the track, six road wheels, the skirt), the
 /// belly, the side panel and its strip, the body, its spine, two grilles, the rear bumper, the
-/// plow and its slit, the cab and its vision band, the radiator, and the crane arm's four parts.
-inline constexpr std::size_t kRecyclerVertices = std::size_t{33} * 36U;
+/// plow and its slit, the cab, its roof hatch and its vision band, the radiator, and the crane
+/// arm's four parts. BC rounded the two tracks, the two skirts, the body and the cab - six masses
+/// of 180 vertices (eight corners, bevelled) - and set the hatch into the cab's dome as a 28th flat
+/// prism: 27 + 1 prisms of 36 in all. It was 33 prisms of 36 (1188 vertices, 396 triangles).
+inline constexpr std::size_t kRecyclerVertices = (6U * 180U) + (28U * 36U);
 
 /// A drawn mortar bike: all of it the parts of `shape_of(UnitKind::MortarBike)` (the frame, the
 /// seat, two wheels with their rings and hubs, the fork and the handlebars; then, turned by

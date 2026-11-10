@@ -4842,29 +4842,38 @@ std::vector<SceneVertex> unit_box_of(protekt::sim::UnitKind kind) {
     return tank_only(sim, sim.units().at(0), {});
 }
 
-/// The factory's prisms, in emission order. The player's factory is not turned, so its local
-/// across is world X and its door's side is world +Z.
-constexpr std::size_t kHallPart = 0;
-constexpr std::size_t kJambParts = 1; ///< and 2
-constexpr std::size_t kLintelPart = 3;
-constexpr std::size_t kAnnexPart = 4;
-constexpr std::size_t kStackPart = 5;
-constexpr std::size_t kBandPart = 6;
+/// The factory's parts as [first, last) vertex ranges, in emission order (BC: the hall and annex
+/// are rounded towers and the stack and band are twelve-sided lofts, so a part is no longer 36).
+/// The player's factory is not turned, so its local across is world X and its door's side is world
+/// +Z.
+struct VertexRange {
+    std::size_t first;
+    std::size_t last;
+};
+constexpr VertexRange kHallPart{0, 288};     ///< 10 corners, 4 steps up, a floor and a roof fan
+constexpr VertexRange kJambParts{288, 360};  ///< and the second jamb: two prisms of 36
+constexpr VertexRange kLintelPart{360, 396}; ///< a prism of 36
+constexpr VertexRange kAnnexPart{396, 864};  ///< 16 corners all round, its own small crown
+constexpr VertexRange kStackPart{864, 996};  ///< twelve sides and two capped ends
+constexpr VertexRange kBandPart{996, 1128};
 
-/// The [lo, hi] of `axis` (0 X, 1 up, 2 Z) over prism `prism` of a drawn factory.
-std::array<float, 2> factory_span(const std::vector<SceneVertex>& factory, std::size_t prism,
+/// The [lo, hi] of `axis` (0 X, 1 up, 2 Z) over the vertices of `range` of a drawn factory.
+std::array<float, 2> factory_span(const std::vector<SceneVertex>& factory, VertexRange range,
                                   std::size_t axis) {
     float lo = 1e9F;
     float hi = -1e9F;
-    for (std::size_t i = prism * 36U; i < (prism + 1U) * 36U; ++i) {
+    for (std::size_t i = range.first; i < range.last; ++i) {
         lo = std::min(lo, factory.at(i).position.at(axis));
         hi = std::max(hi, factory.at(i).position.at(axis));
     }
     return {lo, hi};
 }
 
-// Adapted (D5c): the factory is seven prisms, not one box. The hall and annex keep whole tiles per
-// face, the walls now stood upright; each portal piece samples the strip of wall it covers.
+/// BC: the hall's walls are rounded, so a vertex is no longer one of a prism's six faces. What the
+/// art needs is kept: every vertex of the factory samples inside the wall or the roof tile (never a
+/// stray texel), the portal's pieces still sample the strip of wall they cover, the door's face is
+/// pinned by `TheFactorysDoorIsStillADoorOnTheSameFaceAtTheSameScale`, and the hall's roof fans
+/// take the roof tile whole.
 TEST(UnitBoxUv, AFactorysWallsTakeTheWallTileAndItsRoofTheRoofTile) {
     const auto box = unit_box_of(UnitKind::Factory);
     ASSERT_EQ(box.size(), protekt::game::kFactoryVertices);
@@ -4873,28 +4882,24 @@ TEST(UnitBoxUv, AFactorysWallsTakeTheWallTileAndItsRoofTheRoofTile) {
     const UvRect roof = tile_rect(atlas.tile("factory_roof"));
     EXPECT_EQ(walls.u0, 0.0F + kHalfTexel) << "factory_walls is tile 4, the second row's first";
     EXPECT_EQ(walls.v0, 0.125F + kHalfTexel);
-    // Faces in order: near, far, left, right, TOP, bottom.
-    for (const std::size_t solid : {kHallPart, kAnnexPart}) {
-        const std::size_t at = solid * 36U;
-        expect_corners_of(box, at, at + 24, walls, "walls");
-        expect_corners_of(box, at + 24, at + 30, roof, "roof");
-        expect_corners_of(box, at + 30, at + 36, walls, "underside");
+    const auto inside = [](const SceneVertex& v, const UvRect& tile) {
+        return v.u >= tile.u0 - 1.0e-6F && v.u <= tile.u1 + 1.0e-6F && v.v >= tile.v0 - 1.0e-6F
+               && v.v <= tile.v1 + 1.0e-6F;
+    };
+    for (std::size_t i = 0; i < box.size(); ++i) {
+        EXPECT_TRUE(inside(box.at(i), walls) || inside(box.at(i), roof))
+            << "vertex " << i << " samples neither the wall nor the roof tile";
     }
-    expect_corners_of(box, kStackPart * 36U, (kStackPart + 2U) * 36U, roof, "stack and band");
-    for (std::size_t i = kHallPart * 36U + 36U; i < kAnnexPart * 36U; ++i) {
-        const auto& v = box.at(i);
-        const UvRect& tile
-            = i >= (kLintelPart * 36U) + 24 && i < (kLintelPart * 36U) + 30 ? roof : walls;
-        EXPECT_TRUE(v.u >= tile.u0 && v.u <= tile.u1 && v.v >= tile.v0 && v.v <= tile.v1)
-            << "portal vertex " << i << " stays in its tile";
+    // The portal pieces: the jambs and the lintel's front stay in the wall tile and the lintel's
+    // top takes the roof tile, as before.
+    for (std::size_t i = kJambParts.first; i < kLintelPart.first; ++i) {
+        EXPECT_TRUE(inside(box.at(i), walls)) << "portal vertex " << i << " stays in its tile";
     }
-    // UPRIGHT: on the hall's front face the ground edge takes the tile's bottom row, so the
-    // painted door stands on the ground and the eaves are at the roof.
-    const float ground = factory_span(box, kHallPart, 1)[0];
-    for (std::size_t i = (kHallPart * 36U) + 6; i < (kHallPart * 36U) + 12; ++i) {
-        const auto& v = box.at(i);
-        EXPECT_EQ(v.v, std::abs(v.position[1] - ground) < kTolerance ? walls.v1 : walls.v0)
-            << "front face vertex " << i;
+    // The hall's roof: the last 24 vertices of the tower before its floor, the top fan, lie over
+    // the whole roof tile's extent and no wall tile's.
+    const std::size_t roof_first = kHallPart.last - 48U;
+    for (std::size_t i = roof_first; i < roof_first + 24U; ++i) {
+        EXPECT_TRUE(inside(box.at(i), roof)) << "roof fan vertex " << i;
     }
 }
 
@@ -4911,11 +4916,14 @@ TEST(UnitBoxUv, ATintStillMultipliesOnTheBuildingsVertexColourAndNotItsUv) {
     EXPECT_NE(plain.at(0).colour, picked.at(0).colour);
 }
 
-// Re-pinned DELIBERATELY (D5c): the factory was one 36-vertex box.
-TEST(FactoryShape, TheFactoryIsExactlyItsSevenPrisms) {
-    EXPECT_EQ(unit_box_of(UnitKind::Factory).size(), std::size_t{252})
-        << "seven prisms of 36; one box (36) before D5c";
-    EXPECT_EQ(protekt::game::kFactoryVertices, std::size_t{252});
+// Re-pinned DELIBERATELY (BC): the factory was seven prisms, 252 vertices, 84 triangles. It is now
+// a rounded hall (288), the portal's three flat prisms (108), a rounded annex (468) and two
+// twelve-sided lofts, the stack and its band (132 each): 1128 vertices, 376 triangles.
+TEST(FactoryShape, TheFactoryIsExactlyItsRoundedPartsAndTheFlatPortal) {
+    EXPECT_EQ(unit_box_of(UnitKind::Factory).size(), std::size_t{1128})
+        << "376 triangles; 252 vertices (84) before BC";
+    EXPECT_EQ(protekt::game::kFactoryVertices, std::size_t{1128});
+    EXPECT_EQ(kBandPart.last, protekt::game::kFactoryVertices) << "the part table covers it all";
 }
 
 // The model chain's `else` draws a FACTORY, so a kind with no branch of its own is a
@@ -4945,30 +4953,43 @@ TEST(ScoutShape, TheScoutAndTheMissileScoutAreExactlyTheirShapesParts) {
     EXPECT_NE(scout.size(), missile_scout.size());
 }
 
-/// The recycler's prisms, in emission order. A fresh player recycler is not turned, so its local
-/// across is world X and its front world +Z.
-constexpr std::size_t kLeftTrackAssembly = 0;  ///< the track, its six wheels, its skirt
-constexpr std::size_t kRightTrackAssembly = 8; ///< the same on the right
-constexpr std::size_t kTrackAssemblyParts = 8;
-constexpr std::size_t kRecyclerCab = 26;
+/// The recycler's parts as VERTEX offsets, in emission order (BC: the track, the skirt, the body
+/// and the cab are rounded masses of 180 vertices - eight corners each, bevelled - and the rest are
+/// prisms of 36). A fresh player recycler is not turned, so its local across is world X and its
+/// front world +Z.
+constexpr std::size_t kPrism = 36;
+constexpr std::size_t kMass = 180;
+constexpr std::size_t kTrackAssemblyVertices
+    = kMass + (6 * kPrism) + kMass; ///< track, 6 wheels, skirt
+constexpr std::size_t kLeftTrackAssembly = 0;
+constexpr std::size_t kRightTrackAssembly = kTrackAssemblyVertices;
+constexpr std::size_t kRecyclerCab
+    = (2 * kTrackAssemblyVertices) + (3 * kPrism) + kMass
+      + (6 * kPrism); ///< after the body, spine, grilles, bumper, plow, slit
+constexpr std::size_t kRecyclerCabEnd
+    = kRecyclerCab + kMass + kPrism; ///< the cab and its roof hatch
 
-/// The [lo, hi] of `axis` (0 X, 1 up, 2 Z) over the prisms [first, last) of a drawn model.
+/// The [lo, hi] of `axis` (0 X, 1 up, 2 Z) over the vertices [first, last) of a drawn model.
 std::array<float, 2> parts_span(const std::vector<SceneVertex>& model, std::size_t first,
                                 std::size_t last, std::size_t axis) {
     float lo = 1e9F;
     float hi = -1e9F;
-    for (std::size_t i = first * 36U; i < last * 36U; ++i) {
+    for (std::size_t i = first; i < last; ++i) {
         lo = std::min(lo, model.at(i).position.at(axis));
         hi = std::max(hi, model.at(i).position.at(axis));
     }
     return {lo, hi};
 }
 
-// Re-pinned DELIBERATELY (RECYCLER-ART): the placeholder was the tank's hull and three boxes.
-TEST(RecyclerShape, TheRecyclerIsExactlyItsThirtyThreePrisms) {
-    EXPECT_EQ(unit_box_of(UnitKind::Recycler).size(), std::size_t{1188})
-        << "thirty-three prisms of 36; the placeholder's ten (360) before RECYCLER-ART";
-    EXPECT_EQ(protekt::game::kRecyclerVertices, std::size_t{1188});
+// Re-pinned DELIBERATELY (BC): thirty-three prisms of 36 (1188 vertices, 396 triangles) before; the
+// two tracks, the two skirts, the body and the cab are now rounded masses of 180 and the cab has a
+// roof hatch of 36 set into its dome: 27 prisms of 36 + 6 masses of 180 + 1 hatch = 2088 vertices,
+// 696 triangles.
+TEST(RecyclerShape, TheRecyclerIsExactlyItsRoundedMassesAndItsFlatDetail) {
+    EXPECT_EQ(unit_box_of(UnitKind::Recycler).size(), std::size_t{2088})
+        << "696 triangles; 1188 vertices (396) before BC";
+    EXPECT_EQ(protekt::game::kRecyclerVertices, std::size_t{2088});
+    EXPECT_EQ((27U * kPrism) + (1U * kPrism) + (6U * kMass), protekt::game::kRecyclerVertices);
 }
 
 // SLICE A re-pinned its numbers; the NAME was left saying the opposite of what is now true, so it
@@ -4979,7 +5000,7 @@ TEST(RecyclerShape, TheRecyclerIsExactlyItsThirtyThreePrisms) {
 TEST(RecyclerShape, ItIsLongerThanItIsWideAndItsLengthOverhangsTheFootprint) {
     const auto recycler = unit_box_of(UnitKind::Recycler);
     ASSERT_EQ(recycler.size(), protekt::game::kRecyclerVertices);
-    const std::size_t all = protekt::game::kRecyclerVertices / 36U;
+    const std::size_t all = protekt::game::kRecyclerVertices;
     const auto across = parts_span(recycler, 0, all, 0);
     const auto along = parts_span(recycler, 0, all, 2);
     const auto up = parts_span(recycler, 0, all, 1);
@@ -5004,20 +5025,25 @@ TEST(RecyclerShape, ItIsLongerThanItIsWideAndItsLengthOverhangsTheFootprint) {
 TEST(RecyclerShape, TheCabIsTheTallestPartAndSitsTowardTheFront) {
     const auto recycler = unit_box_of(UnitKind::Recycler);
     ASSERT_EQ(recycler.size(), protekt::game::kRecyclerVertices);
-    const std::size_t all = protekt::game::kRecyclerVertices / 36U;
+    const std::size_t all = protekt::game::kRecyclerVertices;
     const float ground = parts_span(recycler, 0, all, 1)[0];
-    const float roof = parts_span(recycler, kRecyclerCab, kRecyclerCab + 1, 1)[1];
-    for (std::size_t part = 0; part < all; ++part) {
-        if (part != kRecyclerCab) {
-            EXPECT_LT(parts_span(recycler, part, part + 1, 1)[1], roof - 0.15F)
-                << "part " << part << " stands as tall as the cab";
+    // The cab and its hatch are the tallest thing; no other piece comes within 0.15 m of the roof.
+    const float roof = parts_span(recycler, kRecyclerCab, kRecyclerCabEnd, 1)[1];
+    for (std::size_t first = 0; first < all; first += kPrism) {
+        const bool in_cab = first >= kRecyclerCab && first < kRecyclerCabEnd;
+        // A rounded mass is 180 long, so test vertex by vertex outside the cab.
+        if (!in_cab) {
+            EXPECT_LT(parts_span(recycler, first, first + kPrism, 1)[1], roof - 0.15F)
+                << "vertices " << first << ".. stand as tall as the cab";
         }
     }
-    // The cab roof is about 1.7 times the fender line, as BZ2's is.
-    const float fender = parts_span(recycler, kTrackAssemblyParts - 1, kTrackAssemblyParts, 1)[1];
+    // The cab roof is about 1.7 times the fender line, as BZ2's is. The fender line is the left
+    // skirt's top (the last mass of the first assembly).
+    const float fender
+        = parts_span(recycler, kTrackAssemblyVertices - kMass, kTrackAssemblyVertices, 1)[1];
     EXPECT_NEAR((roof - ground) / (fender - ground), 1.7F, 0.1F);
     constexpr float kCentre = 100.0F * kMetresPerTile;
-    const auto cab = parts_span(recycler, kRecyclerCab, kRecyclerCab + 1, 2);
+    const auto cab = parts_span(recycler, kRecyclerCab, kRecyclerCab + kMass, 2);
     EXPECT_GT(cab[0], kCentre) << "the whole cab is in the front half";
     EXPECT_GT(cab[1] - cab[0], 0.6F) << "and it is a big block, not a hatch";
 }
@@ -5050,7 +5076,7 @@ std::vector<SceneVertex> recycler_facing(UnitKind kind, float heading) {
 TEST(RecyclerScale, TheDrawnRecyclerMeasuresTwiceWhatItDid) {
     const auto recycler = unit_box_of(UnitKind::Recycler);
     ASSERT_EQ(recycler.size(), protekt::game::kRecyclerVertices);
-    const std::size_t all = protekt::game::kRecyclerVertices / 36U;
+    const std::size_t all = protekt::game::kRecyclerVertices;
     const auto across = parts_span(recycler, 0, all, 0);
     const auto along = parts_span(recycler, 0, all, 2);
     const auto up = parts_span(recycler, 0, all, 1);
@@ -5070,7 +5096,7 @@ TEST(RecyclerScale, TheSizeIsTheConstantTimesTheTankScaleModel) {
     constexpr float kWasAlong = 2.6F;
     constexpr float kWasUp = 1.25F;
     const auto recycler = unit_box_of(UnitKind::Recycler);
-    const std::size_t all = recycler.size() / 36U;
+    const std::size_t all = recycler.size();
     const auto across = parts_span(recycler, 0, all, 0);
     const auto along = parts_span(recycler, 0, all, 2);
     const auto up = parts_span(recycler, 0, all, 1);
@@ -5084,7 +5110,7 @@ TEST(RecyclerScale, TheScaleMovesPositionsAndNeverTheTopology) {
     EXPECT_EQ(unit_box_of(UnitKind::Recycler).size(), protekt::game::kRecyclerVertices)
         << "kRecyclerScale moves vertices; it adds and drops none";
     EXPECT_EQ(unit_box_of(UnitKind::DeployedRecycler).size(), protekt::game::kRecyclerVertices);
-    EXPECT_EQ(protekt::game::kRecyclerVertices, std::size_t{1188});
+    EXPECT_EQ(protekt::game::kRecyclerVertices, std::size_t{2088});
 }
 
 TEST(RecyclerScale, ADeployedOneStandsSquareOnItsFootprintAndAVehicleTurnsWithItsHeading) {
@@ -5098,7 +5124,7 @@ TEST(RecyclerScale, ADeployedOneStandsSquareOnItsFootprintAndAVehicleTurnsWithIt
     ASSERT_EQ(deployed_square.size(), protekt::game::kRecyclerVertices);
     ASSERT_EQ(vehicle_square.size(), protekt::game::kRecyclerVertices);
     ASSERT_EQ(vehicle_turned.size(), protekt::game::kRecyclerVertices);
-    const std::size_t all = protekt::game::kRecyclerVertices / 36U;
+    const std::size_t all = protekt::game::kRecyclerVertices;
 
     // Deployed: the heading it was handed changes nothing, and it is the vehicle at heading 0 (to
     // a float's rounding: the two units' ground is levelled off their own ids).
@@ -5133,21 +5159,23 @@ TEST(RecyclerShape, ItRunsOnTwoSeparateTrackAssemblies) {
     ASSERT_EQ(recycler.size(), protekt::game::kRecyclerVertices);
     constexpr float kCentre = 100.0F * kMetresPerTile;
     const auto left
-        = parts_span(recycler, kLeftTrackAssembly, kLeftTrackAssembly + kTrackAssemblyParts, 0);
-    const auto right
-        = parts_span(recycler, kRightTrackAssembly, kRightTrackAssembly + kTrackAssemblyParts, 0);
+        = parts_span(recycler, kLeftTrackAssembly, kLeftTrackAssembly + kTrackAssemblyVertices, 0);
+    const auto right = parts_span(recycler, kRightTrackAssembly,
+                                  kRightTrackAssembly + kTrackAssemblyVertices, 0);
     EXPECT_LT(left[1], kCentre - 0.3F) << "the left assembly keeps to its side";
     EXPECT_GT(right[0], kCentre + 0.3F) << "and the right to its own: not one central slab";
-    const auto along = parts_span(recycler, 0, protekt::game::kRecyclerVertices / 36U, 2);
+    const auto along = parts_span(recycler, 0, protekt::game::kRecyclerVertices, 2);
     const float length = along[1] - along[0];
     for (const std::size_t first : {kLeftTrackAssembly, kRightTrackAssembly}) {
         // The track itself is the first of its assembly and runs most of the length.
-        const auto track = parts_span(recycler, first, first + 1, 2);
+        const auto track = parts_span(recycler, first, first + kMass, 2);
         EXPECT_GT(track[1] - track[0], 0.8F * length) << "assembly " << first;
         // Its six road wheels sit under the skirt, and down at the ground.
-        const float skirt_bottom = parts_span(recycler, first + 7, first + 8, 1)[0];
-        for (std::size_t wheel = first + 1; wheel < first + 7; ++wheel) {
-            EXPECT_LE(parts_span(recycler, wheel, wheel + 1, 1)[1], skirt_bottom + kTolerance)
+        const std::size_t skirt = first + kMass + (6 * kPrism);
+        const float skirt_bottom = parts_span(recycler, skirt, skirt + kMass, 1)[0];
+        for (std::size_t wheel = 0; wheel < 6; ++wheel) {
+            const std::size_t at = first + kMass + (wheel * kPrism);
+            EXPECT_LE(parts_span(recycler, at, at + kPrism, 1)[1], skirt_bottom + kTolerance)
                 << "wheel " << wheel;
         }
     }
@@ -5189,19 +5217,155 @@ TEST(FactorySkyline, TheFrontFaceStepsInAroundTheDoor) {
     const auto factory = unit_box_of(UnitKind::Factory);
     const float face = factory_span(factory, kHallPart, 2)[1];
     const float ground = factory_span(factory, kHallPart, 1)[0];
-    for (const std::size_t part : {kJambParts, kJambParts + 1, kLintelPart}) {
+    const VertexRange right_jamb{kJambParts.first, kJambParts.first + 36U};
+    const VertexRange left_jamb{kJambParts.first + 36U, kJambParts.last};
+    for (const VertexRange part : {right_jamb, left_jamb, kLintelPart}) {
         const auto depth = factory_span(factory, part, 2);
-        EXPECT_NEAR(depth[0], face, kTolerance) << "part " << part << " stands on the face";
-        EXPECT_GT(depth[1] - face, 0.1F) << "part " << part << ": the door is set back";
+        EXPECT_NEAR(depth[0], face, kTolerance) << "part " << part.first << " stands on the face";
+        EXPECT_GT(depth[1] - face, 0.1F) << "part " << part.first << ": the door is set back";
     }
     // The opening between the jambs and under the lintel is most of the face: it is the door.
     const float opening
-        = factory_span(factory, kJambParts, 0)[0] - factory_span(factory, kJambParts + 1, 0)[1];
+        = factory_span(factory, right_jamb, 0)[0] - factory_span(factory, left_jamb, 0)[1];
     const auto across = factory_span(factory, kHallPart, 0);
     EXPECT_GT(opening, 0.6F * (across[1] - across[0]));
-    EXPECT_NEAR(factory_span(factory, kJambParts, 1)[1], factory_span(factory, kLintelPart, 1)[0],
+    EXPECT_NEAR(factory_span(factory, right_jamb, 1)[1], factory_span(factory, kLintelPart, 1)[0],
                 kTolerance);
     EXPECT_GT(factory_span(factory, kLintelPart, 1)[0] - ground, 3.0F) << "a vehicle door";
+}
+
+// ------------------------------------------------ BC: the factory and the recycler are rounded
+//
+// The owner: "Add roundness to everything that you are asking about." The factory's front is a flat
+// DOOR PLATE set into a rounded mass (route b), so these tests pin what the rounding does and what
+// it must not: a rounded mass has no square corner where a prism had one, the door stays a door
+// (same face, same tile, same texel scale), and nothing leaves the footprint it had.
+
+/// True where `v` is within `tolerance` of the plan point (x, z) and the height band [y0, y1].
+bool near_plan_point(const SceneVertex& v, float x, float z, float y0, float y1, float tolerance) {
+    return std::abs(v.position[0] - x) < tolerance && std::abs(v.position[2] - z) < tolerance
+           && v.position[1] >= y0 && v.position[1] <= y1;
+}
+
+float lowest_of(const std::vector<SceneVertex>& model) {
+    float y = 1e9F;
+    for (const SceneVertex& v : model) {
+        y = std::min(y, v.position[1]);
+    }
+    return y;
+}
+
+TEST(BuildingRounding, TheFactoryHallsRearCornersAreRoundedAway) {
+    const auto factory = unit_box_of(UnitKind::Factory);
+    constexpr float kCentre = 100.0F * kMetresPerTile;
+    const float ground = lowest_of(factory);
+    // The hall's rear corners were prism corners at (-0.6, -0.6) and (0.2, -0.6) of the unit.
+    for (const float across : {-0.6F, 0.2F}) {
+        for (const SceneVertex& v : factory) {
+            EXPECT_FALSE(near_plan_point(v, kCentre + across, kCentre - 0.6F, ground - 0.1F,
+                                         ground + 0.5F, 0.08F))
+                << "a vertex still sits on the square rear corner at across " << across;
+        }
+    }
+}
+
+TEST(BuildingRounding, TheFactoryHallsRoofIsACrownNotAFlatTopToTheWall) {
+    const auto factory = unit_box_of(UnitKind::Factory);
+    constexpr float kCentre = 100.0F * kMetresPerTile;
+    const float ground = lowest_of(factory);
+    // Behind the door plate and left of the stack, nothing at the roof's height is within 0.15 m of
+    // a side wall: the roof's edge has been rolled in.
+    for (const SceneVertex& v : factory) {
+        const bool hall = v.position[2] < kCentre + 0.35F && v.position[0] < kCentre + 0.25F;
+        if (hall && v.position[1] > ground + 4.4F) {
+            EXPECT_GT(v.position[0], kCentre - 0.6F + 0.15F) << "the roof meets the left wall";
+            EXPECT_LT(v.position[0], kCentre + 0.2F - 0.15F) << "the roof meets the right wall";
+        }
+    }
+}
+
+TEST(BuildingRounding, TheFactorysDoorIsStillADoorOnTheSameFaceAtTheSameScale) {
+    const auto factory = unit_box_of(UnitKind::Factory);
+    constexpr float kCentre = 100.0F * kMetresPerTile;
+    const float ground = lowest_of(factory);
+    const UvRect walls = tile_rect(protekt::game::atlas_manifest().tile("factory_walls"));
+    // The recessed door face: the unit's +z side, 0.15 m behind the portal's front (0.6 m).
+    constexpr float kFace = 0.45F;
+    float lo = 1e9F;
+    float hi = -1e9F;
+    int count = 0;
+    // The hall's walls are its first ten quads (one per plan edge, 6 vertices each): the crown
+    // above them starts at the same z but is the roof's, not the door's.
+    constexpr std::size_t kWallVertices = 60;
+    for (std::size_t i = 0; i < kWallVertices; ++i) {
+        const SceneVertex& v = factory.at(i);
+        if (std::abs(v.position[2] - (kCentre + kFace)) < kTolerance && v.normal[2] > 0.9F) {
+            ++count;
+            lo = std::min(lo, v.position[0]);
+            hi = std::max(hi, v.position[0]);
+            // The old law: the ground edge takes the tile's v1 and the eaves (4.5 m) its v0.
+            const float expected
+                = walls.v1 + ((walls.v0 - walls.v1) * (v.position[1] - ground) / 4.5F);
+            EXPECT_NEAR(v.v, expected, 1.0e-4F) << "the door's texel scale moved";
+            EXPECT_GE(v.u, walls.u0 - 1.0e-6F);
+            EXPECT_LE(v.u, walls.u1 + 1.0e-6F);
+        }
+    }
+    EXPECT_GE(count, 6) << "the recessed door face is gone";
+    EXPECT_NEAR(lo, kCentre - 0.6F, kTolerance) << "the door wall is the hall's whole width";
+    EXPECT_NEAR(hi, kCentre + 0.2F, kTolerance);
+}
+
+TEST(BuildingRounding, TheFactorysAnnexAndStackAreRoundToo) {
+    const auto factory = unit_box_of(UnitKind::Factory);
+    constexpr float kCentre = 100.0F * kMetresPerTile;
+    const float ground = lowest_of(factory);
+    // The annex's outer front corner (0.6, 0.3) was a prism corner.
+    for (const SceneVertex& v : factory) {
+        EXPECT_FALSE(
+            near_plan_point(v, kCentre + 0.6F, kCentre + 0.3F, ground + 0.5F, ground + 2.0F, 0.05F))
+            << "a vertex still sits on the annex's square corner";
+    }
+    // The stack is a chimney: everything above the annex lies on a circle about its axis.
+    constexpr float kAxisX = 0.42F;
+    constexpr float kAxisZ = -0.44F;
+    int on_stack = 0;
+    for (const SceneVertex& v : factory) {
+        if (v.position[1] > ground + 2.8F && v.position[0] > kCentre + 0.25F) {
+            ++on_stack;
+            EXPECT_LT(
+                std::hypot(v.position[0] - (kCentre + kAxisX), v.position[2] - (kCentre + kAxisZ)),
+                0.16F)
+                << "the stack has a square corner";
+        }
+    }
+    EXPECT_GT(on_stack, 24) << "the stack is more than a box";
+}
+
+TEST(BuildingRounding, TheRecyclersHullHasNoSquareCornerWhereAPrismHadOne) {
+    const auto recycler = unit_box_of(UnitKind::Recycler);
+    constexpr float kCentre = 100.0F * kMetresPerTile;
+    const float ground = lowest_of(recycler);
+    // Each prism corner is looked for among the vertices of the mass that had it: another part's
+    // rounded cut may land near the same spot (a skirt's lower cut is by a track's upper end).
+    const auto corner_free
+        = [&](std::size_t first, std::size_t last, float along, float up, const char* what) {
+              for (std::size_t i = first; i < last; ++i) {
+                  const SceneVertex& v = recycler.at(i);
+                  const bool there = std::abs(v.position[2] - (kCentre + along)) < 0.06F
+                                     && std::abs(v.position[1] - (ground + up)) < 0.06F;
+                  EXPECT_FALSE(there) << what << ": a vertex still sits on the prism corner";
+              }
+          };
+    constexpr std::size_t kBody = (2 * kTrackAssemblyVertices) + (3 * kPrism);
+    corner_free(kRecyclerCab, kRecyclerCab + kMass, 1.32F, 2.5F,
+                "cab's front-top edge");                                     // (0.66, 1.25) x2
+    corner_free(kBody, kBody + kMass, -2.6F, 1.84F, "body's rear-top edge"); // (-1.3, 0.92)
+    for (const std::size_t first : {kLeftTrackAssembly, kRightTrackAssembly}) {
+        corner_free(first, first + kMass, 2.24F, 1.0F, "track's front-top end"); // (1.12, 0.5)
+        const std::size_t skirt = first + kMass + (6 * kPrism);
+        corner_free(skirt, skirt + kMass, 2.08F, 1.44F, "skirt's front-top end"); // (1.04, 0.72)
+    }
 }
 
 TEST(TankUv, ATintStillMultipliesOnTopOfTheTexel) {

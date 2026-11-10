@@ -527,23 +527,6 @@ void emit_barrel(std::vector<SceneVertex>& out, float x, float z, float angle, f
               static_cast<std::size_t>(kBarrelSides), colour, tile);
 }
 
-/// A prism whose top is `inset` narrower than its base on each side, so its long sides lean in --
-/// an armour plate's chamfer, which a `Prism` (upright sides) cannot be. The base is `s` as given,
-/// the top's corners are those of `s` drawn `inset` in from `left` and `right`.
-void emit_turned_chamfer(std::vector<SceneVertex>& out, float x, float z, float angle,
-                         const Prism& s, float inset, const Vec3& colour, const UvRect& tile,
-                         const UvRect& top_tile) {
-    std::array<Vec3, 8> p = prism_corners(x, z, angle, s);
-    Prism top = s;
-    top.left += inset;
-    top.right -= inset;
-    const std::array<Vec3, 8> q = prism_corners(x, z, angle, top);
-    for (const std::size_t corner : {2U, 3U, 6U, 7U}) {
-        p.at(corner) = q.at(corner);
-    }
-    emit_shaded_solid(out, p, colour, tile, top_tile);
-}
-
 /// The part of a wall tile from texel column `c0` to `c1` and texel row `r0` (top) to `r1`, stood
 /// UPRIGHT: a side face hands its ground edge the rect's v0 (see `emit_shaded_solid`), so v0 here
 /// is the part's BOTTOM row and the tile's eaves land at the top of the wall. Edges on the tile's
@@ -559,104 +542,6 @@ UvRect upright_part(const UvRect& tile, int c0, int r0, int c1, int r1) {
         return std::clamp(v_origin + (static_cast<float>(row) * kTexel), tile.v0, tile.v1);
     };
     return UvRect{u(c0), v(r1), u(c1), v(r0)};
-}
-
-/// THE FACTORY, a skyline rather than a crate, inside the old box's footprint (0.3 tile either side
-/// of the unit) with its hall roof at the old box's 4.5 m, which is what the picker tests against:
-/// - the HALL, its front face set back by a shallow recess, with the walls tile on its sides and
-///   the roof tile (ribs, vents, hatch) on top;
-/// - a PORTAL standing proud of that face to the old front -- two jambs and a lintel framing the
-///   painted door, so the door sits in the recess. Each portal piece samples exactly the strip of
-///   the wall tile it covers, so the painted front reads on unbroken and only the door steps in;
-/// - a lower ANNEX beside the hall and set back from its front, its roof well under the hall's;
-/// - a STACK at the annex's rear corner rising well over the hall roof, the silhouette against the
-///   sky, with a team-colour band near its top (the fleet's saturated accent, as a barrel's).
-/// Local +z is the door's side; a player's factory faces +Y and an enemy's -Y, toward the field
-/// the other side comes from. Every structure part keeps the pale tint; only the band does not.
-void build_factory(std::vector<SceneVertex>& out, std::uint64_t seed, const sim::Unit& unit,
-                   Mark mark, float lift_z, bool lifted) {
-    const float x
-        = static_cast<float>(unit.x.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile;
-    const float z
-        = static_cast<float>(unit.y.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile;
-    // float + bool rather than optional<float>: gcc -O2 wrongly warns may-be-uninitialized on the
-    // optional's storage at the call site (the same false alarm hover_.z() once raised).
-    const float ground = lifted ? lift_z : ground_metres(seed, unit.x, unit.y);
-    const float half_width = kHullHalfMetres; ///< the footprint, every part inside it
-    const float angle = unit.side == sim::Side::Player ? 0.0F : kPi;
-    constexpr float kHallTop = 4.5F;   ///< the picker's housing height
-    constexpr float kHallRight = 0.2F; ///< the annex takes the rest of the width
-    constexpr float kRecess = 0.15F;   ///< how far the door's face is set back
-    // The door's painted frame, in the walls tile's texels: its outer edge is the opening.
-    constexpr int kTileTexels = 64;
-    constexpr int kOpeningLeft = 4;
-    constexpr int kOpeningRight = 52;
-    constexpr int kOpeningTop = 13;
-    constexpr float kAnnexTop = 2.6F;
-    constexpr float kAnnexBack = -0.5F;
-    constexpr float kAnnexFront = 0.3F; ///< set back from the portal's face
-    constexpr float kStackLeft = 0.3F;
-    constexpr float kStackRight = 0.54F;
-    constexpr float kStackBack = -0.56F;
-    constexpr float kStackFront = -0.32F;
-    constexpr float kStackTop = 6.2F;
-    constexpr float kBandOverhang = 0.03F; ///< a collar just proud of the stack
-    constexpr float kBandBottom = 5.7F;
-    constexpr float kBandTop = 5.95F;
-
-    Vec3 colour = side_colour(unit.side);
-    if (mark == Mark::Selected) {
-        colour = highlight(colour);
-    } else if (mark != Mark::None) {
-        colour = aim_tint(colour, mark == Mark::AimedOwn);
-    }
-    // Pale-mixed like the hull: the deep side colour would multiply the tile's detail down to a
-    // tenth of a luma step; the pale tint lets the metal carry and the team read through as a tint.
-    Vec3 pale = colour;
-    for (float& channel : pale) {
-        channel += (1.0F - channel) * kHullPaleMix;
-    }
-    const AtlasManifest& atlas = atlas_manifest();
-    const UvRect walls_tile = atlas.rect("factory_walls");
-    const UvRect walls = upright_part(walls_tile, 0, 0, kTileTexels, kTileTexels);
-    const UvRect roof = atlas.rect("factory_roof");
-
-    const float left = -half_width;
-    const float front = half_width;
-    const float face = front - kRecess;
-    const float width = kHallRight - left;
-    // The front face's u runs from the hall's right (+x) edge to its left, and its height spans
-    // the whole tile, so a texel column or row is a fixed place on the wall.
-    const auto across = [&](int column) {
-        return kHallRight - (width * static_cast<float>(column) / static_cast<float>(kTileTexels));
-    };
-    const float lintel_bottom = kHallTop * static_cast<float>(kTileTexels - kOpeningTop)
-                                / static_cast<float>(kTileTexels);
-    const auto box = [&](float l, float r, float back, float fwd, float y0, float y1) {
-        return Prism{l, r, back, back, fwd, fwd, ground + y0, ground + y1, ground + y1};
-    };
-
-    emit_turned_prism(out, x, z, angle, box(left, kHallRight, -half_width, face, 0.0F, kHallTop),
-                      pale, walls, roof);
-    emit_turned_prism(out, x, z, angle,
-                      box(across(kOpeningLeft), kHallRight, face, front, 0.0F, lintel_bottom), pale,
-                      upright_part(walls_tile, 0, kOpeningTop, kOpeningLeft, kTileTexels));
-    emit_turned_prism(
-        out, x, z, angle, box(left, across(kOpeningRight), face, front, 0.0F, lintel_bottom), pale,
-        upright_part(walls_tile, kOpeningRight, kOpeningTop, kTileTexels, kTileTexels));
-    emit_turned_prism(out, x, z, angle, box(left, kHallRight, face, front, lintel_bottom, kHallTop),
-                      pale, upright_part(walls_tile, 0, 0, kTileTexels, kOpeningTop), roof);
-    emit_turned_prism(out, x, z, angle,
-                      box(kHallRight, half_width, kAnnexBack, kAnnexFront, 0.0F, kAnnexTop), pale,
-                      walls, roof);
-    emit_turned_prism(out, x, z, angle,
-                      box(kStackLeft, kStackRight, kStackBack, kStackFront, 0.0F, kStackTop), pale,
-                      roof);
-    emit_turned_prism(out, x, z, angle,
-                      box(kStackLeft - kBandOverhang, kStackRight + kBandOverhang,
-                          kStackBack - kBandOverhang, kStackFront + kBandOverhang, kBandBottom,
-                          kBandTop),
-                      colour, roof);
 }
 
 /// The miter inset of a counter-clockwise convex `profile`: every edge moved `by` metres inward,
@@ -759,6 +644,306 @@ void emit_shape_prism(std::vector<SceneVertex>& out, float x, float z, float gro
             }
         }
     }
+}
+
+/// One corner of a plan (across, along) with whether the edge from it to the NEXT corner is a flat
+/// run of wall (`flat`) or one facet of a rounded corner.
+struct PlanPoint {
+    std::array<float, 2> at;
+    bool flat;
+};
+
+/// The radius of each vertical corner of a rounded plan, in the order the plan runs.
+struct PlanRadii {
+    float back_left;
+    float back_right;
+    float front_right;
+    float front_left;
+};
+
+/// How many facets a rounded plan corner is cut into: 30 degrees each, so smooth shading (crease
+/// 75 degrees) blends them into one curve while a corner stays a curve and not a bevel.
+constexpr int kCornerFacets = 3;
+
+/// A rectangle's plan, counter-clockwise from its back-left corner -- back edge toward +across --
+/// with each corner replaced by a quarter circle of its radius in `kCornerFacets` facets (a zero
+/// radius keeps the corner square). Every arc stays inside the rectangle, so the plan never grows.
+std::vector<PlanPoint> rounded_plan(float left, float right, float back, float front,
+                                    const PlanRadii& radii) {
+    constexpr float kQuarter = 1.5707963F;
+    struct Corner {
+        float centre_across;
+        float centre_along;
+        float radius;
+        float start; ///< the arc's first angle, in quarter turns
+    };
+    const std::array<Corner, 4> corners{{
+        {left + radii.back_left, back + radii.back_left, radii.back_left, 2.0F},
+        {right - radii.back_right, back + radii.back_right, radii.back_right, 3.0F},
+        {right - radii.front_right, front - radii.front_right, radii.front_right, 0.0F},
+        {left + radii.front_left, front - radii.front_left, radii.front_left, 1.0F},
+    }};
+    const std::array<std::array<float, 2>, 4> square{
+        {{left, back}, {right, back}, {right, front}, {left, front}}};
+    std::vector<PlanPoint> plan;
+    plan.reserve(corners.size() * (static_cast<std::size_t>(kCornerFacets) + 1U));
+    for (std::size_t i = 0; i < corners.size(); ++i) {
+        const Corner& c = corners.at(i);
+        if (!(c.radius > 0.0F)) {
+            plan.push_back({square.at(i), true});
+            continue;
+        }
+        for (int facet = 0; facet <= kCornerFacets; ++facet) {
+            const float angle
+                = (c.start + (static_cast<float>(facet) / static_cast<float>(kCornerFacets)))
+                  * kQuarter;
+            plan.push_back({{c.centre_across + (c.radius * std::cos(angle)),
+                             c.centre_along + (c.radius * std::sin(angle))},
+                            facet == kCornerFacets});
+        }
+    }
+    return plan;
+}
+
+/// A texel sub-rect of an UPRIGHT tile (`upright_part`: its v0 is the bottom row's v and its v1 the
+/// top's) covering heights `lo` to `hi` of a tile that stands `tile_height` metres tall from
+/// `base`.
+UvRect upright_slice(const UvRect& tile, float base, float tile_height, float lo, float hi) {
+    const auto v = [&](float height) {
+        return tile.v0 + ((tile.v1 - tile.v0) * ((height - base) / tile_height));
+    };
+    return UvRect{tile.u0, v(lo), tile.u1, v(hi)};
+}
+
+/// A tall block with a ROUNDED PLAN and a ROUNDED CROWN, built from `plan` standing on `y0`, its
+/// walls straight up to `y_crown` and then rolled in over `crown_height` and `crown_inset` in
+/// `kCrownFacets` steps along a quarter ellipse to a flat roof. This is the factory's and the
+/// annex's mass, and it is lofted by hand and not as a `ShapePart` because a part's flanks are flat
+/// end caps sampling one texel, and these walls carry the PAINTED art.
+///
+/// THE PAINTED FACES: a flat run of wall wears `wall_tile` whole (a straight run is a whole face of
+/// the old prism), standing upright over `tile_height` metres from `y0` so the art keeps its scale
+/// whatever the crown does to the height. A rounded corner's facets are far too narrow to carry a
+/// door, so they wear `corner_tile`, a plain corrugated strip of the same wall -- the tile
+/// "wraps" the corner as ribbed sheet, not as a door crushed into a facet. The crown wears
+/// `crown_tile`, and the roof its whole `roof_tile` by the plan's bounding box.
+void emit_rounded_tower(std::vector<SceneVertex>& out, float x, float z, float angle,
+                        const std::vector<PlanPoint>& plan, float y0, float y_crown,
+                        float crown_height, float crown_inset, float tile_height,
+                        const Vec3& colour, const UvRect& wall_tile, const UvRect& corner_tile,
+                        const UvRect& crown_tile, const UvRect& roof_tile) {
+    constexpr int kCrownFacets = 3;
+    constexpr float kQuarter = 1.5707963F;
+    std::vector<std::array<float, 2>> base;
+    base.reserve(plan.size());
+    for (const PlanPoint& point : plan) {
+        base.push_back(point.at);
+    }
+    struct Ring {
+        std::vector<std::array<float, 2>> corners;
+        float y;
+    };
+    std::vector<Ring> rings;
+    rings.reserve(static_cast<std::size_t>(kCrownFacets) + 2U);
+    rings.push_back({base, y0});
+    rings.push_back({base, y_crown});
+    for (int step = 1; step <= kCrownFacets; ++step) {
+        const float angle_up
+            = kQuarter * static_cast<float>(step) / static_cast<float>(kCrownFacets);
+        rings.push_back({inset_profile(base, crown_inset * (1.0F - std::cos(angle_up))),
+                         y_crown + (crown_height * std::sin(angle_up))});
+    }
+    const auto world = [&](const std::array<float, 2>& at, float y) {
+        const std::array<float, 2> p = rotate_offset(x, z, at.at(0), at.at(1), angle);
+        return Vec3{p.at(0), y, p.at(1)};
+    };
+    Vec3 centre{0.0F, 0.0F, 0.0F};
+    std::size_t points = 0;
+    for (const Ring& ring : rings) {
+        for (const auto& at : ring.corners) {
+            const Vec3 p = world(at, ring.y);
+            for (std::size_t axis = 0; axis < 3; ++axis) {
+                centre.at(axis) += p.at(axis);
+            }
+            ++points;
+        }
+    }
+    for (float& axis : centre) {
+        axis /= static_cast<float>(points);
+    }
+    for (std::size_t i = 0; i + 1 < rings.size(); ++i) {
+        const Ring& low = rings.at(i);
+        const Ring& high = rings.at(i + 1);
+        for (std::size_t corner = 0; corner < plan.size(); ++corner) {
+            const std::size_t next = (corner + 1) % plan.size();
+            const Vec3 a = world(low.corners.at(corner), low.y);
+            const Vec3 b = world(low.corners.at(next), low.y);
+            const Vec3 c = world(high.corners.at(next), high.y);
+            const Vec3 d = world(high.corners.at(corner), high.y);
+            const Vec3 ab{b[0] - a[0], b[1] - a[1], b[2] - a[2]};
+            const Vec3 ac{c[0] - a[0], c[1] - a[1], c[2] - a[2]};
+            const Vec3 normal = outward_unit(
+                cross(ab, ac), Vec3{a[0] - centre[0], a[1] - centre[1], a[2] - centre[2]});
+            UvRect tile = crown_tile;
+            if (i == 0) {
+                tile = upright_slice(plan.at(corner).flat ? wall_tile : corner_tile, y0,
+                                     tile_height, low.y, high.y);
+            }
+            emit_tiled_quad(out, a, b, c, d, colour, tile, 0, normal);
+        }
+    }
+    // The roof and the floor: flat fans, the roof's tile laid over the plan's bounding box.
+    const Ring& top = rings.back();
+    const Ring& floor = rings.front();
+    float across_lo = 1.0e9F;
+    float across_hi = -1.0e9F;
+    float along_lo = 1.0e9F;
+    float along_hi = -1.0e9F;
+    for (const auto& at : top.corners) {
+        across_lo = std::min(across_lo, at.at(0));
+        across_hi = std::max(across_hi, at.at(0));
+        along_lo = std::min(along_lo, at.at(1));
+        along_hi = std::max(along_hi, at.at(1));
+    }
+    for (const Ring* ring : {&floor, &top}) {
+        const Vec3 normal{0.0F, ring == &top ? 1.0F : -1.0F, 0.0F};
+        const bool roof = ring == &top;
+        for (std::size_t corner = 1; corner + 1 < ring->corners.size(); ++corner) {
+            for (const std::size_t index : {std::size_t{0}, corner, corner + 1}) {
+                const auto& at = ring->corners.at(index);
+                const float u = (at.at(0) - across_lo) / (across_hi - across_lo);
+                const float v = (at.at(1) - along_lo) / (along_hi - along_lo);
+                const float mid_u = roof ? roof_tile.u0 + ((roof_tile.u1 - roof_tile.u0) * u)
+                                         : (roof_tile.u0 + roof_tile.u1) * 0.5F;
+                const float mid_v = roof ? roof_tile.v0 + ((roof_tile.v1 - roof_tile.v0) * v)
+                                         : (roof_tile.v0 + roof_tile.v1) * 0.5F;
+                out.push_back(
+                    SceneVertex{world(at, ring->y), colour, 1.0F, mid_u, mid_v, 0.0F, normal});
+            }
+        }
+    }
+}
+
+/// THE FACTORY, a skyline rather than a crate, inside the old box's footprint (0.3 tile either side
+/// of the unit) with its hall roof at the old box's 4.5 m, which is what the picker tests against.
+/// BC ROUNDED IT, by ROUTE (b): the painted faces stay flat panels SET INTO a rounded mass, because
+/// the door is one tile 0.8 m wide with an opening four texels off one edge and twelve off the
+/// other, and a door crushed onto the facets of a lofted ring is a smear:
+/// - the HALL, a rounded tower: its rear corners are quarter circles, its roof is rolled in over
+///   the last 0.85 m into a crown, and the walls tile (corrugation, the painted door) is on its
+///   flat runs of wall, the plain corrugated strip of it round the corners;
+/// - a PORTAL, left as it was and flat -- two jambs and a lintel framing the painted door, each
+///   sampling exactly the strip of the wall tile it covers -- so the DOOR is a door, square to the
+///   viewer, in the rounded wall behind it (the lintel stands as a parapet over the crown, and the
+///   hall's front is the one face left flat on purpose);
+/// - a lower ANNEX beside the hall, rounded at all four corners with its own small crown;
+/// - a STACK at the annex's rear corner, now a round chimney (twelve sides, 30 degrees apart,
+///   which smooth shading blends into a cylinder) rising well over the hall roof, with a
+///   team-colour round band near its top (the fleet's saturated accent, as a barrel's).
+/// Local +z is the door's side; a player's factory faces +Y and an enemy's -Y, toward the field
+/// the other side comes from. Every structure part keeps the pale tint; only the band does not.
+void build_factory(std::vector<SceneVertex>& out, std::uint64_t seed, const sim::Unit& unit,
+                   Mark mark, float lift_z, bool lifted) {
+    const float x
+        = static_cast<float>(unit.x.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile;
+    const float z
+        = static_cast<float>(unit.y.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile;
+    // float + bool rather than optional<float>: gcc -O2 wrongly warns may-be-uninitialized on the
+    // optional's storage at the call site (the same false alarm hover_.z() once raised).
+    const float ground = lifted ? lift_z : ground_metres(seed, unit.x, unit.y);
+    const float half_width = kHullHalfMetres; ///< the footprint, every part inside it
+    const float angle = unit.side == sim::Side::Player ? 0.0F : kPi;
+    constexpr float kHallTop = 4.5F;   ///< the picker's housing height
+    constexpr float kHallRight = 0.2F; ///< the annex takes the rest of the width
+    constexpr float kRecess = 0.15F;   ///< how far the door's face is set back
+    // The door's painted frame, in the walls tile's texels: its outer edge is the opening.
+    constexpr int kTileTexels = 64;
+    constexpr int kOpeningLeft = 4;
+    constexpr int kOpeningRight = 52;
+    constexpr int kOpeningTop = 13;
+    constexpr float kHallRear = 0.25F;   ///< the radius of the hall's two rear corners
+    constexpr float kHallCrown = 0.85F;  ///< how much of the hall's height is the crown ...
+    constexpr float kHallCrownIn = 0.2F; ///< ... and how far it rolls in, under `kHallRear`
+    constexpr float kAnnexTop = 2.6F;
+    constexpr float kAnnexBack = -0.5F;
+    constexpr float kAnnexFront = 0.3F; ///< set back from the portal's face
+    constexpr float kAnnexRound = 0.19F;
+    constexpr float kAnnexCrown = 0.4F;
+    constexpr float kAnnexCrownIn = 0.12F;
+    constexpr float kStackAxisAcross = 0.42F; ///< the old box's middle, 0.3 to 0.54
+    constexpr float kStackAxisAlong = -0.44F; ///< and -0.56 to -0.32
+    constexpr float kStackRadius = 0.12F;     ///< half the old box's 0.24
+    constexpr float kStackTop = 6.2F;
+    constexpr float kBandRadius = 0.15F; ///< a collar just proud of the stack
+    constexpr float kBandBottom = 5.7F;
+    constexpr float kBandTop = 5.95F;
+    constexpr int kStackSides = 12;
+
+    Vec3 colour = side_colour(unit.side);
+    if (mark == Mark::Selected) {
+        colour = highlight(colour);
+    } else if (mark != Mark::None) {
+        colour = aim_tint(colour, mark == Mark::AimedOwn);
+    }
+    // Pale-mixed like the hull: the deep side colour would multiply the tile's detail down to a
+    // tenth of a luma step; the pale tint lets the metal carry and the team read through as a tint.
+    Vec3 pale = colour;
+    for (float& channel : pale) {
+        channel += (1.0F - channel) * kHullPaleMix;
+    }
+    const AtlasManifest& atlas = atlas_manifest();
+    const UvRect walls_tile = atlas.rect("factory_walls");
+    const UvRect walls = upright_part(walls_tile, 0, 0, kTileTexels, kTileTexels);
+    const UvRect roof = atlas.rect("factory_roof");
+    // Plain sheet for the rounded things: the wall's leftmost four columns, which are corrugation
+    // and seam and no door, and the roof's ribs between its seams.
+    constexpr int kPlainColumns = 4;
+    const UvRect plain_wall = upright_part(walls_tile, 0, 0, kPlainColumns, kTileTexels);
+    const UvRect ribs = upright_part(roof, 0, 44, kTileTexels, 60);
+
+    const float left = -half_width;
+    const float front = half_width;
+    const float face = front - kRecess;
+    const float width = kHallRight - left;
+    // The front face's u runs from the hall's right (+x) edge to its left, and its height spans
+    // the whole tile, so a texel column or row is a fixed place on the wall.
+    const auto across = [&](int column) {
+        return kHallRight - (width * static_cast<float>(column) / static_cast<float>(kTileTexels));
+    };
+    const float lintel_bottom = kHallTop * static_cast<float>(kTileTexels - kOpeningTop)
+                                / static_cast<float>(kTileTexels);
+    const auto box = [&](float l, float r, float back, float fwd, float y0, float y1) {
+        return Prism{l, r, back, back, fwd, fwd, ground + y0, ground + y1, ground + y1};
+    };
+
+    emit_rounded_tower(out, x, z, angle,
+                       rounded_plan(left, kHallRight, -half_width, face,
+                                    PlanRadii{kHallRear, kHallRear, 0.0F, 0.0F}),
+                       ground, ground + kHallTop - kHallCrown, kHallCrown, kHallCrownIn, kHallTop,
+                       pale, walls, plain_wall, ribs, roof);
+    emit_turned_prism(out, x, z, angle,
+                      box(across(kOpeningLeft), kHallRight, face, front, 0.0F, lintel_bottom), pale,
+                      upright_part(walls_tile, 0, kOpeningTop, kOpeningLeft, kTileTexels));
+    emit_turned_prism(
+        out, x, z, angle, box(left, across(kOpeningRight), face, front, 0.0F, lintel_bottom), pale,
+        upright_part(walls_tile, kOpeningRight, kOpeningTop, kTileTexels, kTileTexels));
+    emit_turned_prism(out, x, z, angle, box(left, kHallRight, face, front, lintel_bottom, kHallTop),
+                      pale, upright_part(walls_tile, 0, 0, kTileTexels, kOpeningTop), roof);
+    emit_rounded_tower(out, x, z, angle,
+                       rounded_plan(kHallRight, half_width, kAnnexBack, kAnnexFront,
+                                    PlanRadii{kAnnexRound, kAnnexRound, kAnnexRound, kAnnexRound}),
+                       ground, ground + kAnnexTop - kAnnexCrown, kAnnexCrown, kAnnexCrownIn,
+                       kAnnexTop, pale, walls, plain_wall, ribs, roof);
+    emit_loft(out, x, z, ground, angle,
+              std::array<LoftStation, 2>{
+                  {{kStackAxisAcross, 0.0F, kStackAxisAlong, kStackRadius, kStackRadius},
+                   {kStackAxisAcross, kStackTop, kStackAxisAlong, kStackRadius, kStackRadius}}},
+              static_cast<std::size_t>(kStackSides), pale, ribs);
+    emit_loft(out, x, z, ground, angle,
+              std::array<LoftStation, 2>{
+                  {{kStackAxisAcross, kBandBottom, kStackAxisAlong, kBandRadius, kBandRadius},
+                   {kStackAxisAcross, kBandTop, kStackAxisAlong, kBandRadius, kBandRadius}}},
+              static_cast<std::size_t>(kStackSides), colour, ribs);
 }
 
 /// The ink and tile a `ShapeRole` asks for. A role is a tone and a tile, no more: Hull wears the
@@ -1166,7 +1351,8 @@ void build_recycler(std::vector<SceneVertex>& out, std::uint64_t seed, const sim
     constexpr float kStripBottom = 0.56F;
     constexpr float kStripTop = 0.6F;
     constexpr float kBodyHalfAcross = 0.5F;
-    constexpr float kBodyChamfer = 0.04F;
+    constexpr float kBodyChamfer = 0.04F; ///< the flanks' bevel, as it was the old body's lean
+    constexpr float kPodBevel = 0.03F;    ///< a track's and a skirt's flank edges
     constexpr float kBodyBack
         = -1.15F; ///< at its foot; the deck overhangs it to the footprint's end
     constexpr float kBodyFront = 0.25F; ///< tucked into the cab
@@ -1197,7 +1383,12 @@ void build_recycler(std::vector<SceneVertex>& out, std::uint64_t seed, const sim
     constexpr float kSlitTop = 0.29F;
     constexpr float kProud = 0.012F;        ///< how far a strip on a raked face stands off it
     constexpr float kCabHalfAcross = 0.52F; ///< at its foot, most of the width
-    constexpr float kCabChamfer = 0.07F;
+    constexpr float kCabChamfer = 0.07F;    ///< the flanks' bevel
+    constexpr float kHatchHalfAcross = 0.2F;
+    constexpr float kHatchBack = 0.3F;
+    constexpr float kHatchFront = 0.58F;
+    constexpr float kHatchSink = 0.1F;    ///< buried in the dome so its sides never float
+    constexpr float kHatchProud = 0.004F; ///< a hair over the roof's flat, so it never z-fights it
     constexpr float kCabBack = 0.15F;
     constexpr float kCabBackTop = 0.22F;
     constexpr float kCabFoot = 1.02F; ///< its face leans back from here to the roof
@@ -1213,6 +1404,8 @@ void build_recycler(std::vector<SceneVertex>& out, std::uint64_t seed, const sim
     constexpr float kRadiatorBack = -1.08F;
     constexpr float kRadiatorFront = -0.7F;
     constexpr float kRadiatorTop = 0.98F;
+    constexpr float kRadiatorSink
+        = 0.17F; ///< into the skirt: its rear end overhangs the rounded shoulder
     constexpr float kBoomInner = 0.5F;
     constexpr float kBoomOuter = 0.58F;
     constexpr float kBoomBack = -0.64F;
@@ -1257,6 +1450,17 @@ void build_recycler(std::vector<SceneVertex>& out, std::uint64_t seed, const sim
     const auto part = [&](const Prism& s, const Vec3& tint, const UvRect& tile) {
         emit_turned_prism(parts, x, z, heading, s, tint, tile);
     };
+    // A ROUNDED mass of the hull: the side profile `profile` ((along, up) corners, any winding)
+    // cut by the SAME `rounded_profile` every vehicle's hull is, swept across `[lo, hi]` with its
+    // flank edges bevelled. The profile is the old prism's side view, so its extent is unchanged
+    // and a cut only ever takes material away.
+    const auto mass = [&](std::vector<std::array<float, 2>> profile, float lo, float hi,
+                          float bevel, const Vec3& tint, const UvRect& tile) {
+        emit_shape_prism(parts, x, z, ground, heading,
+                         ShapePart{rounded_profile(std::move(profile)), lo, hi, false, bevel,
+                                   ShapeRole::Hull, true},
+                         lo, hi, tint, tile);
+    };
     // Where a raked face from (`foot`, `bottom`) back to (`brow`, `top`) is at height `y`.
     const auto raked = [](float foot, float brow, float bottom, float top, float y) {
         return foot - ((foot - brow) * (y - bottom) / (top - bottom));
@@ -1270,9 +1474,11 @@ void build_recycler(std::vector<SceneVertex>& out, std::uint64_t seed, const sim
 
     for (const float side : {-1.0F, 1.0F}) {
         const auto track = flank(side, kTrackInner, kTrackOuter);
-        part(plate(track[0], track[1], -kTrackGround, -kTrackRun, kTrackGround, kTrackRun, 0.0F,
-                   kTrackTop),
-             colour, tracks_tile);
+        mass({{-kTrackGround, 0.0F},
+              {kTrackGround, 0.0F},
+              {kTrackRun, kTrackTop},
+              {-kTrackRun, kTrackTop}},
+             track[0], track[1], kPodBevel, colour, tracks_tile);
         const auto hub = flank(side, kTrackOuter, kWheelOuter);
         for (int wheel = 0; wheel < kWheels; ++wheel) {
             const float centre
@@ -1283,9 +1489,11 @@ void build_recycler(std::vector<SceneVertex>& out, std::uint64_t seed, const sim
                  pale, steel_tile);
         }
         const auto skirt = flank(side, kSkirtInner, kSkirtOuter);
-        part(plate(skirt[0], skirt[1], -kSkirtFoot, -kSkirtShoulder, kSkirtFoot, kSkirtShoulder,
-                   kSkirtBottom, kFender),
-             pale, hull_tile);
+        mass({{-kSkirtFoot, kSkirtBottom},
+              {kSkirtFoot, kSkirtBottom},
+              {kSkirtShoulder, kFender},
+              {-kSkirtShoulder, kFender}},
+             skirt[0], skirt[1], kPodBevel, pale, hull_tile);
     }
     part(box(-kBellyHalfAcross, kBellyHalfAcross, kBellyBack, kBellyFront, kBellyBottom, kTrackTop),
          colour, tracks_tile);
@@ -1296,10 +1504,11 @@ void build_recycler(std::vector<SceneVertex>& out, std::uint64_t seed, const sim
          colour, silver_tile);
 
     // The body: its rear face leans out from its foot to the deck's overhang.
-    emit_turned_chamfer(parts, x, z, heading,
-                        plate(-kBodyHalfAcross, kBodyHalfAcross, kBodyBack, -kHalfLength,
-                              kBodyFront, kBodyFront, kBodyBottom, kDeck),
-                        kBodyChamfer, pale, hull_tile, hull_tile);
+    mass({{kBodyBack, kBodyBottom},
+          {kBodyFront, kBodyBottom},
+          {kBodyFront, kDeck},
+          {-kHalfLength, kDeck}},
+         -kBodyHalfAcross, kBodyHalfAcross, kBodyChamfer, pale, hull_tile);
     part(plate(-kSpineHalfAcross, kSpineHalfAcross, kSpineBack, kSpineBack + kSpineRake,
                kSpineFront, kSpineFront, kDeck, kSpineTop),
          pale, silver_tile);
@@ -1321,17 +1530,24 @@ void build_recycler(std::vector<SceneVertex>& out, std::uint64_t seed, const sim
                kSlitTop),
          colour, silver_tile);
 
-    emit_turned_chamfer(parts, x, z, heading,
-                        plate(-kCabHalfAcross, kCabHalfAcross, kCabBack, kCabBackTop, kCabFoot,
-                              kCabBrow, kCabBottom, kCabRoof),
-                        kCabChamfer, pale, hull_tile, hatch);
+    mass({{kCabBack, kCabBottom},
+          {kCabFoot, kCabBottom},
+          {kCabBrow, kCabRoof},
+          {kCabBackTop, kCabRoof}},
+         -kCabHalfAcross, kCabHalfAcross, kCabChamfer, pale, hull_tile);
+    // The roof hatch is a flat painted panel SET INTO the rounded roof (route b): the crown leaves
+    // only a sliver of true flat, so the panel is sunk into the dome and stands a hair proud.
+    part(box(-kHatchHalfAcross, kHatchHalfAcross, kHatchBack, kHatchFront, kCabRoof - kHatchSink,
+             kCabRoof + kHatchProud),
+         pale, hatch);
     part(plate(-kBandHalfAcross, kBandHalfAcross, kBandBack, kBandBack,
                raked(kCabFoot, kCabBrow, kCabBottom, kCabRoof, kBandBottom) + kProud,
                raked(kCabFoot, kCabBrow, kCabBottom, kCabRoof, kBandTop) + kProud, kBandBottom,
                kBandTop),
          colour, tracks_tile);
 
-    part(box(kRadiatorInner, kRadiatorOuter, kRadiatorBack, kRadiatorFront, kFender, kRadiatorTop),
+    part(box(kRadiatorInner, kRadiatorOuter, kRadiatorBack, kRadiatorFront, kFender - kRadiatorSink,
+             kRadiatorTop),
          pale, ribs);
     part(box(kBoomInner, kBoomOuter, kBoomBack, kBoomFront, kFender, kBoomTop), pale, silver_tile);
     part(box(kHoseInner, kHoseOuter, kHoseBack, kHoseFront, kBoomTop, kHoseTop), colour,

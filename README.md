@@ -151,12 +151,30 @@ The 0.25 is MEASURED: the tank's engine deck, the scavenger's cab and the tank's
 0.25 m is the most they all take in full; the 0.25 m bustle, the 6 cm fender and the thin walls take the 0.45 share of
 their own edge instead. Metal, Track and Glass parts (hatches, arms, wheels, aerials, racks) keep their corners, as
 in AT. A tip that a cut would shorten (the scout's nose, the bomber's tail, the turret's base) is authored out by
-what its cut takes, so no machine got smaller. The defence turret's base and pedestal round with it; the **factory
-and the recycler are NOT rounded**: they are hand-written prisms whose faces carry painted-door and ribbed-wall
-texels addressed by column, so rounding them is a rewrite as profile extrusions, not a constant (the recycler's own
-two bevelled prisms are a lean, not a curve). The silhouette changes (and with it the 72 px plate, which is the
+what its cut takes, so no machine got smaller. The defence turret's base and pedestal round with it; the factory
+and the recycler were left whole by AY (hand-written prisms whose faces carry painted-door and ribbed-wall texels)
+and are rounded by BC, next. The silhouette changes (and with it the 72 px plate, which is the
 same shape seen side on); the crease angle, the sim and every battle hash do not. Drawn triangles for the sixteen:
 9,577 -> 10,500 (+9.6%).
+
+**The factory and the recycler are rounded (BC; presentation only).** Harri: "Add roundness to everything that you are
+asking about." Their faces carry painted art, so the route was chosen per piece, and it is route (b): **the painted
+faces stay flat panels set INTO a rounded mass**, because the factory's door is one 64-texel tile whose opening sits 4
+texels off one edge and 12 off the other, and lofting a wall into a ring crushes that door onto facets a few
+centimetres wide. FACTORY (`build_factory`, `emit_rounded_tower` in `src/game/scene.cpp`): the hall is a tower with a
+rounded plan (its two rear corners are quarter circles, `kCornerFacets` 3 of 30 degrees, so smooth shading blends them)
+and its roof rolled in over the top 0.85 m into a crown; the flat runs of wall keep the walls tile whole and upright at
+its old scale, the facets of a rounded corner wear a plain corrugated strip of the same tile (no door crushed on a
+facet), the door's face, jambs and lintel are untouched and flat, so the door is a door in a rounded wall (the hall's
+front is deliberately the one flat face); the annex is rounded at all four corners with its own small crown; the stack
+and its team band are twelve-sided cylinders. RECYCLER (`build_recycler`): the two tracks, the two skirts, the body and
+the cab are swept side profiles cut by `rounded_profile` (the SAME rule as every vehicle's hull, now public in
+`vehicle_shape.hpp`) with bevelled flanks; the painted and detail parts (wheels, side panel and strip, grilles, bumper
+checker, plow and slit, vision band, radiator, the crane arm) stay flat panels on it, the cab's roof hatch is a flat
+panel sunk into the rounded roof, and the radiator is sunk into the skirt so its rear end does not float over the
+rounded shoulder. Footprint unchanged: every cut and bevel only takes material away (the factory's vertices stay
+inside 0.3 tile of the unit, the recycler's extents 2.36 x 5.2 x 2.5 m are still pinned). Triangles: factory 84 -> 376,
+recycler 396 -> 696. The sim, the crease angle and every battle hash are untouched.
 
 **Round barrels (BA).** Harri: "I think all of the barrels should be round." Every gun and every muzzle collar was
 a four-cornered BOX, which read as a square rod. They are now one round barrel (`emit_barrel`, built on `emit_loft`):

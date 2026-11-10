@@ -110,23 +110,13 @@ Profile chamfer_corners(const Profile& profile, float cut, float max_uncut_turn)
 }
 
 /// Appends a part, its corners counter-clockwise whatever order they were written in. A lit HULL or
-/// LOAD part -- the body of the machine -- has its corners cut (`chamfer_corners`); a cut, and a
+/// LOAD part -- the body of the machine -- has its corners cut (`rounded_profile`); a cut, and a
 /// metal, glass or track part, keeps the corners it was written with.
 void add_part(std::vector<ShapePart>& parts, Profile profile, float lo, float hi, bool mirrored,
               float bevel, ShapeRole role, bool lit = true, ShapeGroup group = ShapeGroup::Hull) {
     const bool body = lit && (role == ShapeRole::Hull || role == ShapeRole::Load);
-    Profile corners = counter_clockwise(std::move(profile));
-    if (body) {
-        // Two passes: the first cuts every corner over 60 degrees (a 90 becomes two 45s); the
-        // second cuts again the few the first left over 66 -- a corner of more than 132 degrees
-        // (the bomber wing's tip, 141) would otherwise be two of 70 and more, too close to the
-        // crease for smooth shading to blend. The tank's glacis foot, 127 degrees, is two 63.7s and
-        // stays so, as AT left it.
-        constexpr float kFirstPassTurnDegrees = 60.0F;
-        constexpr float kSecondPassTurnDegrees = 66.0F;
-        corners = chamfer_corners(corners, kHullChamfer, kFirstPassTurnDegrees);
-        corners = chamfer_corners(corners, kHullChamfer, kSecondPassTurnDegrees);
-    }
+    Profile corners
+        = body ? rounded_profile(std::move(profile)) : counter_clockwise(std::move(profile));
     parts.push_back(ShapePart{std::move(corners), lo, hi, mirrored, bevel, role, lit, group});
 }
 
@@ -927,6 +917,19 @@ bool inside(const Profile& convex, float along, float up) {
 }
 
 } // namespace
+
+std::vector<std::array<float, 2>> rounded_profile(std::vector<std::array<float, 2>> profile) {
+    // Two passes: the first cuts every corner over 60 degrees (a 90 becomes two 45s); the second
+    // cuts again the few the first left over 66 -- a corner of more than 132 degrees (the bomber
+    // wing's tip, 141) would otherwise be two of 70 and more, too close to the crease for smooth
+    // shading to blend. The tank's glacis foot, 127 degrees, is two 63.7s and stays so, as AT left
+    // it.
+    constexpr float kFirstPassTurnDegrees = 60.0F;
+    constexpr float kSecondPassTurnDegrees = 66.0F;
+    Profile corners = counter_clockwise(std::move(profile));
+    corners = chamfer_corners(corners, kHullChamfer, kFirstPassTurnDegrees);
+    return chamfer_corners(corners, kHullChamfer, kSecondPassTurnDegrees);
+}
 
 const std::vector<ShapePart>& shape_of(sim::UnitKind kind) {
     static const std::vector<ShapePart> scavenger = author_scavenger();
