@@ -27,6 +27,7 @@
 #include <cstdlib>
 #include <limits>
 #include <map>
+#include <span>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -426,10 +427,11 @@ struct LoftStation {
 /// its own world normal, flipped to point away from its ring's centre, so a sweep with a bend in
 /// it still lights as one body. A ring with a zero size is a point: that is how a sweep tapers to a
 /// tip.
-template <std::size_t N>
 void emit_loft(std::vector<SceneVertex>& out, float x, float z, float ground, float heading,
-               const std::array<LoftStation, N>& stations, std::size_t sides, const Vec3& colour,
+               std::span<const LoftStation> sweep, std::size_t sides, const Vec3& colour,
                const UvRect& tile) {
+    const std::vector<LoftStation> stations(sweep.begin(), sweep.end()); // `.at()`, no subscript
+    const std::size_t count = stations.size();
     constexpr float kTau = 6.2831853F;
     constexpr float kParallel = 1.0e-4F; ///< a sweep this close to straight up has no "across"
     const auto world = [&](const Vec3& local) {
@@ -441,7 +443,7 @@ void emit_loft(std::vector<SceneVertex>& out, float x, float z, float ground, fl
     for (std::size_t i = 0; i < stations.size(); ++i) {
         const LoftStation& here = stations.at(i);
         const LoftStation& before = stations.at(i == 0 ? 0 : i - 1);
-        const LoftStation& after = stations.at(std::min(i + 1, N - 1));
+        const LoftStation& after = stations.at(std::min(i + 1, count - 1));
         const Vec3 along
             = normalise(Vec3{after.x - before.x, after.y - before.y, after.z - before.z});
         Vec3 right = cross(Vec3{0.0F, 1.0F, 0.0F}, along);
@@ -501,6 +503,63 @@ void emit_loft(std::vector<SceneVertex>& out, float x, float z, float ground, fl
             }
         }
     }
+}
+
+/// THE ALIEN RIB (AZ): a sweep's smooth spine cut into overlapping PLATES, as a sawtooth of rings.
+/// Smooth shading (`smooth_vertex_normals`) averages every pair of faces closer than
+/// `kCreaseAngleDegrees` (75), so a segmentation made of gentle angles -- more sides, a finer
+/// loft -- is blended into a dome. A plate edge has to be a STEP: each of the `plates_per_span`
+/// plates of a span starts `tuck` (a fraction) smaller than the spine, swells to the spine's full
+/// size by its rear edge, and the next plate starts again at the small size just `gap` behind it.
+/// The step between them is a wall nearly square to the sweep (its slant is `kRibSlant` at most, so
+/// its normal is 83 degrees or more from the surface it overlaps) and the swell leans the other
+/// way, so the two meet at 90 degrees and over; the swell itself, being gentle, is averaged into a
+/// smooth plate. The result is a ROUND mass carrying CRISP ridges, which is what a normal average
+/// cannot flatten. The spine's own two ends are kept exactly (a nose, a tail), so a pinched tip
+/// stays a tip and the machine's extent is the spine's: no plate is ever bigger than it.
+/// `gap` is derived from the step's height, never chosen, so the slant holds at every size.
+constexpr float kRibSlant = 0.12F;
+
+std::vector<LoftStation> plated_stations(std::span<const LoftStation> spine,
+                                         std::size_t plates_per_span, float tuck) {
+    std::vector<LoftStation> out;
+    out.reserve(spine.size() * plates_per_span * 2U);
+    const auto mix = [](float a, float b, float t) { return a + ((b - a) * t); };
+    const std::size_t spans = spine.size() - 1U;
+    for (std::size_t span = 0; span < spans; ++span) {
+        const LoftStation& from = *(spine.begin() + static_cast<std::ptrdiff_t>(span));
+        const LoftStation& to = *(spine.begin() + static_cast<std::ptrdiff_t>(span + 1U));
+        const Vec3 run = normalise(Vec3{to.x - from.x, to.y - from.y, to.z - from.z});
+        for (std::size_t plate = 0; plate < plates_per_span; ++plate) {
+            const float t0 = static_cast<float>(plate) / static_cast<float>(plates_per_span);
+            const float t1 = static_cast<float>(plate + 1U) / static_cast<float>(plates_per_span);
+            const auto at = [&](float t, float scale) {
+                return LoftStation{mix(from.x, to.x, t), mix(from.y, to.y, t), mix(from.z, to.z, t),
+                                   mix(from.across, to.across, t) * scale,
+                                   mix(from.up, to.up, t) * scale};
+            };
+            out.push_back(at(t0, 1.0F - tuck));
+            const bool last = span + 1U == spans && plate + 1U == plates_per_span;
+            LoftStation rear = at(t1, 1.0F);
+            if (!last) {
+                const float gap = kRibSlant * tuck * std::min(rear.across, rear.up);
+                rear.x -= run[0] * gap;
+                rear.y -= run[1] * gap;
+                rear.z -= run[2] * gap;
+            }
+            out.push_back(rear);
+        }
+    }
+    out.front() = spine.front();
+    return out;
+}
+
+/// A plated sweep: `plated_stations`, lofted.
+void emit_plated(std::vector<SceneVertex>& out, float x, float z, float ground, float heading,
+                 std::span<const LoftStation> spine, std::size_t plates_per_span, float tuck,
+                 std::size_t sides, const Vec3& colour, const UvRect& tile) {
+    const std::vector<LoftStation> stations = plated_stations(spine, plates_per_span, tuck);
+    emit_loft(out, x, z, ground, heading, stations, sides, colour, tile);
 }
 
 /// ONE ROUND BARREL (BA), for every gun and every collar: a ring of `kBarrelSides` corners swept
@@ -1156,6 +1215,26 @@ void build_scavenger(std::vector<SceneVertex>& out, std::uint64_t seed, const si
                                atlas.rect("tank_turret")});
 }
 
+/// The marked side colour, and its pale camo tint, that the shape-built kinds and the alien kit
+/// wear.
+struct KindColours {
+    Vec3 colour;
+    Vec3 camo;
+};
+KindColours kind_colours(const sim::Unit& unit, Mark mark) {
+    Vec3 colour = side_colour(unit.side);
+    if (mark == Mark::Selected) {
+        colour = highlight(colour);
+    } else if (mark != Mark::None) {
+        colour = aim_tint(colour, mark == Mark::AimedOwn);
+    }
+    Vec3 camo = colour;
+    for (float& channel : camo) {
+        channel += (1.0F - channel) * kHullPaleMix;
+    }
+    return KindColours{colour, camo};
+}
+
 /// THE HARVESTER, the alien Scavenger: the SAME kind as the human hauler, drawn when the unit's
 /// FACTION is Alien (`build_scene` decides, once). Harri's ruling: the alien kit differs in SHAPE,
 /// not only colour, and is more organic -- no flat walls or square corners, ribbed and tapered
@@ -1163,10 +1242,20 @@ void build_scavenger(std::vector<SceneVertex>& out, std::uint64_t seed, const si
 /// mirror, a carapace rather than a hull. It is a grazing animal: a low domed carapace that rises
 /// to its high point just behind the head and tapers to the tail, a tapered PROBOSCIS trailing
 /// behind it and dragging its tip along the ground, six splayed legs, and a crest of side colour
-/// down the spine so the side still reads from the air. Everything is a `emit_loft` sweep of
-/// `kHarvesterSides`-cornered rings, so it is built from one small primitive and turned by
-/// `heading` alone -- nothing on it aims. The carapace wears the team's camo in the pale tint, as
-/// a tank's armour does; the legs and the proboscis are the side colour on the dark track tile.
+/// down the spine so the side still reads from the air.
+///
+/// AZ made it MORE of a bug, and the how is the lesson (`plated_stations`): the carapace, the
+/// proboscis and the legs were smooth lofts whose panels were 36 and 60 degrees apart, inside the
+/// crease angle, so the smooth pass averaged every one and no segmentation survived as shading.
+/// Now each is cut into overlapping PLATES -- a swell and a step -- whose edges meet at 90 degrees
+/// and over, so the machine is still a round mass but wears a trilobite's / an isopod's armour:
+/// twelve shingled plates on the back, a serrated dorsal comb (four-sided, so its blade edges are
+/// 90 degrees too), a segmented tail, jointed legs of overlapping cones, a pair of curved MANDIBLES
+/// (four-sided blades) and two eyes of side colour on the head. Every part is inside the envelope
+/// the smooth loft had, so the machine is the size it was. Everything is an `emit_loft` sweep, so
+/// it is built from one small primitive and turned by `heading` alone -- nothing on it aims. The
+/// carapace wears the team's camo in the pale tint, as a tank's armour does; the rest is the side
+/// colour on the dark track tile (the eyes and the comb on the turret tile, lit).
 /// Large on purpose: 5.5 m long and 2.3 m across against the hauler's 2.6 by 1.2, because a shape
 /// that reads as a small blob across the map is worse than a box.
 void build_harvester(std::vector<SceneVertex>& out, std::uint64_t seed, const sim::Unit& unit,
@@ -1183,12 +1272,16 @@ void build_harvester(std::vector<SceneVertex>& out, std::uint64_t seed, const si
     const UvRect tracks_tile = atlas.rect("tank_tracks");
     const UvRect panel_tile = atlas.rect("tank_turret");
     // Ten corners round is where a ring stops reading as a polygon at the range a harvester is seen
-    // from; the legs are thin enough that six do. All three are the brief's "eight or ten sides".
+    // from; the legs are thin enough that six do; the blades (mandibles, comb) are four, because
+    // their EDGES are the point.
     constexpr std::size_t kCarapaceSides = 10;
+    constexpr std::size_t kTailSides = 8;
     constexpr std::size_t kLegSides = 6;
+    constexpr std::size_t kBladeSides = 4;
+    constexpr std::size_t kEyeSides = 8;
     // The carapace, nose to tail. Its high point (1.2 m) sits just behind the head, a metre over
     // the hauler's roof, and it narrows to the tail. A rounded nose and a rounded tail are rings
-    // that shrink to a point.
+    // that shrink to a point. Two shingled plates to a span, each tucked by a fifth of its size.
     constexpr std::array<LoftStation, 7> kCarapace{{
         {0.0F, 0.42F, 1.30F, 0.02F, 0.02F}, // the nose's tip
         {0.0F, 0.50F, 1.05F, 0.30F, 0.22F}, // the head, low and narrow
@@ -1198,9 +1291,11 @@ void build_harvester(std::vector<SceneVertex>& out, std::uint64_t seed, const si
         {0.0F, 0.52F, -1.10F, 0.42F, 0.26F}, // tapering to the tail
         {0.0F, 0.42F, -1.40F, 0.02F, 0.02F},
     }};
+    constexpr std::size_t kCarapacePlates = 2;
+    constexpr float kCarapaceTuck = 0.22F;
     // The proboscis hangs off the tail and tapers to a tip that rests on the ground, so it reads
     // as dragged. The tip stays 3 cm off the ground, where the terrain's own roughness cannot cut
-    // it away.
+    // it away. Segmented like a tail: two plates to a span, tucked by a third.
     constexpr std::array<LoftStation, 6> kProboscis{{
         {0.0F, 0.42F, -1.10F, 0.24F, 0.20F},
         {0.0F, 0.32F, -1.85F, 0.21F, 0.17F},
@@ -1209,17 +1304,23 @@ void build_harvester(std::vector<SceneVertex>& out, std::uint64_t seed, const si
         {0.0F, 0.07F, -3.90F, 0.05F, 0.04F},
         {0.0F, 0.06F, -4.15F, 0.01F, 0.01F},
     }};
-    // The crest of side colour along the spine, standing a little proud of the carapace's top.
+    constexpr std::size_t kTailPlates = 2;
+    constexpr float kTailTuck = 0.3F;
+    // The dorsal comb of side colour along the spine, four-sided so it is a BLADE, and cut into
+    // teeth: three to a span, tucked by half.
     constexpr std::array<LoftStation, 5> kCrest{{
         {0.0F, 0.99F, 0.62F, 0.03F, 0.05F},
-        {0.0F, 1.26F, 0.05F, 0.09F, 0.11F},
+        {0.0F, 1.24F, 0.05F, 0.09F, 0.11F},
         {0.0F, 1.17F, -0.55F, 0.08F, 0.10F},
         {0.0F, 0.90F, -1.05F, 0.05F, 0.07F},
         {0.0F, 0.79F, -1.28F, 0.01F, 0.01F},
     }};
+    constexpr std::size_t kCrestTeeth = 3;
+    constexpr float kCrestTuck = 0.5F;
     // Three legs a side, from a hip inside the carapace out to a high knee and down to a foot 1.1 m
     // from the centre. The hips follow the carapace's width; the feet are splayed wider than the
-    // dome so the machine stands like a crab, not on a skirt.
+    // dome so the machine stands like a crab, not on a skirt. Each is two jointed segments of
+    // overlapping cones.
     constexpr std::array<float, 3> kLegAlong{0.70F, 0.05F, -0.65F};
     constexpr float kHipAcross = 0.50F;
     constexpr float kHipHeight = 0.60F;
@@ -1227,9 +1328,23 @@ void build_harvester(std::vector<SceneVertex>& out, std::uint64_t seed, const si
     constexpr float kKneeHeight = 0.85F;
     constexpr float kFootAcross = 1.10F;
     constexpr float kFootHeight = 0.03F; ///< the sole just off the ground
-    constexpr float kHipThick = 0.12F;
-    constexpr float kKneeThick = 0.09F;
+    constexpr float kHipThick = 0.13F;
+    constexpr float kKneeThick = 0.10F;
     constexpr float kFootThick = 0.04F;
+    constexpr std::size_t kLegPlates = 2;
+    constexpr float kLegTuck = 0.35F;
+    // The mandibles: curved blades off the head's flanks, closing toward the nose's tip (1.3 m),
+    // which they never pass.
+    constexpr std::array<LoftStation, 4> kMandible{{
+        {0.24F, 0.46F, 0.95F, 0.07F, 0.09F},
+        {0.34F, 0.40F, 1.08F, 0.06F, 0.075F},
+        {0.26F, 0.36F, 1.22F, 0.04F, 0.05F},
+        {0.10F, 0.34F, 1.29F, 0.008F, 0.008F},
+    }};
+    constexpr float kEyeAcross = 0.19F;
+    constexpr float kEyeHeight = 0.69F;
+    constexpr float kEyeAlong = 0.88F;
+    constexpr float kEyeRadius = 0.075F;
 
     Vec3 colour = side_colour(unit.side);
     if (mark == Mark::Selected) {
@@ -1242,9 +1357,12 @@ void build_harvester(std::vector<SceneVertex>& out, std::uint64_t seed, const si
         channel += (1.0F - channel) * kHullPaleMix;
     }
 
-    emit_loft(out, x, z, ground, heading, kCarapace, kCarapaceSides, camo_colour, hull_tile);
-    emit_loft(out, x, z, ground, heading, kProboscis, kLegSides, colour, tracks_tile);
-    emit_loft(out, x, z, ground, heading, kCrest, kLegSides, colour, panel_tile);
+    emit_plated(out, x, z, ground, heading, kCarapace, kCarapacePlates, kCarapaceTuck,
+                kCarapaceSides, camo_colour, hull_tile);
+    emit_plated(out, x, z, ground, heading, kProboscis, kTailPlates, kTailTuck, kTailSides, colour,
+                tracks_tile);
+    emit_plated(out, x, z, ground, heading, kCrest, kCrestTeeth, kCrestTuck, kBladeSides, colour,
+                panel_tile);
     for (const float side : {-1.0F, 1.0F}) {
         for (const float along : kLegAlong) {
             const std::array<LoftStation, 3> leg{{
@@ -1252,9 +1370,233 @@ void build_harvester(std::vector<SceneVertex>& out, std::uint64_t seed, const si
                 {side * kKneeAcross, kKneeHeight, along, kKneeThick, kKneeThick},
                 {side * kFootAcross, kFootHeight, along, kFootThick, kFootThick},
             }};
-            emit_loft(out, x, z, ground, heading, leg, kLegSides, colour, tracks_tile);
+            emit_plated(out, x, z, ground, heading, leg, kLegPlates, kLegTuck, kLegSides, colour,
+                        tracks_tile);
+        }
+        std::array<LoftStation, 4> mandible = kMandible;
+        for (LoftStation& station : mandible) {
+            station.x *= side;
+        }
+        emit_plated(out, x, z, ground, heading, mandible, 1, 0.3F, kBladeSides, colour,
+                    tracks_tile);
+        const std::array<LoftStation, 3> eye{{
+            {side * kEyeAcross, kEyeHeight, kEyeAlong + kEyeRadius, 0.01F, 0.01F},
+            {side * kEyeAcross, kEyeHeight, kEyeAlong, kEyeRadius, kEyeRadius},
+            {side * kEyeAcross, kEyeHeight, kEyeAlong - kEyeRadius, 0.01F, 0.01F},
+        }};
+        emit_loft(out, x, z, ground, heading, eye, kEyeSides, colour, panel_tile);
+    }
+}
+
+/// THE HAULER, the alien Tug: the SAME kind as the human tug, drawn when the unit's FACTION is
+/// Alien (`build_scene` decides, once). A BEAST OF BURDEN, in the Harvester's idiom: a squat ox-
+/// beetle 2.55 m from its horns to its tow-spike, the tug's width and no taller, on four pillar
+/// legs. Its body is a ten-sided loft, nose to tail, cut into shingled plates (`plated_stations`:
+/// the step between two plates is a wall square to the body, so the smooth pass cannot average it
+/// away), and across its back sits a PACK -- a plated ridge of side colour, the load it carries and
+/// the colour the side reads by from above. A pair of curved four-sided HORNS rise off the head and
+/// a four-sided TOW-SPIKE trails behind it where the tug's hitch is. Its extent is the tug's: 2.55
+/// m long (nose -1.45), 1.16 m across at the feet, 1.1 m to the top of the horns.
+void build_hauler(std::vector<SceneVertex>& out, std::uint64_t seed, const sim::Unit& unit,
+                  Mark mark, float lift_z, bool lifted, float heading) {
+    const float x
+        = static_cast<float>(unit.x.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile;
+    const float z
+        = static_cast<float>(unit.y.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile;
+    const float ground = lifted ? lift_z : ground_metres(seed, unit.x, unit.y);
+    const AtlasManifest& atlas = atlas_manifest();
+    const UvRect hull_tile
+        = atlas.rect(kTeamHullNames.at(static_cast<std::size_t>(unit.side))
+                         .at(static_cast<std::size_t>(hull_variant(seed, unit.id.value))));
+    const UvRect tracks_tile = atlas.rect("tank_tracks");
+    const UvRect panel_tile = atlas.rect("tank_turret");
+    constexpr std::size_t kBodySides = 10;
+    constexpr std::size_t kLimbSides = 6;
+    constexpr std::size_t kBladeSides = 4;
+    constexpr std::array<LoftStation, 6> kBody{{
+        {0.0F, 0.60F, 1.10F, 0.02F, 0.02F},  // the muzzle's tip
+        {0.0F, 0.64F, 0.88F, 0.30F, 0.22F},  // the head, broad and low
+        {0.0F, 0.70F, 0.42F, 0.44F, 0.32F},  // the shoulders
+        {0.0F, 0.72F, -0.30F, 0.45F, 0.34F}, // the barrel of the body
+        {0.0F, 0.66F, -0.95F, 0.38F, 0.28F},
+        {0.0F, 0.58F, -1.30F, 0.02F, 0.02F}, // the rump
+    }};
+    constexpr std::size_t kBodyPlates = 2;
+    constexpr float kBodyTuck = 0.2F;
+    // The pack across the back: it stands a few centimetres over the body's top (1.06 m).
+    constexpr std::array<LoftStation, 4> kPack{{
+        {0.0F, 0.98F, 0.28F, 0.02F, 0.02F},
+        {0.0F, 0.98F, 0.10F, 0.28F, 0.12F},
+        {0.0F, 0.98F, -0.50F, 0.26F, 0.12F},
+        {0.0F, 0.96F, -0.72F, 0.02F, 0.02F},
+    }};
+    constexpr std::size_t kPackPlates = 2;
+    constexpr float kPackTuck = 0.3F;
+    // Four legs, stout: a hip inside the body, a knee, a foot flat on the ground.
+    constexpr std::array<float, 2> kLegAlong{0.62F, -0.62F};
+    constexpr float kHipAcross = 0.32F;
+    constexpr float kHipHeight = 0.60F;
+    constexpr float kKneeAcross = 0.46F;
+    constexpr float kKneeHeight = 0.34F;
+    constexpr float kFootAcross = 0.50F;
+    constexpr float kFootHeight = 0.03F;
+    constexpr float kHipThick = 0.15F;
+    constexpr float kKneeThick = 0.11F;
+    constexpr float kFootThick = 0.07F;
+    constexpr std::size_t kLegPlates = 2;
+    constexpr float kLegTuck = 0.3F;
+    // The horns curve up and forward off the head, inside the muzzle's (1.1 m) and the height.
+    constexpr std::array<LoftStation, 4> kHorn{{
+        {0.14F, 0.76F, 0.80F, 0.06F, 0.07F},
+        {0.21F, 0.86F, 0.88F, 0.045F, 0.055F},
+        {0.19F, 0.97F, 0.98F, 0.025F, 0.03F},
+        {0.13F, 1.06F, 1.07F, 0.008F, 0.008F},
+    }};
+    // The tow-spike where the tug's hitch is, reaching 1.45 m behind the centre.
+    constexpr std::array<LoftStation, 3> kSpike{{
+        {0.0F, 0.62F, -1.05F, 0.09F, 0.10F},
+        {0.0F, 0.64F, -1.28F, 0.06F, 0.07F},
+        {0.0F, 0.72F, -1.45F, 0.008F, 0.008F},
+    }};
+
+    const auto [colour, camo_colour] = kind_colours(unit, mark);
+    emit_plated(out, x, z, ground, heading, kBody, kBodyPlates, kBodyTuck, kBodySides, camo_colour,
+                hull_tile);
+    emit_plated(out, x, z, ground, heading, kPack, kPackPlates, kPackTuck, kBodySides, colour,
+                panel_tile);
+    emit_plated(out, x, z, ground, heading, kSpike, 1, 0.3F, kBladeSides, colour, tracks_tile);
+    for (const float side : {-1.0F, 1.0F}) {
+        for (const float along : kLegAlong) {
+            const std::array<LoftStation, 3> leg{{
+                {side * kHipAcross, kHipHeight, along, kHipThick, kHipThick},
+                {side * kKneeAcross, kKneeHeight, along, kKneeThick, kKneeThick},
+                {side * kFootAcross, kFootHeight, along, kFootThick, kFootThick},
+            }};
+            emit_plated(out, x, z, ground, heading, leg, kLegPlates, kLegTuck, kLimbSides, colour,
+                        tracks_tile);
+        }
+        std::array<LoftStation, 4> horn = kHorn;
+        for (LoftStation& station : horn) {
+            station.x *= side;
+        }
+        emit_plated(out, x, z, ground, heading, horn, 1, 0.3F, kBladeSides, colour, tracks_tile);
+    }
+}
+
+/// THE GUARDIAN, the alien Turret: the SAME kind (and the DeployedTurret it becomes) as the human
+/// turret, drawn when the unit's faction is Alien. A GUN EMPLACEMENT THAT IS ALSO AN ANIMAL: it
+/// crouches on a stack of four flaring TIERS (a bracket fungus, a pagoda -- `plated_stations` swept
+/// UP, so each tier is a cone that widens upward and ends in a ledge facing the sky) on four
+/// hooked claws, and its head is a beetle's carapace -- plated like the Harvester's -- that turns
+/// with the aim, with two eyes of side colour, a pair of curved MANDIBLES closing round the
+/// barrel's root, and a thorn that leans back where the human turret has its aerial. The gun is
+/// the same gun: the collar and the barrel are `emit_barrel`, from the same numbers, round, and the
+/// last thing built so the player's elevation still reaches them. The extent is the turret's:
+/// 1.2 m across, 1.4 m of base (the head 1 m), 1.8 m to the thorn's tip, the barrel to 2.0.
+void build_guardian(std::vector<SceneVertex>& out, std::uint64_t seed, const sim::Unit& unit,
+                    Mark mark, float lift_z, bool lifted, float heading, float aim, float pitch) {
+    const float x
+        = static_cast<float>(unit.x.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile;
+    const float z
+        = static_cast<float>(unit.y.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile;
+    const float ground = lifted ? lift_z : ground_metres(seed, unit.x, unit.y);
+    const AtlasManifest& atlas = atlas_manifest();
+    const UvRect hull_tile
+        = atlas.rect(kTeamHullNames.at(static_cast<std::size_t>(unit.side))
+                         .at(static_cast<std::size_t>(hull_variant(seed, unit.id.value))));
+    const UvRect tracks_tile = atlas.rect("tank_tracks");
+    const UvRect panel_tile = atlas.rect("tank_turret");
+    const UvRect barrel_tile = atlas.rect("tank_barrel");
+    constexpr float kBarrelHalfAcross = 0.08F;
+    constexpr float kCollarHalfAcross = 0.13F;
+    constexpr std::size_t kTierSides = 12;
+    constexpr std::size_t kHeadSides = 10;
+    constexpr std::size_t kClawSides = 6;
+    constexpr std::size_t kBladeSides = 4;
+    constexpr std::size_t kEyeSides = 8;
+    // The tiers, swept UP from the ground: each is `across` over the aim and `up` along the heading
+    // (the ring's second axis is the unit's z). Four tiers, tucked by a quarter; the ledge between
+    // two faces the sky.
+    constexpr std::array<LoftStation, 5> kTiers{{
+        {0.0F, 0.00F, 0.0F, 0.60F, 0.70F},
+        {0.0F, 0.32F, 0.0F, 0.52F, 0.60F},
+        {0.0F, 0.58F, 0.0F, 0.46F, 0.50F},
+        {0.0F, 0.84F, 0.0F, 0.40F, 0.42F},
+        {0.0F, 1.10F, 0.0F, 0.32F, 0.32F},
+    }};
+    constexpr float kTierTuck = 0.25F;
+    // The head, nose forward along the aim, 1.1 m to 1.7 m over the ground and 0.9 m across, drawn
+    // out to a point at its muzzle through which the barrel comes.
+    constexpr std::array<LoftStation, 6> kHead{{
+        {0.0F, 1.36F, -0.50F, 0.02F, 0.02F},
+        {0.0F, 1.38F, -0.38F, 0.30F, 0.26F},
+        {0.0F, 1.40F, -0.05F, 0.44F, 0.30F},
+        {0.0F, 1.38F, 0.30F, 0.36F, 0.26F},
+        {0.0F, 1.33F, 0.52F, 0.16F, 0.14F},
+        {0.0F, 1.30F, 0.60F, 0.02F, 0.02F},
+    }};
+    constexpr std::size_t kHeadPlates = 2;
+    constexpr float kHeadTuck = 0.2F;
+    // The thorn on the crown, leaning back; its tip is 1.8 m up, the aerial's height.
+    constexpr std::array<LoftStation, 3> kThorn{{
+        {0.0F, 1.58F, -0.08F, 0.05F, 0.07F},
+        {0.0F, 1.70F, -0.26F, 0.035F, 0.05F},
+        {0.0F, 1.79F, -0.46F, 0.008F, 0.008F},
+    }};
+    // The mandibles, round the barrel's root, which is at 1.2 to 1.36 m up and 0.08 across.
+    constexpr std::array<LoftStation, 4> kMandible{{
+        {0.30F, 1.18F, 0.10F, 0.08F, 0.10F},
+        {0.36F, 1.17F, 0.40F, 0.07F, 0.085F},
+        {0.26F, 1.22F, 0.78F, 0.045F, 0.055F},
+        {0.14F, 1.28F, 0.98F, 0.008F, 0.008F},
+    }};
+    constexpr float kEyeAcross = 0.20F;
+    constexpr float kEyeHeight = 1.60F;
+    constexpr float kEyeAlong = 0.16F;
+    constexpr float kEyeRadius = 0.08F;
+    // Four hooked claws on the ground at the base's corners, from the first tier's flank.
+    constexpr float kClawAcross = 0.50F; ///< the claw's foot; its sole is 3 cm across
+    constexpr float kClawAlong = 0.62F;
+
+    const auto [colour, camo_colour] = kind_colours(unit, mark);
+    emit_plated(out, x, z, ground, heading, kTiers, 1, kTierTuck, kTierSides, camo_colour,
+                hull_tile);
+    for (const float side : {-1.0F, 1.0F}) {
+        for (const float end : {-1.0F, 1.0F}) {
+            const std::array<LoftStation, 3> claw{{
+                {side * 0.34F, 0.46F, end * 0.40F, 0.11F, 0.11F},
+                {side * 0.54F, 0.26F, end * 0.58F, 0.06F, 0.06F},
+                {side * kClawAcross, 0.03F, end * kClawAlong, 0.03F, 0.03F},
+            }};
+            emit_plated(out, x, z, ground, heading, claw, 2, 0.3F, kClawSides, colour, tracks_tile);
         }
     }
+    emit_plated(out, x, z, ground, aim, kHead, kHeadPlates, kHeadTuck, kHeadSides, camo_colour,
+                hull_tile);
+    emit_plated(out, x, z, ground, aim, kThorn, 1, 0.3F, kBladeSides, colour, tracks_tile);
+    for (const float side : {-1.0F, 1.0F}) {
+        std::array<LoftStation, 4> mandible = kMandible;
+        for (LoftStation& station : mandible) {
+            station.x *= side;
+        }
+        emit_plated(out, x, z, ground, aim, mandible, 1, 0.3F, kBladeSides, colour, tracks_tile);
+        const std::array<LoftStation, 3> eye{{
+            {side * kEyeAcross, kEyeHeight, kEyeAlong + kEyeRadius, 0.01F, 0.01F},
+            {side * kEyeAcross, kEyeHeight, kEyeAlong, kEyeRadius, kEyeRadius},
+            {side * kEyeAcross, kEyeHeight, kEyeAlong - kEyeRadius, 0.01F, 0.01F},
+        }};
+        emit_loft(out, x, z, ground, aim, eye, kEyeSides, colour, panel_tile);
+    }
+
+    const std::size_t barrel_first = out.size();
+    emit_barrel(out, x, z, aim, kCollarHalfAcross, kTurretBarrelTip - kTurretCollarLength,
+                kTurretBarrelTip, ground + kTurretCollarBottom, ground + kTurretCollarTop, colour,
+                barrel_tile);
+    emit_barrel(out, x, z, aim, kBarrelHalfAcross, kTurretGunFront,
+                kTurretBarrelTip - kTurretCollarLength, ground + kTurretBarrelBottom,
+                ground + kTurretBarrelTop, colour, barrel_tile);
+    elevate_barrel(out, barrel_first, x, z, aim, kTurretGunFront,
+                   ground + ((kTurretBarrelBottom + kTurretBarrelTop) * 0.5F), pitch);
 }
 
 /// THE RECYCLER, after Battlezone II's ISDF recycler: a heavy tracked factory on the move -- broad,
@@ -1668,29 +2010,6 @@ void build_mortar_bike(std::vector<SceneVertex>& out, std::uint64_t seed, const 
     emit_shape_parts(out, x, z, ground, heading, aim, shape_of(sim::UnitKind::MortarBike),
                      ShapeLook{colour, camo_colour, hull_tile, atlas.rect("tank_tracks"),
                                atlas.rect("tank_turret")});
-}
-
-/// THE FOUR NEW KINDS' SHAPES (the factory's rows 5..8). Every silhouette below is PROVISIONAL and
-/// art-bearing -- a first reading that lets each kind be seen, picked and told apart at a glance,
-/// built only of the boxes the fleet already uses -- and Harri's to correct once he has played it.
-///
-/// The marked side colour, and its pale camo tint, that every one of them wears.
-struct KindColours {
-    Vec3 colour;
-    Vec3 camo;
-};
-KindColours kind_colours(const sim::Unit& unit, Mark mark) {
-    Vec3 colour = side_colour(unit.side);
-    if (mark == Mark::Selected) {
-        colour = highlight(colour);
-    } else if (mark != Mark::None) {
-        colour = aim_tint(colour, mark == Mark::AimedOwn);
-    }
-    Vec3 camo = colour;
-    for (float& channel : camo) {
-        channel += (1.0F - channel) * kHullPaleMix;
-    }
-    return KindColours{colour, camo};
 }
 
 /// THE ASSAULT TANK, built from `shape_of(UnitKind::AssaultTank)`, the one description its plate is
@@ -6193,6 +6512,10 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
                 = faced ? options.facing->turret : gun_yaw(sim, unit, heading) - heading;
             // The barrel's elevation is the driven unit's alone; every other gun is level.
             const float pitch = faced ? options.facing->pitch : 0.0F;
+            // THE ONE DECISION the frame makes about a faction, for the three kinds the aliens
+            // draw their own way (the Harvester, the Guardian, the Hauler): by the unit's FACTION,
+            // never its side.
+            const bool alien = faction_of(options.factions, unit.side) == Faction::Alien;
             if (unit.kind == sim::UnitKind::HoverTank) {
                 build_hover_tank(scene.vertices, options.seed, unit, mark, lift_z, hovering,
                                  heading, turret, pitch);
@@ -6213,11 +6536,16 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
                           turret);
             } else if (unit.kind == sim::UnitKind::Bomber) {
                 build_bomber(scene.vertices, options.seed, unit, mark, lift_z, hovering, heading);
+            } else if (alien && unit.kind == sim::UnitKind::Tug) {
+                build_hauler(scene.vertices, options.seed, unit, mark, lift_z, hovering, heading);
             } else if (unit.kind == sim::UnitKind::Tug || unit.kind == sim::UnitKind::Constructor
                        || unit.kind == sim::UnitKind::ServiceTruck
                        || unit.kind == sim::UnitKind::ServicePod) {
                 build_support_vehicle(scene.vertices, options.seed, unit, mark, lift_z, hovering,
                                       heading);
+            } else if (alien && sim::is_turret(unit.kind)) {
+                build_guardian(scene.vertices, options.seed, unit, mark, lift_z, hovering, heading,
+                               heading + turret, pitch);
             } else if (sim::is_turret(unit.kind)) {
                 // Before the tank branch below: a driven turret is FACED too, and it is built by
                 // the SAME function as one nobody drives -- the player's pitch reaches the barrel
@@ -6229,7 +6557,7 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
                 // borrow the tank's turret. Nothing on a scavenger aims. THE one place a kind's
                 // silhouette follows the unit's FACTION (never its side): the human hauler or the
                 // alien harvester, the same kind either way.
-                if (faction_of(options.factions, unit.side) == Faction::Alien) {
+                if (alien) {
                     build_harvester(scene.vertices, options.seed, unit, mark, lift_z, hovering,
                                     heading);
                 } else {

@@ -2324,6 +2324,9 @@ std::vector<protekt::game::SceneVertex> tank_only(const protekt::sim::Sim& sim,
                                                   const protekt::sim::Unit& tank,
                                                   std::span<const protekt::sim::UnitId> selected) {
     SceneOptions options = at_tank(tank);
+    // The HUMAN machines, whichever side they stand on: the alien kit (AZ) has its own tests.
+    options.factions
+        = protekt::game::Factions{protekt::game::Faction::Human, protekt::game::Faction::Human};
     const auto base = protekt::game::build_scene(sim, options, selected);
     options.hover = SceneOptions::Hovering{tank.id, 1000.0F};
     const auto raised = protekt::game::build_scene(sim, options, selected);

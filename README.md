@@ -395,6 +395,28 @@ behind it, and a crest of the side's colour down the spine, all built from ten-c
 recipe in `kind_icon.cpp` that nothing keeps in step; every other vehicle follows the scavenger, below. The shape is mine to propose and Harri's to judge by
 looking.
 
+**The alien kit (AZ) -- rounder masses, and ribs a normal average cannot flatten.** Harri: "The alien side
+items used to look organic and interesting, but now they look more 'normal'. ... And lots of rounding", and
+"Geometry with ribs steeper than the crease angle." This is a TRY-IT: the forms are my proposal, and if they
+disappoint it is one commit to revert. Read this before you look. Smooth shading averages every pair of faces
+closer than `kCreaseAngleDegrees` (75 degrees), so the old Harvester's 36-degree carapace panels and 60-degree
+leg facets were all blended into a dome and no segmentation survived. Raising a side count only smooths more.
+So detail is built as STEPS: `plated_stations` cuts a smooth sweep into overlapping PLATES -- each swells to the
+full size and the next starts tucked in just behind it, so the edge between plates is a wall almost square to
+the body that meets its neighbours at 90 degrees and over. The masses stay round (ten-sided rings); the plates
+are crisp. What you should see:
+- the **Harvester** (more bug): twelve shingled plates down the back like an isopod, a serrated dorsal comb, a
+  segmented tail, six jointed legs of stacked cones, two curved mandibles and two eyes of the side colour;
+- the **Guardian** (the aliens' Turret, a gun that is also an animal): crouched on four hooked claws under a
+  stack of four flaring tiers, like a bracket fungus or a pagoda, with a beetle's carapace for a head that turns
+  with the aim, two eyes, mandibles closing round the barrel's root, and a thorn leaning back where the human
+  turret has its aerial. The gun itself is the same round gun;
+- the **Hauler** (the aliens' Tug, a beast of burden): a squat plated ox-beetle on four pillar legs with a plated
+  PACK of the side colour across its back, a pair of horns, and a tow-spike where the tug has its hitch.
+The sizes stay: the Harvester is the size it was; the Guardian and the Hauler fit inside the turret's and the
+tug's extents. The faction is chosen once, in `build_scene`, as it was for the scavenger; every other kind is
+still the human model on both sides. No sim, hitbox, label or name changed.
+
 **One shape for a kind: the scavenger's model and its icon come from the same description.**
 Harri: "If the vehicles and buildings actually looked like [the icons]". Rather than modelling a mesh to
 match a drawing, the scavenger's silhouette is written ONCE, in `src/game/vehicle_shape.cpp`

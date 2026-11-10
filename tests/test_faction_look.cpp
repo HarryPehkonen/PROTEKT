@@ -35,9 +35,10 @@ constexpr int kTile = 60;
 /// and the wheels. A human mesh that moves moves this; the shape's own size is pinned in
 /// test_vehicle_shape.cpp.
 constexpr std::size_t kHumanScavengerVertices = 4098;
-/// The alien harvester's, read off its first build: the shadow (6) and its ten-cornered carapace,
-/// proboscis, crest and six legs. Anti-vacuity's other half: a collapsed shape changes this.
-constexpr std::size_t kAlienHarvesterVertices = 1362;
+/// The alien harvester's, read off its build: the shadow (6) and its plated carapace, segmented
+/// proboscis, serrated comb, six jointed legs, two mandibles and two eyes (1362 before AZ plated
+/// it). Anti-vacuity's other half: a collapsed shape changes this.
+constexpr std::size_t kAlienHarvesterVertices = 5130;
 /// RE-PINNED DELIBERATELY (AP, smooth shading): the hauler's geometry is unchanged (the count and
 /// every position are as they were) but the frame now draws it from an UNLIT ink and a smoothed
 /// NORMAL (quantised to 1e-4), both of which the hash covers. Was 11065493855963779442 with the
@@ -150,7 +151,7 @@ TEST(FactionLook, TheSameKindIsDrawnDifferentlyForAHumanAndAnAlien) {
         moved += human.at(i).position == alien.at(i).position ? 0U : 1U;
     }
     EXPECT_GT(moved * 10U, shared * 9U) << moved << " of " << shared << " vertices moved";
-    // The harvester's own count: 6 shadow vertices and 1356 body, against the hauler's 3594 in all.
+    // The harvester's own count: 6 shadow vertices and 5124 body, against the hauler's 3594 in all.
     EXPECT_EQ(alien.size(), kAlienHarvesterVertices);
     EXPECT_EQ(human.size(), kHumanScavengerVertices);
 }
