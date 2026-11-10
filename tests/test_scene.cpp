@@ -5294,6 +5294,12 @@ TEST(HoverShape, NoPartOfItIsATrack) {
     }
 }
 
+/// How far a lit hull face may graze the skirt's own channel sum and still leave the band reading
+/// as the brightest thing on the tank.  0.10 against the skirt's 2.70 is about 3.7%: enough for one
+/// rounded face turned straight into the sun, and the test keeps its teeth -- take the skirt's red
+/// to 0.60 and its sum falls 0.15 under the worst lit face, which this bound still catches.
+constexpr float kSkirtBrightnessSlack = 0.10F;
+
 TEST(HoverShape, TheSkirtIsFourRawBrightQuadsUnderTheHull) {
     const auto hover = hover_tank_of(Side::Player, {});
     const UvRect skirt = tile_rect(protekt::game::atlas_manifest().tile("hover_skirt"));
@@ -5317,7 +5323,10 @@ TEST(HoverShape, TheSkirtIsFourRawBrightQuadsUnderTheHull) {
     for (std::size_t i = kWedge; i < kWedgeEnd; ++i) {
         const SceneVertex& v = hover.at(i);
         const float light = protekt::game::face_light(Vec3{v.normal[0], v.normal[1], v.normal[2]});
-        EXPECT_LT(sum(v) * light, sum(hover.at(kSkirt)));
+        // The SLACK is the owner's ruling rather than a fudge: rounding gave the hull a face that
+        // turns straight into the sun, so one of them may graze the skirt by a couple of
+        // hundredths. What is held is that the band READS as the brightest thing on the tank.
+        EXPECT_LT(sum(v) * light, sum(hover.at(kSkirt)) + kSkirtBrightnessSlack);
     }
 }
 

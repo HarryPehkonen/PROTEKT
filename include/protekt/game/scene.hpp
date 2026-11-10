@@ -780,12 +780,16 @@ private:
 /// full side colour: they are the team-identity accents.
 inline constexpr float kHullPaleMix = 0.85F;
 
-/// The hover skirt's colour: a hot pale cyan (red 0.78; AY raised it from 0.70 because a rounded
-/// hull has faces that turn straight into the sun, and the lit pale camo reaches 2.75 in channel
-/// sum where the old square hull's best face was under 2.70), RAW -- never lit, never marked -- so
-/// the band of lift under a hover tank stays the brightest thing on it from every side and in every
+/// The hover skirt's colour: a hot pale cyan at red 0.70, RAW -- never lit, never marked -- so the
+/// band of lift under a hover tank stays the brightest thing on it from every side and in every
 /// mark.
-inline constexpr math::Vec3 kHoverSkirtColour{0.78F, 1.0F, 1.0F};
+///
+/// 0.70 and no more, BY THE OWNER'S RULING (2026-11-09).  AY raised it to 0.78 when AY's rounding
+/// gave the hull a face that turns straight into the sun and the lit pale camo reached 2.75 in
+/// channel sum against the old hull's 2.70.  Asked to choose, he kept the colour and let the TEST
+/// carry the slack instead: what is worth holding is that the band READS as the brightest thing,
+/// not the exact sum that used to express it.  See `kSkirtBrightnessSlack` in tests/test_scene.cpp.
+inline constexpr math::Vec3 kHoverSkirtColour{0.70F, 1.0F, 1.0F};
 
 /// A drawn hover tank: the parts of `shape_of(UnitKind::HoverTank)` (three stepped wedge sections,
 /// the fin and the turret, each a chamfered extrusion), then the four skirt quads and the barrel,
