@@ -642,6 +642,7 @@ Then any of:
 
 # the game with a window (needs SDL3 + Vulkan; --gpu picks a device by substring)
 ./build/protekt-game --seed 42
+./build/protekt-game --seed 42 --alien            # play the alien side
 
 # full screen from the start (F11 and Alt+Enter toggle it while playing; Ctrl+Q quits)
 ./build/protekt-game --seed 42 --fullscreen

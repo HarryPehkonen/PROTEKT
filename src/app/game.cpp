@@ -44,6 +44,9 @@ namespace protekt::app {
 namespace {
 
 struct Options {
+    /// `--alien`: play on the ALIEN side, with the humans as the enemy -- the story-mission swap
+    /// `faction.hpp` anticipates.  Presentation and data only; the sim is untouched.
+    bool alien{false};
     std::uint64_t seed{42};
     /// 0 means `until the window is closed`, which is what playing is. A positive count is a
     /// SCRIPTED run: exactly that many frames, no pacing, so a capture is reproducible.
@@ -292,6 +295,10 @@ int parse_args(std::span<const std::string_view> args, Options& options, std::os
             options.fxaa = false;
         } else if (arg == "--autodrive") {
             options.autodrive = true;
+        } else if (arg == "--alien") {
+            // Which side the player plays: the flag swaps the pair, and everything that reads a
+            // faction -- names, build lists, the alien kit's shapes -- follows from it.
+            options.alien = true;
         } else if (arg == "--seed") {
             if (!next(value)) {
                 return 2;
@@ -439,6 +446,7 @@ public:
         scene_options.show_motes = true;       // the specks in the air (AH): view-only
         scene_options.nav_marks = &nav_marks_; // G-then-a-number reads the marks
         scene_options.row = &row_;             // F1-F10 select what the row holds
+        scene_options.factions = game::factions_for(options_.alien); // --alien swaps the pair
         player_alive_before_ = is_alive(sim_, session_.driven());
         if (paused_) {
             // Nothing is asked of the sim: not the player's orders, not the enemy's reply. An order

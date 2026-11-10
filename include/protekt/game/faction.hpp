@@ -24,6 +24,14 @@ struct Factions {
     Faction enemy{Faction::Alien};
 };
 
+/// The faction pair a run plays with.  Default: the player plays the humans and the enemy plays the
+/// aliens.  `true` swaps them -- the story-mission case `Factions`' own comment anticipates -- so
+/// the player's machines wear the alien kit and the enemy's wear the human one.  Presentation and
+/// data only: the sim knows no faction, so no kind, side, hash or recorded battle moves with it.
+[[nodiscard]] constexpr Factions factions_for(bool alien) noexcept {
+    return alien ? Factions{Faction::Alien, Faction::Human} : Factions{};
+}
+
 /// The faction `side` plays under `factions`.
 [[nodiscard]] constexpr Faction faction_of(const Factions& factions, sim::Side side) noexcept {
     return side == sim::Side::Player ? factions.player : factions.enemy;

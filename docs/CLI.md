@@ -122,6 +122,12 @@ the `wants` line (the refusal for a bad value). All refusals are exit 2 unless n
 | `--scenario` | `FILE` | play the composition in a TOML file instead of the built-in one; there is no search path | `protekt-game: --scenario FILE: <reason>` (exit 2, before any window opens) |
 | `--ticks-per-frame` | `N` (positive) | sim ticks per frame in a scripted run (default 1); with no `--frames` it has no effect, play runs on the wall clock at 30 Hz | `protekt-game: --ticks-per-frame wants a positive number` |
 
+### Sides
+
+| flag | argument | what it does | refusal |
+|---|---|---|---|
+| `--alien` | none | play on the ALIEN side, with the humans as the enemy: the names, the build lists and the alien kit's shapes all follow from the swap. Presentation and data only -- the sim knows no faction, so no state hash and no recorded battle moves with it | none |
+
 ### Camera and capture
 
 | flag | argument | what it does | refusal |

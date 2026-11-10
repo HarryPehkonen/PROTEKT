@@ -18,6 +18,7 @@
 #include <vector>
 
 #include "protekt/app/game.hpp"
+#include "protekt/game/faction.hpp"
 #include "protekt/game/pick.hpp"
 #include "protekt/game/radar.hpp"
 #include "protekt/game/scene.hpp"
@@ -197,6 +198,64 @@ TEST_F(GameCliTest, TheWorldMovesBetweenFrames) {
         << "150 ticks left the world in the same state as one: nothing is being simulated";
     EXPECT_EQ(slurp(early), slurp(later))
         << "if the picture DID change with no input, the camera or the scene is drifting";
+}
+
+// --- --alien: the story-mission swap ------------------------------------------------------------
+
+TEST_F(GameCliTest, AlienIsAFlagRatherThanAnUnknownOption) {
+    if (kUnderThreadSanitizer) {
+        GTEST_SKIP() << kTsanReason;
+    }
+    std::string err;
+    EXPECT_EQ(run({"--headless", "--no-sound", "--frames", "1", "--alien"}, err), 0) << err;
+}
+
+TEST(GameFactions, AlienSwapsThePairAndTheHumansAreTheDefault) {
+    const protekt::game::Factions plain = protekt::game::factions_for(false);
+    EXPECT_EQ(plain.player, protekt::game::Faction::Human);
+    EXPECT_EQ(plain.enemy, protekt::game::Faction::Alien);
+    const protekt::game::Factions swapped = protekt::game::factions_for(true);
+    EXPECT_EQ(swapped.player, protekt::game::Faction::Alien);
+    EXPECT_EQ(swapped.enemy, protekt::game::Faction::Human);
+}
+
+/// The flag has to REACH THE FRAME, not merely parse: with the players swapped, a machine that has
+/// an alien twin (a scavenger, a turret or a tug) draws as the other animal, so the same seed's
+/// capture cannot come out identical.
+/// The flag has to REACH THE DRAWING, not merely parse.  The built-in battle is no use for this:
+/// at seed 42 the machines in view are tanks and a hover tank, which have no alien twin, so the
+/// default frame is byte-identical with and without the flag.  This scenario puts the three kinds
+/// that DO have one -- a scavenger, a turret and a tug -- beside the driven tank, so the swap
+/// shows.
+TEST_F(GameCliTest, TheAlienFlagReachesTheFrame) {
+    if (kUnderThreadSanitizer) {
+        GTEST_SKIP() << kTsanReason;
+    }
+    std::string err;
+    const std::string scenario = temp_path("twins.toml");
+    {
+        std::ofstream file(scenario);
+        file << "[[group]]\nkind = \"tank\"\ncount = 1\ndx = 8\ndy = 2\n\n"
+             << "[[group]]\nkind = \"scavenger\"\ncount = 1\ndx = 7\ndy = 2\n\n"
+             << "[[group]]\nkind = \"turret\"\ncount = 1\ndx = 9\ndy = 2\n\n"
+             << "[[group]]\nkind = \"tug\"\ncount = 1\ndx = 8\ndy = 3\n";
+    }
+    const std::string human = temp_path("human.ppm");
+    const std::string alien = temp_path("alien.ppm");
+    const auto capture_args = [&](const std::string& out_path, bool alien) {
+        std::vector<std::string_view> args{"--headless", "--no-sound", "--frames",   "2",
+                                           "--seed",     "42",         "--scenario", scenario};
+        if (alien) {
+            args.push_back("--alien");
+        }
+        args.push_back("--capture");
+        args.push_back(out_path);
+        return args;
+    };
+    ASSERT_EQ(run(capture_args(human, false), err), 0) << err;
+    ASSERT_EQ(run(capture_args(alien, true), err), 0) << err;
+    EXPECT_NE(slurp(human), slurp(alien))
+        << "the alien kit has to be visible in the frame, not just parsed";
 }
 
 TEST_F(GameCliTest, RejectsAnUnknownFlag) {
