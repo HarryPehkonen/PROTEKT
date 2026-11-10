@@ -740,6 +740,7 @@ tests/            unit, integration and characterization tests
 fuzz/             libFuzzer targets
 tools/ci.sh       the gate
 docs/PLAN.md      the plan, the measured results, and the known gaps
+docs/BASE.md      the base: producers, what each builds, buildings, power, upgrades
 ```
 
 The architecture in one line: **the simulation is the game, and every front end is a client of it.**
