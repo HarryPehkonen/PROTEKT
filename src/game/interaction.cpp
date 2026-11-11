@@ -685,9 +685,12 @@ void Interaction::menu_digit(const sim::Sim& sim, const SceneOptions& options, i
     const auto row = std::find_if(rows.begin(), rows.end(), [&label](const MenuRow& candidate) {
         return candidate.key == std::string_view{&label, 1};
     });
-    // A build row acts whether or not the model dims it: Unaffordable only says the bank is short
-    // NOW, and a queue that runs short of scrap pauses and resumes -- it is never refused for it.
-    // So this runs before the enabled test below, which every other row is held to.
+    // A build row obeys the model's dim like every other row (the owner's ruling, round 16): a row
+    // drawn Unaffordable is not a command, and the press is refused HERE, at the order, by reading
+    // the row's own `enabled` -- the one predicate (`append_build_list`'s `ore >= cost`) that also
+    // draws the dim, so the two cannot drift apart. What is NOT refused is a queue already ordered
+    // that runs short of scrap later: the sim still pauses and resumes it (`production_step`).
+    // So this runs before the enabled test below only because a build row queues instead of acting.
     if ((in.subject == MenuSubject::Deployment || in.subject == MenuSubject::Factory)
         && row != rows.end()) {
         const std::span<const BuildItem> items = build_items(in.faction, in.subject);
@@ -696,6 +699,14 @@ void Interaction::menu_digit(const sim::Sim& sim, const SceneOptions& options, i
                   return candidate.key == row->key;
               });
         if (item != items.end()) {
+            if (!row->enabled) {
+                // Refused WHOLE: a shifted batch holds its earlier presses back until shift goes
+                // up, and those go too, so letting go cannot order part of a refused batch.
+                held_.clear();
+                shift_batch_ = 0;
+                refuse("Not enough scrap to build that.");
+                return;
+            }
             queue_build(sim, *item, shift);
             return;
         }

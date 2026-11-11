@@ -1994,6 +1994,7 @@ void service_repair_step(std::vector<Unit>& units) {
 Sim Sim::create(const Scenario& scenario) {
     Sim sim;
     sim.scenario_ = scenario;
+    sim.ore_.at(static_cast<std::size_t>(Side::Player)) = scenario.start_ore;
     sim.units_.reserve(scenario.spawns.size());
     for (const Spawn& spawn : scenario.spawns) {
         // Out-of-range spawns are clamped onto the map rather than rejected: total, not UB.

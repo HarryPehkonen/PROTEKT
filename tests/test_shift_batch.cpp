@@ -55,9 +55,14 @@ struct Rig {
     Interaction player;
 };
 
-[[nodiscard]] Rig make_rig(UnitKind producer_kind, bool funded) {
+/// A bank that covers any one press: the build rows are dimmed (and refused) when it is short.
+constexpr std::uint16_t kBank = 200;
+
+[[nodiscard]] Rig make_rig(UnitKind producer_kind, bool funded, std::uint16_t bank = 0) {
     Scenario scenario{
         kSeed, {{UnitKind::Tank, Side::Player, 40, 40}, {producer_kind, Side::Player, 46, 41}}};
+    scenario.store_capacity = bank > 0 ? 400 : scenario.store_capacity;
+    scenario.start_ore = bank;
     if (funded) {
         scenario.spawns.push_back({UnitKind::Scavenger, Side::Player, 48, 47});
         scenario.spawns.push_back({UnitKind::Scavenger, Side::Player, 48, 48});
@@ -131,7 +136,7 @@ constexpr std::int32_t kRow3 = input::kKey1 + 2; ///< the factory's third row: t
 // -------------------------------------------------
 
 TEST(ShiftBatch, PressesWhileShiftIsHeldOrderNothingAndLettingGoOrdersThemAll) {
-    Rig rig = make_rig(UnitKind::DeployedRecycler, false);
+    Rig rig = make_rig(UnitKind::DeployedRecycler, false, kBank);
     EXPECT_TRUE(frame(rig, {down(input::kKeyLShift, true)}).empty());
     EXPECT_TRUE(frame(rig, {down(kRow1, true)}).empty()) << "held: not ordered yet";
     EXPECT_TRUE(frame(rig, {down(kRow1, true)}).empty());
@@ -151,7 +156,7 @@ TEST(ShiftBatch, PressesWhileShiftIsHeldOrderNothingAndLettingGoOrdersThemAll) {
 }
 
 TEST(ShiftBatch, TheRightShiftKeyLetsGoToo) {
-    Rig rig = make_rig(UnitKind::DeployedRecycler, false);
+    Rig rig = make_rig(UnitKind::DeployedRecycler, false, kBank);
     EXPECT_TRUE(frame(rig, {down(input::kKeyRShift, true), down(kRow1, true)}).empty());
     EXPECT_EQ(builds_in(frame(rig, {up(input::kKeyRShift, false)})), 1U);
 }
@@ -159,7 +164,7 @@ TEST(ShiftBatch, TheRightShiftKeyLetsGoToo) {
 TEST(ShiftBatch, AKeyLeavingWhileShiftIsStillDownDoesNotStartTheBatch) {
     // The release that matters is SHIFT's. Another key going up -- the digit just pressed, or a
     // driving key -- must not be read as "shift is up".
-    Rig rig = make_rig(UnitKind::DeployedRecycler, false);
+    Rig rig = make_rig(UnitKind::DeployedRecycler, false, kBank);
     EXPECT_TRUE(frame(rig, {down(input::kKeyLShift, true), down(kRow1, true)}).empty());
     EXPECT_TRUE(frame(rig, {up(kRow1, true)}).empty()) << "the digit key coming up";
     EXPECT_TRUE(frame(rig, {up(input::kKeyW, true)}).empty()) << "an unrelated key coming up";
@@ -171,7 +176,7 @@ TEST(ShiftBatch, AKeyLeavingWhileShiftIsStillDownDoesNotStartTheBatch) {
 
 TEST(ShiftBatch, ShiftReleasedAndPressedAgainBeginsAFreshHold) {
     // Down, press, up: ordered. Then down and a press again: held once more, not leaked.
-    Rig rig = make_rig(UnitKind::DeployedRecycler, false);
+    Rig rig = make_rig(UnitKind::DeployedRecycler, false, kBank);
     frame(rig, {down(input::kKeyLShift, true), down(kRow1, true)});
     ASSERT_EQ(builds_in(frame(rig, {up(input::kKeyLShift, false)})), 1U);
     ASSERT_TRUE(frame(rig, {down(input::kKeyLShift, true)}).empty());
@@ -182,7 +187,7 @@ TEST(ShiftBatch, ShiftReleasedAndPressedAgainBeginsAFreshHold) {
 TEST(ShiftBatch, AKeyPressedWithoutShiftMeansShiftIsAlreadyUp) {
     // A release the window never saw (focus lost with shift down) must not hold the batch for ever:
     // the next press made with no shift modifier proves shift is up, and the batch begins.
-    Rig rig = make_rig(UnitKind::DeployedRecycler, false);
+    Rig rig = make_rig(UnitKind::DeployedRecycler, false, kBank);
     frame(rig, {down(input::kKeyLShift, true), down(kRow1, true), down(kRow1, true)});
     ASSERT_EQ(queued(rig), 0U);
     const std::vector<Order> orders = frame(rig, {down(input::kKeyW, false)});
@@ -192,18 +197,18 @@ TEST(ShiftBatch, AKeyPressedWithoutShiftMeansShiftIsAlreadyUp) {
 TEST(ShiftBatch, AShiftedPressWithNoShiftKeyEventIsStillHeldUntilARelease) {
     // The tests and the replays of old drove the digit with the flag alone: the flag says shift is
     // down, so the press is held, and a pressed key without the flag is what lets it go.
-    Rig rig = make_rig(UnitKind::DeployedRecycler, false);
+    Rig rig = make_rig(UnitKind::DeployedRecycler, false, kBank);
     EXPECT_TRUE(frame(rig, {down(kRow1, true)}).empty());
     EXPECT_EQ(builds_in(frame(rig, {down(input::kKeyW, false)})), 1U);
 }
 
 TEST(ShiftBatch, ABarePressStillOrdersAtOnce) {
-    Rig rig = make_rig(UnitKind::DeployedRecycler, false);
+    Rig rig = make_rig(UnitKind::DeployedRecycler, false, kBank);
     EXPECT_EQ(builds_in(frame(rig, {down(kRow1, false)})), 1U) << "no shift, no waiting";
 }
 
 TEST(ShiftBatch, HeldPressesCountAgainstTheQueueCapAndTheKindRule) {
-    Rig rig = make_rig(UnitKind::DeployedRecycler, false);
+    Rig rig = make_rig(UnitKind::DeployedRecycler, false, kBank);
     std::vector<KeyEvent> keys{down(input::kKeyLShift, true)};
     for (std::size_t n = 0; n < sim::kBuildQueueDepth + 1; ++n) {
         keys.push_back(down(kRow1, true));
@@ -218,7 +223,7 @@ TEST(ShiftBatch, HeldPressesCountAgainstTheQueueCapAndTheKindRule) {
 // ---- RULE 2: TAB before letting go cancels it all -----------------------------------------------
 
 TEST(ShiftBatch, TabBeforeLettingGoCancelsTheWholeBatchAndNothingIsBuilt) {
-    Rig rig = make_rig(UnitKind::DeployedRecycler, false);
+    Rig rig = make_rig(UnitKind::DeployedRecycler, false, kBank);
     frame(rig,
           {down(input::kKeyLShift, true), down(kRow1, true), down(kRow1, true), down(kRow1, true)});
     const std::vector<Order> at_tab = frame(rig, {down(input::kKeyTab, true)});
@@ -234,7 +239,7 @@ TEST(ShiftBatch, TabBeforeLettingGoCancelsTheWholeBatchAndNothingIsBuilt) {
 }
 
 TEST(ShiftBatch, TabInTheSameFrameAsThePressesCancelsThemToo) {
-    Rig rig = make_rig(UnitKind::DeployedRecycler, false);
+    Rig rig = make_rig(UnitKind::DeployedRecycler, false, kBank);
     const std::vector<Order> orders
         = frame(rig, {down(input::kKeyLShift, true), down(kRow1, true), down(kRow1, true),
                       down(input::kKeyTab, true), up(input::kKeyLShift, false)});
@@ -245,7 +250,7 @@ TEST(ShiftBatch, TabInTheSameFrameAsThePressesCancelsThemToo) {
 TEST(ShiftBatch, TabAfterLettingGoCancelsNothing) {
     // Order matters within one frame: [shift up, Tab] lets go FIRST, so the batch has begun and a
     // bare Tab is only the selection clear it always was.
-    Rig rig = make_rig(UnitKind::DeployedRecycler, false);
+    Rig rig = make_rig(UnitKind::DeployedRecycler, false, kBank);
     const std::vector<Order> orders
         = frame(rig, {down(input::kKeyLShift, true), down(kRow1, true), down(kRow1, true),
                       up(input::kKeyLShift, false), down(input::kKeyTab, false)});
@@ -256,7 +261,7 @@ TEST(ShiftBatch, TabAfterLettingGoCancelsNothing) {
 }
 
 TEST(ShiftBatch, AfterACancelTheBatchCanBeRedone) {
-    Rig rig = make_rig(UnitKind::DeployedRecycler, false);
+    Rig rig = make_rig(UnitKind::DeployedRecycler, false, kBank);
     frame(rig, {down(input::kKeyLShift, true), down(kRow1, true), down(input::kKeyTab, true),
                 up(input::kKeyLShift, false)});
     ASSERT_EQ(queued(rig), 0U);
@@ -269,7 +274,7 @@ TEST(ShiftBatch, AfterACancelTheBatchCanBeRedone) {
 // ---- RULE 3: SHIFT-TAB on the builder cancels the rest ------------------------------------------
 
 TEST(ShiftBatch, ShiftTabOnTheBuilderMidBatchCancelsTheRestAndWhatIsBuiltStays) {
-    Rig rig = make_rig(UnitKind::Factory, true);
+    Rig rig = make_rig(UnitKind::Factory, true, kBank);
     // Let the haulers bank enough for the first tank, then queue four.
     for (int tick = 0;
          tick < 20000 && rig.sim.ore(Side::Player) < sim::spec_of(UnitKind::Tank).cost; ++tick) {
@@ -300,7 +305,7 @@ TEST(ShiftBatch, ShiftTabOnTheBuilderMidBatchCancelsTheRestAndWhatIsBuiltStays) 
 
 TEST(ShiftBatch, PlainTabMidBatchDoesNotCancelTheRest) {
     // The modifier is what distinguishes the two: Tab alone only clears the selection.
-    Rig rig = make_rig(UnitKind::DeployedRecycler, false);
+    Rig rig = make_rig(UnitKind::DeployedRecycler, false, kBank);
     frame(rig, {down(input::kKeyLShift, true), down(kRow1, true), down(kRow1, true),
                 up(input::kKeyLShift, false)});
     ASSERT_EQ(queued(rig), 2U);
@@ -310,7 +315,7 @@ TEST(ShiftBatch, PlainTabMidBatchDoesNotCancelTheRest) {
 }
 
 TEST(ShiftBatch, ShiftTabWithNothingQueuedOrdersNothing) {
-    Rig rig = make_rig(UnitKind::DeployedRecycler, false);
+    Rig rig = make_rig(UnitKind::DeployedRecycler, false, kBank);
     EXPECT_TRUE(frame(rig, {down(input::kKeyTab, true)}).empty());
 }
 
@@ -319,6 +324,8 @@ TEST(ShiftBatch, ShiftTabCancelsTheSelectedBuilderAndNotAnotherOne) {
                       {{UnitKind::Tank, Side::Player, 40, 40},
                        {UnitKind::DeployedRecycler, Side::Player, 46, 41},
                        {UnitKind::Factory, Side::Player, 50, 45}}};
+    scenario.store_capacity = 400;
+    scenario.start_ore = kBank; // both presses need a bank that covers their row
     sim::Sim sim = sim::Sim::create(scenario);
     const sim::UnitId recycler = sim.units().at(1).id;
     const sim::UnitId factory = sim.units().at(2).id;
@@ -345,7 +352,7 @@ TEST(ShiftBatch, ShiftTabCancelsTheSelectedBuilderAndNotAnotherOne) {
 // --------------------------------------------------------------------
 
 TEST(CancelBuild, EmptiesTheQueueAndGivesBackWhatTheCurrentEntryPaid) {
-    Rig rig = make_rig(UnitKind::Factory, true);
+    Rig rig = make_rig(UnitKind::Factory, true, kBank);
     const std::uint16_t cost = sim::spec_of(UnitKind::Tank).cost;
     for (int tick = 0; tick < 20000 && rig.sim.ore(Side::Player) < cost; ++tick) {
         rig.sim.step();

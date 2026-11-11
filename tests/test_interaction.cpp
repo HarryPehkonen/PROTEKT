@@ -2,13 +2,16 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <string>
 #include <utility>
 #include <variant>
 #include <vector>
 
+#include "protekt/game/menu.hpp"
 #include "protekt/game/pick.hpp"
 #include "protekt/game/row.hpp"
 #include "protekt/game/scene.hpp"
@@ -1708,9 +1711,21 @@ struct BuildRig {
     Interaction player;
 };
 
+/// A tank and a producer, with a bank that covers any one build row: a row the bank cannot cover is
+/// dimmed and its press is refused (round 16), so a rig that presses build keys must be funded.
+/// `poor_producer_scenario` is the same battle with the bank empty.
 [[nodiscard]] Scenario producer_scenario(UnitKind producer) {
-    return Scenario{kSeed,
-                    {{UnitKind::Tank, Side::Player, 40, 40}, {producer, Side::Player, 46, 41}}};
+    Scenario scenario{kSeed,
+                      {{UnitKind::Tank, Side::Player, 40, 40}, {producer, Side::Player, 46, 41}}};
+    scenario.store_capacity = 400;
+    scenario.start_ore = 200;
+    return scenario;
+}
+
+[[nodiscard]] Scenario poor_producer_scenario() {
+    Scenario scenario = producer_scenario(UnitKind::DeployedRecycler);
+    scenario.start_ore = 0;
+    return scenario;
 }
 
 [[nodiscard]] BuildRig make_build_rig(const Scenario& scenario
@@ -1729,7 +1744,8 @@ struct BuildRig {
 /// The same rig with three haulers and wreckage to fetch, so a queue can actually FINISH: a test
 /// of what happens once a batch is done needs scrap to pay for it. The haulers bank into a
 /// FACTORY, so the recycler's rig stands one beside it.
-[[nodiscard]] BuildRig make_funded_build_rig() {
+[[nodiscard]] BuildRig make_funded_build_rig(std::uint16_t store = sim::kStoreStartCapacity,
+                                             std::uint16_t start = sim::kStoreStartCapacity) {
     Scenario scenario{kSeed,
                       {{UnitKind::Tank, Side::Player, 40, 40},
                        {UnitKind::DeployedRecycler, Side::Player, 52, 45},
@@ -1738,6 +1754,8 @@ struct BuildRig {
                        {UnitKind::Scavenger, Side::Player, 48, 49},
                        {UnitKind::Factory, Side::Player, 50, 52}}};
     scenario.objectives = {};
+    scenario.store_capacity = store;
+    scenario.start_ore = start; // a press needs a bank that covers its row (round 16)
     const sim::Fixed half = sim::Fixed::from_raw(sim::Fixed::kOne / 2);
     for (int i = 0; i < 90; ++i) {
         scenario.scrap.push_back(
@@ -1795,11 +1813,12 @@ struct BuildRig {
 
 } // namespace
 
-TEST(Interaction, APlainBuildKeyOrdersOneLoneBuildEvenWhenTheBankIsEmpty) {
-    // The row is dimmed for want of scrap, and that must NOT stop the order: a queue that runs
-    // short of scrap pauses, it is not refused. Row 1 is the Harvester, a scavenger.
+TEST(Interaction, APlainBuildKeyOrdersOneLoneBuildWhenTheBankCoversIt) {
+    // Round 16 moved this pin: it once held that an EMPTY bank still ordered (a queue short of
+    // scrap pauses). The owner ruled a dimmed row inert, so the press must be affordable; the empty
+    // bank is `AnUnaffordableBuildPressQueuesNothing`. Row 1 is the Harvester, a scavenger.
     BuildRig rig = make_build_rig();
-    ASSERT_EQ(rig.sim.ore(Side::Player), 0);
+    ASSERT_GE(rig.sim.ore(Side::Player), sim::spec_of(UnitKind::Scavenger).cost);
     ASSERT_EQ(selected(rig.player), (std::vector<sim::UnitId>{rig.producer}));
     const std::vector<Order> orders = press(rig, 1, false);
     ASSERT_EQ(orders.size(), 1U);
@@ -1810,6 +1829,95 @@ TEST(Interaction, APlainBuildKeyOrdersOneLoneBuildEvenWhenTheBankIsEmpty) {
     EXPECT_EQ(build->batch, 0U) << "a lone build asks the sim for a batch of its own";
     EXPECT_TRUE(rig.player.message().empty());
     EXPECT_EQ(rig.sim.find(rig.producer)->queue.count, 1U) << "and it is in the producer's queue";
+}
+
+/// Steps the funded rig, with no input, until the player's bank holds at least `scrap`.
+[[nodiscard]] bool bank_up(BuildRig& rig, int scrap) {
+    for (int tick = 0; tick < 20000; ++tick) {
+        if (rig.sim.ore(Side::Player) >= scrap) {
+            return true;
+        }
+        rig.sim.step();
+    }
+    return false;
+}
+
+TEST(Interaction, AnUnaffordableBuildPressQueuesNothing) {
+    // THE OWNER'S RULING (round 16): a greyed build row is not a command. With an empty bank the
+    // press is ignored -- no order, nothing in the queue -- and the screen says why.
+    BuildRig rig = make_build_rig(poor_producer_scenario());
+    ASSERT_EQ(rig.sim.ore(Side::Player), 0);
+    EXPECT_TRUE(press(rig, 1, false).empty()) << "an unaffordable press made an order";
+    EXPECT_EQ(rig.sim.find(rig.producer)->queue.count, 0U);
+    EXPECT_FALSE(rig.player.message().empty()) << "a refusal that is silent reads as a missed key";
+    EXPECT_NE(rig.player.message().find("scrap"), std::string_view::npos) << rig.player.message();
+    // ...and it does not queue LATER, when the scrap has arrived.
+    rig = make_funded_build_rig(400, 0);
+    EXPECT_TRUE(press(rig, 1, false).empty());
+    ASSERT_TRUE(bank_up(rig, 45));
+    EXPECT_EQ(rig.sim.find(rig.producer)->queue.count, 0U)
+        << "the refused press queued itself once the scrap came";
+}
+
+TEST(Interaction, ABuildRowTheMenuDimsIsRefusedAndOneItDoesNotDimIsQueued) {
+    // The dim and the press read ONE predicate (the menu row's own `enabled`): so for every row,
+    // at one bank, "dimmed" and "refused" are the same answer.
+    const int banked_at_least = 45;
+    for (int row = 1; row <= 7; ++row) {
+        BuildRig rig = make_funded_build_rig(400, 0);
+        ASSERT_TRUE(bank_up(rig, banked_at_least));
+        const int ore = rig.sim.ore(Side::Player);
+        MenuInput in;
+        in.subject = MenuSubject::Deployment;
+        in.faction = faction_of(rig.options.factions, Side::Player);
+        in.ore = ore;
+        const auto rows = menu_rows(in);
+        const auto dim = std::find_if(rows.begin(), rows.end(), [row](const MenuRow& candidate) {
+            return candidate.key == std::to_string(row);
+        });
+        ASSERT_NE(dim, rows.end()) << row;
+        const std::vector<Order> orders = press(rig, row, false);
+        EXPECT_EQ(!orders.empty(), dim->enabled)
+            << "row " << row << " at " << ore << " scrap: dimmed=" << !dim->enabled
+            << " but ordered=" << !orders.empty();
+    }
+}
+
+TEST(Interaction, AnAffordableBuildPressStillQueues) {
+    BuildRig rig = make_funded_build_rig(400, 0);
+    ASSERT_TRUE(bank_up(rig, sim::spec_of(UnitKind::Scavenger).cost));
+    const std::vector<Order> orders = press(rig, 1, false);
+    ASSERT_EQ(orders.size(), 1U);
+    EXPECT_EQ(build_of(orders.front())->kind, UnitKind::Scavenger);
+    EXPECT_TRUE(rig.player.message().empty());
+}
+
+TEST(Interaction, AnUnaffordableShiftBatchIsRefusedWholeAndNothingOfItIsQueued) {
+    // The assistant's default, for the owner to overrule: "ignored" means the whole batch.
+    BuildRig rig = make_build_rig(poor_producer_scenario());
+    for (int n = 0; n < 3; ++n) {
+        EXPECT_TRUE(press(rig, 1, true).empty());
+    }
+    EXPECT_FALSE(rig.player.message().empty()) << "the refusal says so";
+    EXPECT_TRUE(let_go(rig).empty()) << "letting go ordered part of a refused batch";
+    EXPECT_EQ(rig.sim.find(rig.producer)->queue.count, 0U);
+}
+
+TEST(Interaction, AnAffordableShiftBatchStillQueuesWhole) {
+    BuildRig rig = make_funded_build_rig(400, 0);
+    ASSERT_TRUE(bank_up(rig, sim::spec_of(UnitKind::Scavenger).cost));
+    for (int n = 0; n < 3; ++n) {
+        EXPECT_TRUE(press(rig, 1, true).empty()) << "held until shift comes up";
+    }
+    EXPECT_EQ(let_go(rig).size(), 3U);
+}
+
+TEST(Interaction, ADoesNotApplyRowIsStillInertAndSaysNothingAboutScrap) {
+    // Row 9 of a recycler's menu has no digit at all: it never acted and still does not.
+    BuildRig rig = make_funded_build_rig(400, 0);
+    ASSERT_TRUE(bank_up(rig, 45));
+    rig.player.handle(with_key(input::kKey1 + 8), rig.sim, rig.options);
+    EXPECT_TRUE(rig.player.take_orders().empty());
 }
 
 TEST(Interaction, ShiftBuildKeysOfOneGestureShareOneTokenAndABarePressDoesNotJoinIt) {
@@ -1831,7 +1939,7 @@ TEST(Interaction, ShiftBuildKeysOfOneGestureShareOneTokenAndABarePressDoesNotJoi
 }
 
 TEST(Interaction, TwoGesturesOfOneProducerGetTwoTokensOnceTheFirstBatchIsDone) {
-    BuildRig rig = make_funded_build_rig();
+    BuildRig rig = make_funded_build_rig(400);
     const auto token_of_gesture = [&rig](int row) {
         EXPECT_TRUE(press(rig, row, true).empty());
         const std::vector<Order> made = let_go(rig);
@@ -1843,6 +1951,7 @@ TEST(Interaction, TwoGesturesOfOneProducerGetTwoTokensOnceTheFirstBatchIsDone) {
     rig.player.handle(with_key(input::kKey1 + 8), rig.sim,
                       rig.options); // 9: no row, ends a gesture
     (void)rig.player.take_orders();
+    ASSERT_TRUE(bank_up(rig, 50)) << "the Scout row must be affordable to be pressed (round 16)";
     const std::uint32_t second = token_of_gesture(2);
     EXPECT_NE(first, 0U);
     EXPECT_NE(second, 0U) << "with the first batch done, a new one is taken";
@@ -1850,10 +1959,11 @@ TEST(Interaction, TwoGesturesOfOneProducerGetTwoTokensOnceTheFirstBatchIsDone) {
 }
 
 TEST(Interaction, ABarePressAfterTheBatchIsDoneBuildsALoneUnit) {
-    BuildRig rig = make_funded_build_rig();
+    BuildRig rig = make_funded_build_rig(400);
     ASSERT_TRUE(press(rig, 1, true).empty());
     ASSERT_EQ(let_go(rig).size(), 1U);
     ASSERT_TRUE(run_batch_out(rig));
+    ASSERT_TRUE(bank_up(rig, 50)) << "the Scout row must be affordable to be pressed (round 16)";
     const std::vector<Order> orders = press(rig, 2, false);
     ASSERT_EQ(orders.size(), 1U) << "an idle producer takes any single build";
     EXPECT_EQ(build_of(orders.front())->batch, 0U);

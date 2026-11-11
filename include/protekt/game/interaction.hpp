@@ -289,13 +289,14 @@ private:
     /// need the world outside the sim -- `2 GO TO NAV` reads the nav marks from it.
     void menu_digit(const sim::Sim& sim, const SceneOptions& options, int digit, bool shift);
     /// A build row of the selected producer's menu (BUILD-QUEUE): queue one `item` at the lowest-id
-    /// selected producer. Taken whether or not the row is affordable -- a queue short of scrap
-    /// pauses, it does not refuse. A queue is ONE BATCH (Harri, 2026-10-28): a bare press is a lone
-    /// build (batch 0); a shifted press carries the token shared by the presses of one gesture, and
-    /// a gesture is bound to the one kind it began with. Refused, aloud, are a press of another
-    /// kind into the open run; a press that would START a batch -- bare, or shifted beginning a new
-    /// run -- while the producer's queue is non-empty; and any press once that queue (the sim's
-    /// entries plus the orders already made this frame) holds `sim::kBuildQueueDepth`.
+    /// selected producer. Only reached for a row the menu does not dim (`menu_digit` refuses an
+    /// unaffordable one); a queue ALREADY ordered that runs short of scrap pauses in the sim. A
+    /// queue is ONE BATCH (Harri, 2026-10-28): a bare press is a lone build (batch 0); a shifted
+    /// press carries the token shared by the presses of one gesture, and a gesture is bound to the
+    /// one kind it began with. Refused, aloud, are a press of another kind into the open run; a
+    /// press that would START a batch -- bare, or shifted beginning a new run -- while the
+    /// producer's queue is non-empty; and any press once that queue (the sim's entries plus the
+    /// orders already made this frame) holds `sim::kBuildQueueDepth`.
     void queue_build(const sim::Sim& sim, const BuildItem& item, bool shift);
     /// Shift is up: the gesture ends, and the presses it kept back go to the sim as one batch.
     void release_shift();

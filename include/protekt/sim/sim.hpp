@@ -49,6 +49,10 @@ struct Scenario {
     /// What each side's scrap store holds before any scavenger has deployed
     /// (`kStoreStartCapacity`).
     std::uint16_t store_capacity{kStoreStartCapacity};
+    /// What the PLAYER's bank holds at tick 0. Zero for every real battle (the economy starts dry);
+    /// a rig that tests a press against the bank sets it, so it need not farm scrap first. Never
+    /// above `store_capacity`: the store clamps the bank to that each tick.
+    std::uint16_t start_ore{0};
     /// The conditions the war is decided by (OBJ), in the order they are asked. Defaulted to the
     /// built-in rule so that a battle assembled by hand is the war the game ships with, and a
     /// mission is a battle that names its own.

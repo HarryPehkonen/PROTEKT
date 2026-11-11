@@ -128,7 +128,8 @@ TEST(RecyclerList, TheHumanListIsHarrisSevenAndEveryRowNamesTheKindItQueues) {
 
 namespace {
 
-/// A deployed recycler beside a tank, with no scrap: enough to see a key queue something.
+/// A deployed recycler beside a tank, with a bank that covers any one row: enough to see a key
+/// queue something (a row the bank cannot cover is dimmed, and its press is refused).
 struct Rig {
     sim::Sim sim;
     SceneOptions options;
@@ -137,9 +138,12 @@ struct Rig {
 };
 
 [[nodiscard]] Rig make_rig() {
-    sim::Sim sim = sim::Sim::create(Scenario{kSeed,
-                                             {{UnitKind::Tank, Side::Player, 40, 40},
-                                              {UnitKind::DeployedRecycler, Side::Player, 46, 41}}});
+    Scenario scenario{kSeed,
+                      {{UnitKind::Tank, Side::Player, 40, 40},
+                       {UnitKind::DeployedRecycler, Side::Player, 46, 41}}};
+    scenario.store_capacity = 400;
+    scenario.start_ore = 200;
+    sim::Sim sim = sim::Sim::create(scenario);
     const UnitId tank = sim.units().at(0).id;
     const UnitId producer = sim.units().at(1).id;
     Rig rig{std::move(sim), SceneOptions{}, producer, Interaction{tank}};
