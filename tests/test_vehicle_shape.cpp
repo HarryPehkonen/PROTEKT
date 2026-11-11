@@ -279,8 +279,8 @@ struct MeshBox {
 /// profile by its bevel with a miter at every corner, which is right only for a convex profile; and
 /// a bevel must leave a lateral middle, or the faces cross.
 void expect_parts_convex_with_room(UnitKind kind) {
-    ASSERT_FALSE(shape_of(kind).empty());
-    for (const ShapePart& part : shape_of(kind)) {
+    ASSERT_FALSE(silhouette_of(kind).empty());
+    for (const ShapePart& part : silhouette_of(kind)) {
         ASSERT_GE(part.profile.size(), 3U);
         for (std::size_t i = 0; i < part.profile.size(); ++i) {
             const auto& a = part.profile.at(i);
@@ -371,7 +371,7 @@ TEST(VehicleShape, EveryShapedPlateThatStandsOnTheGroundStandsOnTheHandDrawnOnes
     std::size_t grounded = 0;
     for (const UnitKind kind : kShaped) {
         float lowest = kInfinity;
-        for (const ShapePart& part : shape_of(kind)) {
+        for (const ShapePart& part : silhouette_of(kind)) {
             for (const auto& corner : part.profile) {
                 lowest = part.lit ? std::min(lowest, corner[1]) : lowest;
             }
@@ -595,7 +595,7 @@ void expect_turret_group_is_real(UnitKind kind, std::size_t min_hull, std::size_
         const BodyVertex& w = after.at(i);
         bool in_hull = false;
         bool in_turret = false;
-        for (const ShapePart& part : shape_of(kind)) {
+        for (const ShapePart& part : silhouette_of(kind)) {
             if (in_box_of(part, v, kSlack)) {
                 (part.group == ShapeGroup::Turret ? in_turret : in_hull) = true;
             }
@@ -1335,7 +1335,7 @@ TEST(WalkerFromShape, TheMeshHasDepthAndIsNotACutOut) {
     EXPECT_GT(mesh.across(), 0.8F);
     EXPECT_GE(mesh.layers.size(), std::size_t{20}) << "distinct lateral positions, in cm";
     EXPECT_GT(mesh.vertices, std::size_t{500}) << "a cut-out is a few dozen";
-    for (const ShapePart& part : shape_of(UnitKind::Walker)) {
+    for (const ShapePart& part : silhouette_of(UnitKind::Walker)) {
         if (part.lit && part.role == ShapeRole::Hull) {
             EXPECT_GT(part.bevel, 0.0F) << "a body part with a square edge";
         }
@@ -1346,7 +1346,7 @@ TEST(WalkerFromShape, LegsAreWhatSaysWalkerTwoFeetOnOppositeSidesWithAGapBetween
     // A foot is a lit part whose lowest point is the ground. There are two, one a side of the
     // centreline (it is mid-stride), neither mirrored, and nothing is under the body between them.
     std::vector<const ShapePart*> feet;
-    for (const ShapePart& part : shape_of(UnitKind::Walker)) {
+    for (const ShapePart& part : silhouette_of(UnitKind::Walker)) {
         if (part.lit && up_span(part).at(0) < 0.001F) {
             feet.push_back(&part);
         }
@@ -1392,7 +1392,7 @@ TEST(WalkerFromShape, TheGunArmTurnsAndElevatesAndTheShapeDoesNeither) {
             continue;
         }
         bool in_shape = false;
-        for (const ShapePart& part : shape_of(UnitKind::Walker)) {
+        for (const ShapePart& part : silhouette_of(UnitKind::Walker)) {
             in_shape = in_shape || in_box_of(part, level.at(i), kSlack);
         }
         const auto moved = [&](const BodyVertex& w) {
@@ -1821,7 +1821,7 @@ TEST(ChamferedHull, TheCutsAreTheFortyToFiftyDegreeBandAndNotASoapBar) {
     // chamfered block and not a smear; the extent tests above pin the overall size. Every shaped
     // kind (AY), not only the scavenger and the tank.
     for (const UnitKind kind : kShaped) {
-        for (const ShapePart& part : shape_of(kind)) {
+        for (const ShapePart& part : silhouette_of(kind)) {
             if (is_hull_body(part)) {
                 EXPECT_GE(sharpest_turn_degrees(part.profile), 30.0F)
                     << "dissolved into a ball: kind " << static_cast<int>(kind);
@@ -1838,7 +1838,7 @@ TEST(ChamferedHull, EveryShapedKindHasItsHullAndLoadCornersCut) {
     // that smooth shading would leave hard.
     std::size_t checked = 0;
     for (const UnitKind kind : kShaped) {
-        for (const ShapePart& part : shape_of(kind)) {
+        for (const ShapePart& part : silhouette_of(kind)) {
             if (is_hull_body(part)) {
                 ++checked;
                 EXPECT_LT(sharpest_turn_degrees(part.profile), kChamferedTurnDegrees)
@@ -1869,7 +1869,7 @@ TEST(ChamferedHull, EveryShapedKindHasItsHullAndLoadCornersCut) {
 /// far end is not asked: a cut corner there is no longer at the box's edge.)
 [[nodiscard]] const ShapePart& part_spanning(UnitKind kind, float along_lo, float up_lo,
                                              float up_hi) {
-    for (const ShapePart& part : shape_of(kind)) {
+    for (const ShapePart& part : silhouette_of(kind)) {
         float a_lo = kInfinity;
         float u_lo = kInfinity;
         float u_hi = -kInfinity;
@@ -1923,7 +1923,7 @@ TEST(ChamferedHull, NoCutOverlapsItsNeighboursAndNoPartIsMostlyGone) {
     // corners cut at the 0.45 cap keeps 1 - 4 * (0.45^2 / 2) = 59.5%, so the floor is under the
     // most the cap can take.
     for (const UnitKind kind : kShaped) {
-        for (const ShapePart& part : shape_of(kind)) {
+        for (const ShapePart& part : silhouette_of(kind)) {
             if (!is_hull_body(part)) {
                 continue;
             }

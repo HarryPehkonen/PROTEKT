@@ -75,9 +75,34 @@ rounded_profile(std::vector<std::array<float, 2>> profile);
 /// mesh. EMPTY for a kind with no authored shape (see the top of this file), never another kind's.
 [[nodiscard]] const std::vector<ShapePart>& shape_of(sim::UnitKind kind);
 
-/// The side-on silhouette at a point: true where the machine is. Replays `shape_of(kind)` in order,
-/// a lit part lighting the point it covers and a cut clearing it. The plate's one source. False
-/// everywhere for a kind with no shape.
+/// One leg's pose at a walk phase: how far fore (+) of its static place the foot is, and how high
+/// it is lifted. The gait (`leg_pose`, scene.hpp) makes them; the Walker's legs (`walker_legs`)
+/// and the Harvester's both read them.
+struct LegPose {
+    float along{};
+    float lift{};
+};
+
+/// ROUND 15, SLICE G: THE WALKER'S LEGS ARE NOT IN `shape_of(Walker)`. A shape is written once and
+/// cached; a leg that walks is different every frame. So the Walker's six leg parts (a thigh, a
+/// shin and a foot a side) leave the cached shape and are made HERE, per pose, and the mesh emits
+/// them before the body (the paint order they always had). `front` is the right-hand leg, `rear`
+/// the left. A pose's `along` is how far the foot stands fore (+) of its hip: the authored stance
+/// is the front foot at `+kWalkerStrideHalfMetres` and the rear at `-kWalkerStrideHalfMetres`
+/// (phase 0 of the gait), so that pose draws exactly the legs that were authored and no foot
+/// reaches past where an authored foot ends. Hips fixed, the foot carried as a rigid sole, the legs
+/// sheared between: a foot lifted by `lift` lifts its shin and thigh in proportion.
+inline constexpr float kWalkerStrideHalfMetres
+    = 0.4F; ///< the authored foot (0.65) minus the hip (0.25)
+[[nodiscard]] std::vector<ShapePart> walker_legs(const LegPose& front, const LegPose& rear);
+
+/// What the side-on PLATE and `shape_extent` see: `shape_of(kind)`, except that the Walker's legs
+/// are put back at their authored stance, under the body. Equal to `shape_of` for every other kind.
+[[nodiscard]] const std::vector<ShapePart>& silhouette_of(sim::UnitKind kind);
+
+/// The side-on silhouette at a point: true where the machine is. Replays `silhouette_of(kind)` in
+/// order, a lit part lighting the point it covers and a cut clearing it. The plate's one source.
+/// False everywhere for a kind with no shape.
 [[nodiscard]] bool shape_covers(sim::UnitKind kind, float along, float up);
 
 /// How far the machine reaches, in metres. `along_min`..`along_max` and `up_max` are of the lit

@@ -17,6 +17,7 @@
 #include "protekt/game/stats.hpp"
 #include "protekt/game/targets.hpp"
 #include "protekt/game/terrain_cache.hpp"
+#include "protekt/game/vehicle_shape.hpp"
 #include "protekt/game/weapon.hpp"
 #include "protekt/math/math.hpp"
 #include "protekt/sim/observer.hpp"
@@ -878,8 +879,10 @@ private:
     std::map<std::uint32_t, float> last_;
 };
 
-/// THE HARVESTER'S GAIT. The sim moves a machine by position; its legs are drawing. A machine's
-/// WALK PHASE (a fraction of a stride cycle, `[0, 1)`) advances with the DISTANCE IT ACTUALLY MOVED
+/// THE HARVESTER'S AND THE WALKER'S GAIT (slice G reuses F's: a biped is legs 0 and 1, half a cycle
+/// apart; `stride_metres` is the one place a kind's ground-per-cycle is said). The sim moves a
+/// machine by position; its legs are drawing. A machine's WALK PHASE (a fraction of a stride cycle,
+/// `[0, 1)`) advances with the DISTANCE IT ACTUALLY MOVED
 /// -- `kStrideMetres` of ground to a cycle -- and with nothing else: no clock, so a slow machine
 /// does not cycle its legs in place, a paused one does not step, and a capture is reproducible. A
 /// machine that did not move keeps its phase EXACTLY, so its legs hold. Keyed by unit id in an
@@ -896,11 +899,13 @@ inline constexpr float kStepLiftMetres = 0.18F; ///< how high a swinging foot cl
 /// are carried forward), and how high it is lifted. `leg` counts 0..5 around the body, so the
 /// TRIPOD sets are the even and the odd legs (1-3-5 against 2-4-6 in the owner's counting); the
 /// two sets are half a cycle apart.
-struct LegPose {
-    float along{};
-    float lift{};
-};
-[[nodiscard]] LegPose leg_pose(float phase, std::size_t leg) noexcept;
+/// (`LegPose` is in vehicle_shape.hpp.) `half` is the reach fore and aft: the Harvester's default,
+/// or `kWalkerStrideHalfMetres`. A kind's ground per cycle is `4 * half` (`stride_metres`).
+[[nodiscard]] LegPose leg_pose(float phase, std::size_t leg,
+                               float half = kStrideHalfMetres) noexcept;
+/// The ground one walk cycle covers for `kind`: four reaches. The ONE phase formula divides the
+/// distance moved by this.
+[[nodiscard]] float stride_metres(sim::UnitKind kind) noexcept;
 
 class Strides {
 public:
@@ -974,6 +979,10 @@ inline constexpr std::size_t kMortarBikeVertices = 1656;
 /// body, its cockpit glass and the roof panel), then the gun arm, which is not a shape part. It
 /// was 180, five prisms, before it was derived, and no test pinned it. 744 before AY cut the body's
 /// corners, and 792 before BA made the gun arm round.
+///
+/// Slice G: the legs (six parts, 504 vertices) left the cached shape and are made per frame by
+/// `walker_legs`; the count is UNCHANGED, 888, because they are the same six parts (the machine
+/// draws what it drew, only the legs now move). What moved is `shape_of(Walker)`, now body only.
 inline constexpr std::size_t kWalkerVertices = 888;
 
 /// THE WALKER'S GUN ARM, in metres: the body's front face (along the aim from the walker's centre),
@@ -1287,8 +1296,8 @@ struct SceneOptions {
     /// Remembered headings, so a stopped tank keeps its facing. ABSENT (null) faces a stopped tank
     /// along +Y; a moving one still faces its velocity. Not owned.
     const Headings* headings{nullptr};
-    /// The walk phases the Harvester's legs read (`Strides`). ABSENT (null) draws every leg at its
-    /// static place, byte-identical to a frame that never heard of it. Not owned.
+    /// The walk phases the Harvester's and the Walker's legs read (`Strides`). ABSENT (null) draws
+    /// every leg at its static place, byte-identical to a frame that never heard of it. Not owned.
     const Strides* strides{nullptr};
     /// The world's per-tile answers for this seed, remembered (see game/terrain_cache.hpp): with it
     /// the terrain mesh reads a table instead of running the noise three octaves deep five times a

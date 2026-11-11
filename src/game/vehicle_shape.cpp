@@ -644,44 +644,19 @@ std::vector<ShapePart> author_mortar_bike() {
     return parts;
 }
 
-/// THE WALKER'S SHAPE. The machine seen from its right-hand side, front at the right, MID-STRIDE:
-/// the left leg is the rear one and the right leg the front one, each a thigh and a shin bent at
-/// the knee, ending in a broad flat foot. Over the hips (1.7 m up) a body 1.0 m long with sloped
-/// shoulders and a cockpit glass wrapped through both flanks, and a thin team-colour panel on its
-/// roof. The GUN ARM is not here: it elevates, so the mesh and the plate add it from the numbers in
-/// scene.hpp (`kWalkerGunFront`, `kWalkerGunTip`, ...). Legs are what says walker.
+/// THE WALKER'S SHAPE, BODY ONLY. The machine seen from its right-hand side, front at the right.
+/// Its two legs -- the left the rear one and the right the front one, each a thigh and a shin
+/// ending in a broad flat foot -- are `walker_legs`, below, because they walk. Over the hips (1.7 m
+/// up) a body 1.0 m long with sloped shoulders and a cockpit glass wrapped through both flanks, and
+/// a thin team-colour panel on its roof. The GUN ARM is not here: it elevates, so the mesh and the
+/// plate add it from the numbers in scene.hpp (`kWalkerGunFront`, `kWalkerGunTip`, ...). Legs are
+/// what says walker.
 std::vector<ShapePart> author_walker() {
     std::vector<ShapePart> parts;
-    // The rear leg, on the left of the centreline: across -0.40 to -0.24, its foot -0.44 to -0.20.
-    constexpr float kLegLo = 0.24F;
-    constexpr float kLegHi = 0.4F;
-    constexpr float kFootLo = 0.2F;
-    constexpr float kFootHi = 0.44F;
-    // Slice H1: the hips stand at 1.7 m (were 1.0): the thigh is 0.75 m (was 0.5), the shin 0.85 m
-    // (was 0.4); the knees, the feet and every x are where they were.
+    // Slice H1: the hips stand at 1.7 m (were 1.0).
+    // The legs are NOT here (slice G): a leg that walks is different every frame, and this list is
+    // written once. `walker_legs` makes them, and the mesh emits them before these parts.
     constexpr float kHips = 1.7F;
-    constexpr float kKnee = 1.05F;
-    constexpr float kThighFoot = 1.0F;
-    add_part(parts,
-             {{-0.35F, kHips + 0.05F},
-              {-0.15F, kHips + 0.05F},
-              {-0.33F, kThighFoot},
-              {-0.55F, kThighFoot}},
-             -kLegHi, -kLegLo, false, 0.02F, ShapeRole::Track);
-    add_part(parts, {{-0.55F, kKnee}, {-0.33F, kKnee}, {-0.5F, 0.2F}, {-0.72F, 0.2F}}, -kLegHi,
-             -kLegLo, false, 0.02F, ShapeRole::Track);
-    add_part(parts, {{-1.0F, 0.0F}, {-0.3F, 0.0F}, {-0.3F, 0.2F}, {-1.0F, 0.2F}}, -kFootHi,
-             -kFootLo, false, 0.03F, ShapeRole::Track);
-    // The front leg, on the right, stepping ahead.
-    add_part(
-        parts,
-        {{0.15F, kHips + 0.05F}, {0.35F, kHips + 0.05F}, {0.5F, kThighFoot}, {0.28F, kThighFoot}},
-        kLegLo, kLegHi, false, 0.02F, ShapeRole::Track);
-    add_part(parts, {{0.28F, kKnee}, {0.5F, kKnee}, {0.72F, 0.2F}, {0.5F, 0.2F}}, kLegLo, kLegHi,
-             false, 0.02F, ShapeRole::Track);
-    add_part(parts, {{0.3F, 0.0F}, {1.0F, 0.0F}, {1.0F, 0.2F}, {0.3F, 0.2F}}, kFootLo, kFootHi,
-             false, 0.03F, ShapeRole::Track);
-
     // The body, 1.0 m by 0.76 m by 0.68 m, standing on the hips at 1.7 m; its front face is the gun
     // arm's root (scene.hpp's kWalkerGunBottom/Top ride 0.2/0.36 m above the hips).
     constexpr float kBodyTop = kHips + 0.68F;
@@ -1009,9 +984,69 @@ const std::vector<ShapePart>& shape_of(sim::UnitKind kind) {
     }
 }
 
+std::vector<ShapePart> walker_legs(const LegPose& front, const LegPose& rear) {
+    // The authored stance, mid-stride: the right leg the front one with its foot at +H from the
+    // hip, the left the rear one at -H. Across: the leg -0.40..-0.24 / 0.24..0.40, the foot
+    // 0.20..0.44.
+    constexpr float kLegLo = 0.24F;
+    constexpr float kLegHi = 0.4F;
+    constexpr float kFootLo = 0.2F;
+    constexpr float kFootHi = 0.44F;
+    constexpr float kHipTop = 1.75F; // the thigh's top, inside the body: it does not move
+    constexpr float kAnkle = 0.2F;   // from here down the foot is one rigid sole
+    constexpr float kThighFoot = 1.0F;
+    constexpr float kKnee = 1.05F;
+    // Between the hip and the ankle a point moves with its share of the foot's travel.
+    const auto moved = [&](const Profile& authored, const LegPose& pose, float authored_along) {
+        Profile out;
+        out.reserve(authored.size());
+        const float dx = pose.along - authored_along;
+        for (const auto& corner : authored) {
+            const float share = std::clamp((kHipTop - corner[1]) / (kHipTop - kAnkle), 0.0F, 1.0F);
+            out.push_back({corner[0] + (dx * share), corner[1] + (pose.lift * share)});
+        }
+        return out;
+    };
+    std::vector<ShapePart> parts;
+    const float h = kWalkerStrideHalfMetres;
+    add_part(
+        parts,
+        moved({{-0.35F, kHipTop}, {-0.15F, kHipTop}, {-0.33F, kThighFoot}, {-0.55F, kThighFoot}},
+              rear, -h),
+        -kLegHi, -kLegLo, false, 0.02F, ShapeRole::Track);
+    add_part(parts,
+             moved({{-0.55F, kKnee}, {-0.33F, kKnee}, {-0.5F, kAnkle}, {-0.72F, kAnkle}}, rear, -h),
+             -kLegHi, -kLegLo, false, 0.02F, ShapeRole::Track);
+    add_part(parts,
+             moved({{-1.0F, 0.0F}, {-0.3F, 0.0F}, {-0.3F, kAnkle}, {-1.0F, kAnkle}}, rear, -h),
+             -kFootHi, -kFootLo, false, 0.03F, ShapeRole::Track);
+    add_part(parts,
+             moved({{0.15F, kHipTop}, {0.35F, kHipTop}, {0.5F, kThighFoot}, {0.28F, kThighFoot}},
+                   front, h),
+             kLegLo, kLegHi, false, 0.02F, ShapeRole::Track);
+    add_part(parts,
+             moved({{0.28F, kKnee}, {0.5F, kKnee}, {0.72F, kAnkle}, {0.5F, kAnkle}}, front, h),
+             kLegLo, kLegHi, false, 0.02F, ShapeRole::Track);
+    add_part(parts, moved({{0.3F, 0.0F}, {1.0F, 0.0F}, {1.0F, kAnkle}, {0.3F, kAnkle}}, front, h),
+             kFootLo, kFootHi, false, 0.03F, ShapeRole::Track);
+    return parts;
+}
+
+const std::vector<ShapePart>& silhouette_of(sim::UnitKind kind) {
+    // The Walker's plate and extents are its legs at the authored stance (phase 0) under its body.
+    static const std::vector<ShapePart> walker = [] {
+        std::vector<ShapePart> parts = walker_legs(LegPose{kWalkerStrideHalfMetres, 0.0F},
+                                                   LegPose{-kWalkerStrideHalfMetres, 0.0F});
+        const std::vector<ShapePart>& body = shape_of(sim::UnitKind::Walker);
+        parts.insert(parts.end(), body.begin(), body.end());
+        return parts;
+    }();
+    return kind == sim::UnitKind::Walker ? walker : shape_of(kind);
+}
+
 bool shape_covers(sim::UnitKind kind, float along, float up) {
     bool lit = false;
-    for (const ShapePart& part : shape_of(kind)) {
+    for (const ShapePart& part : silhouette_of(kind)) {
         if (inside(part.profile, along, up)) {
             lit = part.lit;
         }
@@ -1020,7 +1055,7 @@ bool shape_covers(sim::UnitKind kind, float along, float up) {
 }
 
 ShapeExtent shape_extent(sim::UnitKind kind) {
-    const std::vector<ShapePart>& parts = shape_of(kind);
+    const std::vector<ShapePart>& parts = silhouette_of(kind);
     if (parts.empty()) {
         return ShapeExtent{0.0F, 0.0F, 0.0F, 0.0F};
     }

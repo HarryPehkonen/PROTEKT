@@ -335,6 +335,7 @@ if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
         tests/test_faction_look.cpp
         tests/test_alien_kit.cpp
         tests/test_harvester_gait.cpp
+        tests/test_walker_gait.cpp
         tests/test_ai_aim.cpp
         tests/test_scenario.cpp
         tests/test_scenario_data.cpp

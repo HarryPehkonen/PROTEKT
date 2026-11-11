@@ -2102,7 +2102,8 @@ void build_rocket_tank(std::vector<SceneVertex>& out, std::uint64_t seed, const 
 /// scene.hpp: the gun arm held out forward, turned by `heading + turret`, which elevates, so it is
 /// always the last prism.
 void build_walker(std::vector<SceneVertex>& out, std::uint64_t seed, const sim::Unit& unit,
-                  Mark mark, float lift_z, bool lifted, float heading, float turret, float pitch) {
+                  Mark mark, float lift_z, bool lifted, float heading, float turret, float pitch,
+                  std::optional<float> stride) {
     const float x
         = static_cast<float>(unit.x.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile;
     const float z
@@ -2115,9 +2116,18 @@ void build_walker(std::vector<SceneVertex>& out, std::uint64_t seed, const sim::
     constexpr float kGunHalfAcross = 0.07F;
 
     const auto [colour, camo_colour] = kind_colours(unit, mark);
+    const ShapeLook look{colour, camo_colour, hull_tile, atlas.rect("tank_tracks"),
+                         atlas.rect("tank_turret")};
+    // THE LEGS FIRST, as they have always been painted: a biped's gait, the right (front) leg and
+    // the left (rear) one half a cycle apart. A machine that has never moved has no phase and
+    // stands at phase 0, the authored stance.
+    const float phase = stride.value_or(0.0F);
+    emit_shape_parts(out, x, z, ground, heading, heading + turret,
+                     walker_legs(leg_pose(phase, 0, kWalkerStrideHalfMetres),
+                                 leg_pose(phase, 1, kWalkerStrideHalfMetres)),
+                     look);
     emit_shape_parts(out, x, z, ground, heading, heading + turret, shape_of(sim::UnitKind::Walker),
-                     ShapeLook{colour, camo_colour, hull_tile, atlas.rect("tank_tracks"),
-                               atlas.rect("tank_turret")});
+                     look);
 
     const std::size_t gun_first = out.size();
     emit_barrel(out, x, z, heading + turret, kGunHalfAcross, kWalkerGunFront, kWalkerGunTip,
@@ -6208,19 +6218,23 @@ std::optional<float> Headings::heading_of(const sim::Unit& unit) noexcept {
     return std::atan2(static_cast<float>(unit.vx.raw), static_cast<float>(unit.vy.raw));
 }
 
-LegPose leg_pose(float phase, std::size_t leg) noexcept {
+LegPose leg_pose(float phase, std::size_t leg, float half) noexcept {
     // Half a cycle between the two tripods. The odd set is a half-cycle behind the even one.
     float q = phase + (leg % 2U == 0U ? 0.0F : 0.5F);
     q -= std::floor(q);
     if (q < 0.5F) {
         // STANCE: planted. The foot slides aft from +half to -half over half a cycle, which is
         // `kStrideMetres / 2` of body travel against `2 * half` of reach: the same ground.
-        return {kStrideHalfMetres - 4.0F * kStrideHalfMetres * q, 0.0F};
+        return {half - 4.0F * half * q, 0.0F};
     }
     // SWING: carried forward from aft to fore, and lifted in a half sine.
     const float t = (q - 0.5F) * 2.0F;
     constexpr float kPi = 3.14159265F;
-    return {-kStrideHalfMetres + 2.0F * kStrideHalfMetres * t, kStepLiftMetres * std::sin(kPi * t)};
+    return {-half + 2.0F * half * t, kStepLiftMetres * std::sin(kPi * t)};
+}
+
+float stride_metres(sim::UnitKind kind) noexcept {
+    return 4.0F * (kind == sim::UnitKind::Walker ? kWalkerStrideHalfMetres : kStrideHalfMetres);
 }
 
 void Strides::after_frame(const sim::UnitSnapshot& before, const sim::Sim& sim) {
@@ -6241,7 +6255,7 @@ void Strides::after_frame(const sim::UnitSnapshot& before, const sim::Sim& sim) 
                              / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile;
             const float moved = std::hypot(dx, dy);
             if (moved > 0.0F) {
-                phase += moved / kStrideMetres;
+                phase += moved / stride_metres(unit.kind);
                 phase -= std::floor(phase);
                 known = true;
             }
@@ -6590,7 +6604,8 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
                                    heading, turret, pitch);
             } else if (unit.kind == sim::UnitKind::Walker) {
                 build_walker(scene.vertices, options.seed, unit, mark, lift_z, hovering, heading,
-                             turret, pitch);
+                             turret, pitch,
+                             options.strides != nullptr ? options.strides->of(unit) : std::nullopt);
             } else if (unit.kind == sim::UnitKind::Apc) {
                 build_apc(scene.vertices, options.seed, unit, mark, lift_z, hovering, heading,
                           turret);

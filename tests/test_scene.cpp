@@ -2418,7 +2418,7 @@ Chassis chassis_of(protekt::sim::UnitKind kind) {
     using protekt::game::ShapeGroup;
     using protekt::game::ShapeRole;
     Chassis chassis;
-    for (const protekt::game::ShapePart& part : protekt::game::shape_of(kind)) {
+    for (const protekt::game::ShapePart& part : protekt::game::silhouette_of(kind)) {
         if (part.group != ShapeGroup::Hull || !part.lit) {
             continue;
         }
@@ -4827,11 +4827,12 @@ TEST(TankUv, NoTankUvIsOutsideTheAtlasOrLeftAtThePlaceholder) {
     }
 }
 
-/// How many vertices the parts of `shape_of(kind)` draw: a part is a chamfered extrusion of
-/// 24 n - 12 vertices (n corners), or 12 n - 12 with no bevel, built twice when mirrored.
+/// How many vertices the parts of `silhouette_of(kind)` (the Walker's legs, made per pose,
+/// included) draw: a part is a chamfered extrusion of 24 n - 12 vertices (n corners), or 12 n - 12
+/// with no bevel, built twice when mirrored.
 std::size_t shape_vertices(UnitKind kind) {
     std::size_t total = 0;
-    for (const protekt::game::ShapePart& part : protekt::game::shape_of(kind)) {
+    for (const protekt::game::ShapePart& part : protekt::game::silhouette_of(kind)) {
         const std::size_t corners = part.profile.size();
         const std::size_t once = (part.bevel > 0.0F ? 24U : 12U) * corners - 12U;
         total += part.mirrored ? 2U * once : once;
@@ -5608,7 +5609,7 @@ TEST(ShapeRoles, EachRoleTakesItsTileOnEveryShapedVehicle) {
         std::size_t expect_camo = 0;
         std::size_t expect_tracks = 0;
         std::size_t expect_metal = 0;
-        for (const protekt::game::ShapePart& part : protekt::game::shape_of(kind)) {
+        for (const protekt::game::ShapePart& part : protekt::game::silhouette_of(kind)) {
             const std::size_t corners = part.profile.size();
             const std::size_t once = ((part.bevel > 0.0F ? 24U : 12U) * corners) - 12U;
             const std::size_t built = part.mirrored ? 2U * once : once;
