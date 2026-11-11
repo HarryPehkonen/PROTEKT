@@ -2174,16 +2174,6 @@ TEST(BatchPlate, ItReadsTheQueuedCountTheKindAndNoFillWhileItWaitsForScrap) {
         << "a build that has not started has nothing in its icon";
 }
 
-TEST(BatchPlate, ALoneBuildReservesNoKey) {
-    BatchRig rig = make_batch_rig(0);
-    rig.sim.enqueue(queue_one(rig.factory, 0));
-    tick(rig);
-    ASSERT_GT(rig.sim.find(rig.factory)->queue.count, 0U) << "it is queued";
-    EXPECT_EQ(reserved_slot(rig.row, rig.sim.find(rig.factory)->queue.entries.at(0).batch),
-              kRowSlots);
-    EXPECT_EQ(batch_keys_in_use(rig.row), 3U) << "a lone build takes its key when it ARRIVES";
-}
-
 TEST(BatchPlate, TheUnitsLandOnTheReservedKeyAndTheQueuedCountFallsAsTheyDo) {
     BatchRig rig = make_batch_rig(90);
     queue_batch(rig, 3);
@@ -2357,6 +2347,108 @@ TEST(BatchPlateDrawing, AReservedKeyIsStillJustThreeThingsAndTheRowDoesNotCloseU
     const std::vector<Px> pixels = row_pixels(rig.sim, rig.options);
     EXPECT_EQ(drawn_slots(pixels), (std::vector<int>{2, 4, 5, 6, 7}))
         << "the factory's 2, F1..F3 and the batch's F4; the empty keys are not drawn";
+}
+
+// ---- round 16, slice L: a LONE build takes its key and starts filling at once
+//
+// Harri, 2026-11-11: "When there IS enough scrap, and I press a number to build something, the same
+// visual queue that something is happening as with a batch build: the new icon for the vehicle
+// should display with the 'filling' visual queue immediately." A lone build's queue entry carries
+// an id of the sim's own (above every token an order can carry); that id is its token.
+
+/// The batch id the producer's front entry carries: a lone build's own.
+[[nodiscard]] std::uint32_t front_token(const BatchRig& rig) {
+    return rig.sim.find(rig.factory)->queue.entries.at(0).batch;
+}
+
+TEST(BatchPlateLone, ALonePressTakesItsKeyAndShowsTheIconFillingOnceItsEntryStarts) {
+    BatchRig rig = make_batch_rig(90);
+    rig.sim.enqueue(queue_one(rig.factory, 0));
+    tick(rig);
+    ASSERT_GT(rig.sim.find(rig.factory)->queue.count, 0U) << "it is queued";
+    ASSERT_GT(front_token(rig), sim::kMaxBatchToken) << "a lone build: the sim's own id";
+    const std::size_t slot = reserved_slot(rig.row, front_token(rig));
+    ASSERT_EQ(slot, group_slot(4)) << "the first empty group key, taken the moment it is pressed";
+    EXPECT_TRUE(rig.row.occupied(slot));
+    EXPECT_EQ(batch_keys_in_use(rig.row), 4U);
+    ASSERT_TRUE(tick_until(rig, [&] { return rig.sim.find(rig.factory)->queue.left > 0; }));
+    const std::optional<BatchReading> reading
+        = read_batch(rig.sim, Side::Player, rig.row.slots.at(slot));
+    ASSERT_TRUE(reading.has_value());
+    EXPECT_EQ(reading.value_or(BatchReading{}).kind, UnitKind::Scavenger) << "the right icon";
+    EXPECT_EQ(reading.value_or(BatchReading{}).queued, 1U);
+    tick(rig);
+    EXPECT_GT(
+        read_batch(rig.sim, Side::Player, rig.row.slots.at(slot)).value_or(BatchReading{}).fill,
+        0.0F)
+        << "once the entry has started the icon is filling";
+    const float total = static_cast<float>(sim::spec_of(UnitKind::Scavenger).build_ticks);
+    ASSERT_TRUE(tick_until(rig, [&] {
+        return 1.0F - (static_cast<float>(rig.sim.find(rig.factory)->queue.left) / total) > 0.3F;
+    })) << "never a third in";
+    const std::vector<Px> pixels = row_pixels(rig.sim, rig.options);
+    EXPECT_FALSE(icon_pixels(pixels, static_cast<int>(slot)).empty()) << "ink in the key's icon";
+    EXPECT_EQ(blank_pixels(pixels, static_cast<int>(slot)).size(), 24U) << "one blank tick";
+}
+
+TEST(BatchPlateLone, ALonePressWhoseEntryHasNotStartedShowsThePlateWithAFillOfExactlyZero) {
+    // No scrap: the entry waits at the front and never starts. (A lone build closes its queue, so
+    // it can never sit behind another entry: not-yet-started is the only way to be at zero.)
+    BatchRig rig = make_batch_rig(0);
+    rig.sim.enqueue(queue_one(rig.factory, 0));
+    tick(rig);
+    const std::size_t slot = reserved_slot(rig.row, front_token(rig));
+    ASSERT_EQ(slot, group_slot(4));
+    const std::optional<BatchReading> reading
+        = read_batch(rig.sim, Side::Player, rig.row.slots.at(slot));
+    ASSERT_TRUE(reading.has_value());
+    EXPECT_EQ(reading.value_or(BatchReading{}).fill, 0.0F);
+    const std::vector<Px> pixels = row_pixels(rig.sim, rig.options);
+    EXPECT_TRUE(icon_pixels(pixels, static_cast<int>(slot)).empty()) << "no ink yet";
+    EXPECT_EQ(blank_pixels(pixels, static_cast<int>(slot)).size(), 24U);
+}
+
+TEST(BatchPlateLone, AShiftedPressIsHeldWithNoPlateAndShowsItWithNoFillOnceShiftGoesUp) {
+    BatchRig rig = make_batch_rig(0);
+    const std::size_t before = batch_keys_in_use(rig.row);
+    // Held: shift is down, so the order is still in the interaction and the sim has seen nothing.
+    tick(rig);
+    EXPECT_EQ(batch_keys_in_use(rig.row), before) << "nothing queued, nothing drawn";
+    // Shift goes up: the run reaches the queue under its token, and the plate shows, unfilled.
+    queue_batch(rig, 2);
+    const std::size_t slot = reserved_slot(rig.row);
+    ASSERT_LT(slot, kRowSlots);
+    EXPECT_EQ(
+        read_batch(rig.sim, Side::Player, rig.row.slots.at(slot)).value_or(BatchReading{}).fill,
+        0.0F);
+}
+
+TEST(BatchPlateLone, ThePlateIsReadFromTheProducersQueueSoTakingItAwayRemovesTheKey) {
+    BatchRig rig = make_batch_rig(0);
+    rig.sim.enqueue(queue_one(rig.factory, 0));
+    tick(rig);
+    const std::size_t slot = reserved_slot(rig.row, front_token(rig));
+    ASSERT_EQ(slot, group_slot(4));
+    ASSERT_TRUE(rig.row.occupied(slot));
+    rig.sim.enqueue(sim::Order{rig.factory, sim::orders::CancelBuild{}});
+    tick(rig);
+    EXPECT_EQ(rig.sim.find(rig.factory)->queue.count, 0U);
+    EXPECT_FALSE(read_batch(rig.sim, Side::Player, rig.row.slots.at(slot)).has_value());
+    EXPECT_FALSE(rig.row.occupied(slot)) << "the queue no longer holds it: the key is let go";
+    EXPECT_EQ(batch_keys_in_use(rig.row), 3U);
+}
+
+TEST(BatchPlateLone, AFinishedLoneBuildLandsOnTheKeyItWasHeld) {
+    BatchRig rig = make_batch_rig(90);
+    rig.sim.enqueue(queue_one(rig.factory, 0));
+    tick(rig);
+    const std::size_t slot = reserved_slot(rig.row, front_token(rig));
+    ASSERT_EQ(slot, group_slot(4));
+    ASSERT_TRUE(tick_until(rig, [&] { return rig.sim.find(rig.factory)->queue.count == 0; }));
+    EXPECT_EQ(rig.row.slots.at(slot).units.size(), 1U) << "the unit landed on its key";
+    EXPECT_EQ(rig.row.slots.at(slot).batch, 0U) << "and the hold is let go";
+    EXPECT_FALSE(read_batch(rig.sim, Side::Player, rig.row.slots.at(slot)).has_value());
+    EXPECT_EQ(batch_keys_in_use(rig.row), 4U) << "no key was taken twice";
 }
 
 // ---- round 10: the tick outline and the build gauge (Harri, 2026-11-05)

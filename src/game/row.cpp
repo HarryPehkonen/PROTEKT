@@ -83,15 +83,12 @@ bool is_held_in_group(const std::array<RowSlot, kRowSlots>& slots, sim::UnitId i
     });
 }
 
-/// The shift token a producer's queue is building right now, or 0: its front entry's batch when
-/// that is a token an order can carry. A lone build's id lies above every token (see
-/// `sim::kFirstLoneBatch`), so it is never one, and a queue is one batch, so the front names it.
+/// The batch id a producer's queue is building right now, or 0 when it is idle: its front entry's.
+/// A shift run's is the token its gesture carried; a LONE build's is the id the sim numbered it
+/// with (`sim::kFirstLoneBatch` and up), so a lone build is a batch of one and is held a key just
+/// as a run is. A queue is one batch, so the front names it.
 [[nodiscard]] std::uint32_t building_token(const sim::Unit& unit) noexcept {
-    if (unit.queue.count == 0 || unit.queue.entries.at(0).batch == 0
-        || unit.queue.entries.at(0).batch > sim::kMaxBatchToken) {
-        return 0;
-    }
-    return unit.queue.entries.at(0).batch;
+    return unit.queue.count == 0 ? 0U : unit.queue.entries.at(0).batch;
 }
 
 /// Whether `slot` is the key of `token`: held for it, or holding a unit built under it.

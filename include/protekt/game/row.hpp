@@ -66,11 +66,12 @@ struct RowSlot {
     /// The living units held here, in spawn order. Empty means the key is not drawn -- unless
     /// `batch` holds it.
     std::vector<sim::UnitId> units{};
-    /// THE BATCH THIS KEY IS HELD FOR (BATCH-PLATE): the token of a SHIFT-queued batch that is
-    /// still being built, or 0. The batch's key is taken the moment its first entry is queued,
+    /// THE BATCH THIS KEY IS HELD FOR (BATCH-PLATE): the batch id of the build that is
+    /// still under way, or 0: a SHIFT run's token, or a LONE build's own id (a lone build is a
+    /// batch of one). The key is taken the moment the first entry is queued,
     /// before any unit exists, so the plate can show the count as blank ticks and the icon filling;
     /// the units land on it as they are built. It is let go the frame the queue holds no more of
-    /// the batch. A lone build is never held for: it takes its key when it arrives.
+    /// the batch.
     std::uint32_t batch{0};
 
     [[nodiscard]] bool operator==(const RowSlot&) const = default;
@@ -112,7 +113,8 @@ struct RowState {
     ///
     /// The group keys are therefore not a function of the sim alone: they remember where the
     /// player put things (`move_into`), and `update` keeps those places -- it only prunes the dead
-    /// and seats newcomers in the gaps. A SHIFT batch still in a producer's queue is held a key too
+    /// and seats newcomers in the gaps. A build (a shift run, or a lone one) still in a producer's
+    /// queue is held a key too
     /// (`RowSlot::batch`): the one a member already sits on, else the first empty group key, taken
     /// the frame its first entry is queued and kept until the queue holds no more of it.
     void update(const sim::Sim& sim, sim::Side side, std::size_t marks, sim::UnitId driven = {});
@@ -197,8 +199,8 @@ struct BatchReading {
 };
 
 /// The batch being built for `slot` by a producer of `side`, or nullopt when none is: a queue
-/// whose front entry carries a shift token that the slot holds (`RowSlot::batch`) or that one of
-/// the slot's units was built under. A lone build (its id lies above every token) never matches.
+/// whose front entry carries a batch id that the slot holds (`RowSlot::batch`) or that one of the
+/// slot's units was built under -- a shift token, or a lone build's own id.
 [[nodiscard]] std::optional<BatchReading> read_batch(const sim::Sim& sim, sim::Side side,
                                                      const RowSlot& slot);
 
