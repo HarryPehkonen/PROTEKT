@@ -99,7 +99,7 @@ constexpr float kMortarWasHighMetres = 1.14F;
 // 1.71 m to the top of the roof panel; the gun arm (to 1.8 m) is not a part.
 constexpr float kWalkerBodyMetres = 2.0F;
 constexpr float kWalkerWidthMetres = 0.88F;
-constexpr float kWalkerHeightMetres = 1.71F;
+constexpr float kWalkerHeightMetres = 2.41F; // was 1.71 before slice H1 (taller, 1.85x a tank)
 constexpr float kWalkerGunTipMetres = 1.8F;
 constexpr float kWalkerWasHighMetres = 1.739F;
 constexpr float kWalkerWasWideMetres = 0.78F;
@@ -1281,7 +1281,8 @@ TEST(WalkerFromShape, ThePlateIsTheShapeSeenSideOnPlusItsGunArm) {
     EXPECT_EQ(box.width(), 70) << "cells, rear foot to the gun's tip (2.8 m)";
     EXPECT_EQ(box.first_col, 1);
     EXPECT_EQ(box.last_col, 70);
-    EXPECT_NEAR(static_cast<float>(box.height()), 43.0F, 1.0F) << "cells, 1.71 m at 24.3 per metre";
+    EXPECT_NEAR(static_cast<float>(box.height()), 60.0F, 1.0F)
+        << "cells, 2.41 m at 25 per metre (was 43)";
     EXPECT_EQ(box.last_row, static_cast<int>(kIconGround)) << "the feet stand on the ground line";
 }
 
@@ -1294,13 +1295,31 @@ TEST(WalkerFromShape, TheMeshIsTheShapeInMetres) {
     EXPECT_NEAR(mesh.across(), kWalkerWidthMetres, 0.06F) << "metres, across the feet";
 }
 
-TEST(WalkerFromShape, ItIsAsTallAsItWasAndTheGunIsAsLongAndItIsWiderAcrossTheFeet) {
-    // Measured before it had a shape: a gun tip at 1.821 m, 1.739 m high, 0.780 m across.
+TEST(WalkerFromShape, ItIsTallerThanItWasAndStandsOverATankTheGunIsAsLongAndNoWider) {
+    // Measured before slice H1: a gun tip at 1.821 m, 1.739 m high (the shape's 1.71), 0.88 across.
     const MeshBox mesh = mesh_of(UnitKind::Walker);
     EXPECT_NEAR(mesh.high.at(2), 1.821F, 0.06F) << "metres";
-    EXPECT_NEAR(mesh.high.at(1), kWalkerWasHighMetres, 0.06F) << "metres";
+    EXPECT_GT(mesh.high.at(1), kWalkerWasHighMetres + 0.6F) << "metres: raised by ~0.7 m";
     EXPECT_GT(mesh.across(), kWalkerWasWideMetres) << "metres: broad feet";
-    EXPECT_GT(mesh.high.at(1), mesh.across() * 1.5F) << "taller than it is wide";
+    EXPECT_NEAR(mesh.across(), 0.88F, 0.06F) << "the width did not change";
+    EXPECT_GT(mesh.high.at(1), kTankHeightMetres * 1.7F) << "it stands over a tank";
+    EXPECT_GT(mesh.high.at(1), mesh.across() * 2.5F) << "tall and narrow";
+}
+
+TEST(WalkerFromShape, TheHipsAreRaisedAndTheGunArmRidesTheBodyAtItsOwnHeightAboveTheHull) {
+    // Hips at 1.7 m (were 1.0); the arm's axis is 0.2..0.36 m above the hips' height... that is,
+    // the same 0.2 / 0.36 above the body's floor as before.
+    EXPECT_NEAR(kWalkerGunBottom, 1.9F, 0.001F);
+    EXPECT_NEAR(kWalkerGunTop, 2.06F, 0.001F);
+    float hull_floor = 99.0F;
+    for (const ShapePart& part : shape_of(UnitKind::Walker)) {
+        if (part.role == ShapeRole::Hull) {
+            hull_floor = std::min(hull_floor, up_span(part).at(0));
+        }
+    }
+    EXPECT_NEAR(hull_floor, 1.7F, 0.001F) << "the body stands on its hips at 1.7 m";
+    EXPECT_NEAR(kWalkerGunBottom - hull_floor, 0.2F, 0.001F);
+    EXPECT_NEAR(kWalkerGunTop - hull_floor, 0.36F, 0.001F);
 }
 
 TEST(WalkerFromShape, ThePlateAndTheMeshAreTheSameMachine) {
@@ -1339,17 +1358,17 @@ TEST(WalkerFromShape, LegsAreWhatSaysWalkerTwoFeetOnOppositeSidesWithAGapBetween
     EXPECT_TRUE(shape_covers(UnitKind::Walker, -0.65F, 0.1F)) << "the rear foot";
     EXPECT_TRUE(shape_covers(UnitKind::Walker, 0.65F, 0.1F)) << "the front foot";
     EXPECT_FALSE(shape_covers(UnitKind::Walker, 0.0F, 0.5F)) << "daylight between the legs";
-    EXPECT_TRUE(shape_covers(UnitKind::Walker, 0.0F, 1.3F) == false) << "the cockpit glass is cut";
+    EXPECT_TRUE(shape_covers(UnitKind::Walker, 0.0F, 2.0F) == false) << "the cockpit glass is cut";
 }
 
 TEST(WalkerFromShape, TheGunArmIsOnThePlateAndNotInTheShape) {
     const IconMask& mask = kind_icon(UnitKind::Walker);
-    EXPECT_FALSE(shape_covers(UnitKind::Walker, 1.4F, 1.28F));
-    EXPECT_EQ(mask.at(plate_row(1.28F, kWalkerReach)).at(plate_col(1.4F, -1.0F, kWalkerReach)), '#')
+    EXPECT_FALSE(shape_covers(UnitKind::Walker, 1.4F, 1.98F));
+    EXPECT_EQ(mask.at(plate_row(1.98F, kWalkerReach)).at(plate_col(1.4F, -1.0F, kWalkerReach)), '#')
         << "the arm, level, 0.9 m out from the body's front face";
-    EXPECT_EQ(mask.at(plate_row(1.28F, kWalkerReach)).at(plate_col(1.7F, -1.0F, kWalkerReach)), '#')
+    EXPECT_EQ(mask.at(plate_row(1.98F, kWalkerReach)).at(plate_col(1.7F, -1.0F, kWalkerReach)), '#')
         << "and near its tip";
-    EXPECT_EQ(mask.at(plate_row(1.6F, kWalkerReach)).at(plate_col(1.4F, -1.0F, kWalkerReach)), '.')
+    EXPECT_EQ(mask.at(plate_row(2.3F, kWalkerReach)).at(plate_col(1.4F, -1.0F, kWalkerReach)), '.')
         << "the sky over the arm";
 }
 
@@ -1366,9 +1385,10 @@ TEST(WalkerFromShape, TheGunArmTurnsAndElevatesAndTheShapeDoesNeither) {
     std::size_t gun_raised = 0;
     for (std::size_t i = 0; i < level.size(); ++i) {
         const BodyVertex& v = level.at(i);
-        // The arm's root sits on the body's front face (0.5 m): a vertex there is either's.
-        if (std::abs(v.along - 0.5F) < 0.03F && std::abs(v.across) < 0.1F && v.up > 1.15F
-            && v.up < 1.4F) {
+        // The arm's root sits on the body's front face (0.5 m, and the first rings sit up to 0.04 m
+        // ahead of it): a vertex there is either's.
+        if (std::abs(v.along - 0.5F) < 0.04F && std::abs(v.across) < 0.1F && v.up > 1.85F
+            && v.up < 2.1F) {
             continue;
         }
         bool in_shape = false;
@@ -1382,7 +1402,9 @@ TEST(WalkerFromShape, TheGunArmTurnsAndElevatesAndTheShapeDoesNeither) {
         };
         if (in_shape) {
             ++shape_vertices_seen;
-            EXPECT_FALSE(moved(turned.at(i))) << "a body vertex turned with the gun: " << i;
+            EXPECT_FALSE(moved(turned.at(i)))
+                << "a body vertex turned with the gun: " << i << " " << level.at(i).along << " "
+                << level.at(i).across << " " << level.at(i).up;
             EXPECT_FALSE(moved(raised.at(i))) << "a body vertex rose with the gun: " << i;
         } else {
             gun_turned += moved(turned.at(i)) ? 1U : 0U;

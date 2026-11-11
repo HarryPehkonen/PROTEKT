@@ -646,7 +646,7 @@ std::vector<ShapePart> author_mortar_bike() {
 
 /// THE WALKER'S SHAPE. The machine seen from its right-hand side, front at the right, MID-STRIDE:
 /// the left leg is the rear one and the right leg the front one, each a thigh and a shin bent at
-/// the knee, ending in a broad flat foot. Over the hips a squat body 1.0 m long with sloped
+/// the knee, ending in a broad flat foot. Over the hips (1.7 m up) a body 1.0 m long with sloped
 /// shoulders and a cockpit glass wrapped through both flanks, and a thin team-colour panel on its
 /// roof. The GUN ARM is not here: it elevates, so the mesh and the plate add it from the numbers in
 /// scene.hpp (`kWalkerGunFront`, `kWalkerGunTip`, ...). Legs are what says walker.
@@ -657,33 +657,48 @@ std::vector<ShapePart> author_walker() {
     constexpr float kLegHi = 0.4F;
     constexpr float kFootLo = 0.2F;
     constexpr float kFootHi = 0.44F;
-    add_part(parts, {{-0.35F, 1.05F}, {-0.15F, 1.05F}, {-0.33F, 0.55F}, {-0.55F, 0.55F}}, -kLegHi,
-             -kLegLo, false, 0.02F, ShapeRole::Track);
-    add_part(parts, {{-0.55F, 0.6F}, {-0.33F, 0.6F}, {-0.5F, 0.2F}, {-0.72F, 0.2F}}, -kLegHi,
+    // Slice H1: the hips stand at 1.7 m (were 1.0): the thigh is 0.75 m (was 0.5), the shin 0.85 m
+    // (was 0.4); the knees, the feet and every x are where they were.
+    constexpr float kHips = 1.7F;
+    constexpr float kKnee = 1.05F;
+    constexpr float kThighFoot = 1.0F;
+    add_part(parts,
+             {{-0.35F, kHips + 0.05F},
+              {-0.15F, kHips + 0.05F},
+              {-0.33F, kThighFoot},
+              {-0.55F, kThighFoot}},
+             -kLegHi, -kLegLo, false, 0.02F, ShapeRole::Track);
+    add_part(parts, {{-0.55F, kKnee}, {-0.33F, kKnee}, {-0.5F, 0.2F}, {-0.72F, 0.2F}}, -kLegHi,
              -kLegLo, false, 0.02F, ShapeRole::Track);
     add_part(parts, {{-1.0F, 0.0F}, {-0.3F, 0.0F}, {-0.3F, 0.2F}, {-1.0F, 0.2F}}, -kFootHi,
              -kFootLo, false, 0.03F, ShapeRole::Track);
     // The front leg, on the right, stepping ahead.
-    add_part(parts, {{0.15F, 1.05F}, {0.35F, 1.05F}, {0.5F, 0.55F}, {0.28F, 0.55F}}, kLegLo, kLegHi,
-             false, 0.02F, ShapeRole::Track);
-    add_part(parts, {{0.28F, 0.6F}, {0.5F, 0.6F}, {0.72F, 0.2F}, {0.5F, 0.2F}}, kLegLo, kLegHi,
+    add_part(
+        parts,
+        {{0.15F, kHips + 0.05F}, {0.35F, kHips + 0.05F}, {0.5F, kThighFoot}, {0.28F, kThighFoot}},
+        kLegLo, kLegHi, false, 0.02F, ShapeRole::Track);
+    add_part(parts, {{0.28F, kKnee}, {0.5F, kKnee}, {0.72F, 0.2F}, {0.5F, 0.2F}}, kLegLo, kLegHi,
              false, 0.02F, ShapeRole::Track);
     add_part(parts, {{0.3F, 0.0F}, {1.0F, 0.0F}, {1.0F, 0.2F}, {0.3F, 0.2F}}, kFootLo, kFootHi,
              false, 0.03F, ShapeRole::Track);
 
-    // The body, 1.0 m by 0.76 m by 0.68 m, standing on the hips at 1.0 m; its front face is the gun
-    // arm's root.
-    constexpr float kBodyTop = 1.68F;
+    // The body, 1.0 m by 0.76 m by 0.68 m, standing on the hips at 1.7 m; its front face is the gun
+    // arm's root (scene.hpp's kWalkerGunBottom/Top ride 0.2/0.36 m above the hips).
+    constexpr float kBodyTop = kHips + 0.68F;
     add_part(parts,
-             {{-0.5F, 1.0F},
-              {kWalkerGunFront, 1.0F},
-              {kWalkerGunFront, 1.5F},
+             {{-0.5F, kHips},
+              {kWalkerGunFront, kHips},
+              {kWalkerGunFront, kHips + 0.5F},
               {0.35F, kBodyTop},
               {-0.35F, kBodyTop},
-              {-0.5F, 1.5F}},
+              {-0.5F, kHips + 0.5F}},
              -0.38F, 0.38F, false, 0.04F, ShapeRole::Hull);
-    add_part(parts, {{-0.1F, 1.28F}, {0.3F, 1.28F}, {0.3F, 1.52F}, {-0.1F, 1.52F}}, -0.39F, 0.39F,
-             false, 0.0F, ShapeRole::Glass, false);
+    add_part(parts,
+             {{-0.1F, kHips + 0.28F},
+              {0.3F, kHips + 0.28F},
+              {0.3F, kHips + 0.52F},
+              {-0.1F, kHips + 0.52F}},
+             -0.39F, 0.39F, false, 0.0F, ShapeRole::Glass, false);
     // The roof panel, 3 cm thick, the machine's top.
     add_part(
         parts,

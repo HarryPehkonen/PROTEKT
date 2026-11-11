@@ -981,8 +981,8 @@ inline constexpr std::size_t kWalkerVertices = 888;
 /// The arm elevates, so it is not a part: the mesh builds it from these numbers and the plate draws
 /// it level from them, and nothing else says how long it is.
 inline constexpr float kWalkerGunFront = 0.5F;
-inline constexpr float kWalkerGunBottom = 1.2F;
-inline constexpr float kWalkerGunTop = 1.36F;
+inline constexpr float kWalkerGunBottom = 1.9F;
+inline constexpr float kWalkerGunTop = 2.06F;
 inline constexpr float kWalkerGunTip = 1.8F;
 
 /// A drawn APC: all of it the parts of `shape_of(UnitKind::Apc)` (the hull, its firing ports and
