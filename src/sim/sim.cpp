@@ -869,6 +869,41 @@ std::size_t nearest_scrap(const std::vector<Scrap>& scraps, const Unit& unit) no
     return best;
 }
 
+/// Whether a PEER of `unit` -- another living unit of the same side -- is already on its way to
+/// this pile: `Stance::Fetch` with the pile's spot in `guard_x/y`. The claim is the commitment, so
+/// it stands from the beat the peer sets off and dies with the `Fetch` that held it (arrival,
+/// give-up, an order). Same side only: an enemy's errand is not a sensor for this side.
+bool claimed_by_peer(const std::vector<Unit>& units, const Unit& unit,
+                     const Scrap& piece) noexcept {
+    return std::any_of(units.begin(), units.end(), [&](const Unit& other) {
+        return other.alive && other.id != unit.id && other.side == unit.side
+               && other.stance == Stance::Fetch && other.guard_x == piece.x
+               && other.guard_y == piece.y;
+    });
+}
+
+/// THE SCAVENGERS SPREAD OUT: the nearest pile inside `reach_sq` that `unit` has not given up on
+/// and that no peer is already fetching; ties by litter order. With every pile in reach claimed it
+/// is `nearest_scrap`, so nobody stands idle. Order, not chance: whoever commits first this tick
+/// (the beat is phased by unit id) holds the nearer pile and the next one sees the claim.
+std::size_t nearest_free_scrap(const std::vector<Scrap>& scraps, const std::vector<Unit>& units,
+                               const Unit& unit, std::int64_t reach_sq) noexcept {
+    std::size_t best = kNoScrap;
+    std::int64_t best_d = 0;
+    for (std::size_t i = 0; i < scraps.size(); ++i) {
+        const Scrap& piece = scraps.at(i);
+        const std::int64_t d = dist2(unit.x, unit.y, piece.x, piece.y);
+        if (d > reach_sq || gave_up_on(unit, piece) || claimed_by_peer(units, unit, piece)) {
+            continue;
+        }
+        if (best == kNoScrap || d < best_d) {
+            best = i;
+            best_d = d;
+        }
+    }
+    return best != kNoScrap ? best : nearest_scrap(scraps, unit);
+}
+
 /// How far from a wreck its litter may settle, in tiles: the scatter's reach plus the walk east
 /// that finds a free tile. This bounds the connectivity check below to a (2R+1)^2 window of tiles.
 constexpr int kLitterRegionRadius = kScrapScatterRadius + kScrapSpan;
@@ -1011,9 +1046,9 @@ namespace {
 /// hold) replaces `Fetch` and is a stance of its own that the sim never argues with; `Stop` -- the
 /// `3 Scavenge` row -- sets it scavenging again. A DEPLOYED scavenger is another kind altogether
 /// and never comes here: its pool is drawn in by `store_step`, with no pile and no trip.
-void scavenge_step(std::vector<Scrap>& scraps, std::array<std::uint16_t, 2>& ore,
-                   std::array<std::uint32_t, 2>& collected, Unit& unit, std::uint32_t tick,
-                   std::uint16_t capacity) noexcept {
+void scavenge_step(std::vector<Scrap>& scraps, const std::vector<Unit>& units,
+                   std::array<std::uint16_t, 2>& ore, std::array<std::uint32_t, 2>& collected,
+                   Unit& unit, std::uint32_t tick, std::uint16_t capacity) noexcept {
     const bool fetching = unit.stance == Stance::Fetch;
     if (unit.stance != Stance::Idle && !fetching) {
         return;
@@ -1034,7 +1069,7 @@ void scavenge_step(std::vector<Scrap>& scraps, std::array<std::uint16_t, 2>& ore
                                << Fixed::kShift;
     const std::int64_t arrive = kScavengeCollectRadiusRaw;
     // A trip in hand keeps its pile while the pile is there; otherwise the nearest in the radar.
-    std::size_t pick = nearest_scrap(scraps, unit);
+    std::size_t pick = nearest_free_scrap(scraps, units, unit, reach * reach);
     if (fetching) {
         const auto held = std::find_if(scraps.begin(), scraps.end(), [&](const Scrap& piece) {
             return piece.x == unit.guard_x && piece.y == unit.guard_y;
@@ -1991,7 +2026,7 @@ void Sim::step() {
         // Scavenging, before the mover: it takes from where the unit stands and sets no goal (C2).
         if (unit.kind == UnitKind::Scavenger) {
             auto_deploy_step(units_, scenario_.pools, scraps_, unit, tick_);
-            scavenge_step(scraps_, ore_, collected_, unit, tick_,
+            scavenge_step(scraps_, units_, ore_, collected_, unit, tick_,
                           store_capacity(units_, unit.side, scenario_.store_capacity));
         }
         if (!prof.mobile) {

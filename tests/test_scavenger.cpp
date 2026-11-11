@@ -1510,3 +1510,144 @@ TEST(ScavengeTrip, TheEnemyAiDoesNotStallItsScavengerOnTheTripAndStillBanksEvery
     EXPECT_TRUE(sim.scraps().empty());
     EXPECT_EQ(sim.ore(Side::Enemy), 4);
 }
+
+// ---------------------------------------------------------------------------------------------
+// THE SCAVENGERS SPREAD OUT (round 15, E): an idle scavenger takes the nearest pile that no peer of
+// its side is already fetching; with every pile claimed it takes the nearest anyway.
+// ---------------------------------------------------------------------------------------------
+namespace {
+
+/// `n` scavengers of `side` at (40, 70..), piles due east on row 70 at the given distances.
+/// (Unit 0 is the recycler; the scavengers are units 1..n.)
+Scenario spread_rig(const std::vector<int>& east, std::size_t n) {
+    return scavenge_rig(east, Side::Player, n);
+}
+
+struct Pick {
+    std::uint32_t unit;
+    std::int32_t x;
+    std::int32_t y;
+    bool operator==(const Pick&) const = default;
+};
+
+/// What every Fetching scavenger of `side` is committed to, in unit order, after `ticks`.
+std::vector<Pick> destinations(Sim& sim, int ticks, Side side = Side::Player) {
+    for (int i = 0; i < ticks; ++i) {
+        sim.step();
+    }
+    std::vector<Pick> out;
+    for (const Unit& u : sim.units()) {
+        if (u.kind == UnitKind::Scavenger && u.side == side && u.stance == Stance::Fetch) {
+            out.push_back(Pick{u.id.value, u.guard_x.raw, u.guard_y.raw});
+        }
+    }
+    return out;
+}
+
+} // namespace
+
+TEST(ScavengerSpread, ThreeScavengersOnThreePilesCommitToThreeDifferentPiles) {
+    Sim sim = rig(spread_rig({6, 9, 12}, 3));
+    const std::vector<Pick> picks = destinations(sim, 2 * protekt::sim::kScavengeIntervalTicks);
+    ASSERT_EQ(picks.size(), 3U) << "all three are on a trip";
+    for (std::size_t a = 0; a < picks.size(); ++a) {
+        for (std::size_t b = a + 1; b < picks.size(); ++b) {
+            EXPECT_FALSE(picks.at(a).x == picks.at(b).x && picks.at(a).y == picks.at(b).y)
+                << "scavengers " << picks.at(a).unit << " and " << picks.at(b).unit
+                << " were sent to the same pile";
+        }
+    }
+}
+
+TEST(ScavengerSpread, TheFirstToCommitTakesTheNearestAndTheNextTheNextNearest) {
+    Sim sim = rig(spread_rig({12, 6, 9}, 3));
+    const std::vector<Pick> picks = destinations(sim, 2 * protekt::sim::kScavengeIntervalTicks);
+    ASSERT_EQ(picks.size(), 3U);
+    std::vector<std::int32_t> xs;
+    xs.reserve(picks.size());
+    for (const Pick& p : picks) {
+        xs.push_back(p.x);
+    }
+    std::sort(xs.begin(), xs.end());
+    EXPECT_EQ(xs.at(0), centre_of(46).raw);
+    EXPECT_EQ(xs.at(1), centre_of(49).raw);
+    EXPECT_EQ(xs.at(2), centre_of(52).raw);
+}
+
+TEST(ScavengerSpread, TheAssignmentIsBitForBitTheSameOnTwoRuns) {
+    Sim a = rig(spread_rig({6, 9, 12}, 3));
+    Sim b = rig(spread_rig({6, 9, 12}, 3));
+    const std::vector<Pick> pa = destinations(a, 3 * protekt::sim::kScavengeIntervalTicks);
+    const std::vector<Pick> pb = destinations(b, 3 * protekt::sim::kScavengeIntervalTicks);
+    EXPECT_FALSE(pa.empty());
+    EXPECT_EQ(pa, pb);
+    EXPECT_EQ(a.state_hash(), b.state_hash());
+}
+
+TEST(ScavengerSpread, ALoneScavengerStillTakesTheNearestPile) {
+    Sim sim = rig(spread_rig({12, 6, 9}, 1));
+    const std::vector<Pick> picks = destinations(sim, 2 * protekt::sim::kScavengeIntervalTicks);
+    ASSERT_EQ(picks.size(), 1U);
+    EXPECT_EQ(picks.front().x, centre_of(46).raw);
+}
+
+TEST(ScavengerSpread, WithMoreScavengersThanPilesNobodyStandsIdle) {
+    Sim sim = rig(spread_rig({6, 9}, 3));
+    const std::vector<Pick> picks = destinations(sim, 2 * protekt::sim::kScavengeIntervalTicks);
+    EXPECT_EQ(picks.size(), 3U) << "the third takes the nearest anyway";
+    const auto on_nearest = std::count_if(picks.begin(), picks.end(),
+                                          [](const Pick& p) { return p.x == centre_of(46).raw; });
+    EXPECT_GE(on_nearest, 1);
+}
+
+TEST(ScavengerSpread, AnEnemyScavengersErrandDoesNotSteerThePlayersMachine) {
+    // One piece, six tiles off. An enemy scavenger standing beside the player's commits to it
+    // first or second; the player's must take it all the same, and two further piles must not
+    // matter: with the enemy's claim ignored, the player's takes the NEAREST (46), not the next.
+    Scenario s = scavenge_rig({6, 9}, Side::Player, 1);
+    s.spawns.push_back(Spawn{UnitKind::Recycler, Side::Enemy, 34, kRigRow + 4});
+    s.spawns.push_back(Spawn{UnitKind::Scavenger, Side::Enemy, 40, kRigRow + 1});
+    Sim sim = rig(s);
+    for (int i = 0; i < 2 * protekt::sim::kScavengeIntervalTicks; ++i) {
+        sim.step();
+    }
+    const Unit* mine = nullptr;
+    const Unit* theirs = nullptr;
+    for (const Unit& u : sim.units()) {
+        if (u.kind == UnitKind::Scavenger) {
+            (u.side == Side::Player ? mine : theirs) = &u;
+        }
+    }
+    ASSERT_NE(mine, nullptr);
+    ASSERT_NE(theirs, nullptr);
+    ASSERT_EQ(theirs->stance, Stance::Fetch);
+    ASSERT_EQ(mine->stance, Stance::Fetch);
+    EXPECT_EQ(mine->guard_x.raw, centre_of(46).raw) << "the enemy's claim steered the player";
+    EXPECT_EQ(theirs->guard_x.raw, centre_of(46).raw) << "and each side takes its own nearest";
+}
+
+TEST(ScavengerSpread, APilesClaimDiesWithTheFetchThatHeldIt) {
+    // Two scavengers, two piles. The first commits to the nearer (52), the second to 49. Order
+    // the first away: its Fetch is gone, so 52 is free again, and the Stop that sets it
+    // scavenging again takes 52 once more, not 56.
+    Sim sim = rig(spread_rig({12, 16}, 2));
+    const std::vector<Pick> before = destinations(sim, 2 * protekt::sim::kScavengeIntervalTicks);
+    ASSERT_EQ(before.size(), 2U);
+    const auto first_it = std::find_if(before.begin(), before.end(),
+                                       [](const Pick& p) { return p.x == centre_of(52).raw; });
+    ASSERT_NE(first_it, before.end());
+    const UnitId holder{first_it->unit};
+    sim.enqueue(Order{holder, protekt::sim::orders::MoveTo{centre_of(38), centre_of(kRigRow)}});
+    sim.step();
+    for (const Unit& u : sim.units()) {
+        if (u.id == holder) {
+            ASSERT_NE(u.stance, Stance::Fetch) << "the order replaced the Fetch";
+        }
+    }
+    sim.enqueue(Order{holder, protekt::sim::orders::Stop{}});
+    const std::vector<Pick> after = destinations(sim, 2 * protekt::sim::kScavengeIntervalTicks);
+    const auto again = std::find_if(after.begin(), after.end(),
+                                    [&](const Pick& p) { return p.unit == holder.value; });
+    ASSERT_NE(again, after.end());
+    EXPECT_EQ(again->x, centre_of(52).raw) << "the freed pile is the nearest and is free";
+}
