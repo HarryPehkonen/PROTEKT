@@ -17,14 +17,16 @@ namespace protekt::sim {
 /// kinds carrying one weapon cannot disagree.
 enum class WeaponId : std::uint8_t {
     None,      ///< unarmed: range zero is what makes a kind unarmed everywhere in the sim
-    TankGun,   ///< the tank's cannon: tank, hover tank, assault tank, walker
+    TankGun,   ///< the tank's cannon: tank, hover tank, assault tank
     TurretGun, ///< the turret's cannon: the turret, deployed or not
     Minigun,   ///< the light gun: scout, APC
     Mortar,    ///< the lobbed shell: the mortar bike, the bomber's bomb
     Rocket,    ///< the rocket: the rocket tank, the missile scout, and a rocket carried by any hull
     Shotgun,   ///< the carried shotgun
+    WalkerGun, ///< the Walker's heavy cannon: the longest reach of any vehicle (APPENDED: no id
+               ///< moved)
 };
-inline constexpr std::size_t kWeaponCount = 7;
+inline constexpr std::size_t kWeaponCount = 8;
 
 /// THE RANGES, each authored once and nowhere else. Tiles, raw Q16.16.
 inline constexpr std::int32_t kMortarRangeRaw = 14 << 16;
@@ -36,6 +38,13 @@ inline constexpr std::int32_t kMinigunRangeRaw = kTankRangeRaw * 5 / 6;
 inline constexpr std::int32_t kRocketRangeRaw = 18 << 16;
 /// The shotgun's 6 tiles, where the fan is still a few tiles wide.
 inline constexpr std::int32_t kShotgunRangeRaw = 6 << 16;
+
+/// THE WALKER'S GUN: 20 tiles, past the rocket's 18, the mortar's 14 and the tank's 12 -- "a very
+/// powerful and far-reaching weapon" (Harri, 2026-11-10). Its own weapon, not the tank's: the
+/// tank's gun is untouched and every tank reaches 12 as before. PROVISIONAL, a balance number.
+inline constexpr std::int32_t kWalkerGunRangeRaw = 20 << 16;
+/// How far the Walker's bolt flies: two tiles past its reach, so it does not fizzle short of it.
+inline constexpr std::int32_t kWalkerGunTravelRaw = 22 << 16;
 
 /// One weapon's reach. Indexed by the value of `WeaponId`.
 struct WeaponSpec {
@@ -50,6 +59,7 @@ inline constexpr std::array<WeaponSpec, kWeaponCount> kWeaponSpecs{{
     {"mortar", Fixed::from_raw(kMortarRangeRaw)},
     {"rocket", Fixed::from_raw(kRocketRangeRaw)},
     {"shotgun", Fixed::from_raw(kShotgunRangeRaw)},
+    {"walkergun", Fixed::from_raw(kWalkerGunRangeRaw)},
 }};
 
 [[nodiscard]] constexpr const WeaponSpec& weapon_spec(WeaponId weapon) noexcept {
@@ -98,6 +108,11 @@ struct UnitSpec {
     /// pellet leaves at this many tiles of sideways drift per tile flown. `pellet_fan` derives
     /// every pellet from it, so no pellet can leave the cone.
     Fixed cone_half_tan{};
+    /// HOW FAST IT TURNS, in tenths of a degree per tick (30 ticks a second). ZERO IS TODAY'S RATE:
+    /// no limit, the hull points wherever it is sent at once. Only the Walker is limited (15 = 1.5
+    /// degrees a tick, 45 a second, a half turn in four seconds): see `steer`, the one place a
+    /// machine's heading is turned. "It moves slowly. That includes turning."
+    std::uint16_t turn_decidegrees{};
 
     /// How far it shoots, tiles; zero means unarmed. Read from the weapon, never authored here.
     [[nodiscard]] constexpr Fixed range() const noexcept { return weapon_spec(weapon).range; }
@@ -314,10 +329,12 @@ inline constexpr std::array<UnitSpec, static_cast<std::size_t>(kUnitKindCount)> 
      Fixed::from_raw(kBoltArcRaw), kBoltTravel, Fixed::zero(), Fixed::zero(), false, 70, 1400, 0,
      Fixed::zero()},
     // The walker: twice the tank's hull and damage and twice its cooldown, at half its speed (it
-    // walks); the tank's range and a straight bolt.
-    {"walker", kTankHp * 2, Fixed::from_raw(kTankSpeedRaw / 2), WeaponId::TankGun, kTankDamage * 2,
-     kTankCooldownTicks * 2, Fixed::from_raw(kProjectileSpeedRaw), Fixed::from_raw(kBoltArcRaw),
-     kBoltTravel, Fixed::zero(), Fixed::zero(), false, 100, 2000, 0, Fixed::zero()},
+    // walks) and a turn rate to match (15 tenths of a degree a tick); its OWN gun, reaching 20
+    // tiles, and a straight bolt.
+    {"walker", kTankHp * 2, Fixed::from_raw(kTankSpeedRaw / 2), WeaponId::WalkerGun,
+     kTankDamage * 2, kTankCooldownTicks * 2, Fixed::from_raw(kProjectileSpeedRaw),
+     Fixed::from_raw(kBoltArcRaw), Fixed::from_raw(kWalkerGunTravelRaw), Fixed::zero(),
+     Fixed::zero(), false, 100, 2000, 0, Fixed::zero(), 15},
     // The APC: the tank's hull, 3/2 its speed (the fastest ground vehicle, level with the scout),
     // the scout's 10-tile range. It has no troop-carrying role yet, so it carries a light gun --
     // half the tank's damage and half its cooldown -- rather than being a unit that cannot fight at

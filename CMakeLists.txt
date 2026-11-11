@@ -306,6 +306,7 @@ if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
         tests/test_shift_batch.cpp
         tests/test_mount.cpp
         tests/test_spec.cpp
+        tests/test_walker_fights.cpp
         tests/test_mortar.cpp
         tests/test_mortar_bike.cpp
         tests/test_bouncer.cpp

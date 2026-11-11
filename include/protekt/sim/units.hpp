@@ -295,6 +295,13 @@ struct Unit {
     /// with no moving truck in it hashes exactly as it did before the cone.
     std::int16_t face_x{};
     std::int16_t face_y{};
+    /// A TURN-LIMITED MACHINE's heading (only the Walker today: `UnitSpec::turn_decidegrees`
+    /// non-zero), a direction scaled so its larger component is `kHeadingScale`; both zero means it
+    /// has never turned and points +Y (yaw 0, as `Headings` draws a hull that has not moved). Every
+    /// other kind turns at once and has no heading in the sim, so theirs stay zero. Hashed only
+    /// when set, so a battle with no Walker that has turned hashes as before.
+    std::int32_t heading_x{};
+    std::int32_t heading_y{};
     /// This unit's build queue, if it is a producer (see `is_producer`). Hashed only when it holds
     /// an entry, for the same reason.
     BuildQueue queue{};
@@ -353,6 +360,9 @@ inline constexpr std::int64_t kServiceRepairEdge = 1 << 15;
 /// THE KNOB: the share is raised to this power. 1 is cos^2, the wide shotgun; 2 is cos^4, a tighter
 /// one (0.56 at 30 degrees, 0.25 at 45). It is the one number that sets the angle and the drop-off.
 inline constexpr int kServiceRepairConePower = 1;
+/// A turn-limited machine's stored heading is scaled so its larger component is this
+/// (`Unit::heading_x`).
+inline constexpr std::int32_t kHeadingScale = 1 << 16;
 /// A truck's stored facing is scaled so its larger component is this (`Unit::face_x`).
 inline constexpr int kServiceFacingScale = 1024;
 /// The vector to the patient is read in this many raw Q16.16 units at a time (1/256 of a tile), so
@@ -564,6 +574,7 @@ struct UnitProfile {
     std::uint16_t damage{};
     std::uint16_t cooldown_ticks{};
     bool mobile{};
+    std::uint16_t turn_decidegrees{}; ///< tenths of a degree a tick; zero turns at once
 };
 [[nodiscard]] UnitProfile profile(UnitKind kind) noexcept;
 

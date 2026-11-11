@@ -19,8 +19,8 @@ UnitProfile profile(UnitKind kind) noexcept {
         return UnitProfile{};
     }
     const UnitSpec& spec = spec_of(kind);
-    return UnitProfile{spec.hp,     spec.max_speed, spec.range(),
-                       spec.damage, spec.cooldown,  spec.max_speed.raw > 0};
+    return UnitProfile{spec.hp,       spec.max_speed,         spec.range(),         spec.damage,
+                       spec.cooldown, spec.max_speed.raw > 0, spec.turn_decidegrees};
 }
 
 Fixed terrain_speed_factor(world::Terrain terrain) noexcept {
@@ -1454,6 +1454,81 @@ bool recycle_step(std::vector<Unit>& units, std::vector<Scrap>& scraps, Unit& un
     return true;
 }
 
+// THE TURN RATE. A machine whose spec limits it (`turn_decidegrees`, the Walker) carries a heading
+// (`Unit::heading_x/y`) and `steer` turns it toward the way it wants to go by at most one step a
+// tick; until it faces that way it stands and turns, then it sets off. Integers only: the step's
+// sine and cosine come from a Taylor series in Q28, no float, no table, no clock.
+constexpr int kTrigBits = 28;
+constexpr std::int64_t kTrigOne = std::int64_t{1} << kTrigBits;
+
+struct Rotation {
+    std::int64_t sin{};
+    std::int64_t cos{};
+};
+
+/// sin and cos of `decidegrees` tenths of a degree, Q28. The angle in radians is
+/// decidegrees * pi / 1800; pi is taken as 3.14159265358979 in Q28 (843314857). Terms to x^9 are
+/// far below one part in 2^28 for the few degrees a tick this is used with.
+[[nodiscard]] constexpr Rotation rotation_of(std::int64_t decidegrees) noexcept {
+    constexpr std::int64_t kPiQ28 = 843314857;
+    const std::int64_t x = decidegrees * kPiQ28 / 1800;
+    const std::int64_t x2 = x * x >> kTrigBits;
+    std::int64_t sin = x;
+    std::int64_t cos = kTrigOne;
+    std::int64_t term = x;        // x^(2k+1) / (2k+1)!
+    std::int64_t even = kTrigOne; // x^(2k) / (2k)!
+    for (std::int64_t k = 1; k <= 4; ++k) {
+        even = even * x2 / (kTrigOne * (2 * k - 1) * (2 * k)) * -1;
+        term = term * x2 / (kTrigOne * (2 * k) * (2 * k + 1)) * -1;
+        cos += even;
+        sin += term;
+    }
+    return Rotation{sin, cos};
+}
+
+/// (vx, vy) scaled so the larger component is `kHeadingScale`; a zero vector stays zero.
+void scale_heading(std::int64_t vx, std::int64_t vy, std::int32_t& out_x,
+                   std::int32_t& out_y) noexcept {
+    const std::int64_t major = std::max(std::abs(vx), std::abs(vy));
+    if (major == 0) {
+        out_x = 0;
+        out_y = 0;
+        return;
+    }
+    out_x = static_cast<std::int32_t>(vx * kHeadingScale / major);
+    out_y = static_cast<std::int32_t>(vy * kHeadingScale / major);
+}
+
+/// Turns `unit`'s heading toward (dx, dy) by at most `decidegrees` tenths of a degree. True when it
+/// now faces that way exactly (it was within one step and snapped), so it may move this tick.
+[[nodiscard]] bool turn_toward(Unit& unit, std::int64_t dx, std::int64_t dy,
+                               std::uint16_t decidegrees) noexcept {
+    std::int32_t wx = 0;
+    std::int32_t wy = 0;
+    scale_heading(dx, dy, wx, wy);
+    // Never turned: +Y, the way the presentation draws a hull that has not moved.
+    const bool unset = unit.heading_x == 0 && unit.heading_y == 0;
+    const std::int64_t hx = unset ? 0 : unit.heading_x;
+    const std::int64_t hy = unset ? kHeadingScale : unit.heading_y;
+    const std::int64_t cross = hx * wy - hy * wx;
+    const std::int64_t dot = hx * wx + hy * wy;
+    const Rotation step = rotation_of(decidegrees);
+    // Within one step when tan(angle) <= tan(step) with the angle acute: |cross| * cos <= dot *
+    // sin.
+    if (dot > 0 && std::abs(cross) * step.cos <= dot * step.sin) {
+        unit.heading_x = wx;
+        unit.heading_y = wy;
+        return true;
+    }
+    // Otherwise one full step toward it (the long way round is never taken: the sign of the cross
+    // product picks the nearer side; exactly behind turns the same way every time).
+    const std::int64_t s = cross >= 0 ? step.sin : -step.sin;
+    const std::int64_t nx = (hx * step.cos - hy * s) >> kTrigBits;
+    const std::int64_t ny = (hx * s + hy * step.cos) >> kTrigBits;
+    scale_heading(nx, ny, unit.heading_x, unit.heading_y);
+    return false;
+}
+
 void steer(std::vector<Unit>& units, Unit& unit, const UnitProfile& prof, const WorldGround& ground,
            std::uint32_t& plans) noexcept {
     unit.vx = Fixed::zero();
@@ -1590,6 +1665,9 @@ void steer(std::vector<Unit>& units, Unit& unit, const UnitProfile& prof, const 
     }
     const std::int64_t dx = static_cast<std::int64_t>(aim_x.raw) - unit.x.raw;
     const std::int64_t dy = static_cast<std::int64_t>(aim_y.raw) - unit.y.raw;
+    if (prof.turn_decidegrees != 0 && !turn_toward(unit, dx, dy, prof.turn_decidegrees)) {
+        return; // still coming round: it stands (the velocity is zero from the top of `steer`)
+    }
     const std::int64_t speed = prof.max_speed.raw;
     std::int64_t vx = dx;
     std::int64_t vy = dy;
@@ -2357,6 +2435,10 @@ std::uint64_t Sim::state_hash() const noexcept {
         if (u.face_x != 0 || u.face_y != 0) {
             h.i32(u.face_x); // a truck that has moved: no other unit's is ever set
             h.i32(u.face_y);
+        }
+        if (u.heading_x != 0 || u.heading_y != 0) {
+            h.i32(u.heading_x); // a turn-limited machine that has turned: no other unit's is set
+            h.i32(u.heading_y);
         }
         if (u.deploy_ticks != 0) {
             h.u64(

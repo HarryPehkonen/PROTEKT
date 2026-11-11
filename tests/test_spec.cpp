@@ -175,7 +175,7 @@ TEST(SpecFactoryKinds, TheWalkerIsSlowHeavyAndTwiceTheTanksHitAndReload) {
     const UnitSpec& s = spec_of(UnitKind::Walker);
     EXPECT_EQ(s.hp, 200);
     EXPECT_EQ(s.max_speed.raw, 13107 / 2);
-    EXPECT_EQ(s.range().raw, 12 << 16);
+    EXPECT_EQ(s.range().raw, 20 << 16) << "its OWN gun now (was the tank's 12), H2";
     EXPECT_EQ(s.damage, 16);
     EXPECT_EQ(s.cooldown, 30);
     EXPECT_EQ(s.splash_radius.raw, 0);
