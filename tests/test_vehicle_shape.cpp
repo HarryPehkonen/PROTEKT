@@ -1866,11 +1866,13 @@ TEST(ChamferedHull, EveryShapedKindHasItsHullAndLoadCornersCut) {
 }
 
 TEST(ChamferedHull, TheCutIsPronouncedOnTheTankAndTheScavenger) {
-    // AY, MEASURED: AT cut 0.10 m and the owner asked for more. The tank's engine deck (0.8 m by
-    // 0.62 m) is the largest cut the two machines' big blocks can ALL take in full -- its cap,
-    // 0.4 of its 0.62 m edge, is 0.248 -- so the cut is 0.25 m on the blocks that can take it:
-    // a chord of 0.25 * sqrt(2) = 0.354 m, 2.5 times AT's 0.141.
-    constexpr float kChordMetres = 0.25F * 1.41421356F;
+    // Round 15 (slice A): AY raised the cut to 0.25 m and the owner then said the turrets "look
+    // like snowmen" and asked to "tweak down the rounding on everything". The constant is now
+    // 0.16 m, a value between AT's 0.10 and AY's 0.25 that the owner judges by looking. The cut is
+    // pinned as a CHORD: 0.16 * sqrt(2) = 0.226 m on the tank's engine deck (its cap, 0.45 of the
+    // 0.62 m edge, is 0.279, so the cut is taken in full), and a floor of the same on the
+    // compartment and the scavenger's cab. It was 0.25 * sqrt(2) = 0.354 m.
+    constexpr float kChordMetres = 0.16F * 1.41421356F;
     const ShapePart& deck = part_spanning(UnitKind::Tank, -1.2F, 0.0F, 0.62F);
     const std::vector<float> deck_chords = chord_lengths(deck.profile);
     ASSERT_EQ(deck_chords.size(), std::size_t{4}) << "four box corners, four cuts";

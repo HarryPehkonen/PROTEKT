@@ -46,7 +46,9 @@ constexpr std::size_t kAlienHarvesterVertices = 5130;
 /// so there are more vertices and different positions (was 16841904087840096574).
 /// RE-PINNED AGAIN (AY): the cut grew from 0.10 m to 0.25 m (the count is the same, 4098; the
 /// positions and normals moved; was 17356007928199366683).
-constexpr std::uint64_t kHumanScavengerHash = 9572317917685338920ULL;
+/// RE-PINNED AGAIN (round 15, slice A): the cut came DOWN from 0.25 m to 0.16 m ("the turrets look
+/// like snowmen"; the count is the same, 4098; was 9572317917685338920).
+constexpr std::uint64_t kHumanScavengerHash = 10243807380336116142ULL;
 
 /// The vertices a lone unit adds to a frame: what is left between the terrain and sky both frames
 /// share before it, and the HUD both share after it. That is its shadow and its body.

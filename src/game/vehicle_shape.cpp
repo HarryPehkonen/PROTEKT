@@ -59,14 +59,16 @@ Profile stadium(float x0, float x1, float y0, float y1, int segments) {
     return corners;
 }
 
-/// How far a hull's box corner is cut, in metres along each edge of the corner. AT cut 0.10 m on
-/// the scavenger and the tank; the owner asked for more, on every vehicle (AY). MEASURED: the
-/// tank's engine deck is 0.8 m by 0.62 m and takes at most 0.45 * 0.62 = 0.279 m, its compartment
-/// 0.38, the scavenger's cab 0.29 (all at the 0.45 share below), so 0.25 m is the largest cut those
-/// big blocks all take IN FULL; smaller parts (the tank's 0.25 m bustle, a 6 cm fender) take the
-/// share of their own edge instead. Every lit hull or load part of every authored kind has its
-/// corners cut by this, so the hull has no 90 degree edge for smooth shading to leave sharp.
-constexpr float kHullChamfer = 0.25F;
+/// How far a hull's box corner is cut, in metres along each edge of the corner. AT shipped 0.10 m;
+/// the owner asked for more and AY raised it to 0.25 m. Round 15 then brought it DOWN: the owner
+/// said "the turrets look like snowmen" (the turret's base and pedestal are both cut, and at 0.25
+/// they read as two stacked balls) and "let's tweak down the rounding on everything", and chose a
+/// baked value over a run-time knob ("I don't want to try with different switches"). 0.16 is the
+/// assistant's proposal between AT's 0.10 and AY's 0.25: a LOOK the owner accepts or rejects by
+/// seeing it, not a measured optimum. A smaller part takes the share of its own edge instead
+/// (`kMaxCutShare`). Every lit hull or load part of every authored kind has its corners cut by
+/// this, so the hull has no 90 degree edge for smooth shading to leave sharp.
+constexpr float kHullChamfer = 0.16F;
 
 /// The most of an edge one cut may take (AY; AT held 0.4). Two cuts share an edge, so each at most
 /// this share leaves `1 - 2 * 0.45` = a tenth of it flat; at 0.5 they would meet at its middle and
@@ -379,6 +381,9 @@ std::vector<ShapePart> author_hover_tank() {
 /// and cutting a tip takes its point off, so the corner is written 0.123 m further out and the
 /// rounded nose ends at 1.3 (AY). The same holds for the bomber's tail and the turret's base below:
 /// each outermost corner is pushed out by what its own cut takes, so the machine does not shrink.
+/// Round 15 (cut 0.25 -> 0.16): this nose tip's cut was never the full cut -- its short edge caps
+/// it at 0.45 of 0.317 m, 0.142 -- so it is unchanged; the bomber's and turret's tips were
+/// re-derived.
 constexpr float kScoutNoseTip = 1.423F;
 
 /// The body the scout and the missile scout share: a low wedge on TWO SMALL WHEELS with a clear
@@ -739,7 +744,7 @@ std::vector<ShapePart> author_apc() {
 std::vector<ShapePart> author_bomber() {
     std::vector<ShapePart> parts;
     constexpr float kBelly = 0.38F;
-    constexpr float kBomberTail = -1.205F; ///< authored; the cut leaves the tail at -1.05
+    constexpr float kBomberTail = -1.196682F; ///< authored; the 0.16 cut leaves the tail at -1.05
     constexpr float kSpine = 0.8F;
     // The fuselage, 0.6 m across, its tail rising to the fin.
     add_part(
@@ -880,7 +885,8 @@ std::vector<ShapePart> author_service_pod() {
 std::vector<ShapePart> author_turret() {
     std::vector<ShapePart> parts;
     constexpr float kBaseHalf = kHullHalfMetres;
-    constexpr float kTurretFoot = 0.855F; ///< authored; the cut leaves the base at 0.7 either side
+    constexpr float kTurretFoot
+        = 0.785978F; ///< authored; the 0.16 cut leaves the base at 0.7 either side
     constexpr float kPedestalTop = 1.1F;
     add_part(parts, {{-kTurretFoot, 0.0F}, {kTurretFoot, 0.0F}, {0.5F, 0.45F}, {-0.5F, 0.45F}},
              -kBaseHalf, kBaseHalf, false, 0.05F, ShapeRole::Hull);
