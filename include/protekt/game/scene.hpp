@@ -878,6 +878,40 @@ private:
     std::map<std::uint32_t, float> last_;
 };
 
+/// THE HARVESTER'S GAIT. The sim moves a machine by position; its legs are drawing. A machine's
+/// WALK PHASE (a fraction of a stride cycle, `[0, 1)`) advances with the DISTANCE IT ACTUALLY MOVED
+/// -- `kStrideMetres` of ground to a cycle -- and with nothing else: no clock, so a slow machine
+/// does not cycle its legs in place, a paused one does not step, and a capture is reproducible. A
+/// machine that did not move keeps its phase EXACTLY, so its legs hold. Keyed by unit id in an
+/// ordered map, `Headings`' sibling: called once per frame with the sim's BEFORE-snapshot, drops
+/// the dead, and touches nothing in the sim. A unit never seen moving has NO phase, and is drawn
+/// at the neutral stance (the feet at their static places).
+inline constexpr float kStrideHalfMetres
+    = 0.35F; ///< how far a foot reaches fore and aft of its static place
+inline constexpr float kStrideMetres = 4.0F * kStrideHalfMetres; ///< ground covered by one cycle
+inline constexpr float kStepLiftMetres = 0.18F; ///< how high a swinging foot clears the ground
+
+/// One leg's pose at a walk phase: how far fore (+) of its static place the foot is (planted legs
+/// slide AFT at exactly the machine's own speed, so the foot stays put on the ground; swinging legs
+/// are carried forward), and how high it is lifted. `leg` counts 0..5 around the body, so the
+/// TRIPOD sets are the even and the odd legs (1-3-5 against 2-4-6 in the owner's counting); the
+/// two sets are half a cycle apart.
+struct LegPose {
+    float along{};
+    float lift{};
+};
+[[nodiscard]] LegPose leg_pose(float phase, std::size_t leg) noexcept;
+
+class Strides {
+public:
+    void after_frame(const sim::UnitSnapshot& before, const sim::Sim& sim);
+    /// The unit's phase, or ABSENT when it has never moved.
+    [[nodiscard]] std::optional<float> of(const sim::Unit& unit) const;
+
+private:
+    std::map<std::uint32_t, float> phase_;
+};
+
 /// WHERE A GUN POINTS. Presentation derived from the sim's OWN persistent target data, as the
 /// driven tank's turret is derived from the player's view: nothing is invented and nothing is
 /// eased. The source, first that names a LIVING unit wins: the trigger's `focus_target`, then the
@@ -1253,6 +1287,9 @@ struct SceneOptions {
     /// Remembered headings, so a stopped tank keeps its facing. ABSENT (null) faces a stopped tank
     /// along +Y; a moving one still faces its velocity. Not owned.
     const Headings* headings{nullptr};
+    /// The walk phases the Harvester's legs read (`Strides`). ABSENT (null) draws every leg at its
+    /// static place, byte-identical to a frame that never heard of it. Not owned.
+    const Strides* strides{nullptr};
     /// The world's per-tile answers for this seed, remembered (see game/terrain_cache.hpp): with it
     /// the terrain mesh reads a table instead of running the noise three octaves deep five times a
     /// tile, which is 78% of what a frame's mesh costs. ABSENT (null) derives every tile again, so

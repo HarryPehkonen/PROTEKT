@@ -530,6 +530,7 @@ public:
         }
         if (steps > 0 && !paused_) {
             wakes_.after_frame(before, sim_, stamp);
+            strides_.after_frame(before, sim_); // the legs walk by the ground the frame covered
         }
         refresh_row();
     }
@@ -561,6 +562,7 @@ public:
             session_.view_pitch()};
         headings_.observe(sim_);
         scene_options.headings = &headings_;
+        scene_options.strides = &strides_;
         scene_options.terrain = &terrain_cache_; // the per-seed memo the mesh reads through
         // The red wash would tint the statistics screen; a frozen tick would hold it forever.
         scene_options.hit_flash = paused_ ? 0.0F : hit_flash_.level(sim_.tick());
@@ -638,6 +640,7 @@ private:
     game::NavMarks nav_marks_;
     game::NavMenu nav_menu_; ///< `top menu -> n` and `top menu -> ~`: app-side, like the marks
     game::Headings headings_;
+    game::Strides strides_;
     /// The world's per-tile answers for this session's seed, remembered (game/terrain_cache.hpp):
     /// the terrain mesh asks the world five times a tile and is rebuilt every frame, so this is the
     /// difference between 12.1 ms and ~2.5 ms of a frame at radius 24. One cache, one seed: the

@@ -1259,7 +1259,8 @@ KindColours kind_colours(const sim::Unit& unit, Mark mark) {
 /// Large on purpose: 5.5 m long and 2.3 m across against the hauler's 2.6 by 1.2, because a shape
 /// that reads as a small blob across the map is worse than a box.
 void build_harvester(std::vector<SceneVertex>& out, std::uint64_t seed, const sim::Unit& unit,
-                     Mark mark, float lift_z, bool lifted, float heading) {
+                     Mark mark, float lift_z, bool lifted, float heading,
+                     std::optional<float> stride) {
     const float x
         = static_cast<float>(unit.x.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile;
     const float z
@@ -1364,11 +1365,20 @@ void build_harvester(std::vector<SceneVertex>& out, std::uint64_t seed, const si
     emit_plated(out, x, z, ground, heading, kCrest, kCrestTeeth, kCrestTuck, kBladeSides, colour,
                 panel_tile);
     for (const float side : {-1.0F, 1.0F}) {
-        for (const float along : kLegAlong) {
+        for (std::size_t index = 0; index < kLegAlong.size(); ++index) {
+            const float along = kLegAlong.at(index);
+            // Counted around the body, front-left first: the right side is 1 2 3 front to back
+            // and the left side comes back 0 5 4. The even legs are one tripod, the odd the other.
+            const std::size_t around = side > 0.0F ? 1U + index : (index == 0U ? 0U : 6U - index);
+            // A machine with no stride stands at its static stance, the pose it was drawn in
+            // before there was a gait: the feet at `along`, the knees at their static height.
+            const LegPose pose = stride.has_value() ? leg_pose(*stride, around) : LegPose{};
             const std::array<LoftStation, 3> leg{{
                 {side * kHipAcross, kHipHeight, along, kHipThick, kHipThick},
-                {side * kKneeAcross, kKneeHeight, along, kKneeThick, kKneeThick},
-                {side * kFootAcross, kFootHeight, along, kFootThick, kFootThick},
+                {side * kKneeAcross, kKneeHeight + pose.lift, along + 0.5F * pose.along, kKneeThick,
+                 kKneeThick},
+                {side * kFootAcross, kFootHeight + pose.lift, along + pose.along, kFootThick,
+                 kFootThick},
             }};
             emit_plated(out, x, z, ground, heading, leg, kLegPlates, kLegTuck, kLegSides, colour,
                         tracks_tile);
@@ -6198,6 +6208,56 @@ std::optional<float> Headings::heading_of(const sim::Unit& unit) noexcept {
     return std::atan2(static_cast<float>(unit.vx.raw), static_cast<float>(unit.vy.raw));
 }
 
+LegPose leg_pose(float phase, std::size_t leg) noexcept {
+    // Half a cycle between the two tripods. The odd set is a half-cycle behind the even one.
+    float q = phase + (leg % 2U == 0U ? 0.0F : 0.5F);
+    q -= std::floor(q);
+    if (q < 0.5F) {
+        // STANCE: planted. The foot slides aft from +half to -half over half a cycle, which is
+        // `kStrideMetres / 2` of body travel against `2 * half` of reach: the same ground.
+        return {kStrideHalfMetres - 4.0F * kStrideHalfMetres * q, 0.0F};
+    }
+    // SWING: carried forward from aft to fore, and lifted in a half sine.
+    const float t = (q - 0.5F) * 2.0F;
+    constexpr float kPi = 3.14159265F;
+    return {-kStrideHalfMetres + 2.0F * kStrideHalfMetres * t, kStepLiftMetres * std::sin(kPi * t)};
+}
+
+void Strides::after_frame(const sim::UnitSnapshot& before, const sim::Sim& sim) {
+    std::map<std::uint32_t, float> kept;
+    for (const sim::Unit& unit : sim.units()) {
+        if (!unit.alive) {
+            continue;
+        }
+        const auto held = phase_.find(unit.id.value);
+        float phase = held != phase_.end() ? held->second : 0.0F;
+        bool known = held != phase_.end();
+        const auto was = std::ranges::find_if(
+            before, [&unit](const sim::Unit& old) { return old.id == unit.id; });
+        if (was != before.end()) {
+            const float dx = static_cast<float>(unit.x.raw - was->x.raw)
+                             / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile;
+            const float dy = static_cast<float>(unit.y.raw - was->y.raw)
+                             / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile;
+            const float moved = std::hypot(dx, dy);
+            if (moved > 0.0F) {
+                phase += moved / kStrideMetres;
+                phase -= std::floor(phase);
+                known = true;
+            }
+        }
+        if (known) {
+            kept.emplace(unit.id.value, phase);
+        }
+    }
+    phase_ = std::move(kept);
+}
+
+std::optional<float> Strides::of(const sim::Unit& unit) const {
+    const auto found = phase_.find(unit.id.value);
+    return found == phase_.end() ? std::nullopt : std::optional<float>(found->second);
+}
+
 void Headings::observe(const sim::Sim& sim) {
     std::map<std::uint32_t, float> kept;
     for (const sim::Unit& unit : sim.units()) {
@@ -6558,8 +6618,9 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
                 // silhouette follows the unit's FACTION (never its side): the human hauler or the
                 // alien harvester, the same kind either way.
                 if (alien) {
-                    build_harvester(scene.vertices, options.seed, unit, mark, lift_z, hovering,
-                                    heading);
+                    build_harvester(
+                        scene.vertices, options.seed, unit, mark, lift_z, hovering, heading,
+                        options.strides != nullptr ? options.strides->of(unit) : std::nullopt);
                 } else {
                     build_scavenger(scene.vertices, options.seed, unit, mark, lift_z, hovering,
                                     heading);
