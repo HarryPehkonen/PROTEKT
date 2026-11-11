@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <span>
@@ -180,13 +181,25 @@ struct MenuInput {
     const std::vector<NavRow>* nav_list{nullptr};
 };
 
-/// WHY a row is dimmed. The three values are exhaustive on purpose: `None` means the row is NOT
-/// dimmed, so `enabled` and `reason` can never disagree.
+/// WHY a row is dimmed. The values are exhaustive on purpose: `None` means the row is NOT dimmed,
+/// so `enabled` and `reason` can never disagree. This is the ONE place that decides why: the dim
+/// look reads `enabled`, and the refusal's sentence is `refusal_message` of the same row.
+///
+/// The last three are the owner's other asks (round 16: "A building? Power? An upgrade in the case
+/// of the alien faction?"). NOTHING produces them yet -- there are no prerequisites, no power and
+/// no upgrades in this tree until the construct system -- so no row may claim them
+/// (`reason_occurs_today` says so). They exist so that system adds a row's claim and nothing else.
 enum class MenuDim : std::uint8_t {
-    None = 0,     ///< not dimmed: the row is live
-    Unaffordable, ///< a build row whose cost is more than is banked
-    DoesNotApply, ///< an action row that this selection cannot do
+    None = 0,      ///< not dimmed: the row is live
+    Unaffordable,  ///< a build row whose cost is more than is banked
+    DoesNotApply,  ///< an action row that this selection cannot do
+    NeedsBuilding, ///< UNREACHABLE TODAY: a build row whose required building does not stand
+    NeedsPower,    ///< UNREACHABLE TODAY: a build row whose power is not there
+    NeedsUpgrade,  ///< UNREACHABLE TODAY: a build row (the aliens') whose upgrade is not bought
 };
+/// How many `MenuDim` values there are, for the test that walks them all. Keep it equal to the
+/// last value + 1 (a test checks the last value's mapping is not left out).
+inline constexpr std::size_t kMenuDimCount = 6;
 
 /// One row of the menu, as drawn: the key pressed and the verb it names, side by side.
 struct MenuRow {
@@ -217,6 +230,12 @@ struct MenuRow {
     /// `unit` either way.
     bool leads{true};
 
+    /// A BUILD row only: what the item costs and what was banked when the row was made, so the
+    /// refusal can say how short it is (`refusal_message`) from the row alone. Zero on every other
+    /// row, which never reads them.
+    int cost{};
+    int banked{};
+
     MenuRow() = default;
     MenuRow(std::string_view key_in, std::string verb_in, bool enabled_in, MenuDim reason_in)
         : key(key_in), verb(std::move(verb_in)), enabled(enabled_in), reason(reason_in) {}
@@ -226,6 +245,28 @@ struct MenuRow {
     /// a `BuildItem`'s own key, and both outlive the row.
     MenuRow(std::string&&, std::string, bool, MenuDim) = delete;
 };
+
+/// The sentence a press on a dimmed `row` is refused with, a function of the row's own `reason`
+/// (and, for scrap, its `cost` and `banked`): "Add 6 scrap (have 44, costs 50)". Empty for a row
+/// that is not dimmed and for `DoesNotApply`, whose refusals keep their own wording. Switch-
+/// complete: a new `MenuDim` that is not mapped here does not compile.
+[[nodiscard]] std::string refusal_message(const MenuRow& row);
+
+/// Whether anything in this tree can dim a build row for `reason` today. False for the three
+/// reasons the construct system will bring; no row may claim one until it flips.
+[[nodiscard]] constexpr bool reason_occurs_today(MenuDim reason) noexcept {
+    switch (reason) {
+    case MenuDim::None:
+    case MenuDim::Unaffordable:
+    case MenuDim::DoesNotApply:
+        return true;
+    case MenuDim::NeedsBuilding:
+    case MenuDim::NeedsPower:
+    case MenuDim::NeedsUpgrade:
+        return false;
+    }
+    return false;
+}
 
 /// One row of a deployed recycler's build list. The cost is scrap, the same currency the factory
 /// spends (each item's `cost`), and it is what affordability is weighed against.

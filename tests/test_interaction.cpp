@@ -1859,6 +1859,65 @@ TEST(Interaction, AnUnaffordableBuildPressQueuesNothing) {
         << "the refused press queued itself once the scrap came";
 }
 
+TEST(Interaction, AnUnaffordableBuildPressNamesTheShortfallWithItsNumber) {
+    // THE OWNER (round 16, slice M): "it should show what I still need". The refusal carries the
+    // bank, the cost and the difference -- the right numbers, read off a partly-funded bank, not
+    // a bare "not enough".
+    BuildRig rig = make_funded_build_rig(400, 0);
+    ASSERT_TRUE(bank_up(rig, 5));
+    const int ore = rig.sim.ore(Side::Player);
+    const Faction faction = faction_of(rig.options.factions, Side::Player);
+    int tested = 0;
+    for (const BuildItem& item : build_items(faction, MenuSubject::Deployment)) {
+        if (item.cost <= ore || !item.kind.has_value()) {
+            continue;
+        }
+        BuildRig fresh = make_funded_build_rig(400, 0);
+        ASSERT_TRUE(bank_up(fresh, ore));
+        const int bank = fresh.sim.ore(Side::Player);
+        if (item.cost <= bank) {
+            continue;
+        }
+        EXPECT_TRUE(press(fresh, std::stoi(std::string{item.key}), false).empty());
+        const std::string want = "Add " + std::to_string(item.cost - bank) + " scrap (have "
+                                 + std::to_string(bank) + ", costs " + std::to_string(item.cost)
+                                 + ")";
+        EXPECT_EQ(std::string{fresh.player.message()}, want) << item.label;
+        ++tested;
+    }
+    EXPECT_GT(tested, 0) << "no row was unaffordable, so the loop proved nothing";
+}
+
+TEST(Interaction, ARefusalIsTheSameSentenceThatTheRowsOwnDimCarries) {
+    // One source of truth: the sentence is made FROM the dimmed row, so the row that dims and the
+    // press that is refused cannot say different things.
+    BuildRig rig = make_funded_build_rig(400, 0);
+    ASSERT_TRUE(bank_up(rig, 5));
+    const int ore = rig.sim.ore(Side::Player);
+    MenuInput in;
+    in.subject = MenuSubject::Deployment;
+    in.faction = faction_of(rig.options.factions, Side::Player);
+    in.ore = ore;
+    int checked = 0;
+    for (const MenuRow& row : menu_rows(in)) {
+        if (row.reason != MenuDim::Unaffordable) {
+            continue;
+        }
+        BuildRig fresh = make_funded_build_rig(400, 0);
+        ASSERT_TRUE(bank_up(fresh, ore));
+        MenuInput again = in;
+        again.ore = fresh.sim.ore(Side::Player);
+        for (const MenuRow& twin : menu_rows(again)) {
+            if (twin.key == row.key) {
+                EXPECT_TRUE(press(fresh, std::stoi(std::string{row.key}), false).empty());
+                EXPECT_EQ(std::string{fresh.player.message()}, refusal_message(twin));
+                ++checked;
+            }
+        }
+    }
+    EXPECT_GT(checked, 0);
+}
+
 TEST(Interaction, ABuildRowTheMenuDimsIsRefusedAndOneItDoesNotDimIsQueued) {
     // The dim and the press read ONE predicate (the menu row's own `enabled`): so for every row,
     // at one bank, "dimmed" and "refused" are the same answer.

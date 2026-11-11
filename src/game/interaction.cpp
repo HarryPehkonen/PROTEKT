@@ -93,6 +93,7 @@ Interaction::Interaction(sim::UnitId driven) noexcept : driven_(driven) {}
 void Interaction::handle(const input::InputFrame& frame, const sim::Sim& sim,
                          const SceneOptions& options) {
     message_ = std::string_view{};
+    owned_ = false;
     pending_.clear();
     shot_voice_ = false;
 
@@ -555,7 +556,11 @@ void Interaction::trigger_refused(const sim::Sim& sim) noexcept {
     }
 }
 
-std::string_view Interaction::message() const noexcept { return message_; }
+std::string_view Interaction::message() const noexcept {
+    // The composed refusal shows only while no later message has replaced it: a later `message_ =`
+    // (non-empty) wins, as it always did, and `refuse_owned` blanks `message_` so it wins in turn.
+    return owned_ && message_.empty() ? std::string_view{owned_message_} : message_;
+}
 
 std::vector<sim::UnitId> Interaction::orderable() const {
     std::vector<sim::UnitId> roster;
@@ -704,7 +709,9 @@ void Interaction::menu_digit(const sim::Sim& sim, const SceneOptions& options, i
                 // up, and those go too, so letting go cannot order part of a refused batch.
                 held_.clear();
                 shift_batch_ = 0;
-                refuse("Not enough scrap to build that.");
+                // The sentence is the ROW's own reason made into words (`refusal_message`), so the
+                // dim and the refusal cannot disagree about why.
+                refuse_owned(refusal_message(*row));
                 return;
             }
             queue_build(sim, *item, shift);
@@ -1430,6 +1437,15 @@ void Interaction::select_only(sim::UnitId id) noexcept {
 
 void Interaction::toggle(sim::UnitId id) noexcept { selection_.toggle(id); }
 
-void Interaction::refuse(std::string_view why) noexcept { message_ = why; }
+void Interaction::refuse(std::string_view why) noexcept {
+    message_ = why;
+    owned_ = false;
+}
+
+void Interaction::refuse_owned(std::string why) {
+    owned_message_ = std::move(why);
+    owned_ = true;
+    message_ = std::string_view{};
+}
 
 } // namespace protekt::game

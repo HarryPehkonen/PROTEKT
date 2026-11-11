@@ -369,6 +369,11 @@ private:
     void select_only(sim::UnitId id) noexcept;
     void toggle(sim::UnitId id) noexcept;
     void refuse(std::string_view why) noexcept;
+    /// A refusal whose sentence is COMPOSED (it carries a number), so it cannot be a view onto
+    /// static text. The text is kept in `owned_message_`, which this object owns: it lives as long
+    /// as the `Interaction` and a copy or move takes its own. A second message in the same frame
+    /// replaces the first, as `refuse` already does.
+    void refuse_owned(std::string why);
 
     /// Record what the player ordered `orders` to do, for the return leg: a Stop forgets, and the
     /// driven tank is never recorded.
@@ -415,6 +420,8 @@ private:
     bool has_fired_{false};
     sim::Tick last_shot_tick_{};
     std::string_view message_;
+    std::string owned_message_{}; ///< the composed refusal; read only while `owned_` is true
+    bool owned_{false};           ///< `message()` is `owned_message_` rather than `message_`
 };
 
 } // namespace protekt::game

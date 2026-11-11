@@ -231,6 +231,8 @@ void append_build_list(std::vector<MenuRow>& rows, const MenuInput& in) {
         const bool affordable = in.ore >= item.cost;
         rows.push_back(MenuRow{item.key, named_cost(item.label, item.cost), affordable,
                                affordable ? MenuDim::None : MenuDim::Unaffordable});
+        rows.back().cost = item.cost;
+        rows.back().banked = in.ore;
     }
 }
 
@@ -274,6 +276,25 @@ void append_nav_rows(std::vector<MenuRow>& rows, const std::vector<NavRow>& list
 }
 
 } // namespace
+
+std::string refusal_message(const MenuRow& row) {
+    // No `default:`: a new MenuDim that is not mapped here is a -Wswitch error, not silence.
+    switch (row.reason) {
+    case MenuDim::None:
+    case MenuDim::DoesNotApply:
+        return {}; // not a build refusal: a live row, or an action row with its own wording
+    case MenuDim::Unaffordable:
+        return "Add " + std::to_string(row.cost - row.banked) + " scrap (have "
+               + std::to_string(row.banked) + ", costs " + std::to_string(row.cost) + ")";
+    case MenuDim::NeedsBuilding: // unreachable today: the construct system will claim it
+        return "Needs another building first";
+    case MenuDim::NeedsPower: // unreachable today
+        return "Not enough power";
+    case MenuDim::NeedsUpgrade: // unreachable today
+        return "Needs an upgrade first";
+    }
+    return {};
+}
 
 std::string metres_text(int metres) { return std::to_string(metres) + "m"; }
 

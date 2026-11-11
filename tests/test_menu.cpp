@@ -1990,5 +1990,73 @@ TEST(Menu, ASelectionOwnsTheSubjectOfTheLivingKindItHolds) {
     EXPECT_EQ(menu_subject_of(sim, with_stranger), MenuSubject::Harvester);
 }
 
+TEST(Menu, AnUnaffordableRowNamesTheAmountItIsShortBy) {
+    // Slice M: bank 44, Scout 50 -> short 6. The number is in the sentence and it is the RIGHT one.
+    const std::vector<MenuRow> poor = menu_rows(deployed(44));
+    const MenuRow* scout = row_for(poor, "2");
+    ASSERT_NE(scout, nullptr);
+    ASSERT_EQ(scout->reason, MenuDim::Unaffordable);
+    EXPECT_EQ(scout->banked, 44);
+    EXPECT_EQ(scout->cost, 50);
+    EXPECT_EQ(refusal_message(*scout), "Add 6 scrap (have 44, costs 50)");
+}
+
+TEST(Menu, EveryRowThatDimsHasASentenceAndEveryRowThatDoesNotHasNone) {
+    // The row that dims is the row that is refused, with the same reason: for every build row, at
+    // several banks, `enabled` <=> an empty sentence, and the sentence is a function of the row.
+    for (const int ore : {0, 19, 20, 44, 45, 49, 50, 999}) {
+        for (const MenuRow& row : menu_rows(deployed(ore))) {
+            if (row.reason == MenuDim::Unaffordable) {
+                EXPECT_FALSE(row.enabled);
+                EXPECT_NE(refusal_message(row).find(std::to_string(row.cost - ore)),
+                          std::string::npos)
+                    << row.verb << " at " << ore;
+            } else if (row.enabled) {
+                EXPECT_TRUE(refusal_message(row).empty()) << row.verb << " at " << ore;
+            }
+        }
+    }
+}
+
+TEST(Menu, EveryReasonThatExistsIsMappedAndTheUnreachableOnesAreMarked) {
+    // Exhaustiveness is enforced TWICE: `refusal_message` and `reason_occurs_today` switch over
+    // MenuDim with no `default:` (-Wswitch under -Werror refuses a new case that is not mapped),
+    // and this walks 0..kMenuDimCount so a case with no sentence fails here.
+    int reachable = 0;
+    for (std::size_t value = 0; value < kMenuDimCount; ++value) {
+        const auto reason = static_cast<MenuDim>(value);
+        MenuRow row{std::string_view{"1"}, "X 10", false, reason};
+        row.cost = 10;
+        row.banked = 4;
+        const std::string text = refusal_message(row);
+        if (reason == MenuDim::None || reason == MenuDim::DoesNotApply) {
+            EXPECT_TRUE(text.empty()) << value << ": the action row keeps its own behaviour";
+            continue;
+        }
+        EXPECT_FALSE(text.empty()) << "reason " << value << " says nothing";
+        reachable += reason_occurs_today(reason) ? 1 : 0;
+    }
+    EXPECT_EQ(reachable, 1) << "only Unaffordable can be produced today";
+    EXPECT_TRUE(reason_occurs_today(MenuDim::Unaffordable));
+    EXPECT_FALSE(reason_occurs_today(MenuDim::NeedsBuilding));
+    EXPECT_FALSE(reason_occurs_today(MenuDim::NeedsPower));
+    EXPECT_FALSE(reason_occurs_today(MenuDim::NeedsUpgrade));
+    // And no build row claims one of them, on any faction, subject or bank.
+    for (const Faction faction : {Faction::Human, Faction::Alien}) {
+        for (const MenuSubject subject : {MenuSubject::Deployment, MenuSubject::Factory}) {
+            for (const int ore : {0, 30, 999}) {
+                MenuInput in = deployed(ore);
+                in.faction = faction;
+                in.subject = subject;
+                for (const MenuRow& row : menu_rows(in)) {
+                    EXPECT_TRUE(row.reason == MenuDim::None || row.reason == MenuDim::Unaffordable
+                                || row.reason == MenuDim::DoesNotApply)
+                        << row.verb;
+                }
+            }
+        }
+    }
+}
+
 } // namespace
 } // namespace protekt::game
