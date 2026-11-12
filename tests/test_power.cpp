@@ -560,9 +560,12 @@ TEST(PowerPanel, RotateIsLiveOnlyWhileABuildingIsArmedAndSwapsTheAxes) {
     press(r, session, orders, input::kKeyGrave);
     orders.clear();
     press(r, session, orders, input::kKeySpace);
-    ASSERT_EQ(constructor_orders(r, orders).size(), 1U);
-    const auto* order
-        = std::get_if<sim::orders::Place>(&constructor_orders(r, orders).front().payload);
+    // `constructor_orders` returns the orders BY VALUE, so the vector has to be bound to a local:
+    // taking the address of an element of the temporary left `order` dangling as soon as the full
+    // expression ended, and ASan said so at the landing (heap-use-after-free, READ at line 567).
+    const std::vector<sim::Order> placed = constructor_orders(r, orders);
+    ASSERT_EQ(placed.size(), 1U);
+    const auto* order = std::get_if<sim::orders::Place>(&placed.front().payload);
     ASSERT_NE(order, nullptr);
     EXPECT_TRUE(order->turned);
 }
