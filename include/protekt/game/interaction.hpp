@@ -222,6 +222,11 @@ public:
     /// it up, Escape cancels it (and is spent doing so), any other key cancels it and does its own
     /// job. Player intent, held here and never in the sim, so no hash can see it.
     [[nodiscard]] bool repair_armed() const noexcept;
+    /// `constructor menu -> 3 Construct` has opened the CONSTRUCT panel (round 17, J1): the menu IS
+    /// the panel while this is true. A digit is a ROW and is refused in words (nothing can be
+    /// placed yet); the panel stays up through a press, TAB and Escape close it. Player intent,
+    /// held here and never in the sim.
+    [[nodiscard]] bool construct_armed() const noexcept;
     /// The rows the open repair list offers, nearest first, captured when `3 Repair` opened it so
     /// the numbers cannot shift under the player's finger. Empty whenever the list is not open.
     [[nodiscard]] const std::vector<TargetRow>& repair_targets() const noexcept;
@@ -360,6 +365,11 @@ private:
     /// list, or refuse when there are none. A refusal leaves nothing open.
     void arm_repair_list(const sim::Sim& sim);
     void disarm_repair() noexcept;
+    /// `3 Construct`: open the panel, or refuse when the Constructor is the craft being driven.
+    void arm_construct();
+    void disarm_construct() noexcept;
+    /// A digit pressed in the open panel: refuse the row in words, by its own dim.
+    void construct_row(const sim::Sim& sim, const SceneOptions& options, int digit);
     /// The key that settles the open list: send the selection's trucks to the patient it names, or
     /// refuse when no row has that key or the patient has died or been mended since.
     void repair_row(const sim::Sim& sim, const std::vector<TargetRow>& rows, int key);
@@ -391,6 +401,7 @@ private:
     bool go_armed_{false};
     bool attack_armed_{false};
     bool repair_armed_{false};
+    bool construct_armed_{false};
     bool unit_list_armed_{false};
     bool nav_list_armed_{false};
     std::vector<NavRow> nav_rows_;     ///< the open nav list (`nav_list()`)

@@ -120,6 +120,8 @@ const std::vector<TargetRow>& Session::attack_targets() const noexcept {
     return interaction_.attack_targets();
 }
 
+bool Session::construct_armed() const noexcept { return interaction_.construct_armed(); }
+
 bool Session::repair_armed() const noexcept { return interaction_.repair_armed(); }
 
 const std::vector<TargetRow>& Session::repair_targets() const noexcept {

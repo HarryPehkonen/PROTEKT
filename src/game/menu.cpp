@@ -175,6 +175,40 @@ constexpr std::array kFactoryBuildList{
     kinded("8", "Bomber", sim::UnitKind::Bomber),
 };
 
+/// The CONSTRUCTOR's nine buildings, in key order. Every cost is CONFIRMED off the owner's own
+/// captures (2026-11-11). NAME rows: no `UnitKind` names a structure yet, so no row can place
+/// anything (slice J3 brings the first).
+///
+/// TWO LABELS DIVERGE FROM THE REFERENCE ON PURPOSE -- the owner ruled Canadian spelling, so it
+/// reads `TECH CENTRE` where the reference prints "Tech Center"; and `TRAINING CTR.` where the
+/// reference prints `TRAINING FAC.`, his own abbreviation ("Training Centre can be abbreviated to
+/// Training Ctr."), because the full name does not fit the panel. Do not "correct" either.
+constexpr std::array kConstructItems{
+    BuildItem{"1", "POWER", 30, std::nullopt},
+    BuildItem{"2", "FACTORY", 55, std::nullopt},
+    BuildItem{"3", "RELAY BUNKER", 50, std::nullopt},
+    BuildItem{"4", "ARMORY", 60, std::nullopt},
+    BuildItem{"5", "SERVICE BAY", 50, std::nullopt},
+    BuildItem{"6", "GUN TOWER", 50, std::nullopt},
+    BuildItem{"7", "TRAINING CTR.", 70, std::nullopt},
+    BuildItem{"8", "TECH CENTRE", 80, std::nullopt},
+    BuildItem{"9", "BOMBER BAY", 100, std::nullopt},
+};
+
+/// A CONSTRUCTOR (round 17, J1): the vehicle's rows with `3` turned from `Attack` to `Construct`,
+/// which opens the CONSTRUCT panel. The reference's row reads `Build`; ours reads `Construct`, the
+/// panel's own heading. `~ Select Unit` is drawn first by `menu_rows`, as for a vehicle.
+constexpr std::array kConstructorRows{
+    FixedRow{"1", kVerbFollowMe, MenuDim::None},
+    FixedRow{"2", kVerbGoToNav, MenuDim::None},
+    FixedRow{"3", kVerbConstruct, MenuDim::None},
+    FixedRow{"4", kVerbHold, MenuDim::None},
+    FixedRow{"5", kVerbPickMeUp, MenuDim::DoesNotApply},
+    // 6, 7, 8: the gap.
+    FixedRow{"9", kVerbBailout, MenuDim::None},
+    FixedRow{"0", kVerbRecycle, MenuDim::None},
+};
+
 /// The item's name and the cost the row shows, as one string: the cost is drawn ON the build row,
 /// so it rides in the verb and there is no second place for the number to drift to.
 [[nodiscard]] std::string named_cost(std::string_view label, int cost) {
@@ -226,14 +260,33 @@ void append_fixed(std::vector<MenuRow>& rows, std::span<const FixedRow> fixed) {
 
 /// The build list, with each row weighed against what is banked. An unaffordable row is dimmed for
 /// `MenuDim::Unaffordable` -- not `DoesNotApply`: the item is buildable, it is simply not paid for.
-void append_build_list(std::vector<MenuRow>& rows, const MenuInput& in) {
-    for (const BuildItem& item : build_items(in.faction, in.subject)) {
+void append_priced_rows(std::vector<MenuRow>& rows, const MenuInput& in,
+                        std::span<const BuildItem> items) {
+    for (const BuildItem& item : items) {
         const bool affordable = in.ore >= item.cost;
         rows.push_back(MenuRow{item.key, named_cost(item.label, item.cost), affordable,
                                affordable ? MenuDim::None : MenuDim::Unaffordable});
         rows.back().cost = item.cost;
         rows.back().banked = in.ore;
     }
+}
+
+void append_build_list(std::vector<MenuRow>& rows, const MenuInput& in) {
+    append_priced_rows(rows, in, build_items(in.faction, in.subject));
+}
+
+/// THE CONSTRUCT PANEL: `TAB Close Menu`, `~ Rotate Buildings` (greyed -- nothing to rotate yet),
+/// the `CONSTRUCT` heading, then the nine keyed rows -- twelve in all. Each keyed row is weighed
+/// against the bank by the SAME predicate every build row uses, and `Interaction` refuses a press
+/// by reading the row this returns, so the dim and the refusal cannot disagree.
+void append_construct_panel(std::vector<MenuRow>& rows, const MenuInput& in) {
+    rows.push_back(MenuRow{kRowKeyTab, std::string{kVerbCloseMenu}, true, MenuDim::None});
+    rows.push_back(
+        MenuRow{kTilde, std::string{kVerbRotateBuildings}, false, MenuDim::DoesNotApply});
+    MenuRow heading{std::string_view{}, std::string{kConstructHeading}, true, MenuDim::None};
+    heading.heading = true;
+    rows.push_back(std::move(heading));
+    append_priced_rows(rows, in, kConstructItems);
 }
 
 /// The keys a list row is pressed with, by position in the list: 1-9, then 0 for the tenth.
@@ -296,6 +349,8 @@ std::string refusal_message(const MenuRow& row) {
     return {};
 }
 
+std::span<const BuildItem> construct_items() noexcept { return kConstructItems; }
+
 std::string metres_text(int metres) { return std::to_string(metres) + "m"; }
 
 std::span<const BuildItem> build_items(Faction faction, MenuSubject subject) noexcept {
@@ -311,6 +366,7 @@ std::span<const BuildItem> build_items(Faction faction, MenuSubject subject) noe
     case MenuSubject::Turret:
     case MenuSubject::Vehicle:
     case MenuSubject::ServiceTruck:
+    case MenuSubject::Constructor:
         break;
     }
     return {};
@@ -342,9 +398,10 @@ MenuSubject menu_subject_of_kind(sim::UnitKind kind) noexcept {
     case sim::UnitKind::Bomber:
     case sim::UnitKind::MslScout:
     case sim::UnitKind::Tug:
-    case sim::UnitKind::Constructor:
     case sim::UnitKind::ServicePod:
         return MenuSubject::Vehicle;
+    case sim::UnitKind::Constructor: // round 17 J1: its own menu, as the truck has
+        return MenuSubject::Constructor;
     case sim::UnitKind::ServiceTruck:
         return MenuSubject::ServiceTruck;
     }
@@ -397,6 +454,11 @@ std::vector<MenuRow> menu_rows(const MenuInput& in) {
         append_nav_rows(rows, *in.nav_list);
         return rows;
     }
+    // ... and so is the Constructor's CONSTRUCT panel (round 17, J1): `3 Construct`.
+    if (in.construct_panel && in.subject == MenuSubject::Constructor) {
+        append_construct_panel(rows, in);
+        return rows;
+    }
     // Nothing selected: no menu, so nothing is drawn and a frame without a menu stays
     // byte-identical to one that never heard of this model.
     if (in.subject == MenuSubject::None && !in.attack && !in.repair && !in.go_here) {
@@ -428,6 +490,10 @@ std::vector<MenuRow> menu_rows(const MenuInput& in) {
     case MenuSubject::ServiceTruck:
         rows.push_back(select_unit_row(in));
         append_fixed(rows, kServiceTruckRows);
+        break;
+    case MenuSubject::Constructor:
+        rows.push_back(select_unit_row(in));
+        append_fixed(rows, kConstructorRows);
         break;
     case MenuSubject::Turret:
         rows.push_back(select_unit_row(in));

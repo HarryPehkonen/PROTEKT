@@ -263,7 +263,7 @@ The `~` row's LABEL FOLLOWS THE SUBJECT: `ROTATE BUILDINGS` on a construction ve
 | `~` | `Select Unit` | shipped |
 | `1` | `Follow Me` | shipped |
 | `2` | `Go To Nav` | shipped |
-| `3` | `Build` (PROTEKT's `3 Construct`) | `[NOT BUILT]` |
+| `3` | `Build` (PROTEKT's `3 Construct`) | the PANEL is shipped (round 17 J1: nine rows, every press refused -- nothing can be placed yet); placement is `[NOT BUILT]` |
 | `4` | `Upgrade` | `[NOT BUILT]` |
 | `5` | `Demolish` | a row with NO functionality, by his ruling |
 | `6` | `Add Lung` | alien only; `[NOT BUILT]` |

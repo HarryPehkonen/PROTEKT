@@ -202,6 +202,11 @@ std::vector<game::MenuRow> menu_for(const sim::Sim& sim, const game::Session& se
         in.attack_list = &session.attack_targets();
         return game::menu_rows(in);
     }
+    if (session.construct_armed()) {
+        // `constructor menu -> 3 Construct`: the panel is the menu.
+        in.construct_panel = true;
+        return game::menu_rows(in);
+    }
     if (session.repair_armed()) {
         // `service truck menu -> 3 Repair`: the list is the menu.
         in.repair_list = &session.repair_targets();

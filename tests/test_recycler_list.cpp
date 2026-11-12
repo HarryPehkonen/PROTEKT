@@ -104,11 +104,14 @@ TEST(RecyclerList, TheFourSupportKindsAreUnarmedMobileAndDrivable) {
         EXPECT_EQ(spec.damage, 0) << spec.name;
         EXPECT_TRUE(sim::is_drivable(kind)) << spec.name;
         EXPECT_FALSE(sim::is_tank(kind)) << spec.name;
-        // The service truck owns a menu of its own (AC: `3 Repair`); the other three share the
-        // vehicle's.
-        EXPECT_EQ(menu_subject_of_kind(kind),
-                  kind == UnitKind::ServiceTruck ? MenuSubject::ServiceTruck : MenuSubject::Vehicle)
-            << spec.name;
+        // The service truck owns a menu of its own (AC: `3 Repair`), and so does the Constructor
+        // (round 17 J1: `3 Construct` opens the nine-row CONSTRUCT panel) -- RE-PINNED, not
+        // relaxed: it was `Vehicle`, and now it is the Constructor's own subject, exactly as the
+        // truck's is. The Tug and the Service Pod still share the vehicle's.
+        const MenuSubject want = kind == UnitKind::ServiceTruck  ? MenuSubject::ServiceTruck
+                                 : kind == UnitKind::Constructor ? MenuSubject::Constructor
+                                                                 : MenuSubject::Vehicle;
+        EXPECT_EQ(menu_subject_of_kind(kind), want) << spec.name;
     }
 }
 

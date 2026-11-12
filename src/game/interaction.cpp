@@ -338,6 +338,25 @@ void Interaction::handle(const input::InputFrame& frame, const sim::Sim& sim,
                 continue;
             }
         }
+        if (construct_armed_) {
+            // The CONSTRUCT panel is up (`3 Construct` opened it). Unlike the lists it STAYS up
+            // through a press: a digit is a ROW, refused in words, and the player may try another.
+            // TAB and Escape close it (the panel's own `TAB Close Menu` row) and are spent doing
+            // so; the selection stays, so the Constructor's menu is back. A selection that is no
+            // longer a Constructor ends it, and then the key acts as it would have.
+            const bool still_constructor
+                = menu_subject_of(sim, selection_.units()) == MenuSubject::Constructor;
+            const int digit = input::mark_digit(key);
+            if (still_constructor && digit >= 0) {
+                construct_row(sim, options, digit);
+                continue;
+            }
+            const bool closes = key.scancode == input::kKeyTab || key.scancode == input::kKeyEscape;
+            disarm_construct(); // any other key closes it too, and then does its own job
+            if (still_constructor && closes) {
+                continue;
+            }
+        }
         if (key.scancode == input::kKeyG && !key.ctrl && !key.alt) {
             go_armed_ = true;
         } else if (const int target = input::shift_function_key(key); target != 0) {
@@ -516,6 +535,8 @@ bool Interaction::deploy_armed() const noexcept { return deploy_armed_; }
 bool Interaction::tilde_steps() const noexcept { return stepping_ && selection_.empty(); }
 
 const std::vector<TargetRow>& Interaction::attack_targets() const noexcept { return targets_; }
+
+bool Interaction::construct_armed() const noexcept { return construct_armed_; }
 
 bool Interaction::repair_armed() const noexcept { return repair_armed_; }
 
@@ -746,6 +767,8 @@ void Interaction::menu_digit(const sim::Sim& sim, const SceneOptions& options, i
         attack_from_menu(sim, options);
     } else if (row->verb == kVerbRepair) {
         arm_repair_list(sim);
+    } else if (row->verb == kVerbConstruct) {
+        arm_construct();
     } else if (row->verb == kVerbRecycle) {
         recycle_selection(sim);
     } else if (row->verb == kVerbDefend) {
@@ -1285,6 +1308,43 @@ void Interaction::arm_repair_list(const sim::Sim& sim) {
     }
     repairs_ = std::move(rows);
     repair_armed_ = true;
+}
+
+void Interaction::arm_construct() {
+    if (orderable().empty()) {
+        refuse("You are driving that one; select another unit to give orders.");
+        return;
+    }
+    construct_armed_ = true;
+}
+
+void Interaction::disarm_construct() noexcept { construct_armed_ = false; }
+
+void Interaction::construct_row(const sim::Sim& sim, const SceneOptions& options, int digit) {
+    MenuInput in;
+    in.subject = MenuSubject::Constructor;
+    in.faction = faction_of(options.factions, sim::Side::Player);
+    in.ore = static_cast<int>(sim.ore(sim::Side::Player));
+    in.construct_panel = true;
+    const std::vector<MenuRow> rows = menu_rows(in);
+    const char label = static_cast<char>('0' + digit);
+    const auto row = std::find_if(rows.begin(), rows.end(), [&label](const MenuRow& candidate) {
+        return !candidate.heading && candidate.key == std::string_view{&label, 1};
+    });
+    if (row == rows.end()) {
+        refuse("There is no building on that key.");
+        return;
+    }
+    if (!row->enabled) {
+        // Dim means inert, and the refusal names the obstacle: the ROW's own reason in words, so
+        // the dim and the sentence cannot disagree (`refusal_message`, as slice K built it).
+        refuse_owned(refusal_message(*row));
+        return;
+    }
+    // PLACEHOLDER, replaced by the placement slice (J2/J3): a row that CAN be afforded must still
+    // refuse, because no building kind exists to be placed. Said plainly, so that the press is
+    // never mistaken for a missed key. Nothing is charged and no order is issued.
+    refuse("Nothing can be built yet. Placing a building is not done.");
 }
 
 void Interaction::disarm_repair() noexcept {

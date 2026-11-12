@@ -75,6 +75,12 @@ enum class MenuSubject : std::uint8_t {
     /// turned into its own: `3` is `Repair`, which opens the list of the wounded, where the
     /// ordinary vehicle's `3` is `Attack`.
     ServiceTruck,
+    /// A selected CONSTRUCTOR (round 17, J1). The vehicle's table with `3` turned from `Attack` to
+    /// `Construct`, which opens the nine-row CONSTRUCT panel (`construct_items`). The Constructor
+    /// owns a menu of its own exactly as the Service Truck does; the reference reads the row
+    /// `3 Build`, and ours reads `Construct` to match the panel's heading and to keep `Build` for
+    /// the producers' queue rows.
+    Constructor,
 };
 
 /// The command that is currently armed, if any. Arming is a two-key flow: the menu's own row picks
@@ -179,6 +185,11 @@ struct MenuInput {
     /// the list), but a mark is a place and names no unit, so its rows carry no health or
     /// ammunition lines. Not owned.
     const std::vector<NavRow>* nav_list{nullptr};
+    /// THE CONSTRUCT PANEL (round 17, J1), once the Constructor's `3 Construct` has opened it: the
+    /// menu IS the panel -- `TAB Close Menu`, a greyed `~ Rotate Buildings`, the `CONSTRUCT`
+    /// heading and the nine keyed rows -- and nothing else. Honoured only for the Constructor's own
+    /// subject; any other subject draws its ordinary menu.
+    bool construct_panel{false};
 };
 
 /// WHY a row is dimmed. The values are exhaustive on purpose: `None` means the row is NOT dimmed,
@@ -229,6 +240,9 @@ struct MenuRow {
     /// does; an attack row names a hostile and does not (AW). The health and ammunition lines read
     /// `unit` either way.
     bool leads{true};
+    /// A SECTION HEADING (`CONSTRUCT`): drawn like a row but pressed by no key -- its key is empty
+    /// and it is never `enabled`-gated. Only the construct panel has one today.
+    bool heading{false};
 
     /// A BUILD row only: what the item costs and what was banked when the row was made, so the
     /// refusal can say how short it is (`refusal_message`) from the row alone. Zero on every other
@@ -290,6 +304,13 @@ struct BuildItem {
 /// alien producer draws the alien rows whoever is playing it.
 [[nodiscard]] std::span<const BuildItem> build_items(Faction faction, MenuSubject subject) noexcept;
 
+/// The Constructor's nine buildings, in key order: `1 POWER 30` .. `9 BOMBER BAY 100`, every cost
+/// CONFIRMED off the owner's own captures (2026-11-11). Name rows only: no `UnitKind` names a
+/// structure yet, so `kind` is empty on every row. Two labels differ from the reference ON
+/// PURPOSE (the owner's Canadian spelling): `TECH CENTRE`, and `TRAINING CTR.` for the Training
+/// Centre, because the full name does not fit the panel.
+[[nodiscard]] std::span<const BuildItem> construct_items() noexcept;
+
 /// The verbs of the rows that ACT today (RB-DIGITS), written once so the table that draws them
 /// (`menu.cpp`) and the layer that routes their digit (`Interaction`) cannot drift apart: a row is
 /// identified by its verb, because the same KEY names a different verb on another subject (`1` is
@@ -320,6 +341,10 @@ inline constexpr std::string_view kVerbBailout{"Bailout"};
 inline constexpr std::string_view kVerbScavenge{"Scavenge"};
 inline constexpr std::string_view kVerbRotateBuildings{"Rotate Buildings"};
 inline constexpr std::string_view kVerbDropOff{"Drop Off"};
+/// The Constructor's `3`, which opens the CONSTRUCT panel (the reference reads it `Build`), and the
+/// panel's heading.
+inline constexpr std::string_view kVerbConstruct{"Construct"};
+inline constexpr std::string_view kConstructHeading{"CONSTRUCT"};
 /// A turret's own two rows (TURRET-CMD). Harri's words, both: "defend" and "un-deploy".
 inline constexpr std::string_view kVerbDefend{"Defend"};
 inline constexpr std::string_view kVerbUndeploy{"Undeploy"};

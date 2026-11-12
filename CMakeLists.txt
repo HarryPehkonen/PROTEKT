@@ -298,6 +298,7 @@ if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
         tests/test_repair_offer.cpp
         tests/test_repair_list.cpp
         tests/test_repair_list_parts.cpp
+        tests/test_construct_panel.cpp
         tests/test_unit_list.cpp
         tests/test_list_look.cpp
         tests/test_nav_list.cpp

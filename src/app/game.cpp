@@ -414,10 +414,11 @@ public:
         if (paused_) {
             session_.track_keys(hands);
         }
-        const bool prompt
-            = session_.go_armed() || session_.attack_armed() || session_.repair_armed()
-              || session_.nav_list_armed() || session_.deploy_armed() || session_.unit_list_armed()
-              || session_.tilde_steps() || nav_menu_.state() != game::NavState::Closed;
+        const bool prompt = session_.go_armed() || session_.attack_armed()
+                            || session_.repair_armed() || session_.construct_armed()
+                            || session_.nav_list_armed() || session_.deploy_armed()
+                            || session_.unit_list_armed() || session_.tilde_steps()
+                            || nav_menu_.state() != game::NavState::Closed;
         const auto is_pause = [&](const input::KeyEvent& key) {
             return input::pause_pressed(key) && (paused_ || !prompt);
         };
