@@ -392,10 +392,10 @@ inline constexpr std::array<UnitSpec, static_cast<std::size_t>(kUnitKindCount)> 
      Fixed::zero(), kBoltTravel, Fixed::zero(), Fixed::zero(), false, 2, 40, 0, Fixed::zero()},
     // POWER (round 17, J3), the Constructor's first building: unarmed, never moves, the tank's
     // hull as a default. Cost 30 is the owner's (confirmed off his capture, 2026-11-11). Its
-    // `build_ticks` is the 20-ticks-a-scrap the other rows use (30 -> 600) and is CARRIED, NOT
-    // USED: a placed building stands the tick it is placed (`orders::Place`), and the build-time
-    // slice will read this number. It is not `buildable` and `is_queueable` refuses it, so no
-    // producer's queue can make it as a unit.
+    // `build_ticks` is the 20-ticks-a-scrap the other rows use (30 -> 600) and is the length of
+    // a building's construction (K2): PROVISIONAL, the owner has given no number. A placed site
+    // counts it down while a Constructor is near (`orders::Place`, `build_site_step`). It is not
+    // `buildable` and `is_queueable` refuses it, so no producer's queue can make it as a unit.
     {"power", kPowerHp, Fixed::zero(), WeaponId::None, 0, 0, Fixed::zero(), Fixed::zero(),
      kBoltTravel, Fixed::zero(), Fixed::zero(), false, 30, 600, 0, Fixed::zero()},
 }};

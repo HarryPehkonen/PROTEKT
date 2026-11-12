@@ -430,7 +430,9 @@ StandingBuildings standing_buildings(const sim::Sim& sim, sim::Side side, Factio
         return standing; // no alien building has a kind yet: nothing stands
     }
     for (const sim::Unit& unit : sim.units()) {
-        if (!unit.alive || unit.side != side) {
+        // A SITE still being built (K2) is not standing: it satisfies no prerequisite and supplies
+        // nothing until the tick it is finished.
+        if (!unit.alive || unit.side != side || sim::under_construction(unit)) {
             continue;
         }
         // Only the kinds that exist: the other seven buildings have no `UnitKind` yet.

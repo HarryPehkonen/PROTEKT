@@ -177,7 +177,12 @@ enum class Stance : std::uint8_t {
     /// A REPAIR order (D1b) on a service truck: drive at the named friendly until within
     /// `kServiceRepairApproachTiles` of it and hold, until it is whole or gone. Appended for the
     /// same reason as every value above.
-    Repair = 12
+    Repair = 12,
+    /// A CONSTRUCTOR under a `Place` order (round 18, K2), appended for the same reason: `target`
+    /// is the site it raised, and it drives there like a MoveTo (the site's centre, rewritten into
+    /// `guard_x/y`) until it is within `kBuildReachTiles` of the footprint, where it stands until
+    /// the site is built (or gone) and then goes idle. Any other order replaces it.
+    Build = 13
 };
 
 struct UnitId {
@@ -314,7 +319,23 @@ struct Unit {
     /// are swapped. Only a placed building's is ever set; hashed only when set.
     bool turned{};
     bool alive{true};
+    /// A BUILDING STILL BEING BUILT (round 18, K2): the ticks of construction it has LEFT. Set to
+    /// the kind's `build_ticks` when a Constructor places it, counted down only while a friendly
+    /// Constructor is within `kBuildReachTiles` of its footprint, and zero for a building that
+    /// stands -- which is every building a scenario deploys or spawns. Hashed only when non-zero,
+    /// so a battle with no site under construction hashes exactly as it did before there was one.
+    std::uint16_t build_left{};
 };
+
+/// A Constructor must be within this many TILES of a site's footprint (the nearest point of its
+/// rectangle) for the site to progress. The owner's "within one block" -- his block is this tree's
+/// tile.
+inline constexpr int kBuildReachTiles = 1;
+
+/// True while `unit` is a site still being built: solid like any building, but not yet standing.
+[[nodiscard]] constexpr bool under_construction(const Unit& unit) noexcept {
+    return unit.build_left != 0;
+}
 
 /// A turret is a DEPLOYABLE weapon: it crawls unmounted and cannot fire, and it mounts after this
 /// many ticks (3 s) of unbroken stillness. Moving unmounts it (see kUnmountTicks).

@@ -292,7 +292,7 @@ void centre_on_footprint(Unit& unit, const Footprint& site) noexcept {
 }
 
 void place_building(std::vector<Unit>& units, std::uint32_t& next_id,
-                    std::array<std::uint16_t, 2>& ore, Side side,
+                    std::array<std::uint16_t, 2>& ore, UnitId builder,
                     const orders::Place& order) noexcept;
 
 void apply_order(std::vector<Unit>& units, std::vector<Projectile>& projectiles,
@@ -527,7 +527,7 @@ void apply_order(std::vector<Unit>& units, std::vector<Projectile>& projectiles,
     case OrderKind::Place:
         if (const auto* o = std::get_if<orders::Place>(&order.payload)) {
             // `unit` is not touched again: pushing the building may move the table.
-            place_building(units, next_id, ore, unit.side, *o);
+            place_building(units, next_id, ore, unit.id, *o);
         }
         break;
     case OrderKind::TakeControl:
@@ -811,17 +811,26 @@ Unit fresh_unit(std::uint32_t id, UnitKind kind, Side side, Coord tile) noexcept
 }
 
 void place_building(std::vector<Unit>& units, std::uint32_t& next_id,
-                    std::array<std::uint16_t, 2>& ore, Side side,
+                    std::array<std::uint16_t, 2>& ore, UnitId builder,
                     const orders::Place& order) noexcept {
+    const Side side = find_const(units, builder)->side;
     std::uint16_t& bank = ore.at(static_cast<std::size_t>(side));
     const std::uint16_t cost = spec_of(order.kind).cost;
     if (bank < cost) {
         return; // short of scrap: refused whole, nothing charged
     }
-    // The building stands AT ONCE: its `build_ticks` is carried by the spec for the build-time
-    // slice and is not counted here. It stands on the footprint's centre: for even sides a whole
-    // tile, like a spawn's; for an ODD side (POWER's one tile) the middle of the middle tile, half
-    // a tile on. `footprint_around` reads either back to the same rectangle.
+    // The scrap is paid NOW and the building does NOT stand: this leaves a SITE (K2). The site is a
+    // building's unit like any other -- so its footprint is reserved and solid from this tick --
+    // but it carries `build_left`, the ticks of construction still to run, and that only counts
+    // down while a friendly Constructor is within reach (`build_site_step`).
+    //
+    // BUILD TIME IS PROVISIONAL: the length is the row's `build_ticks` (the 20-ticks-a-scrap the
+    // other rows use: POWER's 30 scrap is 600 ticks, twenty seconds). The owner has not given a
+    // number for a building; when he does, it changes in the spec row and nowhere else.
+    //
+    // It stands on the footprint's centre: for even sides a whole tile, like a spawn's; for an ODD
+    // side (POWER's one tile) the middle of the middle tile, half a tile on. `footprint_around`
+    // reads either back to the same rectangle.
     const FootprintSize size = order.turned ? FootprintSize{footprint_of(order.kind).height,
                                                             footprint_of(order.kind).width}
                                             : footprint_of(order.kind);
@@ -830,7 +839,21 @@ void place_building(std::vector<Unit>& units, std::uint32_t& next_id,
     Unit built = fresh_unit(next_id++, order.kind, side, Coord{site.centre_x(), site.centre_y()});
     centre_on_footprint(built, site);
     built.turned = order.turned;
+    built.build_left = spec_of(order.kind).build_ticks;
+    const UnitId raised = built.id;
+    const Fixed raised_x = built.x;
+    const Fixed raised_y = built.y;
     units.push_back(built);
+    // THE JOB: the Constructor that placed it is sent to it, by the sim's own steering -- the
+    // player does not have to drive it there. (Pushing may have moved the table, so it is found
+    // again by id.)
+    for (Unit& unit : units) {
+        if (unit.id == builder) {
+            apply_posted(unit, Stance::Build, raised_x, raised_y, Fixed{}, Fixed{});
+            unit.target = raised;
+            break;
+        }
+    }
 }
 
 /// THE QUEUE (BUILD-QUEUE). One producer's line for one tick: the front entry waits for its scrap,
@@ -1296,6 +1319,22 @@ void store_step(const std::vector<Unit>& units, std::array<std::uint16_t, 2>& or
     }
 }
 
+/// Whether `unit` stands within `kBuildReachTiles` of `site`'s footprint: the distance from the
+/// unit to the NEAREST POINT of the rectangle, so a unit touching the building is at zero and one a
+/// whole tile off its edge is at exactly one. Integers only.
+[[nodiscard]] bool within_build_reach(const Unit& unit, const Unit& site) noexcept {
+    const Footprint rect = footprint_around(site);
+    const auto nearest = [](std::int64_t at, int low, int size) {
+        const std::int64_t lo = static_cast<std::int64_t>(low) * Fixed::kOne;
+        const std::int64_t hi = static_cast<std::int64_t>(low + size) * Fixed::kOne;
+        return std::clamp(at, lo, hi);
+    };
+    const std::int64_t dx = unit.x.raw - nearest(unit.x.raw, rect.x, rect.width);
+    const std::int64_t dy = unit.y.raw - nearest(unit.y.raw, rect.y, rect.height);
+    const std::int64_t reach = static_cast<std::int64_t>(kBuildReachTiles) * Fixed::kOne;
+    return dx * dx + dy * dy <= reach * reach;
+}
+
 /// DEPLOY (R2). Called for every living recycler before it is steered. Returns true when the
 /// recycler is not to be steered this tick: it is standing at its site counting, it has just become
 /// a building, or its order has just failed.
@@ -1343,6 +1382,48 @@ bool deploy_step(const std::vector<Unit>& units, Unit& unit, std::uint64_t seed)
     return true;
 }
 
+/// BUILD (K2). Called for every living Constructor before it is steered. Returns true when it is
+/// not to be steered this tick. A Constructor under a `Place` order is bound to the SITE it raised
+/// (`Unit::target`): away from the site it drives at its centre like a MoveTo (this is the whole of
+/// its journey -- the sim's own steering, no player needed); within `kBuildReachTiles` of the
+/// footprint it stands, and the site's countdown (`build_site_step`) is what runs. Once the site
+/// stands, or is gone, the errand ends and the Constructor is idle. Nothing here counts anything:
+/// the progress is the SITE's, so any friendly Constructor that comes near builds it, whoever was
+/// sent.
+bool build_step(const std::vector<Unit>& units, Unit& unit) noexcept {
+    if (unit.stance != Stance::Build) {
+        return false;
+    }
+    const Unit* site = find_const(units, unit.target);
+    if (site == nullptr || !site->alive || !under_construction(*site)) {
+        unit.stance = Stance::Idle;
+        unit.target = UnitId{};
+        unit.route = Route{};
+        unit.vx = Fixed::zero();
+        unit.vy = Fixed::zero();
+        return true;
+    }
+    if (within_build_reach(unit, *site)) {
+        unit.vx = Fixed::zero();
+        unit.vy = Fixed::zero();
+        return true; // arrived: it stands while the site is built
+    }
+    unit.guard_x = site->x;
+    unit.guard_y = site->y;
+    return false; // on its way: steered like a MoveTo
+}
+
+/// THE SITES' COUNTDOWN (K2), once per tick after every unit has moved: each site that has a
+/// friendly Constructor within reach (`site_builder`) has one tick less to build; one that has none
+/// waits, untouched. The tick a site reaches zero it STANDS -- there is no other half-built state.
+void build_site_step(std::vector<Unit>& units) noexcept {
+    for (Unit& site : units) {
+        if (site.alive && under_construction(site) && site_builder(units, site) != nullptr) {
+            --site.build_left;
+        }
+    }
+}
+
 /// Whether an order a `DeployedTurret` holds asks it to leave its spot: an un-deploy by name, or
 /// any stance that goes somewhere -- a move, a patrol, a follow, a redeploy, a defend, a recycle,
 /// or a post it is not standing at. Hold (a post under its own feet), Attack and Idle keep it up.
@@ -1356,6 +1437,7 @@ bool wants_to_leave(const Unit& unit) noexcept {
     case Stance::Defend:
     case Stance::Recycle:
     case Stance::Repair:
+    case Stance::Build:
         return true;
     case Stance::GuardAt: {
         constexpr std::int64_t kArrive = kArriveRadiusRaw;
@@ -1603,6 +1685,9 @@ void steer(std::vector<Unit>& units, Unit& unit, const UnitProfile& prof, const 
     // guard_x/y every tick; an undeploy has nowhere to go, and a turret in it never steers.
     case Stance::Defend:
     case Stance::Undeploy:
+    // A Constructor on its way to the site it raised: `build_step` wrote the site's centre into
+    // guard_x/y and stops it a tile short of the footprint, so this only ever steers it there.
+    case Stance::Build:
         break;
     case Stance::Attack: {
         const Unit* target = find_const(units, unit.target);
@@ -2164,6 +2249,9 @@ void Sim::step() {
         if (recycle_step(units_, scraps_, unit, ore_, scenario_.store_capacity, seed)) {
             continue;
         }
+        if (unit.kind == UnitKind::Constructor && build_step(units_, unit)) {
+            continue;
+        }
         // Asked afresh for each unit, so a recycler that deployed earlier in this very loop is
         // already in the way of every unit after it.
         const WorldGround ground = ground_of(seed, units_);
@@ -2185,6 +2273,10 @@ void Sim::step() {
         }
         move(units_, ground, prof, unit);
     }
+
+    // 2b. the sites' countdown (K2): after every unit has moved, so a Constructor that arrived this
+    //     tick counts this tick.
+    build_site_step(units_);
 
     // 3. the bolts already in the air, in spawn order. Before the guns, so a unit killed here does
     //    not shoot this tick, and a bolt fired this tick has not moved yet.
@@ -2401,6 +2493,16 @@ bool building_blocks(std::span<const Unit> units, int tile_x, int tile_y) noexce
     });
 }
 
+const Unit* site_builder(std::span<const Unit> units, const Unit& site) noexcept {
+    for (const Unit& unit : units) {
+        if (unit.alive && unit.kind == UnitKind::Constructor && unit.side == site.side
+            && within_build_reach(unit, site)) {
+            return &unit;
+        }
+    }
+    return nullptr;
+}
+
 bool site_ok(std::uint64_t seed, std::span<const Unit> units, FootprintSize size, int tile_x,
              int tile_y) noexcept {
     if (tile_x < 0 || tile_y < 0 || tile_x >= kMapTiles || tile_y >= kMapTiles) {
@@ -2525,6 +2627,9 @@ std::uint64_t Sim::state_hash() const noexcept {
         if (u.heading_x != 0 || u.heading_y != 0) {
             h.i32(u.heading_x); // a turn-limited machine that has turned: no other unit's is set
             h.i32(u.heading_y);
+        }
+        if (u.build_left != 0) {
+            h.u64(u.build_left); // a site still being built: no standing building's is ever set
         }
         if (u.deploy_ticks != 0) {
             h.u64(

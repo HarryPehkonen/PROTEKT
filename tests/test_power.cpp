@@ -5,8 +5,9 @@
 // rotation, and the game layer's armed placement (the press arms, the preview carries the row's
 // cost and footprint, SPACE places, a refused SPACE charges nothing).
 //
-// BUILD TIME IS NOT MODELLED HERE. The building stands the tick it is placed; the spec row carries
-// the 600 ticks the other rows' 20-ticks-a-scrap rule gives, for the build-time slice to read.
+// SINCE ROUND 18, K2 a placed building is a SITE that is built over time by a Constructor (see
+// test_build_site.cpp): these tests are about the site's existence, footprint and cost, and they
+// place it and look on the tick it is placed.
 // POWER SUPPLIES NOTHING YET: the power grid is the next slice.
 #include <gtest/gtest.h>
 
@@ -160,13 +161,13 @@ TEST(Power, AProducerCannotQueueABuildingAsAUnit) {
 
 // ------------------------------------------------------------------------------ placing
 
-TEST(Power, APlaceOrderStandsTheBuildingAtOnceAndChargesThirty) {
+TEST(Power, APlaceOrderRaisesTheSiteAtOnceAndChargesThirty) {
     Yard y = make_yard(100);
     const Block b = y.block;
     y.sim.enqueue(place(y.constructor, b.x + 4, b.y + 5));
     y.sim.step();
     const sim::Unit* power = first_of(y.sim, UnitKind::Power);
-    ASSERT_NE(power, nullptr) << "the building stands on the tick the order is applied";
+    ASSERT_NE(power, nullptr) << "the site exists on the tick the order is applied";
     EXPECT_EQ(power->side, Side::Player);
     EXPECT_EQ(power->hp, sim::spec_of(UnitKind::Power).hp);
     EXPECT_EQ(y.sim.ore(Side::Player), 70U) << "30 scrap is gone from the bank";

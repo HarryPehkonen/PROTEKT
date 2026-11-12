@@ -210,13 +210,16 @@ struct Repair {
     UnitId target{};
 };
 
-/// PLACE a building (round 17, J3): a Constructor puts a `kind` (a placeable building, `Power`)
-/// on the footprint whose north-west tile is (`tile_x`, `tile_y`), `turned` a quarter or not. The
-/// scrap is paid and the building STANDS on the tick the order is applied -- its build time is not
-/// modelled yet. Refused for anything but a Constructor, for a kind that is not a placeable
-/// building, for a site `place_ok` refuses (off the map, forbidden ground, another building's
-/// footprint, a unit standing inside), and for a side whose bank is short of the cost: a refused
-/// order charges NOTHING and places nothing.
+/// PLACE a building (round 17, J3; a JOB since round 18, K2): a Constructor puts a `kind` (a
+/// placeable building, `Power`) on the footprint whose north-west tile is (`tile_x`, `tile_y`),
+/// `turned` a quarter or not. The scrap is paid on the tick the order is applied and a SITE is left
+/// there -- its footprint reserved and solid -- which does NOT stand yet: it waits for a friendly
+/// Constructor within `kBuildReachTiles` of it and is then built over the kind's `build_ticks`
+/// (`Unit::build_left`). The Constructor that placed it is sent to the site by the sim's own
+/// steering (`Stance::Build`). Refused for anything but a Constructor, for a kind that is not a
+/// placeable building, for a site `place_ok` refuses (off the map, forbidden ground, another
+/// building's footprint, a unit standing inside), and for a side whose bank is short of the cost: a
+/// refused order charges NOTHING and places nothing.
 struct Place {
     UnitKind kind{};
     std::int32_t tile_x{};

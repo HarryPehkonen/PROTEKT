@@ -370,6 +370,8 @@ const char* to_string(Stance stance) noexcept {
         return "defend";
     case Stance::Repair:
         return "repair";
+    case Stance::Build:
+        return "build";
     }
     return "unknown";
 }

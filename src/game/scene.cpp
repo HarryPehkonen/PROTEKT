@@ -2848,6 +2848,76 @@ void append_effects(std::vector<SceneVertex>& out, std::vector<VertexRun>& emiss
     }
 }
 
+/// A site's height, as drawn this frame (K2): the world-space `y` its model was cut at, and the
+/// site it belongs to, so the beam can end on it.
+struct SiteCut {
+    sim::UnitId site{};
+    float top_y{};
+};
+
+/// CUTS the model built into `out[first..]` at the fraction `grown` of its height (K2): whole
+/// triangles above the cut are dropped, and any that cross it are flattened onto it. Returns the
+/// world-space height of the cut. Drawing only.
+float cut_model(std::vector<SceneVertex>& out, std::size_t first, float grown) {
+    if (out.size() <= first) {
+        return 0.0F;
+    }
+    float low = out[first].position.at(1);
+    float high = low;
+    for (std::size_t i = first; i < out.size(); ++i) {
+        low = std::min(low, out[i].position.at(1));
+        high = std::max(high, out[i].position.at(1));
+    }
+    const float cut = low + ((high - low) * std::clamp(grown, kSiteMinGrowth, 1.0F));
+    std::size_t kept = first;
+    for (std::size_t tri = first; tri + 2 < out.size(); tri += 3) {
+        const float lowest = std::min(
+            {out[tri].position.at(1), out[tri + 1].position.at(1), out[tri + 2].position.at(1)});
+        if (lowest >= cut) {
+            continue; // wholly above the cut: not built yet
+        }
+        for (std::size_t corner = 0; corner < 3; ++corner) {
+            SceneVertex v = out[tri + corner];
+            v.position.at(1) = std::min(v.position.at(1), cut);
+            out[kept++] = v;
+        }
+    }
+    out.resize(kept);
+    return cut;
+}
+
+/// THE BUILD BEAMS (K2; see `kBuildBeamInk`): one per site that has a friendly Constructor within
+/// reach, from above the Constructor's ground to `top_y` at the site's centre. A pure function of
+/// the sim and of the cut the frame has just drawn.
+void append_build_beams(std::vector<SceneVertex>& out, const SceneOptions& options,
+                        const sim::Sim& sim, std::span<const SiteCut> cuts) {
+    const auto tile = [](sim::Fixed v) { return static_cast<float>(v.raw) / sim::Fixed::kOne; };
+    for (const SiteCut& cut : cuts) {
+        const sim::Unit* site = sim.find(cut.site);
+        if (site == nullptr || !site->alive || !sim::under_construction(*site)) {
+            continue;
+        }
+        const sim::Unit* builder = sim::site_builder(sim.units(), *site);
+        if (builder == nullptr || !available_to_viewer(sim, options, *builder)) {
+            continue;
+        }
+        const std::array<float, 3> from{tile(builder->x) * kMetresPerTile,
+                                        ground_metres(options.seed, builder->x, builder->y)
+                                            + kBuildBeamLiftMetres,
+                                        tile(builder->y) * kMetresPerTile};
+        const std::array<float, 3> to{tile(site->x) * kMetresPerTile, cut.top_y,
+                                      tile(site->y) * kMetresPerTile};
+        for (std::size_t bead = 0; bead < kBuildBeamBeads; ++bead) {
+            const float along = static_cast<float>(bead) / static_cast<float>(kBuildBeamBeads - 1);
+            emit_sphere(out, from.at(0) + ((to.at(0) - from.at(0)) * along),
+                        from.at(1) + ((to.at(1) - from.at(1)) * along),
+                        from.at(2) + ((to.at(2) - from.at(2)) * along), kBuildBeamBeadRadiusMetres,
+                        Vec3{kBuildBeamInk.at(0), kBuildBeamInk.at(1), kBuildBeamInk.at(2)},
+                        kBuildBeamAlpha);
+        }
+    }
+}
+
 /// THE REPAIR BEAMS (see `kRepairBeamPalette`): per `repair_links` pair whose two ends the viewer
 /// could see, `kRepairBeamBeads` cubes strung from the truck to the patient. Bead `n` stands
 /// `n / (beads - 1)` of the way along, takes palette colour `n + tick / kRepairBeamFlowTicks`
@@ -6678,6 +6748,7 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
 
     append_unit_shadows(scene.vertices, options, sim);
 
+    std::vector<SiteCut> site_cuts; // the sites drawn this frame, and the height each was cut at
     for (const sim::Unit& unit : sim.units()) {
         // Only draw units the player could pick: inside the terrain that was actually meshed (a
         // unit far outside the rendered radius has no ground to stand on in this scene) and not
@@ -6780,6 +6851,13 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
             } else if (unit.kind == sim::UnitKind::Power) {
                 // Its own silhouette (J3): a bank of generator drums, not the factory's hall.
                 build_power(scene.vertices, options.seed, unit, mark, lift_z, hovering);
+                if (sim::under_construction(unit)) {
+                    // K2: a site is drawn GROWING, bottom to top, as far as it has been built.
+                    const float total = static_cast<float>(sim::spec_of(unit.kind).build_ticks);
+                    const float grown = (total - static_cast<float>(unit.build_left)) / total;
+                    site_cuts.push_back(
+                        SiteCut{unit.id, cut_model(scene.vertices, body_first, grown)});
+                }
             } else {
                 build_factory(scene.vertices, options.seed, unit, mark, lift_z, hovering);
             }
@@ -6797,6 +6875,7 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
     append_pools(scene.vertices, options, sim);
     std::vector<VertexRun> emissive; // the sparks: the fog leaves these runs alone
     append_repair_beams(scene.vertices, emissive, options, sim);
+    append_build_beams(scene.vertices, options, sim, site_cuts);
     append_effects(scene.vertices, emissive, options, sim);
     append_motes(scene.vertices, options, sim);
     append_nav_beacons(scene.vertices, options);

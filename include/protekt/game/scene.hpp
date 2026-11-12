@@ -648,6 +648,28 @@ inline constexpr float kRepairSparkHalfMetres = 0.05F;
 inline constexpr float kRepairSparkSpeedMetres = 0.12F;
 inline constexpr float kRepairSparkLiftMetres = 0.1F;
 
+/// THE BUILD (round 18, K2; DRAWING ONLY -- the sim knows nothing of any of this). The owner:
+/// "the build proceeding from the bottom to the top as the ray also rises. Kind of like 3D
+/// printing, except with a beam coming from the Constructor ... it doesn't have to be accurate."
+///
+/// A site under construction (`sim::under_construction`) is drawn as its building CUT at a height:
+/// the model's triangles wholly above the cut are not drawn and the ones across it are flattened
+/// onto it, so the drawn part is exactly the fraction built (`build_left` of the row's
+/// `build_ticks`) and grows from the plinth up. `kSiteMinGrowth` is the sliver a site shows before
+/// anything is built, so a waiting site is still seen on the ground.
+///
+/// While a friendly Constructor is within reach (`sim::site_builder` -- the sim's own rule, asked
+/// of the same state) a BEAM of `kBuildBeamBeads` translucent spheres in `kBuildBeamInk` runs from
+/// `kBuildBeamLiftMetres` above the Constructor's ground to the TOP of what has been built so far,
+/// at the site's centre, so it rises with the building. No Constructor in reach, no beam; a
+/// finished building has none either.
+inline constexpr std::array<float, 3> kBuildBeamInk{0.35F, 0.95F, 1.0F};
+inline constexpr std::size_t kBuildBeamBeads = 24;
+inline constexpr float kBuildBeamBeadRadiusMetres = 0.16F;
+inline constexpr float kBuildBeamAlpha = 0.55F;
+inline constexpr float kBuildBeamLiftMetres = 1.0F;
+inline constexpr float kSiteMinGrowth = 0.04F;
+
 /// A truck and the unit it is mending this tick.
 struct RepairLink {
     sim::UnitId truck{};

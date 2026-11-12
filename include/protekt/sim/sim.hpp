@@ -90,6 +90,13 @@ protected:
 /// the deploy site's own check all ask it, so no unit walks through, or is placed inside, one.
 [[nodiscard]] bool building_blocks(std::span<const Unit> units, int tile_x, int tile_y) noexcept;
 
+/// The living Constructor of `site`'s own side that is within `kBuildReachTiles` of its footprint
+/// (the nearest point of the rectangle), lowest id first; null when there is none. THE one answer
+/// to "is this site being built": the sim counts the build down while it is non-null, and the
+/// scene draws the beam from the Constructor it names -- the drawing reads the sim's rule and
+/// never keeps one of its own.
+[[nodiscard]] const Unit* site_builder(std::span<const Unit> units, const Unit& site) noexcept;
+
 /// SETTLES WRECKAGE (see sim.cpp): moves each of `scraps[first..]` onto a tile a hauler can stand
 /// on and, when `home_x >= 0`, onto one a hauler could DRIVE to from the wreck's tile (`home_x/y`)
 /// -- a bounded flood fill, so a piece is never left on a tile ringed by craters. `home_x < 0` is a
@@ -167,6 +174,8 @@ struct ScootSpot {
 ///      (`turret_deploy_step`); then a mobile unit with a MoveTo/GuardAt/Patrol/Deploy stance
 ///      steers towards its goal, then every unit's position moves by its velocity; map bounds
 ///      clamp, and a unit may not enter an impassable tile -- a crater or a building's footprint;
+///   2b. every SITE still being built (`Unit::build_left`) with a friendly Constructor within reach
+///      has one tick less to build (K2); it stands on the tick the count reaches zero;
 ///   3. every projectile already in the air advances, in spawn order; one that reaches a living
 ///      hostile lands its damage there (see advance_projectiles), so a unit killed here does not
 ///      fire this tick;
