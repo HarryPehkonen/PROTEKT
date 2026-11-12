@@ -206,6 +206,7 @@ std::vector<game::MenuRow> menu_for(const sim::Sim& sim, const game::Session& se
         // `constructor menu -> 3 Construct`: the panel is the menu.
         in.construct_panel = true;
         in.placing = session.placing().has_value();
+        in.standing = game::standing_buildings(sim, sim::Side::Player);
         return game::menu_rows(in);
     }
     if (session.repair_armed()) {

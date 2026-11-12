@@ -1400,6 +1400,7 @@ void Interaction::construct_row(const sim::Sim& sim, const SceneOptions& options
     in.faction = faction_of(options.factions, sim::Side::Player);
     in.ore = static_cast<int>(sim.ore(sim::Side::Player));
     in.construct_panel = true;
+    in.standing = standing_buildings(sim, sim::Side::Player);
     const std::vector<MenuRow> rows = menu_rows(in);
     const char label = static_cast<char>('0' + digit);
     const auto row = std::find_if(rows.begin(), rows.end(), [&label](const MenuRow& candidate) {

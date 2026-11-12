@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -118,6 +119,50 @@ struct NavRow {
     int metres{};
 };
 
+/// THE CONSTRUCTOR'S NINE BUILDINGS, in panel (key) order: the value is the row's index. A building
+/// is named here whether or not the sim can stand one yet (only POWER and the factory have a kind
+/// today), because the requirement table is written in these names.
+enum class ConstructBuilding : std::uint8_t {
+    Power = 0,
+    Factory,
+    RelayBunker,
+    Armory,
+    ServiceBay,
+    GunTower,
+    TrainingCentre,
+    TechCentre,
+    BomberBay,
+};
+inline constexpr std::size_t kConstructBuildingCount = 9;
+
+/// How many of each building a side has STANDING, indexed by `ConstructBuilding`.
+using StandingBuildings = std::array<int, kConstructBuildingCount>;
+
+/// POWER ARITHMETIC (the owner: "Each Power unit supplies three units of power"; the factory, the
+/// relay bunker and the gun tower each need one). PROVISIONAL: "one unit of power" is read as ONE
+/// SPARE UNIT OF CAPACITY at build time. What happens to a building whose Power is destroyed is
+/// NOT ruled and nothing here decides it.
+inline constexpr int kPowerSuppliedPerPlant = 3;
+
+/// THE ONE FUNCTION that answers "how many spare units of power has this side": three per standing
+/// POWER, less one for each standing FACTORY, RELAY BUNKER and GUN TOWER. May be negative.
+[[nodiscard]] int spare_power(const StandingBuildings& standing) noexcept;
+
+/// What `side` has standing, counted from the sim's living units (nothing is stored). Only the
+/// kinds that exist count: the other seven buildings read zero until their slices.
+[[nodiscard]] StandingBuildings standing_buildings(const sim::Sim& sim, sim::Side side);
+
+/// What a panel row needs besides its own scrap: a SET of buildings (a bitmask, bit = the
+/// `ConstructBuilding` value) and, or, one spare unit of power.
+struct ConstructRequirement {
+    std::uint16_t buildings{};
+    bool power{false};
+};
+
+/// The requirement of panel row `row` (0 = POWER .. 8 = BOMBER BAY): the owner's tree, in ONE
+/// table.
+[[nodiscard]] ConstructRequirement construct_requirement(std::size_t row) noexcept;
+
 /// Everything the rows are a function of. No file, no clock, no sim: the caller derives each field
 /// from what it already holds (the selection, `Interaction`'s armed state, the banked scrap and
 /// what the cursor is over).
@@ -193,6 +238,10 @@ struct MenuInput {
     /// A building is ARMED in the panel (`Interaction::placing`): `~ Rotate Buildings` is live.
     /// Greyed (`DoesNotApply`) otherwise.
     bool placing{false};
+    /// What the side has STANDING (`standing_buildings`), which the panel's rows are weighed
+    /// against alongside the bank. Zero by default: a caller that does not know draws every
+    /// requirement as unmet.
+    StandingBuildings standing{};
 };
 
 /// WHY a row is dimmed. The values are exhaustive on purpose: `None` means the row is NOT dimmed,
@@ -200,15 +249,14 @@ struct MenuInput {
 /// look reads `enabled`, and the refusal's sentence is `refusal_message` of the same row.
 ///
 /// The last three are the owner's other asks (round 16: "A building? Power? An upgrade in the case
-/// of the alien faction?"). NOTHING produces them yet -- there are no prerequisites, no power and
-/// no upgrades in this tree until the construct system -- so no row may claim them
-/// (`reason_occurs_today` says so). They exist so that system adds a row's claim and nothing else.
+/// of the alien faction?"). NeedsBuilding and NeedsPower are produced by the CONSTRUCT panel since
+/// round 17 J4; NeedsUpgrade is still produced by nothing (`reason_occurs_today`).
 enum class MenuDim : std::uint8_t {
     None = 0,      ///< not dimmed: the row is live
     Unaffordable,  ///< a build row whose cost is more than is banked
     DoesNotApply,  ///< an action row that this selection cannot do
-    NeedsBuilding, ///< UNREACHABLE TODAY: a build row whose required building does not stand
-    NeedsPower,    ///< UNREACHABLE TODAY: a build row whose power is not there
+    NeedsBuilding, ///< a panel row whose required building(s) do not stand (`MenuRow::missing`)
+    NeedsPower,    ///< a panel row that needs a spare unit of power and the grid has none
     NeedsUpgrade,  ///< UNREACHABLE TODAY: a build row (the aliens') whose upgrade is not bought
 };
 /// How many `MenuDim` values there are, for the test that walks them all. Keep it equal to the
@@ -252,6 +300,9 @@ struct MenuRow {
     /// row, which never reads them.
     int cost{};
     int banked{};
+    /// A panel row only: the buildings it needs that do NOT stand (bit = `ConstructBuilding`),
+    /// every one of them, so a refusal can name them all. Non-zero exactly for `NeedsBuilding`.
+    std::uint16_t missing{};
 
     MenuRow() = default;
     MenuRow(std::string_view key_in, std::string verb_in, bool enabled_in, MenuDim reason_in)
@@ -269,16 +320,16 @@ struct MenuRow {
 /// complete: a new `MenuDim` that is not mapped here does not compile.
 [[nodiscard]] std::string refusal_message(const MenuRow& row);
 
-/// Whether anything in this tree can dim a build row for `reason` today. False for the three
-/// reasons the construct system will bring; no row may claim one until it flips.
+/// Whether anything in this tree can dim a build row for `reason` today. False only for
+/// `NeedsUpgrade`, which no row claims until the aliens' upgrades exist.
 [[nodiscard]] constexpr bool reason_occurs_today(MenuDim reason) noexcept {
     switch (reason) {
     case MenuDim::None:
     case MenuDim::Unaffordable:
     case MenuDim::DoesNotApply:
-        return true;
     case MenuDim::NeedsBuilding:
     case MenuDim::NeedsPower:
+        return true;
     case MenuDim::NeedsUpgrade:
         return false;
     }

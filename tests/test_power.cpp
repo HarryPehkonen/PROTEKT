@@ -10,6 +10,7 @@
 // POWER SUPPLIES NOTHING YET: the power grid is the next slice.
 #include <gtest/gtest.h>
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -581,6 +582,15 @@ TEST(PowerPanel, ATurnWithNothingArmedIsWhatItWasAKeyThatClosesThePanel) {
 }
 
 TEST(PowerPanel, TheOtherEightRowsStillRefuseAndChargeNothing) {
+    // J4: with nothing standing, each is refused for what it is missing (not the J3 placeholder).
+    const std::array<std::string, 8> want{"Needs power",
+                                          "Needs power",
+                                          "Needs a Factory",
+                                          "Needs a Factory",
+                                          "Needs power",
+                                          "Needs an Armory",
+                                          "Needs an Armory and a Service Bay",
+                                          "Needs a Training Ctr."};
     for (int digit = 2; digit <= 9; ++digit) {
         Rig r = make_rig(400);
         Session session{r.driven};
@@ -588,8 +598,7 @@ TEST(PowerPanel, TheOtherEightRowsStillRefuseAndChargeNothing) {
         open_panel(r, session, orders);
         orders.clear();
         press(r, session, orders, input::kKey1 + digit - 1);
-        EXPECT_EQ(session.message(), "Nothing can be built yet. Placing a building is not done.")
-            << digit;
+        EXPECT_EQ(session.message(), want.at(static_cast<std::size_t>(digit - 2))) << digit;
         EXPECT_FALSE(session.placing().has_value()) << digit;
         EXPECT_TRUE(constructor_orders(r, orders).empty()) << digit;
         EXPECT_EQ(r.sim.ore(Side::Player), 400U) << digit;

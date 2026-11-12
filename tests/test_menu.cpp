@@ -2028,6 +2028,7 @@ TEST(Menu, EveryReasonThatExistsIsMappedAndTheUnreachableOnesAreMarked) {
         MenuRow row{std::string_view{"1"}, "X 10", false, reason};
         row.cost = 10;
         row.banked = 4;
+        row.missing = 1U << static_cast<unsigned>(ConstructBuilding::Factory);
         const std::string text = refusal_message(row);
         if (reason == MenuDim::None || reason == MenuDim::DoesNotApply) {
             EXPECT_TRUE(text.empty()) << value << ": the action row keeps its own behaviour";
@@ -2036,12 +2037,14 @@ TEST(Menu, EveryReasonThatExistsIsMappedAndTheUnreachableOnesAreMarked) {
         EXPECT_FALSE(text.empty()) << "reason " << value << " says nothing";
         reachable += reason_occurs_today(reason) ? 1 : 0;
     }
-    EXPECT_EQ(reachable, 1) << "only Unaffordable can be produced today";
+    // ROUND 17 J4: the CONSTRUCT panel now produces NeedsBuilding and NeedsPower.
+    EXPECT_EQ(reachable, 3) << "Unaffordable, NeedsBuilding and NeedsPower can be produced";
     EXPECT_TRUE(reason_occurs_today(MenuDim::Unaffordable));
-    EXPECT_FALSE(reason_occurs_today(MenuDim::NeedsBuilding));
-    EXPECT_FALSE(reason_occurs_today(MenuDim::NeedsPower));
+    EXPECT_TRUE(reason_occurs_today(MenuDim::NeedsBuilding));
+    EXPECT_TRUE(reason_occurs_today(MenuDim::NeedsPower));
     EXPECT_FALSE(reason_occurs_today(MenuDim::NeedsUpgrade));
-    // And no build row claims one of them, on any faction, subject or bank.
+    // And no ORDINARY build row (not the construct panel's) claims one of them, on any faction,
+    // subject or bank.
     for (const Faction faction : {Faction::Human, Faction::Alien}) {
         for (const MenuSubject subject : {MenuSubject::Deployment, MenuSubject::Factory}) {
             for (const int ore : {0, 30, 999}) {

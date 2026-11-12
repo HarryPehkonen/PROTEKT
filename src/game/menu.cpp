@@ -290,7 +290,32 @@ void append_construct_panel(std::vector<MenuRow>& rows, const MenuInput& in) {
     MenuRow heading{std::string_view{}, std::string{kConstructHeading}, true, MenuDim::None};
     heading.heading = true;
     rows.push_back(std::move(heading));
-    append_priced_rows(rows, in, kConstructItems);
+    // THE ONE PREDICATE for "can this panel row be built": the requirement set (buildings, then
+    // power) and then the bank. The dim, the press and the refusal all read the row this makes.
+    for (std::size_t i = 0; i < kConstructItems.size(); ++i) {
+        const BuildItem& item = kConstructItems.at(i);
+        const ConstructRequirement need = construct_requirement(i);
+        std::uint16_t missing = 0;
+        for (std::size_t b = 0; b < kConstructBuildingCount; ++b) {
+            if (((need.buildings >> b) & 1U) != 0U && in.standing.at(b) <= 0) {
+                missing = static_cast<std::uint16_t>(missing | (1U << b));
+            }
+        }
+        // Precedence: what waiting cannot fix is named before the scrap that is merely short.
+        MenuDim reason = MenuDim::None;
+        if (missing != 0U) {
+            reason = MenuDim::NeedsBuilding;
+        } else if (need.power && spare_power(in.standing) < 1) {
+            reason = MenuDim::NeedsPower;
+        } else if (in.ore < item.cost) {
+            reason = MenuDim::Unaffordable;
+        }
+        rows.push_back(
+            MenuRow{item.key, named_cost(item.label, item.cost), reason == MenuDim::None, reason});
+        rows.back().cost = item.cost;
+        rows.back().banked = in.ore;
+        rows.back().missing = missing;
+    }
 }
 
 /// The keys a list row is pressed with, by position in the list: 1-9, then 0 for the tenth.
@@ -334,6 +359,26 @@ void append_nav_rows(std::vector<MenuRow>& rows, const std::vector<NavRow>& list
 
 } // namespace
 
+namespace {
+/// "a Factory", "an Armory": the building as a refusal names it (the panel's own labels, in words).
+constexpr std::array<std::string_view, kConstructBuildingCount> kBuildingNames{
+    "a Power",     "a Factory",       "a Relay Bunker", "an Armory",    "a Service Bay",
+    "a Gun Tower", "a Training Ctr.", "a Tech Centre",  "a Bomber Bay",
+};
+
+/// "Needs a Factory" / "Needs an Armory and a Service Bay": EVERY missing building, in panel order.
+std::string needs_buildings_text(std::uint16_t missing) {
+    std::string text;
+    for (std::size_t b = 0; b < kConstructBuildingCount; ++b) {
+        if (((missing >> b) & 1U) != 0U) {
+            text += text.empty() ? "Needs " : " and ";
+            text += kBuildingNames.at(b);
+        }
+    }
+    return text.empty() ? std::string{"Needs another building first"} : text;
+}
+} // namespace
+
 std::string refusal_message(const MenuRow& row) {
     // No `default:`: a new MenuDim that is not mapped here is a -Wswitch error, not silence.
     switch (row.reason) {
@@ -343,14 +388,63 @@ std::string refusal_message(const MenuRow& row) {
     case MenuDim::Unaffordable:
         return "Add " + std::to_string(row.cost - row.banked) + " scrap (have "
                + std::to_string(row.banked) + ", costs " + std::to_string(row.cost) + ")";
-    case MenuDim::NeedsBuilding: // unreachable today: the construct system will claim it
-        return "Needs another building first";
-    case MenuDim::NeedsPower: // unreachable today
-        return "Not enough power";
+    case MenuDim::NeedsBuilding:
+        return needs_buildings_text(row.missing);
+    case MenuDim::NeedsPower:
+        return "Needs power";
     case MenuDim::NeedsUpgrade: // unreachable today
         return "Needs an upgrade first";
     }
     return {};
+}
+
+int spare_power(const StandingBuildings& standing) noexcept {
+    const auto count
+        = [&standing](ConstructBuilding b) { return standing.at(static_cast<std::size_t>(b)); };
+    return kPowerSuppliedPerPlant * count(ConstructBuilding::Power)
+           - (count(ConstructBuilding::Factory) + count(ConstructBuilding::RelayBunker)
+              + count(ConstructBuilding::GunTower));
+}
+
+StandingBuildings standing_buildings(const sim::Sim& sim, sim::Side side) {
+    StandingBuildings standing{};
+    for (const sim::Unit& unit : sim.units()) {
+        if (!unit.alive || unit.side != side) {
+            continue;
+        }
+        // Only the kinds that exist: the other seven buildings have no `UnitKind` yet.
+        if (unit.kind == sim::UnitKind::Power) {
+            ++standing.at(static_cast<std::size_t>(ConstructBuilding::Power));
+        } else if (unit.kind == sim::UnitKind::Factory) {
+            ++standing.at(static_cast<std::size_t>(ConstructBuilding::Factory));
+        }
+    }
+    return standing;
+}
+
+ConstructRequirement construct_requirement(std::size_t row) noexcept {
+    const auto bit = [](ConstructBuilding b) {
+        return static_cast<std::uint16_t>(1U << static_cast<unsigned>(b));
+    };
+    using B = ConstructBuilding;
+    // THE OWNER'S TREE, in row order (see the plan, round 17).
+    switch (row) {
+    case 1: // FACTORY
+    case 2: // RELAY BUNKER
+    case 5: // GUN TOWER
+        return {0, true};
+    case 3: // ARMORY
+    case 4: // SERVICE BAY
+        return {bit(B::Factory), false};
+    case 6: // TRAINING CTR.
+        return {bit(B::Armory), false};
+    case 7: // TECH CENTRE
+        return {static_cast<std::uint16_t>(bit(B::Armory) | bit(B::ServiceBay)), false};
+    case 8: // BOMBER BAY
+        return {bit(B::TrainingCentre), false};
+    default: // POWER: scrap only
+        return {};
+    }
 }
 
 std::span<const BuildItem> construct_items() noexcept { return kConstructItems; }

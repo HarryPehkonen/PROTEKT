@@ -62,10 +62,14 @@ struct Yard {
     sim::UnitId constructor;
 };
 
-[[nodiscard]] Yard make_yard(std::uint16_t ore) {
-    sim::Scenario scenario{
-        kSeed,
-        {{UnitKind::Tank, Side::Player, 60, 60}, {UnitKind::Constructor, Side::Player, 61, 60}}};
+[[nodiscard]] Yard make_yard(std::uint16_t ore, bool powered = false) {
+    std::vector<sim::Spawn> units{{UnitKind::Tank, Side::Player, 60, 60},
+                                  {UnitKind::Constructor, Side::Player, 61, 60}};
+    if (powered) {
+        // J4: a standing POWER gives the grid its spare units, so the power rows can be bright.
+        units.push_back({UnitKind::Power, Side::Player, 80, 80});
+    }
+    sim::Scenario scenario{kSeed, units};
     scenario.store_capacity = 400;
     scenario.start_ore = ore;
     Yard y{};
@@ -200,7 +204,8 @@ TEST(ConstructPanel, TheDrawnRowsCarryTheNineWithTheCostOnTheRow) {
         EXPECT_EQ(label_of(row), kNine.at(i).label);
         EXPECT_EQ(row.verb,
                   std::string{kNine.at(i).label} + " " + std::to_string(kNine.at(i).cost));
-        EXPECT_TRUE(row.enabled) << "400 scrap pays for every row";
+        // J4: the bank pays for every row, but only POWER has no requirement.
+        EXPECT_EQ(row.enabled, i == 0U) << kNine.at(i).label;
     }
 }
 
@@ -220,7 +225,7 @@ TEST(ConstructPanel, TwoSpellingsDifferFromTheReferenceOnPurpose) {
 // ------------------------------------------------------------------------------ dim means inert
 
 TEST(ConstructPanel, AnUnaffordableRowDimsAndItsPressIsRefusedNamingTheObstacle) {
-    Yard y = make_yard(44);
+    Yard y = make_yard(44, true);
     Session session{y.driven};
     std::vector<sim::Order> orders;
     open_panel(y, session, orders);
@@ -243,7 +248,7 @@ TEST(ConstructPanel, AnUnaffordableRowDimsAndItsPressIsRefusedNamingTheObstacle)
 }
 
 TEST(ConstructPanel, AnAffordableRowThatIsNotBuiltYetIsRefusedWithTheHonestPlaceholder) {
-    Yard y = make_yard(400);
+    Yard y = make_yard(400, true);
     Session session{y.driven};
     std::vector<sim::Order> orders;
     open_panel(y, session, orders);
@@ -257,21 +262,30 @@ TEST(ConstructPanel, AnAffordableRowThatIsNotBuiltYetIsRefusedWithTheHonestPlace
     EXPECT_TRUE(session.construct_armed());
 }
 
-TEST(ConstructPanel, EveryAffordableRowRefusesTheSameWayAndEveryDimRowNamesItsShortfall) {
+TEST(ConstructPanel, EveryRowRefusesForItsObstacleAndAPoorPowerRowNamesItsShortfall) {
+    // Nothing stands but the Constructor: what a row is missing is named before its scrap (J4).
+    const std::array<std::string_view, 9> missing{"",
+                                                  "Needs power",
+                                                  "Needs power",
+                                                  "Needs a Factory",
+                                                  "Needs a Factory",
+                                                  "Needs power",
+                                                  "Needs an Armory",
+                                                  "Needs an Armory and a Service Bay",
+                                                  "Needs a Training Ctr."};
     for (const std::uint16_t bank : {std::uint16_t{0}, std::uint16_t{65}, std::uint16_t{400}}) {
-        for (const Panel& want : kNine) {
+        for (std::size_t i = 0; i < kNine.size(); ++i) {
+            const Panel& want = kNine.at(i);
             Yard y = make_yard(bank);
             Session session{y.driven};
             std::vector<sim::Order> orders;
             open_panel(y, session, orders);
             orders.clear();
             session.frame(key_frame(digit_key(want.key.front() - '0')), y.sim, y.options, orders);
-            if (bank >= want.cost && want.key == "1") {
-                EXPECT_TRUE(session.placing().has_value()) << "POWER arms (J3), it is not refused";
+            if (i != 0U) {
+                EXPECT_EQ(session.message(), std::string{missing.at(i)}) << want.label << bank;
             } else if (bank >= want.cost) {
-                EXPECT_EQ(session.message(),
-                          "Nothing can be built yet. Placing a building is not done.")
-                    << want.label << " with " << bank;
+                EXPECT_TRUE(session.placing().has_value()) << "POWER arms (J3), it is not refused";
             } else {
                 EXPECT_EQ(session.message(), "Add " + std::to_string(want.cost - bank)
                                                  + " scrap (have " + std::to_string(bank)
