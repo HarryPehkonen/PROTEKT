@@ -549,11 +549,12 @@ struct FootprintSize {
 /// to set in a balance pass.
 inline constexpr std::uint16_t kPowerHp = kTankHp;
 
-/// POWER's footprint (round 17, J3): 4x2 tiles. PROVISIONAL -- the owner is sending the nine real
-/// shapes. A RECTANGLE on purpose, wider than deep: rotation (a quarter turn swaps the two axes)
-/// only means something on one, and the model should be exercised by the first building. Even
-/// sides keep the building's position a whole tile, like the recycler's.
-inline constexpr FootprintSize kPowerFootprint{4, 2};
+/// POWER's footprint: ONE tile, 1x1. The owner's ruling (round 18, K1), the first REAL footprint he
+/// has given: "I think Power should take up only 1 x 1.  At least that's what their footprint
+/// seems to be in BattleZone 2."  It supersedes the provisional 4x2 of round 17. A footprint is
+/// measured in TILES (his word for it was "block"). An ODD side has a middle TILE, not a corner, so
+/// a one-tile building stands at its tile's centre (`place_building`).
+inline constexpr FootprintSize kPowerFootprint{1, 1};
 
 /// A kind a CONSTRUCTOR places (`orders::Place`): POWER, today -- the other eight rows of its panel
 /// are later slices. Every one has a footprint; the deployed recycler has one too but is made by a
@@ -568,7 +569,10 @@ inline constexpr FootprintSize kPowerFootprint{4, 2};
 inline constexpr FootprintSize kDeployedRecyclerFootprint{2, 2};
 
 /// THE TABLE: the size of the footprint a kind stands on. A kind without one (`has_footprint`) is
-/// 0x0, which covers no tile.
+/// 0x0, which covers no tile. POWER is the owner's real 1x1; the deployed recycler's 2x2 is his
+/// earlier ruling. The OTHER eight Builder rows have no `UnitKind` yet, so no rectangle: whichever
+/// is added first is PROVISIONAL until he gives its value, and `test_footprint.cpp` pins the whole
+/// table so that is a deliberate edit, never a drift.
 [[nodiscard]] constexpr FootprintSize footprint_of(UnitKind kind) noexcept {
     if (kind == UnitKind::DeployedRecycler) {
         return kDeployedRecyclerFootprint;

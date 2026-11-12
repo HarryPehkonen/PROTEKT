@@ -159,8 +159,18 @@ Pick pick(const sim::Sim& sim, const SceneOptions& options, float screen_x,
             = options.hover.has_value() && options.hover->unit.value == unit.id.value;
         const float base = hovering ? options.hover->z : ground;
         const float height = unit_box_height_metres(unit.kind);
+        // A box is never wider than the building's own tiles: a ONE-tile building (POWER, 2 m
+        // across) must not be hit from the tiles beside it by the 0.75-tile radius a unit gets.
+        // Per axis, since a footprint is a rectangle; a 2x2 or wider keeps the radius it had.
+        float half_x = radius;
+        float half_z = radius;
+        if (sim::has_footprint(unit.kind)) {
+            const sim::FootprintSize size = sim::footprint_of(unit);
+            half_x = std::min(radius, static_cast<float>(size.width) * 0.5F * kMetresPerTile);
+            half_z = std::min(radius, static_cast<float>(size.height) * 0.5F * kMetresPerTile);
+        }
         const float t
-            = hit_box(ray, {x - radius, base, z - radius}, {x + radius, base + height, z + radius});
+            = hit_box(ray, {x - half_x, base, z - half_z}, {x + half_x, base + height, z + half_z});
         if (t < 0.0F) {
             continue;
         }

@@ -282,6 +282,15 @@ void apply_strafe(Unit& unit, const orders::Strafe& strafe, const WorldGround& g
 }
 
 /// PLACE, the whole of it (defined beside `fresh_unit`): pays the cost and stands the building.
+/// Stands `unit` at the centre of `site`: an EVEN side's centre is a tile corner, which is where
+/// `fresh_unit` already put it; an ODD side's (POWER's one tile) is the middle of the middle tile,
+/// half a tile on.
+void centre_on_footprint(Unit& unit, const Footprint& site) noexcept {
+    constexpr std::int32_t kHalf = Fixed::kOne / 2;
+    unit.x = Fixed::from_raw(unit.x.raw + (site.width % 2 != 0 ? kHalf : 0));
+    unit.y = Fixed::from_raw(unit.y.raw + (site.height % 2 != 0 ? kHalf : 0));
+}
+
 void place_building(std::vector<Unit>& units, std::uint32_t& next_id,
                     std::array<std::uint16_t, 2>& ore, Side side,
                     const orders::Place& order) noexcept;
@@ -810,14 +819,16 @@ void place_building(std::vector<Unit>& units, std::uint32_t& next_id,
         return; // short of scrap: refused whole, nothing charged
     }
     // The building stands AT ONCE: its `build_ticks` is carried by the spec for the build-time
-    // slice and is not counted here. It stands on the footprint's centre, which for even sides is
-    // a whole tile, like a spawn's.
+    // slice and is not counted here. It stands on the footprint's centre: for even sides a whole
+    // tile, like a spawn's; for an ODD side (POWER's one tile) the middle of the middle tile, half
+    // a tile on. `footprint_around` reads either back to the same rectangle.
     const FootprintSize size = order.turned ? FootprintSize{footprint_of(order.kind).height,
                                                             footprint_of(order.kind).width}
                                             : footprint_of(order.kind);
     const Footprint site = footprint_at(size, order.tile_x, order.tile_y);
     bank = static_cast<std::uint16_t>(bank - cost);
     Unit built = fresh_unit(next_id++, order.kind, side, Coord{site.centre_x(), site.centre_y()});
+    centre_on_footprint(built, site);
     built.turned = order.turned;
     units.push_back(built);
 }
@@ -2042,6 +2053,7 @@ Sim Sim::create(const Scenario& scenario) {
         const int y = std::clamp(spawn.tile_y, 0, kMapTiles - 1);
         const std::span<const Unit> placed{sim.units_};
         Coord tile{};
+        Footprint site{};
         if (has_footprint(spawn.kind)) {
             // A building is placed whole: its north-west tile is the wish, or the nearest one whose
             // square is clear, and it stands at that square's centre.
@@ -2049,12 +2061,15 @@ Sim Sim::create(const Scenario& scenario) {
             const Coord corner = nearest_where(x, y, [&scenario, placed, size](int tx, int ty) {
                 return building_fits(scenario.seed, placed, size, tx, ty);
             });
-            const Footprint site = footprint_at(size, corner.x, corner.y);
+            site = footprint_at(size, corner.x, corner.y);
             tile = Coord{site.centre_x(), site.centre_y()};
         } else {
             tile = nearest_passable(scenario.seed, placed, x, y);
         }
         sim.units_.push_back(fresh_unit(sim.next_id_++, spawn.kind, spawn.side, tile));
+        if (has_footprint(spawn.kind)) {
+            centre_on_footprint(sim.units_.back(), site);
+        }
         if (spawn.hp != 0) {
             sim.units_.back().hp = std::min(spawn.hp, sim.units_.back().hp);
         }

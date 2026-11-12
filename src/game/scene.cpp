@@ -1012,7 +1012,7 @@ void build_factory(std::vector<SceneVertex>& out, std::uint64_t seed, const sim:
 /// the team's saturated colour near its top; a bus bar joins the two tall drums; a low control
 /// house with a raked roof sits against the plinth's front edge, its face to +z (a player's faces
 /// +Y, an enemy's -Y, as the factory's does).
-/// It is built level in the unit's frame -- `across` along the footprint's LONG side -- and turned
+/// It is built level in the unit's frame -- `across` along the model's LONG side -- and turned
 /// by `angle`, which is a quarter turn for a building that was rotated (`Unit::turned`), so the
 /// model always fills the rectangle the sim reserved for it. The plinth starts at the lowest corner
 /// of the footprint's ground so it never floats on a slope.
@@ -1035,26 +1035,32 @@ void build_power(std::vector<SceneVertex>& out, std::uint64_t seed, const sim::U
     }
     const float angle
         = (unit.turned ? kQuarter : 0.0F) + (unit.side == sim::Side::Player ? 0.0F : kPi);
-    constexpr float kPlinthHalfLong = 3.7F; ///< inside the 8 m side of the 4x2 footprint
-    constexpr float kPlinthHalfDeep = 1.7F; ///< inside its 4 m side
-    constexpr float kPlinthTop = 0.5F;
-    constexpr std::array<float, 4> kDrumAcross{-2.7F, -0.9F, 0.9F, 2.7F};
-    constexpr std::array<float, 4> kDrumTop{2.4F, 3.7F, 3.7F, 2.4F};
-    constexpr float kDrumAlong = -0.35F; ///< set back, so the control house has the front
-    constexpr float kDrumRadius = 0.68F;
-    constexpr float kCapRadius = 0.32F;
-    constexpr float kCapHeight = 0.4F;
-    constexpr float kCollarRadius = 0.74F;
-    constexpr float kCollarDrop = 0.55F; ///< the collar's top, below the drum's
-    constexpr float kCollarDepth = 0.28F;
-    constexpr float kBarHalfDeep = 0.12F;
-    constexpr float kBarBottom = 3.5F;
-    constexpr float kBarTop = 3.64F;
-    constexpr float kHouseBack = 0.95F;
-    constexpr float kHouseFront = 1.62F;
-    constexpr float kHouseHalfAcross = 3.0F;
-    constexpr float kHouseBackTop = 1.6F;
-    constexpr float kHouseFrontTop = 1.15F;
+    // THE MODEL IS DRAWN FOR ONE TILE (K1: 2 m x 2 m). It was designed for 8 m x 4 m; every
+    // horizontal measure is that design times `kAcross` (a quarter: the 8 m side is now 2 m) and
+    // every height times `kUp` (a half, so a squat 2 m tile does not sprout a 3.7 m tower).
+    constexpr float kAcross = 0.25F;
+    constexpr float kUp = 0.5F;
+    constexpr float kPlinthHalfLong = 3.7F * kAcross; ///< inside the 2 m (one tile) side
+    constexpr float kPlinthHalfDeep = 1.7F * kAcross; ///< and inside the footprint's other side
+    constexpr float kPlinthTop = 0.5F * kUp;
+    constexpr std::array<float, 4> kDrumAcross{-2.7F * kAcross, -0.9F * kAcross, 0.9F * kAcross,
+                                               2.7F * kAcross};
+    constexpr std::array<float, 4> kDrumTop{2.4F * kUp, 3.7F * kUp, 3.7F * kUp, 2.4F * kUp};
+    constexpr float kDrumAlong = -0.35F * kAcross; ///< set back, so the control house has the front
+    constexpr float kDrumRadius = 0.68F * kAcross;
+    constexpr float kCapRadius = 0.32F * kAcross;
+    constexpr float kCapHeight = 0.4F * kUp;
+    constexpr float kCollarRadius = 0.74F * kAcross;
+    constexpr float kCollarDrop = 0.55F * kUp; ///< the collar's top, below the drum's
+    constexpr float kCollarDepth = 0.28F * kUp;
+    constexpr float kBarHalfDeep = 0.12F * kAcross;
+    constexpr float kBarBottom = 3.5F * kUp;
+    constexpr float kBarTop = 3.64F * kUp;
+    constexpr float kHouseBack = 0.95F * kAcross;
+    constexpr float kHouseFront = 1.62F * kAcross;
+    constexpr float kHouseHalfAcross = 3.0F * kAcross;
+    constexpr float kHouseBackTop = 1.6F * kUp;
+    constexpr float kHouseFrontTop = 1.15F * kUp;
     constexpr int kDrumSides = 12;
 
     Vec3 colour = side_colour(unit.side);
