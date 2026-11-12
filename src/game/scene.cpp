@@ -1005,6 +1005,116 @@ void build_factory(std::vector<SceneVertex>& out, std::uint64_t seed, const sim:
               static_cast<std::size_t>(kStackSides), colour, ribs);
 }
 
+/// POWER (round 17, J3), its OWN silhouette: a bank of four upright GENERATOR DRUMS standing in a
+/// row on a long low plinth, low-high-high-low, so the skyline is a pair of tall middle drums
+/// flanked by two shorter -- not the factory's hall-and-chimney and not a vehicle's hull. Each drum
+/// is a twelve-sided cylinder of corrugated plate with a narrow dark insulator cap and a collar in
+/// the team's saturated colour near its top; a bus bar joins the two tall drums; a low control
+/// house with a raked roof sits against the plinth's front edge, its face to +z (a player's faces
+/// +Y, an enemy's -Y, as the factory's does).
+/// It is built level in the unit's frame -- `across` along the footprint's LONG side -- and turned
+/// by `angle`, which is a quarter turn for a building that was rotated (`Unit::turned`), so the
+/// model always fills the rectangle the sim reserved for it. The plinth starts at the lowest corner
+/// of the footprint's ground so it never floats on a slope.
+void build_power(std::vector<SceneVertex>& out, std::uint64_t seed, const sim::Unit& unit,
+                 Mark mark, float lift_z, bool lifted) {
+    constexpr float kQuarter = 1.5707963F;
+    const sim::Footprint site = sim::footprint_around(unit);
+    const float x
+        = static_cast<float>(unit.x.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile;
+    const float z
+        = static_cast<float>(unit.y.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile;
+    float ground = lifted ? lift_z : ground_metres(seed, unit.x, unit.y);
+    if (!lifted) {
+        for (int corner_y = site.y; corner_y <= site.y + site.height; ++corner_y) {
+            for (int corner_x = site.x; corner_x <= site.x + site.width; ++corner_x) {
+                ground = std::min(ground, ground_metres(seed, static_cast<float>(corner_x),
+                                                        static_cast<float>(corner_y)));
+            }
+        }
+    }
+    const float angle
+        = (unit.turned ? kQuarter : 0.0F) + (unit.side == sim::Side::Player ? 0.0F : kPi);
+    constexpr float kPlinthHalfLong = 3.7F; ///< inside the 8 m side of the 4x2 footprint
+    constexpr float kPlinthHalfDeep = 1.7F; ///< inside its 4 m side
+    constexpr float kPlinthTop = 0.5F;
+    constexpr std::array<float, 4> kDrumAcross{-2.7F, -0.9F, 0.9F, 2.7F};
+    constexpr std::array<float, 4> kDrumTop{2.4F, 3.7F, 3.7F, 2.4F};
+    constexpr float kDrumAlong = -0.35F; ///< set back, so the control house has the front
+    constexpr float kDrumRadius = 0.68F;
+    constexpr float kCapRadius = 0.32F;
+    constexpr float kCapHeight = 0.4F;
+    constexpr float kCollarRadius = 0.74F;
+    constexpr float kCollarDrop = 0.55F; ///< the collar's top, below the drum's
+    constexpr float kCollarDepth = 0.28F;
+    constexpr float kBarHalfDeep = 0.12F;
+    constexpr float kBarBottom = 3.5F;
+    constexpr float kBarTop = 3.64F;
+    constexpr float kHouseBack = 0.95F;
+    constexpr float kHouseFront = 1.62F;
+    constexpr float kHouseHalfAcross = 3.0F;
+    constexpr float kHouseBackTop = 1.6F;
+    constexpr float kHouseFrontTop = 1.15F;
+    constexpr int kDrumSides = 12;
+
+    Vec3 colour = side_colour(unit.side);
+    if (mark == Mark::Selected) {
+        colour = highlight(colour);
+    } else if (mark != Mark::None) {
+        colour = aim_tint(colour, mark == Mark::AimedOwn);
+    }
+    Vec3 pale = colour;
+    for (float& channel : pale) {
+        channel += (1.0F - channel) * kHullPaleMix;
+    }
+    const AtlasManifest& atlas = atlas_manifest();
+    const UvRect walls_tile = atlas.rect("factory_walls");
+    constexpr int kTileTexels = 64;
+    constexpr int kPlainColumns = 4;
+    const UvRect walls = upright_part(walls_tile, 0, 0, kTileTexels, kTileTexels);
+    const UvRect plain_wall = upright_part(walls_tile, 0, 0, kPlainColumns, kTileTexels);
+    const UvRect roof = atlas.rect("factory_roof");
+    const UvRect ribs = upright_part(roof, 0, 44, kTileTexels, 60);
+    const UvRect dark = atlas.rect("tank_tracks");
+
+    emit_turned_prism(out, x, z, angle,
+                      Prism{-kPlinthHalfLong, kPlinthHalfLong, -kPlinthHalfDeep, -kPlinthHalfDeep,
+                            kPlinthHalfDeep, kPlinthHalfDeep, ground, ground + kPlinthTop,
+                            ground + kPlinthTop},
+                      pale, walls, ribs);
+    for (std::size_t drum = 0; drum < kDrumAcross.size(); ++drum) {
+        const float across = kDrumAcross.at(drum);
+        const float top = kDrumTop.at(drum);
+        emit_loft(
+            out, x, z, ground, angle,
+            std::array<LoftStation, 2>{{{across, kPlinthTop, kDrumAlong, kDrumRadius, kDrumRadius},
+                                        {across, top, kDrumAlong, kDrumRadius, kDrumRadius}}},
+            static_cast<std::size_t>(kDrumSides), pale, plain_wall);
+        emit_loft(out, x, z, ground, angle,
+                  std::array<LoftStation, 2>{
+                      {{across, top - kCollarDrop - kCollarDepth, kDrumAlong, kCollarRadius,
+                        kCollarRadius},
+                       {across, top - kCollarDrop, kDrumAlong, kCollarRadius, kCollarRadius}}},
+                  static_cast<std::size_t>(kDrumSides), colour, ribs);
+        emit_loft(out, x, z, ground, angle,
+                  std::array<LoftStation, 2>{
+                      {{across, top, kDrumAlong, kCapRadius, kCapRadius},
+                       {across, top + kCapHeight, kDrumAlong, kCapRadius, kCapRadius}}},
+                  static_cast<std::size_t>(kDrumSides), pale, dark);
+    }
+    emit_turned_prism(out, x, z, angle,
+                      Prism{kDrumAcross.at(1), kDrumAcross.at(2), kDrumAlong - kBarHalfDeep,
+                            kDrumAlong - kBarHalfDeep, kDrumAlong + kBarHalfDeep,
+                            kDrumAlong + kBarHalfDeep, ground + kBarBottom, ground + kBarTop,
+                            ground + kBarTop},
+                      pale, ribs);
+    emit_turned_prism(out, x, z, angle,
+                      Prism{-kHouseHalfAcross, kHouseHalfAcross, kHouseBack, kHouseBack,
+                            kHouseFront, kHouseFront, ground + kPlinthTop, ground + kHouseBackTop,
+                            ground + kHouseFrontTop},
+                      pale, walls, roof);
+}
+
 /// The ink and tile a `ShapeRole` asks for. A role is a tone and a tile, no more: Hull wears the
 /// team's camo in its pale tint as a tank's armour does, Track the side colour on the dark link
 /// tile, Metal the pale tint on the plain turret metal, Load a darkened camo for rough scrap, and
@@ -2931,10 +3041,10 @@ void append_motes(std::vector<SceneVertex>& out, const SceneOptions& options, co
 }
 
 /// THE DEPLOY PREVIEW (DEPLOY): the footprint the armed build would stand on, as its tile grid
-/// lying on the terrain -- the outline and the lines between its tiles, so it reads as the 2x2 it
-/// is. Each stroke runs one tile edge, from corner height to corner height, so it follows the
-/// ground. There is no rotation to draw: the footprint is a square, and a square turned a quarter
-/// is itself.
+/// lying on the terrain -- the outline and the lines between its tiles, so it reads as the
+/// rectangle it is. Each stroke runs one tile edge, from corner height to corner height, so it
+/// follows the ground. A quarter turn is already in the footprint it is handed (width and height
+/// swapped, `Placing::size`): there is nothing further to rotate here.
 void append_deploy_preview(std::vector<SceneVertex>& out, const SceneOptions& options) {
     if (!options.deploy_preview.has_value()) {
         return;
@@ -6067,7 +6177,8 @@ math::Vec3 ground_normal(std::uint64_t seed, sim::Fixed x, sim::Fixed y) noexcep
 
 bool stands_level(sim::UnitKind kind) noexcept {
     return kind == sim::UnitKind::Factory || sim::is_turret(kind)
-           || kind == sim::UnitKind::DeployedRecycler || kind == sim::UnitKind::DeployedScavenger;
+           || kind == sim::UnitKind::DeployedRecycler || kind == sim::UnitKind::DeployedScavenger
+           || kind == sim::UnitKind::Power;
 }
 
 Suspension suspend(Suspension state, float target_z, std::uint32_t ticks) noexcept {
@@ -6658,6 +6769,9 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
                 // here with the tank's hand-built hull, and every kind has a builder now.
                 build_facing_tank(scene.vertices, options.seed, unit, mark, lift_z, hovering,
                                   heading, turret, pitch);
+            } else if (unit.kind == sim::UnitKind::Power) {
+                // Its own silhouette (J3): a bank of generator drums, not the factory's hall.
+                build_power(scene.vertices, options.seed, unit, mark, lift_z, hovering);
             } else {
                 build_factory(scene.vertices, options.seed, unit, mark, lift_z, hovering);
             }

@@ -104,12 +104,16 @@ TEST(Footprint, ANonSquareFootprintIsNeverSquaredByOneNumberServingBothAxes) {
               protekt::game::deploy_preview_vertex_count(kTall));
 }
 
-TEST(Footprint, TheDeployedRecyclerIsStillTwoByTwoAndTheOnlyKindWithOne) {
+TEST(Footprint, TheDeployedRecyclerIsStillTwoByTwoAndPowerIsTheOnlyOtherKindWithOne) {
+    // The pin "the only kind with one" moved deliberately with round 17, J3: POWER is the first
+    // placed building, and it stands on a 4x2 rectangle of its own.
     EXPECT_EQ(footprint_of(UnitKind::DeployedRecycler), (FootprintSize{2, 2}));
     EXPECT_TRUE(protekt::sim::has_footprint(UnitKind::DeployedRecycler));
+    EXPECT_EQ(footprint_of(UnitKind::Power), (FootprintSize{4, 2}));
+    EXPECT_TRUE(protekt::sim::has_footprint(UnitKind::Power));
     for (int k = 0; k < 64; ++k) {
         const auto kind = static_cast<UnitKind>(k);
-        if (kind == UnitKind::DeployedRecycler) {
+        if (kind == UnitKind::DeployedRecycler || kind == UnitKind::Power) {
             continue;
         }
         EXPECT_FALSE(protekt::sim::has_footprint(kind)) << k;

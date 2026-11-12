@@ -182,7 +182,8 @@ TEST(ConstructPanel, TheTableHoldsExactlyNineRowsWithTheirKeysLabelsAndCosts) {
         EXPECT_EQ(got.key, kNine.at(i).key);
         EXPECT_EQ(got.label, kNine.at(i).label);
         EXPECT_EQ(got.cost, kNine.at(i).cost) << kNine.at(i).label;
-        EXPECT_FALSE(got.kind.has_value()) << "no structure kind exists yet: a name row";
+        // Only POWER names a kind (round 17, J3); the other eight are later slices' name rows.
+        EXPECT_EQ(got.kind.has_value(), i == 0) << kNine.at(i).label;
     }
 }
 
@@ -241,13 +242,13 @@ TEST(ConstructPanel, AnUnaffordableRowDimsAndItsPressIsRefusedNamingTheObstacle)
     EXPECT_EQ(y.sim.ore(Side::Player), 44U) << "nothing is charged";
 }
 
-TEST(ConstructPanel, AnAffordableRowsPressIsAlsoRefusedWithTheHonestPlaceholder) {
+TEST(ConstructPanel, AnAffordableRowThatIsNotBuiltYetIsRefusedWithTheHonestPlaceholder) {
     Yard y = make_yard(400);
     Session session{y.driven};
     std::vector<sim::Order> orders;
     open_panel(y, session, orders);
     orders.clear();
-    session.frame(key_frame(digit_key(1)), y.sim, y.options, orders);
+    session.frame(key_frame(digit_key(2)), y.sim, y.options, orders); // FACTORY: a later slice
     EXPECT_EQ(session.message(), "Nothing can be built yet. Placing a building is not done.");
     EXPECT_EQ(y.sim.ore(Side::Player), 400U) << "nothing is charged";
     for (const sim::Order& order : orders) {
@@ -265,7 +266,9 @@ TEST(ConstructPanel, EveryAffordableRowRefusesTheSameWayAndEveryDimRowNamesItsSh
             open_panel(y, session, orders);
             orders.clear();
             session.frame(key_frame(digit_key(want.key.front() - '0')), y.sim, y.options, orders);
-            if (bank >= want.cost) {
+            if (bank >= want.cost && want.key == "1") {
+                EXPECT_TRUE(session.placing().has_value()) << "POWER arms (J3), it is not refused";
+            } else if (bank >= want.cost) {
                 EXPECT_EQ(session.message(),
                           "Nothing can be built yet. Placing a building is not done.")
                     << want.label << " with " << bank;

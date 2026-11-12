@@ -100,6 +100,8 @@ public:
     /// `3 DEPLOY` has armed the deploy on the selected recycler (DEPLOY): the menu reads
     /// `SPACE DEPLOY <distance>` and the footprint is previewed while it is.
     [[nodiscard]] bool deploy_armed() const noexcept;
+    /// The building the CONSTRUCT panel has armed for placement, if one is.
+    [[nodiscard]] std::optional<Placing> placing() const noexcept;
     [[nodiscard]] const input::HeldKeys& keys() const noexcept;
     /// True once the driven tank has been destroyed: the view is a spectator's from then on.
     [[nodiscard]] bool destroyed() const noexcept;

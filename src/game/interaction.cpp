@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <span>
+#include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -119,6 +120,12 @@ void Interaction::handle(const input::InputFrame& frame, const sim::Sim& sim,
     // deployed, the selection went), there is nothing left to deploy and the arming goes with it.
     if (deploy_armed_ && menu_subject_of(sim, selection_.units()) != MenuSubject::Recycler) {
         deploy_armed_ = false;
+    }
+    // A building armed for placement is armed on a Constructor, as the deploy is on a recycler: a
+    // selection that is no longer one (it died, the selection went) leaves nothing to place with.
+    if (placing_.has_value()
+        && menu_subject_of(sim, selection_.units()) != MenuSubject::Constructor) {
+        placing_.reset();
     }
 
     for (const input::Click& click : frame.clicks) {
@@ -346,6 +353,20 @@ void Interaction::handle(const input::InputFrame& frame, const sim::Sim& sim,
             // longer a Constructor ends it, and then the key acts as it would have.
             const bool still_constructor
                 = menu_subject_of(sim, selection_.units()) == MenuSubject::Constructor;
+            // A building is ARMED (a row was pressed and afforded): SPACE places it where the
+            // reticle meets the ground, `~` turns it a quarter, a digit picks another row. Only
+            // while armed: with nothing armed `~` is what it always was, a key that closes the
+            // panel.
+            if (still_constructor && placing_.has_value() && !key.ctrl && !key.alt) {
+                if (key.scancode == input::kKeySpace) {
+                    place_at_crosshair(sim, options);
+                    continue;
+                }
+                if (key.scancode == input::kKeyGrave) {
+                    rotate_placing();
+                    continue;
+                }
+            }
             const int digit = input::mark_digit(key);
             if (still_constructor && digit >= 0) {
                 construct_row(sim, options, digit);
@@ -531,6 +552,8 @@ bool Interaction::go_armed() const noexcept { return go_armed_; }
 bool Interaction::attack_armed() const noexcept { return attack_armed_; }
 
 bool Interaction::deploy_armed() const noexcept { return deploy_armed_; }
+
+std::optional<Placing> Interaction::placing() const noexcept { return placing_; }
 
 bool Interaction::tilde_steps() const noexcept { return stepping_ && selection_.empty(); }
 
@@ -1318,7 +1341,58 @@ void Interaction::arm_construct() {
     construct_armed_ = true;
 }
 
-void Interaction::disarm_construct() noexcept { construct_armed_ = false; }
+void Interaction::disarm_construct() noexcept {
+    construct_armed_ = false;
+    placing_.reset(); // the armed building goes with the panel it was armed in
+}
+
+void Interaction::rotate_placing() noexcept {
+    if (!placing_.has_value()) {
+        return;
+    }
+    // A quarter turn: the same rectangle with its two sides swapped (a 4x2 becomes a 2x4), the
+    // footprint the sim will test and stand the building on.
+    placing_->turned = !placing_->turned;
+    placing_->size = sim::FootprintSize{placing_->size.height, placing_->size.width};
+    message_ = "Turned a quarter.";
+}
+
+void Interaction::place_at_crosshair(const sim::Sim& sim, const SceneOptions& options) {
+    // A copy, checked once: what is placed is what was armed when SPACE was pressed.
+    const std::optional<Placing> armed = placing_;
+    if (!armed.has_value() || !options.aim.has_value()) {
+        return; // no reticle, no ground: the arming waits for one
+    }
+    const Pick picked = pick(sim, options, options.aim->x, options.aim->y);
+    if (!picked.has_tile()) {
+        return; // the reticle is off the ground: SPACE places nothing, and the arming survives
+    }
+    // The SIM'S verdict, the one the preview is coloured from: a refusal here is out loud, charges
+    // nothing and leaves the building armed so the player can aim elsewhere.
+    if (!sim::place_ok(sim.seed(), sim.units(), armed->kind, armed->turned, picked.tile_x,
+                       picked.tile_y)) {
+        refuse("There is no room to build there.");
+        return;
+    }
+    if (static_cast<int>(sim.ore(sim::Side::Player)) < armed->cost) {
+        refuse_owned("Add "
+                     + std::to_string(armed->cost - static_cast<int>(sim.ore(sim::Side::Player)))
+                     + " scrap (have " + std::to_string(sim.ore(sim::Side::Player)) + ", costs "
+                     + std::to_string(armed->cost) + ")");
+        return;
+    }
+    std::vector<sim::UnitId> roster = orderable();
+    if (roster.empty()) {
+        refuse("You are driving that one; select another unit to give orders.");
+        return;
+    }
+    std::sort(roster.begin(), roster.end());
+    pending_.push_back(
+        sim::Order{roster.front(),
+                   sim::orders::Place{armed->kind, picked.tile_x, picked.tile_y, armed->turned}});
+    placing_.reset(); // placed: the panel stays up, and the next row arms the next building
+    message_ = "Building.";
+}
 
 void Interaction::construct_row(const sim::Sim& sim, const SceneOptions& options, int digit) {
     MenuInput in;
@@ -1341,9 +1415,27 @@ void Interaction::construct_row(const sim::Sim& sim, const SceneOptions& options
         refuse_owned(refusal_message(*row));
         return;
     }
-    // PLACEHOLDER, replaced by the placement slice (J2/J3): a row that CAN be afforded must still
-    // refuse, because no building kind exists to be placed. Said plainly, so that the press is
-    // never mistaken for a missed key. Nothing is charged and no order is issued.
+    // A row that names a placeable building ARMS it: nothing is charged and no order is issued
+    // until SPACE places it. The rows whose buildings are later slices carry no kind and still
+    // refuse, said plainly so the press is never mistaken for a missed key.
+    const std::span<const BuildItem> items = construct_items();
+    const auto item
+        = std::find_if(items.begin(), items.end(), [&label](const BuildItem& candidate) {
+              return candidate.key == std::string_view{&label, 1};
+          });
+    // The row's kind, copied out once: a row with none is a later slice's name row.
+    const sim::UnitKind row_kind
+        = item != items.end() ? item->kind.value_or(sim::UnitKind::Tank) : sim::UnitKind::Tank;
+    if (item != items.end() && item->kind.has_value() && sim::is_placeable(row_kind)) {
+        // Re-arming the same building keeps the turn it already has.
+        const bool kept_turn = placing_.has_value() && placing_.value_or(Placing{}).kind == row_kind
+                               && placing_.value_or(Placing{}).turned;
+        const sim::FootprintSize base = sim::footprint_of(row_kind);
+        placing_ = Placing{row_kind, kept_turn, sim::spec_of(row_kind).cost,
+                           kept_turn ? sim::FootprintSize{base.height, base.width} : base};
+        message_ = "SPACE places it, ~ turns it.";
+        return;
+    }
     refuse("Nothing can be built yet. Placing a building is not done.");
 }
 

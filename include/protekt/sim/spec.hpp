@@ -390,6 +390,14 @@ inline constexpr std::array<UnitSpec, static_cast<std::size_t>(kUnitKindCount)> 
      Fixed::zero()},
     {"servicepod", kTankHp / 2, Fixed::from_raw(kTankSpeedRaw), WeaponId::None, 0, 0, Fixed::zero(),
      Fixed::zero(), kBoltTravel, Fixed::zero(), Fixed::zero(), false, 2, 40, 0, Fixed::zero()},
+    // POWER (round 17, J3), the Constructor's first building: unarmed, never moves, the tank's
+    // hull as a default. Cost 30 is the owner's (confirmed off his capture, 2026-11-11). Its
+    // `build_ticks` is the 20-ticks-a-scrap the other rows use (30 -> 600) and is CARRIED, NOT
+    // USED: a placed building stands the tick it is placed (`orders::Place`), and the build-time
+    // slice will read this number. It is not `buildable` and `is_queueable` refuses it, so no
+    // producer's queue can make it as a unit.
+    {"power", kPowerHp, Fixed::zero(), WeaponId::None, 0, 0, Fixed::zero(), Fixed::zero(),
+     kBoltTravel, Fixed::zero(), Fixed::zero(), false, 30, 600, 0, Fixed::zero()},
 }};
 
 /// No armed kind's bolt may fizzle short of the reach its weapon lets it engage at.
@@ -411,11 +419,13 @@ static_assert(every_bolt_outflies_its_range(),
 /// Whether a producer's queue may take this kind: it has a scrap cost AND a build time. Zero in
 /// either means not buildable -- the signal the queue reads, so a kind with no ruled price is never
 /// queued for nothing. A value that is not a kind at all (an order off the wire) is not queueable
-/// either, rather than an out-of-range read of the table.
+/// either, rather than an out-of-range read of the table. A BUILDING (a kind with a footprint) is
+/// never queueable even though its row carries a price and a time: a producer's queue makes units
+/// that drive out beside it, and a building is placed by a Constructor (`orders::Place`).
 [[nodiscard]] constexpr bool is_queueable(UnitKind kind) noexcept {
     const auto index = static_cast<std::size_t>(kind);
     return index < kUnitSpecs.size() && kUnitSpecs.at(index).cost != 0
-           && kUnitSpecs.at(index).build_ticks != 0;
+           && kUnitSpecs.at(index).build_ticks != 0 && !has_footprint(kind);
 }
 
 } // namespace protekt::sim

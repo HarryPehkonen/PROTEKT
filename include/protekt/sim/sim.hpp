@@ -137,6 +137,15 @@ struct ScootSpot {
 [[nodiscard]] bool site_ok(std::uint64_t seed, std::span<const Unit> units, FootprintSize size,
                            int tile_x, int tile_y) noexcept;
 
+/// Whether a Constructor may place a building of `kind`, `turned` or not, with its footprint's
+/// north-west tile at (`tile_x`, `tile_y`): the kind is placeable (`is_placeable`), `turned` swaps
+/// the footprint's width and height, and the site is `site_ok` for that rectangle -- on the map, on
+/// ground a unit may enter, inside no other building's footprint -- with no living unit standing
+/// on any of its tiles. The ONE answer: the sim asks it when the order is enqueued and applied, and
+/// the game's preview draws from it, so green means SPACE will place.
+[[nodiscard]] bool place_ok(std::uint64_t seed, std::span<const Unit> units, UnitKind kind,
+                            bool turned, int tile_x, int tile_y) noexcept;
+
 /// The simulation. Deterministic by construction: no floating point, no unseeded randomness,
 /// no time, no iteration over unordered storage.
 ///

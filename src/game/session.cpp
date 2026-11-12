@@ -116,6 +116,8 @@ bool Session::attack_armed() const noexcept { return interaction_.attack_armed()
 
 bool Session::deploy_armed() const noexcept { return interaction_.deploy_armed(); }
 
+std::optional<Placing> Session::placing() const noexcept { return interaction_.placing(); }
+
 const std::vector<TargetRow>& Session::attack_targets() const noexcept {
     return interaction_.attack_targets();
 }

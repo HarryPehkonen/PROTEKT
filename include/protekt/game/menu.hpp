@@ -190,6 +190,9 @@ struct MenuInput {
     /// heading and the nine keyed rows -- and nothing else. Honoured only for the Constructor's own
     /// subject; any other subject draws its ordinary menu.
     bool construct_panel{false};
+    /// A building is ARMED in the panel (`Interaction::placing`): `~ Rotate Buildings` is live.
+    /// Greyed (`DoesNotApply`) otherwise.
+    bool placing{false};
 };
 
 /// WHY a row is dimmed. The values are exhaustive on purpose: `None` means the row is NOT dimmed,

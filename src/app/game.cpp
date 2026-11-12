@@ -22,6 +22,7 @@
 #include "protekt/app/scenario_toml.hpp"
 #include "protekt/app/time_accumulator.hpp"
 #include "protekt/game/aim.hpp"
+#include "protekt/game/deploy_aim.hpp"
 #include "protekt/game/menu.hpp"
 #include "protekt/game/nav_marks.hpp"
 #include "protekt/game/player.hpp"
@@ -585,6 +586,14 @@ public:
                 const sim::Footprint site = sim::footprint_at(aim.tile_x, aim.tile_y);
                 scene_options.deploy_preview = game::DeployPreview{
                     site, sim::deploy_site_ok(sim_.seed(), sim_.units(), aim.tile_x, aim.tile_y)};
+            }
+        }
+        if (const std::optional<game::Placing> placing = session_.placing()) {
+            // The building armed in the CONSTRUCT panel: its footprint, turned as it is, on the
+            // ground under the reticle -- green where the sim would place it, red where not.
+            if (const game::NavAim aim = game::nav_aim(sim_, scene_options); aim.on_ground()) {
+                scene_options.deploy_preview
+                    = game::placement_preview(sim_, *placing, aim.tile_x, aim.tile_y);
             }
         }
         scene_options.show_radar_mesh = !options_.no_radar_mesh;

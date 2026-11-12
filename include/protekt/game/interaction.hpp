@@ -3,6 +3,7 @@
 #include <array>
 #include <cstdint>
 #include <map>
+#include <optional>
 #include <set>
 #include <span>
 #include <string_view>
@@ -39,6 +40,17 @@ inline constexpr std::string_view kGoPrompt = "go where? 0-9 for a mark.";
 
 struct BuildItem;
 struct DeployOffer;
+
+/// A BUILDING ARMED FOR PLACEMENT (round 17, J3): what the Constructor's panel row armed and what
+/// the next SPACE would place. `size` is the footprint AS TURNED -- the kind's rectangle with width
+/// and height swapped once `~ Rotate Buildings` has quarter-turned it -- and `cost` is the spec
+/// row's, the price the sim charges when the building stands.
+struct Placing {
+    sim::UnitKind kind{};
+    bool turned{false};
+    int cost{};
+    sim::FootprintSize size{};
+};
 struct GoHereOffer;
 
 /// Whether any living unit of `selected` is a `DeployedTurret`: the one fact `7 Undeploy`'s ink
@@ -254,6 +266,10 @@ public:
     /// deploys the selected recycler there. The state row reads `SPACE DEPLOY <distance>` and the
     /// footprint is previewed on the ground for exactly as long as this is true.
     [[nodiscard]] bool deploy_armed() const noexcept;
+    /// The building the CONSTRUCT panel has armed for placement, if one is (round 17, J3): a press
+    /// on an affordable row that names a placeable building arms it, SPACE places it, `~` turns it
+    /// a quarter. Player intent, held here and never in the sim.
+    [[nodiscard]] std::optional<Placing> placing() const noexcept;
     /// `~` has picked a vehicle of a function key's group out and the order it was given has used
     /// the selection up: the next `~` is the stepping's, not the nav menu's. False while anything
     /// is selected (the nav menu cannot open then anyway) and after a function key, Tab or Escape.
@@ -368,6 +384,11 @@ private:
     /// `3 Construct`: open the panel, or refuse when the Constructor is the craft being driven.
     void arm_construct();
     void disarm_construct() noexcept;
+    /// `~` while a building is armed: turn it a quarter, which swaps its footprint's two sides.
+    void rotate_placing() noexcept;
+    /// SPACE while a building is armed: place it where the reticle meets the ground, or refuse out
+    /// loud (the sim's own `place_ok`) and stay armed.
+    void place_at_crosshair(const sim::Sim& sim, const SceneOptions& options);
     /// A digit pressed in the open panel: refuse the row in words, by its own dim.
     void construct_row(const sim::Sim& sim, const SceneOptions& options, int digit);
     /// The key that settles the open list: send the selection's trucks to the patient it names, or
@@ -402,6 +423,7 @@ private:
     bool attack_armed_{false};
     bool repair_armed_{false};
     bool construct_armed_{false};
+    std::optional<Placing> placing_{}; ///< the building armed in the open panel (round 17, J3)
     bool unit_list_armed_{false};
     bool nav_list_armed_{false};
     std::vector<NavRow> nav_rows_;     ///< the open nav list (`nav_list()`)

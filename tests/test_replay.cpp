@@ -76,6 +76,11 @@ void expect_same_order(const Order& got, const Order& want) {
             } else if constexpr (std::is_same_v<P, orders::Build>) {
                 EXPECT_EQ(g.kind, w.kind);
                 EXPECT_EQ(g.batch, w.batch) << "a replay that drops the batch ungroups the row";
+            } else if constexpr (std::is_same_v<P, orders::Place>) {
+                EXPECT_EQ(g.kind, w.kind);
+                EXPECT_EQ(g.tile_x, w.tile_x);
+                EXPECT_EQ(g.tile_y, w.tile_y);
+                EXPECT_EQ(g.turned, w.turned) << "a replay that drops the turn stands it wrong";
             }
         },
         want.payload);
@@ -168,6 +173,7 @@ TEST(Replay, EveryOrderKindSurvivesARoundTripAndNoneIsDropped) {
         Command{18, Order{UnitId{4}, orders::Defend{UnitId{9}}}},
         Command{19, Order{UnitId{2}, orders::CancelBuild{}}},
         Command{20, Order{UnitId{5}, orders::Repair{UnitId{6}}}},
+        Command{21, Order{UnitId{6}, orders::Place{UnitKind::Power, 90, 140, true}}},
     };
     ASSERT_EQ(r.commands.size(), kOrderKindCount) << "this test must cover every kind";
     for (std::size_t i = 0; i < r.commands.size(); ++i) {
@@ -202,6 +208,8 @@ TEST(Replay, EveryOrderKindSurvivesARoundTripAndNoneIsDropped) {
         << "a cancel carries the producer and nothing else: " << text;
     EXPECT_NE(text.find("20 repair 5 6\n"), std::string::npos)
         << "a repair names its patient as the target, as an attack does: " << text;
+    EXPECT_NE(text.find("21 place 6 1376256 5898240 9175040 65536\n"), std::string::npos)
+        << "a place is its kind, north-west tile and turn as whole-number positions: " << text;
 
     const Replay again = must_parse(text);
     ASSERT_EQ(again.commands.size(), r.commands.size());

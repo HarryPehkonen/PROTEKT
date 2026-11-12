@@ -98,9 +98,14 @@ enum class UnitKind : std::uint8_t {
     /// The repair vehicle: mends every friendly unit within `kServiceRepairRadiusTiles` on its own.
     ServiceTruck = 19,
     /// The small, cheap craft. It does not repair: only the truck does.
-    ServicePod = 20
+    ServicePod = 20,
+    /// The first building a Constructor places (round 17, J3): POWER. Appended after ServicePod,
+    /// never inserted, for the reason every kind above was. A building: it never moves, never
+    /// fires, and stands on a `footprint_of` rectangle no unit may enter. It supplies NOTHING yet:
+    /// the power grid is the next slice.
+    Power = 21
 };
-inline constexpr int kUnitKindCount = 21;
+inline constexpr int kUnitKindCount = 22;
 
 /// Tanks and hover tanks: every rule written "for a tank" (orders, retreat, defend, swap, the AI's
 /// hunters) takes both. The hover tank has the tank's profile and, until it is drivable, its
@@ -133,10 +138,10 @@ inline constexpr int kUnitKindCount = 21;
            && kind != UnitKind::DeployedScavenger;
 }
 
-/// A kind that stands on a FOOTPRINT (see `Footprint`): only the deployed recycler today. The
+/// A kind that stands on a FOOTPRINT (see `Footprint`): the deployed recycler and POWER. The
 /// factory is a building in the game's eyes but has never had one, and DEPLOY does not give it one.
 [[nodiscard]] constexpr bool has_footprint(UnitKind kind) noexcept {
-    return kind == UnitKind::DeployedRecycler;
+    return kind == UnitKind::DeployedRecycler || kind == UnitKind::Power;
 }
 
 enum class Side : std::uint8_t { Player = 0, Enemy = 1 };
@@ -305,6 +310,9 @@ struct Unit {
     /// This unit's build queue, if it is a producer (see `is_producer`). Hashed only when it holds
     /// an entry, for the same reason.
     BuildQueue queue{};
+    /// A PLACED BUILDING turned a quarter (`~ Rotate Buildings`): its footprint's width and height
+    /// are swapped. Only a placed building's is ever set; hashed only when set.
+    bool turned{};
     bool alive{true};
 };
 
@@ -537,6 +545,23 @@ struct FootprintSize {
     }
 };
 
+/// POWER's hull: the tank's, a DEFAULT borrowed like the recycler's (`kRecyclerHp`) -- the owner's
+/// to set in a balance pass.
+inline constexpr std::uint16_t kPowerHp = kTankHp;
+
+/// POWER's footprint (round 17, J3): 4x2 tiles. PROVISIONAL -- the owner is sending the nine real
+/// shapes. A RECTANGLE on purpose, wider than deep: rotation (a quarter turn swaps the two axes)
+/// only means something on one, and the model should be exercised by the first building. Even
+/// sides keep the building's position a whole tile, like the recycler's.
+inline constexpr FootprintSize kPowerFootprint{4, 2};
+
+/// A kind a CONSTRUCTOR places (`orders::Place`): POWER, today -- the other eight rows of its panel
+/// are later slices. Every one has a footprint; the deployed recycler has one too but is made by a
+/// deploy, never placed.
+[[nodiscard]] constexpr bool is_placeable(UnitKind kind) noexcept {
+    return kind == UnitKind::Power;
+}
+
 /// The deployed recycler's footprint: 2x2 tiles (his ruling, 2026-10-26: "2x2 tiles -- a building
 /// should not be the same size as a tank"). That ruling is about THIS building; later kinds
 /// add their own rows to `footprint_of`.
@@ -545,7 +570,10 @@ inline constexpr FootprintSize kDeployedRecyclerFootprint{2, 2};
 /// THE TABLE: the size of the footprint a kind stands on. A kind without one (`has_footprint`) is
 /// 0x0, which covers no tile.
 [[nodiscard]] constexpr FootprintSize footprint_of(UnitKind kind) noexcept {
-    return kind == UnitKind::DeployedRecycler ? kDeployedRecyclerFootprint : FootprintSize{};
+    if (kind == UnitKind::DeployedRecycler) {
+        return kDeployedRecyclerFootprint;
+    }
+    return kind == UnitKind::Power ? kPowerFootprint : FootprintSize{};
 }
 
 /// The tiles a building stands on: the `width` x `height` rectangle whose NORTH-WEST (lowest x,
@@ -577,6 +605,13 @@ struct Footprint {
     [[nodiscard]] constexpr int centre_y() const noexcept { return y + height / 2; }
 };
 
+/// The footprint a placed building stands on: its kind's rectangle, with width and height swapped
+/// when it was turned a quarter.
+[[nodiscard]] constexpr FootprintSize footprint_of(const Unit& unit) noexcept {
+    const FootprintSize size = footprint_of(unit.kind);
+    return unit.turned ? FootprintSize{size.height, size.width} : size;
+}
+
 /// The footprint of `size` that a placement aimed at tile (`tile_x`, `tile_y`) builds: that tile is
 /// its north-west corner, moved in from the east and south edges just far enough that the whole
 /// rectangle is on the map. Only a tile ON the map is clipped: a deploy aimed off it is refused
@@ -599,6 +634,11 @@ struct Footprint {
 [[nodiscard]] constexpr Footprint footprint_around(FootprintSize size, Fixed x, Fixed y) noexcept {
     return Footprint{x.floor_int() - size.width / 2, y.floor_int() - size.height / 2, size.width,
                      size.height};
+}
+
+/// The footprint of the placed building `unit`: its kind's rectangle, turned if it was.
+[[nodiscard]] constexpr Footprint footprint_around(const Unit& unit) noexcept {
+    return footprint_around(footprint_of(unit), unit.x, unit.y);
 }
 
 /// The footprint of the building `kind` standing at (`x`, `y`).

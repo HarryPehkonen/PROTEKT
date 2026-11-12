@@ -184,7 +184,7 @@ constexpr std::array kFactoryBuildList{
 /// reference prints `TRAINING FAC.`, his own abbreviation ("Training Centre can be abbreviated to
 /// Training Ctr."), because the full name does not fit the panel. Do not "correct" either.
 constexpr std::array kConstructItems{
-    BuildItem{"1", "POWER", 30, std::nullopt},
+    kinded("1", "POWER", sim::UnitKind::Power), // the first building (J3): its cost is the spec's
     BuildItem{"2", "FACTORY", 55, std::nullopt},
     BuildItem{"3", "RELAY BUNKER", 50, std::nullopt},
     BuildItem{"4", "ARMORY", 60, std::nullopt},
@@ -275,14 +275,18 @@ void append_build_list(std::vector<MenuRow>& rows, const MenuInput& in) {
     append_priced_rows(rows, in, build_items(in.faction, in.subject));
 }
 
-/// THE CONSTRUCT PANEL: `TAB Close Menu`, `~ Rotate Buildings` (greyed -- nothing to rotate yet),
+/// THE CONSTRUCT PANEL: `TAB Close Menu`, `~ Rotate Buildings` (greyed until a building is armed),
 /// the `CONSTRUCT` heading, then the nine keyed rows -- twelve in all. Each keyed row is weighed
 /// against the bank by the SAME predicate every build row uses, and `Interaction` refuses a press
 /// by reading the row this returns, so the dim and the refusal cannot disagree.
 void append_construct_panel(std::vector<MenuRow>& rows, const MenuInput& in) {
     rows.push_back(MenuRow{kRowKeyTab, std::string{kVerbCloseMenu}, true, MenuDim::None});
+    // `~ Rotate Buildings` is live while a building is armed (it turns the footprint a quarter) and
+    // greyed otherwise, as it always was.
     rows.push_back(
-        MenuRow{kTilde, std::string{kVerbRotateBuildings}, false, MenuDim::DoesNotApply});
+        in.placing
+            ? MenuRow{kTilde, std::string{kVerbRotateBuildings}, true, MenuDim::None}
+            : MenuRow{kTilde, std::string{kVerbRotateBuildings}, false, MenuDim::DoesNotApply});
     MenuRow heading{std::string_view{}, std::string{kConstructHeading}, true, MenuDim::None};
     heading.heading = true;
     rows.push_back(std::move(heading));
@@ -383,6 +387,7 @@ MenuSubject menu_subject_of_kind(sim::UnitKind kind) noexcept {
     case sim::UnitKind::Scavenger:
         return MenuSubject::Harvester;
     case sim::UnitKind::DeployedScavenger: // no key selects it, and it takes no command: no menu
+    case sim::UnitKind::Power:             // a placed building: nothing selects it yet, no menu
         return MenuSubject::None;
     case sim::UnitKind::Turret:
     case sim::UnitKind::DeployedTurret:

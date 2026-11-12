@@ -44,6 +44,7 @@ constexpr std::array<KindName, static_cast<std::size_t>(sim::kUnitKindCount)> kK
     {"constructor", UnitKind::Constructor},
     {"service_truck", UnitKind::ServiceTruck},
     {"service_pod", UnitKind::ServicePod},
+    {"power", UnitKind::Power},
 }};
 
 /// The keys of a group, in the order a missing one is reported.

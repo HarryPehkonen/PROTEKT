@@ -1395,7 +1395,8 @@ TEST(RowBatch, TwoBatchesSitOnTwoKeysAndNeitherKeyMixesThem) {
 // ------------------------------------------------------------------ the vehicle-type icon
 
 /// The kinds a vehicle key can hold: every kind but the two buildings, which hang on the numbered
-/// keys and have masks of their own, and the deployed scavenger, which no key selects. The deployed
+/// keys and have masks of their own, and the deployed scavenger and POWER (round 17, J3), which no
+/// key selects -- a placed building has no key yet. The deployed
 /// turret IS held by a key, but wears the turret's mask on purpose (one plate, either state), so it
 /// is not asked for a mask of its own.
 [[nodiscard]] std::vector<UnitKind> vehicle_kinds() {
@@ -1404,7 +1405,8 @@ TEST(RowBatch, TwoBatchesSitOnTwoKeysAndNeitherKeyMixesThem) {
     for (int i = 0; i < sim::kUnitKindCount; ++i) {
         const UnitKind kind = static_cast<UnitKind>(i);
         if (kind != UnitKind::Factory && kind != UnitKind::DeployedRecycler
-            && kind != UnitKind::DeployedScavenger && kind != UnitKind::DeployedTurret) {
+            && kind != UnitKind::DeployedScavenger && kind != UnitKind::DeployedTurret
+            && kind != UnitKind::Power) {
             kinds.push_back(kind);
         }
     }

@@ -4,6 +4,7 @@
 #include <optional>
 #include <span>
 
+#include "protekt/game/interaction.hpp"
 #include "protekt/game/pick.hpp"
 #include "protekt/game/scene.hpp"
 #include "protekt/sim/sim.hpp"
@@ -50,5 +51,11 @@ struct DeployOffer {
                                                       const SceneOptions& options,
                                                       std::span<const sim::UnitId> selected,
                                                       sim::UnitId driven) noexcept;
+
+/// The preview an armed building (`Interaction::placing`) draws at the tile the reticle meets: its
+/// footprint as turned, and `valid` -- `sim::place_ok`'s own answer, so the colour is a claim about
+/// what SPACE will do. The same function the app draws from and the tests read.
+[[nodiscard]] DeployPreview placement_preview(const sim::Sim& sim, const Placing& placing,
+                                              int tile_x, int tile_y) noexcept;
 
 } // namespace protekt::game

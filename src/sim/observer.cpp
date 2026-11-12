@@ -416,6 +416,8 @@ const char* to_string(OrderKind kind) noexcept {
         return "cancelbuild";
     case OrderKind::Repair:
         return "repair";
+    case OrderKind::Place:
+        return "place";
     }
     return "unknown";
 }

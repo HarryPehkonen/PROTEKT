@@ -139,9 +139,9 @@ TEST(Sim, TheScoutIsAppendedAfterTheDeployedRecyclerAndNoEarlierIndexMoved) {
     EXPECT_EQ(static_cast<int>(UnitKind::DeployedTurret), 16);
     EXPECT_EQ(static_cast<int>(UnitKind::DeployedTurret), 16);
     // The four support vehicles of the recycler's list came after it, again moving nothing.
-    EXPECT_EQ(kUnitKindCount, 21);
-    EXPECT_EQ(static_cast<int>(UnitKind::ServicePod), kUnitKindCount - 1)
-        << "the service pod is last";
+    EXPECT_EQ(kUnitKindCount, 22) << "the pin moved 21 -> 22 deliberately: POWER (round 17, J3)";
+    EXPECT_EQ(static_cast<int>(UnitKind::ServicePod), 20) << "the service pod kept its value";
+    EXPECT_EQ(static_cast<int>(UnitKind::Power), kUnitKindCount - 1) << "POWER is last";
 }
 
 TEST(Sim, TheScoutIsALightFastArmedVehicleThatCanBeDriven) {
@@ -173,7 +173,7 @@ TEST(Sim, TheDeployedRecyclerIsAStillUnarmedBuildingWithTheRecyclersHull) {
 }
 
 TEST(Sim, TheHoverTankHasTheTanksProfileExactly) {
-    EXPECT_EQ(kUnitKindCount, 21);
+    EXPECT_EQ(kUnitKindCount, 22); // moved 21 -> 22 with POWER (round 17, J3)
     EXPECT_EQ(static_cast<int>(UnitKind::HoverTank), 3);
     const UnitProfile tank = profile(UnitKind::Tank);
     const UnitProfile hover = profile(UnitKind::HoverTank);

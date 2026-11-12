@@ -33,8 +33,9 @@ bool passable(std::uint64_t seed, int x, int y) {
 /// footprint -- so nothing is placed inside a building.
 bool taken(const std::vector<Spawn>& spawns, int x, int y) {
     return std::any_of(spawns.begin(), spawns.end(), [x, y](const Spawn& s) {
-        return has_footprint(s.kind) ? footprint_at(s.tile_x, s.tile_y).covers(x, y)
-                                     : s.tile_x == x && s.tile_y == y;
+        return has_footprint(s.kind)
+                   ? footprint_at(footprint_of(s.kind), s.tile_x, s.tile_y).covers(x, y)
+                   : s.tile_x == x && s.tile_y == y;
     });
 }
 

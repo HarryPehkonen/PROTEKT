@@ -210,6 +210,20 @@ struct Repair {
     UnitId target{};
 };
 
+/// PLACE a building (round 17, J3): a Constructor puts a `kind` (a placeable building, `Power`)
+/// on the footprint whose north-west tile is (`tile_x`, `tile_y`), `turned` a quarter or not. The
+/// scrap is paid and the building STANDS on the tick the order is applied -- its build time is not
+/// modelled yet. Refused for anything but a Constructor, for a kind that is not a placeable
+/// building, for a site `place_ok` refuses (off the map, forbidden ground, another building's
+/// footprint, a unit standing inside), and for a side whose bank is short of the cost: a refused
+/// order charges NOTHING and places nothing.
+struct Place {
+    UnitKind kind{};
+    std::int32_t tile_x{};
+    std::int32_t tile_y{};
+    bool turned{};
+};
+
 } // namespace orders
 
 using OrderPayload
@@ -217,7 +231,7 @@ using OrderPayload
                    orders::FocusFire, orders::FireTowards, orders::Strafe, orders::Follow,
                    orders::FireLob, orders::Deploy, orders::Recycle, orders::FireFan,
                    orders::FireRocket, orders::TakeControl, orders::Build, orders::Undeploy,
-                   orders::Defend, orders::CancelBuild, orders::Repair>;
+                   orders::Defend, orders::CancelBuild, orders::Repair, orders::Place>;
 
 /// How each payload alternative is named and reported. This is the payload's index, in the
 /// payload's order, and the assertions below make that true rather than intended.
@@ -250,9 +264,11 @@ enum class OrderKind : std::uint8_t {
     CancelBuild = 18,
     /// Appended after CancelBuild, never inserted, for the reason every value above was.
     Repair = 19,
+    /// Appended after Repair, never inserted, for the reason every value above was.
+    Place = 20,
 };
 
-inline constexpr std::size_t kOrderKindCount = static_cast<std::size_t>(OrderKind::Repair) + 1;
+inline constexpr std::size_t kOrderKindCount = static_cast<std::size_t>(OrderKind::Place) + 1;
 
 static_assert(std::variant_size_v<OrderPayload> == kOrderKindCount,
               "every alternative needs a kind, and every kind an alternative");
@@ -283,6 +299,7 @@ static_assert(std::is_same_v<PayloadOf<OrderKind::Undeploy>, orders::Undeploy>);
 static_assert(std::is_same_v<PayloadOf<OrderKind::Defend>, orders::Defend>);
 static_assert(std::is_same_v<PayloadOf<OrderKind::CancelBuild>, orders::CancelBuild>);
 static_assert(std::is_same_v<PayloadOf<OrderKind::Repair>, orders::Repair>);
+static_assert(std::is_same_v<PayloadOf<OrderKind::Place>, orders::Place>);
 
 /// The kind is the payload's own index. There is no second field that can disagree with it, which
 /// is precisely what the flat record could not promise.
@@ -386,6 +403,15 @@ struct OrderFields {
     } else if (const auto* p = std::get_if<orders::Repair>(&payload)) {
         out.has_target = true;
         out.target = p->target;
+    } else if (const auto* p = std::get_if<orders::Place>(&payload)) {
+        // Four whole numbers, as a Deploy's tile and a Build's kind are: the kind's index, the
+        // north-west tile and the turn (0 or 1), each a position a replay reads back with
+        // `floor_int`. The hashed stream's fixed shape (four position slots) is unchanged.
+        out.positions[0] = Fixed::from_int(static_cast<std::int32_t>(p->kind));
+        out.positions[1] = Fixed::from_int(p->tile_x);
+        out.positions[2] = Fixed::from_int(p->tile_y);
+        out.positions[3] = Fixed::from_int(p->turned ? 1 : 0);
+        out.position_count = 4;
     } else if (const auto* p = std::get_if<orders::Recycle>(&payload)) {
         // The recycler as the target and nothing else: the destination is read from the unit when
         // the order is applied, so a recycler that drives away is followed rather than missed.

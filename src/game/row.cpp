@@ -40,6 +40,7 @@ namespace {
     case sim::UnitKind::ServiceTruck:
     case sim::UnitKind::ServicePod:
     case sim::UnitKind::DeployedScavenger: // on no key at all: see `keyless`
+    case sim::UnitKind::Power:             // a placed building: on no key either, see `keyless`
     case sim::UnitKind::DeployedTurret:    // a turret that is standing: it keeps its F key
         break;
     }
@@ -50,7 +51,8 @@ namespace {
 /// key that can select the deployed scavenger"). Not a building key and not an F key, so it is
 /// neither dealt a slot nor kept in one.
 [[nodiscard]] bool keyless(sim::UnitKind kind) noexcept {
-    return kind == sim::UnitKind::DeployedScavenger;
+    return kind == sim::UnitKind::DeployedScavenger
+           || kind == sim::UnitKind::Power; // J3: nothing selects a placed building yet
 }
 
 /// Whether the opening force keeps `kind` off the F keys: the buildings only. The undeployed
@@ -496,6 +498,8 @@ std::string_view kind_label(sim::UnitKind kind, Faction faction) noexcept {
     case sim::UnitKind::Recycler:
     case sim::UnitKind::DeployedRecycler:
         return "RECYCLER";
+    case sim::UnitKind::Power:
+        return "POWER";
     }
     return "UNIT";
 }

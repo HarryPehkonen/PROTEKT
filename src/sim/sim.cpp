@@ -133,6 +133,13 @@ bool order_is_valid(const std::vector<Unit>& units, const std::vector<Pool>& poo
         return unit->kind == UnitKind::Recycler
                && deploy_site_ok(seed, units, deploy->tile_x, deploy->tile_y);
     }
+    // PLACE is a Constructor's, for a kind it may place and a site `place_ok` accepts. The bank is
+    // not asked here (this function sees no bank): `Sim::enqueue` and the apply step ask it.
+    if (const auto* placed = std::get_if<orders::Place>(&order.payload)) {
+        return unit->kind == UnitKind::Constructor
+               && place_ok(seed, units, placed->kind, placed->turned, placed->tile_x,
+                           placed->tile_y);
+    }
     // UN-DEPLOY is a deployed turret's alone (a plain turret has nothing to take down, and a
     // deployed scavenger takes no order at all, above).
     if (std::holds_alternative<orders::Undeploy>(order.payload)) {
@@ -274,10 +281,15 @@ void apply_strafe(Unit& unit, const orders::Strafe& strafe, const WorldGround& g
     unit.still_ticks = 0; // moved: a turret is unmounted
 }
 
+/// PLACE, the whole of it (defined beside `fresh_unit`): pays the cost and stands the building.
+void place_building(std::vector<Unit>& units, std::uint32_t& next_id,
+                    std::array<std::uint16_t, 2>& ore, Side side,
+                    const orders::Place& order) noexcept;
+
 void apply_order(std::vector<Unit>& units, std::vector<Projectile>& projectiles,
                  std::vector<Sim::Shot>& shots, UnitId& driven, std::uint32_t& lone_batches,
-                 std::array<std::uint16_t, 2>& ore, const std::vector<Pool>& pools,
-                 const Order& order, std::uint64_t seed) noexcept {
+                 std::uint32_t& next_id, std::array<std::uint16_t, 2>& ore,
+                 const std::vector<Pool>& pools, const Order& order, std::uint64_t seed) noexcept {
     // Re-validated here: the unit may have died between enqueue and the tick it takes effect.
     if (!order_is_valid(units, pools, order, seed)) {
         return;
@@ -503,6 +515,12 @@ void apply_order(std::vector<Unit>& units, std::vector<Projectile>& projectiles,
             unit.route.age = kRouteAgeFresh;
         }
         break;
+    case OrderKind::Place:
+        if (const auto* o = std::get_if<orders::Place>(&order.payload)) {
+            // `unit` is not touched again: pushing the building may move the table.
+            place_building(units, next_id, ore, unit.side, *o);
+        }
+        break;
     case OrderKind::TakeControl:
         // THE PLAYER TAKES THE HELM: one slot, so this unit becomes the driven one and the last
         // one (if any) is released. Nothing else about the unit changes -- no stance, no
@@ -577,11 +595,12 @@ Coord nearest_passable(std::uint64_t seed, std::span<const Unit> units, int x, i
 // Whether a building may be PLACED with its north-west tile here: the site is one a deploy could
 // use (`deploy_site_ok`), and no living unit is standing inside it -- a building is never spawned
 // on top of a unit, as a unit is never spawned inside a building.
-bool building_fits(std::uint64_t seed, std::span<const Unit> units, int tx, int ty) noexcept {
-    if (!deploy_site_ok(seed, units, tx, ty)) {
+bool building_fits(std::uint64_t seed, std::span<const Unit> units, FootprintSize size, int tx,
+                   int ty) noexcept {
+    if (!site_ok(seed, units, size, tx, ty)) {
         return false;
     }
-    const Footprint site = footprint_at(tx, ty);
+    const Footprint site = footprint_at(size, tx, ty);
     return std::none_of(units.begin(), units.end(), [&site](const Unit& unit) {
         return unit.alive && site.covers(unit.x.floor_int(), unit.y.floor_int());
     });
@@ -780,6 +799,27 @@ Unit fresh_unit(std::uint32_t id, UnitKind kind, Side side, Coord tile) noexcept
     unit.stance = Stance::Idle;
     unit.alive = true;
     return unit;
+}
+
+void place_building(std::vector<Unit>& units, std::uint32_t& next_id,
+                    std::array<std::uint16_t, 2>& ore, Side side,
+                    const orders::Place& order) noexcept {
+    std::uint16_t& bank = ore.at(static_cast<std::size_t>(side));
+    const std::uint16_t cost = spec_of(order.kind).cost;
+    if (bank < cost) {
+        return; // short of scrap: refused whole, nothing charged
+    }
+    // The building stands AT ONCE: its `build_ticks` is carried by the spec for the build-time
+    // slice and is not counted here. It stands on the footprint's centre, which for even sides is
+    // a whole tile, like a spawn's.
+    const FootprintSize size = order.turned ? FootprintSize{footprint_of(order.kind).height,
+                                                            footprint_of(order.kind).width}
+                                            : footprint_of(order.kind);
+    const Footprint site = footprint_at(size, order.tile_x, order.tile_y);
+    bank = static_cast<std::uint16_t>(bank - cost);
+    Unit built = fresh_unit(next_id++, order.kind, side, Coord{site.centre_x(), site.centre_y()});
+    built.turned = order.turned;
+    units.push_back(built);
 }
 
 /// THE QUEUE (BUILD-QUEUE). One producer's line for one tick: the front entry waits for its scrap,
@@ -2005,10 +2045,11 @@ Sim Sim::create(const Scenario& scenario) {
         if (has_footprint(spawn.kind)) {
             // A building is placed whole: its north-west tile is the wish, or the nearest one whose
             // square is clear, and it stands at that square's centre.
-            const Coord corner = nearest_where(x, y, [&scenario, placed](int tx, int ty) {
-                return building_fits(scenario.seed, placed, tx, ty);
+            const FootprintSize size = footprint_of(spawn.kind);
+            const Coord corner = nearest_where(x, y, [&scenario, placed, size](int tx, int ty) {
+                return building_fits(scenario.seed, placed, size, tx, ty);
             });
-            const Footprint site = footprint_at(corner.x, corner.y);
+            const Footprint site = footprint_at(size, corner.x, corner.y);
             tile = Coord{site.centre_x(), site.centre_y()};
         } else {
             tile = nearest_passable(scenario.seed, placed, x, y);
@@ -2035,6 +2076,16 @@ void Sim::enqueue(const Order& order) {
     // is the commander's responsibility. Filtering here silently killed the enemy commander.
     if (!order_is_valid(units_, scenario_.pools, order, scenario_.seed)) {
         return;
+    }
+    // A PLACEMENT the bank cannot pay for is refused here, so it never reaches the log. (Two
+    // placements enqueued in one tick are each judged against the bank as it stands now; the
+    // apply step weighs them in turn, and the second is refused whole if the first spent the
+    // scrap -- the replay applies the same rule, so the battle is the same.)
+    if (const auto* placed = std::get_if<orders::Place>(&order.payload)) {
+        const Side side = find_const(units_, order.unit)->side;
+        if (ore_.at(static_cast<std::size_t>(side)) < spec_of(placed->kind).cost) {
+            return;
+        }
     }
     // A build is judged against the queue AS IT WILL BE when this order is applied: the builds
     // already pending for the same producer are laid onto a copy first. Without that, the second
@@ -2072,8 +2123,8 @@ void Sim::step() {
         }
     }
     for (const Order& order : pending_) {
-        apply_order(units_, projectiles_, shots_, driven_, lone_batches_, ore_, scenario_.pools,
-                    order, scenario_.seed);
+        apply_order(units_, projectiles_, shots_, driven_, lone_batches_, next_id_, ore_,
+                    scenario_.pools, order, scenario_.seed);
     }
     pending_.clear();
 
@@ -2331,7 +2382,7 @@ bool tile_passable(std::uint64_t seed, int tile_x, int tile_y) noexcept {
 bool building_blocks(std::span<const Unit> units, int tile_x, int tile_y) noexcept {
     return std::any_of(units.begin(), units.end(), [tile_x, tile_y](const Unit& unit) {
         return unit.alive && has_footprint(unit.kind)
-               && footprint_around(unit.kind, unit.x, unit.y).covers(tile_x, tile_y);
+               && footprint_around(unit).covers(tile_x, tile_y);
     });
 }
 
@@ -2348,6 +2399,23 @@ bool site_ok(std::uint64_t seed, std::span<const Unit> units, FootprintSize size
 bool deploy_site_ok(std::uint64_t seed, std::span<const Unit> units, int tile_x,
                     int tile_y) noexcept {
     return site_ok(seed, units, kDeployedRecyclerFootprint, tile_x, tile_y);
+}
+
+bool place_ok(std::uint64_t seed, std::span<const Unit> units, UnitKind kind, bool turned,
+              int tile_x, int tile_y) noexcept {
+    if (!is_placeable(kind)) {
+        return false;
+    }
+    const FootprintSize base = footprint_of(kind);
+    const FootprintSize size = turned ? FootprintSize{base.height, base.width} : base;
+    if (!site_ok(seed, units, size, tile_x, tile_y)) {
+        return false;
+    }
+    // A building is never stood on top of a unit, as a unit is never spawned inside a building.
+    const Footprint site = footprint_at(size, tile_x, tile_y);
+    return std::none_of(units.begin(), units.end(), [&site](const Unit& unit) {
+        return unit.alive && site.covers(unit.x.floor_int(), unit.y.floor_int());
+    });
 }
 
 const std::vector<Unit>& Sim::units() const noexcept { return units_; }
@@ -2425,6 +2493,9 @@ std::uint64_t Sim::state_hash() const noexcept {
                 h.u64(tile.x);
                 h.u64(tile.y);
             }
+        }
+        if (u.turned) {
+            h.u64(1); // a placed building turned a quarter: no other unit's is ever set
         }
         if (u.shove_ticks != 0) {
             h.u64(u.shove_ticks); // only when set: a battle that never shoves hashes as before
