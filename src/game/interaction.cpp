@@ -1400,7 +1400,7 @@ void Interaction::construct_row(const sim::Sim& sim, const SceneOptions& options
     in.faction = faction_of(options.factions, sim::Side::Player);
     in.ore = static_cast<int>(sim.ore(sim::Side::Player));
     in.construct_panel = true;
-    in.standing = standing_buildings(sim, sim::Side::Player);
+    in.standing = standing_buildings(sim, sim::Side::Player, in.faction);
     const std::vector<MenuRow> rows = menu_rows(in);
     const char label = static_cast<char>('0' + digit);
     const auto row = std::find_if(rows.begin(), rows.end(), [&label](const MenuRow& candidate) {
@@ -1419,7 +1419,7 @@ void Interaction::construct_row(const sim::Sim& sim, const SceneOptions& options
     // A row that names a placeable building ARMS it: nothing is charged and no order is issued
     // until SPACE places it. The rows whose buildings are later slices carry no kind and still
     // refuse, said plainly so the press is never mistaken for a missed key.
-    const std::span<const BuildItem> items = construct_items();
+    const std::span<const BuildItem> items = construct_items(in.faction);
     const auto item
         = std::find_if(items.begin(), items.end(), [&label](const BuildItem& candidate) {
               return candidate.key == std::string_view{&label, 1};

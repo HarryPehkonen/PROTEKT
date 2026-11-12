@@ -3804,6 +3804,8 @@ std::array<std::uint8_t, 5> mount_glyph(char glyph) {
         return {0b10001, 0b10001, 0b11111, 0b10001, 0b10001};
     case 'I':
         return {0b11111, 0b00100, 0b00100, 0b00100, 0b11111};
+    case 'J': // round 17 J5: JAMMER (a missing glyph draws as a gap: "AMMER")
+        return {0b00111, 0b00010, 0b00010, 0b10010, 0b01100};
     case 'K':
         return {0b10001, 0b10010, 0b11100, 0b10010, 0b10001};
     case 'L':

@@ -490,7 +490,7 @@ std::string_view kind_label(sim::UnitKind kind, Faction faction) noexcept {
     case sim::UnitKind::Tug:
         return by_faction(faction, "TUG", "HAULER");
     case sim::UnitKind::Constructor:
-        return "CONSTRUCTOR";
+        return by_faction(faction, "CONSTRUCTOR", "BUILDER");
     case sim::UnitKind::ServiceTruck:
         return "SERVICE TRUCK";
     case sim::UnitKind::ServicePod:

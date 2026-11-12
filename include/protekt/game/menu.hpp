@@ -135,6 +135,26 @@ enum class ConstructBuilding : std::uint8_t {
 };
 inline constexpr std::size_t kConstructBuildingCount = 9;
 
+/// THE ALIEN BUILDER'S BUILDINGS, in panel (key) order, then the two UPGRADED forms the
+/// requirements are written in: the value is the slot in `StandingBuildings` (and the bit in a
+/// requirement), read under the ALIEN faction. The human `ConstructBuilding` and this enum index
+/// the SAME array, never at once: which one a slot means is the faction's (`construct_requirement`
+/// takes it). A FORGE is the Kiln upgraded in place and an OVERSEER is the Antenna upgraded in
+/// place. Neither an upgrade nor an alien building exists in the sim yet, so `standing_buildings`
+/// counts none of these and the Stronghold and Jammer requirements cannot be met today --
+/// correctly.
+enum class AlienBuilding : std::uint8_t {
+    Kiln = 0,
+    GunSpire,
+    Antenna,
+    Dower,
+    Stronghold,
+    Jammer,
+    Forge,
+    Overseer,
+};
+inline constexpr std::size_t kAlienConstructRows = 6;
+
 /// How many of each building a side has STANDING, indexed by `ConstructBuilding`.
 using StandingBuildings = std::array<int, kConstructBuildingCount>;
 
@@ -149,8 +169,11 @@ inline constexpr int kPowerSuppliedPerPlant = 3;
 [[nodiscard]] int spare_power(const StandingBuildings& standing) noexcept;
 
 /// What `side` has standing, counted from the sim's living units (nothing is stored). Only the
-/// kinds that exist count: the other seven buildings read zero until their slices.
-[[nodiscard]] StandingBuildings standing_buildings(const sim::Sim& sim, sim::Side side);
+/// kinds that exist count: the other seven buildings read zero until their slices. Under the ALIEN
+/// faction every slot reads zero: no alien building has a kind, and a human Power or Factory the
+/// side happens to own is not a Kiln or a Gun Spire.
+[[nodiscard]] StandingBuildings standing_buildings(const sim::Sim& sim, sim::Side side,
+                                                   Faction faction = Faction::Human);
 
 /// What a panel row needs besides its own scrap: a SET of buildings (a bitmask, bit = the
 /// `ConstructBuilding` value) and, or, one spare unit of power.
@@ -159,9 +182,10 @@ struct ConstructRequirement {
     bool power{false};
 };
 
-/// The requirement of panel row `row` (0 = POWER .. 8 = BOMBER BAY): the owner's tree, in ONE
-/// table.
-[[nodiscard]] ConstructRequirement construct_requirement(std::size_t row) noexcept;
+/// The requirement of panel row `row` of `faction`'s Constructor (human 0 = POWER .. 8 = BOMBER
+/// BAY; alien 0 = KILN .. 5 = JAMMER): the owner's trees, in ONE function. The alien rule is a
+/// BUILDING, never power. A later slice adds rows HERE and nowhere else.
+[[nodiscard]] ConstructRequirement construct_requirement(Faction faction, std::size_t row) noexcept;
 
 /// Everything the rows are a function of. No file, no clock, no sim: the caller derives each field
 /// from what it already holds (the selection, `Interaction`'s armed state, the banked scrap and
@@ -303,6 +327,8 @@ struct MenuRow {
     /// A panel row only: the buildings it needs that do NOT stand (bit = `ConstructBuilding`),
     /// every one of them, so a refusal can name them all. Non-zero exactly for `NeedsBuilding`.
     std::uint16_t missing{};
+    /// Whose building names `missing` bits are in (a panel row only; the human list otherwise).
+    Faction faction{Faction::Human};
 
     MenuRow() = default;
     MenuRow(std::string_view key_in, std::string verb_in, bool enabled_in, MenuDim reason_in)
@@ -363,7 +389,7 @@ struct BuildItem {
 /// structure yet, so `kind` is empty on every row. Two labels differ from the reference ON
 /// PURPOSE (the owner's Canadian spelling): `TECH CENTRE`, and `TRAINING CTR.` for the Training
 /// Centre, because the full name does not fit the panel.
-[[nodiscard]] std::span<const BuildItem> construct_items() noexcept;
+[[nodiscard]] std::span<const BuildItem> construct_items(Faction faction = Faction::Human) noexcept;
 
 /// The verbs of the rows that ACT today (RB-DIGITS), written once so the table that draws them
 /// (`menu.cpp`) and the layer that routes their digit (`Interaction`) cannot drift apart: a row is

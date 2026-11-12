@@ -195,6 +195,15 @@ constexpr std::array kConstructItems{
     BuildItem{"9", "BOMBER BAY", 100, std::nullopt},
 };
 
+/// The ALIEN BUILDER's six buildings (round 17, J5), off the owner's own capture. No second page.
+/// Name rows: no alien building has a `UnitKind`, so nothing here can be placed yet.
+constexpr std::array kAlienConstructItems{
+    BuildItem{"1", "KILN", 60, std::nullopt},       BuildItem{"2", "GUN SPIRE", 75, std::nullopt},
+    BuildItem{"3", "ANTENNA", 60, std::nullopt},    BuildItem{"4", "DOWER", 50, std::nullopt},
+    BuildItem{"5", "STRONGHOLD", 70, std::nullopt}, BuildItem{"6", "JAMMER", 50, std::nullopt},
+};
+static_assert(kAlienConstructItems.size() == kAlienConstructRows);
+
 /// A CONSTRUCTOR (round 17, J1): the vehicle's rows with `3` turned from `Attack` to `Construct`,
 /// which opens the CONSTRUCT panel. The reference's row reads `Build`; ours reads `Construct`, the
 /// panel's own heading. `~ Select Unit` is drawn first by `menu_rows`, as for a vehicle.
@@ -292,9 +301,10 @@ void append_construct_panel(std::vector<MenuRow>& rows, const MenuInput& in) {
     rows.push_back(std::move(heading));
     // THE ONE PREDICATE for "can this panel row be built": the requirement set (buildings, then
     // power) and then the bank. The dim, the press and the refusal all read the row this makes.
-    for (std::size_t i = 0; i < kConstructItems.size(); ++i) {
-        const BuildItem& item = kConstructItems.at(i);
-        const ConstructRequirement need = construct_requirement(i);
+    const std::span<const BuildItem> items = construct_items(in.faction);
+    for (std::size_t i = 0; i < items.size(); ++i) {
+        const BuildItem& item = items[i];
+        const ConstructRequirement need = construct_requirement(in.faction, i);
         std::uint16_t missing = 0;
         for (std::size_t b = 0; b < kConstructBuildingCount; ++b) {
             if (((need.buildings >> b) & 1U) != 0U && in.standing.at(b) <= 0) {
@@ -315,6 +325,7 @@ void append_construct_panel(std::vector<MenuRow>& rows, const MenuInput& in) {
         rows.back().cost = item.cost;
         rows.back().banked = in.ore;
         rows.back().missing = missing;
+        rows.back().faction = in.faction;
     }
 }
 
@@ -366,13 +377,20 @@ constexpr std::array<std::string_view, kConstructBuildingCount> kBuildingNames{
     "a Gun Tower", "a Training Ctr.", "a Tech Centre",  "a Bomber Bay",
 };
 
+/// The alien names, by `AlienBuilding` slot; the slots past the eighth are unused.
+constexpr std::array<std::string_view, kConstructBuildingCount> kAlienBuildingNames{
+    "a Kiln",   "a Gun Spire", "an Antenna",  "a Dower", "a Stronghold",
+    "a Jammer", "a Forge",     "an Overseer", "",
+};
+
 /// "Needs a Factory" / "Needs an Armory and a Service Bay": EVERY missing building, in panel order.
-std::string needs_buildings_text(std::uint16_t missing) {
+std::string needs_buildings_text(std::uint16_t missing, Faction faction) {
+    const auto& names = faction == Faction::Alien ? kAlienBuildingNames : kBuildingNames;
     std::string text;
     for (std::size_t b = 0; b < kConstructBuildingCount; ++b) {
         if (((missing >> b) & 1U) != 0U) {
             text += text.empty() ? "Needs " : " and ";
-            text += kBuildingNames.at(b);
+            text += names.at(b);
         }
     }
     return text.empty() ? std::string{"Needs another building first"} : text;
@@ -389,7 +407,7 @@ std::string refusal_message(const MenuRow& row) {
         return "Add " + std::to_string(row.cost - row.banked) + " scrap (have "
                + std::to_string(row.banked) + ", costs " + std::to_string(row.cost) + ")";
     case MenuDim::NeedsBuilding:
-        return needs_buildings_text(row.missing);
+        return needs_buildings_text(row.missing, row.faction);
     case MenuDim::NeedsPower:
         return "Needs power";
     case MenuDim::NeedsUpgrade: // unreachable today
@@ -406,8 +424,11 @@ int spare_power(const StandingBuildings& standing) noexcept {
               + count(ConstructBuilding::GunTower));
 }
 
-StandingBuildings standing_buildings(const sim::Sim& sim, sim::Side side) {
+StandingBuildings standing_buildings(const sim::Sim& sim, sim::Side side, Faction faction) {
     StandingBuildings standing{};
+    if (faction == Faction::Alien) {
+        return standing; // no alien building has a kind yet: nothing stands
+    }
     for (const sim::Unit& unit : sim.units()) {
         if (!unit.alive || unit.side != side) {
             continue;
@@ -422,7 +443,34 @@ StandingBuildings standing_buildings(const sim::Sim& sim, sim::Side side) {
     return standing;
 }
 
-ConstructRequirement construct_requirement(std::size_t row) noexcept {
+namespace {
+/// THE ALIEN TREE, off the owner's own play: the gate is a BUILDING, never power. ANTENNA and DOWER
+/// need a Kiln, JAMMER an Overseer (the Antenna upgraded in place), STRONGHOLD a Forge (the Kiln
+/// upgraded in place). The reference's further rules (a Kiln or Gun Spire needing a Power Lung, a
+/// Forge needing the Kiln and two Power Lungs) are NOT confirmed and are NOT implemented.
+ConstructRequirement alien_requirement(std::size_t row) noexcept {
+    const auto bit = [](AlienBuilding b) {
+        return static_cast<std::uint16_t>(1U << static_cast<unsigned>(b));
+    };
+    using A = AlienBuilding;
+    switch (row) {
+    case 2: // ANTENNA
+    case 3: // DOWER
+        return {bit(A::Kiln), false};
+    case 4: // STRONGHOLD
+        return {bit(A::Forge), false};
+    case 5: // JAMMER
+        return {bit(A::Overseer), false};
+    default: // KILN, GUN SPIRE
+        return {};
+    }
+}
+} // namespace
+
+ConstructRequirement construct_requirement(Faction faction, std::size_t row) noexcept {
+    if (faction == Faction::Alien) {
+        return alien_requirement(row);
+    }
     const auto bit = [](ConstructBuilding b) {
         return static_cast<std::uint16_t>(1U << static_cast<unsigned>(b));
     };
@@ -447,7 +495,10 @@ ConstructRequirement construct_requirement(std::size_t row) noexcept {
     }
 }
 
-std::span<const BuildItem> construct_items() noexcept { return kConstructItems; }
+std::span<const BuildItem> construct_items(Faction faction) noexcept {
+    return faction == Faction::Alien ? std::span<const BuildItem>{kAlienConstructItems}
+                                     : std::span<const BuildItem>{kConstructItems};
+}
 
 std::string metres_text(int metres) { return std::to_string(metres) + "m"; }
 
