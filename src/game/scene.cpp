@@ -1638,7 +1638,7 @@ void build_recycler(std::vector<SceneVertex>& out, std::uint64_t seed, const sim
     // A DEPLOYED one stands square on its footprint, at its centre -- the pad's own square and axes
     // (`sites_in_view`) -- whatever heading it is handed; a vehicle keeps its position and heading.
     const bool deployed = unit.kind == sim::UnitKind::DeployedRecycler;
-    const sim::Footprint footprint = sim::footprint_around(unit.x, unit.y);
+    const sim::Footprint footprint = sim::footprint_around(unit.kind, unit.x, unit.y);
     const float x = deployed ? static_cast<float>(footprint.centre_x()) * kMetresPerTile
                              : static_cast<float>(unit.x.raw) / static_cast<float>(sim::Fixed::kOne)
                                    * kMetresPerTile;
@@ -2959,12 +2959,16 @@ void append_deploy_preview(std::vector<SceneVertex>& out, const SceneOptions& op
                   Vec3{b.at(0) + across_x, b.at(1), b.at(2) + across_z},
                   Vec3{a.at(0) + across_x, a.at(1), a.at(2) + across_z}, colour);
     };
-    constexpr int kSide = sim::kBuildingFootprintTiles;
-    for (int line = 0; line <= kSide; ++line) {
-        for (int step = 0; step < kSide; ++step) {
-            // Along x at y = line, then along z at x = line.
+    // height + 1 strokes along x (each `width` tiles long), width + 1 along z (each `height` long):
+    // the two counts differ for a rectangle, so neither axis borrows the other's.
+    for (int line = 0; line <= site.height; ++line) {
+        for (int step = 0; step < site.width; ++step) {
             stroke(corner(site.x + step, site.y + line), corner(site.x + step + 1, site.y + line),
                    0.0F, kDeployPreviewHalfStrokeMetres);
+        }
+    }
+    for (int line = 0; line <= site.width; ++line) {
+        for (int step = 0; step < site.height; ++step) {
             stroke(corner(site.x + line, site.y + step), corner(site.x + line, site.y + step + 1),
                    kDeployPreviewHalfStrokeMetres, 0.0F);
         }
@@ -6520,7 +6524,7 @@ SiteGroundMap sites_in_view(const sim::Sim& sim, const SceneOptions& options) {
             continue;
         }
         if (unit.kind == sim::UnitKind::DeployedRecycler) {
-            const sim::Footprint footprint = sim::footprint_around(unit.x, unit.y);
+            const sim::Footprint footprint = sim::footprint_around(unit.kind, unit.x, unit.y);
             sites.add(SiteKind::DeployedRecycler, footprint.centre_x(), footprint.centre_y());
         } else if (unit.kind == sim::UnitKind::DeployedScavenger) {
             sites.add(SiteKind::DeployedScavenger, unit.x.floor_int(), unit.y.floor_int());

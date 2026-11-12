@@ -147,7 +147,7 @@ struct Strafe {
 
 /// DEPLOY a recycler at a site: drive to it, stand there `kDeployTicks`, and become a
 /// `DeployedRecycler` in place (see `Sim`'s tick order). The tile is the footprint's NORTH-WEST
-/// corner as aimed (`footprint_at` clips it so the whole square is on the map). Refused for any
+/// corner as aimed (`footprint_at` clips it so the whole rectangle is on the map). Refused for any
 /// kind but a `Recycler`, which is also what refuses deploying twice, and for a site that is off
 /// the map, on ground no unit may enter, or inside another building's footprint (`deploy_site_ok`).
 struct Deploy {

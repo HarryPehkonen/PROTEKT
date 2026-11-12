@@ -131,6 +131,12 @@ struct ScootSpot {
 [[nodiscard]] bool deploy_site_ok(std::uint64_t seed, std::span<const Unit> units, int tile_x,
                                   int tile_y) noexcept;
 
+/// The same rules for a footprint of any `size` (a rectangle: width and height are separate):
+/// the aimed tile is on the map, and every tile of `footprint_at(size, tile_x, tile_y)` is
+/// standable. `deploy_site_ok` is this with the deployed recycler's size.
+[[nodiscard]] bool site_ok(std::uint64_t seed, std::span<const Unit> units, FootprintSize size,
+                           int tile_x, int tile_y) noexcept;
+
 /// The simulation. Deterministic by construction: no floating point, no unseeded randomness,
 /// no time, no iteration over unordered storage.
 ///

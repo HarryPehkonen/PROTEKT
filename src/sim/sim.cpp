@@ -1259,7 +1259,7 @@ bool deploy_step(const std::vector<Unit>& units, Unit& unit, std::uint64_t seed)
         unit.deploy_ticks = 0; // a countdown never outlives the order that started it
         return false;
     }
-    const Footprint site = footprint_around(unit.guard_x, unit.guard_y);
+    const Footprint site = footprint_around(UnitKind::DeployedRecycler, unit.guard_x, unit.guard_y);
     if (!deploy_site_ok(seed, units, site.x, site.y)) {
         unit.stance = Stance::Idle;
         unit.deploy_ticks = 0;
@@ -2331,24 +2331,23 @@ bool tile_passable(std::uint64_t seed, int tile_x, int tile_y) noexcept {
 bool building_blocks(std::span<const Unit> units, int tile_x, int tile_y) noexcept {
     return std::any_of(units.begin(), units.end(), [tile_x, tile_y](const Unit& unit) {
         return unit.alive && has_footprint(unit.kind)
-               && footprint_around(unit.x, unit.y).covers(tile_x, tile_y);
+               && footprint_around(unit.kind, unit.x, unit.y).covers(tile_x, tile_y);
+    });
+}
+
+bool site_ok(std::uint64_t seed, std::span<const Unit> units, FootprintSize size, int tile_x,
+             int tile_y) noexcept {
+    if (tile_x < 0 || tile_y < 0 || tile_x >= kMapTiles || tile_y >= kMapTiles) {
+        return false; // aimed off the map: refused, never clipped back onto it
+    }
+    return footprint_at(size, tile_x, tile_y).all_tiles([&](int tx, int ty) {
+        return standable(seed, units, tx, ty);
     });
 }
 
 bool deploy_site_ok(std::uint64_t seed, std::span<const Unit> units, int tile_x,
                     int tile_y) noexcept {
-    if (tile_x < 0 || tile_y < 0 || tile_x >= kMapTiles || tile_y >= kMapTiles) {
-        return false; // aimed off the map: refused, never clipped back onto it
-    }
-    const Footprint site = footprint_at(tile_x, tile_y);
-    for (int dy = 0; dy < kBuildingFootprintTiles; ++dy) {
-        for (int dx = 0; dx < kBuildingFootprintTiles; ++dx) {
-            if (!standable(seed, units, site.x + dx, site.y + dy)) {
-                return false;
-            }
-        }
-    }
-    return true;
+    return site_ok(seed, units, kDeployedRecyclerFootprint, tile_x, tile_y);
 }
 
 const std::vector<Unit>& Sim::units() const noexcept { return units_; }

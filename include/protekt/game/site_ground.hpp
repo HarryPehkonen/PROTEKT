@@ -35,15 +35,19 @@ struct SiteGround {
     std::string_view tile;
 };
 
+static_assert(
+    sim::kDeployedRecyclerFootprint.width == sim::kDeployedRecyclerFootprint.height,
+    "a SiteGround core is a SQUARE: a rectangular building needs a rectangular pad first");
+
 /// THE TABLE: the one place a kind's reach and look are written. The kinds nest on purpose. A pool
 /// alters a 5x5 patch (a vent: dark sump ground); the scavenger deployed on it adds a 3x3 rig of
 /// plating (it wins the tiles they share, so the vent shows round it); the deployed recycler's pad
 /// is its 2x2 footprint and one tile of plating beyond, 4x4. A kind's own order in `SiteKind` is
 /// its priority where two overlap: the later kind wins the tile.
 inline constexpr std::array<SiteGround, 3> kSiteGround{{
-    {1, 2, "site_vent"},                          // Pool
-    {1, 1, "site_rig"},                           // DeployedScavenger
-    {sim::kBuildingFootprintTiles, 1, "site_pad"} // DeployedRecycler
+    {1, 2, "site_vent"},                                   // Pool
+    {1, 1, "site_rig"},                                    // DeployedScavenger
+    {sim::kDeployedRecyclerFootprint.width, 1, "site_pad"} // DeployedRecycler
 }};
 
 inline constexpr std::size_t kSiteKindCount = kSiteGround.size();

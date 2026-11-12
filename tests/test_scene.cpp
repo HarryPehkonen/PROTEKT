@@ -5014,7 +5014,7 @@ TEST(RecyclerShape, ItIsLongerThanItIsWideAndItsLengthOverhangsTheFootprint) {
     // does to the sim's SOLID SQUARE, and a bound that moves with the constant cannot state that.
     // Measured at `kRecyclerScale` = 2.0: 2.36 m wide, 5.2 m along, 2.5 m up.
     constexpr float kFootprintSide
-        = static_cast<float>(protekt::sim::kBuildingFootprintTiles) * kMetresPerTile;
+        = static_cast<float>(protekt::sim::kDeployedRecyclerFootprint.width) * kMetresPerTile;
     constexpr float kCentre = 100.0F * kMetresPerTile;
     const float across_half
         = std::max(std::abs(across[0] - kCentre), std::abs(across[1] - kCentre));
@@ -7066,12 +7066,11 @@ SceneOptions ledger_options() {
 // DEPLOY: the armed deploy's footprint, drawn lying on the ground as its 2x2 tile grid in green.
 TEST(Scene, TheDeployPreviewDrawsTheFootprintsTileGridOnTheGroundAndNothingWhenAbsent) {
     using protekt::sim::Footprint;
-    using protekt::sim::kBuildingFootprintTiles;
     const auto sim = protekt::sim::Sim::create(protekt::sim::Scenario{
         42, {{protekt::sim::UnitKind::Tank, protekt::sim::Side::Player, 60, 60}}});
     SceneOptions plain = options_at(60.0F * kMetresPerTile, 60.0F * kMetresPerTile);
     SceneOptions previewed = plain;
-    const Footprint site{63, 58};
+    const Footprint site = protekt::sim::footprint_at(63, 58);
     previewed.deploy_preview = protekt::game::DeployPreview{site, true};
     const Scene without = protekt::game::build_scene(sim, plain);
     const Scene with = protekt::game::build_scene(sim, previewed);
@@ -7087,12 +7086,10 @@ TEST(Scene, TheDeployPreviewDrawsTheFootprintsTileGridOnTheGroundAndNothingWhenA
             << i;
         EXPECT_GE(v.position[0], static_cast<float>(site.x) * kMetresPerTile - stroke - kTolerance);
         EXPECT_LE(v.position[0],
-                  static_cast<float>(site.x + kBuildingFootprintTiles) * kMetresPerTile + stroke
-                      + kTolerance);
+                  static_cast<float>(site.x + site.width) * kMetresPerTile + stroke + kTolerance);
         EXPECT_GE(v.position[2], static_cast<float>(site.y) * kMetresPerTile - stroke - kTolerance);
         EXPECT_LE(v.position[2],
-                  static_cast<float>(site.y + kBuildingFootprintTiles) * kMetresPerTile + stroke
-                      + kTolerance);
+                  static_cast<float>(site.y + site.height) * kMetresPerTile + stroke + kTolerance);
         const float tile_x = v.position[0] / kMetresPerTile;
         const float tile_y = v.position[2] / kMetresPerTile;
         EXPECT_GT(v.position[1], protekt::game::ground_metres(42, tile_x, tile_y) - 1.0F)
@@ -7111,7 +7108,7 @@ TEST(Scene, TheDeployPreviewIsRedWhereTheDeployWouldBeRefusedAndGreenWhereItWoul
     const auto sim = protekt::sim::Sim::create(protekt::sim::Scenario{
         42, {{protekt::sim::UnitKind::Tank, protekt::sim::Side::Player, 60, 60}}});
     const SceneOptions options = options_at(60.0F * kMetresPerTile, 60.0F * kMetresPerTile);
-    const Footprint site{63, 58};
+    const Footprint site = protekt::sim::footprint_at(63, 58);
     const Scene plain = protekt::game::build_scene(sim, options);
     const std::size_t first = plain.vertices.size();
 
@@ -8123,7 +8120,7 @@ TEST(Scene, APatchIsAShadeWiderThanTheHullDrawnAboveIt) {
         << "and not so wide that it reads as a puddle rather than a shadow";
     EXPECT_LT(width(protekt::game::kShadowVertexCount),
               protekt::game::kMetresPerTile
-                  * static_cast<float>(protekt::sim::kBuildingFootprintTiles))
+                  * static_cast<float>(protekt::sim::kDeployedRecyclerFootprint.width))
         << "NOT the reserved footprint: a patch 2x2 tiles across is four times the building's "
            "width";
 }

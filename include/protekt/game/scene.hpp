@@ -1094,9 +1094,9 @@ inline constexpr float kShadowLiftMetres = 0.03F;
 /// vanishing under it. ONE value for every kind, because every kind is drawn inside one hull width.
 inline constexpr float kShadowFill = 1.2F;
 /// A patch's half-side in metres: a shade wider than the hull standing on it.
-/// THE SIM'S `Footprint` IS NOT THIS. A deployed building reserves a `kBuildingFootprintTiles`
-/// square that no unit may enter -- four times the ground the structure drawn inside it covers (a
-/// factory, a turret, a recycler and a tank are all drawn inside `kHullHalfMetres`). Sizing the
+/// THE SIM'S `Footprint` IS NOT THIS. A deployed building reserves a `footprint_of`
+/// rectangle that no unit may enter -- four times the ground the structure drawn inside it covers
+/// (a factory, a turret, a recycler and a tank are all drawn inside `kHullHalfMetres`). Sizing the
 /// patch from that reservation put a black square two and a half times a building's own width
 /// around it, which reads as a puddle and not as a shadow. Measure what is DRAWN.
 inline constexpr float kShadowHalfMetres = kHullHalfMetres * kShadowFill;
@@ -1112,9 +1112,16 @@ inline constexpr math::Vec3 kDeployPreviewColour{0.10F, 1.0F, 0.20F};
 inline constexpr math::Vec3 kDeployPreviewBlockedColour{1.0F, 0.22F, 0.14F};
 inline constexpr float kDeployPreviewHalfStrokeMetres = 0.08F;
 inline constexpr float kDeployPreviewLiftMetres = 0.06F;
-/// One stroke per tile edge of the footprint's grid: (side + 1) lines each way, `side` tiles long.
+/// One stroke per tile edge of the footprint's grid: height + 1 lines along x, each `width` tiles
+/// long, and width + 1 along z, each `height` long; a stroke is one quad, six vertices.
+[[nodiscard]] constexpr std::size_t deploy_preview_vertex_count(sim::FootprintSize size) noexcept {
+    const auto w = static_cast<std::size_t>(size.width);
+    const auto h = static_cast<std::size_t>(size.height);
+    return ((h + 1) * w + (w + 1) * h) * 6U;
+}
+/// The deployed recycler's grid, the one the armed DEPLOY draws today.
 inline constexpr std::size_t kDeployPreviewVertexCount
-    = std::size_t{2} * (sim::kBuildingFootprintTiles + 1) * sim::kBuildingFootprintTiles * 6U;
+    = deploy_preview_vertex_count(sim::kDeployedRecyclerFootprint);
 
 /// WHAT THE ARMED DEPLOY WOULD BUILD, and whether the sim would allow it there. The footprint is
 /// where the reticle meets the ground; `valid` is `sim::deploy_site_ok`'s answer for that site,

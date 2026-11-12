@@ -155,8 +155,8 @@ costs 55 and takes 900 rather than 1100. Whether the buildings inherit the excep
 
 ## 3. The buildings
 
-Footprints are `[PROPOSED]` starting points he has accepted; today the tree has a single constant,
-`kBuildingFootprintTiles` = 2, for every building.
+Footprints are `[PROPOSED]` starting points he has accepted; the tree has a per-kind table,
+`footprint_of(kind)` (units.hpp): a width and a height. Only the deployed recycler (2x2) has a row today.
 
 ### 3.1 Human
 

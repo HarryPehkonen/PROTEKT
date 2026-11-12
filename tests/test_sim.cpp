@@ -891,6 +891,8 @@ TEST(SimRepair, TheSameScenarioHashesTheSame) {
 // place -- same id, same hit points -- on a 2x2 footprint nothing may enter or be spawned inside.
 
 constexpr std::uint64_t kDeploySeed = 42;
+/// The deployed recycler's side (2x2, so one number serves both axes in these tests).
+constexpr int kSide = kDeployedRecyclerFootprint.width;
 
 /// The north-west tile of a 2x2 site with `margin` tiles of passable ground all round it, the first
 /// found scanning rows from (`from`, `from`). Every deploy test stands on one, so a failure is the
@@ -899,17 +901,17 @@ Footprint open_site(std::uint64_t seed, int from, int margin) {
     for (int y = from; y < kMapTiles - from; ++y) {
         for (int x = from; x < kMapTiles - from; ++x) {
             bool open = true;
-            for (int ty = y - margin; ty < y + kBuildingFootprintTiles + margin && open; ++ty) {
-                for (int tx = x - margin; tx < x + kBuildingFootprintTiles + margin && open; ++tx) {
+            for (int ty = y - margin; ty < y + kSide + margin && open; ++ty) {
+                for (int tx = x - margin; tx < x + kSide + margin && open; ++tx) {
                     open = tile_passable(seed, tx, ty);
                 }
             }
             if (open) {
-                return Footprint{x, y};
+                return footprint_at(x, y);
             }
         }
     }
-    return Footprint{-1, -1};
+    return Footprint{-1, -1, kSide, kSide};
 }
 
 /// A sim of `spawns` on the deploy seed.
@@ -935,11 +937,12 @@ void step_n(Sim& sim, int ticks) {
 
 /// His two numeric rulings, pinned to the NUMBERS and not to a name: the recycler takes ten
 /// seconds to deploy (30 ticks a second) and a building stands on a 2x2 square. Every other deploy
-/// test is written against `kDeployTicks` and `kBuildingFootprintTiles`, so without this test
+/// test is written against `kDeployTicks` and `kDeployedRecyclerFootprint`, so without this test
 /// either value could be changed to anything and the whole suite would still pass.
 TEST(Deploy, TheRuledNumbersAreTenSecondsAndATwoByTwoBuilding) {
     EXPECT_EQ(kDeployTicks, 10 * kTicksPerSecond) << "ten seconds at 30 ticks a second";
-    EXPECT_EQ(kBuildingFootprintTiles, 2) << "2x2 tiles, his ruling 2026-10-26";
+    EXPECT_EQ(kDeployedRecyclerFootprint.width, 2) << "2x2 tiles, his ruling 2026-10-26";
+    EXPECT_EQ(kDeployedRecyclerFootprint.height, 2) << "2x2 tiles, his ruling 2026-10-26";
 }
 
 TEST(Deploy, CompletesAtExactlyDeployTicksNotOneTickEarlierOrLater) {
@@ -1038,8 +1041,8 @@ TEST(Deploy, TheFootprintIsImpassableToMovementAndTheTilesJustOutsideAreNot) {
     step_n(sim, kDeployTicks);
     ASSERT_EQ(sim.find(recycler)->kind, UnitKind::DeployedRecycler);
 
-    for (int ty = site.y - 1; ty <= site.y + kBuildingFootprintTiles; ++ty) {
-        for (int tx = site.x - 1; tx <= site.x + kBuildingFootprintTiles; ++tx) {
+    for (int ty = site.y - 1; ty <= site.y + kSide; ++ty) {
+        for (int tx = site.x - 1; tx <= site.x + kSide; ++tx) {
             const bool inside = site.covers(tx, ty);
             EXPECT_EQ(building_blocks(sim.units(), tx, ty), inside) << tx << "," << ty;
             EXPECT_TRUE(tile_passable(kDeploySeed, tx, ty))
@@ -1069,12 +1072,12 @@ TEST(Deploy, NoSpawnIsPlacedInsideAFootprintAndTheTilesJustOutsideStillHostOne) 
     ASSERT_GE(site.x, 0);
     // The building first, then a tank wished onto each of its tiles and onto the tile east of it.
     std::vector<Spawn> spawns{{UnitKind::DeployedRecycler, Side::Player, site.x, site.y}};
-    for (int dy = 0; dy < kBuildingFootprintTiles; ++dy) {
-        for (int dx = 0; dx < kBuildingFootprintTiles; ++dx) {
+    for (int dy = 0; dy < kSide; ++dy) {
+        for (int dx = 0; dx < kSide; ++dx) {
             spawns.push_back({UnitKind::Tank, Side::Player, site.x + dx, site.y + dy});
         }
     }
-    spawns.push_back({UnitKind::Tank, Side::Enemy, site.x + kBuildingFootprintTiles, site.y});
+    spawns.push_back({UnitKind::Tank, Side::Enemy, site.x + kSide, site.y});
     const Sim sim = deploy_sim(spawns);
     const Unit& building = sim.units().front();
     EXPECT_EQ(building.x, Fixed::from_int(site.centre_x())) << "a building stands at its centre";
@@ -1086,22 +1089,23 @@ TEST(Deploy, NoSpawnIsPlacedInsideAFootprintAndTheTilesJustOutsideStillHostOne) 
         }
     }
     const Unit& outside = sim.units().back();
-    EXPECT_EQ(outside.x.floor_int(), site.x + kBuildingFootprintTiles) << "just outside: exactly";
+    EXPECT_EQ(outside.x.floor_int(), site.x + kSide) << "just outside: exactly";
     EXPECT_EQ(outside.y.floor_int(), site.y);
 
     // The other way round: a building is never placed over a unit already standing there.
     const Sim later = deploy_sim({{UnitKind::Tank, Side::Player, site.x + 1, site.y + 1},
                                   {UnitKind::DeployedRecycler, Side::Player, site.x, site.y}});
     const Unit& tank = later.units().front();
-    EXPECT_FALSE(footprint_around(later.units().back().x, later.units().back().y)
-                     .covers(tank.x.floor_int(), tank.y.floor_int()));
+    EXPECT_FALSE(
+        footprint_around(UnitKind::DeployedRecycler, later.units().back().x, later.units().back().y)
+            .covers(tank.x.floor_int(), tank.y.floor_int()));
 }
 
 TEST(Deploy, AnEdgeTileIsClippedSoTheWholeSquareIsOnTheMap) {
     EXPECT_EQ(footprint_at(10, 20).x, 10) << "an inland tile is the north-west corner itself";
     EXPECT_EQ(footprint_at(10, 20).y, 20);
-    EXPECT_EQ(footprint_at(kMapTiles - 1, 7).x, kMapTiles - kBuildingFootprintTiles);
-    EXPECT_EQ(footprint_at(7, kMapTiles - 1).y, kMapTiles - kBuildingFootprintTiles);
+    EXPECT_EQ(footprint_at(kMapTiles - 1, 7).x, kMapTiles - kSide);
+    EXPECT_EQ(footprint_at(7, kMapTiles - 1).y, kMapTiles - kSide);
     EXPECT_EQ(footprint_at(kMapTiles - 1, kMapTiles - 1).centre_x(), kMapTiles - 1)
         << "the centre of the last square is still on the map";
 }
@@ -1171,7 +1175,7 @@ TEST(Deploy, IntoAnotherBuildingsFootprintIsRefusedAndLeavesAWorkingRecycler) {
         }
     }
     EXPECT_EQ(sim.command_log().size(), logged) << "an overlapping site is refused";
-    sim.enqueue(Order{second, orders::Deploy{site.x + kBuildingFootprintTiles, site.y}});
+    sim.enqueue(Order{second, orders::Deploy{site.x + kSide, site.y}});
     EXPECT_EQ(sim.command_log().size(), logged + 1) << "the square right beside it is not";
     step_n(sim, 60 + kDeployTicks);
     EXPECT_EQ(sim.find(second)->kind, UnitKind::DeployedRecycler);
@@ -1181,7 +1185,7 @@ TEST(Deploy, ASiteTakenDuringTheCountdownFailsCleanlyAndLeavesAWorkingRecycler) 
     // Two recyclers count down on squares that share a column. The lower id deploys first, on the
     // same tick, and the other's site is then inside its footprint.
     const Footprint site = open_site(kDeploySeed, 40, 6);
-    const Footprint overlap{site.x + 1, site.y};
+    const Footprint overlap = footprint_at(site.x + 1, site.y);
     Sim sim
         = deploy_sim({{UnitKind::Recycler, Side::Player, site.centre_x(), site.centre_y()},
                       {UnitKind::Recycler, Side::Enemy, overlap.centre_x(), overlap.centre_y()}});
@@ -1201,7 +1205,7 @@ TEST(Deploy, ASiteTakenDuringTheCountdownFailsCleanlyAndLeavesAWorkingRecycler) 
     step_n(sim, 30);
     EXPECT_EQ(sim.find(second)->kind, UnitKind::Recycler);
     // And it still works: it deploys on the next square along.
-    sim.enqueue(Order{second, orders::Deploy{site.x + kBuildingFootprintTiles, site.y}});
+    sim.enqueue(Order{second, orders::Deploy{site.x + kSide, site.y}});
     step_n(sim, 60 + kDeployTicks);
     EXPECT_EQ(sim.find(second)->kind, UnitKind::DeployedRecycler);
 }

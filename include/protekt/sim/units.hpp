@@ -46,7 +46,7 @@ enum class UnitKind : std::uint8_t {
     /// The recycler once a `Deploy` order has run its countdown (DEPLOY): the SAME unit -- the same
     /// `UnitId`, the same entry in the unit table, the hit points it had -- turned into a building.
     /// Appended after Recycler, never inserted, for the reason every kind above was. It never moves
-    /// and never fires, and it stands on a `kBuildingFootprintTiles` square no unit may enter.
+    /// and never fires, and it stands on a `footprint_of` rectangle no unit may enter.
     DeployedRecycler = 8,
     /// The fast, lightly armoured recon vehicle (VIS), with a short-range rapid-fire gun. Appended
     /// after DeployedRecycler, never inserted, for the reason every kind above was: the kind is
@@ -526,43 +526,84 @@ inline constexpr std::array<std::uint16_t, 2> kScavengerDeployTicks{150, 150}; /
 inline constexpr int kPointingConeDegrees = 4;
 inline constexpr std::int64_t kPointingConeTanMillionths = 69927;
 
-/// A building's footprint is a square this many tiles on a side (his ruling, 2026-10-26: "2x2
-/// tiles -- a building should not be the same size as a tank").
-inline constexpr int kBuildingFootprintTiles = 2;
+/// How many tiles a building covers: `width` along x, `height` along y. A footprint is a RECTANGLE
+/// (his correction, 2026-11-11: "they are not all completely square? Some are rectangular?"), so
+/// the two numbers are separate everywhere they are carried and nothing may reuse one for both.
+struct FootprintSize {
+    int width{};
+    int height{};
+    friend constexpr bool operator==(FootprintSize a, FootprintSize b) noexcept {
+        return a.width == b.width && a.height == b.height;
+    }
+};
 
-/// The tiles a building stands on: the square of `kBuildingFootprintTiles` whose NORTH-WEST (lowest
-/// x, lowest y) tile is (`x`, `y`). The building itself stands at the square's centre, which for an
+/// The deployed recycler's footprint: 2x2 tiles (his ruling, 2026-10-26: "2x2 tiles -- a building
+/// should not be the same size as a tank"). That ruling is about THIS building; later kinds
+/// add their own rows to `footprint_of`.
+inline constexpr FootprintSize kDeployedRecyclerFootprint{2, 2};
+
+/// THE TABLE: the size of the footprint a kind stands on. A kind without one (`has_footprint`) is
+/// 0x0, which covers no tile.
+[[nodiscard]] constexpr FootprintSize footprint_of(UnitKind kind) noexcept {
+    return kind == UnitKind::DeployedRecycler ? kDeployedRecyclerFootprint : FootprintSize{};
+}
+
+/// The tiles a building stands on: the `width` x `height` rectangle whose NORTH-WEST (lowest x,
+/// lowest y) tile is (`x`, `y`). The building itself stands at the rectangle's centre, which for an
 /// even side is the corner its middle tiles share -- a whole-tile position, like a spawn's.
 struct Footprint {
     int x{};
     int y{};
+    int width{};
+    int height{};
     [[nodiscard]] constexpr bool covers(int tile_x, int tile_y) const noexcept {
-        return tile_x >= x && tile_x < x + kBuildingFootprintTiles && tile_y >= y
-               && tile_y < y + kBuildingFootprintTiles;
+        return tile_x >= x && tile_x < x + width && tile_y >= y && tile_y < y + height;
     }
-    /// The building's position, in whole tiles: the square's centre.
-    [[nodiscard]] constexpr int centre_x() const noexcept {
-        return x + kBuildingFootprintTiles / 2;
+    /// The one place that walks "which tiles does this building stand on": true when `ok(tx, ty)`
+    /// holds for every tile of the rectangle.
+    template <typename Predicate>
+    [[nodiscard]] constexpr bool all_tiles(const Predicate& ok) const {
+        for (int dy = 0; dy < height; ++dy) {
+            for (int dx = 0; dx < width; ++dx) {
+                if (!ok(x + dx, y + dy)) {
+                    return false;
+                }
+            }
+        }
+        return true;
     }
-    [[nodiscard]] constexpr int centre_y() const noexcept {
-        return y + kBuildingFootprintTiles / 2;
-    }
+    /// The building's position, in whole tiles: the rectangle's centre.
+    [[nodiscard]] constexpr int centre_x() const noexcept { return x + width / 2; }
+    [[nodiscard]] constexpr int centre_y() const noexcept { return y + height / 2; }
 };
 
-/// The footprint a deploy aimed at tile (`tile_x`, `tile_y`) builds: that tile is its north-west
-/// corner, moved in from the east and south edges just far enough that the whole square is on the
-/// map. Only a tile ON the map is clipped: a deploy aimed off it is refused (`deploy_site_ok`)
-/// before this is asked, never pulled back onto the map.
-[[nodiscard]] constexpr Footprint footprint_at(int tile_x, int tile_y) noexcept {
-    constexpr int kLast = kMapTiles - kBuildingFootprintTiles; ///< the last north-west tile
-    return Footprint{tile_x > kLast ? kLast : tile_x, tile_y > kLast ? kLast : tile_y};
+/// The footprint of `size` that a placement aimed at tile (`tile_x`, `tile_y`) builds: that tile is
+/// its north-west corner, moved in from the east and south edges just far enough that the whole
+/// rectangle is on the map. Only a tile ON the map is clipped: a deploy aimed off it is refused
+/// (`site_ok`) before this is asked, never pulled back onto the map.
+[[nodiscard]] constexpr Footprint footprint_at(FootprintSize size, int tile_x,
+                                               int tile_y) noexcept {
+    const int last_x = kMapTiles - size.width; ///< the last north-west tile, per axis
+    const int last_y = kMapTiles - size.height;
+    return Footprint{tile_x > last_x ? last_x : tile_x, tile_y > last_y ? last_y : tile_y,
+                     size.width, size.height};
 }
 
-/// The footprint of a building standing at (`x`, `y`): the square centred there (the inverse of
-/// `Footprint::centre_x`/`centre_y`).
-[[nodiscard]] constexpr Footprint footprint_around(Fixed x, Fixed y) noexcept {
-    return Footprint{x.floor_int() - kBuildingFootprintTiles / 2,
-                     y.floor_int() - kBuildingFootprintTiles / 2};
+/// The deploy order's footprint: the deployed recycler's, at the aimed tile.
+[[nodiscard]] constexpr Footprint footprint_at(int tile_x, int tile_y) noexcept {
+    return footprint_at(kDeployedRecyclerFootprint, tile_x, tile_y);
+}
+
+/// The footprint of a building of `size` standing at (`x`, `y`): the rectangle centred there (the
+/// inverse of `Footprint::centre_x`/`centre_y`).
+[[nodiscard]] constexpr Footprint footprint_around(FootprintSize size, Fixed x, Fixed y) noexcept {
+    return Footprint{x.floor_int() - size.width / 2, y.floor_int() - size.height / 2, size.width,
+                     size.height};
+}
+
+/// The footprint of the building `kind` standing at (`x`, `y`).
+[[nodiscard]] constexpr Footprint footprint_around(UnitKind kind, Fixed x, Fixed y) noexcept {
+    return footprint_around(footprint_of(kind), x, y);
 }
 
 /// Per-kind constants, exposed so that the tests (and later the balance pass) can assert on

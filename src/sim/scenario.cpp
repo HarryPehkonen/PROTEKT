@@ -54,15 +54,7 @@ Spawn place(std::uint64_t seed, const std::vector<Spawn>& spawns, UnitKind kind,
         if (tx < 0 || ty < 0 || tx >= kMapTiles || ty >= kMapTiles) {
             return false;
         }
-        const Footprint site = footprint_at(tx, ty);
-        for (int dy = 0; dy < kBuildingFootprintTiles; ++dy) {
-            for (int dx = 0; dx < kBuildingFootprintTiles; ++dx) {
-                if (!free(site.x + dx, site.y + dy)) {
-                    return false;
-                }
-            }
-        }
-        return true;
+        return footprint_at(footprint_of(kind), tx, ty).all_tiles(free);
     };
     if (ok(x, y)) {
         return Spawn{kind, side, x, y};

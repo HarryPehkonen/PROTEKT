@@ -127,12 +127,14 @@ TEST(SiteGround, EachKindSaysHowFarAndWhichTileAndTheRangeIsDerivedFromIt) {
     EXPECT_NE(scavenger.tile, recycler.tile);
     // The recycler's core IS the sim's footprint, not a copy of its number, and the pad covers
     // every tile the building stands on.
-    EXPECT_EQ(recycler.core, protekt::sim::kBuildingFootprintTiles);
+    EXPECT_EQ(recycler.core,
+              protekt::sim::footprint_of(protekt::sim::UnitKind::DeployedRecycler).width);
     const protekt::sim::Footprint foot = protekt::sim::footprint_around(
-        protekt::sim::Fixed::from_int(kSiteX), protekt::sim::Fixed::from_int(kSiteY));
+        protekt::sim::UnitKind::DeployedRecycler, protekt::sim::Fixed::from_int(kSiteX),
+        protekt::sim::Fixed::from_int(kSiteY));
     const TileRange pad = protekt::game::site_range(SiteKind::DeployedRecycler, kSiteX, kSiteY);
-    for (int y = foot.y; y < foot.y + protekt::sim::kBuildingFootprintTiles; ++y) {
-        for (int x = foot.x; x < foot.x + protekt::sim::kBuildingFootprintTiles; ++x) {
+    for (int y = foot.y; y < foot.y + foot.height; ++y) {
+        for (int x = foot.x; x < foot.x + foot.width; ++x) {
             EXPECT_TRUE(pad.covers(x, y)) << x << "," << y;
         }
     }
@@ -159,8 +161,8 @@ TEST(SiteGround, ADeployedRecyclerPaintsItsPadAndNoTileBeyondIt) {
     const Sim sim = world({{UnitKind::DeployedRecycler, Side::Player, kSiteX, kSiteY}}, false);
     const Scene scene = protekt::game::build_scene(sim, rig());
     const auto& pad = protekt::game::site_ground(SiteKind::DeployedRecycler);
-    const protekt::sim::Footprint foot
-        = protekt::sim::footprint_around(sim.units().front().x, sim.units().front().y);
+    const protekt::sim::Footprint foot = protekt::sim::footprint_around(
+        sim.units().front().kind, sim.units().front().x, sim.units().front().y);
     const Tiles painted = painted_with(scene, pad.tile);
     EXPECT_EQ(painted, range_tiles(protekt::game::site_range(SiteKind::DeployedRecycler,
                                                              foot.centre_x(), foot.centre_y())));
@@ -220,8 +222,8 @@ TEST(SiteGround, AFarSiteIsNotMeshedAndNothingElseUsesASiteTile) {
 
 TEST(SiteGround, TheAlteredTilesStayDrivableAndNothingInTheSimMoves) {
     const Sim sim = world({{UnitKind::DeployedRecycler, Side::Player, kSiteX, kSiteY}}, true);
-    const protekt::sim::Footprint foot
-        = protekt::sim::footprint_around(sim.units().front().x, sim.units().front().y);
+    const protekt::sim::Footprint foot = protekt::sim::footprint_around(
+        sim.units().front().kind, sim.units().front().x, sim.units().front().y);
     const TileRange pad
         = protekt::game::site_range(SiteKind::DeployedRecycler, foot.centre_x(), foot.centre_y());
     const auto before = sim.state_hash();
@@ -240,7 +242,7 @@ TEST(SiteGround, TheAlteredTilesStayDrivableAndNothingInTheSimMoves) {
                 << "the pad outside the footprint is drivable: " << x << "," << y;
         }
     }
-    constexpr int kSide = protekt::sim::kBuildingFootprintTiles;
+    constexpr int kSide = protekt::sim::kDeployedRecyclerFootprint.width;
     EXPECT_EQ(ring, ((kSide + 2) * (kSide + 2)) - (kSide * kSide));
 }
 
