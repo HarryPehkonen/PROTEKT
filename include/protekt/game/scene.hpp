@@ -1125,6 +1125,16 @@ inline constexpr float kShadowHalfMetres = kHullHalfMetres * kShadowFill;
 /// One patch is one quad, so six vertices.
 inline constexpr std::size_t kShadowVertexCount = 6U;
 
+/// ROUND 19, L1: THE ONE SCALE of a placed building's MODEL. The owner: "make all buildings four
+/// times as wide, long, and tall". Every building model is authored in its own readable metres
+/// (`build_power`, `build_relay_bunker`, ...) and none of those numbers is changed: after a model
+/// is built, `build_scene` multiplies the vertices it just emitted by this, about the model's
+/// centre and its lowest point (so it stays on the ground). It is the sim's footprint factor
+/// (`sim::kBuildingFootprintScale`) so the model and the ground it reserves cannot drift apart.
+/// Everything derived from the shape follows -- the site's cut, the beam's end, the pick box
+/// (`unit_box_height_metres(const sim::Unit&)`) and the shadow (`kShadowHalfMetres` times this).
+inline constexpr float kBuildingModelScale = static_cast<float>(sim::kBuildingFootprintScale);
+
 /// The deploy preview's two colours (BZ2's placement wireframe), and how its lines sit on the
 /// ground: a stroke this many metres either side of the tile edge, lifted this far clear of the
 /// terrain. GREEN means the sim would accept the deploy there, RED means it would refuse it -- the

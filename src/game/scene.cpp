@@ -3156,7 +3156,9 @@ void append_unit_shadows(std::vector<SceneVertex>& out, const SceneOptions& opti
         const float tile_y = static_cast<float>(unit.y.raw) / static_cast<float>(sim::Fixed::kOne);
         const float cx = tile_x * kMetresPerTile;
         const float cz = tile_y * kMetresPerTile;
-        const float half = kShadowHalfMetres;
+        // A placed building's shadow is its model's, so it grows with it (round 19, L1).
+        const float half = sim::is_scaled_building(unit) ? kShadowHalfMetres * kBuildingModelScale
+                                                         : kShadowHalfMetres;
         const float ground = ground_metres(options.seed, tile_x, tile_y) + kShadowLiftMetres;
         emit_quad(out, Vec3{cx - half, ground, cz - half}, Vec3{cx + half, ground, cz - half},
                   Vec3{cx + half, ground, cz + half}, Vec3{cx - half, ground, cz + half},
@@ -3418,6 +3420,26 @@ void append_effects(std::vector<SceneVertex>& out, std::vector<VertexRun>& emiss
             smoke.roll_rate = puff_roll_rate(options.seed, id, puff + 384U);
             emit_particle(out, smoke, since, eye);
         }
+    }
+}
+
+/// THE ONE SCALE (round 19, L1): multiplies the model built into `out[first..]` by `factor` about
+/// (`x`, `z`) -- the building's centre -- and the model's own lowest point, so it grows outward and
+/// upward and still stands where it stood. Normals are unit and a uniform scale keeps them so.
+/// Drawing only.
+void scale_model(std::vector<SceneVertex>& out, std::size_t first, float x, float z, float factor) {
+    if (out.size() <= first) {
+        return;
+    }
+    float low = out[first].position.at(1);
+    for (std::size_t i = first; i < out.size(); ++i) {
+        low = std::min(low, out[i].position.at(1));
+    }
+    for (std::size_t i = first; i < out.size(); ++i) {
+        std::array<float, 3>& p = out[i].position;
+        p.at(0) = x + ((p.at(0) - x) * factor);
+        p.at(1) = low + ((p.at(1) - low) * factor);
+        p.at(2) = z + ((p.at(2) - z) * factor);
     }
 }
 
@@ -4301,7 +4323,8 @@ void append_unit_bars(std::vector<SceneVertex>& out, const SceneOptions& options
     constexpr std::array<float, 3> kPlate{0.10F, 0.10F, 0.12F};
 
     for (const sim::Unit& unit : sim.units()) {
-        const bool structure = unit.kind == sim::UnitKind::Factory || sim::is_turret(unit.kind);
+        const bool structure = unit.kind == sim::UnitKind::Factory || sim::is_turret(unit.kind)
+                               || sim::is_scaled_building(unit);
         const bool wanted
             = (unit.side == options.viewer_side
                && std::find(selected.begin(), selected.end(), unit.id) != selected.end())
@@ -4321,7 +4344,7 @@ void append_unit_bars(std::vector<SceneVertex>& out, const SceneOptions& options
         const Projected top = project(
             options.camera, options.extent,
             static_cast<float>(unit.x.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile,
-            ground + (structure ? unit_box_height_metres(unit.kind) : kTankTopMetres),
+            ground + (structure ? unit_box_height_metres(unit) : kTankTopMetres),
             static_cast<float>(unit.y.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile);
         if (top.depth <= math::kNearPlane || top.x < 0.0F || top.x > frame_w || top.y < 0.0F
             || top.y > frame_h) {
@@ -7429,6 +7452,16 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
                 build_placed_building(scene.vertices, options.seed, unit, mark, lift_z, hovering);
             } else {
                 build_factory(scene.vertices, options.seed, unit, mark, lift_z, hovering);
+            }
+            if (sim::is_scaled_building(unit)) {
+                // L1: one scale for every placed building's model, applied to the shape as built
+                // so the authored numbers stay readable; the cut below then reads the scaled shape.
+                scale_model(scene.vertices, body_first,
+                            static_cast<float>(unit.x.raw) / static_cast<float>(sim::Fixed::kOne)
+                                * kMetresPerTile,
+                            static_cast<float>(unit.y.raw) / static_cast<float>(sim::Fixed::kOne)
+                                * kMetresPerTile,
+                            kBuildingModelScale);
             }
             if (sim::under_construction(unit)) {
                 // K2: a site is drawn GROWING, bottom to top, as far as it has been built -- the

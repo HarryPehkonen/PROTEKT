@@ -28,8 +28,7 @@ constexpr float kRayProbeMetres = 100.0F;
                                                 const sim::Unit& unit) noexcept {
     const float one = static_cast<float>(sim::Fixed::kOne);
     return {static_cast<float>(unit.x.raw) / one * kMetresPerTile,
-            ground_metres(options.seed, unit.x, unit.y)
-                + (unit_box_height_metres(unit.kind) * 0.5F),
+            ground_metres(options.seed, unit.x, unit.y) + (unit_box_height_metres(unit) * 0.5F),
             static_cast<float>(unit.y.raw) / one * kMetresPerTile};
 }
 

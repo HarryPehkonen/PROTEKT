@@ -193,7 +193,30 @@ TEST(ServiceRepair, EveryFriendlyKindIsMended) {
     for (int k = 0; k < kUnitKindCount; ++k) {
         const auto kind = static_cast<UnitKind>(k);
         const std::uint16_t max_hp = spec_of(kind).hp;
-        Sim sim = ward(kind, 1, {kPatientX + 3, kPatientX - 3});
+        // ROUND 19, L1: a building is four times as wide and long now, and a truck is never spawned
+        // inside one. So a building is spawned with its CENTRE on the patient tile and row (its
+        // spawn tile is its north-west corner), and the trucks stand just outside its footprint,
+        // `width / 2 + 1` tiles from the centre -- inside the six. A kind with no footprint (a
+        // scenario factory has none) keeps the three tiles it always had.
+        const bool big = has_footprint(kind);
+        const int width = big ? footprint_of(kind).width : 0;
+        const int height = big ? footprint_of(kind).height : 0;
+        const int reach = big ? (width / 2) + 1 : 3;
+        std::vector<Spawn> spawns{spawn(kind, Side::Player, kPatientX - (width / 2), 1)};
+        spawns.front().tile_y = kRowY - (height / 2);
+        for (const int column : {kPatientX + reach, kPatientX - reach}) {
+            Spawn truck = spawn(UnitKind::ServiceTruck, Side::Player, column);
+            truck.face_x = column < kPatientX ? 1 : -1;
+            spawns.push_back(truck);
+        }
+        const Spawn wanted = spawns.front();
+        Sim sim = rig(std::move(spawns));
+        if (big) {
+            // Never relocated: a building stands exactly where it was asked for (open ground).
+            const Footprint site = footprint_around(sim.units().at(0));
+            ASSERT_EQ(site.x, wanted.tile_x) << spec_of(kind).name;
+            ASSERT_EQ(site.y, wanted.tile_y) << spec_of(kind).name;
+        }
         ASSERT_GE(max_hp, 2) << spec_of(kind).name;
         ASSERT_TRUE(truck_in_reach(sim)) << spec_of(kind).name;
         run(sim, kSoak);

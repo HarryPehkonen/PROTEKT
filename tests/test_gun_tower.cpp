@@ -148,9 +148,11 @@ TEST(GunTower, NeverFiresAtItsOwnSide) {
 
 TEST(GunTower, HoldsFireWhenAFriendStandsInTheLane) {
     const Block b = open_block();
-    // A friendly factory squarely between the tower and the enemy: the shot would hit it.
+    // A friendly factory squarely between the tower and the enemy: the shot would hit it. (Round
+    // 19, L1: the tower is 4x4 now, standing at (4,5) by its centre, so the lane to (12,3) runs
+    // through (8,4); the scenario factory is the point unit it always was.)
     sim::Sim s = make(b, {{Side::Player, UnitKind::GunTower, 2, 3},
-                          {Side::Player, UnitKind::Factory, 6, 3},
+                          {Side::Player, UnitKind::Factory, 8, 4},
                           {Side::Enemy, UnitKind::Factory, 12, 3}});
     const sim::UnitId tower = first_of(s, UnitKind::GunTower, Side::Player)->id;
     EXPECT_TRUE(fire_ticks(s, tower, 200).empty());

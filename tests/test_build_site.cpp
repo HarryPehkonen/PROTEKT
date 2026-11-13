@@ -176,7 +176,7 @@ TEST(BuildSite, AnEnemyConstructorBesideTheSiteDoesNotBuildIt) {
     // built by a Constructor of its own side only.
     sim::Scenario scenario{kSeed,
                            {{UnitKind::Constructor, Side::Player, y.block.x + 1, y.block.y + 1},
-                            {UnitKind::Constructor, Side::Enemy, s.x + 1, s.y}}};
+                            {UnitKind::Constructor, Side::Enemy, s.x + 5, s.y}}};
     scenario.store_capacity = 400;
     scenario.start_ore = 100;
     y.sim = sim::Sim::create(scenario);
@@ -194,9 +194,10 @@ TEST(BuildSite, ProgressBeginsOnlyWhenAConstructorIsWithinOneTile) {
     const Block b = open_block();
     const Site s = site_tile(b);
     // Tile offsets from the site's tile: a unit stands at its tile's CORNER, the site is the
-    // square [s.x, s.x+1] x [s.y, s.y+1]. Two tiles east is exactly ONE tile from its east edge;
-    // three tiles east is TWO -- one tile FURTHER -- and must do nothing.
-    const int near_dx = 2;
+    // square [s.x, s.x+4] x [s.y, s.y+4] (ROUND 19, L1: a Power is 4x4 now). Five tiles east is
+    // exactly ONE tile from its east edge; six tiles east is TWO -- one tile FURTHER -- and must do
+    // nothing.
+    const int near_dx = 5;
     const int far_dx = near_dx + 1;
     {
         Yard y = make_yard(s.x + far_dx - b.x, s.y - b.y);
@@ -215,7 +216,7 @@ TEST(BuildSite, ProgressBeginsOnlyWhenAConstructorIsWithinOneTile) {
         EXPECT_EQ(left_of(y.sim), kBuildTicks - 300U) << "one tile away: it builds, a tick each";
     }
     {
-        Yard y = make_yard(s.x + 1 - b.x, s.y - b.y);
+        Yard y = make_yard(s.x + 4 - b.x, s.y - b.y);
         place_and_hold(y);
         for (int tick = 0; tick < 300; ++tick) {
             y.sim.step();
@@ -229,7 +230,7 @@ TEST(BuildSite, ProgressBeginsOnlyWhenAConstructorIsWithinOneTile) {
 TEST(BuildSite, TheBuildTakesExactlyTheSpecTicksAndTheBuildingStandsOnlyAtTheEnd) {
     const Block b = open_block();
     const Site s = site_tile(b);
-    Yard y = make_yard(s.x + 2 - b.x, s.y - b.y);
+    Yard y = make_yard(s.x + 5 - b.x, s.y - b.y);
     place_and_hold(y);
     for (std::uint16_t tick = 1; tick < kBuildTicks; ++tick) {
         y.sim.step();
@@ -310,8 +311,8 @@ TEST(BuildSite, TheWholeSequenceIsDeterministicTickByTick) {
 TEST(BuildSite, ProgressIsPartOfTheStateHash) {
     const Block b = open_block();
     const Site s = site_tile(b);
-    Yard a = make_yard(s.x + 2 - b.x, s.y - b.y);
-    Yard c = make_yard(s.x + 2 - b.x, s.y - b.y);
+    Yard a = make_yard(s.x + 5 - b.x, s.y - b.y);
+    Yard c = make_yard(s.x + 5 - b.x, s.y - b.y);
     place_and_hold(a);
     place_and_hold(c);
     for (int tick = 0; tick < 100; ++tick) {
@@ -385,8 +386,8 @@ using game::SceneVertex;
         const float x = v.position.at(0);
         const float z = v.position.at(2);
         if (!is_beam_ink(v) && x >= static_cast<float>(s.x) * kM
-            && x <= static_cast<float>(s.x + 1) * kM && z >= static_cast<float>(s.y) * kM
-            && z <= static_cast<float>(s.y + 1) * kM) {
+            && x <= static_cast<float>(s.x + 4) * kM && z >= static_cast<float>(s.y) * kM
+            && z <= static_cast<float>(s.y + 4) * kM) {
             top = std::max(top, v.position.at(1));
         }
     }
@@ -399,7 +400,7 @@ TEST(BuildSiteDrawing, ABeamIsDrawnWhileTheBuildAdvancesAndNotOtherwise) {
     const Block b = open_block();
     const Site s = site_tile(b);
     {
-        Yard y = make_yard(s.x + 2 - b.x, s.y - b.y);
+        Yard y = make_yard(s.x + 5 - b.x, s.y - b.y);
         place_and_hold(y);
         for (int tick = 0; tick < kBuildTicks / 2; ++tick) {
             y.sim.step();
@@ -408,7 +409,7 @@ TEST(BuildSiteDrawing, ABeamIsDrawnWhileTheBuildAdvancesAndNotOtherwise) {
         EXPECT_GT(beam_top(game::build_scene(y.sim, view(s))), -1.0e8F) << "the ray is drawn";
     }
     {
-        Yard y = make_yard(s.x + 3 - b.x, s.y - b.y); // one tile too far: nothing advances
+        Yard y = make_yard(s.x + 6 - b.x, s.y - b.y); // one tile too far: nothing advances
         place_and_hold(y);
         for (int tick = 0; tick < 100; ++tick) {
             y.sim.step();
@@ -416,7 +417,7 @@ TEST(BuildSiteDrawing, ABeamIsDrawnWhileTheBuildAdvancesAndNotOtherwise) {
         EXPECT_LT(beam_top(game::build_scene(y.sim, view(s))), -1.0e8F) << "no builder, no ray";
     }
     {
-        Yard y = make_yard(s.x + 2 - b.x, s.y - b.y);
+        Yard y = make_yard(s.x + 5 - b.x, s.y - b.y);
         place_and_hold(y);
         for (int tick = 0; tick < kBuildTicks + 10; ++tick) {
             y.sim.step();
@@ -429,7 +430,7 @@ TEST(BuildSiteDrawing, ABeamIsDrawnWhileTheBuildAdvancesAndNotOtherwise) {
 TEST(BuildSiteDrawing, TheBuildingAndTheBeamRiseTogetherAndNeverFall) {
     const Block b = open_block();
     const Site s = site_tile(b);
-    Yard y = make_yard(s.x + 2 - b.x, s.y - b.y);
+    Yard y = make_yard(s.x + 5 - b.x, s.y - b.y);
     place_and_hold(y);
     float last_beam = -1.0e9F;
     float last_built = -1.0e9F;
@@ -465,7 +466,7 @@ TEST(BuildSiteDrawing, TheBuildingAndTheBeamRiseTogetherAndNeverFall) {
 TEST(BuildSiteDrawing, DrawingMovesNoState) {
     const Block b = open_block();
     const Site s = site_tile(b);
-    Yard y = make_yard(s.x + 2 - b.x, s.y - b.y);
+    Yard y = make_yard(s.x + 5 - b.x, s.y - b.y);
     place_and_hold(y);
     for (int tick = 0; tick < 200; ++tick) {
         y.sim.step();

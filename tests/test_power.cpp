@@ -140,8 +140,8 @@ TEST(Power, TheKindIsAppendedWithItsSpecRowAndItsFootprint) {
     EXPECT_EQ(row.range().raw, 0) << "and never fires";
     EXPECT_GT(row.hp, 0);
     EXPECT_TRUE(sim::has_footprint(UnitKind::Power));
-    EXPECT_EQ(sim::footprint_of(UnitKind::Power), (sim::FootprintSize{1, 1}))
-        << "the owner's ruling (K1): one tile, \"1 x 1\"";
+    EXPECT_EQ(sim::footprint_of(UnitKind::Power), (sim::FootprintSize{4, 4}))
+        << "the owner's ruling (K1): \"1 x 1\", then (round 19, L1) \"1 x 1 becomes 4 x 4\"";
     EXPECT_EQ(sim::footprint_of(UnitKind::DeployedRecycler), (sim::FootprintSize{2, 2}))
         << "the recycler's 2x2 is untouched";
 }
@@ -182,7 +182,8 @@ TEST(Power, TheBuildingStandsOnExactlyItsFootprintAndNoUnitMayEnterIt) {
     y.sim.step();
     for (int ty = b.y; ty < b.y + kBlockH; ++ty) {
         for (int tx = b.x; tx < b.x + kBlockW; ++tx) {
-            const bool inside = tx == b.x + 4 && ty == b.y + 5; ///< its ONE tile
+            const bool inside = tx >= b.x + 4 && tx < b.x + 8 && ty >= b.y + 5
+                                && ty < b.y + 9; ///< its 4x4 tiles (round 19, L1)
             EXPECT_EQ(sim::building_blocks(y.sim.units(), tx, ty), inside) << tx << "," << ty;
         }
     }
@@ -195,7 +196,7 @@ TEST(Power, TheBuildingStandsOnExactlyItsFootprintAndNoUnitMayEnterIt) {
         ASSERT_NE(tank, nullptr);
         const int tx = tank->x.floor_int();
         const int ty = tank->y.floor_int();
-        EXPECT_FALSE(tx == b.x + 4 && ty == b.y + 5)
+        EXPECT_FALSE(tx >= b.x + 4 && tx < b.x + 8 && ty >= b.y + 5 && ty < b.y + 9)
             << "the tank entered the footprint at tick " << tick;
     }
 }
@@ -266,8 +267,8 @@ TEST(Power, ASecondPlacementInOneTickCannotOverspend) {
 
 // ------------------------------------------------------------------------------ rotation
 
-TEST(Power, ARotatedPlacementOfAOneTileBuildingIsTheSameOneTile) {
-    // A quarter turn swaps width and height; of 1x1 that is 1x1. The turn is still KEPT (the model
+TEST(Power, ARotatedPlacementOfASquareBuildingIsTheSameSquare) {
+    // A quarter turn swaps width and height; of 4x4 that is 4x4. The turn is still KEPT (the model
     // is not square), but it changes no tile.
     Yard y = make_yard(100);
     const Block b = y.block;
@@ -276,16 +277,16 @@ TEST(Power, ARotatedPlacementOfAOneTileBuildingIsTheSameOneTile) {
     const sim::Unit* power = first_of(y.sim, UnitKind::Power);
     ASSERT_NE(power, nullptr);
     EXPECT_TRUE(power->turned);
-    EXPECT_EQ(sim::footprint_of(*power), (sim::FootprintSize{1, 1}));
+    EXPECT_EQ(sim::footprint_of(*power), (sim::FootprintSize{4, 4}));
     for (int ty = b.y; ty < b.y + kBlockH; ++ty) {
         for (int tx = b.x; tx < b.x + kBlockW; ++tx) {
-            const bool inside = tx == b.x + 4 && ty == b.y + 5;
+            const bool inside = tx >= b.x + 4 && tx < b.x + 8 && ty >= b.y + 5 && ty < b.y + 9;
             EXPECT_EQ(sim::building_blocks(y.sim.units(), tx, ty), inside) << tx << "," << ty;
         }
     }
 }
 
-TEST(Power, ATurnedAndAnUnturnedOneTileSiteAreRefusedAndAcceptedAlike) {
+TEST(Power, ATurnedAndAnUnturnedSquareSiteAreRefusedAndAcceptedAlike) {
     const Block b = open_block(kSeed);
     Yard y = make_yard(100);
     y.sim.enqueue(place(y.constructor, b.x + 4, b.y + 5));
@@ -294,10 +295,12 @@ TEST(Power, ATurnedAndAnUnturnedOneTileSiteAreRefusedAndAcceptedAlike) {
     const std::span<const sim::Unit> units{y.sim.units()};
     for (const bool turned : {false, true}) {
         EXPECT_FALSE(sim::place_ok(kSeed, units, UnitKind::Power, turned, b.x + 4, b.y + 5));
-        EXPECT_TRUE(sim::place_ok(kSeed, units, UnitKind::Power, turned, b.x + 5, b.y + 5))
-            << "the very next tile is free";
+        EXPECT_FALSE(sim::place_ok(kSeed, units, UnitKind::Power, turned, b.x + 5, b.y + 5))
+            << "the very next tile is inside the 4x4";
+        EXPECT_TRUE(sim::place_ok(kSeed, units, UnitKind::Power, turned, b.x + 8, b.y + 5))
+            << "the first tile past it is free";
     }
-    y.sim.enqueue(place(y.constructor, b.x + 5, b.y + 5, true));
+    y.sim.enqueue(place(y.constructor, b.x + 8, b.y + 5, true));
     y.sim.step();
     EXPECT_EQ(count_of(y.sim, UnitKind::Power), 2U) << "a second one fits right beside the first";
     EXPECT_EQ(y.sim.ore(Side::Player), 40U);
@@ -443,7 +446,7 @@ TEST(PowerPanel, OnePressArmsPowerAndThePreviewCarriesItsCostAndFootprint) {
     }
     EXPECT_EQ(armed->kind, UnitKind::Power);
     EXPECT_EQ(armed->cost, 30);
-    EXPECT_EQ(armed->size, (sim::FootprintSize{1, 1}));
+    EXPECT_EQ(armed->size, (sim::FootprintSize{4, 4}));
     EXPECT_TRUE(session.construct_armed()) << "the panel stays up while a building is armed";
     EXPECT_TRUE(constructor_orders(r, orders).empty()) << "arming issues no order";
     EXPECT_EQ(r.sim.ore(Side::Player), 400U) << "and charges nothing";
@@ -452,8 +455,8 @@ TEST(PowerPanel, OnePressArmsPowerAndThePreviewCarriesItsCostAndFootprint) {
     const NavAim aim = nav_aim(r.sim, r.options);
     ASSERT_TRUE(aim.on_ground());
     const DeployPreview preview = placement_preview(r.sim, *armed, aim.tile_x, aim.tile_y);
-    EXPECT_EQ(preview.site.width, 1);
-    EXPECT_EQ(preview.site.height, 1);
+    EXPECT_EQ(preview.site.width, 4);
+    EXPECT_EQ(preview.site.height, 4);
     EXPECT_EQ(preview.site.x, aim.tile_x);
     EXPECT_EQ(preview.site.y, aim.tile_y);
     EXPECT_EQ(preview.valid,
@@ -549,14 +552,14 @@ TEST(PowerPanel, RotateIsLiveOnlyWhileABuildingIsArmedAndSwapsTheAxes) {
     const std::optional<Placing> turned = session.placing();
     ASSERT_TRUE(turned.has_value());
     EXPECT_TRUE(turned.value_or(Placing{}).turned);
-    EXPECT_EQ(turned.value_or(Placing{}).size, (sim::FootprintSize{1, 1}))
-        << "width and height swap, and of one tile that is one tile";
+    EXPECT_EQ(turned.value_or(Placing{}).size, (sim::FootprintSize{4, 4}))
+        << "width and height swap, and of a 4x4 that is a 4x4";
     EXPECT_EQ(turned.value_or(Placing{}).cost, 30) << "the price does not";
     press(r, session, orders, input::kKeyGrave);
     const std::optional<Placing> back = session.placing();
     ASSERT_TRUE(back.has_value());
     EXPECT_FALSE(back.value_or(Placing{}).turned) << "a second quarter turn faces it back";
-    EXPECT_EQ(back.value_or(Placing{}).size, (sim::FootprintSize{1, 1}));
+    EXPECT_EQ(back.value_or(Placing{}).size, (sim::FootprintSize{4, 4}));
 
     // A turned building is placed turned.
     press(r, session, orders, input::kKeyGrave);

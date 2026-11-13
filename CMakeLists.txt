@@ -305,6 +305,7 @@ if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
         tests/test_alien_buildings.cpp
         tests/test_power.cpp
         tests/test_build_site.cpp
+        tests/test_building_scale.cpp
         tests/test_buildings.cpp
         tests/test_gun_tower.cpp
         tests/test_unit_list.cpp

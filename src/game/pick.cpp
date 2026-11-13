@@ -14,6 +14,11 @@ float unit_box_height_metres(sim::UnitKind kind) noexcept {
     return kind == sim::UnitKind::Factory ? 4.5F : 1.8F;
 }
 
+float unit_box_height_metres(const sim::Unit& unit) noexcept {
+    const float base = unit_box_height_metres(unit.kind);
+    return sim::is_scaled_building(unit) ? base * kBuildingModelScale : base;
+}
+
 namespace {
 
 float aspect_of(Extent extent) {
@@ -158,16 +163,18 @@ Pick pick(const sim::Sim& sim, const SceneOptions& options, float screen_x,
         const bool hovering
             = options.hover.has_value() && options.hover->unit.value == unit.id.value;
         const float base = hovering ? options.hover->z : ground;
-        const float height = unit_box_height_metres(unit.kind);
+        const float height = unit_box_height_metres(unit);
         // A box is never wider than the building's own tiles: a ONE-tile building (POWER, 2 m
         // across) must not be hit from the tiles beside it by the 0.75-tile radius a unit gets.
         // Per axis, since a footprint is a rectangle; a 2x2 or wider keeps the radius it had.
-        float half_x = radius;
-        float half_z = radius;
+        // A SCALED building's radius grows with it (round 19, L1): its box is the footprint.
+        const float reach = sim::is_scaled_building(unit) ? radius * kBuildingModelScale : radius;
+        float half_x = reach;
+        float half_z = reach;
         if (sim::has_footprint(unit.kind)) {
             const sim::FootprintSize size = sim::footprint_of(unit);
-            half_x = std::min(radius, static_cast<float>(size.width) * 0.5F * kMetresPerTile);
-            half_z = std::min(radius, static_cast<float>(size.height) * 0.5F * kMetresPerTile);
+            half_x = std::min(reach, static_cast<float>(size.width) * 0.5F * kMetresPerTile);
+            half_z = std::min(reach, static_cast<float>(size.height) * 0.5F * kMetresPerTile);
         }
         const float t
             = hit_box(ray, {x - half_x, base, z - half_z}, {x + half_x, base + height, z + half_z});

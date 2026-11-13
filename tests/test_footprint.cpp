@@ -112,7 +112,8 @@ TEST(Footprint, TheDeployedRecyclerIsStillTwoByTwoAndPowerIsTheOnlyOtherKindWith
     // placed building. Its 4x2 was provisional and the owner has since ruled: ONE tile (K1).
     EXPECT_EQ(footprint_of(UnitKind::DeployedRecycler), (FootprintSize{2, 2}));
     EXPECT_TRUE(protekt::sim::has_footprint(UnitKind::DeployedRecycler));
-    EXPECT_EQ(footprint_of(UnitKind::Power), (FootprintSize{1, 1}));
+    EXPECT_EQ(footprint_of(UnitKind::Power), (FootprintSize{4, 4}))
+        << "round 19, L1: 1 x 1 became 4 x 4";
     EXPECT_TRUE(protekt::sim::has_footprint(UnitKind::Power));
     // MOVED DELIBERATELY with round 18, K3: seven more kinds stand on a footprint (and the Factory
     // has a table row, 2x2, for the one a Constructor places), so the exceptions are the nine
@@ -208,9 +209,12 @@ TEST(SiteRules, ARectangleOnGroundNoUnitMayEnterIsRefusedEvenWithOnlyItsFarTileT
 // The owner, verbatim: "I think Power should take up only 1 x 1.  At least that's what their
 // footprint seems to be in BattleZone 2."  A footprint is measured in TILES.
 
-TEST(OneTile, TheTableReadsOneByOneForPowerAndPinsEveryOtherKindExactlyAsItWas) {
-    EXPECT_EQ(footprint_of(UnitKind::Power), (FootprintSize{1, 1}));
-    EXPECT_EQ(protekt::sim::kPowerFootprint, (FootprintSize{1, 1}));
+// ROUND 19, L1 re-pinned this whole suite: "1 x 1 becomes 4 x 4". The suite's NAME is kept (it is
+// the history of how POWER's footprint was ruled) but every number below is the new one; the one
+// tile it speaks of is now a 4x4 CELL.
+TEST(OneTile, TheTableReadsFourByFourForPowerAndPinsEveryOtherKindExactlyAsItWas) {
+    EXPECT_EQ(footprint_of(UnitKind::Power), (FootprintSize{4, 4}));
+    EXPECT_EQ(protekt::sim::kPowerFootprint, (FootprintSize{4, 4}));
     EXPECT_EQ(footprint_of(UnitKind::DeployedRecycler), (FootprintSize{2, 2})) << "untouched";
     // Only two kinds have a table row today: the other eight Builder rows have no UnitKind and so
     // no PROVISIONAL rectangle YET. This pins the whole table, so the day a kind is given one (a
@@ -241,63 +245,68 @@ TEST(OneTile, AOneTileFootprintIsOneTileWhichTurningCannotChange) {
     EXPECT_EQ(corner.y, kMapTiles - 1);
 }
 
-TEST(OneTile, AOneByOneSiteIsAcceptedInASingleTileGapAndRefusedWhenThatTileIsTaken) {
-    const auto [x, y] = open_rect(FootprintSize{5, 3}, 2);
+TEST(OneTile, AFourByFourSiteIsAcceptedInAFourWideGapAndRefusedWhenThatCellIsTaken) {
+    const auto [x, y] = open_rect(FootprintSize{16, 6}, 2);
     ASSERT_GE(x, 0);
-    // Two POWERs with exactly one tile between them: (x, y+1) and (x+2, y+1); the gap is (x+1,
-    // y+1).
+    // Two POWERs with exactly one cell (four tiles) between them: (x, y+1) and (x+8, y+1); the gap
+    // is columns x+4..x+7.
     const Sim sim = world(
-        {{UnitKind::Power, Side::Player, x, y + 1}, {UnitKind::Power, Side::Player, x + 2, y + 1}});
+        {{UnitKind::Power, Side::Player, x, y + 1}, {UnitKind::Power, Side::Player, x + 8, y + 1}});
     const auto& units = sim.units();
-    constexpr FootprintSize kOne{1, 1};
-    EXPECT_TRUE(protekt::sim::site_ok(kSeed, units, kOne, x + 1, y + 1)) << "the gap takes it";
-    EXPECT_TRUE(protekt::sim::place_ok(kSeed, units, UnitKind::Power, false, x + 1, y + 1));
-    // ...where nothing two tiles wide can stand: not the recycler's square, not a 2x1 either way.
-    EXPECT_FALSE(protekt::sim::site_ok(kSeed, units, FootprintSize{2, 2}, x + 1, y + 1));
-    EXPECT_FALSE(protekt::sim::site_ok(kSeed, units, FootprintSize{2, 1}, x + 1, y + 1));
-    EXPECT_FALSE(protekt::sim::site_ok(kSeed, units, FootprintSize{2, 1}, x, y + 1));
-    EXPECT_FALSE(protekt::sim::deploy_site_ok(kSeed, units, x + 1, y + 1));
-    // The tile taken is refused, and so is the tile of either neighbour building.
-    EXPECT_FALSE(protekt::sim::site_ok(kSeed, units, kOne, x, y + 1));
-    EXPECT_FALSE(protekt::sim::site_ok(kSeed, units, kOne, x + 2, y + 1));
+    constexpr FootprintSize kCell{4, 4};
+    EXPECT_TRUE(protekt::sim::site_ok(kSeed, units, kCell, x + 4, y + 1)) << "the gap takes it";
+    EXPECT_TRUE(protekt::sim::place_ok(kSeed, units, UnitKind::Power, false, x + 4, y + 1));
+    // ...where nothing five tiles wide can stand: not an 8x8 square, not an 8x4 either way.
+    EXPECT_FALSE(protekt::sim::site_ok(kSeed, units, FootprintSize{5, 4}, x + 4, y + 1));
+    EXPECT_FALSE(protekt::sim::site_ok(kSeed, units, FootprintSize{8, 8}, x + 4, y + 1));
+    EXPECT_FALSE(protekt::sim::site_ok(kSeed, units, FootprintSize{8, 4}, x + 4, y + 1));
+    EXPECT_FALSE(protekt::sim::site_ok(kSeed, units, FootprintSize{8, 4}, x + 1, y + 1));
+    EXPECT_TRUE(protekt::sim::deploy_site_ok(kSeed, units, x + 5, y + 1))
+        << "the deployed recycler is still 2x2 and goes in the gap";
+    EXPECT_FALSE(protekt::sim::deploy_site_ok(kSeed, units, x + 3, y + 1)) << "but not on a plant";
+    // One tile off the cell is on a neighbour: refused, and so is the tile of either building.
+    EXPECT_FALSE(protekt::sim::site_ok(kSeed, units, kCell, x + 3, y + 1));
+    EXPECT_FALSE(protekt::sim::site_ok(kSeed, units, kCell, x + 5, y + 1));
+    EXPECT_FALSE(protekt::sim::site_ok(kSeed, units, kCell, x, y + 1));
+    EXPECT_FALSE(protekt::sim::site_ok(kSeed, units, kCell, x + 8, y + 1));
     // Fill the gap and it is refused too.
     const Sim full = world({{UnitKind::Power, Side::Player, x, y + 1},
-                            {UnitKind::Power, Side::Player, x + 1, y + 1},
-                            {UnitKind::Power, Side::Player, x + 2, y + 1}});
-    EXPECT_FALSE(protekt::sim::site_ok(kSeed, full.units(), kOne, x + 1, y + 1));
-    EXPECT_FALSE(protekt::sim::place_ok(kSeed, full.units(), UnitKind::Power, false, x + 1, y + 1));
-    // Off the map and off the ground are still refused for one tile.
-    EXPECT_FALSE(protekt::sim::site_ok(kSeed, units, kOne, -1, 5));
-    EXPECT_FALSE(protekt::sim::site_ok(kSeed, units, kOne, 5, kMapTiles));
+                            {UnitKind::Power, Side::Player, x + 4, y + 1},
+                            {UnitKind::Power, Side::Player, x + 8, y + 1}});
+    EXPECT_FALSE(protekt::sim::site_ok(kSeed, full.units(), kCell, x + 4, y + 1));
+    EXPECT_FALSE(protekt::sim::place_ok(kSeed, full.units(), UnitKind::Power, false, x + 4, y + 1));
+    // Off the map and off the ground are still refused.
+    EXPECT_FALSE(protekt::sim::site_ok(kSeed, units, kCell, -1, 5));
+    EXPECT_FALSE(protekt::sim::site_ok(kSeed, units, kCell, 5, kMapTiles));
 }
 
-TEST(OneTile, TheUnitBlockingReadsTheSameOneTile) {
-    const auto [x, y] = open_rect(FootprintSize{3, 3}, 2);
+TEST(OneTile, TheUnitBlockingReadsTheSameFourByFour) {
+    const auto [x, y] = open_rect(FootprintSize{8, 8}, 2);
     ASSERT_GE(x, 0);
-    const Sim sim = world({{UnitKind::Power, Side::Player, x + 1, y + 1}});
+    const Sim sim = world({{UnitKind::Power, Side::Player, x + 2, y + 2}});
     const auto& units = sim.units();
     int blocked = 0;
-    for (int ty = y - 1; ty <= y + 3; ++ty) {
-        for (int tx = x - 1; tx <= x + 3; ++tx) {
-            const bool is_it = tx == x + 1 && ty == y + 1;
+    for (int ty = y; ty <= y + 7; ++ty) {
+        for (int tx = x; tx <= x + 7; ++tx) {
+            const bool is_it = tx >= x + 2 && tx < x + 6 && ty >= y + 2 && ty < y + 6;
             EXPECT_EQ(protekt::sim::building_blocks(units, tx, ty), is_it) << tx << "," << ty;
             blocked += protekt::sim::building_blocks(units, tx, ty) ? 1 : 0;
         }
     }
-    EXPECT_EQ(blocked, 1);
-    // It stands on its tile's centre, so the floor of its position is that tile.
-    EXPECT_EQ(units.front().x.floor_int(), x + 1);
-    EXPECT_EQ(units.front().y.floor_int(), y + 1);
-    EXPECT_EQ(units.front().x.raw,
-              (x + 1) * protekt::sim::Fixed::kOne + (protekt::sim::Fixed::kOne / 2))
-        << "centred on the tile, not on its north-west corner";
+    EXPECT_EQ(blocked, 16);
+    // Its position is the rectangle's centre: the corner four tiles share, a whole tile.
+    EXPECT_EQ(units.front().x.floor_int(), x + 4);
+    EXPECT_EQ(units.front().y.floor_int(), y + 4);
+    EXPECT_EQ(units.front().x.raw, (x + 4) * protekt::sim::Fixed::kOne)
+        << "an even side has a corner for a middle, not a tile's centre";
 }
 
-TEST(OneTile, ThePreviewDrawsOneTileWithFourEdgesNotASquareOfFour) {
-    constexpr FootprintSize kOne{1, 1};
-    EXPECT_EQ(protekt::game::deploy_preview_vertex_count(kOne), 4U * 6U) << "four strokes";
+TEST(OneTile, ThePreviewDrawsAFourByFourGridNotAnEightByEightOne) {
+    constexpr FootprintSize kOne{4, 4};
+    EXPECT_EQ(protekt::game::deploy_preview_vertex_count(kOne), (5U * 4U + 5U * 4U) * 6U)
+        << "five lines each way, four tiles long";
     EXPECT_NE(protekt::game::deploy_preview_vertex_count(kOne),
-              protekt::game::deploy_preview_vertex_count(FootprintSize{2, 2}));
+              protekt::game::deploy_preview_vertex_count(FootprintSize{8, 8}));
     // The SCENE draws exactly that many, and the preview the game hands it is the one tile.
     const Sim sim = world({{UnitKind::Tank, Side::Player, 60, 60}});
     protekt::game::SceneOptions plain;
@@ -311,15 +320,15 @@ TEST(OneTile, ThePreviewDrawsOneTileWithFourEdgesNotASquareOfFour) {
     protekt::game::SceneOptions previewed = plain;
     const protekt::game::Placing armed{UnitKind::Power, false, 30, footprint_of(UnitKind::Power)};
     previewed.deploy_preview = protekt::game::placement_preview(sim, armed, 63, 58);
-    EXPECT_EQ(previewed.deploy_preview->site.width, 1);
-    EXPECT_EQ(previewed.deploy_preview->site.height, 1);
+    EXPECT_EQ(previewed.deploy_preview->site.width, 4);
+    EXPECT_EQ(previewed.deploy_preview->site.height, 4);
     const auto without = protekt::game::build_scene(sim, plain);
     const auto with = protekt::game::build_scene(sim, previewed);
-    EXPECT_EQ(with.vertices.size(), without.vertices.size() + 24U);
+    EXPECT_EQ(with.vertices.size(), without.vertices.size() + 240U);
 }
 
-TEST(OneTile, ThePickBoxIsTheOneTileAndNotWiderThanIt) {
-    const auto [x, y] = open_rect(FootprintSize{5, 5}, 2);
+TEST(OneTile, ThePickBoxIsTheFourByFourAndNotWiderThanIt) {
+    const auto [x, y] = open_rect(FootprintSize{12, 12}, 2);
     ASSERT_GE(x, 0);
     const Sim sim = world({{UnitKind::Power, Side::Player, x + 2, y + 2}});
     const auto& power = sim.units().front();
@@ -342,11 +351,14 @@ TEST(OneTile, ThePickBoxIsTheOneTileAndNotWiderThanIt) {
         const auto p = protekt::game::project(camera, extent, cx + dx_metres, ground + 0.9F, cz);
         return protekt::game::pick(sim, options, p.x, p.y);
     };
-    EXPECT_TRUE(pick_at(0.0F).has_unit()) << "its own tile's middle";
-    EXPECT_TRUE(pick_at(0.8F).has_unit()) << "inside the tile (a tile is 2 m: +-1 m)";
-    // 1.4 m out is the NEIGHBOUR tile's: the old 0.75-tile radius (1.5 m) reached into it.
-    EXPECT_FALSE(pick_at(1.4F).has_unit()) << "into the next tile";
-    EXPECT_FALSE(pick_at(-1.4F).has_unit());
+    EXPECT_TRUE(pick_at(0.0F).has_unit()) << "its middle";
+    EXPECT_TRUE(pick_at(3.6F).has_unit()) << "inside the 4x4 (8 m: +-4 m)";
+    EXPECT_TRUE(pick_at(-3.6F).has_unit());
+    // 5.5 m out is the NEIGHBOUR cell's (the camera is 24 m back, so the ray meets the box's front
+    // face 4 m in front of the middle, at 5.5 * 20/24 = 4.6 m across): the box is the footprint
+    // and no wider than the 6 m a unit's radius would reach.
+    EXPECT_FALSE(pick_at(5.5F).has_unit()) << "into the next cell";
+    EXPECT_FALSE(pick_at(-5.5F).has_unit());
 }
 
 } // namespace

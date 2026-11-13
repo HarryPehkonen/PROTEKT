@@ -142,12 +142,12 @@ struct Want {
 };
 
 constexpr std::array<Want, 6> kSix{{
-    {UnitKind::Kiln, 29, 2, 2, 60, 1200, "KILN"},
-    {UnitKind::GunSpire, 30, 1, 1, 75, 1500, "GUN SPIRE"},
-    {UnitKind::Antenna, 31, 1, 1, 60, 1200, "ANTENNA"},
-    {UnitKind::Dower, 32, 2, 2, 50, 1000, "DOWER"},
-    {UnitKind::Stronghold, 33, 2, 1, 70, 1400, "STRONGHOLD"},
-    {UnitKind::Jammer, 34, 1, 1, 50, 1000, "JAMMER"},
+    {UnitKind::Kiln, 29, 8, 8, 60, 1200, "KILN"},
+    {UnitKind::GunSpire, 30, 4, 4, 75, 1500, "GUN SPIRE"},
+    {UnitKind::Antenna, 31, 4, 4, 60, 1200, "ANTENNA"},
+    {UnitKind::Dower, 32, 8, 8, 50, 1000, "DOWER"},
+    {UnitKind::Stronghold, 33, 8, 4, 70, 1400, "STRONGHOLD"},
+    {UnitKind::Jammer, 34, 4, 4, 50, 1000, "JAMMER"},
 }};
 
 constexpr int kBlockW = 16;
@@ -311,7 +311,7 @@ TEST(AlienBuildings, ARefusedPlacementChargesNothingAndRaisesNothing) {
     }
 }
 
-TEST(AlienBuildings, TheStrongholdTurnedAQuarterIsOneByTwoAndTheSquaresAreUnchanged) {
+TEST(AlienBuildings, TheStrongholdTurnedAQuarterIsFourByEightAndTheSquaresAreUnchanged) {
     Yard y = make_yard(1, 1);
     const Block b = y.block;
     y.sim.enqueue(place(y.constructor, UnitKind::Stronghold, b.x + 5, b.y + 5, true));
@@ -319,8 +319,8 @@ TEST(AlienBuildings, TheStrongholdTurnedAQuarterIsOneByTwoAndTheSquaresAreUnchan
     const sim::Unit* turned = first_of(y.sim, UnitKind::Stronghold);
     ASSERT_NE(turned, nullptr);
     const sim::Footprint f = sim::footprint_around(*turned);
-    EXPECT_EQ(f.width, 1) << "2x1 turned a quarter is 1x2";
-    EXPECT_EQ(f.height, 2);
+    EXPECT_EQ(f.width, 4) << "8x4 turned a quarter is 4x8 (round 19, L1: four times 2x1)";
+    EXPECT_EQ(f.height, 8);
     for (const Want& w : kSix) {
         if (w.kind != UnitKind::Stronghold) {
             EXPECT_EQ(w.width, w.height) << w.name << ": a square, turning changes nothing";

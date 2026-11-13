@@ -633,38 +633,55 @@ inline constexpr std::uint16_t kPowerHp = kTankHp;
 /// The hull of each of the seven buildings K3 adds: the tank's, a DEFAULT -- the owner's to set.
 inline constexpr std::uint16_t kPlacedBuildingHp = kTankHp;
 
-/// POWER's footprint: ONE tile, 1x1. The owner's ruling (round 18, K1), the first REAL footprint he
-/// has given: "I think Power should take up only 1 x 1.  At least that's what their footprint
-/// seems to be in BattleZone 2."  It supersedes the provisional 4x2 of round 17. A footprint is
-/// measured in TILES (his word for it was "block"). An ODD side has a middle TILE, not a corner, so
-/// a one-tile building stands at its tile's centre (`place_building`).
-inline constexpr FootprintSize kPowerFootprint{1, 1};
+/// ROUND 19, L1: EVERY PLACEABLE BUILDING IS FOUR TIMES AS WIDE AND LONG AS IT WAS. The owner,
+/// 2026-11-13: "a 'tile' is actually about four tank lengths. Can we make all buildings four times
+/// as wide, long, and tall? ... The buildings seem... puny.  So, 1 x 1 becomes 4 x 4.  2 x 1
+/// becomes 8 x 4."  The factor is written ONCE, here, and the table below is the figure the owner
+/// reads (1x1 -> 4x4) times it, so a number in the table is still the number he said.
+///
+/// THE TWO STRUCTURES THAT ARE NOT SCALED are the DEPLOYED RECYCLER (`kDeployedRecyclerFootprint`)
+/// and a SCENARIO-SPAWNED FACTORY (no footprint at all, `has_footprint(const Unit&)`): both exist
+/// in recorded battles, and a bigger footprint changes what a recorded battle does (a unit that
+/// walks round the recycler walks round a bigger one). That is a stated RE-RECORD the owner has not
+/// ruled on, so neither is touched.
+inline constexpr int kBuildingFootprintScale = 4;
 
-/// The nine buildings' footprints (the owner read them off the game, 2026-11-12), in tiles.
-/// RELAY BUNKER and GUN TOWER are PROVISIONAL 1x1: he did not name them. TRAINING CTR. and TECH
-/// CENTRE are the two RECTANGLES, 2x1.
-inline constexpr FootprintSize kFactoryFootprint{2, 2};
-inline constexpr FootprintSize kRelayBunkerFootprint{1, 1}; // PROVISIONAL
-inline constexpr FootprintSize kArmoryFootprint{1, 1};
-inline constexpr FootprintSize kServiceBayFootprint{2, 2};
-inline constexpr FootprintSize kGunTowerFootprint{1, 1}; // PROVISIONAL
-inline constexpr FootprintSize kTrainingCentreFootprint{2, 1};
-inline constexpr FootprintSize kTechCentreFootprint{2, 1};
-inline constexpr FootprintSize kBomberBayFootprint{2, 2};
+/// A footprint as the owner reads it off the game (in the old, small tiles) made
+/// `kBuildingFootprintScale` times as wide and long.
+[[nodiscard]] constexpr FootprintSize scaled_footprint(int width, int height) noexcept {
+    return FootprintSize{width * kBuildingFootprintScale, height * kBuildingFootprintScale};
+}
 
-/// The ALIEN Builder's six footprints (round 18, K6). ALL PROVISIONAL: the owner has not given
-/// them (the reference's 3x3s are a different game's scale; his human footprints came out a tile
-/// smaller). Chosen by the same job each building does on the human side: the KILN is the alien
-/// factory, so the Factory's 2x2; the GUN SPIRE the gun tower, 1x1; the ANTENNA the relay bunker,
-/// 1x1; the DOWER, a pad that services vehicles, the Service Bay's 2x2; the STRONGHOLD, the alien
-/// armory, a long low 2x1 so `~` turns it, like the Training Ctr. and Tech Centre; the JAMMER a
-/// small 1x1.
-inline constexpr FootprintSize kKilnFootprint{2, 2};
-inline constexpr FootprintSize kGunSpireFootprint{1, 1};
-inline constexpr FootprintSize kAntennaFootprint{1, 1};
-inline constexpr FootprintSize kDowerFootprint{2, 2};
-inline constexpr FootprintSize kStrongholdFootprint{2, 1};
-inline constexpr FootprintSize kJammerFootprint{1, 1};
+/// POWER's footprint: ONE tile, 1x1 (the owner's ruling, round 18, K1: "I think Power should take
+/// up only 1 x 1.  At least that's what their footprint seems to be in BattleZone 2."), now four
+/// times that: 4x4. A footprint is measured in TILES (his word for it was "block"). An EVEN side
+/// has a corner for a middle, so a building stands at its rectangle's centre (`place_building`).
+inline constexpr FootprintSize kPowerFootprint = scaled_footprint(1, 1);
+
+/// The nine buildings' footprints (the owner read them off the game, 2026-11-12), in tiles, times
+/// four (L1). RELAY BUNKER and GUN TOWER are PROVISIONAL 1x1 (so 4x4): he did not name them.
+/// TRAINING CTR. and TECH CENTRE are the two RECTANGLES, 2x1 (so 8x4).
+inline constexpr FootprintSize kFactoryFootprint = scaled_footprint(2, 2);
+inline constexpr FootprintSize kRelayBunkerFootprint = scaled_footprint(1, 1); // PROVISIONAL
+inline constexpr FootprintSize kArmoryFootprint = scaled_footprint(1, 1);
+inline constexpr FootprintSize kServiceBayFootprint = scaled_footprint(2, 2);
+inline constexpr FootprintSize kGunTowerFootprint = scaled_footprint(1, 1); // PROVISIONAL
+inline constexpr FootprintSize kTrainingCentreFootprint = scaled_footprint(2, 1);
+inline constexpr FootprintSize kTechCentreFootprint = scaled_footprint(2, 1);
+inline constexpr FootprintSize kBomberBayFootprint = scaled_footprint(2, 2);
+
+/// The ALIEN Builder's six footprints (round 18, K6), still ALL PROVISIONAL and now four times what
+/// they were: the owner has not given them. Chosen by the same job each building does on the human
+/// side: the KILN is the alien factory, so the Factory's 2x2; the GUN SPIRE the gun tower, 1x1; the
+/// ANTENNA the relay bunker, 1x1; the DOWER, a pad that services vehicles, the Service Bay's 2x2;
+/// the STRONGHOLD, the alien armory, a long low 2x1 so `~` turns it, like the Training Ctr. and
+/// Tech Centre; the JAMMER a small 1x1. (Each times `kBuildingFootprintScale`.)
+inline constexpr FootprintSize kKilnFootprint = scaled_footprint(2, 2);
+inline constexpr FootprintSize kGunSpireFootprint = scaled_footprint(1, 1);
+inline constexpr FootprintSize kAntennaFootprint = scaled_footprint(1, 1);
+inline constexpr FootprintSize kDowerFootprint = scaled_footprint(2, 2);
+inline constexpr FootprintSize kStrongholdFootprint = scaled_footprint(2, 1);
+inline constexpr FootprintSize kJammerFootprint = scaled_footprint(1, 1);
 
 /// A kind a CONSTRUCTOR places (`orders::Place`): the nine buildings of its panel, the Factory
 /// included. The deployed recycler has a footprint too but is made by a deploy, never placed.
@@ -689,6 +706,14 @@ inline constexpr FootprintSize kJammerFootprint{1, 1};
     default:
         return false;
     }
+}
+
+/// Whether THIS unit is one of the SCALED buildings (round 19, L1): a placeable kind that stands on
+/// a footprint. The deployed recycler is not (it is not placeable) and a scenario-spawned factory
+/// is not (it stands on none): they are the two structures left as they were. Everything that draws
+/// or picks a building at `kBuildingFootprintScale` times its authored size asks this.
+[[nodiscard]] constexpr bool is_scaled_building(const Unit& unit) noexcept {
+    return is_placeable(unit.kind) && has_footprint(unit);
 }
 
 /// The deployed recycler's footprint: 2x2 tiles (his ruling, 2026-10-26: "2x2 tiles -- a building

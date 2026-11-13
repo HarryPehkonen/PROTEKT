@@ -298,7 +298,7 @@ void open_panel(const Rig& r, Session& session, std::vector<sim::Order>& orders)
 }
 
 // Where the reticle lands, found on a rig with nothing extra standing (the aim does not depend on
-// the plant, which stands a tile or more off it).
+// the plant, which stands four tiles or more off it).
 [[nodiscard]] NavAim aimed() {
     const Rig bare = make_rig({});
     return nav_aim(bare.sim, bare.options);
@@ -307,14 +307,14 @@ void open_panel(const Rig& r, Session& session, std::vector<sim::Order>& orders)
 TEST(PowerReach, TheArmedGunTowerIsGreenBesideAPlantAndRedAwayFromIt) {
     const NavAim aim = aimed();
     ASSERT_TRUE(aim.on_ground());
-    const Rig r = make_rig({{UnitKind::Power, Side::Player, aim.tile_x + 1, aim.tile_y}});
+    const Rig r = make_rig({{UnitKind::Power, Side::Player, aim.tile_x + 4, aim.tile_y}});
     const std::vector<NetworkBuilding> net = network_of(r.sim, Side::Player);
     ASSERT_EQ(net.size(), 1U) << "the plant stands and has a footprint";
     const Placing tower{UnitKind::GunTower, false, 0, sim::footprint_of(UnitKind::GunTower)};
     EXPECT_TRUE(placement_preview(r.sim, tower, aim.tile_x, aim.tile_y).valid)
         << "touches the plant";
     EXPECT_FALSE(placement_preview(r.sim, tower, aim.tile_x - 2, aim.tile_y).valid)
-        << "two tiles from it: nothing powered touches";
+        << "the tower would end two tiles short of it: nothing powered touches";
     const Placing plant{UnitKind::Power, false, 30, sim::footprint_of(UnitKind::Power)};
     EXPECT_TRUE(placement_preview(r.sim, plant, aim.tile_x - 2, aim.tile_y).valid)
         << "a plant needs no connection, it IS the source";
@@ -323,8 +323,9 @@ TEST(PowerReach, TheArmedGunTowerIsGreenBesideAPlantAndRedAwayFromIt) {
 TEST(PowerReach, SpaceRefusesAGunTowerThatNothingPoweredTouchesAndNamesTheConnection) {
     const NavAim aim = aimed();
     ASSERT_TRUE(aim.on_ground());
-    // The plant is three tiles from the aimed tile: a gap.
-    Rig r = make_rig({{UnitKind::Power, Side::Player, aim.tile_x + 3, aim.tile_y}});
+    // The plant is six tiles from the aimed tile: the 4x4 tower ends at tile +3, so two tiles of
+    // gap (ROUND 19, L1: every building is four times as wide, so the old offsets moved with it).
+    Rig r = make_rig({{UnitKind::Power, Side::Player, aim.tile_x + 6, aim.tile_y}});
     Session session{r.driven};
     std::vector<sim::Order> orders;
     open_panel(r, session, orders);
@@ -342,7 +343,7 @@ TEST(PowerReach, SpaceRefusesAGunTowerThatNothingPoweredTouchesAndNamesTheConnec
 TEST(PowerReach, SpacePlacesAGunTowerThatTouchesAPlant) {
     const NavAim aim = aimed();
     ASSERT_TRUE(aim.on_ground());
-    Rig r = make_rig({{UnitKind::Power, Side::Player, aim.tile_x + 1, aim.tile_y}});
+    Rig r = make_rig({{UnitKind::Power, Side::Player, aim.tile_x + 4, aim.tile_y}});
     Session session{r.driven};
     std::vector<sim::Order> orders;
     open_panel(r, session, orders);

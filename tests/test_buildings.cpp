@@ -5,6 +5,10 @@
 //   FACTORY 2x2, RELAY BUNKER 1x1 (PROVISIONAL, he did not name it), ARMORY 1x1, SERVICE BAY 2x2,
 //   GUN TOWER 1x1 (PROVISIONAL), TRAINING CTR. 2x1, TECH CENTRE 2x1, BOMBER BAY 2x2.
 //
+// ROUND 19, L1 then made every one FOUR TIMES as wide and long ("1 x 1 becomes 4 x 4.  2 x 1
+// becomes 8 x 4."): the table below reads 4x4, 8x4 and 8x8 and was RE-PINNED deliberately, no other
+// column.
+//
 // Every number below is a LITERAL, never read back from the table under test.
 //
 // NOT BUILT, and no test here pretends otherwise (the gun tower's gun is K5, test_gun_tower.cpp):
@@ -59,14 +63,14 @@ struct Want {
 };
 
 constexpr std::array<Want, 8> kEight{{
-    {UnitKind::Factory, 2, 2, 2, 55, "FACTORY"},
-    {UnitKind::RelayBunker, 22, 1, 1, 50, "RELAY BUNKER"},
-    {UnitKind::Armory, 23, 1, 1, 60, "ARMORY"},
-    {UnitKind::ServiceBay, 24, 2, 2, 50, "SERVICE BAY"},
-    {UnitKind::GunTower, 25, 1, 1, 50, "GUN TOWER"},
-    {UnitKind::TrainingCentre, 26, 2, 1, 70, "TRAINING CTR."},
-    {UnitKind::TechCentre, 27, 2, 1, 80, "TECH CENTRE"},
-    {UnitKind::BomberBay, 28, 2, 2, 100, "BOMBER BAY"},
+    {UnitKind::Factory, 2, 8, 8, 55, "FACTORY"},
+    {UnitKind::RelayBunker, 22, 4, 4, 50, "RELAY BUNKER"},
+    {UnitKind::Armory, 23, 4, 4, 60, "ARMORY"},
+    {UnitKind::ServiceBay, 24, 8, 8, 50, "SERVICE BAY"},
+    {UnitKind::GunTower, 25, 4, 4, 50, "GUN TOWER"},
+    {UnitKind::TrainingCentre, 26, 8, 4, 70, "TRAINING CTR."},
+    {UnitKind::TechCentre, 27, 8, 4, 80, "TECH CENTRE"},
+    {UnitKind::BomberBay, 28, 8, 8, 100, "BOMBER BAY"},
 }};
 
 struct Block {
@@ -251,9 +255,29 @@ TEST(Buildings, ARefusedPlacementChargesNothingAndRaisesNothing) {
 
 namespace {
 
-/// Spawns around one tile `(x, y)` so exactly the tiles in `gap` (offsets from it) are free in
-/// the ring of Armories (1x1 each) one tile wide round it.
+/// An open (all passable) `w` x `h` block of tiles, the north-west tile of it.
+[[nodiscard]] Block open_area(int w, int h) {
+    for (int by = 20; by < 400; by += 2) {
+        for (int bx = 20; bx < 400; bx += 2) {
+            bool clear = true;
+            for (int dy = 0; dy < h && clear; ++dy) {
+                for (int dx = 0; dx < w && clear; ++dx) {
+                    clear = sim::tile_passable(kSeed, bx + dx, by + dy);
+                }
+            }
+            if (clear) {
+                return Block{bx, by};
+            }
+        }
+    }
+    return Block{-1, -1};
+}
+
+/// ROUND 19, L1: the gap is measured in the new 4x4 CELLS (one Armory is one cell now). Spawns a
+/// ring of Armories round the cell whose north-west tile is `(x, y)` so exactly the cells in `gap`
+/// (offsets, in cells, from it) are free in the ring, which is four cells across and three down.
 [[nodiscard]] sim::Sim walled_gap(int x, int y, const std::vector<std::pair<int, int>>& gap) {
+    constexpr int kCell = 4;
     std::vector<sim::Spawn> spawns;
     for (int dy = -1; dy <= 1; ++dy) {
         for (int dx = -1; dx <= 2; ++dx) {
@@ -261,7 +285,8 @@ namespace {
                 return g.first == dx && g.second == dy;
             });
             if (!free_tile) {
-                spawns.push_back({UnitKind::Armory, Side::Player, x + dx, y + dy});
+                spawns.push_back(
+                    {UnitKind::Armory, Side::Player, x + (dx * kCell), y + (dy * kCell)});
             }
         }
     }
@@ -271,28 +296,28 @@ namespace {
 
 } // namespace
 
-TEST(BuildingRectangles, ATwoByOneSiteFitsATwoByOneGapAndIsRefusedAOneByOneOne) {
-    const Block b = open_block();
-    const int x = b.x + 5;
-    const int y = b.y + 5;
+TEST(BuildingRectangles, AnEightByFourSiteFitsAnEightByFourGapAndIsRefusedAFourByFourOne) {
+    const Block b = open_area(30, 24);
+    const int x = b.x + 8;
+    const int y = b.y + 8;
     const sim::Sim wide_gap = walled_gap(x, y, {{0, 0}, {1, 0}});
     const sim::Sim narrow_gap = walled_gap(x, y, {{0, 0}});
     for (const UnitKind kind : {UnitKind::TrainingCentre, UnitKind::TechCentre}) {
         EXPECT_TRUE(sim::place_ok(kSeed, wide_gap.units(), kind, false, x, y));
         EXPECT_FALSE(sim::place_ok(kSeed, narrow_gap.units(), kind, false, x, y))
-            << "two tiles will not go in one";
+            << "two cells will not go in one";
     }
-    // The one-tile buildings go in either gap: it is the rectangle that is refused.
+    // The 4x4 buildings go in either gap: it is the rectangle that is refused.
     EXPECT_TRUE(sim::place_ok(kSeed, narrow_gap.units(), UnitKind::Armory, false, x, y));
     EXPECT_TRUE(sim::place_ok(kSeed, narrow_gap.units(), UnitKind::GunTower, false, x, y));
 }
 
 TEST(BuildingRectangles, RotationSwapsARectanglesAxesAndLeavesASquareAlone) {
-    const Block b = open_block();
-    const int x = b.x + 5;
-    const int y = b.y + 5;
-    // A 2-wide, 1-tall gap takes the unturned rectangle and refuses the turned one; a 1-wide,
-    // 2-tall gap is the reverse.
+    const Block b = open_area(30, 24);
+    const int x = b.x + 8;
+    const int y = b.y + 8;
+    // An 8-wide, 4-tall gap takes the unturned rectangle and refuses the turned one; a 4-wide,
+    // 8-tall gap is the reverse.
     const sim::Sim wide_gap = walled_gap(x, y, {{0, 0}, {1, 0}});
     const sim::Sim tall_gap = walled_gap(x, y, {{0, 0}, {0, 1}});
     for (const UnitKind kind : {UnitKind::TrainingCentre, UnitKind::TechCentre}) {
@@ -302,15 +327,16 @@ TEST(BuildingRectangles, RotationSwapsARectanglesAxesAndLeavesASquareAlone) {
         EXPECT_TRUE(sim::place_ok(kSeed, tall_gap.units(), kind, true, x, y));
     }
     Yard yard = make_yard(1, 1);
-    yard.sim.enqueue(place(yard.constructor, UnitKind::TechCentre, x, y, true));
+    const Block yb = yard.block;
+    yard.sim.enqueue(place(yard.constructor, UnitKind::TechCentre, yb.x + 5, yb.y + 5, true));
     yard.sim.step();
     const sim::Unit* turned = first_of(yard.sim, UnitKind::TechCentre);
     ASSERT_NE(turned, nullptr);
     const sim::Footprint f = sim::footprint_around(*turned);
-    EXPECT_EQ(f.width, 1) << "2x1 turned a quarter is 1x2";
-    EXPECT_EQ(f.height, 2);
-    EXPECT_EQ(sim::footprint_of(*turned), (FootprintSize{1, 2}));
-    // A 2x2 and a 1x1 are the same turned or not.
+    EXPECT_EQ(f.width, 4) << "8x4 turned a quarter is 4x8";
+    EXPECT_EQ(f.height, 8);
+    EXPECT_EQ(sim::footprint_of(*turned), (FootprintSize{4, 8}));
+    // A 8x8 and a 4x4 are the same turned or not.
     for (const UnitKind kind : {UnitKind::BomberBay, UnitKind::ServiceBay, UnitKind::Armory}) {
         const FootprintSize base = sim::footprint_of(kind);
         EXPECT_EQ(base.width, base.height) << "a square: turning changes nothing";
@@ -328,7 +354,7 @@ TEST(BuildingFactory, TheKindThatAlreadyExistedIsWiredAndAScenariosOwnStaysAsItW
     EXPECT_FALSE(sim::has_footprint(old_factory));
     EXPECT_FALSE(sim::building_blocks(spawned.units(), 41, 41));
     EXPECT_EQ(sim::footprint_of(old_factory), (FootprintSize{}));
-    // One a Constructor raises DOES stand on its 2x2.
+    // One a Constructor raises DOES stand on its footprint (8x8 since round 19, L1).
     Yard y = make_yard(1, 1);
     y.sim.enqueue(place(y.constructor, UnitKind::Factory, y.block.x + 5, y.block.y + 5));
     y.sim.step();
@@ -336,8 +362,8 @@ TEST(BuildingFactory, TheKindThatAlreadyExistedIsWiredAndAScenariosOwnStaysAsItW
     ASSERT_NE(raised, nullptr);
     EXPECT_TRUE(raised->placed);
     EXPECT_TRUE(sim::has_footprint(*raised));
-    EXPECT_TRUE(sim::building_blocks(y.sim.units(), y.block.x + 6, y.block.y + 6));
-    EXPECT_FALSE(sim::building_blocks(y.sim.units(), y.block.x + 7, y.block.y + 5));
+    EXPECT_TRUE(sim::building_blocks(y.sim.units(), y.block.x + 12, y.block.y + 12));
+    EXPECT_FALSE(sim::building_blocks(y.sim.units(), y.block.x + 13, y.block.y + 5));
 }
 
 TEST(BuildingFactory, ASiteTakesNoProductionOrderUntilItStands) {
@@ -375,8 +401,10 @@ struct Rig {
 ///
 /// ROUND 18, K4 (power must reach the building): the three buildings that DRAW power (Factory,
 /// Relay Bunker, Gun Tower) are only placed where a powered building touches, so the rig also
-/// stands a third plant on the tile just west of where the reticle lands (every footprint is
-/// anchored at its north-west tile, so a plant there touches any of them). That plant is the ONLY
+/// stands a third plant on the four tiles just west of where the reticle lands (every footprint is
+/// anchored at its north-west tile, so a plant there touches any of them). ROUND 19, L1: every
+/// building here is four times as wide and long, so the spawns are laid out four times as far
+/// apart (nothing overlaps) and that plant is four tiles west, not one. That plant is the ONLY
 /// change to this rig and it exists for the ruling, not to make a test pass: the placement refusals
 /// are pinned in test_power_reach.cpp.
 [[nodiscard]] Rig make_rig(std::uint16_t ore) {
@@ -401,12 +429,12 @@ struct Rig {
                            {{UnitKind::Tank, Side::Player, 60, 60},
                             {UnitKind::Constructor, Side::Player, 61, 60},
                             {UnitKind::Power, Side::Player, 30, 30},
-                            {UnitKind::Power, Side::Player, 33, 30},
-                            {UnitKind::Power, Side::Player, aim_x - 1, aim_y},
-                            {UnitKind::Factory, Side::Player, 30, 34},
-                            {UnitKind::Armory, Side::Player, 36, 30},
-                            {UnitKind::ServiceBay, Side::Player, 36, 34},
-                            {UnitKind::TrainingCentre, Side::Player, 40, 30}}};
+                            {UnitKind::Power, Side::Player, 34, 30},
+                            {UnitKind::Power, Side::Player, aim_x - 4, aim_y},
+                            {UnitKind::Factory, Side::Player, 30, 38},
+                            {UnitKind::Armory, Side::Player, 40, 30},
+                            {UnitKind::ServiceBay, Side::Player, 40, 38},
+                            {UnitKind::TrainingCentre, Side::Player, 50, 30}}};
     scenario.store_capacity = 400;
     scenario.start_ore = ore;
     Rig r{};
