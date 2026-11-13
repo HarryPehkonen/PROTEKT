@@ -101,10 +101,13 @@ DeployPreview placement_preview(const sim::Sim& sim, const Placing& placing, int
                                 int tile_y) noexcept {
     // The footprint as the sim will stand it (clipped onto the map) and the SIM'S verdict on it:
     // green is a promise that SPACE places there, red that it refuses -- never re-derived here.
+    // The GHOST rides on the same preview, so its tint is the grid's own verdict, from this one
+    // call: the building and its turn, for the scene to draw as the model it already has.
     return DeployPreview{
         sim::footprint_at(placing.size, tile_x, tile_y),
         sim::place_ok(sim.seed(), sim.units(), placing.kind, placing.turned, tile_x, tile_y)
-            && placement_connected(sim, placing, tile_x, tile_y)};
+            && placement_connected(sim, placing, tile_x, tile_y),
+        placing.kind, placing.turned};
 }
 
 } // namespace protekt::game

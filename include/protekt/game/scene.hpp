@@ -1162,7 +1162,21 @@ inline constexpr std::size_t kDeployPreviewVertexCount
 struct DeployPreview {
     sim::Footprint site{};
     bool valid{false};
+    /// ROUND 19, L3: THE GHOST. When set, the building the armed placement would raise (and
+    /// whether it is turned) is also drawn at the site as a transparent glowing wireframe of its
+    /// OWN model, tinted by `valid`. Empty for the deploy's grid alone.
+    std::optional<sim::UnitKind> ghost{};
+    bool ghost_turned{false};
 };
+
+/// THE GHOST's strokes: a thin bright ribbon along every edge of the building's model, and a wider
+/// fainter one under it for the glow. Both are alpha-blended, both are tinted by the preview's
+/// verdict. Public so a test can tell the ghost's vertices from the grid's (alpha 1) and the
+/// world's.
+inline constexpr float kGhostCoreAlpha = 0.30F;
+inline constexpr float kGhostHaloAlpha = 0.09F;
+inline constexpr float kGhostCoreHalfMetres = 0.05F;
+inline constexpr float kGhostHaloHalfMetres = 0.16F;
 
 /// The ledger's amber (C6), once the `SCRAP` label's ink and now only the command menu's. Public
 /// because the command menu's leader line

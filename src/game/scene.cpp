@@ -3711,6 +3711,126 @@ void append_motes(std::vector<SceneVertex>& out, const SceneOptions& options, co
     }
 }
 
+/// THE ONE DISPATCH from a building's kind to its model: the Power plant's drums, the seven-plus
+/// other placed buildings' own shapes, and the factory's hall for the rest. `build_scene` draws
+/// every standing building through it and the placement GHOST (below) draws through the same call,
+/// so the ghost is the model itself and follows it the moment it changes.
+void build_building_model(std::vector<SceneVertex>& out, std::uint64_t seed, const sim::Unit& unit,
+                          Mark mark, float lift_z, bool lifted) {
+    if (unit.kind == sim::UnitKind::Power) {
+        // Its own silhouette (J3): a bank of generator drums, not the factory's hall.
+        build_power(out, seed, unit, mark, lift_z, lifted);
+    } else if (sim::is_placeable(unit.kind) && unit.kind != sim::UnitKind::Factory) {
+        // K3: the seven other buildings, each with a model of its own.
+        build_placed_building(out, seed, unit, mark, lift_z, lifted);
+    } else {
+        build_factory(out, seed, unit, mark, lift_z, lifted);
+    }
+}
+
+/// THE PLACEMENT GHOST (round 19, L3): the building the armed placement would raise, drawn at the
+/// site as a very transparent glowing wireframe, so its FACING shows. The model is built by the
+/// building's own builder (`build_building_model`) for a stand-in unit at the site's centre -- with
+/// `turned` as `~` has set it -- and scaled as every building is (`scale_model`); its triangles'
+/// edges are then drawn as camera-facing ribbons. An edge between two coplanar triangles is a
+/// quad's diagonal, not a line of the shape, and is left out. Drawing only: the stand-in is never
+/// in the sim, and the colour is the preview's own verdict.
+void append_placement_ghost(std::vector<SceneVertex>& out, const SceneOptions& options,
+                            const DeployPreview& preview, const Vec3& colour) {
+    sim::Unit stand_in;
+    stand_in.kind = preview.ghost.value_or(sim::UnitKind::Factory);
+    stand_in.side = sim::Side::Player;
+    stand_in.turned = preview.ghost_turned;
+    stand_in.x = sim::Fixed::from_raw(static_cast<std::int32_t>(
+        ((2 * preview.site.x) + preview.site.width) * (sim::Fixed::kOne / 2)));
+    stand_in.y = sim::Fixed::from_raw(static_cast<std::int32_t>(
+        ((2 * preview.site.y) + preview.site.height) * (sim::Fixed::kOne / 2)));
+    std::vector<SceneVertex> model;
+    build_building_model(model, options.seed, stand_in, Mark::None, 0.0F, false);
+    if (sim::is_scaled_model(stand_in)) {
+        scale_model(model, 0U,
+                    static_cast<float>(stand_in.x.raw) / static_cast<float>(sim::Fixed::kOne)
+                        * kMetresPerTile,
+                    static_cast<float>(stand_in.y.raw) / static_cast<float>(sim::Fixed::kOne)
+                        * kMetresPerTile,
+                    kBuildingModelScale);
+    }
+    using Key = std::array<long, 6>;
+    struct Edge {
+        Vec3 a{};
+        Vec3 b{};
+        std::vector<Vec3> normals;
+    };
+    const auto quantised = [](const Vec3& p) {
+        return std::array<long, 3>{std::lround(p.at(0) * 1000.0F), std::lround(p.at(1) * 1000.0F),
+                                   std::lround(p.at(2) * 1000.0F)};
+    };
+    std::map<Key, Edge> edges;
+    for (std::size_t i = 0; i + 2 < model.size(); i += 3) {
+        const std::array<Vec3, 3> corner{Vec3{model.at(i).position}, Vec3{model.at(i + 1).position},
+                                         Vec3{model.at(i + 2).position}};
+        const Vec3 u{corner.at(1).at(0) - corner.at(0).at(0),
+                     corner.at(1).at(1) - corner.at(0).at(1),
+                     corner.at(1).at(2) - corner.at(0).at(2)};
+        const Vec3 v{corner.at(2).at(0) - corner.at(0).at(0),
+                     corner.at(2).at(1) - corner.at(0).at(1),
+                     corner.at(2).at(2) - corner.at(0).at(2)};
+        const Vec3 raw{(u.at(1) * v.at(2)) - (u.at(2) * v.at(1)),
+                       (u.at(2) * v.at(0)) - (u.at(0) * v.at(2)),
+                       (u.at(0) * v.at(1)) - (u.at(1) * v.at(0))};
+        const float area = std::sqrt((raw.at(0) * raw.at(0)) + (raw.at(1) * raw.at(1))
+                                     + (raw.at(2) * raw.at(2)));
+        if (area < 1e-6F) {
+            continue;
+        }
+        const Vec3 normal{raw.at(0) / area, raw.at(1) / area, raw.at(2) / area};
+        for (std::size_t side = 0; side < 3; ++side) {
+            const Vec3& from = corner.at(side);
+            const Vec3& to = corner.at((side + 1) % 3);
+            const auto qa = quantised(from);
+            const auto qb = quantised(to);
+            const bool forward = qa < qb;
+            const auto& lo = forward ? qa : qb;
+            const auto& hi = forward ? qb : qa;
+            Edge& edge = edges[Key{lo.at(0), lo.at(1), lo.at(2), hi.at(0), hi.at(1), hi.at(2)}];
+            edge.a = from;
+            edge.b = to;
+            edge.normals.push_back(normal);
+        }
+    }
+    const Vec3 eye{options.camera.x, options.camera.y, options.camera.z};
+    const auto ribbon = [&](const Vec3& a, const Vec3& b, float half, float alpha) {
+        const Vec3 along{b.at(0) - a.at(0), b.at(1) - a.at(1), b.at(2) - a.at(2)};
+        const Vec3 view{eye.at(0) - a.at(0), eye.at(1) - a.at(1), eye.at(2) - a.at(2)};
+        Vec3 side{(along.at(1) * view.at(2)) - (along.at(2) * view.at(1)),
+                  (along.at(2) * view.at(0)) - (along.at(0) * view.at(2)),
+                  (along.at(0) * view.at(1)) - (along.at(1) * view.at(0))};
+        const float length = std::sqrt((side.at(0) * side.at(0)) + (side.at(1) * side.at(1))
+                                       + (side.at(2) * side.at(2)));
+        if (length < 1e-6F) {
+            return;
+        }
+        const float scale = half / length;
+        side = Vec3{side.at(0) * scale, side.at(1) * scale, side.at(2) * scale};
+        emit_quad(out, Vec3{a.at(0) - side.at(0), a.at(1) - side.at(1), a.at(2) - side.at(2)},
+                  Vec3{b.at(0) - side.at(0), b.at(1) - side.at(1), b.at(2) - side.at(2)},
+                  Vec3{b.at(0) + side.at(0), b.at(1) + side.at(1), b.at(2) + side.at(2)},
+                  Vec3{a.at(0) + side.at(0), a.at(1) + side.at(1), a.at(2) + side.at(2)}, colour,
+                  alpha);
+    };
+    for (const auto& [key, edge] : edges) {
+        if (edge.normals.size() == 2) {
+            const Vec3& n0 = edge.normals.at(0);
+            const Vec3& n1 = edge.normals.at(1);
+            if ((n0.at(0) * n1.at(0)) + (n0.at(1) * n1.at(1)) + (n0.at(2) * n1.at(2)) > 0.9995F) {
+                continue; // a quad's diagonal, not a line of the shape
+            }
+        }
+        ribbon(edge.a, edge.b, kGhostHaloHalfMetres, kGhostHaloAlpha);
+        ribbon(edge.a, edge.b, kGhostCoreHalfMetres, kGhostCoreAlpha);
+    }
+}
+
 /// THE DEPLOY PREVIEW (DEPLOY): the footprint the armed build would stand on, as its tile grid
 /// lying on the terrain -- the outline and the lines between its tiles, so it reads as the
 /// rectangle it is. Each stroke runs one tile edge, from corner height to corner height, so it
@@ -3725,6 +3845,9 @@ void append_deploy_preview(std::vector<SceneVertex>& out, const SceneOptions& op
     // The colour is the sim's answer to "would SPACE deploy here?", carried on the preview: green
     // where it would, red where it would refuse. Asked once, in the sim, never re-derived here.
     const math::Vec3 colour = preview.valid ? kDeployPreviewColour : kDeployPreviewBlockedColour;
+    if (preview.ghost.has_value()) {
+        append_placement_ghost(out, options, preview, colour);
+    }
     const auto corner = [&](int tile_x, int tile_y) {
         const auto x = static_cast<float>(tile_x);
         const auto y = static_cast<float>(tile_y);
@@ -7444,14 +7567,10 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
                 // here with the tank's hand-built hull, and every kind has a builder now.
                 build_facing_tank(scene.vertices, options.seed, unit, mark, lift_z, hovering,
                                   heading, turret, pitch);
-            } else if (unit.kind == sim::UnitKind::Power) {
-                // Its own silhouette (J3): a bank of generator drums, not the factory's hall.
-                build_power(scene.vertices, options.seed, unit, mark, lift_z, hovering);
-            } else if (sim::is_placeable(unit.kind) && unit.kind != sim::UnitKind::Factory) {
-                // K3: the seven other buildings, each with a model of its own.
-                build_placed_building(scene.vertices, options.seed, unit, mark, lift_z, hovering);
             } else {
-                build_factory(scene.vertices, options.seed, unit, mark, lift_z, hovering);
+                // Every building (and the factory fallback): ONE function, shared with the
+                // placement ghost, so the ghost can never be a second copy of the shape.
+                build_building_model(scene.vertices, options.seed, unit, mark, lift_z, hovering);
             }
             if (sim::is_scaled_model(unit)) {
                 // L1: one scale for every placed building's model, applied to the shape as built

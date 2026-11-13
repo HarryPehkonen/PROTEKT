@@ -326,6 +326,7 @@ TEST(OneTile, ThePreviewDrawsAFourByFourGridNotAnEightByEightOne) {
     protekt::game::SceneOptions previewed = plain;
     const protekt::game::Placing armed{UnitKind::Power, false, 30, footprint_of(UnitKind::Power)};
     previewed.deploy_preview = protekt::game::placement_preview(sim, armed, 63, 58);
+    previewed.deploy_preview->ghost.reset(); // this counts the GRID; the ghost has its own tests
     EXPECT_EQ(previewed.deploy_preview->site.width, 4);
     EXPECT_EQ(previewed.deploy_preview->site.height, 4);
     const auto without = protekt::game::build_scene(sim, plain);

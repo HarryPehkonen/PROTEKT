@@ -442,6 +442,7 @@ TEST(BuildingScale, ThePreviewGridAndItsVertexBudgetFollowTheNewFootprint) {
                               sim::footprint_of(UnitKind::TrainingCentre)};
     previewed.deploy_preview = game::placement_preview(sim, armed, t.x + 8, t.y + 8);
     ASSERT_TRUE(previewed.deploy_preview.has_value());
+    previewed.deploy_preview->ghost.reset(); // this counts the GRID; the ghost has its own tests
     EXPECT_EQ(previewed.deploy_preview->site.width, 8);
     EXPECT_EQ(previewed.deploy_preview->site.height, 4);
     EXPECT_EQ(game::build_scene(sim, previewed).vertices.size(),
