@@ -164,7 +164,8 @@ bool order_is_valid(const std::vector<Unit>& units, const std::vector<Pool>& poo
         // price and a time, under a token an order can carry, and only into a queue that is empty
         // or already holds this very batch (`build_fits`). The same check runs when the order is
         // applied; `Sim::enqueue` additionally weighs the builds already pending this tick.
-        return is_producer(unit->kind) && is_queueable(build->kind)
+        // A factory still being BUILT (K3) is a site, not a producer: it takes no queue yet.
+        return is_producer(unit->kind) && !under_construction(*unit) && is_queueable(build->kind)
                && build->batch <= kMaxBatchToken
                && build_fits(unit->queue, build->kind, build->batch);
     }
@@ -220,7 +221,7 @@ struct WorldGround {
 /// The ground as the mover sees it now, with `WorldGround::buildings` read off the units.
 [[nodiscard]] WorldGround ground_of(std::uint64_t seed, std::span<const Unit> units) noexcept {
     const bool buildings = std::any_of(units.begin(), units.end(), [](const Unit& unit) {
-        return unit.alive && has_footprint(unit.kind);
+        return unit.alive && has_footprint(unit);
     });
     return WorldGround{seed, units, buildings};
 }
@@ -839,6 +840,7 @@ void place_building(std::vector<Unit>& units, std::uint32_t& next_id,
     Unit built = fresh_unit(next_id++, order.kind, side, Coord{site.centre_x(), site.centre_y()});
     centre_on_footprint(built, site);
     built.turned = order.turned;
+    built.placed = true;
     built.build_left = spec_of(order.kind).build_ticks;
     const UnitId raised = built.id;
     const Fixed raised_x = built.x;
@@ -2488,8 +2490,7 @@ bool tile_passable(std::uint64_t seed, int tile_x, int tile_y) noexcept {
 
 bool building_blocks(std::span<const Unit> units, int tile_x, int tile_y) noexcept {
     return std::any_of(units.begin(), units.end(), [tile_x, tile_y](const Unit& unit) {
-        return unit.alive && has_footprint(unit.kind)
-               && footprint_around(unit).covers(tile_x, tile_y);
+        return unit.alive && has_footprint(unit) && footprint_around(unit).covers(tile_x, tile_y);
     });
 }
 
@@ -2613,6 +2614,9 @@ std::uint64_t Sim::state_hash() const noexcept {
         }
         if (u.turned) {
             h.u64(1); // a placed building turned a quarter: no other unit's is ever set
+        }
+        if (u.placed && u.kind == UnitKind::Factory) {
+            h.u64(1); // a factory a Constructor raised: the one kind whose footprint depends on it
         }
         if (u.shove_ticks != 0) {
             h.u64(u.shove_ticks); // only when set: a battle that never shoves hashes as before

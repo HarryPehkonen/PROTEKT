@@ -41,7 +41,14 @@ namespace {
     case sim::UnitKind::ServicePod:
     case sim::UnitKind::DeployedScavenger: // on no key at all: see `keyless`
     case sim::UnitKind::Power:             // a placed building: on no key either, see `keyless`
-    case sim::UnitKind::DeployedTurret:    // a turret that is standing: it keeps its F key
+    case sim::UnitKind::RelayBunker:
+    case sim::UnitKind::Armory:
+    case sim::UnitKind::ServiceBay:
+    case sim::UnitKind::GunTower:
+    case sim::UnitKind::TrainingCentre:
+    case sim::UnitKind::TechCentre:
+    case sim::UnitKind::BomberBay:
+    case sim::UnitKind::DeployedTurret: // a turret that is standing: it keeps its F key
         break;
     }
     return std::nullopt;
@@ -52,7 +59,8 @@ namespace {
 /// neither dealt a slot nor kept in one.
 [[nodiscard]] bool keyless(sim::UnitKind kind) noexcept {
     return kind == sim::UnitKind::DeployedScavenger
-           || kind == sim::UnitKind::Power; // J3: nothing selects a placed building yet
+           || (sim::is_placeable(kind)
+               && kind != sim::UnitKind::Factory); // J3/K3: nothing selects a placed building yet
 }
 
 /// Whether the opening force keeps `kind` off the F keys: the buildings only. The undeployed
@@ -500,6 +508,20 @@ std::string_view kind_label(sim::UnitKind kind, Faction faction) noexcept {
         return "RECYCLER";
     case sim::UnitKind::Power:
         return "POWER";
+    case sim::UnitKind::RelayBunker:
+        return "RELAY BUNKER";
+    case sim::UnitKind::Armory:
+        return "ARMORY";
+    case sim::UnitKind::ServiceBay:
+        return "SERVICE BAY";
+    case sim::UnitKind::GunTower:
+        return "GUN TOWER";
+    case sim::UnitKind::TrainingCentre:
+        return "TRAINING CTR.";
+    case sim::UnitKind::TechCentre:
+        return "TECH CENTRE";
+    case sim::UnitKind::BomberBay:
+        return "BOMBER BAY";
     }
     return "UNIT";
 }

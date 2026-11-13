@@ -274,8 +274,11 @@ inline constexpr std::array<UnitSpec, static_cast<std::size_t>(kUnitKindCount)> 
     {"turret", kTurretHp, Fixed::from_raw(kTurretSpeedRaw), WeaponId::TurretGun, kTurretDamage,
      kTurretCooldownTicks, Fixed::from_raw(kProjectileSpeedRaw), Fixed::from_raw(kBoltArcRaw),
      kBoltTravel, Fixed::zero(), Fixed::zero(), false, 40, 800, 0, Fixed::zero()},
+    // The FACTORY's row carries a price and a build time since K3: it is the panel's row 2,
+    // 55 scrap, and a placed one is a site that counts these ticks down (20 a scrap). It is NOT
+    // queueable for it (`is_queueable` refuses every placeable kind), so no producer makes one.
     {"factory", kFactoryHp, Fixed::zero(), WeaponId::None, 0, 0, Fixed::zero(), Fixed::zero(),
-     kBoltTravel, Fixed::zero(), Fixed::zero(), false, 0, 0, 0, Fixed::zero()},
+     kBoltTravel, Fixed::zero(), Fixed::zero(), false, 55, 1100, 0, Fixed::zero()},
     // The hover tank has the tank's numbers: the look and the controls differ, not the stats.
     {"hovertank", kTankHp, Fixed::from_raw(kTankSpeedRaw), WeaponId::TankGun, kTankDamage,
      kTankCooldownTicks, Fixed::from_raw(kProjectileSpeedRaw), Fixed::from_raw(kBoltArcRaw),
@@ -398,6 +401,24 @@ inline constexpr std::array<UnitSpec, static_cast<std::size_t>(kUnitKindCount)> 
     // `buildable` and `is_queueable` refuses it, so no producer's queue can make it as a unit.
     {"power", kPowerHp, Fixed::zero(), WeaponId::None, 0, 0, Fixed::zero(), Fixed::zero(),
      kBoltTravel, Fixed::zero(), Fixed::zero(), false, 30, 600, 0, Fixed::zero()},
+    // The seven buildings of K3 (the panel's rows 3 to 9; the Factory's row is above). Every cost
+    // is the owner's (docs/BASE.md). The hull is the tank's, a DEFAULT like POWER's, his to set in
+    // a balance pass; `build_ticks` is the 20-ticks-a-scrap every row uses, PROVISIONAL until he
+    // gives a number. Unarmed, never moving: THEIR FUNCTIONS ARE NOT BUILT.
+    {"relaybunker", kPlacedBuildingHp, Fixed::zero(), WeaponId::None, 0, 0, Fixed::zero(),
+     Fixed::zero(), kBoltTravel, Fixed::zero(), Fixed::zero(), false, 50, 1000, 0, Fixed::zero()},
+    {"armory", kPlacedBuildingHp, Fixed::zero(), WeaponId::None, 0, 0, Fixed::zero(), Fixed::zero(),
+     kBoltTravel, Fixed::zero(), Fixed::zero(), false, 60, 1200, 0, Fixed::zero()},
+    {"servicebay", kPlacedBuildingHp, Fixed::zero(), WeaponId::None, 0, 0, Fixed::zero(),
+     Fixed::zero(), kBoltTravel, Fixed::zero(), Fixed::zero(), false, 50, 1000, 0, Fixed::zero()},
+    {"guntower", kPlacedBuildingHp, Fixed::zero(), WeaponId::None, 0, 0, Fixed::zero(),
+     Fixed::zero(), kBoltTravel, Fixed::zero(), Fixed::zero(), false, 50, 1000, 0, Fixed::zero()},
+    {"trainingcentre", kPlacedBuildingHp, Fixed::zero(), WeaponId::None, 0, 0, Fixed::zero(),
+     Fixed::zero(), kBoltTravel, Fixed::zero(), Fixed::zero(), false, 70, 1400, 0, Fixed::zero()},
+    {"techcentre", kPlacedBuildingHp, Fixed::zero(), WeaponId::None, 0, 0, Fixed::zero(),
+     Fixed::zero(), kBoltTravel, Fixed::zero(), Fixed::zero(), false, 80, 1600, 0, Fixed::zero()},
+    {"bomberbay", kPlacedBuildingHp, Fixed::zero(), WeaponId::None, 0, 0, Fixed::zero(),
+     Fixed::zero(), kBoltTravel, Fixed::zero(), Fixed::zero(), false, 100, 2000, 0, Fixed::zero()},
 }};
 
 /// No armed kind's bolt may fizzle short of the reach its weapon lets it engage at.
@@ -425,7 +446,7 @@ static_assert(every_bolt_outflies_its_range(),
 [[nodiscard]] constexpr bool is_queueable(UnitKind kind) noexcept {
     const auto index = static_cast<std::size_t>(kind);
     return index < kUnitSpecs.size() && kUnitSpecs.at(index).cost != 0
-           && kUnitSpecs.at(index).build_ticks != 0 && !has_footprint(kind);
+           && kUnitSpecs.at(index).build_ticks != 0 && !has_footprint(kind) && !is_placeable(kind);
 }
 
 } // namespace protekt::sim

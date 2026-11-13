@@ -911,7 +911,10 @@ void build_factory(std::vector<SceneVertex>& out, std::uint64_t seed, const sim:
     // optional's storage at the call site (the same false alarm hover_.z() once raised).
     const float ground = lifted ? lift_z : ground_metres(seed, unit.x, unit.y);
     const float half_width = kHullHalfMetres; ///< the footprint, every part inside it
-    const float angle = unit.side == sim::Side::Player ? 0.0F : kPi;
+    // A factory a Constructor placed may be turned a quarter (`~`), as every placed building is.
+    constexpr float kQuarterTurn = 1.5707963F;
+    const float angle
+        = (unit.turned ? kQuarterTurn : 0.0F) + (unit.side == sim::Side::Player ? 0.0F : kPi);
     constexpr float kHallTop = 4.5F;   ///< the picker's housing height
     constexpr float kHallRight = 0.2F; ///< the annex takes the rest of the width
     constexpr float kRecess = 0.15F;   ///< how far the door's face is set back
@@ -1119,6 +1122,269 @@ void build_power(std::vector<SceneVertex>& out, std::uint64_t seed, const sim::U
                             kHouseFront, kHouseFront, ground + kPlinthTop, ground + kHouseBackTop,
                             ground + kHouseFrontTop},
                       pale, walls, roof);
+}
+
+/// THE SEVEN BUILDINGS OF K3 (round 18), each with a silhouette of its own: a RELAY BUNKER (a dish
+/// on a mast over a bunker), an ARMORY (a bunker with a missile on each side, the subject of
+/// `armory_icon`), a SERVICE BAY (a drive-on pad with a ramp and a gantry), a GUN TOWER (a squat
+/// turret with one heavy barrel), a TRAINING CTR. (a long drill hall, a watch tower, a flag and a
+/// row of target dummies), a TECH CENTRE (two massive dark drums joined by a block, red conduits
+/// glowing up their sides, off the owner's capture) and a BOMBER BAY (a stepped hangar, an apron
+/// with stripes and a control tower). THEIR FUNCTIONS ARE NOT BUILT: these are shapes.
+///
+/// Every model is built level, in the unit's frame -- `across` along the footprint's LONG side,
+/// `along` toward the front (+z: a player's faces +Y, an enemy's -Y) -- and turned by the kit's
+/// `angle`, a quarter for a building that was rotated, so it always fills the rectangle the sim
+/// reserved. Heights are metres from the kit's ground, which is the footprint's lowest corner so a
+/// plinth never floats on a slope. A tile is 2 m, so every part stays inside half its footprint.
+struct BuildingKit {
+    float x{};
+    float z{};
+    float ground{};
+    float angle{};
+    Vec3 colour{}; ///< the side colour, marked
+    Vec3 pale{};   ///< and its pale tint, as the hull's camo wears it
+    Vec3 shade{};  ///< a dark ink for glass, doors and the drums of the tech centre
+    UvRect walls{};
+    UvRect plain{};
+    UvRect roof{};
+    UvRect ribs{};
+    UvRect dark{};
+};
+
+BuildingKit make_building_kit(std::uint64_t seed, const sim::Unit& unit, Mark mark, float lift_z,
+                              bool lifted) {
+    constexpr float kQuarter = 1.5707963F;
+    constexpr float kShadeTone = 0.3F;
+    constexpr int kTileTexels = 64;
+    constexpr int kPlainColumns = 4;
+    BuildingKit kit;
+    const sim::Footprint site = sim::footprint_around(unit);
+    kit.x = static_cast<float>(unit.x.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile;
+    kit.z = static_cast<float>(unit.y.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile;
+    kit.ground = lifted ? lift_z : ground_metres(seed, unit.x, unit.y);
+    if (!lifted) {
+        for (int corner_y = site.y; corner_y <= site.y + site.height; ++corner_y) {
+            for (int corner_x = site.x; corner_x <= site.x + site.width; ++corner_x) {
+                kit.ground = std::min(kit.ground, ground_metres(seed, static_cast<float>(corner_x),
+                                                                static_cast<float>(corner_y)));
+            }
+        }
+    }
+    kit.angle = (unit.turned ? kQuarter : 0.0F) + (unit.side == sim::Side::Player ? 0.0F : kPi);
+    kit.colour = side_colour(unit.side);
+    if (mark == Mark::Selected) {
+        kit.colour = highlight(kit.colour);
+    } else if (mark != Mark::None) {
+        kit.colour = aim_tint(kit.colour, mark == Mark::AimedOwn);
+    }
+    kit.pale = kit.colour;
+    for (float& channel : kit.pale) {
+        channel += (1.0F - channel) * kHullPaleMix;
+    }
+    kit.shade
+        = Vec3{kit.colour[0] * kShadeTone, kit.colour[1] * kShadeTone, kit.colour[2] * kShadeTone};
+    const AtlasManifest& atlas = atlas_manifest();
+    const UvRect walls_tile = atlas.rect("factory_walls");
+    kit.walls = upright_part(walls_tile, 0, 0, kTileTexels, kTileTexels);
+    kit.plain = upright_part(walls_tile, 0, 0, kPlainColumns, kTileTexels);
+    kit.roof = atlas.rect("factory_roof");
+    kit.ribs = upright_part(kit.roof, 0, 44, kTileTexels, 60);
+    kit.dark = atlas.rect("tank_tracks");
+    return kit;
+}
+
+/// A box of the kit, `across` from `left` to `right`, `along` from `back` to `front`, `y0` to `y1`
+/// over the kit's ground; its top wears `top`.
+void kit_box(std::vector<SceneVertex>& out, const BuildingKit& kit, float left, float right,
+             float back, float front, float y0, float y1, const Vec3& ink, const UvRect& tile,
+             const UvRect& top) {
+    emit_turned_prism(out, kit.x, kit.z, kit.angle,
+                      Prism{left, right, back, back, front, front, kit.ground + y0, kit.ground + y1,
+                            kit.ground + y1},
+                      ink, tile, top);
+}
+
+/// A round part standing at (`across`, `along`) from `y0` to `y1`, `radius_low` below and
+/// `radius_high` above (a taper; a zero radius is a point).
+void kit_drum(std::vector<SceneVertex>& out, const BuildingKit& kit, float across, float along,
+              float radius_low, float radius_high, float y0, float y1, const Vec3& ink,
+              const UvRect& tile) {
+    constexpr std::size_t kSides = 12;
+    emit_loft(out, kit.x, kit.z, kit.ground, kit.angle,
+              std::array<LoftStation, 2>{{{across, y0, along, radius_low, radius_low},
+                                          {across, y1, along, radius_high, radius_high}}},
+              kSides, ink, tile);
+}
+
+/// The RELAY BUNKER (one tile): a low bunker with a stepped roof and a dark door, a mast through
+/// the roof with a team-colour collar, and a DISH on top, tilted to the front -- it relays power,
+/// so it reads as an antenna, not a box. (It relays nothing yet: power is one global grid.)
+void build_relay_bunker(std::vector<SceneVertex>& out, const BuildingKit& k) {
+    kit_box(out, k, -0.85F, 0.85F, -0.85F, 0.85F, 0.0F, 0.5F, k.pale, k.walls, k.ribs);
+    kit_box(out, k, -0.6F, 0.6F, -0.6F, 0.6F, 0.5F, 0.7F, k.pale, k.walls, k.ribs);
+    kit_box(out, k, -0.25F, 0.25F, 0.85F, 0.88F, 0.0F, 0.38F, k.shade, k.dark, k.dark);
+    kit_drum(out, k, 0.0F, 0.0F, 0.07F, 0.07F, 0.7F, 2.5F, k.pale, k.plain);
+    kit_drum(out, k, 0.0F, 0.0F, 0.12F, 0.12F, 1.5F, 1.62F, k.colour, k.ribs);
+    emit_loft(out, k.x, k.z, k.ground, k.angle,
+              std::array<LoftStation, 3>{{{0.0F, 2.35F, -0.1F, 0.04F, 0.04F},
+                                          {0.0F, 2.5F, 0.0F, 0.3F, 0.3F},
+                                          {0.0F, 2.85F, 0.2F, 0.6F, 0.6F}}},
+              12, k.pale, k.ribs);
+    kit_drum(out, k, 0.0F, 0.1F, 0.03F, 0.02F, 2.5F, 3.3F, k.colour, k.ribs); // the feed spike
+}
+
+/// The ARMORY (one tile), the subject of `armory_icon`: a bunker with a stepped roof and a dark
+/// door and a pointed MISSILE standing upright on each side of it, each with its team-colour band
+/// and four fins.
+void build_armory(std::vector<SceneVertex>& out, const BuildingKit& k) {
+    kit_box(out, k, -0.45F, 0.45F, -0.6F, 0.6F, 0.0F, 0.7F, k.pale, k.walls, k.ribs);
+    kit_box(out, k, -0.32F, 0.32F, -0.45F, 0.45F, 0.7F, 0.95F, k.pale, k.walls, k.roof);
+    kit_box(out, k, -0.2F, 0.2F, 0.6F, 0.63F, 0.0F, 0.45F, k.shade, k.dark, k.dark);
+    for (const float side : {-0.72F, 0.72F}) {
+        kit_drum(out, k, side, 0.0F, 0.11F, 0.11F, 0.05F, 1.5F, k.pale, k.plain);
+        kit_drum(out, k, side, 0.0F, 0.11F, 0.0F, 1.5F, 2.0F, k.colour, k.ribs);    // the nose
+        kit_drum(out, k, side, 0.0F, 0.125F, 0.125F, 1.2F, 1.3F, k.colour, k.ribs); // the band
+        kit_box(out, k, side - 0.2F, side + 0.2F, -0.02F, 0.02F, 0.05F, 0.5F, k.pale, k.plain,
+                k.plain);
+        kit_box(out, k, side - 0.02F, side + 0.02F, -0.2F, 0.2F, 0.05F, 0.5F, k.pale, k.plain,
+                k.plain);
+    }
+}
+
+/// The SERVICE BAY (2 x 2): a platform you DRIVE ONTO -- a low deck with a RAMP rising from the
+/// front, two team-colour lane strips running up it, and a rear GANTRY (two posts, a crossbar and a
+/// lamp) that will one day mend what parks under it. (It repairs nothing yet.)
+void build_service_bay(std::vector<SceneVertex>& out, const BuildingKit& k) {
+    kit_box(out, k, -1.8F, 1.8F, -1.8F, 0.9F, 0.0F, 0.3F, k.pale, k.walls, k.ribs);
+    emit_turned_prism(
+        out, k.x, k.z, k.angle,
+        Prism{-1.5F, 1.5F, 0.9F, 0.9F, 1.85F, 1.85F, k.ground, k.ground + 0.3F, k.ground + 0.02F},
+        k.pale, k.walls, k.ribs);
+    for (const float lane : {-1.0F, 1.0F}) {
+        kit_box(out, k, lane - 0.15F, lane + 0.15F, -1.5F, 0.7F, 0.3F, 0.34F, k.colour, k.ribs,
+                k.ribs);
+        emit_turned_prism(out, k.x, k.z, k.angle,
+                          Prism{lane - 0.15F, lane + 0.15F, 0.9F, 0.9F, 1.75F, 1.75F,
+                                k.ground + 0.3F, k.ground + 0.34F, k.ground + 0.04F},
+                          k.colour, k.ribs, k.ribs);
+    }
+    kit_box(out, k, -1.8F, -1.55F, -1.8F, -1.55F, 0.3F, 1.9F, k.pale, k.plain, k.plain);
+    kit_box(out, k, 1.55F, 1.8F, -1.8F, -1.55F, 0.3F, 1.9F, k.pale, k.plain, k.plain);
+    kit_box(out, k, -1.8F, 1.8F, -1.8F, -1.55F, 1.6F, 1.9F, k.pale, k.walls, k.ribs);
+    kit_box(out, k, -0.25F, 0.25F, -1.75F, -1.55F, 1.25F, 1.6F, k.colour, k.ribs, k.ribs);
+}
+
+/// The GUN TOWER (one tile): turret-like, but fixed -- a battered round base, a team-colour turret
+/// ring, a squat gun house and ONE heavy barrel with a muzzle brake, pointing to the front. (It
+/// does not shoot yet.)
+void build_gun_tower(std::vector<SceneVertex>& out, const BuildingKit& k) {
+    kit_drum(out, k, 0.0F, 0.0F, 0.85F, 0.7F, 0.0F, 0.6F, k.pale, k.walls);
+    kit_drum(out, k, 0.0F, 0.0F, 0.64F, 0.64F, 0.6F, 0.75F, k.colour, k.ribs);
+    kit_box(out, k, -0.42F, 0.42F, -0.5F, 0.4F, 0.75F, 1.3F, k.pale, k.walls, k.roof);
+    kit_box(out, k, 0.2F, 0.38F, -0.2F, 0.1F, 1.3F, 1.5F, k.shade, k.dark, k.dark); // the sight
+    emit_loft(out, k.x, k.z, k.ground, k.angle,
+              std::array<LoftStation, 2>{
+                  {{0.0F, 1.05F, 0.4F, 0.12F, 0.12F}, {0.0F, 1.05F, 0.97F, 0.12F, 0.12F}}},
+              12, k.pale, k.plain);
+    emit_loft(out, k.x, k.z, k.ground, k.angle,
+              std::array<LoftStation, 2>{
+                  {{0.0F, 1.05F, 0.78F, 0.19F, 0.19F}, {0.0F, 1.05F, 0.97F, 0.19F, 0.19F}}},
+              12, k.colour, k.ribs);
+}
+
+/// The TRAINING CTR. (2 x 1, a rectangle): a long low DRILL HALL with a stepped roof and a dark
+/// door, a WATCH TOWER with a glazed cabin at one end, a team-colour FLAG on a mast at the other,
+/// and three TARGET DUMMIES standing in the yard before it. (It trains nothing yet.)
+void build_training_centre(std::vector<SceneVertex>& out, const BuildingKit& k) {
+    kit_box(out, k, -1.85F, 1.85F, -0.85F, 0.45F, 0.0F, 0.95F, k.pale, k.walls, k.roof);
+    kit_box(out, k, -1.5F, 1.0F, -0.7F, 0.3F, 0.95F, 1.2F, k.pale, k.walls, k.roof);
+    kit_box(out, k, -0.4F, 0.4F, 0.45F, 0.48F, 0.0F, 0.8F, k.shade, k.dark, k.dark);
+    kit_box(out, k, 1.2F, 1.8F, -0.8F, -0.2F, 0.95F, 2.5F, k.pale, k.walls, k.roof);
+    kit_box(out, k, 1.05F, 1.85F, -0.9F, -0.1F, 2.5F, 2.85F, k.shade, k.dark, k.ribs);
+    kit_drum(out, k, -1.5F, -0.5F, 0.04F, 0.04F, 0.95F, 3.0F, k.pale, k.plain);
+    kit_box(out, k, -1.5F, -0.9F, -0.52F, -0.48F, 2.4F, 2.9F, k.colour, k.ribs, k.ribs); // the flag
+    for (const float dummy : {-1.2F, -0.4F, 0.4F}) {
+        kit_drum(out, k, dummy, 0.68F, 0.1F, 0.1F, 0.0F, 0.8F, k.pale, k.plain);
+        kit_drum(out, k, dummy, 0.68F, 0.14F, 0.14F, 0.8F, 0.95F, k.colour, k.ribs);
+    }
+}
+
+/// The TECH CENTRE (2 x 1, a rectangle), off the owner's capture: TWO MASSIVE DARK CYLINDRICAL
+/// TOWERS with GLOWING RED CONDUITS running up their sides and round their collars, joined by a
+/// CENTRAL BLOCK that carries more conduit on its face and a red beacon, and two pipes crossing
+/// between the towers. (It does nothing beyond being a prerequisite.)
+void build_tech_centre(std::vector<SceneVertex>& out, const BuildingKit& k) {
+    constexpr Vec3 kGlow{1.0F, 0.12F, 0.06F};
+    for (const float tower : {-1.3F, 1.3F}) {
+        kit_drum(out, k, tower, 0.0F, 0.62F, 0.5F, 0.0F, 3.9F, k.shade, k.dark);
+        kit_drum(out, k, tower, 0.0F, 0.68F, 0.68F, 3.5F, 3.7F, k.shade, k.dark);
+        for (const float collar : {1.0F, 2.2F}) {
+            kit_drum(out, k, tower, 0.0F, 0.66F, 0.66F, collar, collar + 0.1F, kGlow, k.ribs);
+        }
+        kit_box(out, k, tower - 0.05F, tower + 0.05F, 0.5F, 0.68F, 0.2F, 3.0F, kGlow, k.ribs,
+                k.ribs);
+    }
+    kit_box(out, k, -0.7F, 0.7F, -0.65F, 0.65F, 0.0F, 1.9F, k.shade, k.dark, k.ribs);
+    for (const float strip : {-0.45F, 0.0F, 0.45F}) {
+        kit_box(out, k, strip - 0.05F, strip + 0.05F, 0.65F, 0.69F, 0.2F, 1.7F, kGlow, k.ribs,
+                k.ribs);
+    }
+    kit_drum(out, k, 0.0F, 0.0F, 0.14F, 0.1F, 1.9F, 2.4F, kGlow, k.ribs);
+    for (const float pipe_height : {1.4F, 2.6F}) {
+        emit_loft(out, k.x, k.z, k.ground, k.angle,
+                  std::array<LoftStation, 2>{{{-1.3F, pipe_height, -0.25F, 0.07F, 0.07F},
+                                              {1.3F, pipe_height, -0.25F, 0.07F, 0.07F}}},
+                  8, kGlow, k.ribs);
+    }
+}
+
+/// The BOMBER BAY (2 x 2): a HANGAR of three stepped tiers with a wide dark door, a landing APRON
+/// before it with three team-colour stripes, and a CONTROL TOWER with a glazed cabin on one back
+/// corner. (It holds no bomber yet; the apron is where one will stand.)
+void build_bomber_bay(std::vector<SceneVertex>& out, const BuildingKit& k) {
+    kit_box(out, k, -1.8F, 1.8F, -1.8F, 0.3F, 0.0F, 1.3F, k.pale, k.walls, k.roof);
+    kit_box(out, k, -1.65F, 1.65F, -1.65F, 0.15F, 1.3F, 1.6F, k.pale, k.walls, k.roof);
+    kit_box(out, k, -1.3F, 1.3F, -1.3F, -0.2F, 1.6F, 1.85F, k.pale, k.walls, k.roof);
+    kit_box(out, k, -1.2F, 1.2F, 0.3F, 0.33F, 0.0F, 1.1F, k.shade, k.dark, k.dark);
+    kit_box(out, k, -1.8F, 1.8F, 0.3F, 1.8F, 0.0F, 0.08F, k.pale, k.walls, k.ribs);
+    for (const float stripe : {-0.9F, 0.0F, 0.9F}) {
+        kit_box(out, k, stripe - 0.12F, stripe + 0.12F, 0.45F, 1.7F, 0.08F, 0.1F, k.colour, k.ribs,
+                k.ribs);
+    }
+    kit_box(out, k, 1.3F, 1.8F, -1.8F, -1.3F, 1.3F, 2.9F, k.pale, k.walls, k.roof);
+    kit_box(out, k, 1.15F, 1.85F, -1.85F, -1.15F, 2.9F, 3.25F, k.shade, k.dark, k.ribs);
+}
+
+/// The model of a placed building of any of the seven new kinds.
+void build_placed_building(std::vector<SceneVertex>& out, std::uint64_t seed, const sim::Unit& unit,
+                           Mark mark, float lift_z, bool lifted) {
+    const BuildingKit kit = make_building_kit(seed, unit, mark, lift_z, lifted);
+    switch (unit.kind) {
+    case sim::UnitKind::RelayBunker:
+        build_relay_bunker(out, kit);
+        break;
+    case sim::UnitKind::Armory:
+        build_armory(out, kit);
+        break;
+    case sim::UnitKind::ServiceBay:
+        build_service_bay(out, kit);
+        break;
+    case sim::UnitKind::GunTower:
+        build_gun_tower(out, kit);
+        break;
+    case sim::UnitKind::TrainingCentre:
+        build_training_centre(out, kit);
+        break;
+    case sim::UnitKind::TechCentre:
+        build_tech_centre(out, kit);
+        break;
+    case sim::UnitKind::BomberBay:
+        build_bomber_bay(out, kit);
+        break;
+    default:
+        break; // not one of the seven: nothing to draw here
+    }
 }
 
 /// The ink and tile a `ShapeRole` asks for. A role is a tone and a tile, no more: Hull wears the
@@ -6256,7 +6522,7 @@ math::Vec3 ground_normal(std::uint64_t seed, sim::Fixed x, sim::Fixed y) noexcep
 bool stands_level(sim::UnitKind kind) noexcept {
     return kind == sim::UnitKind::Factory || sim::is_turret(kind)
            || kind == sim::UnitKind::DeployedRecycler || kind == sim::UnitKind::DeployedScavenger
-           || kind == sim::UnitKind::Power;
+           || (sim::is_placeable(kind) && kind != sim::UnitKind::Factory);
 }
 
 Suspension suspend(Suspension state, float target_z, std::uint32_t ticks) noexcept {
@@ -6851,15 +7117,18 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
             } else if (unit.kind == sim::UnitKind::Power) {
                 // Its own silhouette (J3): a bank of generator drums, not the factory's hall.
                 build_power(scene.vertices, options.seed, unit, mark, lift_z, hovering);
-                if (sim::under_construction(unit)) {
-                    // K2: a site is drawn GROWING, bottom to top, as far as it has been built.
-                    const float total = static_cast<float>(sim::spec_of(unit.kind).build_ticks);
-                    const float grown = (total - static_cast<float>(unit.build_left)) / total;
-                    site_cuts.push_back(
-                        SiteCut{unit.id, cut_model(scene.vertices, body_first, grown)});
-                }
+            } else if (sim::is_placeable(unit.kind) && unit.kind != sim::UnitKind::Factory) {
+                // K3: the seven other buildings, each with a model of its own.
+                build_placed_building(scene.vertices, options.seed, unit, mark, lift_z, hovering);
             } else {
                 build_factory(scene.vertices, options.seed, unit, mark, lift_z, hovering);
+            }
+            if (sim::under_construction(unit)) {
+                // K2: a site is drawn GROWING, bottom to top, as far as it has been built -- the
+                // same cut for every building, whatever its model.
+                const float total = static_cast<float>(sim::spec_of(unit.kind).build_ticks);
+                const float grown = (total - static_cast<float>(unit.build_left)) / total;
+                site_cuts.push_back(SiteCut{unit.id, cut_model(scene.vertices, body_first, grown)});
             }
             if (!stands_level(unit.kind)) {
                 tilt_to_ground(scene.vertices, body_first, unit,

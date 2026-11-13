@@ -103,9 +103,23 @@ enum class UnitKind : std::uint8_t {
     /// never inserted, for the reason every kind above was. A building: it never moves, never
     /// fires, and stands on a `footprint_of` rectangle no unit may enter. It supplies NOTHING yet:
     /// the power grid is the next slice.
-    Power = 21
+    Power = 21,
+    /// The other seven buildings of a Constructor's panel (round 18, K3), appended in the panel's
+    /// own order after Power, never inserted. (The panel's FACTORY row is the `Factory` above: that
+    /// kind already existed and is wired, not duplicated.) Each is a building that never moves and
+    /// never fires, and stands on a `footprint_of` rectangle. THEIR FUNCTIONS ARE NOT BUILT: the
+    /// relay bunker relays nothing, the armory unlocks nothing, the service bay repairs nothing,
+    /// the gun tower does not shoot, the training centre and the tech centre do nothing beyond the
+    /// prerequisites the panel already models, and the bomber bay holds no bomber.
+    RelayBunker = 22,
+    Armory = 23,
+    ServiceBay = 24,
+    GunTower = 25,
+    TrainingCentre = 26,
+    TechCentre = 27,
+    BomberBay = 28
 };
-inline constexpr int kUnitKindCount = 22;
+inline constexpr int kUnitKindCount = 29;
 
 /// Tanks and hover tanks: every rule written "for a tank" (orders, retreat, defend, swap, the AI's
 /// hunters) takes both. The hover tank has the tank's profile and, until it is drivable, its
@@ -138,10 +152,25 @@ inline constexpr int kUnitKindCount = 22;
            && kind != UnitKind::DeployedScavenger;
 }
 
-/// A kind that stands on a FOOTPRINT (see `Footprint`): the deployed recycler and POWER. The
-/// factory is a building in the game's eyes but has never had one, and DEPLOY does not give it one.
+/// A kind that ALWAYS stands on a FOOTPRINT (see `Footprint`): the deployed recycler, POWER and the
+/// seven buildings of round 18's K3. The FACTORY is deliberately not here: every battle recorded
+/// before K3 spawns it as a plain point unit with no footprint, and giving the KIND one would move
+/// them all. A factory a Constructor PLACED has one -- see `has_footprint(const Unit&)`.
 [[nodiscard]] constexpr bool has_footprint(UnitKind kind) noexcept {
-    return kind == UnitKind::DeployedRecycler || kind == UnitKind::Power;
+    switch (kind) {
+    case UnitKind::DeployedRecycler:
+    case UnitKind::Power:
+    case UnitKind::RelayBunker:
+    case UnitKind::Armory:
+    case UnitKind::ServiceBay:
+    case UnitKind::GunTower:
+    case UnitKind::TrainingCentre:
+    case UnitKind::TechCentre:
+    case UnitKind::BomberBay:
+        return true;
+    default:
+        return false;
+    }
 }
 
 enum class Side : std::uint8_t { Player = 0, Enemy = 1 };
@@ -318,6 +347,11 @@ struct Unit {
     /// A PLACED BUILDING turned a quarter (`~ Rotate Buildings`): its footprint's width and height
     /// are swapped. Only a placed building's is ever set; hashed only when set.
     bool turned{};
+    /// RAISED BY A CONSTRUCTOR (`orders::Place`), as opposed to spawned by a scenario. It matters
+    /// for ONE kind, the Factory, which a scenario spawns as a point unit with no footprint (and
+    /// every recorded battle depends on that) but a Constructor raises on a 2x2 one. Set for every
+    /// placed building; hashed only for the Factory, the one kind whose footprint depends on it.
+    bool placed{};
     bool alive{true};
     /// A BUILDING STILL BEING BUILT (round 18, K2): the ticks of construction it has LEFT. Set to
     /// the kind's `build_ticks` when a Constructor places it, counted down only while a friendly
@@ -326,6 +360,12 @@ struct Unit {
     /// so a battle with no site under construction hashes exactly as it did before there was one.
     std::uint16_t build_left{};
 };
+
+/// Whether THIS unit stands on a footprint: its kind always does, or it is a Factory a Constructor
+/// placed. The question every footprint reader asks of a unit in the table.
+[[nodiscard]] constexpr bool has_footprint(const Unit& unit) noexcept {
+    return has_footprint(unit.kind) || (unit.kind == UnitKind::Factory && unit.placed);
+}
 
 /// A Constructor must be within this many TILES of a site's footprint (the nearest point of its
 /// rectangle) for the site to progress. The owner's "within one block" -- his block is this tree's
@@ -570,6 +610,9 @@ struct FootprintSize {
 /// to set in a balance pass.
 inline constexpr std::uint16_t kPowerHp = kTankHp;
 
+/// The hull of each of the seven buildings K3 adds: the tank's, a DEFAULT -- the owner's to set.
+inline constexpr std::uint16_t kPlacedBuildingHp = kTankHp;
+
 /// POWER's footprint: ONE tile, 1x1. The owner's ruling (round 18, K1), the first REAL footprint he
 /// has given: "I think Power should take up only 1 x 1.  At least that's what their footprint
 /// seems to be in BattleZone 2."  It supersedes the provisional 4x2 of round 17. A footprint is
@@ -577,11 +620,35 @@ inline constexpr std::uint16_t kPowerHp = kTankHp;
 /// a one-tile building stands at its tile's centre (`place_building`).
 inline constexpr FootprintSize kPowerFootprint{1, 1};
 
-/// A kind a CONSTRUCTOR places (`orders::Place`): POWER, today -- the other eight rows of its panel
-/// are later slices. Every one has a footprint; the deployed recycler has one too but is made by a
-/// deploy, never placed.
+/// The nine buildings' footprints (the owner read them off the game, 2026-11-12), in tiles.
+/// RELAY BUNKER and GUN TOWER are PROVISIONAL 1x1: he did not name them. TRAINING CTR. and TECH
+/// CENTRE are the two RECTANGLES, 2x1.
+inline constexpr FootprintSize kFactoryFootprint{2, 2};
+inline constexpr FootprintSize kRelayBunkerFootprint{1, 1}; // PROVISIONAL
+inline constexpr FootprintSize kArmoryFootprint{1, 1};
+inline constexpr FootprintSize kServiceBayFootprint{2, 2};
+inline constexpr FootprintSize kGunTowerFootprint{1, 1}; // PROVISIONAL
+inline constexpr FootprintSize kTrainingCentreFootprint{2, 1};
+inline constexpr FootprintSize kTechCentreFootprint{2, 1};
+inline constexpr FootprintSize kBomberBayFootprint{2, 2};
+
+/// A kind a CONSTRUCTOR places (`orders::Place`): the nine buildings of its panel, the Factory
+/// included. The deployed recycler has a footprint too but is made by a deploy, never placed.
 [[nodiscard]] constexpr bool is_placeable(UnitKind kind) noexcept {
-    return kind == UnitKind::Power;
+    switch (kind) {
+    case UnitKind::Power:
+    case UnitKind::Factory:
+    case UnitKind::RelayBunker:
+    case UnitKind::Armory:
+    case UnitKind::ServiceBay:
+    case UnitKind::GunTower:
+    case UnitKind::TrainingCentre:
+    case UnitKind::TechCentre:
+    case UnitKind::BomberBay:
+        return true;
+    default:
+        return false;
+    }
 }
 
 /// The deployed recycler's footprint: 2x2 tiles (his ruling, 2026-10-26: "2x2 tiles -- a building
@@ -589,16 +656,35 @@ inline constexpr FootprintSize kPowerFootprint{1, 1};
 /// add their own rows to `footprint_of`.
 inline constexpr FootprintSize kDeployedRecyclerFootprint{2, 2};
 
-/// THE TABLE: the size of the footprint a kind stands on. A kind without one (`has_footprint`) is
-/// 0x0, which covers no tile. POWER is the owner's real 1x1; the deployed recycler's 2x2 is his
-/// earlier ruling. The OTHER eight Builder rows have no `UnitKind` yet, so no rectangle: whichever
-/// is added first is PROVISIONAL until he gives its value, and `test_footprint.cpp` pins the whole
-/// table so that is a deliberate edit, never a drift.
+/// THE TABLE: the size of the footprint a kind stands on, 0x0 for a kind that has none (it covers
+/// no tile). The Factory's 2x2 is the size a PLACED factory stands on; a scenario's spawned factory
+/// has none (`has_footprint(const Unit&)`). `test_footprint.cpp` pins the whole table so an edit is
+/// deliberate, never a drift.
 [[nodiscard]] constexpr FootprintSize footprint_of(UnitKind kind) noexcept {
-    if (kind == UnitKind::DeployedRecycler) {
+    switch (kind) {
+    case UnitKind::DeployedRecycler:
         return kDeployedRecyclerFootprint;
+    case UnitKind::Power:
+        return kPowerFootprint;
+    case UnitKind::Factory:
+        return kFactoryFootprint;
+    case UnitKind::RelayBunker:
+        return kRelayBunkerFootprint;
+    case UnitKind::Armory:
+        return kArmoryFootprint;
+    case UnitKind::ServiceBay:
+        return kServiceBayFootprint;
+    case UnitKind::GunTower:
+        return kGunTowerFootprint;
+    case UnitKind::TrainingCentre:
+        return kTrainingCentreFootprint;
+    case UnitKind::TechCentre:
+        return kTechCentreFootprint;
+    case UnitKind::BomberBay:
+        return kBomberBayFootprint;
+    default:
+        return FootprintSize{};
     }
-    return kind == UnitKind::Power ? kPowerFootprint : FootprintSize{};
 }
 
 /// The tiles a building stands on: the `width` x `height` rectangle whose NORTH-WEST (lowest x,
@@ -633,7 +719,7 @@ struct Footprint {
 /// The footprint a placed building stands on: its kind's rectangle, with width and height swapped
 /// when it was turned a quarter.
 [[nodiscard]] constexpr FootprintSize footprint_of(const Unit& unit) noexcept {
-    const FootprintSize size = footprint_of(unit.kind);
+    const FootprintSize size = has_footprint(unit) ? footprint_of(unit.kind) : FootprintSize{};
     return unit.turned ? FootprintSize{size.height, size.width} : size;
 }
 

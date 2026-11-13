@@ -114,9 +114,12 @@ TEST(Footprint, TheDeployedRecyclerIsStillTwoByTwoAndPowerIsTheOnlyOtherKindWith
     EXPECT_TRUE(protekt::sim::has_footprint(UnitKind::DeployedRecycler));
     EXPECT_EQ(footprint_of(UnitKind::Power), (FootprintSize{1, 1}));
     EXPECT_TRUE(protekt::sim::has_footprint(UnitKind::Power));
+    // MOVED DELIBERATELY with round 18, K3: seven more kinds stand on a footprint (and the Factory
+    // has a table row, 2x2, for the one a Constructor places), so the exceptions are the nine
+    // buildings; every other kind still covers no tile. `test_buildings.cpp` pins their values.
     for (int k = 0; k < 64; ++k) {
         const auto kind = static_cast<UnitKind>(k);
-        if (kind == UnitKind::DeployedRecycler || kind == UnitKind::Power) {
+        if (protekt::sim::is_placeable(kind) || kind == UnitKind::DeployedRecycler) {
             continue;
         }
         EXPECT_FALSE(protekt::sim::has_footprint(kind)) << k;
@@ -212,9 +215,11 @@ TEST(OneTile, TheTableReadsOneByOneForPowerAndPinsEveryOtherKindExactlyAsItWas) 
     // Only two kinds have a table row today: the other eight Builder rows have no UnitKind and so
     // no PROVISIONAL rectangle YET. This pins the whole table, so the day a kind is given one (a
     // later slice's real value) is a deliberate edit of this test, not a drift.
+    // K3 moved this deliberately: the nine placeable buildings have rows now (pinned, as literals,
+    // in `test_buildings.cpp`), and every other kind is still 0x0.
     for (int k = 0; k < 64; ++k) {
         const auto kind = static_cast<UnitKind>(k);
-        if (kind == UnitKind::DeployedRecycler || kind == UnitKind::Power) {
+        if (protekt::sim::is_placeable(kind) || kind == UnitKind::DeployedRecycler) {
             continue;
         }
         EXPECT_EQ(footprint_of(kind), (FootprintSize{})) << k;

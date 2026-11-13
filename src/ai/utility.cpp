@@ -104,6 +104,13 @@ Role role_of(sim::UnitKind kind) noexcept {
     case sim::UnitKind::DeployedRecycler:  // the base itself: it never moves, so nothing to decide
     case sim::UnitKind::DeployedScavenger: // a fixture on its pool: nothing to decide either
     case sim::UnitKind::Power:             // a building the player places: the AI never does
+    case sim::UnitKind::RelayBunker:
+    case sim::UnitKind::Armory:
+    case sim::UnitKind::ServiceBay:
+    case sim::UnitKind::GunTower:
+    case sim::UnitKind::TrainingCentre:
+    case sim::UnitKind::TechCentre:
+    case sim::UnitKind::BomberBay:
         return Role::None;
     }
     return Role::None;
@@ -138,6 +145,13 @@ int threat_of(sim::UnitKind kind) noexcept {
     case sim::UnitKind::DeployedRecycler:  // and deployed it is still unarmed
     case sim::UnitKind::DeployedScavenger: // unarmed on its pool, as it was on wheels
     case sim::UnitKind::Power:             // a building with no gun
+    case sim::UnitKind::RelayBunker:
+    case sim::UnitKind::Armory:
+    case sim::UnitKind::ServiceBay:
+    case sim::UnitKind::GunTower:
+    case sim::UnitKind::TrainingCentre:
+    case sim::UnitKind::TechCentre:
+    case sim::UnitKind::BomberBay:
         return 0;
     }
     return 0;

@@ -186,8 +186,8 @@ TEST(ConstructPanel, TheTableHoldsExactlyNineRowsWithTheirKeysLabelsAndCosts) {
         EXPECT_EQ(got.key, kNine.at(i).key);
         EXPECT_EQ(got.label, kNine.at(i).label);
         EXPECT_EQ(got.cost, kNine.at(i).cost) << kNine.at(i).label;
-        // Only POWER names a kind (round 17, J3); the other eight are later slices' name rows.
-        EXPECT_EQ(got.kind.has_value(), i == 0) << kNine.at(i).label;
+        // Every human row names a kind since round 18, K3 (it was POWER alone, round 17, J3).
+        EXPECT_TRUE(got.kind.has_value()) << kNine.at(i).label;
     }
 }
 
@@ -247,15 +247,19 @@ TEST(ConstructPanel, AnUnaffordableRowDimsAndItsPressIsRefusedNamingTheObstacle)
     EXPECT_EQ(y.sim.ore(Side::Player), 44U) << "nothing is charged";
 }
 
-TEST(ConstructPanel, AnAffordableRowThatIsNotBuiltYetIsRefusedWithTheHonestPlaceholder) {
+TEST(ConstructPanel, AnAffordableRowWhosePrerequisitesStandNowArmsItsBuildingAndChargesNothingYet) {
+    // MOVED DELIBERATELY with round 18, K3: FACTORY was "a later slice" and refused with the honest
+    // placeholder; it names a kind now, so the press ARMS it (SPACE places it, and only then does
+    // the sim charge). The placeholder survives for the ALIEN rows alone (`test_alien_construct`).
     Yard y = make_yard(400, true);
     Session session{y.driven};
     std::vector<sim::Order> orders;
     open_panel(y, session, orders);
     orders.clear();
-    session.frame(key_frame(digit_key(2)), y.sim, y.options, orders); // FACTORY: a later slice
-    EXPECT_EQ(session.message(), "Nothing can be built yet. Placing a building is not done.");
-    EXPECT_EQ(y.sim.ore(Side::Player), 400U) << "nothing is charged";
+    session.frame(key_frame(digit_key(2)), y.sim, y.options, orders); // FACTORY
+    ASSERT_TRUE(session.placing().has_value());
+    EXPECT_EQ(session.placing().value_or(Placing{}).kind, sim::UnitKind::Factory);
+    EXPECT_EQ(y.sim.ore(Side::Player), 400U) << "nothing is charged by the press";
     for (const sim::Order& order : orders) {
         EXPECT_NE(order.unit, y.constructor) << "no order is issued for the constructor";
     }

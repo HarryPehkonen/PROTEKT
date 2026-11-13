@@ -128,7 +128,7 @@ struct Yard {
 // ------------------------------------------------------------------------------ the kind
 
 TEST(Power, TheKindIsAppendedWithItsSpecRowAndItsFootprint) {
-    EXPECT_EQ(sim::kUnitKindCount, 22) << "the pin moves from 21 to 22: POWER is the 22nd kind";
+    EXPECT_EQ(sim::kUnitKindCount, 29) << "moved 22 -> 29 with K3's seven buildings after POWER";
     EXPECT_EQ(static_cast<int>(UnitKind::Power), 21) << "appended, never inserted";
     EXPECT_EQ(static_cast<int>(UnitKind::ServicePod), 20) << "no earlier value moved";
     const sim::UnitSpec& row = sim::spec_of(UnitKind::Power);
@@ -411,7 +411,9 @@ void open_panel(const Rig& r, Session& session, std::vector<sim::Order>& orders)
 
 } // namespace
 
-TEST(PowerPanel, OnlyThePowerRowCarriesAKindAndTheOtherEightStayNameRows) {
+TEST(PowerPanel, EveryHumanRowCarriesAKindSinceK3AndPowerIsStillTheFirst) {
+    // MOVED DELIBERATELY with round 18, K3: the other eight rows were name rows; each now names its
+    // kind (`test_buildings.cpp` pins all eight). POWER's row and price are as they were.
     const std::span<const BuildItem> items = construct_items();
     ASSERT_EQ(items.size(), 9U);
     ASSERT_TRUE(items[0].kind.has_value());
@@ -419,10 +421,10 @@ TEST(PowerPanel, OnlyThePowerRowCarriesAKindAndTheOtherEightStayNameRows) {
     EXPECT_EQ(items[0].cost, sim::spec_of(UnitKind::Power).cost)
         << "the price drawn is the price charged";
     for (std::size_t i = 1; i < items.size(); ++i) {
-        EXPECT_FALSE(items[i].kind.has_value()) << items[i].label;
+        EXPECT_TRUE(items[i].kind.has_value()) << items[i].label;
     }
-    EXPECT_FALSE(items[1].kind.has_value())
-        << "FACTORY is not buildable because a Factory kind exists";
+    EXPECT_EQ(items[1].kind.value_or(UnitKind::Tank), UnitKind::Factory)
+        << "FACTORY is the kind that already existed, wired";
 }
 
 TEST(PowerPanel, OnePressArmsPowerAndThePreviewCarriesItsCostAndFootprint) {

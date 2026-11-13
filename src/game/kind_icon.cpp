@@ -416,6 +416,13 @@ const IconMask& kind_icon(sim::UnitKind kind) noexcept {
     case sim::UnitKind::DeployedRecycler:
         return art<draw_deployed_recycler>();
     case sim::UnitKind::Power: // no plate yet: it is on no key, so no row ever draws it
+    case sim::UnitKind::RelayBunker:
+    case sim::UnitKind::Armory:
+    case sim::UnitKind::ServiceBay:
+    case sim::UnitKind::GunTower:
+    case sim::UnitKind::TrainingCentre:
+    case sim::UnitKind::TechCentre:
+    case sim::UnitKind::BomberBay:
         return art<draw_fallback>();
     }
     return art<draw_fallback>();

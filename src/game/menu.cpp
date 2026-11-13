@@ -176,8 +176,8 @@ constexpr std::array kFactoryBuildList{
 };
 
 /// The CONSTRUCTOR's nine buildings, in key order. Every cost is CONFIRMED off the owner's own
-/// captures (2026-11-11). NAME rows: no `UnitKind` names a structure yet, so no row can place
-/// anything (slice J3 brings the first).
+/// captures (2026-11-11) and is read from the spec row, so the number drawn is the number charged.
+/// Every row names a kind (K3) and places it.
 ///
 /// TWO LABELS DIVERGE FROM THE REFERENCE ON PURPOSE -- the owner ruled Canadian spelling, so it
 /// reads `TECH CENTRE` where the reference prints "Tech Center"; and `TRAINING CTR.` where the
@@ -185,14 +185,14 @@ constexpr std::array kFactoryBuildList{
 /// Training Ctr."), because the full name does not fit the panel. Do not "correct" either.
 constexpr std::array kConstructItems{
     kinded("1", "POWER", sim::UnitKind::Power), // the first building (J3): its cost is the spec's
-    BuildItem{"2", "FACTORY", 55, std::nullopt},
-    BuildItem{"3", "RELAY BUNKER", 50, std::nullopt},
-    BuildItem{"4", "ARMORY", 60, std::nullopt},
-    BuildItem{"5", "SERVICE BAY", 50, std::nullopt},
-    BuildItem{"6", "GUN TOWER", 50, std::nullopt},
-    BuildItem{"7", "TRAINING CTR.", 70, std::nullopt},
-    BuildItem{"8", "TECH CENTRE", 80, std::nullopt},
-    BuildItem{"9", "BOMBER BAY", 100, std::nullopt},
+    kinded("2", "FACTORY", sim::UnitKind::Factory), // K3: the kind that already existed, wired
+    kinded("3", "RELAY BUNKER", sim::UnitKind::RelayBunker),
+    kinded("4", "ARMORY", sim::UnitKind::Armory),
+    kinded("5", "SERVICE BAY", sim::UnitKind::ServiceBay),
+    kinded("6", "GUN TOWER", sim::UnitKind::GunTower),
+    kinded("7", "TRAINING CTR.", sim::UnitKind::TrainingCentre),
+    kinded("8", "TECH CENTRE", sim::UnitKind::TechCentre),
+    kinded("9", "BOMBER BAY", sim::UnitKind::BomberBay),
 };
 
 /// The ALIEN BUILDER's six buildings (round 17, J5), off the owner's own capture. No second page.
@@ -424,6 +424,35 @@ int spare_power(const StandingBuildings& standing) noexcept {
               + count(ConstructBuilding::GunTower));
 }
 
+namespace {
+/// The panel's building a kind is (K3: all nine have a kind now), or none for a unit.
+std::optional<ConstructBuilding> construct_building_of(sim::UnitKind kind) noexcept {
+    using B = ConstructBuilding;
+    switch (kind) {
+    case sim::UnitKind::Power:
+        return B::Power;
+    case sim::UnitKind::Factory:
+        return B::Factory;
+    case sim::UnitKind::RelayBunker:
+        return B::RelayBunker;
+    case sim::UnitKind::Armory:
+        return B::Armory;
+    case sim::UnitKind::ServiceBay:
+        return B::ServiceBay;
+    case sim::UnitKind::GunTower:
+        return B::GunTower;
+    case sim::UnitKind::TrainingCentre:
+        return B::TrainingCentre;
+    case sim::UnitKind::TechCentre:
+        return B::TechCentre;
+    case sim::UnitKind::BomberBay:
+        return B::BomberBay;
+    default:
+        return std::nullopt;
+    }
+}
+} // namespace
+
 StandingBuildings standing_buildings(const sim::Sim& sim, sim::Side side, Faction faction) {
     StandingBuildings standing{};
     if (faction == Faction::Alien) {
@@ -435,11 +464,9 @@ StandingBuildings standing_buildings(const sim::Sim& sim, sim::Side side, Factio
         if (!unit.alive || unit.side != side || sim::under_construction(unit)) {
             continue;
         }
-        // Only the kinds that exist: the other seven buildings have no `UnitKind` yet.
-        if (unit.kind == sim::UnitKind::Power) {
-            ++standing.at(static_cast<std::size_t>(ConstructBuilding::Power));
-        } else if (unit.kind == sim::UnitKind::Factory) {
-            ++standing.at(static_cast<std::size_t>(ConstructBuilding::Factory));
+        const std::optional<ConstructBuilding> building = construct_building_of(unit.kind);
+        if (building.has_value()) {
+            ++standing.at(static_cast<std::size_t>(*building));
         }
     }
     return standing;
@@ -535,6 +562,13 @@ MenuSubject menu_subject_of_kind(sim::UnitKind kind) noexcept {
         return MenuSubject::Harvester;
     case sim::UnitKind::DeployedScavenger: // no key selects it, and it takes no command: no menu
     case sim::UnitKind::Power:             // a placed building: nothing selects it yet, no menu
+    case sim::UnitKind::RelayBunker:
+    case sim::UnitKind::Armory:
+    case sim::UnitKind::ServiceBay:
+    case sim::UnitKind::GunTower:
+    case sim::UnitKind::TrainingCentre:
+    case sim::UnitKind::TechCentre:
+    case sim::UnitKind::BomberBay:
         return MenuSubject::None;
     case sim::UnitKind::Turret:
     case sim::UnitKind::DeployedTurret:
