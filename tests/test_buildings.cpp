@@ -23,6 +23,7 @@
 #include <vector>
 
 #include "protekt/app/player_view.hpp"
+#include "protekt/game/deploy_aim.hpp"
 #include "protekt/game/interaction.hpp"
 #include "protekt/game/menu.hpp"
 #include "protekt/game/row.hpp"
@@ -366,12 +367,37 @@ struct Rig {
 
 /// A tank, a Constructor, and the standing buildings that satisfy every prerequisite on the
 /// panel: two POWER plants (six units), a Factory, an Armory, a Service Bay and a Training Ctr.
+///
+/// ROUND 18, K4 (power must reach the building): the three buildings that DRAW power (Factory,
+/// Relay Bunker, Gun Tower) are only placed where a powered building touches, so the rig also
+/// stands a third plant on the tile just west of where the reticle lands (every footprint is
+/// anchored at its north-west tile, so a plant there touches any of them). That plant is the ONLY
+/// change to this rig and it exists for the ruling, not to make a test pass: the placement refusals
+/// are pinned in test_power_reach.cpp.
 [[nodiscard]] Rig make_rig(std::uint16_t ore) {
+    int aim_x = 0;
+    int aim_y = 0;
+    {
+        sim::Scenario bare{kSeed,
+                           {{UnitKind::Tank, Side::Player, 60, 60},
+                            {UnitKind::Constructor, Side::Player, 61, 60}}};
+        const sim::Sim probe = sim::Sim::create(bare);
+        SceneOptions probe_options;
+        probe_options.seed = kSeed;
+        probe_options.extent = Extent{1280, 720};
+        probe_options.camera = Camera{120.0F, 20.0F, 120.0F, 0.0F, 0.0F};
+        probe_options.viewer_unit = probe.units().at(0).id;
+        probe_options.aim = Aim{640.0F, 700.0F};
+        const NavAim aim = nav_aim(probe, probe_options);
+        aim_x = aim.tile_x;
+        aim_y = aim.tile_y;
+    }
     sim::Scenario scenario{kSeed,
                            {{UnitKind::Tank, Side::Player, 60, 60},
                             {UnitKind::Constructor, Side::Player, 61, 60},
                             {UnitKind::Power, Side::Player, 30, 30},
                             {UnitKind::Power, Side::Player, 33, 30},
+                            {UnitKind::Power, Side::Player, aim_x - 1, aim_y},
                             {UnitKind::Factory, Side::Player, 30, 34},
                             {UnitKind::Armory, Side::Player, 36, 30},
                             {UnitKind::ServiceBay, Side::Player, 36, 34},

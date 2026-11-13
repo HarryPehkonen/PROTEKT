@@ -4,6 +4,7 @@
 #include <vector>
 
 #include "protekt/game/attack_aim.hpp"
+#include "protekt/game/menu.hpp"
 #include "protekt/game/radar.hpp"
 #include "protekt/sim/pool.hpp"
 
@@ -88,13 +89,22 @@ std::optional<DeployOffer> deploy_offer(const sim::Sim& sim, const SceneOptions&
     return DeployOffer{DeploySite::Spot, picked.tile_x, picked.tile_y};
 }
 
+bool placement_connected(const sim::Sim& sim, const Placing& placing, int tile_x, int tile_y) {
+    if (!draws_power(placing.kind)) {
+        return true;
+    }
+    return site_connected(network_of(sim, sim::Side::Player),
+                          sim::footprint_at(placing.size, tile_x, tile_y));
+}
+
 DeployPreview placement_preview(const sim::Sim& sim, const Placing& placing, int tile_x,
                                 int tile_y) noexcept {
     // The footprint as the sim will stand it (clipped onto the map) and the SIM'S verdict on it:
     // green is a promise that SPACE places there, red that it refuses -- never re-derived here.
     return DeployPreview{
         sim::footprint_at(placing.size, tile_x, tile_y),
-        sim::place_ok(sim.seed(), sim.units(), placing.kind, placing.turned, tile_x, tile_y)};
+        sim::place_ok(sim.seed(), sim.units(), placing.kind, placing.turned, tile_x, tile_y)
+            && placement_connected(sim, placing, tile_x, tile_y)};
 }
 
 } // namespace protekt::game

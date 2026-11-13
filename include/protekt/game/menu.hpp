@@ -168,6 +168,44 @@ inline constexpr int kPowerSuppliedPerPlant = 3;
 /// POWER, less one for each standing FACTORY, RELAY BUNKER and GUN TOWER. May be negative.
 [[nodiscard]] int spare_power(const StandingBuildings& standing) noexcept;
 
+/// POWER MUST REACH THE BUILDING (round 18, K4; the owner: "I generally put all power units near
+/// the deployed recycler ... I then place relay bunkers near any entrance ... I can construct Gun
+/// Towers next to relay bunkers, touching the relay bunkers so power can be transferred").
+///
+/// One standing building of a side, as the network sees it: its kind and the tiles it stands on.
+struct NetworkBuilding {
+    sim::UnitKind kind{};
+    sim::Footprint footprint{};
+};
+
+/// TOUCHING means sharing an EDGE of positive length. A corner alone does not touch (nothing could
+/// pass between two buildings that meet at a point). The one place the word is defined.
+[[nodiscard]] bool touches(const sim::Footprint& a, const sim::Footprint& b) noexcept;
+
+/// THE ONE CONNECTION RULE: which of `buildings` are powered. A POWER plant is a SOURCE (always
+/// powered). The deployed RECYCLER (the hub) and the RELAY BUNKER are CONDUCTORS: powered when they
+/// touch a powered source or conductor, and they pass it on, so a chain of bunkers carries power
+/// across a gap. Every other building is a TERMINAL: powered when it touches a powered source or
+/// conductor, and it passes nothing on. The answer is index-for-index with `buildings`. Nothing is
+/// stored: it is computed from what stands.
+[[nodiscard]] std::vector<bool> powered_buildings(std::span<const NetworkBuilding> buildings);
+
+/// Would a building of `kind` placed on `site` be connected: does `site` touch a POWERED source or
+/// conductor of `network`? True for a kind that draws no power (it needs no connection).
+[[nodiscard]] bool site_connected(std::span<const NetworkBuilding> network,
+                                  const sim::Footprint& site);
+
+/// `side`'s standing (not under construction) buildings that stand on a footprint, for the rule.
+[[nodiscard]] std::vector<NetworkBuilding> network_of(const sim::Sim& sim, sim::Side side);
+
+/// Whether ANY powered building of `side` stands that a new building could touch: what the panel's
+/// power rows are weighed against (`MenuInput::powered_node`).
+[[nodiscard]] bool power_stands(const sim::Sim& sim, sim::Side side);
+
+/// Whether placing the building `kind` draws power from the network (the Factory, Relay Bunker and
+/// Gun Tower): read from `construct_requirement`, the owner's tree, so it is not restated.
+[[nodiscard]] bool draws_power(sim::UnitKind kind) noexcept;
+
 /// What `side` has standing, counted from the sim's living units (nothing is stored). Only the
 /// kinds that exist count: the other seven buildings read zero until their slices. Under the ALIEN
 /// faction every slot reads zero: no alien building has a kind, and a human Power or Factory the
@@ -266,6 +304,9 @@ struct MenuInput {
     /// against alongside the bank. Zero by default: a caller that does not know draws every
     /// requirement as unmet.
     StandingBuildings standing{};
+    /// Some POWERED building stands (`power_stands`): the thing a new consumer has to touch. False
+    /// by default, like `standing`: a caller that does not know draws every power row as unreached.
+    bool powered_node{false};
 };
 
 /// WHY a row is dimmed. The values are exhaustive on purpose: `None` means the row is NOT dimmed,
@@ -276,16 +317,17 @@ struct MenuInput {
 /// of the alien faction?"). NeedsBuilding and NeedsPower are produced by the CONSTRUCT panel since
 /// round 17 J4; NeedsUpgrade is still produced by nothing (`reason_occurs_today`).
 enum class MenuDim : std::uint8_t {
-    None = 0,      ///< not dimmed: the row is live
-    Unaffordable,  ///< a build row whose cost is more than is banked
-    DoesNotApply,  ///< an action row that this selection cannot do
-    NeedsBuilding, ///< a panel row whose required building(s) do not stand (`MenuRow::missing`)
-    NeedsPower,    ///< a panel row that needs a spare unit of power and the grid has none
-    NeedsUpgrade,  ///< UNREACHABLE TODAY: a build row (the aliens') whose upgrade is not bought
+    None = 0,        ///< not dimmed: the row is live
+    Unaffordable,    ///< a build row whose cost is more than is banked
+    DoesNotApply,    ///< an action row that this selection cannot do
+    NeedsBuilding,   ///< a panel row whose required building(s) do not stand (`MenuRow::missing`)
+    NeedsPower,      ///< a panel row that needs a spare unit of power and the grid has none
+    NeedsConnection, ///< a power row, and no powered building stands for the new one to TOUCH
+    NeedsUpgrade,    ///< UNREACHABLE TODAY: a build row (the aliens') whose upgrade is not bought
 };
 /// How many `MenuDim` values there are, for the test that walks them all. Keep it equal to the
 /// last value + 1 (a test checks the last value's mapping is not left out).
-inline constexpr std::size_t kMenuDimCount = 6;
+inline constexpr std::size_t kMenuDimCount = 7;
 
 /// One row of the menu, as drawn: the key pressed and the verb it names, side by side.
 struct MenuRow {
@@ -355,6 +397,7 @@ struct MenuRow {
     case MenuDim::DoesNotApply:
     case MenuDim::NeedsBuilding:
     case MenuDim::NeedsPower:
+    case MenuDim::NeedsConnection:
         return true;
     case MenuDim::NeedsUpgrade:
         return false;

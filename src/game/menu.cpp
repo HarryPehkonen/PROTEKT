@@ -1,9 +1,11 @@
 #include "protekt/game/menu.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <optional>
 #include <utility>
+#include <vector>
 
 #include "protekt/game/row.hpp"
 #include "protekt/sim/spec.hpp"
@@ -317,6 +319,10 @@ void append_construct_panel(std::vector<MenuRow>& rows, const MenuInput& in) {
             reason = MenuDim::NeedsBuilding;
         } else if (need.power && spare_power(in.standing) < 1) {
             reason = MenuDim::NeedsPower;
+        } else if (need.power && !in.powered_node) {
+            // The count has a unit to spare but no powered building stands for the new one to
+            // touch (K4): the CONNECTION, named as such.
+            reason = MenuDim::NeedsConnection;
         } else if (in.ore < item.cost) {
             reason = MenuDim::Unaffordable;
         }
@@ -410,6 +416,8 @@ std::string refusal_message(const MenuRow& row) {
         return needs_buildings_text(row.missing, row.faction);
     case MenuDim::NeedsPower:
         return "Needs power";
+    case MenuDim::NeedsConnection:
+        return "Needs power: nothing powered stands for it to touch";
     case MenuDim::NeedsUpgrade: // unreachable today
         return "Needs an upgrade first";
     }
@@ -470,6 +478,107 @@ StandingBuildings standing_buildings(const sim::Sim& sim, sim::Side side, Factio
         }
     }
     return standing;
+}
+
+bool touches(const sim::Footprint& a, const sim::Footprint& b) noexcept {
+    const auto overlap = [](int a0, int a_len, int b0, int b_len) {
+        return std::min(a0 + a_len, b0 + b_len) > std::max(a0, b0);
+    };
+    const bool side_by_side
+        = (a.x + a.width == b.x || b.x + b.width == a.x) && overlap(a.y, a.height, b.y, b.height);
+    const bool end_to_end
+        = (a.y + a.height == b.y || b.y + b.height == a.y) && overlap(a.x, a.width, b.x, b.width);
+    return side_by_side || end_to_end;
+}
+
+namespace {
+/// A building that PASSES power on once it has it: the plant (it makes it), the hub and the relay.
+bool is_source(sim::UnitKind kind) noexcept { return kind == sim::UnitKind::Power; }
+bool is_conductor(sim::UnitKind kind) noexcept {
+    return is_source(kind) || kind == sim::UnitKind::DeployedRecycler
+           || kind == sim::UnitKind::RelayBunker;
+}
+} // namespace
+
+std::vector<bool> powered_buildings(std::span<const NetworkBuilding> buildings) {
+    std::vector<bool> on(buildings.size(), false);
+    for (std::size_t i = 0; i < buildings.size(); ++i) {
+        on[i] = is_source(buildings[i].kind);
+    }
+    // Spread through the conductors until nothing changes (a chain of bunkers is a chain of
+    // passes).
+    for (bool grew = true; grew;) {
+        grew = false;
+        for (std::size_t i = 0; i < buildings.size(); ++i) {
+            if (on[i] || !is_conductor(buildings[i].kind)) {
+                continue;
+            }
+            for (std::size_t j = 0; j < buildings.size(); ++j) {
+                if (on[j] && is_conductor(buildings[j].kind)
+                    && touches(buildings[i].footprint, buildings[j].footprint)) {
+                    on[i] = true;
+                    grew = true;
+                    break;
+                }
+            }
+        }
+    }
+    // A terminal is powered by touching a powered conductor, and passes nothing on.
+    for (std::size_t i = 0; i < buildings.size(); ++i) {
+        if (on[i] || is_conductor(buildings[i].kind)) {
+            continue;
+        }
+        for (std::size_t j = 0; j < buildings.size(); ++j) {
+            if (on[j] && is_conductor(buildings[j].kind)
+                && touches(buildings[i].footprint, buildings[j].footprint)) {
+                on[i] = true;
+                break;
+            }
+        }
+    }
+    return on;
+}
+
+bool site_connected(std::span<const NetworkBuilding> network, const sim::Footprint& site) {
+    const std::vector<bool> on = powered_buildings(network);
+    for (std::size_t j = 0; j < network.size(); ++j) {
+        if (on[j] && is_conductor(network[j].kind) && touches(site, network[j].footprint)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+std::vector<NetworkBuilding> network_of(const sim::Sim& sim, sim::Side side) {
+    std::vector<NetworkBuilding> network;
+    for (const sim::Unit& unit : sim.units()) {
+        if (!unit.alive || unit.side != side || sim::under_construction(unit)
+            || !sim::has_footprint(unit)) {
+            continue;
+        }
+        const sim::UnitKind kind = unit.kind;
+        if (is_conductor(kind) || construct_building_of(kind).has_value()) {
+            network.push_back(NetworkBuilding{kind, sim::footprint_around(unit)});
+        }
+    }
+    return network;
+}
+
+bool power_stands(const sim::Sim& sim, sim::Side side) {
+    const std::vector<NetworkBuilding> network = network_of(sim, side);
+    const std::vector<bool> on = powered_buildings(network);
+    for (std::size_t i = 0; i < network.size(); ++i) {
+        if (on[i] && is_conductor(network[i].kind)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool draws_power(sim::UnitKind kind) noexcept {
+    const std::optional<ConstructBuilding> building = construct_building_of(kind);
+    return building.has_value()
+           && construct_requirement(Faction::Human, static_cast<std::size_t>(*building)).power;
 }
 
 namespace {

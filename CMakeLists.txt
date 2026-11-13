@@ -300,6 +300,7 @@ if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
         tests/test_repair_list_parts.cpp
         tests/test_construct_panel.cpp
         tests/test_construct_needs.cpp
+        tests/test_power_reach.cpp
         tests/test_alien_construct.cpp
         tests/test_power.cpp
         tests/test_build_site.cpp

@@ -48,6 +48,11 @@ constexpr std::uint64_t kSeed = 42;
     in.construct_panel = true;
     in.ore = ore;
     in.standing = standing;
+    // K4 (power must reach the building): the panel is also told whether a POWERED building stands
+    // for a new one to touch. These tests are about the owner's tree and the COUNT, so the helper
+    // says yes exactly when a plant stands (a plant is always powered): the old arithmetic,
+    // unchanged. The connection is pinned in test_power_reach.cpp.
+    in.powered_node = standing.at(static_cast<std::size_t>(B::Power)) > 0;
     return menu_rows(in);
 }
 

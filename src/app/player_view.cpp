@@ -207,6 +207,7 @@ std::vector<game::MenuRow> menu_for(const sim::Sim& sim, const game::Session& se
         in.construct_panel = true;
         in.placing = session.placing().has_value();
         in.standing = game::standing_buildings(sim, sim::Side::Player, in.faction);
+        in.powered_node = game::power_stands(sim, sim::Side::Player);
         return game::menu_rows(in);
     }
     if (session.repair_armed()) {

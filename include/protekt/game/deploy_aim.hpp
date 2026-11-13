@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <optional>
 #include <span>
+#include <string_view>
 
 #include "protekt/game/interaction.hpp"
 #include "protekt/game/pick.hpp"
@@ -51,6 +52,14 @@ struct DeployOffer {
                                                       const SceneOptions& options,
                                                       std::span<const sim::UnitId> selected,
                                                       sim::UnitId driven) noexcept;
+
+/// POWER MUST REACH IT (K4). A building that draws power (`draws_power`) is connected on a spot
+/// only when that spot touches a POWERED building of the player's (`site_connected`); every other
+/// kind is always connected. The preview's colour and SPACE's refusal both ask this.
+[[nodiscard]] bool placement_connected(const sim::Sim& sim, const Placing& placing, int tile_x,
+                                       int tile_y);
+inline constexpr std::string_view kRefusalNotConnected
+    = "Needs power: nothing powered touches that spot.";
 
 /// The preview an armed building (`Interaction::placing`) draws at the tile the reticle meets: its
 /// footprint as turned, and `valid` -- `sim::place_ok`'s own answer, so the colour is a claim about

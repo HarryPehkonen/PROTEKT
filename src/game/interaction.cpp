@@ -1374,6 +1374,12 @@ void Interaction::place_at_crosshair(const sim::Sim& sim, const SceneOptions& op
         refuse("There is no room to build there.");
         return;
     }
+    // POWER MUST REACH IT (K4): a consumer on a spot no powered building touches is refused, out
+    // loud, naming the connection. The preview is coloured from the same rule.
+    if (!placement_connected(sim, *armed, picked.tile_x, picked.tile_y)) {
+        refuse(kRefusalNotConnected);
+        return;
+    }
     if (static_cast<int>(sim.ore(sim::Side::Player)) < armed->cost) {
         refuse_owned("Add "
                      + std::to_string(armed->cost - static_cast<int>(sim.ore(sim::Side::Player)))
@@ -1401,6 +1407,7 @@ void Interaction::construct_row(const sim::Sim& sim, const SceneOptions& options
     in.ore = static_cast<int>(sim.ore(sim::Side::Player));
     in.construct_panel = true;
     in.standing = standing_buildings(sim, sim::Side::Player, in.faction);
+    in.powered_node = power_stands(sim, sim::Side::Player);
     const std::vector<MenuRow> rows = menu_rows(in);
     const char label = static_cast<char>('0' + digit);
     const auto row = std::find_if(rows.begin(), rows.end(), [&label](const MenuRow& candidate) {

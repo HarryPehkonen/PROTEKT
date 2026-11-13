@@ -2037,8 +2037,12 @@ TEST(Menu, EveryReasonThatExistsIsMappedAndTheUnreachableOnesAreMarked) {
         EXPECT_FALSE(text.empty()) << "reason " << value << " says nothing";
         reachable += reason_occurs_today(reason) ? 1 : 0;
     }
-    // ROUND 17 J4: the CONSTRUCT panel now produces NeedsBuilding and NeedsPower.
-    EXPECT_EQ(reachable, 3) << "Unaffordable, NeedsBuilding and NeedsPower can be produced";
+    // ROUND 17 J4: the CONSTRUCT panel now produces NeedsBuilding and NeedsPower. ROUND 18 K4 moves
+    // this pin from 3 to 4 BECAUSE the ruling moved: power must REACH the building, so the panel
+    // also produces NeedsConnection.
+    EXPECT_EQ(reachable, 4)
+        << "Unaffordable, NeedsBuilding, NeedsPower and NeedsConnection can be produced";
+    EXPECT_TRUE(reason_occurs_today(MenuDim::NeedsConnection));
     EXPECT_TRUE(reason_occurs_today(MenuDim::Unaffordable));
     EXPECT_TRUE(reason_occurs_today(MenuDim::NeedsBuilding));
     EXPECT_TRUE(reason_occurs_today(MenuDim::NeedsPower));
