@@ -233,8 +233,11 @@ Approach approach_field() {
         spawn.tile_y = tile_y;
         scenario.spawns.push_back(spawn);
     };
-    add(Side::Player, UnitKind::Tank, 100, 100);
-    add(Side::Enemy, UnitKind::Factory, 112, 101);
+    // Round 19, L2: the factory is 8 x 8 and the placer can only seat it at (105, 100), centred
+    // (109, 104); the tank stands at (97, 103), the same 12.04 tiles off as (100, 100) was from
+    // the point at (112, 101).
+    add(Side::Player, UnitKind::Tank, 97, 103);
+    add(Side::Enemy, UnitKind::Factory, 105, 100);
     Approach out{Sim::create(scenario), {}, {}};
     out.tank = out.sim.units().at(0).id;
     out.hostile = out.sim.units().at(1).id;
@@ -389,7 +392,10 @@ TEST(Observer, RenamingTheSupportVehiclesMovedNoRecordedBattle) {
     // from where it stood, so positions (and with them the battle) change. Old value
     // 369972452760822632 is the code at bc4592e; no constant restores it, because the behaviour
     // itself changed. No battle without a scavenger moved.
-    EXPECT_EQ(log.final_hash, 16859089903070589840ULL);
+    // RE-RECORDED 2026-11-13 for round 19, L2: the factory and the deployed recycler are 8 x 8, so
+    // the skirmish's cluster is seated round them differently. Old value 16859089903070589840 is
+    // the code at 1a326d6; restored exactly by taking the 8 x 8 back off them.
+    EXPECT_EQ(log.final_hash, 17537682838890731493ULL);
 }
 
 TEST(Observer, TheFiredStreamForAScriptedBattleIsUnchanged) {
@@ -446,19 +452,30 @@ TEST(Observer, TheFiredStreamForAScriptedBattleIsUnchanged) {
     // pusher is quicker, so the columns meet earlier and jostle differently. First shot tick 425
     // (was 430); 46 shots (was 21). Old stream: the code at dbb4adb; restored exactly by putting
     // the shove back to 1/2.
+    // RE-RECORDED 2026-11-13 for round 19, L2 (the owner: "we also need to scale the factory and
+    // recycler, including a deployed recycler"): the skirmish's factory is 8 x 8 now, so the
+    // placer seats the cluster round it differently and the two sides meet on different ticks. The
+    // stream has 62 shots (was 46) and its first is on tick 426 (was 425). Old stream: the code at
+    // 1a326d6 (first row {425, 19, 2, 100}; last {597, 2, 15, 52}); restored exactly by taking the
+    // 8 x 8 off the factory and the deployed recycler (`has_footprint(UnitKind::Factory)`,
+    // `kDeployedRecyclerFootprint`).
     static const std::vector<Expected> kExpected = {
-        {425, 19, 2, 100}, {427, 8, 13, 100}, {432, 2, 13, 100}, {432, 13, 2, 100},
-        {436, 3, 13, 100}, {447, 2, 13, 84},  {447, 13, 2, 100}, {451, 3, 13, 76},
-        {458, 4, 19, 40},  {462, 2, 19, 40},  {466, 3, 13, 68},  {470, 19, 2, 84},
-        {472, 8, 13, 60},  {473, 4, 19, 40},  {475, 1, 19, 40},  {477, 2, 19, 40},
-        {481, 3, 12, 84},  {488, 4, 19, 40},  {492, 2, 19, 40},  {496, 3, 12, 84},
-        {503, 4, 19, 40},  {507, 2, 19, 40},  {508, 1, 13, 36},  {511, 3, 12, 84},
-        {515, 19, 1, 84},  {517, 8, 12, 84},  {518, 4, 12, 84},  {522, 2, 12, 84},
-        {526, 3, 12, 84},  {533, 4, 12, 84},  {537, 2, 12, 84},  {541, 3, 12, 76},
-        {548, 4, 12, 76},  {552, 2, 12, 60},  {556, 3, 12, 52},  {560, 19, 2, 52},
-        {562, 8, 12, 44},  {563, 4, 12, 44},  {567, 2, 12, 36},  {571, 3, 12, 28},
-        {578, 4, 12, 20},  {582, 2, 12, 12},  {586, 3, 12, 4},   {587, 15, 2, 52},
-        {593, 4, 15, 60},  {597, 2, 15, 52},
+        {426, 19, 2, 100}, {431, 2, 13, 100}, {431, 13, 2, 100}, {436, 8, 13, 100},
+        {438, 12, 2, 100}, {443, 4, 13, 100}, {444, 3, 13, 100}, {446, 2, 19, 40},
+        {446, 13, 2, 100}, {453, 12, 2, 92},  {458, 4, 12, 100}, {461, 13, 2, 84},
+        {468, 12, 2, 76},  {471, 19, 2, 76},  {473, 4, 12, 100}, {476, 13, 2, 76},
+        {481, 8, 12, 92},  {483, 12, 3, 84},  {488, 4, 19, 40},  {491, 13, 3, 76},
+        {494, 14, 3, 76},  {503, 4, 19, 40},  {506, 2, 19, 40},  {506, 3, 12, 84},
+        {506, 13, 3, 60},  {509, 14, 3, 60},  {516, 19, 2, 76},  {517, 1, 12, 68},
+        {518, 4, 19, 40},  {521, 2, 12, 68},  {521, 13, 2, 76},  {522, 3, 12, 68},
+        {524, 14, 2, 76},  {526, 8, 19, 40},  {532, 1, 12, 60},  {536, 2, 12, 60},
+        {536, 13, 2, 76},  {537, 3, 12, 60},  {539, 14, 2, 76},  {547, 1, 12, 36},
+        {551, 2, 13, 68},  {551, 13, 2, 60},  {552, 3, 12, 36},  {554, 14, 2, 60},
+        {561, 19, 2, 44},  {562, 1, 12, 12},  {566, 2, 13, 68},  {566, 13, 2, 44},
+        {567, 3, 12, 12},  {569, 14, 2, 44},  {571, 8, 19, 40},  {572, 15, 2, 36},
+        {577, 1, 13, 60},  {581, 2, 13, 60},  {581, 13, 2, 28},  {582, 3, 13, 60},
+        {584, 14, 2, 28},  {587, 15, 2, 4},   {592, 1, 13, 52},  {596, 13, 3, 12},
+        {597, 3, 13, 52},  {599, 14, 3, 12},
     };
     const Scenario scenario = skirmish(42);
     ai::ScriptedCommander player(30);

@@ -42,9 +42,11 @@ struct DrawnGround {
         spawn.tile_y = y;
         scenario.spawns.push_back(spawn);
     };
+    // Round 19, L2: the factory is 8 x 8 (10..17), so the tanks stand two tiles clear of it at 19
+    // and 21; they stood at 12 and 14, two and four tiles from the point.
     add(Side::Player, UnitKind::Factory, 10, 90);
-    add(Side::Player, UnitKind::Tank, 12, 90);
-    add(Side::Player, UnitKind::Tank, 14, 90);
+    add(Side::Player, UnitKind::Tank, 19, 90);
+    add(Side::Player, UnitKind::Tank, 21, 90);
     add(Side::Enemy, UnitKind::Factory, 140, 90);
     return scenario;
 }
@@ -140,7 +142,10 @@ TEST(Routing, AUnitInTheSimPopsItsWaypointsInOrder) {
     Sim sim = Sim::create(probe_scenario(8));
     const UnitId leader{2};
     const Unit* goal = sim.find(UnitId{4});
-    sim.enqueue(Order{leader, orders::MoveTo{goal->x, goal->y}});
+    // Round 19, L2: the goal is a factory, 8 x 8 now, whose centre is inside a reserved footprint
+    // no route can end in; the leader is sent to the open ground six tiles west of it.
+    sim.enqueue(
+        Order{leader, orders::MoveTo{Fixed::from_raw(goal->x.raw - 6 * Fixed::kOne), goal->y}});
     int last_next = 0;
     int popped = 0;
     TileXY last_goal{};

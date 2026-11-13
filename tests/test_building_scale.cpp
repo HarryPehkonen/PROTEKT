@@ -4,10 +4,10 @@
 // four times as wide, long, and tall? ... The buildings seem... puny.  So, 1 x 1 becomes 4 x 4.
 // 2 x 1 becomes 8 x 4."
 //
-// The fifteen PLACEABLE buildings scale (their footprints, in tiles, and their models). The
-// DEPLOYED RECYCLER and a scenario-spawned FACTORY do NOT: they exist in recorded battles, so a
-// bigger footprint would change what a recorded battle does -- a re-record the owner has not
-// ruled on. Every number below is a LITERAL, never read back from the table under test.
+// The fifteen PLACEABLE buildings scale (their footprints, in tiles, and their models). Round 19,
+// L2 scales the DEPLOYED RECYCLER and the FACTORY (placed or scenario-spawned) too, and the wheeled
+// RECYCLER's model: the owner ruled it, and it is a stated re-record of the battles they stand in.
+// Every number below is a LITERAL, never read back from the table under test.
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -100,30 +100,98 @@ TEST(BuildingScale, AllFifteenPlaceableFootprintsReadFourTimesWhatTheyWere) {
     EXPECT_EQ(sim::kBomberBayFootprint, (FootprintSize{8, 8}));
 }
 
-TEST(BuildingScale, TheDeployedRecyclerAndAScenarioFactoryAreLeftExactlyAsTheyWere) {
-    // Recorded battles contain both; scaling them is a stated re-record the owner has not ruled on.
-    EXPECT_EQ(sim::footprint_of(UnitKind::DeployedRecycler), (FootprintSize{2, 2}));
-    EXPECT_EQ(sim::kDeployedRecyclerFootprint, (FootprintSize{2, 2}));
-    const Tile t = open_rect(20, 20, 2);
+TEST(BuildingScale, TheDeployedRecyclerIsEightByEightAndReservesTheNewTilesNotTheOld) {
+    // ROUND 19, L2 (the owner: "we also need to scale the factory and recycler, including a
+    // deployed recycler"): 2 x 2 became 8 x 8, so 4 reserved tiles became 64.
+    EXPECT_EQ(sim::footprint_of(UnitKind::DeployedRecycler), (FootprintSize{8, 8}));
+    EXPECT_EQ(sim::kDeployedRecyclerFootprint, (FootprintSize{8, 8}));
+    const Tile t = open_rect(24, 24, 2);
     ASSERT_GE(t.x, 0);
-    const sim::Sim sim = world({{UnitKind::DeployedRecycler, Side::Player, t.x + 4, t.y + 4},
-                                {UnitKind::Factory, Side::Player, t.x + 12, t.y + 4}});
+    const sim::Sim sim = world({{UnitKind::DeployedRecycler, Side::Player, t.x + 8, t.y + 8}});
     const sim::Unit& recycler = sim.units().at(0);
-    const sim::Unit& factory = sim.units().at(1);
-    EXPECT_EQ(sim::footprint_of(recycler), (FootprintSize{2, 2}));
-    EXPECT_FALSE(factory.placed);
-    EXPECT_FALSE(sim::has_footprint(factory)) << "a scenario factory stands on no footprint";
-    EXPECT_EQ(sim::footprint_of(factory), (FootprintSize{}));
-    int recycler_tiles = 0;
-    int factory_tiles = 0;
-    for (int ty = t.y; ty < t.y + 20; ++ty) {
-        for (int tx = t.x; tx < t.x + 20; ++tx) {
-            recycler_tiles += sim::footprint_around(recycler).covers(tx, ty) ? 1 : 0;
-            factory_tiles += sim::building_blocks(sim.units(), tx, ty) && tx >= t.x + 10 ? 1 : 0;
+    EXPECT_EQ(sim::footprint_of(recycler), (FootprintSize{8, 8}));
+    const Footprint f = sim::footprint_around(recycler);
+    EXPECT_EQ(f.width, 8);
+    EXPECT_EQ(f.height, 8);
+    int reserved = 0;
+    for (int ty = t.y; ty < t.y + 24; ++ty) {
+        for (int tx = t.x; tx < t.x + 24; ++tx) {
+            const bool inside = tx >= f.x && tx < f.x + 8 && ty >= f.y && ty < f.y + 8;
+            EXPECT_EQ(sim::building_blocks(sim.units(), tx, ty), inside) << tx << "," << ty;
+            reserved += sim::building_blocks(sim.units(), tx, ty) ? 1 : 0;
         }
     }
-    EXPECT_EQ(recycler_tiles, 4);
-    EXPECT_EQ(factory_tiles, 0) << "the scenario factory reserves nothing, as it always did";
+    EXPECT_EQ(reserved, 64) << "8 x 8, not the 2 x 2 (4 tiles) it was";
+    EXPECT_TRUE(sim::building_blocks(sim.units(), f.x, f.y));
+    EXPECT_TRUE(sim::building_blocks(sim.units(), f.x + 7, f.y + 7));
+    EXPECT_FALSE(sim::building_blocks(sim.units(), f.x - 1, f.y - 1));
+    EXPECT_FALSE(sim::building_blocks(sim.units(), f.x + 8, f.y + 8));
+    // A Deploy order's own site is the new size: beside a deployed recycler at (x + 10, y), a site
+    // whose corner is at x + 4 reaches it (4..11 meets 10..17) and one at x + 2 does not (2..9).
+    // A 2 x 2 site at x + 4 (4..5) would have been clear.
+    const sim::Sim beside = world({{UnitKind::DeployedRecycler, Side::Player, t.x + 10, t.y}});
+    EXPECT_FALSE(sim::deploy_site_ok(kSeed, beside.units(), t.x + 4, t.y)) << "8 wide reaches it";
+    EXPECT_TRUE(sim::deploy_site_ok(kSeed, beside.units(), t.x + 2, t.y));
+}
+
+TEST(BuildingScale, AScenarioFactoryReservesEightByEightAndAUnitWalksRoundNotThrough) {
+    const Tile t = open_rect(30, 30, 2);
+    ASSERT_GE(t.x, 0);
+    EXPECT_TRUE(sim::has_footprint(UnitKind::Factory)) << "the kind itself stands on a footprint";
+    sim::Scenario scenario{kSeed,
+                           {{UnitKind::Factory, Side::Player, t.x + 14, t.y + 14},
+                            {UnitKind::Tank, Side::Player, t.x + 2, t.y + 14}}};
+    sim::Sim sim = sim::Sim::create(scenario);
+    const sim::Unit& factory = sim.units().at(0);
+    const Footprint f = sim::footprint_around(factory);
+    EXPECT_EQ(f.width, 8);
+    EXPECT_EQ(f.height, 8);
+    int reserved = 0;
+    for (int ty = t.y; ty < t.y + 30; ++ty) {
+        for (int tx = t.x; tx < t.x + 30; ++tx) {
+            const bool inside = tx >= f.x && tx < f.x + 8 && ty >= f.y && ty < f.y + 8;
+            EXPECT_EQ(sim::building_blocks(sim.units(), tx, ty), inside) << tx << "," << ty;
+            reserved += sim::building_blocks(sim.units(), tx, ty) ? 1 : 0;
+        }
+    }
+    EXPECT_EQ(reserved, 64) << "a scenario factory used to reserve none";
+    // A tank ordered straight across it, west to east, never enters the rectangle, and gets past.
+    const sim::UnitId tank = sim.units().at(1).id;
+    sim.enqueue(sim::Order{
+        tank, sim::orders::MoveTo{sim::Fixed::from_int(t.x + 27), sim::Fixed::from_int(t.y + 14)}});
+    bool entered = false;
+    for (int tick = 0; tick < 900; ++tick) {
+        sim.step();
+        const sim::Unit& u = sim.units().at(1);
+        const int tx = u.x.floor_int();
+        const int ty = u.y.floor_int();
+        entered = entered || (tx >= f.x && tx < f.x + 8 && ty >= f.y && ty < f.y + 8);
+    }
+    EXPECT_FALSE(entered) << "walked through the factory";
+    EXPECT_GT(sim.units().at(1).x.floor_int(), f.x + 8) << "and got past it";
+}
+
+TEST(BuildingScale, APlacedFactoryAndAScenarioFactoryHaveTheSameFootprint) {
+    const Tile t = open_rect(30, 30, 2);
+    ASSERT_GE(t.x, 0);
+    const sim::Sim spawned = world({{UnitKind::Factory, Side::Player, t.x + 14, t.y + 14}});
+    sim::Scenario scenario{kSeed, {{UnitKind::Constructor, Side::Player, t.x + 2, t.y + 2}}};
+    scenario.store_capacity = 400;
+    scenario.start_ore = 200;
+    sim::Sim placing = sim::Sim::create(scenario);
+    placing.enqueue(sim::Order{placing.units().at(0).id,
+                               sim::orders::Place{UnitKind::Factory, t.x + 10, t.y + 10, false}});
+    placing.step();
+    const sim::Unit* raised = nullptr;
+    for (const sim::Unit& u : placing.units()) {
+        if (u.kind == UnitKind::Factory) {
+            raised = &u;
+        }
+    }
+    ASSERT_NE(raised, nullptr);
+    EXPECT_EQ(sim::footprint_of(spawned.units().front()), (FootprintSize{8, 8}));
+    EXPECT_EQ(sim::footprint_of(*raised), (FootprintSize{8, 8}));
+    EXPECT_EQ(sim::footprint_of(spawned.units().front()), sim::footprint_of(*raised));
 }
 
 TEST(BuildingScale, ASiteTheOldSizeFitsIsRefusedAtTheNewSizeAndTheTurnFollows) {
@@ -328,7 +396,6 @@ TEST(BuildingScale, APlacedFactoryIsEightByEightAndFourTimesAsTallAsTheHallItWas
         }
     }
     ASSERT_NE(factory, nullptr);
-    ASSERT_TRUE(factory->placed);
     ASSERT_EQ(factory->build_left, 0) << "finished";
     EXPECT_EQ(sim::footprint_of(*factory), (FootprintSize{8, 8}));
     // The same world with the Constructor ALONE: its scene has one shadow and the Constructor's
@@ -392,8 +459,8 @@ TEST(BuildingScale, ThePickBoxIsTheNewFootprintAndFourTimesTheHeight) {
     EXPECT_NEAR(game::unit_box_height_metres(centre), 7.2F, 0.001F);
     EXPECT_NEAR(game::unit_box_height_metres(UnitKind::TrainingCentre), 1.8F, 0.001F)
         << "the kind's own box is the authored one";
-    EXPECT_NEAR(game::unit_box_height_metres(scenario_factory), 4.5F, 0.001F)
-        << "a scenario factory is not scaled";
+    EXPECT_NEAR(game::unit_box_height_metres(scenario_factory), 18.0F, 0.001F)
+        << "a scenario factory is scaled too (round 19, L2): 4.5 x 4";
     const float cx = static_cast<float>(centre.x.raw) / static_cast<float>(sim::Fixed::kOne)
                      * game::kMetresPerTile;
     const float cz = static_cast<float>(centre.y.raw) / static_cast<float>(sim::Fixed::kOne)
@@ -465,6 +532,55 @@ TEST(BuildingScale, TheTallestBuildingIsManyTimesTheTanksHeight) {
     // Measured when written: a tank 1.5330 m, the antenna 18.1808 m -- 11.86 times (it was 2.96).
     EXPECT_NEAR(tank_height, 1.533F, 0.01F);
     EXPECT_GT(antenna_height / tank_height, 8.0F) << "a tank is a small thing beside it now";
+}
+
+TEST(BuildingScale, TheRecyclersAndTheFactoryDrawFourTimesAsTallWideAndLongAsTheyDid) {
+    // Round 19, L2. Measured by `measure` on the commit this stands on (L1), as literals, in
+    // metres: the wheeled recycler 2.7320 high, 2.3935 across, 5.1301 along; the deployed
+    // one 2.5080, 2.3600, 5.2000; a scenario factory (the placed one's very model) 6.2 high, 1.2
+    // square.
+    struct Old {
+        UnitKind kind;
+        float height;
+        float across;
+        float along;
+    };
+    constexpr std::array<Old, 3> kOld{{{UnitKind::Recycler, 2.7320F, 2.3935F, 5.1301F},
+                                       {UnitKind::DeployedRecycler, 2.5080F, 2.3600F, 5.2000F},
+                                       {UnitKind::Factory, 6.2000F, 1.2000F, 1.2000F}}};
+    const Tile t = open_rect(24, 24, 2);
+    ASSERT_GE(t.x, 0);
+    for (const Old& was : kOld) {
+        const sim::Sim with = world({{was.kind, Side::Player, t.x + 8, t.y + 8}});
+        const sim::Sim without = world({});
+        const Drawn d
+            = measure(with, without, static_cast<float>(t.x + 8), static_cast<float>(t.y + 8));
+        EXPECT_NEAR(d.height(), was.height * kFour, 0.02F) << static_cast<int>(was.kind);
+        EXPECT_NEAR(d.east - d.west, was.across * kFour, 0.05F) << static_cast<int>(was.kind);
+        EXPECT_NEAR(d.south - d.north, was.along * kFour, 0.05F) << static_cast<int>(was.kind);
+    }
+}
+
+TEST(BuildingScale, TheWheeledRecyclerHasNoFootprintAndItsShadowAndBoxGrowWithIt) {
+    EXPECT_FALSE(sim::has_footprint(UnitKind::Recycler)) << "a vehicle: no footprint";
+    EXPECT_EQ(sim::footprint_of(UnitKind::Recycler), (FootprintSize{}));
+    const Tile t = open_rect(24, 24, 2);
+    ASSERT_GE(t.x, 0);
+    const sim::Sim sim = world({{UnitKind::Recycler, Side::Player, t.x + 8, t.y + 8}});
+    EXPECT_NEAR(game::unit_box_height_metres(sim.units().front()), 7.2F, 0.001F) << "1.8 x 4";
+}
+
+TEST(BuildingScale, TheFifteenPlaceableBuildingsAreUntouchedByThisSlice) {
+    // Their models measure exactly what L1 pinned (the tall test above, still green), their
+    // footprints are the L1 table, and their pick box is the L1 one: 4 x the authored height.
+    EXPECT_NEAR(game::unit_box_height_metres(sim::Unit{.kind = UnitKind::Power}), 7.2F, 0.001F);
+    for (const Want& w : kFifteen) {
+        if (w.kind == UnitKind::Factory) {
+            continue; // the one of the fifteen this slice moves: its footprint is the same 8 x 8
+        }
+        EXPECT_EQ(sim::footprint_of(w.kind), (FootprintSize{w.width, w.height})) << w.name;
+    }
+    EXPECT_EQ(sim::footprint_of(UnitKind::Factory), (FootprintSize{8, 8}));
 }
 
 } // namespace

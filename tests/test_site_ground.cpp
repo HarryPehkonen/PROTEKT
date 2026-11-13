@@ -55,7 +55,7 @@ Sim world(std::vector<protekt::sim::Spawn> spawns, bool with_pool) {
 SceneOptions rig() {
     SceneOptions o;
     o.seed = kSeed;
-    o.radius_tiles = 14;
+    o.radius_tiles = 20; // 14 until round 19, L2: the deployed recycler's pad is 10x10 now, not 4x4
     o.camera.x = (static_cast<float>(kSiteX) - 8.0F) * protekt::game::kMetresPerTile;
     o.camera.z = static_cast<float>(kSiteY) * protekt::game::kMetresPerTile;
     o.camera.y = 8.0F;
@@ -152,9 +152,14 @@ TEST(SiteGround, TheMapGivesATileToTheStrongestKindThatReachesIt) {
     EXPECT_EQ(map.at(kSiteX, kSiteY), SiteKind::DeployedRecycler)
         << "the order of adding changes nothing";
     const TileRange vent = protekt::game::site_range(SiteKind::Pool, kSiteX, kSiteY);
-    EXPECT_EQ(map.at(vent.x1, vent.y1), SiteKind::Pool) << "the pool's own outer ring";
-    EXPECT_FALSE(map.at(vent.x0 - 1, vent.y0).has_value());
-    EXPECT_FALSE(map.at(vent.x1, vent.y1 + 1).has_value());
+    // RE-RECORDED, round 19, L2: this read `Pool` ("the pool's own outer ring") while the deployed
+    // recycler's pad was 4x4 and sat inside the vent's 5x5. The pad is 8 + 2 = 10 tiles across now
+    // (its footprint is 8x8), so it covers the vent's ring and, being the later kind, wins it.
+    EXPECT_EQ(map.at(vent.x1, vent.y1), SiteKind::DeployedRecycler)
+        << "the pad (10x10) covers the whole vent (5x5) now";
+    const TileRange pad = protekt::game::site_range(SiteKind::DeployedRecycler, kSiteX, kSiteY);
+    EXPECT_FALSE(map.at(pad.x0 - 1, pad.y0).has_value()) << "and nothing beyond the pad's edge";
+    EXPECT_FALSE(map.at(pad.x1, pad.y1 + 1).has_value());
 }
 
 TEST(SiteGround, ADeployedRecyclerPaintsItsPadAndNoTileBeyondIt) {

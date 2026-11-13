@@ -50,8 +50,12 @@ struct Placed {
 [[nodiscard]] Placed draw_unit(UnitKind kind, int tile_x, int tile_y,
                                std::optional<std::array<float, 3>> aim = std::nullopt) {
     const sim::Sim empty = sim::Sim::create(sim::Scenario{kSeed, {}});
+    // A building's spawn tile is its footprint's north-west corner, and a footprint is 4 or 8 tiles
+    // across (round 19, L1/L2): spawn it so its CENTRE is on the tile asked for.
+    const sim::FootprintSize size = sim::footprint_of(kind);
     const sim::Sim with = sim::Sim::create(
-        sim::Scenario{kSeed, std::vector<Spawn>{{kind, Side::Player, tile_x, tile_y}}});
+        sim::Scenario{kSeed, std::vector<Spawn>{{kind, Side::Player, tile_x - (size.width / 2),
+                                                 tile_y - (size.height / 2)}}});
     Placed placed;
     if (with.units().size() != 1U) {
         return placed;
@@ -91,7 +95,10 @@ struct Placed {
     for (std::size_t i = first + kShadowVertices; i < scene.vertices.size(); ++i) {
         const Vec3& p = scene.vertices.at(i).position;
         const Vec3 rel{p[0] - placed.x, p[1] - placed.ground, p[2] - placed.z};
-        if (std::hypot(rel[0], rel[1], rel[2]) > kBodyReachMetres) {
+        // A scaled model (round 19, L1/L2) reaches `kBuildingModelScale` times as far.
+        const float reach = sim::is_scaled_model(unit) ? kBodyReachMetres * kBuildingModelScale
+                                                       : kBodyReachMetres;
+        if (std::hypot(rel[0], rel[1], rel[2]) > reach) {
             break;
         }
         placed.body.push_back(rel);

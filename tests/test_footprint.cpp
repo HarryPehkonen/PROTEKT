@@ -1,7 +1,7 @@
 // A BUILDING'S FOOTPRINT IS A RECTANGLE (the owner, 2026-11-11: "the building footprints... they
 // are not all completely square? Some are rectangular?"). A width and a height, per kind. Only the
-// deployed recycler stands on one today, and it keeps its 2x2 (his ruling of 2026-10-26); the
-// rectangles below are probes for the rules, not buildings.
+// deployed recycler stands on one today, and it kept its 2x2 (his ruling of 2026-10-26) until
+// round 19, L2 made it 8x8; the rectangles below are probes for the rules, not buildings.
 #include <gtest/gtest.h>
 
 #include <cstddef>
@@ -107,10 +107,11 @@ TEST(Footprint, ANonSquareFootprintIsNeverSquaredByOneNumberServingBothAxes) {
               protekt::game::deploy_preview_vertex_count(kTall));
 }
 
-TEST(Footprint, TheDeployedRecyclerIsStillTwoByTwoAndPowerIsTheOnlyOtherKindWithOne) {
+TEST(Footprint, TheDeployedRecyclerIsNowEightByEightAndPowerIsFourByFour) {
     // The pin "the only kind with one" moved deliberately with round 17, J3: POWER is the first
     // placed building. Its 4x2 was provisional and the owner has since ruled: ONE tile (K1).
-    EXPECT_EQ(footprint_of(UnitKind::DeployedRecycler), (FootprintSize{2, 2}));
+    EXPECT_EQ(footprint_of(UnitKind::DeployedRecycler), (FootprintSize{8, 8}))
+        << "round 19, L2: 2 x 2 became 8 x 8";
     EXPECT_TRUE(protekt::sim::has_footprint(UnitKind::DeployedRecycler));
     EXPECT_EQ(footprint_of(UnitKind::Power), (FootprintSize{4, 4}))
         << "round 19, L1: 1 x 1 became 4 x 4";
@@ -127,8 +128,8 @@ TEST(Footprint, TheDeployedRecyclerIsStillTwoByTwoAndPowerIsTheOnlyOtherKindWith
         EXPECT_EQ(footprint_of(kind), (FootprintSize{})) << k << " covers no tile";
     }
     const Footprint f = footprint_at(10, 20);
-    EXPECT_EQ(f.width, 2);
-    EXPECT_EQ(f.height, 2);
+    EXPECT_EQ(f.width, 8) << "RE-RECORDED, round 19, L2: the deploy order's square was 2";
+    EXPECT_EQ(f.height, 8) << "RE-RECORDED, round 19, L2: it was 2";
 }
 
 TEST(SiteRules, ARectangleThatFitsIsAcceptedWhateverItsShape) {
@@ -144,7 +145,8 @@ TEST(SiteRules, ARectangleThatFitsIsAcceptedWhateverItsShape) {
 TEST(SiteRules, ARectangleOverlappingABuildingsFootprintIsRefusedAndOneBesideItIsNot) {
     const auto [x, y] = open_rect(kWide, 6);
     ASSERT_GE(x, 0);
-    // A deployed recycler (2x2) with its north-west tile at (x + 3, y + 1): centre (x + 4, y + 2).
+    // A deployed recycler (8x8 since round 19, L2; these probes reach only its first rows) with its
+    // north-west tile at (x + 3, y + 1).
     const Sim sim = world({{UnitKind::DeployedRecycler, Side::Player, x + 3, y + 1}});
     const Footprint rec = protekt::sim::footprint_around(
         UnitKind::DeployedRecycler, sim.units().front().x, sim.units().front().y);
@@ -215,7 +217,9 @@ TEST(SiteRules, ARectangleOnGroundNoUnitMayEnterIsRefusedEvenWithOnlyItsFarTileT
 TEST(OneTile, TheTableReadsFourByFourForPowerAndPinsEveryOtherKindExactlyAsItWas) {
     EXPECT_EQ(footprint_of(UnitKind::Power), (FootprintSize{4, 4}));
     EXPECT_EQ(protekt::sim::kPowerFootprint, (FootprintSize{4, 4}));
-    EXPECT_EQ(footprint_of(UnitKind::DeployedRecycler), (FootprintSize{2, 2})) << "untouched";
+    EXPECT_EQ(footprint_of(UnitKind::DeployedRecycler), (FootprintSize{8, 8}))
+        << "RE-RECORDED, round 19, L2: it was 2x2, \"untouched\" until the owner ruled it four "
+           "times";
     // Only two kinds have a table row today: the other eight Builder rows have no UnitKind and so
     // no PROVISIONAL rectangle YET. This pins the whole table, so the day a kind is given one (a
     // later slice's real value) is a deliberate edit of this test, not a drift.
@@ -261,9 +265,11 @@ TEST(OneTile, AFourByFourSiteIsAcceptedInAFourWideGapAndRefusedWhenThatCellIsTak
     EXPECT_FALSE(protekt::sim::site_ok(kSeed, units, FootprintSize{8, 8}, x + 4, y + 1));
     EXPECT_FALSE(protekt::sim::site_ok(kSeed, units, FootprintSize{8, 4}, x + 4, y + 1));
     EXPECT_FALSE(protekt::sim::site_ok(kSeed, units, FootprintSize{8, 4}, x + 1, y + 1));
-    EXPECT_TRUE(protekt::sim::deploy_site_ok(kSeed, units, x + 5, y + 1))
-        << "the deployed recycler is still 2x2 and goes in the gap";
-    EXPECT_FALSE(protekt::sim::deploy_site_ok(kSeed, units, x + 3, y + 1)) << "but not on a plant";
+    // RE-RECORDED, round 19, L2: this was EXPECT_TRUE ("the deployed recycler is still 2x2 and goes
+    // in the gap"). It is 8x8 now, so it does not.
+    EXPECT_FALSE(protekt::sim::deploy_site_ok(kSeed, units, x + 5, y + 1))
+        << "the deployed recycler is 8x8 now and does not go in a four-wide gap";
+    EXPECT_FALSE(protekt::sim::deploy_site_ok(kSeed, units, x + 3, y + 1)) << "nor on a plant";
     // One tile off the cell is on a neighbour: refused, and so is the tile of either building.
     EXPECT_FALSE(protekt::sim::site_ok(kSeed, units, kCell, x + 3, y + 1));
     EXPECT_FALSE(protekt::sim::site_ok(kSeed, units, kCell, x + 5, y + 1));

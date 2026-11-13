@@ -172,7 +172,7 @@ TEST(Sim, TheDeployedRecyclerIsAStillUnarmedBuildingWithTheRecyclersHull) {
     EXPECT_FALSE(is_drivable(UnitKind::DeployedRecycler)) << "nothing to drive";
     EXPECT_TRUE(has_footprint(UnitKind::DeployedRecycler));
     EXPECT_FALSE(has_footprint(UnitKind::Recycler)) << "a vehicle has no footprint";
-    EXPECT_FALSE(has_footprint(UnitKind::Factory)) << "DEPLOY gives the factory none";
+    EXPECT_TRUE(has_footprint(UnitKind::Factory)) << "round 19, L2: the factory stands on one too";
 }
 
 TEST(Sim, TheHoverTankHasTheTanksProfileExactly) {
@@ -746,6 +746,10 @@ constexpr int kRepairTicks = 120; // 20 repair beats; the enemy tank loses ~64 h
 
 /// The player tank's hp after `ticks` of being shot by an enemy tank 10 tiles away, with the
 /// given extra spawns (factories) added to the fight.
+///
+/// A FACTORY IS 8 x 8 (round 19, L2) and its spawn tile is its north-west corner, so a factory
+/// meant to stand at tile (x, y) as it did when it was a point is spawned at (x - 4, y - 4): its
+/// centre, where the repair radius is measured from, is where it always was.
 std::uint16_t victim_hp_after(std::vector<Spawn> extra, int ticks) {
     Scenario s;
     s.seed = 7;
@@ -761,7 +765,7 @@ std::uint16_t victim_hp_after(std::vector<Spawn> extra, int ticks) {
 TEST(SimRepair, ADamagedTankNextToItsOwnFactoryGainsHp) {
     const std::uint16_t alone = victim_hp_after({}, kRepairTicks);
     const std::uint16_t repaired
-        = victim_hp_after({{UnitKind::Factory, Side::Player, 100, 96}}, kRepairTicks);
+        = victim_hp_after({{UnitKind::Factory, Side::Player, 96, 92}}, kRepairTicks);
     ASSERT_LT(alone, kTankHp) << "the fixture must actually hurt the tank";
     EXPECT_GT(repaired, alone);
 }
@@ -773,7 +777,7 @@ TEST(SimRepair, RepairIsOneHpEverySixthTick) {
     const int beats = kRepairTicks / static_cast<int>(kRepairTickInterval) - kBeatsAtFullHp;
     const std::uint16_t alone = victim_hp_after({}, kRepairTicks);
     const std::uint16_t repaired
-        = victim_hp_after({{UnitKind::Factory, Side::Player, 100, 96}}, kRepairTicks);
+        = victim_hp_after({{UnitKind::Factory, Side::Player, 96, 92}}, kRepairTicks);
     EXPECT_EQ(repaired - alone, beats);
 }
 
@@ -794,17 +798,17 @@ TEST(SimRepair, HpNeverExceedsTheKindMaximum) {
 TEST(SimRepair, ATankJustOutsideTheRadiusGainsNothing) {
     const std::uint16_t alone = victim_hp_after({}, kRepairTicks);
     const std::uint16_t outside = victim_hp_after(
-        {{UnitKind::Factory, Side::Player, 100, 100 - kRepairRadiusTiles - 1}}, kRepairTicks);
+        {{UnitKind::Factory, Side::Player, 96, 96 - kRepairRadiusTiles - 1}}, kRepairTicks);
     EXPECT_EQ(outside, alone);
     const std::uint16_t edge = victim_hp_after(
-        {{UnitKind::Factory, Side::Player, 100, 100 - kRepairRadiusTiles}}, kRepairTicks);
+        {{UnitKind::Factory, Side::Player, 96, 96 - kRepairRadiusTiles}}, kRepairTicks);
     EXPECT_GT(edge, alone) << "exactly on the radius is inside it";
 }
 
 TEST(SimRepair, AnEnemyFactoryRepairsNothing) {
     const std::uint16_t alone = victim_hp_after({}, kRepairTicks);
     const std::uint16_t near_enemy_factory
-        = victim_hp_after({{UnitKind::Factory, Side::Enemy, 100, 96}}, kRepairTicks);
+        = victim_hp_after({{UnitKind::Factory, Side::Enemy, 96, 92}}, kRepairTicks);
     EXPECT_EQ(near_enemy_factory, alone);
 }
 
@@ -814,9 +818,10 @@ TEST(SimRepair, ADestroyedFactoryRepairsNothing) {
     Scenario s;
     s.seed = 7;
     s.spawns
-        = {{UnitKind::Tank, Side::Player, 100, 106}, {UnitKind::Factory, Side::Player, 100, 100}};
+        = {{UnitKind::Tank, Side::Player, 100, 106}, {UnitKind::Factory, Side::Player, 96, 96}};
     for (int i = 0; i < 6; ++i) {
-        s.spawns.push_back({UnitKind::Tank, Side::Enemy, 96 + i, 96});
+        // Along the factory's north edge: its 8 x 8 (96..103) is not a place a tank can spawn.
+        s.spawns.push_back({UnitKind::Tank, Side::Enemy, 96 + i, 95});
     }
     Sim sim = Sim::create(s);
     const UnitId factory = id_of(sim, Side::Player, 1);
@@ -894,12 +899,12 @@ TEST(SimRepair, TheSameScenarioHashesTheSame) {
 // place -- same id, same hit points -- on a 2x2 footprint nothing may enter or be spawned inside.
 
 constexpr std::uint64_t kDeploySeed = 42;
-/// The deployed recycler's side (2x2, so one number serves both axes in these tests).
+/// The deployed recycler's side (8x8 since round 19, L2; one number serves both axes here).
 constexpr int kSide = kDeployedRecyclerFootprint.width;
 
-/// The north-west tile of a 2x2 site with `margin` tiles of passable ground all round it, the first
-/// found scanning rows from (`from`, `from`). Every deploy test stands on one, so a failure is the
-/// rule's and never the terrain's.
+/// The north-west tile of a square site with `margin` tiles of passable ground all round it, the
+/// first found scanning rows from (`from`, `from`). Every deploy test stands on one, so a failure
+/// is the rule's and never the terrain's.
 Footprint open_site(std::uint64_t seed, int from, int margin) {
     for (int y = from; y < kMapTiles - from; ++y) {
         for (int x = from; x < kMapTiles - from; ++x) {
@@ -939,13 +944,16 @@ void step_n(Sim& sim, int ticks) {
 }
 
 /// His two numeric rulings, pinned to the NUMBERS and not to a name: the recycler takes ten
-/// seconds to deploy (30 ticks a second) and a building stands on a 2x2 square. Every other deploy
+/// seconds to deploy (30 ticks a second) and a building stands on an 8x8 square (it stood on a 2x2
+/// one until round 19, L2, when the owner ruled it four times as big). Every other deploy
 /// test is written against `kDeployTicks` and `kDeployedRecyclerFootprint`, so without this test
 /// either value could be changed to anything and the whole suite would still pass.
-TEST(Deploy, TheRuledNumbersAreTenSecondsAndATwoByTwoBuilding) {
+TEST(Deploy, TheRuledNumbersAreTenSecondsAndAnEightByEightBuilding) {
     EXPECT_EQ(kDeployTicks, 10 * kTicksPerSecond) << "ten seconds at 30 ticks a second";
-    EXPECT_EQ(kDeployedRecyclerFootprint.width, 2) << "2x2 tiles, his ruling 2026-10-26";
-    EXPECT_EQ(kDeployedRecyclerFootprint.height, 2) << "2x2 tiles, his ruling 2026-10-26";
+    // RE-RECORDED, round 19, L2: 2 x 2 (his ruling 2026-10-26) became 8 x 8 (his ruling 2026-11-13:
+    // "we also need to scale the factory and recycler, including a deployed recycler").
+    EXPECT_EQ(kDeployedRecyclerFootprint.width, 8) << "was 2: four times, 2026-11-13";
+    EXPECT_EQ(kDeployedRecyclerFootprint.height, 8) << "was 2: four times, 2026-11-13";
 }
 
 TEST(Deploy, CompletesAtExactlyDeployTicksNotOneTickEarlierOrLater) {
@@ -1109,7 +1117,8 @@ TEST(Deploy, AnEdgeTileIsClippedSoTheWholeSquareIsOnTheMap) {
     EXPECT_EQ(footprint_at(10, 20).y, 20);
     EXPECT_EQ(footprint_at(kMapTiles - 1, 7).x, kMapTiles - kSide);
     EXPECT_EQ(footprint_at(7, kMapTiles - 1).y, kMapTiles - kSide);
-    EXPECT_EQ(footprint_at(kMapTiles - 1, kMapTiles - 1).centre_x(), kMapTiles - 1)
+    // Was kMapTiles - 1 (a 2x2 square's centre is its far corner); an 8x8's is four in from it.
+    EXPECT_EQ(footprint_at(kMapTiles - 1, kMapTiles - 1).centre_x(), kMapTiles - (kSide / 2))
         << "the centre of the last square is still on the map";
 }
 
@@ -1163,8 +1172,11 @@ TEST(Deploy, OntoImpassableGroundIsRefusedAndLeavesAWorkingRecycler) {
 
 TEST(Deploy, IntoAnotherBuildingsFootprintIsRefusedAndLeavesAWorkingRecycler) {
     const Footprint site = open_site(kDeploySeed, 40, 6);
+    // Round 19, L2: the building is 8 x 8, so the second recycler waits two tiles east of it (it
+    // was four tiles east of the north-west corner, outside a 2 x 2) and every overlapping square
+    // is within seven tiles of the corner either way.
     Sim sim = deploy_sim({{UnitKind::Recycler, Side::Player, site.centre_x(), site.centre_y()},
-                          {UnitKind::Recycler, Side::Enemy, site.x + 4, site.centre_y()}});
+                          {UnitKind::Recycler, Side::Enemy, site.x + kSide + 2, site.centre_y()}});
     const UnitId first = sim.units().front().id;
     const UnitId second = sim.units().back().id;
     sim.enqueue(Order{first, orders::Deploy{site.x, site.y}});
@@ -1172,8 +1184,8 @@ TEST(Deploy, IntoAnotherBuildingsFootprintIsRefusedAndLeavesAWorkingRecycler) {
     ASSERT_EQ(sim.find(first)->kind, UnitKind::DeployedRecycler);
     const std::size_t logged = sim.command_log().size();
     // Every square that shares a tile with the building.
-    for (int dy = -1; dy <= 1; ++dy) {
-        for (int dx = -1; dx <= 1; ++dx) {
+    for (int dy = 1 - kSide; dy <= kSide - 1; ++dy) {
+        for (int dx = 1 - kSide; dx <= kSide - 1; ++dx) {
             sim.enqueue(Order{second, orders::Deploy{site.x + dx, site.y + dy}});
         }
     }
@@ -1187,8 +1199,10 @@ TEST(Deploy, IntoAnotherBuildingsFootprintIsRefusedAndLeavesAWorkingRecycler) {
 TEST(Deploy, ASiteTakenDuringTheCountdownFailsCleanlyAndLeavesAWorkingRecycler) {
     // Two recyclers count down on squares that share a column. The lower id deploys first, on the
     // same tick, and the other's site is then inside its footprint.
-    const Footprint site = open_site(kDeploySeed, 40, 6);
-    const Footprint overlap = footprint_at(site.x + 1, site.y);
+    // Round 19, L2: the squares share the last column (x + 7) of an 8 x 8 (they shared a column of
+    // a 2 x 2 at x + 1), and the margin is eight so the second one's own site is open ground too.
+    const Footprint site = open_site(kDeploySeed, 40, 8);
+    const Footprint overlap = footprint_at(site.x + kSide - 1, site.y);
     Sim sim
         = deploy_sim({{UnitKind::Recycler, Side::Player, site.centre_x(), site.centre_y()},
                       {UnitKind::Recycler, Side::Enemy, overlap.centre_x(), overlap.centre_y()}});
@@ -1222,7 +1236,7 @@ TEST(Deploy, IsRefusedASecondTimeAndForEveryOtherKind) {
         if (static_cast<UnitKind>(kind) != UnitKind::Recycler
             && !is_turret(static_cast<UnitKind>(kind))) {
             spawns.push_back(
-                {static_cast<UnitKind>(kind), Side::Player, site.x - 4, site.y + kind});
+                {static_cast<UnitKind>(kind), Side::Player, site.x - kSide - 2, site.y + kind});
         }
     }
     Sim sim = deploy_sim(spawns);

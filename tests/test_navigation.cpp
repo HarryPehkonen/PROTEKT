@@ -144,7 +144,10 @@ TEST(Navigation, ATankOrderedOntoAFactoryReachesItAndDamagesIt) {
     }
     EXPECT_TRUE(sim.find(tank)->alive) << "it died on the way, so this measures something else";
     EXPECT_LT(lowest, 400) << "the base took no damage at all";
-    EXPECT_EQ(first_damage, 914) // 981 before NAV1's route (re-recorded)
+    // RE-RECORDED, round 19, L2: 914 -> 1009. The enemy "base" this tank is ordered onto is a
+    // scenario factory, 8 x 8 now (it was a point): the tank has to reach the edge of a larger
+    // body, along a different route round it. (981 before NAV1's route.)
+    EXPECT_EQ(first_damage, 1009)
         << "and it takes about a thousand ticks to get there and open fire";
 }
 

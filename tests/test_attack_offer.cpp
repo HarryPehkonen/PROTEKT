@@ -58,13 +58,14 @@ struct Field {
 /// the crosshair's ray is horizontal: the angle is the yaw, with no pitch to blur it.
 [[nodiscard]] Field make_field() {
     Field f{};
-    f.sim = sim::Sim::create(sim::Scenario{kSeed,
-                                           {{UnitKind::Tank, Side::Player, 36, 44},
-                                            {UnitKind::Tank, Side::Player, 30, 30},
-                                            {UnitKind::Scavenger, Side::Player, 31, 30},
-                                            {UnitKind::Turret, Side::Player, 32, 30},
-                                            {UnitKind::Tank, Side::Enemy, 40, 60},
-                                            {UnitKind::Factory, Side::Enemy, 50, 62}}});
+    f.sim = sim::Sim::create(sim::Scenario{
+        kSeed,
+        {{UnitKind::Tank, Side::Player, 36, 44},
+         {UnitKind::Tank, Side::Player, 30, 30},
+         {UnitKind::Scavenger, Side::Player, 31, 30},
+         {UnitKind::Turret, Side::Player, 32, 30},
+         {UnitKind::Tank, Side::Enemy, 40, 60},
+         {UnitKind::Factory, Side::Enemy, 46, 58}}}); // 8 x 8 since round 19, L2: centred (50, 62)
     const auto ids = f.sim.units();
     f.driven = ids[0].id;
     f.armed = ids[1].id;

@@ -52,10 +52,10 @@ Tick1 step_watch(Sim& sim, UnitId shooter) {
     return out;
 }
 
-// Turret at (100,100), a harmless enemy factory 8 tiles off: in the turret's range for the whole
-// of every test, and unarmed, so nothing shoots back.
+// Turret at (100,100), a harmless enemy recycler (once a factory: 8 x 8 since round 19, L2) 8 tiles
+// off: in the turret's range for the whole of every test, and unarmed, so nothing shoots back.
 const std::vector<Spot> kTurretField
-    = {{Side::Player, UnitKind::Turret, 100, 100}, {Side::Enemy, UnitKind::Factory, 100, 108}};
+    = {{Side::Player, UnitKind::Turret, 100, 100}, {Side::Enemy, UnitKind::Recycler, 100, 108}};
 
 TEST(Mount, ASpawnedTurretIsMountedAndFires) {
     Sim sim = field(kTurretField);
@@ -67,7 +67,7 @@ TEST(Mount, ASpawnedTurretIsMountedAndFires) {
         fired = step_watch(sim, turret).fired || fired;
     }
     EXPECT_TRUE(fired);
-    EXPECT_LT(sim.units()[1].hp, kFactoryHp);
+    EXPECT_LT(sim.units()[1].hp, kRecyclerHp);
 }
 
 TEST(Mount, AMovingTurretFiresNothing) {
@@ -82,7 +82,7 @@ TEST(Mount, AMovingTurretFiresNothing) {
         EXPECT_TRUE(r.moved) << "tick " << t;
         EXPECT_FALSE(r.fired) << "tick " << t;
     }
-    EXPECT_EQ(sim.units()[1].hp, kFactoryHp);
+    EXPECT_EQ(sim.units()[1].hp, kRecyclerHp);
     EXPECT_FALSE(observe(sim, Side::Player).own[0].mounted);
 }
 
@@ -137,8 +137,11 @@ TEST(Mount, MovingResetsTheClock) {
 
 TEST(Mount, TanksStillFireOnTheMove) {
     for (const UnitKind kind : {UnitKind::Tank, UnitKind::HoverTank}) {
+        // Round 19, L2: a FACTORY centred (100, 108) as it always was (8 x 8, so its corner is
+        // (96, 104)): a bolt aimed at it is flat and only a factory's tall body is struck on this
+        // slope, and the shots below are counted off the sim's own reports.
         Sim sim
-            = field({{Side::Player, kind, 100, 100}, {Side::Enemy, UnitKind::Factory, 100, 108}});
+            = field({{Side::Player, kind, 100, 100}, {Side::Enemy, UnitKind::Factory, 96, 104}});
         const UnitId tank = sim.units()[0].id;
         sim.enqueue(Order{tank, orders::MoveTo{tile(130), tile(100)}});
         int shots = 0;
@@ -254,7 +257,7 @@ TEST(Unmount, ADrivenTurretThrottledFromStandstillMountsAgainAfterKMountTicksSti
 TEST(Unmount, ATurretGivenFollowUnmountsCrawlsAfterAMovingTankAndRemountsWhenItHolds) {
     Sim sim = field({{Side::Player, UnitKind::Turret, 100, 100},
                      {Side::Player, UnitKind::Tank, 102, 100},
-                     {Side::Enemy, UnitKind::Factory, 100, 108}});
+                     {Side::Enemy, UnitKind::Recycler, 100, 108}});
     const UnitId turret = sim.units()[0].id;
     const UnitId tank = sim.units()[1].id;
     sim.enqueue(Order{turret, orders::Follow{tank}});

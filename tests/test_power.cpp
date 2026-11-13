@@ -142,8 +142,8 @@ TEST(Power, TheKindIsAppendedWithItsSpecRowAndItsFootprint) {
     EXPECT_TRUE(sim::has_footprint(UnitKind::Power));
     EXPECT_EQ(sim::footprint_of(UnitKind::Power), (sim::FootprintSize{4, 4}))
         << "the owner's ruling (K1): \"1 x 1\", then (round 19, L1) \"1 x 1 becomes 4 x 4\"";
-    EXPECT_EQ(sim::footprint_of(UnitKind::DeployedRecycler), (sim::FootprintSize{2, 2}))
-        << "the recycler's 2x2 is untouched";
+    EXPECT_EQ(sim::footprint_of(UnitKind::DeployedRecycler), (sim::FootprintSize{8, 8}))
+        << "RE-RECORDED, round 19, L2: the recycler's 2x2 became 8x8";
 }
 
 TEST(Power, AProducerCannotQueueABuildingAsAUnit) {

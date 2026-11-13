@@ -3157,8 +3157,8 @@ void append_unit_shadows(std::vector<SceneVertex>& out, const SceneOptions& opti
         const float cx = tile_x * kMetresPerTile;
         const float cz = tile_y * kMetresPerTile;
         // A placed building's shadow is its model's, so it grows with it (round 19, L1).
-        const float half = sim::is_scaled_building(unit) ? kShadowHalfMetres * kBuildingModelScale
-                                                         : kShadowHalfMetres;
+        const float half = sim::is_scaled_model(unit) ? kShadowHalfMetres * kBuildingModelScale
+                                                      : kShadowHalfMetres;
         const float ground = ground_metres(options.seed, tile_x, tile_y) + kShadowLiftMetres;
         emit_quad(out, Vec3{cx - half, ground, cz - half}, Vec3{cx + half, ground, cz - half},
                   Vec3{cx + half, ground, cz + half}, Vec3{cx - half, ground, cz + half},
@@ -4324,7 +4324,7 @@ void append_unit_bars(std::vector<SceneVertex>& out, const SceneOptions& options
 
     for (const sim::Unit& unit : sim.units()) {
         const bool structure = unit.kind == sim::UnitKind::Factory || sim::is_turret(unit.kind)
-                               || sim::is_scaled_building(unit);
+                               || sim::is_scaled_model(unit);
         const bool wanted
             = (unit.side == options.viewer_side
                && std::find(selected.begin(), selected.end(), unit.id) != selected.end())
@@ -7453,7 +7453,7 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
             } else {
                 build_factory(scene.vertices, options.seed, unit, mark, lift_z, hovering);
             }
-            if (sim::is_scaled_building(unit)) {
+            if (sim::is_scaled_model(unit)) {
                 // L1: one scale for every placed building's model, applied to the shape as built
                 // so the authored numbers stay readable; the cut below then reads the scaled shape.
                 scale_model(scene.vertices, body_first,

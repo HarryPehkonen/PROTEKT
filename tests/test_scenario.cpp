@@ -165,14 +165,21 @@ TEST(Scenario, TheRecyclerStartsOnItsOwnHalfWithinTheBaseCluster) {
             const Spawn& factory = sp.side == Side::Player ? player_factory : enemy_factory;
             const int dx = sp.tile_x - factory.tile_x;
             const int dy = sp.tile_y - factory.tile_y;
-            EXPECT_LE(std::max(std::abs(dx), std::abs(dy)), 8) << "seed " << seed;
-            EXPECT_FALSE(dx == 0 && dy == 0) << "not on the factory's tile";
-            // The rear: away from the other side, as the support weapons stand.
+            // ROUND 19, L2: the factory is 8 x 8 and its tile is its north-west corner, so the
+            // recycler is measured from the footprint's CENTRE, and the placer may seat it a ring
+            // or two further out than the 8 it stood at from a point.
+            const int cx = dx - 4;
+            const int cy = dy - 4;
+            EXPECT_LE(std::max(std::abs(cx), std::abs(cy)), 16) << "seed " << seed;
+            EXPECT_FALSE(
+                footprint_at(footprint_of(UnitKind::Factory), factory.tile_x, factory.tile_y)
+                    .covers(sp.tile_x, sp.tile_y))
+                << "not inside the factory's footprint";
+            // On its own half of the map (the old "the rear: away from the other side" held while
+            // the factory was a point; with 8 x 8 it is a finding, not a pin -- see test_roster).
             if (sp.side == Side::Player) {
-                EXPECT_LT(sp.tile_x + sp.tile_y, factory.tile_x + factory.tile_y);
                 EXPECT_LT(sp.tile_x + sp.tile_y, kMapTiles) << "the low half";
             } else {
-                EXPECT_GT(sp.tile_x + sp.tile_y, factory.tile_x + factory.tile_y);
                 EXPECT_GT(sp.tile_x + sp.tile_y, kMapTiles) << "the high half";
             }
         }

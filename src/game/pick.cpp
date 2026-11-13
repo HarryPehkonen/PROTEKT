@@ -16,7 +16,7 @@ float unit_box_height_metres(sim::UnitKind kind) noexcept {
 
 float unit_box_height_metres(const sim::Unit& unit) noexcept {
     const float base = unit_box_height_metres(unit.kind);
-    return sim::is_scaled_building(unit) ? base * kBuildingModelScale : base;
+    return sim::is_scaled_model(unit) ? base * kBuildingModelScale : base;
 }
 
 namespace {
@@ -168,7 +168,7 @@ Pick pick(const sim::Sim& sim, const SceneOptions& options, float screen_x,
         // across) must not be hit from the tiles beside it by the 0.75-tile radius a unit gets.
         // Per axis, since a footprint is a rectangle; a 2x2 or wider keeps the radius it had.
         // A SCALED building's radius grows with it (round 19, L1): its box is the footprint.
-        const float reach = sim::is_scaled_building(unit) ? radius * kBuildingModelScale : radius;
+        const float reach = sim::is_scaled_model(unit) ? radius * kBuildingModelScale : radius;
         float half_x = reach;
         float half_z = reach;
         if (sim::has_footprint(unit.kind)) {

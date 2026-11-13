@@ -195,7 +195,7 @@ TEST(Buildings, EachRaisesASiteOnItsOwnFootprintAndChargesExactlyItsCost) {
         EXPECT_EQ(f.width, w.width) << w.name;
         EXPECT_EQ(f.height, w.height) << w.name;
         EXPECT_EQ(static_cast<int>(y.sim.ore(Side::Player)), 400 - w.cost) << w.name;
-        EXPECT_TRUE(sim::has_footprint(*site)) << w.name;
+        EXPECT_TRUE(sim::has_footprint(site->kind)) << w.name;
     }
 }
 
@@ -345,23 +345,23 @@ TEST(BuildingRectangles, RotationSwapsARectanglesAxesAndLeavesASquareAlone) {
 
 // ------------------------------------------------------------------------------ the Factory
 
-TEST(BuildingFactory, TheKindThatAlreadyExistedIsWiredAndAScenariosOwnStaysAsItWas) {
-    // A scenario's factory is a point unit with NO footprint: every recorded battle depends on it.
+TEST(BuildingFactory, TheKindThatAlreadyExistedIsWiredAndAScenariosOwnHasTheSameFootprint) {
+    // ROUND 19, L2: a scenario's factory used to be a point unit with NO footprint (every battle
+    // recorded before depended on it). It stands on the same 8 x 8 a Constructor's does now.
     sim::Scenario scenario{kSeed, {{UnitKind::Factory, Side::Player, 40, 40}}};
     const sim::Sim spawned = sim::Sim::create(scenario);
     const sim::Unit& old_factory = spawned.units().at(0);
-    EXPECT_FALSE(old_factory.placed);
-    EXPECT_FALSE(sim::has_footprint(old_factory));
-    EXPECT_FALSE(sim::building_blocks(spawned.units(), 41, 41));
-    EXPECT_EQ(sim::footprint_of(old_factory), (FootprintSize{}));
+    EXPECT_TRUE(sim::has_footprint(old_factory.kind));
+    EXPECT_TRUE(sim::building_blocks(spawned.units(), old_factory.x.floor_int(),
+                                     old_factory.y.floor_int()));
+    EXPECT_EQ(sim::footprint_of(old_factory), (FootprintSize{8, 8}));
     // One a Constructor raises DOES stand on its footprint (8x8 since round 19, L1).
     Yard y = make_yard(1, 1);
     y.sim.enqueue(place(y.constructor, UnitKind::Factory, y.block.x + 5, y.block.y + 5));
     y.sim.step();
     const sim::Unit* raised = first_of(y.sim, UnitKind::Factory);
     ASSERT_NE(raised, nullptr);
-    EXPECT_TRUE(raised->placed);
-    EXPECT_TRUE(sim::has_footprint(*raised));
+    EXPECT_TRUE(sim::has_footprint(raised->kind));
     EXPECT_TRUE(sim::building_blocks(y.sim.units(), y.block.x + 12, y.block.y + 12));
     EXPECT_FALSE(sim::building_blocks(y.sim.units(), y.block.x + 13, y.block.y + 5));
 }

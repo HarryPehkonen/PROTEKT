@@ -88,13 +88,20 @@ struct TileAt {
 
 /// The first tile of a row of `length` + 1 tiles whose heights stay within `tolerance` units of the
 /// first one, none of them a crater: ground a level shot can be fired along and measured against.
-[[nodiscard]] std::optional<TileAt> find_level_row(int length, int tolerance) {
-    for (int y = 5; y < kMapTiles - 5; ++y) {
-        for (int x = 5; x + length < kMapTiles - 5; ++x) {
+[[nodiscard]] std::optional<TileAt> find_level_row(int length, int tolerance, int open_band = 0) {
+    for (int y = 5 + open_band; y < kMapTiles - 5 - open_band; ++y) {
+        for (int x = 5 + open_band; x + length + open_band < kMapTiles - 5; ++x) {
             const int h0 = tile_height(x, y);
             bool level = true;
             for (int i = 0; i <= length && level; ++i) {
                 level = !is_crater(x + i, y) && std::abs(tile_height(x + i, y) - h0) <= tolerance;
+            }
+            // `open_band` tiles of open ground either side of the row and past its ends, for the
+            // 8 x 8 buildings (round 19, L2) a test stands astride it.
+            for (int ty = y - open_band; ty <= y + open_band && level; ++ty) {
+                for (int tx = x - open_band; tx <= x + length + open_band && level; ++tx) {
+                    level = !is_crater(tx, ty);
+                }
             }
             if (level) {
                 return TileAt{x, y};
@@ -130,7 +137,7 @@ struct TileAt {
 TEST(Projectile, TimeOfFlightDamageDoesNotLandOnTheFiringTick) {
     // A player tank twelve tiles from an enemy factory: the very edge of its range.
     Sim sim = make(
-        {{Side::Player, UnitKind::Tank, 100, 100}, {Side::Enemy, UnitKind::Factory, 112, 100}});
+        {{Side::Player, UnitKind::Tank, 100, 100}, {Side::Enemy, UnitKind::Recycler, 112, 100}});
     const std::uint16_t full = sim.find(kSecond)->hp;
     const int fired_at = step_until_fired(sim);
     ASSERT_GT(fired_at, 0) << "the gun never fired";
@@ -150,7 +157,7 @@ TEST(Projectile, TimeOfFlightDamageDoesNotLandOnTheFiringTick) {
 
 TEST(Projectile, ArrivalAppliesExactlyItsDamageAndIsRemoved) {
     Sim sim = make(
-        {{Side::Player, UnitKind::Tank, 100, 100}, {Side::Enemy, UnitKind::Factory, 106, 100}});
+        {{Side::Player, UnitKind::Tank, 100, 100}, {Side::Enemy, UnitKind::Recycler, 106, 100}});
     const std::uint16_t full = sim.find(kSecond)->hp;
     ASSERT_GT(step_until_fired(sim), 0);
     ASSERT_EQ(sim.projectiles().size(), 1U);
@@ -170,7 +177,7 @@ TEST(Projectile, ArrivalAppliesExactlyItsDamageAndIsRemoved) {
 
 TEST(Projectile, TheFiredEventComesWithTheGunAndHitTakenWithTheBolt) {
     Sim sim = make(
-        {{Side::Player, UnitKind::Tank, 100, 100}, {Side::Enemy, UnitKind::Factory, 106, 100}});
+        {{Side::Player, UnitKind::Tank, 100, 100}, {Side::Enemy, UnitKind::Recycler, 106, 100}});
     int fired = 0;
     int hit = 0;
     int fired_tick = -1;
@@ -310,7 +317,7 @@ TEST(Projectile, AMovingTankSendsItsOwnVelocityWithTheBolt) {
     // A tank driving "north" (towards smaller y) with the target to its east, level with where the
     // tank will be when it fires: the bolt goes east AND north.
     Sim moving = make(
-        {{Side::Player, UnitKind::Tank, 100, 100}, {Side::Enemy, UnitKind::Factory, 108, 97}});
+        {{Side::Player, UnitKind::Tank, 100, 100}, {Side::Enemy, UnitKind::Recycler, 108, 97}});
     moving.enqueue(Order{kFirst, orders::MoveTo{Fixed::from_int(100), Fixed::from_int(20)}});
     ASSERT_GT(step_until_fired(moving), 0);
     const Projectile& shot = moving.projectiles().front();
@@ -334,7 +341,7 @@ TEST(Projectile, AMovingTankSendsItsOwnVelocityWithTheBolt) {
 
 TEST(Projectile, AStationaryTankSendsOnlyTheFiredComponent) {
     Sim still = make(
-        {{Side::Player, UnitKind::Tank, 100, 100}, {Side::Enemy, UnitKind::Factory, 108, 100}});
+        {{Side::Player, UnitKind::Tank, 100, 100}, {Side::Enemy, UnitKind::Recycler, 108, 100}});
     ASSERT_GT(step_until_fired(still), 0);
     const Projectile& shot = still.projectiles().front();
     EXPECT_GT(shot.vx.raw, 0);
@@ -347,9 +354,14 @@ TEST(Projectile, HitsItsOwnSideWhenItIsInTheWay) {
     // enemy factory is eight. The bolt is stopped by the nearer, and the one behind is shielded.
     // The player's trigger takes the shot the gun itself would now decline (`HoldFire`): the
     // damage is the flight's rule and is unchanged.
-    Sim sim = make({{Side::Player, UnitKind::Tank, 100, 100},
-                    {Side::Player, UnitKind::Factory, 104, 100},
-                    {Side::Enemy, UnitKind::Factory, 108, 100}});
+    // Round 19, L2: factories are 8 x 8, so they stand centred five and thirteen tiles from the
+    // tank (they were four and eight, and two cannot stand four apart now), on a level row.
+    const std::optional<TileAt> found = find_level_row(14, 4, 5);
+    ASSERT_TRUE(found.has_value());
+    const TileAt row = found.value_or(TileAt{});
+    Sim sim = make({{Side::Player, UnitKind::Tank, row.x, row.y},
+                    {Side::Player, UnitKind::Factory, row.x + 1, row.y - 4},
+                    {Side::Enemy, UnitKind::Factory, row.x + 9, row.y - 4}});
     const UnitId friendly{2};
     const UnitId enemy{3};
     const std::uint16_t friendly_hp = sim.find(friendly)->hp;
@@ -401,7 +413,7 @@ TEST(Projectile, TheSameBattleGivesTheSameBoltsAndTheSameHash) {
 TEST(Projectile, TheBoltsAreInTheStateHash) {
     // Two sims identical in every unit field but one with a bolt in the air must hash differently.
     Sim in_air = make(
-        {{Side::Player, UnitKind::Tank, 100, 100}, {Side::Enemy, UnitKind::Factory, 112, 100}});
+        {{Side::Player, UnitKind::Tank, 100, 100}, {Side::Enemy, UnitKind::Recycler, 112, 100}});
     Sim copy = in_air;
     ASSERT_GT(step_until_fired(in_air), 0);
     ASSERT_FALSE(in_air.projectiles().empty());
@@ -630,7 +642,7 @@ TEST(Projectile, ABoltFiredAtNothingStillHitsWhatIsInItsPath) {
          {std::array<int, 4>{1, 0, cx + 8, cy}, std::array<int, 4>{0, 1, cx, cy + 8},
           std::array<int, 4>{-1, 0, cx - 8, cy}, std::array<int, 4>{0, -1, cx, cy - 8}}) {
         Sim world = make(
-            {{Side::Player, UnitKind::Tank, cx, cy}, {Side::Enemy, UnitKind::Factory, ex, ey}});
+            {{Side::Player, UnitKind::Tank, cx, cy}, {Side::Enemy, UnitKind::Recycler, ex, ey}});
         std::vector<Unit> units = world.units();
         const std::uint16_t full = units.at(1).hp;
         std::vector<Impact> impacts;
@@ -649,7 +661,7 @@ TEST(Projectile, ABoltFiredAtNothingHitsAFriendlyInItsWay) {
     ASSERT_TRUE(found.has_value());
     const TileAt row = found.value_or(TileAt{});
     Sim world = make({{Side::Player, UnitKind::Tank, row.x, row.y},
-                      {Side::Player, UnitKind::Factory, row.x + 6, row.y}});
+                      {Side::Player, UnitKind::Recycler, row.x + 6, row.y}});
     std::vector<Unit> units = world.units();
     const std::uint16_t full = units.at(1).hp;
     std::vector<Impact> impacts;
@@ -663,7 +675,7 @@ TEST(Projectile, ABoltFiredAtNothingHitsAFriendlyInItsWay) {
 
 TEST(Projectile, ABoltFiredAtNothingFizzlesAtRange) {
     Sim world = make({{Side::Player, UnitKind::Tank, 100, 100},
-                      {Side::Enemy, UnitKind::Factory, 100, 130}}); // well off the line east
+                      {Side::Enemy, UnitKind::Recycler, 100, 130}}); // well off the line east
     std::vector<Unit> units = world.units();
     std::vector<Impact> impacts;
     const Projectile bolt = launch_towards(units.at(0), Fixed::from_int(1), Fixed::zero(),
@@ -715,7 +727,7 @@ TEST(Projectile, ABoltAimedAtATargetStillFliesAlongTheDirection) {
     };
     for (const Where w : {Where{4, 0}, Where{0, 4}, Where{-4, 0}, Where{-3, -3}, Where{4, 3}}) {
         Sim world = make({{Side::Player, UnitKind::Tank, kOx, kOy},
-                          {Side::Player, UnitKind::Factory, kOx + w.dx, kOy + w.dy}});
+                          {Side::Player, UnitKind::Recycler, kOx + w.dx, kOy + w.dy}});
         reload(world);
         world.enqueue(Order{kFirst, orders::FireTowards{dir_x, dir_y, kSecond}});
         world.step();
@@ -734,8 +746,10 @@ TEST(Projectile, ABoltAimedAtATargetOffsetFromThePathMissesIt) {
     // Out of the tank's own 12-tile reach (so nothing auto-engages it) but inside the bolt's 16:
     // the only thing that could hurt it is the ordered shot.
     const auto damage_taken = [](int tile_y) {
+        // A factory (8 x 8 since round 19, L2) centred on the tile asked for: its spawn tile is its
+        // north-west corner.
         Sim world = make({{Side::Player, UnitKind::Tank, kOx, kOy},
-                          {Side::Enemy, UnitKind::Factory, kOx + 14, tile_y}});
+                          {Side::Enemy, UnitKind::Factory, kOx + 10, tile_y - 4}});
         const std::uint16_t full = world.find(kSecond)->hp;
         reload(world);
         world.enqueue(
@@ -787,8 +801,10 @@ TEST(Projectile, ThePlayersShotDoesNotLeadAMovingTarget) {
 
 TEST(Projectile, ABoltAimedAtAFriendlyHitsIt) {
     const auto friendly_hp = [](UnitId aimed_at) {
+        // A factory, 8 x 8 since round 19, L2: centred five tiles east (it was a point four east),
+        // with the tank just outside its footprint.
         Sim world = make({{Side::Player, UnitKind::Tank, kOx, kOy},
-                          {Side::Player, UnitKind::Factory, kOx + 4, kOy}});
+                          {Side::Player, UnitKind::Factory, kOx + 1, kOy - 4}});
         reload(world);
         world.enqueue(
             Order{kFirst, orders::FireTowards{Fixed::from_int(1), Fixed::zero(), aimed_at}});

@@ -196,7 +196,8 @@ TEST(Statistics, MissedNeverGoesNegativeWhenPelletsStrikeMoreThanWasFired) {
     close.seed = kSeed;
     close.objectives = {};
     close.spawns = {Spawn{UnitKind::Tank, Side::Player, 60, 60},
-                    Spawn{UnitKind::Factory, Side::Enemy, 62, 60}};
+                    Spawn{UnitKind::Recycler, Side::Enemy, 62,
+                          60}}; // once a factory: 8 x 8 now, and the tank is 2 tiles off
     Sim sim = Sim::create(close);
     BattleStats stats{sim};
     // Under the player's hand the hull no longer fires on its own, so every shot counted below is

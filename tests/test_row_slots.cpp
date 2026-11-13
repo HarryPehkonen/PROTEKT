@@ -341,16 +341,31 @@ TEST(RowSlots, TheRecyclerIsAVehicleOnItsFKeyUntilItDeploysThenItsKeyGoesBlankAn
     const UnitId recycler = row.slots.at(group_slot(10)).units.front();
     std::array<RowSlot, kRowSlots> before = row.slots;
 
-    // Deployed where it stands: its position is the centre of the square to its north-west.
+    // Deployed near where it stands: the nearest 8 x 8 site (round 19, L2: it was the 2 x 2 it
+    // stood on, and the 8 x 8 round it is not clear -- the skirmish's factory is beside it).
     const sim::Unit* vehicle = sim.find(recycler);
-    const int corner_x = vehicle->x.floor_int() - 1;
-    const int corner_y = vehicle->y.floor_int() - 1;
-    ASSERT_TRUE(sim::deploy_site_ok(kSeed, sim.units(), corner_x, corner_y))
-        << "the skirmish recycler can deploy where it was spawned";
+    int corner_x = -1;
+    int corner_y = -1;
+    int best = 1 << 30;
+    for (int y = vehicle->y.floor_int() - 20; y <= vehicle->y.floor_int() + 20; ++y) {
+        for (int x = vehicle->x.floor_int() - 20; x <= vehicle->x.floor_int() + 20; ++x) {
+            const int d = ((x + 4 - vehicle->x.floor_int()) * (x + 4 - vehicle->x.floor_int()))
+                          + ((y + 4 - vehicle->y.floor_int()) * (y + 4 - vehicle->y.floor_int()));
+            if (d < best && sim::deploy_site_ok(kSeed, sim.units(), x, y)) {
+                best = d;
+                corner_x = x;
+                corner_y = y;
+            }
+        }
+    }
+    ASSERT_GE(corner_x, 0) << "the skirmish recycler has an 8 x 8 site within twenty tiles";
     sim.enqueue(sim::Order{recycler, sim::orders::Deploy{corner_x, corner_y}});
-    for (int tick = 0; tick + 1 < sim::kDeployTicks; ++tick) {
+    // It drives to the site first (the count starts on arrival): step to one tick short of done.
+    for (int tick = 0; tick < 3000 && sim.find(recycler)->deploy_ticks < sim::kDeployTicks - 1;
+         ++tick) {
         sim.step();
     }
+    ASSERT_EQ(sim.find(recycler)->deploy_ticks, sim::kDeployTicks - 1);
     row.update(sim, Side::Player, 0);
     EXPECT_EQ(sim.find(recycler)->kind, UnitKind::Recycler) << "one tick short";
     EXPECT_EQ(row.slots, before) << "still on F10, and key 1 still blank";

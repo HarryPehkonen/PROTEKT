@@ -275,7 +275,8 @@ TEST(ScriptedRoles,
     s.seed = f.seed;
     s.spawns = {{UnitKind::Tank, Side::Player, f.x, f.y},
                 {UnitKind::MortarBike, Side::Player, f.x, f.y + 2},
-                {UnitKind::Factory, Side::Enemy, f.x + 13, f.y + 1}};
+                {UnitKind::Factory, Side::Enemy, f.x + 9,
+                 f.y - 3}}; // 8 x 8: its centre is 13 east, 1 south
     Sim sim = Sim::create(s);
     const UnitId tank = first_of(sim, UnitKind::Tank, Side::Player);
     const UnitId mortar_bike = first_of(sim, UnitKind::MortarBike, Side::Player);

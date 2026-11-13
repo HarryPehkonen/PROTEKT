@@ -148,16 +148,17 @@ TEST(GunTower, NeverFiresAtItsOwnSide) {
 
 TEST(GunTower, HoldsFireWhenAFriendStandsInTheLane) {
     const Block b = open_block();
-    // A friendly factory squarely between the tower and the enemy: the shot would hit it. (Round
-    // 19, L1: the tower is 4x4 now, standing at (4,5) by its centre, so the lane to (12,3) runs
-    // through (8,4); the scenario factory is the point unit it always was.)
+    // A friendly unit squarely between the tower and the enemy: the shot would hit it. (Round 19,
+    // L1: the tower is 4x4 now, standing at (4,5) by its centre, so the lane to (12,3) runs through
+    // (8,4). Round 19, L2: a factory is 8x8 now and cannot stand four tiles from another, so the
+    // two are wheeled RECYCLERS, unarmed and standing on no footprint.)
     sim::Sim s = make(b, {{Side::Player, UnitKind::GunTower, 2, 3},
-                          {Side::Player, UnitKind::Factory, 8, 4},
-                          {Side::Enemy, UnitKind::Factory, 12, 3}});
+                          {Side::Player, UnitKind::Recycler, 8, 4},
+                          {Side::Enemy, UnitKind::Recycler, 12, 3}});
     const sim::UnitId tower = first_of(s, UnitKind::GunTower, Side::Player)->id;
     EXPECT_TRUE(fire_ticks(s, tower, 200).empty());
-    const sim::Unit* friendly = first_of(s, UnitKind::Factory, Side::Player);
-    EXPECT_EQ(friendly->hp, sim::spec_of(UnitKind::Factory).hp);
+    const sim::Unit* friendly = first_of(s, UnitKind::Recycler, Side::Player);
+    EXPECT_EQ(friendly->hp, sim::spec_of(UnitKind::Recycler).hp);
 }
 
 TEST(GunTower, DoesNotMove) {

@@ -373,7 +373,10 @@ TEST(AttackList, ThreeWithNothingUnderTheCrosshairArmsAndADigitAttacksThatRow) {
     EXPECT_EQ(rows.at(0).metres, 9);
     EXPECT_EQ(rows.at(1).id, kFactory);
     EXPECT_EQ(rows.at(1).key, 2);
-    EXPECT_EQ(rows.at(1).metres, 22);
+    // RE-RECORDED, round 19, L2: was 22. The enemy factory is 8 x 8 and its spawn tile (30, 45) is
+    // its north-west corner, so its centre -- where the distance is measured to -- is four tiles
+    // in, and the list reads 18 metres to it (still between the 9 and the 36).
+    EXPECT_EQ(rows.at(1).metres, 18);
     EXPECT_EQ(rows.at(2).id, kFarTank);
     EXPECT_EQ(rows.at(2).key, 3);
     EXPECT_EQ(rows.at(2).metres, 36);
@@ -592,13 +595,16 @@ struct MenuRig {
 
 [[nodiscard]] MenuRig make_menu_rig() {
     MenuRig rig{};
-    rig.sim = sim::Sim::create(sim::Scenario{kSeed,
-                                             {{UnitKind::Tank, Side::Player, 40, 40},
-                                              {UnitKind::Recycler, Side::Player, 44, 41},
-                                              {UnitKind::Scavenger, Side::Player, 46, 42},
-                                              {UnitKind::Scavenger, Side::Player, 48, 43},
-                                              {UnitKind::Factory, Side::Player, 36, 50},
-                                              {UnitKind::Tank, Side::Enemy, 38, 60}}});
+    rig.sim = sim::Sim::create(sim::Scenario{
+        kSeed,
+        {{UnitKind::Tank, Side::Player, 40, 40},
+         {UnitKind::Recycler, Side::Player, 30,
+          38}, // x4 since round 19, L2: off the harvesters' view
+         {UnitKind::Scavenger, Side::Player, 46, 42},
+         {UnitKind::Scavenger, Side::Player, 48, 43},
+         {UnitKind::Factory, Side::Player, 28, 46}, // 8 x 8 since round 19, L2: clear of the tank's
+                                                    // line of sight (was a point at 36, 50)
+         {UnitKind::Tank, Side::Enemy, 38, 60}}});
     for (const sim::Unit& unit : rig.sim.units()) {
         if (unit.kind == UnitKind::Tank && unit.side == Side::Player) {
             rig.tank = unit.id;

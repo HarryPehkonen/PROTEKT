@@ -3048,8 +3048,9 @@ protekt::sim::Sim sim_of(const std::vector<BoltPlace>& places) {
 /// Only the player's tank is armed: after it fires there is exactly one bolt, and it is the
 /// viewer's.
 protekt::sim::Sim one_player_bolt_sim() {
-    return sim_of(
-        {{Side::Player, UnitKind::Tank, 100, 100}, {Side::Enemy, UnitKind::Factory, 106, 100}});
+    return sim_of({{Side::Player, UnitKind::Tank, 100, 100},
+                   {Side::Enemy, UnitKind::Factory, 102,
+                    96}}); // 8 x 8 since round 19, L2: centred (106, 100)
 }
 
 /// Only the enemy's tank is armed: exactly one bolt, and it is not the viewer's.
@@ -4840,10 +4841,41 @@ std::size_t shape_vertices(UnitKind kind) {
     return total;
 }
 
-/// One unit's box, alone: the vertices that move when it is hovered far above the ground.
-std::vector<SceneVertex> unit_box_of(protekt::sim::UnitKind kind) {
-    const auto sim = sim_of({{Side::Player, kind, 100, 100}});
+/// One unit's box, alone, AS DRAWN: the vertices that move when it is hovered far above the ground.
+/// A building stands with its CENTRE on tile (100, 100): its spawn tile is its footprint's
+/// north-west corner, which is 4 or 8 tiles away from it (round 19, L1/L2).
+std::vector<SceneVertex> scaled_box_of(protekt::sim::UnitKind kind) {
+    const protekt::sim::FootprintSize size = protekt::sim::footprint_of(kind);
+    const auto sim
+        = sim_of({{Side::Player, kind, 100 - (size.width / 2), 100 - (size.height / 2)}});
     return tank_only(sim, sim.units().at(0), {});
+}
+
+/// One unit's box as it was AUTHORED: `scaled_box_of` with the round 19 building scale
+/// (`kBuildingModelScale`: L1 for the fifteen placeable buildings, L2 for the factory and the
+/// recyclers) taken back off, about the unit's own centre and its lowest point. Every test of a
+/// SHAPE (its proportions, its corners, its door) reads this one, so the numbers they pin are
+/// still the authored ones; the SIZE is pinned by `scaled_box_of` and test_building_scale.cpp.
+std::vector<SceneVertex> unit_box_of(protekt::sim::UnitKind kind) {
+    std::vector<SceneVertex> box = scaled_box_of(kind);
+    if (box.empty()
+        || !(kind == UnitKind::Factory || kind == UnitKind::Recycler
+             || kind == UnitKind::DeployedRecycler)) {
+        return box;
+    }
+    constexpr float kCentre = 100.0F * protekt::game::kMetresPerTile;
+    float low = box.front().position.at(1);
+    for (const SceneVertex& v : box) {
+        low = std::min(low, v.position.at(1));
+    }
+    for (SceneVertex& v : box) {
+        v.position.at(0)
+            = kCentre + ((v.position.at(0) - kCentre) / protekt::game::kBuildingModelScale);
+        v.position.at(1) = low + ((v.position.at(1) - low) / protekt::game::kBuildingModelScale);
+        v.position.at(2)
+            = kCentre + ((v.position.at(2) - kCentre) / protekt::game::kBuildingModelScale);
+    }
+    return box;
 }
 
 /// The factory's parts as [first, last) vertex ranges, in emission order (BC: the hall and annex
@@ -5002,7 +5034,7 @@ TEST(RecyclerShape, TheRecyclerIsExactlyItsRoundedMassesAndItsFlatDetail) {
 // disclosed consequence of "twice as big" (docs/PLAN.md), left for the sim's footprint to answer
 // one day.
 TEST(RecyclerShape, ItIsLongerThanItIsWideAndItsLengthOverhangsTheFootprint) {
-    const auto recycler = unit_box_of(UnitKind::Recycler);
+    const auto recycler = scaled_box_of(UnitKind::Recycler);
     ASSERT_EQ(recycler.size(), protekt::game::kRecyclerVertices);
     const std::size_t all = protekt::game::kRecyclerVertices;
     const auto across = parts_span(recycler, 0, all, 0);
@@ -5012,18 +5044,23 @@ TEST(RecyclerShape, ItIsLongerThanItIsWideAndItsLengthOverhangsTheFootprint) {
     EXPECT_LT(up[1] - up[0], 0.5F * (along[1] - along[0])) << "and a low one";
     // ABSOLUTE numbers, never multiplied by `kRecyclerScale`: this test is about what the drawing
     // does to the sim's SOLID SQUARE, and a bound that moves with the constant cannot state that.
-    // Measured at `kRecyclerScale` = 2.0: 2.36 m wide, 5.2 m along, 2.5 m up.
+    // Measured at `kRecyclerScale` = 2.0: 2.36 m wide, 5.2 m along, 2.5 m up. RE-RECORDED for round
+    // 19, L2 (the owner: "scale the factory and recycler"): every drawn dimension is
+    // `kBuildingModelScale` (4) times that now, so 9.44 m wide, 20.8 m along and 10 m up -- against
+    // a footprint that is 8 tiles (16 m) across, not the 2 tiles (4 m) it was.
     constexpr float kFootprintSide
         = static_cast<float>(protekt::sim::kDeployedRecyclerFootprint.width) * kMetresPerTile;
     constexpr float kCentre = 100.0F * kMetresPerTile;
     const float across_half
         = std::max(std::abs(across[0] - kCentre), std::abs(across[1] - kCentre));
-    EXPECT_LT(2.0F * across_half, kFootprintSide) << "2.36 m across: inside the 4 m square";
-    EXPECT_NEAR(along[1] - along[0], 5.2F, kTolerance) << "5.2 m along";
+    EXPECT_LT(2.0F * across_half, kFootprintSide)
+        << "9.44 m across (was 2.36): inside the 16 m square";
+    EXPECT_NEAR(along[1] - along[0], 20.8F, kTolerance) << "20.8 m along (was 5.2)";
     EXPECT_GT(along[1] - along[0], kFootprintSide)
         << "and longer than the square it stands in: the length OVERHANGS it";
-    EXPECT_NEAR(along[1], kCentre + 2.6F, kTolerance) << "0.6 m past the square's own front edge";
-    EXPECT_LE(up[1] - up[0], 2.5F + kTolerance) << "2.5 m tall, twice the tank-scale model's 1.25";
+    EXPECT_NEAR(along[1], kCentre + 10.4F, kTolerance)
+        << "2.4 m past the square's own front edge (was 0.6 m)";
+    EXPECT_LE(up[1] - up[0], 10.032F + kTolerance) << "10 m tall (was 2.5), four times what it was";
 }
 
 TEST(RecyclerShape, TheCabIsTheTallestPartAndSitsTowardTheFront) {
@@ -5057,7 +5094,9 @@ TEST(RecyclerShape, TheCabIsTheTallestPartAndSitsTowardTheFront) {
 std::vector<SceneVertex> recycler_facing(UnitKind kind, float heading) {
     // A building's spawn tile is its footprint's north-west corner: 99, 99 stands it centred on
     // 100.
-    const int tile = kind == UnitKind::DeployedRecycler ? 99 : 100;
+    // Round 19, L2: the deployed one is 8 x 8, so its corner is four tiles in from the centre (it
+    // was one: 99).
+    const int tile = kind == UnitKind::DeployedRecycler ? 96 : 100;
     const auto sim = sim_of({{Side::Player, kind, tile, tile}});
     const protekt::sim::Unit& unit = sim.units().at(0);
     SceneOptions options = at_tank(unit);
@@ -5078,36 +5117,44 @@ std::vector<SceneVertex> recycler_facing(UnitKind kind, float heading) {
 // SLICE A: Harri, 2026-11-02, "Maybe twice as big." What it measured before (1.18 across, 2.6
 // along, 1.25 up) and what it measures now, from the drawn vertices.
 TEST(RecyclerScale, TheDrawnRecyclerMeasuresTwiceWhatItDid) {
-    const auto recycler = unit_box_of(UnitKind::Recycler);
+    const auto recycler = scaled_box_of(UnitKind::Recycler);
     ASSERT_EQ(recycler.size(), protekt::game::kRecyclerVertices);
     const std::size_t all = protekt::game::kRecyclerVertices;
     const auto across = parts_span(recycler, 0, all, 0);
     const auto along = parts_span(recycler, 0, all, 2);
     const auto up = parts_span(recycler, 0, all, 1);
-    EXPECT_NEAR(across[1] - across[0], 2.36F, kTolerance)
-        << "was 1.18 m across; kRecyclerScale doubles it";
-    EXPECT_NEAR(along[1] - along[0], 5.2F, kTolerance)
-        << "was 2.6 m along; kRecyclerScale doubles it";
-    EXPECT_NEAR(up[1] - up[0], 2.5F, kTolerance) << "was 1.25 m up; kRecyclerScale doubles it";
-    // About the base centre: the tank-scale model's half-length stands at 1.3 m either end.
+    // RE-RECORDED, round 19, L2: these read 2.36, 5.2 and 2.5 until the owner ruled the recycler
+    // four times as big again ("we also need to scale the factory and recycler"); the old numbers
+    // are the 2x (`kRecyclerScale`) of the tank-scale 1.18, 2.6 and 1.25, and the new ones are
+    // those four times (`kBuildingModelScale`).
+    EXPECT_NEAR(across[1] - across[0], 9.44F, kTolerance)
+        << "was 2.36 m across (1.18 doubled); now four times that";
+    EXPECT_NEAR(along[1] - along[0], 20.8F, kTolerance)
+        << "was 5.2 m along (2.6 doubled); now four times that";
+    EXPECT_NEAR(up[1] - up[0], 10.032F, kTolerance)
+        << "was 2.508 m up (1.25 doubled); now four times";
+    // About the base centre: the half-length is 10.4 m either end (was 2.6).
     constexpr float kCentre = 100.0F * kMetresPerTile;
-    EXPECT_NEAR(along[0], kCentre - 2.6F, kTolerance) << "scaled about the base centre";
-    EXPECT_NEAR(along[1], kCentre + 2.6F, kTolerance) << "scaled about the base centre";
+    EXPECT_NEAR(along[0], kCentre - 10.4F, kTolerance) << "scaled about the base centre";
+    EXPECT_NEAR(along[1], kCentre + 10.4F, kTolerance) << "scaled about the base centre";
 }
 
-TEST(RecyclerScale, TheSizeIsTheConstantTimesTheTankScaleModel) {
+TEST(RecyclerScale, TheSizeIsTheConstantsTimesTheTankScaleModel) {
     constexpr float kWasAcross = 1.18F;
     constexpr float kWasAlong = 2.6F;
     constexpr float kWasUp = 1.25F;
-    const auto recycler = unit_box_of(UnitKind::Recycler);
+    const auto recycler = scaled_box_of(UnitKind::Recycler);
     const std::size_t all = recycler.size();
     const auto across = parts_span(recycler, 0, all, 0);
     const auto along = parts_span(recycler, 0, all, 2);
     const auto up = parts_span(recycler, 0, all, 1);
     EXPECT_GT(protekt::game::kRecyclerScale, 0.0F);
-    EXPECT_NEAR(across[1] - across[0], kWasAcross * protekt::game::kRecyclerScale, kTolerance);
-    EXPECT_NEAR(along[1] - along[0], kWasAlong * protekt::game::kRecyclerScale, kTolerance);
-    EXPECT_NEAR(up[1] - up[0], kWasUp * protekt::game::kRecyclerScale, kTolerance);
+    // Round 19, L2: and, on top of `kRecyclerScale`, the building scale (was: no `*
+    // kBuildingModelScale`).
+    constexpr float kBoth = protekt::game::kRecyclerScale * protekt::game::kBuildingModelScale;
+    EXPECT_NEAR(across[1] - across[0], kWasAcross * kBoth, kTolerance);
+    EXPECT_NEAR(along[1] - along[0], kWasAlong * kBoth, kTolerance);
+    EXPECT_NEAR(up[1] - up[0], kWasUp * kBoth, 4.0F * kTolerance); // 2.508 measured, 2.5 authored
 }
 
 TEST(RecyclerScale, TheScaleMovesPositionsAndNeverTheTopology) {
@@ -5142,10 +5189,10 @@ TEST(RecyclerScale, ADeployedOneStandsSquareOnItsFootprintAndAVehicleTurnsWithIt
         }
     }
     const auto along = parts_span(deployed_turned, 0, all, 2);
-    EXPECT_NEAR(along[0], kCentre - 2.6F, kTolerance) << "square to the pad's axes, long along Z";
-    EXPECT_NEAR(along[1], kCentre + 2.6F, kTolerance);
+    EXPECT_NEAR(along[0], kCentre - 10.4F, kTolerance) << "square to the pad's axes, long along Z";
+    EXPECT_NEAR(along[1], kCentre + 10.4F, kTolerance);
     const auto across = parts_span(deployed_turned, 0, all, 0);
-    EXPECT_NEAR(across[1] - across[0], 2.36F, kTolerance);
+    EXPECT_NEAR(across[1] - across[0], 9.44F, kTolerance) << "was 2.36 before round 19, L2";
 
     // The vehicle: its own heading, so it is NOT the square one and its footprint on X has grown.
     const auto turned_across = parts_span(vehicle_turned, 0, all, 0);
@@ -8111,8 +8158,14 @@ TEST(Scene, APatchIsAShadeWiderThanTheHullDrawnAboveIt) {
     // A DEPLOYED BUILDING RESERVES (no unit may enter it), not the size of the structure drawn
     // inside it; sizing the patch from that reservation drew a black square 2.5x the building's own
     // width. Measure what is DRAWN.
-    EXPECT_NEAR(width(0), width(protekt::game::kShadowVertexCount), 1.0e-4F)
-        << "one hull width for every kind, so one patch width for every kind";
+    // ROUND 19, L1/L2: a hull is one width for every VEHICLE, and a building is drawn
+    // `kBuildingModelScale` times its authored size (the owner: "make all buildings four times as
+    // wide, long, and tall"; "we also need to scale the factory and recycler, including a deployed
+    // recycler"), so its patch is that much wider. This read `EXPECT_NEAR(width(0), width(second))`
+    // when the deployed recycler was the same width as the tank.
+    EXPECT_NEAR(width(protekt::game::kShadowVertexCount),
+                protekt::game::kBuildingModelScale * width(0), 1.0e-4F)
+        << "the tank's patch, four times over, for the deployed recycler's";
     EXPECT_NEAR(width(0), 2.0F * protekt::game::kShadowHalfMetres, 1.0e-4F);
     EXPECT_GT(protekt::game::kShadowHalfMetres, protekt::game::kHullHalfMetres)
         << "wider than the hull it belongs to, or the ink hides under the hull";
@@ -8121,8 +8174,7 @@ TEST(Scene, APatchIsAShadeWiderThanTheHullDrawnAboveIt) {
     EXPECT_LT(width(protekt::game::kShadowVertexCount),
               protekt::game::kMetresPerTile
                   * static_cast<float>(protekt::sim::kDeployedRecyclerFootprint.width))
-        << "NOT the reserved footprint: a patch 2x2 tiles across is four times the building's "
-           "width";
+        << "NOT the reserved footprint: a patch as wide as the tiles is wider than the building";
 }
 
 TEST(Scene, TheShadowIsTheNamedInkAndAlphaAndStaysRestrained) {
@@ -8431,7 +8483,8 @@ Sim deploying(Side side, int east, int ticks) {
         kSeed,
         {{UnitKind::Tank, Side::Player, kX, kY}, {UnitKind::Recycler, side, kX + east, kY}}});
     const protekt::sim::UnitId id = sim.units().at(1).id;
-    sim.enqueue(protekt::sim::Order{id, protekt::sim::orders::Deploy{kX + east - 1, kY - 1}});
+    // Round 19, L2: the site is 8 x 8 now, so it is aimed with the recycler on its middle tile.
+    sim.enqueue(protekt::sim::Order{id, protekt::sim::orders::Deploy{kX + east - 4, kY - 4}});
     for (int i = 0; i < ticks; ++i) {
         sim.step();
     }
@@ -8667,7 +8720,17 @@ TEST(OnDemandBars, TheDeployBarIsNotAHealthBarAndStaysWithNothingSelected) {
     ASSERT_EQ(bars.size(), 1U) << "the deploy bar alone";
     EXPECT_NEAR(bars.front().fill.width() / bars.front().track.width(),
                 100.0F / static_cast<float>(protekt::sim::kDeployTicks), 0.01F);
-    const protekt::game::Projected top = top_of(options, sim.units().at(1));
+    // Round 19, L2: the recycler is drawn four times its size, so its bar rides that much higher
+    // (`unit_box_height_metres`, 7.2 m): the top is read off the same box the scene reads.
+    const protekt::sim::Unit& deploying = sim.units().at(1);
+    const protekt::game::Projected top = project(
+        options.camera, options.extent,
+        static_cast<float>(deploying.x.raw) / static_cast<float>(protekt::sim::Fixed::kOne)
+            * kMetresPerTile,
+        protekt::game::height_metres(options.seed, deploying.x.floor_int(), deploying.y.floor_int())
+            + protekt::game::unit_box_height_metres(deploying),
+        static_cast<float>(deploying.y.raw) / static_cast<float>(protekt::sim::Fixed::kOne)
+            * kMetresPerTile);
     EXPECT_LT(bars.front().outline.bottom, top.y);
     EXPECT_GT(bars.front().outline.bottom, top.y - 8.0F) << "in the health bar's own slot";
 }

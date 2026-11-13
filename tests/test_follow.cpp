@@ -105,13 +105,13 @@ TEST(Follow, ShadowsALeaderThatMovesOff) {
 TEST(Follow, ShootsAHostileInRangeWhileHoldingAndStaysPut) {
     Field f = field({{Side::Player, UnitKind::Tank, 100, 100},
                      {Side::Player, UnitKind::Tank, 103, 100},
-                     {Side::Enemy, UnitKind::Factory, 100, 108}}); // 8 tiles: in range
+                     {Side::Enemy, UnitKind::Recycler, 100, 108}}); // 8 tiles: in range
     const UnitId me = f.ids[0];
     f.sim.enqueue(Order{me, orders::Follow{f.ids[1]}});
     const Fixed x0 = f.sim.find(me)->x;
     const Fixed y0 = f.sim.find(me)->y;
     run(f.sim, 120);
-    EXPECT_LT(f.sim.find(f.ids[2])->hp, kFactoryHp) << "the follower did not fire";
+    EXPECT_LT(f.sim.find(f.ids[2])->hp, kRecyclerHp) << "the follower did not fire";
     EXPECT_EQ(f.sim.find(me)->x, x0) << "it was already inside the radius: nothing to do but shoot";
     EXPECT_EQ(f.sim.find(me)->y, y0);
 }
@@ -119,7 +119,7 @@ TEST(Follow, ShootsAHostileInRangeWhileHoldingAndStaysPut) {
 TEST(Follow, FiresWhileClosing) {
     Field f = field({{Side::Player, UnitKind::Tank, 100, 100},
                      {Side::Player, UnitKind::Tank, 118, 100},
-                     {Side::Enemy, UnitKind::Factory, 102, 104}});
+                     {Side::Enemy, UnitKind::Recycler, 102, 104}});
     f.sim.enqueue(Order{f.ids[0], orders::Follow{f.ids[1]}});
     int shots = 0;
     for (int tick = 0; tick < 60; ++tick) {
@@ -135,7 +135,7 @@ TEST(Follow, FiresWhileClosing) {
 TEST(Follow, NeverPursuesAHostileOutOfRange) {
     Field f = field({{Side::Player, UnitKind::Tank, 100, 100},
                      {Side::Player, UnitKind::Tank, 103, 100},
-                     {Side::Enemy, UnitKind::Factory, 100, 130}}); // 30 tiles: out of range
+                     {Side::Enemy, UnitKind::Recycler, 100, 130}}); // 30 tiles: out of range
     const UnitId me = f.ids[0];
     f.sim.enqueue(Order{me, orders::Follow{f.ids[1]}});
     const Fixed x0 = f.sim.find(me)->x;
@@ -143,7 +143,7 @@ TEST(Follow, NeverPursuesAHostileOutOfRange) {
     run(f.sim, 200);
     EXPECT_EQ(f.sim.find(me)->x, x0);
     EXPECT_EQ(f.sim.find(me)->y, y0) << "it walked off to chase something";
-    EXPECT_EQ(f.sim.find(f.ids[2])->hp, kFactoryHp);
+    EXPECT_EQ(f.sim.find(f.ids[2])->hp, kRecyclerHp);
 }
 
 TEST(Follow, OfADeadOrInvalidUnitIsDropped) {
@@ -171,7 +171,7 @@ TEST(Follow, OfADeadOrInvalidUnitIsDropped) {
 
 TEST(Follow, AnyLivingUnitOnEitherSideCanBeFollowed) {
     Field f = field(
-        {{Side::Player, UnitKind::Tank, 100, 100}, {Side::Enemy, UnitKind::Factory, 130, 100}});
+        {{Side::Player, UnitKind::Tank, 100, 100}, {Side::Enemy, UnitKind::Recycler, 130, 100}});
     f.sim.enqueue(Order{f.ids[0], orders::Follow{f.ids[1]}});
     f.sim.step();
     EXPECT_EQ(f.sim.find(f.ids[0])->stance, Stance::Follow);
@@ -256,7 +256,7 @@ TEST(Follow, TwoRunsWithTheSameSeedAreByteIdentical) {
         Field f = field({{Side::Player, UnitKind::Tank, 100, 100},
                          {Side::Player, UnitKind::Tank, 112, 100},
                          {Side::Enemy, UnitKind::Tank, 100, 108},
-                         {Side::Enemy, UnitKind::Factory, 120, 108}});
+                         {Side::Enemy, UnitKind::Recycler, 120, 108}});
         f.sim.enqueue(Order{f.ids[0], orders::Follow{f.ids[1]}});
         f.sim.enqueue(Order{f.ids[1], orders::MoveTo{tile(140), tile(100)}});
         std::vector<std::uint64_t> hashes;

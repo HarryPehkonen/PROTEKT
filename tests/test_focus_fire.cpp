@@ -19,8 +19,6 @@
 namespace protekt::sim {
 namespace {
 
-inline constexpr std::uint16_t kFactoryHp = 400;
-
 struct Field {
     Sim sim;
     UnitId mine{};
@@ -28,10 +26,11 @@ struct Field {
     UnitId far_enemy{};
 };
 
-/// One player tank at (100,100) and two enemy factories: one at (103,104), five tiles away, and one
-/// ten tiles due east. Both are inside the tank's twelve-tile weapon range, so which one gets shot
-/// is a real choice. The near one is OFF the line to the far one on purpose: a bolt hits the first
-/// hostile on its path, so a factory standing in the way would take the shot meant for the other.
+/// One player tank at (100,100) and two enemy factories: one centred (105, 106), 7.8 tiles away,
+/// and one centred (111, 98), 11.2. Both are inside the tank's twelve-tile weapon range, so which
+/// one gets shot is a real choice. The near one is OFF the line to the far one on purpose: a bolt
+/// hits the first hostile on its path, so a factory standing in the way would take the shot meant
+/// for the other.
 [[nodiscard]] Field field() {
     Scenario scenario{};
     scenario.seed = 42;
@@ -44,15 +43,19 @@ struct Field {
         scenario.spawns.push_back(spawn);
     };
     add(Side::Player, UnitKind::Tank, 100, 100);
-    add(Side::Enemy, UnitKind::Factory, 103, 104);
-    add(Side::Enemy, UnitKind::Factory, 110, 100);
+    // Round 19, L2: factories are 8 x 8 and their tile is their north-west corner, so these two
+    // stand centred (105, 106) and (111, 98) -- 7.8 and 11.2 tiles off, both in the twelve-tile
+    // range, and (101..108 x 102..109 against 107..114 x 94..101) not overlapping. They were
+    // centred (103, 104) and (110, 100).
+    add(Side::Enemy, UnitKind::Factory, 101, 102);
+    add(Side::Enemy, UnitKind::Factory, 107, 94);
 
     Field out{};
     out.sim = Sim::create(scenario);
     for (const Unit& unit : out.sim.units()) {
         if (unit.side == Side::Player) {
             out.mine = unit.id;
-        } else if (unit.x.floor_int() == 103) {
+        } else if (unit.x.floor_int() == 105) {
             out.near_enemy = unit.id;
         } else {
             out.far_enemy = unit.id;
@@ -188,7 +191,7 @@ TEST(FocusFire, KeepingOnClickingStillKillsYourOwnUnit) {
         scenario.spawns.push_back(spawn);
     };
     add(Side::Player, UnitKind::Tank, 100);
-    add(Side::Player, UnitKind::Factory, 103);
+    add(Side::Player, UnitKind::Recycler, 103); // a wheeled one (a factory is 8 x 8 since L2)
     Sim sim = Sim::create(scenario);
     UnitId mine{};
     UnitId friendly{};

@@ -40,7 +40,11 @@ constexpr std::uint64_t kSeed = 20261023;
 Scenario fetch_battle() {
     Scenario s;
     s.seed = kSeed;
-    s.spawns = {Spawn{UnitKind::Factory, Side::Player, 52, 45},
+    // ROUND 19, L2: a factory is 8 x 8 and its spawn tile is its north-west corner. The factory
+    // that stood at (52, 45) as a point does not fit there (the ground is not open), and the placer
+    // moved it to (54, 46); it is spawned there now, so what the sim made of it is what the file
+    // says.
+    s.spawns = {Spawn{UnitKind::Factory, Side::Player, 54, 46},
                 Spawn{UnitKind::Scavenger, Side::Player, 58, 40},
                 Spawn{UnitKind::Tank, Side::Player, 57, 41},
                 Spawn{UnitKind::Tank, Side::Player, 58, 41},
@@ -68,7 +72,9 @@ Scenario walk_battle() {
 Scenario build_battle() {
     Scenario s;
     s.seed = kSeed;
-    s.spawns = {Spawn{UnitKind::Factory, Side::Player, 52, 45},
+    // ROUND 19, L2: the factory is 8 x 8 now, so it stands at (44, 38) (it was a point at (52, 45))
+    // with the guns and the hauler clear of its 44..51 x 38..45.
+    s.spawns = {Spawn{UnitKind::Factory, Side::Player, 44, 38},
                 Spawn{UnitKind::Scavenger, Side::Player, 48, 47},
                 Spawn{UnitKind::Turret, Side::Player, 58, 45},
                 Spawn{UnitKind::Tank, Side::Player, 50, 46},
@@ -256,7 +262,14 @@ TEST(Ledger, RepairHappensAndTheLedgerPaysForNothing) {
     // is only ever spent on new items. This rig is a fight the player wins while being shot: a hull
     // takes a hit, mends 1 hp on the repair beat, takes the next. Every mend happens while the
     // ledger is still empty, and the ledger never goes down.
-    Sim sim = Sim::create(fetch_battle());
+    // Round 19, L2: the factory mends what is within six tiles of its CENTRE, which is (58, 50) now
+    // that it is 8 x 8, so the three tanks stand at y = 45 (they stood at 41, within six of the
+    // point).
+    Scenario battle = fetch_battle();
+    for (std::size_t i = 2; i <= 4; ++i) {
+        battle.spawns.at(i).tile_y = 45;
+    }
+    Sim sim = Sim::create(battle);
     std::vector<std::uint16_t> last_hp(sim.units().size(), 0);
     for (std::size_t i = 0; i < sim.units().size(); ++i) {
         last_hp.at(i) = sim.units().at(i).hp;
@@ -1158,8 +1171,12 @@ TEST(BuildQueue, AUnitIsBuiltOnGroundBesideADeployedRecyclerNeverInsideItsFootpr
     const Unit& made = *built_since(sim, first).front();
     EXPECT_FALSE(sim::building_blocks(sim.units(), made.x.floor_int(), made.y.floor_int()))
         << "a unit is never spawned inside a building's footprint";
-    EXPECT_LE(std::abs(made.x.floor_int() - 60), sim::kBuildSpawnRadiusTiles);
-    EXPECT_LE(std::abs(made.y.floor_int() - 45), sim::kBuildSpawnRadiusTiles);
+    // Measured from the building's CENTRE (a building's spawn tile is its north-west corner, and it
+    // is 8 x 8 since round 19, L2: the centre is four tiles in from (60, 45)).
+    EXPECT_LE(std::abs(made.x.floor_int() - sim.find(producer)->x.floor_int()),
+              sim::kBuildSpawnRadiusTiles);
+    EXPECT_LE(std::abs(made.y.floor_int() - sim.find(producer)->y.floor_int()),
+              sim::kBuildSpawnRadiusTiles);
 }
 
 TEST(BuildQueue, AQueueThatNeverStartsHashesAsAnEmptyOneAndAQueuedEntryMovesTheHash) {

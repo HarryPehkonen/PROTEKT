@@ -586,7 +586,7 @@ std::vector<NetworkBuilding> network_of(const sim::Sim& sim, sim::Side side) {
     std::vector<NetworkBuilding> network;
     for (const sim::Unit& unit : sim.units()) {
         if (!unit.alive || unit.side != side || sim::under_construction(unit)
-            || !sim::has_footprint(unit)) {
+            || !sim::has_footprint(unit.kind)) {
             continue;
         }
         const sim::UnitKind kind = unit.kind;

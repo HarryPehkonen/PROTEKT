@@ -141,14 +141,21 @@ TEST(ServiceRepair, TimeScalesWithMaxHealth) {
 
 TEST(ServiceRepair, AFactoryTakesFourTimesAsLongAsATank) {
     // 400 against 100: the buildings are not special-cased, they simply have more to mend.
-    const int tank = gained(UnitKind::Tank, {kPatientX + 3});
-    Sim sim = ward(UnitKind::Factory, 1, {kPatientX + 3});
+    // ROUND 19, L2: a factory is 8 x 8, so (as the loop below does for every building) it is
+    // spawned with its CENTRE on the patient tile and the truck stands just outside its footprint,
+    // five tiles from the centre; the tank it is compared with stands five tiles off as well.
+    const int tank = gained(UnitKind::Tank, {kPatientX + 5});
+    std::vector<Spawn> spawns{spawn(UnitKind::Factory, Side::Player, kPatientX - 4, 1)};
+    spawns.front().tile_y = kRowY - 4;
+    Spawn truck = spawn(UnitKind::ServiceTruck, Side::Player, kPatientX + 5);
+    truck.face_x = -1;
+    spawns.push_back(truck);
+    Sim sim = rig(std::move(spawns));
     ASSERT_TRUE(truck_in_reach(sim));
     run(sim, kSoak);
     const int factory = static_cast<int>(sim.units().at(0).hp) - 1;
     EXPECT_GT(factory, 0);
-    // The factory's centre is a little off its spawn tile, so the truck is a little nearer or
-    // farther than 3 tiles: compare the rate per hit point, loosely.
+    // Compare the rate per hit point, loosely.
     EXPECT_GT(factory * kTankHp, tank * kFactoryHp / 2);
     EXPECT_LT(factory * kTankHp, tank * kFactoryHp * 2);
 }

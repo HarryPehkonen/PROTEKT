@@ -20,9 +20,10 @@ inline constexpr float kPickUnitRadiusTiles = 0.75F;
 /// How tall a unit's pick box is, in metres: a factory stands taller than a vehicle. The picker's
 /// box and `attack_point`'s middle both read this, so they are the same unit's same body.
 [[nodiscard]] float unit_box_height_metres(sim::UnitKind kind) noexcept;
-/// The same, for THIS unit: a placed building (`sim::is_scaled_building`) is drawn
-/// `kBuildingModelScale` times its authored size, so its box is that much taller; the scenario
-/// factory and every other unit read the kind's own box.
+/// The same, for THIS unit: a scaled model (`sim::is_scaled_model`: every
+/// building, the factory and deployed recycler included, and the wheeled recycler) is drawn
+/// `kBuildingModelScale` times its authored size, so its box is that much taller; every other
+/// unit reads the kind's own box.
 [[nodiscard]] float unit_box_height_metres(const sim::Unit& unit) noexcept;
 
 /// THE AVAILABILITY RULE (VIS), the one place it lives. A unit is available to the player -- to

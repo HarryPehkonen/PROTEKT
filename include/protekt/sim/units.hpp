@@ -166,13 +166,16 @@ inline constexpr int kUnitKindCount = 35;
            && kind != UnitKind::DeployedScavenger;
 }
 
-/// A kind that ALWAYS stands on a FOOTPRINT (see `Footprint`): the deployed recycler, POWER and the
-/// seven buildings of round 18's K3. The FACTORY is deliberately not here: every battle recorded
-/// before K3 spawns it as a plain point unit with no footprint, and giving the KIND one would move
-/// them all. A factory a Constructor PLACED has one -- see `has_footprint(const Unit&)`.
+/// A kind that ALWAYS stands on a FOOTPRINT (see `Footprint`): the deployed recycler, the factory,
+/// POWER and the buildings of round 18's K3. ROUND 19, L2: the FACTORY is here now, whoever raised
+/// it. It used to be a point unit when a scenario spawned it (and only a Constructor's stood on a
+/// footprint), so every battle recorded before spawned it with none; the owner ruled it scales
+/// ("we also need to scale the factory and recycler"), so the kind has one in BOTH states and the
+/// battles it stands in are re-recorded (each named in its test).
 [[nodiscard]] constexpr bool has_footprint(UnitKind kind) noexcept {
     switch (kind) {
     case UnitKind::DeployedRecycler:
+    case UnitKind::Factory:
     case UnitKind::Power:
     case UnitKind::RelayBunker:
     case UnitKind::Armory:
@@ -367,11 +370,6 @@ struct Unit {
     /// A PLACED BUILDING turned a quarter (`~ Rotate Buildings`): its footprint's width and height
     /// are swapped. Only a placed building's is ever set; hashed only when set.
     bool turned{};
-    /// RAISED BY A CONSTRUCTOR (`orders::Place`), as opposed to spawned by a scenario. It matters
-    /// for ONE kind, the Factory, which a scenario spawns as a point unit with no footprint (and
-    /// every recorded battle depends on that) but a Constructor raises on a 2x2 one. Set for every
-    /// placed building; hashed only for the Factory, the one kind whose footprint depends on it.
-    bool placed{};
     bool alive{true};
     /// A BUILDING STILL BEING BUILT (round 18, K2): the ticks of construction it has LEFT. Set to
     /// the kind's `build_ticks` when a Constructor places it, counted down only while a friendly
@@ -380,12 +378,6 @@ struct Unit {
     /// so a battle with no site under construction hashes exactly as it did before there was one.
     std::uint16_t build_left{};
 };
-
-/// Whether THIS unit stands on a footprint: its kind always does, or it is a Factory a Constructor
-/// placed. The question every footprint reader asks of a unit in the table.
-[[nodiscard]] constexpr bool has_footprint(const Unit& unit) noexcept {
-    return has_footprint(unit.kind) || (unit.kind == UnitKind::Factory && unit.placed);
-}
 
 /// A Constructor must be within this many TILES of a site's footprint (the nearest point of its
 /// rectangle) for the site to progress. The owner's "within one block" -- his block is this tree's
@@ -472,7 +464,9 @@ inline constexpr std::int64_t kServiceRepairHitPoint = kServiceRepairTicks * kSe
 /// would replace it. A recycled unit leaves NO wreckage -- its value goes to the ledger instead of
 /// onto the ground -- so a recycle is not a second harvest of the same hull.
 inline constexpr std::uint16_t kRecycleOre = 2;
-inline constexpr int kBuildSpawnRadiusTiles = 3;
+/// How far from a producer's centre a built unit may be put: the half of the 8 x 8 footprint every
+/// producer stands on (4 tiles, round 19, L2) and the three tiles of yard it had beyond a point.
+inline constexpr int kBuildSpawnRadiusTiles = 7;
 inline constexpr std::uint16_t kTankDamage = 8;
 inline constexpr std::uint16_t kTurretDamage = 12;
 inline constexpr std::uint16_t kTankCooldownTicks = 15;
@@ -639,11 +633,12 @@ inline constexpr std::uint16_t kPlacedBuildingHp = kTankHp;
 /// becomes 8 x 4."  The factor is written ONCE, here, and the table below is the figure the owner
 /// reads (1x1 -> 4x4) times it, so a number in the table is still the number he said.
 ///
-/// THE TWO STRUCTURES THAT ARE NOT SCALED are the DEPLOYED RECYCLER (`kDeployedRecyclerFootprint`)
-/// and a SCENARIO-SPAWNED FACTORY (no footprint at all, `has_footprint(const Unit&)`): both exist
-/// in recorded battles, and a bigger footprint changes what a recorded battle does (a unit that
-/// walks round the recycler walks round a bigger one). That is a stated RE-RECORD the owner has not
-/// ruled on, so neither is touched.
+/// ROUND 19, L2 (the owner: "I'm afraid we also need to scale the factory and recycler, including a
+/// deployed recycler"): the DEPLOYED RECYCLER (`kDeployedRecyclerFootprint`) and the FACTORY in
+/// BOTH states -- raised by a Constructor or spawned by a scenario -- scale with the rest. They
+/// exist in recorded battles, so a bigger footprint changes what those battles do (a unit that
+/// walks round the recycler walks round a bigger one): a stated RE-RECORD, each one named in its
+/// test with the number it had.
 inline constexpr int kBuildingFootprintScale = 4;
 
 /// A footprint as the owner reads it off the game (in the old, small tiles) made
@@ -708,23 +703,26 @@ inline constexpr FootprintSize kJammerFootprint = scaled_footprint(1, 1);
     }
 }
 
-/// Whether THIS unit is one of the SCALED buildings (round 19, L1): a placeable kind that stands on
-/// a footprint. The deployed recycler is not (it is not placeable) and a scenario-spawned factory
-/// is not (it stands on none): they are the two structures left as they were. Everything that draws
-/// or picks a building at `kBuildingFootprintScale` times its authored size asks this.
+/// Whether THIS unit is one of the SCALED buildings: a kind that stands on a footprint (since round
+/// 19, L2 that is every placeable kind and the deployed recycler too).
 [[nodiscard]] constexpr bool is_scaled_building(const Unit& unit) noexcept {
-    return is_placeable(unit.kind) && has_footprint(unit);
+    return has_footprint(unit.kind);
+}
+
+/// Whether THIS unit's MODEL is drawn at `kBuildingFootprintScale` times its authored size: a
+/// scaled building, and the wheeled RECYCLER -- a vehicle with no footprint, but the same machine
+/// the deployed one is (L2). Everything that draws or picks at the larger size asks this.
+[[nodiscard]] constexpr bool is_scaled_model(const Unit& unit) noexcept {
+    return is_scaled_building(unit) || unit.kind == UnitKind::Recycler;
 }
 
 /// The deployed recycler's footprint: 2x2 tiles (his ruling, 2026-10-26: "2x2 tiles -- a building
-/// should not be the same size as a tank"). That ruling is about THIS building; later kinds
-/// add their own rows to `footprint_of`.
-inline constexpr FootprintSize kDeployedRecyclerFootprint{2, 2};
+/// should not be the same size as a tank"), four times that since round 19, L2: 8x8.
+inline constexpr FootprintSize kDeployedRecyclerFootprint = scaled_footprint(2, 2);
 
 /// THE TABLE: the size of the footprint a kind stands on, 0x0 for a kind that has none (it covers
-/// no tile). The Factory's 2x2 is the size a PLACED factory stands on; a scenario's spawned factory
-/// has none (`has_footprint(const Unit&)`). `test_footprint.cpp` pins the whole table so an edit is
-/// deliberate, never a drift.
+/// no tile). The Factory's is the same whoever raised it. `test_footprint.cpp` pins the whole table
+/// so an edit is deliberate, never a drift.
 [[nodiscard]] constexpr FootprintSize footprint_of(UnitKind kind) noexcept {
     switch (kind) {
     case UnitKind::DeployedRecycler:
@@ -796,7 +794,7 @@ struct Footprint {
 /// The footprint a placed building stands on: its kind's rectangle, with width and height swapped
 /// when it was turned a quarter.
 [[nodiscard]] constexpr FootprintSize footprint_of(const Unit& unit) noexcept {
-    const FootprintSize size = has_footprint(unit) ? footprint_of(unit.kind) : FootprintSize{};
+    const FootprintSize size = footprint_of(unit.kind);
     return unit.turned ? FootprintSize{size.height, size.width} : size;
 }
 

@@ -371,9 +371,13 @@ TEST(Trigger, AManualShotAtAHostileInRangeEmitsNoFiredEvent) {
     // (a gun that has one fires on its own the moment it reloads, so the tank advances into range
     // on the same tick), reports no Fired for it. The control: the sim's own gun fire is reported.
     const auto fired_by_tank = [](bool manual) {
-        sim::Sim field = sim::Sim::create(Scenario{kSeed,
-                                                   {{UnitKind::Tank, Side::Player, 100, 100},
-                                                    {UnitKind::Factory, Side::Enemy, 112, 101}}});
+        sim::Sim field = sim::Sim::create(Scenario{
+            kSeed,
+            // Round 19, L2: the factory is 8 x 8 and the placer
+            // can only seat it at (105, 100), centred (109, 104),
+            // so the tank stands at (97, 103), the same 12.04
+            // tiles off as (100, 100) was from (112, 101).
+            {{UnitKind::Tank, Side::Player, 97, 103}, {UnitKind::Factory, Side::Enemy, 105, 100}}});
         const sim::UnitId tank = field.units().at(0).id;
         const sim::UnitId hostile = field.units().at(1).id;
         reload(field);

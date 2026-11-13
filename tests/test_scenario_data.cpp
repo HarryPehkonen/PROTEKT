@@ -343,14 +343,20 @@ dy = -3
     // offsets: the player's lie at (-4,-1) and (-1,-4) of its factory, the enemy's mirror them.
     const Spawn& pf = s.spawns.at(0);
     const Spawn& ef = s.spawns.at(want.size());
-    EXPECT_EQ(s.spawns.at(1).tile_x, pf.tile_x - 4);
-    EXPECT_EQ(s.spawns.at(1).tile_y, pf.tile_y - 1);
-    EXPECT_EQ(s.spawns.at(2).tile_x, pf.tile_x - 1);
-    EXPECT_EQ(s.spawns.at(2).tile_y, pf.tile_y - 4);
-    EXPECT_EQ(s.spawns.at(want.size() + 1).tile_x, ef.tile_x + 4);
-    EXPECT_EQ(s.spawns.at(want.size() + 1).tile_y, ef.tile_y + 1);
-    EXPECT_EQ(s.spawns.at(want.size() + 2).tile_x, ef.tile_x + 1);
-    EXPECT_EQ(s.spawns.at(want.size() + 2).tile_y, ef.tile_y + 4);
+    // RE-RECORDED, round 19, L2: the factory is 8 x 8 and its tile is its north-west corner, so the
+    // wished tiles (-4, -1) and (-1, -4) from the base centre fall inside, or beside, its footprint
+    // and the placer seats the bike and the tank a tile or two off them. Old offsets from the
+    // factory's tile (the code at 1a326d6): the player's bike (-4, -1) and tank (-1, -4), the
+    // enemy's (+4, +1) and (+1, +4). New: the player's bike (-1, +2) and tank (+2, -1), the enemy's
+    // (+3, -1) and (-1, 0) -- for seed 42.
+    EXPECT_EQ(s.spawns.at(1).tile_x, pf.tile_x - 1);
+    EXPECT_EQ(s.spawns.at(1).tile_y, pf.tile_y + 2);
+    EXPECT_EQ(s.spawns.at(2).tile_x, pf.tile_x + 2);
+    EXPECT_EQ(s.spawns.at(2).tile_y, pf.tile_y - 1);
+    EXPECT_EQ(s.spawns.at(want.size() + 1).tile_x, ef.tile_x + 3);
+    EXPECT_EQ(s.spawns.at(want.size() + 1).tile_y, ef.tile_y - 1);
+    EXPECT_EQ(s.spawns.at(want.size() + 2).tile_x, ef.tile_x - 1);
+    EXPECT_EQ(s.spawns.at(want.size() + 2).tile_y, ef.tile_y);
     // Three turrets share one wish, so the placement rule spreads them over distinct tiles.
     for (std::size_t i = 0; i < s.spawns.size(); ++i) {
         for (std::size_t j = i + 1; j < s.spawns.size(); ++j) {
