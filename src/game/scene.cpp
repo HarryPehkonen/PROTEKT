@@ -1150,6 +1150,9 @@ struct BuildingKit {
     UvRect roof{};
     UvRect ribs{};
     UvRect dark{};
+    UvRect
+        hull{}; ///< the team's camo tile: the alien buildings' shells wear it, as a harvester does
+    UvRect panel{}; ///< the lit turret-metal tile: their crests, eyes and glowing parts
 };
 
 BuildingKit make_building_kit(std::uint64_t seed, const sim::Unit& unit, Mark mark, float lift_z,
@@ -1191,6 +1194,9 @@ BuildingKit make_building_kit(std::uint64_t seed, const sim::Unit& unit, Mark ma
     kit.roof = atlas.rect("factory_roof");
     kit.ribs = upright_part(kit.roof, 0, 44, kTileTexels, 60);
     kit.dark = atlas.rect("tank_tracks");
+    kit.hull = atlas.rect(kTeamHullNames.at(static_cast<std::size_t>(unit.side))
+                              .at(static_cast<std::size_t>(hull_variant(seed, unit.id.value))));
+    kit.panel = atlas.rect("tank_turret");
     return kit;
 }
 
@@ -1356,7 +1362,290 @@ void build_bomber_bay(std::vector<SceneVertex>& out, const BuildingKit& k) {
     kit_box(out, k, 1.15F, 1.85F, -1.85F, -1.15F, 2.9F, 3.25F, k.shade, k.dark, k.ribs);
 }
 
-/// The model of a placed building of any of the seven new kinds.
+// ------------------------------------------------------------------------ the ALIEN buildings (K6)
+//
+// THE ALIEN BUILDER'S SIX, in the Harvester's idiom (his art directive: everything alien looks
+// unusual, nothing reads as a human building in another colour): no flat walls and no square
+// corners, every mass an `emit_loft` sweep cut into shingled PLATES (`plated_stations` -- the step
+// between two plates is a wall the smooth pass cannot average away), and four-sided BLADES where an
+// edge is the point. The shell wears the team's camo in its pale tint on the hull tile, the grown
+// parts the side colour on the dark link tile, and the crests, eyes and glowing organs the lit
+// turret-metal tile. Each is built in the same frame as the human buildings (`across` along the
+// footprint's long side, `along` toward the front, turned by the kit's `angle`) and stays inside
+// its footprint: a tile is 2 m, so a 1x1 is +-1 m and a 2x2 is +-2 m.
+//
+// THEIR FUNCTIONS ARE NOT BUILT: these are shapes. The Kiln produces nothing, the Gun Spire does
+// not shoot, the Antenna detects nothing, the Dower services nothing, the Jammer jams nothing and
+// the Stronghold constructs no weapons and no shields. The glows are paint, not behaviour.
+
+/// A plated sweep of the kit, `plates` to a span tucked by `tuck`, of `sides` corners.
+template <std::size_t N>
+void kit_plated(std::vector<SceneVertex>& out, const BuildingKit& k,
+                const std::array<LoftStation, N>& spine, std::size_t plates, float tuck,
+                std::size_t sides, const Vec3& ink, const UvRect& tile) {
+    emit_plated(out, k.x, k.z, k.ground, k.angle, spine, plates, tuck, sides, ink, tile);
+}
+
+/// A four-sided BLADE of the kit through `spine`: the edge is the point, so no plating.
+template <std::size_t N>
+void kit_blade(std::vector<SceneVertex>& out, const BuildingKit& k,
+               const std::array<LoftStation, N>& spine, const Vec3& ink, const UvRect& tile) {
+    constexpr std::size_t kBladeSides = 4;
+    emit_loft(out, k.x, k.z, k.ground, k.angle, spine, kBladeSides, ink, tile);
+}
+
+/// A glowing organ: the kit's lit tile in a bright ink. A loft of `sides` corners through `spine`.
+template <std::size_t N>
+void kit_glow(std::vector<SceneVertex>& out, const BuildingKit& k,
+              const std::array<LoftStation, N>& spine, const Vec3& ink) {
+    constexpr std::size_t kGlowSides = 8;
+    emit_loft(out, k.x, k.z, k.ground, k.angle, spine, kGlowSides, ink, k.panel);
+}
+
+/// The KILN (2 x 2), the alien factory: a squat chitin MOUND of shingled plates that narrows to a
+/// CHIMNEY with an ember glowing in its throat, four curved BUTTRESS blades gripping its flanks, a
+/// side-colour collar on the chimney and an arched ember MOUTH at the front where its young will
+/// come out. (It produces nothing yet.)
+void build_kiln(std::vector<SceneVertex>& out, const BuildingKit& k) {
+    constexpr Vec3 kEmber{1.0F, 0.42F, 0.08F};
+    constexpr std::array<LoftStation, 6> kMound{{
+        {0.0F, 0.0F, 0.0F, 1.7F, 1.7F},
+        {0.0F, 0.7F, 0.0F, 1.9F, 1.9F},
+        {0.0F, 1.6F, 0.0F, 1.5F, 1.5F},
+        {0.0F, 2.5F, 0.0F, 0.95F, 0.95F},
+        {0.0F, 3.1F, 0.0F, 0.55F, 0.55F},
+        {0.0F, 3.9F, 0.0F, 0.42F, 0.42F},
+    }};
+    kit_plated(out, k, kMound, 2, 0.2F, 10, k.pale, k.hull);
+    for (const float sx : {-1.0F, 1.0F}) {
+        for (const float sz : {-1.0F, 1.0F}) {
+            const std::array<LoftStation, 3> buttress{{
+                {sx * 1.35F, 0.0F, sz * 1.35F, 0.14F, 0.1F},
+                {sx * 1.05F, 1.3F, sz * 1.05F, 0.12F, 0.09F},
+                {sx * 0.7F, 2.4F, sz * 0.7F, 0.03F, 0.03F},
+            }};
+            kit_blade(out, k, buttress, k.colour, k.dark);
+        }
+    }
+    constexpr std::array<LoftStation, 2> kCollar{{
+        {0.0F, 3.45F, 0.0F, 0.62F, 0.62F},
+        {0.0F, 3.62F, 0.0F, 0.62F, 0.62F},
+    }};
+    kit_plated(out, k, kCollar, 1, 0.0F, 10, k.colour, k.dark);
+    constexpr std::array<LoftStation, 3> kThroat{{
+        {0.0F, 3.8F, 0.0F, 0.3F, 0.3F},
+        {0.0F, 4.1F, 0.0F, 0.22F, 0.22F},
+        {0.0F, 4.45F, 0.0F, 0.02F, 0.02F},
+    }};
+    kit_glow(out, k, kThroat, kEmber);
+    constexpr std::array<LoftStation, 2> kMouth{{
+        {0.0F, 0.55F, 1.55F, 0.5F, 0.42F},
+        {0.0F, 0.55F, 1.88F, 0.4F, 0.33F},
+    }};
+    kit_glow(out, k, kMouth, kEmber);
+}
+
+/// The GUN SPIRE (1 x 1), the alien gun tower: a tall THORN of shingled plates that leans toward
+/// the front, tapering from a broad root to a needle point, a pair of curved prongs closing on its
+/// tip like mandibles, and a side-colour EYE where they join. (It does not shoot yet.)
+void build_gun_spire(std::vector<SceneVertex>& out, const BuildingKit& k) {
+    constexpr std::array<LoftStation, 5> kThorn{{
+        {0.0F, 0.0F, 0.0F, 0.8F, 0.8F},
+        {0.0F, 0.8F, 0.05F, 0.6F, 0.6F},
+        {0.0F, 1.8F, 0.2F, 0.38F, 0.38F},
+        {0.0F, 2.9F, 0.45F, 0.2F, 0.2F},
+        {0.0F, 3.8F, 0.8F, 0.03F, 0.03F},
+    }};
+    kit_plated(out, k, kThorn, 2, 0.25F, 8, k.pale, k.hull);
+    for (const float side : {-1.0F, 1.0F}) {
+        const std::array<LoftStation, 4> prong{{
+            {side * 0.4F, 2.2F, 0.2F, 0.07F, 0.09F},
+            {side * 0.52F, 2.7F, 0.45F, 0.06F, 0.075F},
+            {side * 0.4F, 3.2F, 0.75F, 0.04F, 0.05F},
+            {side * 0.12F, 3.55F, 0.92F, 0.008F, 0.008F},
+        }};
+        kit_blade(out, k, prong, k.colour, k.dark);
+    }
+    constexpr std::array<LoftStation, 3> kEye{{
+        {0.0F, 2.3F, 0.65F, 0.01F, 0.01F},
+        {0.0F, 2.3F, 0.5F, 0.17F, 0.17F},
+        {0.0F, 2.3F, 0.38F, 0.01F, 0.01F},
+    }};
+    emit_loft(out, k.x, k.z, k.ground, k.angle, kEye, 8, k.colour, k.panel);
+}
+
+/// The ANTENNA (1 x 1), the alien relay: a thin segmented STALK on a swollen root with four short
+/// root blades, ending in a bulb that four curved PETALS open around like a flower turned to the
+/// sky, a side-colour sensing orb in its heart and two small feelers lower down. (It detects
+/// nothing yet.)
+void build_antenna(std::vector<SceneVertex>& out, const BuildingKit& k) {
+    constexpr std::array<LoftStation, 5> kStalk{{
+        {0.0F, 0.0F, 0.0F, 0.5F, 0.5F},
+        {0.0F, 0.5F, 0.0F, 0.22F, 0.22F},
+        {0.0F, 1.6F, 0.0F, 0.12F, 0.12F},
+        {0.0F, 2.8F, 0.0F, 0.1F, 0.1F},
+        {0.0F, 3.55F, 0.0F, 0.15F, 0.15F},
+    }};
+    kit_plated(out, k, kStalk, 3, 0.3F, 8, k.pale, k.hull);
+    for (const float sx : {-1.0F, 1.0F}) {
+        const std::array<LoftStation, 3> root_x{{{sx * 0.3F, 0.0F, 0.0F, 0.1F, 0.1F},
+                                                 {sx * 0.55F, 0.12F, 0.0F, 0.08F, 0.07F},
+                                                 {sx * 0.9F, 0.0F, 0.0F, 0.01F, 0.01F}}};
+        kit_blade(out, k, root_x, k.colour, k.dark);
+        const std::array<LoftStation, 3> root_z{{{0.0F, 0.0F, sx * 0.3F, 0.1F, 0.1F},
+                                                 {0.0F, 0.12F, sx * 0.55F, 0.08F, 0.07F},
+                                                 {0.0F, 0.0F, sx * 0.9F, 0.01F, 0.01F}}};
+        kit_blade(out, k, root_z, k.colour, k.dark);
+        const std::array<LoftStation, 3> petal_x{{{sx * 0.12F, 3.5F, 0.0F, 0.1F, 0.03F},
+                                                  {sx * 0.55F, 3.85F, 0.0F, 0.17F, 0.03F},
+                                                  {sx * 0.9F, 4.45F, 0.0F, 0.02F, 0.01F}}};
+        kit_blade(out, k, petal_x, k.colour, k.panel);
+        const std::array<LoftStation, 3> petal_z{{{0.0F, 3.5F, sx * 0.12F, 0.1F, 0.03F},
+                                                  {0.0F, 3.85F, sx * 0.55F, 0.17F, 0.03F},
+                                                  {0.0F, 4.45F, sx * 0.9F, 0.02F, 0.01F}}};
+        kit_blade(out, k, petal_z, k.colour, k.panel);
+        const std::array<LoftStation, 3> feeler{{{sx * 0.1F, 2.0F, 0.0F, 0.04F, 0.04F},
+                                                 {sx * 0.45F, 2.25F, 0.0F, 0.03F, 0.03F},
+                                                 {sx * 0.7F, 2.2F, 0.0F, 0.008F, 0.008F}}};
+        kit_blade(out, k, feeler, k.colour, k.dark);
+    }
+    constexpr std::array<LoftStation, 3> kOrb{{
+        {0.0F, 3.55F, 0.0F, 0.01F, 0.01F},
+        {0.0F, 3.85F, 0.0F, 0.22F, 0.22F},
+        {0.0F, 4.15F, 0.0F, 0.01F, 0.01F},
+    }};
+    emit_loft(out, k.x, k.z, k.ground, k.angle, kOrb, 8, k.colour, k.panel);
+}
+
+/// The DOWER (2 x 2), the alien servicing pad: a broad shallow BASIN of shingled scales whose floor
+/// is a raised pad in the side colour, and four curved TENDRIL arches rising from its rim to meet
+/// over the middle where a green organ hangs -- a creche a wounded machine would crawl into. (It
+/// services and repairs nothing yet.)
+void build_dower(std::vector<SceneVertex>& out, const BuildingKit& k) {
+    constexpr Vec3 kHeal{0.35F, 1.0F, 0.65F};
+    constexpr std::array<LoftStation, 4> kBasin{{
+        {0.0F, 0.0F, 0.0F, 1.85F, 1.85F},
+        {0.0F, 0.25F, 0.0F, 1.95F, 1.95F},
+        {0.0F, 0.5F, 0.0F, 1.7F, 1.7F},
+        {0.0F, 0.58F, 0.0F, 1.5F, 1.5F},
+    }};
+    kit_plated(out, k, kBasin, 3, 0.2F, 12, k.pale, k.hull);
+    constexpr std::array<LoftStation, 2> kPad{{
+        {0.0F, 0.5F, 0.0F, 1.25F, 1.25F},
+        {0.0F, 0.64F, 0.0F, 1.25F, 1.25F},
+    }};
+    emit_loft(out, k.x, k.z, k.ground, k.angle, kPad, 12, k.colour, k.dark);
+    for (const float sx : {-1.0F, 1.0F}) {
+        for (const float sz : {-1.0F, 1.0F}) {
+            const std::array<LoftStation, 5> tendril{{
+                {sx * 1.45F, 0.45F, sz * 1.45F, 0.17F, 0.17F},
+                {sx * 1.3F, 1.2F, sz * 1.3F, 0.13F, 0.13F},
+                {sx * 0.95F, 1.95F, sz * 0.95F, 0.1F, 0.1F},
+                {sx * 0.45F, 2.4F, sz * 0.45F, 0.07F, 0.07F},
+                {sx * 0.12F, 2.45F, sz * 0.12F, 0.04F, 0.04F},
+            }};
+            kit_plated(out, k, tendril, 2, 0.3F, 6, k.colour, k.dark);
+        }
+    }
+    constexpr std::array<LoftStation, 3> kOrgan{{
+        {0.0F, 2.5F, 0.0F, 0.03F, 0.03F},
+        {0.0F, 2.1F, 0.0F, 0.3F, 0.3F},
+        {0.0F, 1.55F, 0.0F, 0.04F, 0.04F},
+    }};
+    kit_glow(out, k, kOrgan, kHeal);
+}
+
+/// The STRONGHOLD (2 x 1, a rectangle), the alien armory: a long low CARAPACE like a beetle lying
+/// lengthwise -- shingled plates swelling to the middle -- with a serrated crest of side-colour
+/// blades down its back, a curved HORN rising from each end to lean over it, and a dark arched
+/// gate at the front. (It constructs no weapons and no shields yet.)
+void build_stronghold(std::vector<SceneVertex>& out, const BuildingKit& k) {
+    constexpr std::array<LoftStation, 6> kShell{{
+        {-1.9F, 0.3F, 0.0F, 0.05F, 0.05F},
+        {-1.5F, 0.8F, 0.0F, 0.7F, 0.5F},
+        {-0.6F, 1.1F, 0.0F, 0.92F, 0.7F},
+        {0.6F, 1.1F, 0.0F, 0.92F, 0.7F},
+        {1.5F, 0.8F, 0.0F, 0.7F, 0.5F},
+        {1.9F, 0.3F, 0.0F, 0.05F, 0.05F},
+    }};
+    kit_plated(out, k, kShell, 3, 0.22F, 10, k.pale, k.hull);
+    constexpr std::array<LoftStation, 5> kCrest{{
+        {-1.2F, 1.15F, 0.0F, 0.04F, 0.06F},
+        {-0.6F, 1.7F, 0.0F, 0.08F, 0.1F},
+        {0.0F, 1.85F, 0.0F, 0.09F, 0.11F},
+        {0.6F, 1.7F, 0.0F, 0.08F, 0.1F},
+        {1.2F, 1.15F, 0.0F, 0.04F, 0.06F},
+    }};
+    kit_plated(out, k, kCrest, 2, 0.5F, 4, k.colour, k.panel);
+    for (const float end : {-1.0F, 1.0F}) {
+        const std::array<LoftStation, 4> horn{{
+            {end * 1.55F, 0.8F, 0.0F, 0.13F, 0.11F},
+            {end * 1.75F, 1.7F, 0.0F, 0.1F, 0.09F},
+            {end * 1.5F, 2.6F, 0.0F, 0.06F, 0.05F},
+            {end * 1.0F, 3.1F, 0.0F, 0.01F, 0.01F},
+        }};
+        kit_blade(out, k, horn, k.colour, k.dark);
+    }
+    constexpr std::array<LoftStation, 2> kGate{{
+        {0.0F, 0.5F, 0.55F, 0.5F, 0.4F},
+        {0.0F, 0.5F, 0.95F, 0.38F, 0.3F},
+    }};
+    emit_loft(out, k.x, k.z, k.ground, k.angle, kGate, 10, k.shade, k.dark);
+}
+
+/// The JAMMER (1 x 1): a pulsing SEA-URCHIN on a stalk -- a swollen bulb crowned with a needle, a
+/// ring of eight radiating spines at its waist, a flat side-colour skirt round the stalk's foot and
+/// a magenta core glowing in the bulb's belly. (It jams nothing yet.)
+void build_jammer(std::vector<SceneVertex>& out, const BuildingKit& k) {
+    constexpr Vec3 kPulse{0.85F, 0.2F, 1.0F};
+    constexpr std::array<LoftStation, 4> kStalk{{
+        {0.0F, 0.0F, 0.0F, 0.45F, 0.45F},
+        {0.0F, 0.6F, 0.0F, 0.25F, 0.25F},
+        {0.0F, 1.1F, 0.0F, 0.2F, 0.2F},
+        {0.0F, 1.2F, 0.0F, 0.18F, 0.18F},
+    }};
+    kit_plated(out, k, kStalk, 2, 0.25F, 8, k.pale, k.hull);
+    constexpr std::array<LoftStation, 5> kBulb{{
+        {0.0F, 1.15F, 0.0F, 0.12F, 0.12F},
+        {0.0F, 1.5F, 0.0F, 0.5F, 0.5F},
+        {0.0F, 1.85F, 0.0F, 0.52F, 0.52F},
+        {0.0F, 2.2F, 0.0F, 0.28F, 0.28F},
+        {0.0F, 2.45F, 0.0F, 0.05F, 0.05F},
+    }};
+    kit_plated(out, k, kBulb, 2, 0.22F, 10, k.pale, k.hull);
+    constexpr std::array<LoftStation, 2> kSkirt{{
+        {0.0F, 0.55F, 0.0F, 0.8F, 0.8F},
+        {0.0F, 0.62F, 0.0F, 0.8F, 0.8F},
+    }};
+    emit_loft(out, k.x, k.z, k.ground, k.angle, kSkirt, 12, k.colour, k.dark);
+    constexpr int kSpines = 8;
+    constexpr float kTau = 6.2831853F;
+    for (int i = 0; i < kSpines; ++i) {
+        const float a = kTau * static_cast<float>(i) / static_cast<float>(kSpines);
+        const float c = std::cos(a);
+        const float s = std::sin(a);
+        const std::array<LoftStation, 3> spine{{
+            {c * 0.4F, 1.7F, s * 0.4F, 0.07F, 0.07F},
+            {c * 0.7F, 1.8F, s * 0.7F, 0.045F, 0.045F},
+            {c * 0.93F, 1.95F, s * 0.93F, 0.008F, 0.008F},
+        }};
+        kit_blade(out, k, spine, k.colour, k.dark);
+    }
+    constexpr std::array<LoftStation, 3> kNeedle{{
+        {0.0F, 2.4F, 0.0F, 0.06F, 0.06F},
+        {0.0F, 3.0F, 0.0F, 0.04F, 0.04F},
+        {0.0F, 3.7F, 0.0F, 0.008F, 0.008F},
+    }};
+    kit_blade(out, k, kNeedle, k.colour, k.panel);
+    constexpr std::array<LoftStation, 3> kCore{{
+        {0.0F, 1.5F, 0.0F, 0.05F, 0.05F},
+        {0.0F, 1.75F, 0.0F, 0.3F, 0.3F},
+        {0.0F, 2.0F, 0.0F, 0.05F, 0.05F},
+    }};
+    kit_glow(out, k, kCore, kPulse);
+}
+
+/// The model of a placed building of any of the thirteen kinds K3 and K6 add.
 void build_placed_building(std::vector<SceneVertex>& out, std::uint64_t seed, const sim::Unit& unit,
                            Mark mark, float lift_z, bool lifted) {
     const BuildingKit kit = make_building_kit(seed, unit, mark, lift_z, lifted);
@@ -1382,8 +1671,26 @@ void build_placed_building(std::vector<SceneVertex>& out, std::uint64_t seed, co
     case sim::UnitKind::BomberBay:
         build_bomber_bay(out, kit);
         break;
+    case sim::UnitKind::Kiln:
+        build_kiln(out, kit);
+        break;
+    case sim::UnitKind::GunSpire:
+        build_gun_spire(out, kit);
+        break;
+    case sim::UnitKind::Antenna:
+        build_antenna(out, kit);
+        break;
+    case sim::UnitKind::Dower:
+        build_dower(out, kit);
+        break;
+    case sim::UnitKind::Stronghold:
+        build_stronghold(out, kit);
+        break;
+    case sim::UnitKind::Jammer:
+        build_jammer(out, kit);
+        break;
     default:
-        break; // not one of the seven: nothing to draw here
+        break; // not one of the thirteen: nothing to draw here
     }
 }
 

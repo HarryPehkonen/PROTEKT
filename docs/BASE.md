@@ -137,6 +137,20 @@ The costs may change, by his word.
 
 One page. (`ANTENNA` is the panel's short form of the Antenna Mound.)
 
+**`[SHIPPED]` (round 18, K6): all six rows raise a building** through the same job as the human nine (the press
+arms it, SPACE places it, the Builder drives within one tile, the build rises on its tick timer). Kinds 29-34
+(`Kiln` .. `Jammer`), costs as above. **The gate is a BUILDING, never power** `[RULED]`: `ANTENNA` and `DOWER` need
+a standing Kiln, `STRONGHOLD` a Forge, `JAMMER` an Overseer; no row reads the human power or connection rule. The
+Forge and the Overseer are upgrades in place and **no upgrade is built**, so in play the Stronghold and the Jammer
+cannot be raised yet (their rows stay dim, naming the missing building).
+
+**Footprints are PROVISIONAL** (he has given none for the aliens): Kiln 2x2, Gun Spire 1x1, Antenna 1x1, Dower
+2x2, Stronghold 2x1 (the one rectangle, so `~` turns it), Jammer 1x1. **Looks** are authored in the Harvester's
+idiom (plated organic lofts and blades, no boxes). **`[NOT BUILT]`: every function** -- the Kiln produces nothing,
+the Gun Spire does not shoot, the Antenna detects nothing, the Dower services and repairs nothing, the Jammer jams
+nothing, the Stronghold constructs no weapons and no shields -- **and the Power Lungs** (one per building,
+destructible, disabling, rebuilt free) do not exist.
+
 ### 2.7 The Builder's UPGRADE list `[CAPTURED]`
 
 One list, and its targets are **mixed**: a building (the `KILN`) and units (two `EXTRACTOR`s) appear together,

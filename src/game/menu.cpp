@@ -198,11 +198,16 @@ constexpr std::array kConstructItems{
 };
 
 /// The ALIEN BUILDER's six buildings (round 17, J5), off the owner's own capture. No second page.
-/// Name rows: no alien building has a `UnitKind`, so nothing here can be placed yet.
+/// Every row names a kind (round 18, K6) and places it through the SAME job as the human nine; the
+/// cost is read from the spec row, so the number drawn is the number charged. The gate on this side
+/// is a BUILDING (`alien_requirement`), never power.
 constexpr std::array kAlienConstructItems{
-    BuildItem{"1", "KILN", 60, std::nullopt},       BuildItem{"2", "GUN SPIRE", 75, std::nullopt},
-    BuildItem{"3", "ANTENNA", 60, std::nullopt},    BuildItem{"4", "DOWER", 50, std::nullopt},
-    BuildItem{"5", "STRONGHOLD", 70, std::nullopt}, BuildItem{"6", "JAMMER", 50, std::nullopt},
+    kinded("1", "KILN", sim::UnitKind::Kiln),
+    kinded("2", "GUN SPIRE", sim::UnitKind::GunSpire),
+    kinded("3", "ANTENNA", sim::UnitKind::Antenna),
+    kinded("4", "DOWER", sim::UnitKind::Dower),
+    kinded("5", "STRONGHOLD", sim::UnitKind::Stronghold),
+    kinded("6", "JAMMER", sim::UnitKind::Jammer),
 };
 static_assert(kAlienConstructItems.size() == kAlienConstructRows);
 
@@ -433,6 +438,28 @@ int spare_power(const StandingBuildings& standing) noexcept {
 }
 
 namespace {
+/// The ALIEN panel's building a kind is, or none: the six the Builder places. A FORGE and an
+/// OVERSEER are upgrades in place and no kind is them, so they are never counted.
+std::optional<AlienBuilding> alien_building_of(sim::UnitKind kind) noexcept {
+    using A = AlienBuilding;
+    switch (kind) {
+    case sim::UnitKind::Kiln:
+        return A::Kiln;
+    case sim::UnitKind::GunSpire:
+        return A::GunSpire;
+    case sim::UnitKind::Antenna:
+        return A::Antenna;
+    case sim::UnitKind::Dower:
+        return A::Dower;
+    case sim::UnitKind::Stronghold:
+        return A::Stronghold;
+    case sim::UnitKind::Jammer:
+        return A::Jammer;
+    default:
+        return std::nullopt;
+    }
+}
+
 /// The panel's building a kind is (K3: all nine have a kind now), or none for a unit.
 std::optional<ConstructBuilding> construct_building_of(sim::UnitKind kind) noexcept {
     using B = ConstructBuilding;
@@ -463,13 +490,19 @@ std::optional<ConstructBuilding> construct_building_of(sim::UnitKind kind) noexc
 
 StandingBuildings standing_buildings(const sim::Sim& sim, sim::Side side, Faction faction) {
     StandingBuildings standing{};
-    if (faction == Faction::Alien) {
-        return standing; // no alien building has a kind yet: nothing stands
-    }
     for (const sim::Unit& unit : sim.units()) {
         // A SITE still being built (K2) is not standing: it satisfies no prerequisite and supplies
         // nothing until the tick it is finished.
         if (!unit.alive || unit.side != side || sim::under_construction(unit)) {
+            continue;
+        }
+        // THE FACTION READS ITS OWN BUILDINGS: the same slot is the human Factory and the alien Gun
+        // Spire, so a human plant standing for an alien side is not a Kiln, and the reverse.
+        if (faction == Faction::Alien) {
+            const std::optional<AlienBuilding> building = alien_building_of(unit.kind);
+            if (building.has_value()) {
+                ++standing.at(static_cast<std::size_t>(*building));
+            }
             continue;
         }
         const std::optional<ConstructBuilding> building = construct_building_of(unit.kind);
@@ -585,7 +618,10 @@ namespace {
 /// THE ALIEN TREE, off the owner's own play: the gate is a BUILDING, never power. ANTENNA and DOWER
 /// need a Kiln, JAMMER an Overseer (the Antenna upgraded in place), STRONGHOLD a Forge (the Kiln
 /// upgraded in place). The reference's further rules (a Kiln or Gun Spire needing a Power Lung, a
-/// Forge needing the Kiln and two Power Lungs) are NOT confirmed and are NOT implemented.
+/// Forge needing the Kiln and two Power Lungs) are NOT confirmed and are NOT implemented. A FORGE
+/// and an OVERSEER are the Kiln and the Antenna UPGRADED in place, and no upgrade is built, so the
+/// Stronghold and the Jammer cannot be raised in play yet -- correctly, not by accident. NO row
+/// here reads power or a connection (`power` is false on every one): that is the human rule.
 ConstructRequirement alien_requirement(std::size_t row) noexcept {
     const auto bit = [](AlienBuilding b) {
         return static_cast<std::uint16_t>(1U << static_cast<unsigned>(b));
@@ -678,6 +714,12 @@ MenuSubject menu_subject_of_kind(sim::UnitKind kind) noexcept {
     case sim::UnitKind::TrainingCentre:
     case sim::UnitKind::TechCentre:
     case sim::UnitKind::BomberBay:
+    case sim::UnitKind::Kiln: // the six alien buildings: nothing selects them, they take no menu
+    case sim::UnitKind::GunSpire:
+    case sim::UnitKind::Antenna:
+    case sim::UnitKind::Dower:
+    case sim::UnitKind::Stronghold:
+    case sim::UnitKind::Jammer:
         return MenuSubject::None;
     case sim::UnitKind::Turret:
     case sim::UnitKind::DeployedTurret:

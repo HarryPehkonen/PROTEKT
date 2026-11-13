@@ -144,8 +144,8 @@ TEST(AlienConstruct, KilnAndGunSpireAreBrightWithNothingStandingAndNoPowerIsAske
 }
 
 TEST(AlienConstruct, ForgeAndOverseerRequirementsCannotBeMetToday) {
-    // Neither an upgrade nor an alien building exists, so what the sim stands is read as ZERO
-    // alien buildings: the Stronghold and the Jammer stay dim whatever is on the board.
+    // Neither upgrade exists, so a Forge and an Overseer are never counted: the Stronghold and the
+    // Jammer stay dim whatever is on the board.
     const std::vector<MenuRow> rows = alien_panel(StandingBuildings{}, 999);
     EXPECT_EQ(refusal_message(keyed(rows, "5")), "Needs a Forge");
     EXPECT_EQ(refusal_message(keyed(rows, "6")), "Needs an Overseer");
@@ -275,17 +275,17 @@ TEST(AlienConstruct, TheBuilderOpensTheSixRowPanelAndEachPressRefusesByItsReason
     EXPECT_FALSE(session.placing().has_value());
 }
 
-TEST(AlienConstruct, AnAffordableRowWhosePrerequisiteStandsRefusesWithTheHonestPlaceholder) {
-    // The asymmetry with the human POWER, which places: no alien building can be placed yet.
-    // The human power and factory the yard spawns are NOT alien buildings and must not satisfy
+TEST(AlienConstruct, AnAffordableRowWhosePrerequisiteStandsNowArmsItsBuilding) {
+    // K6: the placeholder is gone. The KILN names a kind and arms, as the human POWER does; the
+    // human power and factory the yard spawns are NOT alien buildings and must not satisfy
     // anything (they would read as slots 0 and 1, the Kiln and the Gun Spire).
     Yard y = make_yard(true, 400);
     Session session{y.driven};
     std::vector<sim::Order> orders;
     open_panel(y, session, orders);
     session.frame(key_frame(input::kKey1), y.sim, y.options, orders); // KILN
-    EXPECT_EQ(session.message(), "Nothing can be built yet. Placing a building is not done.");
-    EXPECT_FALSE(session.placing().has_value());
+    ASSERT_TRUE(session.placing().has_value()) << session.message();
+    EXPECT_EQ(session.placing().value_or(Placing{}).kind, UnitKind::Kiln);
     session.frame(key_frame(input::kKey1 + 2), y.sim, y.options, orders); // ANTENNA: no Kiln
     EXPECT_EQ(session.message(), "Needs a Kiln");
 }

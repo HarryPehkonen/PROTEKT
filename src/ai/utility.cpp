@@ -111,6 +111,12 @@ Role role_of(sim::UnitKind kind) noexcept {
     case sim::UnitKind::TrainingCentre:
     case sim::UnitKind::TechCentre:
     case sim::UnitKind::BomberBay:
+    case sim::UnitKind::Kiln:
+    case sim::UnitKind::GunSpire:
+    case sim::UnitKind::Antenna:
+    case sim::UnitKind::Dower:
+    case sim::UnitKind::Stronghold:
+    case sim::UnitKind::Jammer:
         return Role::None;
     }
     return Role::None;
@@ -152,6 +158,12 @@ int threat_of(sim::UnitKind kind) noexcept {
     case sim::UnitKind::TrainingCentre:
     case sim::UnitKind::TechCentre:
     case sim::UnitKind::BomberBay:
+    case sim::UnitKind::Kiln:
+    case sim::UnitKind::GunSpire:
+    case sim::UnitKind::Antenna:
+    case sim::UnitKind::Dower:
+    case sim::UnitKind::Stronghold:
+    case sim::UnitKind::Jammer:
         return 0;
     }
     return 0;

@@ -140,9 +140,9 @@ TEST(Buildings, TheEightKindsAreAppendedNeverInsertedAndTheCountMovedDeliberatel
         EXPECT_EQ(static_cast<int>(w.kind), w.number) << w.name;
     }
     EXPECT_EQ(static_cast<int>(UnitKind::Power), 21) << "the earlier kinds did not move";
-    EXPECT_EQ(sim::kUnitKindCount, 29)
-        << "22 before K3, seven kinds appended (the Factory existed)";
-    EXPECT_EQ(static_cast<int>(UnitKind::BomberBay), sim::kUnitKindCount - 1);
+    EXPECT_EQ(sim::kUnitKindCount, 35)
+        << "22 before K3, seven kinds appended (the Factory existed); six more at K6";
+    EXPECT_EQ(static_cast<int>(UnitKind::BomberBay), 28) << "K3's last kind did not move";
 }
 
 TEST(Buildings, EachHasASpecRowWithItsOwnersCostAndABuildTimeAndNoProducerQueuesIt) {
@@ -510,17 +510,14 @@ TEST(BuildingPanel, ThePressRaisesTheBuildingAndChargesItsCostThroughTheSimsOrde
     }
 }
 
-TEST(BuildingPanel, TheAlienSideStillRefusesEveryRow) {
-    // No alien building has a kind: the alien rows are still name rows and nothing is placed.
-    sim::Scenario scenario{
-        kSeed,
-        {{UnitKind::Tank, Side::Player, 60, 60}, {UnitKind::Constructor, Side::Player, 61, 60}}};
-    scenario.store_capacity = 400;
-    scenario.start_ore = 400;
+TEST(BuildingPanel, TheAlienSideIsNoLongerNameRowsAndItsSixAreK6s) {
+    // K3 pinned the alien rows as name rows. K6 gives each a kind (test_alien_buildings.cpp pins
+    // them); what stays true here is that the alien list has its six and is not the human nine.
     const std::span<const BuildItem> aliens = construct_items(Faction::Alien);
     ASSERT_EQ(aliens.size(), 6U);
     for (const BuildItem& item : aliens) {
-        EXPECT_FALSE(item.kind.has_value()) << item.label;
+        ASSERT_TRUE(item.kind.has_value()) << item.label;
+        EXPECT_GE(static_cast<int>(item.kind.value_or(UnitKind::Tank)), 29) << item.label;
     }
 }
 

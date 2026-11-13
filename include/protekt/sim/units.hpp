@@ -117,9 +117,23 @@ enum class UnitKind : std::uint8_t {
     GunTower = 25,
     TrainingCentre = 26,
     TechCentre = 27,
-    BomberBay = 28
+    BomberBay = 28,
+    /// The ALIEN Builder's six buildings (round 18, K6), appended after BomberBay in the panel's
+    /// own order, never inserted. Faction-less like every kind: the Builder's panel names them, and
+    /// a human side never lists them. Buildings that never move, on a `footprint_of` rectangle (the
+    /// footprints are PROVISIONAL, the owner has given none). THEIR FUNCTIONS ARE NOT BUILT: the
+    /// Kiln produces nothing, the Gun Spire does not shoot, the Antenna detects nothing, the Dower
+    /// services and repairs nothing, the Jammer jams nothing and the Stronghold constructs no
+    /// weapons and no shields. There is NO power grid on the alien side (his ruling), and the Power
+    /// Lungs are not built.
+    Kiln = 29,
+    GunSpire = 30,
+    Antenna = 31,
+    Dower = 32,
+    Stronghold = 33,
+    Jammer = 34
 };
-inline constexpr int kUnitKindCount = 29;
+inline constexpr int kUnitKindCount = 35;
 
 /// Tanks and hover tanks: every rule written "for a tank" (orders, retreat, defend, swap, the AI's
 /// hunters) takes both. The hover tank has the tank's profile and, until it is drivable, its
@@ -167,6 +181,12 @@ inline constexpr int kUnitKindCount = 29;
     case UnitKind::TrainingCentre:
     case UnitKind::TechCentre:
     case UnitKind::BomberBay:
+    case UnitKind::Kiln:
+    case UnitKind::GunSpire:
+    case UnitKind::Antenna:
+    case UnitKind::Dower:
+    case UnitKind::Stronghold:
+    case UnitKind::Jammer:
         return true;
     default:
         return false;
@@ -632,6 +652,20 @@ inline constexpr FootprintSize kTrainingCentreFootprint{2, 1};
 inline constexpr FootprintSize kTechCentreFootprint{2, 1};
 inline constexpr FootprintSize kBomberBayFootprint{2, 2};
 
+/// The ALIEN Builder's six footprints (round 18, K6). ALL PROVISIONAL: the owner has not given
+/// them (the reference's 3x3s are a different game's scale; his human footprints came out a tile
+/// smaller). Chosen by the same job each building does on the human side: the KILN is the alien
+/// factory, so the Factory's 2x2; the GUN SPIRE the gun tower, 1x1; the ANTENNA the relay bunker,
+/// 1x1; the DOWER, a pad that services vehicles, the Service Bay's 2x2; the STRONGHOLD, the alien
+/// armory, a long low 2x1 so `~` turns it, like the Training Ctr. and Tech Centre; the JAMMER a
+/// small 1x1.
+inline constexpr FootprintSize kKilnFootprint{2, 2};
+inline constexpr FootprintSize kGunSpireFootprint{1, 1};
+inline constexpr FootprintSize kAntennaFootprint{1, 1};
+inline constexpr FootprintSize kDowerFootprint{2, 2};
+inline constexpr FootprintSize kStrongholdFootprint{2, 1};
+inline constexpr FootprintSize kJammerFootprint{1, 1};
+
 /// A kind a CONSTRUCTOR places (`orders::Place`): the nine buildings of its panel, the Factory
 /// included. The deployed recycler has a footprint too but is made by a deploy, never placed.
 [[nodiscard]] constexpr bool is_placeable(UnitKind kind) noexcept {
@@ -645,6 +679,12 @@ inline constexpr FootprintSize kBomberBayFootprint{2, 2};
     case UnitKind::TrainingCentre:
     case UnitKind::TechCentre:
     case UnitKind::BomberBay:
+    case UnitKind::Kiln:
+    case UnitKind::GunSpire:
+    case UnitKind::Antenna:
+    case UnitKind::Dower:
+    case UnitKind::Stronghold:
+    case UnitKind::Jammer:
         return true;
     default:
         return false;
@@ -682,6 +722,18 @@ inline constexpr FootprintSize kDeployedRecyclerFootprint{2, 2};
         return kTechCentreFootprint;
     case UnitKind::BomberBay:
         return kBomberBayFootprint;
+    case UnitKind::Kiln:
+        return kKilnFootprint;
+    case UnitKind::GunSpire:
+        return kGunSpireFootprint;
+    case UnitKind::Antenna:
+        return kAntennaFootprint;
+    case UnitKind::Dower:
+        return kDowerFootprint;
+    case UnitKind::Stronghold:
+        return kStrongholdFootprint;
+    case UnitKind::Jammer:
+        return kJammerFootprint;
     default:
         return FootprintSize{};
     }

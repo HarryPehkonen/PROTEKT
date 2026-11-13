@@ -437,6 +437,21 @@ inline constexpr std::array<UnitSpec, static_cast<std::size_t>(kUnitKindCount)> 
      Fixed::zero(), kBoltTravel, Fixed::zero(), Fixed::zero(), false, 80, 1600, 0, Fixed::zero()},
     {"bomberbay", kPlacedBuildingHp, Fixed::zero(), WeaponId::None, 0, 0, Fixed::zero(),
      Fixed::zero(), kBoltTravel, Fixed::zero(), Fixed::zero(), false, 100, 2000, 0, Fixed::zero()},
+    // The ALIEN Builder's six (K6), in the panel's order. Costs are the owner's capture; the hull
+    // is the same DEFAULT every placed building has and `build_ticks` the 20-ticks-a-scrap,
+    // PROVISIONAL. ALL UNARMED, the Gun Spire too: THEIR FUNCTIONS ARE NOT BUILT.
+    {"kiln", kPlacedBuildingHp, Fixed::zero(), WeaponId::None, 0, 0, Fixed::zero(), Fixed::zero(),
+     kBoltTravel, Fixed::zero(), Fixed::zero(), false, 60, 1200, 0, Fixed::zero()},
+    {"gunspire", kPlacedBuildingHp, Fixed::zero(), WeaponId::None, 0, 0, Fixed::zero(),
+     Fixed::zero(), kBoltTravel, Fixed::zero(), Fixed::zero(), false, 75, 1500, 0, Fixed::zero()},
+    {"antenna", kPlacedBuildingHp, Fixed::zero(), WeaponId::None, 0, 0, Fixed::zero(),
+     Fixed::zero(), kBoltTravel, Fixed::zero(), Fixed::zero(), false, 60, 1200, 0, Fixed::zero()},
+    {"dower", kPlacedBuildingHp, Fixed::zero(), WeaponId::None, 0, 0, Fixed::zero(), Fixed::zero(),
+     kBoltTravel, Fixed::zero(), Fixed::zero(), false, 50, 1000, 0, Fixed::zero()},
+    {"stronghold", kPlacedBuildingHp, Fixed::zero(), WeaponId::None, 0, 0, Fixed::zero(),
+     Fixed::zero(), kBoltTravel, Fixed::zero(), Fixed::zero(), false, 70, 1400, 0, Fixed::zero()},
+    {"jammer", kPlacedBuildingHp, Fixed::zero(), WeaponId::None, 0, 0, Fixed::zero(), Fixed::zero(),
+     kBoltTravel, Fixed::zero(), Fixed::zero(), false, 50, 1000, 0, Fixed::zero()},
 }};
 
 /// No armed kind's bolt may fizzle short of the reach its weapon lets it engage at.

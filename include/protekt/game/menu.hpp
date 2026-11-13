@@ -140,8 +140,9 @@ inline constexpr std::size_t kConstructBuildingCount = 9;
 /// requirement), read under the ALIEN faction. The human `ConstructBuilding` and this enum index
 /// the SAME array, never at once: which one a slot means is the faction's (`construct_requirement`
 /// takes it). A FORGE is the Kiln upgraded in place and an OVERSEER is the Antenna upgraded in
-/// place. Neither an upgrade nor an alien building exists in the sim yet, so `standing_buildings`
-/// counts none of these and the Stronghold and Jammer requirements cannot be met today --
+/// place. The six Builder buildings are kinds (K6) and `standing_buildings` counts them under the
+/// ALIEN faction; a FORGE and an OVERSEER are UPGRADES, none is built and none is a kind, so those
+/// two slots always read zero and the Stronghold and Jammer requirements cannot be met today --
 /// correctly.
 enum class AlienBuilding : std::uint8_t {
     Kiln = 0,
@@ -206,10 +207,11 @@ struct NetworkBuilding {
 /// Gun Tower): read from `construct_requirement`, the owner's tree, so it is not restated.
 [[nodiscard]] bool draws_power(sim::UnitKind kind) noexcept;
 
-/// What `side` has standing, counted from the sim's living units (nothing is stored). Only the
-/// kinds that exist count: the other seven buildings read zero until their slices. Under the ALIEN
-/// faction every slot reads zero: no alien building has a kind, and a human Power or Factory the
-/// side happens to own is not a Kiln or a Gun Spire.
+/// What `side` has standing, counted from the sim's living units (nothing is stored). Under the
+/// HUMAN faction the slots are `ConstructBuilding`s; under the ALIEN faction they are
+/// `AlienBuilding`s (the six kinds the Builder places; the Forge and Overseer slots read zero, no
+/// upgrade exists). Each faction reads only its OWN kinds: a human Power or Factory the side
+/// happens to own is not a Kiln or a Gun Spire, and an alien Kiln is not a human Power.
 [[nodiscard]] StandingBuildings standing_buildings(const sim::Sim& sim, sim::Side side,
                                                    Faction faction = Faction::Human);
 

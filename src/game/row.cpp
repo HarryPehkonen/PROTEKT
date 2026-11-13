@@ -48,6 +48,12 @@ namespace {
     case sim::UnitKind::TrainingCentre:
     case sim::UnitKind::TechCentre:
     case sim::UnitKind::BomberBay:
+    case sim::UnitKind::Kiln:
+    case sim::UnitKind::GunSpire:
+    case sim::UnitKind::Antenna:
+    case sim::UnitKind::Dower:
+    case sim::UnitKind::Stronghold:
+    case sim::UnitKind::Jammer:
     case sim::UnitKind::DeployedTurret: // a turret that is standing: it keeps its F key
         break;
     }
@@ -522,6 +528,18 @@ std::string_view kind_label(sim::UnitKind kind, Faction faction) noexcept {
         return "TECH CENTRE";
     case sim::UnitKind::BomberBay:
         return "BOMBER BAY";
+    case sim::UnitKind::Kiln:
+        return "KILN";
+    case sim::UnitKind::GunSpire:
+        return "GUN SPIRE";
+    case sim::UnitKind::Antenna:
+        return "ANTENNA";
+    case sim::UnitKind::Dower:
+        return "DOWER";
+    case sim::UnitKind::Stronghold:
+        return "STRONGHOLD";
+    case sim::UnitKind::Jammer:
+        return "JAMMER";
     }
     return "UNIT";
 }
