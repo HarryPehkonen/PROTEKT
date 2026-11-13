@@ -107,10 +107,10 @@ enum class UnitKind : std::uint8_t {
     /// The other seven buildings of a Constructor's panel (round 18, K3), appended in the panel's
     /// own order after Power, never inserted. (The panel's FACTORY row is the `Factory` above: that
     /// kind already existed and is wired, not duplicated.) Each is a building that never moves and
-    /// never fires, and stands on a `footprint_of` rectangle. THEIR FUNCTIONS ARE NOT BUILT: the
-    /// relay bunker relays nothing, the armory unlocks nothing, the service bay repairs nothing,
-    /// the gun tower does not shoot, the training centre and the tech centre do nothing beyond the
-    /// prerequisites the panel already models, and the bomber bay holds no bomber.
+    /// never moves, and stands on a `footprint_of` rectangle. THEIR FUNCTIONS ARE NOT BUILT (but
+    /// the gun tower's, K5, which fires): the relay bunker relays nothing, the armory unlocks
+    /// nothing, the service bay repairs nothing, the training centre and the tech centre do nothing
+    /// beyond the prerequisites the panel already models, and the bomber bay holds no bomber.
     RelayBunker = 22,
     Armory = 23,
     ServiceBay = 24,

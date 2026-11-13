@@ -2295,6 +2295,9 @@ void Sim::step() {
         if (prof.weapon_range.raw <= 0 || prof.damage == 0) {
             continue;
         }
+        if (under_construction(unit)) {
+            continue; // a building site is not a gun yet (K5)
+        }
         if (unit.cooldown > 0) {
             --unit.cooldown;
         }

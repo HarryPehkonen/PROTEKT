@@ -25,8 +25,9 @@ enum class WeaponId : std::uint8_t {
     Shotgun,   ///< the carried shotgun
     WalkerGun, ///< the Walker's heavy cannon: the longest reach of any vehicle (APPENDED: no id
                ///< moved)
+    TowerGun,  ///< the Gun Tower's cannon (round 18, K5; APPENDED: no id moved)
 };
-inline constexpr std::size_t kWeaponCount = 8;
+inline constexpr std::size_t kWeaponCount = 9;
 
 /// THE RANGES, each authored once and nowhere else. Tiles, raw Q16.16.
 inline constexpr std::int32_t kMortarRangeRaw = 14 << 16;
@@ -46,6 +47,17 @@ inline constexpr std::int32_t kWalkerGunRangeRaw = 20 << 16;
 /// How far the Walker's bolt flies: two tiles past its reach, so it does not fizzle short of it.
 inline constexpr std::int32_t kWalkerGunTravelRaw = 22 << 16;
 
+/// THE GUN TOWER'S GUN (round 18, K5): "static buildings that fire very powerful weapons" (Harri,
+/// 2026-11-12). He gave no figures. PROVISIONAL, balance numbers: 18 tiles (the rocket's reach,
+/// past the turret's 16 and the tank's 12, short of the walker's 20), 36 damage (three times the
+/// turret's 12) and a 40-tick reload (twice the turret's 20), so half again the turret's damage a
+/// second, and the heavier hit that "very powerful" asks for. The bolt flies two tiles past its
+/// reach so it never fizzles short of it.
+inline constexpr std::int32_t kTowerGunRangeRaw = 18 << 16;
+inline constexpr std::int32_t kTowerGunTravelRaw = 20 << 16;
+inline constexpr std::uint16_t kTowerGunDamage = 36;        // PROVISIONAL
+inline constexpr std::uint16_t kTowerGunCooldownTicks = 40; // PROVISIONAL
+
 /// One weapon's reach. Indexed by the value of `WeaponId`.
 struct WeaponSpec {
     const char* name{};
@@ -60,6 +72,7 @@ inline constexpr std::array<WeaponSpec, kWeaponCount> kWeaponSpecs{{
     {"rocket", Fixed::from_raw(kRocketRangeRaw)},
     {"shotgun", Fixed::from_raw(kShotgunRangeRaw)},
     {"walkergun", Fixed::from_raw(kWalkerGunRangeRaw)},
+    {"towergun", Fixed::from_raw(kTowerGunRangeRaw)},
 }};
 
 [[nodiscard]] constexpr const WeaponSpec& weapon_spec(WeaponId weapon) noexcept {
@@ -411,8 +424,13 @@ inline constexpr std::array<UnitSpec, static_cast<std::size_t>(kUnitKindCount)> 
      kBoltTravel, Fixed::zero(), Fixed::zero(), false, 60, 1200, 0, Fixed::zero()},
     {"servicebay", kPlacedBuildingHp, Fixed::zero(), WeaponId::None, 0, 0, Fixed::zero(),
      Fixed::zero(), kBoltTravel, Fixed::zero(), Fixed::zero(), false, 50, 1000, 0, Fixed::zero()},
-    {"guntower", kPlacedBuildingHp, Fixed::zero(), WeaponId::None, 0, 0, Fixed::zero(),
-     Fixed::zero(), kBoltTravel, Fixed::zero(), Fixed::zero(), false, 50, 1000, 0, Fixed::zero()},
+    // The GUN TOWER (K5) is the one ARMED building: the turret's fixed gun made heavier (36 damage,
+    // 40-tick reload, 18 tiles: PROVISIONAL, see `kTowerGunRangeRaw`), the same straight bolt, and
+    // speed zero so it cannot move. The sim's one fire step drives it as it drives every gun.
+    {"guntower", kPlacedBuildingHp, Fixed::zero(), WeaponId::TowerGun, kTowerGunDamage,
+     kTowerGunCooldownTicks, Fixed::from_raw(kProjectileSpeedRaw), Fixed::from_raw(kBoltArcRaw),
+     Fixed::from_raw(kTowerGunTravelRaw), Fixed::zero(), Fixed::zero(), false, 50, 1000, 0,
+     Fixed::zero()},
     {"trainingcentre", kPlacedBuildingHp, Fixed::zero(), WeaponId::None, 0, 0, Fixed::zero(),
      Fixed::zero(), kBoltTravel, Fixed::zero(), Fixed::zero(), false, 70, 1400, 0, Fixed::zero()},
     {"techcentre", kPlacedBuildingHp, Fixed::zero(), WeaponId::None, 0, 0, Fixed::zero(),

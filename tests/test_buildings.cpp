@@ -7,9 +7,10 @@
 //
 // Every number below is a LITERAL, never read back from the table under test.
 //
-// NOT BUILT, and no test here pretends otherwise: the gun tower does not shoot, the service bay
-// repairs nothing, the bomber bay holds no bomber, the relay bunker relays nothing, the armory
-// unlocks nothing, the training centre and the tech centre do nothing beyond their prerequisites.
+// NOT BUILT, and no test here pretends otherwise (the gun tower's gun is K5, test_gun_tower.cpp):
+// the service bay repairs nothing, the bomber bay holds no bomber, the relay bunker relays nothing,
+// the armory unlocks nothing, the training centre and the tech centre do nothing beyond their
+// prerequisites.
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -150,7 +151,11 @@ TEST(Buildings, EachHasASpecRowWithItsOwnersCostAndABuildTimeAndNoProducerQueues
         EXPECT_EQ(static_cast<int>(row.cost), w.cost) << w.name;
         EXPECT_GT(row.build_ticks, 0U) << w.name;
         EXPECT_GT(row.hp, 0U) << w.name;
-        EXPECT_EQ(row.damage, 0) << w.name << ": unarmed -- the gun tower does not shoot yet";
+        if (w.kind == UnitKind::GunTower) {
+            EXPECT_GT(row.damage, 0) << w.name << ": the one armed building (K5)";
+        } else {
+            EXPECT_EQ(row.damage, 0) << w.name << ": unarmed -- its function is not built";
+        }
         EXPECT_TRUE(sim::is_placeable(w.kind)) << w.name;
         EXPECT_FALSE(sim::is_queueable(w.kind)) << w.name << ": a Constructor places it";
     }
