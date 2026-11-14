@@ -59,9 +59,12 @@ struct Field {
 };
 
 /// Player tank at the start of a level row; a player factory (8 x 8 since round 19, L2) centred
-/// five tiles east; and, when `with_hostile`, an enemy recycler five tiles east and four south of
-/// the tank -- off the line to the friendly, because a bolt now hits a friendly in its way and one
-/// standing between would shield the hostile. All inside the tank's weapon range.
+/// five tiles east; and, when `with_hostile`, an enemy recycler four tiles due SOUTH of the tank --
+/// off the line to the friendly, because a bolt hits a friendly in its way and one standing between
+/// would shield the hostile (and, since round 19, L4, a building's whole FOOTPRINT shields: the
+/// factory covers the rows from four north of the tank to three south of it, so the hostile stands
+/// below them, at the tank's own column, west of the footprint). All inside the tank's weapon
+/// range.
 [[nodiscard]] Field field(bool with_hostile) {
     Scenario scenario{};
     scenario.seed = 42;
@@ -77,7 +80,7 @@ struct Field {
     add(Side::Player, UnitKind::Tank, row.x, row.y);
     add(Side::Player, UnitKind::Factory, row.x + 1, row.y - 4);
     if (with_hostile) {
-        add(Side::Enemy, UnitKind::Recycler, row.x + 5, row.y + 4);
+        add(Side::Enemy, UnitKind::Recycler, row.x, row.y + 4);
     }
     Field out{};
     out.sim = Sim::create(scenario);

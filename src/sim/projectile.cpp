@@ -176,6 +176,65 @@ void splash(const Projectile& bolt, std::int64_t at_x, std::int64_t at_y, const 
     }
 }
 
+// A fraction of a step, `num` out of `den` (den > 0): exact, so two moments along one step compare
+// without a division.
+struct Frac {
+    std::int64_t num;
+    std::int64_t den;
+};
+
+bool earlier(Frac a, Frac b) noexcept { return a.num * b.den < b.num * a.den; }
+
+// Where a step first meets a BUILDING: the moment it is inside the building's footprint (the one
+// rectangle that also blocks units and refuses placements) and no higher than its top. A flat bolt
+// is at that moment at the edge it came in by. A shell that crosses the footprint ABOVE the top is
+// not stopped by the edge: it goes over -- but if it comes down inside the rectangle (its height
+// falls to the top before it leaves), it is stopped there, on the roof. `top` is a height in raw
+// height units, like `from_z`. Returns false when the step never meets the building.
+bool meets_building(const Footprint& site, std::int64_t top, std::int64_t from_x,
+                    std::int64_t from_y, std::int64_t from_z, std::int64_t step_x,
+                    std::int64_t step_y, std::int64_t step_z, Frac& when) noexcept {
+    Frac enters{0, 1};
+    Frac leaves{1, 1};
+    const auto clip
+        = [&](std::int64_t from, std::int64_t step, std::int64_t lo, std::int64_t hi) noexcept {
+              if (step == 0) {
+                  return from >= lo && from < hi;
+              }
+              const Frac in = step > 0 ? Frac{lo - from, step} : Frac{from - hi, -step};
+              const Frac out = step > 0 ? Frac{hi - from, step} : Frac{from - lo, -step};
+              if (earlier(enters, in)) {
+                  enters = in;
+              }
+              if (earlier(out, leaves)) {
+                  leaves = out;
+              }
+              return true;
+          };
+    constexpr std::int64_t kTile = Fixed::kOne;
+    if (!clip(from_x, step_x, site.x * kTile, (site.x + site.width) * kTile)
+        || !clip(from_y, step_y, site.y * kTile, (site.y + site.height) * kTile)
+        || earlier(leaves, enters)) {
+        return false;
+    }
+    when = enters;
+    if (from_z + step_z * enters.num / enters.den <= top) {
+        return true;
+    }
+    if (step_z >= 0) {
+        return false; // above the roof and not coming down
+    }
+    const Frac lands{from_z - top, -step_z}; // the moment its height falls to the top
+    if (earlier(lands, enters)) {
+        return true; // (cannot happen: it was above the top at `enters`) kept for exactness
+    }
+    if (earlier(leaves, lands)) {
+        return false; // it has crossed the whole footprint above the roof
+    }
+    when = lands;
+    return true;
+}
+
 } // namespace
 
 bool operator==(const Projectile& a, const Projectile& b) noexcept {
@@ -721,8 +780,8 @@ void advance_projectiles(std::vector<Projectile>& projectiles, std::vector<Unit>
             // addition: a bolt still leaving its own gun -- its step starts inside the hit radius
             // of the shooter's centre -- passes through the gun that fired it, because it is born
             // on top of it and would otherwise hit its shooter on its first tick.
-            if (!unit.alive || unit.id == bolt.bounced_off) {
-                continue;
+            if (!unit.alive || unit.id == bolt.bounced_off || has_footprint(unit.kind)) {
+                continue; // (a building is struck by its footprint, below)
             }
             if (unit.id == bolt.shooter) {
                 const std::int64_t gx = unit.x.raw - from_x;
@@ -746,16 +805,61 @@ void advance_projectiles(std::vector<Projectile>& projectiles, std::vector<Unit>
                 hit_d2 = d2;
             }
         }
+        // Where the bolt meets what it hit: where its path was nearest the body (a unit's point of
+        // a hit circle), or, for a BUILDING, where it first meets the footprint.
+        std::int64_t strike_x = 0;
+        std::int64_t strike_y = 0;
+        std::int64_t strike_z = from_z;
+        if (hit != nullptr) {
+            const Point c
+                = nearest_on_segment(from_x, from_y, step_x, step_y, hit->x.raw, hit->y.raw);
+            strike_x = c.x;
+            strike_y = c.y;
+            strike_z = c.length2 > 0 ? from_z + step_z * c.along / c.length2 : from_z;
+        }
+        // A BUILDING'S HIT SHAPE IS ITS FOOTPRINT: a bolt that comes into the rectangle below the
+        // building's top is stopped by it, whichever side either is on -- unless a unit in front
+        // of it was struck first. A shell above the top goes over (see `meets_building`).
+        for (Unit& unit : units) {
+            if (!unit.alive || !has_footprint(unit.kind) || unit.id == bolt.bounced_off
+                || unit.id == bolt.shooter) {
+                continue; // a building's own bolt leaves through its own walls
+            }
+            const std::int64_t top
+                = ground_height(seed, unit.x, unit.y).raw + body_top(unit.kind).raw;
+            Frac when{};
+            if (!meets_building(footprint_around(unit), top, from_x, from_y, from_z, step_x, step_y,
+                                step_z, when)) {
+                continue;
+            }
+            if (hit != nullptr) {
+                // The unit struck so far is struck at this fraction of the step; whichever is
+                // first along the path takes it, and the lower id keeps a tie.
+                const Point c
+                    = nearest_on_segment(from_x, from_y, step_x, step_y, hit->x.raw, hit->y.raw);
+                const Frac there{c.length2 > 0 ? c.along : 0, c.length2 > 0 ? c.length2 : 1};
+                if (!earlier(when, there)) {
+                    continue;
+                }
+            }
+            // The point is on the rectangle's edge, nudged inside it: its tile is the building's.
+            const Footprint site = footprint_around(unit);
+            const auto inside = [&](std::int64_t value, int first, int count) {
+                return std::clamp(value, static_cast<std::int64_t>(first) * Fixed::kOne,
+                                  static_cast<std::int64_t>(first + count) * Fixed::kOne - 1);
+            };
+            hit = &unit;
+            strike_x = inside(from_x + step_x * when.num / when.den, site.x, site.width);
+            strike_y = inside(from_y + step_y * when.num / when.den, site.y, site.height);
+            strike_z = from_z + step_z * when.num / when.den;
+        }
         if (hit != nullptr && bolt.round == Round::Bounce) {
             // A bouncer takes no life: it glances off the body where its path was nearest it. A
             // rebound too weak to be a bounce just loses its climb and drops to the ground.
-            const Point c
-                = nearest_on_segment(from_x, from_y, step_x, step_y, hit->x.raw, hit->y.raw);
             const Rebound rebound = rebound_of(bolt);
-            bolt.x = Fixed::from_raw(static_cast<std::int32_t>(c.x));
-            bolt.y = Fixed::from_raw(static_cast<std::int32_t>(c.y));
-            bolt.z = Fixed::from_raw(static_cast<std::int32_t>(
-                c.length2 > 0 ? from_z + step_z * c.along / c.length2 : from_z));
+            bolt.x = Fixed::from_raw(static_cast<std::int32_t>(strike_x));
+            bolt.y = Fixed::from_raw(static_cast<std::int32_t>(strike_y));
+            bolt.z = Fixed::from_raw(static_cast<std::int32_t>(strike_z));
             damp_horizontal(bolt);
             bolt.vz = Fixed::from_raw(static_cast<std::int32_t>(rebound.bounces ? rebound.vz : 0));
             bolt.bounces += rebound.bounces ? 1 : 0;
@@ -767,11 +871,9 @@ void advance_projectiles(std::vector<Projectile>& projectiles, std::vector<Unit>
         if (hit != nullptr) {
             take_damage(*hit, bolt.damage);
             impacts.push_back(Impact{bolt.shooter, hit->id, hit->hp});
-            // The shell bursts where its path was nearest the body it hit.
-            const Point c
-                = nearest_on_segment(from_x, from_y, step_x, step_y, hit->x.raw, hit->y.raw);
-            splash(bolt, c.x, c.y, hit, units, impacts);
-            land(bolt, c.x, c.y, true);
+            // The shell bursts where its path met the body it hit.
+            splash(bolt, strike_x, strike_y, hit, units, impacts);
+            land(bolt, strike_x, strike_y, true);
             continue; // a hit teaches nothing: there was nothing to correct
         }
         if (passed) {

@@ -1980,13 +1980,14 @@ constexpr int kLaneProbeTicks = 10 * kTicksPerSecond;
 /// gun decline the shot.) The shot is the very one `launch` builds for `target`, flown to its end
 /// on a copy of the nearby units by the real flight (`advance_projectiles`), so there is one
 /// geometry: a flat bolt is stopped by the first body in its lane, whichever side it is on (a
-/// hostile in front shields the friend behind it), and a lobbed shell flies OVER the friends under
-/// its arc and counts only the body it comes down on and the splash around the landing. The lane
-/// is the bolt's own hit radius, not a wider one, so a gun does not refuse a shot that would have
-/// missed. The shooter itself counts: a shell that comes down on its own gun is a friend hit.
-/// A target that is itself on the shooter's side is a DELIBERATE shot (an explicit order on a
-/// friendly): it is not second-guessed. Positions are as they are now; a friend who moves into the
-/// lane afterwards is not foreseen.
+/// hostile in front shields the friend behind it; and a BUILDING, by its whole footprint, shields
+/// what is behind it, so a gun holds fire when its own building is in the lane), and a lobbed
+/// shell flies OVER the friends under its arc (and over a building it clears) and counts only the
+/// body it comes down on and the splash around the landing. The lane is the bolt's own hit radius,
+/// not a wider one, so a gun does not refuse a shot that would have missed. The shooter itself
+/// counts: a shell that comes down on its own gun is a friend hit. A target that is itself on the
+/// shooter's side is a DELIBERATE shot (an explicit order on a friendly): it is not second-guessed.
+/// Positions are as they are now; a friend who moves into the lane afterwards is not foreseen.
 [[nodiscard]] bool shot_hurts_friend(const std::vector<Unit>& units, const Unit& shooter,
                                      const Unit& target, std::uint16_t damage, std::uint64_t seed) {
     if (target.side == shooter.side) {
@@ -2006,10 +2007,22 @@ constexpr int kLaneProbeTicks = 10 * kTicksPerSecond;
     // Only what the shot can reach: within its travel and its splash of the gun.
     const std::int64_t reach = static_cast<std::int64_t>(weapon.max_travel.raw)
                                + static_cast<std::int64_t>(weapon.splash_radius.raw);
+    // A building is reached by its EDGE, not its centre: it counts from half its longest side
+    // further out.
+    std::int64_t widest = 0;
+    for (const Unit& unit : units) {
+        if (unit.alive && has_footprint(unit.kind)) {
+            const FootprintSize size = footprint_of(unit);
+            widest = std::max<std::int64_t>(widest, std::max(size.width, size.height));
+        }
+    }
     std::vector<Unit> near;
     near.reserve(units.size());
     for (const Unit& unit : units) {
-        if (unit.alive && dist2(shooter.x, shooter.y, unit.x, unit.y) <= reach * reach) {
+        const std::int64_t margin
+            = has_footprint(unit.kind) ? widest * Fixed::kOne / 2 * 3 / 2 : 0; // half-diagonal
+        const std::int64_t within = reach + margin;
+        if (unit.alive && dist2(shooter.x, shooter.y, unit.x, unit.y) <= within * within) {
             near.push_back(unit);
         }
     }

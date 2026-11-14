@@ -757,9 +757,11 @@ TEST(Projectile, ABoltAimedAtATargetOffsetFromThePathMissesIt) {
         run_ticks(world, 90);
         return static_cast<int>(full) - static_cast<int>(world.find(kSecond)->hp);
     };
-    // One tile off the line is twice kProjectileHitRadius.
-    EXPECT_EQ(damage_taken(kOy + 1), 0) << "the shot named it, but it flew past";
-    EXPECT_EQ(damage_taken(kOy - 1), 0);
+    // RE-RECORDED, round 19, L4: it was ONE tile off the line (twice kProjectileHitRadius, a point
+    // body's miss); a building's footprint is its hit shape now, and this factory's reaches four
+    // tiles either side of its centre, so the shot has to pass six off to fly past it.
+    EXPECT_EQ(damage_taken(kOy + 6), 0) << "the shot named it, but it flew past";
+    EXPECT_EQ(damage_taken(kOy - 6), 0);
     EXPECT_EQ(damage_taken(kOy), static_cast<int>(kTankDamage)) << "control: ON the line";
 }
 

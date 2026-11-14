@@ -147,7 +147,10 @@ TEST(Navigation, ATankOrderedOntoAFactoryReachesItAndDamagesIt) {
     // RE-RECORDED, round 19, L2: 914 -> 1009. The enemy "base" this tank is ordered onto is a
     // scenario factory, 8 x 8 now (it was a point): the tank has to reach the edge of a larger
     // body, along a different route round it. (981 before NAV1's route.)
-    EXPECT_EQ(first_damage, 1009)
+    // RE-RECORDED, round 19, L4: 1009 -> 1002. A building's footprint is its hit shape now, so the
+    // tank's first bolt strikes the factory's EDGE (seven ticks earlier) rather than the point at
+    // its centre.
+    EXPECT_EQ(first_damage, 1002)
         << "and it takes about a thousand ticks to get there and open fire";
 }
 

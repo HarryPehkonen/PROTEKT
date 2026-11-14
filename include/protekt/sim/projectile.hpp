@@ -239,7 +239,14 @@ struct MortarSplit {
 /// living unit on the other side (or the one it was aimed at) whose centre the path passes within
 /// kProjectileHitRadius of in the map plane AND whose body (`body_bottom`..`body_top` above the
 /// ground it stands on) the bolt is level with at that moment -- nearest, ties to the lowest id --
-/// takes its damage and the bolt is removed. A shot aimed over a unit's head passes over it. A bolt
+/// takes its damage and the bolt is removed. A shot aimed over a unit's head passes over it.
+/// A BUILDING (a kind with a footprint) is not struck by a circle round its centre: its FOOTPRINT
+/// is its hit shape, the very rectangle that blocks units, for a bolt of either side. A bolt that
+/// comes into the rectangle no higher than the building's top (`body_top`) is stopped at the edge
+/// it came in by; one above the top goes OVER -- a lobbed shell clears a building it flies high
+/// above, and is stopped by one it comes down on (its height falls to the top inside the
+/// rectangle) or crosses low. A building's own bolt leaves through its own walls, and a destroyed
+/// building is nothing. A bolt
 /// that meets the ground is removed where it meets it, with no damage and no mark; one that has
 /// flown its max_travel, or left the map, is removed with no effect. A bolt with gravity loses
 /// `gravity` of vertical speed after every step. When a bolt with a splash radius ends on the
