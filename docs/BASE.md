@@ -15,6 +15,11 @@ player reads: the panels carry short forms (`TRAINING FAC.`, `ANTENNA`) and the 
 Center", "Antenna Mound"). One deliberate exception, his ruling: PROTEKT prints **CENTRE**, so `TECH CENTRE` where
 the game prints `Tech Center`.
 
+**A second deliberate divergence, his ruling (2026-11-13, asked as a choice of two): the Scion shield is spelled
+`Absorption` in PROTEKT**, where the game's own screens and the guides print `Absorbtion` (a misspelling). It sits
+beside `TECH CENTRE` and `TRAINING CTR.` as a DECISION: a later session sees a choice that was made, not a typo
+that was missed, and must not "fix" it back (11.6).
+
 ## 1. Factions, and which side owns what
 
 `Faction { Human, Alien }` (`include/protekt/game/faction.hpp`). A side's faction decides which names, which
@@ -45,7 +50,7 @@ casing the menu's strings take is not ruled.
 ## 2. The producers and their rosters
 
 Six rosters exist. Three are in the tree (`kHumanBuildList`, `kAlienBuildList`, `kFactoryBuildList`, all in
-`src/game/menu.cpp`); the rest are captured and not yet in it.
+`src/game/menu.cpp`); the rest are captured (or, for the Kiln's three, ruled and unnamed) and not yet in it.
 
 ### 2.1 The deployed recycler -- human, seven rows `[SHIPPED]`
 
@@ -91,9 +96,17 @@ structure-placement feature that the construct system brings.
 | 8 | `Bomber` | 75 | 1500 |
 
 The Factory answers for both factions in the tree today, in its own comment's words *"both factions, until the
-alien factory's own list is supplied"* -- and it IS supplied now (2.4), so that comment is out of date.
+alien factory's own list is supplied"* -- and the Forge's list IS supplied now (2.4; the Kiln's three are not
+named), so that comment is out of date.
 
-### 2.4 The Kiln and the Forge -- alien, the same six `[CAPTURED]`
+### 2.4 The Forge's six, and the Kiln's light three -- alien
+
+**`[RULED]`, a SELF-CORRECTION by him (2026-11-13): the Kiln offers ONLY THE LIGHT THREE, and his capture of "the two
+panels" was the FORGE TWICE.** So the earlier reading of this section -- one identical six-row list on both panels
+-- is WITHDRAWN, and the guide was right that the Forge adds the **Lancer, Mauler, Archer and Titan** (11.1). The
+reference's "early production" (Kiln) against "most of your forces" (Forge) IS a difference in his game.
+
+**The Forge's list `[CAPTURED]`** (what he photographed; the capture was the Forge's):
 
 | key | row | cost |
 |---|---|---|
@@ -104,9 +117,11 @@ alien factory's own list is supplied"* -- and it IS supplied now (2.4), so that 
 | 5 | `Mauler` | 70 |
 | 6 | `Titan` | 90 |
 
-One page, six rows, **identical on both panels**: the Kiln and the Forge it upgrades into offer one production
-list between them, so the reference's "early production" against "most of your forces" is not a difference in his
-game.
+One page, six rows. **The Kiln's list is NOT captured**: he says three light rows, and the sources do not NAME
+them. What the sources do say: the guide's four additions (Lancer, Mauler, Archer, Titan) leave **Sentry and
+Warrior** of the six, which is two, not three -- so the Kiln's third row, and which rows are the three, are
+**`[NOT BUILT]` and unrecorded**, not guessed here. (The Scout Drone is on the Matriarch's list, 2.2.) Costs of the
+Kiln's rows are presumably the Forge's rows' own, which is `[PROPOSED]`.
 
 ### 2.5 The Constructor's CONSTRUCT list -- human, nine buildings
 
@@ -144,6 +159,11 @@ a standing Kiln, `STRONGHOLD` a Forge, `JAMMER` an Overseer; no row reads the hu
 Forge and the Overseer are upgrades in place and **no upgrade is built**, so in play the Stronghold and the Jammer
 cannot be raised yet (their rows stay dim, naming the missing building).
 
+**The `JAMMER` gate as shipped is now WRONG** `[RULED]`: he ruled (2026-11-13, by choice) that the Jammer needs the
+**ANTENNA MOUND**, not the Overseer Array (3.3). Changing the tree's gate is a slice, `[NOT BUILT]`, not a doc
+edit; and since an Overseer Array IS an upgraded Antenna Mound, the same "an upgrade must not take a prerequisite
+away" rule as 3.3 applies, `[PROPOSED]`.
+
 **Footprints were PROVISIONAL when this paragraph was written** (Kiln 2x2, Gun Spire 1x1, Antenna 1x1, Dower
 2x2, Stronghold 2x1 -- the one rectangle, so `~` turned it -- Jammer 1x1, all in the pre-scale unit). **He has
 since given every alien footprint, all square, and they are `[RULED]` in 3.4**; the tree's constants
@@ -151,8 +171,10 @@ since given every alien footprint, all square, and they are `[RULED]` in 3.4**; 
 8x8, Stronghold 4x4, Jammer 4x4. **Looks** are authored in the Harvester's
 idiom (plated organic lofts and blades, no boxes). **`[NOT BUILT]`: every function** -- the Kiln produces nothing,
 the Gun Spire does not shoot, the Antenna detects nothing, the Dower services and repairs nothing, the Jammer jams
-nothing, the Stronghold constructs no weapons and no shields -- **and the Power Lungs** (one per building,
-destructible, disabling, rebuilt free) do not exist.
+nothing, the Stronghold constructs no weapons and no shields -- **and the Power Lungs** (built in, destructible,
+disabling, easy to repair, hidden from the `3 Attack` list: the five rules of 4.1) do not exist. **This tree's alien
+side has NO POWER AT ALL `[SHIPPED]`, and that is now WRONG** (4.1): the Lungs and the DISABLED state are slices,
+not doc edits.
 
 ### 2.7 The Builder's UPGRADE list `[CAPTURED]`
 
@@ -172,48 +194,60 @@ costs 55 and takes 900 rather than 1100. Whether the buildings inherit the excep
 
 ## 3. The buildings
 
-Footprints are `[PROPOSED]` starting points he has accepted; the tree has a per-kind table,
-`footprint_of(kind)` (units.hpp): a width and a height.
-
-**THE FOOTPRINT COLUMNS IN 3.1 AND 3.2 BELOW ARE THE PRE-SCALE VALUES AND ARE SUPERSEDED.** On 2026-11-13 he
-ruled every building four times as wide, long and tall (3.8); the authoritative footprints, human and alien, are
-the table in 3.4. The old columns are left as they were, as the record of what was accepted before the scale.
+Footprints are in TILES, width x height, and **the columns below show the CURRENT values first**: the `[RULED]`
+x4 scale of 2026-11-13 (3.8) and the alien footprints he then gave (3.4, the full table with its provenance). The
+tree has a per-kind table, `footprint_of(kind)` (units.hpp). The OLD pre-scale values, which were `[PROPOSED]`
+starting points he had accepted, are the footnote under each table: they are history, kept so the record loses
+nothing.
 
 ### 3.1 Human
 
-| building | row | cost | footprint | prerequisite | what it does | upgrade |
+| building | row | cost | footprint (current) | prerequisite | what it does | upgrade |
 |---|---|---|---|---|---|---|
-| Power Generator | `POWER` | 30 | 2x2 | -- | provides **3 units of power** | -- |
-| Factory | `FACTORY` | 55 | 4x4 | -- | builds the human eight (2.3) | **none** -- his recollection |
-| Relay Bunker | `RELAY BUNKER` | 50 | 2x2 | -- | **extends the human build area** (wireless power) | -- |
-| Armory | `ARMORY` | 60 | 3x3 | -- | arms vehicles | -- |
-| Service Bay | `SERVICE BAY` | 50 | 3x3 | -- | repairs vehicles | -- |
-| Gun Tower | `GUN TOWER` | 50 | 1x1 | -- | base defence; a power CONSUMER | -- |
-| Training Centre | `TRAINING CTR.` | 70 | 3x3 | -- | **UNKNOWN -- parked by him**; the ISDF guide answers it `[REFERENCE]`: unlocks the **MAG** (12.3) | -- |
-| Tech Centre | `TECH CENTRE` | 80 | 3x3 | -- | **UNKNOWN -- parked by him** ("a requirement for something else"); the ISDF guide answers it `[REFERENCE]`: the **advanced-weapons** building (12.3) | -- |
-| Bomber Bay | `BOMBER BAY` | 100 | 4x4 | -- | houses the bomber, which never leaves it on its own | -- |
+| Power Generator | `POWER` | 30 | 4x4 | -- | provides **3 units of power** | -- |
+| Factory | `FACTORY` | 55 | 8x8 | -- | builds the human eight (2.3) | **none** -- his recollection |
+| Relay Bunker | `RELAY BUNKER` | 50 | 4x4 | -- | **extends the human build area** (wireless power) | -- |
+| Armory | `ARMORY` | 60 | 4x4 | -- | arms vehicles | -- |
+| Service Bay | `SERVICE BAY` | 50 | 8x8 | -- | repairs vehicles | -- |
+| Gun Tower | `GUN TOWER` | 50 | 4x4 | -- | base defence; a power CONSUMER | -- |
+| Training Centre | `TRAINING CTR.` | 70 | 8x4 | -- | **UNKNOWN -- parked by him**; the ISDF guide answers it `[REFERENCE]`: unlocks the **MAG** (12.3) | -- |
+| Tech Centre | `TECH CENTRE` | 80 | 8x4 | -- | **UNKNOWN -- parked by him** ("a requirement for something else"); the ISDF guide answers it `[REFERENCE]`: the **advanced-weapons** building (12.3), and it **unlocks the Shadower** `[RULED]` (12.4) | -- |
+| Bomber Bay | `BOMBER BAY` | 100 | 8x8 | -- | houses the bomber, which never leaves it on its own | -- |
+
+*Footnote -- the OLD pre-scale footprints, superseded:* Power Generator 2x2, Factory 4x4, Relay Bunker 2x2, Armory
+3x3, Service Bay 3x3, Gun Tower 1x1, Training Centre 3x3, Tech Centre 3x3, Bomber Bay 4x4. (These old figures do not
+all match 3.4's "x4 of" provenance -- 3.4 derives Power from 1x1, Armory from 1x1, Training and Tech Centre from
+2x1, Service Bay from 2x2 -- so the old column was not the exact input to the scale. Not resolved; 3.4's values
+are the ones in force.)
 
 ### 3.2 Alien
 
 Lung counts are `[RULED]` where they are given: a building carries **one** lung and its upgrade carries **two**.
 Where a count is not given it is `?` and is his to set.
 
-| building | row | cost | footprint | prerequisite | what it does | upgrade | lungs |
+| building | row | cost | footprint (current) | prerequisite | what it does | upgrade | lungs |
 |---|---|---|---|---|---|---|---|
-| Power Lung | -- | 0 | 2x2 | -- | a building's own power, attached to it | -- | the lung itself |
-| Kiln | `KILN` | 60 | 3x3 | a built Power Lung `[REFERENCE]` | early production; the six (2.4) | `-> FORGE`, 60 scrap | 1 |
-| Forge | -- | 120 as a structure; 60 to upgrade a Kiln | 3x3 | the Kiln upgraded | production; the six (2.4) | -- | 2 |
-| Antenna Mound | `ANTENNA` | 60 | 3x3 | a built Kiln `[RULED]` | the relay/comms role | `-> OVERSEER ARRAY`, 80 scrap, **needs a Forge** | 1 |
-| Overseer Array | -- | -- | 3x3 | the Antenna upgraded | -- | -- | 2 |
-| Dower | `DOWER` | 50 | 3x3 | a built Kiln `[RULED]` | services and repairs vehicles; **needed for Healers** | -- | ? |
-| Stronghold | `STRONGHOLD` | 70 | 3x3 | a Forge `[RULED]` | the alien **Armory**, and it also grants shields | -- | ? |
-| Jammer | `JAMMER` | 50 | 2x2 | an Overseer Array `[RULED]` | blinds the enemy's radar and degrades their targeting nearby | -- | ? |
-| Gun Spire | `GUN SPIRE` | 75 | 1x1 | a Power Lung `[REFERENCE]` | the alien gun tower | -- | ? |
+| Power Lung | -- | 0 | a COMPONENT, about a quarter of its structure each way (4.2); no grid footprint of its own is given | -- | a building's own power, built into it (4.1) | -- | the lung itself |
+| Kiln | `KILN` | 60 | 8x8 | a built Power Lung `[REFERENCE]` | early production; **the light three only** (2.4) | `-> FORGE`, 60 scrap | 1 |
+| Forge | -- | 120 as a structure; 60 to upgrade a Kiln | 8x8 | the Kiln upgraded | production; **the six** (2.4) | -- | 2 |
+| Antenna Mound | `ANTENNA` | 60 | 8x8 | a built Kiln `[RULED]` | the relay/comms role | `-> OVERSEER ARRAY`, 80 scrap, **needs a Forge** | 1 |
+| Overseer Array | -- | -- | 8x8 | the Antenna upgraded | -- | -- | 2 |
+| Dower | `DOWER` | 50 | 8x8 | a built Kiln `[RULED]` | services and repairs vehicles; **needed for Healers** | -- | ? |
+| Stronghold | `STRONGHOLD` | 70 | 4x4 | a Forge `[RULED]` | the alien **Armory**, and it also grants shields | -- | ? |
+| Jammer | `JAMMER` | 50 | 4x4 | **an Antenna Mound** `[RULED]` (his earlier "Overseer" reading is withdrawn, 3.3) | blinds the enemy's radar and degrades their targeting nearby | -- | ? |
+| Gun Spire | `GUN SPIRE` | 75 | 4x4 | a Power Lung `[REFERENCE]`; the Lung is also **built in** (4.1) | the alien gun tower; silhouette `[CAPTURED]` in 3.9 | -- | ? |
+
+*Footnote -- the OLD pre-scale footprints, superseded:* Power Lung 2x2, Kiln 3x3, Forge 3x3, Antenna Mound 3x3,
+Overseer Array 3x3, Dower 3x3, Stronghold 3x3, Jammer 2x2, Gun Spire 1x1. (2.6 also records the earlier
+provisional set Kiln 2x2, Gun Spire 1x1, Antenna 1x1, Dower 2x2, Stronghold 2x1, Jammer 1x1.) The Power Lung's
+2x2 was a placeholder from before he ruled it a component.
 
 ### 3.3 The prerequisite tree, as it stands
 
 Confirmed in his own play: the **ANTENNA** and the **DOWER** each need a built **KILN**; the **STRONGHOLD** needs a
-**FORGE**; the **JAMMER** needs an **OVERSEER**; the **ANTENNA'S UPGRADE** needs a Forge. From the reference,
+**FORGE**; the **ANTENNA'S UPGRADE** needs a Forge. **The JAMMER needs the ANTENNA MOUND** `[RULED]` -- his ruling
+by choice on 2026-11-13, NOT the assistant's: his earlier play-reading, "Jammer <- Overseer", is WITHDRAWN and the
+GUIDE wins (11.1 row 1). The disagreement is closed. From the reference,
 unconfirmed: the Kiln and the Gun Spire need a Power Lung; the Forge needs the Kiln and two Power Lungs; the
 Overseer Array needs a Forge, an Antenna and two Power Lungs.
 
@@ -279,7 +313,7 @@ Jammer on the human side."*
 | alien building | job | human twin |
 |---|---|---|
 | Matriarch | producer (its own roster, 2.2) + the loadout editor | the deployed Recycler |
-| Kiln / Forge | producer (the six, 2.4) + the loadout editor | the Factory |
+| Kiln / Forge | producer (the Kiln's light three, the Forge's six, 2.4) + the loadout editor | the Factory |
 | Dower | **the Service Bay's equivalent** -- repairs vehicles | the Service Bay |
 | Stronghold | **the Armory** -- unlocks the good weapons | the Armory |
 | Jammer | **counter-detection**: it hides its side from the satellite view | **NONE -- he says so outright** |
@@ -434,13 +468,41 @@ probe's, which is why the Guardian fired at all (it believed nothing was in the 
 same square that blocks units and refuses placements, one rule with three uses that cannot drift from what is
 drawn. **Both sides: cover is cover**, and the probe reads the same test, so a gun also stops firing through its
 own buildings. A SIM change: bolts stop earlier, so recorded battles may move -- named, proven and re-recorded.
-(The commit history names this as `fix(sim): a building stops a bolt -- its footprint is its hit shape`.) The
-task brief calls this "the bolt/lob rule"; the sources speak of BOLTS only, and what a lobbed shell (mortar,
-bomb) does against a building footprint is **not recorded** -- his to rule.
+(The commit history names this as `fix(sim): a building stops a bolt -- its footprint is its hit shape`.) The task brief calls this "the bolt/lob rule"; the sources spoke of BOLTS only, and the lob half was **his to
+rule -- and he has** (below).
+
+**THE LOB RULE `[RULED]` -- THE ARC DECIDES.** Asked as a choice (2026-11-13), his answer: *"The arc decides: a
+shell that clears the roof lands behind it."* So **a lobbed shell (mortar, bomb) is NOT stopped by a footprint the
+way a bolt is**: a bolt is stopped at the edge it enters, a shell is stopped only if its arc does not clear the
+building -- and a shell that clears the roof lands BEHIND the building. This closes the gap M1 honestly reported (the
+bolt rule recorded, the lob unrecorded), and gives his own earlier sentence its mechanism: *"I should still be able
+to lob a mortar over a recycler to hit the target behind it, depending on the location."* The bolt rule and the lob
+rule are ONE subject -- what a projectile does when it meets a footprint -- and are written here side by side.
+Status: the tree's `meets_building` (`src/sim/projectile.cpp`) already treats a shell this way -- a shell above the
+roof as it crosses the footprint goes over, and one that comes down inside the rectangle is stopped on the roof --
+so the rule reads `[SHIPPED]` by that code; I did not run a battle to prove it for this slice, and what the tree
+takes as a building's "top" height is not restated here.
 
 **What the scale slices were** (history, for provenance): L1 the scale, L2 the ghost, L3 the connection rule for
 every row (re-pinning K4's tests deliberately), M1 the Service Bay drive-on platform (after L1 and L2, because
 those change every footprint).
+
+### 3.9 The Gun Spire's silhouette `[CAPTURED]`
+
+From the cropped capture of a Gun Spire with its Lung (the same crop as 4.2), 2026-11-13:
+
+- **three tall vertical prongs** on a wide sloped base; each prong about **4-5 times taller than it is wide**; the
+  **two outer prongs lean outward 5-10 degrees** and the centre one is vertical; a **circular ring near the top of
+  each outer prong** and a **vertical slot in the centre one**; the gaps between prongs about one prong wide;
+- a **wide trapezoidal pedestal**, wider at the bottom, sloping inward **15-20 degrees** from vertical, with **5-6
+  horizontal rib bands** across the front and a **central vertical seam** suggesting two halves; the base about a
+  third of the total height;
+- **dark metal with teal/cyan accent lines** and **6-8 small emissive YELLOW lights** (a row of about four low on
+  the base, one near the top of each prong);
+- overall **slightly taller than its base is wide** (about 1.1-1.2 to 1), a crown-like profile.
+
+So the alien six's provisional looks (authored in the Harvester's idiom, 2.6) get a REAL reference for the Gun
+Spire, worth its own slice. The authored shape is `[SHIPPED]`; matching it to this capture is `[NOT BUILT]`.
 
 ## 4. Power
 
@@ -453,11 +515,64 @@ Relay Bunker's job is to EXTEND where you may build. This rule is human-only, in
 human side."*
 
 **Alien: one lung per building, and a lung is a target.**  Each alien building carries its own Power Lung, so no
-adjacency rule applies and losing a lung disables ONE building rather than the grid. A lung **looks like a
-rotating, crystalline, translucent bulb about a metre tall** `[RULED]`, and its size is provisional and his to
-change. Lung counts: Kiln 1, Forge 2, Antenna Mound 1, Overseer Array 2 `[RULED]`; the rest unset.
-**Destroying a lung DISABLES the building**; the **Builder** rebuilds it with **`6 Add Lung`**, which is **free**
-`[RULED]`.
+adjacency rule applies and losing a lung disables ONE building rather than the grid. Lung counts: Kiln 1, Forge 2,
+Antenna Mound 1, Overseer Array 2 `[RULED]`; the rest unset. **Destroying a lung DISABLES the building**; the
+**Builder** rebuilds it with **`6 Add Lung`**, which is **free** `[RULED]` (`[NOT BUILT]`, 6). What a lung looks
+like is `[CAPTURED]` (4.2); the earlier `[RULED]` description -- "a rotating, crystalline, translucent bulb about a
+metre tall" -- was the first word, and its size was provisional and his to change.
+
+### 4.1 The Power Lung: five rules `[RULED]`, all `[NOT BUILT]`
+
+His own words (2026-11-13): *"When you build a Gun Spire, or ANYTHING on the alien side that needs a Lung, the Lungs
+are built into the structure. When you build the structure, it automatically comes with the Lung. As a matter of
+fact, if I am on the human side, and I want to get past a Gun Spire, I direct my assets to attack the Lung. That
+disables the Gun Spire, no matter what is connected to it. They are easy to repair. They do not show up in the "3
+Attack" list, so you have to actually POINT at a lung to direct anything to attack it specifically."* And, asked
+whether the aliens get Lungs, his answer: *"Give the aliens Lungs -- the guide says their buildings spawn with one
+attached."*
+
+1. **A Lung is BUILT IN.** A structure that needs one comes with it: building the structure builds its Lung, with no
+   separate placement step for the ones that belong to a structure. (The guide's standalone Lungs are for powering
+   a Gun Spire or replacing a destroyed one; the Builder's `6 Add Lung`, section 6.)
+2. **A Lung is a DESTRUCTIBLE COMPONENT of the structure.** A gun can target it and kill it, and killing it
+   **DISABLES the structure** -- it does not destroy it. Disabled, not gone.
+3. **"No matter what is connected to it":** the structure's OWN Lung is its own power, so a structure that is also
+   tethered to something else is still disabled by losing its own Lung.
+4. **They are EASY TO REPAIR** -- cheap, deliberately, so the counter-play is a raid, not a demolition.
+5. **They are DELIBERATELY HIDDEN from the `3 Attack` list:** a Lung is attacked only by POINTING at it -- the same
+   instinct as the exterior control panel (point at a thing, press SPACE; 3.6).
+
+**WHAT THIS MAKES WRONG: the alien side's current "no power at all" (`[SHIPPED]`, the six built with "the gate is a
+building", 2.6).** Say it plainly: the alien side is to have Lungs, built into the structures that need them, plus
+standalone ones to replace a destroyed one. **These are slices, not doc edits** -- the Lungs and the new
+**DISABLED state** are a sim change (a destructible component and a state the structure can be in), `[NOT BUILT]`.
+
+**Not resolved by it:** the prerequisites the guide gives (the Kiln and the Gun Spire need a Power Lung, the Forge two
+-- 3.3) sit oddly with Lungs that come WITH the structure. His words confirm the Gun Spire carries a Lung; whether
+any standalone Lung must be placed FIRST as a prerequisite is not ruled. Per-building Lung counts for the Dower,
+Stronghold, Jammer and Gun Spire stay unset. The Lung's repair cost and rate are not given.
+
+### 4.2 The Lung's look `[CAPTURED]`
+
+He said (2026-11-13): *"Basically an upside down lightbulb."* **The impression was his; the picture corrected the
+FORM.** The capture (a cropped Gun Spire with its Lung) shows a **low-poly FACETED CRYSTAL**, not a smooth bulb on a
+neck:
+
+- **shape**: roughly ovoid/teardrop, **widening low and tapering to a rounded point at the top**; about **8 to 12
+  irregular flat facets** meeting at sharp edges, like a chunky gemstone;
+- **colour and light**: **pale green/cyan**, brighter at the centre, **EMISSIVE** -- it glows from within rather
+  than being lit -- and **semi-transparent**;
+- **motion**: it **rotates slowly**, a separate object with its own spin, not part of the structure's mesh; the spin
+  is about a near-vertical axis, the pivot at the neck;
+- **attachment**: a **short dark neck or bracket on the OUTER side of the right prong, about halfway up it**,
+  protruding outward -- not on the base;
+- **size**: height about **25-30% of the whole structure's height** (about 40% of a prong's height); width about
+  **20-25% of the base's width** and slightly wider than one prong -- **about a QUARTER of the structure's height
+  and width**. The x4 scale rule (3.8) does not answer this: a Lung is a component, not a building on the grid.
+
+That is the Gun Spire's right-hand prong (3.9); where a Lung sits on the other five alien structures is not captured.
+The metre-tall figure of the earlier description (above) and this proportion are not reconciled: with the x4 scale
+the Gun Spire's height is not stated in metres here. Not built: `[NOT BUILT]`.
 
 **Either side: a destroyed building scatters scrap** on the ground for a scavenger to collect -- power and scrap
 touch at construction time and nowhere else `[RULED 2026-10-24]`.
@@ -509,7 +624,7 @@ The `~` row's LABEL FOLLOWS THE SUBJECT: `ROTATE BUILDINGS` on a construction ve
 | `3` | `Build` (PROTEKT's `3 Construct`) | the PANEL is shipped (round 17 J1: nine rows, every press refused -- nothing can be placed yet); placement is `[NOT BUILT]` |
 | `4` | `Upgrade` | `[NOT BUILT]` |
 | `5` | `Demolish` | a row with NO functionality, by his ruling |
-| `6` | `Add Lung` | alien only; `[NOT BUILT]` |
+| `6` | `Add Lung` | alien only; free (4); `[NOT BUILT]` -- and see 4.1: a Lung also comes built in |
 | `9` | `Bailout` | a row with NO functionality, by his ruling |
 | `0` | `Recycle` | the sim already has `orders::Recycle`; needs a row |
 
@@ -535,11 +650,12 @@ alien."* Nothing alien is to read as a human machine in another colour. It cover
 
 - the three kinds that already have alien geometry -- the Harvester, the Guardian and the Hauler;
 - the alien buildings: Kiln, Forge, Antenna Mound, Overseer Array, Dower, Stronghold, Jammer, Power Lung -- whose
-  only captured look so far is the lung itself;
+  captured looks are the lung (4.2) and the Gun Spire (3.9);
 - the alien factory's six vehicles, Sentry through Titan, which have **no geometry of their own at all** today.
 
-The lung's own marks: rotating, crystalline, translucent, about a metre tall, one per building and two after an
-upgrade.
+The lung's own marks: rotating, crystalline, translucent, one per building and two after an upgrade -- and now
+`[CAPTURED]` in full (4.2: a faceted crystal, pale green/cyan, emissive, about a quarter of its structure). The Gun
+Spire has a captured silhouette too (3.9).
 
 ## 9. What is still open
 
@@ -554,17 +670,21 @@ upgrade.
 3. Defaults he has not contradicted: a claimed scrap pile frees itself when its claimer gives up; more scavengers
    than piles share the nearest; the Walker's combat numbers are the assistant's proposal; the alien kit's masses
    are re-authored only if a smaller hull cut does not settle a Guardian.
-4. **Three guide-versus-play disagreements, both sides recorded, none resolved** (11.1, 12.4): the Shadower's unlock
-   (guide: Tech Centre; his play: Armory); the Jammer's prerequisite (guide: Antenna Mound; his play: Overseer);
-   the Gun Spire's Power Lung (guide only, unconfirmed by him). A fourth, flagged: whether the Forge's panel adds
-   four vehicles to the Kiln's (the guide) or is identical (his captures, 2.4).
+4. **Guide-versus-play disagreements.** TWO CLOSED on 2026-11-13, by his choice, the guide winning and his
+   earlier reading withdrawn: the **Shadower** is a **Tech Centre** unlock, not the Armory (12.4); the **Jammer**
+   needs the **Antenna Mound**, not the Overseer Array (3.3). The **Kiln's roster** is closed too, by his
+   self-correction: the Kiln offers only the light three and his captures were the Forge twice (2.4). **Still
+   open:** the Gun Spire's Power Lung as a prerequisite (guide only; his words that a Lung is built in bear on it,
+   4.1), and which three rows the Kiln offers (unnamed, 2.4).
 5. **Owed by him**: whether the un-upgraded Antenna gives the satellite view (3.7, testable in play); the
    enterability of the Dower, Stronghold and Jammer (assumed none, 3.6); whether the Stronghold grants shields
-   (13); what a lobbed shell does against a footprint (3.8); whether on-foot entry is automatic or a key (14);
-   whether the force-class counts are absolute and whether a preset says deployed versus wheeled (15); the
-   `Absorbtion` spelling (11.6); the human and alien Power Lung counts still unset (3.2).
+   (13); whether on-foot entry is automatic or a key (14); whether a preset says deployed versus wheeled (15); the
+   human and alien Power Lung counts still unset (3.2); the Lung's repair cost and whether a standalone Lung is a
+   prerequisite (4.1); the Kiln's three rows (2.4). **No longer owed (answered 2026-11-13):** what a lobbed shell does
+   against a footprint (3.8), the force-class counts (15), the `Absorption` spelling (11.6).
 6. **Unbuilt, named so nothing is implied to exist** (all `[NOT BUILT]`): the energy pool and its three shield
-   sinks, the two Scion forms, the five weapon mechanics (11.4), the four Scion and six ISDF specials, mines, the
+   sinks, the two Scion forms, the five weapon mechanics (11.4), the four Scion and six ISDF specials, mines, the Power Lungs and the DISABLED
+   state (4.1), the Scion `C`-key transition and its two shapes (11.7), the
    refit crates, the Extractor's footprint (3.4), infantry and `Bailout` (14), initial-condition presets (15), and
    every alien building's function (2.6). A MORPH pausing production and the Matriarch's scrap trickle are
    guide-only (11.1). The heat signature and armour type are PARKED (15).
@@ -572,19 +692,24 @@ upgrade.
 ## 10. Provenance
 
 - **His captures** (Battlezone Combat Commander 2.0.185), 2026-11-10: the CONSTRUCT panel; the Builder's build
-  menu; the Builder's top menu; the Builder's UPGRADE list with a Kiln and two Extractors; the Kiln's production
-  panel; the Forge and its lungs; the Overseer Array. These fix every roster, cost, key and panel idiom marked
-  `[CAPTURED]`.
+  menu; the Builder's top menu; the Builder's UPGRADE list with a Kiln and two Extractors; the production
+  panel he took for the Kiln's and the Forge's (**both were the Forge's**, 2.4); the Forge and its lungs; the Overseer Array. These fix every roster, cost, key and panel
+  idiom marked `[CAPTURED]`.
 - **Published guides**: the IGN unofficial Battlezone II guide (structures, requirements and prices), the level
   editor FAQ (the path-point names, which is how the Scion counterparts are known), the Steam buildings guide
   (upgrades, power lungs) and reviews. Used for the roles and the requirement tree marked `[REFERENCE]`.
 - **His earlier rulings** already recorded in `docs/REQUIREMENTS.md` §B.5 Power (2026-10-24) and in the faction
   sections.
-- **2026-11-13 working notes** (round 19-20 and the Gemini pastes), distilled into 3.4-3.8 and sections 11-16:
+- **2026-11-13 working notes** (round 19-20 and the Gemini pastes), distilled into 3.4-3.9 and sections 11-16:
   his verbatim rulings on scale, the ghost, the connection rule, enterability, the alien footprints, the alien
   jobs, infantry and the starting conditions are `[RULED]`; four Gemini write-ups he pasted that night (the Scion
   research, the Scion loadouts with the specials and shields, and the ISDF research) are `[REFERENCE]`, a GUIDE
   that his play outranks. His ask: *"Please make sure all this information is captured somewhere permanent."*
+- **2026-11-13, later: the "ruled by choice" cards and the Lung capture** (`protekt-plan`: `ruled-by-choice`,
+  `the-lung-and-the-two-forms`, with the two Gemini reconciliations): the lob rule, the Kiln's roster, the Tank's
+  Special slot, the Shadower and the Jammer closing for the guide, the `Absorption` spelling, the five Lung rules,
+  the Lung's and the Gun Spire's captured looks, the `C` key and the force classes. `[RULED]` or `[CAPTURED]`
+  as marked.
 - **The tree**: `src/game/menu.cpp` (the three shipped lists), `include/protekt/sim/spec.hpp` (costs and build
   times), `include/protekt/game/faction.hpp`, `src/game/row.cpp` (`kind_label`), `src/game/scene.cpp`
   (`append_deploy_preview`, the ship gauge).
@@ -593,7 +718,7 @@ upgrade.
 
 **Source: a Gemini write-up on the Scions that Harri pasted on 2026-11-13, in four pastes (research, loadouts,
 specials and shields; the ISDF paste is section 12).** It is a GUIDE, not his play: **where it disagrees with
-his play, his play wins and BOTH are recorded**. Everything in this section is `[REFERENCE]` unless it says
+his play, his play wins and BOTH are recorded** -- except where he has since ruled FOR the guide (11.1's table). Everything in this section is `[REFERENCE]` unless it says
 otherwise, and every mechanic named here that the tree does not have is **`[NOT BUILT]`**.
 
 ### 11.1 What the guide says, against his own play
@@ -610,18 +735,19 @@ after an upgrade"); **"Entering the Matriarch or Kiln/Forge lets you customize t
 units"** -- the second independent confirmation of what he told the assistant himself (he changes the loadout FROM
 the Matriarch and the Forge).
 
-**DISAGREES with him -- his word wins, BOTH on the open list (section 9):**
+**DISAGREED with him -- THREE rows, two now CLOSED by his rulings (2026-11-13, asked as choices; they are HIS
+rulings, not the assistant's choices), the GUIDE winning and his earlier reading WITHDRAWN:**
 
-| # | the guide | his play | status |
+| # | the guide | his earlier play-reading | status |
 |---|---|---|---|
-| 1 | the **Jammer** needs the ANTENNA MOUND | **JAMMER <- OVERSEER** `[RULED]` | worth a playtest check; the guide may describe a different build of the game |
-| 2 | the **Gun Spire** needs **1 Power Lung** | not confirmed by him | guide only, unconfirmed -- the same class as the lung prerequisites left OUT of the alien slice |
-| 3 | the **Shadower** is behind the TECH(NICAL) CENTER (12.4) | the ARMORY gives the Scout a Shadower | a patch difference, or both paths exist |
+| 1 | the **Jammer** needs the ANTENNA MOUND | JAMMER <- OVERSEER | **CLOSED `[RULED]`: the guide wins, the Antenna Mound; his reading withdrawn** (3.3) |
+| 2 | the **Gun Spire** needs **1 Power Lung** | not confirmed by him | guide only, still open; his words that a Lung is built into any structure that needs one bear on it (4.1) |
+| 3 | the **Shadower** is behind the TECH(NICAL) CENTER (12.4) | the ARMORY gives the Scout a Shadower | **CLOSED `[RULED]`: the guide wins, the Tech Centre; his reading withdrawn** (12.4) |
 
-**A FOURTH PLACE THE GUIDE AND THE RECORD DO NOT AGREE, flagged and NOT resolved** (not one of his three): the
-guide says the Forge's roster is **Lancer, Mauler, Archer, Titan on top of the Kiln's**, and calls that his
-captured Forge panel; but 2.4 records the Kiln's and the Forge's panels as **one identical six-row list** from his
-own captures. Both stand; his captures are what is `[CAPTURED]`.
+**THE FOURTH PLACE, now CLOSED** (it was flagged and unresolved in M1): the guide said the Forge's roster is
+**Lancer, Mauler, Archer, Titan on top of the Kiln's**, and 2.4 had recorded one identical six-row list from his
+captures. **The guide was right; his capture of the two panels was the Forge twice** -- his own correction, `[RULED]`
+(2.4). The Kiln offers only the light three.
 
 **NEW from the guide, none of it his yet:**
 - **THE TWO FORMS**: the Scion combat ships -- **Scout, Sentry, Lancer, Warrior** -- each have a **Combat Mode**
@@ -648,6 +774,11 @@ different thing, a CLASS OF WEAPON ACCEPTED (section 13). **The loadout model**:
 BLUEPRINT, edited at the producer and read at that producer's queue. The Stronghold "(3 key) drops weapon/shield
 crates onto the field to refit existing ships": that crate is the **"ARMORY PICKUP"** the tree's own `weapon.hpp`
 has been waiting for ("Armory pickups (C) are what will make the sim track [a hull's weapon]"). `[NOT BUILT]`
+
+**A SLOT CAN EXIST AND HOLD NOTHING -- so "no special" is NOT "no slot"** `[RULED]` (2026-11-13, his answer on the
+Tank). The Sabre HAS a Special hardpoint (`1S`, the guide) and his screen showed it EMPTY ("no Special") -- both are
+true. The loadout model must therefore keep a slot's EXISTENCE and its CONTENTS apart: an empty slot is a slot with
+nothing equipped (as his Mortar Bike's `1x Special (NONE)` already printed it), never an absent one. `[NOT BUILT]`
 
 ### 11.3 The Scion hardpoint matrix (`[REFERENCE]`, his to correct, nothing built)
 
@@ -708,9 +839,29 @@ Combat Mode), and shields that trade energy for protection. "Regenerates ammo" i
 human side is separate ammo pools and passive shield bars (12.5). PROTEKT today has weapon COOLDOWNS and no rounds
 and no energy.
 
-**A NAMING DECISION FOR HIM, open**: the reference prints `Absorbtion`, a misspelling, and this project already
-rules DELIBERATE divergences on spelling (`TECH CENTRE`, `TRAINING CTR.`). Copy the game's spelling or use
-`Absorption`: either way it is recorded AS a decision so a later session does not "fix" it back.
+**THE SPELLING IS DECIDED `[RULED]`** (2026-11-13, asked as a choice of two): the shield is spelled
+**`Absorption`** in PROTEKT, and the reference's `Absorbtion` is a misspelling PROTEKT deliberately does not copy.
+The divergence is recorded AS a decision beside the project's other deliberate ones (`TECH CENTRE`, `TRAINING
+CTR.`; see **Names** at the top of this file), so a later session does not "fix" it back. (The table above keeps
+the reference's own spelling in its heading only because it quotes the reference.)
+
+### 11.7 The `C` key, and two modes that are two SHAPES
+
+His words (2026-11-13): *"The way I can switch between the two modes when I'm on the Scion side is with the C key.
+It takes a few seconds, it makes some interesting sound, and then my vehicle is in some different orientation. It
+actually looks different. So, the C key toggles the mode."* This adds to the guide's two forms (11.1):
+
+1. the toggle is keyed to **`C`** `[RULED]`;
+2. it **TAKES TIME** -- a few seconds -- so it is a TRANSITION, not an instant flip of a flag;
+3. it **has its own sound**;
+4. it **changes the vehicle's orientation AND its look** ("it actually looks different") -- so the two modes are
+   two SHAPES, not one shape with different numbers.
+
+It is the Scion's "asymmetry through morphing" at the unit level, the same idea as the building upgrades (the Kiln
+becoming the Forge). The modes' NAMES (Combat / Assault) stay the guide's; their existence, the key and the
+transition are his. **The key and the existence of the modes are `[RULED]`; the mechanic -- the timed transition,
+the sound, the second shape for each of the four hulls -- is `[NOT BUILT]`.** How long "a few seconds" is, and
+whether the unit can act during it, are not given.
 
 ## 12. The ISDF loadouts and research `[REFERENCE]`
 
@@ -752,10 +903,12 @@ the guide's claim, not a number adopted.)
 - **The TRAINING FACILITY unlocks the MAG** (a chargeable railgun) -- **on top of the APC gate** he told the
   assistant (the notes do not spell that gate out; it is carried as he gave it).
 
-### 12.4 The one disagreement
+### 12.4 The one disagreement -- CLOSED, the guide wins `[RULED]`
 
-The guide puts the `SHADOWER` behind the TECHNICAL CENTER; his own play has the ARMORY giving the Scout a
-Shadower. **His play wins and both stay on the open list** (a patch difference, or both paths exist).
+The guide put the `SHADOWER` behind the TECHNICAL CENTER; his earlier play-reading had the ARMORY giving the Scout
+a Shadower. **He ruled (2026-11-13, by choice) that the TECH CENTRE unlocks it, not the Armory, and withdrew his
+earlier reading.** It is his ruling, not the assistant's choice. (12.2's lists already put it under the Tech
+Centre; the Armory's list does not name it.) `[NOT BUILT]` -- no unlock is in the tree.
 
 ### 12.5 The six ISDF specials (`[REFERENCE]`, `[NOT BUILT]`) -- the last item he owed
 
@@ -768,8 +921,8 @@ specials are NOT the same set (11.5).
 ### 12.6 Where the guide matches his own captures (`[REFERENCE]` corroborating `[CAPTURED]`)
 
 - the TANK: guide `1C (C), 2G (C), 1M, 1S` against his screen's "one AT-Stab Cannon, two Miniguns, one Mortar, no
-  Special" -- **the guide lists a Special slot (1S) where his screen showed none equipped**; read as an empty slot,
-  not resolved;
+  Special" -- **the guide lists a Special slot (1S) where his screen showed none equipped**; RESOLVED
+  `[RULED]` (2026-11-13): the slot EXISTS and was EMPTY, both true -- "no special" is not "no slot" (11.2);
 - the ROCKET TANK: `2R (C), 1R (A)` against his `2x Rocket (C): Shadower MSL` + `1x Rocket (A): Salvo RKT`;
 - the MSL SCOUT: `2R (C), 1S` against his "TAG cannons and Prox mines (proximity)";
 - the MORTAR BIKE: `1M, 1S` against his `MORTAR (C)` + `1x Special (NONE)`;
@@ -861,14 +1014,16 @@ unnoticed. **The seam already exists -- do not build a second one**: the scenari
 by name, spawn offsets, the store's opening, the `start_ore` field a slice added for test rigs), and the sides
 already swap (`--alien`, scenario DATA, not a second code path). So it is an EXTENSION:
 - **a setting PER SIDE** -- what the player starts with and what the enemy starts with, independently;
-- **force classes** -- named, absolute counts in plain words ("no tanks", "two tank", "ten tanks"): a list of
-  (kind, how many, where, deployed-or-wheeled);
+- **force classes** -- **None / Light / Heavy** `[RULED]` (2026-11-13, asked as a choice; his answer, *"None /
+  Light / Heavy -- no vehicles, two, ten"*): **per side**, the count meaning VEHICLES -- none = no vehicles, light =
+  two, heavy = ten. This is the shape the starting-conditions slice builds. Underneath it, a list of (kind, how
+  many, where, deployed-or-wheeled) stays the proposed data shape;
 - **the BASE's shape** -- his case first: "normally, there is no factory; the constructor has to build it", so a
   preset says what is standing and what must be built;
 - **the built-in battle becomes ONE NAMED PRESET**, a row in the same table rather than a special case.
 
-**Two questions still owed by him**: are the counts ABSOLUTE (his words read that way), and should a preset also
-say what is DEPLOYED versus wheeled? Defaults stand unless he says otherwise.
+**One question still owed by him**: should a preset also say what is DEPLOYED versus wheeled? (The counts being
+ABSOLUTE is answered: none / two / ten.) Defaults stand unless he says otherwise. `[NOT BUILT]`
 
 **Thread B -- the enemy plays the game** (his five behaviours: build scavengers, deploy them, make more vehicles,
 attack again, defend sanely): see section 16. **Do NOT guess what exists.** The tree has a utility commander with
@@ -888,8 +1043,8 @@ AI slices, from the survey. **Anything he sends that is a defect jumps ahead of 
 - **Heat signature**: "Let's leave the heat signature out for now. We'll come back to that at some point."
   PARKED and named, not dropped -- it belongs with **armour type**, which has no home in the sim either.
 - **Still open that he did not address**: the TECH CENTRE's job (parked as "a requirement for something else",
-  12.3), the loadouts' SPECIALS (now listed, 11.5 and 12.5, guide-sourced), and the force-class defaults (absolute
-  counts; a preset naming what is deployed versus wheeled).
+  12.3), the loadouts' SPECIALS (now listed, 11.5 and 12.5, guide-sourced), and the one force-class detail (a preset
+  naming what is deployed versus wheeled); the classes themselves are ruled (above).
 
 **The look: "something missing"** (his words: *"There is still something 'missing' from the 'look'. I don't know
 what it is. Could it be the atlases? Could we get different ones for the ground?"*). He cannot name it; his guess
