@@ -120,10 +120,10 @@ enum class UnitKind : std::uint8_t {
     BomberBay = 28,
     /// The ALIEN Builder's six buildings (round 18, K6), appended after BomberBay in the panel's
     /// own order, never inserted. Faction-less like every kind: the Builder's panel names them, and
-    /// a human side never lists them. Buildings that never move, on a `footprint_of` rectangle (the
-    /// footprints are PROVISIONAL, the owner has given none). THEIR FUNCTIONS ARE NOT BUILT: the
-    /// Kiln produces nothing, the Gun Spire does not shoot, the Antenna detects nothing, the Dower
-    /// services and repairs nothing, the Jammer jams nothing and the Stronghold constructs no
+    /// a human side never lists them. Buildings that never move, on a `footprint_of` rectangle (see
+    /// the table: the owner gave the Kiln, Antenna and Stronghold). THEIR FUNCTIONS ARE NOT BUILT:
+    /// the Kiln produces nothing, the Gun Spire does not shoot, the Antenna detects nothing, the
+    /// Dower services and repairs nothing, the Jammer jams nothing and the Stronghold constructs no
     /// weapons and no shields. There is NO power grid on the alien side (his ruling), and the Power
     /// Lungs are not built.
     Kiln = 29,
@@ -665,17 +665,19 @@ inline constexpr FootprintSize kTrainingCentreFootprint = scaled_footprint(2, 1)
 inline constexpr FootprintSize kTechCentreFootprint = scaled_footprint(2, 1);
 inline constexpr FootprintSize kBomberBayFootprint = scaled_footprint(2, 2);
 
-/// The ALIEN Builder's six footprints (round 18, K6), still ALL PROVISIONAL and now four times what
-/// they were: the owner has not given them. Chosen by the same job each building does on the human
-/// side: the KILN is the alien factory, so the Factory's 2x2; the GUN SPIRE the gun tower, 1x1; the
-/// ANTENNA the relay bunker, 1x1; the DOWER, a pad that services vehicles, the Service Bay's 2x2;
-/// the STRONGHOLD, the alien armory, a long low 2x1 so `~` turns it, like the Training Ctr. and
-/// Tech Centre; the JAMMER a small 1x1. (Each times `kBuildingFootprintScale`.)
+/// The ALIEN Builder's six footprints. THE OWNER'S (2026-11-13), no longer provisional for the
+/// three he corrected: STRONGHOLD 4x4, KILN 8x8, ANTENNA 8x8. The GUN SPIRE, DOWER and JAMMER
+/// stay as chosen by the job each does on the human side (gun tower 1x1, service bay 2x2, a small
+/// 1x1) -- still the assistant's, not his. AN UPGRADE DOES NOT CHANGE THE FOOTPRINT (his
+/// correction): the Forge is the Kiln at 8x8 and the Overseer Array is the Antenna at 8x8, so a
+/// footprint belongs to the BUILDING and an upgrade replaces it with one of the same size. ALL SIX
+/// ARE SQUARE (his belief; that side has no overhead view to measure from), so turning changes
+/// nothing. (Each times `kBuildingFootprintScale`.)
 inline constexpr FootprintSize kKilnFootprint = scaled_footprint(2, 2);
 inline constexpr FootprintSize kGunSpireFootprint = scaled_footprint(1, 1);
-inline constexpr FootprintSize kAntennaFootprint = scaled_footprint(1, 1);
+inline constexpr FootprintSize kAntennaFootprint = scaled_footprint(2, 2);
 inline constexpr FootprintSize kDowerFootprint = scaled_footprint(2, 2);
-inline constexpr FootprintSize kStrongholdFootprint = scaled_footprint(2, 1);
+inline constexpr FootprintSize kStrongholdFootprint = scaled_footprint(1, 1);
 inline constexpr FootprintSize kJammerFootprint = scaled_footprint(1, 1);
 
 /// A kind a CONSTRUCTOR places (`orders::Place`): the nine buildings of its panel, the Factory

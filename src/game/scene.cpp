@@ -1555,34 +1555,36 @@ void build_dower(std::vector<SceneVertex>& out, const BuildingKit& k) {
     kit_glow(out, k, kOrgan, kHeal);
 }
 
-/// The STRONGHOLD (2 x 1, a rectangle), the alien armory: a long low CARAPACE like a beetle lying
-/// lengthwise -- shingled plates swelling to the middle -- with a serrated crest of side-colour
-/// blades down its back, a curved HORN rising from each end to lean over it, and a dark arched
-/// gate at the front. (It constructs no weapons and no shields yet.)
+/// The STRONGHOLD (4 x 4 since round 19, L5: his footprint, square; the model was authored for a
+/// 2 x 1, so its long axis is drawn at about 0.36 of that to stay inside the smaller site), the
+/// alien armory: a long low CARAPACE like a beetle lying lengthwise -- shingled plates swelling to
+/// the middle -- with a serrated crest of side-colour blades down its back, a curved HORN rising
+/// from each end to lean over it, and a dark arched gate at the front. (It constructs no weapons
+/// and no shields yet.)
 void build_stronghold(std::vector<SceneVertex>& out, const BuildingKit& k) {
     constexpr std::array<LoftStation, 6> kShell{{
-        {-1.9F, 0.3F, 0.0F, 0.05F, 0.05F},
-        {-1.5F, 0.8F, 0.0F, 0.7F, 0.5F},
-        {-0.6F, 1.1F, 0.0F, 0.92F, 0.7F},
-        {0.6F, 1.1F, 0.0F, 0.92F, 0.7F},
-        {1.5F, 0.8F, 0.0F, 0.7F, 0.5F},
-        {1.9F, 0.3F, 0.0F, 0.05F, 0.05F},
+        {-0.684F, 0.3F, 0.0F, 0.05F, 0.05F},
+        {-0.54F, 0.8F, 0.0F, 0.7F, 0.5F},
+        {-0.216F, 1.1F, 0.0F, 0.92F, 0.7F},
+        {0.216F, 1.1F, 0.0F, 0.92F, 0.7F},
+        {0.54F, 0.8F, 0.0F, 0.7F, 0.5F},
+        {0.684F, 0.3F, 0.0F, 0.05F, 0.05F},
     }};
     kit_plated(out, k, kShell, 3, 0.22F, 10, k.pale, k.hull);
     constexpr std::array<LoftStation, 5> kCrest{{
-        {-1.2F, 1.15F, 0.0F, 0.04F, 0.06F},
-        {-0.6F, 1.7F, 0.0F, 0.08F, 0.1F},
+        {-0.432F, 1.15F, 0.0F, 0.04F, 0.06F},
+        {-0.216F, 1.7F, 0.0F, 0.08F, 0.1F},
         {0.0F, 1.85F, 0.0F, 0.09F, 0.11F},
-        {0.6F, 1.7F, 0.0F, 0.08F, 0.1F},
-        {1.2F, 1.15F, 0.0F, 0.04F, 0.06F},
+        {0.216F, 1.7F, 0.0F, 0.08F, 0.1F},
+        {0.432F, 1.15F, 0.0F, 0.04F, 0.06F},
     }};
     kit_plated(out, k, kCrest, 2, 0.5F, 4, k.colour, k.panel);
     for (const float end : {-1.0F, 1.0F}) {
         const std::array<LoftStation, 4> horn{{
-            {end * 1.55F, 0.8F, 0.0F, 0.13F, 0.11F},
-            {end * 1.75F, 1.7F, 0.0F, 0.1F, 0.09F},
-            {end * 1.5F, 2.6F, 0.0F, 0.06F, 0.05F},
-            {end * 1.0F, 3.1F, 0.0F, 0.01F, 0.01F},
+            {end * 0.558F, 0.8F, 0.0F, 0.13F, 0.11F},
+            {end * 0.63F, 1.7F, 0.0F, 0.1F, 0.09F},
+            {end * 0.54F, 2.6F, 0.0F, 0.06F, 0.05F},
+            {end * 0.36F, 3.1F, 0.0F, 0.01F, 0.01F},
         }};
         kit_blade(out, k, horn, k.colour, k.dark);
     }

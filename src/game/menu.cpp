@@ -572,11 +572,32 @@ std::vector<bool> powered_buildings(std::span<const NetworkBuilding> buildings) 
     return on;
 }
 
+namespace {
+/// A HUB: what a building is connected to by touching it. The deployed recycler and the relay
+/// bunker -- the two buildings that need nothing touching them.
+bool is_hub(sim::UnitKind kind) noexcept {
+    return kind == sim::UnitKind::DeployedRecycler || kind == sim::UnitKind::RelayBunker;
+}
+} // namespace
+
 bool site_connected(std::span<const NetworkBuilding> network, const sim::Footprint& site) {
-    const std::vector<bool> on = powered_buildings(network);
+    // ROUND 19, L5: connection is TOUCHING, one step out from a hub, and power is not asked. A site
+    // is connected when it touches a hub, or touches ANY building (a plant, or a terminal that
+    // merely draws power) that itself touches a hub. Terminals pass no POWER on
+    // (`powered_buildings`) but they are still something a plant may stand against: the two are
+    // different relations.
     for (std::size_t j = 0; j < network.size(); ++j) {
-        if (on[j] && is_conductor(network[j].kind) && touches(site, network[j].footprint)) {
+        if (!touches(site, network[j].footprint)) {
+            continue;
+        }
+        if (is_hub(network[j].kind)) {
             return true;
+        }
+        for (std::size_t k = 0; k < network.size(); ++k) {
+            if (k != j && is_hub(network[k].kind)
+                && touches(network[j].footprint, network[k].footprint)) {
+                return true;
+            }
         }
     }
     return false;
@@ -606,6 +627,13 @@ bool power_stands(const sim::Sim& sim, sim::Side side) {
         }
     }
     return false;
+}
+
+bool needs_connection(sim::UnitKind kind) noexcept {
+    // Every human construct building but the relay bunker (it extends the reach, so it may stand
+    // touching nothing). The recycler is not a construct building (it is deployed, "almost
+    // anywhere"), and the alien kinds are not either: that side has no grid.
+    return construct_building_of(kind).has_value() && kind != sim::UnitKind::RelayBunker;
 }
 
 bool draws_power(sim::UnitKind kind) noexcept {

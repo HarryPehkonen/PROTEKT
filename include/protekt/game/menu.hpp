@@ -191,8 +191,9 @@ struct NetworkBuilding {
 /// stored: it is computed from what stands.
 [[nodiscard]] std::vector<bool> powered_buildings(std::span<const NetworkBuilding> buildings);
 
-/// Would a building of `kind` placed on `site` be connected: does `site` touch a POWERED source or
-/// conductor of `network`? True for a kind that draws no power (it needs no connection).
+/// Would a building placed on `site` be CONNECTED (round 19, L5): does `site` touch a hub (the
+/// deployed recycler or a relay bunker) of `network`, or any building that touches one? Touching
+/// only; power is not asked. The exempt kinds are `placement_connected`'s business.
 [[nodiscard]] bool site_connected(std::span<const NetworkBuilding> network,
                                   const sim::Footprint& site);
 
@@ -202,6 +203,10 @@ struct NetworkBuilding {
 /// Whether ANY powered building of `side` stands that a new building could touch: what the panel's
 /// power rows are weighed against (`MenuInput::powered_node`).
 [[nodiscard]] bool power_stands(const sim::Sim& sim, sim::Side side);
+
+/// Whether a NEW building of `kind` must touch the connected network (round 19, L5): every human
+/// construct building except the Relay Bunker. False for the recycler and the alien kinds.
+[[nodiscard]] bool needs_connection(sim::UnitKind kind) noexcept;
 
 /// Whether placing the building `kind` draws power from the network (the Factory, Relay Bunker and
 /// Gun Tower): read from `construct_requirement`, the owner's tree, so it is not restated.

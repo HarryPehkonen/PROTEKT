@@ -344,10 +344,26 @@ struct Rig {
     sim::UnitId constructor;
 };
 
-[[nodiscard]] Rig make_rig(std::uint16_t ore) {
-    sim::Scenario scenario{
-        kSeed,
-        {{UnitKind::Tank, Side::Player, 60, 60}, {UnitKind::Constructor, Side::Player, 61, 60}}};
+/// ROUND 19, L5: every building must touch the connected network, so the rig stands a RELAY BUNKER
+/// (a hub, which needs nothing itself) just west of where the reticle lands: every footprint is
+/// anchored at its north-west tile, so it touches the site the reticle arms. `hub` false leaves
+/// the field bare, for the tests that need the refusal.
+[[nodiscard]] Rig make_rig(std::uint16_t ore, bool hub = true) {
+    std::vector<sim::Spawn> units{{UnitKind::Tank, Side::Player, 60, 60},
+                                  {UnitKind::Constructor, Side::Player, 61, 60}};
+    if (hub) {
+        sim::Scenario bare{kSeed, units};
+        const sim::Sim probe = sim::Sim::create(bare);
+        SceneOptions probe_options;
+        probe_options.seed = kSeed;
+        probe_options.extent = Extent{1280, 720};
+        probe_options.camera = Camera{120.0F, 20.0F, 120.0F, 0.0F, 0.0F};
+        probe_options.viewer_unit = probe.units().at(0).id;
+        probe_options.aim = Aim{640.0F, 700.0F};
+        const NavAim aim = nav_aim(probe, probe_options);
+        units.push_back({UnitKind::RelayBunker, Side::Player, aim.tile_x - 4, aim.tile_y});
+    }
+    sim::Scenario scenario{kSeed, units};
     scenario.store_capacity = 400;
     scenario.start_ore = ore;
     Rig r{};
@@ -475,7 +491,14 @@ TEST(PowerPanel, ThePreviewIsRedWhereTheSimWouldRefuse) {
     EXPECT_FALSE(placement_preview(r.sim, armed, crater.x, crater.y).valid);
     EXPECT_FALSE(placement_preview(r.sim, armed, -1, 5).valid) << "off the map";
     const Block b = open_block(kSeed);
-    EXPECT_TRUE(placement_preview(r.sim, armed, b.x + 4, b.y + 5).valid);
+    // A relay bunker beside the open site connects it (L5); without one the site is red.
+    EXPECT_FALSE(placement_preview(r.sim, armed, b.x + 4, b.y + 5).valid) << "nothing to touch";
+    sim::Scenario scenario{kSeed,
+                           {{UnitKind::Tank, Side::Player, 60, 60},
+                            {UnitKind::Constructor, Side::Player, 61, 60},
+                            {UnitKind::RelayBunker, Side::Player, b.x, b.y + 5}}};
+    const sim::Sim with_hub = sim::Sim::create(scenario);
+    EXPECT_TRUE(placement_preview(with_hub, armed, b.x + 4, b.y + 5).valid);
 }
 
 TEST(PowerPanel, SpacePlacesItOneOrderOnTheConstructorAndNothingIsChargedByTheGameLayer) {

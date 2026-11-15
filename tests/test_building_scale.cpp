@@ -56,9 +56,9 @@ constexpr std::array<Want, 15> kFifteen{{
     {UnitKind::BomberBay, 8, 8, "BOMBER BAY"},
     {UnitKind::Kiln, 8, 8, "KILN"},
     {UnitKind::GunSpire, 4, 4, "GUN SPIRE"},
-    {UnitKind::Antenna, 4, 4, "ANTENNA"},
+    {UnitKind::Antenna, 8, 8, "ANTENNA"},
     {UnitKind::Dower, 8, 8, "DOWER"},
-    {UnitKind::Stronghold, 8, 4, "STRONGHOLD"},
+    {UnitKind::Stronghold, 4, 4, "STRONGHOLD"},
     {UnitKind::Jammer, 4, 4, "JAMMER"},
 }};
 
@@ -341,7 +341,8 @@ constexpr std::array<Was, 14> kWas{{
     {UnitKind::GunSpire, 3.8608F, 1.60F, 1.7253F},
     {UnitKind::Antenna, 4.5452F, 1.8173F, 1.8173F},
     {UnitKind::Dower, 2.50F, 3.90F, 3.90F},
-    {UnitKind::Stronghold, 2.9875F, 3.8743F, 1.87F},
+    // L5: the Stronghold is 4x4 now (was 8x4), so its long axis was re-authored (3.8743 -> 1.9059).
+    {UnitKind::Stronghold, 2.9875F, 1.9059F, 1.87F},
     {UnitKind::Jammer, 3.70F, 1.8687F, 1.8687F},
 }};
 

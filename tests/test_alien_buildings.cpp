@@ -144,9 +144,9 @@ struct Want {
 constexpr std::array<Want, 6> kSix{{
     {UnitKind::Kiln, 29, 8, 8, 60, 1200, "KILN"},
     {UnitKind::GunSpire, 30, 4, 4, 75, 1500, "GUN SPIRE"},
-    {UnitKind::Antenna, 31, 4, 4, 60, 1200, "ANTENNA"},
+    {UnitKind::Antenna, 31, 8, 8, 60, 1200, "ANTENNA"},
     {UnitKind::Dower, 32, 8, 8, 50, 1000, "DOWER"},
-    {UnitKind::Stronghold, 33, 8, 4, 70, 1400, "STRONGHOLD"},
+    {UnitKind::Stronghold, 33, 4, 4, 70, 1400, "STRONGHOLD"},
     {UnitKind::Jammer, 34, 4, 4, 50, 1000, "JAMMER"},
 }};
 
@@ -240,12 +240,15 @@ TEST(AlienBuildings, EachHasASpecRowAndNoneOfThemDoesAnything) {
     }
 }
 
-TEST(AlienBuildings, TheFootprintsAreTheProvisionalOnesChosenAndOneIsARectangle) {
+TEST(AlienBuildings, TheFootprintsAreHisAndAllSixAreSquare) {
+    // ROUND 19, L5 (Harri, 2026-11-13): STRONGHOLD 4x4, KILN 8x8, ANTENNA 8x8; the rest unchanged.
     for (const Want& w : kSix) {
         EXPECT_EQ(sim::footprint_of(w.kind), (sim::FootprintSize{w.width, w.height})) << w.name;
+        EXPECT_EQ(w.width, w.height) << w.name << ": the alien six are square";
     }
-    EXPECT_NE(sim::footprint_of(UnitKind::Stronghold).width,
-              sim::footprint_of(UnitKind::Stronghold).height);
+    EXPECT_EQ(sim::footprint_of(UnitKind::Stronghold), (sim::FootprintSize{4, 4}));
+    EXPECT_EQ(sim::footprint_of(UnitKind::Kiln), (sim::FootprintSize{8, 8}));
+    EXPECT_EQ(sim::footprint_of(UnitKind::Antenna), (sim::FootprintSize{8, 8}));
 }
 
 // ------------------------------------------------------------------------------ the same job
@@ -311,7 +314,7 @@ TEST(AlienBuildings, ARefusedPlacementChargesNothingAndRaisesNothing) {
     }
 }
 
-TEST(AlienBuildings, TheStrongholdTurnedAQuarterIsFourByEightAndTheSquaresAreUnchanged) {
+TEST(AlienBuildings, ATurnedStrongholdIsStillFourByFourAsAreAllSix) {
     Yard y = make_yard(1, 1);
     const Block b = y.block;
     y.sim.enqueue(place(y.constructor, UnitKind::Stronghold, b.x + 5, b.y + 5, true));
@@ -319,13 +322,8 @@ TEST(AlienBuildings, TheStrongholdTurnedAQuarterIsFourByEightAndTheSquaresAreUnc
     const sim::Unit* turned = first_of(y.sim, UnitKind::Stronghold);
     ASSERT_NE(turned, nullptr);
     const sim::Footprint f = sim::footprint_around(*turned);
-    EXPECT_EQ(f.width, 4) << "8x4 turned a quarter is 4x8 (round 19, L1: four times 2x1)";
-    EXPECT_EQ(f.height, 8);
-    for (const Want& w : kSix) {
-        if (w.kind != UnitKind::Stronghold) {
-            EXPECT_EQ(w.width, w.height) << w.name << ": a square, turning changes nothing";
-        }
-    }
+    EXPECT_EQ(f.width, 4) << "square: turning changes nothing";
+    EXPECT_EQ(f.height, 4);
 }
 
 // ------------------------------------------------------------------------------ the gate
@@ -673,4 +671,15 @@ TEST(AlienBuildingLooks, NoAlienModelIsMadeOfTheHumanBuildingsBoxesAlone) {
 }
 
 } // namespace
+} // namespace protekt::game
+
+namespace protekt::game {
+TEST(AlienBuildings, TheAlienSideStillHasNoPowerGridAndNoConnectionIsAskedOfIt) {
+    for (const Want& w : kSix) {
+        EXPECT_FALSE(draws_power(w.kind)) << w.name;
+    }
+    for (std::size_t row = 0; row < 6; ++row) {
+        EXPECT_FALSE(construct_requirement(Faction::Alien, row).power) << row;
+    }
+}
 } // namespace protekt::game

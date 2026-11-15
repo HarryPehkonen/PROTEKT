@@ -53,9 +53,11 @@ struct DeployOffer {
                                                       std::span<const sim::UnitId> selected,
                                                       sim::UnitId driven) noexcept;
 
-/// POWER MUST REACH IT (K4). A building that draws power (`draws_power`) is connected on a spot
-/// only when that spot touches a POWERED building of the player's (`site_connected`); every other
-/// kind is always connected. The preview's colour and SPACE's refusal both ask this.
+/// EVERY BUILDING MUST BE CONNECTED BY TOUCHING (round 19, L5; supersedes K4's power-only rule).
+/// A spot is connected when it touches a hub (the deployed recycler or a relay bunker) or a
+/// building that touches one (`site_connected`). Exempt: a RELAY BUNKER (stands touching nothing),
+/// a RECYCLER (almost anywhere), and the ALIEN kinds (no grid). The preview's colour and SPACE's
+/// refusal both ask this; it applies to NEW placements only.
 [[nodiscard]] bool placement_connected(const sim::Sim& sim, const Placing& placing, int tile_x,
                                        int tile_y);
 inline constexpr std::string_view kRefusalNotConnected

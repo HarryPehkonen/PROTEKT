@@ -406,7 +406,9 @@ struct Rig {
 /// building here is four times as wide and long, so the spawns are laid out four times as far
 /// apart (nothing overlaps) and that plant is four tiles west, not one. That plant is the ONLY
 /// change to this rig and it exists for the ruling, not to make a test pass: the placement refusals
-/// are pinned in test_power_reach.cpp.
+/// are pinned in test_power_reach.cpp. ROUND 19, L5 (EVERY building must touch the connected
+/// network, bar a relay bunker and a recycler): that third piece is now a RELAY BUNKER, a hub, not
+/// a plant, because a plant alone is not something a new building may stand against.
 [[nodiscard]] Rig make_rig(std::uint16_t ore) {
     int aim_x = 0;
     int aim_y = 0;
@@ -430,7 +432,7 @@ struct Rig {
                             {UnitKind::Constructor, Side::Player, 61, 60},
                             {UnitKind::Power, Side::Player, 30, 30},
                             {UnitKind::Power, Side::Player, 34, 30},
-                            {UnitKind::Power, Side::Player, aim_x - 4, aim_y},
+                            {UnitKind::RelayBunker, Side::Player, aim_x - 4, aim_y},
                             {UnitKind::Factory, Side::Player, 30, 38},
                             {UnitKind::Armory, Side::Player, 40, 30},
                             {UnitKind::ServiceBay, Side::Player, 40, 38},

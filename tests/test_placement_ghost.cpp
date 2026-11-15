@@ -133,7 +133,9 @@ TEST(PlacementGhost, IsTintedByTheSimsOwnVerdictAsTheSiteMovesBetweenLegalAndIll
     ASSERT_GE(t.x, 0);
     // A standing Factory (8 x 8) centred at (x + 30, y + 12): a Training Centre site clear of it is
     // legal; one overlapping it is refused. The SAME armed building, only the site moves.
+    // L5: a RELAY BUNKER stands against the clear site (every building must touch the network).
     const sim::Sim sim = world({{UnitKind::Factory, Side::Player, t.x + 30, t.y + 12},
+                                {UnitKind::RelayBunker, Side::Player, t.x + 14, t.y + 6},
                                 {UnitKind::Tank, Side::Player, t.x, t.y}});
     const game::Placing centre = armed(UnitKind::TrainingCentre, false);
     const auto tint_at = [&](int x, int y, bool& verdict) {

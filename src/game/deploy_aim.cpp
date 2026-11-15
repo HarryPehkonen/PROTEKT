@@ -90,7 +90,8 @@ std::optional<DeployOffer> deploy_offer(const sim::Sim& sim, const SceneOptions&
 }
 
 bool placement_connected(const sim::Sim& sim, const Placing& placing, int tile_x, int tile_y) {
-    if (!draws_power(placing.kind)) {
+    // The EXEMPT (relay bunker, recycler, the alien kinds) are `needs_connection`'s business.
+    if (!needs_connection(placing.kind)) {
         return true;
     }
     return site_connected(network_of(sim, sim::Side::Player),

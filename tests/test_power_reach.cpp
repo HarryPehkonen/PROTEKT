@@ -160,12 +160,13 @@ TEST(PowerReach, ThreePlantsAndThreeConsumersStillBalanceWhereAllOfThemTouch) {
     EXPECT_EQ(spare_power(standing), 6) << "9 supplied, 3 drawn";
 }
 
-TEST(PowerReach, ASiteIsConnectedWhenItTouchesAPoweredConductorOnly) {
+TEST(PowerReach, ASiteIsConnectedWhenItTouchesAHubOrABuildingTouchingOne) {
     const std::array<NetworkBuilding, 3> net{at(UnitKind::Power, 10), at(UnitKind::RelayBunker, 11),
                                              at(UnitKind::RelayBunker, 20)};
     EXPECT_TRUE(site_connected(net, Footprint{10, 11, 1, 1})) << "below the plant";
     EXPECT_TRUE(site_connected(net, Footprint{12, 10, 1, 1})) << "beside the powered bunker";
-    EXPECT_FALSE(site_connected(net, Footprint{21, 10, 1, 1})) << "beside the DEAD bunker";
+    EXPECT_TRUE(site_connected(net, Footprint{21, 10, 1, 1}))
+        << "beside the unpowered bunker: ROUND 19, L5 asks touching, not power";
     EXPECT_FALSE(site_connected(net, Footprint{15, 15, 1, 1})) << "in the open";
 }
 
@@ -304,28 +305,29 @@ void open_panel(const Rig& r, Session& session, std::vector<sim::Order>& orders)
     return nav_aim(bare.sim, bare.options);
 }
 
-TEST(PowerReach, TheArmedGunTowerIsGreenBesideAPlantAndRedAwayFromIt) {
+TEST(PowerReach, TheArmedGunTowerIsGreenBesideARelayBunkerAndRedAwayFromIt) {
     const NavAim aim = aimed();
     ASSERT_TRUE(aim.on_ground());
-    const Rig r = make_rig({{UnitKind::Power, Side::Player, aim.tile_x + 4, aim.tile_y}});
+    const Rig r = make_rig({{UnitKind::RelayBunker, Side::Player, aim.tile_x + 4, aim.tile_y}});
     const std::vector<NetworkBuilding> net = network_of(r.sim, Side::Player);
-    ASSERT_EQ(net.size(), 1U) << "the plant stands and has a footprint";
+    ASSERT_EQ(net.size(), 1U) << "the relay bunker stands and has a footprint";
     const Placing tower{UnitKind::GunTower, false, 0, sim::footprint_of(UnitKind::GunTower)};
     EXPECT_TRUE(placement_preview(r.sim, tower, aim.tile_x, aim.tile_y).valid)
-        << "touches the plant";
+        << "touches the relay bunker";
     EXPECT_FALSE(placement_preview(r.sim, tower, aim.tile_x - 2, aim.tile_y).valid)
-        << "the tower would end two tiles short of it: nothing powered touches";
+        << "the tower would end two tiles short of it: nothing connected touches";
     const Placing plant{UnitKind::Power, false, 30, sim::footprint_of(UnitKind::Power)};
-    EXPECT_TRUE(placement_preview(r.sim, plant, aim.tile_x - 2, aim.tile_y).valid)
-        << "a plant needs no connection, it IS the source";
+    EXPECT_FALSE(placement_preview(r.sim, plant, aim.tile_x - 2, aim.tile_y).valid)
+        << "ROUND 19, L5: a plant is connected by touching like every row, it is no exception";
 }
 
-TEST(PowerReach, SpaceRefusesAGunTowerThatNothingPoweredTouchesAndNamesTheConnection) {
+TEST(PowerReach, SpaceRefusesAGunTowerThatNothingConnectedTouchesAndNamesTheConnection) {
     const NavAim aim = aimed();
     ASSERT_TRUE(aim.on_ground());
     // The plant is six tiles from the aimed tile: the 4x4 tower ends at tile +3, so two tiles of
     // gap (ROUND 19, L1: every building is four times as wide, so the old offsets moved with it).
-    Rig r = make_rig({{UnitKind::Power, Side::Player, aim.tile_x + 6, aim.tile_y}});
+    Rig r = make_rig({{UnitKind::RelayBunker, Side::Player, aim.tile_x + 6, aim.tile_y},
+                      {UnitKind::Power, Side::Player, aim.tile_x + 30, aim.tile_y}});
     Session session{r.driven};
     std::vector<sim::Order> orders;
     open_panel(r, session, orders);
@@ -340,10 +342,11 @@ TEST(PowerReach, SpaceRefusesAGunTowerThatNothingPoweredTouchesAndNamesTheConnec
     EXPECT_EQ(r.sim.ore(Side::Player), 400U);
 }
 
-TEST(PowerReach, SpacePlacesAGunTowerThatTouchesAPlant) {
+TEST(PowerReach, SpacePlacesAGunTowerThatTouchesARelayBunker) {
     const NavAim aim = aimed();
     ASSERT_TRUE(aim.on_ground());
-    Rig r = make_rig({{UnitKind::Power, Side::Player, aim.tile_x + 4, aim.tile_y}});
+    Rig r = make_rig({{UnitKind::RelayBunker, Side::Player, aim.tile_x + 4, aim.tile_y},
+                      {UnitKind::Power, Side::Player, aim.tile_x + 30, aim.tile_y}});
     Session session{r.driven};
     std::vector<sim::Order> orders;
     open_panel(r, session, orders);
@@ -352,6 +355,100 @@ TEST(PowerReach, SpacePlacesAGunTowerThatTouchesAPlant) {
     orders.clear();
     press(r, session, orders, input::kKeySpace);
     EXPECT_EQ(placements(r, orders), 1U);
+}
+
+// ------------------------------------------------- ROUND 19, L5: the connection rule, EVERY row
+//
+// Harri, 2026-11-13: "'Power' can only be built next to either a recycler or a relay bunker OR next
+// to a building that's TOUCHING a recycler or a relay bunker. Power has to be CONNECTED by
+// touching. Only a relay bunker can be built in a place that's not touching anything. And a
+// recycler can be placed almost anywhere too, except on bad ground."
+
+[[nodiscard]] Placing placing_of(UnitKind kind) {
+    return Placing{kind, false, 0, sim::footprint_of(kind)};
+}
+
+TEST(ConnectionRule, EveryRowIsRefusedWhereNothingConnectedTouchesAndAcceptedWhereAHubDoes) {
+    const NavAim aim = aimed();
+    ASSERT_TRUE(aim.on_ground());
+    // A deployed recycler (8x8, a spawned footprint stands with its corner at the spawn tile) at
+    // x+4: a 4x4 site at the aimed tile ends exactly where it begins.
+    const Rig r
+        = make_rig({{UnitKind::DeployedRecycler, Side::Player, aim.tile_x + 4, aim.tile_y}});
+    ASSERT_EQ(network_of(r.sim, Side::Player).size(), 1U);
+    for (const UnitKind kind : {UnitKind::Power, UnitKind::Armory, UnitKind::GunTower}) {
+        EXPECT_TRUE(placement_connected(r.sim, placing_of(kind), aim.tile_x, aim.tile_y))
+            << static_cast<int>(kind) << " touches the recycler";
+        EXPECT_FALSE(placement_connected(r.sim, placing_of(kind), aim.tile_x - 3, aim.tile_y))
+            << static_cast<int>(kind) << " stands clear of everything";
+    }
+    for (const UnitKind kind : {UnitKind::ServiceBay, UnitKind::Factory}) {
+        EXPECT_TRUE(placement_connected(r.sim, placing_of(kind), aim.tile_x - 4, aim.tile_y))
+            << static_cast<int>(kind) << " touches the recycler";
+        EXPECT_FALSE(placement_connected(r.sim, placing_of(kind), aim.tile_x - 8, aim.tile_y))
+            << static_cast<int>(kind) << " stands clear of everything";
+    }
+    EXPECT_FALSE(
+        placement_preview(r.sim, placing_of(UnitKind::Armory), aim.tile_x - 3, aim.tile_y).valid)
+        << "the preview carries the same verdict";
+}
+
+TEST(ConnectionRule, ARelayBunkerStandsTouchingNothingAndSoDoesARecycler) {
+    const NavAim aim = aimed();
+    ASSERT_TRUE(aim.on_ground());
+    const Rig r = make_rig({}); // nothing of the player's stands at all
+    EXPECT_TRUE(
+        placement_connected(r.sim, placing_of(UnitKind::RelayBunker), aim.tile_x, aim.tile_y));
+    EXPECT_TRUE(
+        placement_connected(r.sim, placing_of(UnitKind::DeployedRecycler), aim.tile_x, aim.tile_y))
+        << "a recycler is placed almost anywhere (bad ground is the sim's refusal, not this one)";
+    EXPECT_FALSE(placement_connected(r.sim, placing_of(UnitKind::Armory), aim.tile_x, aim.tile_y))
+        << "the control: any other row, alone in the field, is refused";
+}
+
+TEST(ConnectionRule, APlantMayHangOffABuildingThatOnlyDrawsPowerButNotOffOneTwoStepsOut) {
+    const NavAim aim = aimed();
+    ASSERT_TRUE(aim.on_ground());
+    // recycler [x+4,x+12) | armory [x,x+4) -- the Armory touches the hub and is a TERMINAL. The
+    // plant sits west of the Armory, touching only the Armory.
+    const Rig r = make_rig({{UnitKind::DeployedRecycler, Side::Player, aim.tile_x + 4, aim.tile_y},
+                            {UnitKind::Armory, Side::Player, aim.tile_x, aim.tile_y}});
+    ASSERT_EQ(network_of(r.sim, Side::Player).size(), 2U);
+    EXPECT_TRUE(placement_connected(r.sim, placing_of(UnitKind::Power), aim.tile_x - 4, aim.tile_y))
+        << "his sentence: next to a building that is TOUCHING a recycler";
+    // With that plant standing, a building past it is two steps from the hub: refused.
+    const Rig two
+        = make_rig({{UnitKind::DeployedRecycler, Side::Player, aim.tile_x + 4, aim.tile_y},
+                    {UnitKind::Armory, Side::Player, aim.tile_x, aim.tile_y},
+                    {UnitKind::Power, Side::Player, aim.tile_x - 4, aim.tile_y}});
+    EXPECT_FALSE(
+        placement_connected(two.sim, placing_of(UnitKind::Power), aim.tile_x - 8, aim.tile_y))
+        << "two steps from the hub is not touching a building that touches it";
+}
+
+TEST(ConnectionRule, AChainThroughTwoRelayBunkersCarriesTheConnection) {
+    // relay | relay | armory | site: the first relay stands alone (a relay needs nothing), the
+    // second touches it, the armory touches only the second, and a plant touching only the armory
+    // is connected one step out from the second relay.
+    const std::array<NetworkBuilding, 2> net{at(UnitKind::RelayBunker, 30),
+                                             at(UnitKind::RelayBunker, 31)};
+    EXPECT_TRUE(site_connected(net, Footprint{32, 10, 1, 1})) << "touches the second relay";
+    EXPECT_FALSE(site_connected(net, Footprint{33, 10, 1, 1})) << "a gap past it";
+    const NavAim aim = aimed();
+    ASSERT_TRUE(aim.on_ground());
+    const Rig r = make_rig({{UnitKind::RelayBunker, Side::Player, aim.tile_x + 12, aim.tile_y},
+                            {UnitKind::RelayBunker, Side::Player, aim.tile_x + 8, aim.tile_y},
+                            {UnitKind::Armory, Side::Player, aim.tile_x + 4, aim.tile_y}});
+    EXPECT_TRUE(placement_connected(r.sim, placing_of(UnitKind::Power), aim.tile_x, aim.tile_y))
+        << "the plant touches the armory, which touches the nearer relay of the pair";
+    EXPECT_FALSE(
+        placement_connected(r.sim, placing_of(UnitKind::Power), aim.tile_x - 4, aim.tile_y));
+}
+
+TEST(ConnectionRule, ADeadBunkerStillConnectsBecauseTheRuleIsTouchingNotPower) {
+    const std::array<NetworkBuilding, 1> net{at(UnitKind::RelayBunker, 20)};
+    EXPECT_TRUE(site_connected(net, Footprint{21, 10, 1, 1}))
+        << "an unpowered relay is still a relay; power is the count's business";
 }
 
 } // namespace
