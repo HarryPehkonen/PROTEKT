@@ -439,11 +439,16 @@ inline constexpr std::array<UnitSpec, static_cast<std::size_t>(kUnitKindCount)> 
      Fixed::zero(), kBoltTravel, Fixed::zero(), Fixed::zero(), false, 100, 2000, 0, Fixed::zero()},
     // The ALIEN Builder's six (K6), in the panel's order. Costs are the owner's capture; the hull
     // is the same DEFAULT every placed building has and `build_ticks` the 20-ticks-a-scrap,
-    // PROVISIONAL. ALL UNARMED, the Gun Spire too: THEIR FUNCTIONS ARE NOT BUILT.
+    // PROVISIONAL. UNARMED but the Gun Spire (N3): THEIR FUNCTIONS ARE NOT BUILT.
     {"kiln", kPlacedBuildingHp, Fixed::zero(), WeaponId::None, 0, 0, Fixed::zero(), Fixed::zero(),
      kBoltTravel, Fixed::zero(), Fixed::zero(), false, 60, 1200, 0, Fixed::zero()},
-    {"gunspire", kPlacedBuildingHp, Fixed::zero(), WeaponId::None, 0, 0, Fixed::zero(),
-     Fixed::zero(), kBoltTravel, Fixed::zero(), Fixed::zero(), false, 75, 1500, 0, Fixed::zero()},
+    // THE GUN SPIRE SHOOTS (N3), so there is a gun for its Lung to switch off: the Gun Tower's gun
+    // exactly (same damage, reload, range and bolt), PROVISIONAL like the tower's -- the owner has
+    // given the alien tower no figures of its own.
+    {"gunspire", kPlacedBuildingHp, Fixed::zero(), WeaponId::TowerGun, kTowerGunDamage,
+     kTowerGunCooldownTicks, Fixed::from_raw(kProjectileSpeedRaw), Fixed::from_raw(kBoltArcRaw),
+     Fixed::from_raw(kTowerGunTravelRaw), Fixed::zero(), Fixed::zero(), false, 75, 1500, 0,
+     Fixed::zero()},
     {"antenna", kPlacedBuildingHp, Fixed::zero(), WeaponId::None, 0, 0, Fixed::zero(),
      Fixed::zero(), kBoltTravel, Fixed::zero(), Fixed::zero(), false, 60, 1200, 0, Fixed::zero()},
     {"dower", kPlacedBuildingHp, Fixed::zero(), WeaponId::None, 0, 0, Fixed::zero(), Fixed::zero(),
@@ -452,6 +457,11 @@ inline constexpr std::array<UnitSpec, static_cast<std::size_t>(kUnitKindCount)> 
      Fixed::zero(), kBoltTravel, Fixed::zero(), Fixed::zero(), false, 70, 1400, 0, Fixed::zero()},
     {"jammer", kPlacedBuildingHp, Fixed::zero(), WeaponId::None, 0, 0, Fixed::zero(), Fixed::zero(),
      kBoltTravel, Fixed::zero(), Fixed::zero(), false, 50, 1000, 0, Fixed::zero()},
+    // THE POWER LUNG (N3): a component, not a building. It costs nothing to BUILD (it comes with
+    // its structure) and has no build time; restoring a dead one is `kLungRestoreCost` and
+    // `kLungRestoreTicks`, not these. Cost and build time zero keep it out of every queue.
+    {"powerlung", kLungHp, Fixed::zero(), WeaponId::None, 0, 0, Fixed::zero(), Fixed::zero(),
+     kBoltTravel, Fixed::zero(), Fixed::zero(), false, 0, 0, 0, Fixed::zero()},
 }};
 
 /// No armed kind's bolt may fizzle short of the reach its weapon lets it engage at.

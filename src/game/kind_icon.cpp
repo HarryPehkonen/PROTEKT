@@ -429,6 +429,7 @@ const IconMask& kind_icon(sim::UnitKind kind) noexcept {
     case sim::UnitKind::Dower:
     case sim::UnitKind::Stronghold:
     case sim::UnitKind::Jammer:
+    case sim::UnitKind::PowerLung:
         return art<draw_fallback>();
     }
     return art<draw_fallback>();

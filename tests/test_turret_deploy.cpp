@@ -112,7 +112,7 @@ TEST(TurretDeploy, TheNewKindIsAppendedAndNoValueMoved) {
     EXPECT_EQ(static_cast<int>(UnitKind::DeployedScavenger), 15);
     EXPECT_EQ(static_cast<int>(UnitKind::DeployedTurret), 16);
     EXPECT_EQ(protekt::sim::kUnitKindCount,
-              35); // the recycler list four, POWER (J3), K3 seven, K6 six alien
+              36); // the recycler list four, POWER (J3), K3 seven, K6 six alien, N3's Power Lung
     EXPECT_EQ(static_cast<int>(Stance::Recycle), 9);
     EXPECT_EQ(static_cast<int>(Stance::Undeploy), 10);
     EXPECT_EQ(static_cast<int>(Stance::Defend), 11);

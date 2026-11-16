@@ -199,6 +199,9 @@ TEST(ServiceRepair, EveryFriendlyKindIsMended) {
     // patient that is itself a truck still has someone to mend it.
     for (int k = 0; k < kUnitKindCount; ++k) {
         const auto kind = static_cast<UnitKind>(k);
+        if (kind == UnitKind::PowerLung) {
+            continue; // N3: a Lung belongs to a structure; a hostless one is dead on its first tick
+        }
         const std::uint16_t max_hp = spec_of(kind).hp;
         // ROUND 19, L1: a building is four times as wide and long now, and a truck is never spawned
         // inside one. So a building is spawned with its CENTRE on the patient tile and row (its

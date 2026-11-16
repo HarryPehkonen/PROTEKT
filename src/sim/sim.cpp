@@ -1414,13 +1414,81 @@ bool build_step(const std::vector<Unit>& units, Unit& unit) noexcept {
     return false; // on its way: steered like a MoveTo
 }
 
+/// Where the Lung of `host` stands: on the footprint's EAST edge, half a tile in (inside the
+/// rectangle, so it takes no ground of its own and no building is ever refused for it), level with
+/// the structure's middle.
+[[nodiscard]] Coord lung_spot_tiles(const Unit& host) noexcept {
+    const Footprint site = footprint_around(host);
+    return Coord{site.x + site.width, host.y.floor_int()};
+}
+
+/// Builds the Lung into `host`: appended to the table as a unit of the host's side, alive and
+/// whole. Called the tick a structure comes to stand, and for every structure a scenario spawns
+/// standing.
+void build_lung_into(std::vector<Unit>& units, std::uint32_t& next_id, const Unit& host) {
+    const Coord edge = lung_spot_tiles(host);
+    Unit lung = fresh_unit(next_id++, UnitKind::PowerLung, host.side, edge);
+    lung.x = Fixed::from_raw(edge.x * Fixed::kOne - Fixed::kOne / 2);
+    lung.y = host.y;
+    lung.host = host.id;
+    units.push_back(lung);
+}
+
 /// THE SITES' COUNTDOWN (K2), once per tick after every unit has moved: each site that has a
 /// friendly Constructor within reach (`site_builder`) has one tick less to build; one that has none
 /// waits, untouched. The tick a site reaches zero it STANDS -- there is no other half-built state.
-void build_site_step(std::vector<Unit>& units) noexcept {
+void build_site_step(std::vector<Unit>& units, std::uint32_t& next_id) {
+    // The structures that came to stand THIS tick: each is completed WITH its Lung (N3), appended
+    // after the loop because an append moves the table.
+    std::vector<UnitId> finished;
     for (Unit& site : units) {
         if (site.alive && under_construction(site) && site_builder(units, site) != nullptr) {
             --site.build_left;
+            if (site.build_left == 0 && needs_lung(site.kind)) {
+                finished.push_back(site.id);
+            }
+        }
+    }
+    for (const UnitId id : finished) {
+        const Unit host = *find_const(units, id); // a copy: `build_lung_into` appends
+        build_lung_into(units, next_id, host);
+    }
+}
+
+/// THE LUNGS' UPKEEP (N3), once per tick after the guns have fired. A Lung whose structure has been
+/// destroyed goes with it. A DEAD Lung of a standing structure is RESTORED by a friendly
+/// Constructor within reach (`site_builder`, the one rule that says who is building): it pays
+/// `kLungRestoreCost` on the tick it starts -- a non-zero `restore_left` IS "paid for", as a queue
+/// entry's `left` is -- and counts `kLungRestoreTicks` down while the Constructor stays, pausing
+/// when it leaves and never cancelling. Short of scrap it waits. The restored Lung is whole; the
+/// structure's own hit points are untouched all the way through.
+void lung_step(std::vector<Unit>& units, std::array<std::uint16_t, 2>& ore) noexcept {
+    for (Unit& lung : units) {
+        if (lung.kind != UnitKind::PowerLung) {
+            continue;
+        }
+        const Unit* host = find_const(units, lung.host);
+        if (host == nullptr || !host->alive) {
+            lung.alive = false;
+            lung.hp = 0;
+            lung.restore_left = 0;
+            continue;
+        }
+        if (lung.alive || site_builder(units, *host) == nullptr) {
+            continue;
+        }
+        if (lung.restore_left == 0) {
+            std::uint16_t& bank = ore.at(static_cast<std::size_t>(lung.side));
+            if (bank < kLungRestoreCost) {
+                continue;
+            }
+            bank = static_cast<std::uint16_t>(bank - kLungRestoreCost);
+            lung.restore_left = kLungRestoreTicks;
+        }
+        if (--lung.restore_left == 0) {
+            lung.alive = true;
+            lung.hp = kLungHp;
+            lung.stance = Stance::Idle;
         }
     }
 }
@@ -2096,9 +2164,11 @@ void face_along(Unit& truck, std::int64_t vx, std::int64_t vy) noexcept {
 /// footprint, and nothing for anyone merely near -- there is no cone and no reach here, and no
 /// second rate: the building is asked as a truck standing at the patient's own spot. A building
 /// does not mend itself, and one still being built mends nothing.
-std::int64_t platform_weight(const Unit& bay, const Unit& patient) noexcept {
+std::int64_t platform_weight(std::span<const Unit> units, const Unit& bay,
+                             const Unit& patient) noexcept {
+    // A DOWER whose Lung is dead is DISABLED (N3): its platform mends nobody until it is restored.
     if (!bay.alive || !has_drivable_footprint(bay.kind) || under_construction(bay)
-        || bay.side != patient.side || bay.id == patient.id
+        || structure_disabled(units, bay) || bay.side != patient.side || bay.id == patient.id
         || !footprint_around(bay).covers(patient.x.floor_int(), patient.y.floor_int())) {
         return 0;
     }
@@ -2141,7 +2211,7 @@ void service_repair_step(std::vector<Unit>& units) {
             weight += service_repair_weight(truck, unit);
         }
         for (const Unit& bay : units) {
-            weight += platform_weight(bay, unit);
+            weight += platform_weight(units, bay, unit);
         }
         if (weight == 0) {
             continue;
@@ -2195,6 +2265,15 @@ Sim Sim::create(const Scenario& scenario) {
         }
         if (spawn.kind == UnitKind::ServiceTruck) {
             face_along(sim.units_.back(), spawn.face_x, spawn.face_y);
+        }
+    }
+    // N3: every structure that STANDS from the first tick comes with its Lung, appended after every
+    // spawn so no spawned unit's id moves.
+    const std::size_t spawned = sim.units_.size();
+    for (std::size_t i = 0; i < spawned; ++i) {
+        if (needs_lung(sim.units_.at(i).kind) && !under_construction(sim.units_.at(i))) {
+            const Unit host = sim.units_.at(i);
+            build_lung_into(sim.units_, sim.next_id_, host);
         }
     }
     // C0: the ground the battle starts on. The scenario placed it as a pure function of its seed;
@@ -2311,7 +2390,7 @@ void Sim::step() {
 
     // 2b. the sites' countdown (K2): after every unit has moved, so a Constructor that arrived this
     //     tick counts this tick.
-    build_site_step(units_);
+    build_site_step(units_, next_id_);
 
     // 3. the bolts already in the air, in spawn order. Before the guns, so a unit killed here does
     //    not shoot this tick, and a bolt fired this tick has not moved yet.
@@ -2330,6 +2409,9 @@ void Sim::step() {
         }
         if (under_construction(unit)) {
             continue; // a building site is not a gun yet (K5)
+        }
+        if (structure_disabled(units_, unit)) {
+            continue; // its Lung is dead: the gun is silent until the Lung is restored (N3)
         }
         if (unit.cooldown > 0) {
             --unit.cooldown;
@@ -2364,8 +2446,8 @@ void Sim::step() {
         if (best == nullptr && unit.id != driven_) {
             std::int64_t best_d2 = range * range + 1;
             for (Unit& other : units_) {
-                if (!other.alive || other.side == unit.side) {
-                    continue;
+                if (!other.alive || other.side == unit.side || other.kind == UnitKind::PowerLung) {
+                    continue; // (a Lung is shot only when it is NAMED: pointed at, never picked)
                 }
                 const std::int64_t d2 = dist2(unit.x, unit.y, other.x, other.y);
                 // A gun does not shoot a hill: without a line the enemy is not a target, and a
@@ -2404,6 +2486,10 @@ void Sim::step() {
             unit.focus_target = UnitId{};
         }
     }
+
+    // 4b. THE LUNGS (N3): one whose structure is gone goes with it; a dead one beside a Constructor
+    //     is restored. After the guns, so a Lung killed this tick has already silenced its gun.
+    lung_step(units_, ore_);
 
     // 5. repair, ascending id. AFTER movement and fire on purpose: a unit shot dead this tick is
     //    already !alive and is skipped, so repair never undoes a kill, and the +1 lands on the hp
@@ -2447,7 +2533,7 @@ void Sim::step() {
         wrecked.erase(std::unique(wrecked.begin(), wrecked.end()), wrecked.end());
         for (const UnitId id : wrecked) {
             const Unit* dead = find_const(units_, id);
-            if (dead != nullptr) {
+            if (dead != nullptr && dead->kind != UnitKind::PowerLung) { // a Lung leaves no wreck
                 const std::size_t first = scraps_.size();
                 scatter(scraps_, scenario_.seed, id, dead->x, dead->y);
                 // The pieces land where the hash says; then they settle where a hauler can reach
@@ -2537,6 +2623,23 @@ bool building_stops_units(std::span<const Unit> units, int tile_x, int tile_y) n
                && !(has_drivable_footprint(unit.kind) && !under_construction(unit))
                && footprint_around(unit).covers(tile_x, tile_y);
     });
+}
+
+const Unit* lung_of(std::span<const Unit> units, const Unit& host) noexcept {
+    if (!needs_lung(host.kind)) {
+        return nullptr;
+    }
+    for (const Unit& unit : units) {
+        if (unit.kind == UnitKind::PowerLung && unit.host == host.id) {
+            return &unit;
+        }
+    }
+    return nullptr;
+}
+
+bool structure_disabled(std::span<const Unit> units, const Unit& structure) noexcept {
+    const Unit* lung = lung_of(units, structure);
+    return lung != nullptr && !lung->alive;
 }
 
 const Unit* site_builder(std::span<const Unit> units, const Unit& site) noexcept {
@@ -2676,6 +2779,12 @@ std::uint64_t Sim::state_hash() const noexcept {
         }
         if (u.build_left != 0) {
             h.u64(u.build_left); // a site still being built: no standing building's is ever set
+        }
+        if (u.host.valid()) {
+            h.u64(u.host.value); // a Power Lung's structure: no other kind has one
+        }
+        if (u.restore_left != 0) {
+            h.u64(u.restore_left); // a dead Lung being restored: set for no other unit
         }
         if (u.deploy_ticks != 0) {
             h.u64(

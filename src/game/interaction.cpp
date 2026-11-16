@@ -997,6 +997,7 @@ void Interaction::defend_selection(const sim::Sim& sim, const SceneOptions& opti
         std::int64_t best = 0;
         for (const sim::Unit& other : sim.units()) {
             if (!other.alive || other.side == sim::Side::Player
+                || other.kind == sim::UnitKind::PowerLung // never offered, only pointed at (N3)
                 || !available_to_viewer(sim, options, other)) {
                 continue;
             }

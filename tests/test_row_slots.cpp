@@ -1421,6 +1421,7 @@ TEST(RowBatch, TwoBatchesSitOnTwoKeysAndNeitherKeyMixesThem) {
         const UnitKind kind = static_cast<UnitKind>(i);
         if (kind != UnitKind::Factory && kind != UnitKind::DeployedRecycler
             && kind != UnitKind::DeployedScavenger && kind != UnitKind::DeployedTurret
+            && kind != UnitKind::PowerLung // N3: a component, on no key at all
             && !sim::is_placeable(kind)) { // K3: all nine placed buildings, POWER among them
             kinds.push_back(kind);
         }

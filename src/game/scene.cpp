@@ -1647,6 +1647,28 @@ void build_jammer(std::vector<SceneVertex>& out, const BuildingKit& k) {
     kit_glow(out, k, kCore, kPulse);
 }
 
+/// The POWER LUNG (N3, `docs/BASE.md` 4.2): a faceted CRYSTAL, widening low and tapering to a point
+/// at the top, eight facets, pale green-cyan and lit from within (the kit's lit tile in a bright
+/// ink), on a short dark neck. About 4 m tall and 1.8 m across at its widest: a quarter of the Gun
+/// Spire's height, as the capture has it. It is a COMPONENT, drawn at its own unit's place just
+/// inside the structure's east edge, and it is NOT scaled with the buildings. NOT BUILT: the slow
+/// spin of the capture and the translucency (the renderer has no alpha on model parts).
+void build_power_lung(std::vector<SceneVertex>& out, const BuildingKit& k) {
+    constexpr Vec3 kGlow{0.45F, 1.0F, 0.82F};
+    constexpr std::array<LoftStation, 2> kNeck{{
+        {0.0F, 0.0F, 0.0F, 0.3F, 0.3F},
+        {0.0F, 0.9F, 0.0F, 0.3F, 0.3F},
+    }};
+    kit_blade(out, k, kNeck, k.shade, k.dark);
+    constexpr std::array<LoftStation, 4> kCrystal{{
+        {0.0F, 0.9F, 0.0F, 0.35F, 0.35F},
+        {0.0F, 1.7F, 0.0F, 0.9F, 0.9F},
+        {0.0F, 2.9F, 0.0F, 0.6F, 0.6F},
+        {0.0F, 4.0F, 0.0F, 0.04F, 0.04F},
+    }};
+    kit_glow(out, k, kCrystal, kGlow);
+}
+
 /// The model of a placed building of any of the thirteen kinds K3 and K6 add.
 void build_placed_building(std::vector<SceneVertex>& out, std::uint64_t seed, const sim::Unit& unit,
                            Mark mark, float lift_z, bool lifted) {
@@ -3151,8 +3173,9 @@ void append_scrap(std::vector<SceneVertex>& out, const SceneOptions& options, co
 void append_unit_shadows(std::vector<SceneVertex>& out, const SceneOptions& options,
                          const sim::Sim& sim) {
     for (const sim::Unit& unit : sim.units()) {
-        if (!unit.alive || !available_to_viewer(sim, options, unit)) {
-            continue;
+        if (!unit.alive || unit.kind == sim::UnitKind::PowerLung
+            || !available_to_viewer(sim, options, unit)) {
+            continue; // (a Lung hangs on its structure: it casts no patch of its own)
         }
         const float tile_x = static_cast<float>(unit.x.raw) / static_cast<float>(sim::Fixed::kOne);
         const float tile_y = static_cast<float>(unit.y.raw) / static_cast<float>(sim::Fixed::kOne);
@@ -3722,6 +3745,8 @@ void build_building_model(std::vector<SceneVertex>& out, std::uint64_t seed, con
     if (unit.kind == sim::UnitKind::Power) {
         // Its own silhouette (J3): a bank of generator drums, not the factory's hall.
         build_power(out, seed, unit, mark, lift_z, lifted);
+    } else if (unit.kind == sim::UnitKind::PowerLung) {
+        build_power_lung(out, make_building_kit(seed, unit, mark, lift_z, lifted));
     } else if (sim::is_placeable(unit.kind) && unit.kind != sim::UnitKind::Factory) {
         // K3: the seven other buildings, each with a model of its own.
         build_placed_building(out, seed, unit, mark, lift_z, lifted);
@@ -6977,6 +7002,7 @@ math::Vec3 ground_normal(std::uint64_t seed, sim::Fixed x, sim::Fixed y) noexcep
 bool stands_level(sim::UnitKind kind) noexcept {
     return kind == sim::UnitKind::Factory || sim::is_turret(kind)
            || kind == sim::UnitKind::DeployedRecycler || kind == sim::UnitKind::DeployedScavenger
+           || kind == sim::UnitKind::PowerLung
            || (sim::is_placeable(kind) && kind != sim::UnitKind::Factory);
 }
 

@@ -144,8 +144,9 @@ TEST(Buildings, TheEightKindsAreAppendedNeverInsertedAndTheCountMovedDeliberatel
         EXPECT_EQ(static_cast<int>(w.kind), w.number) << w.name;
     }
     EXPECT_EQ(static_cast<int>(UnitKind::Power), 21) << "the earlier kinds did not move";
-    EXPECT_EQ(sim::kUnitKindCount, 35)
-        << "22 before K3, seven kinds appended (the Factory existed); six more at K6";
+    EXPECT_EQ(sim::kUnitKindCount, 36)
+        << "22 before K3, seven kinds appended (the Factory existed); six more at K6; the Power "
+           "Lung at N3";
     EXPECT_EQ(static_cast<int>(UnitKind::BomberBay), 28) << "K3's last kind did not move";
 }
 

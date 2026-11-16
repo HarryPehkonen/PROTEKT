@@ -220,8 +220,9 @@ TEST(AlienBuildings, TheSixKindsAreAppendedAfterBomberBayAndNothingBeforeThemMov
     }
     EXPECT_EQ(static_cast<int>(UnitKind::BomberBay), 28) << "the human nine did not move";
     EXPECT_EQ(static_cast<int>(UnitKind::Power), 21);
-    EXPECT_EQ(sim::kUnitKindCount, 35) << "29 before K6, six kinds appended";
-    EXPECT_EQ(static_cast<int>(UnitKind::Jammer), sim::kUnitKindCount - 1);
+    EXPECT_EQ(sim::kUnitKindCount, 36) << "29 before K6, six kinds appended, the Power Lung at N3";
+    EXPECT_EQ(static_cast<int>(UnitKind::Jammer), 34) << "the Jammer kept its value";
+    EXPECT_EQ(static_cast<int>(UnitKind::PowerLung), sim::kUnitKindCount - 1);
 }
 
 TEST(AlienBuildings, EachHasASpecRowAndNoneOfThemDoesAnything) {
@@ -230,9 +231,16 @@ TEST(AlienBuildings, EachHasASpecRowAndNoneOfThemDoesAnything) {
         EXPECT_EQ(static_cast<int>(row.cost), w.cost) << w.name;
         EXPECT_EQ(static_cast<int>(row.build_ticks), w.ticks) << w.name;
         EXPECT_GT(row.hp, 0U) << w.name;
-        // THE FUNCTIONS ARE NOT BUILT: the Gun Spire does not shoot, so nothing here is armed.
-        EXPECT_EQ(row.damage, 0) << w.name << ": unarmed -- its function is not built";
-        EXPECT_EQ(row.weapon, sim::WeaponId::None) << w.name;
+        // THE FUNCTIONS ARE NOT BUILT, but the Gun Spire's (N3: it shoots now, so there is a gun
+        // for its Lung to switch off -- the tower's gun, 36 damage, PROVISIONAL). Every other row
+        // is still unarmed. Before N3 this asserted the Spire unarmed too.
+        if (w.kind == UnitKind::GunSpire) {
+            EXPECT_EQ(row.damage, 36) << w.name;
+            EXPECT_EQ(row.weapon, sim::WeaponId::TowerGun) << w.name;
+        } else {
+            EXPECT_EQ(row.damage, 0) << w.name << ": unarmed -- its function is not built";
+            EXPECT_EQ(row.weapon, sim::WeaponId::None) << w.name;
+        }
         EXPECT_EQ(row.max_speed.raw, 0) << w.name << ": it never moves";
         EXPECT_TRUE(sim::is_placeable(w.kind)) << w.name;
         EXPECT_TRUE(sim::has_footprint(w.kind)) << w.name;

@@ -328,7 +328,7 @@ std::vector<RadarDetection> radar_detections(std::span<const sim::Unit> units,
         return detections;
     }
     for (const sim::Unit& unit : units) {
-        if (!unit.alive || unit.side == viewer->side
+        if (!unit.alive || unit.side == viewer->side || unit.kind == sim::UnitKind::PowerLung
             || !within_radar(*viewer, unit, radius_tiles)) {
             continue;
         }
@@ -384,8 +384,8 @@ std::vector<RadarMark> radar_marks(std::span<const sim::Unit> units, sim::UnitId
                               RadarShape::Triangle, RadarTone::You, viewer->id});
 
     for (const sim::Unit& unit : units) {
-        if (!unit.alive || unit.id == viewer->id) {
-            continue;
+        if (!unit.alive || unit.id == viewer->id || unit.kind == sim::UnitKind::PowerLung) {
+            continue; // (a Lung is a part of a structure: no blip of its own, N3)
         }
         const float dx = tiles(unit.x) - tiles(viewer->x);
         const float dz = tiles(unit.y) - tiles(viewer->y);

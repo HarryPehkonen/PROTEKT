@@ -54,6 +54,7 @@ namespace {
     case sim::UnitKind::Dower:
     case sim::UnitKind::Stronghold:
     case sim::UnitKind::Jammer:
+    case sim::UnitKind::PowerLung:      // a component, on no key at all: see `keyless`
     case sim::UnitKind::DeployedTurret: // a turret that is standing: it keeps its F key
         break;
     }
@@ -65,6 +66,8 @@ namespace {
 /// neither dealt a slot nor kept in one.
 [[nodiscard]] bool keyless(sim::UnitKind kind) noexcept {
     return kind == sim::UnitKind::DeployedScavenger
+           || kind == sim::UnitKind::PowerLung // N3: a component of a structure, never a unit to
+                                               // select
            || (sim::is_placeable(kind)
                && kind != sim::UnitKind::Factory); // J3/K3: nothing selects a placed building yet
 }
@@ -234,7 +237,8 @@ void RowState::seed_from_start(const sim::Sim& sim, sim::Side side, std::size_t 
         slot = RowSlot{};
     }
     for (const sim::Unit& unit : sim.units()) {
-        if (unit.side != side || !unit.alive || unit.id == driven) {
+        if (unit.side != side || !unit.alive || unit.id == driven
+            || unit.kind == sim::UnitKind::PowerLung) { // a component is never seated (N3)
             continue;
         }
         if (off_the_f_row_at_start(unit.kind)) {
@@ -540,6 +544,8 @@ std::string_view kind_label(sim::UnitKind kind, Faction faction) noexcept {
         return "STRONGHOLD";
     case sim::UnitKind::Jammer:
         return "JAMMER";
+    case sim::UnitKind::PowerLung:
+        return "POWER LUNG";
     }
     return "UNIT";
 }

@@ -11,6 +11,9 @@
 namespace protekt::game {
 
 float unit_box_height_metres(sim::UnitKind kind) noexcept {
+    if (kind == sim::UnitKind::PowerLung) {
+        return kPickLungHeightMetres; // the crystal is 4 m tall, and it is what is pointed at
+    }
     return kind == sim::UnitKind::Factory ? 4.5F : 1.8F;
 }
 
@@ -171,6 +174,10 @@ Pick pick(const sim::Sim& sim, const SceneOptions& options, float screen_x,
         const float reach = sim::is_scaled_model(unit) ? radius * kBuildingModelScale : radius;
         float half_x = reach;
         float half_z = reach;
+        if (unit.kind == sim::UnitKind::PowerLung) {
+            half_x = std::min(reach, kPickLungHalfMetres); // as wide as the crystal, no wider
+            half_z = half_x;
+        }
         if (sim::has_footprint(unit.kind)) {
             const sim::FootprintSize size = sim::footprint_of(unit);
             half_x = std::min(reach, static_cast<float>(size.width) * 0.5F * kMetresPerTile);

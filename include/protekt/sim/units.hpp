@@ -132,9 +132,17 @@ enum class UnitKind : std::uint8_t {
     Antenna = 31,
     Dower = 32,
     Stronghold = 33,
-    Jammer = 34
+    Jammer = 34,
+    /// THE POWER LUNG (N3), appended after the Jammer, never inserted: a COMPONENT of an alien
+    /// structure, built into it (`needs_lung`), standing just outside its footprint's east edge.
+    /// Never moves, never fires, and is not a structure in its own right: it owns no footprint.
+    /// It is a unit so a gun can be told to shoot it -- the pick path finds it, the `3 Attack`
+    /// list does not (`Unit::host` links it to the structure it powers). Killing it DISABLES the
+    /// host (`structure_disabled`); it never destroys it. A Builder restores it cheaply
+    /// (`kLungRestoreCost`, `kLungRestoreTicks`).
+    PowerLung = 35
 };
-inline constexpr int kUnitKindCount = 35;
+inline constexpr int kUnitKindCount = 36;
 
 /// Tanks and hover tanks: every rule written "for a tank" (orders, retreat, defend, swap, the AI's
 /// hunters) takes both. The hover tank has the tank's profile and, until it is drivable, its
@@ -386,6 +394,13 @@ struct Unit {
     /// are swapped. Only a placed building's is ever set; hashed only when set.
     bool turned{};
     bool alive{true};
+    /// A POWER LUNG's structure (N3): the unit this component is built into; none for every other
+    /// kind. Hashed only when set.
+    UnitId host{};
+    /// A DEAD Power Lung being restored: the ticks of the restoration still to run, counted down
+    /// only while a friendly Constructor is within reach of the host. Non-zero IS "paid for"
+    /// (`kLungRestoreCost` was taken on the tick it started). Hashed only when non-zero.
+    std::uint16_t restore_left{};
     /// A BUILDING STILL BEING BUILT (round 18, K2): the ticks of construction it has LEFT. Set to
     /// the kind's `build_ticks` when a Constructor places it, counted down only while a friendly
     /// Constructor is within `kBuildReachTiles` of its footprint, and zero for a building that
@@ -398,6 +413,16 @@ struct Unit {
 /// rectangle) for the site to progress. The owner's "within one block" -- his block is this tree's
 /// tile.
 inline constexpr int kBuildReachTiles = 1;
+
+/// THE POWER LUNG (N3). A Lung's hit points: a fraction of a building's (`kPlacedBuildingHp`), so
+/// a gun that points at it kills it long before it could kill the structure. PROVISIONAL.
+inline constexpr std::uint16_t kLungHp = 30;
+/// RESTORING A DEAD LUNG IS CHEAP, deliberately (his rule 4: "They are easy to repair" -- the
+/// counter-play is a raid, not a demolition): a few scrap and a few seconds, against the Gun
+/// Spire's 75 scrap and 1500 ticks. A test pins both as small fractions of the structure's.
+/// PROVISIONAL: he has given no figure.
+inline constexpr std::uint16_t kLungRestoreCost = 5;
+inline constexpr std::uint16_t kLungRestoreTicks = 90;
 
 /// True while `unit` is a site still being built: solid like any building, but not yet standing.
 [[nodiscard]] constexpr bool under_construction(const Unit& unit) noexcept {
@@ -694,6 +719,24 @@ inline constexpr FootprintSize kAntennaFootprint = scaled_footprint(2, 2);
 inline constexpr FootprintSize kDowerFootprint = scaled_footprint(2, 2);
 inline constexpr FootprintSize kStrongholdFootprint = scaled_footprint(1, 1);
 inline constexpr FootprintSize kJammerFootprint = scaled_footprint(1, 1);
+
+/// A kind that is BUILT WITH A POWER LUNG (N3): the six alien buildings. Completing one completes
+/// its Lung -- no separate placement, no extra cost -- and losing the Lung disables it. (The
+/// Matriarch is not one of these: it is a deployed unit, not a Builder's building. The Forge's and
+/// the Overseer Array's SECOND lung belongs to the upgrade, which is not built.)
+[[nodiscard]] constexpr bool needs_lung(UnitKind kind) noexcept {
+    switch (kind) {
+    case UnitKind::Kiln:
+    case UnitKind::GunSpire:
+    case UnitKind::Antenna:
+    case UnitKind::Dower:
+    case UnitKind::Stronghold:
+    case UnitKind::Jammer:
+        return true;
+    default:
+        return false;
+    }
+}
 
 /// A kind a CONSTRUCTOR places (`orders::Place`): the nine buildings of its panel, the Factory
 /// included. The deployed recycler has a footprint too but is made by a deploy, never placed.

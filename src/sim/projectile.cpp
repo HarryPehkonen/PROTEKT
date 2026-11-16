@@ -164,8 +164,8 @@ void splash(const Projectile& bolt, std::int64_t at_x, std::int64_t at_y, const 
     const std::int64_t radius2
         = static_cast<std::int64_t>(bolt.splash_radius.raw) * bolt.splash_radius.raw;
     for (Unit& unit : units) {
-        if (!unit.alive || &unit == skip) {
-            continue;
+        if (!unit.alive || &unit == skip || unit.kind == UnitKind::PowerLung) {
+            continue; // a Lung is hurt only by a bolt aimed at it (N3), never by what lands near
         }
         const std::int64_t dx = static_cast<std::int64_t>(unit.x.raw) - at_x;
         const std::int64_t dy = static_cast<std::int64_t>(unit.y.raw) - at_y;
@@ -657,8 +657,8 @@ void pulse(const Projectile& shell, std::vector<Unit>& units,
            std::vector<Impact>& impacts) noexcept {
     const std::int64_t radius = kBouncer.pulse_radius.raw;
     for (Unit& unit : units) {
-        if (!unit.alive) {
-            continue;
+        if (!unit.alive || unit.kind == UnitKind::PowerLung) {
+            continue; // a Lung is hurt only by a bolt aimed at it (N3)
         }
         const std::int64_t dx = unit.x.raw - static_cast<std::int64_t>(shell.x.raw);
         const std::int64_t dy = unit.y.raw - static_cast<std::int64_t>(shell.y.raw);
@@ -780,6 +780,19 @@ void advance_projectiles(std::vector<Projectile>& projectiles, std::vector<Unit>
         const bool passed
             = bolt.learns && track_approach(bolt, units, from_x, from_y, step_x, step_y);
 
+        // A bolt AIMED AT a Power Lung (N3) goes in through the walls of the structure the Lung is
+        // built into: pointing at a Lung and firing is how a raid disables a Spire, and the
+        // footprint it is built into must not stop the shot meant for it. Only that structure's;
+        // any other building in the way still stops it.
+        UnitId through{};
+        for (const Unit& named : units) {
+            if (named.id == bolt.aimed_at) {
+                if (named.kind == UnitKind::PowerLung) {
+                    through = named.host;
+                }
+                break;
+            }
+        }
         Unit* hit = nullptr;
         std::int64_t hit_d2 = radius2 + 1;
         for (Unit& unit : units) { // ascending id, so a tie keeps the lowest
@@ -790,6 +803,9 @@ void advance_projectiles(std::vector<Projectile>& projectiles, std::vector<Unit>
             // on top of it and would otherwise hit its shooter on its first tick.
             if (!unit.alive || unit.id == bolt.bounced_off || has_footprint(unit.kind)) {
                 continue; // (a building is struck by its footprint, below)
+            }
+            if (unit.kind == UnitKind::PowerLung && unit.id != bolt.aimed_at) {
+                continue; // a Lung is struck only by a bolt aimed at it, never in passing (N3)
             }
             if (unit.id == bolt.shooter) {
                 const std::int64_t gx = unit.x.raw - from_x;
@@ -830,7 +846,7 @@ void advance_projectiles(std::vector<Projectile>& projectiles, std::vector<Unit>
         // of it was struck first. A shell above the top goes over (see `meets_building`).
         for (Unit& unit : units) {
             if (!unit.alive || !has_footprint(unit.kind) || unit.id == bolt.bounced_off
-                || unit.id == bolt.shooter) {
+                || unit.id == bolt.shooter || unit.id == through) {
                 continue; // a building's own bolt leaves through its own walls
             }
             const std::int64_t top

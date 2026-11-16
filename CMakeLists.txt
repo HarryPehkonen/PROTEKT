@@ -310,6 +310,7 @@ if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
         tests/test_placement_ghost.cpp
         tests/test_buildings.cpp
         tests/test_gun_tower.cpp
+        tests/test_power_lung.cpp
         tests/test_unit_list.cpp
         tests/test_list_look.cpp
         tests/test_nav_list.cpp

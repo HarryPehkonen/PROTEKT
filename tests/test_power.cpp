@@ -128,8 +128,8 @@ struct Yard {
 // ------------------------------------------------------------------------------ the kind
 
 TEST(Power, TheKindIsAppendedWithItsSpecRowAndItsFootprint) {
-    EXPECT_EQ(sim::kUnitKindCount, 35)
-        << "moved 22 -> 29 (K3), then 29 -> 35 with K6 six alien buildings";
+    EXPECT_EQ(sim::kUnitKindCount, 36) << "moved 22 -> 29 (K3), 29 -> 35 with K6 six alien "
+                                          "buildings, 35 -> 36 with N3's Power Lung";
     EXPECT_EQ(static_cast<int>(UnitKind::Power), 21) << "appended, never inserted";
     EXPECT_EQ(static_cast<int>(UnitKind::ServicePod), 20) << "no earlier value moved";
     const sim::UnitSpec& row = sim::spec_of(UnitKind::Power);

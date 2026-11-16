@@ -434,8 +434,8 @@ Observation observe(const Sim& sim, Side side) {
     observation.pools = sim.pools();
     observation.scrap = sim.scraps();
     for (const Unit& unit : sim.units()) {
-        if (!unit.alive) {
-            continue;
+        if (!unit.alive || unit.kind == UnitKind::PowerLung) {
+            continue; // (a Lung is a component of a structure: no commander's view lists it, N3)
         }
         const UnitView view{unit.id,
                             unit.kind,

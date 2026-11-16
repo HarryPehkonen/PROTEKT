@@ -748,6 +748,7 @@ MenuSubject menu_subject_of_kind(sim::UnitKind kind) noexcept {
     case sim::UnitKind::Dower:
     case sim::UnitKind::Stronghold:
     case sim::UnitKind::Jammer:
+    case sim::UnitKind::PowerLung: // a component: pointed at and shot, never selected, no menu (N3)
         return MenuSubject::None;
     case sim::UnitKind::Turret:
     case sim::UnitKind::DeployedTurret:

@@ -1954,7 +1954,11 @@ TEST(Menu, ASelectionOwnsTheSubjectOfTheLivingKindItHolds) {
         spawns.push_back(sim::Spawn{static_cast<sim::UnitKind>(kind), kPlayer, 20 + kind, 20});
     }
     const sim::Sim every_kind = sim::Sim::create(sim::Scenario{1, spawns});
-    ASSERT_EQ(every_kind.units().size(), static_cast<std::size_t>(sim::kUnitKindCount));
+    // One spawn per kind, plus the six Power Lungs the six alien structures came with (N3): a
+    // Lung is built into each, appended after every spawn, so no spawn's id moved.
+    constexpr std::size_t kLungsBuiltIn = 6;
+    ASSERT_EQ(every_kind.units().size(),
+              static_cast<std::size_t>(sim::kUnitKindCount) + kLungsBuiltIn);
     for (const sim::Unit& unit : every_kind.units()) {
         const std::vector<sim::UnitId> alone{unit.id};
         EXPECT_EQ(menu_subject_of(every_kind, alone), menu_subject_of_kind(unit.kind))

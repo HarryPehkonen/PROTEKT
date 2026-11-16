@@ -104,6 +104,16 @@ protected:
 /// never keeps one of its own.
 [[nodiscard]] const Unit* site_builder(std::span<const Unit> units, const Unit& site) noexcept;
 
+/// The Power Lung built into `host` (N3), living or dead; null when `host` needs none, or the Lung
+/// has not been built yet (a site still rising).
+[[nodiscard]] const Unit* lung_of(std::span<const Unit> units, const Unit& host) noexcept;
+
+/// Whether `structure` is DISABLED (N3): it needs a Lung and its OWN Lung is dead. Nothing else
+/// is asked -- no grid, no tether, nothing connected to it can keep it running (his rule: "no
+/// matter what is connected to it"). The structure itself is untouched: still standing, still
+/// owned, still repairable. A site still rising has no Lung yet and is not disabled.
+[[nodiscard]] bool structure_disabled(std::span<const Unit> units, const Unit& structure) noexcept;
+
 /// SETTLES WRECKAGE (see sim.cpp): moves each of `scraps[first..]` onto a tile a hauler can stand
 /// on and, when `home_x >= 0`, onto one a hauler could DRIVE to from the wreck's tile (`home_x/y`)
 /// -- a bounded flood fill, so a piece is never left on a tile ringed by craters. `home_x < 0` is a

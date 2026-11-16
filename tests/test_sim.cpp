@@ -139,12 +139,14 @@ TEST(Sim, TheScoutIsAppendedAfterTheDeployedRecyclerAndNoEarlierIndexMoved) {
     EXPECT_EQ(static_cast<int>(UnitKind::DeployedTurret), 16);
     EXPECT_EQ(static_cast<int>(UnitKind::DeployedTurret), 16);
     // The four support vehicles of the recycler's list came after it, again moving nothing.
-    EXPECT_EQ(kUnitKindCount, 35)
-        << "the pin moved 22 -> 29 deliberately: the seven buildings (K3)";
+    EXPECT_EQ(kUnitKindCount, 36)
+        << "the pin moved 22 -> 29 deliberately (K3 seven buildings), 29 -> 35 (K6), 35 -> 36 (N3)";
     EXPECT_EQ(static_cast<int>(UnitKind::ServicePod), 20) << "the service pod kept its value";
     EXPECT_EQ(static_cast<int>(UnitKind::Power), 21) << "POWER kept its value";
     EXPECT_EQ(static_cast<int>(UnitKind::BomberBay), 28) << "the BOMBER BAY kept its value";
-    EXPECT_EQ(static_cast<int>(UnitKind::Jammer), kUnitKindCount - 1) << "the JAMMER (K6) is last";
+    EXPECT_EQ(static_cast<int>(UnitKind::Jammer), 34) << "the JAMMER (K6) kept its value";
+    EXPECT_EQ(static_cast<int>(UnitKind::PowerLung), kUnitKindCount - 1)
+        << "the POWER LUNG (N3) is last";
 }
 
 TEST(Sim, TheScoutIsALightFastArmedVehicleThatCanBeDriven) {
@@ -176,7 +178,7 @@ TEST(Sim, TheDeployedRecyclerIsAStillUnarmedBuildingWithTheRecyclersHull) {
 }
 
 TEST(Sim, TheHoverTankHasTheTanksProfileExactly) {
-    EXPECT_EQ(kUnitKindCount, 35); // 22 -> 29 (K3), 29 -> 35 with the six alien buildings (K6)
+    EXPECT_EQ(kUnitKindCount, 36); // 22 -> 29 (K3), -> 35 (K6 six alien), -> 36 (N3 Power Lung)
     EXPECT_EQ(static_cast<int>(UnitKind::HoverTank), 3);
     const UnitProfile tank = profile(UnitKind::Tank);
     const UnitProfile hover = profile(UnitKind::HoverTank);

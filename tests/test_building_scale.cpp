@@ -299,6 +299,19 @@ struct Drawn {
     return o;
 }
 
+/// How many vertices ONE Power Lung adds to a scene (N3). An alien structure comes with a Lung,
+/// appended to the unit table after it and so drawn right after it, and the Lung is a component --
+/// it is NOT scaled with the building -- so a measurement of the building's own model must leave
+/// its vertices out. Measured here from a world with a lone Lung, not assumed.
+[[nodiscard]] std::size_t lung_vertices(const game::SceneOptions& options, const sim::Sim& empty,
+                                        float tile_x, float tile_y) {
+    // At the camera's own tile: a Lung outside the drawn radius adds nothing, and measures zero.
+    const sim::Sim lone = world(
+        {{UnitKind::PowerLung, Side::Player, static_cast<int>(tile_x), static_cast<int>(tile_y)}});
+    return game::build_scene(lone, options).world_vertex_count
+           - game::build_scene(empty, options).world_vertex_count;
+}
+
 [[nodiscard]] Drawn measure(const sim::Sim& with, const sim::Sim& without, float tile_x,
                             float tile_y) {
     const game::SceneOptions options = view_of(tile_x, tile_y);
@@ -306,7 +319,13 @@ struct Drawn {
     const game::Scene b = game::build_scene(without, options);
     Drawn d{1.0e9F, -1.0e9F, 1.0e9F, -1.0e9F, 1.0e9F, -1.0e9F};
     const std::size_t first = b.world_vertex_count + game::kShadowVertexCount;
-    for (std::size_t i = first; i < a.world_vertex_count; ++i) {
+    std::size_t lungs = 0;
+    for (const sim::Unit& unit : with.units()) {
+        lungs += unit.kind == UnitKind::PowerLung ? 1U : 0U;
+    }
+    const std::size_t last
+        = a.world_vertex_count - (lungs * lung_vertices(options, without, tile_x, tile_y));
+    for (std::size_t i = first; i < last; ++i) {
         const auto& p = a.vertices.at(i).position;
         d.low = std::min(d.low, p.at(1));
         d.high = std::max(d.high, p.at(1));

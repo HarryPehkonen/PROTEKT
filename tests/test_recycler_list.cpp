@@ -72,7 +72,8 @@ TEST(RecyclerList, TheFourNewKindsAreAppendedAndNoEarlierValueMoved) {
     EXPECT_EQ(static_cast<int>(UnitKind::Constructor), 18);
     EXPECT_EQ(static_cast<int>(UnitKind::ServiceTruck), 19);
     EXPECT_EQ(static_cast<int>(UnitKind::ServicePod), 20);
-    EXPECT_EQ(sim::kUnitKindCount, 35); // 22 -> 29 (K3), 29 -> 35 with the six alien buildings (K6)
+    EXPECT_EQ(sim::kUnitKindCount,
+              36); // 22 -> 29 (K3), -> 35 (K6 six alien), -> 36 (N3 Power Lung)
 }
 
 TEST(RecyclerList, EachKindIsQueueableAtHarrisPriceAndTwentyTicksAScrap) {

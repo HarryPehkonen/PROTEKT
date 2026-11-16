@@ -117,6 +117,7 @@ Role role_of(sim::UnitKind kind) noexcept {
     case sim::UnitKind::Dower:
     case sim::UnitKind::Stronghold:
     case sim::UnitKind::Jammer:
+    case sim::UnitKind::PowerLung: // a component of a structure: it decides nothing (N3)
         return Role::None;
     }
     return Role::None;
@@ -164,6 +165,7 @@ int threat_of(sim::UnitKind kind) noexcept {
     case sim::UnitKind::Dower:
     case sim::UnitKind::Stronghold:
     case sim::UnitKind::Jammer:
+    case sim::UnitKind::PowerLung: // a component, no gun
         return 0;
     }
     return 0;

@@ -92,7 +92,10 @@ sim::UnitId nearest_ray(const sim::Sim& sim, const SceneOptions& options, float 
     sim::UnitId best{};
     float best_cos = -1.0F;
     for (const sim::Unit& unit : sim.units()) {
-        if (!unit.alive || (whose == Whose::Hostile && unit.side == sim::Side::Player)
+        // A Lung is found by the EXACT pick only, never by the assist cone (N3: "you have to
+        // actually POINT at a lung").
+        if (!unit.alive || unit.kind == sim::UnitKind::PowerLung
+            || (whose == Whose::Hostile && unit.side == sim::Side::Player)
             || (whose == Whose::Friendly && unit.side != sim::Side::Player)
             || unit.id == options.driven_unit || !available_to_viewer(sim, options, unit)) {
             continue;

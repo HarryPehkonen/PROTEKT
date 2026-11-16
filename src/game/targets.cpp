@@ -55,7 +55,9 @@ std::vector<TargetRow> nearest_enemies(const sim::Sim& sim, sim::Side from, sim:
     const std::int64_t reach = static_cast<std::int64_t>(radius_tiles) * sim::Fixed::kOne;
     std::vector<Candidate> found;
     for (const sim::Unit& unit : sim.units()) {
-        if (!unit.alive || unit.side == from
+        // A POWER LUNG IS NEVER ON THE LIST (N3, his rule 5): it is attacked only by pointing at
+        // it.
+        if (!unit.alive || unit.side == from || unit.kind == sim::UnitKind::PowerLung
             || (view != nullptr && !available_to_viewer(sim, *view, unit))) {
             continue;
         }

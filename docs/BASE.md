@@ -521,7 +521,7 @@ Antenna Mound 1, Overseer Array 2 `[RULED]`; the rest unset. **Destroying a lung
 like is `[CAPTURED]` (4.2); the earlier `[RULED]` description -- "a rotating, crystalline, translucent bulb about a
 metre tall" -- was the first word, and its size was provisional and his to change.
 
-### 4.1 The Power Lung: five rules `[RULED]`, all `[NOT BUILT]`
+### 4.1 The Power Lung: five rules `[RULED]`, built in slice N3 (sim); the standalone Lung and `6 Add Lung` stay `[NOT BUILT]`
 
 His own words (2026-11-13): *"When you build a Gun Spire, or ANYTHING on the alien side that needs a Lung, the Lungs
 are built into the structure. When you build the structure, it automatically comes with the Lung. As a matter of
@@ -541,6 +541,15 @@ attached."*
 4. **They are EASY TO REPAIR** -- cheap, deliberately, so the counter-play is a raid, not a demolition.
 5. **They are DELIBERATELY HIDDEN from the `3 Attack` list:** a Lung is attacked only by POINTING at it -- the same
    instinct as the exterior control panel (point at a thing, press SPACE; 3.6).
+
+**BUILT (N3, sim):** rules 1-5 for the six alien buildings. A Lung is a `PowerLung` unit (`Unit::host` links it to its
+structure), appended when the structure stands; killing it DISABLES the structure (`structure_disabled`: the Gun Spire
+stops firing, the Dower's platform stops mending) and never destroys it; a friendly Constructor beside the structure
+restores it for 5 scrap and 90 ticks (PROVISIONAL; he has given no figure); it is hit only by a bolt AIMED at it, which
+passes through its own structure's walls; it is not in the `3 Attack` list, and the assist cone never finds it -- only
+an exact pick does. The Gun Spire shoots now, with the Gun Tower's gun (PROVISIONAL). **Not built:** a standalone Lung,
+the Builder's `6 Add Lung` row (so there is no order to SEND a Builder to restore one), a producer's gate (no alien
+producer exists), the Forge's second Lung, and the Lung's slow spin and translucency.
 
 **WHAT THIS MAKES WRONG: the alien side's current "no power at all" (`[SHIPPED]`, the six built with "the gate is a
 building", 2.6).** Say it plainly: the alien side is to have Lungs, built into the structures that need them, plus

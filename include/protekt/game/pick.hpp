@@ -16,6 +16,13 @@ namespace protekt::game {
 inline constexpr float kPickMaxDistanceTiles = 200.0F;
 inline constexpr float kPickStepTiles = 0.25F;
 inline constexpr float kPickUnitRadiusTiles = 0.75F;
+/// A Power Lung's pick box (N3), in metres: the crystal's size and a little over (about 1.8 m
+/// across, so a half of 1.25 is the crystal and a hand's breadth of margin). It stands 0.5 tile
+/// inside its structure's east edge, so a box this wide STANDS PROUD of the structure's own pick
+/// box by a quarter metre -- which is what lets a ray that points at the Lung reach it first, from
+/// the east, instead of tying with the wall behind it.
+inline constexpr float kPickLungHeightMetres = 4.0F;
+inline constexpr float kPickLungHalfMetres = 1.25F;
 
 /// How tall a unit's pick box is, in metres: a factory stands taller than a vehicle. The picker's
 /// box and `attack_point`'s middle both read this, so they are the same unit's same body.
