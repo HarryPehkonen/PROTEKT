@@ -293,6 +293,14 @@ Fixed body_top(UnitKind kind) noexcept {
     return Fixed::from_raw(kRideHeight.raw + body.raw);
 }
 
+Fixed roof_top(UnitKind kind) noexcept {
+    if (!has_footprint(kind)) {
+        return body_top(kind);
+    }
+    const Fixed body = kind == UnitKind::Factory ? kFactoryBodyHeight : kBodyHeight;
+    return Fixed::from_raw(kRideHeight.raw + body.raw * kBuildingFootprintScale);
+}
+
 void retarget_aim(Unit& shooter, UnitId target) noexcept {
     if (shooter.aim_target != target) {
         shooter.aim_x = Fixed::zero();
@@ -826,7 +834,7 @@ void advance_projectiles(std::vector<Projectile>& projectiles, std::vector<Unit>
                 continue; // a building's own bolt leaves through its own walls
             }
             const std::int64_t top
-                = ground_height(seed, unit.x, unit.y).raw + body_top(unit.kind).raw;
+                = ground_height(seed, unit.x, unit.y).raw + roof_top(unit.kind).raw;
             Frac when{};
             if (!meets_building(footprint_around(unit), top, from_x, from_y, from_z, step_x, step_y,
                                 step_z, when)) {

@@ -138,6 +138,14 @@ void retarget_aim(Unit& shooter, UnitId target) noexcept;
 [[nodiscard]] Fixed body_bottom(UnitKind kind) noexcept;
 [[nodiscard]] Fixed body_top(UnitKind kind) noexcept;
 
+/// The ROOF of a BUILDING above the ground under it, in height units: the one height a shell must
+/// clear to pass over its footprint (the lob rule, `[RULED]` 3.8). It is the building's MODEL
+/// height -- its authored body (`kBodyHeight`, `kFactoryBodyHeight` for the Factory) times
+/// `kBuildingFootprintScale`, the very scale the model is drawn at and
+/// `game::unit_box_height_metres` reads -- plus its ride height. A kind with no footprint has no
+/// roof: it is `body_top`.
+[[nodiscard]] Fixed roof_top(UnitKind kind) noexcept;
+
 /// The bolt `shooter` fires at `target` now, aimed at the target's position PLUS the shooter's aim
 /// estimate (`aim_x`, `aim_y`) -- not at where the target is going. A fresh gun, whose estimate is
 /// zero, aims where the target IS and misses anything that moves; the estimate is learned
@@ -242,9 +250,9 @@ struct MortarSplit {
 /// takes its damage and the bolt is removed. A shot aimed over a unit's head passes over it.
 /// A BUILDING (a kind with a footprint) is not struck by a circle round its centre: its FOOTPRINT
 /// is its hit shape, the very rectangle that blocks units, for a bolt of either side. A bolt that
-/// comes into the rectangle no higher than the building's top (`body_top`) is stopped at the edge
-/// it came in by; one above the top goes OVER -- a lobbed shell clears a building it flies high
-/// above, and is stopped by one it comes down on (its height falls to the top inside the
+/// comes into the rectangle no higher than the building's roof (`roof_top`) is stopped at the edge
+/// it came in by; one above the roof goes OVER -- a lobbed shell clears a building it flies high
+/// above, and is stopped by one it comes down on (its height falls to the roof inside the
 /// rectangle) or crosses low. A building's own bolt leaves through its own walls, and a destroyed
 /// building is nothing. A bolt
 /// that meets the ground is removed where it meets it, with no damage and no mark; one that has
