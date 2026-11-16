@@ -85,10 +85,17 @@ protected:
 /// building's footprint is the other half (`building_blocks`), and it is never folded in here.
 [[nodiscard]] bool tile_passable(std::uint64_t seed, int tile_x, int tile_y) noexcept;
 
-/// True when a living deployed building of either side stands on the tile (its `Footprint` covers
-/// it). THE one answer to "is a building in the way": the mover, the route planner, every spawn and
-/// the deploy site's own check all ask it, so no unit walks through, or is placed inside, one.
+/// True when a living building of either side stands on the tile (its `Footprint` covers it): the
+/// ground is OCCUPIED. THE one answer to "may something be placed here": every spawn, every
+/// placement and the deploy site's own check ask it, so nothing is placed inside any building --
+/// a drivable platform (`has_drivable_footprint`) included.
 [[nodiscard]] bool building_blocks(std::span<const Unit> units, int tile_x, int tile_y) noexcept;
+
+/// True when a building on the tile stops UNITS driving over it: `building_blocks`, less a
+/// standing building whose footprint is a drivable platform (N1: the Service Bay, the Dower). The
+/// mover and the route planner ask THIS; a platform under construction is solid like any site.
+[[nodiscard]] bool building_stops_units(std::span<const Unit> units, int tile_x,
+                                        int tile_y) noexcept;
 
 /// The living Constructor of `site`'s own side that is within `kBuildReachTiles` of its footprint
 /// (the nearest point of the rectangle), lowest id first; null when there is none. THE one answer
@@ -194,6 +201,8 @@ struct ScootSpot {
 ///   5b. every friendly SERVICE TRUCK mends the hurt units within `kServiceRepairRadiusTiles`, each
 ///      by `max_hp / kServiceRepairTicks` a tick at the truck's own spot, falling linearly in the
 ///      squared distance to half that at the radius, the trucks adding (`service_repair_step`);
+///      A standing SERVICE BAY or DOWER mends, at the truck's own full rate, every hurt unit of its
+///      own side whose centre is inside its footprint -- a platform units drive onto (N1);
 ///   6. every unit this tick's damage killed leaves its wreckage on the ground (C1): scrap pieces
 ///      around the tile it stood on, in ascending victim id, so the litter is a function of the
 ///      battle and not of the order the bolts happened to fly in;

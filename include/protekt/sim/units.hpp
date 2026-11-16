@@ -109,7 +109,8 @@ enum class UnitKind : std::uint8_t {
     /// kind already existed and is wired, not duplicated.) Each is a building that never moves and
     /// never moves, and stands on a `footprint_of` rectangle. THEIR FUNCTIONS ARE NOT BUILT (but
     /// the gun tower's, K5, which fires): the relay bunker relays nothing, the armory unlocks
-    /// nothing, the service bay repairs nothing, the training centre and the tech centre do nothing
+    /// nothing, the service bay's AMMUNITION half is not built (N1: weapons have cooldowns, not
+    /// rounds) though its platform repairs, the training centre and the tech centre do nothing
     /// beyond the prerequisites the panel already models, and the bomber bay holds no bomber.
     RelayBunker = 22,
     Armory = 23,
@@ -123,9 +124,9 @@ enum class UnitKind : std::uint8_t {
     /// a human side never lists them. Buildings that never move, on a `footprint_of` rectangle (see
     /// the table: the owner gave the Kiln, Antenna and Stronghold). THEIR FUNCTIONS ARE NOT BUILT:
     /// the Kiln produces nothing, the Gun Spire does not shoot, the Antenna detects nothing, the
-    /// Dower services and repairs nothing, the Jammer jams nothing and the Stronghold constructs no
-    /// weapons and no shields. There is NO power grid on the alien side (his ruling), and the Power
-    /// Lungs are not built.
+    /// Dower's platform repairs (N1) and it does nothing else, the Jammer jams nothing and the
+    /// Stronghold constructs no weapons and no shields. There is NO power grid on the alien side
+    /// (his ruling), and the Power Lungs are not built.
     Kiln = 29,
     GunSpire = 30,
     Antenna = 31,
@@ -194,6 +195,20 @@ inline constexpr int kUnitKindCount = 35;
     default:
         return false;
     }
+}
+
+/// A kind whose FOOTPRINT IS A PLATFORM (N1): the SERVICE BAY and its alien twin the DOWER. Units
+/// may drive onto it; the footprint is otherwise a building's in every respect -- no other building
+/// may be placed inside it, it is the hit shape that stops a bolt, and the build site and the
+/// connection rule are unchanged. A unit of the building's own side standing inside is mended at
+/// the Service Truck's own rate (`service_repair_step`). Every other kind's footprint blocks
+/// units, and that stays the default: this is the ONE exception, and it is a per-kind property so
+/// no call site names a kind.
+///
+/// NOT BUILT, and said so: the Service Bay's AMMUNITION half. PROTEKT's weapons have cooldowns,
+/// not rounds, so there is nothing to refill; no resource is faked.
+[[nodiscard]] constexpr bool has_drivable_footprint(UnitKind kind) noexcept {
+    return kind == UnitKind::ServiceBay || kind == UnitKind::Dower;
 }
 
 enum class Side : std::uint8_t { Player = 0, Enemy = 1 };

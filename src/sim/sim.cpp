@@ -210,7 +210,7 @@ struct WorldGround {
     /// question, 122.2 s asking it of every tile). `ground_of` reads it off the units.
     bool buildings;
     [[nodiscard]] std::int64_t factor(int tile_x, int tile_y) const noexcept {
-        if (buildings && building_blocks(units, tile_x, tile_y)) {
+        if (buildings && building_stops_units(units, tile_x, tile_y)) {
             return 0;
         }
         const world::Tile tile = world::sample(seed, tile_x, tile_y);
@@ -2090,6 +2090,24 @@ void face_along(Unit& truck, std::int64_t vx, std::int64_t vy) noexcept {
     truck.face_y = static_cast<std::int16_t>(vy * kServiceFacingScale / major);
 }
 
+/// THE PLATFORM (N1): what a standing Service Bay or Dower gives `patient`, in the same 65536ths a
+/// truck's `service_repair_weight` counts in: the truck's own weight for a patient ON the machine
+/// (`kServiceRepairFull`), for a unit of the building's own side whose centre lies inside the
+/// footprint, and nothing for anyone merely near -- there is no cone and no reach here, and no
+/// second rate: the building is asked as a truck standing at the patient's own spot. A building
+/// does not mend itself, and one still being built mends nothing.
+std::int64_t platform_weight(const Unit& bay, const Unit& patient) noexcept {
+    if (!bay.alive || !has_drivable_footprint(bay.kind) || under_construction(bay)
+        || bay.side != patient.side || bay.id == patient.id
+        || !footprint_around(bay).covers(patient.x.floor_int(), patient.y.floor_int())) {
+        return 0;
+    }
+    Unit at_the_patient = bay;
+    at_the_patient.x = patient.x;
+    at_the_patient.y = patient.y;
+    return service_repair_weight(at_the_patient, patient);
+}
+
 /// SERVICE TRUCKS. For each living, hurt unit, the sum over every OTHER living friendly truck of
 /// `service_repair_weight`: the weight (`kServiceRepairFull` at the truck's own spot, falling
 /// linearly in the squared distance to `kServiceRepairEdge` at `kServiceRepairRadiusTiles`) times
@@ -2121,6 +2139,9 @@ void service_repair_step(std::vector<Unit>& units) {
                 continue;
             }
             weight += service_repair_weight(truck, unit);
+        }
+        for (const Unit& bay : units) {
+            weight += platform_weight(bay, unit);
         }
         if (weight == 0) {
             continue;
@@ -2506,6 +2527,14 @@ bool tile_passable(std::uint64_t seed, int tile_x, int tile_y) noexcept {
 bool building_blocks(std::span<const Unit> units, int tile_x, int tile_y) noexcept {
     return std::any_of(units.begin(), units.end(), [tile_x, tile_y](const Unit& unit) {
         return unit.alive && has_footprint(unit.kind)
+               && footprint_around(unit).covers(tile_x, tile_y);
+    });
+}
+
+bool building_stops_units(std::span<const Unit> units, int tile_x, int tile_y) noexcept {
+    return std::any_of(units.begin(), units.end(), [tile_x, tile_y](const Unit& unit) {
+        return unit.alive && has_footprint(unit.kind)
+               && !(has_drivable_footprint(unit.kind) && !under_construction(unit))
                && footprint_around(unit).covers(tile_x, tile_y);
     });
 }
