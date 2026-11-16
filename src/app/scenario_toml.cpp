@@ -1,13 +1,16 @@
 #include "protekt/app/scenario_toml.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <fstream>
 #include <iterator>
 #include <sstream>
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 #include "protekt/app/args.hpp"
 
@@ -59,6 +62,20 @@ constexpr std::array<KindName, static_cast<std::size_t>(sim::kUnitKindCount)> kK
     {"stronghold", UnitKind::Stronghold},
     {"jammer", UnitKind::Jammer},
 }};
+
+/// The force classes by name (N4). The one table; the parser reads it and its error lists it.
+struct ForceName {
+    std::string_view name;
+    sim::ForceClass force;
+};
+constexpr std::array<ForceName, 3> kForceNames{{
+    {"none", sim::ForceClass::None},
+    {"light", sim::ForceClass::Light},
+    {"heavy", sim::ForceClass::Heavy},
+}};
+
+/// The keys of a side table (`[player]`, `[enemy]`).
+constexpr std::string_view kSideKeys = "force, scrap and standing";
 
 /// The keys of a group, in the order a missing one is reported.
 constexpr std::size_t kKind = 0;
@@ -154,11 +171,24 @@ private:
     std::string assignment(int number, std::string_view text);
     std::string store(int number, std::size_t key, const Value& value);
     std::string close_group();
+    std::string side_assignment(int number, std::string_view key, std::string_view raw);
+    std::string standing(int number, const Value& value, sim::SideStart& start);
+
+    /// Which table the lines being read belong to.
+    enum class Open : std::uint8_t { Nothing, Group, Player, Enemy };
 
     sim::ScenarioData data_{};
     Pending pending_{};
-    bool open_{false};
+    Open open_{Open::Nothing};
     int side_units_{0};
+    /// A side table opens once; where it did, and the keys it has said.
+    std::array<int, 2> side_header_{};
+    std::array<std::array<bool, 3>, 2> side_seen_{};
+
+    [[nodiscard]] sim::SideStart& side_start() {
+        return open_ == Open::Player ? data_.player : data_.enemy;
+    }
+    [[nodiscard]] std::size_t side_index() const { return open_ == Open::Player ? 0 : 1; }
 };
 
 std::string Reader::line(int number, std::string_view text) {
@@ -171,16 +201,27 @@ std::string Reader::line(int number, std::string_view text) {
 
 std::string Reader::header(int number, std::string_view text) {
     const std::string_view name = trim(text.substr(0, text.find('#')));
-    if (name != "[[group]]") {
-        return at_line(number,
-                       "unknown table '" + std::string(name) + "': the only table is [[group]]");
+    const bool group = name == "[[group]]";
+    const bool player = name == "[player]";
+    if (!group && !player && name != "[enemy]") {
+        return at_line(number, "unknown table '" + std::string(name)
+                                   + "': the tables are [[group]], [player] and [enemy]");
     }
     if (std::string error = close_group(); !error.empty()) {
         return error;
     }
-    pending_ = Pending{};
-    pending_.header_line = number;
-    open_ = true;
+    if (group) {
+        pending_ = Pending{};
+        pending_.header_line = number;
+        open_ = Open::Group;
+        return {};
+    }
+    open_ = player ? Open::Player : Open::Enemy;
+    if (side_header_.at(side_index()) != 0) {
+        return at_line(number, "'" + std::string(name) + "' is given twice (first on line "
+                                   + std::to_string(side_header_.at(side_index())) + ")");
+    }
+    side_header_.at(side_index()) = number;
     return {};
 }
 
@@ -189,10 +230,14 @@ std::string Reader::assignment(int number, std::string_view text) {
     if (equals == std::string_view::npos) {
         return at_line(number, "expected 'key = value' or a [[group]] header");
     }
-    if (!open_) {
-        return at_line(number, "a key outside a [[group]]: open one with [[group]] first");
+    if (open_ == Open::Nothing) {
+        return at_line(number, "a key outside a table: open one with [[group]], [player] or "
+                               "[enemy] first");
     }
     const std::string_view key = trim(text.substr(0, equals));
+    if (open_ != Open::Group) {
+        return side_assignment(number, key, text.substr(equals + 1));
+    }
     if (key == "weapon") {
         return at_line(number, "'weapon' is not a field: a weapon is a property of the kind, and "
                                "a per-unit loadout is not built yet");
@@ -219,6 +264,90 @@ std::string Reader::assignment(int number, std::string_view text) {
         return at_line(number, "'" + std::string(key) + "': " + error);
     }
     return store(number, index, value);
+}
+
+/// `force`, `scrap` or `standing` in a side table (N4).
+std::string Reader::side_assignment(int number, std::string_view key, std::string_view raw) {
+    constexpr std::size_t kForce = 0;
+    constexpr std::size_t kScrap = 1;
+    constexpr std::size_t kStanding = 2;
+    const std::size_t index = key == "force"      ? kForce
+                              : key == "scrap"    ? kScrap
+                              : key == "standing" ? kStanding
+                                                  : 3;
+    if (index == 3) {
+        return at_line(number, "unknown key '" + std::string(key) + "': a side table has "
+                                   + std::string(kSideKeys));
+    }
+    if (side_seen_.at(side_index()).at(index)) {
+        return at_line(number, "'" + std::string(key) + "' is given twice in one table");
+    }
+    Value value;
+    if (const std::string error = read_value(raw, value); !error.empty()) {
+        return at_line(number, "'" + std::string(key) + "': " + error);
+    }
+    sim::SideStart& start = side_start();
+    if (index == kScrap) {
+        int amount = 0;
+        if (value.quoted || !parse_number(value.text, amount)) {
+            return at_line(number, "'scrap' wants an integer, got " + describe(value));
+        }
+        if (amount < 0 || amount > sim::kMaxSideScrap) {
+            return at_line(number, "'scrap' is " + std::to_string(amount) + ", outside 0.."
+                                       + std::to_string(sim::kMaxSideScrap));
+        }
+        start.scrap = amount;
+    } else {
+        if (!value.quoted) {
+            return at_line(number, "'" + std::string(key) + "' wants a double-quoted string, got "
+                                       + describe(value));
+        }
+        if (index == kStanding) {
+            if (std::string error = standing(number, value, start); !error.empty()) {
+                return error;
+            }
+        } else {
+            std::string known;
+            for (const ForceName& entry : kForceNames) {
+                known += known.empty() ? "" : ", ";
+                known += entry.name;
+                if (entry.name == value.text) {
+                    start.force = entry.force;
+                }
+            }
+            if (!start.force.has_value()) {
+                return at_line(number, "unknown force class '" + std::string(value.text)
+                                           + "': the classes are " + known);
+            }
+        }
+    }
+    side_seen_.at(side_index()).at(index) = true;
+    return {};
+}
+
+/// `standing = "factory, power"`: a comma-separated list of building kinds, empty for none.
+std::string Reader::standing(int number, const Value& value, sim::SideStart& start) {
+    std::vector<UnitKind> kinds;
+    std::string_view rest = trim(value.text);
+    while (!rest.empty()) {
+        const std::size_t comma = rest.find(',');
+        const std::string_view item = trim(rest.substr(0, comma));
+        rest = comma == std::string_view::npos ? std::string_view{} : rest.substr(comma + 1);
+        const auto found = std::find_if(kKindNames.begin(), kKindNames.end(),
+                                        [&](const KindName& entry) { return entry.name == item; });
+        if (found == kKindNames.end()) {
+            return at_line(number, "unknown kind '" + std::string(item) + "': the kinds are "
+                                       + kind_names());
+        }
+        if (!sim::has_footprint(found->kind)) {
+            return at_line(number, "'" + std::string(item)
+                                       + "' is not a building: 'standing' "
+                                         "lists the buildings that start standing");
+        }
+        kinds.push_back(found->kind);
+    }
+    start.standing = std::move(kinds);
+    return {};
 }
 
 std::string Reader::store(int number, std::size_t key, const Value& value) {
@@ -258,7 +387,8 @@ std::string Reader::store(int number, std::size_t key, const Value& value) {
 /// Ends the group being read, if any: every key must have been said, and the side's total must
 /// still fit. Both are reported at the line the group opened on.
 std::string Reader::close_group() {
-    if (!open_) {
+    if (open_ != Open::Group) {
+        open_ = Open::Nothing;
         return {};
     }
     for (std::size_t i = 0; i < kKeyCount; ++i) {
@@ -274,7 +404,7 @@ std::string Reader::close_group() {
                            + " units, and the most is " + std::to_string(sim::kMaxSideUnits));
     }
     data_.groups.push_back(pending_.group);
-    open_ = false;
+    open_ = Open::Nothing;
     return {};
 }
 
@@ -285,6 +415,27 @@ std::string Reader::finish() {
     if (data_.groups.empty()) {
         return "the file has no [[group]]: a scenario needs units, 1.."
                + std::to_string(sim::kMaxSideUnits) + " a side";
+    }
+    // A building cannot be asked to stand when the composition does not carry it: there would be
+    // nowhere to put it, and a quiet nothing is how a typo hides.
+    const std::array<const sim::SideStart*, 2> starts{&data_.player, &data_.enemy};
+    for (std::size_t side = 0; side < starts.size(); ++side) {
+        const auto& standing_kinds = starts.at(side)->standing;
+        if (!standing_kinds.has_value()) {
+            continue;
+        }
+        for (const UnitKind kind : standing_kinds.value()) {
+            const bool carried = std::any_of(data_.groups.begin(), data_.groups.end(),
+                                             [kind](const Group& g) { return g.kind == kind; });
+            if (!carried) {
+                const auto named
+                    = std::find_if(kKindNames.begin(), kKindNames.end(),
+                                   [kind](const KindName& e) { return e.kind == kind; });
+                return at_line(side_header_.at(side), "'standing' names '"
+                                                          + std::string(named->name)
+                                                          + "', which no [[group]] carries");
+            }
+        }
     }
     return {};
 }

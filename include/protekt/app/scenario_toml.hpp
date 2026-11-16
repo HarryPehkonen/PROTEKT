@@ -28,6 +28,21 @@ struct ScenarioParse {
 ///   * `count` is 1..kMaxGroupCount, `dx` and `dy` are within +-kMaxOffset, and the groups total
 ///     at most kMaxSideUnits units a side.
 ///
+/// N4, the INITIAL CONDITIONS PER SIDE: the tables `[player]` and `[enemy]` (each at most once, any
+/// place before or between the groups) with the keys, each at most once:
+///
+///   * `force = "none" | "light" | "heavy"` -- the TANKS the side opens with: 0, 2, 10. It replaces
+///     the composition's `tank` groups with one group of that count; every other kind is untouched.
+///     A name that is not one of the three is REFUSED, naming the line and the three -- never
+///     defaulted;
+///   * `scrap = N` -- pieces of litter round the side's base, 0..kMaxSideScrap;
+///   * `standing = "factory, power"` -- the BUILDINGS (kinds with a footprint) that start standing,
+///     the rest of the composition's buildings being dropped for this side; `""` is none, so the
+///     Constructor has to build them. Each named kind must be carried by some `[[group]]`.
+///
+/// A key a table does not say, and a table a file does not open, leave the side exactly as the
+/// composition has it: a file with neither is the scenario it was before N4.
+///
 /// Anything else is refused with the line it is on: an unknown table or key, a missing or doubled
 /// key, a value of the wrong type, a nested table or an array. `weapon` and `key` are refused with
 /// their reason, not as misspellings: a weapon is a property of the kind (a per-unit loadout is not

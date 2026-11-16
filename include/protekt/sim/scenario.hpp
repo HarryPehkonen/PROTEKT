@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 #include <vector>
 
 #include "protekt/sim/objective.hpp"
@@ -21,9 +22,48 @@ struct Group {
     int dy{};
 };
 
-/// The composition of a skirmish: groups in SPAWN ORDER, the same list for both sides (per-side
-/// lists are a deliberate non-goal). Spawn order is unit id order and function-key order, so the
-/// order of the groups is the order of the F-row.
+/// A FORCE CLASS (N4, his ruling "None / Light / Heavy -- no vehicles, two, ten"): how many TANKS a
+/// side opens with. Counts and nothing else -- no balance is carried in a class.
+enum class ForceClass : std::uint8_t { None, Light, Heavy };
+
+/// The tanks a class opens a side with: none 0, light 2, heavy 10.
+[[nodiscard]] constexpr int force_tank_count(ForceClass force) noexcept {
+    switch (force) {
+    case ForceClass::None:
+        return 0;
+    case ForceClass::Light:
+        return 2;
+    case ForceClass::Heavy:
+        return 10;
+    }
+    return 0;
+}
+
+/// Where a force class's tanks are wished (the placement rule spreads them over free tiles): the
+/// middle of the three offsets the built-in tanks use.
+inline constexpr int kForceTankDx = 8;
+inline constexpr int kForceTankDy = 5;
+inline constexpr int kMaxSideScrap = 64; ///< pieces of litter a side may open with
+
+/// How ONE side opens (N4). Every field is optional and an absent one leaves the composition and
+/// the data's own defaults exactly as they were, so a scenario that names none of this is the
+/// scenario it always was.
+struct SideStart {
+    /// The tank count, by class. Replaces the composition's `tank` groups (HoverTanks and every
+    /// other kind are untouched) with ONE group of the class's count, in the first tank group's
+    /// place in the spawn order (at the front when the composition has none).
+    std::optional<ForceClass> force{};
+    /// The pieces of litter round this side's base; absent is `ScenarioData::scrap_per_side`.
+    std::optional<int> scrap{};
+    /// The BUILDINGS standing at the start: a building group (a kind with a footprint) of the
+    /// composition is kept only when its kind is listed; an empty list is none standing, and the
+    /// Constructor has to build them. Absent is the composition's own buildings.
+    std::optional<std::vector<UnitKind>> standing{};
+};
+
+/// The composition of a skirmish: groups in SPAWN ORDER, the same list for both sides (a side's
+/// own differences are `player` and `enemy`, N4). Spawn order is unit id order and function-key
+/// order, so the order of the groups is the order of the F-row.
 ///
 /// Plain data, no I/O: the sim reads no file. The bounds below are enforced by the parser that
 /// builds one from text, not by skirmish(), which trusts a ScenarioData it is handed.
@@ -42,6 +82,9 @@ struct ScenarioData {
     /// How many biometal pools the map lays. Zero (the default) is "from the terrain seed",
     /// `kMinPools` to `kMaxPools`; a designed map sets its own count.
     int pool_count{0};
+    /// How each side opens (N4); default-constructed is the composition as it stands.
+    SideStart player{};
+    SideStart enemy{};
 };
 
 inline constexpr int kMaxGroupCount = 64; ///< units in one group, at least 1
@@ -53,8 +96,11 @@ inline constexpr int kMaxOffset = 32;     ///< |dx| and |dy| of a group, in tile
 /// groups of one, because the three tanks and the two turrets each stand at their own offset.
 [[nodiscard]] ScenarioData default_data();
 
-/// The kinds a side spawns with, in spawn order, each group expanded to `count` entries. Both
-/// sides carry the same list: the enemy mirrors the player slot for slot.
+/// The groups `side` spawns with: the composition's, as the side's own start (N4) changes them.
+[[nodiscard]] std::vector<Group> side_groups(const ScenarioData& data, Side side);
+
+/// The kinds a side spawns with, in spawn order, each group expanded to `count` entries. With no
+/// side start named, both sides carry the same list: the enemy mirrors the player slot for slot.
 [[nodiscard]] std::vector<UnitKind> side_roster(const ScenarioData& data, Side side);
 
 /// The skirmish for a seed and a composition: each side gets the composition, placed on passable

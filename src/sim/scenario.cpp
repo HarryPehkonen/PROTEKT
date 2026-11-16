@@ -122,9 +122,44 @@ ScenarioData default_data() {
     return data;
 }
 
-std::vector<UnitKind> side_roster(const ScenarioData& data, Side /*side*/) {
-    std::vector<UnitKind> roster;
+std::vector<Group> side_groups(const ScenarioData& data, Side side) {
+    const SideStart& start = side == Side::Player ? data.player : data.enemy;
+    std::vector<Group> groups;
+    bool tanks_placed = false;
+    if (start.force.has_value()) {
+        // A class with no tank group to take the place of goes to the front of the spawn order.
+        const bool has_tanks = std::any_of(data.groups.begin(), data.groups.end(),
+                                           [](const Group& g) { return g.kind == UnitKind::Tank; });
+        if (!has_tanks) {
+            tanks_placed = true;
+            if (force_tank_count(*start.force) > 0) {
+                groups.push_back(Group{UnitKind::Tank, force_tank_count(*start.force), kForceTankDx,
+                                       kForceTankDy});
+            }
+        }
+    }
     for (const Group& group : data.groups) {
+        if (start.force.has_value() && group.kind == UnitKind::Tank) {
+            if (!tanks_placed && force_tank_count(*start.force) > 0) {
+                groups.push_back(Group{UnitKind::Tank, force_tank_count(*start.force), kForceTankDx,
+                                       kForceTankDy});
+            }
+            tanks_placed = true;
+            continue;
+        }
+        if (start.standing.has_value() && has_footprint(group.kind)
+            && std::find(start.standing->begin(), start.standing->end(), group.kind)
+                   == start.standing->end()) {
+            continue;
+        }
+        groups.push_back(group);
+    }
+    return groups;
+}
+
+std::vector<UnitKind> side_roster(const ScenarioData& data, Side side) {
+    std::vector<UnitKind> roster;
+    for (const Group& group : side_groups(data, side)) {
         roster.insert(roster.end(), static_cast<std::size_t>(group.count), group.kind);
     }
     return roster;
@@ -141,7 +176,7 @@ Scenario skirmish(std::uint64_t seed, const ScenarioData& data) {
     Scenario scenario{};
     scenario.seed = seed;
     scenario.objectives = data.objectives; // the mission's conditions travel with its composition
-    for (const Group& group : data.groups) {
+    for (const Group& group : side_groups(data, Side::Player)) {
         for (int i = 0; i < group.count; ++i) {
             scenario.spawns.push_back(place(seed, scenario.spawns, group.kind, Side::Player,
                                             player_x + group.dx, player_y + group.dy));
@@ -168,7 +203,7 @@ Scenario skirmish(std::uint64_t seed, const ScenarioData& data) {
             enemy_y = cy;
         }
     }
-    for (const Group& group : data.groups) {
+    for (const Group& group : side_groups(data, Side::Enemy)) {
         for (int i = 0; i < group.count; ++i) {
             scenario.spawns.push_back(place(seed, scenario.spawns, group.kind, Side::Enemy,
                                             enemy_x - group.dx, enemy_y - group.dy));
@@ -176,9 +211,13 @@ Scenario skirmish(std::uint64_t seed, const ScenarioData& data) {
     }
 
     // C0: the field each side opens with, around ITS OWN base, once both bases are known.
-    if (data.scrap_per_side > 0) {
-        seed_field(scenario.scrap, seed, data.scrap_per_side, player_x, player_y);
-        seed_field(scenario.scrap, seed, data.scrap_per_side, enemy_x, enemy_y);
+    const int player_scrap = data.player.scrap.value_or(data.scrap_per_side);
+    const int enemy_scrap = data.enemy.scrap.value_or(data.scrap_per_side);
+    if (player_scrap > 0) {
+        seed_field(scenario.scrap, seed, player_scrap, player_x, player_y);
+    }
+    if (enemy_scrap > 0) {
+        seed_field(scenario.scrap, seed, enemy_scrap, enemy_x, enemy_y);
     }
 
     // The biometal pools: 3 to 10 from the terrain seed (a designed map names its own count), on

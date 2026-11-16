@@ -435,3 +435,160 @@ TEST(ScenarioToml, AFileIsReadThroughTheSameParser) {
 }
 
 } // namespace
+
+// --- N4: the initial conditions are data, per side -----------------------------------------------
+//
+// A scenario may open a `[player]` and an `[enemy]` table: a force class (`none`, `light` = two
+// tanks, `heavy` = ten), the scrap the side opens with, and which buildings stand. Absent, every
+// side is what it was.
+
+namespace {
+
+/// One group, on its own lines.
+std::string group_text(const std::string& kind, int count, int dx, int dy) {
+    return "[[group]]\nkind = \"" + kind + "\"\ncount = " + std::to_string(count)
+           + "\ndx = " + std::to_string(dx) + "\ndy = " + std::to_string(dy) + "\n";
+}
+
+/// The composition the N4 tests share: a constructor, a factory, three tanks, a turret.
+std::string base_composition() {
+    return group_text("constructor", 1, -2, -2) + group_text("factory", 1, 0, 0)
+           + group_text("tank", 1, 8, 2) + group_text("tank", 1, 8, 8) + group_text("tank", 1, 2, 8)
+           + group_text("turret", 1, 5, -3);
+}
+
+int count_of(const Scenario& s, Side side, UnitKind kind) {
+    int n = 0;
+    for (const Spawn& spawn : s.spawns) {
+        n += spawn.side == side && spawn.kind == kind ? 1 : 0;
+    }
+    return n;
+}
+
+Scenario scenario_from(const std::string& text, std::uint64_t seed = 42) {
+    const ScenarioParse parse = load_scenario_data(text);
+    EXPECT_TRUE(parse.ok) << parse.error;
+    return skirmish(seed, parse.data);
+}
+
+} // namespace
+
+TEST(StartingConditions, LightStartsExactlyTwoTanks) {
+    const Scenario s = scenario_from("[player]\nforce = \"light\"\n" + base_composition());
+    EXPECT_EQ(count_of(s, Side::Player, UnitKind::Tank), 2);
+}
+
+TEST(StartingConditions, NoneStartsNoTanksAndNoFactoryWhenTheScenarioSaysNothingStands) {
+    // His example: normally there is no factory and the Constructor has to build it.
+    const Scenario s
+        = scenario_from("[player]\nforce = \"none\"\nstanding = \"\"\n" + base_composition());
+    EXPECT_EQ(count_of(s, Side::Player, UnitKind::Tank), 0);
+    EXPECT_EQ(count_of(s, Side::Player, UnitKind::Factory), 0);
+    EXPECT_EQ(count_of(s, Side::Player, UnitKind::Constructor), 1); // the one who must build it
+    EXPECT_EQ(count_of(s, Side::Player, UnitKind::Turret),
+              1); // a turret is not a building list entry
+    // The enemy, never mentioned, is exactly what the composition says.
+    EXPECT_EQ(count_of(s, Side::Enemy, UnitKind::Tank), 3);
+    EXPECT_EQ(count_of(s, Side::Enemy, UnitKind::Factory), 1);
+}
+
+TEST(StartingConditions, HeavyStartsExactlyTenTanks) {
+    const Scenario s = scenario_from("[enemy]\nforce = \"heavy\"\n" + base_composition());
+    EXPECT_EQ(count_of(s, Side::Enemy, UnitKind::Tank), 10);
+}
+
+TEST(StartingConditions, TheTwoSidesAreIndependent) {
+    const Scenario a = scenario_from("[player]\nforce = \"light\"\n[enemy]\nforce = \"heavy\"\n"
+                                     + base_composition());
+    EXPECT_EQ(count_of(a, Side::Player, UnitKind::Tank), 2);
+    EXPECT_EQ(count_of(a, Side::Enemy, UnitKind::Tank), 10);
+    const Scenario b = scenario_from("[enemy]\nforce = \"light\"\n[player]\nforce = \"heavy\"\n"
+                                     + base_composition());
+    EXPECT_EQ(count_of(b, Side::Player, UnitKind::Tank), 10);
+    EXPECT_EQ(count_of(b, Side::Enemy, UnitKind::Tank), 2);
+}
+
+TEST(StartingConditions, TheClassesCarryNoBalanceOnlyCounts) {
+    // The class changes the tanks and nothing else a side opens with.
+    const Scenario s = scenario_from("[player]\nforce = \"heavy\"\n" + base_composition());
+    EXPECT_EQ(count_of(s, Side::Player, UnitKind::Constructor), 1);
+    EXPECT_EQ(count_of(s, Side::Player, UnitKind::Factory), 1);
+    EXPECT_EQ(count_of(s, Side::Player, UnitKind::Turret), 1);
+}
+
+TEST(StartingConditions, AStandingListNamesWhatStandsAndTheRestOfTheBuildingsAreNot) {
+    const Scenario s = scenario_from("[enemy]\nstanding = \"factory\"\n" + base_composition()
+                                     + group_text("power", 1, -6, 0));
+    EXPECT_EQ(count_of(s, Side::Enemy, UnitKind::Factory), 1);
+    EXPECT_EQ(count_of(s, Side::Enemy, UnitKind::Power), 0);
+    EXPECT_EQ(count_of(s, Side::Player, UnitKind::Power), 1);
+}
+
+TEST(StartingConditions, ScrapIsPerSide) {
+    const Scenario s
+        = scenario_from("[player]\nscrap = 0\n[enemy]\nscrap = 5\n" + base_composition());
+    // Each side's litter lies round its own base; compare the nearer base's pieces.
+    ASSERT_EQ(s.scrap.size(), 5U);
+}
+
+TEST(StartingConditions, AnUnmodifiedScenarioIsExactlyWhatItWasBefore) {
+    // The pin that protects every recording: a fold over every spawn, piece of litter and pool of
+    // three seeds, taken from the tree BEFORE this slice. A scenario that names no initial
+    // condition -- the built-in one, and a file of groups alone -- must reproduce it exactly.
+    constexpr std::array<std::pair<std::uint64_t, std::uint64_t>, 3> kPins{
+        {{1ULL, 8853736118488700918ULL},
+         {42ULL, 68732737021255861ULL},
+         {777ULL, 424896281085665198ULL}}};
+    for (const auto& [seed, want] : kPins) {
+        const auto fold = [](const Scenario& s) {
+            std::uint64_t h = 1469598103934665603ULL;
+            const auto mix = [&h](std::int64_t v) {
+                h ^= static_cast<std::uint64_t>(v);
+                h *= 1099511628211ULL;
+            };
+            for (const Spawn& p : s.spawns) {
+                mix(static_cast<int>(p.kind));
+                mix(static_cast<int>(p.side));
+                mix(p.tile_x);
+                mix(p.tile_y);
+            }
+            for (const Scrap& c : s.scrap) {
+                mix(c.x.raw);
+                mix(c.y.raw);
+            }
+            mix(static_cast<std::int64_t>(s.spawns.size()));
+            mix(static_cast<std::int64_t>(s.scrap.size()));
+            mix(static_cast<std::int64_t>(s.pools.size()));
+            mix(s.store_capacity);
+            return h;
+        };
+        EXPECT_EQ(fold(skirmish(seed)), want) << "seed " << seed;
+        ScenarioData text_default = default_data();
+        EXPECT_EQ(fold(skirmish(seed, text_default)), want) << "seed " << seed;
+    }
+}
+
+TEST(StartingConditions, AClassThatDoesNotExistIsRefusedWithItsLine) {
+    // Written down: a name that is not none/light/heavy is REFUSED (the parser never guesses a
+    // default), naming the line and listing the three.
+    const ScenarioParse parse
+        = load_scenario_data("[player]\nforce = \"medium\"\n" + base_composition());
+    EXPECT_TRUE(names(parse, "line 2", "medium"));
+    EXPECT_TRUE(names(parse, "line 2", "none, light, heavy"));
+}
+
+TEST(StartingConditions, ABadSideTableIsRefusedWithItsLine) {
+    EXPECT_TRUE(names(
+        load_scenario_data("[player]\nforce = \"light\"\nforce = \"heavy\"\n" + base_composition()),
+        "line 3", "twice"));
+    EXPECT_TRUE(
+        names(load_scenario_data("[player]\nspeed = 3\n" + base_composition()), "line 2", "speed"));
+    EXPECT_TRUE(
+        names(load_scenario_data("[player]\n[player]\n" + base_composition()), "line 2", "twice"));
+    // A building that the composition does not carry cannot be asked to stand.
+    EXPECT_TRUE(names(load_scenario_data("[enemy]\nstanding = \"kiln\"\n" + base_composition()),
+                      "line 1", "kiln"));
+    // Only buildings stand.
+    EXPECT_TRUE(names(load_scenario_data("[enemy]\nstanding = \"tank\"\n" + base_composition()),
+                      "line 2", "tank"));
+}
