@@ -1063,13 +1063,15 @@ TEST(Deploy, TheFootprintIsImpassableToMovementAndTheTilesJustOutsideAreNot) {
         }
     }
 
-    // Straight through the building's row, then into the building itself: never inside it.
+    // Straight through the building's row, then into the building itself: never inside its DRAWN
+    // BOX (N5: it may use the one-tile ring of the footprint around it, which it could not before).
+    const Footprint body = drawn_box(site);
     const auto drive = [&](int goal_x, int goal_y, int ticks) {
         sim.enqueue(Order{tank, orders::MoveTo{Fixed::from_int(goal_x), Fixed::from_int(goal_y)}});
         for (int t = 0; t < ticks; ++t) {
             sim.step();
             const Unit* u = sim.find(tank);
-            ASSERT_FALSE(site.covers(u->x.floor_int(), u->y.floor_int()))
+            ASSERT_FALSE(body.covers(u->x.floor_int(), u->y.floor_int()))
                 << "tick " << sim.tick() << " at " << u->x.floor_int() << "," << u->y.floor_int();
         }
     };

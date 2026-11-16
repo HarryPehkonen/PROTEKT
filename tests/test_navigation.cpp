@@ -150,7 +150,10 @@ TEST(Navigation, ATankOrderedOntoAFactoryReachesItAndDamagesIt) {
     // RE-RECORDED, round 19, L4: 1009 -> 1002. A building's footprint is its hit shape now, so the
     // tank's first bolt strikes the factory's EDGE (seven ticks earlier) rather than the point at
     // its centre.
-    EXPECT_EQ(first_damage, 1002)
+    // RE-RECORDED, N5: 1002 -> 1004. What stops a unit is the building's DRAWN box now (6 x 6 of
+    // the 8 x 8 factory), and the same box is what the bolt strikes, so the tank's route round it
+    // and the edge its first bolt meets both move: two ticks later.
+    EXPECT_EQ(first_damage, 1004)
         << "and it takes about a thousand ticks to get there and open fire";
 }
 

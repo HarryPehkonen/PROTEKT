@@ -255,8 +255,15 @@ TEST(Platform, AnOrdinaryBuildingStillBlocksTheSameMove) {
                        spawn(UnitKind::Tank, Side::Player, kApproachX, kRowY, 1)});
         const UnitId tank = sim.units().at(1).id;
         const Unit building = sim.units().at(0);
-        EXPECT_FALSE(drive_onto(sim, tank, building, 400)) << spec_of(kind).name;
-        EXPECT_FALSE(inside(*sim.find(building.id), *sim.find(tank))) << spec_of(kind).name;
+        // N5: refused the building's DRAWN box (the whole footprint where it is four wide; the
+        // Kiln is 8 x 8, drawn 6 x 6, and its one-tile ring is open to a unit now).
+        const Footprint body = drawn_box(building);
+        sim.enqueue(Order{tank, orders::MoveTo{building.x, building.y}});
+        for (int t = 0; t < 400; ++t) {
+            sim.step();
+            EXPECT_FALSE(body.covers(sim.find(tank)->x.floor_int(), sim.find(tank)->y.floor_int()))
+                << spec_of(kind).name << " tick " << t;
+        }
         EXPECT_EQ(sim.find(tank)->hp, 1) << spec_of(kind).name << " mends nothing either";
     }
 }

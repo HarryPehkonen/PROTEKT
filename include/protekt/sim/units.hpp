@@ -205,18 +205,29 @@ inline constexpr int kUnitKindCount = 36;
     }
 }
 
+/// WHAT MAY PASS A BUILDING'S DRAWN BODY (N5, and N1 before it): a per-kind property, so no call
+/// site names a kind. `Blocks` is the default -- a unit cannot enter the building's drawn box
+/// (`drawn_box`). `Drivable` is the PLATFORM: the Service Bay and its alien twin the Dower, whose
+/// box a unit may drive onto. Either way the box is the hit shape that stops a bolt, and the
+/// footprint around it is where no other building may be placed.
+enum class Passage : std::uint8_t { Blocks = 0, Drivable = 1 };
+
+[[nodiscard]] constexpr Passage passage_of(UnitKind kind) noexcept {
+    return kind == UnitKind::ServiceBay || kind == UnitKind::Dower ? Passage::Drivable
+                                                                   : Passage::Blocks;
+}
+
 /// A kind whose FOOTPRINT IS A PLATFORM (N1): the SERVICE BAY and its alien twin the DOWER. Units
 /// may drive onto it; the footprint is otherwise a building's in every respect -- no other building
 /// may be placed inside it, it is the hit shape that stops a bolt, and the build site and the
 /// connection rule are unchanged. A unit of the building's own side standing inside is mended at
-/// the Service Truck's own rate (`service_repair_step`). Every other kind's footprint blocks
-/// units, and that stays the default: this is the ONE exception, and it is a per-kind property so
-/// no call site names a kind.
+/// the Service Truck's own rate (`service_repair_step`). Every other kind's body blocks units, and
+/// that stays the default. Since N5 this is the kind's `passage_of`, read, not a second flag.
 ///
 /// NOT BUILT, and said so: the Service Bay's AMMUNITION half. PROTEKT's weapons have cooldowns,
 /// not rounds, so there is nothing to refill; no resource is faked.
 [[nodiscard]] constexpr bool has_drivable_footprint(UnitKind kind) noexcept {
-    return kind == UnitKind::ServiceBay || kind == UnitKind::Dower;
+    return passage_of(kind) == Passage::Drivable;
 }
 
 enum class Side : std::uint8_t { Player = 0, Enemy = 1 };
@@ -890,6 +901,35 @@ struct Footprint {
 /// The footprint of the building `kind` standing at (`x`, `y`).
 [[nodiscard]] constexpr Footprint footprint_around(UnitKind kind, Fixed x, Fixed y) noexcept {
     return footprint_around(footprint_of(kind), x, y);
+}
+
+/// THE DRAWN BOX (N5). A building's body -- what blocks a unit, and what stops a bolt -- is the box
+/// it is DRAWN as, which is the box the pick ray tests (`game::pick`), and the game reads it from
+/// here so the picture, the pick and the sim cannot drift. The box is as far from the building's
+/// centre as the pick reaches: `kBoxReachTiles` (the pick radius, three quarters of a tile, times
+/// the model scale), or the footprint's own half-extent where that is shorter. So a four-wide
+/// building is drawn to its whole footprint, and an eight-wide one is six wide: the outer tile on
+/// each side is a RING a unit may drive on, and two eight-wide buildings that touch leave a
+/// two-tile corridor between their boxes. It is a BOX: the Gun Spire's three prongs, walkable
+/// between, are the declared follow-up (a true silhouette), not this.
+inline constexpr int kBoxReachTiles = 3;
+
+/// The extent of the box along a footprint side of `side` tiles.
+[[nodiscard]] constexpr int drawn_extent(int side) noexcept {
+    return side < 2 * kBoxReachTiles ? side : 2 * kBoxReachTiles;
+}
+
+/// The tiles the box covers: centred on the footprint, `drawn_extent` along each side (the
+/// footprint sides are multiples of four, so the margin is a whole number of tiles).
+[[nodiscard]] constexpr Footprint drawn_box(const Footprint& whole) noexcept {
+    const int w = drawn_extent(whole.width);
+    const int h = drawn_extent(whole.height);
+    return Footprint{whole.x + (whole.width - w) / 2, whole.y + (whole.height - h) / 2, w, h};
+}
+
+/// The box of the placed building `unit` (turned if it was).
+[[nodiscard]] constexpr Footprint drawn_box(const Unit& unit) noexcept {
+    return drawn_box(footprint_around(unit));
 }
 
 /// Per-kind constants, exposed so that the tests (and later the balance pass) can assert on

@@ -395,7 +395,12 @@ TEST(Observer, RenamingTheSupportVehiclesMovedNoRecordedBattle) {
     // RE-RECORDED 2026-11-13 for round 19, L2: the factory and the deployed recycler are 8 x 8, so
     // the skirmish's cluster is seated round them differently. Old value 16859089903070589840 is
     // the code at 1a326d6; restored exactly by taking the 8 x 8 back off them.
-    EXPECT_EQ(log.final_hash, 17537682838890731493ULL);
+    // RE-RECORDED, N5 (what may pass a building is its DRAWN box, not its footprint square, and the
+    // box is its hit shape): the skirmish's 8 x 8 factory and recycler are drawn 6 x 6, so units
+    // pass on the ring and bolts cross it. Old value 17537682838890731493 is the code at ccd8a52;
+    // restored exactly by taking `drawn_box` back to `footprint_around` in `building_stops_units`
+    // and in the projectile's building test.
+    EXPECT_EQ(log.final_hash, 4779961287007640719ULL);
 }
 
 TEST(Observer, TheFiredStreamForAScriptedBattleIsUnchanged) {
@@ -459,23 +464,29 @@ TEST(Observer, TheFiredStreamForAScriptedBattleIsUnchanged) {
     // 1a326d6 (first row {425, 19, 2, 100}; last {597, 2, 15, 52}); restored exactly by taking the
     // 8 x 8 off the factory and the deployed recycler (`has_footprint(UnitKind::Factory)`,
     // `kDeployedRecyclerFootprint`).
+    // RE-RECORDED, N5 (what may pass a building is its DRAWN box, not its footprint square; the box
+    // is the hit shape too): the skirmish's factory and deployed recycler are 8 x 8, drawn 6 x 6,
+    // so units drive on the ring round them and a bolt crosses it. The stream has 64 shots (was
+    // 62). Old stream: the code at ccd8a52 (first row {426, 19, 2, 100}; last {599, 14, 3, 12});
+    // restored exactly by taking `drawn_box` back to `footprint_around` in `building_stops_units`
+    // and in the projectile's building test.
     static const std::vector<Expected> kExpected = {
-        {426, 19, 2, 100}, {431, 2, 13, 100}, {431, 13, 2, 100}, {436, 8, 13, 100},
-        {438, 12, 2, 100}, {443, 4, 13, 100}, {444, 3, 13, 100}, {446, 2, 19, 40},
-        {446, 13, 2, 100}, {453, 12, 2, 92},  {458, 4, 12, 100}, {461, 13, 2, 84},
-        {468, 12, 2, 76},  {471, 19, 2, 76},  {473, 4, 12, 100}, {476, 13, 2, 76},
-        {481, 8, 12, 92},  {483, 12, 3, 84},  {488, 4, 19, 40},  {491, 13, 3, 76},
-        {494, 14, 3, 76},  {503, 4, 19, 40},  {506, 2, 19, 40},  {506, 3, 12, 84},
-        {506, 13, 3, 60},  {509, 14, 3, 60},  {516, 19, 2, 76},  {517, 1, 12, 68},
-        {518, 4, 19, 40},  {521, 2, 12, 68},  {521, 13, 2, 76},  {522, 3, 12, 68},
-        {524, 14, 2, 76},  {526, 8, 19, 40},  {532, 1, 12, 60},  {536, 2, 12, 60},
-        {536, 13, 2, 76},  {537, 3, 12, 60},  {539, 14, 2, 76},  {547, 1, 12, 36},
-        {551, 2, 13, 68},  {551, 13, 2, 60},  {552, 3, 12, 36},  {554, 14, 2, 60},
-        {561, 19, 2, 44},  {562, 1, 12, 12},  {566, 2, 13, 68},  {566, 13, 2, 44},
-        {567, 3, 12, 12},  {569, 14, 2, 44},  {571, 8, 19, 40},  {572, 15, 2, 36},
-        {577, 1, 13, 60},  {581, 2, 13, 60},  {581, 13, 2, 28},  {582, 3, 13, 60},
-        {584, 14, 2, 28},  {587, 15, 2, 4},   {592, 1, 13, 52},  {596, 13, 3, 12},
-        {597, 3, 13, 52},  {599, 14, 3, 12},
+        {426, 19, 2, 100}, {431, 2, 13, 100}, {431, 13, 2, 100}, {432, 8, 13, 100},
+        {438, 12, 2, 100}, {439, 3, 13, 100}, {439, 4, 13, 100}, {446, 2, 19, 40},
+        {446, 13, 2, 100}, {453, 12, 2, 92},  {454, 3, 12, 100}, {454, 4, 12, 100},
+        {461, 2, 12, 100}, {461, 13, 2, 84},  {468, 12, 2, 76},  {469, 3, 12, 100},
+        {469, 4, 12, 100}, {471, 19, 2, 76},  {476, 2, 12, 92},  {476, 13, 2, 68},
+        {477, 8, 13, 84},  {483, 12, 2, 60},  {484, 3, 12, 76},  {484, 4, 19, 40},
+        {491, 2, 19, 40},  {491, 13, 2, 52},  {497, 14, 3, 100}, {499, 3, 12, 52},
+        {499, 4, 19, 40},  {506, 2, 19, 40},  {506, 13, 2, 36},  {512, 14, 2, 28},
+        {514, 3, 12, 44},  {514, 4, 13, 84},  {516, 19, 8, 40},  {521, 2, 12, 36},
+        {521, 13, 2, 28},  {522, 8, 19, 32},  {527, 14, 2, 20},  {529, 3, 12, 36},
+        {529, 4, 19, 32},  {536, 2, 12, 28},  {536, 13, 2, 12},  {536, 20, 8, 24},
+        {542, 14, 2, 4},   {544, 3, 19, 32},  {544, 4, 19, 32},  {548, 1, 19, 32},
+        {551, 13, 8, 24},  {557, 14, 8, 24},  {559, 3, 19, 16},  {559, 4, 19, 16},
+        {561, 19, 4, 100}, {563, 1, 19, 8},   {566, 13, 3, 92},  {567, 8, 19, 8},
+        {572, 14, 8, 24},  {574, 3, 13, 76},  {574, 4, 13, 76},  {581, 13, 8, 24},
+        {587, 14, 8, 24},  {589, 3, 13, 76},  {589, 4, 13, 76},  {596, 13, 8, 24},
     };
     const Scenario scenario = skirmish(42);
     ai::ScriptedCommander player(30);

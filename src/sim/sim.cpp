@@ -2621,7 +2621,7 @@ bool building_stops_units(std::span<const Unit> units, int tile_x, int tile_y) n
     return std::any_of(units.begin(), units.end(), [tile_x, tile_y](const Unit& unit) {
         return unit.alive && has_footprint(unit.kind)
                && !(has_drivable_footprint(unit.kind) && !under_construction(unit))
-               && footprint_around(unit).covers(tile_x, tile_y);
+               && drawn_box(unit).covers(tile_x, tile_y);
     });
 }
 

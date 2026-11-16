@@ -802,7 +802,7 @@ void advance_projectiles(std::vector<Projectile>& projectiles, std::vector<Unit>
             // of the shooter's centre -- passes through the gun that fired it, because it is born
             // on top of it and would otherwise hit its shooter on its first tick.
             if (!unit.alive || unit.id == bolt.bounced_off || has_footprint(unit.kind)) {
-                continue; // (a building is struck by its footprint, below)
+                continue; // (a building is struck by its drawn box, below)
             }
             if (unit.kind == UnitKind::PowerLung && unit.id != bolt.aimed_at) {
                 continue; // a Lung is struck only by a bolt aimed at it, never in passing (N3)
@@ -841,9 +841,11 @@ void advance_projectiles(std::vector<Projectile>& projectiles, std::vector<Unit>
             strike_y = c.y;
             strike_z = c.length2 > 0 ? from_z + step_z * c.along / c.length2 : from_z;
         }
-        // A BUILDING'S HIT SHAPE IS ITS FOOTPRINT: a bolt that comes into the rectangle below the
-        // building's top is stopped by it, whichever side either is on -- unless a unit in front
-        // of it was struck first. A shell above the top goes over (see `meets_building`).
+        // A BUILDING'S HIT SHAPE IS ITS DRAWN BOX (`drawn_box`, N5: the one shape a unit is
+        // refused by, so a bolt may fly down a corridor a tank may drive down). A bolt that comes
+        // into the rectangle below the building's top is stopped by it, whichever side either is
+        // on -- unless a unit in front of it was struck first. A shell above the top goes over (see
+        // `meets_building`).
         for (Unit& unit : units) {
             if (!unit.alive || !has_footprint(unit.kind) || unit.id == bolt.bounced_off
                 || unit.id == bolt.shooter || unit.id == through) {
@@ -852,7 +854,7 @@ void advance_projectiles(std::vector<Projectile>& projectiles, std::vector<Unit>
             const std::int64_t top
                 = ground_height(seed, unit.x, unit.y).raw + roof_top(unit.kind).raw;
             Frac when{};
-            if (!meets_building(footprint_around(unit), top, from_x, from_y, from_z, step_x, step_y,
+            if (!meets_building(drawn_box(unit), top, from_x, from_y, from_z, step_x, step_y,
                                 step_z, when)) {
                 continue;
             }
@@ -867,7 +869,7 @@ void advance_projectiles(std::vector<Projectile>& projectiles, std::vector<Unit>
                 }
             }
             // The point is on the rectangle's edge, nudged inside it: its tile is the building's.
-            const Footprint site = footprint_around(unit);
+            const Footprint site = drawn_box(unit);
             const auto inside = [&](std::int64_t value, int first, int count) {
                 return std::clamp(value, static_cast<std::int64_t>(first) * Fixed::kOne,
                                   static_cast<std::int64_t>(first + count) * Fixed::kOne - 1);

@@ -91,7 +91,8 @@ protected:
 /// a drivable platform (`has_drivable_footprint`) included.
 [[nodiscard]] bool building_blocks(std::span<const Unit> units, int tile_x, int tile_y) noexcept;
 
-/// True when a building on the tile stops UNITS driving over it: `building_blocks`, less a
+/// True when a building on the tile stops UNITS driving over it: the tile is in a building's DRAWN
+/// BOX (`drawn_box`, N5 -- not the whole footprint, whose outer ring a unit may drive on), less a
 /// standing building whose footprint is a drivable platform (N1: the Service Bay, the Dower). The
 /// mover and the route planner ask THIS; a platform under construction is solid like any site.
 [[nodiscard]] bool building_stops_units(std::span<const Unit> units, int tile_x,

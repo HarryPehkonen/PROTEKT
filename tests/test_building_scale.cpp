@@ -155,7 +155,9 @@ TEST(BuildingScale, AScenarioFactoryReservesEightByEightAndAUnitWalksRoundNotThr
         }
     }
     EXPECT_EQ(reserved, 64) << "a scenario factory used to reserve none";
-    // A tank ordered straight across it, west to east, never enters the rectangle, and gets past.
+    // A tank ordered straight across it, west to east, never enters the DRAWN BOX (6 x 6 of the
+    // 8 x 8, N5: the ring around it is open to a unit now), and gets past.
+    const Footprint body = sim::drawn_box(f);
     const sim::UnitId tank = sim.units().at(1).id;
     sim.enqueue(sim::Order{
         tank, sim::orders::MoveTo{sim::Fixed::from_int(t.x + 27), sim::Fixed::from_int(t.y + 14)}});
@@ -165,7 +167,7 @@ TEST(BuildingScale, AScenarioFactoryReservesEightByEightAndAUnitWalksRoundNotThr
         const sim::Unit& u = sim.units().at(1);
         const int tx = u.x.floor_int();
         const int ty = u.y.floor_int();
-        entered = entered || (tx >= f.x && tx < f.x + 8 && ty >= f.y && ty < f.y + 8);
+        entered = entered || body.covers(tx, ty);
     }
     EXPECT_FALSE(entered) << "walked through the factory";
     EXPECT_GT(sim.units().at(1).x.floor_int(), f.x + 8) << "and got past it";

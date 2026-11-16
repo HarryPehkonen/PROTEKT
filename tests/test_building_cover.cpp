@@ -120,22 +120,25 @@ TEST(BuildingCover, HisCaseAGuardianBehindItsOwnRecyclerIsStoppedByIt) {
 TEST(BuildingCover, TheBoltStopsAtTheEdgeItEnteredWestAndEast) {
     const Level at = find_open();
     ASSERT_GE(at.x, 0);
-    // From the west: the footprint is tiles 4..11, so the bolt stops in tile 4 on the lane's row.
+    // From the west: the footprint is tiles 4..11 and its DRAWN BOX (N5, the hit shape)
+    // tiles 5..10, so the bolt stops in tile 5 on the lane's row. (N5 MOVED this pin: it was tile
+    // 4, the footprint's edge; the ring tile 4 is now open ground a bolt crosses.)
     constexpr int kLane = -5 * kTile / 2; // off the centre: inside the footprint, outside a point
     const Flown west = fire({unit_at(1, UnitKind::Turret, Side::Enemy, at, 0, kLane),
                              unit_at(2, UnitKind::DeployedRecycler, Side::Player, at, 8 * kTile),
                              unit_at(3, UnitKind::Tank, Side::Player, at, 15 * kTile, kLane)},
                             0, 2);
     ASSERT_EQ(west.landings.size(), 1U);
-    EXPECT_EQ(west.landings[0].tile_x, at.x + 4);
+    EXPECT_EQ(west.landings[0].tile_x, at.x + 5);
     EXPECT_EQ(west.landings[0].tile_y, at.y - 3);
-    // From the east, the other way: footprint tiles 8..15, so it stops in tile 15.
+    // From the east, the other way: footprint tiles 8..15, box 9..14, so it stops in tile 14 (N5:
+    // it was 15).
     const Flown east = fire({unit_at(1, UnitKind::Turret, Side::Enemy, at, 20 * kTile, kLane),
                              unit_at(2, UnitKind::DeployedRecycler, Side::Player, at, 12 * kTile),
                              unit_at(3, UnitKind::Tank, Side::Player, at, 4 * kTile, kLane)},
                             0, 2);
     ASSERT_EQ(east.landings.size(), 1U);
-    EXPECT_EQ(east.landings[0].tile_x, at.x + 15);
+    EXPECT_EQ(east.landings[0].tile_x, at.x + 14);
     EXPECT_EQ(east.landings[0].tile_y, at.y - 3);
 }
 
@@ -168,16 +171,21 @@ TEST(BuildingCover, TheShortSideOfARectangleStopsABoltJustInsideItAndLetsOneJust
 TEST(BuildingCover, TheLongSideOfARectangleStopsABoltJustInsideItAndLetsOneJustOutsidePass) {
     const Level at = find_open();
     ASSERT_GE(at.x, 0);
-    const int in = -(3 * kTile + kTile * 9 / 10); // turned, the rectangle is 8 tall: 3.9 is inside
-    const int out = -(4 * kTile + kTile / 10);    // 4.1 is beside it
+    // Turned, the rectangle is 8 tall but DRAWN 6 tall (N5: the drawn box is the hit shape), so 2.9
+    // is inside and 3.1 beside it. (N5 MOVED these two lanes: they were 3.9 and 4.1, the
+    // footprint's.)
+    const int in = -(2 * kTile + kTile * 9 / 10);
+    const int out = -(3 * kTile + kTile / 10);
     const Flown inside = lane(at, true, in);
     EXPECT_FALSE(hurt(inside, 2));
     EXPECT_TRUE(hurt(inside, 1));
     const Flown beside = lane(at, true, out);
     EXPECT_TRUE(hurt(beside, 2));
     EXPECT_FALSE(hurt(beside, 1));
-    // And the same 3.9 lane, UNTURNED (4 tall: 2 each way), is well beside it.
+    // And the same lane, UNTURNED (4 tall: 2 each way), is beside it.
     EXPECT_TRUE(hurt(lane(at, false, in), 2));
+    // The footprint's own old edge, 3.9, is now open ground: the ring is not a wall to a bolt.
+    EXPECT_TRUE(hurt(lane(at, true, -(3 * kTile + kTile * 9 / 10)), 2));
 }
 
 /// The same Training Centre (8 wide, 4 tall, covering x 5..12 and y -2..1) crossed the OTHER way:
@@ -192,13 +200,15 @@ TEST(BuildingCover, TheLongSideOfARectangleStopsABoltJustInsideItAndLetsOneJustO
 TEST(BuildingCover, BoltsAcrossTheWidthAreStoppedWithinBothSidesAndPassBesideThem) {
     const Level at = find_open();
     ASSERT_GE(at.x, 0);
-    // The footprint reaches from x = 5 to x = 13 (centre 9, four each way).
-    for (const int inside : {5 * kTile + kTile / 10, 12 * kTile + kTile * 9 / 10}) {
+    // The footprint reaches from x = 5 to x = 13 (centre 9, four each way); the DRAWN box, which is
+    // the hit shape (N5), from 6 to 12. (N5 MOVED the inside pair: it was 5.1 and 12.9.)
+    for (const int inside : {6 * kTile + kTile / 10, 11 * kTile + kTile * 9 / 10}) {
         const Flown flown = column(at, inside);
         EXPECT_FALSE(hurt(flown, 2)) << "x = " << inside / double(kTile);
         EXPECT_TRUE(hurt(flown, 1)) << "x = " << inside / double(kTile);
     }
-    for (const int beside : {4 * kTile + kTile * 9 / 10, 13 * kTile + kTile / 10}) {
+    for (const int beside : {4 * kTile + kTile * 9 / 10, 5 * kTile + kTile * 9 / 10,
+                             12 * kTile + kTile / 10, 13 * kTile + kTile / 10}) {
         const Flown flown = column(at, beside);
         EXPECT_TRUE(hurt(flown, 2)) << "x = " << beside / double(kTile);
         EXPECT_FALSE(hurt(flown, 1)) << "x = " << beside / double(kTile);
@@ -450,14 +460,15 @@ TEST(LobRule, ABuildingTooTallForTheArcStopsALobAtTheEdgeItEntered) {
     const Level at = find_open();
     ASSERT_GE(at.x, 0);
     // The Factory (8 x 8, modelled 18 m tall: a roof of about 580 units) centred 7 out
-    // covers 3..11. The arc never gets near it (its peak is about 345), so the shell is stopped
-    // where it crosses the near wall, in tile 3, exactly as a bolt would be.
+    // covers 3..10, and is drawn 4..9 (N5). The arc never gets near it (its peak is about 345), so
+    // the shell is stopped where it crosses the near wall of the DRAWN box, in tile 4, exactly as a
+    // bolt would be. (N5 MOVED this pin: it was tile 3, the footprint's edge.)
     const Flown lob = over(UnitKind::MortarBike, UnitKind::Factory, 7 * kTile);
     EXPECT_TRUE(hurt(lob, 1));
     EXPECT_FALSE(hurt(lob, 2));
     ASSERT_EQ(lob.landings.size(), 1U);
     EXPECT_TRUE(lob.landings[0].hit);
-    EXPECT_EQ(lob.landings[0].tile_x, at.x + 3);
+    EXPECT_EQ(lob.landings[0].tile_x, at.x + 4);
 }
 
 TEST(LobRule, TheHeightAtTheCrossingDecidesNotTheTargetsPosition) {

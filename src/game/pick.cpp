@@ -10,6 +10,9 @@
 
 namespace protekt::game {
 
+static_assert(kPickUnitRadiusTiles * kBuildingModelScale == static_cast<float>(sim::kBoxReachTiles),
+              "the pick reach of a scaled model is the sim's drawn-box reach: one number");
+
 float unit_box_height_metres(sim::UnitKind kind) noexcept {
     if (kind == sim::UnitKind::PowerLung) {
         return kPickLungHeightMetres; // the crystal is 4 m tall, and it is what is pointed at
@@ -179,9 +182,11 @@ Pick pick(const sim::Sim& sim, const SceneOptions& options, float screen_x,
             half_z = half_x;
         }
         if (sim::has_footprint(unit.kind)) {
-            const sim::FootprintSize size = sim::footprint_of(unit);
-            half_x = std::min(reach, static_cast<float>(size.width) * 0.5F * kMetresPerTile);
-            half_z = std::min(reach, static_cast<float>(size.height) * 0.5F * kMetresPerTile);
+            // THE DRAWN BOX, from the sim (N5): the very rectangle a unit is refused by and a bolt
+            // is stopped by, so the picture, the pick and the sim are one shape.
+            const sim::Footprint box = sim::drawn_box(unit);
+            half_x = static_cast<float>(box.width) * 0.5F * kMetresPerTile;
+            half_z = static_cast<float>(box.height) * 0.5F * kMetresPerTile;
         }
         const float t
             = hit_box(ray, {x - half_x, base, z - half_z}, {x + half_x, base + height, z + half_z});
