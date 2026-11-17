@@ -739,6 +739,7 @@ src/              implementation: world/ sim/ ai/ cmd/ game/ input/ render/ app/
 tests/            unit, integration and characterization tests
 fuzz/             libFuzzer targets
 tools/ci.sh       the gate
+docs/FRAMECOST.md where a frame's time goes (recorded N6 measurement)
 docs/PLAN.md      the plan, the measured results, and the known gaps
 docs/BASE.md      the base: producers, what each builds, buildings, power, upgrades
 ```

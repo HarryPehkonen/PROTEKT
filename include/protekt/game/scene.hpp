@@ -1300,6 +1300,23 @@ struct DeployLineTarget {
     int tile_y{};
 };
 
+/// Where one `build_scene` call spent its time, in milliseconds (`steady_clock`), by phase. The
+/// phases are contiguous, so `terrain + sky_and_shadows + units + world_effects + smooth + fog +
+/// hud == total` up to the clock reads themselves. See tools/framecost.cpp, the one reader.
+struct FrameTimings {
+    double terrain_ms{};         ///< `build_terrain`
+    double sky_and_shadows_ms{}; ///< sky, the pick, the unit shadows
+    double units_ms{};           ///< every unit and building emitted, scaled, cut and tilted
+    double world_effects_ms{};   ///< projectiles, scrap, pools, beams, effects, motes, beacons
+    double smooth_ms{};          ///< `smooth_vertex_normals` over the whole world
+    double fog_ms{};             ///< both fog passes
+    double hud_ms{};             ///< everything after the world: radar, bars, panels, hit flash
+    double total_ms{};           ///< the whole call
+    std::size_t terrain_vertices{};
+    std::size_t world_vertices{};
+    std::size_t total_vertices{};
+};
+
 struct SceneOptions {
     std::uint64_t seed{};
     Camera camera{};
@@ -1359,6 +1376,11 @@ struct SceneOptions {
     /// because the cache is a memo of a pure function and nothing else. Not owned, and ignored when
     /// its seed is not this frame's seed.
     const TerrainCache* terrain{nullptr};
+    /// MEASUREMENT ONLY (N6): when set, `build_scene` writes the wall time of each of its phases
+    /// here. It reads clocks and writes this struct and nothing else -- no vertex, no decision --
+    /// so a frame with it set is byte-identical to one without. Null (the default) reads no clock
+    /// at all. Not owned.
+    FrameTimings* timings{nullptr};
     /// The red hit flash, 0 (none) to 1 (just hit): the app owns it and advances it each frame.
     /// 0 draws nothing at all, so a frame that is not flashing is byte-identical to one that never
     /// heard of it.

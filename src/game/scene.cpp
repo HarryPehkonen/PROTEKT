@@ -20,6 +20,7 @@
 #include <array>
 #include <bit>
 #include <cctype>
+#include <chrono>
 
 #include <cmath>
 #include <cstddef>
@@ -7473,6 +7474,19 @@ SiteGroundMap sites_in_view(const sim::Sim& sim, const SceneOptions& options) {
 
 Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
                   std::span<const sim::UnitId> selected) {
+    // N6: the phase clock. With no `options.timings` it reads no clock and does nothing.
+    using Clock = std::chrono::steady_clock;
+    const bool timed = options.timings != nullptr;
+    const Clock::time_point call_start = timed ? Clock::now() : Clock::time_point{};
+    Clock::time_point lap_start = call_start;
+    const auto lap = [&](double FrameTimings::* field) {
+        if (timed) {
+            const Clock::time_point now = Clock::now();
+            options.timings->*field
+                = std::chrono::duration<double, std::milli>(now - lap_start).count();
+            lap_start = now;
+        }
+    };
     Scene scene;
     const float aspect
         = static_cast<float>(options.extent.width) / static_cast<float>(options.extent.height);
@@ -7483,6 +7497,7 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
     build_terrain(scene.vertices, options.terrain, options.seed, centre_x, centre_y,
                   options.radius_tiles, sites_in_view(sim, options));
     const std::size_t terrain_end = scene.vertices.size();
+    lap(&FrameTimings::terrain_ms);
     append_sky(scene.vertices, options.camera);
     const std::size_t sky_end = scene.vertices.size();
 
@@ -7494,6 +7509,7 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
     }
 
     append_unit_shadows(scene.vertices, options, sim);
+    lap(&FrameTimings::sky_and_shadows_ms);
 
     std::vector<SiteCut> site_cuts; // the sites drawn this frame, and the height each was cut at
     for (const sim::Unit& unit : sim.units()) {
@@ -7625,6 +7641,7 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
         }
     }
 
+    lap(&FrameTimings::units_ms);
     append_projectiles(scene.vertices, options, sim);
     append_landing_marks(scene.vertices, options, sim.tick());
     append_scrap(scene.vertices, options, sim);
@@ -7646,12 +7663,15 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
     // SMOOTH SHADING (AP): the world's face normals become blended vertex normals, here, once the
     // units have been turned, tilted and scaled into place, so "faces that share a position" is
     // judged on the final geometry. The sky and the HUD carry no normal and are not touched.
+    lap(&FrameTimings::world_effects_ms);
     smooth_vertex_normals(scene.vertices, 0, scene.vertices.size());
+    lap(&FrameTimings::smooth_ms);
     fog_range(scene.vertices, 0, terrain_end, options.camera, options.radius_tiles);
     fog_world(scene.vertices, sky_end, scene.vertices.size(), emissive, options.camera,
               options.radius_tiles);
     // The renderer smooths the world's edges and draws everything past this index after it.
     scene.world_vertex_count = scene.vertices.size();
+    lap(&FrameTimings::fog_ms);
     // The map and the radar share the bottom-left corner: BZ2's R turns one into the other rather
     // than stacking them, so the radar (and the hull bar it carries) is not drawn while the map is
     // up. Hiding the radar must not change the sim, and it does not: this is a view.
@@ -7690,6 +7710,14 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
         }
     }
 
+    if (timed) {
+        lap(&FrameTimings::hud_ms);
+        options.timings->total_ms
+            = std::chrono::duration<double, std::milli>(Clock::now() - call_start).count();
+        options.timings->terrain_vertices = terrain_end;
+        options.timings->world_vertices = scene.world_vertex_count;
+        options.timings->total_vertices = scene.vertices.size();
+    }
     return scene;
 }
 

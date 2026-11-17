@@ -423,6 +423,20 @@ if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
     target_link_libraries(protekt-meshcost PRIVATE protekt_game protekt_core)
     protekt_warnings(protekt-meshcost)
 
+    # N6: where the frame's time goes, by phase, in real milliseconds, with the build type printed.
+    # Links protekt_app so the renderer is there when the build has one (PROTEKT_RENDER).
+    add_executable(protekt-framecost tools/framecost.cpp)
+    target_link_libraries(protekt-framecost PRIVATE protekt_app)
+    protekt_warnings(protekt-framecost)
+    string(TOUPPER "${CMAKE_BUILD_TYPE}" PROTEKT_BT_UPPER)
+    target_compile_definitions(protekt-framecost PRIVATE
+        PROTEKT_BUILD_TYPE="${CMAKE_BUILD_TYPE}"
+        PROTEKT_BUILD_FLAGS="${CMAKE_CXX_FLAGS} ${CMAKE_CXX_FLAGS_${PROTEKT_BT_UPPER}}")
+    if(PROTEKT_RENDER)
+        target_compile_definitions(protekt-framecost PRIVATE PROTEKT_HAVE_VULKAN=1)
+        add_dependencies(protekt-framecost protekt_shaders)
+    endif()
+
     # Writes assets/atlas.png from the in-memory atlas builder (the single source of the tiles).
     add_executable(protekt-atlas-gen tools/atlas_gen.cpp)
     target_link_libraries(protekt-atlas-gen PRIVATE protekt_app)
