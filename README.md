@@ -624,9 +624,15 @@ change a verification run.
 ## Build, run, watch
 
 ```bash
-cmake -S . -B build
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j"$(nproc)"
 ```
+
+The build type goes on the **configure** line, and it is written out rather than left to the default: `CMakeLists.txt`
+already forces Release when the type is UNSET, but a build directory configured earlier can carry a cached `Debug`,
+and `-DCMAKE_BUILD_TYPE=Release` is what overrides it. A single-dash `-CMAKE_BUILD_TYPE=Release` is not this flag --
+CMake reads it as an option of its own and ignores it. **To check what a build directory already is:**
+`grep CMAKE_BUILD_TYPE build/CMakeCache.txt`. Changing it invalidates every object, so expect a full rebuild.
 
 To build only the game for a play test, **`cmake --build build -j8 --target protekt-game`**. It skips every
 test object -- 65 source objects against 100 test objects, so the tests are about 60% of the compile and none
