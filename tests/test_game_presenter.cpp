@@ -84,3 +84,20 @@ TEST(GamePresenter, AnUnknownDeviceIsRefusedWithItsNameAndNoPresenter) {
 }
 
 } // namespace
+
+namespace {
+TEST(GamePresenter, WithNoReadbackAFrameStillPresentsAndFinishIsEmpty) {
+    std::ostringstream out;
+    std::ostringstream err;
+    PresenterOptions options = headless(Extent{64, 48});
+    options.readback = false;
+    const auto presenter = GamePresenter::create(options, out, err);
+    if (presenter == nullptr) {
+        GTEST_SKIP() << "no Vulkan device here";
+    }
+    const protekt::game::Scene scene{};
+    EXPECT_TRUE(presenter->present(scene, 7, 0)) << "a frame with no readback still presented";
+    EXPECT_TRUE(presenter->present(scene, 7, 1));
+    EXPECT_TRUE(presenter->finish().empty()) << "nobody asked for pixels, so none were kept";
+}
+} // namespace

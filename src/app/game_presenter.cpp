@@ -51,6 +51,7 @@ std::unique_ptr<GamePresenter> GamePresenter::create(const PresenterOptions& opt
         create_options.device_name = options.gpu;
         create_options.validation = true;
         create_options.fxaa = options.fxaa;
+        presenter->readback_ = options.readback;
         create_options.extent = options.extent;
         create_options.atlas_rgba = game::load_game_atlas(err).pixels;
         create_options.atlas_side = game::kAtlasSide;
@@ -117,8 +118,9 @@ bool GamePresenter::present(const game::Scene& scene, std::uint64_t seed, sim::T
     request.seed = seed;
     request.tick = tick;
     request.scene = &scene;
+    request.readback = readback_;
     last_frame_ = offscreen_->render(request, stats);
-    return !last_frame_.empty();
+    return stats.completed;
 }
 
 std::vector<std::uint8_t> GamePresenter::finish() {

@@ -819,6 +819,8 @@ int run_game_cli(std::span<const std::string_view> args, std::ostream& out, std:
     presenter_options.headless = options.headless;
     presenter_options.fullscreen = options.fullscreen;
     presenter_options.fxaa = options.fxaa;
+    // Only a capture reads the frame; without one a headless frame is rendered and not copied out.
+    presenter_options.readback = !options.capture.empty();
     const std::unique_ptr<GamePresenter> presenter
         = GamePresenter::create(presenter_options, out, err);
     if (presenter == nullptr) {

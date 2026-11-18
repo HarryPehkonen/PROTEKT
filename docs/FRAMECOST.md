@@ -527,3 +527,34 @@ restored and added up again. (1) `wait_ms` forced to 0: "sum of the render phase
 66.184)", against 66.716 / 66.719 restored. (2) `template_smooth_ms` dropped: the residual row
 "template insert etc." jumped from 0.011 ms to 6.294 ms (the smoothing, now unaccounted), and "of which
 smooth alone" read 0.000; restored it reads 6.250 and 0.011.
+
+## N12: the frame is read back only when someone asks for it
+
+`FrameRequest::readback` (default true) gates the GPU-to-host copy. False records no
+`vkCmdCopyImageToBuffer` and no host barrier, does not allocate or memcpy the result, and returns an
+empty vector; `FrameStats::readback_copies` (0/1) and `FrameStats::completed` say what happened.
+Setters: `protekt-game` headless sets it only with `--capture` (`PresenterOptions::readback`);
+`protekt-framecost` defaults to NO and `--readback` restores the old frame. Everything else (tests,
+`protekt-render`, the window, which needs the pixels to blit) keeps the default true.
+Layout: the HUD pass still ends in TRANSFER_SRC_OPTIMAL; with no copy the image stays there unread,
+and the next frame's filter pass declares initialLayout UNDEFINED on it, so nothing depends on it.
+The fence is STILL waited on (the frame must finish before its vertex buffer and command buffer are
+reused); what is gone is the copy, its barrier, and the allocate+memcpy.
+
+Measured HERE (llvmpipe, software Vulkan, Release -O3; NOT his GTX 1060), same scenarios and flags:
+
+| | OLD (`--readback`) | NEW |
+|---|---|---|
+| floor intercept (mean, asc/desc fit) | 17.14 / 17.11 ms | 15.96 / 15.88 ms |
+| floor, 0 triangles, render mean | 14.70 ms | 12.89 ms |
+| floor readback phase, 0 triangles | 0.606 ms | 0.000 ms |
+| S skirmish render / readback / whole frame | 32.994 / 0.625 / 39.298 ms (25.4 fps) | 31.556 / 0 / 37.956 ms (26.3 fps) |
+| M battle render / readback / whole frame | 40.667 / 0.667 / 50.418 ms (19.8 fps) | 38.899 / 0 / 48.727 ms (20.5 fps) |
+| H heavy render / readback / whole frame | 72.736 / 0.689 / 96.570 ms (10.4 fps) | 74.798 / 0 / 99.975 ms (10.0 fps) |
+
+**What this does NOT show.** On llvmpipe the readback is a 0.6 ms memcpy of host memory, not 10-15 ms,
+so the floor's intercept did not collapse here (about 1.2 ms of 17), and H got no faster (the 2 ms
+difference is inside run-to-run noise; its worst frame is 114-117 ms). The finding that the readback is
+~11-15 ms on his GTX 1060 is a property of that driver's mapped memory and is NOT reproduced on this
+machine; it has to be re-measured there (`protekt-framecost floor` vs `... floor --readback`). Also,
+the windowed game still reads back every frame, because the window blits the returned pixels.

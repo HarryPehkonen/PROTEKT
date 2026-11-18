@@ -64,6 +64,15 @@
 
 namespace {
 
+/// N12: whether the measured frames copy the finished image out of the GPU. The game does that only
+/// for `--capture`, so the default here is NO (what a played frame costs); `--readback`, anywhere
+/// after the scenario, measures the phase the way every frame paid for it before N12.
+bool readback_wanted(const bool set = false) {
+    static bool wanted = false;
+    wanted = wanted || set;
+    return wanted;
+}
+
 using protekt::game::FrameTimings;
 using protekt::sim::Group;
 using protekt::sim::UnitKind;
@@ -268,8 +277,11 @@ void measure(const Base& base, protekt::render::Renderer* renderer, bool use_bui
 
 #if defined(PROTEKT_HAVE_VULKAN)
     if (renderer != nullptr) {
-        const render::FrameRequest request{
-            .extent = game::Extent{1280, 720}, .seed = kSeed, .tick = 0, .scene = &scene};
+        const render::FrameRequest request{.extent = game::Extent{1280, 720},
+                                           .seed = kSeed,
+                                           .tick = 0,
+                                           .scene = &scene,
+                                           .readback = readback_wanted()};
         render::FrameStats stats{};
         for (int i = 0; i < kWarmup; ++i) {
             (void)renderer->render(request, stats);
@@ -558,8 +570,11 @@ void measure_battle(const Battle& battle, protekt::render::Renderer* renderer,
         render::FrameTimes rt{};
 #if defined(PROTEKT_HAVE_VULKAN)
         if (renderer != nullptr) {
-            const render::FrameRequest request{
-                .extent = game::Extent{1280, 720}, .seed = kSeed, .tick = 0, .scene = &scene};
+            const render::FrameRequest request{.extent = game::Extent{1280, 720},
+                                               .seed = kSeed,
+                                               .tick = 0,
+                                               .scene = &scene,
+                                               .readback = readback_wanted()};
             render::FrameStats stats{};
             const auto r0 = Clock::now();
             (void)renderer->render(request, stats);
@@ -841,8 +856,11 @@ struct FloorPoint {
         }
     }
     scene.world_vertex_count = scene.vertices.size();
-    const render::FrameRequest request{
-        .extent = game::Extent{1280, 720}, .seed = kSeed, .tick = 0, .scene = &scene};
+    const render::FrameRequest request{.extent = game::Extent{1280, 720},
+                                       .seed = kSeed,
+                                       .tick = 0,
+                                       .scene = &scene,
+                                       .readback = readback_wanted()};
     render::FrameStats stats{};
     for (int i = 0; i < 10; ++i) {
         (void)renderer.render(request, stats);
@@ -1031,11 +1049,18 @@ void measure_drift(const Battle& battle, const char* out_dir, std::uint64_t seed
 int main(int argc, char** argv) {
     // `protekt-framecost [bases|battle]`: both by default.
     const std::span<char*> args(argv, static_cast<std::size_t>(argc));
+    for (const char* a : args) {
+        (void)readback_wanted(std::string_view(a) == "--readback");
+    }
     const std::string_view what = args.size() > 1 ? args[1] : "all";
     std::cout << std::format("protekt-framecost: build type {}, flags: {}\n", PROTEKT_BUILD_TYPE,
                              PROTEKT_BUILD_FLAGS);
     const bool use_building_cache
         = !(args.size() > 2 && std::string_view(args[2]) == "--no-building-cache");
+    std::cout << std::format("protekt-framecost: readback {}\n",
+                             readback_wanted()
+                                 ? "ON (--readback: the frame is copied out, as before N12)"
+                                 : "off (as the game runs without --capture)");
     std::cout << std::format("protekt-framecost: building cache {}\n",
                              use_building_cache ? "ON" : "OFF (--no-building-cache)");
     const std::string flags = PROTEKT_BUILD_FLAGS;

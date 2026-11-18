@@ -1090,3 +1090,42 @@ TEST_F(EdgePassTest, TheFragmentStageLightsAVertexFromItsNormalAndLeavesAnUnlitO
     EXPECT_NEAR(unlit, toward, 1.5F) << "no normal: the colour as it is, the same as full light";
     EXPECT_EQ(unfiltered->validation_errors(), 0U);
 }
+
+// ---------------------------------------------------------------- N12: the readback is asked for
+
+TEST_F(RenderTest, ARequestedReadbackRecordsExactlyOneCopyAndReturnsTheFrame) {
+    const Frame frame = render_frame();
+    EXPECT_EQ(frame.stats.readback_copies, 1U);
+    EXPECT_TRUE(frame.stats.completed);
+    EXPECT_EQ(frame.pixels.size(), std::size_t{kWidth} * kHeight * 4U);
+}
+
+TEST_F(RenderTest, NoReadbackRecordsNoCopyAndWaitsOnNoReadbackPhase) {
+    protekt::render::FrameStats stats{};
+    const auto pixels = renderer_->render(
+        protekt::render::FrameRequest{
+            .extent = Extent{kWidth, kHeight}, .seed = 42, .tick = 0, .readback = false},
+        stats);
+    EXPECT_EQ(stats.readback_copies, 0U) << "no copy may be recorded when nobody asked";
+    EXPECT_TRUE(pixels.empty());
+    EXPECT_EQ(stats.times.readback_ms, 0.0) << "the phase is absent, not merely fast";
+    EXPECT_TRUE(stats.completed) << "an empty result with no readback is not a failure";
+    EXPECT_GT(stats.draw_calls, 0U) << "the frame was still drawn";
+    EXPECT_EQ(renderer_->validation_errors(), 0U);
+}
+
+TEST_F(RenderTest, FramesWithoutReadbackLeaveTheNextReadbackFrameIdentical) {
+    const Frame before = render_frame();
+    protekt::render::FrameStats stats{};
+    for (int i = 0; i < 3; ++i) {
+        (void)renderer_->render(
+            protekt::render::FrameRequest{
+                .extent = Extent{kWidth, kHeight}, .seed = 42, .tick = 0, .readback = false},
+            stats);
+        EXPECT_TRUE(stats.completed);
+    }
+    const Frame after = render_frame();
+    EXPECT_EQ(before.pixels, after.pixels)
+        << "skipping the copy must not disturb the image or its layout for the next frame";
+    EXPECT_EQ(renderer_->validation_errors(), 0U) << "the image was left in a valid layout";
+}

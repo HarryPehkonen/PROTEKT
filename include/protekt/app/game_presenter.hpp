@@ -23,6 +23,9 @@ struct PresenterOptions {
     bool fullscreen{false};
     /// The renderer's FXAA edge smoothing; `--no-fxaa` clears it.
     bool fxaa{true};
+    /// N12: keep the pixels of each headless frame. Only a capture needs them; false skips the
+    /// GPU-to-host copy. The default is true so a caller that wants frames cannot forget.
+    bool readback{true};
 };
 
 /// The presentation seam of the game loop: a window if there is one, an offscreen buffer if not.
@@ -68,6 +71,7 @@ private:
     std::unique_ptr<render::Renderer> offscreen_;
     std::unique_ptr<render::Window> window_;
     std::vector<std::uint8_t> last_frame_;
+    bool readback_{true};
 };
 
 } // namespace protekt::app

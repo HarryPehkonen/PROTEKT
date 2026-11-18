@@ -1489,22 +1489,28 @@ private:
         }
         vkCmdEndRenderPass(cmd_);
 
-        // The HUD pass leaves the colour image in TRANSFER_SRC_OPTIMAL.
-        VkBufferImageCopy copy{};
-        copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-        copy.imageExtent = {extent.width, extent.height, 1};
-        vkCmdCopyImageToBuffer(cmd_, target_.colour, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                               target_.readback, 1, &copy);
-        VkBufferMemoryBarrier to_host{};
-        to_host.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
-        to_host.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-        to_host.dstAccessMask = VK_ACCESS_HOST_READ_BIT;
-        to_host.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        to_host.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        to_host.buffer = target_.readback;
-        to_host.size = VK_WHOLE_SIZE;
-        vkCmdPipelineBarrier(cmd_, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_HOST_BIT, 0, 0,
-                             nullptr, 1, &to_host, 0, nullptr);
+        // The HUD pass leaves the colour image in TRANSFER_SRC_OPTIMAL (its finalLayout). When a
+        // readback was asked for that is exactly what the copy reads. When it was not, the image
+        // simply stays there: a layout left unread is valid, and the next frame's filter pass
+        // declares initialLayout UNDEFINED on this image, so it never depends on what was left.
+        if (request.readback) {
+            VkBufferImageCopy copy{};
+            copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+            copy.imageExtent = {extent.width, extent.height, 1};
+            vkCmdCopyImageToBuffer(cmd_, target_.colour, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                                   target_.readback, 1, &copy);
+            VkBufferMemoryBarrier to_host{};
+            to_host.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+            to_host.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+            to_host.dstAccessMask = VK_ACCESS_HOST_READ_BIT;
+            to_host.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            to_host.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            to_host.buffer = target_.readback;
+            to_host.size = VK_WHOLE_SIZE;
+            vkCmdPipelineBarrier(cmd_, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_HOST_BIT,
+                                 0, 0, nullptr, 1, &to_host, 0, nullptr);
+            stats.readback_copies = 1;
+        }
         if (vkEndCommandBuffer(cmd_) != VK_SUCCESS) {
             return {};
         }
@@ -1526,12 +1532,16 @@ private:
         }
         const Clock::time_point readback_start = Clock::now();
         stats.times.wait_ms = since(wait_start, readback_start);
+        stats.triangles = kVertexCount / 3U;
+        stats.completed = true;
+        if (!request.readback) {
+            return {};
+        }
 
         const std::size_t size = static_cast<std::size_t>(extent.width) * extent.height * 4U;
         std::vector<std::uint8_t> pixels(size);
         std::memcpy(pixels.data(), target_.mapped, size);
         stats.times.readback_ms = since(readback_start, Clock::now());
-        stats.triangles = kVertexCount / 3U;
         return pixels;
     }
 

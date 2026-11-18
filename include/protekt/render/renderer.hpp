@@ -37,6 +37,11 @@ struct FrameRequest {
     std::uint64_t seed{};
     sim::Tick tick{};
     const game::Scene* scene{};
+    /// N12: whether anyone will LOOK at the frame. True (the default) copies the finished image
+    /// into host memory and returns it, exactly as before; false records no copy, waits on none,
+    /// and returns an empty vector -- `FrameStats::completed` then says the frame still rendered.
+    /// Set false only by a caller that discards the pixels: the headless game without `--capture`.
+    bool readback{true};
 };
 
 /// N11: where `Renderer::render`'s wall-clock time went, in milliseconds, measured inside the call.
@@ -62,6 +67,12 @@ struct FrameTimes {
 struct FrameStats {
     std::uint32_t draw_calls{};
     std::uint32_t triangles{};
+    /// N12: how many `vkCmdCopyImageToBuffer` this call recorded (0 or 1). Zero when the request
+    /// asked for no readback.
+    std::uint32_t readback_copies{};
+    /// N12: the frame was rendered to completion. With `readback` false the returned vector is
+    /// empty and this is the only way to tell that from a failure.
+    bool completed{};
     FrameTimes times{};
 };
 
