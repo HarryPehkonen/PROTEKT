@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "protekt/game/atlas.hpp"
+#include "protekt/game/building_cache.hpp"
 #include "protekt/game/faction.hpp"
 #include "protekt/game/menu.hpp"
 #include "protekt/game/scene_data.hpp"
@@ -112,6 +113,28 @@ inline constexpr std::size_t kBarrelVertices = (static_cast<std::size_t>(kBarrel
 /// not lit and is left alone, and so is a vertex that is the only one at its position.
 void smooth_vertex_normals(std::vector<SceneVertex>& vertices, std::size_t first, std::size_t last,
                            float crease_degrees = kCreaseAngleDegrees);
+
+/// A run [first, last) of whole triangles in a vertex list.
+struct VertexRange {
+    std::size_t first{};
+    std::size_t last{};
+};
+
+/// The same pass, LEAVING THE `skip` RANGES ALONE (N8): their vertices are neither read nor
+/// written, so geometry whose normals are already final (a cached building) costs the pass nothing.
+/// `skip` is in list order, each range inside [first, last) and on a triangle boundary. Everything
+/// else is blended exactly as it was, and in the same order, so the result for it is the same
+/// bytes. Returns how many vertices the pass walked (the measurement `FrameTimings` reports).
+std::size_t smooth_vertex_normals(std::vector<SceneVertex>& vertices, std::size_t first,
+                                  std::size_t last, float crease_degrees,
+                                  std::span<const VertexRange> skip);
+
+/// N8: whether a unit's building mesh may be remembered (`BuildingMeshCache`): it STANDS level
+/// (`stands_level`: a deployed structure never moves, and never tilts with the ground), it is drawn
+/// by the building model (a turret aims and a deployed recycler is drawn as the hull that drove
+/// there, so neither is), and it is not being built (a site is cut to its growth every frame).
+/// Whether THIS frame draws it from the cache also needs it unmarked and unlifted.
+[[nodiscard]] bool building_is_cacheable(const sim::Unit& unit) noexcept;
 
 /// THE SKY. A dome centred on the camera every frame and fixed in ORIENTATION (north stays north
 /// as you turn), built from raw vertex colours: it is the light source, so it never goes through
@@ -1315,6 +1338,11 @@ struct FrameTimings {
     std::size_t terrain_vertices{};
     std::size_t world_vertices{};
     std::size_t total_vertices{};
+    /// N8: the buildings drawn from `SceneOptions::buildings` this frame, and their vertices ...
+    std::size_t cached_buildings{};
+    std::size_t cached_vertices{};
+    /// ... and how many vertices `smooth_vertex_normals` walked: the world's, less the cached ones.
+    std::size_t smoothed_vertices{};
 };
 
 struct SceneOptions {
@@ -1376,6 +1404,11 @@ struct SceneOptions {
     /// because the cache is a memo of a pure function and nothing else. Not owned, and ignored when
     /// its seed is not this frame's seed.
     const TerrainCache* terrain{nullptr};
+    /// N8: the standing buildings' meshes, remembered (see game/building_cache.hpp): a building
+    /// that stands is copied out of it and left out of the smoothing pass, which is a quarter of
+    /// the frame at a big base. ABSENT (null) builds every building live, as before; PRESENT the
+    /// vertices are the same bytes. Not owned; one thread.
+    const BuildingMeshCache* buildings{nullptr};
     /// MEASUREMENT ONLY (N6): when set, `build_scene` writes the wall time of each of its phases
     /// here. It reads clocks and writes this struct and nothing else -- no vertex, no decision --
     /// so a frame with it set is byte-identical to one without. Null (the default) reads no clock

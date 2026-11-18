@@ -565,7 +565,8 @@ public:
         headings_.observe(sim_);
         scene_options.headings = &headings_;
         scene_options.strides = &strides_;
-        scene_options.terrain = &terrain_cache_; // the per-seed memo the mesh reads through
+        scene_options.terrain = &terrain_cache_;    // the per-seed memo the mesh reads through
+        scene_options.buildings = &building_cache_; // standing buildings, built once (N8)
         // The red wash would tint the statistics screen; a frozen tick would hold it forever.
         scene_options.hit_flash = paused_ ? 0.0F : hit_flash_.level(sim_.tick());
         scene_options.statistics = paused_ ? &stats_ : nullptr;
@@ -656,6 +657,9 @@ private:
     /// difference between 12.1 ms and ~2.5 ms of a frame at radius 24. One cache, one seed: the
     /// seed is fixed for the session, so the cache is never stale.
     game::TerrainCache terrain_cache_;
+    /// The standing buildings' meshes (game/building_cache.hpp, N8): built the first frame each is
+    /// seen and copied out after, so they are not re-smoothed every frame. A memo; no sim state.
+    game::BuildingMeshCache building_cache_;
     bool world_map_{false};   // R toggles the map view; a view, it never touches the sim
     bool calibration_{false}; // C toggles the colour calibration view; it never touches the sim
     bool player_alive_before_{false};

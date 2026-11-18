@@ -272,3 +272,35 @@ here -- see the slice report.
    Renderer::render           mean  63.302 ms   max 135.636 ms   
    whole frame: CPU 38.144 ms + render 63.302 ms = 101.445 ms = 9.9 fps  (the loop's own wall clock per frame: mean 101.448 ms, worst 231.281 ms)
 ```
+
+
+---
+
+# The standing buildings' meshes, cached (N8) -- the first optimisation
+
+`BuildingMeshCache` (`include/protekt/game/building_cache.hpp`, `SceneOptions::buildings`): a building that stands
+is built once (the same `build_building_model` + `scale_model` calls the live path makes, then smoothed alone),
+copied out on every later frame, and its range is stepped over by `smooth_vertex_normals`. Keyed by everything the
+builders read: kind, side, `turned`, the place (`x.raw`, `y.raw`), the hull variant and the world seed. A turret
+(aims), a deployed recycler (a hull), a marked building (its colour), a site under construction (cut each frame)
+and a lifted one are drawn live. An entry a frame did not use is dropped at its end.
+
+**The frame is byte-identical**: `protekt-game --headless --no-sound --seed 42 --frames 3 --scenario <12 buildings
++ tank> --capture` is `sha256 338f2e63...97fd` before and after; `BuildingCache.*` compares every vertex of
+every cacheable kind, both sides, with `memcmp`.
+
+Same binary, `protekt-framecost bases` (Release `-O3 -DNDEBUG`, llvmpipe), cache off -> on, the x2 base (C) is
+18 buildings from the cache, 17,208 of 78,087 vertices; the pass walks 41,160 vertices instead of 58,368:
+
+| scenario | smooth_vertex_normals | build_scene | whole frame (llvmpipe) |
+|---|---|---|---|
+| 0: bare ground | 2.15 -> 2.14 ms | 4.28 -> 4.29 ms | 35.0 -> 35.5 ms |
+| A: default skirmish | 5.00 -> 4.84 ms | 8.38 -> 8.19 ms | 40.8 -> 40.0 ms |
+| B: his base | 5.90 -> 4.73 ms | 10.35 -> 8.86 ms | 53.3 -> 50.8 ms |
+| C: his base x2 | 7.49 -> 4.89 ms | 12.52 -> 9.11 ms | 58.4 -> 55.1 ms |
+
+**What this does and does not buy.** The buildings were 17.2k of the 58.4k vertices the pass walked at C, so the
+pass fell by about a third, not to zero: the rest is the terrain (15,000 vertices, about 2.1 ms by itself -- the
+whole of the bare-ground scenario's pass) and the units, shadows and effects. The cache takes about 2.6 ms off the
+pass and about 0.8 ms off "units + buildings" at C, 3.4 ms off `build_scene`. It does not reach the goal's 20 ms
+alone; the next biggest single cost in the pass is the terrain, which changes with the camera and was not touched.

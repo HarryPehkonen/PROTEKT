@@ -42,6 +42,7 @@
 #include "protekt/ai/scripted.hpp"
 #include "protekt/ai/utility.hpp"
 #include "protekt/game/atlas.hpp"
+#include "protekt/game/building_cache.hpp"
 #include "protekt/game/scene.hpp"
 #include "protekt/game/terrain_cache.hpp"
 #include "protekt/sim/commander.hpp"
@@ -157,7 +158,10 @@ template <class F> [[nodiscard]] double mean_of(const std::vector<FrameTimings>&
     return out;
 }
 
-void measure(const Base& base, protekt::render::Renderer* renderer) {
+/// N8: `use_building_cache` is whether the standing buildings' meshes come from `BuildingMeshCache`
+/// (the app's own setting); `protekt-framecost <what> --no-building-cache` measures the old path,
+/// same binary.
+void measure(const Base& base, protekt::render::Renderer* renderer, bool use_building_cache) {
     using namespace protekt;
     const sim::Sim sim = sim::Sim::create(sim::skirmish(kSeed, base.data));
     sim::UnitId viewer{};
@@ -189,6 +193,8 @@ void measure(const Base& base, protekt::render::Renderer* renderer) {
     options.camera
         = game::Camera{cx * game::kMetresPerTile, 8.0F, cy * game::kMetresPerTile, 0.0F, 0.0F};
     options.terrain = &cache;
+    const game::BuildingMeshCache building_cache;
+    options.buildings = use_building_cache ? &building_cache : nullptr;
     options.timings = &timings;
 
     std::cout << std::format("\n== {}\n   composition: {}\n   seed {}, {} player units standing "
@@ -252,6 +258,11 @@ void measure(const Base& base, protekt::render::Renderer* renderer) {
                              "once: {:.3f} ms\n",
                              scene.vertices.size(), scene.world_vertex_count,
                              samples.back().terrain_vertices, cache_build_ms);
+    std::cout << std::format("   building cache {}: {} buildings drawn from it ({} vertices), "
+                             "smooth_vertex_normals walked {} of {} vertices\n",
+                             use_building_cache ? "ON" : "off", samples.back().cached_buildings,
+                             samples.back().cached_vertices, samples.back().smoothed_vertices,
+                             scene.vertices.size());
 
 #if defined(PROTEKT_HAVE_VULKAN)
     if (renderer != nullptr) {
@@ -384,7 +395,8 @@ struct Stat {
     [[nodiscard]] double mean() const { return n > 0 ? sum / n : 0.0; }
 };
 
-void measure_battle(const Battle& battle, protekt::render::Renderer* renderer) {
+void measure_battle(const Battle& battle, protekt::render::Renderer* renderer,
+                    bool use_building_cache) {
     using namespace protekt;
     sim::Sim sim = sim::Sim::create(sim::skirmish(kSeed, battle.data));
     ai::UtilityCommander player_ai;
@@ -439,6 +451,8 @@ void measure_battle(const Battle& battle, protekt::render::Renderer* renderer) {
     options.extent = game::Extent{1280, 720};
     options.radius_tiles = kRadius;
     options.terrain = &cache;
+    const game::BuildingMeshCache building_cache;
+    options.buildings = use_building_cache ? &building_cache : nullptr;
     options.timings = &scene_t;
 
     Stat observe_s, think_s, ai_s, step_s, orders_s, move_s, steer_s, bolts_s, hit_s, fire_s,
@@ -646,6 +660,10 @@ int main(int argc, char** argv) {
     const std::string_view what = args.size() > 1 ? args[1] : "all";
     std::cout << std::format("protekt-framecost: build type {}, flags: {}\n", PROTEKT_BUILD_TYPE,
                              PROTEKT_BUILD_FLAGS);
+    const bool use_building_cache
+        = !(args.size() > 2 && std::string_view(args[2]) == "--no-building-cache");
+    std::cout << std::format("protekt-framecost: building cache {}\n",
+                             use_building_cache ? "ON" : "OFF (--no-building-cache)");
     const std::string flags = PROTEKT_BUILD_FLAGS;
     const bool optimised = flags.find("-O2") != std::string::npos
                            || flags.find("-O3") != std::string::npos
@@ -676,12 +694,12 @@ int main(int argc, char** argv) {
 
     if (what == "all" || what == "bases") {
         for (const Base& base : bases()) {
-            measure(base, renderer.get());
+            measure(base, renderer.get(), use_building_cache);
         }
     }
     if (what == "all" || what == "battle") {
         for (const Battle& battle : battles()) {
-            measure_battle(battle, renderer.get());
+            measure_battle(battle, renderer.get(), use_building_cache);
         }
     }
     return 0;

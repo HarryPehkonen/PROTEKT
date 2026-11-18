@@ -7314,9 +7314,15 @@ Vec3 terrain_base_colour() {
 
 void smooth_vertex_normals(std::vector<SceneVertex>& vertices, std::size_t first, std::size_t last,
                            float crease_degrees) {
+    smooth_vertex_normals(vertices, first, last, crease_degrees, {});
+}
+
+std::size_t smooth_vertex_normals(std::vector<SceneVertex>& vertices, std::size_t first,
+                                  std::size_t last, float crease_degrees,
+                                  std::span<const VertexRange> skip) {
     last = std::min(last, vertices.size());
     if (first >= last) {
-        return;
+        return 0;
     }
     const float cos_crease = std::cos(crease_degrees * (kPi / 180.0F));
     // One entry per LIT corner: its position, its face's unit normal and the face's area (the
@@ -7329,7 +7335,19 @@ void smooth_vertex_normals(std::vector<SceneVertex>& vertices, std::size_t first
     };
     std::vector<Corner> corners;
     corners.reserve(last - first);
+    std::size_t walked = 0;
+    std::size_t next_skip = 0;
     for (std::size_t i = first; i + 2 < last; i += 3) {
+        // A skipped range is stepped over whole (N8): its vertices are final already, and nothing
+        // here reads or writes them. Corners keep their list order, so the rest sums as it did.
+        while (next_skip < skip.size() && skip[next_skip].last <= i) {
+            ++next_skip;
+        }
+        if (next_skip < skip.size() && i >= skip[next_skip].first) {
+            i = skip[next_skip].last - 3;
+            continue;
+        }
+        walked += 3;
         const Vec3& a = vertices.at(i).position;
         const Vec3& b = vertices.at(i + 1).position;
         const Vec3& c = vertices.at(i + 2).position;
@@ -7419,6 +7437,16 @@ void smooth_vertex_normals(std::vector<SceneVertex>& vertices, std::size_t first
     for (std::size_t i = 0; i < corners.size(); ++i) {
         vertices.at(corners.at(i).index).normal = smoothed.at(i);
     }
+    return walked;
+}
+
+bool building_is_cacheable(const sim::Unit& unit) noexcept {
+    // `stands_level` says what never tilts. Of those, a turret AIMS (its gun turns every frame) and
+    // a deployed recycler is drawn as the hull that drove there (`build_recycler`, which reads a
+    // heading): neither is drawn by `build_building_model`, so neither is a fixed mesh. A site is
+    // cut to its growth every frame.
+    return stands_level(unit.kind) && !sim::is_turret(unit.kind)
+           && unit.kind != sim::UnitKind::DeployedRecycler && !sim::under_construction(unit);
 }
 
 namespace {
@@ -7443,6 +7471,36 @@ void tilt_to_ground(std::vector<SceneVertex>& out, std::size_t first, const sim:
         out.at(i).position = tilt.apply(out.at(i).position);
         out.at(i).normal = tilt.turn(out.at(i).normal);
     }
+}
+
+/// A standing building's mesh AS DRAWN, built the way `build_scene` builds any building (the one
+/// dispatch, `build_building_model`, then the one scale) and smoothed on its own. This is what the
+/// cache remembers: the same two calls the live path makes, so the cached bytes cannot drift from
+/// the drawn ones. Unmarked and on the ground -- the only state the cache serves.
+std::vector<SceneVertex> standing_building_mesh(std::uint64_t seed, const sim::Unit& unit) {
+    std::vector<SceneVertex> mesh;
+    build_building_model(mesh, seed, unit, Mark::None, 0.0F, false);
+    if (sim::is_scaled_model(unit)) {
+        scale_model(
+            mesh, 0,
+            static_cast<float>(unit.x.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile,
+            static_cast<float>(unit.y.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile,
+            kBuildingModelScale);
+    }
+    smooth_vertex_normals(mesh, 0, mesh.size());
+    return mesh;
+}
+
+/// What a standing building's mesh is keyed by (see building_cache.hpp): every input the builders
+/// read.
+BuildingMeshKey mesh_key(std::uint64_t seed, const sim::Unit& unit) {
+    return BuildingMeshKey{seed,
+                           unit.x.raw,
+                           unit.y.raw,
+                           static_cast<std::uint32_t>(hull_variant(seed, unit.id.value)),
+                           static_cast<std::uint8_t>(unit.kind),
+                           static_cast<std::uint8_t>(unit.side),
+                           unit.turned};
 }
 
 /// THE SITES IN VIEW, for `build_terrain`: every pool (when the pools layer is on) and every living
@@ -7512,6 +7570,9 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
     lap(&FrameTimings::sky_and_shadows_ms);
 
     std::vector<SiteCut> site_cuts; // the sites drawn this frame, and the height each was cut at
+    // N8: the runs of the list that came out of the building cache. Their normals are final, so
+    // the smoothing pass steps over them.
+    std::vector<VertexRange> cached_runs;
     for (const sim::Unit& unit : sim.units()) {
         // Only draw units the player could pick: inside the terrain that was actually meshed (a
         // unit far outside the rendered radius has no ground to stand on in this scene) and not
@@ -7531,6 +7592,20 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
             const std::size_t body_first = scene.vertices.size();
             const bool hovering = options.hover.has_value() && options.hover->unit == unit.id;
             const float lift_z = hovering ? options.hover->z : 0.0F;
+            if (options.buildings != nullptr && mark == Mark::None && !hovering
+                && building_is_cacheable(unit)) {
+                // A building that stands, unmarked: copied out of the cache, built the first time
+                // it is seen. Nothing about it can have changed since -- the key is every input.
+                const BuildingMeshKey key = mesh_key(options.seed, unit);
+                const std::vector<SceneVertex>* mesh = options.buildings->find(key);
+                if (mesh == nullptr) {
+                    mesh = &options.buildings->insert(key,
+                                                      standing_building_mesh(options.seed, unit));
+                }
+                scene.vertices.insert(scene.vertices.end(), mesh->begin(), mesh->end());
+                cached_runs.push_back(VertexRange{body_first, scene.vertices.size()});
+                continue;
+            }
             const bool faced = options.facing.has_value() && options.facing->unit == unit.id;
             // The hull's heading, and -- for every gun but the driven one -- the turret turned
             // from it to where `gun_yaw` says the gun points. The driven unit's turret is the
@@ -7641,6 +7716,9 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
         }
     }
 
+    if (options.buildings != nullptr) {
+        options.buildings->end_frame(); // what this frame did not draw is gone: it is not held
+    }
     lap(&FrameTimings::units_ms);
     append_projectiles(scene.vertices, options, sim);
     append_landing_marks(scene.vertices, options, sim.tick());
@@ -7664,7 +7742,8 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
     // units have been turned, tilted and scaled into place, so "faces that share a position" is
     // judged on the final geometry. The sky and the HUD carry no normal and are not touched.
     lap(&FrameTimings::world_effects_ms);
-    smooth_vertex_normals(scene.vertices, 0, scene.vertices.size());
+    const std::size_t smoothed_vertices = smooth_vertex_normals(
+        scene.vertices, 0, scene.vertices.size(), kCreaseAngleDegrees, cached_runs);
     lap(&FrameTimings::smooth_ms);
     fog_range(scene.vertices, 0, terrain_end, options.camera, options.radius_tiles);
     fog_world(scene.vertices, sky_end, scene.vertices.size(), emissive, options.camera,
@@ -7717,6 +7796,12 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
         options.timings->terrain_vertices = terrain_end;
         options.timings->world_vertices = scene.world_vertex_count;
         options.timings->total_vertices = scene.vertices.size();
+        options.timings->cached_buildings = cached_runs.size();
+        options.timings->smoothed_vertices = smoothed_vertices;
+        options.timings->cached_vertices = 0;
+        for (const VertexRange& run : cached_runs) {
+            options.timings->cached_vertices += run.last - run.first;
+        }
     }
     return scene;
 }
