@@ -7449,7 +7449,85 @@ bool building_is_cacheable(const sim::Unit& unit) noexcept {
            && unit.kind != sim::UnitKind::DeployedRecycler && !sim::under_construction(unit);
 }
 
+bool vehicle_is_cacheable(const sim::Unit& unit) noexcept {
+    // A vehicle is what does not stand level: it tilts with the ground, and the tilt is remembered.
+    // Nothing is excluded for a per-unit difference: the builders read only what the key names.
+    return !stands_level(unit.kind) && !sim::under_construction(unit);
+}
+
 namespace {
+
+/// ONE VEHICLE OR BUILDING, built level in its own frame (no scale, no cut, no tilt): the dispatch
+/// from a unit's kind to its builder. THE one place the frame decides which builder draws what --
+/// the live path and the vehicle cache (N10) both call it, so a cached mesh cannot be built any
+/// other way than the drawn one.
+void build_unit_body(std::vector<SceneVertex>& out, const SceneOptions& options,
+                     const sim::Unit& unit, Mark mark, float lift_z, bool hovering, float heading,
+                     float turret, float pitch) {
+    // THE ONE DECISION the frame makes about a faction, for the three kinds the aliens draw their
+    // own way (the Harvester, the Guardian, the Hauler): by the unit's FACTION, never its side.
+    const bool alien = faction_of(options.factions, unit.side) == Faction::Alien;
+    if (unit.kind == sim::UnitKind::HoverTank) {
+        build_hover_tank(out, options.seed, unit, mark, lift_z, hovering, heading, turret, pitch);
+    } else if (unit.kind == sim::UnitKind::MortarBike) {
+        build_mortar_bike(out, options.seed, unit, mark, lift_z, hovering, heading,
+                          heading + turret);
+    } else if (unit.kind == sim::UnitKind::RocketTank) {
+        build_rocket_tank(out, options.seed, unit, mark, lift_z, hovering, heading, turret);
+    } else if (unit.kind == sim::UnitKind::AssaultTank) {
+        build_assault_tank(out, options.seed, unit, mark, lift_z, hovering, heading, turret, pitch);
+    } else if (unit.kind == sim::UnitKind::Walker) {
+        build_walker(out, options.seed, unit, mark, lift_z, hovering, heading, turret, pitch,
+                     options.strides != nullptr ? options.strides->of(unit) : std::nullopt);
+    } else if (unit.kind == sim::UnitKind::Apc) {
+        build_apc(out, options.seed, unit, mark, lift_z, hovering, heading, turret);
+    } else if (unit.kind == sim::UnitKind::Bomber) {
+        build_bomber(out, options.seed, unit, mark, lift_z, hovering, heading);
+    } else if (alien && unit.kind == sim::UnitKind::Tug) {
+        build_hauler(out, options.seed, unit, mark, lift_z, hovering, heading);
+    } else if (unit.kind == sim::UnitKind::Tug || unit.kind == sim::UnitKind::Constructor
+               || unit.kind == sim::UnitKind::ServiceTruck
+               || unit.kind == sim::UnitKind::ServicePod) {
+        build_support_vehicle(out, options.seed, unit, mark, lift_z, hovering, heading);
+    } else if (alien && sim::is_turret(unit.kind)) {
+        build_guardian(out, options.seed, unit, mark, lift_z, hovering, heading, heading + turret,
+                       pitch);
+    } else if (sim::is_turret(unit.kind)) {
+        // Before the tank branch below: a driven turret is FACED too, and it is built by
+        // the SAME function as one nobody drives -- the player's pitch reaches the barrel
+        // (`pitch` is 0 for every gun but the driven one), the mesh is otherwise the same.
+        build_defense_turret(out, options.seed, unit, mark, lift_z, hovering, heading,
+                             heading + turret, pitch);
+    } else if (unit.kind == sim::UnitKind::Scavenger) {
+        // Before the tank branch below: a driven scavenger is FACED too, and it must not
+        // borrow the tank's turret. Nothing on a scavenger aims. THE one place a kind's
+        // silhouette follows the unit's FACTION (never its side): the human hauler or the
+        // alien harvester, the same kind either way.
+        if (alien) {
+            build_harvester(out, options.seed, unit, mark, lift_z, hovering, heading,
+                            options.strides != nullptr ? options.strides->of(unit) : std::nullopt);
+        } else {
+            build_scavenger(out, options.seed, unit, mark, lift_z, hovering, heading);
+        }
+    } else if (unit.kind == sim::UnitKind::Recycler
+               || unit.kind == sim::UnitKind::DeployedRecycler) {
+        // Beside the scavenger's, and before the tank branch: a driven recycler is FACED
+        // too, and must neither borrow the tank's turret nor fall through to a factory. A
+        // DEPLOYED one is drawn as the hull that drove there, parked on its site: the
+        // building has no look of its own yet, and DEPLOY adds no art.
+        build_recycler(out, options.seed, unit, mark, lift_z, hovering, heading);
+    } else if (unit.kind == sim::UnitKind::Tank || unit.kind == sim::UnitKind::Scout
+               || unit.kind == sim::UnitKind::MslScout) {
+        // The three kinds built by the tank's builder, each from its own shape. Tested by
+        // KIND, never by `faced`: a driven kind with no shape of its own used to be built
+        // here with the tank's hand-built hull, and every kind has a builder now.
+        build_facing_tank(out, options.seed, unit, mark, lift_z, hovering, heading, turret, pitch);
+    } else {
+        // Every building (and the factory fallback): ONE function, shared with the
+        // placement ghost, so the ghost can never be a second copy of the shape.
+        build_building_model(out, options.seed, unit, mark, lift_z, hovering);
+    }
+}
 
 /// Turns the vertices from `first` on (one vehicle, just built level) so its up is the ground's
 /// normal under it. The turn is about the point on the ground below the unit's centre, `pivot_y`
@@ -7501,6 +7579,49 @@ BuildingMeshKey mesh_key(std::uint64_t seed, const sim::Unit& unit) {
                            static_cast<std::uint8_t>(unit.kind),
                            static_cast<std::uint8_t>(unit.side),
                            unit.turned};
+}
+
+/// What a vehicle's mesh is keyed by (see building_cache.hpp): every input the builders read, the
+/// angles bit for bit. Only the two kinds with legs (the Walker, and the Scavenger when it is the
+/// alien Harvester) read a stride; for the rest it is left out of the key.
+VehicleMeshKey vehicle_key(const SceneOptions& options, const sim::Unit& unit, float heading,
+                           float turret) {
+    const bool alien = faction_of(options.factions, unit.side) == Faction::Alien;
+    const bool legged
+        = unit.kind == sim::UnitKind::Walker || (alien && unit.kind == sim::UnitKind::Scavenger);
+    const std::optional<float> stride
+        = legged && options.strides != nullptr ? options.strides->of(unit) : std::nullopt;
+    return VehicleMeshKey{options.seed,
+                          unit.x.raw,
+                          unit.y.raw,
+                          static_cast<std::uint32_t>(hull_variant(options.seed, unit.id.value)),
+                          std::bit_cast<std::uint32_t>(heading),
+                          std::bit_cast<std::uint32_t>(turret),
+                          stride.has_value() ? std::bit_cast<std::uint32_t>(*stride) : 0U,
+                          static_cast<std::uint8_t>(unit.kind),
+                          static_cast<std::uint8_t>(unit.side),
+                          alien,
+                          stride.has_value()};
+}
+
+/// A vehicle's mesh AS DRAWN: the live path's own steps in the live path's own order (the one
+/// dispatch, the scale a scaled model gets, the tilt to the ground), unmarked and on the ground,
+/// then smoothed on its own. What the cache remembers.
+std::vector<SceneVertex> vehicle_mesh(const SceneOptions& options, const sim::Unit& unit,
+                                      float heading, float turret) {
+    std::vector<SceneVertex> mesh;
+    build_unit_body(mesh, options, unit, Mark::None, 0.0F, false, heading, turret, 0.0F);
+    if (sim::is_scaled_model(unit)) {
+        scale_model(
+            mesh, 0,
+            static_cast<float>(unit.x.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile,
+            static_cast<float>(unit.y.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile,
+            kBuildingModelScale);
+    }
+    tilt_to_ground(mesh, 0, unit, ground_metres(options.seed, unit.x, unit.y),
+                   ground_normal(options.seed, unit.x, unit.y));
+    smooth_vertex_normals(mesh, 0, mesh.size());
+    return mesh;
 }
 
 /// THE SITES IN VIEW, for `build_terrain`: every pool (when the pools layer is on) and every living
@@ -7573,6 +7694,8 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
     // N8: the runs of the list that came out of the building cache. Their normals are final, so
     // the smoothing pass steps over them.
     std::vector<VertexRange> cached_runs;
+    std::size_t cached_buildings = 0;
+    std::size_t cached_vehicles = 0;
     for (const sim::Unit& unit : sim.units()) {
         // Only draw units the player could pick: inside the terrain that was actually meshed (a
         // unit far outside the rendered radius has no ground to stand on in this scene) and not
@@ -7604,6 +7727,7 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
                 }
                 scene.vertices.insert(scene.vertices.end(), mesh->begin(), mesh->end());
                 cached_runs.push_back(VertexRange{body_first, scene.vertices.size()});
+                ++cached_buildings;
                 continue;
             }
             const bool faced = options.facing.has_value() && options.facing->unit == unit.id;
@@ -7618,79 +7742,23 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
                 = faced ? options.facing->turret : gun_yaw(sim, unit, heading) - heading;
             // The barrel's elevation is the driven unit's alone; every other gun is level.
             const float pitch = faced ? options.facing->pitch : 0.0F;
-            // THE ONE DECISION the frame makes about a faction, for the three kinds the aliens
-            // draw their own way (the Harvester, the Guardian, the Hauler): by the unit's FACTION,
-            // never its side.
-            const bool alien = faction_of(options.factions, unit.side) == Faction::Alien;
-            if (unit.kind == sim::UnitKind::HoverTank) {
-                build_hover_tank(scene.vertices, options.seed, unit, mark, lift_z, hovering,
-                                 heading, turret, pitch);
-            } else if (unit.kind == sim::UnitKind::MortarBike) {
-                build_mortar_bike(scene.vertices, options.seed, unit, mark, lift_z, hovering,
-                                  heading, heading + turret);
-            } else if (unit.kind == sim::UnitKind::RocketTank) {
-                build_rocket_tank(scene.vertices, options.seed, unit, mark, lift_z, hovering,
-                                  heading, turret);
-            } else if (unit.kind == sim::UnitKind::AssaultTank) {
-                build_assault_tank(scene.vertices, options.seed, unit, mark, lift_z, hovering,
-                                   heading, turret, pitch);
-            } else if (unit.kind == sim::UnitKind::Walker) {
-                build_walker(scene.vertices, options.seed, unit, mark, lift_z, hovering, heading,
-                             turret, pitch,
-                             options.strides != nullptr ? options.strides->of(unit) : std::nullopt);
-            } else if (unit.kind == sim::UnitKind::Apc) {
-                build_apc(scene.vertices, options.seed, unit, mark, lift_z, hovering, heading,
-                          turret);
-            } else if (unit.kind == sim::UnitKind::Bomber) {
-                build_bomber(scene.vertices, options.seed, unit, mark, lift_z, hovering, heading);
-            } else if (alien && unit.kind == sim::UnitKind::Tug) {
-                build_hauler(scene.vertices, options.seed, unit, mark, lift_z, hovering, heading);
-            } else if (unit.kind == sim::UnitKind::Tug || unit.kind == sim::UnitKind::Constructor
-                       || unit.kind == sim::UnitKind::ServiceTruck
-                       || unit.kind == sim::UnitKind::ServicePod) {
-                build_support_vehicle(scene.vertices, options.seed, unit, mark, lift_z, hovering,
-                                      heading);
-            } else if (alien && sim::is_turret(unit.kind)) {
-                build_guardian(scene.vertices, options.seed, unit, mark, lift_z, hovering, heading,
-                               heading + turret, pitch);
-            } else if (sim::is_turret(unit.kind)) {
-                // Before the tank branch below: a driven turret is FACED too, and it is built by
-                // the SAME function as one nobody drives -- the player's pitch reaches the barrel
-                // (`pitch` is 0 for every gun but the driven one), the mesh is otherwise the same.
-                build_defense_turret(scene.vertices, options.seed, unit, mark, lift_z, hovering,
-                                     heading, heading + turret, pitch);
-            } else if (unit.kind == sim::UnitKind::Scavenger) {
-                // Before the tank branch below: a driven scavenger is FACED too, and it must not
-                // borrow the tank's turret. Nothing on a scavenger aims. THE one place a kind's
-                // silhouette follows the unit's FACTION (never its side): the human hauler or the
-                // alien harvester, the same kind either way.
-                if (alien) {
-                    build_harvester(
-                        scene.vertices, options.seed, unit, mark, lift_z, hovering, heading,
-                        options.strides != nullptr ? options.strides->of(unit) : std::nullopt);
-                } else {
-                    build_scavenger(scene.vertices, options.seed, unit, mark, lift_z, hovering,
-                                    heading);
+            if (options.buildings != nullptr && mark == Mark::None && !hovering && !faced
+                && vehicle_is_cacheable(unit)) {
+                // N10: a vehicle, unmarked and not driven: its mesh is the live path's own output
+                // for exactly this pose, held while it holds still (see building_cache.hpp).
+                const VehicleMeshKey key = vehicle_key(options, unit, heading, turret);
+                const std::vector<SceneVertex>* mesh = options.buildings->find(key);
+                if (mesh == nullptr) {
+                    mesh = &options.buildings->insert(key,
+                                                      vehicle_mesh(options, unit, heading, turret));
                 }
-            } else if (unit.kind == sim::UnitKind::Recycler
-                       || unit.kind == sim::UnitKind::DeployedRecycler) {
-                // Beside the scavenger's, and before the tank branch: a driven recycler is FACED
-                // too, and must neither borrow the tank's turret nor fall through to a factory. A
-                // DEPLOYED one is drawn as the hull that drove there, parked on its site: the
-                // building has no look of its own yet, and DEPLOY adds no art.
-                build_recycler(scene.vertices, options.seed, unit, mark, lift_z, hovering, heading);
-            } else if (unit.kind == sim::UnitKind::Tank || unit.kind == sim::UnitKind::Scout
-                       || unit.kind == sim::UnitKind::MslScout) {
-                // The three kinds built by the tank's builder, each from its own shape. Tested by
-                // KIND, never by `faced`: a driven kind with no shape of its own used to be built
-                // here with the tank's hand-built hull, and every kind has a builder now.
-                build_facing_tank(scene.vertices, options.seed, unit, mark, lift_z, hovering,
-                                  heading, turret, pitch);
-            } else {
-                // Every building (and the factory fallback): ONE function, shared with the
-                // placement ghost, so the ghost can never be a second copy of the shape.
-                build_building_model(scene.vertices, options.seed, unit, mark, lift_z, hovering);
+                scene.vertices.insert(scene.vertices.end(), mesh->begin(), mesh->end());
+                cached_runs.push_back(VertexRange{body_first, scene.vertices.size()});
+                ++cached_vehicles;
+                continue;
             }
+            build_unit_body(scene.vertices, options, unit, mark, lift_z, hovering, heading, turret,
+                            pitch);
             if (sim::is_scaled_model(unit)) {
                 // L1: one scale for every placed building's model, applied to the shape as built
                 // so the authored numbers stay readable; the cut below then reads the scaled shape.
@@ -7796,7 +7864,8 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
         options.timings->terrain_vertices = terrain_end;
         options.timings->world_vertices = scene.world_vertex_count;
         options.timings->total_vertices = scene.vertices.size();
-        options.timings->cached_buildings = cached_runs.size();
+        options.timings->cached_buildings = cached_buildings;
+        options.timings->cached_vehicles = cached_vehicles;
         options.timings->smoothed_vertices = smoothed_vertices;
         options.timings->cached_vertices = 0;
         for (const VertexRange& run : cached_runs) {

@@ -260,11 +260,11 @@ void measure(const Base& base, protekt::render::Renderer* renderer, bool use_bui
                              "once: {:.3f} ms\n",
                              scene.vertices.size(), scene.world_vertex_count,
                              samples.back().terrain_vertices, cache_build_ms);
-    std::cout << std::format("   building cache {}: {} buildings drawn from it ({} vertices), "
-                             "smooth_vertex_normals walked {} of {} vertices\n",
+    std::cout << std::format("   mesh cache {}: {} buildings + {} vehicles drawn from it "
+                             "({} vertices), smooth_vertex_normals walked {} of {} vertices\n",
                              use_building_cache ? "ON" : "off", samples.back().cached_buildings,
-                             samples.back().cached_vertices, samples.back().smoothed_vertices,
-                             scene.vertices.size());
+                             samples.back().cached_vehicles, samples.back().cached_vertices,
+                             samples.back().smoothed_vertices, scene.vertices.size());
 
 #if defined(PROTEKT_HAVE_VULKAN)
     if (renderer != nullptr) {
@@ -625,6 +625,11 @@ void measure_battle(const Battle& battle, protekt::render::Renderer* renderer,
                              orders_s.mean() + move_s.mean() + bolts_s.mean() + fire_s.mean()
                                  + rest_s.mean(),
                              inner_gap);
+    std::cout << std::format(
+        "   mesh cache {}: last frame {} buildings + {} vehicles drawn from it ({} vertices); "
+        "smooth_vertex_normals walked {} of {} vertices\n",
+        use_building_cache ? "ON" : "off", scene_t.cached_buildings, scene_t.cached_vehicles,
+        scene_t.cached_vertices, scene_t.smoothed_vertices, scene.vertices.size());
     std::cout << "   -- the scene (game::build_scene) --\n";
     row("build_scene", scene_s, "(timed outside)");
     row("  units + buildings", units_scene, "");

@@ -342,3 +342,24 @@ On seed 42, every frame from tick ~407-424 differs (2571 / 2575 / 2593 of 3000 a
 the shots fired; shots 311 -> 406 (S), 471 -> 591 (M), 616 -> 368 (H); kills 19 -> 28, 36 -> 46, 80 -> 76; first impact
 437 -> 452, 434 -> 443, 413 -> 420. The WINNER of an individual fight is chaotic in the timing and does change on a
 given seed (S 42: player 8 vs 2 -> 0 vs 10; H 42: 0 vs 30 -> 23 vs 2); in aggregate the fights are alike.
+
+## N10: the same cache, for vehicles
+
+`BuildingMeshCache` has a second table, keyed by `VehicleMeshKey`: seed, place (`x.raw`, `y.raw`), hull variant, kind,
+side, faction (`alien`), the hull heading and the turret bearing BIT FOR BIT, and the walk phase for the two legged
+kinds. An entry is the live path's own output for that pose (`build_unit_body`, the one dispatch both paths call, then
+scale and tilt as the live path does, then smoothed alone), and its range is stepped over by `smooth_vertex_normals`.
+Every vehicle kind (16) is cacheable: the builders read only id, kind, side and place, so no kind has per-unit vertices
+the key does not name. Drawn live: a marked vehicle, a lifted one, the DRIVEN one, and a site.
+
+**Not a template plus a transform.** The brief asked for one smoothed template per (kind, faction, side), moved by
+translation, yaw and tilt. That is not byte-exact (rotation about each part's pivot, then the ground tilt, in floats;
+and the smoothed normals are weighted sums that change in the last bits once faces turn), and this project compares
+frames byte for byte. So the key carries the pose: a vehicle that holds still is a hit, one that MOVES or whose gun
+turns is a miss every frame (built and smoothed alone, the same work the pass did, so the smoothing time MOVES from
+"smooth_vertex_normals" to "units + buildings" for those).
+
+**Byte-identical**: `protekt-game --headless --no-sound --seed 42 --frames 200 --scenario mix.toml --capture` (3 Tank,
+2 Hover, 2 Mortar, 2 Rocket, 2 Scavenger, Recycler, 2 Scout, 2 Turret, Factory) is
+`sha256 032664f8...456f` before and after; the same with `--seed 7 --alien` is `sha256 0cf59b3d...dae6` before and after
+(game hashes 14475664809902220616 and 5296562310756344311).

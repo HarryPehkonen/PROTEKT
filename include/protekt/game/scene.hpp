@@ -136,6 +136,15 @@ std::size_t smooth_vertex_normals(std::vector<SceneVertex>& vertices, std::size_
 /// Whether THIS frame draws it from the cache also needs it unmarked and unlifted.
 [[nodiscard]] bool building_is_cacheable(const sim::Unit& unit) noexcept;
 
+/// N10: whether a unit's VEHICLE mesh may be remembered (`BuildingMeshCache`, its vehicle table):
+/// it does not stand level (a vehicle tilts with the ground, so the tilt is part of what is
+/// remembered), it is not drawn by the building model (so it is never a scaled model) and it is
+/// not a site being built. Every vehicle kind qualifies: the builders read the unit's id, kind,
+/// side and place and nothing that differs per unit (no health, no damage decals), and the rest of
+/// their inputs are in the key. Whether THIS frame draws it from the cache also needs it unmarked,
+/// unlifted and not the driven unit.
+[[nodiscard]] bool vehicle_is_cacheable(const sim::Unit& unit) noexcept;
+
 /// THE SKY. A dome centred on the camera every frame and fixed in ORIENTATION (north stays north
 /// as you turn), built from raw vertex colours: it is the light source, so it never goes through
 /// the shaded prism emitter. `kSkyRings` rings of `kSkySegments` vertices climb from the SKIRT
@@ -1340,6 +1349,8 @@ struct FrameTimings {
     std::size_t total_vertices{};
     /// N8: the buildings drawn from `SceneOptions::buildings` this frame, and their vertices ...
     std::size_t cached_buildings{};
+    /// N10: the vehicles drawn from the same cache this frame; `cached_vertices` counts both.
+    std::size_t cached_vehicles{};
     std::size_t cached_vertices{};
     /// ... and how many vertices `smooth_vertex_normals` walked: the world's, less the cached ones.
     std::size_t smoothed_vertices{};
