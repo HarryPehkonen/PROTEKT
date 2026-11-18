@@ -20,6 +20,7 @@
 #include <array>
 #include <atomic>
 #include <cctype>
+#include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -1378,6 +1379,13 @@ private:
         static_assert(sizeof(Vertex) == sizeof(game::SceneVertex),
                       "a caller-supplied Scene's vertices are uploaded byte-for-byte as Vertex");
 
+        // N11: the phase clock for `FrameStats::times`.
+        using Clock = std::chrono::steady_clock;
+        const auto since = [](Clock::time_point from, Clock::time_point to) {
+            return std::chrono::duration<double, std::milli>(to - from).count();
+        };
+        const Clock::time_point upload_start = Clock::now();
+
         std::uint32_t vertex_count = 0;
         std::uint32_t world_count = 0; ///< the leading vertices drawn before the filter
         Mat4 mvp{};
@@ -1385,6 +1393,9 @@ private:
             vertex_count = static_cast<std::uint32_t>(request.scene->vertices.size());
             if (vertex_count > 0) {
                 std::string resize_error;
+                stats.times.vertex_buffer_grew
+                    = sizeof(Vertex) * vertex_count > vertex_capacity_bytes_;
+                stats.times.uploaded_bytes = sizeof(Vertex) * vertex_count;
                 if (!ensure_vertex_capacity(sizeof(Vertex) * vertex_count, resize_error)) {
                     std::cerr << "protekt render: " << resize_error << '\n';
                     return {};
@@ -1403,6 +1414,8 @@ private:
             mvp = view_projection(extent);
             world_count = vertex_count;
         }
+        const Clock::time_point record_start = Clock::now();
+        stats.times.upload_ms = since(upload_start, record_start);
 
         vkResetCommandBuffer(cmd_, 0);
         VkCommandBufferBeginInfo begin{};
@@ -1500,15 +1513,24 @@ private:
         submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
         submit.commandBufferCount = 1;
         submit.pCommandBuffers = &cmd_;
+        const Clock::time_point submit_start = Clock::now();
+        stats.times.record_ms = since(record_start, submit_start);
         vkResetFences(device_, 1, &fence_);
-        if (vkQueueSubmit(queue_, 1, &submit, fence_) != VK_SUCCESS
-            || vkWaitForFences(device_, 1, &fence_, VK_TRUE, UINT64_MAX) != VK_SUCCESS) {
+        if (vkQueueSubmit(queue_, 1, &submit, fence_) != VK_SUCCESS) {
             return {};
         }
+        const Clock::time_point wait_start = Clock::now();
+        stats.times.submit_ms = since(submit_start, wait_start);
+        if (vkWaitForFences(device_, 1, &fence_, VK_TRUE, UINT64_MAX) != VK_SUCCESS) {
+            return {};
+        }
+        const Clock::time_point readback_start = Clock::now();
+        stats.times.wait_ms = since(wait_start, readback_start);
 
         const std::size_t size = static_cast<std::size_t>(extent.width) * extent.height * 4U;
         std::vector<std::uint8_t> pixels(size);
         std::memcpy(pixels.data(), target_.mapped, size);
+        stats.times.readback_ms = since(readback_start, Clock::now());
         stats.triangles = kVertexCount / 3U;
         return pixels;
     }

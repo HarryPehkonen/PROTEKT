@@ -39,9 +39,30 @@ struct FrameRequest {
     const game::Scene* scene{};
 };
 
+/// N11: where `Renderer::render`'s wall-clock time went, in milliseconds, measured inside the call.
+/// A measurement only: nothing reads it to decide anything.
+///   upload    growing the vertex buffer if it was too small, then the memcpy into it
+///   record    building the command buffer (host side, nothing has run on the GPU yet)
+///   submit    `vkQueueSubmit`
+///   wait      `vkWaitForFences`: the GPU executing the frame (both passes, the filter, the copy of
+///             the image into the readback buffer) plus whatever latency the driver adds
+///   readback  allocating the result vector and copying the frame out of the mapped buffer
+/// There is no present here: this is the headless renderer. The window blits `render`'s result to
+/// its swapchain AFTER `render` returns, outside these numbers.
+struct FrameTimes {
+    double upload_ms{};
+    double record_ms{};
+    double submit_ms{};
+    double wait_ms{};
+    double readback_ms{};
+    bool vertex_buffer_grew{};
+    std::uint64_t uploaded_bytes{};
+};
+
 struct FrameStats {
     std::uint32_t draw_calls{};
     std::uint32_t triangles{};
+    FrameTimes times{};
 };
 
 class Renderer {

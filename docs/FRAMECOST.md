@@ -363,3 +363,167 @@ turns is a miss every frame (built and smoothed alone, the same work the pass di
 2 Hover, 2 Mortar, 2 Rocket, 2 Scavenger, Recycler, 2 Scout, 2 Turret, Factory) is
 `sha256 032664f8...456f` before and after; the same with `--seed 7 --alien` is `sha256 0cf59b3d...dae6` before and after
 (game hashes 14475664809902220616 and 5296562310756344311).
+
+## N11: the emission and the render, split -- and the floor as a LINE
+
+Measurement only: nothing is optimised, no recorded battle moves. Recorded 2026-11-18, Release
+`-O3 -DNDEBUG`, seed 42, 1280x720, radius 24, **renderer = `llvmpipe (LLVM 19.1.7, 256 bits)`, a
+SOFTWARE rasteriser: this machine has no GPU (`/dev/dri` has a render node, `devices()` lists llvmpipe
+only). The GTX 1060 figures quoted in the N11 brief were NOT measurable here.** Every number below is
+this machine's. The CPU-side ones (the emission) have the same shape on any box; the render ones are
+llvmpipe's and say nothing about a GTX 1060's absolute cost.
+
+Tool: `protekt-framecost floor` (new; also part of `all`) and the new rows of `protekt-framecost battle`.
+Hooks: `FrameStats::times` (renderer.hpp, filled by `Renderer::render`), and the N11 fields of
+`FrameTimings` (scene.hpp). Raw output of both runs is pasted below.
+
+### The floor, as a line (`protekt-framecost floor`)
+
+Triangles are drawn from base C's real world (every k-th triangle, repeated past the end), 10 warm-up
+and 60 counted frames per point, run ascending and then descending to catch an ordering effect (there
+is none: the two runs agree to 0.3 ms).
+
+| triangles | mean ms | median | min | upload | record | submit | wait (GPU) | readback |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 0 | 14.433 | 14.228 | 14.095 | 0.000 | 0.031 | 0.007 | 13.811 | 0.581 |
+| 1 | 14.699 | 14.482 | 14.243 | 0.001 | 0.035 | 0.008 | 14.057 | 0.597 |
+| 100 | 14.837 | 14.637 | 14.456 | 0.002 | 0.032 | 0.023 | 14.193 | 0.584 |
+| 1,000 | 17.787 | 17.575 | 17.180 | 0.017 | 0.032 | 0.008 | 17.143 | 0.585 |
+| 10,000 | 35.745 | 35.318 | 34.613 | 0.165 | 0.034 | 0.010 | 34.955 | 0.579 |
+| 50,000 | 63.634 | 59.427 | 57.041 | 0.784 | 0.037 | 0.014 | 62.214 | 0.583 |
+
+Least squares over all six points: **intercept 17.0 ms, slope 0.97 ms per 1,000 triangles (~323 ns per
+vertex), R^2 0.95** (descending run: 17.0 ms, 0.92, 0.94). R^2 is only 0.95 because the cost is NOT
+linear: 0 -> 100 triangles adds 0.4 ms, 100 -> 1,000 adds 3.0 ms, 1,000 -> 10,000 adds 18 ms (2.0 ms per
+1,000), 10,000 -> 50,000 adds 28 ms (0.7 ms per 1,000). A line through that is a summary, not a law:
+the pixel coverage of a triangle (terrain triangles are big, model triangles small) matters more than
+the count. The directly MEASURED fixed cost is the 0-triangle row, **14.4 ms**; the fit's 17.0 is
+higher only because the line is pulled up by the curve's bend.
+
+**The old 15.3 ms "floor" was the real fixed cost, not a mis-timed call and not noise.** The old row
+timed one triangle (in the HUD pass) and read 14.5-15.3 ms across runs; the 1-triangle row here is
+14.7 ms and the empty frame 14.4 ms. It was correctly measured, and "one triangle" was an accurate
+description of what it measured; what it could not do was say that the cost is fixed and not
+per-vertex. The line does. On llvmpipe the fixed part is almost all `wait`: 13.8 of the 14.4 ms is the
+frame's two full-screen passes (clear, the FXAA filter) and the copy into the readback buffer being
+rasterised on the CPU. `readback` (the 3.7 MB result vector allocated, zero-filled, copied) is a steady
+0.58 ms; `upload` is 5 ns per vertex (0.78 ms at 150,000 vertices); `record` and `submit` are 0.04 ms
+together. **What this cannot say: how much of the GPU-side fixed cost is the clear, the filter or the
+copy** -- there are no GPU timestamp queries, and on a real GPU those full-screen passes cost a small
+fraction of what the software rasteriser charges.
+
+### The emission, inside `build_scene` (`protekt-framecost battle`, H: heavy battle)
+
+Same scenario as the N10 table (115,023 vertices in the last frame, which matches the brief's count
+exactly, so the same fight). This machine's `build_scene` is 17.2 ms against the brief's 14.1: slower
+box, same proportions.
+
+| phase of H's frame | mean ms | note |
+|---|---:|---|
+| build_scene | 17.232 | |
+| units + buildings | 11.912 | 69% of build_scene |
+| &nbsp;&nbsp;cache key + find | 0.011 | the `std::map` walk is nothing |
+| &nbsp;&nbsp;template build (a MISS) | **10.001** | 20.9 misses per frame (max 36), 56,452 vertices built per frame |
+| &nbsp;&nbsp;&nbsp;&nbsp;builder (`build_unit_body`) | 2.000 | |
+| &nbsp;&nbsp;&nbsp;&nbsp;scale + tilt | 1.741 | |
+| &nbsp;&nbsp;&nbsp;&nbsp;`smooth_vertex_normals` on the miss | **6.250** | |
+| &nbsp;&nbsp;&nbsp;&nbsp;map insert, move | 0.011 | |
+| &nbsp;&nbsp;copy of a cached mesh into the scene | 1.865 | `vector::insert`, growth included |
+| &nbsp;&nbsp;live (uncached) path | 0.000 | no unit takes it in this battle |
+| &nbsp;&nbsp;dispatch (the rest) | 0.035 | visibility, selection, heading, `gun_yaw` |
+| smooth_vertex_normals (the pass) | 1.933 | |
+| hud | 1.959 | |
+| fog (both passes) | 0.648 | |
+| terrain, sky + shadows, world effects | 0.492, 0.180, 0.080 | |
+
+Worst frame's |sum of scene phases - total| is 0.0004 ms; the units sub-rows sum to `units_ms` within
+0.04 ms (that gap is the dispatch row, by construction), and the per-unit clock reads are inside the
+rows they bracket.
+
+**What this says, and it is not what the N10 table suggested.**
+1. **The cost is not "copying templates into a buffer": it is BUILDING meshes from nothing, ~21 times a
+   frame.** A vehicle that moves, or whose turret turns, has a new cache key every frame, so it is a
+   miss every frame (the N10 design says so openly). About 21 units miss per frame in H (max 36); the tool does not separate moving from turning from newly seen, so "moving" is the likely cause, not a measured one.
+2. **The smoothing did not go from 16.7 ms to 1.8: it MOVED.** The 1.9 ms row is only what is left in
+   the world pass; the smoothing of every missed mesh happens inside `vehicle_mesh` and is counted under
+   `units`. Smoothing is 1.9 + 6.25 = **8.2 ms** of H's frame here, i.e. most of it. `FrameTimings`'s
+   `smooth_ms` is now an under-report of smoothing; the `template_smooth_ms` field is the rest.
+3. **Capacity behaviour.** `build_scene` constructs a fresh `Scene` each frame and the loop
+   move-assigns it over the last one, so `vertices` starts at capacity 0 every frame and no `reserve`
+   exists anywhere in the pass. Final capacity 117,804 vertices (6.1 MB) for 115,023; 5.0 capacity
+   changes seen per frame (checked at unit and phase boundaries -- a LOWER bound on reallocations).
+   Measured on the frame's own vertices appended 1,000 at a time: growing from empty **1.96 ms**,
+   reserved first **0.90 ms**, a vector that kept last frame's capacity **0.89 ms**, one straight copy
+   **0.89 ms**. So growth/realloc is worth about **1.1 ms** of H's frame; the other 0.9 ms is the
+   copying and page-touching of 6 MB that no allocation policy removes.
+4. The HUD (1.96 ms) and the smoothing pass over the rest of the world (1.93 ms) are the other fixed
+   lumps; terrain and fog are small.
+
+### The render, split (H, per counted frame, llvmpipe)
+
+| Renderer::render | mean ms |
+|---|---:|
+| upload (grow check + memcpy of 6 MB) | 0.953 |
+| record | 0.041 |
+| submit | 0.013 |
+| wait (the GPU runs both passes, the filter, the copy) | 65.052 |
+| readback (alloc + copy 3.7 MB) | 0.657 |
+| sum / measured total | 66.716 / 66.719 |
+
+The vertex buffer grew in 4 of the 200 counted frames. There is no present in this path: the window
+copies `render`'s returned pixels into a staging buffer and blits them to the swapchain AFTER
+`Renderer::render` returns, and that step is not in any number here (no display on this machine).
+`Renderer::render` blocks on `vkWaitForFences` straight after the submit, so a frame is CPU THEN
+GPU, strictly in series: the loop's own wall clock per frame (90.203 ms) equals CPU + render
+(23.482 + 66.719 = 90.201 ms) to 0.002 ms.
+
+### What the numbers SUPPORT and what they do not
+
+Support: (a) the heavy battle's CPU side is dominated by rebuilding ~21 moving vehicles' meshes a
+frame (10.0 of 17.2 ms of `build_scene`, 6.25 of it smoothing), not by emission copies (1.9 ms) or
+buffer growth (~1.1 ms); (b) `smooth_ms` hides most of the smoothing now; (c) the frame is serial, CPU
+then GPU, and `wait` is the only large render phase -- upload, record, submit and readback together
+are ~1.7 ms at H; (d) on llvmpipe the render has a 14.4 ms fixed part plus a per-triangle part that is
+not linear.
+
+**Is 38 ms reachable to 33 ms or below by CPU work alone? The numbers support "plausibly yes", but
+cannot prove it on the GTX 1060.** The brief's H frame is 18.25 ms CPU + 19.99 ms render; 33 ms needs
+5.3 ms out of the CPU side. Scaling this machine's proportions to the brief's `build_scene` (14.1 ms),
+the miss path is ~8 ms of it, so making a moving vehicle stop costing a build-plus-smooth-from-scratch
+each frame has more than enough in it -- the plain `reserve`/reuse of the vertex list alone is worth
+~1 ms, about 0.9 ms on the brief's scale. Against that: this box cannot say what the GTX 1060's fixed
+render cost is (the 20 ms it showed for H may be mostly fixed, mostly per-vertex, or mostly the blit
+and readback that sit outside `Renderer::render`), and a CPU change that must stay byte-identical (this
+project compares frames byte for byte, which is why N10's key carries the pose) cannot simply
+translate a template. **If the CPU target proves out of reach, the thing the code and the
+serial-frame identity above do support is that CPU and GPU never overlap: overlapping frame N's
+render with frame N+1's CPU work would cost max(18.3, 20.0) rather than the sum (~20 ms, ~50 fps on
+the brief's numbers) without reducing either side -- but that is a change to the render path
+(a second vertex and readback buffer), so it is named here and not done.**
+
+### Raw output
+
+`protekt-framecost floor` (ascending and descending tables above; fits):
+
+```
+fit ascending run   mean    intercept 16.988 ms, slope 0.9690 ms/1000 tri (323.01 ns/vertex), R^2 0.9478
+fit ascending run   median  intercept 16.896 ms, slope 0.8886 ms/1000 tri (296.20 ns/vertex), R^2 0.9325
+fit ascending run   wait    intercept 16.354 ms, slope 0.9533 ms/1000 tri (317.77 ns/vertex), R^2 0.9461
+fit ascending run   upload  intercept  0.002 ms, slope 0.0157 ms/1000 tri (  5.22 ns/vertex), R^2 0.9999
+fit descending run  mean    intercept 17.037 ms, slope 0.9228 ms/1000 tri (307.62 ns/vertex), R^2 0.9377
+fit descending run  median  intercept 16.871 ms, slope 0.8676 ms/1000 tri (289.20 ns/vertex), R^2 0.9279
+```
+
+`protekt-framecost battle`, S: skirmish (53,253 vertices): build_scene 5.105 ms (units 1.127: key+find
+0.001, template build 0.935 = builder 0.183 + scale/tilt 0.160 + smooth 0.591, copy 0.143, live 0.042;
+smoothing pass 1.999, hud 1.304); growth from empty 0.854 ms vs reserved 0.323 ms; render 33.309 ms
+(upload 0.301, record 0.036, submit 0.011, wait 32.339, readback 0.618; sum 33.306); CPU 6.588 + render
+33.309 = 39.896 ms = 25.1 fps on llvmpipe.
+
+### Sabotage, recorded
+
+Both measurements were broken on purpose and the report's own arithmetic stopped adding up, then were
+restored and added up again. (1) `wait_ms` forced to 0: "sum of the render phases 1.657 ms (mean total
+66.184)", against 66.716 / 66.719 restored. (2) `template_smooth_ms` dropped: the residual row
+"template insert etc." jumped from 0.011 ms to 6.294 ms (the smoothing, now unaccounted), and "of which
+smooth alone" read 0.000; restored it reads 6.250 and 0.011.

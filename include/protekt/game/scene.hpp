@@ -1354,6 +1354,30 @@ struct FrameTimings {
     std::size_t cached_vertices{};
     /// ... and how many vertices `smooth_vertex_normals` walked: the world's, less the cached ones.
     std::size_t smoothed_vertices{};
+    /// N11: THE EMISSION, split. Inside `units_ms`, summed over the frame's units: the cache key
+    /// and its `find` (`lookup`), a miss's build and `insert` (`template`: the mesh built from
+    /// nothing and smoothed alone), the copy of a cached mesh into the scene's vertex list
+    /// (`copy`), and the uncached path's whole build, scale, cut and tilt (`live`). What is left of
+    /// `units_ms` is the loop's own dispatch (the visibility test, the selection search, the
+    /// heading lookups).
+    double units_lookup_ms{};
+    double units_template_ms{};
+    double units_copy_ms{};
+    double units_live_ms{};
+    /// Inside `units_template_ms`: the builder (`build_unit_body` / `build_building_model`), the
+    /// scale and tilt, and the mesh's own `smooth_vertex_normals`. The smoothing of a missed mesh
+    /// is HERE, not in `smooth_ms`: the cache moved it, it did not remove it.
+    double template_body_ms{};
+    double template_shape_ms{};
+    double template_smooth_ms{};
+    std::size_t template_vertices{};    ///< vertices the misses built
+    std::size_t units_live{};           ///< units that took the uncached path
+    std::size_t units_template_built{}; ///< cache misses this frame
+    std::size_t live_vertices{};        ///< vertices the uncached path emitted
+    /// How many times `Scene::vertices` was seen to have a new capacity (checked at every unit and
+    /// every phase boundary, so a LOWER BOUND on the reallocations), and its final capacity.
+    std::size_t vertex_capacity_changes{};
+    std::size_t vertex_capacity{};
 };
 
 struct SceneOptions {

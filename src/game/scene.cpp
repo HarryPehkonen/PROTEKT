@@ -7555,9 +7555,16 @@ void tilt_to_ground(std::vector<SceneVertex>& out, std::size_t first, const sim:
 /// dispatch, `build_building_model`, then the one scale) and smoothed on its own. This is what the
 /// cache remembers: the same two calls the live path makes, so the cached bytes cannot drift from
 /// the drawn ones. Unmarked and on the ground -- the only state the cache serves.
-std::vector<SceneVertex> standing_building_mesh(std::uint64_t seed, const sim::Unit& unit) {
+std::vector<SceneVertex> standing_building_mesh(std::uint64_t seed, const sim::Unit& unit,
+                                                FrameTimings* timings) {
+    using Clock = std::chrono::steady_clock;
+    const auto ms = [](Clock::time_point a, Clock::time_point b) {
+        return std::chrono::duration<double, std::milli>(b - a).count();
+    };
+    const Clock::time_point t0 = timings != nullptr ? Clock::now() : Clock::time_point{};
     std::vector<SceneVertex> mesh;
     build_building_model(mesh, seed, unit, Mark::None, 0.0F, false);
+    const Clock::time_point t1 = timings != nullptr ? Clock::now() : Clock::time_point{};
     if (sim::is_scaled_model(unit)) {
         scale_model(
             mesh, 0,
@@ -7565,7 +7572,14 @@ std::vector<SceneVertex> standing_building_mesh(std::uint64_t seed, const sim::U
             static_cast<float>(unit.y.raw) / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile,
             kBuildingModelScale);
     }
+    const Clock::time_point t2 = timings != nullptr ? Clock::now() : Clock::time_point{};
     smooth_vertex_normals(mesh, 0, mesh.size());
+    if (timings != nullptr) {
+        timings->template_body_ms += ms(t0, t1);
+        timings->template_shape_ms += ms(t1, t2);
+        timings->template_smooth_ms += ms(t2, Clock::now());
+        timings->template_vertices += mesh.size();
+    }
     return mesh;
 }
 
@@ -7609,8 +7623,15 @@ VehicleMeshKey vehicle_key(const SceneOptions& options, const sim::Unit& unit, f
 /// then smoothed on its own. What the cache remembers.
 std::vector<SceneVertex> vehicle_mesh(const SceneOptions& options, const sim::Unit& unit,
                                       float heading, float turret) {
+    using Clock = std::chrono::steady_clock;
+    FrameTimings* const timings = options.timings;
+    const auto ms = [](Clock::time_point a, Clock::time_point b) {
+        return std::chrono::duration<double, std::milli>(b - a).count();
+    };
+    const Clock::time_point t0 = timings != nullptr ? Clock::now() : Clock::time_point{};
     std::vector<SceneVertex> mesh;
     build_unit_body(mesh, options, unit, Mark::None, 0.0F, false, heading, turret, 0.0F);
+    const Clock::time_point t1 = timings != nullptr ? Clock::now() : Clock::time_point{};
     if (sim::is_scaled_model(unit)) {
         scale_model(
             mesh, 0,
@@ -7620,7 +7641,14 @@ std::vector<SceneVertex> vehicle_mesh(const SceneOptions& options, const sim::Un
     }
     tilt_to_ground(mesh, 0, unit, ground_metres(options.seed, unit.x, unit.y),
                    ground_normal(options.seed, unit.x, unit.y));
+    const Clock::time_point t2 = timings != nullptr ? Clock::now() : Clock::time_point{};
     smooth_vertex_normals(mesh, 0, mesh.size());
+    if (timings != nullptr) {
+        timings->template_body_ms += ms(t0, t1);
+        timings->template_shape_ms += ms(t1, t2);
+        timings->template_smooth_ms += ms(t2, Clock::now());
+        timings->template_vertices += mesh.size();
+    }
     return mesh;
 }
 
@@ -7666,7 +7694,35 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
             lap_start = now;
         }
     };
+    if (timed) {
+        // The cache-miss builders ADD to these as they run; this frame starts them at zero.
+        options.timings->template_body_ms = 0.0;
+        options.timings->template_shape_ms = 0.0;
+        options.timings->template_smooth_ms = 0.0;
+        options.timings->template_vertices = 0;
+    }
     Scene scene;
+    // N11: how often the vertex list's capacity changes (a reallocation and a copy of everything so
+    // far). Read only when timed, at the points named in `FrameTimings`.
+    std::size_t last_capacity = 0;
+    std::size_t capacity_changes = 0;
+    const auto watch_capacity = [&]() {
+        if (timed && scene.vertices.capacity() != last_capacity) {
+            last_capacity = scene.vertices.capacity();
+            ++capacity_changes;
+        }
+    };
+    double units_lookup_ms = 0.0;
+    double units_template_ms = 0.0;
+    double units_copy_ms = 0.0;
+    double units_live_ms = 0.0;
+    std::size_t units_live = 0;
+    std::size_t template_built = 0;
+    std::size_t live_vertices = 0;
+    const auto ms_between = [](Clock::time_point a, Clock::time_point b) {
+        return std::chrono::duration<double, std::milli>(b - a).count();
+    };
+    const auto stamp = [&]() { return timed ? Clock::now() : Clock::time_point{}; };
     const float aspect
         = static_cast<float>(options.extent.width) / static_cast<float>(options.extent.height);
     scene.view_projection = view_projection(options.camera, aspect);
@@ -7676,6 +7732,7 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
     build_terrain(scene.vertices, options.terrain, options.seed, centre_x, centre_y,
                   options.radius_tiles, sites_in_view(sim, options));
     const std::size_t terrain_end = scene.vertices.size();
+    watch_capacity();
     lap(&FrameTimings::terrain_ms);
     append_sky(scene.vertices, options.camera);
     const std::size_t sky_end = scene.vertices.size();
@@ -7719,13 +7776,23 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
                 && building_is_cacheable(unit)) {
                 // A building that stands, unmarked: copied out of the cache, built the first time
                 // it is seen. Nothing about it can have changed since -- the key is every input.
+                const Clock::time_point k0 = stamp();
                 const BuildingMeshKey key = mesh_key(options.seed, unit);
                 const std::vector<SceneVertex>* mesh = options.buildings->find(key);
+                const Clock::time_point k1 = stamp();
                 if (mesh == nullptr) {
-                    mesh = &options.buildings->insert(key,
-                                                      standing_building_mesh(options.seed, unit));
+                    mesh = &options.buildings->insert(
+                        key, standing_building_mesh(options.seed, unit, options.timings));
+                    ++template_built;
                 }
+                const Clock::time_point k2 = stamp();
                 scene.vertices.insert(scene.vertices.end(), mesh->begin(), mesh->end());
+                if (timed) {
+                    units_lookup_ms += ms_between(k0, k1);
+                    units_template_ms += ms_between(k1, k2);
+                    units_copy_ms += ms_between(k2, Clock::now());
+                    watch_capacity();
+                }
                 cached_runs.push_back(VertexRange{body_first, scene.vertices.size()});
                 ++cached_buildings;
                 continue;
@@ -7746,17 +7813,28 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
                 && vehicle_is_cacheable(unit)) {
                 // N10: a vehicle, unmarked and not driven: its mesh is the live path's own output
                 // for exactly this pose, held while it holds still (see building_cache.hpp).
+                const Clock::time_point k0 = stamp();
                 const VehicleMeshKey key = vehicle_key(options, unit, heading, turret);
                 const std::vector<SceneVertex>* mesh = options.buildings->find(key);
+                const Clock::time_point k1 = stamp();
                 if (mesh == nullptr) {
                     mesh = &options.buildings->insert(key,
                                                       vehicle_mesh(options, unit, heading, turret));
+                    ++template_built;
                 }
+                const Clock::time_point k2 = stamp();
                 scene.vertices.insert(scene.vertices.end(), mesh->begin(), mesh->end());
+                if (timed) {
+                    units_lookup_ms += ms_between(k0, k1);
+                    units_template_ms += ms_between(k1, k2);
+                    units_copy_ms += ms_between(k2, Clock::now());
+                    watch_capacity();
+                }
                 cached_runs.push_back(VertexRange{body_first, scene.vertices.size()});
                 ++cached_vehicles;
                 continue;
             }
+            const Clock::time_point live0 = stamp();
             build_unit_body(scene.vertices, options, unit, mark, lift_z, hovering, heading, turret,
                             pitch);
             if (sim::is_scaled_model(unit)) {
@@ -7780,6 +7858,12 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
                 tilt_to_ground(scene.vertices, body_first, unit,
                                hovering ? lift_z : ground_metres(options.seed, unit.x, unit.y),
                                ground_normal(options.seed, unit.x, unit.y));
+            }
+            if (timed) {
+                units_live_ms += ms_between(live0, Clock::now());
+                ++units_live;
+                live_vertices += scene.vertices.size() - body_first;
+                watch_capacity();
             }
         }
     }
@@ -7809,6 +7893,7 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
     // SMOOTH SHADING (AP): the world's face normals become blended vertex normals, here, once the
     // units have been turned, tilted and scaled into place, so "faces that share a position" is
     // judged on the final geometry. The sky and the HUD carry no normal and are not touched.
+    watch_capacity();
     lap(&FrameTimings::world_effects_ms);
     const std::size_t smoothed_vertices = smooth_vertex_normals(
         scene.vertices, 0, scene.vertices.size(), kCreaseAngleDegrees, cached_runs);
@@ -7868,6 +7953,16 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
         options.timings->cached_vehicles = cached_vehicles;
         options.timings->smoothed_vertices = smoothed_vertices;
         options.timings->cached_vertices = 0;
+        options.timings->units_lookup_ms = units_lookup_ms;
+        options.timings->units_template_ms = units_template_ms;
+        options.timings->units_copy_ms = units_copy_ms;
+        options.timings->units_live_ms = units_live_ms;
+        options.timings->units_live = units_live;
+        options.timings->units_template_built = template_built;
+        options.timings->live_vertices = live_vertices;
+        watch_capacity();
+        options.timings->vertex_capacity_changes = capacity_changes;
+        options.timings->vertex_capacity = scene.vertices.capacity();
         for (const VertexRange& run : cached_runs) {
             options.timings->cached_vertices += run.last - run.first;
         }

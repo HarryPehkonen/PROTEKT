@@ -271,7 +271,6 @@ void measure(const Base& base, protekt::render::Renderer* renderer, bool use_bui
         const render::FrameRequest request{
             .extent = game::Extent{1280, 720}, .seed = kSeed, .tick = 0, .scene = &scene};
         render::FrameStats stats{};
-        render::FrameStats floor_stats{};
         for (int i = 0; i < kWarmup; ++i) {
             (void)renderer->render(request, stats);
         }
@@ -281,36 +280,18 @@ void measure(const Base& base, protekt::render::Renderer* renderer, bool use_bui
             (void)renderer->render(request, stats);
             render_ms.push_back(since_ms(t0));
         }
-        game::Scene floor_scene;
-        floor_scene.vertices.assign(3, game::SceneVertex{});
-        floor_scene.view_projection = scene.view_projection;
-        const render::FrameRequest floor_request{
-            .extent = game::Extent{1280, 720}, .seed = kSeed, .tick = 0, .scene = &floor_scene};
-        for (int i = 0; i < kWarmup; ++i) {
-            (void)renderer->render(floor_request, floor_stats);
-        }
-        std::vector<double> floor_ms;
-        for (int i = 0; i < kFrames; ++i) {
-            const auto t0 = Clock::now();
-            (void)renderer->render(floor_request, floor_stats);
-            floor_ms.push_back(since_ms(t0));
-        }
         double r_mean = 0.0;
         for (const double v : render_ms) {
             r_mean += v / static_cast<double>(render_ms.size());
-        }
-        double f_mean = 0.0;
-        for (const double v : floor_ms) {
-            f_mean += v / static_cast<double>(floor_ms.size());
         }
         std::cout << std::format("   -- renderer ({}), mean of {} frames after {} warm-up --\n",
                                  renderer->device_name(), kFrames, kWarmup);
         std::cout << std::format("   {:<22} {:8.3f} ms  (median {:.3f}; {} triangles submitted)\n",
                                  "Renderer::render", r_mean, median(render_ms),
                                  scene.vertices.size() / 3U);
-        std::cout << std::format("   {:<22} {:8.3f} ms  (one triangle: upload/GPU/readback "
-                                 "that does not scale with geometry)\n",
-                                 "renderer floor", f_mean);
+        std::cout
+            << "   (the old one-triangle 'renderer floor' row is gone: a point cannot "
+               "separate a fixed cost from a per-vertex one. See `protekt-framecost floor`.)\n";
         std::cout << std::format("   whole frame, CPU build + render: {:.3f} ms  =  {:.1f} fps\n",
                                  outer_mean + r_mean, 1000.0 / (outer_mean + r_mean));
     }
@@ -397,6 +378,70 @@ struct Stat {
     [[nodiscard]] double mean() const { return n > 0 ? sum / n : 0.0; }
 };
 
+/// N11: what GROWING the scene's vertex list costs, measured on the frame's own vertices, in the
+/// frame's own shape: appended in chunks (a mesh at a time) into an empty vector, as `build_scene`
+/// does; the same into a vector reserved to the final size; the same into a vector that keeps its
+/// capacity from the last frame; and one straight copy. Each is timed with the vector's destruction
+/// included, because the loop frees the last frame's list every frame. Not a change to build_scene:
+/// a measurement of what a change to it could save.
+void emission_micro(const std::vector<protekt::game::SceneVertex>& v) {
+    using protekt::game::SceneVertex;
+    constexpr std::size_t kChunk = 1000;
+    constexpr int kReps = 60;
+    const auto fill = [&](std::vector<SceneVertex>& out) {
+        for (std::size_t at = 0; at < v.size(); at += kChunk) {
+            const std::size_t end = std::min(v.size(), at + kChunk);
+            out.insert(out.end(), v.begin() + static_cast<std::ptrdiff_t>(at),
+                       v.begin() + static_cast<std::ptrdiff_t>(end));
+        }
+    };
+    float sink = 0.0F;
+    const auto time_it = [&](auto&& body) {
+        Stat st;
+        for (int i = 0; i < kReps + 5; ++i) {
+            const auto t0 = Clock::now();
+            body();
+            const double ms = since_ms(t0);
+            if (i >= 5) {
+                st.add(ms);
+            }
+        }
+        return st;
+    };
+    const Stat grow = time_it([&] {
+        std::vector<SceneVertex> out;
+        fill(out);
+        sink += out.back().position.at(0);
+    });
+    const Stat reserved = time_it([&] {
+        std::vector<SceneVertex> out;
+        out.reserve(v.size());
+        fill(out);
+        sink += out.back().position.at(0);
+    });
+    std::vector<SceneVertex> kept;
+    kept.reserve(v.size());
+    const Stat reused = time_it([&] {
+        kept.clear();
+        fill(kept);
+        sink += kept.back().position.at(0);
+    });
+    const Stat whole = time_it([&] {
+        std::vector<SceneVertex> out(v);
+        out.front().alpha = 0.0F; // written to, so the copy is real work
+        sink += out.back().position.at(0);
+    });
+    std::cout << std::format(
+        "   -- N11: what the vertex list's growth costs ({} vertices, {:.1f} MB, appended {} at a "
+        "time, destruction included) --\n"
+        "   empty vector, grows by doubling (build_scene's way)  {:7.3f} ms\n"
+        "   reserved to the final size first                      {:7.3f} ms\n"
+        "   a vector that kept last frame's capacity (clear())    {:7.3f} ms\n"
+        "   one straight copy of the whole list                   {:7.3f} ms   (sink {:.0f})\n",
+        v.size(), static_cast<double>(v.size() * sizeof(SceneVertex)) / 1.0e6, kChunk, grow.mean(),
+        reserved.mean(), reused.mean(), whole.mean(), static_cast<double>(sink) * 0.0);
+}
+
 void measure_battle(const Battle& battle, protekt::render::Renderer* renderer,
                     bool use_building_cache) {
     using namespace protekt;
@@ -461,6 +506,11 @@ void measure_battle(const Battle& battle, protekt::render::Renderer* renderer,
         rest_s, line_s, probe_s, line_n, probe_n, refused_n, blocked_n, scene_s, render_s, frame_s;
     Stat proj_s, shell_s, units_s, vert_s, impacts_s, shots_s;
     Stat units_scene, effects_scene, smooth_scene, hud_scene, terrain_scene;
+    Stat sky_scene, fog_scene, lookup_s, template_s, copy_s, live_s, live_n, built_n, live_v,
+        cap_changes;
+    Stat tbody_s, tshape_s, tsmooth_s, tverts_s;
+    Stat up_s, rec_s, sub_s, wait_s, rb_s, grew_n;
+    std::size_t last_capacity = 0;
     double inner_gap = 0.0; // |sum of step phases - step total|, worst frame
     double scene_gap = 0.0;
     int frames_run = 0;
@@ -505,6 +555,7 @@ void measure_battle(const Battle& battle, protekt::render::Renderer* renderer,
         const double scene_out = since_ms(s0);
 
         double render_ms = 0.0;
+        render::FrameTimes rt{};
 #if defined(PROTEKT_HAVE_VULKAN)
         if (renderer != nullptr) {
             const render::FrameRequest request{
@@ -513,6 +564,7 @@ void measure_battle(const Battle& battle, protekt::render::Renderer* renderer,
             const auto r0 = Clock::now();
             (void)renderer->render(request, stats);
             render_ms = since_ms(r0);
+            rt = stats.times;
         }
 #else
         (void)renderer;
@@ -553,6 +605,27 @@ void measure_battle(const Battle& battle, protekt::render::Renderer* renderer,
         smooth_scene.add(scene_t.smooth_ms);
         hud_scene.add(scene_t.hud_ms);
         terrain_scene.add(scene_t.terrain_ms);
+        sky_scene.add(scene_t.sky_and_shadows_ms);
+        fog_scene.add(scene_t.fog_ms);
+        lookup_s.add(scene_t.units_lookup_ms);
+        template_s.add(scene_t.units_template_ms);
+        copy_s.add(scene_t.units_copy_ms);
+        live_s.add(scene_t.units_live_ms);
+        live_n.add(static_cast<double>(scene_t.units_live));
+        built_n.add(static_cast<double>(scene_t.units_template_built));
+        live_v.add(static_cast<double>(scene_t.live_vertices));
+        cap_changes.add(static_cast<double>(scene_t.vertex_capacity_changes));
+        last_capacity = scene_t.vertex_capacity;
+        tbody_s.add(scene_t.template_body_ms);
+        tshape_s.add(scene_t.template_shape_ms);
+        tsmooth_s.add(scene_t.template_smooth_ms);
+        tverts_s.add(static_cast<double>(scene_t.template_vertices));
+        up_s.add(rt.upload_ms);
+        rec_s.add(rt.record_ms);
+        sub_s.add(rt.submit_ms);
+        wait_s.add(rt.wait_ms);
+        rb_s.add(rt.readback_ms);
+        grew_n.add(rt.vertex_buffer_grew ? 1.0 : 0.0);
         inner_gap = std::max(inner_gap, std::abs(ns_to_ms(st.orders_ns) + ns_to_ms(st.movement_ns)
                                                  + ns_to_ms(st.bolts_ns) + ns_to_ms(st.fire_ns)
                                                  + ns_to_ms(st.rest_ns) - ns_to_ms(st.total_ns)));
@@ -637,8 +710,51 @@ void measure_battle(const Battle& battle, protekt::render::Renderer* renderer,
     row("  smooth_vertex_normals", smooth_scene, "");
     row("  hud", hud_scene, "");
     row("  terrain", terrain_scene, "");
+    row("  sky + shadows", sky_scene, "");
+    row("  fog (both passes)", fog_scene, "");
     std::cout << std::format("   (worst frame's |sum of scene phases - scene total|: {:.4f} ms)\n",
                              scene_gap);
+    // N11: the EMISSION, split. Inside "units + buildings".
+    const double unit_parts = lookup_s.mean() + template_s.mean() + copy_s.mean() + live_s.mean();
+    std::cout << "   -- N11: the emission, inside 'units + buildings' (a clock read per unit; "
+                 "the sub-clocks cost, see the gap row) --\n";
+    row("  cache key + find", lookup_s, "per unit: build the key, walk the std::map");
+    row("  template build (miss)", template_s, "a miss: build the mesh, smooth it alone, insert");
+    row("    of which builder", tbody_s, "build_unit_body / build_building_model");
+    row("    of which scale + tilt", tshape_s, "scale_model, tilt_to_ground");
+    row("    of which smooth alone", tsmooth_s,
+        "smooth_vertex_normals on the miss: MOVED here by the cache, not removed");
+    row(
+        "    template insert etc.",
+        [&] {
+            Stat r;
+            r.add(template_s.mean() - tbody_s.mean() - tshape_s.mean() - tsmooth_s.mean());
+            return r;
+        }(),
+        "std::map insert, mesh move, the key");
+    row("  copy into scene", copy_s, "vector::insert of the cached mesh (incl. any growth)");
+    row("  live path", live_s, "uncached units: build, scale, cut, tilt");
+    row(
+        "  dispatch (the rest)",
+        [&] {
+            Stat r;
+            r.add(units_scene.mean() - unit_parts);
+            return r;
+        }(),
+        "units_ms less the four above: visibility, selection search, headings, gun_yaw");
+    std::cout << std::format(
+        "   per frame: {:.1f} cache misses (max {:.0f}), {:.1f} units on the live path "
+        "({:.0f} vertices); scene vertex list: capacity {} ({:.1f} MB) for {} vertices, "
+        "capacity changes seen {:.1f} per frame (lower bound)\n",
+        built_n.mean(), built_n.max, live_n.mean(), live_v.mean(), last_capacity,
+        static_cast<double>(last_capacity) * sizeof(game::SceneVertex) / 1.0e6,
+        scene.vertices.size(), cap_changes.mean());
+    std::cout << std::format("   misses build {:.0f} vertices per frame on average\n",
+                             tverts_s.mean());
+    std::cout << std::format(
+        "   NOTE: build_scene returns a fresh Scene each frame and the loop move-assigns it over "
+        "the last: the vertex list starts at capacity 0 EVERY frame; no reserve exists.\n");
+    emission_micro(scene.vertices);
     std::cout << std::format("   CPU per frame (AI + step + build_scene): {:.3f} ms\n", cpu);
     std::cout << std::format("   of that: AI {:.1f}%, Sim::step {:.1f}%, build_scene {:.1f}%\n",
                              100.0 * ai_s.mean() / cpu, 100.0 * step_s.mean() / cpu,
@@ -647,6 +763,16 @@ void measure_battle(const Battle& battle, protekt::render::Renderer* renderer,
     if (renderer != nullptr) {
         std::cout << std::format("   -- renderer ({}) --\n", renderer->device_name());
         row("Renderer::render", render_s, "");
+        row("  upload (memcpy)", up_s, "vertex buffer grow check + memcpy into mapped memory");
+        row("  record", rec_s, "command buffer, host side");
+        row("  submit", sub_s, "vkQueueSubmit");
+        row("  wait (GPU)", wait_s, "vkWaitForFences: the GPU runs the frame + driver latency");
+        row("  readback", rb_s, "allocate + copy 1280x720x4 out of the mapped buffer");
+        std::cout << std::format(
+            "   sum of the render phases {:.3f} ms (mean total {:.3f}); vertex buffer grew in "
+            "{:.0f} of the counted frames; no present here (headless)\n",
+            up_s.mean() + rec_s.mean() + sub_s.mean() + wait_s.mean() + rb_s.mean(),
+            render_s.mean(), grew_n.sum);
         std::cout << std::format("   whole frame: CPU {:.3f} ms + render {:.3f} ms = {:.3f} ms "
                                  "= {:.1f} fps  (the loop's own wall clock per frame: mean "
                                  "{:.3f} ms, worst {:.3f} ms)\n",
@@ -656,6 +782,175 @@ void measure_battle(const Battle& battle, protekt::render::Renderer* renderer,
 #endif
     (void)frames_run;
 }
+
+#if defined(PROTEKT_HAVE_VULKAN)
+// N11: THE RENDERER'S FLOOR AS A LINE. One triangle is one point, and a point cannot say whether
+// 15 ms is a fixed per-frame cost (submit, the full-screen passes, the readback) or a per-vertex
+// one. So: the renderer is timed on a sequence of triangle counts, each drawn from the vertices of
+// a real scene (base C's world, every k-th triangle, or repeated past its end, so the mix of
+// terrain, sky and models is the game's and not a synthetic one), and a least-squares line is
+// fitted: the intercept is the cost of a frame with nothing in it, the slope the cost of each
+// triangle.
+struct Fit {
+    double intercept{};
+    double slope{}; ///< per x unit
+    double r2{};
+};
+
+[[nodiscard]] Fit fit_line(const std::vector<double>& x, const std::vector<double>& y) {
+    const double n = static_cast<double>(x.size());
+    double sx = 0.0;
+    double sy = 0.0;
+    double sxx = 0.0;
+    double sxy = 0.0;
+    double syy = 0.0;
+    for (std::size_t i = 0; i < x.size(); ++i) {
+        sx += x.at(i);
+        sy += y.at(i);
+        sxx += x.at(i) * x.at(i);
+        sxy += x.at(i) * y.at(i);
+        syy += y.at(i) * y.at(i);
+    }
+    const double slope = (n * sxy - sx * sy) / (n * sxx - sx * sx);
+    const double intercept = (sy - slope * sx) / n;
+    const double ss_tot = syy - sy * sy / n;
+    double ss_res = 0.0;
+    for (std::size_t i = 0; i < x.size(); ++i) {
+        const double e = y.at(i) - (intercept + slope * x.at(i));
+        ss_res += e * e;
+    }
+    return Fit{intercept, slope, ss_tot > 0.0 ? 1.0 - ss_res / ss_tot : 1.0};
+}
+
+struct FloorPoint {
+    std::size_t triangles{};
+    double mean{}, median{}, min{}, upload{}, record{}, submit{}, wait{}, readback{};
+};
+
+[[nodiscard]] FloorPoint time_triangles(protekt::render::Renderer& renderer,
+                                        const protekt::game::Scene& source, std::size_t triangles) {
+    using namespace protekt;
+    const std::size_t pool = source.world_vertex_count / 3U;
+    game::Scene scene;
+    scene.view_projection = source.view_projection;
+    scene.vertices.reserve(triangles * 3U);
+    for (std::size_t i = 0; i < triangles; ++i) {
+        const std::size_t t = triangles <= pool ? i * pool / triangles : i % pool;
+        for (std::size_t k = 0; k < 3U; ++k) {
+            scene.vertices.push_back(source.vertices.at(t * 3U + k));
+        }
+    }
+    scene.world_vertex_count = scene.vertices.size();
+    const render::FrameRequest request{
+        .extent = game::Extent{1280, 720}, .seed = kSeed, .tick = 0, .scene = &scene};
+    render::FrameStats stats{};
+    for (int i = 0; i < 10; ++i) {
+        (void)renderer.render(request, stats);
+    }
+    std::vector<double> ms;
+    FloorPoint p;
+    p.triangles = triangles;
+    for (int i = 0; i < kFrames; ++i) {
+        const auto t0 = Clock::now();
+        (void)renderer.render(request, stats);
+        ms.push_back(since_ms(t0));
+        p.upload += stats.times.upload_ms / kFrames;
+        p.record += stats.times.record_ms / kFrames;
+        p.submit += stats.times.submit_ms / kFrames;
+        p.wait += stats.times.wait_ms / kFrames;
+        p.readback += stats.times.readback_ms / kFrames;
+    }
+    for (const double v : ms) {
+        p.mean += v / static_cast<double>(ms.size());
+    }
+    p.median = median(ms);
+    p.min = *std::ranges::min_element(ms);
+    return p;
+}
+
+void measure_floor(protekt::render::Renderer& renderer) {
+    using namespace protekt;
+    const Base base = bases().back();
+    const sim::Sim sim = sim::Sim::create(sim::skirmish(kSeed, base.data));
+    float cx = 0.0F;
+    float cy = 0.0F;
+    int n = 0;
+    for (const sim::Unit& unit : sim.units()) {
+        if (unit.alive && unit.side == sim::Side::Player) {
+            cx += static_cast<float>(unit.x.raw) / static_cast<float>(sim::Fixed::kOne);
+            cy += static_cast<float>(unit.y.raw) / static_cast<float>(sim::Fixed::kOne);
+            ++n;
+        }
+    }
+    game::TerrainCache cache{kSeed};
+    game::SceneOptions options{};
+    options.seed = kSeed;
+    options.extent = game::Extent{1280, 720};
+    options.radius_tiles = kRadius;
+    options.camera = game::Camera{cx / static_cast<float>(n) * game::kMetresPerTile, 8.0F,
+                                  cy / static_cast<float>(n) * game::kMetresPerTile, 0.0F, 0.0F};
+    options.terrain = &cache;
+    const game::BuildingMeshCache building_cache;
+    options.buildings = &building_cache;
+    const game::Scene source = game::build_scene(sim, options);
+
+    const std::vector<std::size_t> counts{0, 1, 100, 1000, 10000, 50000};
+    std::cout << std::format(
+        "\n== THE RENDERER'S FLOOR, AS A LINE ({})\n   triangles drawn from the world of '{}' "
+        "({} world triangles; every k-th, repeated past the end), seed {}, 1280x720, {} warm-up "
+        "+ {} counted frames per point; ms per Renderer::render call\n",
+        renderer.device_name(), base.name, source.world_vertex_count / 3U, kSeed, 10, kFrames);
+    const auto table = [&](const char* title, const std::vector<std::size_t>& order) {
+        std::cout << std::format("   -- {} --\n   {:>9} {:>8} {:>8} {:>8} | {:>7} {:>7} {:>7} "
+                                 "{:>8} {:>8}\n",
+                                 title, "triangles", "mean", "median", "min", "upload", "record",
+                                 "submit", "wait", "readbk");
+        std::vector<FloorPoint> out;
+        for (const std::size_t t : order) {
+            const FloorPoint p = time_triangles(renderer, source, t);
+            std::cout << std::format("   {:>9} {:8.3f} {:8.3f} {:8.3f} | {:7.3f} {:7.3f} {:7.3f} "
+                                     "{:8.3f} {:8.3f}\n",
+                                     p.triangles, p.mean, p.median, p.min, p.upload, p.record,
+                                     p.submit, p.wait, p.readback);
+            out.push_back(p);
+        }
+        return out;
+    };
+    const auto report = [&](const char* label, const std::vector<FloorPoint>& pts) {
+        std::vector<double> x;
+        std::vector<double> mean;
+        std::vector<double> med;
+        std::vector<double> wait;
+        std::vector<double> upload;
+        for (const FloorPoint& p : pts) {
+            x.push_back(static_cast<double>(p.triangles));
+            mean.push_back(p.mean);
+            med.push_back(p.median);
+            wait.push_back(p.wait);
+            upload.push_back(p.upload);
+        }
+        const auto line = [&](const char* what, const std::vector<double>& y) {
+            const Fit f = fit_line(x, y);
+            std::cout << std::format("   fit {:<28} {:<7} intercept {:7.3f} ms, slope {:8.4f} ms "
+                                     "per 1000 triangles ({:6.2f} ns/vertex), R^2 {:.4f}\n",
+                                     label, what, f.intercept, f.slope * 1000.0,
+                                     f.slope * 1.0e6 / 3.0, f.r2);
+        };
+        line("mean", mean);
+        line("median", med);
+        line("wait phase", wait);
+        line("upload phase", upload);
+    };
+    const std::vector<FloorPoint> up = table("ascending", counts);
+    std::vector<std::size_t> down(counts.rbegin(), counts.rend());
+    const std::vector<FloorPoint> dn
+        = table("descending (the same points, the other way round)", down);
+    report("ascending run", up);
+    report("descending run", dn);
+    std::cout << "   (the old row timed ONE triangle in the HUD pass only, right after a full "
+                 "scene's renders; compare it to the 1-triangle row above)\n";
+}
+#endif
 
 // N9: THE DRIFT. A beat on the guns' target search changes WHEN a unit decides, so a fight is not
 // bit-identical to the one before it. This runs each battle headless (no scene, no renderer: the
@@ -789,6 +1084,11 @@ int main(int argc, char** argv) {
     }
 #endif
 
+#if defined(PROTEKT_HAVE_VULKAN)
+    if ((what == "all" || what == "floor") && renderer) {
+        measure_floor(*renderer);
+    }
+#endif
     if (what == "all" || what == "bases") {
         for (const Base& base : bases()) {
             measure(base, renderer.get(), use_building_cache);
