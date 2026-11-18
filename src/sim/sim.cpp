@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cstddef>
 #include <cstdlib>
 #include <optional>
@@ -2325,7 +2326,29 @@ void Sim::enqueue(const Order& order) {
     log_.push_back(Command{tick_, order});
 }
 
-void Sim::step() {
+void Sim::step(StepTimings* timings) {
+    // N7: the phase clock. With no `timings` it reads no clock and does nothing.
+    using Clock = std::chrono::steady_clock;
+    const bool timed = timings != nullptr;
+    Clock::time_point lap_start{};
+    Clock::time_point step_start{};
+    if (timed) {
+        *timings = StepTimings{};
+        timings->projectiles_in = projectiles_.size();
+        for (const Unit& unit : units_) {
+            timings->units_alive += unit.alive ? 1U : 0U;
+        }
+        step_start = Clock::now();
+        lap_start = step_start;
+    }
+    const auto lap = [&](std::int64_t StepTimings::* field) {
+        if (timed) {
+            const Clock::time_point now = Clock::now();
+            timings->*field
+                += std::chrono::duration_cast<std::chrono::nanoseconds>(now - lap_start).count();
+            lap_start = now;
+        }
+    };
     // 1. orders, in the order enqueued.
     shots_.clear();
     // A turret that has not moved yet this tick has been still one tick longer; any move below
@@ -2341,6 +2364,7 @@ void Sim::step() {
                     scenario_.pools, order, scenario_.seed);
     }
     pending_.clear();
+    lap(&StepTimings::orders_ns);
 
     // 2. movement, ascending id (units_ is stored in id order).
     const std::uint64_t seed = scenario_.seed;
@@ -2381,7 +2405,13 @@ void Sim::step() {
             unit.vy = Fixed::zero();
             continue;
         }
+        const Clock::time_point steer_from = timed ? Clock::now() : Clock::time_point{};
         steer(units_, unit, prof, ground, route_plans_);
+        if (timed) {
+            timings->steer_ns
+                += std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - steer_from)
+                       .count();
+        }
         if (unit.kind == UnitKind::Turret && !turret_may_move(unit)) {
             continue;
         }
@@ -2391,13 +2421,41 @@ void Sim::step() {
     // 2b. the sites' countdown (K2): after every unit has moved, so a Constructor that arrived this
     //     tick counts this tick.
     build_site_step(units_, next_id_);
+    lap(&StepTimings::movement_ns);
 
     // 3. the bolts already in the air, in spawn order. Before the guns, so a unit killed here does
     //    not shoot this tick, and a bolt fired this tick has not moved yet.
     impacts_.clear();
     landings_.clear();
-    advance_projectiles(projectiles_, units_, impacts_, landings_, seed);
+    advance_projectiles(projectiles_, units_, impacts_, landings_, seed, timings);
+    lap(&StepTimings::bolts_ns);
 
+    // N7: the two tests the target search leans on, timed when asked. Behaviour is unchanged: each
+    // forwards to the function it wraps.
+    const auto line_to = [&](const Unit& shooter, const Unit& target) {
+        if (!timed) {
+            return has_line(shooter, target, seed);
+        }
+        const Clock::time_point from = Clock::now();
+        const bool seen = has_line(shooter, target, seed);
+        timings->line_ns
+            += std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - from).count();
+        ++timings->line_calls;
+        timings->line_blocked += seen ? 0U : 1U;
+        return seen;
+    };
+    const auto hurts_friend = [&](const Unit& shooter, const Unit& target, std::uint16_t damage) {
+        if (!timed) {
+            return shot_hurts_friend(units_, shooter, target, damage, seed);
+        }
+        const Clock::time_point from = Clock::now();
+        const bool hurts = shot_hurts_friend(units_, shooter, target, damage, seed);
+        timings->probe_ns
+            += std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - from).count();
+        ++timings->probe_calls;
+        timings->probe_refused += hurts ? 1U : 0U;
+        return hurts;
+    };
     // 4. fire, ascending id. The shot leaves the gun now; its damage arrives with it.
     for (Unit& unit : units_) {
         if (!unit.alive) {
@@ -2428,7 +2486,7 @@ void Sim::step() {
             Unit* focused = find_mut(units_, unit.focus_target);
             if (focused != nullptr && focused->alive
                 && dist2(unit.x, unit.y, focused->x, focused->y) <= range * range
-                && !shot_hurts_friend(units_, unit, *focused, prof.damage, seed)) {
+                && !hurts_friend(unit, *focused, prof.damage)) {
                 best = focused;
             }
         }
@@ -2438,8 +2496,7 @@ void Sim::step() {
             Unit* named = find_mut(units_, unit.target);
             if (named != nullptr && named->alive
                 && dist2(unit.x, unit.y, named->x, named->y) <= range * range
-                && has_line(unit, *named, seed)
-                && !shot_hurts_friend(units_, unit, *named, prof.damage, seed)) {
+                && line_to(unit, *named) && !hurts_friend(unit, *named, prof.damage)) {
                 best = named;
             }
         }
@@ -2455,8 +2512,7 @@ void Sim::step() {
                 // Nor does it shoot through a friend: a candidate whose shot would hurt one is
                 // passed over for the next (a gun TRIES not to; the damage itself is unchanged).
                 if (d2 <= range * range && d2 < best_d2 // strict: ties keep the lowest id
-                    && has_line(unit, other, seed)
-                    && !shot_hurts_friend(units_, unit, other, prof.damage, seed)) {
+                    && line_to(unit, other) && !hurts_friend(unit, other, prof.damage)) {
                     best = &other;
                     best_d2 = d2;
                 }
@@ -2486,6 +2542,8 @@ void Sim::step() {
             unit.focus_target = UnitId{};
         }
     }
+
+    lap(&StepTimings::fire_ns);
 
     // 4b. THE LUNGS (N3): one whose structure is gone goes with it; a dead one beside a Constructor
     //     is restored. After the guns, so a Lung killed this tick has already silenced its gun.
@@ -2553,6 +2611,12 @@ void Sim::step() {
         production_step(units_, ore_, next_id_, scenario_.seed, i);
     }
     ++tick_;
+    lap(&StepTimings::rest_ns);
+    if (timed) {
+        timings->total_ns
+            = std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - step_start)
+                  .count();
+    }
 }
 
 std::uint32_t Sim::tick() const noexcept { return tick_; }

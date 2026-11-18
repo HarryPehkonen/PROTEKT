@@ -28,17 +28,24 @@
 // mean nothing about the game the player runs).
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <format>
 #include <iostream>
 #include <memory>
+#include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 
+#include "protekt/ai/scripted.hpp"
+#include "protekt/ai/utility.hpp"
 #include "protekt/game/atlas.hpp"
 #include "protekt/game/scene.hpp"
 #include "protekt/game/terrain_cache.hpp"
+#include "protekt/sim/commander.hpp"
+#include "protekt/sim/observer.hpp"
 #include "protekt/sim/scenario.hpp"
 #include "protekt/sim/sim.hpp"
 #if defined(PROTEKT_HAVE_VULKAN)
@@ -69,6 +76,9 @@ struct Base {
     std::string composition; ///< for the record
     protekt::sim::ScenarioData data;
 };
+
+/// `sim::StepTimings` is integer nanoseconds (the sim has no float); the tool's tables are in ms.
+[[nodiscard]] double ns_to_ms(std::int64_t ns) { return static_cast<double>(ns) / 1.0e6; }
 
 [[nodiscard]] double since_ms(Clock::time_point t0) {
     return std::chrono::duration<double, std::milli>(Clock::now() - t0).count();
@@ -297,11 +307,343 @@ void measure(const Base& base, protekt::render::Renderer* renderer) {
 #endif
 }
 
+// ---------------------------------------------------------------------------------------------
+// N7: THE BATTLE. His bar: "battles in the middle of a compound with dozens of vehicles, tons of
+// mortars and bolts flying at the same time". Everything below goes through the REAL sim: the
+// projectiles are the sim's own, fired by its own guns, advanced by `Sim::step`.
+//
+// THE FIGHT: both sides are built up (buildings standing, vehicles, mortar bikes). The ENEMY is
+// the app's own opponent (`ScriptedCommander`: every combatant attacks the nearest enemy), so it
+// marches on the player's compound; the PLAYER's side is held by the utility AI (`UtilityCommander`
+// -- what the human's units would be doing while they are not driven). So the fight happens
+// INSIDE the player's compound. The sim runs, un-timed, until the sides are in contact; then the
+// measured frames start, and each is what one frame of the game is:
+//     observe + think (both sides)  ->  Sim::step  ->  build_scene  ->  Renderer::render
+// ---------------------------------------------------------------------------------------------
+
+struct Battle {
+    std::string name;
+    std::string composition; ///< for the record
+    protekt::sim::ScenarioData data;
+};
+
+constexpr int kBattleWarmup = 20;  ///< measured-style frames not counted, once in contact
+constexpr int kBattleFrames = 200; ///< counted frames (30 Hz: 6.7 s of game time)
+constexpr int kMaxPreRoll = 6000;  ///< ticks to wait for contact before giving up
+
+/// The compound: the same ten buildings as N6's scenario B, plus two turrets, per side.
+[[nodiscard]] std::vector<Group> compound() {
+    return {
+        {UnitKind::Factory, 1, 0, 0},       {UnitKind::DeployedRecycler, 1, -10, -6},
+        {UnitKind::Power, 1, 6, -9},        {UnitKind::GunTower, 1, 10, 4},
+        {UnitKind::ServiceBay, 1, -6, 8},   {UnitKind::RelayBunker, 1, 12, -4},
+        {UnitKind::Armory, 1, -12, 4},      {UnitKind::TrainingCentre, 1, 4, 11},
+        {UnitKind::TechCentre, 1, -4, -12}, {UnitKind::BomberBay, 1, 13, 11},
+        {UnitKind::Turret, 1, 8, 8},        {UnitKind::Turret, 1, 12, 0},
+    };
+}
+
+[[nodiscard]] Battle make_battle(const char* name, int tanks, int hovers, int mortars,
+                                 int rockets) {
+    Battle b;
+    b.name = name;
+    b.data.groups = compound();
+    b.data.groups.push_back({UnitKind::Tank, tanks, 8, 2});
+    b.data.groups.push_back({UnitKind::HoverTank, hovers, 5, 5});
+    b.data.groups.push_back({UnitKind::MortarBike, mortars, -4, -1});
+    b.data.groups.push_back({UnitKind::RocketTank, rockets, -1, -4});
+    b.composition
+        = std::format("PER SIDE: 10 buildings (Factory, DeployedRecycler, Power, GunTower, "
+                      "ServiceBay, RelayBunker, Armory, TrainingCentre, TechCentre, "
+                      "BomberBay) + 2 Turret + {} Tank, {} HoverTank, {} MortarBike, "
+                      "{} RocketTank ({} vehicles); enemy = ScriptedCommander, player = "
+                      "UtilityCommander",
+                      tanks, hovers, mortars, rockets, tanks + hovers + mortars + rockets);
+    return b;
+}
+
+[[nodiscard]] std::vector<Battle> battles() {
+    std::vector<Battle> out;
+    out.push_back(make_battle("S: skirmish", 5, 2, 3, 2));
+    out.push_back(make_battle("M: battle", 12, 4, 6, 4));
+    out.push_back(make_battle("H: heavy battle", 24, 8, 10, 6));
+    return out;
+}
+
+struct Stat {
+    double sum{};
+    double max{};
+    double min{1e300};
+    int n{};
+    void add(double v) {
+        sum += v;
+        max = std::max(max, v);
+        min = std::min(min, v);
+        ++n;
+    }
+    [[nodiscard]] double mean() const { return n > 0 ? sum / n : 0.0; }
+};
+
+void measure_battle(const Battle& battle, protekt::render::Renderer* renderer) {
+    using namespace protekt;
+    sim::Sim sim = sim::Sim::create(sim::skirmish(kSeed, battle.data));
+    ai::UtilityCommander player_ai;
+    ai::ScriptedCommander enemy_ai;
+    std::vector<sim::Order> orders;
+
+    int vehicles_start = 0;
+    int buildings_start = 0;
+    for (const sim::Unit& unit : sim.units()) {
+        if (unit.alive && unit.side == sim::Side::Player) {
+            (sim::has_footprint(unit.kind) ? buildings_start : vehicles_start) += 1;
+        }
+    }
+
+    // One frame of the game's CPU side, with the phases timed. Returns nothing: the caller reads
+    // the accumulators.
+    struct Frame {
+        double observe_ms{}, think_ms{};
+    };
+    const auto commanders = [&]() {
+        Frame f{};
+        orders.clear();
+        const auto t0 = Clock::now();
+        const sim::Observation own = sim::observe(sim, sim::Side::Player);
+        const sim::Observation foe = sim::observe(sim, sim::Side::Enemy);
+        const auto t1 = Clock::now();
+        player_ai.think(own, orders);
+        enemy_ai.think(foe, orders);
+        const auto t2 = Clock::now();
+        f.observe_ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
+        f.think_ms = std::chrono::duration<double, std::milli>(t2 - t1).count();
+        for (const sim::Order& order : orders) {
+            sim.enqueue(order);
+        }
+        return f;
+    };
+
+    // PRE-ROLL, un-timed: until the two sides are in contact (a player unit has been hit).
+    int pre_roll = 0;
+    bool contact = false;
+    while (pre_roll < kMaxPreRoll && !contact) {
+        (void)commanders();
+        sim.step();
+        ++pre_roll;
+        contact = !sim.impacts().empty();
+    }
+
+    game::TerrainCache cache{kSeed};
+    FrameTimings scene_t{};
+    game::SceneOptions options{};
+    options.seed = kSeed;
+    options.extent = game::Extent{1280, 720};
+    options.radius_tiles = kRadius;
+    options.terrain = &cache;
+    options.timings = &scene_t;
+
+    Stat observe_s, think_s, ai_s, step_s, orders_s, move_s, steer_s, bolts_s, hit_s, fire_s,
+        rest_s, line_s, probe_s, line_n, probe_n, refused_n, blocked_n, scene_s, render_s, frame_s;
+    Stat proj_s, shell_s, units_s, vert_s, impacts_s, shots_s;
+    Stat units_scene, effects_scene, smooth_scene, hud_scene, terrain_scene;
+    double inner_gap = 0.0; // |sum of step phases - step total|, worst frame
+    double scene_gap = 0.0;
+    int frames_run = 0;
+    game::Scene scene;
+    const int total_frames = kBattleWarmup + kBattleFrames;
+    for (int i = 0; i < total_frames; ++i) {
+        const bool counted = i >= kBattleWarmup;
+        const auto f0 = Clock::now();
+        const Frame fr = commanders();
+        sim::StepTimings st{};
+        sim.step(&st);
+
+        // The camera: the middle of the player's compound (the app's camera follows the driven
+        // unit, which is in the compound).
+        float cx = 0.0F;
+        float cy = 0.0F;
+        int n = 0;
+        sim::UnitId viewer{};
+        std::size_t shells = 0;
+        for (const sim::Unit& unit : sim.units()) {
+            if (unit.alive && unit.side == sim::Side::Player) {
+                if (viewer == sim::UnitId{}) {
+                    viewer = unit.id;
+                }
+                cx += static_cast<float>(unit.x.raw) / static_cast<float>(sim::Fixed::kOne);
+                cy += static_cast<float>(unit.y.raw) / static_cast<float>(sim::Fixed::kOne);
+                ++n;
+            }
+        }
+        for (const sim::Projectile& p : sim.projectiles()) {
+            shells += p.gravity.raw > 0 ? 1U : 0U;
+        }
+        if (n > 0) {
+            cx /= static_cast<float>(n);
+            cy /= static_cast<float>(n);
+        }
+        options.viewer_unit = viewer;
+        options.camera
+            = game::Camera{cx * game::kMetresPerTile, 8.0F, cy * game::kMetresPerTile, 0.0F, 0.0F};
+        const auto s0 = Clock::now();
+        scene = game::build_scene(sim, options);
+        const double scene_out = since_ms(s0);
+
+        double render_ms = 0.0;
+#if defined(PROTEKT_HAVE_VULKAN)
+        if (renderer != nullptr) {
+            const render::FrameRequest request{
+                .extent = game::Extent{1280, 720}, .seed = kSeed, .tick = 0, .scene = &scene};
+            render::FrameStats stats{};
+            const auto r0 = Clock::now();
+            (void)renderer->render(request, stats);
+            render_ms = since_ms(r0);
+        }
+#else
+        (void)renderer;
+#endif
+        const double frame_ms = since_ms(f0);
+        ++frames_run;
+        if (!counted) {
+            continue;
+        }
+        observe_s.add(fr.observe_ms);
+        think_s.add(fr.think_ms);
+        ai_s.add(fr.observe_ms + fr.think_ms);
+        step_s.add(ns_to_ms(st.total_ns));
+        orders_s.add(ns_to_ms(st.orders_ns));
+        move_s.add(ns_to_ms(st.movement_ns));
+        steer_s.add(ns_to_ms(st.steer_ns));
+        bolts_s.add(ns_to_ms(st.bolts_ns));
+        hit_s.add(ns_to_ms(st.hit_tests_ns));
+        fire_s.add(ns_to_ms(st.fire_ns));
+        line_s.add(ns_to_ms(st.line_ns));
+        probe_s.add(ns_to_ms(st.probe_ns));
+        line_n.add(static_cast<double>(st.line_calls));
+        probe_n.add(static_cast<double>(st.probe_calls));
+        refused_n.add(static_cast<double>(st.probe_refused));
+        blocked_n.add(static_cast<double>(st.line_blocked));
+        rest_s.add(ns_to_ms(st.rest_ns));
+        scene_s.add(scene_out);
+        render_s.add(render_ms);
+        frame_s.add(frame_ms);
+        proj_s.add(static_cast<double>(st.projectiles_in));
+        shell_s.add(static_cast<double>(shells));
+        units_s.add(static_cast<double>(st.units_alive));
+        vert_s.add(static_cast<double>(scene.vertices.size()));
+        impacts_s.add(static_cast<double>(sim.impacts().size()));
+        shots_s.add(static_cast<double>(sim.shots().size()));
+        units_scene.add(scene_t.units_ms);
+        effects_scene.add(scene_t.world_effects_ms);
+        smooth_scene.add(scene_t.smooth_ms);
+        hud_scene.add(scene_t.hud_ms);
+        terrain_scene.add(scene_t.terrain_ms);
+        inner_gap = std::max(inner_gap, std::abs(ns_to_ms(st.orders_ns) + ns_to_ms(st.movement_ns)
+                                                 + ns_to_ms(st.bolts_ns) + ns_to_ms(st.fire_ns)
+                                                 + ns_to_ms(st.rest_ns) - ns_to_ms(st.total_ns)));
+        scene_gap = std::max(scene_gap, std::abs(scene_t.terrain_ms + scene_t.sky_and_shadows_ms
+                                                 + scene_t.units_ms + scene_t.world_effects_ms
+                                                 + scene_t.smooth_ms + scene_t.fog_ms
+                                                 + scene_t.hud_ms - scene_t.total_ms));
+    }
+
+    int vehicles_end = 0;
+    int enemy_vehicles_end = 0;
+    for (const sim::Unit& unit : sim.units()) {
+        if (unit.alive && !sim::has_footprint(unit.kind)) {
+            (unit.side == sim::Side::Player ? vehicles_end : enemy_vehicles_end) += 1;
+        }
+    }
+
+    std::cout << std::format(
+        "\n== {}\n   {}\n   seed {}, {} player vehicles + {} player buildings at the start "
+        "(enemy the same); contact after {} un-timed ticks; {} frames after {} warm-up (all in "
+        "contact), 1280x720, radius {}\n   alive at the end: {} player vehicles, {} enemy "
+        "vehicles\n",
+        battle.name, battle.composition, kSeed, vehicles_start, buildings_start, pre_roll,
+        kBattleFrames, kBattleWarmup, kRadius, vehicles_end, enemy_vehicles_end);
+    const auto count_row = [&](const char* label, const Stat& s) {
+        std::cout << std::format("   {:<26} mean {:8.1f}   min {:6.0f}   max {:6.0f}\n", label,
+                                 s.mean(), s.min, s.max);
+    };
+    std::cout << "   -- what is on the field, per measured frame --\n";
+    count_row("living units (all, both sides)", units_s);
+    count_row("projectiles in flight", proj_s);
+    count_row("  of which mortar shells", shell_s);
+    count_row("shots fired per tick", shots_s);
+    count_row("impacts per tick", impacts_s);
+    count_row("scene vertices", vert_s);
+    const double cpu = ai_s.mean() + step_s.mean() + scene_s.mean();
+    const auto row = [&](const char* label, const Stat& s, const char* note) {
+        std::cout << std::format("   {:<26} mean {:7.3f} ms   max {:7.3f} ms   {}\n", label,
+                                 s.mean(), s.max, note);
+    };
+    std::cout << "   -- the SIM's side of the frame (mean and worst of the counted frames) --\n";
+    row("AI: observe (2 sides)", observe_s, "sim::observe, player + enemy");
+    row("AI: think (2 sides)", think_s, "UtilityCommander + ScriptedCommander");
+    row("AI total", ai_s, "");
+    row("Sim::step", step_s, "(timed inside)");
+    row("  orders", orders_s, "");
+    row("  movement", move_s, "deploy, scavenge, steer, move");
+    row("    of which steer", steer_s, "inside movement");
+    row("  bolts (advance)", bolts_s, "advance_projectiles");
+    row("    of which hit tests", hit_s, "inside bolts: units + buildings, per projectile");
+    row("  fire (guns)", fire_s, "target search, line of sight, launch");
+    row("    of which has_line", line_s, "inside fire: line of sight (clock per call: reads high)");
+    row("    of which friend probe", probe_s,
+        "inside fire: shot_hurts_friend, a whole flight each");
+    row("  rest", rest_s, "lungs, repair, wrecks, store, queues");
+    std::cout << std::format(
+        "   per tick: {:.1f} has_line calls (max {:.0f}), {:.2f} friend probes "
+        "(max {:.0f}); a probe costs {:.1f} us on average; a projectile's "
+        "hit tests {:.1f} us\n",
+        line_n.mean(), line_n.max, probe_n.mean(), probe_n.max,
+        probe_n.sum > 0 ? 1000.0 * probe_s.sum / probe_n.sum : 0.0,
+        proj_s.sum > 0 ? 1000.0 * hit_s.sum / proj_s.sum : 0.0);
+    std::cout << std::format(
+        "   per tick: {:.1f} has_line calls found no line; {:.1f} friend probes "
+        "refused the shot; {:.2f} shots were actually fired\n",
+        blocked_n.mean(), refused_n.mean(), shots_s.mean());
+    std::cout << std::format("   {:<26} {:7.3f} ms   (worst frame's |sum of step phases - step "
+                             "total|: {:.4f} ms)\n",
+                             "sum of step phases",
+                             orders_s.mean() + move_s.mean() + bolts_s.mean() + fire_s.mean()
+                                 + rest_s.mean(),
+                             inner_gap);
+    std::cout << "   -- the scene (game::build_scene) --\n";
+    row("build_scene", scene_s, "(timed outside)");
+    row("  units + buildings", units_scene, "");
+    row("  world effects", effects_scene, "projectiles, scrap, pools, beams, motes");
+    row("  smooth_vertex_normals", smooth_scene, "");
+    row("  hud", hud_scene, "");
+    row("  terrain", terrain_scene, "");
+    std::cout << std::format("   (worst frame's |sum of scene phases - scene total|: {:.4f} ms)\n",
+                             scene_gap);
+    std::cout << std::format("   CPU per frame (AI + step + build_scene): {:.3f} ms\n", cpu);
+    std::cout << std::format("   of that: AI {:.1f}%, Sim::step {:.1f}%, build_scene {:.1f}%\n",
+                             100.0 * ai_s.mean() / cpu, 100.0 * step_s.mean() / cpu,
+                             100.0 * scene_s.mean() / cpu);
+#if defined(PROTEKT_HAVE_VULKAN)
+    if (renderer != nullptr) {
+        std::cout << std::format("   -- renderer ({}) --\n", renderer->device_name());
+        row("Renderer::render", render_s, "");
+        std::cout << std::format("   whole frame: CPU {:.3f} ms + render {:.3f} ms = {:.3f} ms "
+                                 "= {:.1f} fps  (the loop's own wall clock per frame: mean "
+                                 "{:.3f} ms, worst {:.3f} ms)\n",
+                                 cpu, render_s.mean(), cpu + render_s.mean(),
+                                 1000.0 / (cpu + render_s.mean()), frame_s.mean(), frame_s.max);
+    }
+#endif
+    (void)frames_run;
+}
+
 } // namespace
 
 // A probe, run by hand: a throw is the report. No state to unwind.
 // NOLINTNEXTLINE(bugprone-exception-escape)
-int main() {
+int main(int argc, char** argv) {
+    // `protekt-framecost [bases|battle]`: both by default.
+    const std::span<char*> args(argv, static_cast<std::size_t>(argc));
+    const std::string_view what = args.size() > 1 ? args[1] : "all";
     std::cout << std::format("protekt-framecost: build type {}, flags: {}\n", PROTEKT_BUILD_TYPE,
                              PROTEKT_BUILD_FLAGS);
     const std::string flags = PROTEKT_BUILD_FLAGS;
@@ -332,8 +674,15 @@ int main() {
     }
 #endif
 
-    for (const Base& base : bases()) {
-        measure(base, renderer.get());
+    if (what == "all" || what == "bases") {
+        for (const Base& base : bases()) {
+            measure(base, renderer.get());
+        }
+    }
+    if (what == "all" || what == "battle") {
+        for (const Battle& battle : battles()) {
+            measure_battle(battle, renderer.get());
+        }
     }
     return 0;
 }

@@ -13,6 +13,7 @@
 #include "protekt/sim/pool.hpp"
 #include "protekt/sim/projectile.hpp"
 #include "protekt/sim/scrap.hpp"
+#include "protekt/sim/timings.hpp"
 #include "protekt/sim/units.hpp"
 
 namespace protekt::sim {
@@ -234,7 +235,9 @@ public:
     [[nodiscard]] static Sim create(const Scenario& scenario);
 
     void enqueue(const Order& order) override;
-    void step();
+    /// `timings`, when given, is filled with where this step's time went (N7); the state the step
+    /// computes is identical with or without it.
+    void step(StepTimings* timings = nullptr);
 
     [[nodiscard]] std::uint32_t tick() const noexcept;
     /// The seed the ground comes from.

@@ -4,6 +4,7 @@
 #include "protekt/sim/spec.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <cstddef>
 #include <cstdlib>
 
@@ -701,7 +702,17 @@ void damp_horizontal(Projectile& shell) noexcept {
 
 void advance_projectiles(std::vector<Projectile>& projectiles, std::vector<Unit>& units,
                          std::vector<Impact>& impacts, std::vector<Landing>& landings,
-                         std::uint64_t seed) noexcept {
+                         std::uint64_t seed, StepTimings* timings) noexcept {
+    // N7: the hit tests' clock. With no `timings` nothing here reads a clock.
+    using Clock = std::chrono::steady_clock;
+    const auto hit_mark = [&]() { return timings != nullptr ? Clock::now() : Clock::time_point{}; };
+    const auto hit_add = [&](Clock::time_point from) {
+        if (timings != nullptr) {
+            timings->hit_tests_ns
+                += std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - from)
+                       .count();
+        }
+    };
     const auto land
         = [&](const Projectile& shell, std::int64_t raw_x, std::int64_t raw_y, bool hit) {
               landings.push_back(Landing{shell.shooter, static_cast<std::int32_t>(raw_x >> 16),
@@ -784,6 +795,7 @@ void advance_projectiles(std::vector<Projectile>& projectiles, std::vector<Unit>
         // built into: pointing at a Lung and firing is how a raid disables a Spire, and the
         // footprint it is built into must not stop the shot meant for it. Only that structure's;
         // any other building in the way still stops it.
+        const Clock::time_point units_from = hit_mark();
         UnitId through{};
         for (const Unit& named : units) {
             if (named.id == bolt.aimed_at) {
@@ -829,6 +841,7 @@ void advance_projectiles(std::vector<Projectile>& projectiles, std::vector<Unit>
                 hit_d2 = d2;
             }
         }
+        hit_add(units_from);
         // Where the bolt meets what it hit: where its path was nearest the body (a unit's point of
         // a hit circle), or, for a BUILDING, where it first meets the footprint.
         std::int64_t strike_x = 0;
@@ -846,6 +859,7 @@ void advance_projectiles(std::vector<Projectile>& projectiles, std::vector<Unit>
         // into the rectangle below the building's top is stopped by it, whichever side either is
         // on -- unless a unit in front of it was struck first. A shell above the top goes over (see
         // `meets_building`).
+        const Clock::time_point buildings_from = hit_mark();
         for (Unit& unit : units) {
             if (!unit.alive || !has_footprint(unit.kind) || unit.id == bolt.bounced_off
                 || unit.id == bolt.shooter || unit.id == through) {
@@ -879,6 +893,7 @@ void advance_projectiles(std::vector<Projectile>& projectiles, std::vector<Unit>
             strike_y = inside(from_y + step_y * when.num / when.den, site.y, site.height);
             strike_z = from_z + step_z * when.num / when.den;
         }
+        hit_add(buildings_from);
         if (hit != nullptr && bolt.round == Round::Bounce) {
             // A bouncer takes no life: it glances off the body where its path was nearest it. A
             // rebound too weak to be a bounce just loses its climb and drops to the ground.

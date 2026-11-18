@@ -4,6 +4,7 @@
 #include <vector>
 
 #include "protekt/sim/fixed.hpp"
+#include "protekt/sim/timings.hpp"
 #include "protekt/sim/units.hpp"
 
 namespace protekt::sim {
@@ -276,6 +277,6 @@ void advance_projectiles(std::vector<Projectile>& projectiles, std::vector<Unit>
 /// appended to `landings`. Observation output: it changes nothing about the flight.
 void advance_projectiles(std::vector<Projectile>& projectiles, std::vector<Unit>& units,
                          std::vector<Impact>& impacts, std::vector<Landing>& landings,
-                         std::uint64_t seed) noexcept;
+                         std::uint64_t seed, StepTimings* timings = nullptr) noexcept;
 
 } // namespace protekt::sim
