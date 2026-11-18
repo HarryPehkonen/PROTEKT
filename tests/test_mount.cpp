@@ -63,7 +63,9 @@ TEST(Mount, ASpawnedTurretIsMountedAndFires) {
     EXPECT_TRUE(is_mounted(*sim.find(turret)));
     EXPECT_TRUE(observe(sim, Side::Player).own[0].mounted);
     bool fired = false;
-    for (int t = 0; t < 40; ++t) {
+    // N9: a gun finds its target on a beat (`kThinkBeatTicks`), so the first bolt can leave up to a
+    // beat after the tick the unit is ready, and then has to arrive: 60 ticks (it was 40).
+    for (int t = 0; t < 60; ++t) {
         fired = step_watch(sim, turret).fired || fired;
     }
     EXPECT_TRUE(fired);
@@ -103,7 +105,11 @@ TEST(Mount, AStoppedTurretFiresExactlyAtMountTicks) {
             first_shot = since_move;
         }
     }
-    EXPECT_EQ(first_shot, static_cast<int>(kMountTicks));
+    // N9: NEVER BEFORE `kMountTicks` (the half that matters) and now within one beat after it: the
+    // turret finds its target on its beat (`kThinkBeatTicks`) rather than the tick it is mounted.
+    // It was `EXPECT_EQ(first_shot, kMountTicks)`: 90 exactly; this run's is 100.
+    EXPECT_GE(first_shot, static_cast<int>(kMountTicks));
+    EXPECT_LE(first_shot, static_cast<int>(kMountTicks) + kThinkBeatTicks);
 }
 
 TEST(Mount, MovingResetsTheClock) {
@@ -131,8 +137,10 @@ TEST(Mount, MovingResetsTheClock) {
             first_shot = since_move;
         }
     }
-    EXPECT_EQ(first_shot, static_cast<int>(kMountTicks))
+    // N9: not before `kMountTicks`, and within a beat of it (it was exactly `kMountTicks`; 92 now).
+    EXPECT_GE(first_shot, static_cast<int>(kMountTicks))
         << "the 60 earlier still ticks do not count";
+    EXPECT_LE(first_shot, static_cast<int>(kMountTicks) + kThinkBeatTicks);
 }
 
 TEST(Mount, TanksStillFireOnTheMove) {
@@ -206,8 +214,10 @@ TEST(Unmount, StopDuringTheUnmountMountsAgainAfterAFullStillnessNotBefore) {
             first_shot = t;
         }
     }
-    EXPECT_EQ(first_shot, static_cast<int>(kMountTicks))
+    // N9: not before `kMountTicks`, and within a beat of it (it was exactly `kMountTicks`; 95 now).
+    EXPECT_GE(first_shot, static_cast<int>(kMountTicks))
         << "the unmount progress is discarded: a full still period, counted from the Stop";
+    EXPECT_LE(first_shot, static_cast<int>(kMountTicks) + kThinkBeatTicks);
 }
 
 TEST(Unmount, AnUnmountedTurretThatIsStoppedAndMovedAgainMovesAtOnce) {

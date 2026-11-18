@@ -28,7 +28,7 @@ inline constexpr sim::Tick kManualShotIntervalTicks = 8;
 
 /// The beat the idle tanks think their defence on: every 15th sim tick, the cadence the AI's
 /// controllers use. Between beats nothing is emitted; the sim's own aim and cooldown carry on.
-inline constexpr sim::Tick kDefendCadence = 15;
+inline constexpr sim::Tick kDefendCadence = sim::kThinkBeatTicks;
 
 /// What the HUD says while G is armed. Shown the whole time `Interaction::go_armed()` is true.
 inline constexpr std::string_view kGoPrompt = "go where? 0-9 for a mark.";

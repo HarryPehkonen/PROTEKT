@@ -2479,6 +2479,14 @@ void Sim::step(StepTimings* timings) {
         }
         const std::int64_t range = prof.weapon_range.raw;
         Unit* best = nullptr;
+        // N9: THE BEAT. A unit chooses its target, and proves a line to it, once every
+        // `kThinkBeatTicks` (the AI's own 15-tick beat, phased by unit id so the guns do not all
+        // search on one tick), and KEEPS the choice (`fire_target`) in between. N7 measured the
+        // search as the whole cost of a battle: a gun whose every candidate a friend shields is
+        // ready again the next tick, and searched everything again, hundreds of times a tick.
+        const bool on_beat = (static_cast<std::uint64_t>(tick_) + unit.id.value)
+                                 % static_cast<std::uint64_t>(kThinkBeatTicks)
+                             == 0;
         // What the trigger named outranks everything else. It is the only order that says "shoot
         // THIS one" without touching stance or movement, which is what lets a player who is driving
         // a unit choose a target without the sim steering there.
@@ -2492,7 +2500,7 @@ void Sim::step(StepTimings* timings) {
         }
         // An explicit Attack order outranks auto-engagement: while the named target is alive, in
         // range and in sight the gun engages it, even when a closer hostile is in range too.
-        if (unit.stance == Stance::Attack && unit.target.valid()) {
+        if (best == nullptr && on_beat && unit.stance == Stance::Attack && unit.target.valid()) {
             Unit* named = find_mut(units_, unit.target);
             if (named != nullptr && named->alive
                 && dist2(unit.x, unit.y, named->x, named->y) <= range * range
@@ -2500,7 +2508,7 @@ void Sim::step(StepTimings* timings) {
                 best = named;
             }
         }
-        if (best == nullptr && unit.id != driven_) {
+        if (best == nullptr && on_beat && unit.id != driven_) {
             std::int64_t best_d2 = range * range + 1;
             for (Unit& other : units_) {
                 if (!other.alive || other.side == unit.side || other.kind == UnitKind::PowerLung) {
@@ -2518,8 +2526,24 @@ void Sim::step(StepTimings* timings) {
                 }
             }
         }
+        if (!on_beat && best == nullptr && unit.fire_target.valid()) {
+            // BETWEEN BEATS: the kept target, if it is still there and still in reach. Its line
+            // was proved when it was chosen and is not asked again (the ground does not move); the
+            // friend probe IS asked again, because a friend can wander into the lane and it costs
+            // one flight per shot, not per tick. A target gone, out of reach or now shielded is
+            // dropped, and the next beat chooses.
+            Unit* kept = unit.id == driven_ ? nullptr : find_mut(units_, unit.fire_target);
+            if (kept != nullptr && kept->alive
+                && dist2(unit.x, unit.y, kept->x, kept->y) <= range * range
+                && !hurts_friend(unit, *kept, prof.damage)) {
+                best = kept;
+            }
+        }
+        unit.fire_target = best != nullptr ? best->id : UnitId{};
         if (best == nullptr) {
-            retarget_aim(unit, UnitId{}); // nothing to aim at: the belief goes with it
+            if (on_beat) {
+                retarget_aim(unit, UnitId{}); // nothing to aim at: the belief goes with it
+            }
             continue;
         }
         retarget_aim(unit, best->id);
@@ -2814,6 +2838,9 @@ std::uint64_t Sim::state_hash() const noexcept {
         h.i32(u.aim_y.raw);
         h.u64(u.aim_target.value);
         h.u64(u.alive ? 1 : 0);
+        if (u.fire_target.valid()) {
+            h.u64(u.fire_target.value); // only while it holds one (N9): it decides the next shot
+        }
         if (u.fetch_beats != 0) {
             h.u64(u.fetch_beats); // only while on a trip: a battle with none hashes as before
         }

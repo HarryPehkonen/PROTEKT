@@ -27,11 +27,13 @@
 // count. Run: build-release/protekt-framecost   (a Debug build prints a warning and its numbers
 // mean nothing about the game the player runs).
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <format>
+#include <fstream>
 #include <iostream>
 #include <memory>
 #include <span>
@@ -650,6 +652,78 @@ void measure_battle(const Battle& battle, protekt::render::Renderer* renderer,
     (void)frames_run;
 }
 
+// N9: THE DRIFT. A beat on the guns' target search changes WHEN a unit decides, so a fight is not
+// bit-identical to the one before it. This runs each battle headless (no scene, no renderer: the
+// sim and the two commanders only) for a fixed number of ticks and prints, per tick, a signature
+// that does not depend on the sim's own hash (shots fired, living units, the sum of every hp), so
+// the same tool run against the old and the new sim can be diffed line by line: how many shots,
+// kills and frames differ, and who is left standing.
+//   protekt-framecost drift [out-dir [seed...]]   (with an out-dir, writes <size><seed>.ticks)
+constexpr int kDriftTicks = 3000; ///< 100 s of game time
+
+void measure_drift(const Battle& battle, const char* out_dir, std::uint64_t seed) {
+    using namespace protekt;
+    sim::Sim sim = sim::Sim::create(sim::skirmish(seed, battle.data));
+    ai::UtilityCommander player_ai;
+    ai::ScriptedCommander enemy_ai;
+    std::vector<sim::Order> orders;
+    std::int64_t shots = 0;
+    std::int64_t kills = 0;
+    std::size_t alive_before = 0;
+    for (const sim::Unit& unit : sim.units()) {
+        alive_before += unit.alive ? 1U : 0U;
+    }
+    std::string lines;
+    int first_impact = -1;
+    int vehicles_gone_tick = -1;
+    for (int tick = 0; tick < kDriftTicks; ++tick) {
+        orders.clear();
+        const sim::Observation own = sim::observe(sim, sim::Side::Player);
+        const sim::Observation foe = sim::observe(sim, sim::Side::Enemy);
+        player_ai.think(own, orders);
+        enemy_ai.think(foe, orders);
+        for (const sim::Order& order : orders) {
+            sim.enqueue(order);
+        }
+        sim.step();
+        std::size_t alive = 0;
+        std::int64_t hp = 0;
+        std::array<int, 2> vehicles{};
+        for (const sim::Unit& unit : sim.units()) {
+            if (unit.alive) {
+                ++alive;
+                hp += unit.hp;
+                if (!sim::has_footprint(unit.kind)) {
+                    ++vehicles.at(unit.side == sim::Side::Player ? 0U : 1U);
+                }
+            }
+        }
+        shots += static_cast<std::int64_t>(sim.shots().size());
+        kills += static_cast<std::int64_t>(alive_before - alive);
+        alive_before = alive;
+        if (first_impact < 0 && !sim.impacts().empty()) {
+            first_impact = tick;
+        }
+        if (vehicles_gone_tick < 0 && (vehicles.at(0) == 0 || vehicles.at(1) == 0)) {
+            vehicles_gone_tick = tick;
+        }
+        lines += std::format("{} {} {} {}\n", tick, sim.shots().size(), alive, hp);
+        if (tick == kDriftTicks - 1) {
+            std::cout << std::format(
+                "== {} seed {}\n   {} ticks: shots {}, kills {}, first impact at tick {}, alive at "
+                "the end: {} player vehicles, {} enemy vehicles; a side's vehicles all gone at "
+                "tick {}\n",
+                battle.name, seed, kDriftTicks, shots, kills, first_impact, vehicles.at(0),
+                vehicles.at(1), vehicles_gone_tick);
+        }
+    }
+    if (out_dir != nullptr) {
+        const std::string path = std::format("{}/{}{}.ticks", out_dir, battle.name.substr(0, 1),
+                                             seed == kSeed ? "" : std::to_string(seed));
+        std::ofstream(path) << lines;
+    }
+}
+
 } // namespace
 
 // A probe, run by hand: a throw is the report. No state to unwind.
@@ -675,6 +749,24 @@ int main(int argc, char** argv) {
                "!!  These numbers say nothing about the game a player runs. Use the     !!\n"
                "!!  Release build directory.                                            !!\n"
                "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n";
+    }
+
+    if (what == "drift") {
+        // `drift [out-dir [seed...]]`: seed 42 (the framecost battles' own) unless others are
+        // named.
+        std::vector<std::uint64_t> seeds;
+        for (std::size_t i = 3; i < args.size(); ++i) {
+            seeds.push_back(std::stoull(args[i]));
+        }
+        if (seeds.empty()) {
+            seeds.push_back(kSeed);
+        }
+        for (const std::uint64_t seed : seeds) {
+            for (const Battle& battle : battles()) {
+                measure_drift(battle, args.size() > 2 ? args[2] : nullptr, seed);
+            }
+        }
+        return 0;
     }
 
     std::unique_ptr<protekt::render::Renderer> renderer;

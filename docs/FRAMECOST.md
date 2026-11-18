@@ -304,3 +304,41 @@ pass fell by about a third, not to zero: the rest is the terrain (15,000 vertice
 whole of the bare-ground scenario's pass) and the units, shadows and effects. The cache takes about 2.6 ms off the
 pass and about 0.8 ms off "units + buildings" at C, 3.4 ms off `build_scene`. It does not reach the goal's 20 ms
 alone; the next biggest single cost in the pass is the terrain, which changes with the camera and was not touched.
+
+## N9: the guns' target search and line of sight go on a beat
+
+N7 measured the battle's cost as the guns choosing targets (`fire`: 2.33 ms of a 3.06 ms step at S, ~16-20 ms of a
+21.7 ms step at H), and 99% of the friend probes refusing the shot. A gun whose every candidate a friend shields never
+fires, so it is ready again the next tick and searches everything again.
+
+Now a unit chooses its target, and proves a line to it, once every `kThinkBeatTicks` = 15 ticks (the AI's own beat,
+`game::kDefendCadence` is the same constant), phased by unit id so the guns do not all search on one tick, and KEEPS
+the choice in `Unit::fire_target` between beats. Between beats a kept target is fired at if it is alive and in reach
+and the friend probe (one flight per SHOT, not per tick) still allows the shot; otherwise it is dropped and the next
+beat chooses. The line of sight is not asked between beats: here it is terrain-only, and the ground does not move.
+A `FocusFire` is still honoured every tick. An `Attack` order's named target is taken up on the next beat.
+
+Release `-O3 -DNDEBUG`, llvmpipe renderer (software), same machine and scenarios as N7; OLD = `d47c427`:
+
+| size | Sim::step OLD -> NEW | fire OLD -> NEW | has_line calls per tick | CPU per frame (AI+step+scene) OLD -> NEW |
+|---|---|---|---|---|
+| S | 3.11 -> 1.47 ms | 2.37 -> 0.27 ms | 33.3 -> 3.0 | 8.4 -> 6.7 ms |
+| M | 6.56 -> 2.16 ms | 4.62 -> 0.66 ms | 55.8 -> 8.3 | 19.9 -> 11.8 ms |
+| H | 21.67 -> 6.04 ms | 20.09 -> 3.40 ms | 258.7 -> 44.2 | 38.2 -> 33.4 ms |
+
+(The two fights are not the same fight -- H has 94.0 units alive on average OLD and 107.7 NEW, and `build_scene` grows
+with them -- which is why the whole CPU frame falls less than the step.)
+
+The drift: `protekt-framecost drift [out-dir [seed...]]` runs each battle headless for 3000 ticks and prints shots,
+kills and who is left; run on both sides of the change over eight seeds (42 7 99 1024 5 11 23 31):
+
+| size | shots OLD / NEW (8 seeds) | kills OLD / NEW | player ahead at the end OLD / NEW |
+|---|---|---|---|
+| S | 2530 / 2570 | 186 / 171 | 6 / 6 |
+| M | 4175 / 3506 | 359 / 319 | 6 / 7 |
+| H | 4282 / 3935 | 598 / 611 | 6 / 7 |
+
+On seed 42, every frame from tick ~407-424 differs (2571 / 2575 / 2593 of 3000 at S / M / H), 505 / 635 / 614 of them in
+the shots fired; shots 311 -> 406 (S), 471 -> 591 (M), 616 -> 368 (H); kills 19 -> 28, 36 -> 46, 80 -> 76; first impact
+437 -> 452, 434 -> 443, 413 -> 420. The WINNER of an individual fight is chaotic in the timing and does change on a
+given seed (S 42: player 8 vs 2 -> 0 vs 10; H 42: 0 vs 30 -> 23 vs 2); in aggregate the fights are alike.

@@ -394,6 +394,13 @@ TEST(Trigger, AManualShotAtAHostileInRangeEmitsNoFiredEvent) {
             EXPECT_EQ(field.shots().size(), 1U) << "the manual shot really was made";
             EXPECT_FALSE(field.shots().front().target.valid())
                 << "and names no one to the observer";
+        } else {
+            // N9: a gun finds its target on a beat (`sim::kThinkBeatTicks`), so the tank that has
+            // come into range chooses it within a beat rather than on that very tick. The control
+            // runs on until it has fired (it was: this one step).
+            for (int more = 0; more < sim::kThinkBeatTicks + 1 && field.shots().empty(); ++more) {
+                field.step();
+            }
         }
         int fired = 0;
         for (const sim::BattleEvent& e : sim::events_between(before, field, tick)) {

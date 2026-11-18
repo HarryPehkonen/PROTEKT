@@ -752,7 +752,7 @@ constexpr int kRepairTicks = 120; // 20 repair beats; the enemy tank loses ~64 h
 /// A FACTORY IS 8 x 8 (round 19, L2) and its spawn tile is its north-west corner, so a factory
 /// meant to stand at tile (x, y) as it did when it was a point is spawned at (x - 4, y - 4): its
 /// centre, where the repair radius is measured from, is where it always was.
-std::uint16_t victim_hp_after(std::vector<Spawn> extra, int ticks) {
+std::uint16_t victim_hp_after(std::vector<Spawn> extra, int ticks, int* first_hit = nullptr) {
     Scenario s;
     s.seed = 7;
     s.spawns = {{UnitKind::Tank, Side::Player, 100, 100}, {UnitKind::Tank, Side::Enemy, 110, 100}};
@@ -760,6 +760,9 @@ std::uint16_t victim_hp_after(std::vector<Spawn> extra, int ticks) {
     Sim sim = Sim::create(s);
     for (int t = 0; t < ticks; ++t) {
         sim.step();
+        if (first_hit != nullptr && *first_hit < 0 && sim.units()[0].hp < kTankHp) {
+            *first_hit = t; // the (0-based) step on which the first bolt landed
+        }
     }
     return sim.units()[0].hp;
 }
@@ -773,11 +776,14 @@ TEST(SimRepair, ADamagedTankNextToItsOwnFactoryGainsHp) {
 }
 
 TEST(SimRepair, RepairIsOneHpEverySixthTick) {
-    // The first bolt lands on step 32, so the beats at ticks 0..30 (six of them) find a full-hp
-    // tank and heal nothing; every later beat heals exactly 1.
-    constexpr int kBeatsAtFullHp = 6;
-    const int beats = kRepairTicks / static_cast<int>(kRepairTickInterval) - kBeatsAtFullHp;
-    const std::uint16_t alone = victim_hp_after({}, kRepairTicks);
+    // The beats before the first bolt lands find a full-hp tank and heal nothing; every later beat
+    // heals exactly 1. WHEN the first bolt lands is read from the run: it used to be step 32 (index
+    // 31; six beats at ticks 0..30), and N9 moved it (the gun finds its target on a beat now).
+    int first_hit = -1;
+    const std::uint16_t alone = victim_hp_after({}, kRepairTicks, &first_hit);
+    ASSERT_GT(first_hit, 0) << "the fixture must actually hurt the tank";
+    const int beats_at_full_hp = (first_hit - 1) / static_cast<int>(kRepairTickInterval) + 1;
+    const int beats = kRepairTicks / static_cast<int>(kRepairTickInterval) - beats_at_full_hp;
     const std::uint16_t repaired
         = victim_hp_after({{UnitKind::Factory, Side::Player, 96, 92}}, kRepairTicks);
     EXPECT_EQ(repaired - alone, beats);

@@ -334,6 +334,11 @@ struct Unit {
     /// FocusFire: what the trigger named, if anything. Preferred over both the Attack stance and
     /// auto-engagement while it is alive and in range.
     UnitId focus_target{};
+    /// N9: whom this gun chose on its last beat (`kThinkBeatTicks`) and keeps between beats; none
+    /// when it found nothing. Dropped when the target is dead, out of reach or shielded by a
+    /// friend. Hashed only while it holds one, so a battle in which no gun has a target hashes as
+    /// before.
+    UnitId fire_target{};
     /// The obstacle this unit is working around, if any. State, not a decision: a one-tick escape
     /// cancels itself out, because steering re-aims at the goal every tick.
     Detour detour{};
@@ -467,7 +472,11 @@ inline constexpr std::uint16_t kTurretHp = 150;
 inline constexpr std::uint16_t kFactoryHp = 400;
 /// A follower holds within this many tiles of the unit it follows, and closes in when outside it.
 inline constexpr int kFollowRadiusTiles = 4;
-inline constexpr int kRepairRadiusTiles = 6;  ///< a living friendly factory mends units this close
+inline constexpr int kRepairRadiusTiles = 6; ///< a living friendly factory mends units this close
+/// N9: THE THINK BEAT, 15 ticks (half a second). The cadence the AI's controllers think on and the
+/// idle tanks' defence uses (`game::kDefendCadence` is this), and now the cadence on which a gun
+/// chooses its target and proves a line of sight to it. Between beats a gun keeps its choice.
+inline constexpr int kThinkBeatTicks = 15;
 inline constexpr int kRepairTickInterval = 6; ///< ...by 1 hp every this many ticks
 /// SERVICE TRUCKS. A truck mends a friendly unit by `max_hp / kServiceRepairTicks` a tick at its
 /// closest, whatever the unit is, so the time to mend scales with max hit points exactly as the

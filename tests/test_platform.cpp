@@ -152,11 +152,17 @@ TEST_P(Platform, AnEnemyOnYourPlatformIsNotMended) {
 }
 
 TEST_P(Platform, ADestroyedPlatformMendsNothing) {
+    // N9: the tank used to start at ONE hit point, and survive because the platform fell to the
+    // gun's first bolt before its second left. The gun now fires on its beat and the first bolt
+    // lands two ticks AFTER the second leaves, which flies on over the wreck and strikes the tank
+    // (a bolt travels past its target): so the tank starts with hit points to spare (`kHurt`,
+    // still short of whole, so there is something to mend). It is the wreck that is under test.
+    constexpr std::uint16_t kHurt = 50;
     // The tank is driven on, then an enemy gun twelve tiles west of the platform's edge kills the
     // platform (one hit point) -- the tank stands nineteen tiles from that gun, out of its reach,
     // so nothing else touches it.
     std::vector<Spawn> spawns{spawn(GetParam(), Side::Player, kBayX, kBayY, 1),
-                              spawn(UnitKind::Tank, Side::Player, kApproachX, kRowY, 1),
+                              spawn(UnitKind::Tank, Side::Player, kApproachX, kRowY, kHurt),
                               spawn(UnitKind::Tank, Side::Enemy, kBayX - 12, kRowY)};
     Sim sim = rig(std::move(spawns));
     const UnitId bay = sim.units().at(0).id;

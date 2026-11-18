@@ -24,7 +24,13 @@ using sim::EventKind;
 /// A seed where the two commanders genuinely trade. It was 2, then 9; RE-RECORDED for R3a, when the
 /// enemy gained its own hover tank and battles changed again: seed 777 now has each side losing
 /// units, with first contact at tick 325.
-constexpr unsigned kSeed = 777;
+/// RE-RECORDED, N9 (a gun chooses its target on a 15-tick beat): 777 -> 10. On 777 the fight now
+/// goes one way (shots 75/124, the player loses 5 units and the enemy none, first shot at tick
+/// 328), which is a rout and not the trade this seed is here for; on 10 each side fires over a
+/// hundred bolts and loses two units (first shot at tick 472). A fight's outcome is chaotic in its
+/// timing: no seed is a property of the game, and the one that trades is picked again whenever the
+/// timing moves. Restoring `kThinkBeatTicks` = 1 puts 777 back as it was.
+constexpr unsigned kSeed = 10;
 constexpr sim::Tick kTicks = 2400;
 
 struct Fight {

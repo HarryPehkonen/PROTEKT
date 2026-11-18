@@ -153,7 +153,10 @@ TEST(Navigation, ATankOrderedOntoAFactoryReachesItAndDamagesIt) {
     // RE-RECORDED, N5: 1002 -> 1004. What stops a unit is the building's DRAWN box now (6 x 6 of
     // the 8 x 8 factory), and the same box is what the bolt strikes, so the tank's route round it
     // and the edge its first bolt meets both move: two ticks later.
-    EXPECT_EQ(first_damage, 1004)
+    // RE-RECORDED, N9 (a gun chooses its target on a 15-tick beat): 1004 -> 1020. The route is the
+    // same; the tank's gun finds the base on its next beat rather than the tick it comes in range,
+    // and the bolt lands that much later. Restored exactly by `kThinkBeatTicks` = 1.
+    EXPECT_EQ(first_damage, 1020)
         << "and it takes about a thousand ticks to get there and open fire";
 }
 

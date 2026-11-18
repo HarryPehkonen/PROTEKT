@@ -3066,11 +3066,15 @@ protekt::sim::Sim two_bolt_sim() {
 }
 
 /// Steps until a bolt is in the air (the units are stationary, so nothing else moves meanwhile).
-void step_until_bolt(protekt::sim::Sim& sim) {
-    for (int step = 0; step < 200 && sim.projectiles().empty(); ++step) {
+///
+/// N9: `bolts` is how many must be in the air at once. The guns fire on a 15-tick beat phased by
+/// unit id, so two tanks' first bolts leave on different ticks and "one bolt per side" is a moment
+/// to wait for rather than the first bolt.
+void step_until_bolt(protekt::sim::Sim& sim, std::size_t bolts = 1) {
+    for (int step = 0; step < 200 && sim.projectiles().size() < bolts; ++step) {
         sim.step();
     }
-    ASSERT_FALSE(sim.projectiles().empty()) << "no gun fired within 200 ticks";
+    ASSERT_GE(sim.projectiles().size(), bolts) << "no gun fired within 200 ticks";
 }
 
 SceneOptions bolt_options(const protekt::sim::Sim& sim) {
@@ -3149,7 +3153,7 @@ TEST(SceneBolts, NothingInTheAirAddsNothing) {
 TEST(SceneBolts, BothSidesAreDrawn) {
     auto sim = two_bolt_sim();
     const auto none = protekt::game::build_scene(sim, bolt_options(sim));
-    step_until_bolt(sim);
+    step_until_bolt(sim, 2);
     ASSERT_EQ(sim.projectiles().size(), 2U);
     const auto with = protekt::game::build_scene(sim, bolt_options(sim));
     EXPECT_EQ(with.vertices.size() - none.vertices.size(), 2U * kBoxVertices);
@@ -3166,7 +3170,7 @@ constexpr float kInkTolerance = 1e-3F;
 TEST(SceneBolts, TheColourSaysWhoseBoltItIs) {
     auto sim = two_bolt_sim();
     const auto none = protekt::game::build_scene(sim, bolt_options(sim));
-    step_until_bolt(sim);
+    step_until_bolt(sim, 2);
     ASSERT_EQ(sim.projectiles().size(), 2U);
     const auto drawn = bolt_vertices(protekt::game::build_scene(sim, bolt_options(sim)), none);
     ASSERT_EQ(drawn.size(), 2U * kBoxVertices);
