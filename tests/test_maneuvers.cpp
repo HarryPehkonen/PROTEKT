@@ -71,6 +71,10 @@ public:
         for (const std::int32_t key : keys) {
             hands.keys.push_back(input::KeyEvent{key, true, false});
         }
+        step(hands);
+    }
+
+    void step(const input::InputFrame& hands) {
         game::SceneOptions options = scene_options();
         const bool top_menu = !session_.go_armed() && !session_.attack_armed()
                               && !session_.tilde_steps()
@@ -90,6 +94,22 @@ public:
         sim_.step();
         row_.update(sim_, Side::Player, marks_.marks().size(), driven_);
     }
+
+    /// One frame as the WINDOW delivers it (render/window.cpp): a key goes DOWN once, then nothing
+    /// is said until it goes UP -- no event on the frames between -- and the mouse's relative
+    /// motion rides the same frame. `--autodrive` is not this: it re-presses W on every frame and
+    /// never releases it, and a pointer's motion is something it never carries.
+    void real_frame(const std::vector<input::KeyEvent>& events, float look_dx = 0.0F,
+                    float look_dy = 0.0F) {
+        input::InputFrame hands;
+        hands.keys = events;
+        hands.mouse_dx = look_dx;
+        hands.mouse_dy = look_dy;
+        step(hands);
+    }
+    void key_down(std::int32_t key) { real_frame({input::KeyEvent{key, true, false}}); }
+    void key_up(std::int32_t key) { real_frame({input::KeyEvent{key, false, false}}); }
+    void look(float dx, float dy = 0.0F) { real_frame({}, dx, dy); }
 
     void press(std::int32_t key) { frame({key}); }
     void hold(std::int32_t key) { held_.push_back(key); }
@@ -149,6 +169,7 @@ public:
         }
         return ids;
     }
+    [[nodiscard]] const sim::Unit& hull() const { return *sim_.find(driven_); }
     [[nodiscard]] const game::Session& session() const { return session_; }
     [[nodiscard]] sim::UnitId driven() const { return driven_; }
     [[nodiscard]] const std::vector<sim::Order>& orders() const { return orders_; }
@@ -296,6 +317,102 @@ TEST(Maneuver, AnArmedDeploymentSurvivesTheCameraKeys) {
     EXPECT_EQ(deploy.tile_y, after.tile_y);
     EXPECT_FALSE(field.session().deploy_armed());
     EXPECT_FALSE(field.menu_open()) << "the click completes the sequence";
+}
+
+// ------------------------------------------------------------------ moving AND placing (N14)
+//
+// Harri's rule: wherever he points, that is where the deployment goes; the movement keys do not
+// cancel the placement, and because the site is where the reticle meets the ground, moving the
+// view moves the site. Both clauses, driven the way the WINDOW drives (`Field::key_down` and
+// `key_up`, `Field::look`), not the way `--autodrive` does.
+
+namespace {
+
+[[nodiscard]] Field armed_field() {
+    Field field = make_field();
+    field.select(field.first(UnitKind::Recycler).id);
+    field.press(kDigit3);
+    return field;
+}
+
+} // namespace
+
+TEST(Maneuver, MovingTheViewWhileArmedKeepsItArmed) {
+    Field field = armed_field();
+    ASSERT_TRUE(field.session().deploy_armed());
+    const game::NavAim before = field.aim_at_ground();
+    ASSERT_TRUE(before.on_ground());
+
+    for (int i = 0; i < 10; ++i) {
+        field.look(40.0F, 0.0F);
+        ASSERT_TRUE(field.session().deploy_armed()) << "looking dropped the deployment, " << i;
+    }
+
+    const game::NavAim after = field.aim_at_ground();
+    ASSERT_TRUE(after.on_ground());
+    EXPECT_TRUE(after.tile_x != before.tile_x || after.tile_y != before.tile_y)
+        << "the view turned, so the ground under the reticle -- the site -- moved with it";
+}
+
+TEST(Maneuver, DrivingWithTheMovementKeysKeepsItArmed) {
+    Field field = armed_field();
+    const sim::Unit start = field.hull();
+    for (const std::int32_t key : {input::kKeyW, input::kKeyA, input::kKeyD, input::kKeyS}) {
+        field.key_down(key);
+        for (int i = 0; i < 15; ++i) {
+            field.frame();
+            ASSERT_TRUE(field.session().deploy_armed()) << "key " << key << " dropped it, " << i;
+        }
+        field.key_up(key);
+        ASSERT_TRUE(field.session().deploy_armed()) << "releasing key " << key << " dropped it";
+    }
+    EXPECT_TRUE(field.menu_open());
+    EXPECT_TRUE(field.hull().x.raw != start.x.raw || field.hull().y.raw != start.y.raw)
+        << "the hull really drove: the test is not vacuous";
+}
+
+TEST(Maneuver, TheSiteIsWhereTheReticleMeetsTheGroundNotWhereTheHullIs) {
+    Field field = armed_field();
+    field.key_down(input::kKeyW);
+    for (int i = 0; i < 20; ++i) {
+        field.frame();
+    }
+    field.key_up(input::kKeyW);
+    for (int i = 0; i < 8; ++i) {
+        field.look(50.0F, 0.0F); // turn the view away from where the hull is heading
+    }
+    ASSERT_TRUE(field.session().deploy_armed());
+    const game::NavAim pointed = field.aim_at_ground();
+    ASSERT_TRUE(pointed.on_ground());
+
+    const std::size_t given = field.orders().size();
+    field.press(input::kKeySpace);
+
+    ASSERT_EQ(field.orders().size(), given + 1) << "SPACE gave the deploy";
+    const auto& deploy = std::get<sim::orders::Deploy>(field.orders().back().payload);
+    EXPECT_EQ(deploy.tile_x, pointed.tile_x) << "the deployment lands at the pointed spot";
+    EXPECT_EQ(deploy.tile_y, pointed.tile_y);
+    const int hull_x = field.hull().x.floor_int();
+    const int hull_y = field.hull().y.floor_int();
+    EXPECT_TRUE(deploy.tile_x != hull_x || deploy.tile_y != hull_y)
+        << "and it is not under the hull";
+}
+
+TEST(Maneuver, ArmingIsStillRefusedOnBadGround) {
+    // The recycler's own footprint is not clear ground for a second one: aim at the recycler's
+    // tile and SPACE is refused, the deployment stays armed, no order is given.
+    Field field = armed_field();
+    const std::size_t given = field.orders().size();
+    for (int i = 0; i < 40 && field.session().deploy_armed(); ++i) {
+        field.look(-30.0F, 0.0F);
+        field.press(input::kKeySpace);
+        if (field.orders().size() != given) {
+            break;
+        }
+    }
+    // Whatever the reticle crossed, a refusal leaves the arming alone and an acceptance disarms it
+    // after exactly one Deploy: never an order with the arming still up.
+    EXPECT_EQ(field.orders().size() != given, !field.session().deploy_armed());
 }
 
 // ------------------------------------------------------------------ neighbours
