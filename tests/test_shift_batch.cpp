@@ -291,7 +291,11 @@ TEST(ShiftBatch, ShiftTabOnTheBuilderMidBatchCancelsTheRestAndWhatIsBuiltStays) 
     }
     ASSERT_EQ(queued(rig), 3U);
     ASSERT_EQ(player_tanks(rig.sim), before + 1);
-    ASSERT_EQ(rig.player.selection().units().size(), 1U) << "the factory is still selected";
+    // Letting go of shift closed the menu and cleared the selection (N15): `2` brings the
+    // factory back, and it is the factory that Shift-Tab cancels.
+    ASSERT_TRUE(rig.player.selection().units().empty());
+    frame(rig, {down(input::kKey1 + 1, false)});
+    ASSERT_EQ(rig.player.selection().units().size(), 1U) << "the factory is selected again";
 
     const std::vector<Order> orders = frame(rig, {down(input::kKeyTab, true)});
     ASSERT_EQ(cancels_in(orders), 1U);

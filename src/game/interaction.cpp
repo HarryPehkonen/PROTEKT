@@ -234,7 +234,15 @@ void Interaction::handle(const input::InputFrame& frame, const sim::Sim& sim,
         if (key.scancode == input::kKeyLShift || key.scancode == input::kKeyRShift) {
             shift_keys_.at(key.scancode == input::kKeyRShift ? 1 : 0) = key.pressed;
             if (!key.pressed && !shift_keys_.at(0) && !shift_keys_.at(1)) {
+                // Letting go is what BEGINS a batch, so it is the sequence's end: like every
+                // other completed command the menu closes and the selection goes (Harri,
+                // 2026-11-19). A lone bare build keeps its producer selected, to queue on; a
+                // batch has already said everything it was going to.
+                const bool began = !held_.empty();
                 release_shift();
+                if (began) {
+                    selection_.clear();
+                }
             }
             continue;
         }

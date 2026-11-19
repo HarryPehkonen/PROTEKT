@@ -50,8 +50,8 @@ constexpr game::Aim kReticle{640.0F, 520.0F};
 
 class Field {
 public:
-    explicit Field(const std::vector<sim::Spawn>& spawns)
-        : sim_(sim::Sim::create(sim::Scenario{kSeed, spawns})) {
+    explicit Field(const std::vector<sim::Spawn>& spawns, std::uint16_t ore = 0)
+        : sim_(sim::Sim::create(with_ore(spawns, ore))) {
         for (const sim::Unit& unit : sim_.units()) {
             if (unit.side == Side::Player && !driven_.valid()) {
                 driven_ = unit.id; // the first player spawn is the hull being driven
@@ -59,6 +59,13 @@ public:
         }
         session_ = game::Session{driven_};
         row_.seed_from_start(sim_, Side::Player, marks_.marks().size(), driven_);
+    }
+
+    static sim::Scenario with_ore(const std::vector<sim::Spawn>& spawns, std::uint16_t ore) {
+        sim::Scenario scenario{kSeed, spawns};
+        scenario.start_ore = ore;
+        scenario.store_capacity = ore > 0 ? 400 : scenario.store_capacity;
+        return scenario;
     }
 
     /// One frame: `keys` are PRESSED this frame; the ones in `held_` are pressed on every frame,
@@ -413,6 +420,45 @@ TEST(Maneuver, ArmingIsStillRefusedOnBadGround) {
     // Whatever the reticle crossed, a refusal leaves the arming alone and an acceptance disarms it
     // after exactly one Deploy: never an order with the arming still up.
     EXPECT_EQ(field.orders().size() != given, !field.session().deploy_armed());
+}
+
+// ------------------------------------------------------------------ the shift batch (N15)
+//
+// Harri: "Select the deployed recycler with 1, hold shift, hit 1 twice to build two scavengers,
+// let go of shift. Does the menu go away? It should." Driven as the WINDOW drives: shift is a key
+// event of its own (down, then up) and every key pressed meanwhile carries the shift flag.
+// (`--key`/`--autodrive` cannot do this: they never set the flag and have no shift key to name.)
+
+TEST(Maneuver, TheShiftBatchBuildClosesTheMenu) {
+    Field field({spawn(UnitKind::Tank, Side::Player, 40, 40),
+                 spawn(UnitKind::DeployedRecycler, Side::Player, 46, 41),
+                 spawn(UnitKind::Tank, Side::Enemy, 120, 120)},
+                200);
+    const sim::UnitId recycler = field.first(UnitKind::DeployedRecycler).id;
+
+    field.press(kDigit1); // `1` brings up the deployed recycler
+    ASSERT_TRUE(field.menu_open()) << "selecting the recycler opens its menu";
+
+    field.real_frame({input::KeyEvent{input::kKeyLShift, true, true}});
+    field.real_frame({input::KeyEvent{kDigit1, true, true}});
+    field.real_frame({input::KeyEvent{kDigit1, true, true}});
+    EXPECT_EQ(field.unit(recycler).queue.count, 0U)
+        << "held: nothing is ordered while shift is down";
+    EXPECT_TRUE(field.orders().empty());
+
+    field.real_frame({input::KeyEvent{input::kKeyLShift, false, false}});
+
+    std::size_t builds = 0;
+    for (const sim::Order& order : field.orders()) {
+        if (order.kind() == sim::OrderKind::Build) {
+            ++builds;
+            EXPECT_EQ(std::get<sim::orders::Build>(order.payload).kind, UnitKind::Scavenger);
+        }
+    }
+    EXPECT_EQ(builds, 2U) << "two presses, two scavengers -- not one, not three";
+    EXPECT_EQ(field.unit(recycler).queue.count, 2U) << "and both are in the recycler's queue";
+    EXPECT_FALSE(field.menu_open()) << "the batch is begun: the menu goes away";
+    EXPECT_TRUE(field.session().selection().units().empty());
 }
 
 // ------------------------------------------------------------------ neighbours

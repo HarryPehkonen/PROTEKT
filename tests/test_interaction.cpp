@@ -2018,6 +2018,8 @@ TEST(Interaction, TwoGesturesOfOneProducerGetTwoTokensOnceTheFirstBatchIsDone) {
     };
     const std::uint32_t first = token_of_gesture(1);
     ASSERT_TRUE(run_batch_out(rig)) << "the batch never finished";
+    // Letting go of shift closed the menu and cleared the selection (N15): `1` brings it back.
+    rig.player.handle(with_key(input::kKey1), rig.sim, rig.options);
     rig.player.handle(with_key(input::kKey1 + 8), rig.sim,
                       rig.options); // 9: no row, ends a gesture
     (void)rig.player.take_orders();
@@ -2033,6 +2035,8 @@ TEST(Interaction, ABarePressAfterTheBatchIsDoneBuildsALoneUnit) {
     ASSERT_TRUE(press(rig, 1, true).empty());
     ASSERT_EQ(let_go(rig).size(), 1U);
     ASSERT_TRUE(run_batch_out(rig));
+    // Letting go of shift closed the menu and cleared the selection (N15): `1` brings it back.
+    rig.player.handle(with_key(input::kKey1), rig.sim, rig.options);
     ASSERT_TRUE(bank_up(rig, 50)) << "the Scout row must be affordable to be pressed (round 16)";
     const std::vector<Order> orders = press(rig, 2, false);
     ASSERT_EQ(orders.size(), 1U) << "an idle producer takes any single build";
