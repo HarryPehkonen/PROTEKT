@@ -13,6 +13,7 @@
 #include "protekt/sim/pool.hpp"
 #include "protekt/sim/projectile.hpp"
 #include "protekt/sim/scrap.hpp"
+#include "protekt/sim/steering.hpp"
 #include "protekt/sim/timings.hpp"
 #include "protekt/sim/units.hpp"
 
@@ -85,6 +86,12 @@ protected:
 /// ground's half of the question the mover asks, answered for a caller that is not the mover; a
 /// building's footprint is the other half (`building_blocks`), and it is never folded in here.
 [[nodiscard]] bool tile_passable(std::uint64_t seed, int tile_x, int tile_y) noexcept;
+
+/// THE SLIDE, readable: the drift (raw units per tick) the slope gives a unit standing at (`x`,
+/// `y`) on the seed's ground, before anything is commanded. Zero where the ground holds. The mover
+/// adds exactly this to a unit's commanded step every tick, so a test can read what the slope is
+/// doing without driving anything. STUB: no slide yet.
+[[nodiscard]] Step slide_at(std::uint64_t seed, Fixed x, Fixed y) noexcept;
 
 /// True when a living building of either side stands on the tile (its `Footprint` covers it): the
 /// ground is OCCUPIED. THE one answer to "may something be placed here": every spawn, every

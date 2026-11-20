@@ -486,6 +486,20 @@ Pool pool_on_a_clear_row() {
                     && protekt::sim::tile_passable(kSeed, x, pool.tile_y - 1)
                     && protekt::sim::tile_passable(kSeed, x, pool.tile_y + 1);
         }
+        // M1: and the scavenger that is to stand four tiles south of the pool must not slide off
+        // its tile in the fifteen ticks before the commander looks (a hillside slides what stands
+        // on it); the pool itself is where it is.
+        // The tank drives the row east of its start and the commander reads which way it faces: no
+        // tile of that row may slide it off the line either.
+        const auto holds = [](int x, int y) {
+            const protekt::sim::Step drift
+                = protekt::sim::slide_at(kSeed, Fixed::from_int(x), Fixed::from_int(y));
+            return drift.dx == 0 && drift.dy == 0;
+        };
+        clear = clear && holds(pool.tile_x, pool.tile_y + 4);
+        for (int x = pool.tile_x - 14; x <= pool.tile_x + 30 && clear; ++x) {
+            clear = holds(x, pool.tile_y);
+        }
         if (clear) {
             return pool;
         }

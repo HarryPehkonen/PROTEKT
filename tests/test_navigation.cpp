@@ -156,7 +156,11 @@ TEST(Navigation, ATankOrderedOntoAFactoryReachesItAndDamagesIt) {
     // RE-RECORDED, N9 (a gun chooses its target on a 15-tick beat): 1004 -> 1020. The route is the
     // same; the tank's gun finds the base on its next beat rather than the tick it comes in range,
     // and the bolt lands that much later. Restored exactly by `kThinkBeatTicks` = 1.
-    EXPECT_EQ(first_damage, 1020)
+    // RE-RECORDED, M1 (the slope): 1020 -> 1110. A thousand-tick drive across hill country is no
+    // longer at one speed: uphill is slower and downhill faster (`grade_factor`), and on this trip
+    // the climbing costs more than the descending gives back, 90 ticks in all. The route (A*, which
+    // reads passability and not height) is the same tiles.
+    EXPECT_EQ(first_damage, 1110)
         << "and it takes about a thousand ticks to get there and open fire";
 }
 

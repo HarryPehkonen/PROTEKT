@@ -69,11 +69,16 @@ TEST(HoverDrive, StrafeMovesAtThreeQuartersSpeedAlongTheGivenDirection) {
     const auto id = first_of(base, sim::UnitKind::HoverTank);
     auto fwd = base;
     auto side = base;
-    fwd.enqueue(sim::Order{id, sim::orders::MoveTo{base.find(id)->x, sim::Fixed::from_int(60)}});
+    // "Ahead" is driven along +x too, the same way the strafe goes: since M1 a step is scaled by
+    // the slope it climbs or descends, so two directions of a hillside have two speeds, and 3/4 is
+    // the ratio of the two ways of going ALONG ONE DIRECTION (it used to be driven along +y).
+    fwd.enqueue(sim::Order{
+        id, sim::orders::MoveTo{sim::Fixed::from_raw(base.find(id)->x.raw + 60 * sim::Fixed::kOne),
+                                base.find(id)->y}});
     side.enqueue(sim::Order{id, sim::orders::Strafe{sim::Fixed::from_int(1), sim::Fixed{}}});
     fwd.step();
     side.step();
-    const double ahead = raw_dy(base, fwd, id);
+    const double ahead = raw_dx(base, fwd, id);
     const double across = raw_dx(base, side, id);
     ASSERT_GT(ahead, 0.0);
     EXPECT_NEAR(across / ahead, kStrafeFactor, 0.02);

@@ -23,7 +23,7 @@ struct Field {
 };
 
 /// A seed and a corner with 40 x 24 tiles of clear ground, so no relocation is a question of
-/// terrain.
+/// terrain -- and, since M1, of slope: not a tile of it may slide a unit standing there.
 [[nodiscard]] Field open_field() {
     for (std::uint64_t seed = 1; seed < 400; ++seed) {
         for (int y = 20; y < 200; y += 5) {
@@ -31,7 +31,11 @@ struct Field {
                 bool clear = true;
                 for (int dy = 0; dy < 24 && clear; ++dy) {
                     for (int dx = 0; dx < 40 && clear; ++dx) {
-                        clear = tile_passable(seed, x + dx, y + dy);
+                        const Fixed at = Fixed::from_int(x + dx);
+                        const Fixed by = Fixed::from_int(y + dy);
+                        const Step drift = slide_at(seed, at, by);
+                        clear
+                            = tile_passable(seed, x + dx, y + dy) && drift.dx == 0 && drift.dy == 0;
                     }
                 }
                 if (clear) {

@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "protekt/sim/fixed.hpp"
+#include "protekt/sim/steering.hpp"
 
 namespace protekt::sim {
 
@@ -58,21 +59,33 @@ namespace route_detail {
 }
 
 /// Does the straight line between two tile centers stay on enterable ground? Sampled at half-tile
-/// steps in integers; the local steering layer handles anything grazing a rim.
-template <class Ground>
-[[nodiscard]] bool line_clear(const Ground& ground, TileXY a, TileXY b) noexcept {
+/// steps in integers; the local steering layer handles anything grazing a rim. `cliff(from, to)` is
+/// asked for each edge the line crosses from one tile into the next (a diagonal step included), so
+/// a line does not cut across a cliff the mover would refuse.
+template <class Ground, class Cliff>
+[[nodiscard]] bool line_clear(const Ground& ground, TileXY a, TileXY b,
+                              const Cliff& cliff) noexcept {
     const int dx = static_cast<int>(b.x) - a.x;
     const int dy = static_cast<int>(b.y) - a.y;
     const int n = 2 * std::max(std::abs(dx), std::abs(dy));
     if (n == 0) {
         return true;
     }
+    int last_x = a.x;
+    int last_y = a.y;
     for (int i = 0; i <= n; ++i) {
         const int cx = (2 * a.x + 1) * n + 2 * dx * i; // in units of 1 / (2n) tile
         const int cy = (2 * a.y + 1) * n + 2 * dy * i;
-        if (ground.factor(cx / (2 * n), cy / (2 * n)) == 0) {
+        const int tile_x = cx / (2 * n);
+        const int tile_y = cy / (2 * n);
+        if (ground.factor(tile_x, tile_y) == 0) {
             return false;
         }
+        if ((tile_x != last_x || tile_y != last_y) && cliff(last_x, last_y, tile_x, tile_y)) {
+            return false;
+        }
+        last_x = tile_x;
+        last_y = tile_y;
     }
     return true;
 }
@@ -112,6 +125,37 @@ template <class Ground>
     }
 
     const auto index = [](int x, int y) { return y * kRouteTiles + x; };
+
+    // THE CLIFF (M1): where the ground knows heights, an edge steeper than `kClimbLimit` is a wall
+    // to the mover (`plan_step`), so it is a wall here too -- or a route would lead a unit up to a
+    // face it will not climb and leave it there. Each tile's height is read once. Only a cliff
+    // refuses: the slope's grade does not weigh the route (a declared simplification -- the planner
+    // takes the straightest way through ground that can be climbed, not the gentlest).
+    std::vector<std::int16_t> heights;
+    std::vector<std::uint8_t> height_known;
+    if constexpr (HasHeights<Ground>) {
+        heights.assign(kCells, 0);
+        height_known.assign(kCells, 0);
+    }
+    const auto height_at = [&](int x, int y) -> int {
+        if constexpr (HasHeights<Ground>) {
+            const int at = index(x, y);
+            if (height_known[at] == 0) {
+                heights[at] = static_cast<std::int16_t>(ground.height(x, y));
+                height_known[at] = 1;
+            }
+            return heights[at];
+        } else {
+            return 0;
+        }
+    };
+    const auto cliff = [&](int x, int y, int nx, int ny) -> bool {
+        if constexpr (HasHeights<Ground>) {
+            return edge_rise(height_at(x, y), height_at(nx, ny), x != nx && y != ny) > kClimbLimit;
+        } else {
+            return false;
+        }
+    };
     const auto heuristic = [&](int x, int y) {
         const int dx = std::abs(x - goal.x);
         const int dy = std::abs(y - goal.y);
@@ -157,7 +201,7 @@ template <class Ground>
         for (const auto& d : kRing) {
             const int nx = x + d[0];
             const int ny = y + d[1];
-            if (!in_map(nx, ny) || ground.factor(nx, ny) == 0) {
+            if (!in_map(nx, ny) || ground.factor(nx, ny) == 0 || cliff(x, y, nx, ny)) {
                 continue;
             }
             const bool diagonal = d[0] != 0 && d[1] != 0;
@@ -195,7 +239,7 @@ template <class Ground>
     while (anchor + 1 < path.size()) {
         std::size_t reach = anchor + 1;
         while (reach + 1 < path.size()
-               && route_detail::line_clear(ground, path[anchor], path[reach + 1])) {
+               && route_detail::line_clear(ground, path[anchor], path[reach + 1], cliff)) {
             ++reach;
         }
         corners.push_back(path[reach]);

@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <map>
 #include <utility>
 #include <vector>
 
@@ -113,47 +114,58 @@ TEST(Shove, AVehicleDrivenIntoIsPushedAside) {
 }
 
 TEST(Shove, ShovingCostsThePusherAThirdOfItsSpeed) {
-    // A fact about the world, with its numbers written out and none read from the code under test:
-    // a tank drives 0.2 tiles a tick, so in ten ticks it covers two tiles when nothing is in its
-    // way, and on a tick that it spends pushing another it covers two thirds of that, 2/15 of a
-    // tile (Harri's ruling). Contact is not unbroken -- the shoved vehicle is carried sideways and
-    // can slip free for a tick -- so only the ticks on which `shove_ticks` rose are counted, and
-    // the pusher's advance over them is compared to the literal. The slack is a hundredth of a
-    // tile, far narrower than the gap to a half (0.2 tile over twelve ticks) or three quarters.
+    // A fact about the world: on a tick that a tank spends pushing another it covers two thirds of
+    // what it would cover that tick with nothing in the way (Harri's ruling). Contact is not
+    // unbroken -- the shoved vehicle is carried sideways and can slip free for a tick -- so only
+    // the ticks on which `shove_ticks` rose are counted.
+    //
+    // RE-RECORDED, M1 (the slope). This used to compare the advance to a literal, 2/15 of a tile a
+    // tick (a tank's 0.2 tiles, less a third), and to two tiles in ten ticks for the free tank.
+    // Those literals were the speed on LEVEL ground, and no row of seed 42 is level: a step is
+    // scaled by the slope it climbs or descends. So the unobstructed speed is MEASURED, tile by
+    // tile, from a reference tank driving the same row alone; the pusher's advance on a shoving
+    // tick is then compared to two thirds of the reference's step on the tile it stood in (the
+    // grade is the tile ahead's, constant while the tank drives due east, so the reference's step
+    // in a tile is one number). The slack is the same hundredth of a tile it always was.
     ASSERT_TRUE(open_row());
-    Sim free_run = Sim::create(scenario_of({{105, kRowY}}));
+    Sim reference = Sim::create(scenario_of({{105, kRowY}}));
     Sim shoving = Sim::create(scenario_of({{105, kRowY}, {106, kRowY}}));
-    const auto free_ids = player_ids(free_run);
+    const auto reference_ids = player_ids(reference);
     const auto shove_ids = player_ids(shoving);
-    go(free_run, free_ids[0], 130, kRowY);
+    go(reference, reference_ids[0], 130, kRowY);
     go(shoving, shove_ids[0], 130, kRowY);
-    free_run.step(); // the first tick: the pusher closes the gap and touches
-    shoving.step();
-    ASSERT_EQ(shoving.find(shove_ids[0])->shove_ticks, 0) << "not yet in contact";
-    const std::int64_t free_from = free_run.find(free_ids[0])->x.raw;
-    for (int tick = 0; tick < 10; ++tick) {
-        free_run.step();
+
+    std::map<int, std::int64_t> free_step; // the tile -> the step a free tank takes in it
+    for (int tick = 0; tick < 120; ++tick) {
+        const std::int64_t before = reference.find(reference_ids[0])->x.raw;
+        reference.step();
+        free_step[static_cast<int>(before >> Fixed::kShift)]
+            = reference.find(reference_ids[0])->x.raw - before;
     }
+
+    shoving.step(); // the first tick: the pusher closes the gap and touches
+    ASSERT_EQ(shoving.find(shove_ids[0])->shove_ticks, 0) << "not yet in contact";
     int shoving_ticks = 0;
+    double expected = 0.0;
     std::int64_t shove_advance = 0;
-    for (int tick = 0; tick < 30; ++tick) {
+    for (int tick = 0; tick < 60; ++tick) {
         const Unit before = *shoving.find(shove_ids[0]);
         shoving.step();
         const Unit* after = shoving.find(shove_ids[0]);
         if (after->shove_ticks > before.shove_ticks) {
             ++shoving_ticks;
             shove_advance += after->x.raw - before.x.raw;
+            expected += 2.0 / 3.0 * static_cast<double>(free_step.at(before.x.floor_int()));
         }
     }
-    ASSERT_GE(shoving_ticks, 12) << "enough shoving ticks to measure";
+    // OLD minimum 12 over thirty ticks. The graded step moves where the pair meets, and the shoving
+    // spell is 11 ticks on this row now; ten is still plenty to compare a ratio over.
+    ASSERT_GE(shoving_ticks, 10) << "enough shoving ticks to measure";
     EXPECT_GT(shoving.find(shove_ids[1])->x.raw, 106 * Fixed::kOne) << "and the other was carried";
 
-    const std::int64_t free_advance = free_run.find(free_ids[0])->x.raw - free_from;
     const double slack = Fixed::kOne / 100.0; // rounding, not a rule
-    EXPECT_NEAR(static_cast<double>(free_advance), 2.0 * Fixed::kOne, slack)
-        << "unobstructed, a tank covers two tiles in ten ticks";
-    EXPECT_NEAR(static_cast<double>(shove_advance), shoving_ticks * 2.0 * Fixed::kOne / 15.0, slack)
-        << "shoving, it covers 2/15 of a tile a tick: two thirds of its speed";
+    EXPECT_NEAR(static_cast<double>(shove_advance), expected, slack)
+        << "shoving, it covers two thirds of the step it would take there unobstructed";
 }
 
 TEST(Shove, ABystanderThatIsNotInTheWayIsUntouched) {

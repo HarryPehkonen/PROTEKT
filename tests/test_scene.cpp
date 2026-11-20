@@ -3899,7 +3899,10 @@ TEST(SceneHeading, AStoppedTankKeepsTheFacingItHadWhileMoving) {
     }
     ASSERT_TRUE(moved);
     ASSERT_TRUE(stopped_after) << "the tank must arrive and stop";
-    EXPECT_NEAR(headings.of(sim.units().front()), protekt::math::kPi * 0.5F, 1e-4F)
+    // OLD tolerance 1e-4 radians. M1: the slope slides the tank sideways while it drives, so the
+    // last velocity it faced along is 0.0046 rad (a quarter of a degree) off +X. Still facing +X
+    // by any eye; 1e-2 says so without pinning the slide.
+    EXPECT_NEAR(headings.of(sim.units().front()), protekt::math::kPi * 0.5F, 1e-2F)
         << "stopped, it keeps facing +X";
     EXPECT_GT(forward_reach_x(scene_with(sim, headings), sim.units().front()),
               kHullHalfMetres * 1.5F);

@@ -102,14 +102,21 @@ TEST(Routing, ThePinnedFollowWedgeOnSeedEightIsRoutedAround) {
         << "the probe's freeze tile is ground, not a crater: the trap is the geometry around it";
     const Trip trip = run_probe(8, 5000);
     EXPECT_TRUE(trip.both_alive);
-    EXPECT_LE(trip.worst_gap, 8.0) << "the follower must shadow the leader the whole trip";
+    // OLD bound 8.0 (measured, with room). M1: the leader is faster downhill (up to 3/2 of a tank's
+    // step) and the follower, capped at its own speed, falls back on the descents: the worst gap is
+    // 9.46 now. The wedge this test is about FROZE the follower 14 tiles off, so 12 still says
+    // "shadowed", and the end of the trip says it came back (below).
+    EXPECT_LE(trip.worst_gap, 12.0) << "the follower must shadow the leader the whole trip";
+    EXPECT_LE(trip.final_gap, 8) << "and it was alongside again at the end, not stuck behind";
 }
 
 TEST(Routing, ThePinnedFollowWedgeOnSeedTenIsRoutedAround) {
     EXPECT_NE(world::sample(10, 124, 87).terrain, world::Terrain::Crater);
     const Trip trip = run_probe(10, 5000);
     EXPECT_TRUE(trip.both_alive);
-    EXPECT_LE(trip.worst_gap, 8.0) << "the follower must shadow the leader the whole trip";
+    // OLD bound 8.0; 10.87 under M1, for the reason given above. See the seed-eight test.
+    EXPECT_LE(trip.worst_gap, 12.0) << "the follower must shadow the leader the whole trip";
+    EXPECT_LE(trip.final_gap, 8) << "and it was alongside again at the end, not stuck behind";
 }
 
 TEST(Routing, ARouteGoesRoundACraterBandThroughItsGap) {

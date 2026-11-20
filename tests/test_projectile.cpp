@@ -155,9 +155,11 @@ TEST(Projectile, TimeOfFlightDamageDoesNotLandOnTheFiringTick) {
     EXPECT_LE(arrived_at, 30) << "a shot at the edge of range takes about a second";
 }
 
+// Since M1 an idle unit on a steep slope slides, and (100,100) is a hillside in seed 42: this
+// stands at y 14, in the strip where nothing slides (`QuietGround`, test_slope.cpp).
 TEST(Projectile, ArrivalAppliesExactlyItsDamageAndIsRemoved) {
     Sim sim = make(
-        {{Side::Player, UnitKind::Tank, 100, 100}, {Side::Enemy, UnitKind::Recycler, 106, 100}});
+        {{Side::Player, UnitKind::Tank, 100, 14}, {Side::Enemy, UnitKind::Recycler, 106, 14}});
     const std::uint16_t full = sim.find(kSecond)->hp;
     ASSERT_GT(step_until_fired(sim), 0);
     ASSERT_EQ(sim.projectiles().size(), 1U);
@@ -339,9 +341,11 @@ TEST(Projectile, AMovingTankSendsItsOwnVelocityWithTheBolt) {
     EXPECT_NEAR(off_line, 0.0, 8.0) << "the aim does not point at the target";
 }
 
+// Since M1 an idle unit on a steep slope slides, and (100,100) is a hillside in seed 42: this
+// stands at y 14, in the strip where nothing slides (`QuietGround`, test_slope.cpp).
 TEST(Projectile, AStationaryTankSendsOnlyTheFiredComponent) {
     Sim still = make(
-        {{Side::Player, UnitKind::Tank, 100, 100}, {Side::Enemy, UnitKind::Recycler, 108, 100}});
+        {{Side::Player, UnitKind::Tank, 100, 14}, {Side::Enemy, UnitKind::Recycler, 108, 14}});
     ASSERT_GT(step_until_fired(still), 0);
     const Projectile& shot = still.projectiles().front();
     EXPECT_GT(shot.vx.raw, 0);

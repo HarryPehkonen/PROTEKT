@@ -91,11 +91,19 @@ constexpr std::uint32_t kGun = 1;
 constexpr std::uint32_t kFriend = 2;
 constexpr std::uint32_t kEnemy = 3;
 
+// Since M1 a unit on a steep slope slides, and the hillside these used to stand on (around 100,100
+// in seed 42) carried the idle friend out of the lane. The first stands on a level row; the others
+// at y 14..23, on the strip where nothing slides (`QuietGround`, test_slope.cpp), x as it was.
 TEST(HoldFire, ADirectGunHoldsFireWhenAFriendStandsInItsLane) {
     // The friend is four tiles out on the line to the enemy at eight: the bolt would stop on it.
-    Sim sim = make({{Side::Player, UnitKind::Tank, 100, 100},
-                    {Side::Player, UnitKind::Recycler, 104, 100},
-                    {Side::Enemy, UnitKind::Recycler, 108, 100}});
+    // On a LEVEL row (`level_row`): a flat bolt level with its muzzle is then level with the friend
+    // in its lane, which is what makes the friend a shield. The strip chosen for the others falls
+    // away a little to the east, and over a falling row the bolt clears a friend four tiles out.
+    const RowAt row = level_row(8);
+    ASSERT_GE(row.x, 0);
+    Sim sim = make({{Side::Player, UnitKind::Tank, row.x, row.y},
+                    {Side::Player, UnitKind::Recycler, row.x + 4, row.y},
+                    {Side::Enemy, UnitKind::Recycler, row.x + 8, row.y}});
     run(sim, 150);
     EXPECT_EQ(hp(sim, kFriend), full(sim, kFriend)) << "it shot through its own side";
     EXPECT_EQ(hp(sim, kEnemy), full(sim, kEnemy)) << "the friend shields it, so it was not shot";
@@ -104,9 +112,9 @@ TEST(HoldFire, ADirectGunHoldsFireWhenAFriendStandsInItsLane) {
 
 TEST(HoldFire, ADirectGunWithAClearLaneStillFires) {
     // The same friend, three tiles off the line: out of the lane, so the enemy is shot.
-    Sim sim = make({{Side::Player, UnitKind::Tank, 100, 100},
-                    {Side::Player, UnitKind::Recycler, 104, 103},
-                    {Side::Enemy, UnitKind::Recycler, 108, 100}});
+    Sim sim = make({{Side::Player, UnitKind::Tank, 100, 14},
+                    {Side::Player, UnitKind::Recycler, 104, 17},
+                    {Side::Enemy, UnitKind::Recycler, 108, 14}});
     run(sim, 150);
     EXPECT_LT(hp(sim, kEnemy), full(sim, kEnemy));
     EXPECT_EQ(hp(sim, kFriend), full(sim, kFriend));
@@ -146,9 +154,9 @@ TEST(HoldFire, ARoundThatDoesHitAFriendlyStillDamagesIt) {
 TEST(HoldFire, ALobbedShellGoesOverAFriendUnderItsArc) {
     // The friend is four tiles out on the straight line to the enemy at eleven. A straight-lane
     // test would refuse; the shell goes OVER it and comes down on the enemy, so the mortar fires.
-    Sim sim = make({{Side::Player, UnitKind::MortarBike, 100, 100},
-                    {Side::Player, UnitKind::Recycler, 104, 100},
-                    {Side::Enemy, UnitKind::Recycler, 111, 100}});
+    Sim sim = make({{Side::Player, UnitKind::MortarBike, 100, 14},
+                    {Side::Player, UnitKind::Recycler, 104, 14},
+                    {Side::Enemy, UnitKind::Recycler, 111, 14}});
     run(sim, 200);
     EXPECT_LT(hp(sim, kEnemy), full(sim, kEnemy)) << "the mortar refused a shot that was clear";
     EXPECT_EQ(hp(sim, kFriend), full(sim, kFriend));

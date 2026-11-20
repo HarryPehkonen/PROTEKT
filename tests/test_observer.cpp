@@ -405,7 +405,12 @@ TEST(Observer, RenamingTheSupportVehiclesMovedNoRecordedBattle) {
     // the code at d47c427; restored exactly by `kThinkBeatTicks` = 1 together with taking
     // `Unit::fire_target` back out of `Sim::state_hash` (with it left in, beat 1 hashes differently
     // from before although the battle is the same, which is why this moved at all as well).
-    EXPECT_EQ(log.final_hash, 7379383617975902502ULL);
+    // RE-RECORDED, M1 (the slope): the armies cross hill country at graded speeds, route round
+    // cliffs and slide off steep ground, so positions and the battle change. Old value
+    // 7379383617975902502 is the code at 130ac0d; restored exactly by neutralising the slope
+    // (`kClimbLimit` and `kSlideThreshold` out of reach, `kGradeSpan` huge): the hash returned to
+    // that number and the 69-shot stream below to its 69 rows.
+    EXPECT_EQ(log.final_hash, 8803758361435364308ULL);
 }
 
 TEST(Observer, TheFiredStreamForAScriptedBattleIsUnchanged) {
@@ -481,30 +486,35 @@ TEST(Observer, TheFiredStreamForAScriptedBattleIsUnchanged) {
     // target on its next beat rather than that tick, and the battle is a different one from there:
     // 69 shots (was 64). Old stream: the code at d47c427 (first row {426, 19, 2, 100}; last {596,
     // 13, 8, 24}); restored exactly by `kThinkBeatTicks` = 1.
+    // RE-RECORDED, M1 (the slope: uphill costs speed, downhill grants it, a cliff is a wall, a
+    // steep slope slides what stands on it): the battle is a different one. The armies cross hill
+    // country at graded speeds and route round cliffs, so they meet later: NO shot is fired in the
+    // first 600 ticks (it was 69 shots, first {431, 19, 2, 100}, last {599, 1, 15, 92} -- the
+    // stream of the code at 130ac0d; reproduced EXACTLY, all 69 rows, by neutralising the slope:
+    // `kClimbLimit` and `kSlideThreshold` set out of reach and `kGradeSpan` huge). So the horizon
+    // moved from 600 to 900 ticks, or this would pin an empty list: the stream has 59 shots now,
+    // the first on tick 607.
     static const std::vector<Expected> kExpected = {
-        {431, 19, 2, 100}, {433, 2, 13, 100}, {437, 13, 2, 100}, {442, 8, 19, 40},
-        {446, 4, 13, 100}, {447, 3, 19, 40},  {448, 2, 19, 40},  {452, 13, 2, 100},
-        {453, 12, 2, 100}, {461, 4, 13, 92},  {462, 3, 19, 40},  {463, 2, 13, 92},
-        {465, 15, 2, 92},  {467, 13, 2, 92},  {468, 12, 2, 92},  {476, 4, 13, 84},
-        {476, 19, 2, 60},  {477, 3, 19, 40},  {478, 2, 13, 84},  {480, 15, 2, 60},
-        {482, 13, 2, 60},  {483, 12, 2, 60},  {487, 8, 13, 68},  {491, 4, 12, 100},
-        {492, 3, 12, 100}, {493, 2, 12, 100}, {494, 1, 19, 40},  {497, 13, 2, 36},
-        {506, 4, 12, 100}, {507, 3, 19, 40},  {508, 2, 12, 100}, {509, 1, 19, 40},
-        {511, 14, 3, 84},  {512, 13, 3, 84},  {521, 4, 12, 84},  {521, 19, 3, 84},
-        {522, 3, 19, 40},  {523, 2, 12, 84},  {524, 1, 19, 40},  {526, 14, 3, 84},
-        {527, 13, 3, 84},  {532, 8, 13, 52},  {536, 4, 12, 68},  {537, 3, 19, 40},
-        {538, 2, 12, 68},  {539, 1, 19, 40},  {541, 14, 3, 68},  {542, 13, 3, 68},
-        {551, 4, 12, 52},  {552, 3, 12, 52},  {553, 2, 12, 52},  {556, 14, 3, 52},
-        {557, 13, 3, 52},  {566, 4, 12, 36},  {566, 19, 3, 20},  {567, 3, 12, 36},
-        {568, 2, 12, 36},  {571, 14, 3, 20},  {572, 13, 3, 20},  {577, 8, 13, 52},
-        {580, 20, 8, 40},  {581, 4, 12, 12},  {582, 3, 12, 12},  {583, 2, 12, 12},
-        {586, 14, 3, 4},   {587, 13, 3, 4},   {596, 4, 13, 52},  {598, 2, 13, 52},
-        {599, 1, 15, 92},
+        {607, 8, 15, 100}, {652, 8, 13, 84},  {655, 20, 8, 40},  {686, 19, 2, 100},
+        {688, 2, 13, 84},  {690, 15, 2, 100}, {692, 13, 2, 100}, {697, 8, 13, 84},
+        {703, 2, 13, 84},  {704, 1, 13, 84},  {707, 13, 2, 100}, {719, 1, 13, 76},
+        {722, 13, 1, 100}, {731, 4, 13, 60},  {731, 19, 2, 84},  {734, 1, 13, 60},
+        {737, 13, 1, 100}, {742, 8, 13, 52},  {746, 4, 13, 52},  {749, 1, 13, 52},
+        {752, 13, 1, 92},  {761, 4, 13, 36},  {764, 1, 13, 36},  {767, 13, 1, 84},
+        {776, 4, 13, 20},  {776, 19, 2, 84},  {779, 1, 13, 20},  {782, 13, 1, 76},
+        {787, 8, 13, 4},   {791, 4, 13, 4},   {794, 1, 13, 4},   {795, 15, 1, 68},
+        {810, 15, 1, 60},  {821, 19, 2, 84},  {822, 3, 14, 84},  {823, 2, 14, 84},
+        {824, 1, 14, 84},  {825, 15, 1, 52},  {832, 8, 14, 84},  {837, 3, 14, 84},
+        {838, 2, 14, 84},  {839, 1, 14, 84},  {840, 15, 3, 92},  {852, 3, 14, 84},
+        {853, 2, 14, 84},  {854, 1, 14, 84},  {855, 15, 3, 92},  {867, 3, 14, 84},
+        {868, 2, 14, 84},  {869, 1, 14, 84},  {870, 15, 3, 84},  {877, 8, 14, 68},
+        {882, 3, 14, 68},  {883, 2, 14, 68},  {884, 1, 14, 68},  {886, 14, 3, 76},
+        {897, 3, 14, 44},  {898, 2, 14, 44},  {899, 1, 14, 44},
     };
     const Scenario scenario = skirmish(42);
     ai::ScriptedCommander player(30);
     ai::ScriptedCommander enemy(30);
-    const BattleLog log = run_battle(scenario, {}, 600, &player, &enemy);
+    const BattleLog log = run_battle(scenario, {}, 900, &player, &enemy);
     std::vector<Expected> got;
     for (const BattleEvent& e : log.events) {
         if (e.kind == EventKind::Fired) {

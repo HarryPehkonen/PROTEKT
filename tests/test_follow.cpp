@@ -20,6 +20,13 @@ struct Spot {
     int y;
 };
 
+/// WHERE THE FIXTURES STAND. Seed 42 is hillside country, and since M1 a unit on a steep slope
+/// slides, so the old home of these tests (around 100,100, a long hillside) carried them away.
+/// Every spot's Y is shifted by this to a strip where nothing slides (x 100..189, y 14..21 has no
+/// drop past the slide threshold; `QuietGround` in test_slope.cpp asserts it). The hills still
+/// grade the driving -- uphill is slower -- which the numbers below account for.
+constexpr int kQuietDy = -86;
+
 struct Field {
     Sim sim;
     std::vector<UnitId> ids; ///< in spawn order
@@ -33,7 +40,7 @@ struct Field {
         spawn.side = s.side;
         spawn.kind = s.kind;
         spawn.tile_x = s.x;
-        spawn.tile_y = s.y;
+        spawn.tile_y = s.y + kQuietDy;
         scenario.spawns.push_back(spawn);
     }
     Field out{};
@@ -60,6 +67,8 @@ double tiles_between(const Sim& sim, UnitId a, UnitId b) {
 }
 
 Fixed tile(int v) { return Fixed::from_int(v); }
+/// An order's Y, in the shifted frame the fixtures live in (`kQuietDy`).
+Fixed tile_y(int v) { return Fixed::from_int(v + kQuietDy); }
 
 constexpr double kRadius = static_cast<double>(kFollowRadiusTiles);
 
@@ -95,7 +104,7 @@ TEST(Follow, ShadowsALeaderThatMovesOff) {
     const UnitId me = f.ids[0];
     const UnitId lead = f.ids[1];
     f.sim.enqueue(Order{me, orders::Follow{lead}});
-    f.sim.enqueue(Order{lead, orders::MoveTo{tile(140), tile(100)}});
+    f.sim.enqueue(Order{lead, orders::MoveTo{tile(140), tile_y(100)}});
     run(f.sim, 300);
     EXPECT_GT(f.sim.find(lead)->x.raw, tile(130).raw) << "the leader got there";
     EXPECT_LT(tiles_between(f.sim, me, lead), kRadius) << "and the follower kept up";
@@ -206,13 +215,13 @@ TEST(Follow, ANewStandingOrderReplacesIt) {
         ASSERT_EQ(f.sim.find(me)->stance, Stance::Follow);
         switch (which) {
         case 0:
-            f.sim.enqueue(Order{me, orders::GuardAt{tile(100), tile(100)}});
+            f.sim.enqueue(Order{me, orders::GuardAt{tile(100), tile_y(100)}});
             break;
         case 1:
-            f.sim.enqueue(Order{me, orders::MoveTo{tile(100), tile(100)}});
+            f.sim.enqueue(Order{me, orders::MoveTo{tile(100), tile_y(100)}});
             break;
         case 2:
-            f.sim.enqueue(Order{me, orders::Patrol{tile(100), tile(100), tile(100), tile(95)}});
+            f.sim.enqueue(Order{me, orders::Patrol{tile(100), tile_y(100), tile(100), tile_y(95)}});
             break;
         case 3:
             f.sim.enqueue(Order{me, orders::Attack{f.ids[1]}});
@@ -230,7 +239,7 @@ TEST(Follow, ANewStandingOrderReplacesIt) {
         {{Side::Player, UnitKind::Tank, 100, 100}, {Side::Player, UnitKind::Tank, 130, 100}});
     f.sim.enqueue(Order{f.ids[0], orders::Follow{f.ids[1]}});
     run(f.sim, 10);
-    f.sim.enqueue(Order{f.ids[0], orders::GuardAt{tile(100), tile(100)}});
+    f.sim.enqueue(Order{f.ids[0], orders::GuardAt{tile(100), tile_y(100)}});
     run(f.sim, 200);
     EXPECT_LT(f.sim.find(f.ids[0])->x.raw, tile(102).raw);
     EXPECT_FALSE(f.sim.find(f.ids[0])->target.valid());
@@ -245,7 +254,7 @@ TEST(Follow, FollowIsBoundToTheUnitNotToAnyDriver) {
     f.sim.enqueue(Order{f.ids[0], orders::Follow{f.ids[1]}});
     f.sim.step();
     f.sim.enqueue(Order{f.ids[1], orders::Stop{}});
-    f.sim.enqueue(Order{f.ids[1], orders::MoveTo{tile(120), tile(100)}});
+    f.sim.enqueue(Order{f.ids[1], orders::MoveTo{tile(120), tile_y(100)}});
     run(f.sim, 200);
     EXPECT_EQ(f.sim.find(f.ids[0])->stance, Stance::Follow);
     EXPECT_LT(tiles_between(f.sim, f.ids[0], f.ids[1]), kRadius);
@@ -258,7 +267,7 @@ TEST(Follow, TwoRunsWithTheSameSeedAreByteIdentical) {
                          {Side::Enemy, UnitKind::Tank, 100, 108},
                          {Side::Enemy, UnitKind::Recycler, 120, 108}});
         f.sim.enqueue(Order{f.ids[0], orders::Follow{f.ids[1]}});
-        f.sim.enqueue(Order{f.ids[1], orders::MoveTo{tile(140), tile(100)}});
+        f.sim.enqueue(Order{f.ids[1], orders::MoveTo{tile(140), tile_y(100)}});
         std::vector<std::uint64_t> hashes;
         for (int i = 0; i < 400; ++i) {
             f.sim.step();

@@ -217,7 +217,18 @@ struct WorldGround {
         const world::Tile tile = world::sample(seed, tile_x, tile_y);
         return terrain_speed_factor(tile.terrain).raw;
     }
+    /// The tile's height: what the slope rules (`plan_step`'s grade and cliff, `plan_slide`'s
+    /// drift) read. The route planner does not (see `plan_route`): it asks `factor` only.
+    [[nodiscard]] int height(int tile_x, int tile_y) const noexcept {
+        return world::sample(seed, tile_x, tile_y).height;
+    }
 };
+
+// The drift is a sixteenth of a tank's step per unit of drop past the threshold, and never more
+// than one step: the numbers in steering.hpp are written out there (it cannot see the tank), and
+// this keeps them honest.
+static_assert(kSlideRawPerHeight == kTankSpeedRaw / 16);
+static_assert(kSlideMaxRaw == kTankSpeedRaw);
 
 /// The ground as the mover sees it now, with `WorldGround::buildings` read off the units.
 [[nodiscard]] WorldGround ground_of(std::uint64_t seed, std::span<const Unit> units) noexcept {
@@ -2025,6 +2036,34 @@ void move(std::vector<Unit>& units, const WorldGround& ground, const UnitProfile
     unit.still_ticks = 0; // moved: a turret is unmounted
 }
 
+/// Whether a unit is planted: a Turret that has finished mounting holds its ground, it is not
+/// standing on tracks. Every other mobile unit slides; this is the one exception, and it is about
+/// the mount rather than about weight (the factor is still one for every unit).
+[[nodiscard]] bool planted(const Unit& unit) noexcept {
+    return unit.kind == UnitKind::Turret && unit.unmount_ticks == 0
+           && unit.still_ticks >= kMountTicks;
+}
+
+/// THE SLIDE (M1). After the unit has moved as commanded, the slope carries it on, by
+/// `plan_slide`'s step: ADDED to the commanded move, not instead of it, so steering never cancels
+/// it. A drift that would land on ground it cannot enter does not happen this tick (the steepest
+/// ENTERABLE way down is chosen, so this is the map's edge or a shove into a building, rarely).
+/// Not a drive: `still_ticks` is left alone, so a crawling turret does not count the slide as
+/// motion of its own, and no vehicle is shoved.
+void slide(const WorldGround& ground, Unit& unit) noexcept {
+    const Step drift = plan_slide(ground, unit.x, unit.y, [&](int tx, int ty) {
+        return tx >= 0 && ty >= 0 && tx < kMapTiles && ty < kMapTiles && ground.factor(tx, ty) != 0;
+    });
+    if (drift.dx == 0 && drift.dy == 0) {
+        return;
+    }
+    if (!can_stand(ground, unit.x.raw + drift.dx, unit.y.raw + drift.dy)) {
+        return;
+    }
+    unit.x = Fixed::from_raw(static_cast<std::int32_t>(unit.x.raw + drift.dx));
+    unit.y = Fixed::from_raw(static_cast<std::int32_t>(unit.y.raw + drift.dy));
+}
+
 // FNV-1a over little-endian bytes: specified here, so the hash is the same on every machine.
 class Hasher {
 public:
@@ -2412,10 +2451,12 @@ void Sim::step(StepTimings* timings) {
                 += std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - steer_from)
                        .count();
         }
-        if (unit.kind == UnitKind::Turret && !turret_may_move(unit)) {
-            continue;
+        if (!(unit.kind == UnitKind::Turret && !turret_may_move(unit))) {
+            move(units_, ground, prof, unit);
         }
-        move(units_, ground, prof, unit);
+        if (!planted(unit)) {
+            slide(ground, unit);
+        }
     }
 
     // 2b. the sites' countdown (K2): after every unit has moved, so a Constructor that arrived this
@@ -2696,6 +2737,13 @@ std::uint64_t Sim::seed() const noexcept { return scenario_.seed; }
 bool tile_passable(std::uint64_t seed, int tile_x, int tile_y) noexcept {
     return tile_x >= 0 && tile_y >= 0 && tile_x < kMapTiles && tile_y < kMapTiles
            && terrain_speed_factor(world::sample(seed, tile_x, tile_y).terrain).raw != 0;
+}
+
+Step slide_at(std::uint64_t seed, Fixed x, Fixed y) noexcept {
+    const WorldGround ground{seed, {}, false};
+    return plan_slide(ground, x, y, [&](int tx, int ty) {
+        return tx >= 0 && ty >= 0 && tx < kMapTiles && ty < kMapTiles && ground.factor(tx, ty) != 0;
+    });
 }
 
 bool building_blocks(std::span<const Unit> units, int tile_x, int tile_y) noexcept {

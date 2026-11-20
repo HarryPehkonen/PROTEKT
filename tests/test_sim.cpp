@@ -403,10 +403,19 @@ TEST(Sim, ATurretMovesToATileAtCrawlSpeed) {
         sim.step(); // a mounted turret unmounts first, without moving
     }
     EXPECT_EQ(sim.units()[0].x.raw, start);
+    // OLD: `EXPECT_EQ(x - start, 100 * kTurretSpeedRaw)`, an exact crawl of 100 equal steps. M1: a
+    // step is scaled by the slope it climbs or descends (`grade_factor`), so the steps are no
+    // longer equal on ground that is not level -- the exact figures are pinned on a DRAWN slope in
+    // test_slope.cpp. What survives here is the crawl itself: a step every tick, never stopped,
+    // never faster than the grade's ceiling nor slower than its floor.
     for (int t = 0; t < 100; ++t) {
+        const std::int32_t before = sim.units()[0].x.raw;
         sim.step();
+        const std::int32_t step = sim.units()[0].x.raw - before;
+        EXPECT_GE(step, kTurretSpeedRaw * kMinGrade / Fixed::kOne - 1) << "tick " << t;
+        EXPECT_LE(step, kTurretSpeedRaw * kMaxGrade / Fixed::kOne + 1) << "tick " << t;
     }
-    EXPECT_EQ(sim.units()[0].x.raw - start, 100 * kTurretSpeedRaw) << "a steady crawl";
+    EXPECT_GT(sim.units()[0].x.raw - start, 0) << "a steady crawl";
     EXPECT_GT(fixed_abs(fixed_sub(sim.units()[0].x, goal)), Fixed::from_raw(kArriveRadiusRaw));
     for (int t = 0; t < 600; ++t) {
         sim.step();
@@ -654,9 +663,15 @@ TEST(Sim, AnAttackOrderEngagesItsNamedTargetNotTheNearest) {
     // range. The nearer factory is inside tank range too, and must be ignored.
     Scenario s;
     s.seed = 5;
-    s.spawns = {{UnitKind::Tank, Side::Player, 100, 100},
-                {UnitKind::Factory, Side::Enemy, 105, 104},
-                {UnitKind::Factory, Side::Enemy, 110, 100}};
+    // Moved from round (100,100) to round (178,6), M1. At the old spot the tank walks to its firing
+    // spot across a slope (uphill: about 0.51 tiles in five ticks where it was 0.70) and stops 0.08
+    // of a tile further on, which was enough to put the nearer factory on the line of fire first:
+    // a knife-edge the grade tipped. (178,6) is gentle ground in seed 5.
+    // The tank's old tile (100,100) is a crater, so the spawn snapped it to (104,96): the factories
+    // keep their offsets from THAT (near +1,+8; far +6,+4), now round (178,6).
+    s.spawns = {{UnitKind::Tank, Side::Player, 178, 6},
+                {UnitKind::Factory, Side::Enemy, 179, 14},
+                {UnitKind::Factory, Side::Enemy, 184, 10}};
     Sim sim = Sim::create(s);
     const UnitId near_factory = by_side(sim, Side::Enemy, 0)->id;
     const UnitId far_factory = by_side(sim, Side::Enemy, 1)->id;
@@ -673,9 +688,10 @@ TEST(Sim, AnAttackOrderEngagesItsNamedTargetNotTheNearest) {
 TEST(Sim, AnAttackOrderFallsBackToTheNearestWhenItsTargetDies) {
     Scenario s;
     s.seed = 5;
-    s.spawns = {{UnitKind::Tank, Side::Player, 100, 100},
-                {UnitKind::Factory, Side::Enemy, 104, 100},
-                {UnitKind::Factory, Side::Enemy, 108, 100}};
+    s.spawns = {{UnitKind::Tank, Side::Player, 178, 6},
+                {UnitKind::Factory, Side::Enemy, 178, 10},
+                {UnitKind::Factory, Side::Enemy, 182,
+                 10}}; // the offsets from the snapped tank, as above (M1)
     Sim sim = Sim::create(s);
     const UnitId near_factory = by_side(sim, Side::Enemy, 0)->id;
     const UnitId far_factory = by_side(sim, Side::Enemy, 1)->id;
