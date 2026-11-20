@@ -81,7 +81,7 @@ public:
         step(hands);
     }
 
-    void step(const input::InputFrame& hands) {
+    void step(const input::InputFrame& hands, bool tick = true) {
         game::SceneOptions options = scene_options();
         const bool top_menu = !session_.go_armed() && !session_.attack_armed()
                               && !session_.tilde_steps()
@@ -98,9 +98,26 @@ public:
                 orders_.push_back(order);
             }
         }
-        sim_.step();
+        if (tick) {
+            sim_.step();
+        }
         row_.update(sim_, Side::Player, marks_.marks().size(), driven_);
     }
+
+    /// A frame the 30 Hz clock does NOT tick on (N17): at 100 fps that is two frames in three. The
+    /// window delivers its mouse motion and the session spends it; the sim stays where it was.
+    void look_between_ticks(float dx, float dy = 0.0F) {
+        input::InputFrame hands;
+        hands.mouse_dx = dx;
+        hands.mouse_dy = dy;
+        step(hands, false);
+    }
+    /// The camera the game would draw this frame from: the same `camera_for` the scene uses.
+    [[nodiscard]] game::Camera camera() const {
+        return camera_for(sim_, session_, kSeed, std::nullopt);
+    }
+    [[nodiscard]] sim::Tick tick() const { return sim_.tick(); }
+    [[nodiscard]] std::uint64_t hash() const { return sim_.state_hash(); }
 
     /// One frame as the WINDOW delivers it (render/window.cpp): a key goes DOWN once, then nothing
     /// is said until it goes UP -- no event on the frames between -- and the mouse's relative
@@ -518,6 +535,96 @@ TEST(Maneuver, GoToNavOpensAListAndKeepsTheMenuOpen) {
     field.press(input::kKeyTab);
     EXPECT_FALSE(field.menu_open());
     EXPECT_TRUE(field.orders().empty()) << "backing out of the list gave no order";
+}
+
+// ------------------------------------------------------------------ the look is per FRAME (N17)
+//
+// "When I look around with the mouse, it looks choppy." The first suspect was a camera that turns
+// only on a sim tick, which would quantise the look to 30 Hz whatever the frame rate. These pin the
+// other answer: the mouse turns the camera on EVERY frame, a tick or not, by the motion that
+// arrived in that frame and no more, and the reticle's ground ray follows it the same frame.
+
+TEST(Look, TheCameraTurnsOnAFrameThatIsNotATick) {
+    Field field = make_field();
+    field.look(0.0F); // settle: the first frame sets the heading
+    const sim::Tick tick = field.tick();
+    const float yaw = field.camera().yaw;
+
+    field.look_between_ticks(40.0F);
+
+    EXPECT_EQ(field.tick(), tick) << "the frame was meant to carry no tick";
+    EXPECT_NE(field.camera().yaw, yaw) << "the look waited for a tick: quantised to the sim rate";
+    EXPECT_NEAR(game::Camera::wrap_angle(field.camera().yaw - yaw),
+                40.0F * game::kLookRadiansPerPixel, 1e-4F);
+}
+
+TEST(Look, ConsecutiveFramesBetweenTwoTicksEachTurnTheCameraByTheirOwnMotion) {
+    // Quantised, the yaws across four frames with no tick would read 0 0 0 0 and then a lump;
+    // per frame they step by what each frame was given. This is the number a person can read: the
+    // camera's yaw at each frame.
+    Field field = make_field();
+    field.look(0.0F);
+    const sim::Tick tick = field.tick();
+    std::vector<float> yaws{field.camera().yaw};
+    for (const float dx : {10.0F, 25.0F, 5.0F, 40.0F}) {
+        field.look_between_ticks(dx);
+        yaws.push_back(field.camera().yaw);
+    }
+    EXPECT_EQ(field.tick(), tick);
+    const std::vector<float> expect{10.0F, 25.0F, 5.0F, 40.0F};
+    for (std::size_t i = 0; i < expect.size(); ++i) {
+        EXPECT_NEAR(game::Camera::wrap_angle(yaws.at(i + 1) - yaws.at(i)),
+                    expect.at(i) * game::kLookRadiansPerPixel, 1e-4F)
+            << "frame " << i;
+    }
+}
+
+TEST(Look, AFlickSplitAcrossFramesTurnsTheCameraByTheSameTotalAsOneFrame) {
+    Field in_pieces = make_field();
+    Field at_once = make_field();
+    in_pieces.look(0.0F);
+    at_once.look(0.0F);
+    const float start = in_pieces.camera().yaw;
+    for (int i = 0; i < 5; ++i) {
+        in_pieces.look_between_ticks(8.0F, 3.0F);
+    }
+    at_once.look_between_ticks(40.0F, 15.0F);
+    EXPECT_NEAR(in_pieces.camera().yaw, at_once.camera().yaw, 1e-4F);
+    EXPECT_NEAR(in_pieces.camera().pitch, at_once.camera().pitch, 1e-4F);
+    EXPECT_NE(in_pieces.camera().yaw, start);
+}
+
+TEST(Look, TheReticlesGroundRayFollowsTheLookOnTheSameFrameWithNoTick) {
+    // The aim is computed from the camera of the frame, so it must move with the look and not
+    // wait for a tick either: the reticle and the picture must never disagree.
+    Field field = make_field();
+    field.look(0.0F);
+    const game::NavAim before = field.aim_at_ground();
+    ASSERT_TRUE(before.on_ground());
+    const sim::Tick tick = field.tick();
+    for (int i = 0; i < 10; ++i) {
+        field.look_between_ticks(40.0F);
+    }
+    EXPECT_EQ(field.tick(), tick);
+    const game::NavAim after = field.aim_at_ground();
+    ASSERT_TRUE(after.on_ground());
+    EXPECT_TRUE(after.tile_x != before.tile_x || after.tile_y != before.tile_y)
+        << "the ground ray did not follow the look";
+}
+
+TEST(Look, AFrameThatTurnsTheViewChangesNothingTheSimHashes) {
+    // A view change must not alter the sim: two fields given the same ticks, one of which also
+    // looked around between them, end on the same hash.
+    Field still = make_field();
+    Field looking = make_field();
+    still.look(0.0F);
+    looking.look(0.0F);
+    for (int i = 0; i < 20; ++i) {
+        still.frame();
+        looking.look_between_ticks(30.0F, 5.0F);
+        looking.frame();
+    }
+    EXPECT_EQ(still.hash(), looking.hash());
 }
 
 } // namespace protekt::app

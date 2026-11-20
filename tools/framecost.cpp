@@ -43,6 +43,7 @@
 
 #include "protekt/ai/scripted.hpp"
 #include "protekt/ai/utility.hpp"
+#include "protekt/app/time_accumulator.hpp"
 #include "protekt/game/atlas.hpp"
 #include "protekt/game/building_cache.hpp"
 #include "protekt/game/scene.hpp"
@@ -376,6 +377,86 @@ constexpr int kMaxPreRoll = 6000;  ///< ticks to wait for contact before giving 
     return out;
 }
 
+/// The value at fraction `p` (0..1) of an already-SORTED sample, nearest-rank.
+[[nodiscard]] double percentile(const std::vector<double>& sorted, double p) {
+    if (sorted.empty()) {
+        return 0.0;
+    }
+    const auto index
+        = static_cast<std::size_t>(std::lround(p * static_cast<double>(sorted.size() - 1)));
+    return sorted.at(std::min(index, sorted.size() - 1));
+}
+
+/// N17: THE SPREAD OF THE FRAME THE PLAYER SEES, not of the frame this tool steps. The tool above
+/// steps one tick per frame, so every measured frame carries a `Sim::step`. The game does not: PLAY
+/// mode runs the sim at 30 Hz off the wall clock, so at a higher frame rate most frames build the
+/// scene and nothing else, and every few frames one also pays for the tick(s) that have come due.
+/// That makes the frame time a two-humped thing whose MEAN hides the hump.
+///
+/// This replays the measured per-frame costs through the game's own `TimeAccumulator` on a VIRTUAL
+/// clock that advances by the modelled frame's own duration (CPU only: the scene build, plus AI and
+/// `Sim::step` on a frame with a tick due; no GPU, no present, no vsync). The samples are used in
+/// the order measured and wrapped. It is a model, labelled as one: what it shows is the shape, and
+/// the absolute milliseconds are this machine's CPU.
+void report_spread(const std::string& name, const std::vector<double>& tick_ms,
+                   const std::vector<double>& scene_ms) {
+    if (tick_ms.empty() || tick_ms.size() != scene_ms.size()) {
+        return;
+    }
+    using namespace std::chrono;
+    protekt::app::TimeAccumulator clock(nanoseconds{1'000'000'000LL / 30},
+                                        nanoseconds{250'000'000LL},
+                                        protekt::app::TimeAccumulator::Clock::time_point{});
+    auto now = protekt::app::TimeAccumulator::Clock::time_point{};
+    constexpr int kModelFrames = 4000;
+    std::vector<double> all;
+    std::vector<double> quiet;
+    std::vector<double> busy;
+    double previous = 0.0;
+    int multi = 0;
+    for (int i = 0; i < kModelFrames; ++i) {
+        const std::size_t k = static_cast<std::size_t>(i) % tick_ms.size();
+        now += duration_cast<nanoseconds>(duration<double, std::milli>(previous));
+        const std::uint32_t ticks = clock.steps_at(now);
+        multi += ticks > 1 ? 1 : 0;
+        const double cost = scene_ms.at(k) + (static_cast<double>(ticks) * tick_ms.at(k));
+        (ticks > 0 ? busy : quiet).push_back(cost);
+        all.push_back(cost);
+        previous = cost;
+    }
+    std::vector<double> sorted = all;
+    std::sort(sorted.begin(), sorted.end());
+    const double mean = [&] {
+        double sum = 0.0;
+        for (const double v : all) {
+            sum += v;
+        }
+        return sum / static_cast<double>(all.size());
+    }();
+    const auto mean_of = [](const std::vector<double>& v) {
+        double sum = 0.0;
+        for (const double x : v) {
+            sum += x;
+        }
+        return v.empty() ? 0.0 : sum / static_cast<double>(v.size());
+    };
+    std::cout << std::format(
+        "   -- N17: THE SPREAD of the frame the player sees ({}): scene + (AI + step on a tick "
+        "frame), the sim on the 30 Hz clock, CPU only (a MODEL: no GPU, no vsync) --\n",
+        name);
+    std::cout << std::format(
+        "   frame ms   mean {:6.2f}   p50 {:6.2f}   p95 {:6.2f}   p99 {:6.2f}   "
+        "max {:6.2f}   ({:.0f} fps at the mean)\n",
+        mean, percentile(sorted, 0.50), percentile(sorted, 0.95), percentile(sorted, 0.99),
+        sorted.back(), 1000.0 / mean);
+    std::cout << std::format(
+        "   {:.0f}% of frames run a tick ({} of {} ran more than one): a tick frame averages "
+        "{:.2f} ms, a frame with no tick {:.2f} ms ({:.1f}x)\n",
+        100.0 * static_cast<double>(busy.size()) / static_cast<double>(all.size()), multi,
+        all.size(), mean_of(busy), mean_of(quiet),
+        mean_of(quiet) > 0.0 ? mean_of(busy) / mean_of(quiet) : 0.0);
+}
+
 struct Stat {
     double sum{};
     double max{};
@@ -526,6 +607,8 @@ void measure_battle(const Battle& battle, protekt::render::Renderer* renderer,
     double inner_gap = 0.0; // |sum of step phases - step total|, worst frame
     double scene_gap = 0.0;
     int frames_run = 0;
+    std::vector<double> tick_cost_ms;  // AI + step, per counted frame (N17)
+    std::vector<double> scene_cost_ms; // build_scene, per counted frame (N17)
     game::Scene scene;
     const int total_frames = kBattleWarmup + kBattleFrames;
     for (int i = 0; i < total_frames; ++i) {
@@ -607,6 +690,8 @@ void measure_battle(const Battle& battle, protekt::render::Renderer* renderer,
         blocked_n.add(static_cast<double>(st.line_blocked));
         rest_s.add(ns_to_ms(st.rest_ns));
         scene_s.add(scene_out);
+        tick_cost_ms.push_back(fr.observe_ms + fr.think_ms + ns_to_ms(st.total_ns));
+        scene_cost_ms.push_back(scene_out);
         render_s.add(render_ms);
         frame_s.add(frame_ms);
         proj_s.add(static_cast<double>(st.projectiles_in));
@@ -774,6 +859,7 @@ void measure_battle(const Battle& battle, protekt::render::Renderer* renderer,
     std::cout << std::format("   of that: AI {:.1f}%, Sim::step {:.1f}%, build_scene {:.1f}%\n",
                              100.0 * ai_s.mean() / cpu, 100.0 * step_s.mean() / cpu,
                              100.0 * scene_s.mean() / cpu);
+    report_spread(battle.name, tick_cost_ms, scene_cost_ms);
 #if defined(PROTEKT_HAVE_VULKAN)
     if (renderer != nullptr) {
         std::cout << std::format("   -- renderer ({}) --\n", renderer->device_name());

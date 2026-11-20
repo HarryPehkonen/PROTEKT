@@ -34,6 +34,30 @@ TEST(InputFrame, ClearEmptiesTheEvents) {
     EXPECT_FALSE(frame.quit);
 }
 
+// N17: the window may deliver a flick of the mouse as many SDL motion events inside one frame, and
+// the game spends the frame's total once. The sum is the window's job, so it lives HERE, where a
+// test can reach it without a display: `render/window.cpp` calls `add_motion` for every event.
+TEST(InputFrame, MotionArrivingInSeveralEventsIsTheSameTurnAsOneEvent) {
+    InputFrame in_pieces{};
+    for (int i = 0; i < 5; ++i) {
+        in_pieces.add_motion(8.0F, -2.0F);
+    }
+    InputFrame at_once{};
+    at_once.add_motion(40.0F, -10.0F);
+    EXPECT_FLOAT_EQ(in_pieces.mouse_dx, at_once.mouse_dx);
+    EXPECT_FLOAT_EQ(in_pieces.mouse_dy, at_once.mouse_dy);
+    EXPECT_FLOAT_EQ(in_pieces.mouse_dx, 40.0F);
+}
+
+TEST(InputFrame, MotionIsSpentOnceAndTheNextFrameStartsFromNothing) {
+    InputFrame frame{};
+    frame.add_motion(30.0F, 4.0F);
+    frame.clear();
+    frame.add_motion(-5.0F, 1.0F);
+    EXPECT_FLOAT_EQ(frame.mouse_dx, -5.0F) << "last frame's motion must not be counted twice";
+    EXPECT_FLOAT_EQ(frame.mouse_dy, 1.0F);
+}
+
 TEST(InputFrame, ClearKeepsThePointerWhereItIs) {
     // The pointer is a POSITION, not an event: a frame in which the mouse did not move must not
     // forget where it is, or the reticle would blink off every time the player held still. That is

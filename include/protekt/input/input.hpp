@@ -81,6 +81,14 @@ struct InputFrame {
     bool cursor_known{};
     bool quit{};
 
+    /// One SDL motion event's relative motion, in framebuffer pixels. The window calls this for
+    /// EVERY event it pumps, and the frame's total is spent once: a flick delivered as several
+    /// events between two frames turns the view by the same total as one event would (N17).
+    void add_motion(float dx, float dy) noexcept {
+        mouse_dx += dx;
+        mouse_dy += dy;
+    }
+
     void clear() noexcept {
         clicks.clear();
         keys.clear();

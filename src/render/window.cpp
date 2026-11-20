@@ -699,8 +699,7 @@ bool VulkanWindow::pump_events() {
             set_cursor(event.button.x, event.button.y, scale_x, scale_y);
             break;
         case SDL_EVENT_MOUSE_MOTION:
-            input_.mouse_dx += event.motion.xrel * scale_x;
-            input_.mouse_dy += event.motion.yrel * scale_y;
+            input_.add_motion(event.motion.xrel * scale_x, event.motion.yrel * scale_y);
             // Absolute, and in the same framebuffer pixels a click uses: the reticle is placed by
             // the same ray a click is picked with, so the two must agree about where the pointer
             // is.
