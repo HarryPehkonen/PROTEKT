@@ -124,8 +124,11 @@ bool is_held_in_group(const std::array<RowSlot, kRowSlots>& slots, sim::UnitId i
 /// already sits on, else the first empty group key, which is how any new thing takes one. With
 /// every group key taken a batch has none and its units are seated as they arrive, as before.
 void hold_keys_for_batches(const sim::Sim& sim, sim::Side side,
-                           std::array<RowSlot, kRowSlots>& slots) {
+                           std::array<RowSlot, kRowSlots>& slots, std::uint32_t reserved) {
     std::vector<std::uint32_t> building;
+    if (reserved != 0) {
+        building.push_back(reserved); // said, not yet heard by the sim: held a key all the same
+    }
     for (const sim::Unit& unit : sim.units()) {
         if (unit.side == side && unit.alive) {
             if (const std::uint32_t token = building_token(unit); token != 0) {
@@ -175,7 +178,8 @@ bool RowState::swap_driven(const sim::Sim& sim, sim::UnitId vacated, sim::UnitId
     return true;
 }
 
-void RowState::update(const sim::Sim& sim, sim::Side side, std::size_t marks, sim::UnitId driven) {
+void RowState::update(const sim::Sim& sim, sim::Side side, std::size_t marks, sim::UnitId driven,
+                      std::uint32_t reserved) {
     nav_marks = marks;
     // A group key loses its dead, the vehicle the player sits in (he commands the rest, not that
     // one), and a vehicle that has become a building (a recycler that has deployed): its F key
@@ -228,7 +232,7 @@ void RowState::update(const sim::Sim& sim, sim::Side side, std::size_t marks, si
             free_slot->units.push_back(unit.id);
         }
     }
-    hold_keys_for_batches(sim, side, slots);
+    hold_keys_for_batches(sim, side, slots, reserved);
 }
 
 void RowState::seed_from_start(const sim::Sim& sim, sim::Side side, std::size_t marks,

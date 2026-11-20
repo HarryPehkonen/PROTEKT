@@ -575,6 +575,14 @@ const std::vector<TargetRow>& Interaction::attack_targets() const noexcept { ret
 
 bool Interaction::construct_armed() const noexcept { return construct_armed_; }
 
+std::uint32_t Interaction::held_batch() const noexcept {
+    if (held_.empty()) {
+        return 0;
+    }
+    const auto* build = std::get_if<sim::orders::Build>(&held_.front().payload);
+    return build != nullptr ? build->batch : 0U;
+}
+
 bool Interaction::repair_armed() const noexcept { return repair_armed_; }
 
 const std::vector<TargetRow>& Interaction::repair_targets() const noexcept { return repairs_; }

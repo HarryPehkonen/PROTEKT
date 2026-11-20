@@ -82,6 +82,8 @@ public:
     [[nodiscard]] bool repair_armed() const noexcept;
     /// The Constructor's CONSTRUCT panel is open (round 17, J1): the menu IS the panel.
     [[nodiscard]] bool construct_armed() const noexcept;
+    /// A shift run still being typed (see `Interaction::held_batch`): its token, or 0.
+    [[nodiscard]] std::uint32_t held_batch() const noexcept;
     [[nodiscard]] const std::vector<TargetRow>& repair_targets() const noexcept;
     /// `2 Go to Nav` (AX): the list of the nav points is open, and its rows.
     [[nodiscard]] bool nav_list_armed() const noexcept;

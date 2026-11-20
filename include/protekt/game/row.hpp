@@ -117,7 +117,14 @@ struct RowState {
     /// queue is held a key too
     /// (`RowSlot::batch`): the one a member already sits on, else the first empty group key, taken
     /// the frame its first entry is queued and kept until the queue holds no more of it.
-    void update(const sim::Sim& sim, sim::Side side, std::size_t marks, sim::UnitId driven = {});
+    ///
+    /// `reserved` is a batch the player has SAID but the sim has not heard (a shift run still
+    /// being typed, `Interaction::held_batch`): it takes its key on the press, like a queued batch,
+    /// and lets it go the frame it is no longer asked for -- a Tab calls it off, and nothing was
+    /// built. 0 reserves nothing. When shift goes up the run is queued under the same token, so the
+    /// reservation becomes the batch's key without moving.
+    void update(const sim::Sim& sim, sim::Side side, std::size_t marks, sim::UnitId driven = {},
+                std::uint32_t reserved = 0);
 
     /// THE SWAP (X): the player leaves `vacated` for `entered`. The row is re-derived the way he
     /// ruled: `entered` loses its key, and `vacated` takes the first empty one. DISALLOWED when

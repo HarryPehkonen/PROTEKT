@@ -682,7 +682,8 @@ private:
     game::RowState row_;
 
     void refresh_row() {
-        row_.update(sim_, sim::Side::Player, nav_marks_.marks().size(), session_.driven());
+        row_.update(sim_, sim::Side::Player, nav_marks_.marks().size(), session_.driven(),
+                    session_.held_batch());
     }
 };
 

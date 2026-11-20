@@ -239,6 +239,10 @@ public:
     /// placed yet); the panel stays up through a press, TAB and Escape close it. Player intent,
     /// held here and never in the sim.
     [[nodiscard]] bool construct_armed() const noexcept;
+    /// The batch token of a shift run still being typed -- pressed, held back, not yet ordered --
+    /// or 0 when none is. The command row reserves its function key on the press with this; shift
+    /// going up queues the run under the same token, and a Tab drops it.
+    [[nodiscard]] std::uint32_t held_batch() const noexcept;
     /// The rows the open repair list offers, nearest first, captured when `3 Repair` opened it so
     /// the numbers cannot shift under the player's finger. Empty whenever the list is not open.
     [[nodiscard]] const std::vector<TargetRow>& repair_targets() const noexcept;

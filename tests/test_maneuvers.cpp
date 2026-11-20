@@ -101,7 +101,7 @@ public:
         if (tick) {
             sim_.step();
         }
-        row_.update(sim_, Side::Player, marks_.marks().size(), driven_);
+        row_.update(sim_, Side::Player, marks_.marks().size(), driven_, session_.held_batch());
     }
 
     /// A frame the 30 Hz clock does NOT tick on (N17): at 100 fps that is two frames in three. The
@@ -195,6 +195,16 @@ public:
     }
     [[nodiscard]] const sim::Unit& hull() const { return *sim_.find(driven_); }
     [[nodiscard]] const game::Session& session() const { return session_; }
+    /// The function keys, as the game holds them (the same `RowState` `Game::refresh_row` fills).
+    [[nodiscard]] const game::RowState& row() const { return row_; }
+    /// How many of F1..F10 are on the screen: they hold a unit, or are held for a batch.
+    [[nodiscard]] std::size_t function_keys() const {
+        std::size_t taken = 0;
+        for (std::size_t slot = game::kRowFirstGroup; slot < game::kRowSlots; ++slot) {
+            taken += row_.occupied(slot) ? 1U : 0U;
+        }
+        return taken;
+    }
     [[nodiscard]] sim::UnitId driven() const { return driven_; }
     [[nodiscard]] const std::vector<sim::Order>& orders() const { return orders_; }
 
@@ -519,6 +529,117 @@ TEST(Maneuver, WASDKeepsTheConstructMode) {
         ASSERT_NO_FATAL_FAILURE(expect_power_mode("on release"));
         EXPECT_TRUE(field.orders().empty()) << "key " << key << ": movement ordered nothing";
     }
+}
+
+// ------------------------------------------------------------------ the reservation (N19)
+//
+// Harri: "the sequence `1` -> shift down -> `1` [should] produce a new function key, but the build
+// should not have started. It must wait for the release of the shift key. Also `1` -> shift down ->
+// `1` -> tab -> shift up should produce no change. No build, no new function key." The observable
+// is the function-key list itself (`RowState`, read through `Field::function_keys`), never the HUD.
+
+namespace {
+
+[[nodiscard]] Field recycler_field() {
+    return Field({spawn(UnitKind::Tank, Side::Player, 40, 40),
+                  spawn(UnitKind::DeployedRecycler, Side::Player, 46, 41),
+                  spawn(UnitKind::Tank, Side::Enemy, 120, 120)},
+                 200);
+}
+
+[[nodiscard]] std::size_t builds_ordered(const Field& field) {
+    return static_cast<std::size_t>(
+        std::count_if(field.orders().begin(), field.orders().end(), [](const sim::Order& order) {
+            return order.kind() == sim::OrderKind::Build;
+        }));
+}
+
+void shift_down(Field& field) {
+    field.real_frame({input::KeyEvent{input::kKeyLShift, true, true}});
+}
+void shift_up(Field& field) {
+    field.real_frame({input::KeyEvent{input::kKeyLShift, false, false}});
+}
+
+} // namespace
+
+TEST(Maneuver, ABareBuildQueuesOneUnitAndTakesANewFunctionKey) {
+    Field field = recycler_field();
+    const sim::UnitId recycler = field.first(UnitKind::DeployedRecycler).id;
+    const std::size_t keys_before = field.function_keys();
+
+    field.press(kDigit1);
+    field.press(kDigit1);
+
+    EXPECT_FALSE(field.menu_open());
+    EXPECT_EQ(builds_ordered(field), 1U);
+    EXPECT_EQ(field.unit(recycler).queue.count, 1U) << "the order is QUEUED, once";
+    EXPECT_EQ(field.function_keys(), keys_before + 1) << "a new function key for the new scavenger";
+}
+
+TEST(Maneuver, AHeldBatchTakesItsFunctionKeyOnThePressAndBuildsNothingUntilTheRelease) {
+    Field field = recycler_field();
+    const sim::UnitId recycler = field.first(UnitKind::DeployedRecycler).id;
+    const std::size_t keys_before = field.function_keys();
+    const std::size_t queued_before = field.unit(recycler).queue.count;
+
+    field.press(kDigit1);
+    shift_down(field);
+    field.real_frame({input::KeyEvent{kDigit1, true, true}});
+
+    EXPECT_EQ(field.function_keys(), keys_before + 1)
+        << "the reservation happens ON THE PRESS: a new function key exists";
+    EXPECT_EQ(builds_ordered(field), 0U) << "no build has started";
+    EXPECT_EQ(field.unit(recycler).queue.count, queued_before) << "nothing is queued";
+    for (int i = 0; i < 5; ++i) {
+        field.frame(); // shift still down: still nothing, and still reserved
+    }
+    EXPECT_EQ(builds_ordered(field), 0U);
+    EXPECT_EQ(field.function_keys(), keys_before + 1);
+
+    shift_up(field);
+    EXPECT_EQ(builds_ordered(field), 1U) << "the release is what starts the build";
+    EXPECT_EQ(field.unit(recycler).queue.count, 1U);
+    EXPECT_EQ(field.function_keys(), keys_before + 1) << "the reservation became the batch's key";
+}
+
+TEST(Maneuver, ACancelledBatchBuildsNothingAndLeavesNoFunctionKey) {
+    Field field = recycler_field();
+    const sim::UnitId recycler = field.first(UnitKind::DeployedRecycler).id;
+    const std::size_t keys_before = field.function_keys();
+
+    field.press(kDigit1);
+    shift_down(field);
+    field.real_frame({input::KeyEvent{kDigit1, true, true}});
+    field.real_frame({input::KeyEvent{input::kKeyTab, true, true}});
+    EXPECT_EQ(field.function_keys(), keys_before)
+        << "the tab releases the reservation BEFORE the shift goes up";
+    EXPECT_EQ(builds_ordered(field), 0U);
+
+    shift_up(field);
+    EXPECT_EQ(builds_ordered(field), 0U) << "no build";
+    EXPECT_EQ(field.unit(recycler).queue.count, 0U);
+    EXPECT_EQ(field.function_keys(), keys_before) << "no new function key";
+    for (int i = 0; i < 5; ++i) {
+        field.frame();
+    }
+    EXPECT_EQ(field.function_keys(), keys_before);
+}
+
+TEST(Maneuver, ASecondShiftPressWhileOneIsPendingDoesNotReserveASecondKey) {
+    Field field = recycler_field();
+    const std::size_t keys_before = field.function_keys();
+
+    field.press(kDigit1);
+    shift_down(field);
+    field.real_frame({input::KeyEvent{kDigit1, true, true}});
+    field.real_frame({input::KeyEvent{kDigit1, true, true}});
+
+    EXPECT_EQ(field.function_keys(), keys_before + 1) << "a batch of two shares ONE key";
+    EXPECT_EQ(builds_ordered(field), 0U);
+    shift_up(field);
+    EXPECT_EQ(builds_ordered(field), 2U);
+    EXPECT_EQ(field.function_keys(), keys_before + 1);
 }
 
 // ------------------------------------------------------------------ a build row closes the menu
