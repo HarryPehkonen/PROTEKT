@@ -344,7 +344,8 @@ TEST(ShiftBatch, ShiftTabCancelsTheSelectedBuilderAndNotAnotherOne) {
     frame(rig, {down(kRow3, false)});
     ASSERT_EQ(rig.sim.find(recycler)->queue.count, 1U);
     ASSERT_EQ(rig.sim.find(factory)->queue.count, 1U);
-    // The factory is selected: it alone loses its queue.
+    // The bare press closed the menu (N18): select the factory again. It alone loses its queue.
+    frame(rig, {down(input::kKey1 + 1, false)});
     const std::vector<Order> orders = frame(rig, {down(input::kKeyTab, true)});
     ASSERT_EQ(cancels_in(orders), 1U);
     EXPECT_EQ(orders.at(0).unit, factory);

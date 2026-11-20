@@ -521,6 +521,80 @@ TEST(Maneuver, WASDKeepsTheConstructMode) {
     }
 }
 
+// ------------------------------------------------------------------ a build row closes the menu
+// (N18)
+//
+// Harri: "When you have a deployed recycler, doing `1` for the recycler -> `1 Scavenger` or any
+// other vehicle, the menu should go away." One maneuver, the producer a parameter: select it by its
+// top-menu digit, press the first row of its own panel, and the order must be QUEUED (not dropped)
+// and the menu CLOSED. The Kiln and the Forge are not producers the deck can reach: nothing selects
+// them and they take no menu (`menu_subject_of_kind`).
+
+namespace {
+
+struct Producer {
+    UnitKind kind;
+    std::int32_t select_key; ///< the top-menu digit that selects it
+    UnitKind first_row;      ///< what row `1` of its own panel builds
+};
+
+void press_first_build_row_closes_the_menu(const Producer& producer) {
+    Field field({spawn(UnitKind::Tank, Side::Player, 40, 40),
+                 spawn(producer.kind, Side::Player, 46, 41),
+                 spawn(UnitKind::Tank, Side::Enemy, 120, 120)},
+                400);
+    const sim::UnitId unit = field.first(producer.kind).id;
+
+    field.press(producer.select_key);
+    ASSERT_TRUE(field.menu_open()) << "selecting the producer opens its menu";
+    ASSERT_EQ(field.session().selection().size(), 1U);
+    ASSERT_TRUE(field.orders().empty());
+
+    field.press(kDigit1);
+
+    std::size_t builds = 0;
+    for (const sim::Order& order : field.orders()) {
+        if (order.kind() == sim::OrderKind::Build) {
+            ++builds;
+            EXPECT_EQ(std::get<sim::orders::Build>(order.payload).kind, producer.first_row);
+        }
+    }
+    EXPECT_EQ(builds, 1U) << "the press ordered one build -- not none (ignored), not two";
+    EXPECT_EQ(field.unit(unit).queue.count, 1U)
+        << "and it is in the producer's queue (not dropped)";
+    EXPECT_FALSE(field.menu_open()) << "the order is given: the menu goes away";
+    EXPECT_TRUE(field.session().selection().units().empty());
+}
+
+} // namespace
+
+TEST(Maneuver, PressingABuildRowClosesTheMenuFromTheDeployedRecycler) {
+    press_first_build_row_closes_the_menu(
+        {UnitKind::DeployedRecycler, kDigit1, UnitKind::Scavenger});
+}
+
+TEST(Maneuver, PressingABuildRowClosesTheMenuFromTheFactory) {
+    press_first_build_row_closes_the_menu({UnitKind::Factory, kDigit1 + 1, UnitKind::MortarBike});
+}
+
+TEST(Maneuver, PressingAConstructRowOnTheConstructPanelKeepsThePanelAndArmsThePlacement) {
+    // Not a command but a placement: the panel stays, the building is armed, nothing is ordered
+    // until SPACE. (Pinned so that a change to it is a decision, not an accident.)
+    Field field({spawn(UnitKind::Tank, Side::Player, 40, 40),
+                 spawn(UnitKind::Constructor, Side::Player, 44, 41),
+                 spawn(UnitKind::Tank, Side::Enemy, 120, 120)},
+                400);
+    field.select(field.first(UnitKind::Constructor).id);
+    field.press(kDigit3);
+    ASSERT_TRUE(field.session().construct_armed());
+    field.press(kDigit1);
+    EXPECT_TRUE(field.session().construct_armed());
+    const auto placing = field.session().placing();
+    EXPECT_EQ(placing.value_or(game::Placing{}).kind, UnitKind::Power);
+    EXPECT_TRUE(field.menu_open());
+    EXPECT_TRUE(field.orders().empty());
+}
+
 // ------------------------------------------------------------------ neighbours
 
 TEST(Maneuver, ACancelledDeploymentLeavesNoOrderAndNoMenu) {

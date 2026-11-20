@@ -1810,6 +1810,13 @@ struct BuildRig {
 
 /// Shift comes up (SHIFT-BATCH, 2026-11-05): a shifted run is held until then, and the frame that
 /// lets go is the one that orders it. Returns the orders that frame made.
+/// A bare build closes the menu and clears the selection (N18): to press again, select the producer
+/// again, with the digit that selects it (`1` the deployed recycler, `2` the factory).
+void reselect(BuildRig& rig) {
+    const bool is_factory = rig.sim.find(rig.producer)->kind == UnitKind::Factory;
+    rig.player.handle(with_key(input::kKey1 + (is_factory ? 1 : 0)), rig.sim, rig.options);
+}
+
 [[nodiscard]] std::vector<Order> let_go(BuildRig& rig) {
     InputFrame frame{};
     frame.keys.push_back(KeyEvent{input::kKeyLShift, false, false});
@@ -2077,6 +2084,7 @@ TEST(Interaction, APressThatWouldStartAnotherBatchIsRefusedAloudWhileOneRuns) {
     BuildRig rig = make_build_rig();
     ASSERT_EQ(press(rig, 1, false).size(), 1U);
     ASSERT_TRUE(rig.player.message().empty());
+    reselect(rig); // the lone press closed the menu (N18)
     EXPECT_TRUE(press(rig, 1, false).empty()) << "a second lone press waits for the first";
     EXPECT_FALSE(rig.player.message().empty());
     EXPECT_NE(rig.player.message(), "The build queue is full.");
@@ -2087,8 +2095,11 @@ TEST(Interaction, APressThatWouldStartAnotherBatchIsRefusedAloudWhileOneRuns) {
 }
 
 TEST(Interaction, ASecondBarePressInOneFrameIsRefusedBeforeTheSimHasSeenTheFirst) {
+    // `1` (the row, then `1` again selects the recycler, then `1` the row): the orders made this
+    // frame count as queued even though the first press closed the menu (N18).
     BuildRig rig = make_build_rig();
     InputFrame frame{};
+    frame.keys.push_back(KeyEvent{input::kKey1, true, false});
     frame.keys.push_back(KeyEvent{input::kKey1, true, false});
     frame.keys.push_back(KeyEvent{input::kKey1, true, false});
     rig.player.handle(frame, rig.sim, rig.options);
@@ -2099,6 +2110,7 @@ TEST(Interaction, ASecondBarePressInOneFrameIsRefusedBeforeTheSimHasSeenTheFirst
 TEST(Interaction, ARunOpenedAfterABarePressIsRefusedNotJoinedToIt) {
     BuildRig rig = make_build_rig();
     ASSERT_EQ(press(rig, 1, false).size(), 1U);
+    reselect(rig); // the lone press closed the menu (N18)
     EXPECT_TRUE(press(rig, 1, true).empty())
         << "the lone build is a batch of one with an id of its own; a token cannot join it";
     EXPECT_FALSE(rig.player.message().empty());

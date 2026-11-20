@@ -783,10 +783,10 @@ void Interaction::menu_digit(const sim::Sim& sim, const SceneOptions& options, i
     // the selection (`menu_subject_of`), so the handlers that POST orders -- Follow Me, Hold, Go to
     // Nav, Recycle, Scavenge, and the attack list's row (Attack only arms that list; the row
     // completes it) -- end by clearing it. Two kinds of row deliberately do not: the build rows
-    // (above) keep the factory selected so the player can keep queueing, and Deploy only ARMS a
-    // click, so its sequence is not complete until the click lands. A row the model dims, or draws
-    // no digit for, is not a command: the digit does nothing, as it did before the menu was routed.
-    // Only the rows below can act yet; the rest stay inert.
+    // (above) (a bare one, N18) close like any command, a shifted one when shift goes up, and
+    // Deploy only ARMS a click, so its sequence is not complete until the click lands. A row the
+    // model dims, or draws no digit for, is not a command: the digit does nothing, as it did before
+    // the menu was routed. Only the rows below can act yet; the rest stay inert.
     if (row == rows.end() || !row->enabled) {
         return;
     }
@@ -871,6 +871,13 @@ void Interaction::queue_build(const sim::Sim& sim, const BuildItem& item, bool s
     // A shifted press waits for shift to go up; a bare one is a lone build and goes at once.
     (shift ? held_ : pending_)
         .push_back(sim::Order{producer->id, sim::orders::Build{*item.kind, batch}});
+    // A bare build is a completed command: the menu closes and the selection goes (Harri,
+    // 2026-11-20). A shifted press does not -- the batch is still being said; its menu closes when
+    // shift goes up (`handle`). A REFUSED press returned above and leaves the menu to be tried
+    // again.
+    if (!shift) {
+        selection_.clear();
+    }
 }
 
 void Interaction::release_shift() {
