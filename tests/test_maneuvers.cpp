@@ -478,6 +478,49 @@ TEST(Maneuver, TheShiftBatchBuildClosesTheMenu) {
     EXPECT_TRUE(field.session().selection().units().empty());
 }
 
+// ------------------------------------------------------------------ the construct mode (N16)
+//
+// Harri: "Select the Constructor, `3 Construct`, `1 Power`, WASD should not take you back to the
+// previous menu -- you should stay in the construct-Power mode." The rule, from three maneuvers:
+// THE MOVEMENT KEYS NEVER INTERRUPT A PLACEMENT OR CONSTRUCT MODE.
+
+TEST(Maneuver, WASDKeepsTheConstructMode) {
+    for (const std::int32_t key : {input::kKeyW, input::kKeyA, input::kKeyS, input::kKeyD}) {
+        Field field({spawn(UnitKind::Tank, Side::Player, 40, 40),
+                     spawn(UnitKind::Constructor, Side::Player, 44, 41),
+                     spawn(UnitKind::Tank, Side::Enemy, 120, 120)},
+                    400);
+        field.select(field.first(UnitKind::Constructor).id);
+        field.press(kDigit3);
+        field.press(kDigit1);
+        // The mode IS: the panel up, on a Constructor, with the Power plant armed.
+        const auto expect_power_mode = [&](const char* when) {
+            EXPECT_TRUE(field.session().construct_armed()) << "key " << key << ' ' << when;
+            ASSERT_TRUE(field.session().placing().has_value()) << "key " << key << ' ' << when;
+            EXPECT_EQ(field.session().placing()->kind, UnitKind::Power)
+                << "key " << key << ' ' << when;
+            EXPECT_EQ(field.session().selection().size(), 1U) << "key " << key << ' ' << when;
+            EXPECT_TRUE(field.menu_open()) << "key " << key << ' ' << when;
+            const auto rows = field.menu();
+            EXPECT_TRUE(std::any_of(rows.begin(), rows.end(),
+                                    [](const game::MenuRow& row) {
+                                        return row.heading && row.verb == game::kConstructHeading;
+                                    }))
+                << "key " << key << ' ' << when << ": the CONSTRUCT panel is what is drawn";
+        };
+        ASSERT_NO_FATAL_FAILURE(expect_power_mode("before any movement"));
+        field.key_down(key); // PRESS
+        ASSERT_NO_FATAL_FAILURE(expect_power_mode("on press"));
+        for (int i = 0; i < 10; ++i) {
+            field.frame(); // HELD: no event between down and up, as the window delivers it
+        }
+        ASSERT_NO_FATAL_FAILURE(expect_power_mode("while held"));
+        field.key_up(key); // RELEASE
+        ASSERT_NO_FATAL_FAILURE(expect_power_mode("on release"));
+        EXPECT_TRUE(field.orders().empty()) << "key " << key << ": movement ordered nothing";
+    }
+}
+
 // ------------------------------------------------------------------ neighbours
 
 TEST(Maneuver, ACancelledDeploymentLeavesNoOrderAndNoMenu) {

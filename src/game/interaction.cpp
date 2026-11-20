@@ -359,6 +359,12 @@ void Interaction::handle(const input::InputFrame& frame, const sim::Sim& sim,
             // TAB and Escape close it (the panel's own `TAB Close Menu` row) and are spent doing
             // so; the selection stays, so the Constructor's menu is back. A selection that is no
             // longer a Constructor ends it, and then the key acts as it would have.
+            // THE MOVEMENT KEYS (W, A, S, D) NEVER INTERRUPT IT: they drive the hull, which is read
+            // from the held keys, and are no menu key here. Passed over, not spent on the panel.
+            if (key.scancode == input::kKeyW || key.scancode == input::kKeyA
+                || key.scancode == input::kKeyS || key.scancode == input::kKeyD) {
+                continue;
+            }
             const bool still_constructor
                 = menu_subject_of(sim, selection_.units()) == MenuSubject::Constructor;
             // A building is ARMED (a row was pressed and afforded): SPACE places it where the
