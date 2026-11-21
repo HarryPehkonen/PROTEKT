@@ -420,6 +420,8 @@ const char* to_string(OrderKind kind) noexcept {
         return "repair";
     case OrderKind::Place:
         return "place";
+    case OrderKind::Jump:
+        return "jump";
     }
     return "unknown";
 }

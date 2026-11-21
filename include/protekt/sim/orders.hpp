@@ -227,6 +227,13 @@ struct Place {
     bool turned{};
 };
 
+/// JUMP (M5, Harri: "SPEED is what it takes: below a threshold you just bump the obstacle; above
+/// it, you clear it"): the unit leaves the ground. Empty -- the order addresses the unit. It is
+/// REFUSED (a no-op the sim drops, like an order for a dead unit) unless the unit is a mobile
+/// vehicle on the ground and moving at `kJumpSpeedRaw` or better when the order is applied; a
+/// jump below that speed does not happen, and the obstacle is bumped as ever.
+struct Jump {};
+
 } // namespace orders
 
 using OrderPayload
@@ -234,7 +241,8 @@ using OrderPayload
                    orders::FocusFire, orders::FireTowards, orders::Strafe, orders::Follow,
                    orders::FireLob, orders::Deploy, orders::Recycle, orders::FireFan,
                    orders::FireRocket, orders::TakeControl, orders::Build, orders::Undeploy,
-                   orders::Defend, orders::CancelBuild, orders::Repair, orders::Place>;
+                   orders::Defend, orders::CancelBuild, orders::Repair, orders::Place,
+                   orders::Jump>;
 
 /// How each payload alternative is named and reported. This is the payload's index, in the
 /// payload's order, and the assertions below make that true rather than intended.
@@ -269,9 +277,11 @@ enum class OrderKind : std::uint8_t {
     Repair = 19,
     /// Appended after Repair, never inserted, for the reason every value above was.
     Place = 20,
+    /// Appended after Place, never inserted, for the reason every value above was.
+    Jump = 21,
 };
 
-inline constexpr std::size_t kOrderKindCount = static_cast<std::size_t>(OrderKind::Place) + 1;
+inline constexpr std::size_t kOrderKindCount = static_cast<std::size_t>(OrderKind::Jump) + 1;
 
 static_assert(std::variant_size_v<OrderPayload> == kOrderKindCount,
               "every alternative needs a kind, and every kind an alternative");
@@ -303,6 +313,7 @@ static_assert(std::is_same_v<PayloadOf<OrderKind::Defend>, orders::Defend>);
 static_assert(std::is_same_v<PayloadOf<OrderKind::CancelBuild>, orders::CancelBuild>);
 static_assert(std::is_same_v<PayloadOf<OrderKind::Repair>, orders::Repair>);
 static_assert(std::is_same_v<PayloadOf<OrderKind::Place>, orders::Place>);
+static_assert(std::is_same_v<PayloadOf<OrderKind::Jump>, orders::Jump>);
 
 /// The kind is the payload's own index. There is no second field that can disagree with it, which
 /// is precisely what the flat record could not promise.

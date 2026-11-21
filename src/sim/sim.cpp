@@ -141,6 +141,16 @@ bool order_is_valid(const std::vector<Unit>& units, const std::vector<Pool>& poo
                && place_ok(seed, units, placed->kind, placed->turned, placed->tile_x,
                            placed->tile_y);
     }
+    // JUMP (M5) is a mobile vehicle's, off the ground and at speed: `kJumpSpeedRaw` or better,
+    // read off the velocity its last tick's steering gave it. A unit already in the air cannot
+    // jump again, and one below the speed simply does not leave the ground (his rule: "below a
+    // threshold you just bump the obstacle").
+    if (std::holds_alternative<orders::Jump>(order.payload)) {
+        const std::int64_t vx = unit->vx.raw;
+        const std::int64_t vy = unit->vy.raw;
+        return profile(unit->kind).mobile && !airborne(*unit)
+               && isqrt(vx * vx + vy * vy) >= kJumpSpeedRaw;
+    }
     // UN-DEPLOY is a deployed turret's alone (a plain turret has nothing to take down, and a
     // deployed scavenger takes no order at all, above).
     if (std::holds_alternative<orders::Undeploy>(order.payload)) {
@@ -210,9 +220,19 @@ struct WorldGround {
     /// cost the route planner a fifth of its time (protekt-measure 2400: 99.6 s without the
     /// question, 122.2 s asking it of every tile). `ground_of` reads it off the units.
     bool buildings;
+    /// The world-anchored volumes (`Scenario::volumes`): terrain that stops a unit at some heights.
+    std::span<const PlacedVolume> terrain{};
+    /// How high above the ground the unit asking is (`Unit::lift`): zero for the route planner and
+    /// every caller that is not a unit in the air, so a grounded unit's answer is unchanged.
+    Fixed lift{};
     [[nodiscard]] std::int64_t factor(int tile_x, int tile_y) const noexcept {
-        if (buildings && building_stops_units(units, tile_x, tile_y)) {
+        if (buildings && building_stops_units(units, tile_x, tile_y, lift)) {
             return 0;
+        }
+        for (const PlacedVolume& placed : terrain) {
+            if (placed_solid_at(placed, tile_x, tile_y) && volume_stops(placed.volume, lift)) {
+                return 0;
+            }
         }
         const world::Tile tile = world::sample(seed, tile_x, tile_y);
         return terrain_speed_factor(tile.terrain).raw;
@@ -231,11 +251,13 @@ static_assert(kSlideRawPerHeight == kTankSpeedRaw / 16);
 static_assert(kSlideMaxRaw == kTankSpeedRaw);
 
 /// The ground as the mover sees it now, with `WorldGround::buildings` read off the units.
-[[nodiscard]] WorldGround ground_of(std::uint64_t seed, std::span<const Unit> units) noexcept {
+[[nodiscard]] WorldGround ground_of(std::uint64_t seed, std::span<const Unit> units,
+                                    std::span<const PlacedVolume> terrain = {},
+                                    Fixed lift = Fixed::zero()) noexcept {
     const bool buildings = std::any_of(units.begin(), units.end(), [](const Unit& unit) {
         return unit.alive && has_footprint(unit.kind);
     });
-    return WorldGround{seed, units, buildings};
+    return WorldGround{seed, units, buildings, terrain, lift};
 }
 
 /// Where a position-bearing order sends the unit; unused points are the origin, as they always
@@ -311,7 +333,8 @@ void place_building(std::vector<Unit>& units, std::uint32_t& next_id,
 void apply_order(std::vector<Unit>& units, std::vector<Projectile>& projectiles,
                  std::vector<Sim::Shot>& shots, UnitId& driven, std::uint32_t& lone_batches,
                  std::uint32_t& next_id, std::array<std::uint16_t, 2>& ore,
-                 const std::vector<Pool>& pools, const Order& order, std::uint64_t seed) noexcept {
+                 const std::vector<Pool>& pools, std::span<const PlacedVolume> terrain,
+                 const Order& order, std::uint64_t seed) noexcept {
     // Re-validated here: the unit may have died between enqueue and the tick it takes effect.
     if (!order_is_valid(units, pools, order, seed)) {
         return;
@@ -374,7 +397,7 @@ void apply_order(std::vector<Unit>& units, std::vector<Projectile>& projectiles,
         break;
     case OrderKind::Strafe:
         if (const auto* o = std::get_if<orders::Strafe>(&order.payload)) {
-            apply_strafe(unit, *o, ground_of(seed, units));
+            apply_strafe(unit, *o, ground_of(seed, units, terrain, unit.lift));
         }
         break;
     case OrderKind::Recycle:
@@ -542,6 +565,13 @@ void apply_order(std::vector<Unit>& units, std::vector<Projectile>& projectiles,
             // `unit` is not touched again: pushing the building may move the table.
             place_building(units, next_id, ore, unit.id, *o);
         }
+        break;
+    case OrderKind::Jump:
+        // Off the ground at the launch speed. The route is dropped: a jump is a hop along the line
+        // it was begun on, so the unit steers straight at its goal while it is in the air
+        // (`steer`) and plans afresh from wherever it lands.
+        unit.lift_v = kJumpLaunch;
+        unit.route = Route{};
         break;
     case OrderKind::TakeControl:
         // THE PLAYER TAKES THE HELM: one slot, so this unit becomes the driven one and the last
@@ -1854,10 +1884,17 @@ void steer(std::vector<Unit>& units, Unit& unit, const UnitProfile& prof, const 
     }
     // The route, if there is one: aim at the current waypoint (a tile center) and pop it on
     // arrival; the goal itself is only steered at once the waypoints are spent.
-    update_route(unit, goal_x, goal_y, ground, plans);
+    // A unit in the air plans nothing and follows nothing: it is on a hop along the line it began
+    // on
+    // (`orders::Jump` dropped its route), so it steers straight at the goal and lands where the
+    // arc takes it.
+    const bool hopping = airborne(unit);
+    if (!hopping) {
+        update_route(unit, goal_x, goal_y, ground, plans);
+    }
     Fixed aim_x = goal_x;
     Fixed aim_y = goal_y;
-    while (unit.route.following()) {
+    while (!hopping && unit.route.following()) {
         const TileXY wp = unit.route.points.at(unit.route.next);
         if (!unit.route.partial && unit.route.next + 1 == unit.route.count) {
             // The last waypoint is the goal's own tile: the live goal (which may have moved, or
@@ -2097,7 +2134,8 @@ constexpr int kLaneProbeTicks = 10 * kTicksPerSecond;
 /// shooter's side is a DELIBERATE shot (an explicit order on a friendly): it is not second-guessed.
 /// Positions are as they are now; a friend who moves into the lane afterwards is not foreseen.
 [[nodiscard]] bool shot_hurts_friend(const std::vector<Unit>& units, const Unit& shooter,
-                                     const Unit& target, std::uint16_t damage, std::uint64_t seed) {
+                                     const Unit& target, std::uint16_t damage, std::uint64_t seed,
+                                     std::span<const PlacedVolume> terrain) {
     if (target.side == shooter.side) {
         return false;
     }
@@ -2135,8 +2173,9 @@ constexpr int kLaneProbeTicks = 10 * kTicksPerSecond;
         }
     }
     std::vector<Impact> impacts;
+    std::vector<Landing> unseen;
     for (int tick = 0; tick < kLaneProbeTicks && !flight.empty(); ++tick) {
-        advance_projectiles(flight, near, impacts, seed);
+        advance_projectiles(flight, near, impacts, unseen, seed, nullptr, terrain);
     }
     return std::any_of(impacts.begin(), impacts.end(), [&](const Impact& impact) {
         return std::any_of(near.begin(), near.end(), [&](const Unit& unit) {
@@ -2400,7 +2439,7 @@ void Sim::step(StepTimings* timings) {
     }
     for (const Order& order : pending_) {
         apply_order(units_, projectiles_, shots_, driven_, lone_batches_, next_id_, ore_,
-                    scenario_.pools, order, scenario_.seed);
+                    scenario_.pools, scenario_.volumes, order, scenario_.seed);
     }
     pending_.clear();
     lap(&StepTimings::orders_ns);
@@ -2431,7 +2470,21 @@ void Sim::step(StepTimings* timings) {
         }
         // Asked afresh for each unit, so a recycler that deployed earlier in this very loop is
         // already in the way of every unit after it.
-        const WorldGround ground = ground_of(seed, units_);
+        // THE JUMP: a unit in the air rises or falls first, so every question the mover asks this
+        // tick is asked at the height it now has. It lands the tick its height is spent.
+        if (airborne(unit)) {
+            unit.lift = Fixed::from_raw(unit.lift.raw + unit.lift_v.raw);
+            unit.lift_v = Fixed::from_raw(unit.lift_v.raw - kJumpGravity.raw);
+            if (unit.lift.raw <= 0) {
+                unit.lift = Fixed::zero();
+                unit.lift_v = Fixed::zero();
+            }
+        }
+        // The ground the unit MOVES over answers at its height; the one it PLANS over (a route)
+        // is the ground at height zero, so a unit on the ground plans round a wall it would
+        // otherwise try to jump, and one in the air plans nothing (`steer`).
+        const WorldGround ground = ground_of(seed, units_, scenario_.volumes);
+        const WorldGround flight = ground_of(seed, units_, scenario_.volumes, unit.lift);
         const UnitProfile prof = profile(unit.kind);
         // Scavenging, before the mover: it takes from where the unit stands and sets no goal (C2).
         if (unit.kind == UnitKind::Scavenger) {
@@ -2452,10 +2505,10 @@ void Sim::step(StepTimings* timings) {
                        .count();
         }
         if (!(unit.kind == UnitKind::Turret && !turret_may_move(unit))) {
-            move(units_, ground, prof, unit);
+            move(units_, flight, prof, unit);
         }
-        if (!planted(unit)) {
-            slide(ground, unit);
+        if (!planted(unit) && !airborne(unit)) {
+            slide(ground, unit); // (in the air nothing is touching the slope)
         }
     }
 
@@ -2468,7 +2521,8 @@ void Sim::step(StepTimings* timings) {
     //    not shoot this tick, and a bolt fired this tick has not moved yet.
     impacts_.clear();
     landings_.clear();
-    advance_projectiles(projectiles_, units_, impacts_, landings_, seed, timings);
+    advance_projectiles(projectiles_, units_, impacts_, landings_, seed, timings,
+                        scenario_.volumes);
     lap(&StepTimings::bolts_ns);
 
     // N7: the two tests the target search leans on, timed when asked. Behaviour is unchanged: each
@@ -2487,10 +2541,11 @@ void Sim::step(StepTimings* timings) {
     };
     const auto hurts_friend = [&](const Unit& shooter, const Unit& target, std::uint16_t damage) {
         if (!timed) {
-            return shot_hurts_friend(units_, shooter, target, damage, seed);
+            return shot_hurts_friend(units_, shooter, target, damage, seed, scenario_.volumes);
         }
         const Clock::time_point from = Clock::now();
-        const bool hurts = shot_hurts_friend(units_, shooter, target, damage, seed);
+        const bool hurts
+            = shot_hurts_friend(units_, shooter, target, damage, seed, scenario_.volumes);
         timings->probe_ns
             += std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - from).count();
         ++timings->probe_calls;
@@ -2753,11 +2808,13 @@ bool building_blocks(std::span<const Unit> units, int tile_x, int tile_y) noexce
     });
 }
 
-bool building_stops_units(std::span<const Unit> units, int tile_x, int tile_y) noexcept {
-    return std::any_of(units.begin(), units.end(), [tile_x, tile_y](const Unit& unit) {
+bool building_stops_units(std::span<const Unit> units, int tile_x, int tile_y,
+                          Fixed lift) noexcept {
+    return std::any_of(units.begin(), units.end(), [tile_x, tile_y, lift](const Unit& unit) {
         return unit.alive && has_footprint(unit.kind)
                && !(has_drivable_footprint(unit.kind) && !under_construction(unit))
-               && building_solid_at(unit, tile_x, tile_y);
+               && building_solid_at(unit, tile_x, tile_y)
+               && volume_stops(volume_of(unit.kind), lift);
     });
 }
 
@@ -2918,6 +2975,10 @@ std::uint64_t Sim::state_hash() const noexcept {
         }
         if (u.build_left != 0) {
             h.u64(u.build_left); // a site still being built: no standing building's is ever set
+        }
+        if (airborne(u)) {
+            h.i32(u.lift.raw);   // a unit in a jump: nobody on the ground has either, so a battle
+            h.i32(u.lift_v.raw); // that never jumps hashes exactly as it did before there was one
         }
         if (u.host.valid()) {
             h.u64(u.host.value); // a Power Lung's structure: no other kind has one

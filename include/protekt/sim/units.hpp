@@ -423,7 +423,20 @@ struct Unit {
     /// stands -- which is every building a scenario deploys or spawns. Hashed only when non-zero,
     /// so a battle with no site under construction hashes exactly as it did before there was one.
     std::uint16_t build_left{};
+    /// THE JUMP (M5): how high the unit's body is lifted above the ground under it, in height units
+    /// (`kHeightUnitsPerTile` to a tile), Q16.16; zero is ON THE GROUND, which is every unit until
+    /// one jumps. The mover asks a volume whether it blocks "at this height" (`volume_stops`), so a
+    /// raised unit passes what a grounded one cannot. Hashed only while the unit is in the air.
+    Fixed lift{};
+    /// Its vertical speed, height units a tick, Q16.16: set by a `Jump` and spent by gravity
+    /// (`kJumpGravity`). Zero with `lift` zero IS grounded (`airborne`).
+    Fixed lift_v{};
 };
+
+/// True while `unit` is in the air (a jump begun and not yet landed).
+[[nodiscard]] constexpr bool airborne(const Unit& unit) noexcept {
+    return unit.lift.raw != 0 || unit.lift_v.raw != 0;
+}
 
 /// A Constructor must be within this many TILES of a site's footprint (the nearest point of its
 /// rectangle) for the site to progress. The owner's "within one block" -- his block is this tree's
@@ -942,6 +955,15 @@ inline constexpr int kBoxReachTiles = 3;
     return drawn_box(footprint_around(unit));
 }
 
+/// World heights are whole units of a 64th of a tile (`world::Tile::height`); a bolt's height and
+/// vertical speed are in the same units, in Q16.16.
+inline constexpr std::int32_t kHeightUnitsPerTile = 64;
+/// How high above the ground under it a unit's body starts (its hover) and how tall it is, in
+/// height units: 0.25 m and 1.8 m (4.5 m for a factory) at 32 units to the metre, which is how the
+/// scene draws them. A bolt hurts a unit only while it is between the two.
+inline constexpr Fixed kRideHeight = Fixed::from_raw(8 * Fixed::kOne);
+inline constexpr Fixed kBodyHeight = Fixed::from_raw(576 * Fixed::kOne / 10); ///< 57.6 units
+inline constexpr Fixed kFactoryBodyHeight = Fixed::from_raw(144 * Fixed::kOne);
 /// THE SOLID MASK (M4): a bitmap of IMPASSABLE tiles in the frame of whatever carries it -- one
 /// concept, two frames. A BUILDING carries one in its OWN frame (`solid_mask_of`: tile (0, 0) is
 /// the mask's north-west corner, whichever way the building is turned), so the shape travels with

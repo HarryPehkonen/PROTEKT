@@ -16,6 +16,7 @@
 #include "protekt/sim/steering.hpp"
 #include "protekt/sim/timings.hpp"
 #include "protekt/sim/units.hpp"
+#include "protekt/sim/volume.hpp"
 
 namespace protekt::sim {
 
@@ -48,6 +49,11 @@ struct Scenario {
     /// lays them from the seed). Empty for a battle assembled by hand, which then has nowhere for a
     /// scavenger to deploy. Scenario data, never hashed.
     std::vector<Pool> pools{};
+    /// The WORLD-ANCHORED VOLUMES the map has (M5): walls, lips, bridges, ramps' raised sections --
+    /// terrain a unit may or may not pass AT ITS HEIGHT (`volume_stops`), and a bolt is stopped by
+    /// the same shape. Empty for every battle assembled by hand and for `skirmish`, so those play
+    /// exactly as before. Scenario data, never hashed.
+    std::vector<PlacedVolume> volumes{};
     /// What each side's scrap store holds before any scavenger has deployed
     /// (`kStoreStartCapacity`).
     std::uint16_t store_capacity{kStoreStartCapacity};
@@ -105,8 +111,13 @@ protected:
 /// whole footprint, whose outer ring a unit may drive on), less a
 /// standing building whose footprint is a drivable platform (N1: the Service Bay, the Dower). The
 /// mover and the route planner ask THIS; a platform under construction is solid like any site.
-[[nodiscard]] bool building_stops_units(std::span<const Unit> units, int tile_x,
-                                        int tile_y) noexcept;
+///
+/// M5: asked AT A HEIGHT. `lift` is how far above the ground the asking unit's body is raised
+/// (`Unit::lift`); the building's volume (`volume_of`) stops it only if their heights overlap
+/// (`volume_stops`). The default, zero, is the unit on the ground: the answer every caller had
+/// before there was a jump.
+[[nodiscard]] bool building_stops_units(std::span<const Unit> units, int tile_x, int tile_y,
+                                        Fixed lift = Fixed::zero()) noexcept;
 
 /// The living Constructor of `site`'s own side that is within `kBuildReachTiles` of its footprint
 /// (the nearest point of the rectangle), lowest id first; null when there is none. THE one answer

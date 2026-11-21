@@ -337,8 +337,7 @@ Fixed roof_top(UnitKind kind) noexcept {
     if (!has_footprint(kind)) {
         return body_top(kind);
     }
-    const Fixed body = kind == UnitKind::Factory ? kFactoryBodyHeight : kBodyHeight;
-    return Fixed::from_raw(kRideHeight.raw + body.raw * kBuildingFootprintScale);
+    return volume_of(kind).top; // ONE height: the volume the mover is stopped by (M5)
 }
 
 void retarget_aim(Unit& shooter, UnitId target) noexcept {
@@ -747,7 +746,8 @@ void damp_horizontal(Projectile& shell) noexcept {
 
 void advance_projectiles(std::vector<Projectile>& projectiles, std::vector<Unit>& units,
                          std::vector<Impact>& impacts, std::vector<Landing>& landings,
-                         std::uint64_t seed, StepTimings* timings) noexcept {
+                         std::uint64_t seed, StepTimings* timings,
+                         std::span<const PlacedVolume> terrain) noexcept {
     // N7: the hit tests' clock. With no `timings` nothing here reads a clock.
     using Clock = std::chrono::steady_clock;
     const auto hit_mark = [&]() { return timings != nullptr ? Clock::now() : Clock::time_point{}; };
@@ -881,7 +881,9 @@ void advance_projectiles(std::vector<Projectile>& projectiles, std::vector<Unit>
             // Close enough in the map plane; now is the bolt level with the body, at that moment?
             const std::int64_t z = c.length2 > 0 ? from_z + step_z * c.along / c.length2 : from_z;
             const std::int64_t stands = ground_height(seed, unit.x, unit.y).raw;
-            if (z >= stands + body_bottom(unit.kind).raw && z <= stands + body_top(unit.kind).raw) {
+            // A unit in a jump (M5) is hit where its body IS: its heights are raised by its lift.
+            if (z >= stands + body_bottom(unit.kind).raw + unit.lift.raw
+                && z <= stands + body_top(unit.kind).raw + unit.lift.raw) {
                 hit = &unit;
                 hit_d2 = d2;
             }
@@ -951,7 +953,55 @@ void advance_projectiles(std::vector<Projectile>& projectiles, std::vector<Unit>
             strike_y = inside(from_y + step_y * when.num / when.den, site.y, site.height);
             strike_z = from_z + step_z * when.num / when.den;
         }
+        // TERRAIN VOLUMES (M5): the very volumes that stop a unit (`volume_stops`) stop a bolt,
+        // tile by tile of their extent: below the top and not under the base. A bolt that meets one
+        // before it meets a unit comes down at the wall's face -- no damage, but a shell bursts.
+        bool walled = false;
+        Frac wall_when{};
+        for (const PlacedVolume& placed : terrain) {
+            const int wide
+                = placed.turned ? placed.volume.extent.height : placed.volume.extent.width;
+            const int deep
+                = placed.turned ? placed.volume.extent.width : placed.volume.extent.height;
+            for (int ty = placed.y; ty < placed.y + deep; ++ty) {
+                for (int tx = placed.x; tx < placed.x + wide; ++tx) {
+                    if (!placed_solid_at(placed, tx, ty)) {
+                        continue;
+                    }
+                    const std::int64_t datum
+                        = ground_height(seed,
+                                        Fixed::from_raw(static_cast<std::int32_t>(
+                                            tx * Fixed::kOne + Fixed::kOne / 2)),
+                                        Fixed::from_raw(static_cast<std::int32_t>(
+                                            ty * Fixed::kOne + Fixed::kOne / 2)))
+                              .raw;
+                    Frac at{};
+                    if (!meets_building(Footprint{tx, ty, 1, 1}, datum + placed.volume.top.raw,
+                                        from_x, from_y, from_z, step_x, step_y, step_z, at)
+                        || from_z + step_z * at.num / at.den < datum + placed.volume.base.raw) {
+                        continue; // not met, or flown UNDER a raised volume
+                    }
+                    if (!walled || earlier(at, wall_when)) {
+                        walled = true;
+                        wall_when = at;
+                    }
+                }
+            }
+        }
+        if (walled && hit != nullptr) {
+            const Point c
+                = nearest_on_segment(from_x, from_y, step_x, step_y, hit->x.raw, hit->y.raw);
+            const Frac there{c.length2 > 0 ? c.along : 0, c.length2 > 0 ? c.length2 : 1};
+            walled = earlier(wall_when, there); // whichever is first along the path takes it
+        }
         hit_add(buildings_from);
+        if (walled) {
+            const std::int64_t wall_x = from_x + step_x * wall_when.num / wall_when.den;
+            const std::int64_t wall_y = from_y + step_y * wall_when.num / wall_when.den;
+            splash(bolt, wall_x, wall_y, nullptr, units, impacts);
+            land(bolt, wall_x, wall_y, false);
+            continue;
+        }
         if (hit != nullptr && bolt.round == Round::Bounce) {
             // A bouncer takes no life: it glances off the body where its path was nearest it. A
             // rebound too weak to be a bounce just loses its climb and drops to the ground.

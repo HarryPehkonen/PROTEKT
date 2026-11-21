@@ -1,11 +1,13 @@
 #pragma once
 
 #include <cstdint>
+#include <span>
 #include <vector>
 
 #include "protekt/sim/fixed.hpp"
 #include "protekt/sim/timings.hpp"
 #include "protekt/sim/units.hpp"
+#include "protekt/sim/volume.hpp"
 
 namespace protekt::sim {
 
@@ -37,15 +39,9 @@ inline constexpr Fixed kProjectileHitRadius = Fixed::from_raw(Fixed::kOne / 2);
 /// It also bounds a pathological history: one wild miss cannot send the aim point across the map.
 inline constexpr std::int32_t kMaxAimLeadRaw = 5 * Fixed::kOne;
 
-/// World heights are whole units of a 64th of a tile (`world::Tile::height`); a bolt's height and
-/// vertical speed are in the same units, in Q16.16.
-inline constexpr std::int32_t kHeightUnitsPerTile = 64;
-/// How high above the ground under it a unit's body starts (its hover) and how tall it is, in
-/// height units: 0.25 m and 1.8 m (4.5 m for a factory) at 32 units to the metre, which is how the
-/// scene draws them. A bolt hurts a unit only while it is between the two.
-inline constexpr Fixed kRideHeight = Fixed::from_raw(8 * Fixed::kOne);
-inline constexpr Fixed kBodyHeight = Fixed::from_raw(576 * Fixed::kOne / 10); ///< 57.6 units
-inline constexpr Fixed kFactoryBodyHeight = Fixed::from_raw(144 * Fixed::kOne);
+// The height constants (`kHeightUnitsPerTile`, `kRideHeight`, `kBodyHeight`, `kFactoryBodyHeight`)
+// moved to units.hpp for M5: a volume (volume.hpp) is measured in them, and a volume's header
+// cannot include this one.
 /// Where a gun's bolt leaves it, above the ground under the gun: the middle of a tank's body, so a
 /// tank shooting a tank on level ground shoots level.
 inline constexpr Fixed kMuzzleHeight = Fixed::from_raw(kRideHeight.raw + kBodyHeight.raw / 2);
@@ -284,6 +280,7 @@ void advance_projectiles(std::vector<Projectile>& projectiles, std::vector<Unit>
 /// appended to `landings`. Observation output: it changes nothing about the flight.
 void advance_projectiles(std::vector<Projectile>& projectiles, std::vector<Unit>& units,
                          std::vector<Impact>& impacts, std::vector<Landing>& landings,
-                         std::uint64_t seed, StepTimings* timings = nullptr) noexcept;
+                         std::uint64_t seed, StepTimings* timings = nullptr,
+                         std::span<const PlacedVolume> terrain = {}) noexcept;
 
 } // namespace protekt::sim
