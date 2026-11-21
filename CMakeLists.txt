@@ -333,6 +333,7 @@ if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
         tests/test_hover_drive.cpp
         tests/test_friendly_fire.cpp
         tests/test_fire_beat.cpp
+        tests/test_lob_ground.cpp
         tests/test_hold_fire.cpp
         tests/test_building_cover.cpp
         tests/test_drawn_shape.cpp

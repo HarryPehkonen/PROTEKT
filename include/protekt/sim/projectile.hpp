@@ -52,8 +52,10 @@ inline constexpr Fixed kMuzzleHeight = Fixed::from_raw(kRideHeight.raw + kBodyHe
 
 /// A shot in the air. Not a unit: it has no id in the unit table, cannot be ordered or targeted,
 /// and blocks neither movement nor sight. The sim owns it and moves it in a straight line in the
-/// straight line through space -- no arc, no gravity. It has its OWN height: it does not follow the
-/// ground it flies over, and it ends where it meets the ground.
+/// straight line through space (a lob's arc aside: it has gravity). It has its OWN height: it does
+/// not
+/// follow the ground it flies over, and it ends where it meets the ground -- so a ridge stops it
+/// (`has_line` is how a gun knows not to fire into one).
 struct Projectile {
     Fixed x{};
     Fixed y{};
@@ -174,7 +176,12 @@ void retarget_aim(Unit& shooter, UnitId target) noexcept;
                            UnitKind kind) noexcept;
 
 /// `can_see` for two real units, at the point `launch` would aim at: the target's position plus the
-/// shooter's aim estimate. A gun that would fire into a hill has no line.
+/// shooter's aim estimate. A gun that would fire into a hill has no line. THE ONE RULE for fire and
+/// the ground, asked here and nowhere else: a flat gun's straight line must clear the ground
+/// between; a LOB's ARC (the shell's own launch, stepped as the flight steps it) must clear it
+/// until the shell is within a tile of the aim -- so a mortar lobs over a ridge it clears and
+/// declines one whose arc comes down in the hill. Shooting down at a target below is no block: the
+/// ground has to RISE into the path to stop it.
 [[nodiscard]] bool has_line(const Unit& shooter, const Unit& target, std::uint64_t seed) noexcept;
 
 /// `has_line` as if `shooter` stood at (`from_x`, `from_y`): the question a unit asks of a spot it

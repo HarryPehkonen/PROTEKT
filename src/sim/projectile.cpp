@@ -59,6 +59,45 @@ bool line_clears_ground(std::uint64_t seed, std::int64_t ax, std::int64_t ay, st
     return true;
 }
 
+// The same question for a LOB: does the ARC the shell will really fly (its own launch, stepped the
+// way the flight steps it -- move, then lose `gravity` of climb) stay clear of the ground until it
+// comes within a tile of the target? The one rule for the lob, beside `line_clears_ground` for the
+// flat gun; `has_line_from` is where both are asked. Reaching that near is the end of the test: the
+// descent onto a target on a hillside ends in the hill, and that is the shot, not a block.
+bool arc_clears_ground(const Projectile& shell, std::int64_t aim_x, std::int64_t aim_y,
+                       std::uint64_t seed) noexcept {
+    constexpr std::int64_t kClearance = std::int64_t{2} * Fixed::kOne; // as line_clears_ground
+    constexpr std::int64_t kShort = Fixed::kOne;
+    constexpr int kMaxTicks = 256;
+    const std::int64_t to_x = aim_x - shell.x.raw;
+    const std::int64_t to_y = aim_y - shell.y.raw;
+    const std::int64_t run = isqrt(to_x * to_x + to_y * to_y);
+    if (run <= kShort) {
+        return true;
+    }
+    std::int64_t x = shell.x.raw;
+    std::int64_t y = shell.y.raw;
+    std::int64_t z = shell.z.raw;
+    std::int64_t vz = shell.vz.raw;
+    for (int tick = 0; tick < kMaxTicks; ++tick) {
+        x += shell.vx.raw;
+        y += shell.vy.raw;
+        z += vz;
+        vz -= shell.gravity.raw;
+        const std::int64_t flown_x = x - shell.x.raw;
+        const std::int64_t flown_y = y - shell.y.raw;
+        if (isqrt(flown_x * flown_x + flown_y * flown_y) >= run - kShort) {
+            return true;
+        }
+        const Fixed at_x = Fixed::from_raw(static_cast<std::int32_t>(x));
+        const Fixed at_y = Fixed::from_raw(static_cast<std::int32_t>(y));
+        if (ground_height(seed, at_x, at_y).raw + kClearance >= z) {
+            return false;
+        }
+    }
+    return true;
+}
+
 // Where within a body standing at (point_x, point_y) a gun at (ax, ay) with its muzzle at `az`
 // aims: the lowest point it can see -- the middle, or higher if a rise in the ground would stop a
 // bolt on its way to the middle. `clear` says whether any of them was seen; if none was, `z` is the
@@ -488,12 +527,18 @@ bool has_line(const Unit& shooter, const Unit& target, std::uint64_t seed) noexc
 
 bool has_line_from(const Unit& shooter, Fixed from_x, Fixed from_y, const Unit& target,
                    std::uint64_t seed) noexcept {
-    if (spec_of(shooter.kind).gravity.raw > 0) {
-        return true; // a lob clears the ground between
-    }
     // The aim point `launch` uses: where the target is plus what this gun has learned of the lead.
     const std::int64_t point_x = static_cast<std::int64_t>(target.x.raw) + shooter.aim_x.raw;
     const std::int64_t point_y = static_cast<std::int64_t>(target.y.raw) + shooter.aim_y.raw;
+    if (spec_of(shooter.kind).gravity.raw > 0) {
+        // THE LOB'S RULE: the ground is tested against the ARC the shell will really fly, not a
+        // straight line -- so a lob that clears a ridge is allowed (Harri's ruling) and one whose
+        // arc comes down in the hill is declined.
+        Unit gun = shooter;
+        gun.x = from_x;
+        gun.y = from_y;
+        return arc_clears_ground(launch(gun, target, 0, seed), point_x, point_y, seed);
+    }
     return can_see(seed, from_x, from_y, Fixed::from_raw(static_cast<std::int32_t>(point_x)),
                    Fixed::from_raw(static_cast<std::int32_t>(point_y)), target.kind);
 }
