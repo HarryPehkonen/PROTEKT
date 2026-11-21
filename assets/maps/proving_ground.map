@@ -1,0 +1,291 @@
+# PROTEKT map: the Proving Ground. Hand-authored; every feature below is a place you can drive to.
+# A valley that limits movement, a ramp up, high ground that blocks weapons, an ambush pocket,
+# and a drop you can fall down but not drive back up. Edit, then `protekt-map draw` to look.
+# terrain: f flat, r rough, R ridge, c crater.  heights: integers, -512..512.
+# solid: # impassable, . open.  Row 0 is the north edge; column 0 the west.
+
+[map]
+name = "Proving Ground"
+seed = 0
+width = 64
+height = 64
+
+[terrain]
+rows = """
+ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+fffffffffffffffffffffffffffffffffffffrffffffffrfffffffffffffffff
+fffffffffffffffffffffffffffffffffffffrffffffffrfffffffffffffffff
+fffffffffffffffffffffffffffffffffffffrffffffffrfffffffffffffffff
+ffffffffffffffffffffffrrrrrrrrfffffffrffffffffrfffffffffffffffff
+fffffffffffffffffffffrffffffffrffffffrffffffffrfffffffffffffffff
+fffffffffffffffffffffrffffffffrffffffrffffffffrfffffffffffffffff
+fffffffffffffffffffffrffffffffrffffffrffffffffrfffffffffffffffff
+fffffffffffffffffffffrffffffffrffffffrffffffffrfffffffffffffffff
+fffffffffffffffffffffrffffffffrffffffrffffffffrfffffffffffffffff
+fffffffffffffffffffffrffffffffrffffffrffffffffrfffffffffffffffff
+fffffffffffffffffffffrffffffffrffffffrffffffffrfffffffffffffffff
+fffffffffffffffffffffrffffffffrffffffrffffffffrfffffffffffffffff
+fffffffffffffffffffffrffffffffrffffffrffffffffrfffffffffffffffff
+fffffffffffffffffffffrffffffffrffffffrffffffffrfffffffffffffffff
+fffffffffffffffffffffrffffffffrffffffrffffffffrfffffffffffffffff
+fffffffffffffffffffffrffffffffrffffffrffffffffrfffffffffffffffff
+fffffffffffffffffffffrffffffffrffffffrffffffffrfffffffffffffffff
+ffffffffffffffffffrrrrffffffffrffffffrffffffffrfffffffffffffffff
+ffffffffffffffffffffffffffffffrffffffrffffffffrfffffffffffffffff
+ffffffffffffffffffffffffffffffrffffffrffffffffrfffffffffffffffff
+ffffffffffffffffffffffffffffffrffffffrffffffffrfffffffffffffffff
+ffffffffffffffffffffffffffffffrffffffrffffffffrfffffffffffffffff
+ffffffffffffffffffffffffffffffrrrffffrffffffffrfffffffffffffffff
+ffffffffffffffffffrrrrffffffffrrrffffrffffffffrfffffffffffffffff
+fffffffffffffffffffffrffffffffrffffffrffffffffrfffffffffffffffff
+fffffffffffffffffffffrffffffffrffffffrffffffffrfffffffffffffffff
+fffffffffffffffffffffrffffffffrfffffffrrrrffffrfffffffffffffffff
+fffffffffffffffffffffrffffffffrffffffffffrffffrfffffffffffffffff
+fffffffffffffffffffffrffffffffrffffffffffrffffrfffffffffffffffff
+fffffffffffffffffffffrffffffffrffffffffffrffffrfffffffffffffffff
+fffffffffffffffffffffrffffffffrfffffffrrrrffffrfffffffffffffffff
+fffffffffffffffffffffrffffffffrffffffrffffffffrfffffffffffffffff
+fffffffffffffffffffffrffffffffrffffffrffffffffrfffffffffffffffff
+ffffffffrrrrrffffffffrffffffffrffffffrffffffffrfffffffffffffffff
+ffffffffrcccrffffffffrffffffffrffffffrffffffffrfffffffffffffffff
+ffffffffrcccrffffffffrffffffffrffffffrffffffffrfffffffffffffffff
+ffffffffrcccrffffffffrffffffffrffffffrffffffffrfffffffffffffffff
+ffffffffrrrrrffffffffrffffffffrffffffrffffffffrfffffffffffffffff
+fffffffffffffffffffffrffffffffrffffffrffffffffrfffffffffffffffff
+fffffffffffffffffffffrffffffffrffffffrffffffffrfffffffffffffffff
+ffffffffffffffffffffffrrrrrrrrffffffffrrrrrrrrffffffffffffffffff
+ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+"""
+
+[height]
+rows = """
+   0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0
+   0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0
+   0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0
+   0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0
+   0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0
+   0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0
+   0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0
+   0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0
+   0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0   20   20   20   20   20   20   20   20    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0
+   0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0   40   40   40   40   40   40   40   40    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0
+   0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0   60   60   60   60   60   60   60   60    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0
+   0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0   80   80   80   80   80   80   80   80    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0
+   0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0  100  100  100  100  100  100  100  100    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0
+   0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0  110  110  110  110  110  110  110  110    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0
+   0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0  120  120  120  120  120  120  120  120  -12  -12  -12  -12  -12  -12  -12  -12  120  120  120  120  120  120  120  120    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0
+   0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0  120  120  120  120  120  120  120  120  -25  -25  -25  -25  -25  -25  -25  -25  120  120  120  120  120  120  120  120    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0
+   0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0  120  120  120  120  120  120  120  120  -37  -37  -37  -37  -37  -37  -37  -37  120  120  120  120  120  120  120  120    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0
+   0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0  120  120  120  120  120  120  120  120  -50  -50  -50  -50  -50  -50  -50  -50  120  120  120  120  120  120  120  120    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0
+   0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0  120  120  120  120  120  120  120  120  -50  -50  -50  -50  -50  -50  -50  -50  120  120  120  120  120  120  120  120    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0
+   0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0  120  120  120  120  120  120  120  120  -50  -50  -50  -50  -50  -50  -50  -50  120  120  120  120  120  120  120  120    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0
+   0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0  120  120  120  120  120  120  120  120  -50  -50  -50  -50  -50  -50  -50  -50  120  120  120  120  120  120  120  120    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0
+   0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0  120  120  120  120  120  120  120  120  -50  -50  -50  -50  -50  -50  -50  -50  120  120  120  120  120  120  120  120    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0
+   0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0  120  120  120  120  120  120  120  120  -50  -50  -50  -50  -50  -50  -50  -50  120  120  120  120  120  120  120  120    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0
+   0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0  120  120  120  120  120  120  120  120  -50  -50  -50  -50  -50  -50  -50  -50  120  120  120  120  120  120  120  120    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0
+   0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0  120  120  120  120  120  120  120  120  -50  -50  -50  -50  -50  -50  -50  -50  120  120  120  120  120  120  120  120    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0
+   0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0  120  120  120  120  120  120  120  120  -50  -50  -50  -50  -50  -50  -50  -50  120  120  120  120  120  120  120  120    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0
+   0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0  120  120  120  120  120  120  120  120  -50  -50  -50  -50  -50  -50  -50  -50  120  120  120  120  120  120  120  120    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0
+   0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0  120  120  120  120  120  120  120  120  -50  -50  -50  -50  -50  -50  -50  -50  120  120  120  120  120  120  120  120    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0
+   0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0   20   40   60   80  100  110  120  120  120  120  120  120  120  120  -50  -50  -50  -50  -50  -50  -50  -50  120  120  120  120  120  120  120  120    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0
+   0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0   20   40   60   80  100  110  120  120  120  120  120  120  120  120  -50  -50  -50  -50  -50  -50  -50  -50  120  120  120  120  120  120  120  120    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0
+   0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0   20   40   60   80  100  110  120  120  120  120  120  120  120  120  -50  -50  -50  -50  -50  -50  -50  -50  120  120  120  120  120  120  120  120    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0
+   0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0   20   40   60   80  100  110  120  120  120  120  120  120  120  120  -50  -50  -50  -50  -50  -50  -50  -50  120  120  120  120  120  120  120  120    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0
+   0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0   20   40   60   80  100  110  120  120  120  120  120  120  120  120  -50  -50  -50  -50  -50  -50  -50  -50  120  120  120  120  120  120  120  120    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0
+   0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0  120  120  120  120  120  120  120  120  -50  -50  -50  -50  -50  -50  -50  -50  120  120  120  120  120  120  120  120    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0
+   0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0  120  120  120  120  120  120  120  120  -50  -50  -50  -50  -50  -50  -50  -50  120  120  120  120  120  120  120  120    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0
+   0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0  120  120  120  120  120  120  120  120  -50  -50  -50  -50  -50  -50  -50  -50  120  120  120  120  120  120  120  120    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0
+   0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0  120  120  120  120  120  120  120  120  -50  -50  -50  -50  -50  -50  -50  -50  -50  -50  -50  -50  120  120  120  120    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0
+   0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0  120  120  120  120  120  120  120  120  -50  -50  -50  -50  -50  -50  -50  -50  -50  -50  -50  -50  120  120  120  120    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0
+   0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0  120  120  120  120  120  120  120  120  -50  -50  -50  -50  -50  -50  -50  -50  -50  -50  -50  -50  120  120  120  120    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0
+   0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0  120  120  120  120  120  120  120  120  -50  -50  -50  -50  -50  -50  -50  -50  -50  -50  -50  -50  120  120  120  120    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0
+   0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0  120  120  120  120  120  120  120  120  -50  -50  -50  -50  -50  -50  -50  -50  -50  -50  -50  -50  120  120  120  120    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0
+   0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0  120  120  120  120  120  120  120  120  -50  -50  -50  -50  -50  -50  -50  -50  120  120  120  120  120  120  120  120    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0
+   0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0  120  120  120  120  120  120  120  120  -50  -50  -50  -50  -50  -50  -50  -50  120  120  120  120  120  120  120  120    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0
+   0    0    0    0    0    0    0    0  -80  -80  -80  -80  -80    0    0    0    0    0    0    0    0    0  120  120  120  120  120  120  120  120  -50  -50  -50  -50  -50  -50  -50  -50  120  120  120  120  120  120  120  120    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0
+   0    0    0    0    0    0    0    0  -80 -180 -180 -180  -80    0    0    0    0    0    0    0    0    0  120  120  120  120  120  120  120  120  -50  -50  -50  -50  -50  -50  -50  -50  120  120  120  120  120  120  120  120    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0
+   0    0    0    0    0    0    0    0  -80 -180 -180 -180  -80    0    0    0    0    0    0    0    0    0  120  120  120  120  120  120  120  120  -50  -50  -50  -50  -50  -50  -50  -50  120  120  120  120  120  120  120  120    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0
+   0    0    0    0    0    0    0    0  -80 -180 -180 -180  -80    0    0    0    0    0    0    0    0    0  120  120  120  120  120  120  120  120  -50  -50  -50  -50  -50  -50  -50  -50  120  120  120  120  120  120  120  120    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0
+   0    0    0    0    0    0    0    0  -80  -80  -80  -80  -80    0    0    0    0    0    0    0    0    0  120  120  120  120  120  120  120  120  -37  -37  -37  -37  -37  -37  -37  -37  120  120  120  120  120  120  120  120    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0
+   0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0  120  120  120  120  120  120  120  120  -25  -25  -25  -25  -25  -25  -25  -25  120  120  120  120  120  120  120  120    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0
+   0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0  120  120  120  120  120  120  120  120  -12  -12  -12  -12  -12  -12  -12  -12  120  120  120  120  120  120  120  120    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0
+   0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0
+   0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0
+   0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0
+   0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0
+   0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0
+   0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0
+   0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0
+   0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0
+   0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0
+   0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0
+   0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0
+   0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0
+   0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0
+   0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0    0
+"""
+
+[solid]
+rows = """
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+..............................###...............................
+..............................###...............................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+"""
+
+[[spawn]]
+side = "player"
+x = 6
+y = 6
+
+[[spawn]]
+side = "enemy"
+x = 57
+y = 57
+
+[[place]]
+name = "the valley"
+x = 30
+y = 14
+w = 8
+h = 36
+
+[[place]]
+name = "the ramp"
+x = 16
+y = 28
+w = 6
+h = 5
+
+[[place]]
+name = "the north ramp"
+x = 38
+y = 8
+w = 8
+h = 6
+
+[[place]]
+name = "the overlook"
+x = 22
+y = 34
+w = 8
+h = 8
+
+[[place]]
+name = "the ambush"
+x = 38
+y = 36
+w = 4
+h = 5
+
+[[place]]
+name = "the drop"
+x = 44
+y = 22
+w = 3
+h = 6
+
+[[place]]
+name = "the rockfall"
+x = 30
+y = 32
+w = 3
+h = 2
+
+[[place]]
+name = "the kerb"
+x = 30
+y = 24
+w = 8
+h = 1
+
+[[volume]]
+x = 30
+y = 24
+turned = false
+base = 0
+top = 40
+mask = """
+######..
+"""

@@ -119,4 +119,38 @@ TEST(MapCli, AChunkAtTheEdgeOfIntIsPrintedNotUndefined) {
         << lo.out;
 }
 
+TEST(MapCli, GenWritesTheSameBytesInTwoProcessesAndRecordsTheSeed) {
+    const fs::path a
+        = fs::path(::testing::TempDir()) / ("gen-a-" + std::to_string(::getpid()) + ".map");
+    const fs::path b
+        = fs::path(::testing::TempDir()) / ("gen-b-" + std::to_string(::getpid()) + ".map");
+    EXPECT_EQ(run_map({"gen", "--seed", "42", "--size", "24", "--out", a.string()}).code, 0);
+    EXPECT_EQ(run_map({"gen", "--seed", "42", "--size", "24", "--out", b.string()}).code, 0);
+    const std::string text = slurp(a);
+    EXPECT_FALSE(text.empty());
+    EXPECT_EQ(text, slurp(b));
+    EXPECT_NE(text.find("seed = 42\n"), std::string::npos) << text;
+    std::error_code ignored;
+    fs::remove(a, ignored);
+    fs::remove(b, ignored);
+}
+
+TEST(MapCli, DrawTurnsAMapFileIntoAnImageAndRefusesWhatItCannotRead) {
+    const fs::path map
+        = fs::path(::testing::TempDir()) / ("draw-" + std::to_string(::getpid()) + ".map");
+    const fs::path png
+        = fs::path(::testing::TempDir()) / ("draw-" + std::to_string(::getpid()) + ".png");
+    ASSERT_EQ(run_map({"gen", "--seed", "9", "--size", "16", "--out", map.string()}).code, 0);
+    const MapRun drawn = run_map({"draw", map.string(), "--out", png.string()});
+    EXPECT_EQ(drawn.code, 0) << drawn.err;
+    EXPECT_TRUE(fs::exists(png));
+    EXPECT_GT(fs::file_size(png), 100U);
+    const MapRun missing = run_map({"draw", "/nonexistent/x.map", "--out", png.string()});
+    EXPECT_EQ(missing.code, 2);
+    EXPECT_NE(missing.err.find("protekt-map: "), std::string::npos);
+    std::error_code ignored;
+    fs::remove(map, ignored);
+    fs::remove(png, ignored);
+}
+
 } // namespace

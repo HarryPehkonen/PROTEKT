@@ -248,6 +248,9 @@ Missing value: `protekt-render: --seed needs a value`. Unknown: `protekt-render:
 
 ```
 protekt-map [--seed N] [--size N] [--chunk CX CY]
+protekt-map gen --seed N [--size N] [--out PATH]
+protekt-map draw MAP.map [--out PATH.png]
+protekt-map check MAP.map
 ```
 
 Prints `seed 0x..  chunk (cx,cy)  SxS`, then the top-left `S` by `S` tiles of the chunk as ASCII
@@ -262,6 +265,18 @@ runs for a very long time, while a coordinate of `-1` or below makes the region 
 | `--seed` | `N` | the world seed (default 1, not 42) | `protekt-map: --seed wants an unsigned integer, got 'abc'` |
 | `--size` | `N` | how many tiles to print per side; clamped to 2..64 | `protekt-map: --size wants an integer, got 'abc'`; a number that parses is clamped, not refused (`--size 1` prints 2, `--size 9999` prints 64), but one that does not fit an `int` is refused |
 | `--chunk` | `CX CY` | which chunk | `protekt-map: --chunk wants two integers, got 'a' 'b'` |
+| `--out` | `PATH` | (`gen`, `draw`) where to write: `gen` writes the map document there (stdout when absent), `draw` the PNG (default: the map's name with `.png`) | `protekt-map: --out needs a value`; `protekt-map: cannot write PATH` |
+
+### Maps as text (M6)
+
+A map is a document: a TOML-subset header plus rasters of letters and integers, readable and editable
+in a text editor (`include/protekt/app/map_file.hpp` is the format). `gen` writes the world of
+`--seed` (chunk (0,0), cropped to `--size`, default 64) with the seed recorded in `[map]`; two runs of
+one seed write byte-identical files. `draw` loads a map and writes a PNG, 8 pixels a tile: ground shaded
+by height, cliffs (a rise too steep to climb) as black lines, impassable ground hatched red, craters
+blue-black, named places boxed yellow, spawns as a green (player) or red (enemy) disc. `check` loads a map
+and prints what it holds. A file that does not load is refused with `protekt-map: FILE: line N: ...` and
+exit code 2. `assets/maps/proving_ground.map` is the authored example, with its picture beside it.
 
 An unknown option, a bad number, or an option missing its value is refused with exit code 2 and
 nothing on stdout. A missing value reads `protekt-map: --seed needs a value` (likewise `--size`,
