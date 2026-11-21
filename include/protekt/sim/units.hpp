@@ -919,8 +919,9 @@ struct Footprint {
 /// the model scale), or the footprint's own half-extent where that is shorter. So a four-wide
 /// building is drawn to its whole footprint, and an eight-wide one is six wide: the outer tile on
 /// each side is a RING a unit may drive on, and two eight-wide buildings that touch leave a
-/// two-tile corridor between their boxes. It is a BOX: the Gun Spire's three prongs, walkable
-/// between, are the declared follow-up (a true silhouette), not this.
+/// two-tile corridor between their boxes. It is a BOX; a kind that declares a `SolidMask` (M4, the
+/// Gun Spire) is solid on the mask instead (`building_solid_at`), and the box is what a kind
+/// with no mask stays.
 inline constexpr int kBoxReachTiles = 3;
 
 /// The extent of the box along a footprint side of `side` tiles.
@@ -939,6 +940,107 @@ inline constexpr int kBoxReachTiles = 3;
 /// The box of the placed building `unit` (turned if it was).
 [[nodiscard]] constexpr Footprint drawn_box(const Unit& unit) noexcept {
     return drawn_box(footprint_around(unit));
+}
+
+/// THE SOLID MASK (M4): a bitmap of IMPASSABLE tiles in the frame of whatever carries it -- one
+/// concept, two frames. A BUILDING carries one in its OWN frame (`solid_mask_of`: tile (0, 0) is
+/// the mask's north-west corner, whichever way the building is turned), so the shape travels with
+/// the building when it is placed, turned or deployed. A WORLD-anchored shape is the same type
+/// placed at a world tile (`solid_placed` with `turned` false and the origin a map tile): that is
+/// the room author-placed impassable ground will use. (The map file that would carry it is a later
+/// slice; today the only world-frame impassable ground is the Crater, `tile_passable`.)
+///
+/// `bits` is row-major, bit `ly * width + lx`; at most 64 tiles (8 x 8).
+struct SolidMask {
+    int width{};
+    int height{};
+    std::uint64_t bits{};
+
+    /// A mask with no tiles declared: its owner keeps the old rule (the drawn box).
+    [[nodiscard]] constexpr bool empty() const noexcept { return width <= 0 || height <= 0; }
+
+    /// Whether mask tile (`lx`, `ly`) is solid; false outside the mask.
+    [[nodiscard]] constexpr bool solid(int lx, int ly) const noexcept {
+        return lx >= 0 && ly >= 0 && lx < width && ly < height
+               && ((bits >> static_cast<unsigned>(ly * width + lx)) & 1U) != 0;
+    }
+
+    /// Whether WORLD tile (`tx`, `ty`) is solid when the mask stands with its north-west corner on
+    /// (`x`, `y`). `turned` is a quarter turn the way the picture turns a building (what faced
+    /// south faces east: local (dx, dy) lands on world (dy, -dx)), so the placed rectangle is
+    /// `height` wide and `width` tall.
+    [[nodiscard]] constexpr bool solid_placed(int x, int y, bool turned, int tx,
+                                              int ty) const noexcept {
+        const int wx = tx - x;
+        const int wy = ty - y;
+        return turned ? solid(width - 1 - wy, wx) : solid(wx, wy);
+    }
+};
+
+/// Rows of a mask, top (north) row first, one bit per tile with bit 0 the west-most:
+/// `rows<4>({...})`.
+template <std::size_t N>
+[[nodiscard]] constexpr SolidMask mask_of_rows(int width, const std::array<unsigned, N>& rows) {
+    std::uint64_t bits = 0;
+    for (std::size_t ly = 0; ly < N; ++ly) {
+        bits |= static_cast<std::uint64_t>(rows.at(ly)) << (ly * static_cast<std::size_t>(width));
+    }
+    return SolidMask{width, static_cast<int>(N), bits};
+}
+
+/// The GUN SPIRE's mask: two PRONGS, the outer columns of its 4 x 4 footprint, standing the whole
+/// depth, with a two-tile gap between them that a unit may drive through. AUTHORED, not derived
+/// from the model: the model's prongs are blades in the air (2.2 to 3.5 m up) and its ground
+/// silhouette is one root disc (3.2 tiles across), so reading the ground shape off the model would
+/// give back a block. The footprint is four tiles wide, which holds two prongs and a gap; three
+/// prongs with a gap between each would need five. Symmetric under a half turn, so an enemy's
+/// model (drawn turned a half turn further) and a player's are one shape.
+inline constexpr SolidMask kGunSpireMask = mask_of_rows<4>(4, {0b1001U, 0b1001U, 0b1001U, 0b1001U});
+
+/// The solid mask of `kind`, in the building's own frame; EMPTY for a kind that declares none,
+/// which is then as solid as its drawn box (`drawn_box`), exactly as before M4. A declared mask is
+/// the size of the kind's footprint (a test pins it).
+[[nodiscard]] constexpr SolidMask solid_mask_of(UnitKind kind) noexcept {
+    switch (kind) {
+    case UnitKind::GunSpire:
+        return kGunSpireMask;
+    default:
+        return SolidMask{};
+    }
+}
+
+/// THE ONE GEOMETRY (M4): whether the placed building `unit` is solid on tile (`tile_x`, `tile_y`).
+/// What stops a unit (`building_stops_units`) and what stops a bolt (`for_each_solid_rect`) both
+/// read it, so what may pass and what is hit are the same shape. A kind with no mask is solid on
+/// its drawn box; one with a mask, on the mask's solid tiles, placed on the footprint and turned
+/// with the building. Never outside the footprint.
+[[nodiscard]] constexpr bool building_solid_at(const Unit& unit, int tile_x, int tile_y) noexcept {
+    const SolidMask mask = solid_mask_of(unit.kind);
+    if (mask.empty()) {
+        return drawn_box(unit).covers(tile_x, tile_y);
+    }
+    const Footprint whole = footprint_around(unit);
+    return whole.covers(tile_x, tile_y)
+           && mask.solid_placed(whole.x, whole.y, unit.turned, tile_x, tile_y);
+}
+
+/// Calls `visit(Footprint)` for each rectangle that together make up the building's solid shape:
+/// the one drawn box for a kind with no mask, else one rectangle per solid tile. The very tiles
+/// `building_solid_at` answers for.
+template <typename Visitor>
+constexpr void for_each_solid_rect(const Unit& unit, const Visitor& visit) {
+    if (solid_mask_of(unit.kind).empty()) {
+        visit(drawn_box(unit));
+        return;
+    }
+    const Footprint whole = footprint_around(unit);
+    for (int ty = whole.y; ty < whole.y + whole.height; ++ty) {
+        for (int tx = whole.x; tx < whole.x + whole.width; ++tx) {
+            if (building_solid_at(unit, tx, ty)) {
+                visit(Footprint{tx, ty, 1, 1});
+            }
+        }
+    }
 }
 
 /// Per-kind constants, exposed so that the tests (and later the balance pass) can assert on

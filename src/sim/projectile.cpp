@@ -899,11 +899,12 @@ void advance_projectiles(std::vector<Projectile>& projectiles, std::vector<Unit>
             strike_y = c.y;
             strike_z = c.length2 > 0 ? from_z + step_z * c.along / c.length2 : from_z;
         }
-        // A BUILDING'S HIT SHAPE IS ITS DRAWN BOX (`drawn_box`, N5: the one shape a unit is
-        // refused by, so a bolt may fly down a corridor a tank may drive down). A bolt that comes
-        // into the rectangle below the building's top is stopped by it, whichever side either is
-        // on -- unless a unit in front of it was struck first. A shell above the top goes over (see
-        // `meets_building`).
+        // A BUILDING'S HIT SHAPE IS ITS SOLID SHAPE (`building_solid_at`, M4: its mask, or its
+        // drawn box where it declares none -- the one shape a unit is refused by, so a bolt may fly
+        // down a corridor, or between a Gun Spire's prongs, that a tank may drive down). A bolt
+        // that comes into the shape below the building's top is stopped by it, whichever side
+        // either is on -- unless a unit in front of it was struck first. A shell above the top goes
+        // over (see `meets_building`).
         const Clock::time_point buildings_from = hit_mark();
         for (Unit& unit : units) {
             if (!unit.alive || !has_footprint(unit.kind) || unit.id == bolt.bounced_off
@@ -912,9 +913,22 @@ void advance_projectiles(std::vector<Projectile>& projectiles, std::vector<Unit>
             }
             const std::int64_t top
                 = ground_height(seed, unit.x, unit.y).raw + roof_top(unit.kind).raw;
+            // The building's solid shape (`building_solid_at`: the very tiles that refuse a unit):
+            // one rectangle for a kind with no mask, a rectangle per solid tile for one with. The
+            // bolt meets the first of them along its path.
             Frac when{};
-            if (!meets_building(drawn_box(unit), top, from_x, from_y, from_z, step_x, step_y,
-                                step_z, when)) {
+            Footprint site{};
+            bool met = false;
+            for_each_solid_rect(unit, [&](const Footprint& rect) {
+                Frac at{};
+                if (meets_building(rect, top, from_x, from_y, from_z, step_x, step_y, step_z, at)
+                    && (!met || earlier(at, when))) {
+                    met = true;
+                    when = at;
+                    site = rect;
+                }
+            });
+            if (!met) {
                 continue;
             }
             if (hit != nullptr) {
@@ -928,7 +942,6 @@ void advance_projectiles(std::vector<Projectile>& projectiles, std::vector<Unit>
                 }
             }
             // The point is on the rectangle's edge, nudged inside it: its tile is the building's.
-            const Footprint site = drawn_box(unit);
             const auto inside = [&](std::int64_t value, int first, int count) {
                 return std::clamp(value, static_cast<std::int64_t>(first) * Fixed::kOne,
                                   static_cast<std::int64_t>(first + count) * Fixed::kOne - 1);
