@@ -4,6 +4,7 @@
 // the window itself is testable here -- on a machine with no display and no GPU.
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <array>
 #include <cctype>
 #include <chrono>
@@ -18,11 +19,13 @@
 #include <vector>
 
 #include "protekt/app/game.hpp"
+#include "protekt/app/map_file.hpp"
 #include "protekt/game/faction.hpp"
 #include "protekt/game/pick.hpp"
 #include "protekt/game/radar.hpp"
 #include "protekt/game/scene.hpp"
 #include "protekt/sim/sim.hpp"
+#include "protekt/world/world.hpp"
 
 namespace {
 
@@ -315,6 +318,226 @@ TEST_F(GameCliTest, AScenarioFileChangesTheBattleAndNoFlagPlaysTheBuiltInOne) {
         << "the default, spelled out, is the default";
     EXPECT_NE(hash_of({"--scenario", path}), plain)
         << "a different composition is a different battle";
+}
+
+// --- --mapfile: the map you can drive on ------------------------------------------------------
+
+namespace {
+
+[[nodiscard]] std::string proving_ground_path() {
+    return std::string{PROTEKT_SOURCE_DIR} + "/assets/maps/proving_ground.map";
+}
+
+/// The value after `key` in a "tile X Y height H terrain T solid S" line of the --log-tile output.
+[[nodiscard]] std::string tile_line(const std::string& out, int x, int y) {
+    const std::string head = "tick 0 tile " + std::to_string(x) + " " + std::to_string(y) + " ";
+    const std::size_t at = out.find(head);
+    if (at == std::string::npos) {
+        return {};
+    }
+    return out.substr(at, out.find('\n', at) - at);
+}
+
+} // namespace
+
+TEST_F(GameCliTest, AMapFileThatIsMissingRefusesToStartAsCannotRead) {
+    // A missing file is its own refusal ("cannot read"), distinct from a malformed one, which names
+    // a line: there is no line to name in a file that is not there.
+    std::string err;
+    std::string out;
+    const std::string path = temp_path("missing.map");
+    EXPECT_EQ(run({"--headless", "--frames", "1", "--mapfile", path}, err, &out), 2);
+    EXPECT_NE(err.find("--mapfile " + path), std::string::npos) << err;
+    EXPECT_NE(err.find("cannot read"), std::string::npos) << err;
+    EXPECT_EQ(err.find("line "), std::string::npos) << err;
+    EXPECT_TRUE(out.empty()) << "no game was played: " << out;
+}
+
+TEST_F(GameCliTest, ABadMapFileRefusesToStartAndNamesTheFileAndTheLine) {
+    std::string text = slurp(proving_ground_path());
+    const std::size_t at = text.find("side = \"player\"");
+    ASSERT_NE(at, std::string::npos);
+    text.replace(at, std::string_view{"side = \"player\""}.size(), "side = \"nobody\"");
+    const int bad_line = 1
+                         + static_cast<int>(std::count(
+                             text.begin(), text.begin() + static_cast<std::ptrdiff_t>(at), '\n'));
+    const std::string path = temp_path("bad.map");
+    {
+        std::ofstream file(path);
+        file << text;
+    }
+    std::string err;
+    std::string out;
+    EXPECT_EQ(run({"--headless", "--frames", "1", "--mapfile", path}, err, &out), 2);
+    EXPECT_NE(err.find("--mapfile " + path), std::string::npos) << err;
+    EXPECT_NE(err.find("line " + std::to_string(bad_line)), std::string::npos) << err;
+    EXPECT_TRUE(out.empty()) << "no game was played: " << out;
+}
+
+TEST_F(GameCliTest, WithNoMapFileTheDefaultBattleIsExactlyWhatItWas) {
+    if (kUnderThreadSanitizer) {
+        GTEST_SKIP() << kTsanReason;
+    }
+    // The pin: recorded on the tree BEFORE --mapfile existed. If this moves, the default world
+    // moved, and every recorded battle with it.
+    std::string err;
+    std::string out;
+    EXPECT_EQ(run({"--headless", "--frames", "40", "--width", "64", "--height", "48", "--capture",
+                   temp_path("default.ppm")},
+                  err, &out),
+              0)
+        << err;
+    EXPECT_NE(out.find("tick 40, hash 2828505387808593326"), std::string::npos) << out;
+    EXPECT_EQ(
+        run({"--headless", "--frames", "1", "--width", "32", "--height", "24", "--log-spawns"}, err,
+            &out),
+        0)
+        << err;
+    EXPECT_NE(out.find("tick 0 status unit 1 tank side player pos 32.0 46.0 hp 100"),
+              std::string::npos)
+        << out;
+}
+
+TEST_F(GameCliTest, TheMapsHeightsAreTheWorldTheSimReads) {
+    // Read tiles back out of the RUNNING game and compare each to its cell in the file. The seed
+    // world's value at the same tiles is not the file's (asserted below), so this cannot pass by
+    // the seed happening to agree.
+    const protekt::app::MapParse parsed = protekt::app::load_map_file(proving_ground_path());
+    ASSERT_TRUE(parsed.ok) << parsed.error;
+    const protekt::app::MapDoc& map = parsed.map;
+    const std::vector<std::pair<int, int>> tiles{{0, 0}, {10, 13}, {30, 30}, {63, 63}, {22, 35}};
+    std::vector<std::string_view> args{"--headless", "--frames", "1",  "--width",
+                                       "32",         "--height", "24", "--mapfile"};
+    const std::string path = proving_ground_path();
+    args.emplace_back(path);
+    std::vector<std::string> flags;
+    for (const auto& [x, y] : tiles) {
+        flags.push_back(std::to_string(x));
+        flags.push_back(std::to_string(y));
+    }
+    for (std::size_t i = 0; i < tiles.size(); ++i) {
+        args.emplace_back("--log-tile");
+        args.emplace_back(flags[2 * i]);
+        args.emplace_back(flags[2 * i + 1]);
+    }
+    std::string err;
+    std::string out;
+    ASSERT_EQ(run(args, err, &out), 0) << err;
+    int differs_from_seed_world = 0;
+    for (const auto& [x, y] : tiles) {
+        const int height = map.heights[map.index(x, y)];
+        const std::string want = "tick 0 tile " + std::to_string(x) + " " + std::to_string(y)
+                                 + " height " + std::to_string(height) + " terrain ";
+        EXPECT_NE(tile_line(out, x, y).find(want), std::string::npos)
+            << "tile " << x << "," << y << " wanted '" << want << "' in '" << tile_line(out, x, y)
+            << "'";
+        if (protekt::world::sample(map.seed, x, y).height != height) {
+            ++differs_from_seed_world;
+        }
+    }
+    EXPECT_GT(differs_from_seed_world, 0) << "the test would pass for the seed world too";
+}
+
+TEST_F(GameCliTest, TheMapsSolidMaskStopsAUnitWhereTheTerrainWouldNot) {
+    protekt::app::MapDoc map = protekt::app::generate_map(5, 16);
+    for (auto& t : map.terrain) {
+        t = protekt::world::Terrain::Flat;
+    }
+    map.solid[map.index(4, 4)] = 1;
+    const std::string path = temp_path("solid.map");
+    {
+        std::ofstream file(path);
+        file << protekt::app::write_map(map);
+    }
+    std::string err;
+    std::string out;
+    ASSERT_EQ(run({"--headless", "--frames", "1", "--width", "32", "--height", "24", "--mapfile",
+                   path, "--log-tile", "4", "4", "--log-tile", "5", "5"},
+                  err, &out),
+              0)
+        << err;
+    EXPECT_NE(tile_line(out, 4, 4).find("terrain flat passable 0"), std::string::npos) << out;
+    EXPECT_NE(tile_line(out, 5, 5).find("terrain flat passable 1"), std::string::npos) << out;
+}
+
+TEST_F(GameCliTest, TheSpawnsAreWhereTheFileSaysAndTheSeedDoesNotMoveThem) {
+    // The file's spawns are (6,6) and (57,57). The first tank is wished at offset (8, 2) from the
+    // player's base, and at the mirrored (-8, -2) from the enemy's: a tank has no footprint to
+    // nudge, so it stands exactly there. (A factory would not: it is 8x8 and the placement rule
+    // moves it to where all of it fits.)
+    const std::string path = proving_ground_path();
+    for (const std::string_view seed : {"1", "999"}) {
+        std::string err;
+        std::string out;
+        ASSERT_EQ(run({"--headless", "--frames", "1", "--width", "32", "--height", "24",
+                       "--mapfile", path, "--seed", seed, "--log-spawns"},
+                      err, &out),
+                  0)
+            << err;
+        EXPECT_NE(out.find("tank side player pos 14.0 8.0"), std::string::npos) << out;
+        EXPECT_NE(out.find("tank side enemy pos 49.0 55.0"), std::string::npos) << out;
+    }
+}
+
+TEST_F(GameCliTest, ASeedAndAMapCoexistTheFileOwnsTheGroundAndTheSeedOwnsTheRest) {
+    // The map's heights win whatever `--seed` says; the seed still owns what the file does not
+    // say (pools, litter, the sim's own streams), so a different seed is a different battle on the
+    // SAME ground, and no seed at all plays the map's own recorded seed.
+    if (kUnderThreadSanitizer) {
+        GTEST_SKIP() << kTsanReason;
+    }
+    const std::string path = proving_ground_path();
+    const auto play = [&](std::vector<std::string_view> extra) {
+        std::vector<std::string_view> args{
+            "--headless", "--frames", "20",         "--width", "64", "--height",  "48",
+            "--mapfile",  path,       "--log-tile", "10",      "13", "--capture", ""};
+        const std::string frame = temp_path("frame.ppm");
+        args.back() = frame;
+        args.insert(args.end(), extra.begin(), extra.end());
+        std::string err;
+        std::string out;
+        EXPECT_EQ(run(args, err, &out), 0) << err;
+        return out;
+    };
+    const std::string own = play({});
+    const std::string seven = play({"--seed", "7"});
+    EXPECT_EQ(tile_line(own, 10, 13), tile_line(seven, 10, 13)) << "the file's ground is the same";
+    EXPECT_NE(own.substr(own.find("hash")), seven.substr(seven.find("hash")))
+        << "but the seed still owns the rest";
+    const protekt::app::MapParse parsed = protekt::app::load_map_file(path);
+    ASSERT_TRUE(parsed.ok);
+    EXPECT_EQ(own.substr(own.find("hash")),
+              play({"--seed", std::to_string(parsed.map.seed)}).substr(own.find("hash")))
+        << "no --seed is the map's own recorded seed";
+}
+
+TEST_F(GameCliTest, TheSameMapPlayedTwiceIsTheSameBattleAndIsNotTheDefaultOne) {
+    if (kUnderThreadSanitizer) {
+        GTEST_SKIP() << kTsanReason;
+    }
+    const std::string path = proving_ground_path();
+    const auto hash_of = [&](std::vector<std::string_view> args) {
+        const std::string frame = temp_path("frame.ppm");
+        args.insert(args.begin(), {"--headless", "--frames", "60", "--width", "64", "--height",
+                                   "48", "--capture", frame});
+        std::string err;
+        std::string out;
+        EXPECT_EQ(run(args, err, &out), 0) << err;
+        EXPECT_NE(out.find("hash"), std::string::npos) << out;
+        return out.substr(out.find("hash"));
+    };
+    const std::string first = hash_of({"--mapfile", path});
+    EXPECT_EQ(first, hash_of({"--mapfile", path})) << "no input, same map, same state hash";
+    EXPECT_NE(first, hash_of({})) << "the map is a different world from the default";
+    // And playing a map leaves nothing behind: the default is the default again afterwards.
+    std::string err;
+    std::string out;
+    EXPECT_EQ(run({"--headless", "--frames", "40", "--width", "64", "--height", "48", "--capture",
+                   temp_path("after.ppm")},
+                  err, &out),
+              0)
+        << err;
+    EXPECT_NE(out.find("tick 40, hash 2828505387808593326"), std::string::npos) << out;
 }
 
 // --- --log-spawns: the composition, read back ------------------------------------------------

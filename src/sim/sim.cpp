@@ -1,4 +1,5 @@
 #include "protekt/sim/sim.hpp"
+#include "protekt/world/ground.hpp"
 
 #include "protekt/rng.hpp"
 #include "protekt/sim/spec.hpp"
@@ -233,6 +234,9 @@ struct WorldGround {
             if (placed_solid_at(placed, tile_x, tile_y) && volume_stops(placed.volume, lift)) {
                 return 0;
             }
+        }
+        if (world::ground_solid(tile_x, tile_y)) {
+            return 0; // a map's solid mask stops a unit whatever its terrain says
         }
         const world::Tile tile = world::sample(seed, tile_x, tile_y);
         return terrain_speed_factor(tile.terrain).raw;
@@ -2791,6 +2795,7 @@ std::uint64_t Sim::seed() const noexcept { return scenario_.seed; }
 
 bool tile_passable(std::uint64_t seed, int tile_x, int tile_y) noexcept {
     return tile_x >= 0 && tile_y >= 0 && tile_x < kMapTiles && tile_y < kMapTiles
+           && !world::ground_solid(tile_x, tile_y)
            && terrain_speed_factor(world::sample(seed, tile_x, tile_y).terrain).raw != 0;
 }
 

@@ -46,6 +46,7 @@ add_library(protekt_core STATIC
     src/rng.cpp
     src/world/world.cpp
     src/world/sample.cpp
+    src/world/ground.cpp
     src/sim/fixed.cpp
     src/sim/sim.cpp
     src/sim/projectile.cpp
@@ -391,7 +392,7 @@ if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
                                         tests/test_sounds.cpp tests/test_audio_out.cpp
                                         tests/test_pixels.cpp tests/test_atlas.cpp
                                         tests/test_atlas_files.cpp tests/test_ground_variants.cpp tests/test_site_ground.cpp
-                                        tests/test_map_cli.cpp tests/test_map_file.cpp
+                                        tests/test_map_cli.cpp tests/test_map_file.cpp tests/test_world_ground.cpp
                                         tests/test_fog.cpp)
     target_link_libraries(protekt_tests PRIVATE protekt_app)
     if(PROTEKT_RENDER)

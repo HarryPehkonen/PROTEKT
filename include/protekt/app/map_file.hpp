@@ -6,7 +6,9 @@
 #include <string_view>
 #include <vector>
 
+#include "protekt/sim/scenario.hpp"
 #include "protekt/sim/volume.hpp"
+#include "protekt/world/ground.hpp"
 #include "protekt/world/world.hpp"
 
 namespace protekt::app {
@@ -96,6 +98,16 @@ struct MapParse {
 
 /// The map's volumes as the sim's own world-anchored volumes (`Scenario::volumes`).
 [[nodiscard]] std::vector<sim::PlacedVolume> placed_volumes(const MapDoc& map);
+
+/// THE MAP AS THE GROUND A BATTLE IS PLAYED ON: its terrain, heights and solid mask, as the
+/// `world::MapGround` the sim and the renderer read (`world::ScopedGround`). Tile (x, y) of the
+/// file is world tile (x, y); outside the file the world is impassable.
+[[nodiscard]] world::MapGround map_ground(const MapDoc& map);
+
+/// `base` with the map's own wiring set on it: the first "player" and the first "enemy" `[[spawn]]`
+/// become the two bases (a side with none keeps the seed's draw), and the volumes are handed to the
+/// sim. Later spawns and the named places are read by the parser and used by nothing here.
+[[nodiscard]] sim::ScenarioData map_scenario_data(const MapDoc& map, sim::ScenarioData base);
 
 /// Pixels per tile in a `draw_map` image.
 inline constexpr int kMapDrawScale = 8;

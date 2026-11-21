@@ -9,6 +9,7 @@
 #include "protekt/game/atlas.hpp"
 #include "protekt/game/radar.hpp" // radar_panel, radar_nav_half: the oval's diameter, its mark
 #include "protekt/game/scene.hpp"
+#include "protekt/world/ground.hpp"
 
 namespace protekt::game {
 
@@ -106,8 +107,9 @@ MapCell map_cell(const WorldMapLayout& layout, MapPoint point) noexcept {
 
 const std::vector<world::Terrain>& map_terrain_grid(std::uint64_t seed) {
     static thread_local std::uint64_t cached_seed{};
+    static thread_local std::uint64_t cached_epoch{};
     static thread_local std::vector<world::Terrain> cached;
-    if (!cached.empty() && cached_seed == seed) {
+    if (!cached.empty() && cached_seed == seed && cached_epoch == world::ground_epoch()) {
         return cached;
     }
     constexpr int kChunks = kWorldMapTiles / world::kChunkSize;
@@ -131,6 +133,7 @@ const std::vector<world::Terrain>& map_terrain_grid(std::uint64_t seed) {
         }
     }
     cached_seed = seed;
+    cached_epoch = world::ground_epoch();
     return cached;
 }
 

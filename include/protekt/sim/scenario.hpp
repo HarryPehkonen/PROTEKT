@@ -61,6 +61,12 @@ struct SideStart {
     std::optional<std::vector<UnitKind>> standing{};
 };
 
+/// A base centre, in whole tiles.
+struct BaseTile {
+    int x{};
+    int y{};
+};
+
 /// The composition of a skirmish: groups in SPAWN ORDER, the same list for both sides (a side's
 /// own differences are `player` and `enemy`, N4). Spawn order is unit id order and function-key
 /// order, so the order of the groups is the order of the F-row.
@@ -85,6 +91,14 @@ struct ScenarioData {
     /// How each side opens (N4); default-constructed is the composition as it stands.
     SideStart player{};
     SideStart enemy{};
+    /// WHERE EACH SIDE'S BASE CENTRE IS, when a map says so (a map file's spawn). Absent is the
+    /// seed's own draw -- the player in the low quadrant, the enemy in the high one -- exactly as
+    /// it always was. The seed's draws are still taken either way, so naming one base does not move
+    /// anything else the seed decides.
+    std::optional<BaseTile> player_base{};
+    std::optional<BaseTile> enemy_base{};
+    /// The map's world-anchored volumes, handed through to `Scenario::volumes` untouched.
+    std::vector<PlacedVolume> volumes{};
 };
 
 inline constexpr int kMaxGroupCount = 64; ///< units in one group, at least 1

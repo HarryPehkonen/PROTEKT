@@ -64,7 +64,7 @@ They are not a uniform 0/1/2. Each was produced by the command shown.
 |---|---|---|
 | 0 | success | `protekt-sim --seed 42 --ticks 300` |
 | 1 | failed at the end, after starting | `protekt-game --headless --frames 1 --capture /nonexistent/x.ppm` ("could not write"); `protekt-game` on a scenario with no player tank; `protekt-sim --ticks 10 --replay-out /nonexistent/x.replay`; `protekt-render --out /nonexistent/x.ppm` |
-| 2 | usage: the command line was refused before any work | `protekt-game -x`, `protekt-sim --seed abc`, `protekt-map --seed abc`, `protekt-render --width 0`, `protekt-measure abc`, `protekt-atlas-gen -x`; and `protekt-game --scenario FILE` when the file is unreadable or invalid |
+| 2 | usage: the command line was refused before any work | `protekt-game -x`, `protekt-sim --seed abc`, `protekt-map --seed abc`, `protekt-render --width 0`, `protekt-measure abc`, `protekt-atlas-gen -x`; and `protekt-game --scenario FILE` or `--mapfile FILE` when the file is unreadable or invalid |
 | 3 | an input or output file was refused | `protekt-sim --replay /nonexistent.replay` and `--replay` of a file that is not a replay; `protekt-atlas-gen --out /nonexistent/a.png` |
 | 4 | no usable Vulkan device or window | `protekt-game` with no display and no `--headless`; `protekt-game --headless --frames 1 --gpu nosuch`; `protekt-render --gpu nosuch`; `protekt-render --list-gpus` with no Vulkan driver |
 
@@ -120,6 +120,7 @@ the `wants` line (the refusal for a bad value). All refusals are exit 2 unless n
 |---|---|---|---|
 | `--seed` | `N` (unsigned 64-bit) | the world seed (default 42) | `protekt-game: --seed wants a number, got 'abc'` |
 | `--scenario` | `FILE` | play the composition in a TOML file instead of the built-in one; there is no search path | `protekt-game: --scenario FILE: <reason>` (exit 2, before any window opens) |
+| `--mapfile` | `FILE` | play ON a map written by `protekt-map` (`--map FRAME` is a different flag: a scripted key press). The map's heights and terrain are the ground, its `[solid]` mask stops units, its first player and first enemy `[[spawn]]` are the two bases, its `[[volume]]`s stand. Outside the file the world is impassable. The seed is the map's own recorded one unless `--seed` is given; the seed owns what the file does not say (pools, litter, the sim's streams). `[[place]]` names and any further spawns are read and unused. | `protekt-game: --mapfile FILE: line N: <reason>` for a malformed file, `protekt-game: --mapfile FILE: cannot read FILE` for a missing one (exit 2, before any window opens) |
 | `--ticks-per-frame` | `N` (positive) | sim ticks per frame in a scripted run (default 1); with no `--frames` it has no effect, play runs on the wall clock at 30 Hz | `protekt-game: --ticks-per-frame wants a positive number` |
 
 ### Sides
@@ -154,6 +155,7 @@ table above lists `--scenario` too.
 
 | flag | argument | what it does | refusal |
 |---|---|---|---|
+| `--log-tile` | `X Y` (integers; repeatable) | print what the running game reads at that tile, once, before frame 1: `tick 0 tile X Y height H terrain T passable P` (`P` is the sim's `tile_passable`: 0 for a crater, a solid-mask tile, or anywhere off the map) | `protekt-game: --log-tile wants two numbers: a tile's x and y` |
 | `--log-spawns` | none | print every spawned unit once, after the world is built and before frame 1, in the battle log's own `tick 0 status unit ...` grammar | none |
 
 `protekt-game` has **no replay flag**: it neither records nor replays. See

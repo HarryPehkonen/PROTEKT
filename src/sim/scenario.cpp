@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "protekt/rng.hpp"
+#include "protekt/world/ground.hpp"
 #include "protekt/world/world.hpp"
 
 namespace protekt::sim {
@@ -24,7 +25,7 @@ constexpr int kJitter = 24;
 constexpr int kBaseAttempts = 32; ///< enemy base candidates tried per seed
 
 bool passable(std::uint64_t seed, int x, int y) {
-    return x >= 0 && y >= 0 && x < kMapTiles && y < kMapTiles
+    return x >= 0 && y >= 0 && x < kMapTiles && y < kMapTiles && !world::ground_solid(x, y)
            && terrain_speed_factor(world::sample(seed, x, y).terrain).raw != 0;
 }
 
@@ -170,12 +171,17 @@ Scenario skirmish(std::uint64_t seed) { return skirmish(seed, default_data()); }
 Scenario skirmish(std::uint64_t seed, const ScenarioData& data) {
     rng::SplitMix64 stream(rng::stream_seed(seed, kScenarioStream));
     const int jitter = static_cast<int>(kJitter);
-    const int player_x = kEdge + static_cast<int>(stream.bounded(jitter));
-    const int player_y = kEdge + static_cast<int>(stream.bounded(jitter));
+    int player_x = kEdge + static_cast<int>(stream.bounded(jitter));
+    int player_y = kEdge + static_cast<int>(stream.bounded(jitter));
+    if (data.player_base.has_value()) { // the draws above are still taken: the stream stays put
+        player_x = data.player_base->x;
+        player_y = data.player_base->y;
+    }
 
     Scenario scenario{};
     scenario.seed = seed;
     scenario.objectives = data.objectives; // the mission's conditions travel with its composition
+    scenario.volumes = data.volumes;
     for (const Group& group : side_groups(data, Side::Player)) {
         for (int i = 0; i < group.count; ++i) {
             scenario.spawns.push_back(place(seed, scenario.spawns, group.kind, Side::Player,
@@ -189,6 +195,9 @@ Scenario skirmish(std::uint64_t seed, const ScenarioData& data) {
     int enemy_y = kEnemyEdge;
     int fewest = -1;
     for (int attempt = 0; attempt < kBaseAttempts && fewest != 0; ++attempt) {
+        if (data.enemy_base.has_value()) {
+            break; // a map named the enemy's base; there is nothing to search for
+        }
         const int cx = kEnemyEdge + static_cast<int>(stream.bounded(jitter));
         const int cy = kEnemyEdge + static_cast<int>(stream.bounded(jitter));
         int blocked = 0;
@@ -202,6 +211,10 @@ Scenario skirmish(std::uint64_t seed, const ScenarioData& data) {
             enemy_x = cx;
             enemy_y = cy;
         }
+    }
+    if (data.enemy_base.has_value()) {
+        enemy_x = data.enemy_base->x;
+        enemy_y = data.enemy_base->y;
     }
     for (const Group& group : side_groups(data, Side::Enemy)) {
         for (int i = 0; i < group.count; ++i) {

@@ -1,6 +1,7 @@
 #include "protekt/app/game.hpp"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -11,6 +12,7 @@
 #include <string>
 #include <string_view>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #include "protekt/ai/scripted.hpp"
@@ -18,6 +20,7 @@
 #include "protekt/app/audio.hpp"
 #include "protekt/app/audio_pipeline.hpp"
 #include "protekt/app/game_presenter.hpp"
+#include "protekt/app/map_file.hpp"
 #include "protekt/app/player_view.hpp"
 #include "protekt/app/scenario_toml.hpp"
 #include "protekt/app/time_accumulator.hpp"
@@ -38,6 +41,7 @@
 #include "protekt/sim/observer.hpp"
 #include "protekt/sim/scenario.hpp"
 #include "protekt/sim/sim.hpp"
+#include "protekt/world/ground.hpp"
 #include "protekt/world/world.hpp"
 
 namespace protekt::app {
@@ -142,6 +146,16 @@ struct Options {
     /// `--scenario FILE`: the composition to play, in place of the built-in one. Empty means the
     /// built-in; there is no search path, so a named file is the only way another one is read.
     std::string scenario{};
+    /// `--mapfile FILE`: a MAP to play on (`protekt-map` makes and draws them): its heights and
+    /// terrain are the ground, its solid mask stops units, its spawns are the two bases, its
+    /// volumes stand. (`--map FRAME` is a scripted key press and has nothing to do with this.)
+    std::string mapfile{};
+    /// Whether `--seed` was given. A map records its own seed, and that is the one played unless
+    /// the command line names another.
+    bool seed_given{false};
+    /// `--log-tile X Y` (repeatable): print what the running game reads at that tile, once, before
+    /// the first frame -- a verification flag, like `--log-spawns`.
+    std::vector<std::pair<int, int>> log_tiles{};
     /// `--log-spawns`: print every unit the scenario spawned, once, after the world is built and
     /// before the first frame. A verification flag: it changes nothing in the simulation, only
     /// what the run prints.
@@ -308,6 +322,7 @@ int parse_args(std::span<const std::string_view> args, Options& options, std::os
                 err << "protekt-game: --seed wants a number, got '" << value << "'\n";
                 return 2;
             }
+            options.seed_given = true;
         } else if (arg == "--frames") {
             if (!next(value) || !parse_number(value, options.frames)) {
                 err << "protekt-game: --frames wants a number\n";
@@ -350,6 +365,21 @@ int parse_args(std::span<const std::string_view> args, Options& options, std::os
                 return 2;
             }
             options.scenario = std::string(value);
+        } else if (arg == "--mapfile") {
+            if (!next(value)) {
+                return 2;
+            }
+            options.mapfile = std::string(value);
+        } else if (arg == "--log-tile") {
+            std::string_view y_text;
+            int tile_x = 0;
+            int tile_y = 0;
+            if (!next(value) || !next(y_text) || !parse_number(value, tile_x)
+                || !parse_number(y_text, tile_y)) {
+                err << "protekt-game: --log-tile wants two numbers: a tile's x and y\n";
+                return 2;
+            }
+            options.log_tiles.emplace_back(tile_x, tile_y);
         } else if (arg == "--log-spawns") {
             options.log_spawns = true;
         } else if (arg == "--capture") {
@@ -814,6 +844,26 @@ int run_game_cli(std::span<const std::string_view> args, std::ostream& out, std:
         scenario_data = std::move(parsed.data);
     }
 
+    // A named map is read the same way, and refused the same way: the file and the line, before any
+    // window opens. A file that is not there says "cannot read" and no line, because it has none.
+    // The map becomes the world HERE, before anything samples it, and stops being it when this
+    // function returns (`world::ScopedGround`), so a map never leaks into the next game.
+    std::optional<MapDoc> map;
+    std::optional<world::ScopedGround> map_ground_guard;
+    if (!options.mapfile.empty()) {
+        MapParse parsed = load_map_file(options.mapfile);
+        if (!parsed.ok) {
+            err << "protekt-game: --mapfile " << options.mapfile << ": " << parsed.error << "\n";
+            return 2;
+        }
+        map = std::move(parsed.map);
+        map_ground_guard.emplace(map_ground(*map));
+        scenario_data = map_scenario_data(*map, std::move(scenario_data));
+        if (!options.seed_given) {
+            options.seed = map->seed;
+        }
+    }
+
     PresenterOptions presenter_options;
     presenter_options.extent = game::Extent{options.width, options.height};
     presenter_options.gpu = options.gpu;
@@ -875,6 +925,15 @@ int run_game_cli(std::span<const std::string_view> args, std::ostream& out, std:
             line += '\n';
             out << line;
         }
+    }
+
+    for (const auto& [tile_x, tile_y] : options.log_tiles) {
+        const world::Tile tile = world::sample(sim.seed(), tile_x, tile_y);
+        static constexpr std::array<std::string_view, world::kTerrainCount> kTerrainNames{
+            "flat", "rough", "ridge", "crater"};
+        out << "tick 0 tile " << tile_x << ' ' << tile_y << " height " << tile.height << " terrain "
+            << kTerrainNames.at(static_cast<std::size_t>(tile.terrain)) << " passable "
+            << (sim::tile_passable(sim.seed(), tile_x, tile_y) ? 1 : 0) << '\n';
     }
 
     // Checked here rather than at parse time so that a SPECIFIC request error -- a device name that

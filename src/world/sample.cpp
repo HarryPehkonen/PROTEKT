@@ -4,6 +4,7 @@
 #include <cstdint>
 
 #include "protekt/rng.hpp"
+#include "protekt/world/ground.hpp"
 #include "protekt/world/world.hpp"
 
 namespace protekt::world {
@@ -64,6 +65,9 @@ int abs_diff(int a, int b) noexcept { return a > b ? a - b : b - a; }
 } // namespace
 
 Tile sample(std::uint64_t seed, int world_x, int world_y) noexcept {
+    if (Tile designed{}; detail::ground_tile(world_x, world_y, designed)) {
+        return designed; // a map file is the world: the seed has no say in its tiles
+    }
     const std::uint64_t world_seed = rng::stream_seed(seed, kWorldStream);
     const std::int64_t wx
         = world_x; // wide: the slope probe at world_x + 1 must not overflow an int

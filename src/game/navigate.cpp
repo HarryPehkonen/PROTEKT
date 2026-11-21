@@ -3,6 +3,8 @@
 #include <cmath>
 #include <numbers>
 
+#include "protekt/world/ground.hpp"
+
 namespace protekt::game {
 namespace {
 
@@ -10,7 +12,8 @@ namespace {
     if (tile_x < 0 || tile_y < 0 || tile_x >= 256 || tile_y >= 256) {
         return false;
     }
-    return world::sample(seed, tile_x, tile_y).terrain != world::Terrain::Crater;
+    return !world::ground_solid(tile_x, tile_y)
+           && world::sample(seed, tile_x, tile_y).terrain != world::Terrain::Crater;
 }
 
 } // namespace

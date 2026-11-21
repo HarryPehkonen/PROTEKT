@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <fstream>
 #include <iterator>
+#include <optional>
 #include <sstream>
 #include <utility>
 
@@ -653,6 +654,31 @@ MapParse load_map_file(const std::filesystem::path& path) {
     }
     const std::string text{std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
     return parse_map(text);
+}
+
+world::MapGround map_ground(const MapDoc& map) {
+    world::MapGround ground;
+    ground.width = map.width;
+    ground.height = map.height;
+    ground.solid = map.solid;
+    ground.tiles.reserve(map.heights.size());
+    for (std::size_t i = 0; i < map.heights.size(); ++i) {
+        ground.tiles.push_back(
+            world::Tile{static_cast<std::int16_t>(map.heights[i]), map.terrain[i]});
+    }
+    return ground;
+}
+
+sim::ScenarioData map_scenario_data(const MapDoc& map, sim::ScenarioData base) {
+    for (const MapSpawn& spawn : map.spawns) {
+        std::optional<sim::BaseTile>& slot
+            = spawn.side == "player" ? base.player_base : base.enemy_base;
+        if (!slot.has_value()) {
+            slot = sim::BaseTile{spawn.x, spawn.y};
+        }
+    }
+    base.volumes = placed_volumes(map);
+    return base;
 }
 
 std::vector<sim::PlacedVolume> placed_volumes(const MapDoc& map) {

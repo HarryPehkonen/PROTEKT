@@ -6,6 +6,7 @@
 #include <cstdint>
 
 #include "protekt/rng.hpp"
+#include "protekt/world/ground.hpp"
 
 namespace protekt::world {
 
@@ -16,9 +17,10 @@ constexpr int kOctaves = 3;
 constexpr int kFixedBits = 10; // interpolation weights are fixed-point, 1.0 == 1024
 constexpr int kFixedOne = 1 << kFixedBits;
 
-constexpr int kRoughSlope = 24;     // |dh/dx| + |dh/dy| above this is Rough
-constexpr int kRidgeHeight = 160;   // at or above: Ridge
-constexpr int kCraterHeight = -160; // at or below: Crater
+constexpr int kRoughSlope = 24;               // |dh/dx| + |dh/dy| above this is Rough
+constexpr int kRidgeHeight = 160;             // at or above: Ridge
+constexpr int kCraterHeight = -160;           // at or below: Crater
+constexpr std::int64_t kFarOutside = 1 << 20; // past any designed ground
 constexpr int kSpawnMinHeight = -128;
 constexpr int kSpawnMaxHeight = 128;
 
@@ -109,6 +111,11 @@ Chunk generate(std::uint64_t seed, int chunk_x, int chunk_y) noexcept {
                                  + static_cast<std::size_t>(x));
             tile.height = static_cast<std::int16_t>(h);
             tile.terrain = classify(h, slope);
+            // A designed ground replaces the seed's tile, exactly as `sample` does. Past any map
+            // the coordinate is clamped, so a chunk near INT_MAX cannot wrap into one.
+            const int gx = static_cast<int>(std::clamp<std::int64_t>(wx, -1, kFarOutside));
+            const int gy = static_cast<int>(std::clamp<std::int64_t>(wy, -1, kFarOutside));
+            (void)detail::ground_tile(gx, gy, tile);
         }
     }
     return chunk;
