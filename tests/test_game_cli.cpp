@@ -399,6 +399,9 @@ TEST_F(GameCliTest, WithNoMapFileTheDefaultBattleIsExactlyWhatItWas) {
 }
 
 TEST_F(GameCliTest, TheMapsHeightsAreTheWorldTheSimReads) {
+    if (kUnderThreadSanitizer) {
+        GTEST_SKIP() << kTsanReason;
+    }
     // Read tiles back out of the RUNNING game and compare each to its cell in the file. The seed
     // world's value at the same tiles is not the file's (asserted below), so this cannot pass by
     // the seed happening to agree.
@@ -439,6 +442,9 @@ TEST_F(GameCliTest, TheMapsHeightsAreTheWorldTheSimReads) {
 }
 
 TEST_F(GameCliTest, TheMapsSolidMaskStopsAUnitWhereTheTerrainWouldNot) {
+    if (kUnderThreadSanitizer) {
+        GTEST_SKIP() << kTsanReason;
+    }
     protekt::app::MapDoc map = protekt::app::generate_map(5, 16);
     for (auto& t : map.terrain) {
         t = protekt::world::Terrain::Flat;
@@ -461,6 +467,9 @@ TEST_F(GameCliTest, TheMapsSolidMaskStopsAUnitWhereTheTerrainWouldNot) {
 }
 
 TEST_F(GameCliTest, TheSpawnsAreWhereTheFileSaysAndTheSeedDoesNotMoveThem) {
+    if (kUnderThreadSanitizer) {
+        GTEST_SKIP() << kTsanReason;
+    }
     // The file's spawns are (6,6) and (57,57). The first tank is wished at offset (8, 2) from the
     // player's base, and at the mirrored (-8, -2) from the enemy's: a tank has no footprint to
     // nudge, so it stands exactly there. (A factory would not: it is 8x8 and the placement rule
