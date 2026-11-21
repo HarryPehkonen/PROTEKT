@@ -7000,6 +7000,23 @@ math::Vec3 ground_normal(std::uint64_t seed, sim::Fixed x, sim::Fixed y) noexcep
     return normalise(Vec3{-slope_x, 1.0F, -slope_z});
 }
 
+math::Vec3 hull_centre(std::uint64_t seed, sim::Fixed x, sim::Fixed y, float hull_z) noexcept {
+    constexpr float kOne = static_cast<float>(sim::Fixed::kOne);
+    const float tile_x = static_cast<float>(x.raw) / kOne * kMetresPerTile;
+    const float tile_y = static_cast<float>(y.raw) / kOne * kMetresPerTile;
+    const Vec3 normal = ground_normal(seed, x, y);
+    if (normal[0] == 0.0F && normal[2] == 0.0F) {
+        return Vec3{tile_x, hull_z, tile_y}; // level: straight up, exactly as before
+    }
+    // The vertical stays `hull_z`; going `lift` up the normal takes `lift / normal.y` of it, and
+    // the sideways share of that is the shift. `normal.y` is at least cos(atan(kMaxTiltSlope)).
+    // `lift` is what the hull has risen ABOVE ITS RIDE: at rest it is nothing, so a hull that is
+    // not boosting is drawn exactly where it always was.
+    const float lift = hull_z - (ground_metres(seed, x, y) + kRideHeightMetres);
+    return Vec3{tile_x + (lift * normal[0] / normal[1]), hull_z,
+                tile_y + (lift * normal[2] / normal[1])};
+}
+
 bool stands_level(sim::UnitKind kind) noexcept {
     return kind == sim::UnitKind::Factory || sim::is_turret(kind)
            || kind == sim::UnitKind::DeployedRecycler || kind == sim::UnitKind::DeployedScavenger
@@ -7858,6 +7875,26 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
                 tilt_to_ground(scene.vertices, body_first, unit,
                                hovering ? lift_z : ground_metres(options.seed, unit.x, unit.y),
                                ground_normal(options.seed, unit.x, unit.y));
+            }
+            if (hovering) {
+                // THE BOOST'S DIRECTION: the hull was built over the unit's own tile at `lift_z`;
+                // its lift goes up the surface normal, so it moves by the difference between
+                // `hull_centre` and where it was built (the turn above is about the pivot, so a
+                // plain translation after it is the same as turning about the moved pivot).
+                const Vec3 built{static_cast<float>(unit.x.raw)
+                                     / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile,
+                                 lift_z,
+                                 static_cast<float>(unit.y.raw)
+                                     / static_cast<float>(sim::Fixed::kOne) * kMetresPerTile};
+                const Vec3 centre = hull_centre(options.seed, unit.x, unit.y, lift_z);
+                const float shift_x = centre[0] - built[0];
+                const float shift_z = centre[2] - built[2];
+                if (shift_x != 0.0F || shift_z != 0.0F) {
+                    for (std::size_t i = body_first; i < scene.vertices.size(); ++i) {
+                        scene.vertices.at(i).position[0] += shift_x;
+                        scene.vertices.at(i).position[2] += shift_z;
+                    }
+                }
             }
             if (timed) {
                 units_live_ms += ms_between(live0, Clock::now());

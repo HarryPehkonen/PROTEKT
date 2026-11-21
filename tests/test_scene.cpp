@@ -2366,6 +2366,54 @@ TEST(Hover, TheHoveringUnitIsDrawnAtTheHullHeightAndOthersStayOnTheGround) {
     EXPECT_EQ(moved, kTankVertices) << "exactly one tank moves";
 }
 
+// THE BOOST'S DIRECTION (M2). Raised by the boost, the hull moves along the ground's NORMAL, not
+// along world up: on a slope every vertex of the hovering unit shifts by one and the same vector,
+// parallel to `ground_normal`, whose rise is the lift (so the hull is no lower than before) and
+// whose run is the slope's.
+TEST(Hover, OnASlopeTheBoostRaisesTheHullAlongTheSurfaceNormal) {
+    const auto sim = protekt::sim::Sim::create(protekt::sim::skirmish(42));
+    protekt::sim::Unit tank = sim.units().at(0);
+    protekt::math::Vec3 normal{};
+    bool found = false;
+    for (const protekt::sim::Unit& unit : sim.units()) {
+        normal = protekt::game::ground_normal(42, unit.x, unit.y);
+        if (std::hypot(normal.at(0), normal.at(2)) >= 0.1F && unit.kind == tank.kind
+            && unit.side == tank.side) {
+            tank = unit;
+            found = true;
+            break;
+        }
+    }
+    ASSERT_TRUE(found) << "no leaning ground under a tank of the skirmish";
+    SceneOptions options = at_tank(tank);
+    const float ground = protekt::game::ground_metres(42, tank.x, tank.y);
+    const float rest = ground + protekt::game::kRideHeightMetres;
+    options.hover = SceneOptions::Hovering{tank.id, rest};
+    const auto low = protekt::game::build_scene(sim, options);
+    options.hover = SceneOptions::Hovering{tank.id, rest + protekt::game::kBoostLiftMetres};
+    const auto high = protekt::game::build_scene(sim, options);
+    ASSERT_EQ(low.vertices.size(), high.vertices.size());
+    std::size_t moved = 0;
+    for (std::size_t i = 0; i < low.vertices.size(); ++i) {
+        const auto& a = low.vertices.at(i).position;
+        const auto& b = high.vertices.at(i).position;
+        const protekt::math::Vec3 delta{b.at(0) - a.at(0), b.at(1) - a.at(1), b.at(2) - a.at(2)};
+        if (delta == protekt::math::Vec3{0.0F, 0.0F, 0.0F}) {
+            continue;
+        }
+        ++moved;
+        const protekt::math::Vec3 across = protekt::math::cross(delta, normal);
+        EXPECT_NEAR(std::hypot(across.at(0), std::hypot(across.at(1), across.at(2))), 0.0F, 2.0e-3F)
+            << "vertex " << i << " moved (" << delta.at(0) << ", " << delta.at(1) << ", "
+            << delta.at(2) << ") -- not along the normal";
+        EXPECT_NEAR(delta.at(1), protekt::game::kBoostLiftMetres, 2.0e-3F);
+        if (moved > 40) {
+            break;
+        }
+    }
+    EXPECT_GT(moved, 0U);
+}
+
 // Re-pinned DELIBERATELY (one shape per kind): the tank is its shape's parts, not twelve prisms.
 // The count moved from 432 to 2760 because a derived body emits one chamfered extrusion per part (a
 // mirrored one twice) where the hand-built body had a box per piece; see `kTankVertices`.

@@ -531,6 +531,64 @@ TEST(Maneuver, WASDKeepsTheConstructMode) {
     }
 }
 
+// ------------------------------------------------------------------ E does not close the panel
+// (M2)
+//
+// N16 read the panel's catch-all ("any other key closes it too") and found E, the boost key, in it
+// as W/A/S/D had been. A press of E with a menu open must leave the menu open; the key must still
+// boost, and driving must still drive.
+
+TEST(Maneuver, BoostingDoesNotCloseTheConstructPanel) {
+    Field field({spawn(UnitKind::Tank, Side::Player, 40, 40),
+                 spawn(UnitKind::Constructor, Side::Player, 44, 41),
+                 spawn(UnitKind::Tank, Side::Enemy, 120, 120)},
+                400);
+    field.select(field.first(UnitKind::Constructor).id);
+    field.press(kDigit3);
+    ASSERT_TRUE(field.session().construct_armed());
+    field.key_down(input::kKeyE);
+    EXPECT_TRUE(field.session().construct_armed()) << "E closed the CONSTRUCT panel";
+    EXPECT_TRUE(field.menu_open());
+    for (int i = 0; i < 10; ++i) {
+        field.frame();
+    }
+    field.key_up(input::kKeyE);
+    EXPECT_TRUE(field.session().construct_armed()) << "E's release closed it";
+    field.press(kDigit1);
+    ASSERT_TRUE(field.session().placing().has_value());
+    field.key_down(input::kKeyE);
+    const std::optional<game::Placing> placing = field.session().placing();
+    if (!placing.has_value()) {
+        FAIL() << "E dropped the armed placement";
+    }
+    EXPECT_EQ(placing->kind, UnitKind::Power);
+    EXPECT_TRUE(field.orders().empty()) << "boosting ordered nothing";
+}
+
+TEST(Maneuver, TheKeysPassedOverStillDoTheirJobWithThePanelUp) {
+    Field field({spawn(UnitKind::Tank, Side::Player, 40, 40),
+                 spawn(UnitKind::Constructor, Side::Player, 44, 41),
+                 spawn(UnitKind::Tank, Side::Enemy, 120, 120)},
+                400);
+    field.select(field.first(UnitKind::Constructor).id);
+    field.press(kDigit3);
+    ASSERT_TRUE(field.session().construct_armed());
+    // E still boosts: the held state the hover reads is set on the press and clear on the release.
+    field.key_down(input::kKeyE);
+    EXPECT_TRUE(field.session().keys().boost);
+    field.key_up(input::kKeyE);
+    EXPECT_FALSE(field.session().keys().boost);
+    // And driving still drives: W held moves the hull while the panel stays up.
+    const sim::Unit before = field.hull();
+    field.key_down(input::kKeyW);
+    for (int i = 0; i < 30; ++i) {
+        field.frame();
+    }
+    const sim::Unit& after = field.hull();
+    EXPECT_TRUE(before.x != after.x || before.y != after.y) << "W no longer drives the hull";
+    EXPECT_TRUE(field.session().construct_armed());
+}
+
 // ------------------------------------------------------------------ the reservation (N19)
 //
 // Harri: "the sequence `1` -> shift down -> `1` [should] produce a new function key, but the build

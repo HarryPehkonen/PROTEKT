@@ -443,6 +443,15 @@ struct GroundTilt {
 /// than flying. Presentation only: no unit has a z, so boost changes no order, no tick and no
 /// hash.
 inline constexpr float kBoostLiftMetres = 0.9F;
+/// WHERE THE HULL'S CENTRE IS DRAWN, for a hull whose height is `hull_z` over the tile (`x`, `y`).
+/// What the hull has risen above its ride height (the boost, whatever the spring has made of it;
+/// nothing at rest) is laid off along the ground's NORMAL (`ground_normal`), not along world up:
+/// the height is still `hull_z`, and the centre is moved sideways by `lift * normal.xz / normal.y`,
+/// so a boost on a hillside rises away from the hill instead of straight up off it. On level ground
+/// the normal is exactly up, nothing moves, and the result is `{x, hull_z, y}` bit for bit. The ONE
+/// place the direction is defined: the body, and the eye that rides it, both read it.
+[[nodiscard]] math::Vec3 hull_centre(std::uint64_t seed, sim::Fixed x, sim::Fixed y,
+                                     float hull_z) noexcept;
 /// Spring stiffness, in (metres/tick^2) per metre of error. Natural frequency sqrt(k) = 0.2
 /// radians per tick, a period of about 31 ticks -- one second -- for the hull to swing once.
 inline constexpr float kSpringPerTick = 0.04F;

@@ -65,10 +65,10 @@ game::Camera camera_for(const sim::Sim& sim, const game::Session& session, std::
         if (unit.id != session.driven()) {
             continue;
         }
-        const math::Vec3 pivot{
-            static_cast<float>(unit.x.raw) / 65536.0F * game::kMetresPerTile,
-            hull_z.value_or(game::ground_metres(seed, unit.x, unit.y) + game::kRideHeightMetres),
-            static_cast<float>(unit.y.raw) / 65536.0F * game::kMetresPerTile};
+        // The hull's centre, its lift laid off along the ground's normal (`game::hull_centre`).
+        const math::Vec3 pivot = game::hull_centre(
+            seed, unit.x, unit.y,
+            hull_z.value_or(game::ground_metres(seed, unit.x, unit.y) + game::kRideHeightMetres));
         return camera_on_hull(pivot, game::ground_normal(seed, unit.x, unit.y),
                               eye_placement(session.camera_position()), session.view_yaw(),
                               session.view_pitch(), seed);

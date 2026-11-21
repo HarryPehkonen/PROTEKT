@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <optional>
 #include <span>
+#include <utility>
 #include <vector>
 
 #include "protekt/game/menu.hpp"
@@ -832,6 +833,57 @@ TEST(CameraPositions, TheDrivenHullIsNotWhatAChaseViewPicks) {
     rig.options.driven_unit = sim::UnitId{};
     EXPECT_EQ(game::pick(rig.sim, rig.options, hull.x, hull.y).unit, rig.tank_a)
         << "without the rule the ray does hit the hull, or this proves nothing";
+}
+
+// ------------------------------------------------------------------ the boost's direction (M2)
+//
+// Harri: "the E key boosts you directly up, so if you are on non-level ground, you move 'up' in an
+// unexpected direction. I suppose you should be boosted in the 'normal' direction as you slide down
+// the hill." The boost is presentation only (the `Hover` spring; no unit has a z, so the sim never
+// sees it), so the direction is asserted on the POSITION the eye and the hull are drawn at.
+
+/// A tile whose ground leans plainly: the sine of its tilt is at least `kLeans`.
+[[nodiscard]] std::optional<std::pair<int, int>> leaning_tile() {
+    constexpr float kLeans = 0.15F;
+    for (int ty = 20; ty < 220; ++ty) {
+        for (int tx = 20; tx < 220; ++tx) {
+            if (tx == 60) {
+                continue; // the rig's second tank stands on column 60
+            }
+            const math::Vec3 normal
+                = game::ground_normal(kSeed, sim::Fixed::from_int(tx), sim::Fixed::from_int(ty));
+            if (std::hypot(normal.at(0), normal.at(2)) >= kLeans) {
+                return std::pair{tx, ty};
+            }
+        }
+    }
+    return std::nullopt;
+}
+
+TEST(BoostDirection, OnASlopeTheEyeIsLiftedAlongTheSurfaceNormalNotAlongWorldUp) {
+    const auto tile = leaning_tile();
+    if (!tile.has_value()) {
+        FAIL() << "no leaning ground on this map";
+    }
+    const Rig rig = make_rig(tile->first, tile->second);
+    const Session session{rig.tank_a};
+    const sim::Unit* own = rig.sim.find(rig.tank_a);
+    ASSERT_NE(own, nullptr);
+    const math::Vec3 normal = game::ground_normal(kSeed, own->x, own->y);
+    const float rest = game::ground_metres(kSeed, own->x, own->y) + game::kRideHeightMetres;
+    const game::Camera low = camera_for(rig.sim, session, kSeed, rest);
+    const game::Camera high = camera_for(rig.sim, session, kSeed, rest + game::kBoostLiftMetres);
+    const math::Vec3 moved{high.x - low.x, high.y - low.y, high.z - low.z};
+    // Rising by the boost, in the vertical, as it always did...
+    EXPECT_NEAR(moved.at(1), game::kBoostLiftMetres, 1.0e-4F);
+    // ...and the move is PARALLEL to the normal: its cross product with the normal vanishes.
+    const math::Vec3 across = math::cross(moved, normal);
+    EXPECT_NEAR(std::hypot(across.at(0), std::hypot(across.at(1), across.at(2))), 0.0F, 1.0e-3F)
+        << "the boost went along (" << moved.at(0) << ", " << moved.at(1) << ", " << moved.at(2)
+        << "), not the normal (" << normal.at(0) << ", " << normal.at(1) << ", " << normal.at(2)
+        << ')';
+    EXPECT_GT(std::hypot(moved.at(0), moved.at(2)), 0.01F)
+        << "a slope sends the boost sideways too";
 }
 
 } // namespace
