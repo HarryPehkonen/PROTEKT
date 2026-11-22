@@ -16,6 +16,21 @@ using protekt::app::GamePresenter;
 using protekt::app::PresenterOptions;
 using protekt::game::Extent;
 
+/// llvmpipe -- the only device on the gate box -- spawns worker threads and races inside itself.
+/// The driver is not built with ThreadSanitizer and cannot be instrumented, so its internal races
+/// are noise this project cannot fix (docs/PLAN.md states the resulting gap). Every test below
+/// creates a real presenter, which opens the driver, so each skips under TSan, as the other
+/// rendering tests do (test_render.cpp, test_game_cli.cpp).
+#if defined(__SANITIZE_THREAD__)
+constexpr bool kUnderThreadSanitizer = true;
+#else
+constexpr bool kUnderThreadSanitizer = false;
+#endif
+
+constexpr const char* kTsanReason
+    = "skipped under ThreadSanitizer: the Vulkan driver (lavapipe) races inside itself and cannot "
+      "be instrumented; see docs/PLAN.md";
+
 PresenterOptions headless(Extent extent) {
     PresenterOptions options;
     options.extent = extent;
@@ -24,6 +39,9 @@ PresenterOptions headless(Extent extent) {
 }
 
 TEST(GamePresenter, HeadlessHasNoWindowAndSaysWhichDeviceItIsOn) {
+    if (kUnderThreadSanitizer) {
+        GTEST_SKIP() << kTsanReason;
+    }
     std::ostringstream out;
     std::ostringstream err;
     const auto presenter = GamePresenter::create(headless(Extent{64, 48}), out, err);
@@ -35,6 +53,9 @@ TEST(GamePresenter, HeadlessHasNoWindowAndSaysWhichDeviceItIsOn) {
 }
 
 TEST(GamePresenter, HeadlessPollsAnEmptyHandsAndNeverCloses) {
+    if (kUnderThreadSanitizer) {
+        GTEST_SKIP() << kTsanReason;
+    }
     std::ostringstream out;
     std::ostringstream err;
     const auto presenter = GamePresenter::create(headless(Extent{64, 48}), out, err);
@@ -48,6 +69,9 @@ TEST(GamePresenter, HeadlessPollsAnEmptyHandsAndNeverCloses) {
 }
 
 TEST(GamePresenter, HeadlessKeepsItsExtentWhateverTheHandsAsk) {
+    if (kUnderThreadSanitizer) {
+        GTEST_SKIP() << kTsanReason;
+    }
     std::ostringstream out;
     std::ostringstream err;
     const auto presenter = GamePresenter::create(headless(Extent{64, 48}), out, err);
@@ -61,6 +85,9 @@ TEST(GamePresenter, HeadlessKeepsItsExtentWhateverTheHandsAsk) {
 }
 
 TEST(GamePresenter, PresentKeepsTheLastFrameForCapture) {
+    if (kUnderThreadSanitizer) {
+        GTEST_SKIP() << kTsanReason;
+    }
     std::ostringstream out;
     std::ostringstream err;
     const auto presenter = GamePresenter::create(headless(Extent{64, 48}), out, err);
@@ -75,6 +102,9 @@ TEST(GamePresenter, PresentKeepsTheLastFrameForCapture) {
 }
 
 TEST(GamePresenter, AnUnknownDeviceIsRefusedWithItsNameAndNoPresenter) {
+    if (kUnderThreadSanitizer) {
+        GTEST_SKIP() << kTsanReason;
+    }
     std::ostringstream out;
     std::ostringstream err;
     PresenterOptions options = headless(Extent{64, 48});
@@ -87,6 +117,9 @@ TEST(GamePresenter, AnUnknownDeviceIsRefusedWithItsNameAndNoPresenter) {
 
 namespace {
 TEST(GamePresenter, WithNoReadbackAFrameStillPresentsAndFinishIsEmpty) {
+    if (kUnderThreadSanitizer) {
+        GTEST_SKIP() << kTsanReason;
+    }
     std::ostringstream out;
     std::ostringstream err;
     PresenterOptions options = headless(Extent{64, 48});

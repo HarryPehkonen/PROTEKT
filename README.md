@@ -731,7 +731,7 @@ No external CI. One script is the single definition of "green", and the git hook
 git config core.hooksPath .githooks   # once per clone: enables pre-commit/pre-push
 ```
 
-Stages: `tree format kitprobes build tests release version asan tsan tidy pristine`. `pristine` is the
+Stages: `tree format kitprobes build tests version tsan release asan tidy pristine`. `pristine` is the
 stage that matters most and looks the least impressive — it builds a clean clone of what git actually
 carries, which is the only way to catch a file that passes locally because it is on your disk.
 

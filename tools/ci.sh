@@ -21,8 +21,8 @@
 # repeating its stages, so a stage cannot be added to the gate and forgotten by a hook:
 #
 #   fast  (pre-commit)  format build tests
-#   full  (pre-push)    --require-clean tree format kitprobes build tests release version
-#                       asan tsan tidy pristine
+#   full  (pre-push)    --require-clean tree format kitprobes build tests version tsan release
+#                       asan tidy pristine   (tsan early: it is the only stage that has ever failed)
 #
 # `format` is in the fast tier because it is the one check that says "the file you are about to
 # commit is not the file the formatter would write" — measured at well under a second on a warm
@@ -84,7 +84,7 @@ CI_LOG_DIR=${CI_LOG_DIR:-.ci-logs}
 CI_STRICT_TOOLS=${CI_STRICT_TOOLS:-0}           # 1 = a missing tool fails instead of SKIPping
 CI_KEEP_TMP=${CI_KEEP_TMP:-0}                   # 1 = keep the pristine temp dir for inspection
 CI_FAST_STAGES=${CI_FAST_STAGES:-"format build tests"}
-CI_FULL_STAGES=${CI_FULL_STAGES:-"tree format kitprobes build tests release version asan tsan tidy pristine"}
+CI_FULL_STAGES=${CI_FULL_STAGES:-"tree format kitprobes build tests version tsan release asan tidy pristine"}
 CI_DEFAULT_STAGES=${CI_DEFAULT_STAGES:-$CI_FULL_STAGES}
 CI_TIDY_BASELINE=${CI_TIDY_BASELINE:-.ci/tidy-baseline.txt}
 # tidy analyses what a change can reach instead of every source, because a finding in one

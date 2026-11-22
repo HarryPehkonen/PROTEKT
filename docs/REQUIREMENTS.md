@@ -735,7 +735,7 @@ PROVENANCE: `include/protekt/game/radar.hpp:34-48`, `include/protekt/game/world_
 - [SHIPPED d79f923] `tools/ci.sh` is the single definition of green. It has two tiers, and the hooks
   name a tier instead of repeating its stages.
   - **fast** (`pre-commit`): `format build tests`.
-  - **full** (`pre-push`): `--require-clean tree format kitprobes build tests release version asan tsan
+  - **full** (`pre-push`): `--require-clean tree format kitprobes build tests version tsan release asan
     tidy pristine`.
 - [SHIPPED d79f923] There is no external CI. The hooks are armed once per clone with
   `git config core.hooksPath .githooks`. Per-machine settings go in `.ci.env`, which is gitignored.
