@@ -160,7 +160,10 @@ TEST(Navigation, ATankOrderedOntoAFactoryReachesItAndDamagesIt) {
     // longer at one speed: uphill is slower and downhill faster (`grade_factor`), and on this trip
     // the climbing costs more than the descending gives back, 90 ticks in all. The route (A*, which
     // reads passability and not height) is the same tiles.
-    EXPECT_EQ(first_damage, 1110)
+    // RE-RECORDED, G1 (go around): 1110 -> 1082. The route now keeps clear of the ground the slide
+    // throws a unit off, which on this trip is a shorter way round: 28 ticks sooner. Old value 1110
+    // is the code at 20ec749; restored exactly by reverting the planner to that commit.
+    EXPECT_EQ(first_damage, 1082)
         << "and it takes about a thousand ticks to get there and open fire";
 }
 

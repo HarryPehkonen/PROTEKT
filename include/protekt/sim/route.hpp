@@ -37,6 +37,28 @@ inline constexpr int kReplanOffRouteTiles = 3;
 /// The age a route is given when a new order lands, so a changed goal re-plans at once.
 inline constexpr std::uint16_t kRouteAgeFresh = 0xFFFF;
 
+/// A unit that has not left a `kStallRadiusTiles` circle for this many ticks (ten seconds) is
+/// making no headway, whatever it is doing inside the circle -- standing, pacing, jittering. A
+/// turret spends 90 of them unmounting before it moves at all, so this is well clear of that.
+inline constexpr std::uint16_t kStallTicks = 300;
+inline constexpr int kStallRadiusTiles = 1;
+/// How far (Chebyshev, tiles) from a goal tile that cannot be entered the planner will look for
+/// ground that can, before it says there is no route.
+inline constexpr int kGoalSearchTiles = 24;
+/// How many times one order's route may stop serving its unit (it was thrown off, or drifted onto
+/// a line the route never vouched for) before the order is given up as `NoProgress`: a unit that
+/// keeps being put back where it began is going round in a loop no stall circle can see.
+inline constexpr std::uint8_t kReplanBudget = 8;
+
+/// WHY a unit has no route to follow -- the NAMED failure, readable by anything that holds the
+/// unit. `None` while the unit is following a plan or has not planned; a unit that has a failure
+/// is not driving: `steer` ends its order (it is Idle) rather than push at the goal for ever.
+enum class RouteFailure : std::uint8_t {
+    None = 0,
+    NoRoute = 1,    ///< the planner searched the whole grid: nothing reaches the goal
+    NoProgress = 2, ///< it had a route and was driving, but held to one spot for `kStallTicks`
+};
+
 /// The unit's planned route: tile-center waypoints and the goal tile they serve. State, not a
 /// decision -- it lives on the unit and in `state_hash()`, because it decides every step.
 struct Route {
@@ -48,6 +70,20 @@ struct Route {
     TileXY goal{};
     TileXY from{}; ///< where the current leg began: the plan's start, then each waypoint reached
     std::uint16_t age{kRouteAgeFresh}; ///< ticks since the last plan, saturating
+    RouteFailure failure{RouteFailure::None};
+    /// The goal tile can be entered but not held (a rim the slope throws a unit off): the route
+    /// ends beside it, and a unit that has come to the end of it has arrived.
+    bool hold_goal{false};
+    /// The goal tile cannot be entered at all (a crater, a building's middle): the route ends
+    /// beside it. A unit going to a fixed spot has arrived at the end of it; one doing work at the
+    /// goal (building, attacking) goes on steering at the goal itself from there.
+    bool ring_goal{false};
+    /// The no-progress rule: where the unit was when it last left its circle (raw, 1/65536 tile)
+    /// and how many ticks it has been inside it. `stall_ticks == 0` means no anchor is set.
+    std::int32_t anchor_x{};
+    std::int32_t anchor_y{};
+    std::uint16_t stall_ticks{};
+    std::uint8_t strays{}; ///< times this order's route stopped serving the unit (`kReplanBudget`)
 
     [[nodiscard]] constexpr bool following() const noexcept { return next < count; }
 };
@@ -58,13 +94,58 @@ namespace route_detail {
     return x >= 0 && y >= 0 && x < kRouteTiles && y < kRouteTiles;
 }
 
+/// The way a tile's slope runs when it is strong enough to HOLD a unit whose full step is `speed`
+/// (a drift of more than half its step), as a unit step; (0, 0) for a tile that holds nobody. The
+/// drift is `plan_slide`'s own, asked of the tile's centre. A ground without heights has none.
+template <class Ground>
+[[nodiscard]] std::array<int, 2> slide_way_of(const Ground& ground, int x, int y,
+                                              std::int64_t speed) {
+    if constexpr (HasHeights<Ground>) {
+        const Fixed centre_x = Fixed::from_raw((x << Fixed::kShift) + Fixed::kOne / 2);
+        const Fixed centre_y = Fixed::from_raw((y << Fixed::kShift) + Fixed::kOne / 2);
+        const Step drift = plan_slide(ground, centre_x, centre_y, [&](int tx, int ty) {
+            return in_map(tx, ty) && ground.factor(tx, ty) != 0;
+        });
+        if (std::max(std::abs(drift.dx), std::abs(drift.dy)) * 2 <= speed) {
+            return {0, 0};
+        }
+        return {(drift.dx > 0) - (drift.dx < 0), (drift.dy > 0) - (drift.dy < 0)};
+    } else {
+        return {0, 0};
+    }
+}
+
+/// True when the edge (x, y) -> (nx, ny) is NOT open to a unit of this `speed`: its rise is not one
+/// the unit can drive (`drivable_rise`, at the speed the terrain it climbs onto leaves it: `factor`
+/// is the mover's own, so a climb onto ridge is held to half a tank's power as the mover holds it),
+/// or the tile it leaves holds the unit and the edge is not the way the slope runs (unless
+/// `free_exit`: the unit's own tile). `height(x, y)`
+/// and `way(x, y)` are the ground's heights and `slide_way_of`, handed in so the planner can cache
+/// them and a one-off check need not.
+template <class Height, class Way>
+[[nodiscard]] bool edge_blocked(const Height& height, const Way& way, std::int64_t speed,
+                                std::int64_t factor, int x, int y, int nx, int ny,
+                                bool free_exit = false) {
+    const std::int64_t power = speed * factor / Fixed::kOne;
+    if (!drivable_rise(edge_rise(height(x, y), height(nx, ny), x != nx && y != ny), power)) {
+        return true;
+    }
+    if (free_exit) {
+        return false; // the tile the unit already stands on: it sets off whichever way it can
+    }
+    const std::array<int, 2> run = way(x, y);
+    return (run[0] != 0 || run[1] != 0) && (nx - x != run[0] || ny - y != run[1]);
+}
+
 /// Does the straight line between two tile centers stay on enterable ground? Sampled at half-tile
 /// steps in integers; the local steering layer handles anything grazing a rim. `cliff(from, to)` is
 /// asked for each edge the line crosses from one tile into the next (a diagonal step included), so
-/// a line does not cut across a cliff the mover would refuse.
-template <class Ground, class Cliff>
-[[nodiscard]] bool line_clear(const Ground& ground, TileXY a, TileXY b,
-                              const Cliff& cliff) noexcept {
+/// a line does not cut across a cliff the mover would refuse. `avoid(x, y)` names tiles the line
+/// may not pass through at all (other than its own two ends): the clearance the planner keeps from
+/// ground that throws a unit off.
+template <class Ground, class Cliff, class Avoid>
+[[nodiscard]] bool line_clear(const Ground& ground, TileXY a, TileXY b, const Cliff& cliff,
+                              const Avoid& avoid) noexcept {
     const int dx = static_cast<int>(b.x) - a.x;
     const int dy = static_cast<int>(b.y) - a.y;
     const int n = 2 * std::max(std::abs(dx), std::abs(dy));
@@ -84,6 +165,10 @@ template <class Ground, class Cliff>
         if ((tile_x != last_x || tile_y != last_y) && cliff(last_x, last_y, tile_x, tile_y)) {
             return false;
         }
+        const bool end = (tile_x == a.x && tile_y == a.y) || (tile_x == b.x && tile_y == b.y);
+        if (!end && avoid(tile_x, tile_y)) {
+            return false;
+        }
         last_x = tile_x;
         last_y = tile_y;
     }
@@ -98,16 +183,31 @@ template <class Ground, class Cliff>
 /// set is ordered by lowest f, then lowest h, then lowest x, then lowest y -- no tie is left to
 /// chance, so every platform finds the same route.
 ///
+/// THE MOVER'S OWN ACCOUNT of an edge (a ground that knows heights): an edge is open when its rise
+/// is one the unit can DRIVE (`drivable_rise`: under the climb limit and not beaten by the slide it
+/// sets up), and a tile the slope will not let a unit hold (a drift of more than half its step) is
+/// left only the way the slope runs. A route that ignores either leads a unit onto a ramp's edge
+/// row, which throws it off, or up a face it is sent back down: the stall this answers.
+///
+/// A GOAL THAT CANNOT BE ENTERED (a building's centre, a unit standing on solid ground) is not a
+/// failure: the plan ends at ground that can be, within one tile of the nearest such ground to the
+/// goal on any side, and the unit's own stopping rule (weapon range, build reach) takes it from
+/// there. Only a goal with NO enterable ground within `kGoalSearchTiles`, or one the grid cannot
+/// reach, is `NoRoute`.
+///
 /// On success `route` holds the corners of the line-of-sight-smoothed path (the start excluded, the
-/// goal last) and true is returned. On failure (the goal is unreachable or not enterable) `route`
-/// is left with no waypoints and false is returned.
+/// goal last) and true is returned. On failure `route` is left with no waypoints, `failure` is
+/// `NoRoute`, and false is returned. `speed` is the unit's full step, raw (a turret climbs less
+/// than a tank); the default is a tank's.
 template <class Ground>
-[[nodiscard]] bool plan_route(const Ground& ground, TileXY start, TileXY goal, Route& route) {
+[[nodiscard]] bool plan_route(const Ground& ground, TileXY start, TileXY goal, Route& route,
+                              std::int64_t speed = kSlideMaxRaw) {
     using route_detail::in_map;
     constexpr int kCells = kRouteTiles * kRouteTiles;
     constexpr int kStraight = 10;
     constexpr int kDiagonal = 14;
     constexpr int kInf = 0x7FFFFFFF;
+    constexpr int kClearance = 12; ///< what a step beside ground that throws a unit off costs
 
     route.count = 0;
     route.next = 0;
@@ -116,26 +216,29 @@ template <class Ground>
     route.from = start;
     route.has_goal = true;
     route.age = 0;
-
-    if (ground.factor(goal.x, goal.y) == 0) {
-        return false;
-    }
-    if (start == goal) {
-        return true; // already there: an empty route that did not fail
-    }
+    route.failure = RouteFailure::None;
+    route.stall_ticks = 0;
 
     const auto index = [](int x, int y) { return y * kRouteTiles + x; };
 
-    // THE CLIFF (M1): where the ground knows heights, an edge steeper than `kClimbLimit` is a wall
-    // to the mover (`plan_step`), so it is a wall here too -- or a route would lead a unit up to a
-    // face it will not climb and leave it there. Each tile's height is read once. Only a cliff
-    // refuses: the slope's grade does not weigh the route (a declared simplification -- the planner
-    // takes the straightest way through ground that can be climbed, not the gentlest).
+    // THE CLIFF (M1) AND THE SLOPE: where the ground knows heights, an edge the unit cannot drive
+    // is a wall to the mover (`plan_step`, then the slide beats a climb past `drivable_rise`), so
+    // it is a wall here too -- or a route would lead a unit up to a face it will not climb and
+    // leave it there. Each tile's height and slide are worked out once. The grade does not weigh
+    // the route (a declared simplification -- the planner takes the straightest way through ground
+    // that can be driven, not the gentlest), but a tile the slide will not let the unit hold is
+    // left only the way the slide runs: the edge rows of a ramp are not part of the ramp.
+    // And a route keeps a tile's clearance from such ground (`near_hold`): a unit follows a line to
+    // within half a tile, and one that clips a rim is thrown off it.
     std::vector<std::int16_t> heights;
     std::vector<std::uint8_t> height_known;
+    std::vector<std::uint8_t> slide_known; // 0 unknown, else 1 + (way_x + 1) * 3 + (way_y + 1)
+    std::vector<std::uint8_t> near_known;  // 0 unknown, 1 clear, 2 beside a holding tile
     if constexpr (HasHeights<Ground>) {
         heights.assign(kCells, 0);
         height_known.assign(kCells, 0);
+        slide_known.assign(kCells, 0);
+        near_known.assign(kCells, 0);
     }
     const auto height_at = [&](int x, int y) -> int {
         if constexpr (HasHeights<Ground>) {
@@ -149,16 +252,104 @@ template <class Ground>
             return 0;
         }
     };
-    const auto cliff = [&](int x, int y, int nx, int ny) -> bool {
+    const auto slide_way = [&](int x, int y) -> std::array<int, 2> {
         if constexpr (HasHeights<Ground>) {
-            return edge_rise(height_at(x, y), height_at(nx, ny), x != nx && y != ny) > kClimbLimit;
+            if (!in_map(x, y)) {
+                return {0, 0};
+            }
+            const int at = index(x, y);
+            if (slide_known[at] == 0) {
+                const std::array<int, 2> way = route_detail::slide_way_of(ground, x, y, speed);
+                slide_known[at] = static_cast<std::uint8_t>(1 + (way[0] + 1) * 3 + (way[1] + 1));
+            }
+            const int code = slide_known[at] - 1;
+            return {code / 3 - 1, code % 3 - 1};
+        } else {
+            return {0, 0};
+        }
+    };
+    const auto near_hold = [&](int x, int y) -> bool {
+        if constexpr (HasHeights<Ground>) {
+            const int at = index(x, y);
+            if (near_known[at] == 0) {
+                bool beside = false;
+                for (int oy = -1; oy <= 1 && !beside; ++oy) {
+                    for (int ox = -1; ox <= 1; ++ox) {
+                        const std::array<int, 2> way = slide_way(x + ox, y + oy);
+                        if ((ox != 0 || oy != 0) && (way[0] != 0 || way[1] != 0)) {
+                            beside = true;
+                            break;
+                        }
+                    }
+                }
+                near_known[at] = beside ? 2 : 1;
+            }
+            return near_known[at] == 2;
         } else {
             return false;
         }
     };
+    // True when the edge (x, y) -> (nx, ny) is NOT open to this unit.
+    const auto cliff = [&](int x, int y, int nx, int ny) -> bool {
+        if constexpr (HasHeights<Ground>) {
+            return route_detail::edge_blocked(height_at, slide_way, speed, ground.factor(nx, ny), x,
+                                              y, nx, ny, x == start.x && y == start.y);
+        } else {
+            return false;
+        }
+    };
+    // The goal set: the goal tile itself when the unit can enter AND HOLD it, else every such tile
+    // within one ring of the nearest (the near side of a building, not only the far one). A tile
+    // the slope will not let the unit hold (a plateau's rim) is no place to end a drive: it would
+    // arrive, be thrown off, and plan the long way back for ever.
+    const auto standable = [&](int x, int y) {
+        const std::array<int, 2> way = slide_way(x, y);
+        return ground.factor(x, y) != 0 && way[0] == 0 && way[1] == 0;
+    };
+    // ...and on the goal's own level: ground a cliff's height away is no nearer in any way that
+    // matters, whatever its distance on the grid.
+    const auto level_with_goal = [&](int x, int y) {
+        return std::abs(height_at(x, y) - height_at(goal.x, goal.y)) <= kClimbLimit;
+    };
+    int reach = 0;
+    bool want_level = true; // dropped when there is no ground on the goal's level to be had
+    route.hold_goal = false;
+    route.ring_goal = false;
+    if (!standable(goal.x, goal.y)) {
+        route.hold_goal = ground.factor(goal.x, goal.y) != 0;
+        route.ring_goal = !route.hold_goal;
+        int nearest = 0;
+        for (int pass = 0; pass < 2 && nearest == 0; ++pass) {
+            want_level = pass == 0;
+            for (int ring = 1; ring <= kGoalSearchTiles && nearest == 0; ++ring) {
+                for (int y = goal.y - ring; y <= goal.y + ring && nearest == 0; ++y) {
+                    for (int x = goal.x - ring; x <= goal.x + ring; ++x) {
+                        if (std::max(std::abs(x - goal.x), std::abs(y - goal.y)) == ring
+                            && route_detail::in_map(x, y) && standable(x, y)
+                            && (!want_level || level_with_goal(x, y))) {
+                            nearest = ring;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        if (nearest == 0) {
+            route.failure = RouteFailure::NoRoute;
+            return false;
+        }
+        reach = nearest + 1;
+    }
+    const auto in_goal_set = [&](int x, int y) {
+        return std::max(std::abs(x - goal.x), std::abs(y - goal.y)) <= reach
+               && (reach == 0 || (standable(x, y) && (!want_level || level_with_goal(x, y))));
+    };
+    if (in_goal_set(start.x, start.y)) {
+        return true; // already there: an empty route that did not fail
+    }
     const auto heuristic = [&](int x, int y) {
-        const int dx = std::abs(x - goal.x);
-        const int dy = std::abs(y - goal.y);
+        const int dx = std::max(0, std::abs(x - goal.x) - reach);
+        const int dy = std::max(0, std::abs(y - goal.y) - reach);
         return kStraight * (dx + dy) + (kDiagonal - 2 * kStraight) * std::min(dx, dy);
     };
 
@@ -184,6 +375,7 @@ template <class Ground>
     }};
 
     bool found = false;
+    TileXY goal_reached = goal;
     while (!open.empty()) {
         const auto [f, h, x, y] = open.top();
         open.pop();
@@ -194,8 +386,9 @@ template <class Ground>
             continue;
         }
         closed[here] = 1;
-        if (x == goal.x && y == goal.y) {
+        if (in_goal_set(x, y)) {
             found = true;
+            goal_reached = TileXY{static_cast<std::uint8_t>(x), static_cast<std::uint8_t>(y)};
             break;
         }
         for (const auto& d : kRing) {
@@ -208,11 +401,21 @@ template <class Ground>
             if (diagonal && (ground.factor(x + d[0], y) == 0 || ground.factor(x, y + d[1]) == 0)) {
                 continue;
             }
+            // Nor may a diagonal graze a tile the slope throws a unit off: it is followed to within
+            // half a tile, and the corner of that tile is where it is clipped.
+            if (diagonal) {
+                const std::array<int, 2> side_a = slide_way(x + d[0], y);
+                const std::array<int, 2> side_b = slide_way(x, y + d[1]);
+                if (side_a[0] != 0 || side_a[1] != 0 || side_b[0] != 0 || side_b[1] != 0) {
+                    continue;
+                }
+            }
             const int there = index(nx, ny);
             if (closed[there] != 0) {
                 continue;
             }
-            const int cost = best[here] + (diagonal ? kDiagonal : kStraight);
+            const int cost = best[here] + (diagonal ? kDiagonal : kStraight)
+                             + (near_hold(nx, ny) ? kClearance : 0);
             if (cost < best[there]) {
                 best[there] = cost;
                 parent[there] = here;
@@ -222,12 +425,13 @@ template <class Ground>
         }
     }
     if (!found) {
+        route.failure = RouteFailure::NoRoute;
         return false;
     }
 
     // Walk back to the start, then reverse into start -> goal order.
     std::vector<TileXY> path;
-    for (int at = index(goal.x, goal.y); at != -1; at = parent[at]) {
+    for (int at = index(goal_reached.x, goal_reached.y); at != -1; at = parent[at]) {
         path.push_back(TileXY{static_cast<std::uint8_t>(at % kRouteTiles),
                               static_cast<std::uint8_t>(at / kRouteTiles)});
     }
@@ -238,8 +442,9 @@ template <class Ground>
     std::size_t anchor = 0;
     while (anchor + 1 < path.size()) {
         std::size_t reach = anchor + 1;
-        while (reach + 1 < path.size()
-               && route_detail::line_clear(ground, path[anchor], path[reach + 1], cliff)) {
+        while (
+            reach + 1 < path.size()
+            && route_detail::line_clear(ground, path[anchor], path[reach + 1], cliff, near_hold)) {
             ++reach;
         }
         corners.push_back(path[reach]);
@@ -251,6 +456,53 @@ template <class Ground>
     }
     route.count = static_cast<std::uint8_t>(keep);
     route.partial = corners.size() > keep;
+    return true;
+}
+
+/// Is the straight line from tile `a` to tile `b` one this unit can drive: enterable ground, and
+/// no edge the planner would call blocked? The unit steers along exactly this line to its next
+/// waypoint, so when it is false the unit has drifted off its route onto a line the route never
+/// vouched for, and it should plan again from where it stands.
+template <class Ground>
+[[nodiscard]] bool route_leg_open(const Ground& ground, TileXY a, TileXY b, std::int64_t speed) {
+    const auto height = [&](int x, int y) -> int {
+        if constexpr (HasHeights<Ground>) {
+            return ground.height(x, y);
+        } else {
+            return 0;
+        }
+    };
+    const auto way = [&](int x, int y) { return route_detail::slide_way_of(ground, x, y, speed); };
+    const auto cliff = [&](int x, int y, int nx, int ny) {
+        if constexpr (HasHeights<Ground>) {
+            return route_detail::edge_blocked(height, way, speed, ground.factor(nx, ny), x, y, nx,
+                                              ny, x == a.x && y == a.y);
+        } else {
+            return false;
+        }
+    };
+    return route_detail::line_clear(ground, a, b, cliff, [](int, int) { return false; });
+}
+
+/// THE NO-PROGRESS RULE, for a unit that is driving: one tick of it. The unit's position (raw) is
+/// compared with the anchor it last left; inside a circle of `kStallRadiusTiles` for `kStallTicks`
+/// ticks it is stuck -- however it is moving inside the circle, standing, pacing or jittering --
+/// and the failure is named (`NoProgress`) and returned true. Leaving the circle moves the anchor.
+[[nodiscard]] inline bool route_stalled(Route& route, std::int32_t x_raw,
+                                        std::int32_t y_raw) noexcept {
+    const std::int64_t radius = static_cast<std::int64_t>(kStallRadiusTiles) * Fixed::kOne;
+    const std::int64_t dx = static_cast<std::int64_t>(x_raw) - route.anchor_x;
+    const std::int64_t dy = static_cast<std::int64_t>(y_raw) - route.anchor_y;
+    if (route.stall_ticks == 0 || dx * dx + dy * dy >= radius * radius) {
+        route.anchor_x = x_raw;
+        route.anchor_y = y_raw;
+        route.stall_ticks = 1;
+        return false;
+    }
+    if (++route.stall_ticks < kStallTicks) {
+        return false;
+    }
+    route.failure = RouteFailure::NoProgress;
     return true;
 }
 

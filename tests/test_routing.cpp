@@ -211,9 +211,12 @@ TEST(Routing, AnEnclosedGoalHasNoRoute) {
         << "the failed attempt is remembered, so it is not retried per tick";
 }
 
-TEST(Routing, AnUnreachableGoalFallsBackToSteeringAtItAndStillMoves) {
-    // A goal on a crater tile can never be planned to. The unit must degrade to steer-at-goal --
-    // moving, not freezing -- and its route must say "tried, none".
+TEST(Routing, AGoalOnACraterIsApproachedAndTheDriveEndsBesideIt) {
+    // RE-WRITTEN, G1 (go around). This test used to be "an unreachable goal falls back to steering
+    // at it and still moves": a goal on a crater tile can never be planned to, so the unit
+    // steered at it in a straight line and pressed on the rim for ever -- which is the silent
+    // stall, pinned as a feature. The route now ends on the nearest ground the unit CAN stand on,
+    // and a unit going to a fixed spot has arrived when it has driven to the end of it.
     int goal_x = -1;
     int goal_y = -1;
     for (int y = 90; y < 140 && goal_x < 0; ++y) {
@@ -230,16 +233,23 @@ TEST(Routing, AnUnreachableGoalFallsBackToSteeringAtItAndStillMoves) {
     const UnitId tank{2};
     const Fixed start_x = sim.find(tank)->x;
     sim.enqueue(Order{tank, orders::MoveTo{Fixed::from_int(goal_x), Fixed::from_int(goal_y)}});
-    for (int tick = 0; tick < 300; ++tick) {
+    for (int tick = 0; tick < 1500; ++tick) {
         sim.step();
     }
     const Unit* unit = sim.find(tank);
     EXPECT_TRUE(unit->route.has_goal) << "it tried to plan";
-    EXPECT_EQ(unit->route.count, 0) << "and reports that there is no route";
+    EXPECT_EQ(unit->route.failure, RouteFailure::None) << "and the plan found ground beside it";
+    EXPECT_GT(unit->route.count, 0);
+    EXPECT_TRUE(unit->route.ring_goal) << "the route says the goal itself cannot be entered";
     EXPECT_GT(std::abs((static_cast<double>(unit->x.raw) / Fixed::kOne)
                        - (static_cast<double>(start_x.raw) / Fixed::kOne)),
               5.0)
-        << "but it still moves";
+        << "it moved";
+    const double gap = std::hypot((static_cast<double>(unit->x.raw) / Fixed::kOne) - goal_x,
+                                  (static_cast<double>(unit->y.raw) / Fixed::kOne) - goal_y);
+    EXPECT_LT(gap, 4.0) << "and it came to the crater's rim: " << gap << " tiles off";
+    EXPECT_EQ(unit->vx.raw, 0) << "and it is standing there, not pressing on the rim";
+    EXPECT_EQ(unit->vy.raw, 0);
 }
 
 TEST(Routing, PlanningIsBoundedNotPerTick) {

@@ -763,18 +763,29 @@ namespace {
 /// kReplanGoalDriftTiles from the one served, when the unit has strayed more than
 /// kReplanOffRouteTiles from its leg, or when a truncated route has run out -- the last two (and
 /// the first, once a route exists) no sooner than kReplanMinTicks after the previous plan. A plan
-/// that finds no route leaves the unit with none, which is today's steer-at-goal.
+/// that finds no route leaves the unit with a NAMED failure (`Route::failure`), and `steer` ends
+/// its order rather than steer at the goal and push for ever (it used to).
+///
+/// A new order lands with the route's age at `kRouteAgeFresh`: the order is the moment the unit is
+/// allowed to try again, so the no-progress count starts over and a failed plan is replanned (the
+/// world may have changed since), and the age is set to "settled" so a changed goal replans at
+/// once while the same goal keeps its route.
 void update_route(Unit& unit, Fixed goal_x, Fixed goal_y, const WorldGround& ground,
-                  std::uint32_t& plans) noexcept {
+                  std::int64_t speed, std::uint32_t& plans) noexcept {
     Route& route = unit.route;
-    if (route.age < kRouteAgeFresh) {
-        ++route.age;
+    bool replan = false;
+    if (route.age == kRouteAgeFresh) {
+        route.age = kReplanMinTicks;
+        route.stall_ticks = 0;
+        route.strays = 0;
+        replan = route.failure != RouteFailure::None;
+    } else if (route.age < kRouteAgeFresh - 1) {
+        ++route.age; // never reaches the order marker by counting
     }
     const TileXY goal = tile_of(goal_x, goal_y);
-    bool replan = false;
     if (!route.has_goal) {
         replan = true;
-    } else {
+    } else if (!replan) {
         const int drift = std::max(std::abs(static_cast<int>(goal.x) - route.goal.x),
                                    std::abs(static_cast<int>(goal.y) - route.goal.y));
         const bool settled = route.age >= kReplanMinTicks;
@@ -792,14 +803,37 @@ void update_route(Unit& unit, Fixed goal_x, Fixed goal_y, const WorldGround& gro
             const std::int64_t off
                 = point_segment_dist2(unit.x.raw >> 8, unit.y.raw >> 8, ax, ay, bx, by);
             const std::int64_t limit = static_cast<std::int64_t>(kReplanOffRouteTiles) * 256;
-            replan = off > limit * limit;
+            // Off the leg by more than three tiles, or standing where the straight way to the
+            // next waypoint is no longer one it can drive (it drifted, or was thrown, off the
+            // route): the route no longer serves it.
+            replan = off > limit * limit
+                     || !route_leg_open(ground, tile_of(unit.x, unit.y),
+                                        route.points.at(route.next), speed);
+            if (replan && ++route.strays > kReplanBudget) {
+                route.failure = RouteFailure::NoProgress; // round and round: the order is over
+                return;
+            }
         }
     }
     if (!replan) {
         return;
     }
     ++plans;
-    (void)plan_route(ground, tile_of(unit.x, unit.y), goal, route);
+    (void)plan_route(ground, tile_of(unit.x, unit.y), goal, route, speed);
+}
+
+/// A unit whose route has failed (or that has made no headway) stops asking: its order ends. It is
+/// Idle and its `route.failure` says why, which is what a test, a panel or a commander reads. A
+/// scavenger on a trip keeps its stance so `scavenge_step` can give the pile up and not re-pick it.
+void refuse_order(Unit& unit) noexcept {
+    unit.vx = Fixed::zero();
+    unit.vy = Fixed::zero();
+    if (unit.stance == Stance::Fetch) {
+        return;
+    }
+    unit.stance = Stance::Idle;
+    unit.target = UnitId{};
+    unit.deploy_ticks = 0;
 }
 
 /// Where a factory's new tank appears: the factory's own tile when nothing is standing on it,
@@ -1223,7 +1257,7 @@ void scavenge_step(std::vector<Scrap>& scraps, const std::vector<Unit>& units,
             ++unit.fetch_beats;
         }
         const TileXY pile_tile = tile_of(scraps.at(pick).x, scraps.at(pick).y);
-        const bool no_route = unit.route.has_goal && unit.route.count == 0
+        const bool no_route = unit.route.failure != RouteFailure::None
                               && unit.route.goal == pile_tile
                               && !(tile_of(unit.x, unit.y) == pile_tile);
         if (no_route || unit.fetch_beats >= kFetchGiveUpBeats) {
@@ -1635,6 +1669,7 @@ bool turret_deploy_step(const std::vector<Unit>& units, Unit& unit, std::uint64_
         unit.stance = Stance::Idle; // the spot stopped being ground: the order ends whole
         unit.deploy_ticks = 0;
         unit.route = Route{};
+        unit.route.failure = RouteFailure::NoRoute; // and the order says why it ended
         return false;
     }
     if (dist2(unit.x, unit.y, unit.guard_x, unit.guard_y) >= radius * radius) {
@@ -1880,6 +1915,7 @@ void steer(std::vector<Unit>& units, Unit& unit, const UnitProfile& prof, const 
 
     const std::int64_t d2 = dist2(unit.x, unit.y, goal_x, goal_y);
     if (d2 < stop_radius * stop_radius) {
+        unit.route.stall_ticks = 0; // arrived is not stalled
         if (unit.stance == Stance::Patrol) {
             std::swap(unit.guard_x, unit.patrol_x);
             std::swap(unit.guard_y, unit.patrol_y);
@@ -1894,13 +1930,31 @@ void steer(std::vector<Unit>& units, Unit& unit, const UnitProfile& prof, const 
     // arc takes it.
     const bool hopping = airborne(unit);
     if (!hopping) {
-        update_route(unit, goal_x, goal_y, ground, plans);
+        update_route(unit, goal_x, goal_y, ground, prof.max_speed.raw, plans);
+        // A DEPLOY on ground the slope will not let it hold is refused by name: the turret would
+        // stand on the rim and be thrown off before the gun came up.
+        if (unit.stance == Stance::Deploy && unit.route.hold_goal) {
+            unit.route.failure = RouteFailure::NoRoute;
+        }
+        if (unit.route.failure != RouteFailure::None
+            || route_stalled(unit.route, unit.x.raw, unit.y.raw)) {
+            refuse_order(unit); // no route, or no headway: say so, and stop pushing
+            return;
+        }
     }
     Fixed aim_x = goal_x;
     Fixed aim_y = goal_y;
+    // Going to a fixed spot, a route that ends beside a goal no tile can enter ends the drive.
+    const bool fixed_spot = unit.stance == Stance::MoveTo || unit.stance == Stance::GuardAt
+                            || unit.stance == Stance::Fetch;
+    const bool ends_beside = unit.route.hold_goal || (unit.route.ring_goal && fixed_spot);
+    if (!hopping && ends_beside && !unit.route.following() && !unit.route.partial) {
+        unit.route.stall_ticks = 0;
+        return; // it has come as near as ground it can hold allows: the rim itself is not for it
+    }
     while (!hopping && unit.route.following()) {
         const TileXY wp = unit.route.points.at(unit.route.next);
-        if (!unit.route.partial && unit.route.next + 1 == unit.route.count) {
+        if (!unit.route.partial && !ends_beside && unit.route.next + 1 == unit.route.count) {
             // The last waypoint is the goal's own tile: the live goal (which may have moved, or
             // sit off the tile center) is a better thing to steer at, so the route ends here.
             unit.route.from = wp;
@@ -3016,6 +3070,15 @@ std::uint64_t Sim::state_hash() const noexcept {
         h.u64(u.route.age);
         h.u64(u.route.count);
         h.u64(u.route.next);
+        h.u64(static_cast<std::uint64_t>(u.route.failure));
+        h.u64(u.route.hold_goal ? 1 : 0);
+        h.u64(u.route.ring_goal ? 1 : 0);
+        h.u64(u.route.stall_ticks);
+        h.u64(u.route.strays);
+        if (u.route.stall_ticks != 0) {
+            h.u64(static_cast<std::uint32_t>(u.route.anchor_x));
+            h.u64(static_cast<std::uint32_t>(u.route.anchor_y));
+        }
         for (std::size_t i = 0; i < u.route.count; ++i) {
             h.u64(u.route.points.at(i).x);
             h.u64(u.route.points.at(i).y);

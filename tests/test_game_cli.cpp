@@ -387,7 +387,13 @@ TEST_F(GameCliTest, WithNoMapFileTheDefaultBattleIsExactlyWhatItWas) {
                   err, &out),
               0)
         << err;
-    EXPECT_NE(out.find("tick 40, hash 2828505387808593326"), std::string::npos) << out;
+    // RE-RECORDED, G1 (go around): old value 2828505387808593326 is the code at 20ec749. NO
+    // BEHAVIOUR MOVED in these 40 ticks: the captured frame is byte-identical between that commit
+    // and this one (md5 0a5225fcb73405298a523c5821ded672, 64x48, tick 40; the 160x120 frame at tick
+    // 120 is identical too). The hash moved because a unit's route now carries a failure, a stall
+    // count and a goal kind, and because a route's age no longer sits at its order marker once the
+    // order has been seen -- state, not motion.
+    EXPECT_NE(out.find("tick 40, hash 13763616923485613601"), std::string::npos) << out;
     EXPECT_EQ(
         run({"--headless", "--frames", "1", "--width", "32", "--height", "24", "--log-spawns"}, err,
             &out),
@@ -546,7 +552,13 @@ TEST_F(GameCliTest, TheSameMapPlayedTwiceIsTheSameBattleAndIsNotTheDefaultOne) {
                   err, &out),
               0)
         << err;
-    EXPECT_NE(out.find("tick 40, hash 2828505387808593326"), std::string::npos) << out;
+    // RE-RECORDED, G1 (go around): old value 2828505387808593326 is the code at 20ec749. NO
+    // BEHAVIOUR MOVED in these 40 ticks: the captured frame is byte-identical between that commit
+    // and this one (md5 0a5225fcb73405298a523c5821ded672, 64x48, tick 40; the 160x120 frame at tick
+    // 120 is identical too). The hash moved because a unit's route now carries a failure, a stall
+    // count and a goal kind, and because a route's age no longer sits at its order marker once the
+    // order has been seen -- state, not motion.
+    EXPECT_NE(out.find("tick 40, hash 13763616923485613601"), std::string::npos) << out;
 }
 
 // --- --log-spawns: the composition, read back ------------------------------------------------

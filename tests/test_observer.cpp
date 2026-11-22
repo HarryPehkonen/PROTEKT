@@ -410,7 +410,11 @@ TEST(Observer, RenamingTheSupportVehiclesMovedNoRecordedBattle) {
     // 7379383617975902502 is the code at 130ac0d; restored exactly by neutralising the slope
     // (`kClimbLimit` and `kSlideThreshold` out of reach, `kGradeSpan` huge): the hash returned to
     // that number and the 69-shot stream below to its 69 rows.
-    EXPECT_EQ(log.final_hash, 8803758361435364308ULL);
+    // RE-RECORDED, G1 (go around): old value 8803758361435364308 is the code at 20ec749. Two
+    // things moved it: the armies take different routes (the fired stream below is the proof), and
+    // a unit's route now carries a failure, a stall count and a goal kind in the hash. Restored
+    // exactly by reverting the planner and the hash lines to that commit.
+    EXPECT_EQ(log.final_hash, 7087612991536747485ULL);
 }
 
 TEST(Observer, TheFiredStreamForAScriptedBattleIsUnchanged) {
@@ -500,19 +504,27 @@ TEST(Observer, TheFiredStreamForAScriptedBattleIsUnchanged) {
     // 8, 15, 100}; last {899, 1, 14, 44}); restored exactly, all 59 rows, by making `has_line_from`
     // answer true for a gravity weapon again. The first row is unchanged; from tick 652 mortar 8
     // aims at a different target (12, not 13) because it has no arc to the old one.
+    // RE-RECORDED, G1 (go around: a route the mover can follow -- it keeps clear of the ramp's
+    // rim and of ground the slide throws a unit off, and a goal no tile can hold or enter is
+    // approached, not pressed on): the armies take different routes across the hill country, so the
+    // stream has 50 shots (was 58), the first on tick 502 (was 607) and the last on tick 872 (was
+    // 899). Old stream: the code at 20ec749 (first row {607, 8, 15, 100}; last {899, 1, 14, 36});
+    // restored exactly, all 58 rows, by reverting the planner (route.hpp, steering.hpp, sim.cpp's
+    // `update_route`/`steer`) to that commit.
     static const std::vector<Expected> kExpected = {
-        {607, 8, 15, 100}, {652, 8, 12, 84}, {655, 20, 8, 40}, {688, 2, 13, 84},  {697, 8, 12, 84},
-        {703, 2, 12, 84},  {704, 1, 13, 84}, {717, 3, 12, 84}, {718, 2, 12, 84},  {719, 1, 12, 84},
-        {730, 20, 2, 100}, {732, 3, 13, 76}, {733, 2, 13, 76}, {734, 1, 13, 76},  {742, 8, 13, 68},
-        {747, 3, 13, 68},  {748, 2, 13, 68}, {749, 1, 13, 60}, {762, 3, 19, 24},  {763, 2, 19, 24},
-        {764, 1, 19, 24},  {777, 3, 19, 24}, {778, 2, 19, 16}, {779, 1, 19, 16},  {787, 8, 12, 44},
-        {792, 3, 13, 4},   {793, 2, 15, 60}, {794, 1, 12, 44}, {795, 15, 3, 100}, {805, 20, 2, 100},
-        {807, 3, 12, 44},  {808, 2, 15, 44}, {809, 1, 12, 44}, {810, 15, 3, 100}, {813, 12, 3, 92},
-        {822, 3, 12, 36},  {823, 2, 15, 36}, {824, 1, 12, 28}, {825, 15, 3, 92},  {828, 12, 3, 84},
-        {832, 8, 12, 4},   {837, 3, 15, 12}, {838, 2, 15, 12}, {839, 1, 15, 12},  {840, 15, 3, 76},
-        {852, 3, 14, 84},  {856, 14, 3, 52}, {867, 3, 14, 68}, {871, 14, 3, 52},  {877, 8, 14, 44},
-        {880, 20, 2, 76},  {882, 3, 14, 44}, {883, 2, 14, 44}, {884, 1, 14, 44},  {886, 14, 3, 44},
-        {897, 3, 14, 36},  {898, 2, 14, 36}, {899, 1, 14, 36},
+        {502, 8, 12, 100}, {508, 2, 12, 100}, {513, 12, 2, 100}, {523, 2, 12, 100},
+        {528, 12, 2, 100}, {538, 2, 12, 76},  {543, 12, 2, 92},  {547, 8, 12, 68},
+        {551, 4, 12, 68},  {553, 2, 12, 68},  {558, 12, 2, 84},  {568, 2, 12, 60},
+        {569, 1, 12, 60},  {573, 12, 1, 100}, {582, 3, 12, 44},  {583, 2, 12, 44},
+        {588, 12, 1, 100}, {597, 3, 12, 36},  {598, 2, 12, 36},  {603, 12, 1, 92},
+        {612, 3, 12, 20},  {613, 2, 12, 20},  {618, 12, 1, 84},  {627, 3, 12, 4},
+        {628, 2, 12, 4},   {633, 12, 1, 76},  {787, 8, 13, 100}, {792, 3, 13, 100},
+        {793, 2, 13, 100}, {797, 13, 3, 100}, {807, 3, 13, 100}, {808, 2, 13, 100},
+        {812, 13, 3, 100}, {822, 3, 13, 68},  {823, 2, 13, 68},  {824, 1, 13, 68},
+        {827, 13, 3, 92},  {832, 8, 13, 52},  {837, 3, 13, 52},  {838, 2, 13, 52},
+        {839, 1, 13, 52},  {842, 13, 2, 68},  {852, 3, 13, 28},  {853, 2, 13, 28},
+        {854, 1, 13, 28},  {857, 13, 2, 68},  {867, 3, 13, 4},   {868, 2, 13, 4},
+        {869, 1, 13, 4},   {872, 13, 2, 60},
     };
     const Scenario scenario = skirmish(42);
     ai::ScriptedCommander player(30);

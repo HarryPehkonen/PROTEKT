@@ -345,8 +345,13 @@ TEST(Jump, AJumpBattleHashesToTheFirstRecordedValuesAndTheHeightIsPartOfThem) {
         }
     }
     EXPECT_NE(jumped.state_hash(), walked.state_hash());
-    EXPECT_EQ(mid_air, 11160863739809715277ULL);
-    EXPECT_EQ(jumped.state_hash(), 15438935565811841333ULL);
+    // RE-RECORDED, G1 (go around): old values 11160863739809715277 (mid-air) and
+    // 15438935565811841333 (the end) are the code at 20ec749. NO BEHAVIOUR MOVED here: a unit's
+    // route now carries a failure, a stall count and a goal kind in the hash, and that alone moves
+    // every hash. Proved by taking those lines out of `Sim::state_hash` with the new planner left
+    // in: both old values came back exactly.
+    EXPECT_EQ(mid_air, 14985196521606509677ULL);
+    EXPECT_EQ(jumped.state_hash(), 5149234450444275317ULL);
 }
 
 TEST(Jump, ABuildingAndAFactoryCannotJump) {

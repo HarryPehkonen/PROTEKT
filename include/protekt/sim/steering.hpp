@@ -115,6 +115,32 @@ inline constexpr std::int64_t kSlideMaxRaw = 13107;
     return std::clamp<std::int64_t>(raw, kMinGrade, kMaxGrade);
 }
 
+/// The slide's drift, raw per tick, for a tile whose steepest way down drops by `drop`: nothing at
+/// or below `kSlideThreshold`, `kSlideRawPerHeight` for each unit past it, never more than a tank's
+/// step. `plan_slide` is this applied to a ground; the route planner asks it of a bare number.
+[[nodiscard]] constexpr std::int64_t slide_raw(std::int64_t drop) noexcept {
+    if (drop <= kSlideThreshold) {
+        return 0;
+    }
+    return std::min((drop - kSlideThreshold) * kSlideRawPerHeight, kSlideMaxRaw);
+}
+
+/// Can a unit whose full step is `speed` (raw) actually CLIMB an edge that rises by `rise`? The
+/// rule says yes up to `kClimbLimit`, but the slope wins over steering (the ruling): once the
+/// slide the edge sets up beats the speed the grade leaves the unit, the edge is a wall in fact
+/// though not in the rule. A tank's limit is 38, a turret's (a quarter of a tank's step) is 33.
+/// The mover is NOT changed by this -- it is the planner's account of what the mover will manage,
+/// so a route is not led up an edge the slide will send the unit back down.
+[[nodiscard]] constexpr bool drivable_rise(std::int64_t rise, std::int64_t speed) noexcept {
+    if (rise > kClimbLimit) {
+        return false;
+    }
+    if (rise <= kSlideThreshold) {
+        return true;
+    }
+    return speed * grade_factor(rise) / Fixed::kOne > slide_raw(rise);
+}
+
 /// A ground that knows heights: `std::int64_t`-convertible `height(tile_x, tile_y)`. A ground
 /// without one (a drawn crater map) is level, and none of the slope rules touch it.
 template <class Ground>

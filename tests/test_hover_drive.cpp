@@ -65,24 +65,34 @@ TEST(HoverDrive, ZeroStrafeOrderIsTheIdentity) {
 }
 
 TEST(HoverDrive, StrafeMovesAtThreeQuartersSpeedAlongTheGivenDirection) {
+    // RE-WRITTEN, G1 (go around). "Ahead" used to be a MoveTo due east and the strafe went due
+    // east too; the ratio of the two was exactly 3/4. The hull stands on a hillside whose steep
+    // east edge the planner now refuses (the slide would send it back down), so its route leaves
+    // on a diagonal and "ahead" is no longer along +x. The test now strafes along WHATEVER
+    // direction the drive took -- the ratio is still the ratio of the two ways of going along one
+    // direction, which is all it ever meant.
     auto base = sim::Sim::create(sim::skirmish(kSeed));
     const auto id = first_of(base, sim::UnitKind::HoverTank);
     auto fwd = base;
     auto side = base;
-    // "Ahead" is driven along +x too, the same way the strafe goes: since M1 a step is scaled by
-    // the slope it climbs or descends, so two directions of a hillside have two speeds, and 3/4 is
-    // the ratio of the two ways of going ALONG ONE DIRECTION (it used to be driven along +y).
     fwd.enqueue(sim::Order{
-        id, sim::orders::MoveTo{sim::Fixed::from_raw(base.find(id)->x.raw + 60 * sim::Fixed::kOne),
+        id, sim::orders::MoveTo{sim::Fixed::from_raw(base.find(id)->x.raw + 5 * sim::Fixed::kOne),
                                 base.find(id)->y}});
-    side.enqueue(sim::Order{id, sim::orders::Strafe{sim::Fixed::from_int(1), sim::Fixed{}}});
     fwd.step();
-    side.step();
-    const double ahead = raw_dx(base, fwd, id);
-    const double across = raw_dx(base, side, id);
+    const double ahead_x = raw_dx(base, fwd, id);
+    const double ahead_y = raw_dy(base, fwd, id);
+    const double ahead = std::hypot(ahead_x, ahead_y);
     ASSERT_GT(ahead, 0.0);
+    // A unit vector along the drive, in the Strafe's own units (a length of one is full throttle).
+    const auto unit_component = [&](double v) {
+        return sim::Fixed::from_raw(static_cast<std::int32_t>(
+            std::lround(v / ahead * static_cast<double>(sim::Fixed::kOne))));
+    };
+    side.enqueue(
+        sim::Order{id, sim::orders::Strafe{unit_component(ahead_x), unit_component(ahead_y)}});
+    side.step();
+    const double across = std::hypot(raw_dx(base, side, id), raw_dy(base, side, id));
     EXPECT_NEAR(across / ahead, kStrafeFactor, 0.02);
-    EXPECT_EQ(raw_dy(base, side, id), 0.0) << "a strafe along +x moves nothing along y";
 }
 
 TEST(HoverDrive, StrafeNeedsNoStateBetweenTicks) {
