@@ -593,11 +593,14 @@ struct Coord {
 
 // The tile itself when `ok` accepts it; otherwise the first tile `ok` accepts scanning square rings
 // of growing radius in row-major order. The wish itself when nothing anywhere is acceptable.
-template <class Ok> Coord nearest_where(int x, int y, Ok ok) noexcept {
+// `max_radius` bounds the scan (the whole map by default); the wish is the answer when none is
+// found.
+template <class Ok>
+Coord nearest_where(int x, int y, Ok ok, int max_radius = kMapTiles - 1) noexcept {
     if (ok(x, y)) {
         return Coord{x, y};
     }
-    for (int r = 1; r < kMapTiles; ++r) {
+    for (int r = 1; r <= max_radius; ++r) {
         for (int dy = -r; dy <= r; ++dy) {
             const int step = (dy == -r || dy == r) ? 1 : 2 * r;
             for (int dx = -r; dx <= r; dx += step) {
@@ -1416,6 +1419,41 @@ void store_step(const std::vector<Unit>& units, std::array<std::uint16_t, 2>& or
     return dx * dx + dy * dy <= reach * reach;
 }
 
+/// THE DEPLOY RULE, for anything that deploys: whatever litter lies on the ground `site` the
+/// deployer is about to take is moved OUT of it, to the nearest tile a unit may enter (`standable`)
+/// that is not in `site` and lies within `kSweepReachTiles` of it. Nearest by the ring scan every
+/// settle uses, so the same battle sweeps the same way. A piece with no such tile is DESTROYED
+/// (removed, banked nowhere): burying it would leave a pile no scavenger can ever reach, and
+/// refusing the deploy would let a few pieces of litter stop a building. Pieces outside `site` are
+/// untouched. Asked on EVERY tick the deployer stands counting at its site, so litter that lands
+/// there mid-count (a wreck) is swept too, and the tick it deploys is the last the ground is
+/// checked.
+void sweep_deploy_ground(std::vector<Scrap>& scraps, std::uint64_t seed,
+                         const std::vector<Unit>& units, const Footprint& site) noexcept {
+    const Footprint reach{site.x - kSweepReachTiles, site.y - kSweepReachTiles,
+                          site.width + (2 * kSweepReachTiles),
+                          site.height + (2 * kSweepReachTiles)};
+    const auto lands = [&](int tx, int ty) {
+        return reach.covers(tx, ty) && !site.covers(tx, ty) && standable(seed, units, tx, ty);
+    };
+    const int radius = std::max(site.width, site.height) + kSweepReachTiles;
+    for (std::size_t i = 0; i < scraps.size();) {
+        const TileXY at = tile_of(scraps.at(i).x, scraps.at(i).y);
+        if (!site.covers(at.x, at.y)) {
+            ++i;
+            continue;
+        }
+        const Coord spot = nearest_where(at.x, at.y, lands, radius);
+        if (!lands(spot.x, spot.y)) {
+            scraps.erase(scraps.begin() + static_cast<std::ptrdiff_t>(i)); // nowhere to go
+            continue;
+        }
+        scraps.at(i) = Scrap{tile_center(static_cast<std::uint8_t>(spot.x)),
+                             tile_center(static_cast<std::uint8_t>(spot.y))};
+        ++i;
+    }
+}
+
 /// DEPLOY (R2). Called for every living recycler before it is steered. Returns true when the
 /// recycler is not to be steered this tick: it is standing at its site counting, it has just become
 /// a building, or its order has just failed.
@@ -1425,7 +1463,8 @@ void store_step(const std::vector<Unit>& units, std::array<std::uint16_t, 2>& or
 /// is zero. The site is re-checked every tick, so one that stops being usable (another building has
 /// been deployed over it) ends the order whole: the recycler stands, idle, still a `Recycler` --
 /// there is no half-deployed state to be left in.
-bool deploy_step(const std::vector<Unit>& units, Unit& unit, std::uint64_t seed) noexcept {
+bool deploy_step(const std::vector<Unit>& units, std::vector<Scrap>& scraps, Unit& unit,
+                 std::uint64_t seed) noexcept {
     if (unit.stance != Stance::Deploy) {
         unit.deploy_ticks = 0; // a countdown never outlives the order that started it
         return false;
@@ -1446,6 +1485,7 @@ bool deploy_step(const std::vector<Unit>& units, Unit& unit, std::uint64_t seed)
     }
     unit.vx = Fixed::zero();
     unit.vy = Fixed::zero();
+    sweep_deploy_ground(scraps, seed, units, site); // the ground it is about to take, clear
     ++unit.deploy_ticks;
     if (unit.deploy_ticks < kDeployTicks) {
         return true;
@@ -1615,7 +1655,8 @@ bool wants_to_leave(const Unit& unit) noexcept {
 /// `Turret` again with its stance as the order left it, so a move or a follow carries straight on.
 /// A count once begun runs to the end: Stop does not put the gun back. Both ways go through
 /// `deploy_ticks`, which on a deployed turret is the un-deploy's count.
-bool turret_deploy_step(const std::vector<Unit>& units, Unit& unit, std::uint64_t seed) noexcept {
+bool turret_deploy_step(const std::vector<Unit>& units, std::vector<Scrap>& scraps, Unit& unit,
+                        std::uint64_t seed) noexcept {
     if (unit.kind == UnitKind::DeployedTurret) {
         unit.vx = Fixed::zero();
         unit.vy = Fixed::zero();
@@ -1678,6 +1719,9 @@ bool turret_deploy_step(const std::vector<Unit>& units, Unit& unit, std::uint64_
     }
     unit.vx = Fixed::zero();
     unit.vy = Fixed::zero();
+    // The one tile it stands on is what it takes: the deploy rule, as the recycler's.
+    const TileXY under = tile_of(unit.x, unit.y);
+    sweep_deploy_ground(scraps, seed, units, Footprint{under.x, under.y, 1, 1});
     if (++unit.deploy_ticks < kTurretDeployTicks) {
         return true;
     }
@@ -2510,14 +2554,14 @@ void Sim::step(StepTimings* timings) {
         }
         // The deploy, before the mover: it may stand the recycler still, or turn it into a
         // building that does not move at all.
-        if (unit.kind == UnitKind::Recycler && deploy_step(units_, unit, seed)) {
+        if (unit.kind == UnitKind::Recycler && deploy_step(units_, scraps_, unit, seed)) {
             continue;
         }
         if (unit.kind == UnitKind::Scavenger
             && scavenger_deploy_step(units_, scenario_.pools, unit)) {
             continue;
         }
-        if (is_turret(unit.kind) && turret_deploy_step(units_, unit, seed)) {
+        if (is_turret(unit.kind) && turret_deploy_step(units_, scraps_, unit, seed)) {
             continue;
         }
         if (recycle_step(units_, scraps_, unit, ore_, scenario_.store_capacity, seed)) {

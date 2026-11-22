@@ -27,6 +27,13 @@ inline constexpr int kScrapScatterRadius = 2;
 /// way. The span is what the settle step walks while a piece of one wreck already holds a tile.
 inline constexpr int kScrapSpan = (2 * kScrapScatterRadius) + 1;
 
+/// HOW FAR A DEPLOY'S SWEEP WILL SHOVE A PIECE (G2): a deployer (a recycler, a turret) clears the
+/// ground it takes, and a piece goes to the nearest tile a unit may enter outside it, but no
+/// farther than this many tiles from that ground's edge. A piece with no tile inside the reach is
+/// destroyed rather than buried (see `sweep_deploy_ground`). Eight is the width of a recycler's own
+/// footprint, so the reach is a ring as wide as the building.
+inline constexpr int kSweepReachTiles = 8;
+
 /// The ground stops collecting litter here. Four pieces a wreck is 128 wrecks' worth, so a war that
 /// never ends leaves a bounded amount of state behind it; the cap is a dial, not a promise.
 inline constexpr std::size_t kMaxScrap = 512;
