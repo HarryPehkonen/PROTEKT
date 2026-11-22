@@ -532,8 +532,8 @@ struct GroundTones {
     Rgb base;
     Rgb light;
 };
-constexpr GroundTones kGrass{{44, 104, 36}, {66, 142, 52}, {104, 172, 72}};
-constexpr GroundTones kDirt{{82, 74, 34}, {118, 109, 48}, {158, 146, 90}};
+constexpr GroundTones kGrass{{44, 94, 36}, {68, 132, 52}, {98, 158, 70}};
+constexpr GroundTones kDirt{{84, 70, 40}, {116, 102, 56}, {148, 132, 84}};
 constexpr GroundTones kRock{{96, 88, 84}, {142, 130, 124}, {190, 180, 172}};
 constexpr GroundTones kCrater{{20, 16, 14}, {40, 33, 28}, {92, 84, 76}};
 
@@ -619,6 +619,48 @@ Tile paint_bands(std::uint64_t seed, int tile_index, std::span<const int> widths
         }
     }
     return tile;
+}
+
+/// THE LOOK OF MATERIAL. The three-tone ground is a posterised pattern; real dirt and regolith have
+/// a tonal range inside every patch. `weather` gives a ground tile (a) its own overall lightness
+/// and warm/cool lean (`tile_shift`, so six variants of one type are not six copies of one colour),
+/// (b) a per-texel grain of up to +/- `grit`, and (c) sparse pebbles and crack-shadows, `specks`
+/// per mille of the texels each way. All of it is a pure function of (seed, tile, texel): integers
+/// only.
+void weather(Tile& tile, std::uint64_t seed, int tile_index, int tile_shift, int grit, int specks) {
+    HashWalk walk(seed, tile_index + 1000);
+    const int lean = walk.between(-tile_shift / 2, tile_shift / 2); // warm (+) or cool (-)
+    const int shift = walk.between(-tile_shift, tile_shift);
+    for (int y = 0; y < 64; ++y) {
+        for (int x = 0; x < 64; ++x) {
+            const auto ux = static_cast<std::uint32_t>(x);
+            const auto uy = static_cast<std::uint32_t>(y);
+            Rgb& at = texel(tile, ux, uy);
+            const int g = ((grain(seed, tile_index, x, y) - 50) * grit) / 50;
+            const int roll = grain(seed ^ 0x5DEECE66DULL, tile_index, x, y);
+            int speck = 0;
+            if (roll * 10 < specks) {
+                speck = -3 * grit; // a crack, a pit: dark
+            } else if (roll * 10 >= 1000 - specks) {
+                speck = 3 * grit; // a pebble, a glint: light
+            }
+            const int delta = shift + g + speck;
+            at = Rgb{static_cast<std::uint8_t>(std::clamp(at.at(0) + delta + lean, 0, 255)),
+                     static_cast<std::uint8_t>(std::clamp(at.at(1) + delta, 0, 255)),
+                     static_cast<std::uint8_t>(std::clamp(at.at(2) + delta - lean, 0, 255))};
+        }
+    }
+}
+
+/// Pulls every texel `percent` of the way to `toward`: the three flat tones of the pattern read as
+/// camouflage on a large field, and earth does not have that contrast between its patches.
+void soften(Tile& tile, const Rgb& toward, int percent) {
+    for (Rgb& at : tile) {
+        for (std::size_t c = 0; c < 3; ++c) {
+            at.at(c) = static_cast<std::uint8_t>(
+                ((at.at(c) * (100 - percent)) + (toward.at(c) * percent)) / 100);
+        }
+    }
 }
 
 /// Rock: strata, horizontal bands of the three greys.
@@ -741,13 +783,37 @@ Tile paint_ground(std::uint64_t seed, int index, int family) {
     }
 }
 
+/// The ground tile the scene DRAWS (slots 21-44): `paint_ground`'s pattern, weathered. The legacy
+/// family tiles (17-20) stay the plain three-tone pattern; nothing draws them.
+Tile paint_drawn_ground(std::uint64_t seed, int index, int family) {
+    Tile tile = paint_ground(seed, index, family);
+    switch (family) {
+    case 0: // grass: a little life in the green, few pebbles
+        soften(tile, kGrass.base, 45);
+        weather(tile, seed, index, 10, 7, 6);
+        break;
+    case 1: // dirt: the grainiest, pebbled and cracked
+        soften(tile, kDirt.base, 50);
+        weather(tile, seed, index, 12, 9, 18);
+        break;
+    case 2: // rock: a cooler lean, hard cracks
+        weather(tile, seed, index, 8, 8, 12);
+        break;
+    default: // crater: dark ash, a little glint
+        weather(tile, seed, index, 3, 5, 10);
+        break;
+    }
+    return tile;
+}
+
 Tile paint_tile(std::uint64_t seed, int index) {
     if (index >= kFirstGroundVariantTile && index < kFirstGroundVariantTile + kGroundVariantTiles) {
-        return paint_ground(seed, index, (index - kFirstGroundVariantTile) / kGroundVariants);
+        return paint_drawn_ground(seed, index, (index - kFirstGroundVariantTile) / kGroundVariants);
     }
     if (index >= kFirstMoreGroundVariantTile
         && index < kFirstMoreGroundVariantTile + kGroundVariantTiles) {
-        return paint_ground(seed, index, (index - kFirstMoreGroundVariantTile) / kGroundVariants);
+        return paint_drawn_ground(seed, index,
+                                  (index - kFirstMoreGroundVariantTile) / kGroundVariants);
     }
     if (index >= kFirstHullTile && index < kFirstHullTile + kHullVariantCount) {
         return paint_camo(seed, index, index - kFirstHullTile, kNeutralCamo);
@@ -780,8 +846,11 @@ Tile paint_tile(std::uint64_t seed, int index) {
         return paint_site_pad(seed, index);
     case kSiteRigTile:
         return paint_site_rig(seed, index);
-    case kSiteVentTile:
-        return paint_patches(seed, index, kVentGround, 3, 1);
+    case kSiteVentTile: {
+        Tile vent = paint_patches(seed, index, kVentGround, 3, 1);
+        weather(vent, seed, index, 6, 7, 14);
+        return vent;
+    }
     case kGrassTile:
     case kDirtTile:
     case kRockTile:

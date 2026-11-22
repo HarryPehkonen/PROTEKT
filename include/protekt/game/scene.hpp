@@ -364,6 +364,15 @@ inline constexpr math::Vec3 kTerrainLight{1.0F, 1.0F, 1.0F};
 /// a little above it. The slope's difference from flat is the whole effect.
 [[nodiscard]] math::Vec3 terrain_base_colour();
 
+/// THE GROUND'S MACRO VARIATION. A 64-texel tile repeats across a 64-tile map and the eye locks
+/// onto the repeat; so every terrain CORNER (tile_x, tile_y) carries a slow tint -- three octaves
+/// of value noise over lattices 37, 17 and 7 tiles apart, hashed from `seed` -- which multiplies
+/// the sampled texel (the vertex colour is `terrain_base_colour() * ground_tint`, and the
+/// interpolation across a quad blends neighbours' tints, so there is no per-tile step). A pure
+/// function of (seed, corner): no frame, no clock, nothing from the sim. About +/- 20% light and a
+/// few percent warm/cool lean.
+[[nodiscard]] math::Vec3 ground_tint(std::uint64_t seed, int corner_x, int corner_y);
+
 /// Where the player's eye is, in world metres and radians. Yaw 0 looks down +Z.
 struct Camera {
     float x{};

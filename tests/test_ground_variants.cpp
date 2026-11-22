@@ -127,32 +127,34 @@ std::array<std::uint8_t, 3> texel(const std::vector<std::uint8_t>& px, int tile,
     return {px.at(at), px.at(at + 1), px.at(at + 2)};
 }
 
-TEST(GroundVariant, EachVariantIsPaintedInItsFamilysTonesButIsItsOwnPattern) {
-    // SUBTLE: a variant uses exactly its family tile's tones in near the same shares, so the
-    // ground's colour does not shift between variants; only where the patches lie does.
+TEST(GroundVariant, EachVariantIsOfItsFamilysColourButIsItsOwnPatternAndTone) {
+    // A LOOK slice moved this pin. It used to say a variant has EXACTLY its family's three tones;
+    // the drawn variants are now weathered (grain, pebbles, a lightness and lean of their own), so
+    // the pin is: still the family's colour (mean within a margin of the family tile's), and still
+    // its own pattern (no two tiles of a family agree on more than a tenth of their texels).
     const auto px = protekt::game::atlas_pixels();
     const auto& atlas = protekt::game::atlas_manifest();
-    for (const Terrain type : kTypes) {
-        const int family = atlas.tile(protekt::game::terrain_tile_name(type));
-        std::map<std::array<std::uint8_t, 3>, int> family_tones;
+    const auto mean = [&](int tile) {
+        std::array<double, 3> m{};
         for (int y = 0; y < 64; ++y) {
             for (int x = 0; x < 64; ++x) {
-                ++family_tones[texel(px, family, x, y)];
+                const auto t = texel(px, tile, x, y);
+                for (std::size_t c = 0; c < 3; ++c) {
+                    m.at(c) += t.at(c) / 4096.0;
+                }
             }
         }
+        return m;
+    };
+    for (const Terrain type : kTypes) {
+        const int family = atlas.tile(protekt::game::terrain_tile_name(type));
+        const auto family_mean = mean(family);
         std::vector<int> tiles{family};
         for (int v = 0; v < kGroundVariantCount; ++v) {
             const int tile = atlas.tile(terrain_variant_name(type, v));
-            std::map<std::array<std::uint8_t, 3>, int> tones;
-            for (int y = 0; y < 64; ++y) {
-                for (int x = 0; x < 64; ++x) {
-                    ++tones[texel(px, tile, x, y)];
-                }
-            }
-            ASSERT_EQ(tones.size(), family_tones.size()) << "tile " << tile;
-            for (const auto& [rgb, n] : tones) {
-                ASSERT_TRUE(family_tones.contains(rgb)) << "tile " << tile << " has a new tone";
-                EXPECT_NEAR(n, family_tones.at(rgb), 4096 * 0.08) << "tile " << tile;
+            const auto m = mean(tile);
+            for (std::size_t c = 0; c < 3; ++c) {
+                EXPECT_NEAR(m.at(c), family_mean.at(c), 26.0) << "tile " << tile;
             }
             for (const int other : tiles) {
                 int same = 0;
@@ -161,7 +163,7 @@ TEST(GroundVariant, EachVariantIsPaintedInItsFamilysTonesButIsItsOwnPattern) {
                         same += texel(px, tile, x, y) == texel(px, other, x, y) ? 1 : 0;
                     }
                 }
-                EXPECT_LT(same, 4096 * 9 / 10) << "tiles " << tile << " and " << other;
+                EXPECT_LT(same, 4096 / 10) << "tiles " << tile << " and " << other;
             }
             tiles.push_back(tile);
         }

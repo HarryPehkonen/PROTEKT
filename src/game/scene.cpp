@@ -143,6 +143,7 @@ void build_terrain(std::vector<SceneVertex>& out, const TerrainCache* cache, std
     // neighbours of two variants or orientations meet in the same tones (D7 turns and mirrors the
     // UV corners per tile, never the tile).
     const AtlasManifest& atlas = atlas_manifest();
+    const Vec3 base = terrain_base_colour();
     std::array<std::array<UvRect, kGroundVariantCount>, world::kTerrainCount> tiles{};
     for (int t = 0; t < world::kTerrainCount; ++t) {
         for (int v = 0; v < kGroundVariantCount; ++v) {
@@ -174,9 +175,22 @@ void build_terrain(std::vector<SceneVertex>& out, const TerrainCache* cache, std
             const Vec3 p10{x1, cached_height_metres(cache, seed, tx + 1, ty), z0};
             const Vec3 p11{x1, cached_height_metres(cache, seed, tx + 1, ty + 1), z1};
             const Vec3 p01{x0, cached_height_metres(cache, seed, tx, ty + 1), z1};
-            emit_tiled_quad(out, p00, p10, p11, p01, terrain_base_colour(), tile,
-                            site.has_value() ? 0 : orientation_index(terrain, tx, ty),
-                            terrain_normal(p00, p10, p11, p01));
+            const int orientation = site.has_value() ? 0 : orientation_index(terrain, tx, ty);
+            const Vec3 normal = terrain_normal(p00, p10, p11, p01);
+            const std::array<Vec3, 4> corners{p00, p10, p11, p01};
+            const std::array<std::array<int, 2>, 4> at{
+                {{tx, ty}, {tx + 1, ty}, {tx + 1, ty + 1}, {tx, ty + 1}}};
+            std::array<SceneVertex, 4> v{};
+            for (std::size_t k = 0; k < 4; ++k) {
+                const Vec3 tint = ground_tint(seed, at.at(k).at(0), at.at(k).at(1));
+                const Vec3 colour{base[0] * tint[0], base[1] * tint[1], base[2] * tint[2]};
+                const auto uv = oriented_corner_uv(tile, orientation, static_cast<int>(k));
+                v.at(k)
+                    = SceneVertex{corners.at(k), colour, 1.0F, uv.at(0), uv.at(1), 0.0F, normal};
+            }
+            for (const std::size_t k : {0U, 1U, 2U, 0U, 2U, 3U}) {
+                out.push_back(v.at(k));
+            }
         }
     }
 }
@@ -7327,6 +7341,46 @@ float face_light(const Vec3& normal) {
 Vec3 terrain_base_colour() {
     const float flat = face_light(Vec3{0.0F, 1.0F, 0.0F});
     return Vec3{kTerrainLight[0] / flat, kTerrainLight[1] / flat, kTerrainLight[2] / flat};
+}
+
+namespace {
+
+/// A hashed lattice value in [-1, 1] for knot (i, j) of the octave `salt`.
+float lattice_value(std::uint64_t seed, std::uint64_t salt, int i, int j) {
+    std::uint64_t z = seed ^ (salt * 0x9E3779B97F4A7C15ULL);
+    z ^= (static_cast<std::uint64_t>(static_cast<std::uint32_t>(i)) << 32U)
+         | static_cast<std::uint32_t>(j);
+    z = (z ^ (z >> 30U)) * 0xBF58476D1CE4E5B9ULL;
+    z = (z ^ (z >> 27U)) * 0x94D049BB133111EBULL;
+    z ^= z >> 31U;
+    return (static_cast<float>(z % 2001U) - 1000.0F) / 1000.0F;
+}
+
+/// Smooth value noise in [-1, 1]: knots `cell` tiles apart, blended with the smoothstep curve.
+float value_noise(std::uint64_t seed, std::uint64_t salt, int cell, int x, int y) {
+    const auto floor_div = [](int a, int b) { return (a >= 0 ? a : a - b + 1) / b; };
+    const int i = floor_div(x, cell);
+    const int j = floor_div(y, cell);
+    const float fx = static_cast<float>(x - (i * cell)) / static_cast<float>(cell);
+    const float fy = static_cast<float>(y - (j * cell)) / static_cast<float>(cell);
+    const float sx = fx * fx * (3.0F - (2.0F * fx));
+    const float sy = fy * fy * (3.0F - (2.0F * fy));
+    const float top
+        = lattice_value(seed, salt, i, j) * (1.0F - sx) + lattice_value(seed, salt, i + 1, j) * sx;
+    const float bottom = lattice_value(seed, salt, i, j + 1) * (1.0F - sx)
+                         + lattice_value(seed, salt, i + 1, j + 1) * sx;
+    return (top * (1.0F - sy)) + (bottom * sy);
+}
+
+} // namespace
+
+Vec3 ground_tint(std::uint64_t seed, int corner_x, int corner_y) {
+    const float light = (0.55F * value_noise(seed, 1, 37, corner_x, corner_y))
+                        + (0.30F * value_noise(seed, 2, 17, corner_x, corner_y))
+                        + (0.15F * value_noise(seed, 3, 7, corner_x, corner_y));
+    const float lean = value_noise(seed, 4, 29, corner_x, corner_y);
+    const float bright = 1.0F + (0.20F * light);
+    return Vec3{bright * (1.0F + (0.05F * lean)), bright, bright * (1.0F - (0.05F * lean))};
 }
 
 void smooth_vertex_normals(std::vector<SceneVertex>& vertices, std::size_t first, std::size_t last,

@@ -204,14 +204,19 @@ TEST(Fog, TheTerrainFadesFromItsOwnPaintToTheHorizon) {
         EXPECT_EQ(v.fog, fog_amount(d, far)) << "at " << d << " m";
         // The grey of the slope's light (a quad's light is its own, so only a FLAT quad is exactly
         // white), never tinted toward the horizon, near or far.
-        EXPECT_EQ(v.colour[0], v.colour[1]) << "terrain paint is never tinted";
-        EXPECT_EQ(v.colour[1], v.colour[2]) << "terrain paint is never tinted";
+        // A LOOK slice moved this pin: the ground carries a macro tint (ground_tint) that leans a
+        // few percent warm/cool, so channels are no longer equal -- but never toward the HORIZON's
+        // hue.
+        EXPECT_NEAR(v.colour[0], v.colour[1], 0.08F * v.colour[1])
+            << "terrain paint is never tinted";
+        EXPECT_NEAR(v.colour[1], v.colour[2], 0.08F * v.colour[1])
+            << "terrain paint is never tinted";
         EXPECT_NE(v.colour, horizon()) << "the colour is the raw lighting, not the horizon";
         if (d <= kFogNearMetres) {
             ++near_count;
             EXPECT_EQ(v.fog, 0.0F) << "inside the near distance, terrain is unfogged";
             EXPECT_GT(v.colour[0], 0.85F);
-            EXPECT_LT(v.colour[0], 1.05F);
+            EXPECT_LT(v.colour[0], 1.30F); // the macro tint's +/-20% over the flat 1.04
         } else if (d >= far) {
             ++far_count;
             EXPECT_EQ(v.fog, 1.0F) << "at the rim the terrain IS the horizon";

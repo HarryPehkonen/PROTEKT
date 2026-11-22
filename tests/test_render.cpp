@@ -15,6 +15,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <map>
@@ -603,6 +604,7 @@ struct GrassMeasure {
     bool ok{}; ///< false when the frame could not be rendered (already reported)
     double luma_range{};
     double mean_run{};
+    double exact_run{}; ///< the same, counting only byte-equal neighbours as one run
     bool repeatable{};
     std::uint32_t validation_errors{};
 };
@@ -671,8 +673,10 @@ GrassMeasure measure_grass(bool fxaa) {
     double lo = 1.0;
     double hi = 0.0;
     std::size_t runs = 0;
+    std::size_t exact_runs = 0;
     for (std::uint32_t y = 0; y < kHeight; ++y) {
         ++runs;
+        ++exact_runs;
         for (std::uint32_t x = 0; x < kWidth; ++x) {
             const std::uint32_t c = frame.rgb(x, y);
             const double l = ((0.2126 * ((c >> 16U) & 0xFFU)) + (0.7152 * ((c >> 8U) & 0xFFU))
@@ -680,11 +684,23 @@ GrassMeasure measure_grass(bool fxaa) {
                              / 255.0;
             lo = std::min(lo, l);
             hi = std::max(hi, l);
-            runs += x > 0 && c != frame.rgb(x - 1, y) ? 1U : 0U;
+            // A LOOK slice moved this pin: "the same colour" is "within a small colour distance" --
+            // the ground now carries a smooth macro tint and a fine grain, and exact equality would
+            // call every pixel its own run. Patches still have to be patches (>= 6 pixels).
+            if (x > 0) {
+                const std::uint32_t q = frame.rgb(x - 1, y);
+                exact_runs += c != q ? 1U : 0U;
+                const auto d = [&](std::uint32_t shift) {
+                    return std::abs(static_cast<int>((c >> shift) & 0xFFU)
+                                    - static_cast<int>((q >> shift) & 0xFFU));
+                };
+                runs += (d(16U) + d(8U) + d(0U)) > 24 ? 1U : 0U;
+            }
         }
     }
     m.luma_range = hi - lo;
     m.mean_run = static_cast<double>(kWidth) * kHeight / static_cast<double>(runs);
+    m.exact_run = static_cast<double>(kWidth) * kHeight / static_cast<double>(exact_runs);
     // Two renders of the one request are byte-identical: the paint is data, not noise.
     m.repeatable = atlas_renderer->render(
                        protekt::render::FrameRequest{
@@ -724,7 +740,9 @@ TEST_F(RenderTest, TheEdgePassSoftensTheGrassWithoutFlatteningIt) {
     RecordProperty("fxaa_ground_mean_run_pixels", std::to_string(on.mean_run));
     EXPECT_GE(on.luma_range, kMinCapturedGroundLumaRange);
     EXPECT_TRUE(on.repeatable);
-    EXPECT_LT(on.mean_run, off.mean_run) << "the pass changed nothing on the textured ground";
+    // A LOOK slice moved this pin: counted on EXACT equality, since the tolerant run length the
+    // capture gate now uses absorbs the blended pixel the pass adds along a patch border.
+    EXPECT_LT(on.exact_run, off.exact_run) << "the pass changed nothing on the textured ground";
 }
 
 // ---------------------------------------------------------------- the edge pass

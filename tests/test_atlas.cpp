@@ -866,10 +866,15 @@ TEST(AtlasSite, EachSiteTileWrapsSoNeighbouringQuadsShowNoSeamOfTheirOwn) {
     const auto px = protekt::game::atlas_pixels();
     int match = 0;
     for (int i = 0; i < 64; ++i) {
-        match += texel(px, 47, 0, i) == texel(px, 47, 63, i) ? 1 : 0;
-        match += texel(px, 47, i, 0) == texel(px, 47, i, 63) ? 1 : 0;
+        // A LOOK slice moved this pin: the vent is weathered now (per-texel grain), so "wraps" is
+        // "the texel across the seam is within the grain's reach", not byte-equal.
+        const auto near = [](const Rgb& a, const Rgb& b) {
+            return std::abs(lightness(a) - lightness(b)) <= 60;
+        };
+        match += near(texel(px, 47, 0, i), texel(px, 47, 63, i)) ? 1 : 0;
+        match += near(texel(px, 47, i, 0), texel(px, 47, i, 63)) ? 1 : 0;
     }
-    EXPECT_GE(match / 128.0, 0.5) << "the vent's ground wraps";
+    EXPECT_GE(match / 128.0, 0.8) << "the vent's ground wraps";
     const Rgb seam = texel(px, 45, 31, 5);
     EXPECT_EQ(texel(px, 45, 63, 5), seam) << "the pad's plate seam runs down the tile's edge";
     EXPECT_EQ(texel(px, 45, 5, 63), seam);

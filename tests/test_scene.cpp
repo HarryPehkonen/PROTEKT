@@ -368,14 +368,17 @@ TEST(SceneTerrainLight, EveryVertexAtATileCornerCarriesTheAverageOfTheFacesThatM
     EXPECT_LT(darkest, 0.95F) << "ground sloping away from the sun is darker than flat ground";
 }
 
-TEST(SceneTerrainLight, TheTerrainColourIsOneColourEverywhereAndTheSlopeIsInTheNormal) {
+TEST(SceneTerrainLight, TheTerrainColourIsTheBaseTimesItsCornersTintAndTheSlopeIsInTheNormal) {
     const protekt::math::Vec3 base = protekt::game::terrain_base_colour();
     bool saw_tilted = false;
     for (int ty = 100; ty < 106; ++ty) {
         for (int tx = 100; tx < 106; ++tx) {
             const CornerRead read = read_corner(kSlopeSeedForLight, tx, ty);
             for (const SceneVertex& v : read.vertices) {
-                EXPECT_EQ(v.colour, base);
+                const auto tint = protekt::game::ground_tint(kSlopeSeedForLight, tx, ty);
+                for (std::size_t c = 0; c < 3; ++c) {
+                    EXPECT_NEAR(v.colour.at(c), base.at(c) * tint.at(c), 1e-4F);
+                }
                 saw_tilted = saw_tilted || v.normal[1] < 0.99F;
             }
         }
@@ -512,7 +515,14 @@ TEST(SceneTerrain, EveryQuadSamplesTheWholeTileOfItsTypeTheSameWayRound) {
             const auto& v = scene.vertices.at(q + i);
             ASSERT_EQ(v.u, want.at(i).at(0)) << "tile " << tx << "," << ty << " vertex " << i;
             ASSERT_EQ(v.v, want.at(i).at(1)) << "tile " << tx << "," << ty << " vertex " << i;
-            const protekt::math::Vec3 base = protekt::game::terrain_base_colour();
+            // A LOOK slice moved this pin: the colour is the base times the macro tint of the
+            // corner.
+            const protekt::math::Vec3 flat_base = protekt::game::terrain_base_colour();
+            const auto tint = protekt::game::ground_tint(
+                seed, static_cast<int>(std::lround(v.position[0] / kMetresPerTile)),
+                static_cast<int>(std::lround(v.position[2] / kMetresPerTile)));
+            const protekt::math::Vec3 base{flat_base[0] * tint[0], flat_base[1] * tint[1],
+                                           flat_base[2] * tint[2]};
             ASSERT_TRUE(protekt::game::haze::fog_is_right(view, v))
                 << "tile " << tx << "," << ty << " vertex " << i << ": the fog is its distance's";
             const auto want_colour = protekt::game::haze::seen(v, base);
