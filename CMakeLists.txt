@@ -407,6 +407,9 @@ if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
 
     add_test(NAME protekt_tests COMMAND protekt_tests)
 
+    # The slice queue (tools/queue.sh) and its runner: a shell tool, so a shell witness.
+    add_test(NAME queue_tests COMMAND ${CMAKE_SOURCE_DIR}/tools/queue_test.sh)
+
     # The map CLI exists so that determinism can be checked ACROSS processes, which no unit
     # test can do: run it twice with the same seed and the bytes must match.
     add_executable(protekt-map src/app/map_cli.cpp)
