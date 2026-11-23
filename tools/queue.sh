@@ -38,10 +38,18 @@ stamp() {
   printf 'claimed_by=%s\nclaimed_at=%s\n' "$2" "$(now)" >> "$1.tmp"
   mv "$1.tmp" "$1"
 }
-# claimed_at <file>: the lease clock.  A claim whose runner died between the rename and the stamp has
-# no claimed_at, and is treated as claimed at time 0 -- i.e. it is reclaimable at once, which is the
-# safe direction (the slice is merely offered again).
-claimed_at() { sed -n 's/^claimed_at=//p' "$1" | tail -1 | grep -E '^[0-9]+$' || echo 0; }
+# age <file>: seconds since the claim, by the lease clock.  Normally that is claimed_at, recorded in
+# the file.  BUT a claim is a rename FIRST and a stamp SECOND, so for a moment a live claim has no
+# claimed_at.  Reading that as "claimed at time 0" let a concurrent `reclaim` steal it back out of
+# claimed/ in that window and hand one slice to two runners.  An unstamped claim is instead aged
+# by the file's own ctime, which the claiming rename just set: brand new, so not reclaimable, while a
+# runner that really died before stamping still ages out after the lease.
+age() {
+  local at
+  at=$(sed -n 's/^claimed_at=//p' "$1" 2>/dev/null | tail -1 | grep -E '^[0-9]+$')
+  if [ -n "$at" ]; then echo $(( $(now) - at ))
+  else echo $(( $(date +%s) - $(stat -c %Z "$1" 2>/dev/null || date +%s) )); fi
+}
 
 cmd=${1:-}; shift || true
 case "$cmd" in
@@ -51,7 +59,7 @@ case "$cmd" in
     n=0
     for f in "$ROOT"/claimed/*/*.slice; do
       [ -e "$f" ] || continue
-      age=$(( $(now) - $(claimed_at "$f") ))
+      age=$(age "$f")
       if [ "$age" -ge "$QUEUE_LEASE_SECONDS" ]; then
         # the same rename: if two reclaimers race, one wins and the other sees ENOENT
         if mv "$f" "$ROOT/queue/$(basename "$f")" 2>/dev/null; then
@@ -99,7 +107,7 @@ case "$cmd" in
     echo "queue/ (next first):"; for f in "$ROOT"/queue/*.slice; do [ -e "$f" ] && echo "  $(basename "$f")"; done
     echo "claimed/ (lease ${QUEUE_LEASE_SECONDS}s):"
     for f in "$ROOT"/claimed/*/*.slice; do
-      [ -e "$f" ] && echo "  $(basename "$f")  by $(basename "$(dirname "$f")")  aged $(( $(now) - $(claimed_at "$f") ))s"
+      [ -e "$f" ] && echo "  $(basename "$f")  by $(basename "$(dirname "$f")")  aged $(age "$f")s"
     done
     echo "done/:"; for f in "$ROOT"/done/*.slice; do [ -e "$f" ] && echo "  $(basename "$f")"; done
     exit 0 ;;
