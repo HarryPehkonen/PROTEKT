@@ -1448,9 +1448,14 @@ private:
                                     &descriptor_set_, 0, nullptr);
             vkCmdPushConstants(cmd_, pipeline_layout_, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(Mat4),
                                mvp.data());
-            // The fog is the sky's own horizon ring: one source, never restated here.
-            const FragmentPush light{game::kSkyRingColours.at(game::kSkyHorizonRing),
-                                     game::kShadeFloor, math::normalise(game::kSunDirection)};
+            // The fog is the sky's own horizon: one source, never restated here. The scene carries
+            // its climate's (`Scene::fog_colour`); one that says nothing gets the original ring.
+            const std::array<float, 3> original = game::kSkyRingColours.at(game::kSkyHorizonRing);
+            const std::array<float, 3> horizon = request.scene != nullptr
+                                                     ? request.scene->fog_colour.value_or(original)
+                                                     : original;
+            const FragmentPush light{horizon, game::kShadeFloor,
+                                     math::normalise(game::kSunDirection)};
             vkCmdPushConstants(cmd_, pipeline_layout_, VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(Mat4),
                                sizeof(FragmentPush), &light);
             const VkDeviceSize offset = 0;

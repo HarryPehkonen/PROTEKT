@@ -9,6 +9,7 @@ name = "Proving Ground"
 seed = 0
 width = 64
 height = 64
+climate = "temperate"
 
 [terrain]
 rows = """

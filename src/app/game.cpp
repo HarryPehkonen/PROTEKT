@@ -150,6 +150,9 @@ struct Options {
     /// terrain are the ground, its solid mask stops units, its spawns are the two bases, its
     /// volumes stand. (`--map FRAME` is a scripted key press and has nothing to do with this.)
     std::string mapfile{};
+    /// The map's climate (`game::Climate`), read from its header: a look, never a rule. Temperate
+    /// when no map is named.
+    game::Climate climate{game::Climate::Temperate};
     /// Whether `--seed` was given. A map records its own seed, and that is the one played unless
     /// the command line names another.
     bool seed_given{false};
@@ -468,6 +471,7 @@ public:
                                std::ostream& out) {
         game::SceneOptions scene_options;
         scene_options.seed = options_.seed;
+        scene_options.climate = options_.climate; // the map's ground and air: paint only
         scene_options.camera = camera_yawed(camera_for(sim_, session_, options_.seed, hover_.z()),
                                             options_.look_yaw_centirad);
         scene_options.extent = extent;
@@ -857,6 +861,7 @@ int run_game_cli(std::span<const std::string_view> args, std::ostream& out, std:
             return 2;
         }
         map = std::move(parsed.map);
+        options.climate = map->climate;
         map_ground_guard.emplace(map_ground(*map));
         scenario_data = map_scenario_data(*map, std::move(scenario_data));
         if (!options.seed_given) {

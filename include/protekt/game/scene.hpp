@@ -12,6 +12,7 @@
 
 #include "protekt/game/atlas.hpp"
 #include "protekt/game/building_cache.hpp"
+#include "protekt/game/climate.hpp"
 #include "protekt/game/faction.hpp"
 #include "protekt/game/menu.hpp"
 #include "protekt/game/scene_data.hpp"
@@ -225,6 +226,10 @@ inline constexpr int kFogRampExponent = 1;
 [[nodiscard]] constexpr float fog_far_metres(int radius_tiles) noexcept {
     return static_cast<float>(radius_tiles) * kMetresPerTile;
 }
+
+/// Where the fog is total under `climate`: the meshed radius scaled by the climate's haze. A clear
+/// climate (scale 1) is `fog_far_metres(radius_tiles)` exactly.
+[[nodiscard]] float fog_far_metres(int radius_tiles, Climate climate) noexcept;
 
 /// How much of the fog covers something `distance` metres from the eye when the fog is complete at
 /// `far`: 0 at or inside `kFogNearMetres`, EXACTLY 1 at or beyond `far`, the ramp in between. The
@@ -1400,6 +1405,9 @@ struct FrameTimings {
 
 struct SceneOptions {
     std::uint64_t seed{};
+    /// The map's climate (`climate.hpp`): its ground paint, its sky and its fog. A LOOK; the sim
+    /// never sees it.
+    Climate climate{Climate::Temperate};
     Camera camera{};
     /// The frame this scene will be drawn into: the projection needs its aspect ratio.
     Extent extent{1280, 720};

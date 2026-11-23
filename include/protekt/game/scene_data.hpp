@@ -3,6 +3,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <vector>
 
 /// Plain data the game builds and the renderer consumes. The game owns these definitions so the
@@ -50,6 +51,9 @@ struct Scene {
     /// hand-built scene with no HUD wants. Both lists are triples, so a boundary is a multiple
     /// of 3.
     std::size_t world_vertex_count{SIZE_MAX};
+    /// What the distance fog fades TO: the climate's horizon (`fog_colour`). Absent on a hand-built
+    /// scene, which the renderer fogs with the original sky horizon.
+    std::optional<std::array<float, 3>> fog_colour{};
 };
 
 /// The radar's wireframe grid pitch in tiles, for RADAR3D-2: 2 gives a 41x41 grid of tile corners

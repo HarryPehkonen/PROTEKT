@@ -133,8 +133,11 @@ Vec3 terrain_normal(const Vec3& p00, const Vec3& p10, const Vec3& p11, const Vec
     return normalise(cross(across, along));
 }
 
+constexpr Vec3 kNoGroundGain{1.0F, 1.0F, 1.0F};
+
 void build_terrain(std::vector<SceneVertex>& out, const TerrainCache* cache, std::uint64_t seed,
-                   int centre_x, int centre_y, int radius, const SiteGroundMap& sites) {
+                   int centre_x, int centre_y, int radius, const SiteGroundMap& sites,
+                   Climate climate) {
     // Each tile's corners are sampled one tile beyond it on the far edge (tx+1, ty+1); widening
     // the low edge by one tile too keeps the sampled HEIGHT field symmetric around the camera,
     // even though the tolerance on the mesh's visual extent absorbs the extra row.
@@ -144,6 +147,7 @@ void build_terrain(std::vector<SceneVertex>& out, const TerrainCache* cache, std
     // UV corners per tile, never the tile).
     const AtlasManifest& atlas = atlas_manifest();
     const Vec3 base = terrain_base_colour();
+    const ClimateLook& look = climate_look(climate);
     std::array<std::array<UvRect, kGroundVariantCount>, world::kTerrainCount> tiles{};
     for (int t = 0; t < world::kTerrainCount; ++t) {
         for (int v = 0; v < kGroundVariantCount; ++v) {
@@ -183,7 +187,13 @@ void build_terrain(std::vector<SceneVertex>& out, const TerrainCache* cache, std
             std::array<SceneVertex, 4> v{};
             for (std::size_t k = 0; k < 4; ++k) {
                 const Vec3 tint = ground_tint(seed, at.at(k).at(0), at.at(k).at(1));
-                const Vec3 colour{base[0] * tint[0], base[1] * tint[1], base[2] * tint[2]};
+                // THE CLIMATE'S GROUND: its gain turns the tile toward sand, ice or regolith. A
+                // deployed site's own plating is not repainted by the weather.
+                const Vec3& gain = site.has_value()
+                                       ? kNoGroundGain
+                                       : look.ground_gain.at(static_cast<std::size_t>(terrain));
+                const Vec3 colour{base[0] * tint[0] * gain[0], base[1] * tint[1] * gain[1],
+                                  base[2] * tint[2] * gain[2]};
                 const auto uv = oriented_corner_uv(tile, orientation, static_cast<int>(k));
                 v.at(k)
                     = SceneVertex{corners.at(k), colour, 1.0F, uv.at(0), uv.at(1), 0.0F, normal};
@@ -196,7 +206,7 @@ void build_terrain(std::vector<SceneVertex>& out, const TerrainCache* cache, std
 }
 
 /// The sky dome, centred on the camera. Raw colours, never shaded. See `kSkySegments`.
-void append_sky(std::vector<SceneVertex>& out, const Camera& camera) {
+void append_sky(std::vector<SceneVertex>& out, const Camera& camera, Climate climate) {
     const Vec3 eye{camera.x, camera.y, camera.z};
     const auto at = [&](const Vec3& direction, float radius) {
         return Vec3{eye[0] + (direction[0] * radius), eye[1] + (direction[1] * radius),
@@ -210,8 +220,8 @@ void append_sky(std::vector<SceneVertex>& out, const Camera& camera) {
                   kSkyRadiusMetres);
     };
     for (std::size_t ring = 0; ring + 1 < kSkyRings; ++ring) {
-        const Vec3& low = kSkyRingColours.at(ring);
-        const Vec3& high = kSkyRingColours.at(ring + 1);
+        const Vec3 low = sky_ring_colour(climate, ring);
+        const Vec3 high = sky_ring_colour(climate, ring + 1);
         const bool cap = ring + 2 == kSkyRings;
         for (int segment = 0; segment < kSkySegments; ++segment) {
             const Vec3 a = ring_point(ring, segment);
@@ -263,8 +273,7 @@ void append_sky(std::vector<SceneVertex>& out, const Camera& camera) {
 /// fog is applied: `build_scene` calls it, through `fog_world`, on the world's runs of the vertex
 /// list less the sparks' (AH) and on nothing else.
 void fog_range(std::vector<SceneVertex>& vertices, std::size_t first, std::size_t last,
-               const Camera& camera, int radius_tiles) {
-    const float far = fog_far_metres(radius_tiles);
+               const Camera& camera, float far) {
     for (std::size_t i = first; i < last; ++i) {
         SceneVertex& v = vertices.at(i);
         const float dx = v.position[0] - camera.x;
@@ -285,13 +294,13 @@ struct VertexRun {
 /// `fog_range` over [first, last) EXCEPT the `emissive` runs, which are in list order. Their
 /// vertices keep the fog amount they were built with, which is none.
 void fog_world(std::vector<SceneVertex>& vertices, std::size_t first, std::size_t last,
-               const std::vector<VertexRun>& emissive, const Camera& camera, int radius_tiles) {
+               const std::vector<VertexRun>& emissive, const Camera& camera, float far) {
     std::size_t at = first;
     for (const VertexRun& run : emissive) {
-        fog_range(vertices, at, run.first, camera, radius_tiles);
+        fog_range(vertices, at, run.first, camera, far);
         at = run.last;
     }
-    fog_range(vertices, at, last, camera, radius_tiles);
+    fog_range(vertices, at, last, camera, far);
 }
 
 /// A selected unit keeps its side's colour and is mixed towards white, so a glance tells you both
@@ -7801,11 +7810,11 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
     const int centre_x = static_cast<int>(std::floor(options.camera.x / kMetresPerTile));
     const int centre_y = static_cast<int>(std::floor(options.camera.z / kMetresPerTile));
     build_terrain(scene.vertices, options.terrain, options.seed, centre_x, centre_y,
-                  options.radius_tiles, sites_in_view(sim, options));
+                  options.radius_tiles, sites_in_view(sim, options), options.climate);
     const std::size_t terrain_end = scene.vertices.size();
     watch_capacity();
     lap(&FrameTimings::terrain_ms);
-    append_sky(scene.vertices, options.camera);
+    append_sky(scene.vertices, options.camera, options.climate);
     const std::size_t sky_end = scene.vertices.size();
 
     // The one pick the frame makes: the reticle and the unit tint both read it, so they can never
@@ -7989,9 +7998,11 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
     const std::size_t smoothed_vertices = smooth_vertex_normals(
         scene.vertices, 0, scene.vertices.size(), kCreaseAngleDegrees, cached_runs);
     lap(&FrameTimings::smooth_ms);
-    fog_range(scene.vertices, 0, terrain_end, options.camera, options.radius_tiles);
-    fog_world(scene.vertices, sky_end, scene.vertices.size(), emissive, options.camera,
-              options.radius_tiles);
+    // WHERE the fog is total is the CLIMATE's: a hazy place closes in sooner than a clear one.
+    const float fog_far = fog_far_metres(options.radius_tiles, options.climate);
+    fog_range(scene.vertices, 0, terrain_end, options.camera, fog_far);
+    fog_world(scene.vertices, sky_end, scene.vertices.size(), emissive, options.camera, fog_far);
+    scene.fog_colour = fog_colour(options.climate);
     // The renderer smooths the world's edges and draws everything past this index after it.
     scene.world_vertex_count = scene.vertices.size();
     lap(&FrameTimings::fog_ms);

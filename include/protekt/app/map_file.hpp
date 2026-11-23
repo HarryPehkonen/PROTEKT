@@ -6,6 +6,7 @@
 #include <string_view>
 #include <vector>
 
+#include "protekt/game/climate.hpp"
 #include "protekt/sim/scenario.hpp"
 #include "protekt/sim/volume.hpp"
 #include "protekt/world/ground.hpp"
@@ -17,6 +18,7 @@ namespace protekt::app {
 /// and where it came from, and RASTERS that a person can read and edit in a text editor.
 ///
 ///   [map]                 name = "...", seed = N, width = W, height = H   (W, H in 2..256)
+///                         climate = "temperate" | "sand" | "ice" | "regolith"   (optional)
 ///   [terrain]  rows = """  H rows of W letters: f flat, r rough, R ridge, c crater
 ///   [height]   rows = """  H rows of W integers (-512..512), each right-aligned in a 4-wide column
 ///   [solid]    rows = """  H rows of W letters: # impassable tile, . open  (the WORLD frame)
@@ -61,6 +63,10 @@ struct MapDoc {
     std::uint64_t seed{};
     int width{};
     int height{};
+    /// The map's climate: a look (ground, sky, fog), never a rule. Absent from the header means
+    /// Temperate, the look every map had before climates existed; a value that is not a climate is
+    /// refused by name.
+    game::Climate climate{game::Climate::Temperate};
     std::vector<world::Terrain> terrain{}; ///< width * height, row-major
     std::vector<int> heights{};            ///< width * height, row-major
     std::vector<std::uint8_t> solid{};     ///< width * height, 1 = impassable

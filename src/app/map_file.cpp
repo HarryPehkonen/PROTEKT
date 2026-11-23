@@ -249,6 +249,34 @@ public:
         return true;
     }
 
+    /// The OPTIONAL `climate` key: absent leaves `value` as it was (Temperate, the look every map
+    /// had before climates). Present, it is one of the game's climate names or the file is refused
+    /// by name -- never a quiet fallback.
+    [[nodiscard]] bool climate(game::Climate& value) {
+        const auto at = std::find_if(section_->entries.begin(), section_->entries.end(),
+                                     [](const Entry& entry) { return entry.key == "climate"; });
+        if (at == section_->entries.end()) {
+            return true;
+        }
+        std::string name;
+        if (!string("climate", name)) {
+            return false;
+        }
+        const std::optional<game::Climate> found = game::climate_from_name(name);
+        if (!found.has_value()) {
+            std::string known;
+            for (int i = 0; i < static_cast<int>(game::kClimateCount); ++i) {
+                known += (i == 0 ? "" : ", ");
+                known += game::climate_name(static_cast<game::Climate>(i));
+            }
+            *failure_
+                = {at->line, "unknown climate \"" + name + "\" (the climates are " + known + ")"};
+            return false;
+        }
+        value = *found;
+        return true;
+    }
+
     [[nodiscard]] const std::vector<std::string>* rows() {
         const Entry* entry = find("rows");
         if (entry == nullptr) {
@@ -477,7 +505,7 @@ std::string write_map(const MapDoc& map) {
     out += "# solid: # impassable, . open.  Row 0 is the north edge; column 0 the west.\n";
     out += "\n[map]\nname = " + quote(map.name) + "\nseed = " + std::to_string(map.seed)
            + "\nwidth = " + std::to_string(map.width) + "\nheight = " + std::to_string(map.height)
-           + "\n";
+           + "\nclimate = \"" + std::string{game::climate_name(map.climate)} + "\"\n";
     std::vector<std::string> rows;
     for (int y = 0; y < map.height; ++y) {
         std::string row;
@@ -591,6 +619,9 @@ MapParse parse_map(std::string_view text) {
             return fail({seed_entry->line, "'seed' wants an unsigned integer"});
         }
         map.seed = parsed_seed;
+        if (!f.climate(map.climate)) {
+            return fail(failure);
+        }
         if (!f.nothing_left()) {
             return fail(failure);
         }

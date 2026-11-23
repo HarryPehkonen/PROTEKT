@@ -374,6 +374,65 @@ TEST_F(GameCliTest, ABadMapFileRefusesToStartAndNamesTheFileAndTheLine) {
     EXPECT_TRUE(out.empty()) << "no game was played: " << out;
 }
 
+TEST_F(GameCliTest, AnUnknownClimateRefusesToStartAndNamesTheFileTheLineAndTheValue) {
+    // "A bad data file must never quietly play a different game": a map whose climate is not one
+    // of ours is not played as temperate.
+    std::string text = slurp(proving_ground_path());
+    const std::string_view good = "climate = \"temperate\"";
+    const std::size_t at = text.find(good);
+    ASSERT_NE(at, std::string::npos) << "the shipped map says its climate";
+    text.replace(at, good.size(), "climate = \"swamp\"");
+    const int bad_line = 1
+                         + static_cast<int>(std::count(
+                             text.begin(), text.begin() + static_cast<std::ptrdiff_t>(at), '\n'));
+    const std::string path = temp_path("swamp.map");
+    {
+        std::ofstream file(path);
+        file << text;
+    }
+    std::string err;
+    std::string out;
+    EXPECT_EQ(run({"--headless", "--frames", "1", "--mapfile", path}, err, &out), 2);
+    EXPECT_NE(err.find("--mapfile " + path), std::string::npos) << err;
+    EXPECT_NE(err.find("line " + std::to_string(bad_line) + ":"), std::string::npos) << err;
+    EXPECT_NE(err.find("unknown climate \"swamp\""), std::string::npos) << err;
+    EXPECT_TRUE(out.empty()) << "no game was played: " << out;
+}
+
+TEST_F(GameCliTest, TheSameBattleUnderEveryClimateIsTheSameStateHash) {
+    // A look must move nothing: the proving ground played under each climate is one battle.
+    if (kUnderThreadSanitizer) {
+        GTEST_SKIP() << kTsanReason;
+    }
+    const std::string original = slurp(proving_ground_path());
+    const std::string_view good = "climate = \"temperate\"";
+    const std::size_t at = original.find(good);
+    ASSERT_NE(at, std::string::npos);
+    std::string first;
+    for (const char* climate : {"temperate", "sand", "ice", "regolith"}) {
+        std::string text = original;
+        text.replace(at, good.size(), std::string{"climate = \""} + climate + "\"");
+        const std::string path = temp_path(std::string{climate} + ".map");
+        {
+            std::ofstream file(path);
+            file << text;
+        }
+        std::string err;
+        std::string out;
+        EXPECT_EQ(run({"--headless", "--frames", "60", "--width", "64", "--height", "48",
+                       "--mapfile", path, "--capture", temp_path("climate.ppm")},
+                      err, &out),
+                  0)
+            << climate << ": " << err;
+        ASSERT_NE(out.find("hash"), std::string::npos) << out;
+        const std::string hash = out.substr(out.find("hash"));
+        if (first.empty()) {
+            first = hash;
+        }
+        EXPECT_EQ(hash, first) << climate << " moved the battle";
+    }
+}
+
 TEST_F(GameCliTest, WithNoMapFileTheDefaultBattleIsExactlyWhatItWas) {
     if (kUnderThreadSanitizer) {
         GTEST_SKIP() << kTsanReason;
