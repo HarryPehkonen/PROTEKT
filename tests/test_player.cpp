@@ -194,11 +194,12 @@ TEST(PlayerCommander, TheThrottleEasesAndTopsOutAtTheLookahead) {
     for (int tick = 0; tick < kTicksToFullLock; ++tick) {
         const auto* tank = sim.find(id);
         ASSERT_NE(tank, nullptr);
-        // The commander builds its waypoint from the unit's TILE-floor position, so that is what
-        // the distance is measured against; the sub-tile offset would put a tile of noise in the
-        // number.
-        const float tank_x = static_cast<float>(tank->x.floor_int());
-        const float tank_y = static_cast<float>(tank->y.floor_int());
+        // The commander builds its waypoint from the unit's REAL position, so that is what the
+        // distance is measured against. RE-RECORDED, G4: this used to measure from the TILE floor
+        // (`tank->x.floor_int()`), because the commander built its waypoint from there -- which put
+        // the waypoint up to a tile and a half off the heading and was half of "it jitters".
+        const float tank_x = static_cast<float>(tank->x.raw) * kRaw;
+        const float tank_y = static_cast<float>(tank->y.raw) * kRaw;
 
         std::vector<protekt::sim::Order> orders;
         player.think(player_unit(sim), protekt::sim::observe(sim, protekt::sim::Side::Player),

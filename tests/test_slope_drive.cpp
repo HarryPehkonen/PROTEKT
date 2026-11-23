@@ -1,0 +1,376 @@
+#include "protekt/app/map_file.hpp"
+#include "protekt/game/player.hpp"
+#include "protekt/sim/commander.hpp"
+#include "protekt/sim/scenario.hpp"
+#include "protekt/sim/sim.hpp"
+#include "protekt/sim/steering.hpp"
+#include "protekt/world/ground.hpp"
+
+#include <gtest/gtest.h>
+
+#include <cmath>
+#include <cstddef>
+#include <cstdint>
+#include <sstream>
+#include <string>
+#include <vector>
+
+/// THE TANK THAT REVERSES (G4). His report, from play, in a tank on the Proving Ground: "I was in a
+/// tank, going ... straight ahead, but close to the edge of a hill, parallel to it when I started
+/// moving backwards. Same happened when I was going down a slope, close to the side of a
+/// 'mountain'." And, at the same time: "the mouse-steered vehicle has trouble moving sideways with
+/// a and d keys. It jitters."
+///
+/// Two causes, neither of them the slide's numbers:
+///   * THE REVERSAL: the driven tank's lookahead MoveTo went through the route planner, which
+///     keeps a route off ground the slope throws a unit off. Beside a rim the planner's first
+///     waypoint is the centre of a tile BEHIND the tank, so the tank was steered backwards; on the
+///     rim itself the slide (capped at one tank step) exactly cancelled the sideways half of that
+///     steering and left only the backwards half. The helm is steered by the player, not the
+///     planner, now.
+///   * THE JITTER: the hover tank's Strafe is a one-tick impulse, and it was sent on every FRAME.
+///     The game steps the sim at 30 Hz off the wall clock, so at 60 frames a second two strafes
+///     landed in one tick and none in the next: 2, 0, 2, 0 -- or 1, 3, 2 when the frames are
+///     uneven. One strafe per tick now.
+///
+/// Every test here drives through the real `PlayerCommander`, so what is asserted is what the
+/// player's keys do, measured per tick on the displacement itself.
+namespace protekt::sim {
+namespace {
+
+[[nodiscard]] app::MapDoc proving_ground() {
+    const app::MapParse parsed
+        = app::load_map_file(std::string{PROTEKT_SOURCE_DIR} + "/assets/maps/proving_ground.map");
+    EXPECT_TRUE(parsed.ok) << parsed.error;
+    return parsed.map;
+}
+
+[[nodiscard]] app::MapDoc open_field() {
+    app::MapDoc map = proving_ground();
+    for (std::size_t i = 0; i < map.terrain.size(); ++i) {
+        map.terrain[i] = world::Terrain::Flat;
+        map.heights[i] = 0;
+        map.solid[i] = 0;
+    }
+    map.volumes.clear();
+    return map;
+}
+
+constexpr float kNorth = 3.14159265F; ///< yaw 0 is +y, which is south (row 0 is the north edge)
+constexpr float kWest = -1.5707963F;
+
+/// One tick of what the player's tank did.
+struct TickRecord {
+    double ahead{}; ///< raw displacement along the hull's heading (the command)
+    double right{}; ///< raw displacement along the hull's right (the strafe direction)
+    std::int64_t dx{};
+    std::int64_t dy{};
+    std::int64_t drift_dx{}; ///< the slide the tick began with (`slide_at`)
+    std::int64_t drift_dy{};
+    std::int32_t vx{}; ///< the mover's own velocity, before the slide was added
+    std::int32_t vy{};
+    double x{}; ///< where the tick began, tiles
+    double y{};
+};
+
+/// A driven unit, a far-off enemy factory, and the player at the helm.
+struct Helm {
+    Sim sim;
+    UnitId id{};
+    game::PlayerCommander player;
+
+    /// The unit spawns on the corner of tile (`tx`, `ty`) and stands, unordered, for `settle`
+    /// ticks first (the slope carries it to wherever in the tile that puts it).
+    Helm(UnitKind kind, int tx, int ty, float heading, float throttle, float strafe, int settle = 0)
+        : sim(make(kind, tx, ty)) {
+        for (const Unit& unit : sim.units()) {
+            if (unit.side == Side::Player) {
+                id = unit.id;
+            }
+        }
+        for (int s = 0; s < settle; ++s) {
+            sim.step();
+        }
+        sim.enqueue(Order{id, orders::TakeControl{}});
+        player.set_heading(heading);
+        game::InputState input{};
+        input.throttle = throttle;
+        input.strafe = strafe;
+        player.set_input(input);
+    }
+
+    static Sim make(UnitKind kind, int tx, int ty) {
+        Scenario scenario{};
+        scenario.seed = 0;
+        Spawn unit{};
+        unit.side = Side::Player;
+        unit.kind = kind;
+        unit.tile_x = tx;
+        unit.tile_y = ty;
+        scenario.spawns.push_back(unit);
+        Spawn base{};
+        base.side = Side::Enemy;
+        base.kind = UnitKind::Factory;
+        base.tile_x = 56;
+        base.tile_y = 56;
+        scenario.spawns.push_back(base);
+        return Sim::create(scenario);
+    }
+
+    /// One FRAME of the game loop as `app/game.cpp` runs it: the player thinks and the orders are
+    /// enqueued, then the sim steps `steps` times (0, 1 or 2, by the wall clock). One record per
+    /// tick stepped.
+    void frame(int steps, std::vector<TickRecord>& out) {
+        std::vector<Order> orders;
+        player.think(id, observe(sim, Side::Player), orders);
+        for (const Order& order : orders) {
+            sim.enqueue(order);
+        }
+        for (int s = 0; s < steps; ++s) {
+            const Unit before = *sim.find(id);
+            const Step drift = slide_at(0, before.x, before.y);
+            sim.step();
+            const Unit& after = *sim.find(id);
+            TickRecord r;
+            r.dx = static_cast<std::int64_t>(after.x.raw) - before.x.raw;
+            r.dy = static_cast<std::int64_t>(after.y.raw) - before.y.raw;
+            const double fx = std::sin(player.heading());
+            const double fy = std::cos(player.heading());
+            r.ahead = static_cast<double>(r.dx) * fx + static_cast<double>(r.dy) * fy;
+            // The hull's right as the commander sends it: (cos h, -sin h).
+            r.right = static_cast<double>(r.dx) * fy - static_cast<double>(r.dy) * fx;
+            r.drift_dx = drift.dx;
+            r.drift_dy = drift.dy;
+            r.vx = after.vx.raw;
+            r.vy = after.vy.raw;
+            r.x = before.x.raw / 65536.0;
+            r.y = before.y.raw / 65536.0;
+            out.push_back(r);
+        }
+    }
+
+    /// `ticks` ticks at one frame per tick: the pacing every scripted capture uses.
+    std::vector<TickRecord> drive(int ticks) {
+        std::vector<TickRecord> out;
+        for (int t = 0; t < ticks; ++t) {
+            frame(1, out);
+        }
+        return out;
+    }
+};
+
+/// The tick-by-tick numbers, for a failure message: the arithmetic, not an impression.
+[[nodiscard]] std::string table(const std::vector<TickRecord>& ticks) {
+    std::ostringstream s;
+    for (std::size_t t = 0; t < ticks.size(); ++t) {
+        const TickRecord& r = ticks[t];
+        s << "t" << t << " at (" << r.x << ", " << r.y << ") v(" << r.vx << ", " << r.vy
+          << ") drift(" << r.drift_dx << ", " << r.drift_dy << ") d(" << r.dx << ", " << r.dy
+          << ") ahead " << r.ahead << " right " << r.right << "\n";
+    }
+    return s.str();
+}
+
+[[nodiscard]] int backwards_ticks(const std::vector<TickRecord>& ticks) {
+    int n = 0;
+    for (const TickRecord& r : ticks) {
+        n += r.ahead < 0 ? 1 : 0;
+    }
+    return n;
+}
+
+// ---- his first situation: straight ahead, along the edge of a hill ------------------------
+
+TEST(TankThatReverses, DrivingAlongTheRimIsNeverDisplacedBackwards) {
+    // The plateau (height 120, x 22..29) stands over the valley (-50, x 30..37): column 29 is the
+    // rim, a drop of 170 to the east, and its slide is the capped 13107 raw east. He drives NORTH
+    // along it. Before the fix, 37 of these 40 ticks moved him SOUTH: the planner aimed him at a
+    // tile centre to the south-west (v = -12279, +4583 on the first such tick), the slide's
+    // +13107 cancelled the westward half, and +4583 south was what was left.
+    const world::ScopedGround guard(app::map_ground(proving_ground()));
+    for (const int y : {26, 22, 18}) {
+        for (const int settle : {0, 1, 2}) {
+            Helm helm(UnitKind::Tank, 29, y, kNorth, 1.0F, 0.0F, settle);
+            const std::vector<TickRecord> ticks = helm.drive(40);
+            EXPECT_EQ(backwards_ticks(ticks), 0)
+                << "from (29, " << y << ") after " << settle << " idle ticks:\n"
+                << table(ticks);
+        }
+    }
+}
+
+TEST(TankThatReverses, TheSlopeStillDragsADrivenTankOffTheRim) {
+    // His ruling survives at the helm: "you drift downhill, and you keep drifting even while you
+    // try to steer -- the slope wins until you're off it". Driving north along the rim, the tank
+    // goes north AND is carried east, off the rim into the valley; nothing about steering cancels
+    // the slide.
+    const world::ScopedGround guard(app::map_ground(proving_ground()));
+    Helm helm(UnitKind::Tank, 29, 26, kNorth, 1.0F, 0.0F);
+    const std::vector<TickRecord> ticks = helm.drive(40);
+    const Unit& end = *helm.sim.find(helm.id);
+    EXPECT_GE(end.x.floor_int(), 30) << "dragged off the rim into the valley\n" << table(ticks);
+    EXPECT_LT(end.y.raw, 24 * Fixed::kOne) << "and still went the way he drove\n" << table(ticks);
+    bool dragged = false;
+    for (const TickRecord& r : ticks) {
+        if (r.drift_dx > 0) {
+            dragged = true; // the slide was there, and the drive went on regardless
+        }
+    }
+    EXPECT_TRUE(dragged);
+}
+
+// ---- his second situation: down a slope, beside a mountain --------------------------------
+
+TEST(TankThatReverses, DrivingDownTheRampBesideTheCliffStillDescends) {
+    // The west ramp falls from the plateau (120) through 110, 100 ... 20 to the plain, x 21 down to
+    // 16, rows 28..32; its north row, 28, has the open plain (height 0) beside it, so a tank on it
+    // is beside a drop the whole way down. He drives WEST, down it, from the plateau's edge. Before
+    // the fix six ticks went EAST: the planner sent him to the centre of tile (23, 29), half a tile
+    // behind him, v = +4144, +12434.
+    const world::ScopedGround guard(app::map_ground(proving_ground()));
+    for (const int y : {28, 29, 30, 32}) {
+        Helm helm(UnitKind::Tank, 23, y, kWest, 1.0F, 0.0F);
+        const std::vector<TickRecord> ticks = helm.drive(60);
+        EXPECT_EQ(backwards_ticks(ticks), 0) << "starting at y " << y << ":\n" << table(ticks);
+        const Unit& end = *helm.sim.find(helm.id);
+        EXPECT_LE(end.x.floor_int(), 15) << "it came down off the ramp, from y " << y;
+    }
+}
+
+// ---- driving uphill against a slide: HIS ruling, pinned with its threshold ----------------
+
+/// A uniform slope of `grade` per tile, falling to the east, on a drawn map.
+struct UniformSlope {
+    int grade{};
+    [[nodiscard]] std::int64_t factor(int x, int y) const noexcept {
+        return x >= 0 && y >= 0 && x < 16 && y < 16 ? Fixed::kOne : 0;
+    }
+    [[nodiscard]] int height(int x, int y) const noexcept {
+        (void)y;
+        return 1000 - grade * x;
+    }
+};
+
+TEST(TankThatReverses, UphillAgainstASlideIsSlowedUpToAGradeOf38AndReversedFrom39) {
+    // NOT a fix: this pins the ruling the slope slice made ("the slope wins"), so that the G4
+    // change cannot have moved it. A tank driving WEST, up a slope of `grade` per tile, climbs
+    // 13107 * (1 - grade/64) and is slid back (grade - 32) * 819. The two cross between 38 and 39:
+    // 38 -> 5324 up, 4914 back, net +410 (slowed to 3% of a level step); 39 -> 5119 up, 5733 back,
+    // net -614 (reversed). That is `drivable_rise`'s tank limit of 38 seen from the mover, and
+    // Slide.SteeringUphillDoesNotCancelIt pins 40 as a reversal.
+    for (int grade = 33; grade <= 40; ++grade) {
+        const UniformSlope ground{grade};
+        StepRequest request;
+        request.x = Fixed::from_raw(5 * Fixed::kOne + Fixed::kOne / 2);
+        request.y = Fixed::from_raw(5 * Fixed::kOne + Fixed::kOne / 2);
+        request.want_dx = -kTankSpeedRaw;
+        request.speed = kTankSpeedRaw;
+        const StepPlan plan = plan_step(request, ground);
+        ASSERT_TRUE(plan.moved) << "grade " << grade;
+        const Step drift = plan_slide(ground, request.x, request.y, [](int, int) { return true; });
+        const std::int64_t net = -(plan.step.dx + drift.dx); // westward, uphill, is positive
+        if (grade <= 38) {
+            EXPECT_GT(net, 0) << "grade " << grade << " should slow the climb, not reverse it";
+            EXPECT_LT(net, kTankSpeedRaw) << "grade " << grade;
+        } else {
+            EXPECT_LT(net, 0) << "grade " << grade << ": the slope wins (the ruling)";
+        }
+    }
+}
+
+// ---- the third symptom: the strafe jitters -----------------------------------------------
+
+/// The right-hand component of every tick, once the strafe has eased up to full (a second).
+[[nodiscard]] std::vector<double> settled_right(const std::vector<TickRecord>& ticks) {
+    std::vector<double> out;
+    for (std::size_t t = 40; t < ticks.size(); ++t) {
+        out.push_back(ticks[t].right);
+    }
+    return out;
+}
+
+TEST(StrafeJitter, StrafingOnOpenGroundIsSmoothAtSixtyFramesASecond) {
+    // The game steps the sim at 30 Hz off the wall clock, and at 60 frames a second that is a
+    // tick every other frame. A full strafe is 3/4 of a hover tank's step, every tick, the same.
+    // Before the fix each frame sent its own Strafe and the sim applied each: two per tick, and
+    // the tick that came due with no frame before it got none.
+    const world::ScopedGround guard(app::map_ground(open_field()));
+    Helm helm(UnitKind::HoverTank, 20, 20, kNorth, 0.0F, 1.0F);
+    std::vector<TickRecord> ticks;
+    for (int f = 0; f < 160; ++f) {
+        helm.frame(f % 2, ticks);
+    }
+    const std::vector<double> right = settled_right(ticks);
+    ASSERT_FALSE(right.empty());
+    const double full = static_cast<double>(profile(UnitKind::HoverTank).max_speed.raw)
+                        * kStrafeSpeedNumerator / kStrafeSpeedDenominator;
+    for (std::size_t t = 0; t < right.size(); ++t) {
+        EXPECT_NEAR(std::abs(right[t]), full, 2.0) << "tick " << (t + 40) << "\n" << table(ticks);
+    }
+}
+
+TEST(StrafeJitter, AnUnevenFrameRateDoesNotMakeTheStrafeUneven) {
+    // Frames of 1, 3 and 2 ticks' worth of wall clock, the way a real frame rate wanders: the
+    // per-tick strafe is still one strafe. (Two ticks in ONE frame are both stepped after the
+    // frame's single think, so this pattern never steps more than one tick per frame.)
+    const world::ScopedGround guard(app::map_ground(open_field()));
+    Helm helm(UnitKind::HoverTank, 20, 20, kNorth, 0.0F, 1.0F);
+    std::vector<TickRecord> ticks;
+    const std::vector<int> pattern{0, 1, 0, 0, 1, 1, 0, 1, 0, 0, 0, 1};
+    for (int f = 0; f < 240; ++f) {
+        helm.frame(pattern[static_cast<std::size_t>(f) % pattern.size()], ticks);
+    }
+    const std::vector<double> right = settled_right(ticks);
+    ASSERT_GT(right.size(), 20U);
+    const double full = static_cast<double>(profile(UnitKind::HoverTank).max_speed.raw)
+                        * kStrafeSpeedNumerator / kStrafeSpeedDenominator;
+    for (std::size_t t = 1; t < right.size(); ++t) {
+        EXPECT_NEAR(right[t], right[t - 1], 2.0) << "tick " << (t + 40) << "\n" << table(ticks);
+        // ...and it is the strafe, not its absence: an even sequence of zeros would pass above.
+        EXPECT_NEAR(std::abs(right[t]), full, 2.0) << "tick " << (t + 40);
+    }
+}
+
+TEST(StrafeJitter, StrafingTowardsTheRimDoesNotOscillate) {
+    // Near a slope: a hover tank on the plateau facing north, strafing towards the valley rim and
+    // over it. Whatever the slide adds, the sideways displacement does not change sign from one
+    // tick to the next: the sequence is asserted, sign by sign.
+    const world::ScopedGround guard(app::map_ground(proving_ground()));
+    // Facing north the commander's right is (cos h, -sin h) = (-1, 0), west; so face SOUTH to
+    // strafe east, towards the rim at column 29.
+    Helm helm(UnitKind::HoverTank, 26, 20, 0.0F, 0.0F, 1.0F);
+    std::vector<TickRecord> ticks;
+    for (int f = 0; f < 120; ++f) {
+        helm.frame(f % 2, ticks);
+    }
+    int flips = 0;
+    for (std::size_t t = 1; t < ticks.size(); ++t) {
+        const double a = static_cast<double>(ticks[t - 1].dx);
+        const double b = static_cast<double>(ticks[t].dx);
+        flips += (a > 0 && b < 0) || (a < 0 && b > 0) ? 1 : 0;
+    }
+    EXPECT_EQ(flips, 0) << table(ticks);
+    EXPECT_GE(helm.sim.find(helm.id)->x.floor_int(), 30) << "it strafed over the rim";
+}
+
+TEST(StrafeJitter, StrafingAlongTheRimWhileDrivingDoesNotOscillate) {
+    // W and D together, beside the rim: the drive is north along column 28, the strafe is east,
+    // towards the drop. Before the fix the planner's route and the strafe fought here.
+    const world::ScopedGround guard(app::map_ground(proving_ground()));
+    Helm helm(UnitKind::HoverTank, 27, 26, kNorth, 1.0F, -1.0F);
+    std::vector<TickRecord> ticks;
+    for (int f = 0; f < 80; ++f) {
+        helm.frame(f % 2, ticks);
+    }
+    int flips = 0;
+    for (std::size_t t = 1; t < ticks.size(); ++t) {
+        const double a = static_cast<double>(ticks[t - 1].dx);
+        const double b = static_cast<double>(ticks[t].dx);
+        flips += (a > 0 && b < 0) || (a < 0 && b > 0) ? 1 : 0;
+    }
+    EXPECT_EQ(flips, 0) << table(ticks);
+    EXPECT_EQ(backwards_ticks(ticks), 0) << table(ticks);
+}
+
+} // namespace
+} // namespace protekt::sim

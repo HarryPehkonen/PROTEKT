@@ -1898,7 +1898,7 @@ void scale_heading(std::int64_t vx, std::int64_t vy, std::int32_t& out_x,
 }
 
 void steer(std::vector<Unit>& units, Unit& unit, const UnitProfile& prof, const WorldGround& ground,
-           std::uint32_t& plans) noexcept {
+           std::uint32_t& plans, bool helm) noexcept {
     unit.vx = Fixed::zero();
     unit.vy = Fixed::zero();
     Fixed goal_x = unit.guard_x;
@@ -2013,7 +2013,21 @@ void steer(std::vector<Unit>& units, Unit& unit, const UnitProfile& prof, const 
     // on
     // (`orders::Jump` dropped its route), so it steers straight at the goal and lands where the
     // arc takes it.
-    const bool hopping = airborne(unit);
+    //
+    // THE HELM is steered by the player, not by the planner (G4). Its MoveTo is a point a few
+    // tiles along the hull's heading, re-stated every frame: the heading IS the order. Planned, it
+    // was a route that keeps clear of ground the slope throws a unit off, and beside a rim that
+    // route's first waypoint is the centre of a tile behind the tank -- so the player, driving
+    // straight ahead along a hill, was steered backwards, and on the rim itself the slide (a full
+    // tank step, sideways) cancelled the sideways half of that and left only the backwards half.
+    // Steered straight, the hull goes where it points; the mover still refuses a cliff and the
+    // slide still carries it (the ruling: the slope wins until you're off it). Only a MoveTo: a
+    // driven unit given any other errand plans as every unit does.
+    const bool direct = helm && unit.stance == Stance::MoveTo;
+    if (direct) {
+        unit.route = Route{}; // nothing planned is followed, so nothing planned is kept
+    }
+    const bool hopping = airborne(unit) || direct;
     if (!hopping) {
         update_route(unit, goal_x, goal_y, ground, prof.max_speed.raw, plans);
         // A DEPLOY on ground the slope will not let it hold is refused by name: the turret would
@@ -2641,7 +2655,7 @@ void Sim::step(StepTimings* timings) {
             continue;
         }
         const Clock::time_point steer_from = timed ? Clock::now() : Clock::time_point{};
-        steer(units_, unit, prof, ground, route_plans_);
+        steer(units_, unit, prof, ground, route_plans_, unit.id == driven_);
         if (timed) {
             timings->steer_ns
                 += std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - steer_from)

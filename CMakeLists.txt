@@ -292,6 +292,7 @@ if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
         tests/test_follow.cpp
         tests/test_shove.cpp
         tests/test_slope.cpp
+        tests/test_slope_drive.cpp
         tests/test_service_repair.cpp
         tests/test_platform.cpp
         tests/test_repair_cone.cpp

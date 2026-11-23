@@ -113,10 +113,16 @@ void PlayerCommander::think(sim::UnitId unit, const sim::Observation& observatio
     }
 
     // Yaw 0 points at +y in tile space; throttle scales the lookahead distance and flips it for
-    // reverse.
+    // reverse. Measured from where the tank IS (`raw_x/raw_y`), not from the tile it is in
+    // (`x/y` are the tile's floor): from the floor the waypoint sat up to a tile and a half off
+    // the heading, towards the tile's north-west corner, and jumped every time a tile line was
+    // crossed -- and with no throttle the waypoint WAS that corner, so a strafe east or south was
+    // dragged back to it at full speed once it was a tile away (G4, "it jitters").
     const float distance = kLookaheadTiles * throttle_rate_;
-    const float target_x = static_cast<float>(self->x) + std::sin(heading_) * distance;
-    const float target_y = static_cast<float>(self->y) + std::cos(heading_) * distance;
+    const float here_x = static_cast<float>(self->raw_x) / static_cast<float>(sim::Fixed::kOne);
+    const float here_y = static_cast<float>(self->raw_y) / static_cast<float>(sim::Fixed::kOne);
+    const float target_x = here_x + std::sin(heading_) * distance;
+    const float target_y = here_y + std::cos(heading_) * distance;
 
     out.push_back(
         sim::Order{unit, sim::orders::MoveTo{sim::Fixed::from_raw(static_cast<std::int32_t>(
@@ -124,7 +130,12 @@ void PlayerCommander::think(sim::UnitId unit, const sim::Observation& observatio
                                              sim::Fixed::from_raw(static_cast<std::int32_t>(
                                                  std::lround(target_y * sim::Fixed::kOne)))}});
 
-    if (hover && strafe_rate_ != 0.0F) {
+    // ONE STRAFE PER TICK. Unlike the waypoint above, a Strafe is not a no-op when re-stated: the
+    // sim moves the hull by a full strafe for EVERY one it is given. Every order enqueued is
+    // applied on the next tick, so a frame in which no tick has run since the last one would only
+    // stack a second strafe on the one still pending: at 60 frames a second the hull strafed two in
+    // one tick and none in the next, and an uneven frame rate gave 0, 1, 2 or 3 (G4, "it jitters").
+    if (hover && strafe_rate_ != 0.0F && ticks > 0) {
         // The hull's right: yaw 0 points at +y, so right is +x there, and turns with the heading.
         // The vector's length is the eased rate -- the sim reads it as the throttle -- so it keeps
         // being sent while the rate ramps down after the key is let go.
