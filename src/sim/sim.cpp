@@ -1385,6 +1385,20 @@ void store_step(const std::vector<Unit>& units, std::array<std::uint16_t, 2>& or
         std::uint16_t& bank = ore.at(static_cast<std::size_t>(side));
         const std::uint16_t capacity = store_capacity(units, side, base);
         bank = std::min(bank, capacity);
+        // THE PASSIVE TRICKLE (G3): a side that still holds a recycler gets one scrap every
+        // `kTrickleIntervalTicks` with no scavenger at all, so "no scavenger, too little to build
+        // one" is not a soft-lock. Into room only (never litter), and not counted as collected.
+        if (tick != 0 && tick % static_cast<std::uint32_t>(kTrickleIntervalTicks) == 0
+            && bank < capacity
+            && std::any_of(
+                units.begin(), units.end(),
+                [side](const Unit& unit) {
+                    return unit.alive && unit.side == side
+                           && (unit.kind == UnitKind::Recycler
+                               || unit.kind == UnitKind::DeployedRecycler);
+                })) {
+            ++bank;
+        }
         // THE TWO RATES: the bank fills at the fast beat while its level is inside the gold band
         // (the bottom `capacity - base` of the store) and at the slow one once it climbs into the
         // green. The band is the only thing a deployed scavenger changes -- see
@@ -1734,6 +1748,25 @@ bool turret_deploy_step(const std::vector<Unit>& units, std::vector<Scrap>& scra
     return true;
 }
 
+/// How near a unit must come to a DEPLOYED recycler's solid box to be recycled into it, in tiles
+/// from the nearest point of the box: the unit's own body and the half-tile the route's ring
+/// leaves, with a little to spare. A dial; the unit is never nearer than the wall itself.
+inline constexpr int kRecycleReachTiles = 2;
+
+/// Whether `unit` stands within `kRecycleReachTiles` of the nearest point of `base`'s drawn box.
+[[nodiscard]] bool within_recycle_reach(const Unit& unit, const Unit& base) noexcept {
+    const Footprint box = drawn_box(base);
+    const auto nearest = [](std::int64_t at, int low, int size) {
+        const std::int64_t lo = static_cast<std::int64_t>(low) * Fixed::kOne;
+        const std::int64_t hi = static_cast<std::int64_t>(low + size) * Fixed::kOne;
+        return std::clamp(at, lo, hi);
+    };
+    const std::int64_t dx = unit.x.raw - nearest(unit.x.raw, box.x, box.width);
+    const std::int64_t dy = unit.y.raw - nearest(unit.y.raw, box.y, box.height);
+    const std::int64_t reach = static_cast<std::int64_t>(kRecycleReachTiles) * Fixed::kOne;
+    return dx * dx + dy * dy <= reach * reach;
+}
+
 /// RECYCLE. Called for every living unit before it is steered. Returns true when the unit is not to
 /// be steered this tick: it is standing at its recycler and has just been consumed into the ledger.
 /// Away from it the unit chases the recycler's CURRENT position -- an undeployed recycler can drive
@@ -1753,7 +1786,14 @@ bool recycle_step(std::vector<Unit>& units, std::vector<Scrap>& scraps, Unit& un
         return true;
     }
     constexpr std::int64_t kArrive = kArriveRadiusRaw; // the radius a MoveTo stops in
-    if (dist2(unit.x, unit.y, target->x, target->y) >= kArrive * kArrive) {
+    // ARRIVAL. A recycler on wheels is reached at its centre, as ever. A DEPLOYED one is a building
+    // whose drawn box is solid (G2), so its centre can never be reached: arriving is being within
+    // `kRecycleReachTiles` of the box's nearest point -- the edge the route ends beside. Asking for
+    // the centre there was the stall: the unit pressed on the wall for ever and was never consumed.
+    const bool reached = target->kind == UnitKind::DeployedRecycler
+                             ? within_recycle_reach(unit, *target)
+                             : dist2(unit.x, unit.y, target->x, target->y) < kArrive * kArrive;
+    if (!reached) {
         unit.guard_x = target->x;
         unit.guard_y = target->y;
         return false; // on its way: steered like a MoveTo
@@ -1769,13 +1809,14 @@ bool recycle_step(std::vector<Unit>& units, std::vector<Scrap>& scraps, Unit& un
     // destroyed and nothing is blocked, and it is the rule a destroyed building already follows --
     // `scatter` -- one piece to the unit of refund. Do not turn this back into a clamp: a silent
     // clamp is invisible, and the capacity design depends on the economy staying legible.
+    const int refund = static_cast<int>(recycle_refund(unit.kind));
     const int room = std::max(0, static_cast<int>(store_capacity(units, unit.side, base))
                                      - static_cast<int>(ore.at(side)));
-    const int banked = std::min(room, static_cast<int>(kRecycleOre));
+    const int banked = std::min(room, static_cast<int>(refund));
     ore.at(side) = static_cast<std::uint16_t>(ore.at(side) + banked);
-    if (banked < static_cast<int>(kRecycleOre)) {
+    if (banked < static_cast<int>(refund)) {
         const std::size_t first = scraps.size();
-        scatter(scraps, seed, unit.id, unit.x, unit.y, static_cast<int>(kRecycleOre) - banked);
+        scatter(scraps, seed, unit.id, unit.x, unit.y, static_cast<int>(refund) - banked);
         settle_litter(scraps, first, seed, units, unit.x.floor_int(), unit.y.floor_int());
     }
     return true;

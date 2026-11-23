@@ -537,6 +537,13 @@ inline constexpr std::int64_t kServiceRepairHitPoint = kServiceRepairTicks * kSe
 /// would replace it. A recycled unit leaves NO wreckage -- its value goes to the ledger instead of
 /// onto the ground -- so a recycle is not a second harvest of the same hull.
 inline constexpr std::uint16_t kRecycleOre = 2;
+/// WHAT A RECYCLED UNIT IS WORTH (G3, Harri: "they should get un-built and increment the amount of
+/// scrap in the stores"): HALF of what it cost to build, `spec_of(kind).cost / 2`, so a recycle is
+/// never a free undo -- a tank (55) returns 27, a turret (40) 20, a scavenger (20) 10. A kind
+/// with no price (cost 0) still returns `kRecycleOre`, the old flat floor. The value is declared
+/// in `spec.hpp` as `recycle_refund`; this line says WHY half, and the one place to change it is
+/// `kRecycleRefundDivisor`.
+inline constexpr int kRecycleRefundDivisor = 2;
 /// How far from a producer's centre a built unit may be put: the half of the 8 x 8 footprint every
 /// producer stands on (4 tiles, round 19, L2) and the three tiles of yard it had beyond a point.
 inline constexpr int kBuildSpawnRadiusTiles = 7;
@@ -658,6 +665,18 @@ inline constexpr std::uint16_t kStoreCapacityPerDeployed = 20;
 /// rate. The beat is the global tick, not a per-unit timer.
 inline constexpr int kPoolFastIntervalTicks = kTicksPerSecond;
 inline constexpr int kPoolSlowIntervalTicks = 5 * kTicksPerSecond;
+
+/// THE PASSIVE TRICKLE (G3, Harri: "When no scavenger is deployed, and no scavenger exists, scrap
+/// stores should still accumulate, but VERY slowly ... In BattleZone 2, if I wait long enough,
+/// scrap accumulates even with no scavenger"). A side that still holds a recycler (vehicle or
+/// deployed) is given ONE scrap every `kTrickleIntervalTicks`, whatever else it has: 600 ticks,
+/// one every 20 seconds, 3 a minute. It is what ends the soft-lock of "no scavenger, too little
+/// scrap to build one": from an empty store a scavenger (cost 20) is affordable after
+/// 20 x 600 = 12000 ticks, 400 seconds, 6 min 40 s. It never scales with anything, goes into room
+/// the store has (it is never litter) and is not counted as `collected`. A deployed scavenger
+/// still out-earns it twentyfold in the gold band (`kPoolFastIntervalTicks`, 30 ticks) and
+/// fourfold in the green (`kPoolSlowIntervalTicks`, 150 ticks).
+inline constexpr int kTrickleIntervalTicks = 20 * kTicksPerSecond;
 
 /// THE TURRET'S DEPLOY AND UN-DEPLOY (Harri, 2026-11-01: "Deploying takes maybe five seconds" and
 /// "I can un-deploy them at will, but it takes maybe three seconds"). Ticks, at `kTicksPerSecond`:

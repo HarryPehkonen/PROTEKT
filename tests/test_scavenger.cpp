@@ -1359,7 +1359,9 @@ TEST(ScavengeInPlace, UnderAnOrderItDoesNotCollectAndStopStartsItAgain) {
     for (int i = 0; i < 20 * protekt::sim::kScavengeIntervalTicks; ++i) {
         sim.step();
     }
-    EXPECT_EQ(sim.ore(Side::Player), 1) << "Stop sends it back to scavenging";
+    // The one piece it took, plus the passive trickle's one beat (G3: tick 600 of these 690).
+    EXPECT_EQ(sim.scraps().size(), 0U) << "Stop sends it back to scavenging";
+    EXPECT_EQ(sim.ore(Side::Player), 1 + 1);
 }
 
 TEST(ScavengeInPlace, EachScavengerTakesOneAnIntervalSoMoreScavengersAreFaster) {

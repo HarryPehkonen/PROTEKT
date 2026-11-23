@@ -178,7 +178,9 @@ TEST(StuckScavenger, WithOnlyTheUnreachablePileItEndsUpIdleAndStaysIdle) {
     }
     EXPECT_EQ(scavenger(sim).x.raw, x);
     EXPECT_EQ(scavenger(sim).y.raw, y);
-    EXPECT_EQ(sim.ore(Side::Player), 0);
+    // It took nothing (the pile is still there). What the stores hold is G3's passive trickle
+    // alone: one beat each 600 ticks, 600 .. 3000 of these 3600 ticks.
+    EXPECT_EQ(sim.ore(Side::Player), (ticks(120) - 1) / protekt::sim::kTrickleIntervalTicks);
     EXPECT_EQ(sim.scraps().size(), 1U);
 }
 

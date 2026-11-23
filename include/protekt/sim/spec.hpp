@@ -479,6 +479,12 @@ static_assert(every_bolt_outflies_its_range(),
 [[nodiscard]] constexpr const UnitSpec& spec_of(UnitKind kind) noexcept {
     return kUnitSpecs.at(static_cast<std::size_t>(kind));
 }
+/// What recycling a unit of `kind` returns to its side's store: `kRecycleRefundDivisor`-th of its
+/// build cost, never less than `kRecycleOre`.
+[[nodiscard]] constexpr std::uint16_t recycle_refund(UnitKind kind) noexcept {
+    const int half = static_cast<int>(spec_of(kind).cost) / kRecycleRefundDivisor;
+    return static_cast<std::uint16_t>(half > kRecycleOre ? half : kRecycleOre);
+}
 
 /// Whether a producer's queue may take this kind: it has a scrap cost AND a build time. Zero in
 /// either means not buildable -- the signal the queue reads, so a kind with no ruled price is never

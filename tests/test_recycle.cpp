@@ -6,6 +6,7 @@
 #include "protekt/sim/orders.hpp"
 #include "protekt/sim/scenario.hpp"
 #include "protekt/sim/sim.hpp"
+#include "protekt/sim/spec.hpp"
 #include "protekt/sim/units.hpp"
 
 namespace {
@@ -102,8 +103,9 @@ TEST(Recycle, TheTankDrivesToItsRecyclerAndIsConsumedIntoTheScrapReserve) {
         return unit != nullptr && !unit->alive;
     })) << "the tank never reached its recycler";
 
-    EXPECT_EQ(sim.ore(Side::Player), protekt::sim::kRecycleOre)
-        << "one recycled unit, one delivered load";
+    EXPECT_EQ(sim.ore(Side::Player), protekt::sim::recycle_refund(UnitKind::Tank))
+        << "one recycled tank returns its value (G3: half of its cost), and the trickle "
+           "has not yet had its first beat";
     EXPECT_EQ(sim.ore(Side::Enemy), 0) << "the enemy's ledger is untouched";
     EXPECT_EQ(sim.scraps().size(), 0U)
         << "a recycled unit leaves no wreckage: its value goes to the ledger instead";
@@ -167,7 +169,8 @@ TEST(Recycle, TheSameRecycleTwiceBanksTheSameLoadAndHashesTheSame) {
     const Sim first = run();
     const Sim second = run();
     EXPECT_EQ(first.ore(Side::Player), second.ore(Side::Player));
-    EXPECT_EQ(first.ore(Side::Player), protekt::sim::kRecycleOre);
+    // 3000 ticks: the tank's refund plus the passive trickle's beats (600 .. 2400 = four of them).
+    EXPECT_EQ(first.ore(Side::Player), protekt::sim::recycle_refund(UnitKind::Tank) + 4);
     EXPECT_EQ(first.state_hash(), second.state_hash());
 }
 

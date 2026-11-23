@@ -15,6 +15,7 @@
 #include "protekt/sim/scenario.hpp"
 #include "protekt/sim/scrap.hpp"
 #include "protekt/sim/sim.hpp"
+#include "protekt/sim/spec.hpp"
 #include "protekt/sim/units.hpp"
 
 namespace {
@@ -277,11 +278,15 @@ void recycle_the_tank(Sim& sim) {
 }
 
 TEST(RecycleOverflow, TheRemainderTheStoreCannotHoldLandsAsLitterWhereTheUnitStood) {
-    Sim sim = Sim::create(recycle_scene(1)); // room for one of the two units a recycle returns
+    Sim sim = Sim::create(recycle_scene(1)); // room for one of the 27 a tank's recycle returns
     ASSERT_EQ(sim.scraps().size(), 0U);
     recycle_the_tank(sim);
     EXPECT_EQ(sim.ore(Side::Player), 1) << "the store took what it could";
-    ASSERT_EQ(sim.scraps().size(), 1U) << "and the rest is on the ground, not destroyed";
+    // 26 left over, but one wreck's litter lands on distinct tiles of the 5 x 5 scatter square, so
+    // 25 pieces is the most one recycle leaves: the refund a tank returns outruns it by one or two.
+    ASSERT_EQ(sim.scraps().size(),
+              static_cast<std::size_t>(protekt::sim::kScrapSpan * protekt::sim::kScrapSpan))
+        << "and the rest is on the ground, not destroyed";
     const Scrap& piece = sim.scraps().front();
     EXPECT_LE(std::abs(piece.x.floor_int() - 50), protekt::sim::kScrapScatterRadius + 1)
         << "where the unit stood, the way a destroyed building scatters its litter";
@@ -292,13 +297,15 @@ TEST(RecycleOverflow, AFullStoreTurnsTheWholeRefundIntoLitter) {
     Sim sim = Sim::create(recycle_scene(0));
     recycle_the_tank(sim);
     EXPECT_EQ(sim.ore(Side::Player), 0);
-    EXPECT_EQ(sim.scraps().size(), protekt::sim::kRecycleOre);
+    EXPECT_EQ(sim.scraps().size(),
+              static_cast<std::size_t>(protekt::sim::kScrapSpan * protekt::sim::kScrapSpan))
+        << "27 owed, 25 tiles in the scatter square";
 }
 
 TEST(RecycleOverflow, AStoreWithRoomTakesItAllAndLeavesNoLitter) {
     Sim sim = Sim::create(recycle_scene(40));
     recycle_the_tank(sim);
-    EXPECT_EQ(sim.ore(Side::Player), protekt::sim::kRecycleOre);
+    EXPECT_EQ(sim.ore(Side::Player), protekt::sim::recycle_refund(UnitKind::Tank));
     EXPECT_EQ(sim.scraps().size(), 0U);
 }
 
