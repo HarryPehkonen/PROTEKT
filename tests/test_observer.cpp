@@ -414,7 +414,15 @@ TEST(Observer, RenamingTheSupportVehiclesMovedNoRecordedBattle) {
     // things moved it: the armies take different routes (the fired stream below is the proof), and
     // a unit's route now carries a failure, a stall count and a goal kind in the hash. Restored
     // exactly by reverting the planner and the hash lines to that commit.
-    EXPECT_EQ(log.final_hash, 7087612991536747485ULL);
+    // RE-RECORDED, G5 (the wall at every angle, and one limit): old value 7087612991536747485 is
+    // the code at 9d6da50. Two changes move it, each on its own: the CLIMB RULE (a cliff is decided
+    // by height at every angle, the limit is 38 -- derived from the slide physics, was a free 40 --
+    // and the planner asks the mover's rule instead of its own estimate) gives 5249008759450368054
+    // with nothing else changed; THE GROUND OF THE TICK (the slide reads the tile the unit stood on
+    // when the tick began, as the grade does) takes it to the value below. Restored exactly by
+    // reverting steering.hpp, route.hpp and sim.cpp's `slide` to 9d6da50. Two runs of the new
+    // recording give the same value.
+    EXPECT_EQ(log.final_hash, 10843871789041013380ULL);
 }
 
 TEST(Observer, TheFiredStreamForAScriptedBattleIsUnchanged) {
@@ -511,20 +519,30 @@ TEST(Observer, TheFiredStreamForAScriptedBattleIsUnchanged) {
     // 899). Old stream: the code at 20ec749 (first row {607, 8, 15, 100}; last {899, 1, 14, 36});
     // restored exactly, all 58 rows, by reverting the planner (route.hpp, steering.hpp, sim.cpp's
     // `update_route`/`steer`) to that commit.
+    // RE-RECORDED, G5 (the wall at every angle, and one limit): the armies climb by a different
+    // rule -- a cliff is decided by HEIGHT at every angle, the limit is 38 (derived from the slide
+    // physics; it was a free 40), the planner asks the mover's own rule (`climbable`), and the
+    // slide reads the ground the unit stood on when the tick began -- so they take other ways over
+    // the hill country and the stream has 67 shots (was 50), the first on tick 562 (was 502) and
+    // the last on tick 898 (was 872). With the climb rule alone the stream has 65; the slide change
+    // moves it the rest. Old stream: the code at 9d6da50 (first row {502, 8, 12, 100}; last
+    // {872, 13, 2, 60}); restored exactly by reverting steering.hpp, route.hpp and sim.cpp's
+    // `slide` to that commit. Two runs of the new recording printed byte-identical streams.
     static const std::vector<Expected> kExpected = {
-        {502, 8, 12, 100}, {508, 2, 12, 100}, {513, 12, 2, 100}, {523, 2, 12, 100},
-        {528, 12, 2, 100}, {538, 2, 12, 76},  {543, 12, 2, 92},  {547, 8, 12, 68},
-        {551, 4, 12, 68},  {553, 2, 12, 68},  {558, 12, 2, 84},  {568, 2, 12, 60},
-        {569, 1, 12, 60},  {573, 12, 1, 100}, {582, 3, 12, 44},  {583, 2, 12, 44},
-        {588, 12, 1, 100}, {597, 3, 12, 36},  {598, 2, 12, 36},  {603, 12, 1, 92},
-        {612, 3, 12, 20},  {613, 2, 12, 20},  {618, 12, 1, 84},  {627, 3, 12, 4},
-        {628, 2, 12, 4},   {633, 12, 1, 76},  {787, 8, 13, 100}, {792, 3, 13, 100},
-        {793, 2, 13, 100}, {797, 13, 3, 100}, {807, 3, 13, 100}, {808, 2, 13, 100},
-        {812, 13, 3, 100}, {822, 3, 13, 68},  {823, 2, 13, 68},  {824, 1, 13, 68},
-        {827, 13, 3, 92},  {832, 8, 13, 52},  {837, 3, 13, 52},  {838, 2, 13, 52},
-        {839, 1, 13, 52},  {842, 13, 2, 68},  {852, 3, 13, 28},  {853, 2, 13, 28},
-        {854, 1, 13, 28},  {857, 13, 2, 68},  {867, 3, 13, 4},   {868, 2, 13, 4},
-        {869, 1, 13, 4},   {872, 13, 2, 60},
+        {562, 8, 15, 100}, {585, 15, 8, 40}, {600, 15, 8, 40}, {607, 8, 15, 84},  {613, 2, 15, 84},
+        {615, 15, 8, 40},  {628, 2, 15, 84}, {630, 15, 8, 40}, {641, 4, 15, 60},  {645, 15, 8, 40},
+        {652, 8, 15, 60},  {655, 20, 8, 40}, {656, 4, 15, 60}, {660, 15, 2, 100}, {671, 4, 15, 52},
+        {675, 15, 2, 100}, {686, 4, 15, 28}, {689, 1, 15, 28}, {690, 15, 2, 92},  {697, 8, 15, 20},
+        {701, 4, 15, 20},  {701, 19, 2, 84}, {704, 1, 15, 20}, {705, 15, 2, 84},  {716, 4, 15, 4},
+        {719, 1, 15, 4},   {720, 15, 2, 76}, {730, 20, 8, 40}, {746, 19, 2, 44},  {757, 8, 19, 40},
+        {763, 2, 19, 40},  {776, 4, 19, 40}, {778, 2, 19, 40}, {779, 1, 19, 40},  {782, 13, 2, 44},
+        {791, 4, 19, 40},  {791, 19, 8, 40}, {793, 2, 19, 40}, {794, 1, 19, 40},  {797, 13, 2, 44},
+        {802, 8, 19, 32},  {805, 20, 2, 44}, {806, 4, 19, 32}, {808, 2, 19, 32},  {809, 1, 19, 32},
+        {823, 2, 13, 84},  {827, 13, 8, 40}, {836, 4, 13, 68}, {836, 19, 8, 40},  {838, 2, 13, 68},
+        {842, 13, 8, 40},  {847, 8, 20, 92}, {851, 4, 13, 60}, {853, 2, 19, 32},  {857, 13, 8, 40},
+        {866, 4, 13, 44},  {868, 2, 13, 44}, {872, 13, 2, 20}, {876, 9, 13, 44},  {880, 20, 8, 24},
+        {881, 4, 13, 28},  {883, 2, 13, 28}, {887, 13, 2, 20}, {892, 8, 20, 92},  {896, 4, 13, 28},
+        {896, 19, 2, 12},  {898, 2, 13, 28},
     };
     const Scenario scenario = skirmish(42);
     ai::ScriptedCommander player(30);

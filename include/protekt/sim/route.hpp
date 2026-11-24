@@ -115,19 +115,15 @@ template <class Ground>
     }
 }
 
-/// True when the edge (x, y) -> (nx, ny) is NOT open to a unit of this `speed`: its rise is not one
-/// the unit can drive (`drivable_rise`, at the speed the terrain it climbs onto leaves it: `factor`
-/// is the mover's own, so a climb onto ridge is held to half a tank's power as the mover holds it),
-/// or the tile it leaves holds the unit and the edge is not the way the slope runs (unless
-/// `free_exit`: the unit's own tile). `height(x, y)`
-/// and `way(x, y)` are the ground's heights and `slide_way_of`, handed in so the planner can cache
-/// them and a one-off check need not.
+/// True when the edge (x, y) -> (nx, ny) is NOT open: it climbs a cliff (`climbable` -- THE rule,
+/// the very question the mover asks, so the planner opens exactly the edges the mover drives), or
+/// the tile it leaves holds the unit and the edge is not the way the slope runs (unless
+/// `free_exit`: the unit's own tile). `height(x, y)` and `way(x, y)` are the ground's heights and
+/// `slide_way_of`, handed in so the planner can cache them and a one-off check need not.
 template <class Height, class Way>
-[[nodiscard]] bool edge_blocked(const Height& height, const Way& way, std::int64_t speed,
-                                std::int64_t factor, int x, int y, int nx, int ny,
+[[nodiscard]] bool edge_blocked(const Height& height, const Way& way, int x, int y, int nx, int ny,
                                 bool free_exit = false) {
-    const std::int64_t power = speed * factor / Fixed::kOne;
-    if (!drivable_rise(edge_rise(height(x, y), height(nx, ny), x != nx && y != ny), power)) {
+    if (!climbable(height(x, y), height(nx, ny))) {
         return true;
     }
     if (free_exit) {
@@ -183,11 +179,11 @@ template <class Ground, class Cliff, class Avoid>
 /// set is ordered by lowest f, then lowest h, then lowest x, then lowest y -- no tie is left to
 /// chance, so every platform finds the same route.
 ///
-/// THE MOVER'S OWN ACCOUNT of an edge (a ground that knows heights): an edge is open when its rise
-/// is one the unit can DRIVE (`drivable_rise`: under the climb limit and not beaten by the slide it
-/// sets up), and a tile the slope will not let a unit hold (a drift of more than half its step) is
-/// left only the way the slope runs. A route that ignores either leads a unit onto a ramp's edge
-/// row, which throws it off, or up a face it is sent back down: the stall this answers.
+/// THE MOVER'S OWN RULE for an edge (a ground that knows heights): an edge is open when it is not a
+/// cliff (`climbable`, the one rule the mover asks too), and a tile the slope will not let a unit
+/// hold (a drift of more than half its step) is left only the way the slope runs. A route that
+/// ignores the second leads a unit onto a ramp's edge row, which throws it off: the stall this
+/// answers.
 ///
 /// A GOAL THAT CANNOT BE ENTERED (a building's centre, a unit standing on solid ground) is not a
 /// failure: the plan ends at ground that can be, within one tile of the nearest such ground to the
@@ -197,8 +193,9 @@ template <class Ground, class Cliff, class Avoid>
 ///
 /// On success `route` holds the corners of the line-of-sight-smoothed path (the start excluded, the
 /// goal last) and true is returned. On failure `route` is left with no waypoints, `failure` is
-/// `NoRoute`, and false is returned. `speed` is the unit's full step, raw (a turret climbs less
-/// than a tank); the default is a tank's.
+/// `NoRoute`, and false is returned. `speed` is the unit's full step, raw: it decides which
+/// tiles a slide HOLDS the unit on (a turret is held by a gentler slope than a tank), never which
+/// edge is a cliff -- that is `climbable`, the same for every unit. The default is a tank's.
 template <class Ground>
 [[nodiscard]] bool plan_route(const Ground& ground, TileXY start, TileXY goal, Route& route,
                               std::int64_t speed = kSlideMaxRaw) {
@@ -221,15 +218,15 @@ template <class Ground>
 
     const auto index = [](int x, int y) { return y * kRouteTiles + x; };
 
-    // THE CLIFF (M1) AND THE SLOPE: where the ground knows heights, an edge the unit cannot drive
-    // is a wall to the mover (`plan_step`, then the slide beats a climb past `drivable_rise`), so
-    // it is a wall here too -- or a route would lead a unit up to a face it will not climb and
-    // leave it there. Each tile's height and slide are worked out once. The grade does not weigh
-    // the route (a declared simplification -- the planner takes the straightest way through ground
-    // that can be driven, not the gentlest), but a tile the slide will not let the unit hold is
-    // left only the way the slide runs: the edge rows of a ramp are not part of the ramp.
-    // And a route keeps a tile's clearance from such ground (`near_hold`): a unit follows a line to
-    // within half a tile, and one that clips a rim is thrown off it.
+    // THE CLIFF (M1) AND THE SLOPE: where the ground knows heights, a cliff is a wall to the mover
+    // (`plan_step` asks `climbable`), so it is a wall here too, by the same call -- or a route
+    // would lead a unit up to a face it will not climb and leave it there. Each tile's height and
+    // slide are worked out once. The grade does not weigh the route (a declared simplification --
+    // the planner takes the straightest way through ground that can be driven, not the gentlest),
+    // but a tile the slide will not let the unit hold is left only the way the slide runs: the edge
+    // rows of a ramp are not part of the ramp. And a route keeps a tile's clearance from such
+    // ground (`near_hold`): a unit follows a line to within half a tile, and one that clips a rim
+    // is thrown off it.
     std::vector<std::int16_t> heights;
     std::vector<std::uint8_t> height_known;
     std::vector<std::uint8_t> slide_known; // 0 unknown, else 1 + (way_x + 1) * 3 + (way_y + 1)
@@ -292,8 +289,8 @@ template <class Ground>
     // True when the edge (x, y) -> (nx, ny) is NOT open to this unit.
     const auto cliff = [&](int x, int y, int nx, int ny) -> bool {
         if constexpr (HasHeights<Ground>) {
-            return route_detail::edge_blocked(height_at, slide_way, speed, ground.factor(nx, ny), x,
-                                              y, nx, ny, x == start.x && y == start.y);
+            return route_detail::edge_blocked(height_at, slide_way, x, y, nx, ny,
+                                              x == start.x && y == start.y);
         } else {
             return false;
         }
@@ -475,8 +472,7 @@ template <class Ground>
     const auto way = [&](int x, int y) { return route_detail::slide_way_of(ground, x, y, speed); };
     const auto cliff = [&](int x, int y, int nx, int ny) {
         if constexpr (HasHeights<Ground>) {
-            return route_detail::edge_blocked(height, way, speed, ground.factor(nx, ny), x, y, nx,
-                                              ny, x == a.x && y == a.y);
+            return route_detail::edge_blocked(height, way, x, y, nx, ny, x == a.x && y == a.y);
         } else {
             return false;
         }

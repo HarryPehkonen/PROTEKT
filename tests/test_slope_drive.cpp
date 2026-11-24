@@ -8,11 +8,14 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <sstream>
 #include <string>
+#include <utility>
 #include <vector>
 
 /// THE TANK THAT REVERSES (G4). His report, from play, in a tank on the Proving Ground: "I was in a
@@ -81,8 +84,9 @@ struct Helm {
 
     /// The unit spawns on the corner of tile (`tx`, `ty`) and stands, unordered, for `settle`
     /// ticks first (the slope carries it to wherever in the tile that puts it).
-    Helm(UnitKind kind, int tx, int ty, float heading, float throttle, float strafe, int settle = 0)
-        : sim(make(kind, tx, ty)) {
+    Helm(UnitKind kind, int tx, int ty, float heading, float throttle, float strafe, int settle = 0,
+         std::vector<PlacedVolume> volumes = {})
+        : sim(make(kind, tx, ty, std::move(volumes))) {
         for (const Unit& unit : sim.units()) {
             if (unit.side == Side::Player) {
                 id = unit.id;
@@ -99,9 +103,12 @@ struct Helm {
         player.set_input(input);
     }
 
-    static Sim make(UnitKind kind, int tx, int ty) {
+    /// `volumes` are the map's terrain volumes, as the game hands them to the sim (`--mapfile`);
+    /// none by default, which is every test written before G5.
+    static Sim make(UnitKind kind, int tx, int ty, std::vector<PlacedVolume> volumes = {}) {
         Scenario scenario{};
         scenario.seed = 0;
+        scenario.volumes = std::move(volumes);
         Spawn unit{};
         unit.side = Side::Player;
         unit.kind = kind;
@@ -256,7 +263,9 @@ TEST(TankThatReverses, UphillAgainstASlideIsSlowedUpToAGradeOf38AndReversedFrom3
     // change cannot have moved it. A tank driving WEST, up a slope of `grade` per tile, climbs
     // 13107 * (1 - grade/64) and is slid back (grade - 32) * 819. The two cross between 38 and 39:
     // 38 -> 5324 up, 4914 back, net +410 (slowed to 3% of a level step); 39 -> 5119 up, 5733 back,
-    // net -614 (reversed). That is `drivable_rise`'s tank limit of 38 seen from the mover, and
+    // net -614 (reversed). That crossing IS the climb limit since G5 (`kClimbLimit` is derived
+    // from it: 38), so a tank never drives onto such a slope -- but one carried onto it, or
+    // standing on it, is beaten back as before: the step here stays inside the unit's own tile.
     // Slide.SteeringUphillDoesNotCancelIt pins 40 as a reversal.
     for (int grade = 33; grade <= 40; ++grade) {
         const UniformSlope ground{grade};
@@ -370,6 +379,148 @@ TEST(StrafeJitter, StrafingAlongTheRimWhileDrivingDoesNotOscillate) {
     }
     EXPECT_EQ(flips, 0) << table(ticks);
     EXPECT_EQ(backwards_ticks(ticks), 0) << table(ticks);
+}
+
+// ---- G5: the top of the steep hill, and the straight passage --------------------------------
+//
+// Harri, driving the Proving Ground: "I can now climb up a VERY steep hill, but not get over the
+// very top of it. And there is also something blocking me in a straight passage. ... What's
+// stopping me from going over the top of the steep hill is the 'r' in the map. NO! I just proved
+// that it's not. It's the slope."
+
+constexpr float kEast = 1.5707963F;
+constexpr float kSouth = 0.0F;
+
+TEST(SteepHillTop, HisHillTheRampSideBesideTheRoughStripIsACliffNow) {
+    // HIS HILL, found by driving every tile of the map in all eight directions: the west ramp's
+    // flank at column 17 rises 40 in ONE edge (0 to 40), beside the rough strip at (18..21, 27);
+    // the same 40 stands at the north ramp's flanks. Under the old limit of 40 a tank crawled up it
+    // at the 0.375 grade to within 0.05 tile of the top and stayed there for ever: on the tick it
+    // crossed the edge it was slid back by the tile it had just entered (drop 40 behind it, 6552
+    // raw, against a climb of 4915). "I feel like I can climb too high on the slope": he could. A
+    // rise of 40 is past what a tank's thrust beats the slide on, so it is a CLIFF now
+    // (`kClimbLimit`, 38, derived from that physics): refused at the foot and never entered, and
+    // drawn as a cliff by `protekt-map draw`.
+    const world::ScopedGround guard(app::map_ground(proving_ground()));
+    struct Climb {
+        int x;
+        int y;
+        float heading;
+        int dx;
+        int dy;
+    };
+    for (const Climb c : {Climb{17, 27, kSouth, 0, 1}, Climb{17, 33, kNorth, 0, -1},
+                          Climb{37, 9, kEast, 1, 0}, Climb{46, 9, kWest, -1, 0}}) {
+        Helm helm(UnitKind::Tank, c.x, c.y, c.heading, 1.0F, 0.0F);
+        const std::vector<TickRecord> ticks = helm.drive(60);
+        // It may go round (the mover's escape takes it to the 20-high flank beside, which it
+        // climbs): what it may never do is stand in the tile across the 40.
+        for (const TickRecord& r : ticks) {
+            EXPECT_FALSE(static_cast<int>(r.x) == c.x + c.dx && static_cast<int>(r.y) == c.y + c.dy)
+                << "from (" << c.x << ", " << c.y << ") it went up a 40\n"
+                << table(ticks);
+        }
+    }
+}
+
+/// The open field with a STEP of `rise` at column 12 (west of it 0, from it on `rise`), or, when
+/// `ramp` is true, a slope of `rise` a tile for four tiles (columns 12..15) and level from there.
+[[nodiscard]] app::MapDoc stepped_field(int rise, bool ramp) {
+    app::MapDoc map = open_field();
+    for (int y = 0; y < map.height; ++y) {
+        for (int x = 0; x < map.width; ++x) {
+            const int tiles = ramp ? std::clamp(x - 11, 0, 4) : (x >= 12 ? 1 : 0);
+            map.heights[map.index(x, y)] = rise * tiles;
+        }
+    }
+    return map;
+}
+
+TEST(SteepHillTop, EveryClimbableStepHasACrossableTop) {
+    // HIS TABLE: "leaving the top of a slope -- the ground holds or it does not -- but a climbable
+    // slope has a crossable top". A single edge of every climbable rise, up to the limit of 38,
+    // onto level ground: a unit driving east gets over it and on -- a tank, and a Walker, which
+    // has HALF a tank's step. Before G5 the slide was read from where the unit's move ENDED, so on
+    // the tick it crossed the brow it climbed at the edge's grade and was then slid back down that
+    // same edge by the tile above: a Walker on a step of 36 climbed 2867 raw and was slid back
+    // 3276, at the brow, for ever. The slide is read from where the tick began now, as the grade
+    // is, and on the top the Walker's level drive (6553) beats it.
+    for (const UnitKind kind : {UnitKind::Tank, UnitKind::Walker}) {
+        for (const int rise : {20, 33, 34, 35, 36, 37, 38}) {
+            const world::ScopedGround guard(app::map_ground(stepped_field(rise, false)));
+            Helm helm(kind, 8, 20, kEast, 1.0F, 0.0F);
+            const std::vector<TickRecord> ticks = helm.drive(240);
+            EXPECT_GE(helm.sim.find(helm.id)->x.floor_int(), 15)
+                << (kind == UnitKind::Tank ? "tank" : "walker") << ": a step of " << rise
+                << " held it at its top\n"
+                << table(ticks);
+        }
+    }
+    // ...and one past the limit is a wall: refused at the foot, at every speed.
+    for (const int rise : {39, 40}) {
+        const world::ScopedGround guard(app::map_ground(stepped_field(rise, false)));
+        Helm helm(UnitKind::Tank, 8, 20, kEast, 1.0F, 0.0F);
+        (void)helm.drive(120);
+        EXPECT_EQ(helm.sim.find(helm.id)->x.floor_int(), 11) << "rise " << rise;
+    }
+}
+
+TEST(SteepHillTop, AClimbableRampHasACrossableTop) {
+    // A RAMP, four tiles of `rise` each: up to the limit a tank's climb beats the slide on every
+    // tile (that is what the limit IS), so it reaches the level top and crosses it. (The physics
+    // under the limit, 38/39, is pinned by
+    // TankThatReverses.UphillAgainstASlideIsSlowedUpToAGradeOf38AndReversedFrom39.)
+    for (const int rise : {20, 33, 36, 38}) {
+        const world::ScopedGround guard(app::map_ground(stepped_field(rise, true)));
+        Helm helm(UnitKind::Tank, 8, 20, kEast, 1.0F, 0.0F);
+        // At 38 the net climb is 410 raw a tick (0.006 tile): the ramp takes the better part of
+        // 700 ticks. 900 is room for every rise.
+        const std::vector<TickRecord> ticks = helm.drive(900);
+        EXPECT_GE(helm.sim.find(helm.id)->x.floor_int(), 18)
+            << "a ramp of " << rise << " a tile was not crossed\n"
+            << table(ticks);
+    }
+}
+
+TEST(StraightPassage, WhatTurnsHimAsideInTheValleyIsTheKerbAndTheRockfallNotTheSlope) {
+    // HIS STRAIGHT PASSAGE is the valley (x 30..37, y 14..49), the map's one long straight run.
+    // The three candidates, each put to the test:
+    //   (a) the 39/40 band, driveable but not plannable: it cannot stop him. The tank at the helm
+    //       is steered straight by its heading and plans no route (G4), and the valley floor has
+    //       no edge of 39 or 40 to begin with.
+    //   (b) an impassable tile with nothing drawn on it: THIS. The map's "kerb" (a terrain volume
+    //       0..40 high across x 30..35 of row 24) and "rockfall" (the solid mask at x 30..32,
+    //       y 32..33) stop a tank, and the map drawing shows both hatched in red -- but the GAME
+    //       draws neither: nothing in src/game or src/render reads `Scenario::volumes` or
+    //       `world::ground_solid`. In the game they are ground like any other.
+    //   (c) a building mask wider than its building: there is no building in the valley.
+    // Driving south down column 33: with the volumes the game hands the sim, the tank is turned off
+    // its column at the kerb and runs on in column 36; without them it stays in column 33.
+    const app::MapDoc map = proving_ground();
+    const world::ScopedGround guard(app::map_ground(map));
+    const auto at = [&](int x, int y) { return map.heights[map.index(x, y)]; };
+    for (int y = 14; y < 50; ++y) {
+        for (int x = 30; x < 37; ++x) {
+            EXPECT_LT(std::abs(at(x + 1, y) - at(x, y)), 39) << "(a): an edge of 39/40 at " << x;
+            EXPECT_LT(std::abs(at(x, y + 1) - at(x, y)), 39) << "(a): an edge of 39/40 at " << y;
+        }
+    }
+    Helm plain(UnitKind::Tank, 33, 16, kSouth, 1.0F, 0.0F);
+    const std::vector<TickRecord> clear = plain.drive(120);
+    EXPECT_EQ(plain.sim.find(plain.id)->x.floor_int(), 33) << table(clear);
+    EXPECT_GE(plain.sim.find(plain.id)->y.floor_int(), 30) << table(clear);
+    EXPECT_EQ(plain.sim.find(plain.id)->route.count, 0) << "(a): the helm plans nothing";
+
+    Helm kerbed(UnitKind::Tank, 33, 16, kSouth, 1.0F, 0.0F, 0, app::placed_volumes(map));
+    const std::vector<TickRecord> turned = kerbed.drive(120);
+    EXPECT_EQ(kerbed.sim.find(kerbed.id)->x.floor_int(), 36) << "(b): the kerb\n" << table(turned);
+    EXPECT_GE(kerbed.sim.find(kerbed.id)->y.floor_int(), 30) << table(turned);
+
+    // The rockfall: column 31 is turned aside at row 32 with no volume at all -- the solid mask.
+    Helm rocks(UnitKind::Tank, 31, 26, kSouth, 1.0F, 0.0F);
+    const std::vector<TickRecord> walled = rocks.drive(90);
+    EXPECT_EQ(rocks.sim.find(rocks.id)->x.floor_int(), 33) << "(b): the rockfall\n"
+                                                           << table(walled);
 }
 
 } // namespace

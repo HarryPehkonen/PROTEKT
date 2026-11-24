@@ -118,7 +118,7 @@ bool draw_map(const MapDoc& map, const std::filesystem::path& path) {
                 const int nx = tx + side[0];
                 const int ny = ty + side[1];
                 if (nx < 0 || ny < 0 || nx >= map.width || ny >= map.height
-                    || height_at(nx, ny) - here <= sim::kClimbLimit) {
+                    || sim::climbable(here, height_at(nx, ny))) {
                     continue; // only the tile that LOOKS UP at a cliff is outlined
                 }
                 for (int k = 0; k < kS; ++k) {

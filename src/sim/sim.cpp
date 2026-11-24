@@ -2244,8 +2244,17 @@ void move(std::vector<Unit>& units, const WorldGround& ground, const UnitProfile
 /// ENTERABLE way down is chosen, so this is the map's edge or a shove into a building, rarely).
 /// Not a drive: `still_ticks` is left alone, so a crawling turret does not count the slide as
 /// motion of its own, and no vehicle is shoved.
-void slide(const WorldGround& ground, Unit& unit) noexcept {
-    const Step drift = plan_slide(ground, unit.x, unit.y, [&](int tx, int ty) {
+///
+/// THE GROUND OF THE TICK (G5): the drift is the slope under (`from_x`, `from_y`), where the unit
+/// stood when the tick began -- the very ground the mover read its grade from (`plan_step`
+/// measures every step from the tile the unit stands on). Both are one tick's forces from one
+/// state. Read from where the move ENDED instead, the tick that carries a unit over the brow of a
+/// climb gave it the edge's grade on the way up AND the slide of the tile above, back down that
+/// same edge: one edge's gravity twice, which held a tank at the top of every climbable step of 39
+/// or 40 for ever (climb 4915 raw, slide back 6552) -- "I can climb a VERY steep hill, but not get
+/// over the very top of it".
+void slide(const WorldGround& ground, Unit& unit, Fixed from_x, Fixed from_y) noexcept {
+    const Step drift = plan_slide(ground, from_x, from_y, [&](int tx, int ty) {
         return tx >= 0 && ty >= 0 && tx < kMapTiles && ty < kMapTiles && ground.factor(tx, ty) != 0;
     });
     if (drift.dx == 0 && drift.dy == 0) {
@@ -2661,11 +2670,13 @@ void Sim::step(StepTimings* timings) {
                 += std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - steer_from)
                        .count();
         }
+        const Fixed from_x = unit.x; // the ground of the tick: the slide reads it too (`slide`)
+        const Fixed from_y = unit.y;
         if (!(unit.kind == UnitKind::Turret && !turret_may_move(unit))) {
             move(units_, flight, prof, unit);
         }
         if (!planted(unit) && !airborne(unit)) {
-            slide(ground, unit); // (in the air nothing is touching the slope)
+            slide(ground, unit, from_x, from_y); // (in the air nothing is touching the slope)
         }
     }
 

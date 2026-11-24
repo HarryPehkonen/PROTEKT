@@ -72,10 +72,6 @@ inline constexpr std::int64_t kDiagonalDenominator = 256;
 /// and 42, a tile edge rises by at most 8 half the time, 24 for 94% of edges, 40 for 99.8%, and 55
 /// at the very worst; the numbers below are chosen against that spread.
 
-/// The steepest rise a unit may climb: a tile edge steeper than this is a CLIFF and is a wall, the
-/// way a crater is. 40 refuses about one edge in five hundred: cliffs exist and shape routes, but
-/// they do not wall the map.
-inline constexpr int kClimbLimit = 40;
 /// How much rise takes the whole speed away: speed is (1 - rise / kGradeSpan) of the terrain's,
 /// so a rise of 32 halves it and a drop of 32 gives half as much again.
 inline constexpr int kGradeSpan = 64;
@@ -91,21 +87,31 @@ inline constexpr std::int64_t kMaxGrade = Fixed::kOne * 3 / 2;
 /// sliding: a hillside, not the map).
 inline constexpr int kSlideThreshold = 32;
 /// Raw drift per tick for every unit of drop past `kSlideThreshold`: a sixteenth of a tank's
-/// 13107-raw step (0.2 tiles). At the steepest climbable edge (drop 40) that is 8 * 819 = 6552 raw,
-/// half a tank step downhill, which beats the 0.375 grade (4915 raw) a tank manages uphill there:
-/// the slope wins. Nearer the threshold the drift is small and a driven unit can still climb.
+/// 13107-raw step (0.2 tiles). On a slope of 39 that is 7 * 819 = 5733 raw downhill, which beats
+/// the 0.39 grade (5119 raw) a tank manages uphill there: the slope wins, and that is where the
+/// climb limit comes from (`kClimbLimit`). Nearer the threshold the drift is small and a driven
+/// unit can still climb.
 inline constexpr std::int64_t kSlideRawPerHeight = 819;
 /// The drift is never faster than a tank's step, however sheer the face (the world's worst edge is
 /// a drop of 55, which would ask for 1.4 steps): a slide is "slowly", Harri's word.
 inline constexpr std::int64_t kSlideMaxRaw = 13107;
 
-/// The rise over an edge, as the slope rules read it: the height difference, divided by the run.
-/// An axis edge runs one tile, a diagonal one runs 1.41, so its difference is scaled by the same
-/// 181/256 the escape step uses.
-[[nodiscard]] constexpr std::int64_t edge_rise(int from_height, int to_height,
-                                               bool diagonal) noexcept {
+/// TWO QUANTITIES, NOT ONE (G5). An edge has a HEIGHT DIFFERENCE and a GRADE, and they answer
+/// different questions:
+///   * the GRADE is the height difference divided by the RUN -- how steep the ground is along the
+///     way a unit crosses it. An axis edge runs one tile and a diagonal one 1.41, so a diagonal's
+///     difference is scaled by the same 181/256 the escape step uses. The grade is what SPEED and
+///     the SLIDE read (`grade_factor`, `plan_slide`): a 1.41-tile ramp is gentler to drive up and
+///     to stand on than a 1-tile one of the same height.
+///   * the HEIGHT DIFFERENCE, unscaled, is what the CLIMB LIMIT reads (`climbable`): a cliff is a
+///     wall because of how high it is, and a face 41 high is a wall whichever way it is
+///     approached. Scaling it let a diagonal of 56 through as "39": every diagonal cliff in the
+///     world (the worst edge is 55) was climbable, while the same face on the axis was refused.
+/// This returns the GRADE. It must never be compared with `kClimbLimit`.
+[[nodiscard]] constexpr std::int64_t edge_grade(int from_height, int to_height,
+                                                bool diagonal) noexcept {
     const std::int64_t rise = static_cast<std::int64_t>(to_height) - from_height;
-    return diagonal ? rise * 181 / 256 : rise;
+    return diagonal ? rise * kDiagonalNumerator / kDiagonalDenominator : rise;
 }
 
 /// The speed multiplier (raw, `Fixed::kOne` = level) for a rise: down is faster, up is slower,
@@ -115,30 +121,51 @@ inline constexpr std::int64_t kSlideMaxRaw = 13107;
     return std::clamp<std::int64_t>(raw, kMinGrade, kMaxGrade);
 }
 
-/// The slide's drift, raw per tick, for a tile whose steepest way down drops by `drop`: nothing at
-/// or below `kSlideThreshold`, `kSlideRawPerHeight` for each unit past it, never more than a tank's
-/// step. `plan_slide` is this applied to a ground; the route planner asks it of a bare number.
-[[nodiscard]] constexpr std::int64_t slide_raw(std::int64_t drop) noexcept {
-    if (drop <= kSlideThreshold) {
-        return 0;
-    }
-    return std::min((drop - kSlideThreshold) * kSlideRawPerHeight, kSlideMaxRaw);
+/// Does a unit driving at the full step `thrust` (raw) still make headway straight up a slope that
+/// rises `rise` a tile, against the slide that slope sets up? Its climb is the grade's share of its
+/// step; the slide is `kSlideRawPerHeight` for each unit of the slope past `kSlideThreshold`.
+[[nodiscard]] constexpr bool makes_headway(std::int64_t rise, std::int64_t thrust) noexcept {
+    const std::int64_t climb = thrust * grade_factor(rise) / Fixed::kOne;
+    const std::int64_t slide = std::min(
+        std::max<std::int64_t>(rise - kSlideThreshold, 0) * kSlideRawPerHeight, kSlideMaxRaw);
+    return climb > slide;
 }
 
-/// Can a unit whose full step is `speed` (raw) actually CLIMB an edge that rises by `rise`? The
-/// rule says yes up to `kClimbLimit`, but the slope wins over steering (the ruling): once the
-/// slide the edge sets up beats the speed the grade leaves the unit, the edge is a wall in fact
-/// though not in the rule. A tank's limit is 38, a turret's (a quarter of a tank's step) is 33.
-/// The mover is NOT changed by this -- it is the planner's account of what the mover will manage,
-/// so a route is not led up an edge the slide will send the unit back down.
-[[nodiscard]] constexpr bool drivable_rise(std::int64_t rise, std::int64_t speed) noexcept {
-    if (rise > kClimbLimit) {
-        return false;
+/// The steepest rise a TANK at full thrust (`kSlideMaxRaw`, its step: sim.cpp asserts the two are
+/// one) still climbs against the slide.
+[[nodiscard]] constexpr int steepest_headway_rise() noexcept {
+    int rise = 0;
+    while (makes_headway(rise + 1, kSlideMaxRaw)) {
+        ++rise;
     }
-    if (rise <= kSlideThreshold) {
-        return true;
-    }
-    return speed * grade_factor(rise) / Fixed::kOne > slide_raw(rise);
+    return rise;
+}
+
+/// THE CLIMB LIMIT (G5): a tile edge whose HEIGHT rises by more than this is a CLIFF and is a wall,
+/// the way a crater is -- at every angle (`climbable`). It is not a number chosen on its own: it is
+/// where the slope physics above stops a tank (`steepest_headway_rise`), 38 with these constants
+/// (5324 raw of climb against 4914 of slide; at 39, 5119 against 5733).
+///
+/// THE MISTAKEN ASSUMPTION IT REPLACES: the limit was a free 40, written as "the steepest rise a
+/// unit may climb". The physics never let a tank climb a slope of 39 or 40 -- the slide beats it --
+/// so the planner kept its own estimate (38, `drivable_rise`) beside the mover's 40, and the two
+/// disagreed about every rise in between: the planner refused what the mover drove, and where the
+/// planner had no say (a driver at the helm) a tank was let up a 40 it could not finish. One number
+/// now, and it is the physics' number. Change the grade or the slide, and the wall moves with them.
+inline constexpr int kClimbLimit = steepest_headway_rise();
+static_assert(kClimbLimit == 38, "the climb limit moved: a decision, so restate it here");
+
+/// THE CLIMB RULE, the ONE place it is decided: may a unit cross from ground of `from_height` onto
+/// ground of `to_height`? Yes unless the height RISES by more than `kClimbLimit`, at any angle (the
+/// height difference, not the grade: see `edge_grade`). The mover (`plan_step`) and the route
+/// planner (`route_detail::edge_blocked`) both ask this and nothing else, so there is no rise one
+/// of them drives and the other will not plan.
+///
+/// A unit weaker than a tank (a turret crawls at a quarter of its step) may still be beaten by a
+/// slope under this limit: "slower, and backwards if the slope beats your thrust -- correct, not a
+/// bug" (Harri). That is the slide, applied as it happens (`plan_slide`), not a second limit.
+[[nodiscard]] constexpr bool climbable(int from_height, int to_height) noexcept {
+    return static_cast<std::int64_t>(to_height) - from_height <= kClimbLimit;
 }
 
 /// A ground that knows heights: `std::int64_t`-convertible `height(tile_x, tile_y)`. A ground
@@ -173,16 +200,15 @@ template <class Ground>
     const int tile_y = request.y.floor_int();
 
     /// May a unit standing on this tile enter `to`? Always, unless the ground knows heights and the
-    /// climb into `to` is past `kClimbLimit`. The tile it stands on is always enterable (a unit
-    /// carried onto a cliff face by the slide must be able to leave it).
-    [[maybe_unused]] const auto climbable = [&](int to_x, int to_y) {
+    /// climb into `to` is a cliff (`climbable`: by height, at every angle). The tile it stands on
+    /// is always enterable (a unit carried onto a cliff face by the slide must be able to leave
+    /// it).
+    [[maybe_unused]] const auto may_enter = [&](int to_x, int to_y) {
         if constexpr (HasHeights<Ground>) {
             if (to_x == tile_x && to_y == tile_y) {
                 return true;
             }
-            const bool diagonal = to_x != tile_x && to_y != tile_y;
-            return edge_rise(ground.height(tile_x, tile_y), ground.height(to_x, to_y), diagonal)
-                   <= kClimbLimit;
+            return climbable(ground.height(tile_x, tile_y), ground.height(to_x, to_y));
         } else {
             return true;
         }
@@ -209,10 +235,10 @@ template <class Ground>
             const int here = ground.height(tile_x, tile_y);
             const int step_x = sign(dx);
             const int step_y = sign(dy);
-            const std::int64_t rise = edge_rise(
+            const std::int64_t grade = edge_grade(
                 here, ground.height(tile_x + step_x, tile_y + step_y), step_x != 0 && step_y != 0);
-            factor = factor * grade_factor(rise) >> Fixed::kShift;
-            if (!climbable(far_x.floor_int(), far_y.floor_int())) {
+            factor = factor * grade_factor(grade) >> Fixed::kShift;
+            if (!may_enter(far_x.floor_int(), far_y.floor_int())) {
                 return false;
             }
         }
@@ -224,7 +250,7 @@ template <class Ground>
             return false;
         }
         if constexpr (HasHeights<Ground>) {
-            if (!climbable(nx.floor_int(), ny.floor_int())) {
+            if (!may_enter(nx.floor_int(), ny.floor_int())) {
                 return false;
             }
         }
@@ -355,8 +381,10 @@ template <class Ground, class Open>
         if (!open(nx, ny)) {
             continue;
         }
+        // The GRADE of the way down (`edge_grade`): how steep the ground under the unit is, which
+        // is what decides whether it holds -- not the height of the face, which is the climb's.
         const bool diagonal = d[0] != 0 && d[1] != 0;
-        const std::int64_t drop = -edge_rise(here, ground.height(nx, ny), diagonal);
+        const std::int64_t drop = -edge_grade(here, ground.height(nx, ny), diagonal);
         if (drop > steepest) {
             steepest = drop;
             way = d;

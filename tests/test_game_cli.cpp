@@ -452,7 +452,12 @@ TEST_F(GameCliTest, WithNoMapFileTheDefaultBattleIsExactlyWhatItWas) {
     // 120 is identical too). The hash moved because a unit's route now carries a failure, a stall
     // count and a goal kind, and because a route's age no longer sits at its order marker once the
     // order has been seen -- state, not motion.
-    EXPECT_NE(out.find("tick 40, hash 13763616923485613601"), std::string::npos) << out;
+    // RE-RECORDED, G5 (one climb limit, 38, derived from the slide physics -- was a free 40 -- and
+    // decided by height at every angle): old value 13763616923485613601 is the code at 9d6da50, and
+    // it held with G5's slide change and the limit still at 40, so the limit is what moved it: an
+    // edge of 39 or 40 is a cliff now, to the mover and the planner alike. Two runs of the new
+    // value print the same hash and byte-identical frames.
+    EXPECT_NE(out.find("tick 40, hash 9848745837594298993"), std::string::npos) << out;
     EXPECT_EQ(
         run({"--headless", "--frames", "1", "--width", "32", "--height", "24", "--log-spawns"}, err,
             &out),
@@ -617,7 +622,12 @@ TEST_F(GameCliTest, TheSameMapPlayedTwiceIsTheSameBattleAndIsNotTheDefaultOne) {
     // 120 is identical too). The hash moved because a unit's route now carries a failure, a stall
     // count and a goal kind, and because a route's age no longer sits at its order marker once the
     // order has been seen -- state, not motion.
-    EXPECT_NE(out.find("tick 40, hash 13763616923485613601"), std::string::npos) << out;
+    // RE-RECORDED, G5 (one climb limit, 38, derived from the slide physics -- was a free 40 -- and
+    // decided by height at every angle): old value 13763616923485613601 is the code at 9d6da50, and
+    // it held with G5's slide change and the limit still at 40, so the limit is what moved it: an
+    // edge of 39 or 40 is a cliff now, to the mover and the planner alike. Two runs of the new
+    // value print the same hash and byte-identical frames.
+    EXPECT_NE(out.find("tick 40, hash 9848745837594298993"), std::string::npos) << out;
 }
 
 // --- --log-spawns: the composition, read back ------------------------------------------------

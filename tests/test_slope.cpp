@@ -115,20 +115,22 @@ TEST(Slope, TheGradeIsBoundedAtBothEnds) {
 }
 
 TEST(Slope, PastTheClimbLimitTheStepIsRefused) {
-    // The limit is 40 and these write the NUMBER, not the constant: the first version of this test
+    // The limit is 38 and these write the NUMBER, not the constant: the first version of this test
     // said `kClimbLimit` and `kClimbLimit + 1`, and it stayed green when the sabotage run set the
-    // limit to a million, because it moved with it. 40 is the rule (about one edge in five hundred
-    // of seed 42's world is steeper); a different limit is a decision, and should have to edit
-    // this. The unit is 0.05 tile from the east edge of tile 2, so a level step of 0.2 would carry
-    // it into tile 3. At a rise of exactly the limit it does; one past the limit, it does not: a
-    // cliff is a wall, and the unit is NOT in the steep tile afterwards.
+    // limit to a million, because it moved with it. A different limit is a decision, and should
+    // have to edit this -- as G5 did: it was 40, a free number, and the slide physics never let a
+    // tank climb a slope of 39 or 40 (5119 raw of climb against 5733 of slide at 39). The limit is
+    // now derived from that physics (`steepest_headway_rise`). The unit is 0.05 tile from the east
+    // edge of tile 2, so a level step of 0.2 would carry it into tile 3. At a rise of exactly the
+    // limit it does; one past the limit, it does not: a cliff is a wall, and the unit is NOT in the
+    // steep tile afterwards.
     const std::int32_t near_edge = Fixed::kOne - Fixed::kOne / 20;
-    const auto at_limit = plan_step(standing(2, 2, kStep, 0, near_edge), ramp_east(0, 40));
+    const auto at_limit = plan_step(standing(2, 2, kStep, 0, near_edge), ramp_east(0, 38));
     ASSERT_TRUE(at_limit.moved);
     EXPECT_GE(2 * Fixed::kOne + near_edge + at_limit.step.dx, 3 * Fixed::kOne)
         << "a climb of exactly the limit is allowed: the unit gets over the edge";
 
-    const auto cliff = plan_step(standing(2, 2, kStep, 0, near_edge), ramp_east(0, 41));
+    const auto cliff = plan_step(standing(2, 2, kStep, 0, near_edge), ramp_east(0, 39));
     const std::int64_t after = 2 * Fixed::kOne + near_edge + (cliff.moved ? cliff.step.dx : 0);
     EXPECT_LT(after, 3 * Fixed::kOne) << "the unit entered a tile too steep to climb";
 }
@@ -257,6 +259,90 @@ TEST(Slide, ItDoesNotCarryAUnitOntoGroundItCannotEnter) {
     const auto shut_east = [](int x, int) { return x != 3; };
     const Step drift = plan_slide(ground, at.x, at.y, shut_east);
     EXPECT_EQ(drift.dx, 0);
+}
+
+// ---- G5: the wall that is a wall at every angle, and ONE limit -----------------------------
+//
+// Harri, driving: "I feel like I can climb too high on the slope. The problem may be the dx or dy
+// -- it's not so dramatic, except when you consider the angle." The run-scaling of a diagonal edge
+// (x 181/256) is right for a GRADE and wrong for a WALL: compared against the climb limit, it let
+// a diagonal of height 56 through as "39". And the planner judged an edge by its own estimate
+// (`drivable_rise`: a tank's limit 38, a turret's 33) while the mover judged it by the rule (40),
+// so the two disagreed about rises the mover would drive.
+
+/// Flat ground at 100 with ONE tile raised by `rise`: (3, 2) when `diagonal` is false (east of the
+/// unit's tile (2, 2)), (3, 3) when it is true (south-east of it).
+HeightGround one_raised(int rise, bool diagonal) {
+    HeightGround ground = ramp_east(100, 0);
+    ground.heights.at(diagonal ? 3 : 2).at(3) = 100 + rise;
+    return ground;
+}
+
+/// THE MOVER'S VERDICT: a unit of full step `speed` standing 0.01 tile short of the edge (or the
+/// corner) of tile (2, 2) steps straight at the raised tile. True when the step lands in it.
+bool mover_enters(int rise, bool diagonal, std::int64_t speed) {
+    const std::int32_t near = Fixed::kOne - Fixed::kOne / 100;
+    StepRequest request;
+    request.x = Fixed::from_raw(2 * Fixed::kOne + near);
+    request.y = Fixed::from_raw(2 * Fixed::kOne + (diagonal ? near : Fixed::kOne / 2));
+    const std::int64_t along = diagonal ? speed * kDiagonalNumerator / kDiagonalDenominator : speed;
+    request.want_dx = along;
+    request.want_dy = diagonal ? along : 0;
+    request.speed = speed;
+    const StepPlan plan = plan_step(request, one_raised(rise, diagonal));
+    if (!plan.moved) {
+        return false;
+    }
+    const Fixed x = Fixed::from_raw(static_cast<std::int32_t>(request.x.raw + plan.step.dx));
+    const Fixed y = Fixed::from_raw(static_cast<std::int32_t>(request.y.raw + plan.step.dy));
+    return x.floor_int() == 3 && y.floor_int() == (diagonal ? 3 : 2);
+}
+
+/// THE PLANNER'S VERDICT on the very same edge, for a unit of full step `speed` on open ground
+/// (no tile held by a slide, so only the edge itself is judged).
+bool planner_opens(int rise, bool diagonal, std::int64_t speed) {
+    const HeightGround ground = one_raised(rise, diagonal);
+    const auto height = [&](int x, int y) { return ground.height(x, y); };
+    const auto no_slide = [](int, int) { return std::array<int, 2>{0, 0}; };
+    (void)speed; // one rule for every unit: the planner's verdict on an edge takes no speed
+    return !route_detail::edge_blocked(height, no_slide, 2, 2, 3, diagonal ? 3 : 2);
+}
+
+TEST(WallAtEveryAngle, AHeightPastTheClimbLimitIsRefusedOnTheAxisAndOnTheDiagonal) {
+    // The limit is 38, written as the number (see PastTheClimbLimitTheStepIsRefused). Under the old
+    // limit of 40, a rise of 41 to 56 read 29 to 39 on a diagonal, under it: every diagonal cliff
+    // in the world (the worst edge is 55) was climbable. A wall is decided by the HEIGHT, at every
+    // angle.
+    for (const int rise : {39, 40, 41, 45, 50, 55, 56, 80}) {
+        for (const bool diagonal : {false, true}) {
+            EXPECT_FALSE(mover_enters(rise, diagonal, kStep))
+                << "the mover let a tank up a rise of " << rise << (diagonal ? " (diagonal)" : "");
+            EXPECT_FALSE(planner_opens(rise, diagonal, kStep))
+                << "the planner opened a rise of " << rise << (diagonal ? " (diagonal)" : "");
+        }
+    }
+    // ...and up to the limit, it is not a wall at either angle.
+    for (const int rise : {0, 20, 33, 37, 38}) {
+        for (const bool diagonal : {false, true}) {
+            EXPECT_TRUE(mover_enters(rise, diagonal, kStep))
+                << "rise " << rise << (diagonal ? " (diagonal)" : "");
+        }
+    }
+}
+
+TEST(WallAtEveryAngle, ForEveryRiseTheMoverAndThePlannerAgree) {
+    // ONE limit, in one place: for every rise, axis and diagonal, a tank and a turret (a quarter of
+    // a tank's step), the planner opens exactly the edges the mover will drive. Before G5 a tank's
+    // 39 and 40 were driven but not planned (38 was the planner's tank limit), a turret's 34..40
+    // likewise (33), and a diagonal of 41..55 was driven by both though it is a cliff.
+    for (const std::int64_t speed : {kStep, kStep / 4}) {
+        for (int rise = -80; rise <= 80; ++rise) {
+            for (const bool diagonal : {false, true}) {
+                EXPECT_EQ(mover_enters(rise, diagonal, speed), planner_opens(rise, diagonal, speed))
+                    << "rise " << rise << (diagonal ? " diagonal" : " axis") << ", speed " << speed;
+            }
+        }
+    }
 }
 
 // ---- the ground the other tests moved to -----------------------------------------------------
