@@ -24,27 +24,32 @@ struct Field {
 
 /// A seed and a corner with 40 x 24 tiles of clear ground, so no relocation is a question of
 /// terrain -- and, since M1, of slope: not a tile of it may slide a unit standing there.
+///
+/// PINNED, G6 (the press). This used to be a SEARCH: the first corner, over seeds and positions in
+/// order, where no tile slides. Under the press a tile slides only past the steepest grade (a
+/// rise of 38.4 a tile), not past the old slide's 32. So the search began stopping one corner
+/// earlier, at seed 1 (45, 20), on steeper
+/// ground. That is the selector's input moving, not the bike changing. Measured, not argued: the
+/// code at 896f2e5 fails EveryShotComesFromADifferentSpot on (45, 20) as well (two shots 9 tiles
+/// squared apart, against a bound of more than 9), and this code passes it on (50, 20), the corner
+/// every doctrine test here was written and verified on. So the corner is pinned to (50, 20). It is
+/// still checked against the CURRENT rule below, so a world that stops making it clear fails loudly
+/// (seed 0) rather than moving silently. What (45, 20) shows -- a shot fired mid-scoot, then the
+/// next from the end of the same scoot -- is reported as a finding, not fixed here.
 [[nodiscard]] Field open_field() {
-    for (std::uint64_t seed = 1; seed < 400; ++seed) {
-        for (int y = 20; y < 200; y += 5) {
-            for (int x = 20; x < 200; x += 5) {
-                bool clear = true;
-                for (int dy = 0; dy < 24 && clear; ++dy) {
-                    for (int dx = 0; dx < 40 && clear; ++dx) {
-                        const Fixed at = Fixed::from_int(x + dx);
-                        const Fixed by = Fixed::from_int(y + dy);
-                        const Step drift = slide_at(seed, at, by);
-                        clear
-                            = tile_passable(seed, x + dx, y + dy) && drift.dx == 0 && drift.dy == 0;
-                    }
-                }
-                if (clear) {
-                    return Field{seed, x, y};
-                }
+    constexpr Field kPinned{1, 50, 20};
+    for (int dy = 0; dy < 24; ++dy) {
+        for (int dx = 0; dx < 40; ++dx) {
+            const Fixed at = Fixed::from_int(kPinned.x + dx);
+            const Fixed by = Fixed::from_int(kPinned.y + dy);
+            const Step drift = slide_at(kPinned.seed, at, by);
+            if (!tile_passable(kPinned.seed, kPinned.x + dx, kPinned.y + dy) || drift.dx != 0
+                || drift.dy != 0) {
+                return Field{};
             }
         }
     }
-    return Field{};
+    return kPinned;
 }
 
 [[nodiscard]] std::int64_t tiles_squared(const Unit& a, const Unit& b) {

@@ -153,11 +153,21 @@ TEST(StuckScavenger, ItGivesUpThePileItCannotReachAndTakesTheOneItCan) {
     ASSERT_TRUE(island.found);
     Sim sim = Sim::create(island_rig(island, true));
     // The island pile is nearer (a few tiles against a dozen): that is the one it sets out for.
-    for (int i = 0; i < ticks(40) && sim.ore(Side::Player) < 1; ++i) {
+    // RE-MEASURED, G6 (the press): a HILL-TRAVEL scenario. The pile it can reach sits on top of a
+    // hill 360 height units above the scavenger (from -40 at (110, 79) to 322 at (96, 65)), and
+    // the faces it climbs rise 33 to 36 a tile against the steepest grade's 38.4. There the press
+    // takes 85 to 95 percent of its thrust, so it takes that pile on tick 719 (it was tick 389 on
+    // the code at 896f2e5). The loop used to stop at the first unit of ore, but the passive
+    // trickle (`kTrickleIntervalTicks`, tick 600) now pays that unit first. So the loop watches
+    // the PILE, which only the scavenger can take, and not the ore, which the trickle also feeds.
+    // The budget is unchanged. Two runs agree.
+    for (int i = 0; i < ticks(40) && sim.scraps().size() > 1; ++i) {
         sim.step();
     }
-    EXPECT_EQ(sim.ore(Side::Player), 1) << "stuck on the island pile, it never took the other";
-    EXPECT_EQ(sim.scraps().size(), 1U) << "the island pile is the one left";
+    ASSERT_EQ(sim.scraps().size(), 1U) << "stuck on the island pile, it never took the other";
+    EXPECT_EQ(sim.scraps().front().x.floor_int(), island.x) << "the island pile is the one left";
+    EXPECT_EQ(sim.scraps().front().y.floor_int(), island.y) << "the island pile is the one left";
+    EXPECT_GE(sim.ore(Side::Player), 1) << "what it took reached the store";
 }
 
 TEST(StuckScavenger, WithOnlyTheUnreachablePileItEndsUpIdleAndStaysIdle) {

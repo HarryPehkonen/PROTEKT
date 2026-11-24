@@ -350,8 +350,15 @@ TEST(Jump, AJumpBattleHashesToTheFirstRecordedValuesAndTheHeightIsPartOfThem) {
     // route now carries a failure, a stall count and a goal kind in the hash, and that alone moves
     // every hash. Proved by taking those lines out of `Sim::state_hash` with the new planner left
     // in: both old values came back exactly.
-    EXPECT_EQ(mid_air, 14985196521606509677ULL);
-    EXPECT_EQ(jumped.state_hash(), 5149234450444275317ULL);
+    // RE-MEASURED, G6 (the press): old values 14985196521606509677 (mid-air) and
+    // 5149234450444275317 (the end) are the code at 896f2e5. A HILL-TRAVEL scenario, though a
+    // gentle one: "open ground" means no rough tiles, not level ones, and on column 69 the ground
+    // rises from 45 to 50 between rows 28 and 32, then falls to 43 at row 34. The tank drives
+    // that rise at full throttle, so its speed comes from the press now, not the old grade factor,
+    // and where it stands each tick moves, and the hash with it. The `EXPECT_NE` above still holds:
+    // the jump is still part of the hash. Two runs of the new values agree.
+    EXPECT_EQ(mid_air, 17553760078037519566ULL);
+    EXPECT_EQ(jumped.state_hash(), 18291473291112434540ULL);
 }
 
 TEST(Jump, ABuildingAndAFactoryCannotJump) {

@@ -422,7 +422,13 @@ TEST(Observer, RenamingTheSupportVehiclesMovedNoRecordedBattle) {
     // when the tick began, as the grade does) takes it to the value below. Restored exactly by
     // reverting steering.hpp, route.hpp and sim.cpp's `slide` to 9d6da50. Two runs of the new
     // recording give the same value.
-    EXPECT_EQ(log.final_hash, 10843871789041013380ULL);
+    // RE-MEASURED, G6 (the press: one force from the gradient, and the wall falls out of it): old
+    // value 10843871789041013380 is the code at 896f2e5, reproduced exactly by running this battle
+    // on that tree. A HILL-TRAVEL scenario: the two armies march across the hill country of seed 42
+    // to meet, at the speeds the press now sets on every slope, and by the routes its wall allows.
+    // So they meet at different ticks and fight a different battle (14 shots in these 600 ticks,
+    // was 2). Two runs of the new recording give the same value.
+    EXPECT_EQ(log.final_hash, 6519910212246504653ULL);
 }
 
 TEST(Observer, TheFiredStreamForAScriptedBattleIsUnchanged) {
@@ -528,21 +534,37 @@ TEST(Observer, TheFiredStreamForAScriptedBattleIsUnchanged) {
     // moves it the rest. Old stream: the code at 9d6da50 (first row {502, 8, 12, 100}; last
     // {872, 13, 2, 60}); restored exactly by reverting steering.hpp, route.hpp and sim.cpp's
     // `slide` to that commit. Two runs of the new recording printed byte-identical streams.
+    // RE-MEASURED, G6 (the press: one force from the gradient, and the wall falls out of it): a
+    // HILL-TRAVEL scenario. The armies cross seed 42's hill country to meet, at the speeds the
+    // press sets on every slope and by the routes its wall allows, so they meet and fight
+    // differently. The stream has 114 shots (was 67); the first is on tick 532 (was 562) and the
+    // last on tick 899 (was 898). Old stream: the code at 896f2e5 (first row {562, 8, 15, 100};
+    // last {898, 2, 13, 28}), reproduced exactly, all 67 rows, by running this battle on that tree.
+    // Two runs of the new recording printed byte-identical streams (md5 c02715e0...).
     static const std::vector<Expected> kExpected = {
-        {562, 8, 15, 100}, {585, 15, 8, 40}, {600, 15, 8, 40}, {607, 8, 15, 84},  {613, 2, 15, 84},
-        {615, 15, 8, 40},  {628, 2, 15, 84}, {630, 15, 8, 40}, {641, 4, 15, 60},  {645, 15, 8, 40},
-        {652, 8, 15, 60},  {655, 20, 8, 40}, {656, 4, 15, 60}, {660, 15, 2, 100}, {671, 4, 15, 52},
-        {675, 15, 2, 100}, {686, 4, 15, 28}, {689, 1, 15, 28}, {690, 15, 2, 92},  {697, 8, 15, 20},
-        {701, 4, 15, 20},  {701, 19, 2, 84}, {704, 1, 15, 20}, {705, 15, 2, 84},  {716, 4, 15, 4},
-        {719, 1, 15, 4},   {720, 15, 2, 76}, {730, 20, 8, 40}, {746, 19, 2, 44},  {757, 8, 19, 40},
-        {763, 2, 19, 40},  {776, 4, 19, 40}, {778, 2, 19, 40}, {779, 1, 19, 40},  {782, 13, 2, 44},
-        {791, 4, 19, 40},  {791, 19, 8, 40}, {793, 2, 19, 40}, {794, 1, 19, 40},  {797, 13, 2, 44},
-        {802, 8, 19, 32},  {805, 20, 2, 44}, {806, 4, 19, 32}, {808, 2, 19, 32},  {809, 1, 19, 32},
-        {823, 2, 13, 84},  {827, 13, 8, 40}, {836, 4, 13, 68}, {836, 19, 8, 40},  {838, 2, 13, 68},
-        {842, 13, 8, 40},  {847, 8, 20, 92}, {851, 4, 13, 60}, {853, 2, 19, 32},  {857, 13, 8, 40},
-        {866, 4, 13, 44},  {868, 2, 13, 44}, {872, 13, 2, 20}, {876, 9, 13, 44},  {880, 20, 8, 24},
-        {881, 4, 13, 28},  {883, 2, 13, 28}, {887, 13, 2, 20}, {892, 8, 20, 92},  {896, 4, 13, 28},
-        {896, 19, 2, 12},  {898, 2, 13, 28},
+        {532, 8, 15, 100}, {536, 19, 8, 40}, {540, 15, 8, 40},  {555, 15, 8, 40}, {557, 13, 8, 40},
+        {568, 2, 15, 84},  {570, 15, 8, 40}, {572, 13, 2, 100}, {577, 8, 19, 40}, {581, 19, 8, 40},
+        {583, 2, 13, 84},  {585, 15, 2, 84}, {587, 13, 2, 84},  {598, 2, 13, 84}, {600, 15, 2, 76},
+        {602, 13, 2, 76},  {613, 2, 15, 84}, {615, 15, 2, 68},  {617, 13, 2, 68}, {618, 12, 2, 68},
+        {622, 8, 15, 84},  {626, 19, 8, 40}, {628, 2, 15, 84},  {630, 15, 2, 52}, {632, 13, 2, 52},
+        {633, 12, 2, 52},  {643, 2, 15, 76}, {645, 15, 2, 36},  {647, 13, 2, 36}, {648, 12, 2, 36},
+        {658, 2, 15, 68},  {660, 15, 2, 20}, {661, 14, 2, 20},  {662, 13, 2, 20}, {663, 12, 2, 20},
+        {667, 8, 19, 40},  {671, 19, 8, 40}, {672, 3, 15, 60},  {675, 15, 3, 84}, {677, 13, 3, 84},
+        {687, 3, 15, 52},  {690, 15, 3, 68}, {692, 13, 3, 68},  {702, 3, 15, 44}, {705, 15, 3, 52},
+        {706, 14, 3, 52},  {707, 13, 3, 52}, {708, 12, 3, 52},  {712, 8, 19, 40}, {717, 3, 15, 36},
+        {720, 15, 3, 36},  {721, 14, 3, 36}, {722, 13, 3, 36},  {723, 12, 3, 36}, {731, 19, 8, 40},
+        {732, 3, 15, 28},  {735, 15, 3, 4},  {736, 14, 3, 4},   {737, 13, 3, 4},  {738, 12, 3, 4},
+        {746, 4, 15, 20},  {749, 1, 15, 20}, {750, 15, 1, 100}, {757, 8, 19, 40}, {761, 4, 15, 12},
+        {764, 1, 15, 12},  {765, 15, 1, 92}, {766, 14, 1, 92},  {767, 13, 1, 92}, {768, 12, 1, 92},
+        {776, 19, 8, 40},  {779, 1, 13, 68}, {781, 14, 1, 84},  {782, 13, 1, 84}, {783, 12, 1, 84},
+        {786, 9, 12, 84},  {791, 4, 13, 68}, {794, 1, 13, 68},  {796, 14, 1, 52}, {797, 13, 1, 52},
+        {798, 12, 1, 52},  {802, 8, 19, 24}, {806, 4, 13, 60},  {809, 1, 13, 60}, {811, 14, 4, 76},
+        {812, 13, 4, 76},  {813, 12, 4, 76}, {821, 4, 13, 44},  {821, 19, 8, 40}, {824, 1, 13, 44},
+        {826, 14, 4, 76},  {827, 13, 4, 76}, {828, 12, 4, 76},  {836, 4, 13, 28}, {839, 1, 13, 28},
+        {841, 14, 4, 52},  {842, 13, 4, 52}, {843, 12, 4, 52},  {847, 8, 19, 24}, {851, 4, 13, 12},
+        {854, 1, 13, 12},  {856, 14, 4, 28}, {857, 13, 4, 28},  {858, 12, 4, 28}, {861, 9, 12, 84},
+        {866, 4, 12, 84},  {866, 19, 8, 40}, {869, 1, 14, 84},  {871, 14, 4, 4},  {873, 12, 4, 4},
+        {884, 1, 14, 84},  {886, 14, 1, 4},  {888, 12, 1, 4},   {899, 1, 14, 76},
     };
     const Scenario scenario = skirmish(42);
     ai::ScriptedCommander player(30);

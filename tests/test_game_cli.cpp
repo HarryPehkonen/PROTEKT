@@ -457,7 +457,15 @@ TEST_F(GameCliTest, WithNoMapFileTheDefaultBattleIsExactlyWhatItWas) {
     // it held with G5's slide change and the limit still at 40, so the limit is what moved it: an
     // edge of 39 or 40 is a cliff now, to the mover and the planner alike. Two runs of the new
     // value print the same hash and byte-identical frames.
-    EXPECT_NE(out.find("tick 40, hash 9848745837594298993"), std::string::npos) << out;
+    // RE-MEASURED, G6 (the press): old value 9848745837594298993 is the code at 896f2e5, measured
+    // again on a build of that tree. A HILL-TRAVEL scenario: in these 40 ticks the scripted enemy
+    // drives its columns west out of its base and up a hill. Running skirmish(42) on the sim with
+    // the same enemy commander, enemy unit 12 climbs from height 26 and covers 5.4 tiles under the
+    // press against 7.1 before, and every moving enemy unit ends somewhere else. The captured
+    // 64x48 frame is byte-identical between the two trees (md5 8183a93f96225b3cfd311095ef0ee8af)
+    // even though the battle moved: this frame does not show the enemy's base, so an identical
+    // frame is no proof that nothing moved. Two runs of the new value print the same hash.
+    EXPECT_NE(out.find("tick 40, hash 15984221460153946537"), std::string::npos) << out;
     EXPECT_EQ(
         run({"--headless", "--frames", "1", "--width", "32", "--height", "24", "--log-spawns"}, err,
             &out),
@@ -627,7 +635,15 @@ TEST_F(GameCliTest, TheSameMapPlayedTwiceIsTheSameBattleAndIsNotTheDefaultOne) {
     // it held with G5's slide change and the limit still at 40, so the limit is what moved it: an
     // edge of 39 or 40 is a cliff now, to the mover and the planner alike. Two runs of the new
     // value print the same hash and byte-identical frames.
-    EXPECT_NE(out.find("tick 40, hash 9848745837594298993"), std::string::npos) << out;
+    // RE-MEASURED, G6 (the press): old value 9848745837594298993 is the code at 896f2e5, measured
+    // again on a build of that tree. A HILL-TRAVEL scenario: in these 40 ticks the scripted enemy
+    // drives its columns west out of its base and up a hill. Running skirmish(42) on the sim with
+    // the same enemy commander, enemy unit 12 climbs from height 26 and covers 5.4 tiles under the
+    // press against 7.1 before, and every moving enemy unit ends somewhere else. The captured
+    // 64x48 frame is byte-identical between the two trees (md5 8183a93f96225b3cfd311095ef0ee8af)
+    // even though the battle moved: this frame does not show the enemy's base, so an identical
+    // frame is no proof that nothing moved. Two runs of the new value print the same hash.
+    EXPECT_NE(out.find("tick 40, hash 15984221460153946537"), std::string::npos) << out;
 }
 
 // --- --log-spawns: the composition, read back ------------------------------------------------

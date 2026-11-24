@@ -163,7 +163,14 @@ TEST(Navigation, ATankOrderedOntoAFactoryReachesItAndDamagesIt) {
     // RE-RECORDED, G1 (go around): 1110 -> 1082. The route now keeps clear of the ground the slide
     // throws a unit off, which on this trip is a shorter way round: 28 ticks sooner. Old value 1110
     // is the code at 20ec749; restored exactly by reverting the planner to that commit.
-    EXPECT_EQ(first_damage, 1082)
+    // RE-MEASURED, G6 (the press): 1082 -> 1185. A HILL-TRAVEL scenario: the 140-tile drive climbs
+    // about 1300 height units on the way (1239 on the old route, 1292 on the new), and uphill the
+    // press slows a tank more than the old grade did. The tank's average speed falls from 0.134 to
+    // 0.119 tiles a tick, although the route the press-derived wall allows is shorter (141.0 tiles
+    // driven, was 145.1). Old value 1082 is the code at 896f2e5, measured again on that tree. Two
+    // runs of the new value agree. Sabotage proof: making downhill SLOWER (`c - a` for `c + a` in
+    // `driven_press`) and the tank never reaches the base (0).
+    EXPECT_EQ(first_damage, 1185)
         << "and it takes about a thousand ticks to get there and open fire";
 }
 
