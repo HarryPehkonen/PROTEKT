@@ -90,8 +90,8 @@ inline constexpr std::int64_t kDiagonalDenominator = 256;
 /// a rise of 3 in a run of 5 (31 degrees). That is the gradient a main battle tank is specified to
 /// climb (the figure quoted for the M1 Abrams and the Leopard 2 alike). At this grade the press
 /// equals a unit's full thrust, so a unit driving straight up it stands still. In this world's
-/// units that is 0.6 * 64 = 38.4 height units a tile -- the climb limit below comes OUT of it
-/// (38); it was not put into it.
+/// units that is 0.6 * 64 = 38.4 height units a tile -- and the WALL comes out of it
+/// (`press_beats`): there is no climb limit of its own.
 inline constexpr std::int64_t kSteepestGradeRise = 3;
 inline constexpr std::int64_t kSteepestGradeRun = 5;
 
@@ -111,7 +111,7 @@ struct Gradient {
     std::int64_t y2{}; ///< twice the rise per tile along +y
 };
 
-/// floor(sqrt(n)) for n >= 0, in a constexpr the climb limit can be derived with.
+/// floor(sqrt(n)) for n >= 0, in a constexpr the wall can be derived with.
 [[nodiscard]] constexpr std::int64_t isqrt_floor(std::int64_t n) noexcept {
     if (n <= 0) {
         return 0;
@@ -194,10 +194,12 @@ inline constexpr std::int64_t kDoubledRun = std::int64_t{2} * world::kHeightUnit
     return Step{press.dx * past / magnitude, press.dy * past / magnitude};
 }
 
-/// THE DRIVEN UNIT of full step `thrust`, heading along (`hx`, `hy`): the press acts on it as on
-/// any vehicle -- its tracks ROLL along the heading and GRIP across it. So the press's component
-/// along the heading is felt in full (that IS the slow climb, the fast descent, and the too-steep
-/// hill that beats the engine), and its component across the heading is held by the same grip that
+/// THE DRIVEN UNIT of full step `thrust`, heading along (`hx`, `hy`) at |h| raw a tick: the press
+/// acts on it as on any vehicle -- its tracks ROLL along the heading and GRIP across it. So the
+/// press's component along the heading is felt in full at full throttle (that IS the slow climb,
+/// the fast descent, and the too-steep hill that beats the engine), and a gentler drive uphill is
+/// held at its commanded speed while the engine has the thrust to spare -- and its component
+/// across the heading is held by the same grip that
 /// holds a parked unit, and carries the unit sideways only by what it has past that grip (the
 /// veer, on ground steeper than a unit climbs). One force, and one grip, read the one way a
 /// vehicle reads them: nothing here can turn a driver round unless the slope genuinely opposes
@@ -210,8 +212,21 @@ inline constexpr std::int64_t kDoubledRun = std::int64_t{2} * world::kHeightUnit
     }
     const Step press = press_of(g, thrust);
     const std::int64_t dot = (press.dx * hx) + (press.dy * hy);
-    const Step along{dot * hx / h2, dot * hy / h2};
-    Step across{press.dx - along.dx, press.dy - along.dy};
+    // ALONG THE HEADING (G6): `c` is the commanded speed and `a` the press along the heading, both
+    // raw a tick; `thrust` (T) is the most the engine can push. A command is a SPEED, and the
+    // engine has up to its whole thrust to hold it: uphill (a < 0) it holds `c` while it has the
+    // headroom, and gives way only past that -- net = min(c, T + a), slowed once the slope takes
+    // more than T - c, and carried back only when it takes more than T. Downhill the press adds
+    // in full: net = c + a, faster. At full throttle (c = T) both are c + a: the one law the
+    // measurements pin, unchanged. Without the headroom, a command weaker than the slope -- the
+    // last part-step of every approach, an easing strafe -- was carried BACKWARDS down ground its
+    // engine climbs at full throttle, and never arrived.
+    const std::int64_t c = isqrt_floor(h2);
+    const std::int64_t a = c == 0 ? 0 : dot / c;
+    const std::int64_t net = a < 0 ? std::min(c, thrust + a) : c + a;
+    const Step along = c == 0 ? Step{} : Step{(net - c) * hx / c, (net - c) * hy / c};
+    const Step pure{dot * hx / h2, dot * hy / h2}; // the press's own component along the heading
+    Step across{press.dx - pure.dx, press.dy - pure.dy};
     const std::int64_t side = isqrt_floor((across.dx * across.dx) + (across.dy * across.dy));
     if (side <= thrust) {
         across = Step{};
@@ -222,55 +237,78 @@ inline constexpr std::int64_t kDoubledRun = std::int64_t{2} * world::kHeightUnit
     return Step{along.dx + across.dx, along.dy + across.dy};
 }
 
-/// Does a unit driving straight up ground that rises `rise` a tile still make headway against the
-/// press? The same answer for every unit (one thrust-to-weight), asked of a thrust of one tile a
-/// tick: large enough that the integer press cannot round the answer either way.
-[[nodiscard]] constexpr bool makes_headway(std::int64_t rise) noexcept {
-    const Step press = press_of(Gradient{2 * rise, 0}, Fixed::kOne);
-    return Fixed::kOne + press.dx > 0;
+/// The thrust the wall is judged with: any thrust gives the same answer (the press is the same
+/// fraction of every unit's step), and this one is small enough that a press times a heading
+/// squared cannot overflow, and large enough that the press at the steepest grade still lands on
+/// the right side of it (at 38 a tile 4064 against 4096; at 39 4142).
+inline constexpr std::int64_t kWallThrust = 4096;
+
+/// THE WALL (G6), the ONE place it is decided: does the press on ground of gradient `g` beat a unit
+/// heading along (`hx`, `hy`) -- oppose that heading by at least the unit's whole thrust? Then the
+/// unit makes no headway that way, and the face is a WALL to it. There is no climb limit to choose:
+/// the wall is a consequence of the press, and the mover (`plan_step`), the press itself
+/// (`sim.cpp`'s `press`), the route planner (`route_detail::edge_blocked`) and the map drawing all
+/// ask this and nothing else.
+///
+/// What it comes to: a face is a wall along a heading when its steepness ALONG that heading -- the
+/// gradient's component on it, |g| cos(angle) -- is past the steepest grade (in sin, not tan: the
+/// press is gravity along the face). Straight up a face that is 38 a tile, 4064 < 4096: drivable;
+/// 39, 4142: a wall. A diagonal face is its true steepness, |g|, whichever axes it lies across --
+/// no height difference is compared and no run is guessed. Across a face, or down it, the press
+/// never beats a heading, however steep: a unit may drive along a cliff or off one (the fall).
+///
+/// The heading is reduced until neither component passes 2^14, keeping its direction, so the
+/// arithmetic stays inside 64 bits whatever step is asked about.
+[[nodiscard]] constexpr bool press_beats(Gradient g, std::int64_t hx, std::int64_t hy) noexcept {
+    while (hx > (std::int64_t{1} << 14) || hx < -(std::int64_t{1} << 14)
+           || hy > (std::int64_t{1} << 14) || hy < -(std::int64_t{1} << 14)) {
+        hx /= 2;
+        hy /= 2;
+    }
+    const std::int64_t h2 = (hx * hx) + (hy * hy);
+    if (h2 == 0) {
+        return false;
+    }
+    const Step press = press_of(g, kWallThrust);
+    const std::int64_t against = -((press.dx * hx) + (press.dy * hy)); // |press| |h| cos
+    return against > 0 && against * against >= h2 * kWallThrust * kWallThrust;
 }
 
-/// The steepest rise any unit at full thrust still climbs against the press.
-[[nodiscard]] constexpr int steepest_headway_rise() noexcept {
+/// The gradient of tile (`x`, `y`)'s own face, from a `height(x, y)` callable: the face between its
+/// four corners (`Gradient`, `gradient_under`).
+template <class Height>
+[[nodiscard]] constexpr Gradient face_gradient(const Height& height, int x, int y) {
+    const std::int64_t h00 = height(x, y);
+    const std::int64_t h10 = height(x + 1, y);
+    const std::int64_t h01 = height(x, y + 1);
+    const std::int64_t h11 = height(x + 1, y + 1);
+    return Gradient{(h10 - h00) + (h11 - h01), (h01 - h00) + (h11 - h10)};
+}
+
+/// May a unit drive INTO tile (`x`, `y`) heading along (`hx`, `hy`)? Yes unless the press on that
+/// tile's own face beats it that way (`press_beats`). `height(x, y)` is the ground's heights.
+template <class Height>
+[[nodiscard]] constexpr bool drivable(const Height& height, int x, int y, std::int64_t hx,
+                                      std::int64_t hy) {
+    return !press_beats(face_gradient(height, x, y), hx, hy);
+}
+
+/// What the wall comes to on one axis face, as a height: the steepest rise a tile that a unit
+/// drives straight up and still makes headway. A CONSEQUENCE, read off `press_beats`, for anything
+/// that must compare two heights (the goal's level, a test's map) -- never a rule of its own.
+[[nodiscard]] constexpr int steepest_drivable_rise() noexcept {
     int rise = 0;
-    while (makes_headway(rise + 1)) {
+    while (!press_beats(Gradient{std::int64_t{2} * (rise + 1), 0}, 1, 0)) {
         ++rise;
     }
     return rise;
 }
-
-/// THE CLIMB LIMIT (G5): a tile edge whose HEIGHT rises by more than this is a CLIFF and is a wall,
-/// the way a crater is -- at every angle (`climbable`). It is not a number chosen on its own: it is
-/// where the press stops a unit (`steepest_headway_rise`): 38, the steepest whole rise under the
-/// steepest grade's 38.4 (for a tank, a press of 13005 raw against its 13107 at 38; 13255 at 39).
-/// The same for every unit, so the wall the mover and the planner share IS where every engine
-/// gives out.
-///
-/// THE MISTAKEN ASSUMPTION IT REPLACED (G5): the limit was a free 40, written as "the steepest rise
-/// a unit may climb", while the physics never let a tank up a 39 or a 40. One number now, and it
-/// is the physics' number: the press (G6) gives the same 38 the grade and the slide gave (G5), from
-/// a 60 percent grade instead of from two tuned mechanisms -- an agreement, not a target.
-inline constexpr int kClimbLimit = steepest_headway_rise();
-static_assert(kClimbLimit == 38, "the climb limit moved: a decision, so restate it here");
-static_assert(!too_steep_to_climb(Gradient{std::int64_t{2} * kClimbLimit, 0})
-                  && too_steep_to_climb(Gradient{std::int64_t{2} * (kClimbLimit + 1), 0}),
-              "ground a unit can climb is ground it can park on, and no steeper");
-
-/// THE CLIMB RULE, the ONE place it is decided: may a unit cross from ground of `from_height` onto
-/// ground of `to_height`? Yes unless the height RISES by more than `kClimbLimit`, at any angle (the
-/// height difference, never divided by a run: a face 41 high is a wall whichever way it is
-/// approached, and scaling a diagonal by 181/256 once let every diagonal cliff in the world
-/// through). The mover (`plan_step`), the press (`sim.cpp`'s `press`) and the route planner
-/// (`route_detail::edge_blocked`) all ask this and nothing else, so there is no rise one of them
-/// drives and another will not plan.
-///
-/// A unit is beaten by a slope as it happens -- "slower, and backwards if the slope beats your
-/// thrust -- correct, not a bug" (Harri) -- by the press (`plan_press`), not by a second limit: on
-/// ground steeper than the steepest grade, which a unit can be carried onto or stand on, and
-/// along a heading into it.
-[[nodiscard]] constexpr bool climbable(int from_height, int to_height) noexcept {
-    return static_cast<std::int64_t>(to_height) - from_height <= kClimbLimit;
-}
+static_assert(steepest_drivable_rise() == 38,
+              "the wall moved: it is the press's, so the press moved -- restate it here");
+static_assert(!too_steep_to_climb(Gradient{std::int64_t{2} * steepest_drivable_rise(), 0})
+                  && too_steep_to_climb(Gradient{std::int64_t{2} * (steepest_drivable_rise() + 1),
+                                                 0}),
+              "ground a unit can drive up is ground it can park on, and no steeper");
 
 /// A ground that knows heights: `std::int64_t`-convertible `height(tile_x, tile_y)`. A ground
 /// without one (a drawn crater map) is level, and none of the slope rules touch it.
@@ -303,20 +341,24 @@ template <class Ground>
     const int tile_x = request.x.floor_int();
     const int tile_y = request.y.floor_int();
 
-    /// May a unit standing on this tile enter `to`? Always, unless the ground knows heights and the
-    /// climb into `to` is a cliff (`climbable`: by height, at every angle). The tile it stands on
-    /// is always enterable (a unit carried onto a cliff face by the slide must be able to leave
-    /// it).
-    [[maybe_unused]] const auto may_enter = [&](int to_x, int to_y) {
-        if constexpr (HasHeights<Ground>) {
-            if (to_x == tile_x && to_y == tile_y) {
-                return true;
-            }
-            return climbable(ground.height(tile_x, tile_y), ground.height(to_x, to_y));
-        } else {
-            return true;
-        }
-    };
+    /// May a unit standing on this tile enter `to`, heading along (`hx`, `hy`)? Always, unless the
+    /// ground knows heights and `to`'s face is a wall that way (`drivable`: the press beats the
+    /// engine). The tile it stands on is always enterable: what its own face does to it is the
+    /// press, not a wall.
+    [[maybe_unused]] const auto may_enter
+        = [&](int to_x, int to_y, std::int64_t hx, std::int64_t hy) {
+              if constexpr (HasHeights<Ground>) {
+                  if (to_x == tile_x && to_y == tile_y) {
+                      return true;
+                  }
+                  const auto height = [&](int x, int y) { return ground.height(x, y); };
+                  return drivable(height, to_x, to_y, hx, hy);
+              } else {
+                  (void)hx;
+                  (void)hy;
+                  return true;
+              }
+          };
 
     /// True when a raw step can be made, with the terrain-scaled step written to `out`. This is the
     /// movement rule the sim has always used, kept in one place: the tile the raw step reaches must
@@ -332,11 +374,11 @@ template <class Ground>
             return false;
         }
         if constexpr (HasHeights<Ground>) {
-            // THE CLIFF: refused where the unit would LAND in a tile it cannot climb into -- a
-            // wall at the tile's edge, like a crater. The step is NOT scaled by the slope: what
-            // the slope does to a moving unit is the press (`plan_press`), added by the caller,
-            // and one force is not also a speed multiplier.
-            if (!may_enter(far_x.floor_int(), far_y.floor_int())) {
+            // THE WALL: refused where the unit would LAND in a tile whose face the press makes a
+            // wall along this step -- at the tile's edge, like a crater. The step is NOT scaled
+            // by the slope: what the slope does to a moving unit is the press (`plan_press`),
+            // added by the caller, and one force is not also a speed multiplier.
+            if (!may_enter(far_x.floor_int(), far_y.floor_int(), dx, dy)) {
                 return false;
             }
         }
@@ -348,7 +390,7 @@ template <class Ground>
             return false;
         }
         if constexpr (HasHeights<Ground>) {
-            if (!may_enter(nx.floor_int(), ny.floor_int())) {
+            if (!may_enter(nx.floor_int(), ny.floor_int(), dx, dy)) {
                 return false;
             }
         }
@@ -451,13 +493,8 @@ template <class Ground>
 template <class Ground>
     requires HasHeights<Ground>
 [[nodiscard]] Gradient gradient_under(const Ground& ground, Fixed x, Fixed y) noexcept {
-    const int tx = x.floor_int();
-    const int ty = y.floor_int();
-    const std::int64_t h00 = ground.height(tx, ty);
-    const std::int64_t h10 = ground.height(tx + 1, ty);
-    const std::int64_t h01 = ground.height(tx, ty + 1);
-    const std::int64_t h11 = ground.height(tx + 1, ty + 1);
-    return Gradient{(h10 - h00) + (h11 - h01), (h01 - h00) + (h11 - h10)};
+    const auto height = [&](int tx, int ty) { return ground.height(tx, ty); };
+    return face_gradient(height, x.floor_int(), y.floor_int());
 }
 
 /// THE PRESS (G6): what the slope does to a unit of full step `thrust` standing at (`x`, `y`) this

@@ -263,7 +263,7 @@ TEST(TankThatReverses, UphillAgainstThePressIsSlowedUpToAGradeOf38AndReversedFro
     // beats you), with G6's one force. A tank driving WEST, up a slope of `grade` per tile, drives
     // 13107 west and is pressed back 13107 * sin(slope) / sin(60 percent grade). The two cross
     // between 38 and 39: 38 -> pressed 13005, net +102; 39 -> pressed 13255, net -148 (reversed).
-    // That crossing IS the climb limit (`kClimbLimit`, derived from it: 38), so a tank never
+    // That crossing IS the wall (`press_beats`; on an axis face it comes to 38), so a tank never
     // drives onto such a slope -- but one carried onto it, or standing on it, is beaten back: the
     // step here stays inside the unit's own tile. Slide.SteeringUphillDoesNotCancelIt pins 40.
     for (int grade = 33; grade <= 40; ++grade) {
@@ -399,8 +399,8 @@ TEST(SteepHillTop, HisHillTheRampSideBesideTheRoughStripIsACliffNow) {
     // crossed the edge it was slid back by the tile it had just entered (drop 40 behind it, 6552
     // raw, against a climb of 4915). "I feel like I can climb too high on the slope": he could. A
     // rise of 40 is past what a tank's thrust beats the slide on, so it is a CLIFF now
-    // (`kClimbLimit`, 38, derived from that physics): refused at the foot and never entered, and
-    // drawn as a cliff by `protekt-map draw`.
+    // (G6: the face is a wall because the press on it beats the engine, `press_beats`): refused
+    // at the foot and never entered, and drawn as a cliff by `protekt-map draw`.
     const world::ScopedGround guard(app::map_ground(proving_ground()));
     struct Climb {
         int x;
@@ -553,6 +553,37 @@ TEST(PressAtTheHelm, AClimbableRidgeIsCrossedAndTheFarSideIsFaster) {
         }
         EXPECT_GT(down, up) << "rise " << rise << ": the far side was no faster";
     }
+}
+
+TEST(PressAtTheHelm, AnEasingStrafeIntoAClimbableSlopeIsNeverCarriedBackwards) {
+    // G6, found re-measuring the hover tests: a held strafe EASES in over a second, so on its first
+    // ticks a hover strafing uphill commands a few hundred raw a tick -- and the press's component
+    // along its heading, felt in full whatever the throttle, carried it BACKWARDS down a slope its
+    // engine climbs at full throttle. "The drift ... must never negate your intent": a command is
+    // a SPEED, and the engine has its whole thrust to hold it (`driven_press`), so a gentle drive
+    // up a slope the engine can climb keeps its gentle speed. (A tank at the helm never meets
+    // this: its throttle sets how far ahead it aims, not how fast it drives.) On a slope rising 20
+    // a tile to the WEST, a hover facing south strafes with A, to its left -- west, uphill: not
+    // one tick of the ramp moves it east, and it climbs.
+    app::MapDoc map = open_field();
+    for (int y = 0; y < map.height; ++y) {
+        for (int x = 0; x < map.width; ++x) {
+            map.heights[map.index(x, y)] = std::clamp(20 * (30 - x), -500, 500);
+        }
+    }
+    const world::ScopedGround guard(app::map_ground(map));
+    // Facing south (yaw 0, +y) the hull's right is (cos 0, -sin 0) = +x, east: A is west.
+    Helm helm(UnitKind::HoverTank, 24, 30, kSouth, 0.0F, -1.0F);
+    const Unit start = *helm.sim.find(helm.id);
+    std::vector<TickRecord> ticks;
+    for (int t = 0; t < 90; ++t) {
+        helm.frame(1, ticks);
+    }
+    for (std::size_t t = 0; t < ticks.size(); ++t) {
+        EXPECT_LE(ticks[t].dx, 0) << "tick " << t << " carried it east, down the slope\n"
+                                  << table(ticks);
+    }
+    EXPECT_LT(helm.sim.find(helm.id)->x.raw, start.x.raw - Fixed::kOne) << table(ticks);
 }
 
 TEST(StraightPassage, WhatTurnsHimAsideInTheValleyIsTheKerbAndTheRockfallNotTheSlope) {

@@ -138,16 +138,22 @@ TEST(WalkerFights, InTwentyTicksTheTankHasTurnedOneEightyAndTheWalkerThirty) {
     EXPECT_NEAR(heading_degrees(*walker.find(walker_id)), 30.0, 0.1);
 }
 
-TEST(WalkerFights, AWalkerSetsOffOnceItFacesItsFirstLegAndTakesAHundredTicksToDoIt) {
+TEST(WalkerFights, AWalkerSetsOffOnceItFacesItsFirstLegAndTakesAHundredAndTwentyTicksToDoIt) {
     // RE-RECORDED, G1 (go around): it took 120 ticks to turn the 180 degrees to a goal straight
     // behind it, because its route was one leg, straight at the goal -- through the hill at
     // (100, 100), whose slope slid it sideways. The route now bends round that hill (waypoints
     // (98, 97), (98, 95), (99, 93), (100, 70)), so the first leg is turned to sooner: it sets off
     // on tick 100. Old value 120 is the code at 20ec749; restored exactly by giving the planner
     // back its old edge rule (no slide, no clearance), which makes the route one leg again.
+    // RE-MEASURED, G6 (the press): 120 again, and the route one leg again -- (100, 70), straight.
+    // The hill at (100, 100) falls some 33 a tile to the east: past the old slide's threshold of
+    // 32, so a parked unit slid there and the planner bent the route round it; under the press it
+    // is gentler than the steepest grade (38.4), it holds a parked unit, and there is nothing to
+    // go round. So the walker turns the whole 180 degrees at 1.5 a tick before it moves: it sets
+    // off on tick 120. Old value 100 is the code at 896f2e5.
     Sim sim = lone(UnitKind::Walker);
     const UnitId id = send_behind(sim);
-    for (int i = 0; i < 99; ++i) {
+    for (int i = 0; i < 119; ++i) {
         sim.step();
     }
     EXPECT_EQ(sim.find(id)->y, Fixed::from_int(100));

@@ -206,8 +206,8 @@ TEST(MapFile, DrawWritesAnImageOfTheExpectedSizeShowingTheMap) {
 }
 
 /// The five items on his list, each read off the shipped map's own heights with the SIM's slope
-/// rules (`kClimbLimit`, and the press's steepest grade): the map is as drawn, by the rules the
-/// game plays.
+/// rules (`drivable`, the wall the press makes, and the press's steepest grade): the map is as
+/// drawn, by the rules the game plays.
 TEST(MapFile, TheShippedMapLoadsAndUsesEveryItemOnTheList) {
     const MapParse parsed
         = load_map_file(std::string{PROTEKT_SOURCE_DIR} + "/assets/maps/proving_ground.map");
@@ -217,13 +217,21 @@ TEST(MapFile, TheShippedMapLoadsAndUsesEveryItemOnTheList) {
     EXPECT_GE(map.places.size(), 5U);
     EXPECT_FALSE(map.volumes.empty());
     const auto h = [&](int x, int y) { return map.heights.at(map.index(x, y)); };
-    const auto climbable = [&](int x0, int y0, int x1, int y1) {
-        return h(x1, y1) - h(x0, y0) <= protekt::sim::kClimbLimit;
+    // The corners a face reads past the file's edge are 0, as the sim's ground is.
+    const auto corner = [&](int x, int y) {
+        return x >= 0 && y >= 0 && x < map.width && y < map.height ? h(x, y) : 0;
     };
+    // THE MOVER'S AND THE PLANNER'S RULE for one edge (`route_detail::edge_blocked`): neither the
+    // face it leaves nor the face it enters beats an engine heading along it.
+    const auto climbable = [&](int x0, int y0, int x1, int y1) {
+        return protekt::sim::drivable(corner, x0, y0, x1 - x0, y1 - y0)
+               && protekt::sim::drivable(corner, x1, y1, x1 - x0, y1 - y0);
+    };
+    const int cliff = protekt::sim::steepest_drivable_rise(); // what the wall is, as a height
     // 1. A VALLEY THAT LIMITS MOVEMENT: a floor walled on both sides by cliffs you cannot climb.
     EXPECT_FALSE(climbable(30, 20, 29, 20)) << "west wall";
-    EXPECT_GT(h(29, 20) - h(30, 20), protekt::sim::kClimbLimit);
-    EXPECT_GT(h(38, 20) - h(37, 20), protekt::sim::kClimbLimit);
+    EXPECT_GT(h(29, 20) - h(30, 20), cliff);
+    EXPECT_GT(h(38, 20) - h(37, 20), cliff);
     // 2. A RAMP UP: every step along the row is climbable and the sum reaches the plateau.
     for (int x = 15; x < 22; ++x) {
         EXPECT_TRUE(climbable(x, 30, x + 1, 30)) << "ramp step at x=" << x;
@@ -250,7 +258,7 @@ TEST(MapFile, TheShippedMapLoadsAndUsesEveryItemOnTheList) {
     EXPECT_TRUE(protekt::sim::too_steep_to_climb(
         protekt::sim::Gradient{std::int64_t{2} * (h(46, 24) - h(45, 24)), 0}))
         << "the drop does not hold a parked unit";
-    EXPECT_GT(h(45, 24) - h(46, 24), protekt::sim::kClimbLimit) << "going back up is a wall";
+    EXPECT_GT(h(45, 24) - h(46, 24), cliff) << "going back up is a wall";
     EXPECT_FALSE(climbable(46, 24, 45, 24));
     // and the world-frame solids and the volume are in the file.
     EXPECT_NE(std::count(map.solid.begin(), map.solid.end(), std::uint8_t{1}), 0);

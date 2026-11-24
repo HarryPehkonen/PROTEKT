@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <variant>
 #include <vector>
@@ -13,6 +14,8 @@
 #include "protekt/sim/commander.hpp"
 #include "protekt/sim/scenario.hpp"
 #include "protekt/sim/sim.hpp"
+#include "protekt/world/ground.hpp"
+#include "protekt/world/world.hpp"
 
 namespace {
 
@@ -39,6 +42,21 @@ void tick_once(sim::Sim& s, PlayerCommander& player, sim::UnitId id) {
         s.enqueue(order);
     }
     s.step();
+}
+
+/// LEVEL GROUND under the whole skirmish (G6). The slope is a PRESS ADDED to a unit's step, not a
+/// scale on it, so on a hillside the displacement of a drive and of a strafe both carry the same
+/// push and their ratio is no longer the ratio of the two speeds; the speed tests below are about
+/// speeds, so they stand on ground with no slope. (What the slope does to a strafe is pinned on a
+/// drawn slope: AStrafeFeelsTheSlopeAsADriveDoes.)
+protekt::world::MapGround level_ground() {
+    protekt::world::MapGround ground;
+    ground.width = 256;
+    ground.height = 256;
+    ground.tiles.assign(std::size_t{256} * 256,
+                        protekt::world::Tile{0, protekt::world::Terrain::Flat});
+    ground.solid.assign(std::size_t{256} * 256, 0);
+    return ground;
 }
 
 double raw_dx(const sim::Sim& a, const sim::Sim& b, sim::UnitId id) {
@@ -71,6 +89,11 @@ TEST(HoverDrive, StrafeMovesAtThreeQuartersSpeedAlongTheGivenDirection) {
     // on a diagonal and "ahead" is no longer along +x. The test now strafes along WHATEVER
     // direction the drive took -- the ratio is still the ratio of the two ways of going along one
     // direction, which is all it ever meant.
+    // RE-MEASURED, G6 (the press): on the hillside the ratio read 0.856, not 0.75 -- the slope is
+    // now a press ADDED to both moves (the same push on each), not a multiplier of both, so the
+    // ratio of the displacements stopped being the ratio of the speeds. On level ground it is the
+    // speeds alone again.
+    const protekt::world::ScopedGround level(level_ground());
     auto base = sim::Sim::create(sim::skirmish(kSeed));
     const auto id = first_of(base, sim::UnitKind::HoverTank);
     auto fwd = base;
@@ -109,6 +132,11 @@ TEST(HoverDrive, DrivenHoverHeldDStrafesRightHullYawUnchanged) {
     // RE-RECORDED (SE1): the strafe eases like the throttle, so ONE tick of held D is 1/30 of full
     // strafe, not "at least half". The intent -- D strafes right, the yaw is untouched -- is kept;
     // the half-speed floor moves to after the ramp (30 ticks), below.
+    // RE-MEASURED, G6 (the press): a strafe is a drive to the slope now (AStrafeFeelsTheSlopeAs
+    // ADriveDoes), and the hover's spawn is a hillside: there the first eased tick read 2973 raw
+    // east (the strafe's 327 and the descent's push). The claim is about the strafe's own speed and
+    // direction, so it is measured on level ground.
+    const protekt::world::ScopedGround level(level_ground());
     auto s = sim::Sim::create(sim::skirmish(kSeed));
     const auto id = first_of(s, sim::UnitKind::HoverTank);
     PlayerCommander player;
@@ -146,6 +174,12 @@ TEST(HoverDrive, DrivenHoverHeldDReachesAtLeastHalfStrafeSpeedAfterTheRamp) {
 }
 
 TEST(HoverDrive, DrivenHoverHeldAStrafesLeftMirrored) {
+    // RE-MEASURED, G6 (the press): a strafe is a drive to the slope now (AStrafeFeelsTheSlopeAs
+    // ADriveDoes), and the hover's spawn is a hillside: there the first eased tick of A, 327 raw
+    // west and uphill, was carried 2482 raw EAST (since fixed:
+    // AnEasingStrafeIntoAClimbableSlopeIsNeverCarriedBackwards). The claim is about the strafe's
+    // own speed and direction, so it is measured on level ground.
+    const protekt::world::ScopedGround level(level_ground());
     auto right = sim::Sim::create(sim::skirmish(kSeed));
     auto left = right;
     const auto id = first_of(right, sim::UnitKind::HoverTank);
@@ -213,6 +247,11 @@ TEST(HoverDrive, DrivenTankIsUntouched) {
 }
 
 TEST(HoverDrive, UndrivenHoverMovesLikeATank) {
+    // RE-MEASURED, G6 (the press): on the hillside the first step read 14324 raw, over a tank's
+    // 13107 -- not a strafe bonus but the descent: "driving downhill is faster", the press's
+    // component along the heading. The claim is about the hover's own speed, so it is measured on
+    // level ground.
+    const protekt::world::ScopedGround level(level_ground());
     auto hover = sim::Sim::create(sim::skirmish(kSeed));
     const auto id = first_of(hover, sim::UnitKind::HoverTank);
     hover.enqueue(
@@ -269,6 +308,11 @@ double tick_magnitude(sim::Sim& s, PlayerCommander& player, sim::UnitId id) {
 }
 
 TEST(HoverDrive, SimScalesStrafeSpeedByVectorLengthAndFullLengthIsUnchanged) {
+    // RE-MEASURED, G6 (the press): a strafe is a drive to the slope now (AStrafeFeelsTheSlopeAs
+    // ADriveDoes), and the hover's spawn is a hillside: there a full strafe east read 10100 raw,
+    // over the 9830 of 3/4 of a step, by the descent. The claim is about the strafe's own speed and
+    // direction, so it is measured on level ground.
+    const protekt::world::ScopedGround level(level_ground());
     auto base = sim::Sim::create(sim::skirmish(kSeed));
     const auto id = first_of(base, sim::UnitKind::HoverTank);
     auto full = base;
@@ -418,6 +462,46 @@ TEST(HoverDrive, DrivenTankStillTurnsAndNeverStrafes) {
     EXPECT_GT(player.turn_rate(), 0.3F);
     EXPECT_NE(player.heading(), 0.0F);
     EXPECT_EQ(player.strafe_rate(), 0.0F);
+}
+
+TEST(HoverDrive, AStrafeFeelsTheSlopeAsADriveDoes) {
+    // G6, found while re-measuring the two tests above: a Strafe moves its hover among the ORDERS,
+    // before the mover runs, and the press read the unit's heading from the mover's step alone --
+    // so a strafing hover counted as PARKED, stood on its brakes, and on any slope it could climb
+    // the press did nothing to it: it strafed uphill at full speed. The strafe is a drive: on a
+    // slope rising 10 a tile to the east, a full strafe east (3/4 of its step, 9830 raw) is pressed
+    // back exactly as a drive east is (`driven_press`): the engine (13107) holds the strafe's speed
+    // while it has the headroom, and the press along it (3932) takes more than the 3277 to spare,
+    // so it nets 13107 - 3932 = 9175. (Before the fix: 9830, as if on level ground.)
+    protekt::world::MapGround ground;
+    ground.width = 64;
+    ground.height = 64;
+    for (int y = 0; y < 64; ++y) {
+        for (int x = 0; x < 64; ++x) {
+            ground.tiles.push_back(protekt::world::Tile{static_cast<std::int16_t>((10 * x) - 300),
+                                                        protekt::world::Terrain::Flat});
+        }
+    }
+    ground.solid.assign(std::size_t{64} * 64, 0);
+    const protekt::world::ScopedGround slope(std::move(ground));
+    sim::Scenario scenario{};
+    scenario.seed = 0;
+    scenario.spawns.push_back(sim::Spawn{sim::UnitKind::HoverTank, sim::Side::Player, 20, 20});
+    scenario.spawns.push_back(sim::Spawn{sim::UnitKind::Factory, sim::Side::Enemy, 56, 56});
+    auto s = sim::Sim::create(scenario);
+    const auto id = first_of(s, sim::UnitKind::HoverTank);
+    const auto before = s;
+    const std::int64_t thrust = sim::profile(sim::UnitKind::HoverTank).max_speed.raw;
+    const std::int64_t strafe = thrust * 3 / 4;
+    const sim::Step press = sim::press_at(0, before.find(id)->x, before.find(id)->y, thrust);
+    ASSERT_LT(press.dx, 0) << "the slope rises east, so it presses west";
+    s.enqueue(sim::Order{
+        id, sim::orders::Strafe{sim::Fixed::from_raw(sim::Fixed::kOne), sim::Fixed::zero()}});
+    s.step();
+    EXPECT_EQ(raw_dx(before, s, id), static_cast<double>(std::min(strafe, thrust + press.dx)))
+        << "the strafe, held by the engine's headroom and slowed past it";
+    EXPECT_LT(raw_dx(before, s, id), static_cast<double>(strafe)) << "the slope was felt";
+    EXPECT_EQ(raw_dy(before, s, id), 0.0);
 }
 
 } // namespace

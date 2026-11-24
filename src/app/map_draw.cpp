@@ -108,18 +108,22 @@ bool draw_map(const MapDoc& map, const std::filesystem::path& path) {
         }
     }
 
-    // Cliffs: an edge too steep to climb is a wall from below, so it is drawn black, on the LOW
-    // side, two pixels thick -- the line a person must not expect to drive up.
+    // Cliffs: an edge into a face the press makes a wall that way (`sim::drivable`, the very rule
+    // the mover and the planner ask) is drawn black, on the side it is approached from, two pixels
+    // thick -- the line a person must not expect to drive across. A face's far corners past the
+    // map's edge read height 0, as the sim's ground does (`world::MapGround`).
+    const auto corner_at = [&](int x, int y) {
+        return x >= 0 && y >= 0 && x < map.width && y < map.height ? height_at(x, y) : 0;
+    };
     for (int ty = 0; ty < map.height; ++ty) {
         for (int tx = 0; tx < map.width; ++tx) {
-            const int here = height_at(tx, ty);
             constexpr std::array<std::array<int, 2>, 4> kSides{{{1, 0}, {-1, 0}, {0, 1}, {0, -1}}};
             for (const auto& side : kSides) {
                 const int nx = tx + side[0];
                 const int ny = ty + side[1];
                 if (nx < 0 || ny < 0 || nx >= map.width || ny >= map.height
-                    || sim::climbable(here, height_at(nx, ny))) {
-                    continue; // only the tile that LOOKS UP at a cliff is outlined
+                    || sim::drivable(corner_at, nx, ny, side[0], side[1])) {
+                    continue; // only the tile that looks INTO a wall is outlined
                 }
                 for (int k = 0; k < kS; ++k) {
                     for (int d = 0; d < 2; ++d) {

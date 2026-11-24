@@ -37,7 +37,11 @@ using protekt::sim::UnitView;
 namespace orders = protekt::sim::orders;
 
 constexpr std::uint64_t kSeed = 20261023;
-constexpr std::uint32_t kDeployDone = protekt::sim::kDeployTicks + 60; ///< walk + countdown, ample
+/// Walk + countdown, ample. RE-MEASURED, G6 (the press): it was kDeployTicks + 60. Pool A stands on
+/// a hillside rising ~28 a tile, and the walk to it is three tiles straight up that face, where the
+/// press leaves a scavenger ~1400 raw of its step: measured, scavenger 2 is deployed on tick 366
+/// (inside the old 360 under the code at 896f2e5). +120 is that walk with room.
+constexpr std::uint32_t kDeployDone = protekt::sim::kDeployTicks + 120;
 
 /// A tile with open ground all round it, found by scanning from (x, y), so no test depends on a
 /// hand-picked coordinate happening to be passable.
@@ -238,12 +242,22 @@ TEST(Pools, OnlyOneScavengerMayDeployOnAPool) {
     deploy(sim, 3, pool);
     run(sim, kDeployDone * 2);
     EXPECT_EQ(deployed_count(sim, Side::Player), 1U);
-    EXPECT_EQ(sim.find(UnitId{2})->kind, UnitKind::DeployedScavenger);
-    EXPECT_EQ(sim.find(UnitId{3})->kind, UnitKind::Scavenger) << "the second is still a vehicle";
+    // RE-MEASURED, G6 (the press): WHICH scavenger wins the pool is the race, not the rule. Pool A
+    // stands on a hillside rising some 28 a tile to the east; scavenger 2, three tiles west of it,
+    // drives straight up that face and the press takes all but ~1400 raw a tick of its engine, so
+    // it is still climbing on tick 300. Scavenger 3 comes 18 tiles north ALONG the hillside at its
+    // full step and deploys first (measured: on the pool by tick 320). Old: 2 deployed, 3 not --
+    // the code at 896f2e5, where the old grade kept 56% of a step on that face. So the test names
+    // the winner by what it did, and holds the rule: one deployed, the other still a vehicle.
+    const bool two_won = sim.find(UnitId{2})->kind == UnitKind::DeployedScavenger;
+    const std::uint32_t loser = two_won ? 3 : 2;
+    EXPECT_EQ(sim.find(UnitId{two_won ? 2U : 3U})->kind, UnitKind::DeployedScavenger);
+    EXPECT_EQ(sim.find(UnitId{loser})->kind, UnitKind::Scavenger)
+        << "the second is still a vehicle";
     EXPECT_EQ(sim.capacity(Side::Player), 60);
     // A fresh order to the taken pool is refused outright.
     const std::size_t logged = sim.command_log().size();
-    deploy(sim, 3, pool);
+    deploy(sim, loser, pool);
     EXPECT_EQ(sim.command_log().size(), logged);
 }
 

@@ -94,32 +94,6 @@ namespace route_detail {
     return x >= 0 && y >= 0 && x < kRouteTiles && y < kRouteTiles;
 }
 
-/// The gradient of tile (`x`, `y`)'s own face, from a `height(x, y)` callable (`gradient_under`'s
-/// arithmetic, for a planner that caches its heights).
-template <class Height> [[nodiscard]] Gradient face_gradient(const Height& height, int x, int y) {
-    const std::int64_t h00 = height(x, y);
-    const std::int64_t h10 = height(x + 1, y);
-    const std::int64_t h01 = height(x, y + 1);
-    const std::int64_t h11 = height(x + 1, y + 1);
-    return Gradient{(h10 - h00) + (h11 - h01), (h01 - h00) + (h11 - h10)};
-}
-
-/// UPHILL TOO STEEP, per direction: does the press on tile (`x`, `y`) oppose a unit heading along
-/// (`dx`, `dy`) (one of the eight unit steps) by at least its whole thrust? The same for every unit
-/// (the press is a fraction of each unit's own step), so it is asked of a thrust of one tile a
-/// tick. Ground steeper than the steepest grade beats a unit only along headings INTO it: across
-/// it or down it the unit still makes its way, and this is what lets the planner say so.
-template <class Height>
-[[nodiscard]] bool press_beats(const Height& height, int x, int y, int dx, int dy) {
-    const Step press = press_of(face_gradient(height, x, y), Fixed::kOne);
-    const std::int64_t against = -((press.dx * dx) + (press.dy * dy)); // raw * (tiles along d)
-    if (against <= 0) {
-        return false;
-    }
-    const std::int64_t run2 = (std::int64_t{dx} * dx) + (std::int64_t{dy} * dy); // |d|^2: 1 or 2
-    return against * against >= run2 * Fixed::kOne * Fixed::kOne;
-}
-
 /// The way a tile's slope runs when it THROWS a unit: a unit parked there is carried by more than
 /// half its own step a tick (`parked_drift`: the press past the grip), so it cannot hold any line
 /// but the one the slope runs -- the old slide's criterion, a drift past half a step, read off the
@@ -148,19 +122,32 @@ template <class Ground>
     }
 }
 
-/// True when the edge (x, y) -> (nx, ny) is NOT open: it climbs a cliff (`climbable` -- THE rule,
-/// the very question the mover asks, so the planner opens exactly the edges the mover drives), or
-/// the tile it leaves holds the unit and the edge is not the way the slope runs (unless
-/// `free_exit`: the unit's own tile). `height(x, y)` and `way(x, y)` are the ground's heights and
-/// `slide_way_of`, handed in so the planner can cache them and a one-off check need not.
+/// True when the edge (x, y) -> (nx, ny) is NOT open: the face it drives into is a wall that way
+/// (`drivable` -- THE rule, the very question the mover asks, so the planner never opens an edge
+/// the mover will not drive), or the face it leaves beats a unit heading that way so it never gets
+/// there (the same question, of the tile it stands on), or -- a diagonal -- either face beside the
+/// corner it cuts is a wall along it (the same question again), or the tile it leaves holds the
+/// unit and the edge is not the way the slope runs (unless `free_exit`: the unit's own tile).
+/// `height(x, y)` and `way(x, y)` are the ground's heights and `slide_way_of`, handed in so the
+/// planner can cache them and a one-off check need not.
 template <class Height, class Way>
 [[nodiscard]] bool edge_blocked(const Height& height, const Way& way, int x, int y, int nx, int ny,
                                 bool free_exit = false) {
-    if (!climbable(height(x, y), height(nx, ny))) {
-        return true;
+    if (!drivable(height, nx, ny, nx - x, ny - y)) {
+        return true; // a wall: the face beyond beats any engine heading that way
     }
-    if (route_detail::press_beats(height, x, y, nx - x, ny - y)) {
-        return true; // uphill too steep: the press on this tile beats any engine heading that way
+    if (!drivable(height, x, y, nx - x, ny - y)) {
+        return true; // uphill too steep: the face it stands on beats any engine heading that way
+    }
+    // NO CORNER CUTTING past a wall (G6): a diagonal passes through the corner it cuts, and a unit
+    // following it to within half a tile crosses the two faces beside that corner -- so they must
+    // not beat an engine heading along the diagonal either, as the two tiles beside it must be
+    // enterable (`plan_route`). Without this the turret of GoAround's reported case was led
+    // across the corner of the ramp's flank, (17, 27): a face rising 50 a tile south, 42 along
+    // its diagonal, that held it there until its order gave up.
+    if (nx != x && ny != y
+        && (!drivable(height, nx, y, nx - x, ny - y) || !drivable(height, x, ny, nx - x, ny - y))) {
+        return true;
     }
     if (free_exit) {
         return false; // the tile the unit already stands on: it sets off whichever way it can
@@ -215,12 +202,12 @@ template <class Ground, class Cliff, class Avoid>
 /// set is ordered by lowest f, then lowest h, then lowest x, then lowest y -- no tie is left to
 /// chance, so every platform finds the same route.
 ///
-/// THE MOVER'S OWN RULE for an edge (a ground that knows heights): an edge is open when it is not a
-/// cliff (`climbable`, the one rule the mover asks too), and a tile the slope will not let a unit
-/// hold (a parked drift past half its step: `slide_way_of`) is left only the way the slope runs,
-/// and no edge is open INTO a press that beats the engine (`press_beats`: uphill too steep). A
-/// route that ignores the second leads a unit onto a ramp's edge row, which throws it off: the
-/// stall this answers.
+/// THE MOVER'S OWN RULE for an edge (a ground that knows heights): an edge is open when neither the
+/// face it leaves nor the face it enters beats an engine heading along it (`drivable`, the one rule
+/// the mover asks too: the wall is the press's), and a tile the slope will not let a unit hold (a
+/// parked drift past half its step: `slide_way_of`) is left only the way the slope runs. A route
+/// that ignores the second leads a unit onto a ramp's edge row, which throws it off: the stall
+/// this answers.
 ///
 /// A GOAL THAT CANNOT BE ENTERED (a building's centre, a unit standing on solid ground) is not a
 /// failure: the plan ends at ground that can be, within one tile of the nearest such ground to the
@@ -230,7 +217,7 @@ template <class Ground, class Cliff, class Avoid>
 ///
 /// On success `route` holds the corners of the line-of-sight-smoothed path (the start excluded, the
 /// goal last) and true is returned. On failure `route` is left with no waypoints, `failure` is
-/// `NoRoute`, and false is returned. The plan takes no speed: which edge is a cliff (`climbable`)
+/// `NoRoute`, and false is returned. The plan takes no speed: which edge is a wall (`drivable`)
 /// and which tile the press holds a unit on (`slide_way_of`) are the same for every unit.
 template <class Ground>
 [[nodiscard]] bool plan_route(const Ground& ground, TileXY start, TileXY goal, Route& route) {
@@ -253,8 +240,9 @@ template <class Ground>
 
     const auto index = [](int x, int y) { return y * kRouteTiles + x; };
 
-    // THE CLIFF (M1) AND THE SLOPE: where the ground knows heights, a cliff is a wall to the mover
-    // (`plan_step` asks `climbable`), so it is a wall here too, by the same call -- or a route
+    // THE WALL (M1, G6) AND THE SLOPE: where the ground knows heights, a face the press beats an
+    // engine on is a wall to the mover (`plan_step` asks `drivable`), so it is a wall here too, by
+    // the same call -- or a route
     // would lead a unit up to a face it will not climb and leave it there. Each tile's height and
     // slide way are worked out once. The press does not weigh the route (a declared
     // simplification -- the planner takes the straightest way through ground that can be driven,
@@ -343,8 +331,10 @@ template <class Ground>
     };
     // ...and on the goal's own level: ground a cliff's height away is no nearer in any way that
     // matters, whatever its distance on the grid.
+    // ("A cliff's height" is what the wall comes to on one axis face: `steepest_drivable_rise`,
+    // read off the press, not a limit of its own.)
     const auto level_with_goal = [&](int x, int y) {
-        return std::abs(height_at(x, y) - height_at(goal.x, goal.y)) <= kClimbLimit;
+        return std::abs(height_at(x, y) - height_at(goal.x, goal.y)) <= steepest_drivable_rise();
     };
     int reach = 0;
     bool want_level = true; // dropped when there is no ground on the goal's level to be had

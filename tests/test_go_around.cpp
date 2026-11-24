@@ -139,7 +139,12 @@ TEST(GoAround, ATurretOrderedToTheFarSideOfTheRampDeploysThere) {
                               << ", " << tiles(sim.find(turret)->y) << ")";
     EXPECT_TRUE(within(*sim.find(turret), 26.5, 20.5, 1.1)) << "deployed within a tile of its spot";
     EXPECT_EQ(sim.find(turret)->route.failure, RouteFailure::None);
-    EXPECT_EQ(drive.ticks, 835) << "ticks to deploy";
+    // RE-MEASURED, G6 (the press): 835 -> 900. The way is up the ramp (x 16..21, rising 20 a tile
+    // east), and a turret crawls at a quarter of a tank's step: on that ramp the press takes 58%
+    // of its step (the old grade took 31%), so the climb is slower. The route is the same tiles
+    // up the ramp -- (16, 28), (19, 29), (22, 29) -- and no longer cuts the corner of its flank
+    // at (17, 27) (the corner rule, `edge_blocked`). Old value 835 is the code at 896f2e5.
+    EXPECT_EQ(drive.ticks, 900) << "ticks to deploy";
 }
 
 TEST(GoAround, ItsRouteIsNotTheStraightLineItWentAround) {
@@ -153,7 +158,14 @@ TEST(GoAround, ItsRouteIsNotTheStraightLineItWentAround) {
     const Drive drive
         = run(sim, turret, 3000, [](const Unit& u) { return u.kind == UnitKind::DeployedTurret; });
     ASSERT_GT(drive.ticks, 0);
-    EXPECT_GT(drive.driven, straight * 1.8)
+    // RE-MEASURED, G6: the lower bound was 1.8 x straight (25.2 tiles), a margin under the old
+    // measurement; the turret now drives 24.27. The bound is restated as what the map allows: the
+    // ramp's rows 28..32 are the only way up, and between x 16 and 22 a unit must stay in them (the
+    // faces of row 27 rise 40 to 120 a tile south: walls), so no drive there is shorter than the
+    // line (12.5, 20.5) -> (16, 28) -> (22, 28) -> (26.5, 20.5): 8.28 + 6 + 8.73 = 23.0 tiles.
+    const double through_the_ramp
+        = std::hypot(16.0 - 12.5, 28.0 - 20.5) + 6.0 + std::hypot(26.5 - 22.0, 28.0 - 20.5);
+    EXPECT_GE(drive.driven, through_the_ramp)
         << "straight " << straight << " tiles, driven " << drive.driven;
     EXPECT_LT(drive.driven, straight * 3.0) << "and it did not wander: driven " << drive.driven;
 }

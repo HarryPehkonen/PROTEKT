@@ -241,8 +241,9 @@ struct WorldGround {
         const world::Tile tile = world::sample(seed, tile_x, tile_y);
         return terrain_speed_factor(tile.terrain).raw;
     }
-    /// The tile's height: what the slope rules (`plan_step`'s cliff, `plan_press`'s force)
-    /// read. The route planner does not (see `plan_route`): it asks `factor` only.
+    /// The tile's height, at the tile's CORNER (the drawn ground's convention): what the slope
+    /// rules read -- the press (`plan_press`) and the wall it makes (`drivable`), which the mover
+    /// (`plan_step`) and the route planner (`plan_route`, through `HasHeights`) both ask.
     [[nodiscard]] int height(int tile_x, int tile_y) const noexcept {
         return world::sample(seed, tile_x, tile_y).height;
     }
@@ -2240,9 +2241,9 @@ void move(std::vector<Unit>& units, const WorldGround& ground, const UnitProfile
 /// grip (nothing, on any slope a unit can climb). Not a drive: `still_ticks` is left alone, so a
 /// crawling turret does not count the press as motion of its own, and no vehicle is shoved.
 ///
-/// The press goes where it points unless that is ground the unit cannot stand on or a cliff it
-/// could not climb into; then each axis of it alone, as the mover tries a step; else nothing this
-/// tick. A wall is a wall to the press as it is to the engine.
+/// The press goes where it points unless that is ground the unit cannot stand on or a face that
+/// is a wall that way (`drivable`); then each axis of it alone, as the mover tries a step; else
+/// nothing this tick. A wall is a wall to the press as it is to the engine.
 ///
 /// THE GROUND OF THE TICK (G5): the press is the slope under (`from_x`, `from_y`), where the unit
 /// stood when the tick began -- one tick's forces from one state. Read from where the move ENDED
@@ -2256,7 +2257,9 @@ void press(const WorldGround& ground, Unit& unit, std::int64_t thrust, Fixed fro
     if (push.dx == 0 && push.dy == 0) {
         return;
     }
-    const int here = ground.height(unit.x.floor_int(), unit.y.floor_int());
+    const int here_x = unit.x.floor_int();
+    const int here_y = unit.y.floor_int();
+    const auto height = [&](int tx, int ty) { return ground.height(tx, ty); };
     for (const Step& tried : {push, Step{push.dx, 0}, Step{0, push.dy}}) {
         if (tried.dx == 0 && tried.dy == 0) {
             continue;
@@ -2268,8 +2271,9 @@ void press(const WorldGround& ground, Unit& unit, std::int64_t thrust, Fixed fro
         }
         const Fixed nx = Fixed::from_raw(static_cast<std::int32_t>(to_x));
         const Fixed ny = Fixed::from_raw(static_cast<std::int32_t>(to_y));
-        if (!climbable(here, ground.height(nx.floor_int(), ny.floor_int()))) {
-            continue;
+        const bool leaves = nx.floor_int() != here_x || ny.floor_int() != here_y;
+        if (leaves && !drivable(height, nx.floor_int(), ny.floor_int(), tried.dx, tried.dy)) {
+            continue; // a wall to the press as to the engine: the same question (`drivable`)
         }
         unit.x = nx;
         unit.y = ny;
@@ -2613,11 +2617,32 @@ void Sim::step(StepTimings* timings) {
             ++unit.still_ticks;
         }
     }
+    // THE STRAFE IS DRIVING (G6): a Strafe moves its unit HERE, among the orders, before the mover
+    // runs, so what each unit was carried by its orders is noted, by id, for the press below -- a
+    // strafing hover drives under its own power as much as a driven one does, and must feel the
+    // slope the same way (heading and ground), not stand on its brakes.
+    struct Before {
+        UnitId id;
+        std::int32_t x;
+        std::int32_t y;
+    };
+    std::vector<Before> before_orders;
+    before_orders.reserve(units_.size());
+    for (const Unit& unit : units_) {
+        before_orders.push_back(Before{unit.id, unit.x.raw, unit.y.raw});
+    }
     for (const Order& order : pending_) {
         apply_order(units_, projectiles_, shots_, driven_, lone_batches_, next_id_, ore_,
                     scenario_.pools, scenario_.volumes, order, scenario_.seed);
     }
     pending_.clear();
+    std::vector<Step> strafed(units_.size());
+    for (std::size_t i = 0; i < before_orders.size() && i < units_.size(); ++i) {
+        if (units_[i].id == before_orders[i].id) {
+            strafed[i] = Step{static_cast<std::int64_t>(units_[i].x.raw) - before_orders[i].x,
+                              static_cast<std::int64_t>(units_[i].y.raw) - before_orders[i].y};
+        }
+    }
     lap(&StepTimings::orders_ns);
 
     // 2. movement, ascending id (units_ is stored in id order).
@@ -2680,24 +2705,41 @@ void Sim::step(StepTimings* timings) {
                 += std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - steer_from)
                        .count();
         }
-        const Fixed from_x = unit.x; // the ground of the tick: the press reads it (`press`)
-        const Fixed from_y = unit.y;
+        // The ground of the tick: where the unit stood before it drove, strafe included -- the
+        // press reads it (`press`).
+        const auto index = static_cast<std::size_t>(&unit - units_.data());
+        const Step strafe = index < strafed.size() ? strafed[index] : Step{};
+        const Fixed from_x = Fixed::from_raw(static_cast<std::int32_t>(unit.x.raw - strafe.dx));
+        const Fixed from_y = Fixed::from_raw(static_cast<std::int32_t>(unit.y.raw - strafe.dy));
         if (!(unit.kind == UnitKind::Turret && !turret_may_move(unit))) {
             move(units_, flight, prof, unit);
         }
         if (!planted(unit) && !airborne(unit)) {
-            // Driving is MOVING under its own power this tick, and the heading is the way it
-            // moved: a unit held by a wall, unmounting, or with nowhere to go stands on its
-            // brakes (a zero heading).
+            // Driving is MOVING under its own power this tick -- the mover's step and a strafe's
+            // alike -- and the heading is the way it moved: a unit held by a wall, unmounting, or
+            // with nowhere to go stands on its brakes (a zero heading).
             const std::int64_t drove_dx = static_cast<std::int64_t>(unit.x.raw) - from_x.raw;
             const std::int64_t drove_dy = static_cast<std::int64_t>(unit.y.raw) - from_y.raw;
             // The press is measured in the unit's step ON THIS GROUND: the terrain's drag that
             // slows the engine (rough ground, a quarter off) slows the slope's push alike, so a
-            // slope a unit climbs on open ground it climbs on rough -- one climb limit, on all of
-            // it. (In the air nothing touches the slope.)
-            const std::int64_t thrust
-                = prof.max_speed.raw * ground.factor(from_x.floor_int(), from_y.floor_int())
-                  >> Fixed::kShift;
+            // slope a unit climbs on open ground it climbs on rough -- one wall, on all of it.
+            // "This ground" is the ground the ENGINE's step was measured on: the mover scales a
+            // step by the terrain of the tile its whole commanded step REACHES (`plan_step`'s
+            // `lands`), so the thrust is that tile's too. (G6: it was the tile the unit stood on,
+            // so a tank driving uphill from open ground towards slower ground took a half-size
+            // step, still on the open ground, against a full-size press -- and was held there for
+            // ever: FiringSpot's seed-24 case.) A unit with no command (or only a strafe) reaches
+            // the tile it stands on, and so does one whose command reaches ground it cannot enter.
+            // (In the air nothing touches the slope.)
+            const Fixed reach_x = Fixed::from_raw(static_cast<std::int32_t>(
+                std::clamp<std::int64_t>(from_x.raw + std::int64_t{unit.vx.raw}, 0, kMaxPosRaw)));
+            const Fixed reach_y = Fixed::from_raw(static_cast<std::int32_t>(
+                std::clamp<std::int64_t>(from_y.raw + std::int64_t{unit.vy.raw}, 0, kMaxPosRaw)));
+            std::int64_t ahead = ground.factor(reach_x.floor_int(), reach_y.floor_int());
+            if (ahead == 0) { // ground it cannot enter: its step was not measured there
+                ahead = ground.factor(from_x.floor_int(), from_y.floor_int());
+            }
+            const std::int64_t thrust = prof.max_speed.raw * ahead >> Fixed::kShift;
             press(ground, unit, thrust, from_x, from_y, drove_dx, drove_dy);
         }
     }

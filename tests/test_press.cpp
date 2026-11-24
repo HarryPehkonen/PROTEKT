@@ -55,7 +55,7 @@ Step tick(const Plane& ground, std::int64_t want_dx, std::int64_t want_dy) {
 
 TEST(PressMeasured, EverySteeperSlopeIsStrictlyWorseUphillAndStrictlyBetterDownhill) {
     // A plane falling EAST by `rise` a tile: driving west is uphill, east downhill. From level to
-    // twice the climb limit, the net displacement per tick, raw. Not one step may be kinder to a
+    // twice the steepest grade, the net displacement per tick, raw. Not one step may be kinder to a
     // steeper slope: that is what a force that grows with the gradient means, and a cap or a
     // floor anywhere in the law shows up here as two equal rows.
     std::ostringstream rows;
@@ -130,7 +130,7 @@ TEST(PressMeasured, AtEveryHeadingTheSlopeNeverInvertsTheDriveUnlessItTrulyOppos
                     << "rise " << rise << ", heading " << k * 15
                     << ": the drive was inverted by a slope that does not beat it";
             }
-            if (rise <= kClimbLimit) {
+            if (rise <= steepest_drivable_rise()) {
                 EXPECT_GT(ahead, 0.0) << "rise " << rise << ", heading " << k * 15
                                       << ": inverted on climbable ground";
             }
@@ -143,7 +143,7 @@ TEST(PressMeasured, ADiagonalSlopeHasItsRealSteepness) {
     // His report: every diagonal cliff was climbable. On a plane rising `r` in x AND `r` in y the
     // steepness is r * sqrt(2) a tile, up the gradient, whatever the axes say. Driven straight up
     // that gradient a tank makes headway exactly while that TRUE steepness is under the climb
-    // limit (38): 26 and 26 is 36.8 (it climbs), 28 and 28 is 39.6 (it is beaten back), though
+    // grade (38.4): 26 and 26 is 36.8 (it climbs), 28 and 28 is 39.6 (it is beaten back), though
     // each axis alone reads only 28.
     const auto up_the_diagonal = [](int r) {
         const Plane ground{r, r}; // rises to the south-east

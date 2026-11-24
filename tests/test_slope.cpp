@@ -130,12 +130,12 @@ TEST(Press, UphillAndDownhillAreOneForce) {
 
 TEST(Press, AtTheSteepestGradeItIsATanksWholeThrust) {
     // 60 percent is 38.4 a tile. At 38 the press is 13005, under a tank's 13107: it climbs, at
-    // 102 raw a tick. At 39 it is 13255: the slope beats it by 148. That crossing IS the climb
-    // limit (`kClimbLimit`, 38), derived, not chosen.
+    // 102 raw a tick. At 39 it is 13255: the slope beats it by 148. That crossing IS the wall on
+    // an axis face (`steepest_drivable_rise`, 38), read off the press, not chosen.
     const StepRequest at = standing(2, 2, 0, 0);
     EXPECT_EQ(plan_press(ramp_east(100, 38), at.x, at.y, kStep, kStep, 0).dx, -13005);
     EXPECT_EQ(plan_press(ramp_east(100, 39), at.x, at.y, kStep, kStep, 0).dx, -13255);
-    EXPECT_EQ(kClimbLimit, 38);
+    EXPECT_EQ(steepest_drivable_rise(), 38);
 }
 
 TEST(Press, ASheerFaceIsBoundedByItsWeightNotByACap) {
@@ -268,26 +268,35 @@ TEST(Slide, ItStopsWhenTheGroundLevels) {
     EXPECT_EQ(x.raw, rest.raw);
 }
 
-// ---- G5: the wall that is a wall at every angle, and ONE limit -----------------------------
+// ---- G5, G6: the wall that is a wall at every angle, and no limit of its own -----------------
 //
 // Harri, driving: "I feel like I can climb too high on the slope. The problem may be the dx or dy
-// -- it's not so dramatic, except when you consider the angle." The run-scaling of a diagonal edge
-// (x 181/256) is right for a GRADE and wrong for a WALL: compared against the climb limit, it let
-// a diagonal of height 56 through as "39". And the planner judged an edge by its own estimate
-// (`drivable_rise`: a tank's limit 38, a turret's 33) while the mover judged it by the rule (40),
-// so the two disagreed about rises the mover would drive.
+// -- it's not so dramatic, except when you consider the angle." G5 made the wall a HEIGHT
+// difference against one limit (38), the same for mover and planner. G6: the wall is the PRESS's
+// -- a face is a wall along a heading when the press on it beats the engine that way
+// (`press_beats`) -- so there is no limit to pick, and a diagonal face is judged by its true
+// steepness, not by a height difference with a run guessed for it.
 
-/// Flat ground at 100 with ONE tile raised by `rise`: (3, 2) when `diagonal` is false (east of the
-/// unit's tile (2, 2)), (3, 3) when it is true (south-east of it).
-HeightGround one_raised(int rise, bool diagonal) {
-    HeightGround ground = ramp_east(100, 0);
-    ground.heights.at(diagonal ? 3 : 2).at(3) = 100 + rise;
+/// Level ground at 100 with a kink: from corner column 3 the ground rises `rx` a tile east, and,
+/// from corner row 3, `ry` a tile south. Tile (2, 2)'s face (corners 2..3) is level, so a unit
+/// standing on it feels nothing; tile (3, 2)'s face rises (`rx`, 0) and tile (3, 3)'s (`rx`, `ry`).
+HeightGround kinked(int rx, int ry) {
+    HeightGround ground{};
+    for (int y = 0; y < kRows; ++y) {
+        for (int x = 0; x < kCols; ++x) {
+            ground.heights.at(static_cast<std::size_t>(y)).at(static_cast<std::size_t>(x))
+                = 100 + (rx * std::max(0, x - 3)) + (ry * std::max(0, y - 3));
+        }
+    }
     return ground;
 }
 
 /// THE MOVER'S VERDICT: a unit of full step `speed` standing 0.01 tile short of the edge (or the
-/// corner) of tile (2, 2) steps straight at the raised tile. True when the step lands in it.
-bool mover_enters(int rise, bool diagonal, std::int64_t speed) {
+/// corner) of tile (2, 2) steps straight at (3, 2) or, `diagonal`, (3, 3). True when that STRAIGHT
+/// step is taken and lands there. (Refused, the mover may still find its way onto the face by an
+/// escape at another heading -- a face too steep straight up can be under the grade obliquely, the
+/// way a road zig-zags up a hill -- and that is a different edge, judged on its own heading.)
+bool mover_enters(const HeightGround& ground, bool diagonal, std::int64_t speed) {
     const std::int32_t near = Fixed::kOne - Fixed::kOne / 100;
     StepRequest request;
     request.x = Fixed::from_raw(2 * Fixed::kOne + near);
@@ -296,8 +305,8 @@ bool mover_enters(int rise, bool diagonal, std::int64_t speed) {
     request.want_dx = along;
     request.want_dy = diagonal ? along : 0;
     request.speed = speed;
-    const StepPlan plan = plan_step(request, one_raised(rise, diagonal));
-    if (!plan.moved) {
+    const StepPlan plan = plan_step(request, ground);
+    if (!plan.moved || plan.step.dx != request.want_dx || plan.step.dy != request.want_dy) {
         return false;
     }
     const Fixed x = Fixed::from_raw(static_cast<std::int32_t>(request.x.raw + plan.step.dx));
@@ -305,48 +314,81 @@ bool mover_enters(int rise, bool diagonal, std::int64_t speed) {
     return x.floor_int() == 3 && y.floor_int() == (diagonal ? 3 : 2);
 }
 
-/// THE PLANNER'S VERDICT on the very same edge, for a unit of full step `speed` on open ground
-/// (no tile held by a slide, so only the edge itself is judged).
-bool planner_opens(int rise, bool diagonal, std::int64_t speed) {
-    const HeightGround ground = one_raised(rise, diagonal);
+/// THE PLANNER'S VERDICT on the very same edge (no tile held by a slide, so only the edge itself is
+/// judged). It takes no speed: one rule for every unit.
+bool planner_opens(const HeightGround& ground, bool diagonal) {
     const auto height = [&](int x, int y) { return ground.height(x, y); };
     const auto no_slide = [](int, int) { return std::array<int, 2>{0, 0}; };
-    (void)speed; // one rule for every unit: the planner's verdict on an edge takes no speed
     return !route_detail::edge_blocked(height, no_slide, 2, 2, 3, diagonal ? 3 : 2);
 }
 
-TEST(WallAtEveryAngle, AHeightPastTheClimbLimitIsRefusedOnTheAxisAndOnTheDiagonal) {
-    // The limit is 38, written as the number (see PastTheClimbLimitTheStepIsRefused). Under the old
-    // limit of 40, a rise of 41 to 56 read 29 to 39 on a diagonal, under it: every diagonal cliff
-    // in the world (the worst edge is 55) was climbable. A wall is decided by the HEIGHT, at every
-    // angle.
-    for (const int rise : {39, 40, 41, 45, 50, 55, 56, 80}) {
-        for (const bool diagonal : {false, true}) {
-            EXPECT_FALSE(mover_enters(rise, diagonal, kStep))
-                << "the mover let a tank up a rise of " << rise << (diagonal ? " (diagonal)" : "");
-            EXPECT_FALSE(planner_opens(rise, diagonal, kStep))
-                << "the planner opened a rise of " << rise << (diagonal ? " (diagonal)" : "");
-        }
+TEST(WallAtEveryAngle, AFaceIsAWallExactlyWhereThePressBeatsTheEngine) {
+    // Straight up an axis face: drivable to 38 a tile, a wall from 39 -- where a tank's engine
+    // (13107) meets the press (13005 at 38, 13255 at 39). No 38 is written in the rule.
+    for (int rise = 0; rise <= 80; ++rise) {
+        const HeightGround ground = kinked(rise, 0);
+        EXPECT_EQ(mover_enters(ground, false, kStep), rise <= 38) << "axis, rise " << rise;
     }
-    // ...and up to the limit, it is not a wall at either angle.
-    for (const int rise : {0, 20, 33, 37, 38}) {
-        for (const bool diagonal : {false, true}) {
-            EXPECT_TRUE(mover_enters(rise, diagonal, kStep))
-                << "rise " << rise << (diagonal ? " (diagonal)" : "");
+    // Straight up a DIAGONAL face, rising `r` east and `r` south: its true steepness is r * sqrt 2.
+    // 27 and 27 is 38.18 (drivable), 28 and 28 is 39.60 (a wall) -- though each axis reads 28,
+    // under the 38. Before G5 a diagonal was scaled by 181/256 and every diagonal cliff let
+    // through; G6 reads the face's own gradient, so the diagonal is honest without any scaling.
+    for (int r = 0; r <= 60; ++r) {
+        const HeightGround ground = kinked(r, r);
+        EXPECT_EQ(mover_enters(ground, true, kStep), r <= 27) << "diagonal, r " << r;
+    }
+}
+
+TEST(WallAtEveryAngle, AFaceIsNoWallAcrossItOrDownIt) {
+    // A face past any grade a unit climbs (100 a tile, 57 degrees) is a wall ONLY along headings
+    // into it: driven along it (across the gradient) or down it, the press never beats a heading.
+    // This is what lets a unit drive along a cliff's foot, or off its top -- the fall.
+    for (int k = 0; k < 24; ++k) {
+        const double a = k * 15.0 * 3.14159265358979 / 180.0;
+        const auto hx = static_cast<std::int64_t>(std::lround(std::cos(a) * kStep));
+        const auto hy = static_cast<std::int64_t>(std::lround(std::sin(a) * kStep));
+        const Gradient steep{std::int64_t{2} * 100, 0}; // rising east, 100 a tile
+        // The press is 1.637 thrusts at 100 a tile (sin 57.4 degrees * sqrt 34 / 3), pointing
+        // west: it beats a heading whose eastward share passes 1 / 1.637 = 0.611, i.e. within
+        // 52.3 degrees of due east.
+        const double cos_east = std::cos(a);
+        const bool beaten = press_beats(steep, hx, hy);
+        if (cos_east <= 0.0) {
+            EXPECT_FALSE(beaten) << "heading " << k * 15 << " is across or down the face";
+        }
+        if (cos_east > 0.65) {
+            EXPECT_TRUE(beaten) << "heading " << k * 15 << " is into the face";
+        }
+        if (cos_east > 0.0 && cos_east < 0.55) {
+            EXPECT_FALSE(beaten) << "heading " << k * 15 << " climbs it obliquely, under the grade";
         }
     }
 }
 
-TEST(WallAtEveryAngle, ForEveryRiseTheMoverAndThePlannerAgree) {
-    // ONE limit, in one place: for every rise, axis and diagonal, a tank and a turret (a quarter of
+TEST(WallAtEveryAngle, ForEveryFaceTheMoverAndThePlannerAgree) {
+    // ONE rule, in one place: for every face, axis and diagonal, a tank and a turret (a quarter of
     // a tank's step), the planner opens exactly the edges the mover will drive. Before G5 a tank's
-    // 39 and 40 were driven but not planned (38 was the planner's tank limit), a turret's 34..40
-    // likewise (33), and a diagonal of 41..55 was driven by both though it is a cliff.
+    // 39 and 40 were driven but not planned, and a diagonal of 41..55 was driven by both though it
+    // is a cliff; in G5 both judged a HEIGHT, and the press on a diagonal face of 39..54 disagreed
+    // with them both. Now all three ask `press_beats`. The one place the planner is stricter is
+    // its corner rule: a diagonal is opened only if the two faces beside the corner it cuts are no
+    // wall along it either (a unit following the line crosses them), so where one of those is a
+    // wall the planner refuses an edge the mover's single step -- through the corner point itself
+    // -- would take. Asked with the same `press_beats`, and asserted here as exactly that.
+    const auto height_of
+        = [](const HeightGround& g) { return [&g](int x, int y) { return g.height(x, y); }; };
     for (const std::int64_t speed : {kStep, kStep / 4}) {
-        for (int rise = -80; rise <= 80; ++rise) {
-            for (const bool diagonal : {false, true}) {
-                EXPECT_EQ(mover_enters(rise, diagonal, speed), planner_opens(rise, diagonal, speed))
-                    << "rise " << rise << (diagonal ? " diagonal" : " axis") << ", speed " << speed;
+        for (int rx = -80; rx <= 80; rx += 1) {
+            for (const int ry : {0, rx, -rx, rx / 2}) {
+                const HeightGround ground = kinked(rx, ry);
+                EXPECT_EQ(mover_enters(ground, false, speed), planner_opens(ground, false))
+                    << "face (" << rx << ", " << ry << ") axis, speed " << speed;
+                const auto height = height_of(ground);
+                const bool sides_clear
+                    = drivable(height, 3, 2, 1, 1) && drivable(height, 2, 3, 1, 1);
+                EXPECT_EQ(mover_enters(ground, true, speed) && sides_clear,
+                          planner_opens(ground, true))
+                    << "face (" << rx << ", " << ry << ") diagonal, speed " << speed;
             }
         }
     }
@@ -449,8 +491,9 @@ std::optional<SteepPlace> find_steep() {
                 static_cast<std::int32_t>((std::int64_t{x} * Fixed::kOne) + drift.dx));
             const Fixed to_y = Fixed::from_raw(
                 static_cast<std::int32_t>((std::int64_t{y} * Fixed::kOne) + drift.dy));
-            if (climbable(world::sample(kSeed, x, y).height,
-                          world::sample(kSeed, to_x.floor_int(), to_y.floor_int()).height)) {
+            const auto height = [](int hx, int hy) { return world::sample(kSeed, hx, hy).height; };
+            const bool stays = to_x.floor_int() == x && to_y.floor_int() == y;
+            if (stays || drivable(height, to_x.floor_int(), to_y.floor_int(), drift.dx, drift.dy)) {
                 return SteepPlace{x, y, g};
             }
         }
