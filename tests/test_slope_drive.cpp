@@ -68,7 +68,7 @@ struct TickRecord {
     double right{}; ///< raw displacement along the hull's right (the strafe direction)
     std::int64_t dx{};
     std::int64_t dy{};
-    std::int64_t drift_dx{}; ///< the slide the tick began with (`slide_at`)
+    std::int64_t drift_dx{}; ///< the press the tick began with (`press_at`)
     std::int64_t drift_dy{};
     std::int32_t vx{}; ///< the mover's own velocity, before the slide was added
     std::int32_t vy{};
@@ -135,7 +135,7 @@ struct Helm {
         }
         for (int s = 0; s < steps; ++s) {
             const Unit before = *sim.find(id);
-            const Step drift = slide_at(0, before.x, before.y);
+            const Step drift = press_at(0, before.x, before.y);
             sim.step();
             const Unit& after = *sim.find(id);
             TickRecord r;
@@ -244,7 +244,7 @@ TEST(TankThatReverses, DrivingDownTheRampBesideTheCliffStillDescends) {
     }
 }
 
-// ---- driving uphill against a slide: HIS ruling, pinned with its threshold ----------------
+// ---- driving uphill against the press: HIS ruling, pinned at the steepest grade ------------
 
 /// A uniform slope of `grade` per tile, falling to the east, on a drawn map.
 struct UniformSlope {
@@ -258,15 +258,14 @@ struct UniformSlope {
     }
 };
 
-TEST(TankThatReverses, UphillAgainstASlideIsSlowedUpToAGradeOf38AndReversedFrom39) {
-    // NOT a fix: this pins the ruling the slope slice made ("the slope wins"), so that the G4
-    // change cannot have moved it. A tank driving WEST, up a slope of `grade` per tile, climbs
-    // 13107 * (1 - grade/64) and is slid back (grade - 32) * 819. The two cross between 38 and 39:
-    // 38 -> 5324 up, 4914 back, net +410 (slowed to 3% of a level step); 39 -> 5119 up, 5733 back,
-    // net -614 (reversed). That crossing IS the climb limit since G5 (`kClimbLimit` is derived
-    // from it: 38), so a tank never drives onto such a slope -- but one carried onto it, or
-    // standing on it, is beaten back as before: the step here stays inside the unit's own tile.
-    // Slide.SteeringUphillDoesNotCancelIt pins 40 as a reversal.
+TEST(TankThatReverses, UphillAgainstThePressIsSlowedUpToAGradeOf38AndReversedFrom39) {
+    // NOT a fix: this pins the ruling the slope slice made ("the slope wins" -- uphill too steep
+    // beats you), with G6's one force. A tank driving WEST, up a slope of `grade` per tile, drives
+    // 13107 west and is pressed back 13107 * sin(slope) / sin(60 percent grade). The two cross
+    // between 38 and 39: 38 -> pressed 13005, net +102; 39 -> pressed 13255, net -148 (reversed).
+    // That crossing IS the climb limit (`kClimbLimit`, derived from it: 38), so a tank never
+    // drives onto such a slope -- but one carried onto it, or standing on it, is beaten back: the
+    // step here stays inside the unit's own tile. Slide.SteeringUphillDoesNotCancelIt pins 40.
     for (int grade = 33; grade <= 40; ++grade) {
         const UniformSlope ground{grade};
         StepRequest request;
@@ -276,7 +275,8 @@ TEST(TankThatReverses, UphillAgainstASlideIsSlowedUpToAGradeOf38AndReversedFrom3
         request.speed = kTankSpeedRaw;
         const StepPlan plan = plan_step(request, ground);
         ASSERT_TRUE(plan.moved) << "grade " << grade;
-        const Step drift = plan_slide(ground, request.x, request.y, [](int, int) { return true; });
+        const Step drift
+            = plan_press(ground, request.x, request.y, kTankSpeedRaw, -kTankSpeedRaw, 0);
         const std::int64_t net = -(plan.step.dx + drift.dx); // westward, uphill, is positive
         if (grade <= 38) {
             EXPECT_GT(net, 0) << "grade " << grade << " should slow the climb, not reverse it";
@@ -445,40 +445,113 @@ TEST(SteepHillTop, EveryClimbableStepHasACrossableTop) {
     // same edge by the tile above: a Walker on a step of 36 climbed 2867 raw and was slid back
     // 3276, at the brow, for ever. The slide is read from where the tick began now, as the grade
     // is, and on the top the Walker's level drive (6553) beats it.
+    // G6: the step's face is tile 11 (a tile's height is its corner's), and on it the press is
+    // felt where the face IS: at 38 a tank nets 102 raw a tick up it and a Walker 51, so the face
+    // takes them some 640 and 1290 ticks. Slow at the very limit, by the physics; 1500 ticks is
+    // room for every rise. (It was 240 when the climb was the grade's 0.41 of the step.)
     for (const UnitKind kind : {UnitKind::Tank, UnitKind::Walker}) {
         for (const int rise : {20, 33, 34, 35, 36, 37, 38}) {
             const world::ScopedGround guard(app::map_ground(stepped_field(rise, false)));
             Helm helm(kind, 8, 20, kEast, 1.0F, 0.0F);
-            const std::vector<TickRecord> ticks = helm.drive(240);
+            const std::vector<TickRecord> ticks = helm.drive(1500);
             EXPECT_GE(helm.sim.find(helm.id)->x.floor_int(), 15)
                 << (kind == UnitKind::Tank ? "tank" : "walker") << ": a step of " << rise
                 << " held it at its top\n"
                 << table(ticks);
         }
     }
-    // ...and one past the limit is a wall: refused at the foot, at every speed.
+    // ...and one past the limit is never climbed: on the face the press beats the engine (it is
+    // past the steepest grade) and at its top the wall refuses it -- it never stands on the top.
     for (const int rise : {39, 40}) {
         const world::ScopedGround guard(app::map_ground(stepped_field(rise, false)));
         Helm helm(UnitKind::Tank, 8, 20, kEast, 1.0F, 0.0F);
-        (void)helm.drive(120);
-        EXPECT_EQ(helm.sim.find(helm.id)->x.floor_int(), 11) << "rise " << rise;
+        const std::vector<TickRecord> ticks = helm.drive(240);
+        for (const TickRecord& r : ticks) {
+            EXPECT_LT(r.x, 12.0) << "rise " << rise << ": it got up\n" << table(ticks);
+        }
+        EXPECT_LT(helm.sim.find(helm.id)->x.raw, 12 * Fixed::kOne) << "rise " << rise;
     }
 }
 
 TEST(SteepHillTop, AClimbableRampHasACrossableTop) {
-    // A RAMP, four tiles of `rise` each: up to the limit a tank's climb beats the slide on every
+    // A RAMP, four tiles of `rise` each: up to the limit a tank's climb beats the press on every
     // tile (that is what the limit IS), so it reaches the level top and crosses it. (The physics
     // under the limit, 38/39, is pinned by
-    // TankThatReverses.UphillAgainstASlideIsSlowedUpToAGradeOf38AndReversedFrom39.)
+    // TankThatReverses.UphillAgainstThePressIsSlowedUpToAGradeOf38AndReversedFrom39.)
     for (const int rise : {20, 33, 36, 38}) {
         const world::ScopedGround guard(app::map_ground(stepped_field(rise, true)));
         Helm helm(UnitKind::Tank, 8, 20, kEast, 1.0F, 0.0F);
-        // At 38 the net climb is 410 raw a tick (0.006 tile): the ramp takes the better part of
-        // 700 ticks. 900 is room for every rise.
-        const std::vector<TickRecord> ticks = helm.drive(900);
+        // At 38 the net climb is 102 raw a tick (0.0016 tile): each tile of the ramp takes some
+        // 640 ticks, the four about 2570. 2800 is room for every rise. (It was 900 when the net
+        // was the two old mechanisms' 410.)
+        const std::vector<TickRecord> ticks = helm.drive(2800);
         EXPECT_GE(helm.sim.find(helm.id)->x.floor_int(), 18)
             << "a ramp of " << rise << " a tile was not crossed\n"
             << table(ticks);
+    }
+}
+
+// ---- G6: THE PRESS, at the helm ------------------------------------------------------------
+//
+// "I think the press back from a hill should make mathematical sense." The slope is ONE force read
+// from the ground UNDER the unit: the drawn ground puts a tile's height at its corner, so the
+// ground under a unit in tile (x, y) is the face between the four corners (x..x+1, y..y+1).
+
+TEST(PressAtTheHelm, LevelGroundBesideACliffPressesNothing) {
+    // HIS REPORT: "moved in the VICINITY of a hill". `stepped_field(60)` is a plateau at 60 from
+    // column 12 east, over a plain at 0; the face is the ground between corners 11 and 12. A tank
+    // in tile 12 stands on LEVEL ground -- all four corners at 60 -- beside that drop. Driven north
+    // along the brink it goes straight north, not one raw unit sideways; parked, it does not
+    // move at all.
+    const world::ScopedGround guard(app::map_ground(stepped_field(60, false)));
+    Helm driven(UnitKind::Tank, 12, 30, kNorth, 1.0F, 0.0F);
+    const std::vector<TickRecord> ticks = driven.drive(40);
+    for (const TickRecord& r : ticks) {
+        EXPECT_EQ(r.dx, 0) << "pressed sideways on level ground\n" << table(ticks);
+    }
+    EXPECT_LT(driven.sim.find(driven.id)->y.raw, 26 * Fixed::kOne) << table(ticks);
+
+    Helm parked(UnitKind::Tank, 12, 30, kNorth, 0.0F, 0.0F);
+    const Unit start = *parked.sim.find(parked.id);
+    const std::vector<TickRecord> still = parked.drive(40);
+    EXPECT_EQ(parked.sim.find(parked.id)->x.raw, start.x.raw) << table(still);
+    EXPECT_EQ(parked.sim.find(parked.id)->y.raw, start.y.raw) << table(still);
+}
+
+/// The open field with a RIDGE across it: from column 12 the ground rises `rise` a tile for four
+/// tiles to a crest at column 16, and falls the same way to the plain at column 20.
+[[nodiscard]] app::MapDoc ridge_field(int rise) {
+    app::MapDoc map = open_field();
+    for (int y = 0; y < map.height; ++y) {
+        for (int x = 0; x < map.width; ++x) {
+            map.heights[map.index(x, y)] = rise * std::max(0, 4 - std::abs(x - 16));
+        }
+    }
+    return map;
+}
+
+TEST(PressAtTheHelm, AClimbableRidgeIsCrossedAndTheFarSideIsFaster) {
+    // HIS TABLE: "a climbable top is crossable". A tank driven east over a ridge of every
+    // climbable rise reaches the plain beyond it, and comes down the far side faster than it went
+    // up: the press that held it back on the way up is the press that carries it on the way down.
+    for (const int rise : {10, 20, 30, 36}) {
+        const world::ScopedGround guard(app::map_ground(ridge_field(rise)));
+        Helm helm(UnitKind::Tank, 8, 30, kEast, 1.0F, 0.0F);
+        const std::vector<TickRecord> ticks = helm.drive(900);
+        EXPECT_GE(helm.sim.find(helm.id)->x.floor_int(), 21)
+            << "a ridge of " << rise << " a tile was not crossed\n"
+            << table(ticks);
+        double up = 0;
+        double down = 0;
+        for (const TickRecord& r : ticks) {
+            if (r.x >= 12.5 && r.x < 15.5) {
+                up = std::max(up, r.ahead);
+            }
+            if (r.x >= 16.5 && r.x < 19.5) {
+                down = std::max(down, r.ahead);
+            }
+        }
+        EXPECT_GT(down, up) << "rise " << rise << ": the far side was no faster";
     }
 }
 

@@ -403,21 +403,28 @@ TEST(Sim, ATurretMovesToATileAtCrawlSpeed) {
         sim.step(); // a mounted turret unmounts first, without moving
     }
     EXPECT_EQ(sim.units()[0].x.raw, start);
-    // OLD: `EXPECT_EQ(x - start, 100 * kTurretSpeedRaw)`, an exact crawl of 100 equal steps. M1: a
-    // step is scaled by the slope it climbs or descends (`grade_factor`), so the steps are no
-    // longer equal on ground that is not level -- the exact figures are pinned on a DRAWN slope in
-    // test_slope.cpp. What survives here is the crawl itself: a step every tick, never stopped,
-    // never faster than the grade's ceiling nor slower than its floor.
+    // OLD: `EXPECT_EQ(x - start, 100 * kTurretSpeedRaw)`, an exact crawl of 100 equal steps. M1:
+    // the slope has its say, so the steps are no longer equal on ground that is not level -- the
+    // exact figures are measured on DRAWN slopes in test_press.cpp. What survives here is the
+    // crawl itself: every tick the turret's own step east, give or take no more than the press of
+    // the ground it stood on (G6: the slope is one force added to the drive, `press_at`).
     for (int t = 0; t < 100; ++t) {
-        const std::int32_t before = sim.units()[0].x.raw;
+        const Unit before = sim.units()[0];
+        const Step press = press_at(kSeed, before.x, before.y);
         sim.step();
-        const std::int32_t step = sim.units()[0].x.raw - before;
-        EXPECT_GE(step, kTurretSpeedRaw * kMinGrade / Fixed::kOne - 1) << "tick " << t;
-        EXPECT_LE(step, kTurretSpeedRaw * kMaxGrade / Fixed::kOne + 1) << "tick " << t;
+        const std::int64_t step = sim.units()[0].x.raw - before.x.raw;
+        const std::int64_t give = std::abs(press.dx) + std::abs(press.dy) + 1;
+        EXPECT_GE(step, kTurretSpeedRaw - give) << "tick " << t;
+        EXPECT_LE(step, kTurretSpeedRaw + give) << "tick " << t;
     }
     EXPECT_GT(sim.units()[0].x.raw - start, 0) << "a steady crawl";
     EXPECT_GT(fixed_abs(fixed_sub(sim.units()[0].x, goal)), Fixed::from_raw(kArriveRadiusRaw));
-    for (int t = 0; t < 600; ++t) {
+    // G6: the run is FLAT terrain but not level ground -- it falls 133 into a valley and climbs
+    // out again, 10 to 15 a tile -- and the press makes the climb out honestly slower than the old
+    // grade did (at 12 a tile a unit keeps 64% of its step, where the grade kept 81%), and drags
+    // it two tiles sideways on the way. Measured: it arrives on tick 856 (it was inside the old
+    // 700). 1100 is that with room; the order is still carried out, which is what this pins.
+    for (int t = 0; t < 1000; ++t) {
         sim.step();
     }
     EXPECT_LT(fixed_abs(fixed_sub(sim.units()[0].x, goal)), Fixed::from_raw(kArriveRadiusRaw))

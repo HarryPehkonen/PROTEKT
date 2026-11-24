@@ -10,6 +10,10 @@ inline constexpr int kChunkSize = 64; ///< tiles per side
 inline constexpr int kChunkTiles = kChunkSize * kChunkSize;
 inline constexpr int kMinHeight = -512;
 inline constexpr int kMaxHeight = 512;
+/// How many height units stand as tall as a tile is wide: a rise of 64 a tile is 45 degrees. The
+/// drawn ground's scale (`game::kMetresPerHeightUnit`) and the slope's physics (`sim::press_of`)
+/// both read it, so the hill the player sees is the hill the sim presses with.
+inline constexpr int kHeightUnitsPerTile = 64;
 
 enum class Terrain : std::uint8_t { Flat = 0, Rough = 1, Ridge = 2, Crater = 3 };
 inline constexpr int kTerrainCount = 4;

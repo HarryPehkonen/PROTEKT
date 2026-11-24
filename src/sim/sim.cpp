@@ -241,18 +241,12 @@ struct WorldGround {
         const world::Tile tile = world::sample(seed, tile_x, tile_y);
         return terrain_speed_factor(tile.terrain).raw;
     }
-    /// The tile's height: what the slope rules (`plan_step`'s grade and cliff, `plan_slide`'s
-    /// drift) read. The route planner does not (see `plan_route`): it asks `factor` only.
+    /// The tile's height: what the slope rules (`plan_step`'s cliff, `plan_press`'s force)
+    /// read. The route planner does not (see `plan_route`): it asks `factor` only.
     [[nodiscard]] int height(int tile_x, int tile_y) const noexcept {
         return world::sample(seed, tile_x, tile_y).height;
     }
 };
-
-// The drift is a sixteenth of a tank's step per unit of drop past the threshold, and never more
-// than one step: the numbers in steering.hpp are written out there (it cannot see the tank), and
-// this keeps them honest.
-static_assert(kSlideRawPerHeight == kTankSpeedRaw / 16);
-static_assert(kSlideMaxRaw == kTankSpeedRaw);
 
 /// The ground as the mover sees it now, with `WorldGround::buildings` read off the units.
 [[nodiscard]] WorldGround ground_of(std::uint64_t seed, std::span<const Unit> units,
@@ -774,7 +768,7 @@ namespace {
 /// world may have changed since), and the age is set to "settled" so a changed goal replans at
 /// once while the same goal keeps its route.
 void update_route(Unit& unit, Fixed goal_x, Fixed goal_y, const WorldGround& ground,
-                  std::int64_t speed, std::uint32_t& plans) noexcept {
+                  std::uint32_t& plans) noexcept {
     Route& route = unit.route;
     bool replan = false;
     if (route.age == kRouteAgeFresh) {
@@ -809,9 +803,9 @@ void update_route(Unit& unit, Fixed goal_x, Fixed goal_y, const WorldGround& gro
             // Off the leg by more than three tiles, or standing where the straight way to the
             // next waypoint is no longer one it can drive (it drifted, or was thrown, off the
             // route): the route no longer serves it.
-            replan = off > limit * limit
-                     || !route_leg_open(ground, tile_of(unit.x, unit.y),
-                                        route.points.at(route.next), speed);
+            replan
+                = off > limit * limit
+                  || !route_leg_open(ground, tile_of(unit.x, unit.y), route.points.at(route.next));
             if (replan && ++route.strays > kReplanBudget) {
                 route.failure = RouteFailure::NoProgress; // round and round: the order is over
                 return;
@@ -822,7 +816,7 @@ void update_route(Unit& unit, Fixed goal_x, Fixed goal_y, const WorldGround& gro
         return;
     }
     ++plans;
-    (void)plan_route(ground, tile_of(unit.x, unit.y), goal, route, speed);
+    (void)plan_route(ground, tile_of(unit.x, unit.y), goal, route);
 }
 
 /// A unit whose route has failed (or that has made no headway) stops asking: its order ends. It is
@@ -2029,7 +2023,7 @@ void steer(std::vector<Unit>& units, Unit& unit, const UnitProfile& prof, const 
     }
     const bool hopping = airborne(unit) || direct;
     if (!hopping) {
-        update_route(unit, goal_x, goal_y, ground, prof.max_speed.raw, plans);
+        update_route(unit, goal_x, goal_y, ground, plans);
         // A DEPLOY on ground the slope will not let it hold is refused by name: the turret would
         // stand on the rim and be thrown off before the gun came up.
         if (unit.stance == Stance::Deploy && unit.route.hold_goal) {
@@ -2238,33 +2232,49 @@ void move(std::vector<Unit>& units, const WorldGround& ground, const UnitProfile
            && unit.still_ticks >= kMountTicks;
 }
 
-/// THE SLIDE (M1). After the unit has moved as commanded, the slope carries it on, by
-/// `plan_slide`'s step: ADDED to the commanded move, not instead of it, so steering never cancels
-/// it. A drift that would land on ground it cannot enter does not happen this tick (the steepest
-/// ENTERABLE way down is chosen, so this is the map's edge or a shove into a building, rarely).
-/// Not a drive: `still_ticks` is left alone, so a crawling turret does not count the slide as
-/// motion of its own, and no vehicle is shoved.
+/// THE PRESS (M1, G6). After the unit has moved as commanded, the slope has its say: `plan_press`'s
+/// step for a unit whose step on this ground is `thrust`, ADDED to the commanded move, not instead
+/// of it, so steering never cancels it. A unit that drove this tick (`drove_dx`, `drove_dy`: its
+/// own move) feels it as a vehicle does, rolling along its heading and gripping across it
+/// (`driven_press`); one that did not is parked on its brakes and gets only what is past their
+/// grip (nothing, on any slope a unit can climb). Not a drive: `still_ticks` is left alone, so a
+/// crawling turret does not count the press as motion of its own, and no vehicle is shoved.
 ///
-/// THE GROUND OF THE TICK (G5): the drift is the slope under (`from_x`, `from_y`), where the unit
-/// stood when the tick began -- the very ground the mover read its grade from (`plan_step`
-/// measures every step from the tile the unit stands on). Both are one tick's forces from one
-/// state. Read from where the move ENDED instead, the tick that carries a unit over the brow of a
-/// climb gave it the edge's grade on the way up AND the slide of the tile above, back down that
-/// same edge: one edge's gravity twice, which held a tank at the top of every climbable step of 39
-/// or 40 for ever (climb 4915 raw, slide back 6552) -- "I can climb a VERY steep hill, but not get
+/// The press goes where it points unless that is ground the unit cannot stand on or a cliff it
+/// could not climb into; then each axis of it alone, as the mover tries a step; else nothing this
+/// tick. A wall is a wall to the press as it is to the engine.
+///
+/// THE GROUND OF THE TICK (G5): the press is the slope under (`from_x`, `from_y`), where the unit
+/// stood when the tick began -- one tick's forces from one state. Read from where the move ENDED
+/// instead, the tick that carried a unit over the brow of a climb gave it the climb on the way up
+/// AND the slope of the tile above, back down that same edge: one edge's gravity twice, which held
+/// a tank at the top of a climbable step for ever -- "I can climb a VERY steep hill, but not get
 /// over the very top of it".
-void slide(const WorldGround& ground, Unit& unit, Fixed from_x, Fixed from_y) noexcept {
-    const Step drift = plan_slide(ground, from_x, from_y, [&](int tx, int ty) {
-        return tx >= 0 && ty >= 0 && tx < kMapTiles && ty < kMapTiles && ground.factor(tx, ty) != 0;
-    });
-    if (drift.dx == 0 && drift.dy == 0) {
+void press(const WorldGround& ground, Unit& unit, std::int64_t thrust, Fixed from_x, Fixed from_y,
+           std::int64_t drove_dx, std::int64_t drove_dy) noexcept {
+    const Step push = plan_press(ground, from_x, from_y, thrust, drove_dx, drove_dy);
+    if (push.dx == 0 && push.dy == 0) {
         return;
     }
-    if (!can_stand(ground, unit.x.raw + drift.dx, unit.y.raw + drift.dy)) {
+    const int here = ground.height(unit.x.floor_int(), unit.y.floor_int());
+    for (const Step& tried : {push, Step{push.dx, 0}, Step{0, push.dy}}) {
+        if (tried.dx == 0 && tried.dy == 0) {
+            continue;
+        }
+        const std::int64_t to_x = unit.x.raw + tried.dx;
+        const std::int64_t to_y = unit.y.raw + tried.dy;
+        if (!can_stand(ground, to_x, to_y)) {
+            continue;
+        }
+        const Fixed nx = Fixed::from_raw(static_cast<std::int32_t>(to_x));
+        const Fixed ny = Fixed::from_raw(static_cast<std::int32_t>(to_y));
+        if (!climbable(here, ground.height(nx.floor_int(), ny.floor_int()))) {
+            continue;
+        }
+        unit.x = nx;
+        unit.y = ny;
         return;
     }
-    unit.x = Fixed::from_raw(static_cast<std::int32_t>(unit.x.raw + drift.dx));
-    unit.y = Fixed::from_raw(static_cast<std::int32_t>(unit.y.raw + drift.dy));
 }
 
 // FNV-1a over little-endian bytes: specified here, so the hash is the same on every machine.
@@ -2670,13 +2680,25 @@ void Sim::step(StepTimings* timings) {
                 += std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - steer_from)
                        .count();
         }
-        const Fixed from_x = unit.x; // the ground of the tick: the slide reads it too (`slide`)
+        const Fixed from_x = unit.x; // the ground of the tick: the press reads it (`press`)
         const Fixed from_y = unit.y;
         if (!(unit.kind == UnitKind::Turret && !turret_may_move(unit))) {
             move(units_, flight, prof, unit);
         }
         if (!planted(unit) && !airborne(unit)) {
-            slide(ground, unit, from_x, from_y); // (in the air nothing is touching the slope)
+            // Driving is MOVING under its own power this tick, and the heading is the way it
+            // moved: a unit held by a wall, unmounting, or with nowhere to go stands on its
+            // brakes (a zero heading).
+            const std::int64_t drove_dx = static_cast<std::int64_t>(unit.x.raw) - from_x.raw;
+            const std::int64_t drove_dy = static_cast<std::int64_t>(unit.y.raw) - from_y.raw;
+            // The press is measured in the unit's step ON THIS GROUND: the terrain's drag that
+            // slows the engine (rough ground, a quarter off) slows the slope's push alike, so a
+            // slope a unit climbs on open ground it climbs on rough -- one climb limit, on all of
+            // it. (In the air nothing touches the slope.)
+            const std::int64_t thrust
+                = prof.max_speed.raw * ground.factor(from_x.floor_int(), from_y.floor_int())
+                  >> Fixed::kShift;
+            press(ground, unit, thrust, from_x, from_y, drove_dx, drove_dy);
         }
     }
 
@@ -2963,11 +2985,16 @@ bool tile_passable(std::uint64_t seed, int tile_x, int tile_y) noexcept {
            && terrain_speed_factor(world::sample(seed, tile_x, tile_y).terrain).raw != 0;
 }
 
-Step slide_at(std::uint64_t seed, Fixed x, Fixed y) noexcept {
+Step slide_at(std::uint64_t seed, Fixed x, Fixed y, std::int64_t thrust) noexcept {
     const WorldGround ground{seed, {}, false};
-    return plan_slide(ground, x, y, [&](int tx, int ty) {
-        return tx >= 0 && ty >= 0 && tx < kMapTiles && ty < kMapTiles && ground.factor(tx, ty) != 0;
-    });
+    const std::int64_t here = ground.factor(x.floor_int(), y.floor_int());
+    return plan_press(ground, x, y, thrust * here >> Fixed::kShift, 0, 0);
+}
+
+Step press_at(std::uint64_t seed, Fixed x, Fixed y, std::int64_t thrust) noexcept {
+    const WorldGround ground{seed, {}, false};
+    const std::int64_t here = ground.factor(x.floor_int(), y.floor_int());
+    return press_of(gradient_under(ground, x, y), thrust * here >> Fixed::kShift);
 }
 
 bool building_blocks(std::span<const Unit> units, int tile_x, int tile_y) noexcept {

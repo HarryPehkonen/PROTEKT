@@ -127,6 +127,8 @@ TEST(Shove, ShovingCostsThePusherAThirdOfItsSpeed) {
     // tick is then compared to two thirds of the reference's step on the tile it stood in (the
     // grade is the tile ahead's, constant while the tank drives due east, so the reference's step
     // in a tile is one number). The slack is the same hundredth of a tile it always was.
+    // RESTATED, G6: the slope is no longer a scale on the step but a press added to it, so what
+    // the shove takes is a third of the engine's step, and the comparison below says so.
     ASSERT_TRUE(open_row());
     Sim reference = Sim::create(scenario_of({{105, kRowY}}));
     Sim shoving = Sim::create(scenario_of({{105, kRowY}, {106, kRowY}}));
@@ -155,7 +157,18 @@ TEST(Shove, ShovingCostsThePusherAThirdOfItsSpeed) {
         if (after->shove_ticks > before.shove_ticks) {
             ++shoving_ticks;
             shove_advance += after->x.raw - before.x.raw;
-            expected += 2.0 / 3.0 * static_cast<double>(free_step.at(before.x.floor_int()));
+            // G6: the slope is a PRESS added to the drive, not a multiplier of it, so the shove
+            // takes a third of the ENGINE's step on this tile (its terrain's share of the full
+            // step) and leaves the slope's push as it is: the free step less a third of the
+            // engine's.
+            const std::int64_t engine
+                = (static_cast<std::int64_t>(kTankSpeedRaw)
+                   * terrain_speed_factor(
+                         world::sample(42, before.x.floor_int(), before.y.floor_int()).terrain)
+                         .raw)
+                  >> Fixed::kShift;
+            expected += static_cast<double>(free_step.at(before.x.floor_int()))
+                        - (static_cast<double>(engine) / 3.0);
         }
     }
     // OLD minimum 12 over thirty ticks. The graded step moves where the pair meets, and the shoving
@@ -165,7 +178,7 @@ TEST(Shove, ShovingCostsThePusherAThirdOfItsSpeed) {
 
     const double slack = Fixed::kOne / 100.0; // rounding, not a rule
     EXPECT_NEAR(static_cast<double>(shove_advance), expected, slack)
-        << "shoving, it covers two thirds of the step it would take there unobstructed";
+        << "shoving, it loses a third of its engine's step there, and nothing of the slope's";
 }
 
 TEST(Shove, ABystanderThatIsNotInTheWayIsUntouched) {

@@ -206,7 +206,8 @@ TEST(MapFile, DrawWritesAnImageOfTheExpectedSizeShowingTheMap) {
 }
 
 /// The five items on his list, each read off the shipped map's own heights with the SIM's slope
-/// constants (`kClimbLimit`, `kSlideThreshold`): the map is as drawn, by the rules the game plays.
+/// rules (`kClimbLimit`, and the press's steepest grade): the map is as drawn, by the rules the
+/// game plays.
 TEST(MapFile, TheShippedMapLoadsAndUsesEveryItemOnTheList) {
     const MapParse parsed
         = load_map_file(std::string{PROTEKT_SOURCE_DIR} + "/assets/maps/proving_ground.map");
@@ -226,7 +227,9 @@ TEST(MapFile, TheShippedMapLoadsAndUsesEveryItemOnTheList) {
     // 2. A RAMP UP: every step along the row is climbable and the sum reaches the plateau.
     for (int x = 15; x < 22; ++x) {
         EXPECT_TRUE(climbable(x, 30, x + 1, 30)) << "ramp step at x=" << x;
-        EXPECT_LE(h(x, 30) - h(x + 1, 30), protekt::sim::kSlideThreshold) << "no slide on the ramp";
+        EXPECT_FALSE(protekt::sim::too_steep_to_climb(
+            protekt::sim::Gradient{std::int64_t{2} * (h(x + 1, 30) - h(x, 30)), 0}))
+            << "the ramp holds a parked unit at x=" << x;
     }
     EXPECT_GE(h(22, 30) - h(15, 30), 100);
     // 3. HIGH GROUND THAT BLOCKS WEAPONS: a plateau higher than the ground either side of it,
@@ -244,7 +247,9 @@ TEST(MapFile, TheShippedMapLoadsAndUsesEveryItemOnTheList) {
                 || h(ambush->x - 1, ambush->y + 1) == h(ambush->x, ambush->y + 1));
     // 5. A PLACE YOU CAN FALL DOWN BUT NOT DRIVE BACK UP: stepping east off the plateau is a drop
     // (the slope wins), stepping back is a cliff (a wall).
-    EXPECT_GT(h(45, 24) - h(46, 24), protekt::sim::kSlideThreshold);
+    EXPECT_TRUE(protekt::sim::too_steep_to_climb(
+        protekt::sim::Gradient{std::int64_t{2} * (h(46, 24) - h(45, 24)), 0}))
+        << "the drop does not hold a parked unit";
     EXPECT_GT(h(45, 24) - h(46, 24), protekt::sim::kClimbLimit) << "going back up is a wall";
     EXPECT_FALSE(climbable(46, 24, 45, 24));
     // and the world-frame solids and the volume are in the file.

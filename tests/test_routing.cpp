@@ -56,6 +56,7 @@ constexpr int kSettleTicks = 200;
 struct Trip {
     double worst_gap{};
     int final_gap{};
+    int longest_stand_behind{}; ///< most consecutive ticks the follower did not move, 8+ tiles back
     int plans{};
     bool both_alive{true};
 };
@@ -69,7 +70,10 @@ struct Trip {
     const UnitId goal{4};
     sim.enqueue(Order{follower, orders::Follow{leader}});
     Trip trip{};
+    int stand = 0;
     for (int tick = 0; tick < ticks; ++tick) {
+        const Fixed was_x = sim.find(follower)->x;
+        const Fixed was_y = sim.find(follower)->y;
         if (tick % 90 == 0) {
             sim.enqueue(Order{leader, orders::MoveTo{sim.find(goal)->x, sim.find(goal)->y}});
         }
@@ -89,6 +93,9 @@ struct Trip {
                                           - (static_cast<double>(b->y.raw) / Fixed::kOne));
         trip.worst_gap = std::max(trip.worst_gap, gap);
         trip.final_gap = static_cast<int>(gap);
+        const bool still = a->x.raw == was_x.raw && a->y.raw == was_y.raw;
+        stand = still && gap > 8.0 ? stand + 1 : 0;
+        trip.longest_stand_behind = std::max(trip.longest_stand_behind, stand);
     }
     trip.plans = static_cast<int>(sim.route_plans());
     return trip;
@@ -106,7 +113,17 @@ TEST(Routing, ThePinnedFollowWedgeOnSeedEightIsRoutedAround) {
     // step) and the follower, capped at its own speed, falls back on the descents: the worst gap is
     // 9.46 now. The wedge this test is about FROZE the follower 14 tiles off, so 12 still says
     // "shadowed", and the end of the trip says it came back (below).
-    EXPECT_LE(trip.worst_gap, 12.0) << "the follower must shadow the leader the whole trip";
+    // RESTATED, G6 (the press): the slope is one force now, from a 60 percent steepest grade, and
+    // on the 10-to-25 slopes of this trip it is about twice what the old grade was (at 20 a tile
+    // the old grade took 31% of a step; the press takes 58%) -- so while the leader runs down a
+    // hill the follower, a few tiles behind, is still climbing it, and the gap opens wider before
+    // it closes: 12.27 here (worst on tick 428), measured. The gap alone no longer separates a
+    // follower that lags from one that FROZE, so the freeze is now measured as what it is: the
+    // follower standing still, well behind, tick after tick (the wedge held it for good). It
+    // never stands for more than a few ticks, and the bound on the gap is the measured worst with
+    // room.
+    EXPECT_LE(trip.worst_gap, 16.0) << "the follower must shadow the leader the whole trip";
+    EXPECT_LE(trip.longest_stand_behind, 20) << "the follower froze behind its leader";
     EXPECT_LE(trip.final_gap, 8) << "and it was alongside again at the end, not stuck behind";
 }
 
@@ -115,7 +132,10 @@ TEST(Routing, ThePinnedFollowWedgeOnSeedTenIsRoutedAround) {
     const Trip trip = run_probe(10, 5000);
     EXPECT_TRUE(trip.both_alive);
     // OLD bound 8.0; 10.87 under M1, for the reason given above. See the seed-eight test.
-    EXPECT_LE(trip.worst_gap, 12.0) << "the follower must shadow the leader the whole trip";
+    // RESTATED, G6: 20.30 (worst on tick 1066, both tanks on the same row, the leader down a
+    // descent while the follower climbs the one before it), measured; see the seed-eight test.
+    EXPECT_LE(trip.worst_gap, 24.0) << "the follower must shadow the leader the whole trip";
+    EXPECT_LE(trip.longest_stand_behind, 20) << "the follower froze behind its leader";
     EXPECT_LE(trip.final_gap, 8) << "and it was alongside again at the end, not stuck behind";
 }
 

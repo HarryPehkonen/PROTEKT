@@ -94,22 +94,55 @@ namespace route_detail {
     return x >= 0 && y >= 0 && x < kRouteTiles && y < kRouteTiles;
 }
 
-/// The way a tile's slope runs when it is strong enough to HOLD a unit whose full step is `speed`
-/// (a drift of more than half its step), as a unit step; (0, 0) for a tile that holds nobody. The
-/// drift is `plan_slide`'s own, asked of the tile's centre. A ground without heights has none.
+/// The gradient of tile (`x`, `y`)'s own face, from a `height(x, y)` callable (`gradient_under`'s
+/// arithmetic, for a planner that caches its heights).
+template <class Height> [[nodiscard]] Gradient face_gradient(const Height& height, int x, int y) {
+    const std::int64_t h00 = height(x, y);
+    const std::int64_t h10 = height(x + 1, y);
+    const std::int64_t h01 = height(x, y + 1);
+    const std::int64_t h11 = height(x + 1, y + 1);
+    return Gradient{(h10 - h00) + (h11 - h01), (h01 - h00) + (h11 - h10)};
+}
+
+/// UPHILL TOO STEEP, per direction: does the press on tile (`x`, `y`) oppose a unit heading along
+/// (`dx`, `dy`) (one of the eight unit steps) by at least its whole thrust? The same for every unit
+/// (the press is a fraction of each unit's own step), so it is asked of a thrust of one tile a
+/// tick. Ground steeper than the steepest grade beats a unit only along headings INTO it: across
+/// it or down it the unit still makes its way, and this is what lets the planner say so.
+template <class Height>
+[[nodiscard]] bool press_beats(const Height& height, int x, int y, int dx, int dy) {
+    const Step press = press_of(face_gradient(height, x, y), Fixed::kOne);
+    const std::int64_t against = -((press.dx * dx) + (press.dy * dy)); // raw * (tiles along d)
+    if (against <= 0) {
+        return false;
+    }
+    const std::int64_t run2 = (std::int64_t{dx} * dx) + (std::int64_t{dy} * dy); // |d|^2: 1 or 2
+    return against * against >= run2 * Fixed::kOne * Fixed::kOne;
+}
+
+/// The way a tile's slope runs when it THROWS a unit: a unit parked there is carried by more than
+/// half its own step a tick (`parked_drift`: the press past the grip), so it cannot hold any line
+/// but the one the slope runs -- the old slide's criterion, a drift past half a step, read off the
+/// press. As the nearest of the eight unit steps; (0, 0) for a tile that holds a unit. The same for
+/// every unit (one thrust-to-weight: see steering.hpp), so it takes no speed. A ground without
+/// heights has none.
 template <class Ground>
-[[nodiscard]] std::array<int, 2> slide_way_of(const Ground& ground, int x, int y,
-                                              std::int64_t speed) {
+[[nodiscard]] std::array<int, 2> slide_way_of(const Ground& ground, int x, int y) {
     if constexpr (HasHeights<Ground>) {
-        const Fixed centre_x = Fixed::from_raw((x << Fixed::kShift) + Fixed::kOne / 2);
-        const Fixed centre_y = Fixed::from_raw((y << Fixed::kShift) + Fixed::kOne / 2);
-        const Step drift = plan_slide(ground, centre_x, centre_y, [&](int tx, int ty) {
-            return in_map(tx, ty) && ground.factor(tx, ty) != 0;
-        });
-        if (std::max(std::abs(drift.dx), std::abs(drift.dy)) * 2 <= speed) {
+        const Gradient g = gradient_under(ground, Fixed::from_int(x), Fixed::from_int(y));
+        const Step drift = parked_drift(g, Fixed::kOne);
+        if (((drift.dx * drift.dx) + (drift.dy * drift.dy)) * 4
+            <= std::int64_t{Fixed::kOne} * Fixed::kOne) {
             return {0, 0};
         }
-        return {(drift.dx > 0) - (drift.dx < 0), (drift.dy > 0) - (drift.dy < 0)};
+        // Down the slope, to the nearest octant: a component counts when it is more than
+        // tan(22.5 degrees) (5/12) of the other, so a drift a few degrees off an axis is that
+        // axis, not a diagonal.
+        const std::int64_t ax = std::abs(drift.dx);
+        const std::int64_t ay = std::abs(drift.dy);
+        const int sx = ax * 12 > ay * 5 ? (drift.dx > 0 ? 1 : -1) : 0;
+        const int sy = ay * 12 > ax * 5 ? (drift.dy > 0 ? 1 : -1) : 0;
+        return {sx, sy};
     } else {
         return {0, 0};
     }
@@ -125,6 +158,9 @@ template <class Height, class Way>
                                 bool free_exit = false) {
     if (!climbable(height(x, y), height(nx, ny))) {
         return true;
+    }
+    if (route_detail::press_beats(height, x, y, nx - x, ny - y)) {
+        return true; // uphill too steep: the press on this tile beats any engine heading that way
     }
     if (free_exit) {
         return false; // the tile the unit already stands on: it sets off whichever way it can
@@ -181,9 +217,10 @@ template <class Ground, class Cliff, class Avoid>
 ///
 /// THE MOVER'S OWN RULE for an edge (a ground that knows heights): an edge is open when it is not a
 /// cliff (`climbable`, the one rule the mover asks too), and a tile the slope will not let a unit
-/// hold (a drift of more than half its step) is left only the way the slope runs. A route that
-/// ignores the second leads a unit onto a ramp's edge row, which throws it off: the stall this
-/// answers.
+/// hold (a parked drift past half its step: `slide_way_of`) is left only the way the slope runs,
+/// and no edge is open INTO a press that beats the engine (`press_beats`: uphill too steep). A
+/// route that ignores the second leads a unit onto a ramp's edge row, which throws it off: the
+/// stall this answers.
 ///
 /// A GOAL THAT CANNOT BE ENTERED (a building's centre, a unit standing on solid ground) is not a
 /// failure: the plan ends at ground that can be, within one tile of the nearest such ground to the
@@ -193,12 +230,10 @@ template <class Ground, class Cliff, class Avoid>
 ///
 /// On success `route` holds the corners of the line-of-sight-smoothed path (the start excluded, the
 /// goal last) and true is returned. On failure `route` is left with no waypoints, `failure` is
-/// `NoRoute`, and false is returned. `speed` is the unit's full step, raw: it decides which
-/// tiles a slide HOLDS the unit on (a turret is held by a gentler slope than a tank), never which
-/// edge is a cliff -- that is `climbable`, the same for every unit. The default is a tank's.
+/// `NoRoute`, and false is returned. The plan takes no speed: which edge is a cliff (`climbable`)
+/// and which tile the press holds a unit on (`slide_way_of`) are the same for every unit.
 template <class Ground>
-[[nodiscard]] bool plan_route(const Ground& ground, TileXY start, TileXY goal, Route& route,
-                              std::int64_t speed = kSlideMaxRaw) {
+[[nodiscard]] bool plan_route(const Ground& ground, TileXY start, TileXY goal, Route& route) {
     using route_detail::in_map;
     constexpr int kCells = kRouteTiles * kRouteTiles;
     constexpr int kStraight = 10;
@@ -221,12 +256,12 @@ template <class Ground>
     // THE CLIFF (M1) AND THE SLOPE: where the ground knows heights, a cliff is a wall to the mover
     // (`plan_step` asks `climbable`), so it is a wall here too, by the same call -- or a route
     // would lead a unit up to a face it will not climb and leave it there. Each tile's height and
-    // slide are worked out once. The grade does not weigh the route (a declared simplification --
-    // the planner takes the straightest way through ground that can be driven, not the gentlest),
-    // but a tile the slide will not let the unit hold is left only the way the slide runs: the edge
-    // rows of a ramp are not part of the ramp. And a route keeps a tile's clearance from such
-    // ground (`near_hold`): a unit follows a line to within half a tile, and one that clips a rim
-    // is thrown off it.
+    // slide way are worked out once. The press does not weigh the route (a declared
+    // simplification -- the planner takes the straightest way through ground that can be driven,
+    // not the gentlest), but a tile the press will not let the unit hold is left only the way the
+    // press runs: the edge rows of a ramp are not part of the ramp. And a route keeps a tile's
+    // clearance from such ground (`near_hold`): a unit follows a line to within half a tile, and
+    // one that clips a rim is thrown off it.
     std::vector<std::int16_t> heights;
     std::vector<std::uint8_t> height_known;
     std::vector<std::uint8_t> slide_known; // 0 unknown, else 1 + (way_x + 1) * 3 + (way_y + 1)
@@ -239,6 +274,9 @@ template <class Ground>
     }
     const auto height_at = [&](int x, int y) -> int {
         if constexpr (HasHeights<Ground>) {
+            if (!in_map(x, y)) {
+                return ground.height(x, y); // a face's far corners, past the last row: not cached
+            }
             const int at = index(x, y);
             if (height_known[at] == 0) {
                 heights[at] = static_cast<std::int16_t>(ground.height(x, y));
@@ -256,7 +294,7 @@ template <class Ground>
             }
             const int at = index(x, y);
             if (slide_known[at] == 0) {
-                const std::array<int, 2> way = route_detail::slide_way_of(ground, x, y, speed);
+                const std::array<int, 2> way = route_detail::slide_way_of(ground, x, y);
                 slide_known[at] = static_cast<std::uint8_t>(1 + (way[0] + 1) * 3 + (way[1] + 1));
             }
             const int code = slide_known[at] - 1;
@@ -461,7 +499,7 @@ template <class Ground>
 /// waypoint, so when it is false the unit has drifted off its route onto a line the route never
 /// vouched for, and it should plan again from where it stands.
 template <class Ground>
-[[nodiscard]] bool route_leg_open(const Ground& ground, TileXY a, TileXY b, std::int64_t speed) {
+[[nodiscard]] bool route_leg_open(const Ground& ground, TileXY a, TileXY b) {
     const auto height = [&](int x, int y) -> int {
         if constexpr (HasHeights<Ground>) {
             return ground.height(x, y);
@@ -469,7 +507,7 @@ template <class Ground>
             return 0;
         }
     };
-    const auto way = [&](int x, int y) { return route_detail::slide_way_of(ground, x, y, speed); };
+    const auto way = [&](int x, int y) { return route_detail::slide_way_of(ground, x, y); };
     const auto cliff = [&](int x, int y, int nx, int ny) {
         if constexpr (HasHeights<Ground>) {
             return route_detail::edge_blocked(height, way, x, y, nx, ny, x == a.x && y == a.y);

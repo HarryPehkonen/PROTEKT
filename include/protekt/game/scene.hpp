@@ -42,7 +42,8 @@ namespace protekt::game {
 inline constexpr std::array<float, 3> kEnemyBarRed{0.95F, 0.10F, 0.10F};
 
 inline constexpr float kMetresPerTile = 2.0F;
-inline constexpr float kMetresPerHeightUnit = kMetresPerTile / 64.0F;
+inline constexpr float kMetresPerHeightUnit
+    = kMetresPerTile / static_cast<float>(world::kHeightUnitsPerTile);
 
 /// THE HALF-WIDTH A HULL IS DRAWN INSIDE, in metres, for every kind: the factory's skyline, the
 /// turret, the recycler, the tank's body and the fender. ONE value with six users in `scene.cpp`,

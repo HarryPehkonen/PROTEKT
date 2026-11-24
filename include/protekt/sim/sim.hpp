@@ -93,11 +93,20 @@ protected:
 /// building's footprint is the other half (`building_blocks`), and it is never folded in here.
 [[nodiscard]] bool tile_passable(std::uint64_t seed, int tile_x, int tile_y) noexcept;
 
-/// THE SLIDE, readable: the drift (raw units per tick) the slope gives a unit standing at (`x`,
-/// `y`) on the seed's ground, before anything is commanded. Zero where the ground holds. The mover
-/// adds exactly this to a unit's commanded step every tick, so a test can read what the slope is
-/// doing without driving anything. STUB: no slide yet.
-[[nodiscard]] Step slide_at(std::uint64_t seed, Fixed x, Fixed y) noexcept;
+/// THE SLIDE, readable: the drift (raw units per tick) the slope gives a PARKED unit of full step
+/// `thrust` standing at (`x`, `y`) on the seed's ground -- what is left of the press past its
+/// brakes' grip, measured (as the mover measures it) in that step on this tile's terrain. Zero
+/// wherever the ground is no steeper than the steepest grade, for every unit. The default is a
+/// tank's step.
+[[nodiscard]] Step slide_at(std::uint64_t seed, Fixed x, Fixed y,
+                            std::int64_t thrust = kTankSpeedRaw) noexcept;
+
+/// THE PRESS, readable: the whole force (raw units per tick) the slope puts on a unit of full step
+/// `thrust` at (`x`, `y`) on the seed's ground (`press_of`): the same fraction of every unit's own
+/// step on this tile's terrain. What a DRIVEN unit feels of it is its component along its heading
+/// and what is past its grip across it (`driven_press`).
+[[nodiscard]] Step press_at(std::uint64_t seed, Fixed x, Fixed y,
+                            std::int64_t thrust = kTankSpeedRaw) noexcept;
 
 /// True when a living building of either side stands on the tile (its `Footprint` covers it): the
 /// ground is OCCUPIED. THE one answer to "may something be placed here": every spawn, every
