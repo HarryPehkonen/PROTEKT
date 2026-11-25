@@ -595,8 +595,8 @@ TEST(StraightPassage, WhatTurnsHimAsideInTheValleyIsTheKerbAndTheRockfallNotTheS
     //   (b) an impassable tile with nothing drawn on it: THIS. The map's "kerb" (a terrain volume
     //       0..40 high across x 30..35 of row 24) and "rockfall" (the solid mask at x 30..32,
     //       y 32..33) stop a tank, and the map drawing shows both hatched in red -- but the GAME
-    //       draws neither: nothing in src/game or src/render reads `Scenario::volumes` or
-    //       `world::ground_solid`. In the game they are ground like any other.
+    //       drew neither: nothing in src/game or src/render read `Scenario::volumes` or
+    //       `world::ground_solid`. G9 draws both, in the same hatch (test_blocked_ground.cpp).
     //   (c) a building mask wider than its building: there is no building in the valley.
     // Driving south down column 33: with the volumes the game hands the sim, the tank is turned off
     // its column at the kerb and runs on in column 36; without them it stays in column 33.

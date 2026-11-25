@@ -295,6 +295,9 @@ public:
     [[nodiscard]] std::uint16_t fast_band(Side side) const noexcept;
     /// The biometal pools of this battle, in the order the scenario listed them.
     [[nodiscard]] const std::vector<Pool>& pools() const noexcept;
+    /// The terrain volumes of this battle (`Scenario::volumes`), as the scenario listed them. Read
+    /// by the scene to DRAW them (G9, `game::ground_blocked`); scenario data, never hashed.
+    [[nodiscard]] const std::vector<PlacedVolume>& volumes() const noexcept;
     /// The bolts that landed during the most recent step. Output, not state: it is rebuilt by every
     /// step and is not part of the hash.
     [[nodiscard]] const std::vector<Impact>& impacts() const noexcept;

@@ -12,6 +12,7 @@
 # the scene paints a world tile from the variant its (type, x, y) hashes to.
 # site_* are the ground a deployed thing alters (game/site_ground.hpp): site_pad round a deployed
 # recycler, site_rig round a deployed scavenger, site_vent at a biometal pool.
+# ground_blocked is a tile no unit may enter (game/blocked_ground.hpp): the map tool's red hatch.
 tank_hull 7
 tank_tracks 1
 tank_turret 2
@@ -60,3 +61,4 @@ terrain_crater_f 44
 site_pad 45
 site_rig 46
 site_vent 47
+ground_blocked 48

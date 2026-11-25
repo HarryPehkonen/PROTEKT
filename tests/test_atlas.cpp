@@ -35,8 +35,9 @@ constexpr std::array<std::array<int, 3>, 3> kHullSets{{{7, 8, 9}, {10, 11, 12}, 
 constexpr std::array<int, 6> kTeamHullTiles{10, 11, 12, 13, 14, 15};
 
 /// The tiles painted so far: the first quadrant, the hover skirt, the four ground tiles and their
-/// twelve variants (D6), and the three site tiles (45 pad, 46 rig, 47 vent).
-constexpr int kAssignedTiles = 48;
+/// twelve variants (D6), the three site tiles (45 pad, 46 rig, 47 vent), and G9's blocked ground
+/// (48, the map tool's red hatch on a tile no unit may enter).
+constexpr int kAssignedTiles = 49;
 
 /// Texel (x, y) of `tile` in a whole-atlas RGBA buffer.
 Rgb texel(const std::vector<std::uint8_t>& px, int tile, int x, int y) {
@@ -184,10 +185,12 @@ TEST(AtlasManifest, TheCommittedManifestAssignsTheDocumentedTiles) {
             EXPECT_NE(m.tile(name), kFallbackTile) << name << " is listed";
         }
     }
-    EXPECT_EQ(m.size(), std::size_t{48});
+    // MOVED, G9: 48 -> 49, the blocked ground's tile (`blocked_ground.hpp`).
+    EXPECT_EQ(m.size(), std::size_t{49});
     EXPECT_EQ(m.tile("site_pad"), 45);
     EXPECT_EQ(m.tile("site_rig"), 46);
     EXPECT_EQ(m.tile("site_vent"), 47);
+    EXPECT_EQ(m.tile("ground_blocked"), 48);
 }
 
 TEST(AtlasManifest, TheEmbeddedTextIsTheCommittedFile) {

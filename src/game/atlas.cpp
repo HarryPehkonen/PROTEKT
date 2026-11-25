@@ -1,6 +1,7 @@
 #include "protekt/game/atlas.hpp"
 
 #include "atlas_manifest.hpp"
+#include "protekt/game/blocked_ground.hpp"
 #include "protekt/game/png.hpp"
 
 #include <algorithm>
@@ -71,6 +72,9 @@ constexpr int kFirstMoreGroundVariantTile = 33;
 constexpr int kSitePadTile = 45;  ///< under and round a deployed recycler
 constexpr int kSiteRigTile = 46;  ///< round a deployed scavenger
 constexpr int kSiteVentTile = 47; ///< a biometal pool's site
+/// The BLOCKED ground (G9, `blocked_ground.hpp`): a tile no unit may enter, in the map tool's
+/// hatch.
+constexpr int kBlockedGroundTile = 48;
 
 constexpr Rgb kWhite{255, 255, 255};
 constexpr Rgb kMagenta{255, 0, 255};
@@ -751,6 +755,20 @@ Tile paint_site_rig(std::uint64_t seed, int tile_index) {
     return tile;
 }
 
+/// Blocked ground: the map tool's red hatching (`blocked_hatch_bright`), at the atlas tile's size.
+/// No grain and no weather: it is a marking, not a ground, and it must read at a glance.
+Tile paint_blocked_ground() {
+    Tile tile{};
+    for (int y = 0; y < 64; ++y) {
+        for (int x = 0; x < 64; ++x) {
+            texel(tile, static_cast<std::uint32_t>(x), static_cast<std::uint32_t>(y))
+                = blocked_hatch_bright(x, y, static_cast<int>(kTileSide)) ? kBlockedHatchBright
+                                                                          : kBlockedHatchDark;
+        }
+    }
+    return tile;
+}
+
 Tile solid(Rgb rgb) {
     Tile tile{};
     tile.fill(rgb);
@@ -851,6 +869,8 @@ Tile paint_tile(std::uint64_t seed, int index) {
         weather(vent, seed, index, 6, 7, 14);
         return vent;
     }
+    case kBlockedGroundTile:
+        return paint_blocked_ground();
     case kGrassTile:
     case kDirtTile:
     case kRockTile:

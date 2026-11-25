@@ -3,6 +3,7 @@
 #include "protekt/game/assist.hpp"
 #include "protekt/game/atlas.hpp"
 #include "protekt/game/attack_aim.hpp"
+#include "protekt/game/blocked_ground.hpp"
 #include "protekt/game/kind_icon.hpp"
 #include "protekt/game/nav_marks.hpp"
 #include "protekt/game/pick.hpp"
@@ -137,7 +138,7 @@ constexpr Vec3 kNoGroundGain{1.0F, 1.0F, 1.0F};
 
 void build_terrain(std::vector<SceneVertex>& out, const TerrainCache* cache, std::uint64_t seed,
                    int centre_x, int centre_y, int radius, const SiteGroundMap& sites,
-                   Climate climate) {
+                   std::span<const sim::PlacedVolume> volumes, Climate climate) {
     // Each tile's corners are sampled one tile beyond it on the far edge (tx+1, ty+1); widening
     // the low edge by one tile too keeps the sampled HEIGHT field symmetric around the camera,
     // even though the tolerance on the mesh's visual extent absorbs the extra row.
@@ -162,12 +163,18 @@ void build_terrain(std::vector<SceneVertex>& out, const TerrainCache* cache, std
     for (std::size_t kind = 0; kind < site_tiles.size(); ++kind) {
         site_tiles.at(kind) = atlas.rect(site_ground(static_cast<SiteKind>(kind)).tile);
     }
+    // NO INVISIBLE WALLS (G9, `blocked_ground.hpp`): a tile no unit may enter -- solid ground or a
+    // terrain volume's footprint -- is painted in the map tool's red hatch, over any site and any
+    // terrain, upright so the stripes run on from tile to tile, and not repainted by the weather.
+    const UvRect blocked_tile = atlas.rect(kBlockedGroundTile);
     for (int ty = centre_y - radius - 1; ty <= centre_y + radius; ++ty) {
         for (int tx = centre_x - radius - 1; tx <= centre_x + radius; ++tx) {
             const world::Terrain terrain = cached_terrain(cache, seed, tx, ty);
+            const bool blocked = ground_blocked(volumes, tx, ty);
             const std::optional<SiteKind> site = sites.at(tx, ty);
             const UvRect& tile
-                = site.has_value()
+                = blocked ? blocked_tile
+                  : site.has_value()
                       ? site_tiles.at(static_cast<std::size_t>(*site))
                       : tiles.at(static_cast<std::size_t>(terrain))
                             .at(static_cast<std::size_t>(variant_index(terrain, tx, ty)));
@@ -179,7 +186,8 @@ void build_terrain(std::vector<SceneVertex>& out, const TerrainCache* cache, std
             const Vec3 p10{x1, cached_height_metres(cache, seed, tx + 1, ty), z0};
             const Vec3 p11{x1, cached_height_metres(cache, seed, tx + 1, ty + 1), z1};
             const Vec3 p01{x0, cached_height_metres(cache, seed, tx, ty + 1), z1};
-            const int orientation = site.has_value() ? 0 : orientation_index(terrain, tx, ty);
+            const bool painted = blocked || site.has_value();
+            const int orientation = painted ? 0 : orientation_index(terrain, tx, ty);
             const Vec3 normal = terrain_normal(p00, p10, p11, p01);
             const std::array<Vec3, 4> corners{p00, p10, p11, p01};
             const std::array<std::array<int, 2>, 4> at{
@@ -189,9 +197,8 @@ void build_terrain(std::vector<SceneVertex>& out, const TerrainCache* cache, std
                 const Vec3 tint = ground_tint(seed, at.at(k).at(0), at.at(k).at(1));
                 // THE CLIMATE'S GROUND: its gain turns the tile toward sand, ice or regolith. A
                 // deployed site's own plating is not repainted by the weather.
-                const Vec3& gain = site.has_value()
-                                       ? kNoGroundGain
-                                       : look.ground_gain.at(static_cast<std::size_t>(terrain));
+                const Vec3& gain = painted ? kNoGroundGain
+                                           : look.ground_gain.at(static_cast<std::size_t>(terrain));
                 const Vec3 colour{base[0] * tint[0] * gain[0], base[1] * tint[1] * gain[1],
                                   base[2] * tint[2] * gain[2]};
                 const auto uv = oriented_corner_uv(tile, orientation, static_cast<int>(k));
@@ -6681,17 +6688,27 @@ void append_world_map(std::vector<SceneVertex>& out, const SceneOptions& options
     const auto terrain_at = [&](int x, int y) {
         return grid.at((static_cast<std::size_t>(y) * kWorldMapSide) + static_cast<std::size_t>(x));
     };
+    // NO INVISIBLE WALLS (G9, `blocked_ground.hpp`): a tile no unit may enter is the map tool's red
+    // here too. A cell is a pixel or two, too small for the stripes, so it is the hatch's bright
+    // tone, flat -- no ground on the map is that red.
+    const std::span<const sim::PlacedVolume> volumes = sim.volumes();
+    const auto blocked_at = [&](int x, int y) { return ground_blocked(volumes, x, y); };
+    constexpr MapColour kBlockedCell{static_cast<float>(kBlockedHatchBright[0]) / 255.0F,
+                                     static_cast<float>(kBlockedHatchBright[1]) / 255.0F,
+                                     static_cast<float>(kBlockedHatchBright[2]) / 255.0F};
     for (int y = 0; y < kWorldMapTiles; ++y) {
         const float top = map_point(layout, 0.0F, static_cast<float>(y + 1)).y;
         const float bottom = map_point(layout, 0.0F, static_cast<float>(y)).y;
         int x = 0;
         while (x < kWorldMapTiles) {
             const world::Terrain terrain = terrain_at(x, y);
+            const bool blocked = blocked_at(x, y);
             int end = x + 1;
-            while (end < kWorldMapTiles && terrain_at(end, y) == terrain) {
+            while (end < kWorldMapTiles && terrain_at(end, y) == terrain
+                   && blocked_at(end, y) == blocked) {
                 ++end;
             }
-            const MapColour colour = map_terrain_colour(terrain);
+            const MapColour colour = blocked ? kBlockedCell : map_terrain_colour(terrain);
             // Each row reaches half a pixel into the one below, which is a little nearer: runs
             // end at different tiles from row to row, and without the overlap those T-junctions
             // leave hairline cracks that show the world behind.
@@ -7810,7 +7827,8 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
     const int centre_x = static_cast<int>(std::floor(options.camera.x / kMetresPerTile));
     const int centre_y = static_cast<int>(std::floor(options.camera.z / kMetresPerTile));
     build_terrain(scene.vertices, options.terrain, options.seed, centre_x, centre_y,
-                  options.radius_tiles, sites_in_view(sim, options), options.climate);
+                  options.radius_tiles, sites_in_view(sim, options), sim.volumes(),
+                  options.climate);
     const std::size_t terrain_end = scene.vertices.size();
     watch_capacity();
     lap(&FrameTimings::terrain_ms);

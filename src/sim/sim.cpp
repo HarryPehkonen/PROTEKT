@@ -3300,6 +3300,8 @@ std::uint16_t Sim::fast_band(Side side) const noexcept {
 
 const std::vector<Pool>& Sim::pools() const noexcept { return scenario_.pools; }
 
+const std::vector<PlacedVolume>& Sim::volumes() const noexcept { return scenario_.volumes; }
+
 const std::vector<Impact>& Sim::impacts() const noexcept { return impacts_; }
 
 const std::vector<Sim::Shot>& Sim::shots() const noexcept { return shots_; }

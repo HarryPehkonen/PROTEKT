@@ -5,6 +5,7 @@
 #include <cstdlib>
 
 #include "protekt/app/map_file.hpp"
+#include "protekt/game/blocked_ground.hpp"
 #include "protekt/game/png.hpp"
 #include "protekt/sim/steering.hpp"
 
@@ -15,6 +16,10 @@ namespace {
 using Rgb = std::array<int, 3>;
 
 constexpr int kS = kMapDrawScale;
+
+[[nodiscard]] constexpr Rgb rgb(const std::array<std::uint8_t, 3>& c) noexcept {
+    return Rgb{c[0], c[1], c[2]};
+}
 
 /// Height as a ground colour: low is a deep olive, high a pale sand, so a hill reads as light.
 [[nodiscard]] Rgb ground_colour(int height, int low, int span, world::Terrain terrain) {
@@ -82,7 +87,9 @@ bool draw_map(const MapDoc& map, const std::filesystem::path& path) {
                 for (int pxl = 0; pxl < kS; ++pxl) {
                     Rgb c = ground_colour(map.heights[i], low, span, map.terrain[i]);
                     if (wall) {
-                        c = ((pxl + py) % 4 < 2) ? Rgb{170, 34, 34} : Rgb{64, 14, 14};
+                        // The ONE blocked look, shared with the game (`blocked_ground.hpp`).
+                        c = game::blocked_hatch_bright(pxl, py, kS) ? rgb(game::kBlockedHatchBright)
+                                                                    : rgb(game::kBlockedHatchDark);
                     } else if (crater) {
                         c = {18, 22, 52};
                     }
