@@ -425,17 +425,33 @@ struct Unit {
     std::uint16_t build_left{};
     /// THE JUMP (M5): how high the unit's body is lifted above the ground under it, in height units
     /// (`kHeightUnitsPerTile` to a tile), Q16.16; zero is ON THE GROUND, which is every unit until
-    /// one jumps. The mover asks a volume whether it blocks "at this height" (`volume_stops`), so a
-    /// raised unit passes what a grounded one cannot. Hashed only while the unit is in the air.
+    /// one jumps or falls. The mover asks a volume whether it blocks "at this height"
+    /// (`volume_stops`), so a raised unit passes what a grounded one cannot. Hashed only while the
+    /// unit is in the air.
+    ///
+    /// THE REFERENCE FRAME (G8). It is still measured from the ground under the unit, but IN THE
+    /// AIR THE HEIGHT THAT IS KEPT IS THE UNIT'S OWN: the ground's height plus this. A tick in the
+    /// air moves that height by `lift_v`, the unit across the map, and only then measures `lift`
+    /// again against the ground it is now over (`rise`, `settle`). Until G8 the ground's fall was
+    /// the unit's fall -- the frame itself moved -- so a unit driven off a cliff went down it at
+    /// once.
     Fixed lift{};
-    /// Its vertical speed, height units a tick, Q16.16: set by a `Jump` and spent by gravity
-    /// (`kJumpGravity`). Zero with `lift` zero IS grounded (`airborne`).
+    /// Its vertical speed, height units a tick, Q16.16, in the world's frame (not the ground's):
+    /// set by a `Jump`, or by the ground falling away (`falls_off`), and spent by gravity -- a
+    /// jump's `kJumpGravity`, a fall's `kGravityHeightRaw` (`falling`). Zero with `lift` zero IS
+    /// grounded (`airborne`).
     Fixed lift_v{};
+    /// THE FALL (G8): this flight began with the ground falling away under the unit, not with a
+    /// jump, so it falls at the Earth's gravity (`kGravityHeightRaw`), where a jump keeps the
+    /// chosen `kJumpGravity` it was tuned with. Set only in the air; hashed only when set.
+    bool falling{};
     /// THE ROLL (G7): how fast the ground is carrying this unit while NOBODY DRIVES IT, raw tiles
     /// a tick in the plane -- gravity's gain less friction's, a tick at a time (`slide_tick`). Zero
     /// for a unit held by friction, driven, planted or in the air, which is every unit on every
     /// slope gentler than 25.6 a tile; hashed only when non-zero, so a battle where nothing rolls
-    /// hashes as it did before there was one.
+    /// hashes as it did before there was one. (G8: in the air the unit's speed across the map is
+    /// `vx`/`vy`, frozen at the speed it left the ground with; it LANDS with that speed as its
+    /// roll, which an engine then takes over and friction otherwise spends.)
     Fixed roll_vx{};
     Fixed roll_vy{};
 };
@@ -994,6 +1010,13 @@ inline constexpr std::int32_t kTileMetres = 2;
 inline constexpr Acceleration kGravity{std::int64_t{981} * Fixed::kOne,
                                        std::int64_t{100}
                                            * kTileMetres* kTicksPerSecond* kTicksPerSecond};
+/// GRAVITY IN HEIGHT (G8): the same g, as the vertical speed a falling body gains a tick, in Q16.16
+/// height units a tick^2 -- `kGravity` (raw tiles) times `kHeightUnitsPerTile`: 357.17 * 64 =
+/// 22858.9, rounded to 22859 (0.3488 height units a tick^2; 9.81 m/s^2 at 32 units a metre and 30
+/// ticks a second). The rounding is 4 parts in a million. Not chosen: the Earth's, again.
+inline constexpr std::int32_t kGravityHeightRaw = static_cast<std::int32_t>(
+    ((kGravity.num * kHeightUnitsPerTile * 2) + kGravity.den) / (2 * kGravity.den));
+static_assert(kGravityHeightRaw == 22859, "g in height units moved: restate it");
 /// How high above the ground under it a unit's body starts (its hover) and how tall it is, in
 /// height units: 0.25 m and 1.8 m (4.5 m for a factory) at 32 units to the metre, which is how the
 /// scene draws them. A bolt hurts a unit only while it is between the two.

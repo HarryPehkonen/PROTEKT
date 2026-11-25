@@ -290,7 +290,10 @@ void apply_strafe(Unit& unit, const orders::Strafe& strafe, const WorldGround& g
     const UnitProfile prof = profile(unit.kind);
     const std::int64_t length = isqrt(static_cast<std::int64_t>(strafe.dx.raw) * strafe.dx.raw
                                       + static_cast<std::int64_t>(strafe.dy.raw) * strafe.dy.raw);
-    if (!prof.mobile || length == 0) {
+    // A FALLING unit is driven by nothing (G8): a strafe is the engine's, and its speed across the
+    // map is the one it left the ground with (`glide`). (A jump is steered in the air, as M5 made
+    // it, strafe and all.)
+    if (!prof.mobile || length == 0 || unit.falling) {
         return;
     }
     const std::int64_t full = prof.max_speed.raw * kStrafeSpeedNumerator / kStrafeSpeedDenominator;
@@ -2004,10 +2007,9 @@ void steer(std::vector<Unit>& units, Unit& unit, const UnitProfile& prof, const 
     }
     // The route, if there is one: aim at the current waypoint (a tile center) and pop it on
     // arrival; the goal itself is only steered at once the waypoints are spent.
-    // A unit in the air plans nothing and follows nothing: it is on a hop along the line it began
-    // on
-    // (`orders::Jump` dropped its route), so it steers straight at the goal and lands where the
-    // arc takes it.
+    // A unit in the air plans nothing and follows nothing: a JUMP is a hop along the line it
+    // began on (`orders::Jump` dropped its route), so it steers straight at the goal and lands
+    // where the arc takes it. (A FALL is never steered at all: `glide`.)
     //
     // THE HELM is steered by the player, not by the planner (G4). Its MoveTo is a point a few
     // tiles along the hull's heading, re-stated every frame: the heading IS the order. Planned, it
@@ -2234,8 +2236,10 @@ void move(std::vector<Unit>& units, const WorldGround& ground, const UnitProfile
 }
 
 /// Moves `unit` by `push` where it can go: all of it, else each axis of it alone, as the mover
-/// tries a step; else nothing. A roll stopped on an axis loses its speed on that axis.
-void slide_by(const WorldGround& ground, Unit& unit, Step push) noexcept {
+/// tries a step; else nothing. The velocity carrying it (`vel_x`, `vel_y`: the roll, or in the air
+/// the flight) is lost on an axis it is stopped on.
+void slide_by(const WorldGround& ground, Unit& unit, Step push, Fixed& vel_x,
+              Fixed& vel_y) noexcept {
     const int here_x = unit.x.floor_int();
     const int here_y = unit.y.floor_int();
     const auto height = [&](int tx, int ty) { return ground.height(tx, ty); };
@@ -2258,15 +2262,113 @@ void slide_by(const WorldGround& ground, Unit& unit, Step push) noexcept {
         unit.y = ny;
         // A roll that went only one way lost its speed the other way, against what stopped it.
         if (tried.dx == 0) {
-            unit.roll_vx = Fixed::zero();
+            vel_x = Fixed::zero();
         }
         if (tried.dy == 0) {
-            unit.roll_vy = Fixed::zero();
+            vel_y = Fixed::zero();
         }
         return;
     }
-    unit.roll_vx = Fixed::zero(); // stopped dead
+    vel_x = Fixed::zero(); // stopped dead
+    vel_y = Fixed::zero();
+}
+
+void slide_by(const WorldGround& ground, Unit& unit, Step push) noexcept {
+    slide_by(ground, unit, push, unit.roll_vx, unit.roll_vy);
+}
+
+/// Back on the ground (`rise`, `settle`): no height and no vertical speed, and a fall's speed
+/// across the map kept as its roll.
+void land(Unit& unit) noexcept {
+    unit.lift = Fixed::zero();
+    unit.lift_v = Fixed::zero();
+    if (unit.falling) {
+        unit.roll_vx = unit.vx; // what it lands with, it keeps
+        unit.roll_vy = unit.vy;
+    }
+    unit.falling = false;
+}
+
+/// IN THE AIR (M5, G8) -- a jump's and a fall's flight are one machine, in three parts a tick.
+///
+/// 1. `rise`: the unit's OWN height (the ground under it plus `lift`) moves by its vertical speed,
+///    and gravity takes from that speed -- height first, then speed, the order the jump has always
+///    used (its peak of 55 and its 21-tick flight are pinned on it). Gravity is the Earth's for a
+///    fall (`kGravityHeightRaw`) and the jump's own for a jump (`kJumpGravity`, M5's chosen 2.9 g).
+///    `lift` is set, for now, against the ground it is crossing FROM, so every volume the mover
+///    asks this tick is asked at the height it now has; where that height is spent it is back on
+///    the ground before it moves, as a jump always was.
+/// 2. Across the map. A FALL goes at the speed it left the ground with (`glide`: `vx`/`vy` frozen;
+///    no engine, no slope and no steering touch it). A JUMP is steered by the engine at its goal,
+///    as M5 made it (the caller's `steer` and `move`).
+/// 3. `settle`: `lift` is measured again, against the ground it is over NOW -- so the ground
+///    falling away under it is not its fall (until G8 it was: the frame itself moved). Where the
+///    height is spent it LANDS at the terrain's own height; the vertical speed is spent on the
+///    ground, all of it (no bounce), and a fall's speed across the map is kept as its roll
+///    (`Unit::roll_vx`), which an engine takes over the next tick and friction otherwise spends.
+///
+/// Returns the unit's own height (Q16.16 height units) for `settle`.
+[[nodiscard]] std::int64_t rise(const WorldGround& plain, Unit& unit) noexcept {
+    const std::int64_t here = height_under(plain, unit.x, unit.y);
+    const std::int64_t z = here + unit.lift.raw + unit.lift_v.raw;
+    const std::int64_t gravity = unit.falling ? kGravityHeightRaw : kJumpGravity.raw;
+    unit.lift_v = Fixed::from_raw(static_cast<std::int32_t>(unit.lift_v.raw - gravity));
+    if (z - here <= 0) {
+        land(unit);
+    } else {
+        unit.lift = Fixed::from_raw(static_cast<std::int32_t>(z - here));
+    }
+    return z;
+}
+
+/// A FALL's tick across the map (`rise`, part 2): by its frozen speed, asking every volume at the
+/// height it has (`flight`), stopped as a roll is stopped (`slide_by`).
+void glide(const WorldGround& flight, Unit& unit) noexcept {
+    if (unit.vx.raw != 0 || unit.vy.raw != 0) {
+        slide_by(flight, unit, Step{unit.vx.raw, unit.vy.raw}, unit.vx, unit.vy);
+        unit.still_ticks = 0; // carried: a turret is unmounted, in the air as on the ground
+    }
+}
+
+/// `rise`, part 3: the unit's own height `z`, measured against the ground it is over now.
+void settle(const WorldGround& plain, Unit& unit, std::int64_t z) noexcept {
+    const std::int64_t lift = z - height_under(plain, unit.x, unit.y);
+    if (lift <= 0) {
+        land(unit);
+    } else {
+        unit.lift = Fixed::from_raw(static_cast<std::int32_t>(lift));
+    }
+}
+
+/// THE EDGE (G8). A unit on the ground that stood at (`from_x`, `from_y`) when the tick began and
+/// has now driven, rolled and been pressed to where it is: did the ground fall away from under it
+/// (`falls_off`: off the edge of a cliff)? Then it is in the air from here, as a jump is -- a fall
+/// is a jump with the terrain for a trigger instead of the E key: its height the one the ground it
+/// left was carrying it at, its vertical speed that ground's (the rate the face it stood on fell
+/// along its step: zero off level ground), gravity's from now on (`falling`), and its speed across
+/// the map the whole of this tick's step, kept (`glide`). Its route is dropped as a jump's is: it
+/// plans afresh from where it lands.
+void take_off(const WorldGround& ground, Unit& unit, Fixed from_x, Fixed from_y) noexcept {
+    const std::int64_t dx = static_cast<std::int64_t>(unit.x.raw) - from_x.raw;
+    const std::int64_t dy = static_cast<std::int64_t>(unit.y.raw) - from_y.raw;
+    if (dx == 0 && dy == 0) {
+        return;
+    }
+    const Gradient here = gradient_under(ground, from_x, from_y);
+    const std::int64_t z0 = height_under(ground, from_x, from_y);
+    const std::int64_t to = height_under(ground, unit.x, unit.y);
+    if (!falls_off(z0, here, dx, dy, to, gradient_under(ground, unit.x, unit.y))) {
+        return;
+    }
+    const std::int64_t vz = ((here.x2 * dx) + (here.y2 * dy)) / 2;
+    unit.lift = Fixed::from_raw(static_cast<std::int32_t>(z0 + vz - to));
+    unit.lift_v = Fixed::from_raw(static_cast<std::int32_t>(vz - kGravityHeightRaw));
+    unit.falling = true;
+    unit.vx = Fixed::from_raw(static_cast<std::int32_t>(dx));
+    unit.vy = Fixed::from_raw(static_cast<std::int32_t>(dy));
+    unit.roll_vx = Fixed::zero(); // in the air its speed is the flight's
     unit.roll_vy = Fixed::zero();
+    unit.route = Route{};
 }
 
 /// THE PRESS (M1, G6). After the unit has moved as commanded, the slope has its say: `plan_press`'s
@@ -2719,20 +2821,16 @@ void Sim::step(StepTimings* timings) {
         }
         // Asked afresh for each unit, so a recycler that deployed earlier in this very loop is
         // already in the way of every unit after it.
-        // THE JUMP: a unit in the air rises or falls first, so every question the mover asks this
-        // tick is asked at the height it now has. It lands the tick its height is spent.
-        if (airborne(unit)) {
-            unit.lift = Fixed::from_raw(unit.lift.raw + unit.lift_v.raw);
-            unit.lift_v = Fixed::from_raw(unit.lift_v.raw - kJumpGravity.raw);
-            if (unit.lift.raw <= 0) {
-                unit.lift = Fixed::zero();
-                unit.lift_v = Fixed::zero();
-            }
-        }
+        // IN THE AIR (M5, G8) -- a jump or a fall (`rise`): its height is its own. A fall goes on
+        // at the speed it left the ground with (`glide`), a jump is steered as M5 made it, and
+        // neither is pressed; the tick it lands is still a tick of the flight.
+        const WorldGround plain = ground_of(seed, units_, scenario_.volumes);
+        const std::int64_t own_height = airborne(unit) ? rise(plain, unit) : 0;
+        const bool aloft = airborne(unit); // still in the air after the rise: moves as a flight
         // The ground the unit MOVES over answers at its height; the one it PLANS over (a route)
         // is the ground at height zero, so a unit on the ground plans round a wall it would
         // otherwise try to jump, and one in the air plans nothing (`steer`).
-        const WorldGround ground = ground_of(seed, units_, scenario_.volumes);
+        const WorldGround& ground = plain;
         const WorldGround flight = ground_of(seed, units_, scenario_.volumes, unit.lift);
         const UnitProfile prof = profile(unit.kind);
         // Scavenging, before the mover: it takes from where the unit stands and sets no goal (C2).
@@ -2745,6 +2843,11 @@ void Sim::step(StepTimings* timings) {
             unit.vx = Fixed::zero();
             unit.vy = Fixed::zero();
             held(unit);
+            continue;
+        }
+        if (aloft && unit.falling) {
+            glide(flight, unit); // a fall: its own speed, nothing steers it
+            settle(plain, unit, own_height);
             continue;
         }
         const Clock::time_point steer_from = timed ? Clock::now() : Clock::time_point{};
@@ -2763,7 +2866,13 @@ void Sim::step(StepTimings* timings) {
         if (!(unit.kind == UnitKind::Turret && !turret_may_move(unit))) {
             move(units_, flight, prof, unit);
         }
-        if (!planted(unit) && !airborne(unit)) {
+        if (aloft) {
+            settle(plain, unit, own_height); // a jump, steered in the air as M5 made it
+            unit.roll_vx = Fixed::zero();    // in the air nothing rolls it
+            unit.roll_vy = Fixed::zero();
+            continue;
+        }
+        if (!planted(unit)) {
             // Driving is MOVING under its own power this tick -- the mover's step and a strafe's
             // alike -- and the heading is the way it moved: a unit held by a wall, unmounting, or
             // with nowhere to go is not driven (a zero heading): gravity and friction have it.
@@ -2790,8 +2899,9 @@ void Sim::step(StepTimings* timings) {
             }
             const std::int64_t thrust = prof.max_speed.raw * ahead >> Fixed::kShift;
             press(ground, unit, thrust, from_x, from_y, drove_dx, drove_dy);
+            take_off(ground, unit, from_x, from_y);
         } else {
-            unit.roll_vx = Fixed::zero(); // planted, or in the air: nothing rolls it
+            unit.roll_vx = Fixed::zero(); // planted: nothing rolls it
             unit.roll_vy = Fixed::zero();
         }
     }
@@ -3268,6 +3378,9 @@ std::uint64_t Sim::state_hash() const noexcept {
         if (airborne(u)) {
             h.i32(u.lift.raw);   // a unit in a jump: nobody on the ground has either, so a battle
             h.i32(u.lift_v.raw); // that never jumps hashes exactly as it did before there was one
+        }
+        if (u.falling) {
+            h.u64(1); // a flight begun off a cliff (G8): set for no unit on the ground, or jumping
         }
         if (u.roll_vx.raw != 0 || u.roll_vy.raw != 0) {
             h.i32(u.roll_vx.raw); // a unit rolling with nobody driving it (G7): set for no other

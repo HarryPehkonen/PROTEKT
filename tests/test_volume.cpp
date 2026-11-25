@@ -3,6 +3,7 @@
 #include "protekt/sim/scenario.hpp"
 #include "protekt/sim/sim.hpp"
 #include "protekt/sim/spec.hpp"
+#include "protekt/sim/steering.hpp"
 #include "protekt/sim/units.hpp"
 #include "protekt/sim/volume.hpp"
 #include "protekt/world/world.hpp"
@@ -11,6 +12,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <format>
 #include <iostream>
@@ -223,15 +225,39 @@ TEST(Jump, TheJumpPeaksAtFiftyFiveUnitsAndLandsOnTheTwentyFirstTick) {
     ASSERT_TRUE(open_ground());
     Sim sim = rig(UnitKind::Tank, {});
     const Flight flight = drive(sim, 1);
+    // RE-MEASURED, G8 (the arc): the peak is the unit's OWN height, 55 above the ground it LEFT.
+    // Until G8 `lift` was the whole of a jump's height and the ground's rise or fall under it was
+    // the unit's too; now the height in the air is its own and `lift` is only its distance from
+    // the ground under it. This strip is "open", not level: under the flight the ground rises 1.39,
+    // so the old reading (peak `lift`, 55 at the code at b24e052) is 53.61 now, and the height
+    // above the ground it left is the 55 the launch and gravity give.
+    struct Seed42 {
+        [[nodiscard]] int height(int x, int y) const noexcept {
+            return world::sample(kSeed, x, y).height;
+        }
+    };
+    const auto ground_at = [](const Frame& f) {
+        return static_cast<double>(height_under(
+                   Seed42{}, Fixed::from_raw(static_cast<std::int32_t>(std::lround(f.x * kTile))),
+                   Fixed::from_raw(static_cast<std::int32_t>(std::lround(f.y * kTile)))))
+               / kTile;
+    };
+    const double left = ground_at(flight.frames.front());
     double peak = 0;
+    double peak_lift = 0;
     int landed = -1;
     for (const Frame& f : flight.frames) {
-        peak = std::max(peak, f.lift);
+        peak = std::max(peak, ground_at(f) + f.lift - left);
+        peak_lift = std::max(peak_lift, f.lift);
         if (landed < 0 && f.tick > 3 && f.lift == 0.0) {
             landed = f.tick;
         }
     }
-    EXPECT_EQ(peak, 55.0);
+    std::cout << std::format("[ G8 ] peak {:.3f} above the ground it left; {:.3f} above the ground "
+                             "under it\n",
+                             peak, peak_lift);
+    EXPECT_NEAR(peak, 55.0, 0.001);
+    EXPECT_NEAR(peak_lift, 53.612, 0.001);
     // Asked before the step that ends tick 2, so tick 2 is the first tick of flight (lift 10) and
     // the 21st, where the height is spent, is tick 22.
     EXPECT_EQ(landed, 22);
@@ -366,7 +392,15 @@ TEST(Jump, AJumpBattleHashesToTheFirstRecordedValuesAndTheHeightIsPartOfThem) {
     // kept, both new values come out unchanged. The tank drives that rise on column 69, whose
     // tiles' corners are not in one plane, so the press it climbs against is the drawn triangle's,
     // not the quad's mean. Two runs agree.
-    EXPECT_EQ(mid_air, 4795219193172317921ULL);
+    // RE-MEASURED, G8 (the arc; the height in the air is the unit's own): old mid-air value
+    // 4795219193172317921 is the code at b24e052. THE REFERENCE FRAME moves it, and nothing else:
+    // with the new code and only `settle` measuring the height against the ground the unit crossed
+    // FROM (M5's frame: a temporary toggle, removed) the old value comes back exactly. The ground
+    // under this flight rises (the peak test above: 1.39 units), so at tick 11 the jump's `lift`
+    // -- hashed while it is in the air -- is its own height less a higher ground. It lands on the
+    // same tick at the same place, so the END value is unchanged (2778783620914854318, both
+    // ways). Two runs agree.
+    EXPECT_EQ(mid_air, 4544634129219976427ULL);
     EXPECT_EQ(jumped.state_hash(), 2778783620914854318ULL);
 }
 

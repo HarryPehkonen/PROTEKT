@@ -590,6 +590,52 @@ template <class Ground>
     return (x.raw & kMask) >= (y.raw & kMask) ? faces[0] : faces[1];
 }
 
+/// THE GROUND'S HEIGHT under a unit standing at (`x`, `y`), Q16.16 height units: the drawn
+/// triangle of its tile that it stands on (`gradient_under`'s), exactly -- the corner heights and
+/// the unit's fraction across the tile, no rounding. Along one triangle it is linear in `x` and
+/// `y`, so a unit that moves (`dx`, `dy`) across it moves height by exactly (`x2 dx + y2 dy`) / 2.
+/// (G8: a unit in the air has a height of its own, and this is what it is measured against.)
+template <class Ground>
+    requires HasHeights<Ground>
+[[nodiscard]] std::int64_t height_under(const Ground& ground, Fixed x, Fixed y) noexcept {
+    const int tx = x.floor_int();
+    const int ty = y.floor_int();
+    constexpr std::int32_t kMask = Fixed::kOne - 1;
+    const std::int64_t fx = x.raw & kMask;
+    const std::int64_t fy = y.raw & kMask;
+    const std::int64_t h00 = ground.height(tx, ty);
+    const std::int64_t h10 = ground.height(tx + 1, ty);
+    const std::int64_t h01 = ground.height(tx, ty + 1);
+    const std::int64_t h11 = ground.height(tx + 1, ty + 1);
+    const std::int64_t base = h00 * Fixed::kOne;
+    return fx >= fy ? base + (fx * (h10 - h00)) + (fy * (h11 - h10))
+                    : base + (fx * (h11 - h01)) + (fy * (h01 - h00));
+}
+
+/// THE FALL (G8): does a unit that stood at height `z0` on ground of gradient `here`, and went
+/// (`dx`, `dy`) this tick to ground of height `ground_to` and gradient `below`, LEAVE THE GROUND?
+/// The ground can push a unit up; it cannot pull it down. Going on the way the ground it stood on
+/// was carrying it, the unit would be at z0 + (here . d) / 2; where the ground under it is LOWER
+/// than that, the ground has fallen away from under it. That is the press UNOPPOSED: the very
+/// force that pushes a unit down a slope (`press_of`: gravity along the ground) with nothing left
+/// beneath to turn it along the ground -- gravity, `kGravity`, straight down, and nothing else.
+///
+/// ONLY OFF A CLIFF. The ground falls away under a moving unit at EVERY brow -- at a tank's 0.2
+/// tiles a tick, a kink of 1.75 height units a tile is enough for gravity to lose -- and the
+/// world's tiles are 2 m facets with kinks of 23 to 25 a tile on most edges, so a rigid point
+/// following gravity alone would leave the ground on nearly every tile it crossed at speed. Real
+/// vehicles do not, because suspension and a smooth real surface follow the ground over what the
+/// facets make a kink. The declared simplification: a unit leaves the ground only where the
+/// ground falls away onto a face it could not drive back UP (`press_beats` against the reverse
+/// of its step: the one wall, read the other way) -- "the edge of a cliff" -- and every face a
+/// unit could climb, it drives down. No height or threshold of its own: the cliff is the wall.
+[[nodiscard]] constexpr bool falls_off(std::int64_t z0, Gradient here, std::int64_t dx,
+                                       std::int64_t dy, std::int64_t ground_to,
+                                       Gradient below) noexcept {
+    const std::int64_t carried = z0 + (((here.x2 * dx) + (here.y2 * dy)) / 2);
+    return ground_to < carried && press_beats(below, -dx, -dy);
+}
+
 /// THE PRESS (G6): what the slope does to a unit of full step `thrust` standing at (`x`, `y`) this
 /// tick, raw, when it drove (`heading_dx`, `heading_dy`) under its own power -- zero for a unit
 /// that did not, which is gravity's and friction's instead (`slide_tick`, G7). Pure and
