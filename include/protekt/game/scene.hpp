@@ -42,6 +42,8 @@ namespace protekt::game {
 inline constexpr std::array<float, 3> kEnemyBarRed{0.95F, 0.10F, 0.10F};
 
 inline constexpr float kMetresPerTile = 2.0F;
+static_assert(kMetresPerTile == static_cast<float>(sim::kTileMetres),
+              "the drawn tile and the sim's tile (its gravity is in metres) are one size");
 inline constexpr float kMetresPerHeightUnit
     = kMetresPerTile / static_cast<float>(world::kHeightUnitsPerTile);
 

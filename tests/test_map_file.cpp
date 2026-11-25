@@ -235,7 +235,8 @@ TEST(MapFile, TheShippedMapLoadsAndUsesEveryItemOnTheList) {
     // 2. A RAMP UP: every step along the row is climbable and the sum reaches the plateau.
     for (int x = 15; x < 22; ++x) {
         EXPECT_TRUE(climbable(x, 30, x + 1, 30)) << "ramp step at x=" << x;
-        EXPECT_FALSE(protekt::sim::too_steep_to_climb(
+        // G7: what holds a parked unit is FRICTION (25.6 a tile), not the steepest grade.
+        EXPECT_TRUE(protekt::sim::friction_holds(
             protekt::sim::Gradient{std::int64_t{2} * (h(x + 1, 30) - h(x, 30)), 0}))
             << "the ramp holds a parked unit at x=" << x;
     }

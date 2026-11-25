@@ -3,6 +3,9 @@
 #include <cstdint>
 #include <vector>
 
+#include "level_ground.hpp"
+#include "protekt/world/ground.hpp"
+
 #include <gtest/gtest.h>
 
 #include "protekt/sim/scenario.hpp"
@@ -96,6 +99,11 @@ TEST(Scrap, TheGroundIsBareUntilSomethingDies) {
 }
 
 TEST(Scrap, AWreckLeavesThePiecesTheRulesSay) {
+    // ON LEVEL GROUND (G7): the rig's ground is a hillside, where a unit nobody drives now ROLLS
+    // (friction holds only to 25.6 a tile). There the fight rolled, the wreck lay elsewhere, and a
+    // piece fell on a crater and SETTLED a tile east (`settle_litter`), which this comparison does
+    // not model: it is about the scatter rule, on ground with nothing to settle off.
+    const protekt::world::ScopedGround level(protekt::testing::level_ground());
     Sim sim = fight(kSeed);
     ASSERT_NE(step_until_a_death(sim, 4000), 0U) << "the fight never resolved";
     ASSERT_EQ(dead_count(sim), 1U) << "this rig is sized for exactly one loss";

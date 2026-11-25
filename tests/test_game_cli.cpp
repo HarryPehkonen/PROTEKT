@@ -465,7 +465,14 @@ TEST_F(GameCliTest, WithNoMapFileTheDefaultBattleIsExactlyWhatItWas) {
     // 64x48 frame is byte-identical between the two trees (md5 8183a93f96225b3cfd311095ef0ee8af)
     // even though the battle moved: this frame does not show the enemy's base, so an identical
     // frame is no proof that nothing moved. Two runs of the new value print the same hash.
-    EXPECT_NE(out.find("tick 40, hash 15984221460153946537"), std::string::npos) << out;
+    // RE-MEASURED, G7 (gravity and friction; the drawn triangles): old value 15984221460153946537
+    // is the code at 44bcc4a, restored exactly by
+    // compiling G6's quad-mean ground and G6's parked drift back in (temporary toggles, removed),
+    // which brought every one of this slice's six moved recordings back to its old value. BOTH move
+    // it: the triangles alone give 9795914068661408494 (the enemy's columns climb the drawn
+    // triangles out of their base); the roll takes it to the value below. Two runs print the same
+    // hash.
+    EXPECT_NE(out.find("tick 40, hash 16412951590588563509"), std::string::npos) << out;
     EXPECT_EQ(
         run({"--headless", "--frames", "1", "--width", "32", "--height", "24", "--log-spawns"}, err,
             &out),
@@ -643,7 +650,14 @@ TEST_F(GameCliTest, TheSameMapPlayedTwiceIsTheSameBattleAndIsNotTheDefaultOne) {
     // 64x48 frame is byte-identical between the two trees (md5 8183a93f96225b3cfd311095ef0ee8af)
     // even though the battle moved: this frame does not show the enemy's base, so an identical
     // frame is no proof that nothing moved. Two runs of the new value print the same hash.
-    EXPECT_NE(out.find("tick 40, hash 15984221460153946537"), std::string::npos) << out;
+    // RE-MEASURED, G7 (gravity and friction; the drawn triangles): old value 15984221460153946537
+    // is the code at 44bcc4a, restored exactly by
+    // compiling G6's quad-mean ground and G6's parked drift back in (temporary toggles, removed),
+    // which brought every one of this slice's six moved recordings back to its old value. BOTH move
+    // it: the triangles alone give 9795914068661408494 (the enemy's columns climb the drawn
+    // triangles out of their base); the roll takes it to the value below. Two runs print the same
+    // hash.
+    EXPECT_NE(out.find("tick 40, hash 16412951590588563509"), std::string::npos) << out;
 }
 
 // --- --log-spawns: the composition, read back ------------------------------------------------

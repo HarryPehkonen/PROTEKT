@@ -357,8 +357,17 @@ TEST(Jump, AJumpBattleHashesToTheFirstRecordedValuesAndTheHeightIsPartOfThem) {
     // that rise at full throttle, so its speed comes from the press now, not the old grade factor,
     // and where it stands each tick moves, and the hash with it. The `EXPECT_NE` above still holds:
     // the jump is still part of the hash. Two runs of the new values agree.
-    EXPECT_EQ(mid_air, 17553760078037519566ULL);
-    EXPECT_EQ(jumped.state_hash(), 18291473291112434540ULL);
+    // RE-MEASURED, G7 (gravity and friction; the drawn triangles): old values
+    // 17553760078037519566 (mid-air) and 18291473291112434540 (the end) are the code at 44bcc4a,
+    // restored exactly by
+    // compiling G6's quad-mean ground and G6's parked drift back in (temporary toggles, removed),
+    // which brought every one of this slice's six moved recordings back to its old value. THE
+    // TRIANGLES move it, not the roll: with G6's parked drift compiled back in and the triangles
+    // kept, both new values come out unchanged. The tank drives that rise on column 69, whose
+    // tiles' corners are not in one plane, so the press it climbs against is the drawn triangle's,
+    // not the quad's mean. Two runs agree.
+    EXPECT_EQ(mid_air, 4795219193172317921ULL);
+    EXPECT_EQ(jumped.state_hash(), 2778783620914854318ULL);
 }
 
 TEST(Jump, ABuildingAndAFactoryCannotJump) {

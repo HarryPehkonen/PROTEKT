@@ -144,7 +144,11 @@ TEST(GoAround, ATurretOrderedToTheFarSideOfTheRampDeploysThere) {
     // of its step (the old grade took 31%), so the climb is slower. The route is the same tiles
     // up the ramp -- (16, 28), (19, 29), (22, 29) -- and no longer cuts the corner of its flank
     // at (17, 27) (the corner rule, `edge_blocked`). Old value 835 is the code at 896f2e5.
-    EXPECT_EQ(drive.ticks, 900) << "ticks to deploy";
+    // RE-MEASURED, G7: 900 -> 882. THE TRIANGLES move it, not the roll (with G6's parked drift
+    // compiled back in and the triangles kept it is 882 too; with G6's quad-mean ground as well,
+    // 900): the ramp's tiles are drawn as two triangles each, and the press the turret crawls
+    // against is the triangle it is on, not the quad's mean. Old value 900 is the code at 44bcc4a.
+    EXPECT_EQ(drive.ticks, 882) << "ticks to deploy";
 }
 
 TEST(GoAround, ItsRouteIsNotTheStraightLineItWentAround) {

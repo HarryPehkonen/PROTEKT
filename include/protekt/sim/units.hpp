@@ -431,6 +431,13 @@ struct Unit {
     /// Its vertical speed, height units a tick, Q16.16: set by a `Jump` and spent by gravity
     /// (`kJumpGravity`). Zero with `lift` zero IS grounded (`airborne`).
     Fixed lift_v{};
+    /// THE ROLL (G7): how fast the ground is carrying this unit while NOBODY DRIVES IT, raw tiles
+    /// a tick in the plane -- gravity's gain less friction's, a tick at a time (`slide_tick`). Zero
+    /// for a unit held by friction, driven, planted or in the air, which is every unit on every
+    /// slope gentler than 25.6 a tile; hashed only when non-zero, so a battle where nothing rolls
+    /// hashes as it did before there was one.
+    Fixed roll_vx{};
+    Fixed roll_vy{};
 };
 
 /// True while `unit` is in the air (a jump begun and not yet landed).
@@ -977,6 +984,16 @@ inline constexpr int kBoxReachTiles = 3;
 /// World heights are whole units of a 64th of a tile (`world::Tile::height`); a bolt's height and
 /// vertical speed are in the same units, in Q16.16.
 inline constexpr std::int32_t kHeightUnitsPerTile = 64;
+/// A tile is TWO METRES across (`game::kMetresPerTile`, which asserts it equals this), so 32
+/// height units are a metre.
+inline constexpr std::int32_t kTileMetres = 2;
+/// GRAVITY (G7): 9.81 m/s^2, in raw (Q16.16 tiles) a tick a tick -- 9.81 m/s^2 / (2 m a tile) /
+/// (30 ticks a second)^2 * 65536 = 357.17. Not a game constant: the Earth's, in this world's
+/// units. (The jump's `kJumpGravity` is a different, chosen number -- 1 height unit a tick^2 is
+/// 28 m/s^2, 2.9 g: see volume.hpp, and the G7 report.)
+inline constexpr Acceleration kGravity{std::int64_t{981} * Fixed::kOne,
+                                       std::int64_t{100}
+                                           * kTileMetres* kTicksPerSecond* kTicksPerSecond};
 /// How high above the ground under it a unit's body starts (its hover) and how tall it is, in
 /// height units: 0.25 m and 1.8 m (4.5 m for a factory) at 32 units to the metre, which is how the
 /// scene draws them. A bolt hurts a unit only while it is between the two.

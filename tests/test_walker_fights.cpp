@@ -3,6 +3,9 @@
 #include "protekt/sim/sim.hpp"
 #include "protekt/sim/spec.hpp"
 
+#include "level_ground.hpp"
+#include "protekt/world/ground.hpp"
+
 #include <gtest/gtest.h>
 
 #include <cmath>
@@ -64,6 +67,11 @@ TEST(WalkerFights, TheWalkersReachIsLongerThanTheTanksAndEveryOtherVehicles) {
 }
 
 TEST(WalkerFights, AWalkerFacingTheWrongWayHasNotMovedInTwentyTicks) {
+    // ON LEVEL GROUND (G7): seed 7's (100, 100) falls some 33 a tile east -- past friction (25.6),
+    // so a walker standing there turning in place, which nobody is driving, ROLLS (1154 raw east
+    // in 20 ticks, measured). This is about the turn, not the hill: it stands on drawn level
+    // ground.
+    const protekt::world::ScopedGround level(protekt::testing::level_ground());
     Sim sim = lone(UnitKind::Walker);
     const UnitId id = send_behind(sim);
     for (int i = 0; i < 20; ++i) {
@@ -151,6 +159,12 @@ TEST(WalkerFights, AWalkerSetsOffOnceItFacesItsFirstLegAndTakesAHundredAndTwenty
     // is gentler than the steepest grade (38.4), it holds a parked unit, and there is nothing to
     // go round. So the walker turns the whole 180 degrees at 1.5 a tick before it moves: it sets
     // off on tick 120. Old value 100 is the code at 896f2e5.
+    // ON LEVEL GROUND (G7): seed 7's (100, 100) falls some 33 a tile east -- past friction (25.6),
+    // so a walker standing there turning in place, which nobody is driving, ROLLS (1154 raw east
+    // in 20 ticks, measured). This is about the turn, not the hill: it stands on drawn level
+    // ground.
+    const protekt::world::ScopedGround level(protekt::testing::level_ground());
+    // Level, the route is one leg and the turn the whole 180 degrees: still 120.
     Sim sim = lone(UnitKind::Walker);
     const UnitId id = send_behind(sim);
     for (int i = 0; i < 119; ++i) {

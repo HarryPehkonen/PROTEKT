@@ -1,6 +1,9 @@
 // N3: G arms a go, the next digit 0-9 sends the selection to the nav mark the nav menu numbers so
 // (1-9, then 0 for the tenth). While armed the digits are MARK numbers, not N2's selection keys;
 // the order is the same MoveTo a right click makes.
+#include "level_ground.hpp"
+#include "protekt/world/ground.hpp"
+
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -723,6 +726,12 @@ TEST(MenuDigit, FourOnHarvestersPostsEachWhereItStandsInAscendingIdOrder) {
 }
 
 TEST(MenuDigit, AHeldHarvesterIsStillHeldAfterTheSimHasRunOn) {
+    // ON LEVEL GROUND (G7): the rig's ground is a hillside, where a unit nobody drives now ROLLS
+    // (friction holds only to 25.6 a tile). Held at its post on seed 42's slope, the harvester
+    // rolled 0.36 of a tile in 90 ticks (measured): HOLD posts it, and on ground friction does not
+    // hold a post is not a place it can stand still -- reported (G7). This is about the menu's
+    // HOLD.
+    const protekt::world::ScopedGround level(protekt::testing::level_ground());
     MenuRig rig = make_menu_rig();
     Interaction player{rig.tank};
     select_kind(rig, player, UnitKind::Scavenger);

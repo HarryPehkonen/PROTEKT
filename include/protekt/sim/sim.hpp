@@ -93,13 +93,11 @@ protected:
 /// building's footprint is the other half (`building_blocks`), and it is never folded in here.
 [[nodiscard]] bool tile_passable(std::uint64_t seed, int tile_x, int tile_y) noexcept;
 
-/// THE SLIDE, readable: the drift (raw units per tick) the slope gives a PARKED unit of full step
-/// `thrust` standing at (`x`, `y`) on the seed's ground -- what is left of the press past its
-/// brakes' grip, measured (as the mover measures it) in that step on this tile's terrain. Zero
-/// wherever the ground is no steeper than the steepest grade, for every unit. The default is a
-/// tank's step.
-[[nodiscard]] Step slide_at(std::uint64_t seed, Fixed x, Fixed y,
-                            std::int64_t thrust = kTankSpeedRaw) noexcept;
+/// THE ROLL, readable (G7): the velocity (raw units per tick) a unit nobody drives gains in its
+/// FIRST tick at rest at (`x`, `y`) on the seed's ground -- gravity past friction, which is its
+/// acceleration from rest in raw a tick^2 (`slide_tick`). Zero wherever friction holds (25.6 a tile
+/// and gentler), for every unit alike: gravity pulls every mass the same, so it takes no step.
+[[nodiscard]] Step slide_at(std::uint64_t seed, Fixed x, Fixed y) noexcept;
 
 /// THE PRESS, readable: the whole force (raw units per tick) the slope puts on a unit of full step
 /// `thrust` at (`x`, `y`) on the seed's ground (`press_of`): the same fraction of every unit's own

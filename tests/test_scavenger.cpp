@@ -5,6 +5,9 @@
 #include <optional>
 #include <vector>
 
+#include "level_ground.hpp"
+#include "protekt/world/ground.hpp"
+
 #include <gtest/gtest.h>
 
 #include "protekt/ai/utility.hpp"
@@ -132,6 +135,10 @@ template <typename Predicate> bool step_until(Sim& sim, int limit, Predicate don
 } // namespace
 
 TEST(Scavenger, TheGroundIsWorkUntilThereIsWreckageOnIt) {
+    // ON LEVEL GROUND (G7): the rig's ground is a hillside, where a unit nobody drives now ROLLS
+    // (friction holds only to 25.6 a tile). The idle hauler rolled 179 raw in 3 ticks there
+    // (measured): this is about the sim not DRIVING it, not the hill.
+    const protekt::world::ScopedGround level(protekt::testing::level_ground());
     // Before anything dies there is nothing to fetch: the hauler stands exactly where it was put,
     // and the sim is not driving it (Idle, not Fetch).
     Sim sim = Sim::create(fetch_battle());
@@ -232,6 +239,11 @@ TEST(Scrap, WreckageNeverRestsOnGroundAVehicleCannotStandOn) {
 }
 
 TEST(Build, NothingIsBuiltUntilItIsOrdered) {
+    // ON LEVEL GROUND (G7): the rig's ground is a hillside, where a unit nobody drives now ROLLS
+    // (friction holds only to 25.6 a tile). There the held hauler rolled off its post (48, 47) into
+    // the fight and died at (52, 51) with every player gun, so no load ever came home (measured):
+    // the rig is about production, not the hill.
+    const protekt::world::ScopedGround level(protekt::testing::level_ground());
     // Pins the REMOVAL of the sim's automatic production beat. The player loses a gun, wins the
     // fight and hauls the wrecks home, so the bank fills past the removed beat's price while the
     // side sits short of its starting guns -- exactly the state the old beat replaced a tank in.

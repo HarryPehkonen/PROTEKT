@@ -14,9 +14,10 @@
 #include <optional>
 #include <vector>
 
-/// THE SLOPE (M1, G6). One force, the PRESS: uphill it costs speed, downhill it grants it, across
-/// it drags, a cliff is a wall, and ground steeper than a tank climbs carries even a parked unit
-/// -- and the press is added to whatever the unit is commanded, so steering does not cancel it.
+/// THE SLOPE (M1, G6, G7). One force, the PRESS, on a DRIVEN unit: uphill it costs speed, downhill
+/// it grants it, across it drags, a cliff is a wall -- and the press is added to whatever the unit
+/// is commanded, so steering does not cancel it. A unit nobody drives is gravity's and friction's
+/// (G7): it rolls on ground steeper than friction holds, 25.6 a tile (`test_gravity.cpp`).
 /// One factor for every unit (Harri's ruling, pinned below so the simplification cannot be quietly
 /// undone).
 ///
@@ -188,42 +189,42 @@ TEST(Press, TheSameGroundPressesEveryUnitByTheSameFractionOfItsStep) {
 }
 
 // ---- the parked unit, on drawn ground -------------------------------------------------------
+//
+// G7: a unit nobody drives is no longer "on its brakes, held on everything it can climb" (G6) --
+// it is gravity's and friction's (`slide_tick`): from rest on ground rising t a tile per tile it
+// gains a = g (t - mu) / (1 + t^2) raw a tick, every tick, with g = 357.17 raw a tick^2 (9.81
+// m/s^2 at 2 m a tile and 30 ticks a second) and mu = 0.40. RESTATED from G6's pins, which held
+// a parked unit to 38 and drifted it by the press past a thrust (148 at 39, 4315 at 60, 394 at
+// 40) at a constant speed. The numbers below are that formula by hand, floored.
 
-TEST(Slide, GroundATankCanClimbHoldsAParkedUnit) {
-    // A unit not driving stands on its brakes, and the grip that climbs the steepest grade holds
-    // on it. Falling east by 38: nothing. By 39: what the press has past one thrust, 13255 - 13107
-    // = 148, east.
-    const StepRequest at = standing(2, 2, 0, 0);
-    const Step holds = plan_press(ramp_east(100, -38), at.x, at.y, kStep, 0, 0);
-    EXPECT_EQ(holds.dx, 0);
-    EXPECT_EQ(holds.dy, 0);
-    const Step gives = plan_press(ramp_east(100, -39), at.x, at.y, kStep, 0, 0);
-    EXPECT_EQ(gives.dx, 148);
+constexpr Acceleration kEarth{std::int64_t{981} * Fixed::kOne, std::int64_t{180000}};
+
+TEST(Slide, FrictionHoldsAParkedUnitTo25AndAHalfATile) {
+    // Falling east by 25 (t = 0.39): friction holds, nothing. By 26 (t = 0.406): gravity beats
+    // it by 1.92 raw a tick^2, east -- and a G6 parked unit was held there, and on to 38.
+    const Gradient holds{std::int64_t{2} * -25, 0};
+    EXPECT_EQ(slide_tick(holds, Step{}, kEarth).dx, 0);
+    EXPECT_EQ(slide_tick(holds, Step{}, kEarth).dy, 0);
+    const Step gives = slide_tick(Gradient{std::int64_t{2} * -26, 0}, Step{}, kEarth);
+    EXPECT_EQ(gives.dx, 1);
     EXPECT_EQ(gives.dy, 0);
+    EXPECT_TRUE(friction_holds(holds));
+    EXPECT_FALSE(friction_holds(Gradient{std::int64_t{2} * 38, 0})) << "a climb rolls you back";
 }
 
-TEST(Slide, ANoOrderUnitDriftsDownhill) {
-    // The ruling: "you drift downhill". Nothing is commanded; the face east falls 60, a press of
-    // 17422, so the parked drift is 17422 - 13107 = 4315 east and nothing sideways.
-    const StepRequest at = standing(2, 2, 0, 0);
-    const Step drift = plan_press(ramp_east(100, -60), at.x, at.y, kStep, 0, 0);
-    EXPECT_EQ(drift.dx, 4315);
-    EXPECT_EQ(drift.dy, 0);
+TEST(Slide, ANoOrderUnitRollsDownhill) {
+    // The face east falls 60 (t = 0.9375): 357.17 * 0.5375 / 1.8789 = 102.18 raw a tick, east,
+    // in the first tick from rest, and nothing sideways.
+    const Step v = slide_tick(Gradient{std::int64_t{2} * -60, 0}, Step{}, kEarth);
+    EXPECT_EQ(v.dx, 102);
+    EXPECT_EQ(v.dy, 0);
 }
 
-TEST(Slide, TheDriftIsTowardsTheLowerGroundWhicheverWayThatLies) {
-    // The same kind of face drawn the other way round: tile 2 RISES 40 to the east, so a unit
-    // parked on it is carried WEST, by 13501 - 13107 = 394.
-    HeightGround ground{};
-    for (auto& row : ground.heights) {
-        for (int x = 0; x < kCols; ++x) {
-            row.at(static_cast<std::size_t>(x)) = x < 3 ? 60 : 100;
-        }
-    }
-    const StepRequest at = standing(2, 2, 0, 0);
-    const Step drift = plan_press(ground, at.x, at.y, kStep, 0, 0);
-    EXPECT_EQ(drift.dx, -394);
-    EXPECT_EQ(drift.dy, 0);
+TEST(Slide, TheRollIsTowardsTheLowerGroundWhicheverWayThatLies) {
+    // A face RISING 40 to the east (t = 0.625): 357.17 * 0.225 / 1.3906 = 57.79, carried WEST.
+    const Step v = slide_tick(Gradient{std::int64_t{2} * 40, 0}, Step{}, kEarth);
+    EXPECT_EQ(v.dx, -57);
+    EXPECT_EQ(v.dy, 0);
 }
 
 TEST(Slide, SteeringUphillDoesNotCancelIt) {
@@ -241,29 +242,35 @@ TEST(Slide, SteeringUphillDoesNotCancelIt) {
 }
 
 TEST(Slide, ItStopsWhenTheGroundLevels) {
-    // A face of 60 a tile for three tiles, then flat. Let go of the unit: it slides, comes to
-    // rest on the level ground and STAYS: ten more ticks move nothing.
+    // A face of 60 a tile for three tiles, then flat. Let go of the unit: it rolls, gathering
+    // speed, runs out onto the level ground, where friction takes mu g (142.87 raw a tick^2) off
+    // it every tick, comes to rest and STAYS: ten more ticks move nothing.
     HeightGround ground{};
     for (auto& row : ground.heights) {
         row = {200, 140, 80, 20, 20, 20, 20, 20};
     }
     Fixed x = Fixed::from_raw(Fixed::kOne / 2);
     const Fixed y = Fixed::from_raw(2 * Fixed::kOne + Fixed::kOne / 2);
+    Step v{};
+    std::int64_t fastest = 0;
     int ticks = 0;
     for (; ticks < 2000; ++ticks) {
-        const Step drift = plan_press(ground, x, y, kStep, 0, 0);
-        if (drift.dx == 0 && drift.dy == 0) {
+        v = slide_tick(gradient_under(ground, x, y), v, kEarth);
+        fastest = std::max(fastest, v.dx);
+        if (v.dx == 0 && v.dy == 0) {
             break;
         }
-        x = Fixed::from_raw(static_cast<std::int32_t>(x.raw + drift.dx));
+        x = Fixed::from_raw(static_cast<std::int32_t>(x.raw + v.dx));
     }
-    ASSERT_LT(ticks, 2000) << "the slide never ended";
+    ASSERT_LT(ticks, 2000) << "the roll never ended";
+    EXPECT_GT(fastest, 102) << "it should have gathered speed on the face";
     EXPECT_GE(x.floor_int(), 3) << "it should have come down off the slope";
+    EXPECT_LT(x.floor_int(), 7) << "friction should have stopped it on the level";
     const Fixed rest = x;
     for (int more = 0; more < 10; ++more) {
-        const Step drift = plan_press(ground, x, y, kStep, 0, 0);
-        EXPECT_EQ(drift.dx, 0);
-        EXPECT_EQ(drift.dy, 0);
+        v = slide_tick(gradient_under(ground, x, y), v, kEarth);
+        EXPECT_EQ(v.dx, 0);
+        EXPECT_EQ(v.dy, 0);
     }
     EXPECT_EQ(x.raw, rest.raw);
 }
@@ -396,16 +403,22 @@ TEST(WallAtEveryAngle, ForEveryFaceTheMoverAndThePlannerAgree) {
 
 // ---- the ground the other tests moved to -----------------------------------------------------
 
-TEST(QuietGround, NothingSlidesOnTheStripTheOldFixturesMovedTo) {
+TEST(QuietGround, NothingRollsOnTheStripTheOldFixturesMovedTo) {
     // Seed 42 is hillside country, and since M1 an idle unit on a steep slope slides. The follow,
     // hold-fire and projectile tests used to stand round (100,100), a long hillside; they stand on
-    // this strip now, x 100..189 and y 14..21, where no tile slides anything. If the world changes
-    // and this fails, THOSE tests' fixtures have moved under them, and this says so first.
-    for (int y = 14; y < 22; ++y) {
-        for (int x = 100; x < 190; ++x) {
-            const Step drift = slide_at(kSeed, Fixed::from_int(x), Fixed::from_int(y));
-            EXPECT_EQ(drift.dx, 0) << "tile " << x << "," << y;
-            EXPECT_EQ(drift.dy, 0) << "tile " << x << "," << y;
+    // this strip now. If the world changes and this fails, THOSE tests' fixtures have moved under
+    // them, and this says so first.
+    // RESTATED, G7: an idle unit now ROLLS wherever friction does not hold it (25.6 a tile, not
+    // the steepest grade's 38.4), and the strip was x 100..189, y 14..21: 14 of its tiles roll on
+    // one triangle or the other -- (100..102, 14..16), (178, 20), (162..166, 21). The follow and
+    // hold-fire fixtures on it pass as they stand; what is asserted clear is x 103..160, y 14..20,
+    // both drawn triangles of every tile.
+    const auto height = [](int x, int y) { return world::sample(kSeed, x, y).height; };
+    for (int y = 14; y < 21; ++y) {
+        for (int x = 103; x < 161; ++x) {
+            const auto faces = face_triangles(height, x, y);
+            EXPECT_TRUE(friction_holds(faces[0]) && friction_holds(faces[1]))
+                << "tile " << x << "," << y;
         }
     }
 }
@@ -460,9 +473,10 @@ struct SteepPlace {
     Gradient slope{}; ///< the gradient of the ground under a unit at the tile's corner
 };
 
-/// A tile of the real world, with open ground all round, whose OWN face is steeper than a tank
-/// climbs (so a parked unit on it is carried), and whose parked drift lands on ground the unit can
-/// stand on and enter. Found by looking, so the test is about a place that exists, not one that is
+/// A tile of the real world, with open ground all round, whose OWN face (the drawn triangle at its
+/// corner) is steeper than a tank climbs (so a parked unit on it rolls, and a driven one feels the
+/// press past its grip), and whose first tick of roll lands on ground the unit can stand on and
+/// enter. Found by looking, so the test is about a place that exists, not one that is
 /// assumed.
 std::optional<SteepPlace> find_steep() {
     struct World {
@@ -483,7 +497,7 @@ std::optional<SteepPlace> find_steep() {
                 continue;
             }
             const Gradient g = gradient_under(World{}, Fixed::from_int(x), Fixed::from_int(y));
-            const Step drift = parked_drift(g, kStep);
+            const Step drift = slide_at(kSeed, Fixed::from_int(x), Fixed::from_int(y));
             if (!too_steep_to_climb(g) || (drift.dx == 0 && drift.dy == 0)) {
                 continue;
             }
@@ -626,14 +640,13 @@ TEST(SlopeInTheSim, LevelGroundDoesNotDrift) {
     EXPECT_EQ(the_player(sim).y.raw, start.y.raw);
 }
 
-TEST(SlopeInTheSim, ALightAndAHeavyUnitSlideByOneFactor) {
-    // Harri's second ruling: one factor for every unit. G6 reads it as ONE THRUST-TO-WEIGHT: a
-    // scout (light, fast) and a walker (heavy, slow) parked on the same slope are each carried by
-    // the same FRACTION of their own step -- what `slide_at` says for each -- and nothing about
-    // either kind enters but its step. (Before G6 the slide was one raw size for every unit, and
-    // this test asserted equal raw drifts; that is the one reading of the ruling G6 changes, and
-    // why: a raw press beats a turret's quarter-step on most of the world.) If someone makes the
-    // factor per-kind, this is the test that says it was a decision.
+TEST(SlopeInTheSim, ALightAndAHeavyUnitRollByOneFactor) {
+    // Harri's second ruling: one factor for every unit. G7 (RESTATED from G6): the factor of a
+    // roll is GRAVITY, which pulls every mass alike, so a scout (light, fast) and a walker (heavy,
+    // slow) let go on the same slope roll by the SAME raw amount -- what `slide_at` says, which
+    // takes no step. (G6 carried each by the same FRACTION of its own step, because its parked
+    // drift was the engine's press past the engine's grip; nothing about the engine enters a
+    // roll.) If someone makes it per-kind, this is the test that says it was a decision.
     const auto place = find_steep();
     if (!place.has_value()) {
         FAIL() << "the world offers no such place";
@@ -644,23 +657,16 @@ TEST(SlopeInTheSim, ALightAndAHeavyUnitSlideByOneFactor) {
     const Unit heavy_start = the_player(heavy);
     ASSERT_EQ(light_start.x.raw, heavy_start.x.raw);
     ASSERT_EQ(light_start.y.raw, heavy_start.y.raw);
+    ASSERT_NE(profile(UnitKind::Scout).max_speed.raw, profile(UnitKind::Walker).max_speed.raw)
+        << "the test needs two different engines";
     light.step();
     heavy.step();
-    const std::int64_t light_step = profile(UnitKind::Scout).max_speed.raw;
-    const std::int64_t heavy_step = profile(UnitKind::Walker).max_speed.raw;
-    ASSERT_NE(light_step, heavy_step) << "the test needs two different engines";
-    const Step light_drift = slide_at(kSeed, light_start.x, light_start.y, light_step);
-    const Step heavy_drift = slide_at(kSeed, heavy_start.x, heavy_start.y, heavy_step);
-    ASSERT_GT(std::abs(light_drift.dx) + std::abs(light_drift.dy), 0);
-    EXPECT_EQ(the_player(light).x.raw - light_start.x.raw, light_drift.dx);
-    EXPECT_EQ(the_player(light).y.raw - light_start.y.raw, light_drift.dy);
-    EXPECT_EQ(the_player(heavy).x.raw - heavy_start.x.raw, heavy_drift.dx);
-    EXPECT_EQ(the_player(heavy).y.raw - heavy_start.y.raw, heavy_drift.dy);
-    // One factor: drift / step is the same for both, to the rounding of a raw unit in each.
-    EXPECT_NEAR(static_cast<double>(light_drift.dx) / static_cast<double>(light_step),
-                static_cast<double>(heavy_drift.dx) / static_cast<double>(heavy_step), 1e-3);
-    EXPECT_NEAR(static_cast<double>(light_drift.dy) / static_cast<double>(light_step),
-                static_cast<double>(heavy_drift.dy) / static_cast<double>(heavy_step), 1e-3);
+    const Step roll = slide_at(kSeed, light_start.x, light_start.y);
+    ASSERT_GT(std::abs(roll.dx) + std::abs(roll.dy), 0);
+    EXPECT_EQ(the_player(light).x.raw - light_start.x.raw, roll.dx);
+    EXPECT_EQ(the_player(light).y.raw - light_start.y.raw, roll.dy);
+    EXPECT_EQ(the_player(heavy).x.raw - heavy_start.x.raw, roll.dx);
+    EXPECT_EQ(the_player(heavy).y.raw - heavy_start.y.raw, roll.dy);
 }
 
 } // namespace

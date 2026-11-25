@@ -94,19 +94,23 @@ namespace route_detail {
     return x >= 0 && y >= 0 && x < kRouteTiles && y < kRouteTiles;
 }
 
-/// The way a tile's slope runs when it THROWS a unit: a unit parked there is carried by more than
-/// half its own step a tick (`parked_drift`: the press past the grip), so it cannot hold any line
-/// but the one the slope runs -- the old slide's criterion, a drift past half a step, read off the
-/// press. As the nearest of the eight unit steps; (0, 0) for a tile that holds a unit. The same for
-/// every unit (one thrust-to-weight: see steering.hpp), so it takes no speed. A ground without
-/// heights has none.
+/// The way a tile's slope runs when it THROWS a unit: the press there beats a unit's whole thrust
+/// by more than half its step (`press_past_thrust`), so no engine holds any line on it but the one
+/// the slope runs -- the old slide's criterion, a drift past half a step, read off the press. As
+/// the nearest of the eight unit steps; (0, 0) for a tile that does not throw. The same for every
+/// unit (one thrust-to-weight: see steering.hpp), so it takes no speed. A ground without heights
+/// has none. A tile is two drawn triangles (`face_triangles`, G7); the one that throws harder is
+/// the tile's answer, as the wall is either triangle's.
 template <class Ground>
 [[nodiscard]] std::array<int, 2> slide_way_of(const Ground& ground, int x, int y) {
     if constexpr (HasHeights<Ground>) {
-        const Gradient g = gradient_under(ground, Fixed::from_int(x), Fixed::from_int(y));
-        const Step drift = parked_drift(g, Fixed::kOne);
-        if (((drift.dx * drift.dx) + (drift.dy * drift.dy)) * 4
-            <= std::int64_t{Fixed::kOne} * Fixed::kOne) {
+        const auto height = [&](int tx, int ty) { return ground.height(tx, ty); };
+        const std::array<Gradient, 2> faces = face_triangles(height, x, y);
+        const Step upper = press_past_thrust(faces[0], Fixed::kOne);
+        const Step lower = press_past_thrust(faces[1], Fixed::kOne);
+        const auto size = [](Step s) { return (s.dx * s.dx) + (s.dy * s.dy); };
+        const Step drift = size(lower) > size(upper) ? lower : upper;
+        if (size(drift) * 4 <= std::int64_t{Fixed::kOne} * Fixed::kOne) {
             return {0, 0};
         }
         // Down the slope, to the nearest octant: a component counts when it is more than

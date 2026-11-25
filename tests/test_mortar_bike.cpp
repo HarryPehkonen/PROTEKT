@@ -36,15 +36,23 @@ struct Field {
 /// still checked against the CURRENT rule below, so a world that stops making it clear fails loudly
 /// (seed 0) rather than moving silently. What (45, 20) shows -- a shot fired mid-scoot, then the
 /// next from the end of the same scoot -- is reported as a finding, not fixed here.
+///
+/// RE-PINNED, G7 (gravity and friction). A parked unit now rolls wherever friction does not hold
+/// it, past 25.6 a tile, not past the steepest grade's 38.4 -- and (50, 20)'s field has ground
+/// that rolls, so the check below failed and every doctrine test with it. The first 40 x 24 field
+/// on seed 1 where BOTH drawn triangles of every tile hold a unit (scan order, by a probe over the
+/// same rule) is (42, 8); (42, 10), two rows on, is the one taken, to keep the doctrine's ground
+/// at the same y-distance from the map's edge as before. The check now reads both triangles,
+/// because a unit stands on either.
 [[nodiscard]] Field open_field() {
-    constexpr Field kPinned{1, 50, 20};
+    constexpr Field kPinned{1, 42, 10};
+    const auto height
+        = [seed = kPinned.seed](int x, int y) { return world::sample(seed, x, y).height; };
     for (int dy = 0; dy < 24; ++dy) {
         for (int dx = 0; dx < 40; ++dx) {
-            const Fixed at = Fixed::from_int(kPinned.x + dx);
-            const Fixed by = Fixed::from_int(kPinned.y + dy);
-            const Step drift = slide_at(kPinned.seed, at, by);
-            if (!tile_passable(kPinned.seed, kPinned.x + dx, kPinned.y + dy) || drift.dx != 0
-                || drift.dy != 0) {
+            const auto faces = face_triangles(height, kPinned.x + dx, kPinned.y + dy);
+            if (!tile_passable(kPinned.seed, kPinned.x + dx, kPinned.y + dy)
+                || !friction_holds(faces[0]) || !friction_holds(faces[1])) {
                 return Field{};
             }
         }

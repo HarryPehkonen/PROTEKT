@@ -136,8 +136,10 @@ struct TileAt {
 
 TEST(Projectile, TimeOfFlightDamageDoesNotLandOnTheFiringTick) {
     // A player tank twelve tiles from an enemy factory: the very edge of its range.
+    // MOVED, G7: at (100, 100) on seed 42, a hillside, the two ROLLED out of each other's reach
+    // before the gun fired (it never did, measured). Here, (106..118, 18), every tile holds.
     Sim sim = make(
-        {{Side::Player, UnitKind::Tank, 100, 100}, {Side::Enemy, UnitKind::Recycler, 112, 100}});
+        {{Side::Player, UnitKind::Tank, 106, 18}, {Side::Enemy, UnitKind::Recycler, 118, 18}});
     const std::uint16_t full = sim.find(kSecond)->hp;
     const int fired_at = step_until_fired(sim);
     ASSERT_GT(fired_at, 0) << "the gun never fired";
@@ -416,8 +418,10 @@ TEST(Projectile, TheSameBattleGivesTheSameBoltsAndTheSameHash) {
 
 TEST(Projectile, TheBoltsAreInTheStateHash) {
     // Two sims identical in every unit field but one with a bolt in the air must hash differently.
+    // MOVED, G7: at (100, 100) on seed 42, a hillside, the two ROLLED out of each other's reach
+    // before the gun fired (it never did, measured). Here, (106..118, 18), every tile holds.
     Sim in_air = make(
-        {{Side::Player, UnitKind::Tank, 100, 100}, {Side::Enemy, UnitKind::Recycler, 112, 100}});
+        {{Side::Player, UnitKind::Tank, 106, 18}, {Side::Enemy, UnitKind::Recycler, 118, 18}});
     Sim copy = in_air;
     ASSERT_GT(step_until_fired(in_air), 0);
     ASSERT_FALSE(in_air.projectiles().empty());

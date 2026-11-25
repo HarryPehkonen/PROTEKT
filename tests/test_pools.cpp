@@ -6,6 +6,9 @@
 #include <optional>
 #include <vector>
 
+#include "level_ground.hpp"
+#include "protekt/world/ground.hpp"
+
 #include <gtest/gtest.h>
 
 #include "protekt/ai/utility.hpp"
@@ -522,6 +525,11 @@ Pool pool_on_a_clear_row() {
 }
 
 TEST(Pools, TheEnemysDeployOrderIsOneTheSimAcceptsAndCompletes) {
+    // ON LEVEL GROUND (G7): the rig's ground is a hillside, where a unit nobody drives now ROLLS
+    // (friction holds only to 25.6 a tile). None of the forty rows `pool_on_a_clear_row` tries on
+    // seed 20261023 holds a unit now, so it fell back to a hillside pool: this is about the deploy
+    // order.
+    const protekt::world::ScopedGround level(protekt::testing::level_ground());
     Scenario s;
     s.seed = kSeed;
     const Pool pool = pool_on_a_clear_row();

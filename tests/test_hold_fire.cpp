@@ -174,9 +174,11 @@ TEST(HoldFire, ALobbedShellHoldsWhenAFriendStandsInItsSplash) {
 
 TEST(HoldFire, ALobbedShellWithAClearLandingFires) {
     // The same friend three tiles from the enemy: outside the splash, so the shell is taken.
-    Sim sim = make({{Side::Player, UnitKind::MortarBike, 100, 100},
-                    {Side::Player, UnitKind::Recycler, 111, 103},
-                    {Side::Enemy, UnitKind::Recycler, 111, 100}});
+    // MOVED, G7, to the strip where nothing rolls (`QuietGround`): at (100, 100), a hillside, the
+    // idle friend ROLLED into the splash (84 of 100 hit points left, measured).
+    Sim sim = make({{Side::Player, UnitKind::MortarBike, 110, 14},
+                    {Side::Player, UnitKind::Recycler, 121, 17},
+                    {Side::Enemy, UnitKind::Recycler, 121, 14}});
     run(sim, 200);
     EXPECT_LT(hp(sim, kEnemy), full(sim, kEnemy));
     EXPECT_EQ(hp(sim, kFriend), full(sim, kFriend));

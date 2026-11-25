@@ -1,5 +1,8 @@
 // The simulation's contract. Everything asserted here is a property of the SPEC (sim.hpp and
 // the balance constants in units.hpp) -- never of whatever the implementation chose.
+#include "level_ground.hpp"
+#include "protekt/world/ground.hpp"
+
 #include <gtest/gtest.h>
 
 #include <cstdlib>
@@ -827,6 +830,11 @@ TEST(SimRepair, HpNeverExceedsTheKindMaximum) {
 }
 
 TEST(SimRepair, ATankJustOutsideTheRadiusGainsNothing) {
+    // ON LEVEL GROUND (G7): the rig's ground is a hillside, where a unit nobody drives now ROLLS
+    // (friction holds only to 25.6 a tile). The victim rolled off the radius's edge (52 = 52,
+    // measured): this is about the radius, not the hill.
+    const protekt::world::ScopedGround level(protekt::testing::level_ground());
+
     const std::uint16_t alone = victim_hp_after({}, kRepairTicks);
     const std::uint16_t outside = victim_hp_after(
         {{UnitKind::Factory, Side::Player, 96, 96 - kRepairRadiusTiles - 1}}, kRepairTicks);

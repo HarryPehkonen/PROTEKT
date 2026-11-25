@@ -95,21 +95,37 @@ inline constexpr std::int64_t kDiagonalDenominator = 256;
 inline constexpr std::int64_t kSteepestGradeRise = 3;
 inline constexpr std::int64_t kSteepestGradeRun = 5;
 
-/// THE GRADIENT of the ground under a unit in tile (`x`, `y`), DOUBLED so it stays an integer.
+/// THE GRADIENT of the ground under a unit, DOUBLED (twice the rise per tile) so every face's is an
+/// integer.
 ///
-/// The drawn ground puts tile (x, y)'s height at the lattice CORNER (x, y) (`game::ground_metres`),
-/// so the ground under a unit in that tile is the face between its own four corners, x..x+1 and
-/// y..y+1. Its gradient is the central difference ACROSS that face -- the mean of its two edges
-/// in each direction, over a run of exactly one tile:
-///     2 * dh/dx = (h(x+1, y) - h(x, y)) + (h(x+1, y+1) - h(x, y+1))
-///     2 * dh/dy = (h(x, y+1) - h(x, y)) + (h(x+1, y+1) - h(x+1, y))
-/// Nothing outside the unit's own face is read: level ground beside a cliff has a gradient of
-/// zero, however near the edge it stands. There is no "run" to guess and no 181/256 anywhere in
-/// the force: a diagonal slope has both components, and its steepness is their magnitude.
+/// THE CORNERS (G7): the drawn ground puts tile (x, y)'s height at the lattice CORNER (x, y), and
+/// draws the tile as TWO TRIANGLES split on the (x, y)-(x+1, y+1) diagonal (`game::ground_metres`'
+/// `blend_corners`): the UPPER one (fraction fx >= fy) through corners 00, 10, 11, the LOWER one
+/// (fx < fy) through 00, 01, 11. Each is a plane, and its gradient is exact:
+///     upper:  dh/dx = h10 - h00,  dh/dy = h11 - h10
+///     lower:  dh/dx = h11 - h01,  dh/dy = h01 - h00
+/// The slope under a unit is the triangle it stands on (`gradient_under`) -- the ground the player
+/// SEES. (G6 read the mean of the four corners' edges, the quad's average slope: on a tile whose
+/// corners are not in one plane -- 642 of 800 points sampled on seed 42 -- that is a slope drawn
+/// nowhere, and a corner the player sees as a cliff read as half a climb.) Nothing outside the
+/// unit's own tile is read: level ground beside a cliff has a gradient of zero, however near the
+/// edge it stands. There is no "run" to guess and no 181/256 anywhere in the force: a diagonal
+/// slope has both components, and its steepness is their magnitude.
 struct Gradient {
     std::int64_t x2{}; ///< twice the rise per tile along +x, height units
     std::int64_t y2{}; ///< twice the rise per tile along +y
 };
+
+/// The two drawn triangles of tile (`x`, `y`), from a `height(x, y)` callable: [0] the upper
+/// (fx >= fy), [1] the lower. Doubled, as every `Gradient` is.
+template <class Height>
+[[nodiscard]] constexpr std::array<Gradient, 2> face_triangles(const Height& height, int x, int y) {
+    const std::int64_t h00 = height(x, y);
+    const std::int64_t h10 = height(x + 1, y);
+    const std::int64_t h01 = height(x, y + 1);
+    const std::int64_t h11 = height(x + 1, y + 1);
+    return {Gradient{2 * (h10 - h00), 2 * (h11 - h10)}, Gradient{2 * (h11 - h01), 2 * (h01 - h00)}};
+}
 
 /// floor(sqrt(n)) for n >= 0, in a constexpr the wall can be derived with.
 [[nodiscard]] constexpr std::int64_t isqrt_floor(std::int64_t n) noexcept {
@@ -176,12 +192,14 @@ inline constexpr std::int64_t kDoubledRun = std::int64_t{2} * world::kHeightUnit
            > kSteepestGradeRise * kSteepestGradeRise * kDoubledRun * kDoubledRun;
 }
 
-/// THE PARKED UNIT of full step `thrust`: one not driving this tick stands on its brakes, and the
-/// grip that lets it climb the steepest grade is the grip that holds it still there. So ground up
-/// to that grade holds a parked unit, and steeper ground carries it by what the press has past
-/// that grip -- continuously, from nothing at the grade itself. Without it every hill in the world
-/// would roll every parked unit into the valleys.
-[[nodiscard]] constexpr Step parked_drift(Gradient g, std::int64_t thrust) noexcept {
+/// WHAT THE PRESS HAS PAST A WHOLE THRUST on ground of gradient `g`, for a unit of full step
+/// `thrust`: zero on ground a unit climbs, and on steeper ground the press less one thrust,
+/// continuously from nothing at the steepest grade. It is the planner's measure of ground that
+/// THROWS a unit (`route_detail::slide_way_of`: past half a step, no engine holds a line across
+/// it). (G6 also used it as the parked unit's drift, so a parked unit was held on everything it
+/// could climb and never rolled back; G7 gives the parked unit gravity and friction instead,
+/// `slide_tick`.)
+[[nodiscard]] constexpr Step press_past_thrust(Gradient g, std::int64_t thrust) noexcept {
     if (!too_steep_to_climb(g)) {
         return Step{};
     }
@@ -203,12 +221,13 @@ inline constexpr std::int64_t kDoubledRun = std::int64_t{2} * world::kHeightUnit
 /// holds a parked unit, and carries the unit sideways only by what it has past that grip (the
 /// veer, on ground steeper than a unit climbs). One force, and one grip, read the one way a
 /// vehicle reads them: nothing here can turn a driver round unless the slope genuinely opposes
-/// his heading by more than his engine. A zero heading is a parked unit (`parked_drift`).
+/// his heading by more than his engine. A zero heading is no drive, and no press of the engine's:
+/// a unit not driven is gravity's and friction's (`slide_tick`).
 [[nodiscard]] constexpr Step driven_press(Gradient g, std::int64_t thrust, std::int64_t hx,
                                           std::int64_t hy) noexcept {
     const std::int64_t h2 = (hx * hx) + (hy * hy);
     if (h2 == 0) {
-        return parked_drift(g, thrust);
+        return Step{};
     }
     const Step press = press_of(g, thrust);
     const std::int64_t dot = (press.dx * hx) + (press.dy * hy);
@@ -274,23 +293,16 @@ inline constexpr std::int64_t kWallThrust = 4096;
     return against > 0 && against * against >= h2 * kWallThrust * kWallThrust;
 }
 
-/// The gradient of tile (`x`, `y`)'s own face, from a `height(x, y)` callable: the face between its
-/// four corners (`Gradient`, `gradient_under`).
-template <class Height>
-[[nodiscard]] constexpr Gradient face_gradient(const Height& height, int x, int y) {
-    const std::int64_t h00 = height(x, y);
-    const std::int64_t h10 = height(x + 1, y);
-    const std::int64_t h01 = height(x, y + 1);
-    const std::int64_t h11 = height(x + 1, y + 1);
-    return Gradient{(h10 - h00) + (h11 - h01), (h01 - h00) + (h11 - h10)};
-}
-
-/// May a unit drive INTO tile (`x`, `y`) heading along (`hx`, `hy`)? Yes unless the press on that
-/// tile's own face beats it that way (`press_beats`). `height(x, y)` is the ground's heights.
+/// May a unit drive INTO tile (`x`, `y`) heading along (`hx`, `hy`)? Yes unless the press on one
+/// of that tile's two drawn triangles (`face_triangles`) beats it that way (`press_beats`): a face
+/// the player sees as a cliff is a wall, whichever half of the tile it is drawn in. ONE answer for
+/// the whole tile, so the mover and the route planner, which plans in tiles, still ask the same
+/// question (G5). `height(x, y)` is the ground's heights.
 template <class Height>
 [[nodiscard]] constexpr bool drivable(const Height& height, int x, int y, std::int64_t hx,
                                       std::int64_t hy) {
-    return !press_beats(face_gradient(height, x, y), hx, hy);
+    const std::array<Gradient, 2> faces = face_triangles(height, x, y);
+    return !press_beats(faces[0], hx, hy) && !press_beats(faces[1], hx, hy);
 }
 
 /// What the wall comes to on one axis face, as a height: the steepest rise a tile that a unit
@@ -308,7 +320,84 @@ static_assert(steepest_drivable_rise() == 38,
 static_assert(!too_steep_to_climb(Gradient{std::int64_t{2} * steepest_drivable_rise(), 0})
                   && too_steep_to_climb(Gradient{std::int64_t{2} * (steepest_drivable_rise() + 1),
                                                  0}),
-              "ground a unit can drive up is ground it can park on, and no steeper");
+              "the wall and the steepest grade are one quantity");
+
+/// GRAVITY (G7), the one magnitude: g = 9.81 m/s^2, as a rational number of raw units (Q16.16
+/// tiles) per tick per tick. Its value in this world is `kGravity` (units.hpp), where the tick and
+/// the tile's metres are known.
+struct Acceleration {
+    std::int64_t num{}; ///< raw per tick^2 is num / den
+    std::int64_t den{1};
+};
+
+/// FRICTION (G7): the coefficient of friction between a unit at rest and the ground under it, a
+/// pure ratio (friction force over the weight pressing it to the ground), mu = 2 / 5 = 0.40. It is
+/// the 40 percent SIDE SLOPE an M1 Abrams is specified to hold: the steepest ground a tank is held
+/// on BROADSIDE, the way it is not driving. A parked unit has no heading in this sim -- nothing
+/// records which way its hull lies -- so the grade that holds it is the one that holds a tank
+/// whichever way it lies, which is the broadside figure (straight up or down its tracks, on its
+/// brakes, a real tank holds more). On ground of slope t = tan(angle) it slides from rest exactly
+/// when gravity along the ground beats it, t > mu: 0.40 * 64 = 25.6 height units a tile (21.8
+/// degrees) -- the same steepness whichever way the ground falls, because only |g| enters.
+///
+/// DECLARED, as the 60 percent grade was: the Leopard 2's sheet says 30 percent side slope, which
+/// would set sliding at 19.2 a tile. The M1's figure is the one taken, because the steepest-grade
+/// figure is the M1's too and the two together describe one vehicle.
+inline constexpr std::int64_t kFrictionNum = 2;
+inline constexpr std::int64_t kFrictionDen = 5;
+
+/// THE THREE THRESHOLDS, which are now three quantities and no picked number:
+///     a slope you SLIDE on (parked)  = gravity beats friction            t > 0.40 (25.6 a tile)
+///     a slope you CANNOT CLIMB       = gravity beats the engine           t > 0.60 (38.4 a tile)
+///     between them a unit climbs under thrust and rolls back without it.
+/// Is ground of gradient `g` held by friction alone? Exact, in integers: mu^2 * kDoubledRun^2 >=
+/// |2g|^2, with mu = num / den.
+[[nodiscard]] constexpr bool friction_holds(Gradient g) noexcept {
+    const std::int64_t a2 = (g.x2 * g.x2) + (g.y2 * g.y2);
+    return kFrictionDen * kFrictionDen * a2
+           <= kFrictionNum * kFrictionNum * kDoubledRun * kDoubledRun;
+}
+static_assert(friction_holds(Gradient{std::int64_t{2} * 25, 0})
+                  && !friction_holds(Gradient{std::int64_t{2} * 26, 0}),
+              "friction holds to 25.6 a tile: mu moved, restate it");
+static_assert(!friction_holds(Gradient{std::int64_t{2} * steepest_drivable_rise(), 0}),
+              "between sliding and the wall there is ground you climb under thrust and roll back "
+              "down without it -- his report: friction must give before the engine does");
+
+/// ONE TICK OF A UNIT NOBODY IS DRIVING (G7): its slide velocity `v` (raw a tick) after a tick on
+/// ground of gradient `g`, under `gravity`. "Think of an incline as acceleration downhill, plus
+/// friction" -- Coulomb's, with the one coefficient for at rest and for sliding:
+///
+/// On ground rising t = tan(angle), gravity along the ground is g sin, and its HORIZONTAL part --
+/// the sim moves units in the plane -- g sin cos = g t / (1 + t^2), straight downhill. Friction
+/// resists with up to mu times the weight on the ground, mu g cos, horizontally mu g cos^2 = mu g /
+/// (1 + t^2), against the motion (or, at rest, against the pull). With t = |2g| / kDoubledRun that
+/// is, in integers and with no square root:
+///     pull     = -gravity * 2g * D / (D^2 + |2g|^2)        D = kDoubledRun
+///     friction =  gravity * mu * D^2 / (D^2 + |2g|^2)
+/// The tick: w = v + pull; if friction can stop w it does (|w| <= friction: v = 0, which is also
+/// "at rest and held" when friction_holds); else v = w less friction along w. So from rest on
+/// uniform ground the unit gains a = g (t - mu) / (1 + t^2) every tick, and on level ground a
+/// moving one loses mu g (142.9 raw a tick^2) until it stops. Velocity first, then position
+/// (semi-implicit): the caller moves the unit by the returned velocity.
+///
+/// Worked in 1/256 of a raw unit so a gentle slope's acceleration (11 raw a tick^2 at 28 a tile)
+/// is not rounded to the nearest raw unit before it is summed; returned in raw.
+[[nodiscard]] constexpr Step slide_tick(Gradient g, Step v, Acceleration gravity) noexcept {
+    constexpr std::int64_t kFine = 256;
+    constexpr std::int64_t kD = kDoubledRun;
+    const std::int64_t a2 = (g.x2 * g.x2) + (g.y2 * g.y2);
+    const std::int64_t denom = gravity.den * ((kD * kD) + a2);
+    const std::int64_t wx = (v.dx * kFine) - (gravity.num * kFine * g.x2 * kD / denom);
+    const std::int64_t wy = (v.dy * kFine) - (gravity.num * kFine * g.y2 * kD / denom);
+    const std::int64_t friction
+        = gravity.num * kFine * kFrictionNum * kD * kD / (denom * kFrictionDen);
+    const std::int64_t w = isqrt_floor((wx * wx) + (wy * wy));
+    if (w <= friction) {
+        return Step{};
+    }
+    return Step{wx * (w - friction) / w / kFine, wy * (w - friction) / w / kFine};
+}
 
 /// A ground that knows heights: `std::int64_t`-convertible `height(tile_x, tile_y)`. A ground
 /// without one (a drawn crater map) is level, and none of the slope rules touch it.
@@ -489,18 +578,22 @@ template <class Ground>
     return StepPlan{Step{}, request.detour, false};
 }
 
-/// THE GRADIENT under a unit standing at (`x`, `y`): its own tile's face (`Gradient`).
+/// THE GRADIENT under a unit standing at (`x`, `y`): the drawn triangle of its tile that it stands
+/// on (`Gradient`, `face_triangles`) -- the upper one when its fraction across the tile in x is at
+/// least its fraction in y, exactly as the renderer splits it.
 template <class Ground>
     requires HasHeights<Ground>
 [[nodiscard]] Gradient gradient_under(const Ground& ground, Fixed x, Fixed y) noexcept {
     const auto height = [&](int tx, int ty) { return ground.height(tx, ty); };
-    return face_gradient(height, x.floor_int(), y.floor_int());
+    const std::array<Gradient, 2> faces = face_triangles(height, x.floor_int(), y.floor_int());
+    constexpr std::int32_t kMask = Fixed::kOne - 1;
+    return (x.raw & kMask) >= (y.raw & kMask) ? faces[0] : faces[1];
 }
 
 /// THE PRESS (G6): what the slope does to a unit of full step `thrust` standing at (`x`, `y`) this
 /// tick, raw, when it drove (`heading_dx`, `heading_dy`) under its own power -- zero for a unit
-/// that did not, which stands on its brakes (`driven_press`, `parked_drift`). Pure and stateless:
-/// off the slope there is no press, with nothing to clear.
+/// that did not, which is gravity's and friction's instead (`slide_tick`, G7). Pure and
+/// stateless: off the slope there is no press, with nothing to clear.
 ///
 /// The caller ADDS this to the unit's commanded step; it is never a replacement for it. Its
 /// component along the heading is the slow climb and the fast descent, its component across the

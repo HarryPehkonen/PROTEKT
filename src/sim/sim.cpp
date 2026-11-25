@@ -2233,30 +2233,9 @@ void move(std::vector<Unit>& units, const WorldGround& ground, const UnitProfile
            && unit.still_ticks >= kMountTicks;
 }
 
-/// THE PRESS (M1, G6). After the unit has moved as commanded, the slope has its say: `plan_press`'s
-/// step for a unit whose step on this ground is `thrust`, ADDED to the commanded move, not instead
-/// of it, so steering never cancels it. A unit that drove this tick (`drove_dx`, `drove_dy`: its
-/// own move) feels it as a vehicle does, rolling along its heading and gripping across it
-/// (`driven_press`); one that did not is parked on its brakes and gets only what is past their
-/// grip (nothing, on any slope a unit can climb). Not a drive: `still_ticks` is left alone, so a
-/// crawling turret does not count the press as motion of its own, and no vehicle is shoved.
-///
-/// The press goes where it points unless that is ground the unit cannot stand on or a face that
-/// is a wall that way (`drivable`); then each axis of it alone, as the mover tries a step; else
-/// nothing this tick. A wall is a wall to the press as it is to the engine.
-///
-/// THE GROUND OF THE TICK (G5): the press is the slope under (`from_x`, `from_y`), where the unit
-/// stood when the tick began -- one tick's forces from one state. Read from where the move ENDED
-/// instead, the tick that carried a unit over the brow of a climb gave it the climb on the way up
-/// AND the slope of the tile above, back down that same edge: one edge's gravity twice, which held
-/// a tank at the top of a climbable step for ever -- "I can climb a VERY steep hill, but not get
-/// over the very top of it".
-void press(const WorldGround& ground, Unit& unit, std::int64_t thrust, Fixed from_x, Fixed from_y,
-           std::int64_t drove_dx, std::int64_t drove_dy) noexcept {
-    const Step push = plan_press(ground, from_x, from_y, thrust, drove_dx, drove_dy);
-    if (push.dx == 0 && push.dy == 0) {
-        return;
-    }
+/// Moves `unit` by `push` where it can go: all of it, else each axis of it alone, as the mover
+/// tries a step; else nothing. A roll stopped on an axis loses its speed on that axis.
+void slide_by(const WorldGround& ground, Unit& unit, Step push) noexcept {
     const int here_x = unit.x.floor_int();
     const int here_y = unit.y.floor_int();
     const auto height = [&](int tx, int ty) { return ground.height(tx, ty); };
@@ -2277,8 +2256,67 @@ void press(const WorldGround& ground, Unit& unit, std::int64_t thrust, Fixed fro
         }
         unit.x = nx;
         unit.y = ny;
+        // A roll that went only one way lost its speed the other way, against what stopped it.
+        if (tried.dx == 0) {
+            unit.roll_vx = Fixed::zero();
+        }
+        if (tried.dy == 0) {
+            unit.roll_vy = Fixed::zero();
+        }
         return;
     }
+    unit.roll_vx = Fixed::zero(); // stopped dead
+    unit.roll_vy = Fixed::zero();
+}
+
+/// THE PRESS (M1, G6). After the unit has moved as commanded, the slope has its say: `plan_press`'s
+/// step for a unit whose step on this ground is `thrust`, ADDED to the commanded move, not instead
+/// of it, so steering never cancels it. A unit that drove this tick (`drove_dx`, `drove_dy`: its
+/// own move) feels it as a vehicle does, rolling along its heading and gripping across it
+/// (`driven_press`); one that did not is gravity's and friction's (below, G7). Not a drive:
+/// `still_ticks` is left alone, so a
+/// crawling turret does not count the press as motion of its own, and no vehicle is shoved.
+///
+/// The press goes where it points unless that is ground the unit cannot stand on or a face that
+/// is a wall that way (`drivable`); then each axis of it alone, as the mover tries a step; else
+/// nothing this tick. A wall is a wall to the press as it is to the engine.
+///
+/// THE GROUND OF THE TICK (G5): the press is the slope under (`from_x`, `from_y`), where the unit
+/// stood when the tick began -- one tick's forces from one state. Read from where the move ENDED
+/// instead, the tick that carried a unit over the brow of a climb gave it the climb on the way up
+/// AND the slope of the tile above, back down that same edge: one edge's gravity twice, which held
+/// a tank at the top of a climbable step for ever -- "I can climb a VERY steep hill, but not get
+/// over the very top of it".
+///
+/// THE UNDRIVEN UNIT (G7). One that did not drive this tick is no longer "on its brakes, held on
+/// everything it can climb" (G6, which meant a unit let go on a hill it had just climbed sat there
+/// -- his report): it is gravity's and friction's (`slide_tick`). Its roll velocity
+/// (`Unit::roll_vx`) gains gravity's pull down the slope under (`from_x`, `from_y`) and loses
+/// friction's grip, and it moves by it; on ground friction holds it does not move at all. A unit
+/// that drives has the engine's say instead, and its roll is spent (the engine holds the speed it
+/// is commanded). Where the roll is stopped -- ground it cannot stand on, a wall -- the speed into
+/// it is lost.
+void press(const WorldGround& ground, Unit& unit, std::int64_t thrust, Fixed from_x, Fixed from_y,
+           std::int64_t drove_dx, std::int64_t drove_dy) noexcept {
+    if (drove_dx == 0 && drove_dy == 0) {
+        const Step v = slide_tick(gradient_under(ground, from_x, from_y),
+                                  Step{unit.roll_vx.raw, unit.roll_vy.raw}, kGravity);
+        unit.roll_vx = Fixed::from_raw(static_cast<std::int32_t>(v.dx));
+        unit.roll_vy = Fixed::from_raw(static_cast<std::int32_t>(v.dy));
+        if (v.dx != 0 || v.dy != 0) {
+            slide_by(ground, unit, v);
+        }
+        return;
+    }
+    unit.roll_vx = Fixed::zero(); // the engine has it now
+    unit.roll_vy = Fixed::zero();
+    const Step push = plan_press(ground, from_x, from_y, thrust, drove_dx, drove_dy);
+    if (push.dx == 0 && push.dy == 0) {
+        return;
+    }
+    slide_by(ground, unit, push);
+    unit.roll_vx = Fixed::zero(); // a driven unit's press is not a roll it keeps
+    unit.roll_vy = Fixed::zero();
 }
 
 // FNV-1a over little-endian bytes: specified here, so the hash is the same on every machine.
@@ -2653,20 +2691,30 @@ void Sim::step(StepTimings* timings) {
         }
         // The deploy, before the mover: it may stand the recycler still, or turn it into a
         // building that does not move at all.
+        // A unit held by an errand of its own this tick does not roll on (G7): its roll is spent.
+        const auto held = [](Unit& u) {
+            u.roll_vx = Fixed::zero();
+            u.roll_vy = Fixed::zero();
+        };
         if (unit.kind == UnitKind::Recycler && deploy_step(units_, scraps_, unit, seed)) {
+            held(unit);
             continue;
         }
         if (unit.kind == UnitKind::Scavenger
             && scavenger_deploy_step(units_, scenario_.pools, unit)) {
+            held(unit);
             continue;
         }
         if (is_turret(unit.kind) && turret_deploy_step(units_, scraps_, unit, seed)) {
+            held(unit);
             continue;
         }
         if (recycle_step(units_, scraps_, unit, ore_, scenario_.store_capacity, seed)) {
+            held(unit);
             continue;
         }
         if (unit.kind == UnitKind::Constructor && build_step(units_, unit)) {
+            held(unit);
             continue;
         }
         // Asked afresh for each unit, so a recycler that deployed earlier in this very loop is
@@ -2696,6 +2744,7 @@ void Sim::step(StepTimings* timings) {
         if (!prof.mobile) {
             unit.vx = Fixed::zero();
             unit.vy = Fixed::zero();
+            held(unit);
             continue;
         }
         const Clock::time_point steer_from = timed ? Clock::now() : Clock::time_point{};
@@ -2717,7 +2766,7 @@ void Sim::step(StepTimings* timings) {
         if (!planted(unit) && !airborne(unit)) {
             // Driving is MOVING under its own power this tick -- the mover's step and a strafe's
             // alike -- and the heading is the way it moved: a unit held by a wall, unmounting, or
-            // with nowhere to go stands on its brakes (a zero heading).
+            // with nowhere to go is not driven (a zero heading): gravity and friction have it.
             const std::int64_t drove_dx = static_cast<std::int64_t>(unit.x.raw) - from_x.raw;
             const std::int64_t drove_dy = static_cast<std::int64_t>(unit.y.raw) - from_y.raw;
             // The press is measured in the unit's step ON THIS GROUND: the terrain's drag that
@@ -2741,6 +2790,9 @@ void Sim::step(StepTimings* timings) {
             }
             const std::int64_t thrust = prof.max_speed.raw * ahead >> Fixed::kShift;
             press(ground, unit, thrust, from_x, from_y, drove_dx, drove_dy);
+        } else {
+            unit.roll_vx = Fixed::zero(); // planted, or in the air: nothing rolls it
+            unit.roll_vy = Fixed::zero();
         }
     }
 
@@ -3027,10 +3079,9 @@ bool tile_passable(std::uint64_t seed, int tile_x, int tile_y) noexcept {
            && terrain_speed_factor(world::sample(seed, tile_x, tile_y).terrain).raw != 0;
 }
 
-Step slide_at(std::uint64_t seed, Fixed x, Fixed y, std::int64_t thrust) noexcept {
+Step slide_at(std::uint64_t seed, Fixed x, Fixed y) noexcept {
     const WorldGround ground{seed, {}, false};
-    const std::int64_t here = ground.factor(x.floor_int(), y.floor_int());
-    return plan_press(ground, x, y, thrust * here >> Fixed::kShift, 0, 0);
+    return slide_tick(gradient_under(ground, x, y), Step{}, kGravity);
 }
 
 Step press_at(std::uint64_t seed, Fixed x, Fixed y, std::int64_t thrust) noexcept {
@@ -3217,6 +3268,10 @@ std::uint64_t Sim::state_hash() const noexcept {
         if (airborne(u)) {
             h.i32(u.lift.raw);   // a unit in a jump: nobody on the ground has either, so a battle
             h.i32(u.lift_v.raw); // that never jumps hashes exactly as it did before there was one
+        }
+        if (u.roll_vx.raw != 0 || u.roll_vy.raw != 0) {
+            h.i32(u.roll_vx.raw); // a unit rolling with nobody driving it (G7): set for no other
+            h.i32(u.roll_vy.raw);
         }
         if (u.host.valid()) {
             h.u64(u.host.value); // a Power Lung's structure: no other kind has one
