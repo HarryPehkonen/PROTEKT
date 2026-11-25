@@ -152,6 +152,10 @@ bool order_is_valid(const std::vector<Unit>& units, const std::vector<Pool>& poo
         return profile(unit->kind).mobile && !airborne(*unit)
                && isqrt(vx * vx + vy * vy) >= kJumpSpeedRaw;
     }
+    // BOOST (G10) is a mobile vehicle's: nothing about a building can be let go of by the ground.
+    if (std::holds_alternative<orders::Boost>(order.payload)) {
+        return profile(unit->kind).mobile;
+    }
     // UN-DEPLOY is a deployed turret's alone (a plain turret has nothing to take down, and a
     // deployed scavenger takes no order at all, above).
     if (std::holds_alternative<orders::Undeploy>(order.payload)) {
@@ -575,10 +579,19 @@ void apply_order(std::vector<Unit>& units, std::vector<Projectile>& projectiles,
         unit.lift_v = kJumpLaunch;
         unit.route = Route{};
         break;
+    case OrderKind::Boost:
+        if (const auto* o = std::get_if<orders::Boost>(&order.payload)) {
+            unit.grip_released = o->held; // the movement step reads it (`press`)
+        }
+        break;
     case OrderKind::TakeControl:
         // THE PLAYER TAKES THE HELM: one slot, so this unit becomes the driven one and the last
         // one (if any) is released. Nothing else about the unit changes -- no stance, no
-        // destination, no velocity -- because the player steers it every tick.
+        // destination, no velocity -- because the player steers it every tick. The boost is the
+        // DRIVER's (G10): the hull he leaves gets the ground's grip back.
+        if (Unit* left = find_mut(units, driven); left != nullptr && driven != order.unit) {
+            left->grip_released = false;
+        }
         driven = order.unit;
         break;
     }
@@ -2398,15 +2411,30 @@ void take_off(const WorldGround& ground, Unit& unit, Fixed from_x, Fixed from_y)
 /// that drives has the engine's say instead, and its roll is spent (the engine holds the speed it
 /// is commanded). Where the roll is stopped -- ground it cannot stand on, a wall -- the speed into
 /// it is lost.
+///
+/// THE GRIP RELEASED (G10, `Unit::grip_released`: the driver holds E). The ground holds nothing:
+/// the roll is gravity's with NO friction (`kNoFriction`), so a unit parked on a ramp friction
+/// would hold slides down it, and the roll is KEPT whether or not the unit drives. A driven unit
+/// still has its engine's step and the press on it exactly as it had (the slow climb, the fast
+/// descent, the veer) -- what the grip took away each tick, the speed gravity adds past that, is
+/// now added up instead: driving downhill boosted, the tank is faster than the normal downhill
+/// speed from its first tick, and faster every tick after, by gravity's whole pull. One act, two
+/// effects, both the ground letting go: no friction for the parked, and no friction for the
+/// driven.
 void press(const WorldGround& ground, Unit& unit, std::int64_t thrust, Fixed from_x, Fixed from_y,
            std::int64_t drove_dx, std::int64_t drove_dy) noexcept {
-    if (drove_dx == 0 && drove_dy == 0) {
+    const bool driving = drove_dx != 0 || drove_dy != 0;
+    if (!driving || unit.grip_released) {
         const Step v = slide_tick(gradient_under(ground, from_x, from_y),
-                                  Step{unit.roll_vx.raw, unit.roll_vy.raw}, kGravity);
+                                  Step{unit.roll_vx.raw, unit.roll_vy.raw}, kGravity,
+                                  unit.grip_released ? kNoFriction : kGroundFriction);
         unit.roll_vx = Fixed::from_raw(static_cast<std::int32_t>(v.dx));
         unit.roll_vy = Fixed::from_raw(static_cast<std::int32_t>(v.dy));
-        if (v.dx != 0 || v.dy != 0) {
-            slide_by(ground, unit, v);
+        const Step push
+            = driving ? plan_press(ground, from_x, from_y, thrust, drove_dx, drove_dy) : Step{};
+        const Step moved{v.dx + push.dx, v.dy + push.dy};
+        if (moved.dx != 0 || moved.dy != 0) {
+            slide_by(ground, unit, moved);
         }
         return;
     }
@@ -3387,6 +3415,9 @@ std::uint64_t Sim::state_hash() const noexcept {
         if (u.roll_vx.raw != 0 || u.roll_vy.raw != 0) {
             h.i32(u.roll_vx.raw); // a unit rolling with nobody driving it (G7): set for no other
             h.i32(u.roll_vy.raw);
+        }
+        if (u.grip_released) {
+            h.u64(1); // a unit its driver boosts (G10): set for no unit an AI commands
         }
         if (u.host.valid()) {
             h.u64(u.host.value); // a Power Lung's structure: no other kind has one

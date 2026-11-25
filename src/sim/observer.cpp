@@ -422,6 +422,8 @@ const char* to_string(OrderKind kind) noexcept {
         return "place";
     case OrderKind::Jump:
         return "jump";
+    case OrderKind::Boost:
+        return "boost";
     }
     return "unknown";
 }

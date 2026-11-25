@@ -839,8 +839,9 @@ TEST(CameraPositions, TheDrivenHullIsNotWhatAChaseViewPicks) {
 //
 // Harri: "the E key boosts you directly up, so if you are on non-level ground, you move 'up' in an
 // unexpected direction. I suppose you should be boosted in the 'normal' direction as you slide down
-// the hill." The boost is presentation only (the `Hover` spring; no unit has a z, so the sim never
-// sees it), so the direction is asserted on the POSITION the eye and the hull are drawn at.
+// the hill." The boost's LIFT is drawing only (the `Hover` spring; no unit has a hover height in
+// the sim -- what the sim sees of E is the grip released, G10, test_boost.cpp), so the direction is
+// asserted on the POSITION the eye and the hull are drawn at.
 
 /// A tile whose ground leans plainly: the sine of its tilt is at least `kLeans`.
 [[nodiscard]] std::optional<std::pair<int, int>> leaning_tile() {

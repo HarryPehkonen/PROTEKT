@@ -42,6 +42,7 @@ void PlayerCommander::reset_helm() noexcept {
     turn_rate_ = 0.0F;
     throttle_rate_ = 0.0F;
     strafe_rate_ = 0.0F;
+    boost_sent_ = false; // the sim gave the hull left behind its grip back (TakeControl)
 }
 
 void PlayerCommander::set_heading(float radians) noexcept {
@@ -145,6 +146,14 @@ void PlayerCommander::think(sim::UnitId unit, const sim::Observation& observatio
                           std::lround(std::cos(heading_) * strafe_rate_ * sim::Fixed::kOne))),
                       sim::Fixed::from_raw(static_cast<std::int32_t>(
                           std::lround(-std::sin(heading_) * strafe_rate_ * sim::Fixed::kOne)))}});
+    }
+
+    // THE BOOST (G10): the grip released or given back, a STATE on the hull, so it is said only
+    // when the key changes -- unlike a strafe it is not spent by the tick it lands on, and a frame
+    // that steps two ticks boosts both.
+    if (input_.boost != boost_sent_) {
+        out.push_back(sim::Order{unit, sim::orders::Boost{input_.boost}});
+        boost_sent_ = input_.boost;
     }
 }
 

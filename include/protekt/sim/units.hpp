@@ -448,12 +448,19 @@ struct Unit {
     /// THE ROLL (G7): how fast the ground is carrying this unit while NOBODY DRIVES IT, raw tiles
     /// a tick in the plane -- gravity's gain less friction's, a tick at a time (`slide_tick`). Zero
     /// for a unit held by friction, driven, planted or in the air, which is every unit on every
-    /// slope gentler than 25.6 a tile; hashed only when non-zero, so a battle where nothing rolls
-    /// hashes as it did before there was one. (G8: in the air the unit's speed across the map is
-    /// `vx`/`vy`, frozen at the speed it left the ground with; it LANDS with that speed as its
-    /// roll, which an engine then takes over and friction otherwise spends.)
+    /// slope gentler than 25.6 a tile -- unless its driver has released the grip (G10,
+    /// `grip_released`): then friction is zero, the roll is gravity's alone and is kept while it
+    /// drives as well, on top of its engine's step; hashed only when non-zero, so a battle where
+    /// nothing rolls hashes as it did before there was one. (G8: in the air the unit's speed across
+    /// the map is `vx`/`vy`, frozen at the speed it left the ground with; it LANDS with that speed
+    /// as its roll, which an engine then takes over and friction otherwise spends.)
     Fixed roll_vx{};
     Fixed roll_vy{};
+    /// THE GRIP RELEASED (G10): the driver holds the boost (`orders::Boost`), so the ground does
+    /// not hold this unit -- friction is zero (`kNoFriction`) and its roll keeps all of gravity's
+    /// pull, driven or not (`press`). Set and cleared only by the order, and cleared when the helm
+    /// leaves the unit; hashed only when set, so a battle nobody boosts in hashes as before.
+    bool grip_released{};
 };
 
 /// True while `unit` is in the air (a jump begun and not yet landed).

@@ -50,6 +50,9 @@ void Session::frame(const input::InputFrame& frame, const sim::Sim& sim,
     input.turn = (keys_.right ? 1.0F : 0.0F) - (keys_.left ? 1.0F : 0.0F);
     // The same keys strafe a hover tank; the commander reads whichever fits the unit it drives.
     input.strafe = input.turn;
+    // E: the boost. The same held key the scene's hover reads (`keys().boost`), so the hull that
+    // rises is the hull the ground lets go of (G10).
+    input.boost = !destroyed_ && keys_.boost;
     // The mouse looks. Moving it right looks right, and moving it down looks down.
     input.look_yaw = frame.mouse_dx * kLookRadiansPerPixel;
     input.look_pitch = -frame.mouse_dy * kLookRadiansPerPixel;

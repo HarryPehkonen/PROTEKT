@@ -457,8 +457,10 @@ struct GroundTilt {
 /// overshoots once and settles at kRideHeightMetres + this; released, it settles back. 0.9 m is
 /// half the 1.8 m hull: the daylight under it grows from 0.25 m to 1.15 m, plainly more than a bump
 /// in the ground could do, yet the hull is still less than a hull-and-a-bit off the ground rather
-/// than flying. Presentation only: no unit has a z, so boost changes no order, no tick and no
-/// hash.
+/// than flying. The lift is drawing only (no unit has a hover height in the sim), but the KEY is
+/// not: E is one act, the driver taking the vehicle off the ground's grip, and its other half is
+/// the sim's (G10, `sim::orders::Boost`): while it is held friction is zero, so the risen hull is
+/// the hull that slides.
 inline constexpr float kBoostLiftMetres = 0.9F;
 /// WHERE THE HULL'S CENTRE IS DRAWN, for a hull whose height is `hull_z` over the tile (`x`, `y`).
 /// What the hull has risen above its ride height (the boost, whatever the spring has made of it;

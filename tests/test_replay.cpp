@@ -81,6 +81,8 @@ void expect_same_order(const Order& got, const Order& want) {
                 EXPECT_EQ(g.tile_x, w.tile_x);
                 EXPECT_EQ(g.tile_y, w.tile_y);
                 EXPECT_EQ(g.turned, w.turned) << "a replay that drops the turn stands it wrong";
+            } else if constexpr (std::is_same_v<P, orders::Boost>) {
+                EXPECT_EQ(g.held, w.held) << "a replay that drops the boost grips the hull (G10)";
             }
         },
         want.payload);
@@ -175,6 +177,7 @@ TEST(Replay, EveryOrderKindSurvivesARoundTripAndNoneIsDropped) {
         Command{20, Order{UnitId{5}, orders::Repair{UnitId{6}}}},
         Command{21, Order{UnitId{6}, orders::Place{UnitKind::Power, 90, 140, true}}},
         Command{22, Order{UnitId{7}, orders::Jump{}}},
+        Command{23, Order{UnitId{8}, orders::Boost{true}}},
     };
     ASSERT_EQ(r.commands.size(), kOrderKindCount) << "this test must cover every kind";
     for (std::size_t i = 0; i < r.commands.size(); ++i) {
@@ -198,6 +201,8 @@ TEST(Replay, EveryOrderKindSurvivesARoundTripAndNoneIsDropped) {
         << "the rocket records the aim, not its balance numbers: " << text;
     EXPECT_NE(text.find("22 jump 7\n"), std::string::npos)
         << "a jump carries a unit and nothing else (M5): " << text;
+    EXPECT_NE(text.find("23 boost 8 65536\n"), std::string::npos)
+        << "a boost carries the key's state, held, as a whole-tile position (G10): " << text;
     EXPECT_NE(text.find("15 takecontrol 4\n"), std::string::npos)
         << "taking the helm carries a unit and nothing else: " << text;
     EXPECT_NE(text.find("16 build 2 589824 786432\n"), std::string::npos)

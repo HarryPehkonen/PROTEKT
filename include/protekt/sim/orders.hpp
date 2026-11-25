@@ -234,6 +234,20 @@ struct Place {
 /// jump below that speed does not happen, and the obstacle is bumped as ever.
 struct Jump {};
 
+/// BOOST (G10): THE DRIVER TAKES THE VEHICLE OFF THE GROUND'S GRIP, or gives it back. One key (E,
+/// held) and one act, seen twice: the hull rises along the ground's normal (the drawing's
+/// `game::Hover`, M2) and the ground stops holding it -- friction is zero (`Unit::grip_released`,
+/// `slide_tick`), so gravity's pull down the slope is opposed by nothing and is KEPT as speed, a
+/// tick at a time. Harri: "Hitting boost should reduce friction to zero, just like with a
+/// hovercraft." `held` is the key's state: the order is sent when it changes, and the unit keeps
+/// it until told otherwise (a held key is a state, like a throttle's MoveTo, not one tick's input
+/// like a Strafe: a frame that steps two ticks must not boost the first and grip on the second).
+/// It is the driver's, not the vehicle's: the helm leaving the unit gives it its grip back.
+/// Refused for a unit that is not a mobile vehicle (nothing about a building can slide).
+struct Boost {
+    bool held{};
+};
+
 } // namespace orders
 
 using OrderPayload
@@ -241,8 +255,8 @@ using OrderPayload
                    orders::FocusFire, orders::FireTowards, orders::Strafe, orders::Follow,
                    orders::FireLob, orders::Deploy, orders::Recycle, orders::FireFan,
                    orders::FireRocket, orders::TakeControl, orders::Build, orders::Undeploy,
-                   orders::Defend, orders::CancelBuild, orders::Repair, orders::Place,
-                   orders::Jump>;
+                   orders::Defend, orders::CancelBuild, orders::Repair, orders::Place, orders::Jump,
+                   orders::Boost>;
 
 /// How each payload alternative is named and reported. This is the payload's index, in the
 /// payload's order, and the assertions below make that true rather than intended.
@@ -279,9 +293,11 @@ enum class OrderKind : std::uint8_t {
     Place = 20,
     /// Appended after Place, never inserted, for the reason every value above was.
     Jump = 21,
+    /// Appended after Jump, never inserted, for the reason every value above was.
+    Boost = 22,
 };
 
-inline constexpr std::size_t kOrderKindCount = static_cast<std::size_t>(OrderKind::Jump) + 1;
+inline constexpr std::size_t kOrderKindCount = static_cast<std::size_t>(OrderKind::Boost) + 1;
 
 static_assert(std::variant_size_v<OrderPayload> == kOrderKindCount,
               "every alternative needs a kind, and every kind an alternative");
@@ -314,6 +330,7 @@ static_assert(std::is_same_v<PayloadOf<OrderKind::CancelBuild>, orders::CancelBu
 static_assert(std::is_same_v<PayloadOf<OrderKind::Repair>, orders::Repair>);
 static_assert(std::is_same_v<PayloadOf<OrderKind::Place>, orders::Place>);
 static_assert(std::is_same_v<PayloadOf<OrderKind::Jump>, orders::Jump>);
+static_assert(std::is_same_v<PayloadOf<OrderKind::Boost>, orders::Boost>);
 
 /// The kind is the payload's own index. There is no second field that can disagree with it, which
 /// is precisely what the flat record could not promise.
@@ -426,6 +443,10 @@ struct OrderFields {
         out.positions[2] = Fixed::from_int(p->tile_y);
         out.positions[3] = Fixed::from_int(p->turned ? 1 : 0);
         out.position_count = 4;
+    } else if (const auto* p = std::get_if<orders::Boost>(&payload)) {
+        // The key's state as a whole number, 0 or 1, read back with `floor_int`.
+        out.positions[0] = Fixed::from_int(p->held ? 1 : 0);
+        out.position_count = 1;
     } else if (const auto* p = std::get_if<orders::Recycle>(&payload)) {
         // The recycler as the target and nothing else: the destination is read from the unit when
         // the order is applied, so a recycler that drives away is followed rather than missed.

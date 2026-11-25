@@ -304,7 +304,7 @@ meaning, and those are in section 14.
 | `W` / `S` | throttle forward / back; the driven tank always drives the way its body points | [SHIPPED 029a7b1] |
 | `A` / `D` | turn the body, on the spot or while driving (a driven *hover tank* strafes instead) | [SHIPPED 029a7b1] |
 | mouse | turn the turret relative to the body; the crosshair is always screen centre; 0.0025 rad per pixel; pitch limited to 1.3 rad | [SHIPPED 491a3ec] |
-| `E` (held) | boost: lifts the hull; presentation only, not counted as "driving" | [SHIPPED 3c7070c] |
+| `E` (held) | boost: lifts the hull and releases the ground's grip -- friction zero while held (G10), so a parked hull slides down any slope and a driven one gathers speed downhill; not counted as "driving" | [SHIPPED 3c7070c; frictionless G10] |
 | left click | the trigger: one bolt along the crosshair; rate-limited to one every 8 ticks | [SHIPPED 826b1e6] |
 | right click | switch weapon, gun → rocket → mortar → bouncer → gun; the ONLY weapon switch | [SHIPPED a2400a9] |
 | `Space`, nothing selected | select the one own unit under the mark, if the world view draws it (inside the drawn radius); ground, hostiles and the driven tank are ignored. The mark, Space and the attack list only ever reach what the world view draws: inside the drawn radius, and for a hostile also inside the viewer's radar reach (40 tiles, a scout's 80) | [SHIPPED 3404ba9] |

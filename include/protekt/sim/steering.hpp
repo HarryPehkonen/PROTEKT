@@ -346,6 +346,20 @@ struct Acceleration {
 inline constexpr std::int64_t kFrictionNum = 2;
 inline constexpr std::int64_t kFrictionDen = 5;
 
+/// A coefficient of friction, as the pure ratio num / den.
+struct Friction {
+    std::int64_t num{};
+    std::int64_t den{1};
+};
+/// THE GROUND'S GRIP: mu = 0.40, above -- what holds every unit, and the only friction there was
+/// until G10.
+inline constexpr Friction kGroundFriction{kFrictionNum, kFrictionDen};
+/// THE GRIP RELEASED (G10): mu = 0. Not a tuning of the one above but its absence -- the driver
+/// holding the boost has taken the vehicle off the ground's grip (`orders::Boost`), "just like
+/// with a hovercraft", so nothing opposes gravity along the ground. The friction THRESHOLD is not
+/// moved: a gentle ramp still holds a tank nobody boosts (`friction_holds`).
+inline constexpr Friction kNoFriction{0, 1};
+
 /// THE THREE THRESHOLDS, which are now three quantities and no picked number:
 ///     a slope you SLIDE on (parked)  = gravity beats friction            t > 0.40 (25.6 a tile)
 ///     a slope you CANNOT CLIMB       = gravity beats the engine           t > 0.60 (38.4 a tile)
@@ -383,15 +397,21 @@ static_assert(!friction_holds(Gradient{std::int64_t{2} * steepest_drivable_rise(
 ///
 /// Worked in 1/256 of a raw unit so a gentle slope's acceleration (11 raw a tick^2 at 28 a tile)
 /// is not rounded to the nearest raw unit before it is summed; returned in raw.
-[[nodiscard]] constexpr Step slide_tick(Gradient g, Step v, Acceleration gravity) noexcept {
+///
+/// `mu` is the ground's grip (`kGroundFriction`) unless the driver has released it (G10,
+/// `kNoFriction`): then the friction term is zero, the unit gains the whole pull, g t / (1 + t^2),
+/// on ANY slope, and on the level it keeps whatever speed it has. What bounds that speed is not
+/// written here, because nothing in this tick takes energy away: it is the height the unit has
+/// fallen (sqrt(2 g h) along the ground, as for any frictionless body), and whatever stops it.
+[[nodiscard]] constexpr Step slide_tick(Gradient g, Step v, Acceleration gravity,
+                                        Friction mu = kGroundFriction) noexcept {
     constexpr std::int64_t kFine = 256;
     constexpr std::int64_t kD = kDoubledRun;
     const std::int64_t a2 = (g.x2 * g.x2) + (g.y2 * g.y2);
     const std::int64_t denom = gravity.den * ((kD * kD) + a2);
     const std::int64_t wx = (v.dx * kFine) - (gravity.num * kFine * g.x2 * kD / denom);
     const std::int64_t wy = (v.dy * kFine) - (gravity.num * kFine * g.y2 * kD / denom);
-    const std::int64_t friction
-        = gravity.num * kFine * kFrictionNum * kD * kD / (denom * kFrictionDen);
+    const std::int64_t friction = gravity.num * kFine * mu.num * kD * kD / (denom * mu.den);
     const std::int64_t w = isqrt_floor((wx * wx) + (wy * wy));
     if (w <= friction) {
         return Step{};

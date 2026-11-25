@@ -40,6 +40,7 @@ struct Replay {
 ///       firetowards <unit> <dir_x> <dir_y> <dir_z> <aimed_at>
 ///       firelob <unit> <dir_x> <dir_y> <dir_z> <round> <aimed_at>
 ///       build <unit> <kind> <batch>
+///       boost <unit> <held>            (`<held>` a whole-tile position: 65536 held, 0 let go)
 ///     (`<round>` is a raw number: 0 a contact round, 1 the bouncer's. The positions are
 ///     the order's fields in `fields_of`, written in that order, then the target.)
 ///   - numbers are decimal. Ticks, units and targets are plain integers. POSITIONS have two

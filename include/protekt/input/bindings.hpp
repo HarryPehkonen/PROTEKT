@@ -32,8 +32,9 @@ struct HeldKeys {
     bool back{};
     bool left{};
     bool right{};
-    /// E, held: the hover lifts while it is down. Presentation only, so `any()` -- "is the player
-    /// driving" -- does not count it.
+    /// E, held: the driver takes the vehicle off the ground's grip -- the hover lifts while it is
+    /// down, and the ground stops holding it (friction zero, `sim::orders::Boost`, G10). Not a
+    /// direction of travel, so `any()` -- "is the player driving" -- does not count it.
     bool boost{};
 
     [[nodiscard]] bool any() const noexcept { return forward || back || left || right; }

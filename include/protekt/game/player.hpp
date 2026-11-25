@@ -40,6 +40,9 @@ struct InputState {
     /// -1 (left) to +1 (right): sideways drift. Only a driven HoverTank reads it, and then it
     /// replaces `turn` -- the same A/D keys, a strafe instead of a turn.
     float strafe{};
+    /// E, held (G10): the driver takes the vehicle off the ground's grip -- the hull lifts (the
+    /// scene's `Hover`) and friction is zero (`sim::orders::Boost`). One key, one act.
+    bool boost{};
     float look_yaw{}; ///< radians to add to the view's yaw this frame; spent by the next `think`
     float
         look_pitch{}; ///< radians to add to the view's pitch this frame; spent by the next `think`
@@ -109,6 +112,9 @@ private:
     float turn_rate_{};     ///< eased -1..+1, what the helm has reached
     float throttle_rate_{}; ///< eased -1..+1, what the throttle has reached
     float strafe_rate_{};   ///< eased -1..+1, what the strafe has reached (hover only)
+    /// The boost the sim was last told for the driven hull (G10): the order is a state, sent when
+    /// the key's changes, and a new hull (`reset_helm`) has been told nothing yet.
+    bool boost_sent_{false};
     sim::Tick last_tick_{};
     bool clocked_{false}; ///< false until the first observation gives the clock a starting point
 };
