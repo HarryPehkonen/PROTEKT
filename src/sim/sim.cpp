@@ -947,6 +947,7 @@ inline constexpr int kFriendPlanBudget = 2048;
 /// searches), the plan is the plain one over terrain and buildings, as it always was: friends
 /// stand aside in time, and a unit is never refused an order because friends are round it.
 void plan_drive(const WorldGround& ground, const Unit& unit, TileXY goal, Route& route) {
+    route.no_way_round = false; // a new plan: whether a friend can be gone round is asked afresh
     const std::vector<TileXY> friends = friend_tiles(ground.units, unit, nullptr);
     if (!friends.empty() && plan_round_friends(ground, unit, friends, goal, route)) {
         return;
@@ -2351,22 +2352,22 @@ enum class Whose : std::uint8_t { Any, Friend, Foe };
     return ground.factor(fx.floor_int(), fy.floor_int()) != 0;
 }
 
-/// THE SHOVE. `step` is where `unit` is about to go. If that runs it into a vehicle OF THE OTHER
-/// SIDE, the unit goes at `kShoveSpeedNumerator/kShoveSpeedDenominator` of the step and the vehicle
-/// is carried the same distance, with half as much again to the side it already lies on so a
-/// head-on pair slides past instead of cancelling out. A FRIEND is never shoved and never passed
-/// through: the mover steps aside for it before it gets here (`step_aside`, G13), so what is left
-/// of the shove is a unit and a foe. Never a wall, three ways over:
-///   * a foe that cannot be carried (the map's edge, a crater, a building) is simply driven
+/// THE SHOVE. `step` is where `unit` is about to go. If that runs it into a vehicle `whose` names,
+/// the unit goes at `kShoveSpeedNumerator/kShoveSpeedDenominator` of the step and the vehicle is
+/// carried the same distance, with half as much again to the side it already lies on so a head-on
+/// pair slides past instead of cancelling out. WHO IS SHOVED (G13): a FOE, always (`Whose::Foe`,
+/// the ordinary call); a FRIEND only as the LAST answer (`Whose::Any`, from `move`), when the mover
+/// has no way round it -- route first, push last. Never a wall, three ways over:
+///   * a vehicle that cannot be carried (the map's edge, a crater, a building) is simply driven
 ///     through, at the same reduced speed;
-///   * a unit that has shoved for `kShoveYieldTicks` in a row stops colliding (with foes) until it
-///     has been clear of every foe for one tick;
+///   * a unit that has shoved for `kShoveYieldTicks` in a row stops colliding (with what it is
+///     shoving) until it has been clear of it for one tick;
 ///   * nothing is ever refused, so the step always lands.
 /// `step` is rewritten to the step to take. Only the pusher moves a vehicle -- a shoved vehicle
 /// does not shove in turn, so a convoy is not a chain reaction.
-void shove_step(std::vector<Unit>& units, const WorldGround& ground, Unit& unit,
-                Step& step) noexcept {
-    Unit* other = vehicle_in_the_way(units, unit, step.dx, step.dy, Whose::Foe);
+void shove_step(std::vector<Unit>& units, const WorldGround& ground, Unit& unit, Step& step,
+                Whose whose = Whose::Foe) noexcept {
+    Unit* other = vehicle_in_the_way(units, unit, step.dx, step.dy, whose);
     if (other == nullptr) {
         unit.shove_ticks = 0;
         return;
@@ -2408,11 +2409,15 @@ void shove_step(std::vector<Unit>& units, const WorldGround& ground, Unit& unit,
 /// (`friend_tiles`: that friend, and every other standing friend within `kFriendPlanTiles`),
 /// searching no more than `kFriendPlanBudget` tiles (`plan_round_friends`, the way out included),
 /// and follows the route it finds. No sooner than `kReplanMinTicks` after its last plan, so a unit
-/// pressed against a friend does not plan every tick. A plan that finds no way round changes
-/// nothing: the unit keeps its route and WAITS (`move`), and the no-progress rule (`kStallTicks`)
-/// is what gives the order up if the friend never moves -- so the plan keeps the route's stall
-/// count, and a unit that keeps re-planning in one place is still seen to be making no headway. A
-/// unit with no route (the helm, a unit in the air) plans nothing: it only steps aside.
+/// pressed against a friend does not plan every tick. The plan keeps the route's stall count, so a
+/// unit that keeps re-planning in one place is still seen to be making no headway.
+///
+/// THE VERDICT (`Route::no_way_round`, G13's fallback): a plan that finds a way round clears it; a
+/// plan that finds NO way round and no way out sets it, keeps the route, and from then on the unit
+/// SHOVES the friend (`move`) -- his ruling, "If there is no way around, pushing is completely
+/// acceptable". So a friend is shoved only once the planner has said there is no way round it,
+/// never while one exists. A unit with no route (the helm, a unit in the air) plans nothing: its
+/// way round is the step aside alone (`move`).
 void plan_around_friends(const WorldGround& ground, Unit& unit, const Unit& in_the_way,
                          std::uint32_t& plans) noexcept {
     Route& route = unit.route;
@@ -2422,13 +2427,17 @@ void plan_around_friends(const WorldGround& ground, Unit& unit, const Unit& in_t
     const std::vector<TileXY> friends = friend_tiles(ground.units, unit, &in_the_way);
     route.age = 0; // tried now, whatever it finds: the next try is kReplanMinTicks away
     if (friends.empty()) {
-        return; // the friend's body covers only the unit's own tile: no tile grid goes round that
+        // The friend's body covers only the unit's own tile: no tile grid goes round that.
+        route.no_way_round = true;
+        return;
     }
     ++plans;
     Route around = route;
     if (!plan_round_friends(ground, unit, friends, route.goal, around)) {
-        return; // no way round, and no way out: keep the route, and wait
+        route.no_way_round = true; // no way round, and no way out: keep the route, and push
+        return;
     }
+    around.no_way_round = false;
     around.anchor_x = route.anchor_x;
     around.anchor_y = route.anchor_y;
     around.stall_ticks = route.stall_ticks;
@@ -2462,10 +2471,19 @@ void plan_around_friends(const WorldGround& ground, Unit& unit, const Unit& in_t
 // seam a planned route will plug into.
 //
 // THE MOVER STEPS ASIDE (G13, Harri: "I think the mover would step aside"): the unit that is MOVING
-// yields to the one in its way when that one is a FRIEND. It plans round it (`plan_around_friends`)
-// and, this tick, steps round it (`step_aside`); if even that runs into a friend it WAITS (stands,
-// no velocity) -- it never shoves a friend and never passes through one. A FOE in the way is still
-// shoved, not walked through (`shove_step`).
+// yields to the one in its way when that one is a FRIEND. The order of answers is ROUTE FIRST, PUSH
+// LAST (his ruling, 2026-11-25: "If there is no way around, pushing is completely acceptable"):
+//   1. it plans round the friend (`plan_around_friends`) -- a friend joins terrain and buildings in
+//      the list a route goes round -- and, this tick, steps round it (`step_aside`);
+//   2. if that step aside runs into the ground or another friend while a way round EXISTS (or has
+//      not yet been asked for), it WAITS this tick (stands, no velocity): the route takes it round;
+//   3. once the planner has said there is NO way round (`Route::no_way_round`), or for a unit with
+//      no route (the helm, a unit in the air) whose step aside is refused, it SHOVES the friend
+//      (`shove_step`, `Whose::Any`), with every rule the shove has: two thirds of its step, and
+//      through after `kShoveYieldTicks`.
+// THE ROUTE-AROUND IS THE COURTESY; THE SHOVE IS THE GUARANTEE. A friend in a corridor cannot leave
+// two units each waiting for the other, because the one that cannot route round pushes, and a push
+// always makes headway. A FOE in the way is shoved, as it always was.
 void move(std::vector<Unit>& units, const WorldGround& ground, const UnitProfile& prof, Unit& unit,
           std::uint32_t& plans) noexcept {
     if (unit.vx.raw == 0 && unit.vy.raw == 0) {
@@ -2494,28 +2512,43 @@ void move(std::vector<Unit>& units, const WorldGround& ground, const UnitProfile
     // The friend is asked about the step the ground actually gives (scaled by the terrain, bent
     // round a rim), not the one wanted: beside a body, a shorter step can come nearer where the
     // longer one would end further off.
+    Whose shoved = Whose::Foe;
     if (const Unit* ahead
         = vehicle_in_the_way(units, unit, plan.step.dx, plan.step.dy, Whose::Friend);
         ahead != nullptr) {
         plan_around_friends(ground, unit, *ahead, plans);
-        const Step aside = step_aside(unit, *ahead, Step{unit.vx.raw, unit.vy.raw});
-        if (aside.dx == 0 && aside.dy == 0) {
-            wait();
-            return;
+        const bool routed = unit.route.has_goal && !airborne(unit);
+        if (routed && unit.route.no_way_round) {
+            shoved = Whose::Any; // 3: the planner found no way round -- push, the guarantee
+        } else {
+            const Step aside = step_aside(unit, *ahead, Step{unit.vx.raw, unit.vy.raw});
+            StepPlan round = plan;
+            if (aside.dx != 0 || aside.dy != 0) {
+                request.want_dx = aside.dx;
+                request.want_dy = aside.dy;
+                round = plan_step(request, ground);
+            }
+            const bool refused
+                = (aside.dx == 0 && aside.dy == 0) || !round.moved
+                  || vehicle_in_the_way(units, unit, round.step.dx, round.step.dy, Whose::Friend)
+                         != nullptr;
+            if (!refused) {
+                plan = round; // 1: round it
+            } else if (routed) {
+                wait(); // 2: a way round exists, or is not yet asked for: the route takes it round
+                return;
+            } else {
+                shoved = Whose::Any; // 3: no route to go round by, and no step round: push
+            }
         }
-        request.want_dx = aside.dx;
-        request.want_dy = aside.dy;
-        plan = plan_step(request, ground);
-        if (!plan.moved
-            || vehicle_in_the_way(units, unit, plan.step.dx, plan.step.dy, Whose::Friend)
-                   != nullptr) {
-            wait(); // round it is no way either (ground, or another friend): wait
-            return;
-        }
+    } else {
+        // Clear of every friend: the verdict was about THAT contact. The next friend met is asked
+        // about afresh, so a "no way round" never licenses shoving a friend it was not about.
+        unit.route.no_way_round = false;
     }
     unit.detour = plan.detour;
     Step step = plan.step;
-    shove_step(units, ground, unit, step);
+    shove_step(units, ground, unit, step, shoved);
     unit.x = Fixed::from_raw(
         static_cast<std::int32_t>(std::clamp<std::int64_t>(unit.x.raw + step.dx, 0, kMaxPosRaw)));
     unit.y = Fixed::from_raw(

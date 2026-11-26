@@ -13,10 +13,11 @@
 /// Vehicles and each other: a unit cannot be driven through, but a FOE can be SHOVED -- the pair
 /// moves, at a cost to the pusher -- and no arrangement of vehicles can hold a unit for good.
 ///
-/// G13 (THE MOVER STEPS ASIDE): a FRIEND is no longer shoved. The mover goes round it (see
-/// test_step_aside.cpp), so the tests here that pin the SHOVE itself drive a player vehicle into an
-/// ENEMY one -- two unarmed constructors, so nothing is shot -- and the crowd tests, which are all
-/// one side, now pin that stepping aside leaves nobody stuck where shoving used to.
+/// G13 (THE MOVER STEPS ASIDE): a FRIEND is shoved only when the mover has no way round it (route
+/// first, push last; see test_step_aside.cpp), so the tests here that pin the SHOVE itself drive a
+/// player vehicle into an ENEMY one -- two unarmed constructors, so nothing is shot -- and the
+/// crowd tests, which are all one side, pin that stepping aside, with the shove as the fallback,
+/// leaves nobody stuck.
 ///
 /// The ground is asserted open rather than described, so a world change cannot quietly turn these
 /// into a record of different terrain. The enemy base is unarmed and far away: nothing here is
@@ -257,8 +258,8 @@ TEST(Shove, AVehiclePinnedInTheMapCornerDoesNotHoldItsPusherForever) {
 
 TEST(Shove, NoCrowdOfVehiclesCanHoldAnyOfThemForever) {
     // A block of six, each ordered to the spot another one occupies: every one of them must
-    // arrive. This is the property the design exists for. G13: they are all one side, so nobody
-    // is shoved -- each steps aside for the others -- and they must still all arrive.
+    // arrive. This is the property the design exists for. G13: they are all one side, so each
+    // steps aside for the others, and shoves only a friend it has no way round.
     ASSERT_TRUE(open_row());
     const std::vector<std::pair<int, int>> tiles{{105, kRowY},     {106, kRowY},
                                                  {107, kRowY},     {105, kRowY + 1},
@@ -284,7 +285,7 @@ TEST(Shove, ADenseBlockSentToShuffledGoalsLeavesNobodyStuck) {
     // Twenty-four vehicles packed a tile apart, each sent to the post of another, by a fixed
     // shuffle. Crossing streams in a crush is the nearest thing to a trap a battle makes. G13: one
     // side, so the crush is sorted out by stepping aside (and planning round standing friends),
-    // not by shoving.
+    // and by shoving only a friend the planner finds no way round.
     ASSERT_TRUE(open_row());
     std::vector<std::pair<int, int>> tiles;
     for (int row = 0; row < 4; ++row) {

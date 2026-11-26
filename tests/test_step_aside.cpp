@@ -18,8 +18,13 @@
 ///
 /// Read as: THE UNIT THAT IS MOVING YIELDS TO THE ONE THAT IS STANDING. A friend in the way is
 /// planned around (it joins terrain and buildings in the go-around planner's list) and slid round
-/// at contact; it is never shoved, and never passed through. Where there is no way round, the
-/// mover WAITS, and after `kStallTicks` of waiting gives the order up by name (`NoProgress`).
+/// at contact; while a way round exists it is never shoved, and never passed through.
+///
+/// HIS RULING ON THE FALLBACK (2026-11-25): "If there is no way around, pushing is completely
+/// acceptable." So ROUTE FIRST, PUSH LAST: a mover whose plan round its friend finds NO way (a
+/// friend in a one-tile corridor) shoves it, with the shove's own rules (two thirds of its step,
+/// and through after `kShoveYieldTicks`). The route-around is the courtesy; the shove is the
+/// guarantee that two friends never hold each other for good.
 ///
 /// Every test runs on a flat, empty arena drawn here, so the ground is what the test says.
 namespace protekt::sim {
@@ -267,67 +272,126 @@ TEST(StepAside, ARouteIsNotLaidThroughTheGapBetweenTwoParkedFriends) {
     return map;
 }
 
-TEST(StepAside, AFriendInACorridorIsWaitedOnThenTheOrderIsGivenUpByName) {
-    // A one-tile corridor is only a choke for a friend standing on its middle line: a unit spawns
-    // on a tile's corner, against the wall, and a body (`kBodyRadiusRaw`, three quarters of a tile)
-    // can pass one hugging the far wall. So the friend first drives down the corridor to its
-    // middle and stands there; then the mover, behind it, is sent to the far end. It cannot go
-    // round and may not push or pass: it WAITS behind its friend, and after `kStallTicks` of no
-    // headway gives the order up by name (`NoProgress`) and stands -- never deadlocked against it.
-    const world::ScopedGround guard(app::map_ground(corridor()));
-    Sim sim = battle_of(
-        {{UnitKind::Tank, Side::Player, 7, 24}, {UnitKind::Tank, Side::Player, 12, 24}});
-    sim.enqueue(Order{
-        UnitId{2}, orders::MoveTo{Fixed::from_int(22), Fixed::from_raw((24 << 16) + (1 << 15))}});
+/// Whether `a` and `b` stand INSIDE each other with NEITHER moving -- the one thing the fallback
+/// must never leave him looking at.
+[[nodiscard]] bool stuck_inside(const Unit& a, const Unit& b) {
+    const bool still_a = a.vx.raw == 0 && a.vy.raw == 0;
+    const bool still_b = b.vx.raw == 0 && b.vy.raw == 0;
+    return gap2(a, b) < kBody2 && still_a && still_b;
+}
+
+/// A unit in the corridor (`corridor`), first driven to the corridor's middle line near `x` and
+/// left standing there: a one-tile corridor is only a choke for a body on its middle (a unit spawns
+/// on a tile's corner, against the wall, and another can pass it at the far wall).
+void park_friend_mid_corridor(Sim& sim, UnitId id, int x = 22) {
+    sim.enqueue(
+        Order{id, orders::MoveTo{Fixed::from_int(x), Fixed::from_raw((24 << 16) + (1 << 15))}});
     for (int tick = 0; tick < 200; ++tick) {
         sim.step();
     }
-    const Unit* f = sim.find(UnitId{2});
+    const Unit* f = sim.find(id);
     std::cout << "  the friend stands at (" << tiles(f->x.raw) << ", " << tiles(f->y.raw) << ")\n";
+}
+
+TEST(StepAside, AFriendInACorridorWithNoWayRoundIsPushedAndTheMoverGetsThrough) {
+    // THE FALLBACK. The friend stands on the corridor's middle line; the mover, behind it, is sent
+    // to the far end. There is no way round (the planner says so), so -- his ruling -- it PUSHES:
+    // it does not wait, it does not give the order up, and it gets to its goal. Never are the two
+    // left standing inside each other.
+    const world::ScopedGround guard(app::map_ground(corridor()));
+    Sim sim = battle_of(
+        {{UnitKind::Tank, Side::Player, 7, 24}, {UnitKind::Tank, Side::Player, 12, 24}});
+    park_friend_mid_corridor(sim, UnitId{2});
+    const Unit* f = sim.find(UnitId{2});
     ASSERT_EQ(f->vx.raw, 0) << "the friend is standing";
     ASSERT_GT(f->y.raw, (24 << 16) + (1 << 16) / 4) << "on the corridor's middle, not its wall";
     ASSERT_LT(f->y.raw, (25 << 16) - (1 << 16) / 4);
     go(sim, UnitId{1}, 32, 24);
-    const Watch w = watch(sim, UnitId{1}, UnitId{2}, kStallTicks + 200);
-    EXPECT_EQ(w.friend_moved2, 0) << "the friend in the corridor was shoved";
-    EXPECT_GE(w.closest2, kBody2) << "the mover passed through its friend";
+    const Unit start = *sim.find(UnitId{2});
+    Watch w;
+    bool ever_stuck_inside = false;
+    for (int tick = 0; tick < kStallTicks + 200; ++tick) {
+        sim.step();
+        const Unit* m = sim.find(UnitId{1});
+        const Unit* g = sim.find(UnitId{2});
+        w.friend_moved2 = std::max(w.friend_moved2, gap2(*g, start));
+        ever_stuck_inside = ever_stuck_inside || stuck_inside(*m, *g);
+        if (tick % kPathEvery == 0) {
+            w.path.emplace_back(tiles(m->x.raw), tiles(m->y.raw));
+        }
+    }
+    std::cout << "  path of unit 1 (every " << kPathEvery << " ticks):";
+    for (const auto& [x, y] : w.path) {
+        std::cout << " (" << x << ", " << y << ")";
+    }
     const Unit* m = sim.find(UnitId{1});
-    EXPECT_LT(m->x.raw, sim.find(UnitId{2})->x.raw) << "it is still behind its friend";
-    EXPECT_EQ(m->route.failure, RouteFailure::NoProgress) << "it gave the order up, by name";
-    EXPECT_EQ(m->stance, Stance::Idle);
-    EXPECT_EQ(m->vx.raw, 0);
+    const Unit* g = sim.find(UnitId{2});
+    std::cout << "\n  the friend was moved "
+              << std::sqrt(static_cast<double>(w.friend_moved2)) / Fixed::kOne
+              << " tiles; it ends at (" << tiles(g->x.raw) << ", " << tiles(g->y.raw) << ")\n";
+    EXPECT_GT(w.friend_moved2, 0) << "with no way round, the friend was not pushed";
+    EXPECT_EQ(m->route.failure, RouteFailure::None) << "it gave up instead of pushing";
+    EXPECT_NEAR(tiles(m->x.raw), 32.0, 1.5) << "it did not get through to its goal";
+    EXPECT_FALSE(ever_stuck_inside) << "the two stood inside each other, neither moving";
+    EXPECT_GE(gap2(*m, *g), kBody2) << "they ended inside each other";
 }
 
-TEST(StepAside, TwoFriendsHeadOnInACorridorNeitherOverlapsAndNeitherIsLeftPushing) {
+TEST(StepAside, TwoFriendsHeadOnInACorridorBothGetThrough) {
     // Two friends sent past each other down the one-tile corridor. Each steps aside for the other
-    // (toward its own wall); where that leaves room they pass, where it does not they wait and
-    // give up by name. Whichever it is, they never overlap, and neither is left with an order it
-    // is making no headway on -- each has ARRIVED, or is Idle with `NoProgress`.
+    // where there is room; where there is none, the planner finds no way round and each pushes --
+    // the shove's guarantee: both ARRIVE (neither gives up), they are never left standing inside
+    // each other, and they end apart.
+    // Both are first parked on the corridor's MIDDLE line (spawned on corners, against one wall,
+    // they slide past each other at the walls and it is no choke at all).
     const world::ScopedGround guard(app::map_ground(corridor()));
     Sim sim = battle_of(
-        {{UnitKind::Tank, Side::Player, 10, 24}, {UnitKind::Tank, Side::Player, 20, 24}});
+        {{UnitKind::Tank, Side::Player, 7, 24}, {UnitKind::Tank, Side::Player, 30, 24}});
+    park_friend_mid_corridor(sim, UnitId{1}, 12);
+    park_friend_mid_corridor(sim, UnitId{2}, 22);
     go(sim, UnitId{1}, 30, 24);
     go(sim, UnitId{2}, 8, 24);
-    std::int64_t closest2 = INT64_MAX;
+    bool ever_stuck_inside = false;
     for (int tick = 0; tick < kStallTicks + 300; ++tick) {
         sim.step();
-        closest2 = std::min(closest2, gap2(*sim.find(UnitId{1}), *sim.find(UnitId{2})));
+        ever_stuck_inside
+            = ever_stuck_inside || stuck_inside(*sim.find(UnitId{1}), *sim.find(UnitId{2}));
     }
     const Unit* a = sim.find(UnitId{1});
     const Unit* b = sim.find(UnitId{2});
     std::cout << "  A at (" << tiles(a->x.raw) << ", " << tiles(a->y.raw) << ") failure "
               << static_cast<int>(a->route.failure) << "; B at (" << tiles(b->x.raw) << ", "
-              << tiles(b->y.raw) << ") failure " << static_cast<int>(b->route.failure)
-              << "; closest " << std::sqrt(static_cast<double>(closest2)) / Fixed::kOne << "\n";
-    EXPECT_GE(closest2, kBody2) << "the two friends ended up inside each other";
-    const auto settled = [](const Unit& u, double goal_x) {
-        const bool arrived = std::abs(tiles(u.x.raw) - goal_x) <= 1.5;
-        const bool gave_up
-            = u.stance == Stance::Idle && u.route.failure == RouteFailure::NoProgress;
-        return arrived || gave_up;
-    };
-    EXPECT_TRUE(settled(*a, 30.0)) << "A is neither there nor given up";
-    EXPECT_TRUE(settled(*b, 8.0)) << "B is neither there nor given up";
+              << tiles(b->y.raw) << ") failure " << static_cast<int>(b->route.failure) << "\n";
+    EXPECT_FALSE(ever_stuck_inside) << "the two stood inside each other, neither moving";
+    EXPECT_GE(gap2(*a, *b), kBody2) << "they ended inside each other";
+    EXPECT_NEAR(tiles(a->x.raw), 30.0, 1.5) << "A did not get through";
+    EXPECT_NEAR(tiles(b->x.raw), 8.0, 1.5) << "B did not get through";
+}
+
+TEST(StepAside, AtTheHelmAFriendWithNoWayRoundIsPushed) {
+    // He drives down the corridor at the friend on its middle line. Nothing goes round it, so he
+    // is not trapped behind it: he pushes it (Harri, 2026-11-03: "That way I won't get trapped").
+    const world::ScopedGround guard(app::map_ground(corridor()));
+    Sim sim = battle_of(
+        {{UnitKind::Tank, Side::Player, 7, 24}, {UnitKind::Tank, Side::Player, 12, 24}});
+    park_friend_mid_corridor(sim, UnitId{2});
+    const UnitId helm{1};
+    sim.enqueue(Order{helm, orders::TakeControl{}});
+    const Unit start = *sim.find(UnitId{2});
+    bool ever_stuck_inside = false;
+    for (int tick = 0; tick < 300; ++tick) {
+        const Unit* h = sim.find(helm);
+        sim.enqueue(Order{helm, orders::MoveTo{Fixed::from_raw(h->x.raw + (3 << 16)),
+                                               Fixed::from_raw((24 << 16) + (1 << 15))}});
+        sim.step();
+        ever_stuck_inside
+            = ever_stuck_inside || stuck_inside(*sim.find(helm), *sim.find(UnitId{2}));
+    }
+    const Unit* h = sim.find(helm);
+    std::cout << "  the helm ends at (" << tiles(h->x.raw) << ", " << tiles(h->y.raw)
+              << "); the friend at (" << tiles(sim.find(UnitId{2})->x.raw) << ")\n";
+    EXPECT_GT(gap2(*sim.find(UnitId{2}), start), 0) << "he was trapped behind his friend";
+    EXPECT_GT(tiles(h->x.raw), tiles(start.x.raw)) << "he did not get past where it stood";
+    EXPECT_FALSE(ever_stuck_inside);
 }
 
 // --------------------------------------------------------------- what still shoves: an enemy

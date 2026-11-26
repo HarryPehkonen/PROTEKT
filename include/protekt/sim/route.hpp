@@ -84,6 +84,14 @@ struct Route {
     std::int32_t anchor_y{};
     std::uint16_t stall_ticks{};
     std::uint8_t strays{}; ///< times this order's route stopped serving the unit (`kReplanBudget`)
+    /// G13's FALLBACK: the last plan round a friend in this unit's way found NO way round it (and
+    /// no way out). Only then may the unit SHOVE that friend (Harri, 2026-11-25: "If there is no
+    /// way around, pushing is completely acceptable"). Set and cleared by that plan, made no more
+    /// often than `kReplanMinTicks`; cleared too by every plan the unit drives on (`plan_drive`)
+    /// and on every tick no friend is in its way, so the verdict is about ONE contact and never
+    /// licenses a shove of a friend it was not asked about.
+    /// Not hashed, as no part of a route is: what it changes (a shove) moves units, which are.
+    bool no_way_round{false};
 
     [[nodiscard]] constexpr bool following() const noexcept { return next < count; }
 };
