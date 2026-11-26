@@ -777,6 +777,183 @@ std::optional<ScootSpot> firing_spot(std::uint64_t seed, std::span<const Unit> u
 
 namespace {
 
+/// THE GROUND A ROUTE IS PLANNED OVER WHEN A FRIEND IS IN THE WAY (G13). Terrain and buildings
+/// are already in `WorldGround::factor`; this adds the third thing a route goes round, A FRIEND:
+/// the tiles in `friends` cannot be entered. Everything else is the ground's own answer, so the
+/// planner (`plan_route`) is the go-around planner unchanged, asked about a fuller list.
+struct AroundFriends {
+    // BY VALUE, not a reference member: WorldGround is trivially copyable (a seed, two
+    // spans, a bool and a Fixed), and a const-reference data member is a lint finding for
+    // good reason -- the referent can outlive nothing. Every `ground.factor(...)` call below
+    // is unchanged.
+    WorldGround ground;
+    std::span<const TileXY> friends;
+    [[nodiscard]] std::int64_t factor(int tile_x, int tile_y) const noexcept {
+        for (const TileXY tile : friends) {
+            if (tile.x == tile_x && tile.y == tile_y) {
+                return 0;
+            }
+        }
+        return ground.factor(tile_x, tile_y);
+    }
+    [[nodiscard]] int height(int tile_x, int tile_y) const noexcept {
+        return ground.height(tile_x, tile_y);
+    }
+};
+
+/// How far (Chebyshev, tiles) round the mover a STANDING friend is planned around, besides the one
+/// in the way: a crowd at a choke point is planned round as a crowd, not one body at a time.
+inline constexpr int kFriendPlanTiles = 3;
+/// How many tiles a plan round a friend may close before it gives up (`plan_route`'s
+/// `max_expanded`): a way round is a local thing, and a plan that fails only means "wait". Without
+/// it a unit hemmed in by a crowd searched the whole map every `kReplanMinTicks`
+/// (Shove.ADenseBlockSentToShuffledGoalsLeavesNobodyStuck went from 0.5 s to 30 s).
+inline constexpr int kFriendPlanBudget = 2048;
+
+/// Whether a unit is STANDING: no velocity of its own this tick (a unit later in the id order has
+/// last tick's). The friends a route is planned round are the standing ones; a moving one will be
+/// gone by the time the route gets there.
+[[nodiscard]] constexpr bool standing(const Unit& u) noexcept {
+    return u.vx.raw == 0 && u.vy.raw == 0;
+}
+
+/// The tiles a route planned for `unit` goes round because a FRIEND's body is on them (G13): for
+/// every living mobile STANDING friend within `kFriendPlanTiles` of `unit` (and `also`, the friend
+/// in its way, wherever it is), every tile whose CENTRE is inside the friend's body
+/// (`kBodyRadiusRaw`). A route is followed through tile centres, and a unit spawns on a tile's
+/// corner, where its body covers the four tiles round it -- the one tile its corner floors to would
+/// leave three open that no unit can drive through. `unit`'s own tile is never in the list (it is
+/// where a plan starts).
+[[nodiscard]] std::vector<TileXY> friend_tiles(std::span<const Unit> units, const Unit& unit,
+                                               const Unit* also) {
+    const TileXY start = tile_of(unit.x, unit.y);
+    std::vector<TileXY> tiles;
+    for (const Unit& other : units) {
+        if (!other.alive || other.id == unit.id || other.side != unit.side
+            || other.deploy_ticks != 0 || !profile(other.kind).mobile || !standing(other)) {
+            continue;
+        }
+        const TileXY at = tile_of(other.x, other.y);
+        const int reach = std::max(std::abs(static_cast<int>(at.x) - start.x),
+                                   std::abs(static_cast<int>(at.y) - start.y));
+        if (reach > kFriendPlanTiles && (also == nullptr || other.id != also->id)) {
+            continue;
+        }
+        for (int ty = at.y - 1; ty <= at.y + 1; ++ty) {
+            for (int tx = at.x - 1; tx <= at.x + 1; ++tx) {
+                if (tx < 0 || ty < 0 || tx >= kMapTiles || ty >= kMapTiles
+                    || (tx == start.x && ty == start.y)) {
+                    continue;
+                }
+                const std::int64_t cx = (static_cast<std::int64_t>(tx) << Fixed::kShift)
+                                        + (Fixed::kOne / 2) - other.x.raw;
+                const std::int64_t cy = (static_cast<std::int64_t>(ty) << Fixed::kShift)
+                                        + (Fixed::kOne / 2) - other.y.raw;
+                if ((cx * cx) + (cy * cy)
+                    < static_cast<std::int64_t>(kBodyRadiusRaw) * kBodyRadiusRaw) {
+                    tiles.push_back(
+                        TileXY{static_cast<std::uint8_t>(tx), static_cast<std::uint8_t>(ty)});
+                }
+            }
+        }
+    }
+    return tiles;
+}
+
+/// Whether `unit` can drive in a straight line from where it stands to the centre of tile (`tx`,
+/// `ty`) without coming inside the body (`kBodyRadiusRaw`) of any friend. In 1/256 tile, as
+/// `point_segment_dist2` is asked elsewhere.
+[[nodiscard]] bool clear_of_friends(std::span<const Unit> units, const Unit& unit, int tx,
+                                    int ty) noexcept {
+    const std::int64_t ax = unit.x.raw >> 8;
+    const std::int64_t ay = unit.y.raw >> 8;
+    const std::int64_t bx = (static_cast<std::int64_t>(tx) << 8) + 128;
+    const std::int64_t by = (static_cast<std::int64_t>(ty) << 8) + 128;
+    constexpr std::int64_t kBody = kBodyRadiusRaw >> 8;
+    for (const Unit& other : units) {
+        if (!other.alive || other.id == unit.id || other.side != unit.side
+            || other.deploy_ticks != 0 || !profile(other.kind).mobile) {
+            continue;
+        }
+        if (point_segment_dist2(other.x.raw >> 8, other.y.raw >> 8, ax, ay, bx, by)
+            < kBody * kBody) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/// A route for `unit` to `goal` round `friends` (`friend_tiles`) as well as terrain and buildings,
+/// each search no longer than `kFriendPlanBudget`. True, with `route` laid, when there is one.
+///
+/// THE WAY OUT: a unit whose own tile the bodies of friends crowd round -- pressed into the mouth
+/// of a gap between two of them, where every tile beside its own is a friend's or is reached only
+/// by cutting a friend's corner -- has no plan from its tile, though it can always back out (moving
+/// away from a body is never refused). So when the plan from its tile fails, it is made from each
+/// tile beside it in turn (the planner's own ring order) that is open and that the unit reaches in
+/// a straight line clear of every friend (`clear_of_friends`), and that tile is the route's first
+/// waypoint.
+[[nodiscard]] bool plan_round_friends(const WorldGround& ground, const Unit& unit,
+                                      std::span<const TileXY> friends, TileXY goal, Route& route) {
+    const AroundFriends around{ground, friends};
+    const TileXY start = tile_of(unit.x, unit.y);
+    if (plan_route(around, start, goal, route, kFriendPlanBudget)) {
+        return true;
+    }
+    constexpr std::array<std::array<int, 2>, 8> kRing{{
+        {0, -1},
+        {-1, 0},
+        {1, 0},
+        {0, 1},
+        {-1, -1},
+        {1, -1},
+        {-1, 1},
+        {1, 1},
+    }};
+    for (const auto& d : kRing) {
+        const int nx = start.x + d[0];
+        const int ny = start.y + d[1];
+        if (nx < 0 || ny < 0 || nx >= kMapTiles || ny >= kMapTiles || around.factor(nx, ny) == 0
+            || !clear_of_friends(ground.units, unit, nx, ny)) {
+            continue;
+        }
+        const TileXY out{static_cast<std::uint8_t>(nx), static_cast<std::uint8_t>(ny)};
+        Route from = route;
+        if (!plan_route(around, out, goal, from, kFriendPlanBudget)) {
+            continue;
+        }
+        // The way out first, then the route from it (its last corner dropped, and the route marked
+        // partial, if that is one more than a route holds).
+        const int kept = std::min<int>(from.count, kMaxWaypoints - 1);
+        for (int i = kept; i > 0; --i) {
+            from.points.at(static_cast<std::size_t>(i))
+                = from.points.at(static_cast<std::size_t>(i - 1));
+        }
+        from.points.at(0) = out;
+        from.partial = from.partial || kept < from.count;
+        from.count = static_cast<std::uint8_t>(kept + 1);
+        from.next = 0;
+        from.from = start;
+        route = from;
+        return true;
+    }
+    return false;
+}
+
+/// THE PLAN A UNIT DRIVES ON (`update_route`): to `goal` round terrain, buildings AND STANDING
+/// FRIENDS (`friend_tiles`, G13) -- so a route is not laid through the gap between two parked
+/// tanks that no body fits through, which the step aside would only wedge the unit into. When the
+/// friends leave no way (a unit inside a parked cluster, or a way longer than `kFriendPlanBudget`
+/// searches), the plan is the plain one over terrain and buildings, as it always was: friends
+/// stand aside in time, and a unit is never refused an order because friends are round it.
+void plan_drive(const WorldGround& ground, const Unit& unit, TileXY goal, Route& route) {
+    const std::vector<TileXY> friends = friend_tiles(ground.units, unit, nullptr);
+    if (!friends.empty() && plan_round_friends(ground, unit, friends, goal, route)) {
+        return;
+    }
+    (void)plan_route(ground, tile_of(unit.x, unit.y), goal, route);
+}
+
 /// Keeps `unit.route` serving `goal`: plans when the goal tile has drifted more than
 /// kReplanGoalDriftTiles from the one served, when the unit has strayed more than
 /// kReplanOffRouteTiles from its leg, or when a truncated route has run out -- the last two (and
@@ -837,7 +1014,7 @@ void update_route(Unit& unit, Fixed goal_x, Fixed goal_y, const WorldGround& gro
         return;
     }
     ++plans;
-    (void)plan_route(ground, tile_of(unit.x, unit.y), goal, route);
+    plan_drive(ground, unit, goal, route);
 }
 
 /// A unit whose route has failed (or that has made no headway) stops asking: its order ends. It is
@@ -2132,16 +2309,25 @@ void steer(std::vector<Unit>& units, Unit& unit, const UnitProfile& prof, const 
     return false;
 }
 
+/// Whose vehicle `vehicle_in_the_way` is asked about: any side, the mover's own (a FRIEND, which
+/// the mover steps aside for, G13), or the other side's (a FOE, which it still shoves).
+enum class Whose : std::uint8_t { Any, Friend, Foe };
+
 /// The vehicle a step would run into, or null: the first living MOBILE unit (by id) that the step
 /// brings inside `kBodyRadiusRaw` of `unit` AND closer than it was, so two vehicles already
 /// overlapping can always drive apart. A building is not a vehicle -- the ground already refuses
-/// it -- and a unit in the middle of deploying is a site, not a body: it is not moved.
+/// it -- and a unit in the middle of deploying is a site, not a body: it is not moved. `whose`
+/// narrows the question to friends or to foes.
 [[nodiscard]] Unit* vehicle_in_the_way(std::vector<Unit>& units, const Unit& unit, std::int64_t dx,
-                                       std::int64_t dy) noexcept {
+                                       std::int64_t dy, Whose whose = Whose::Any) noexcept {
     constexpr std::int64_t kRadius = kBodyRadiusRaw;
     for (Unit& other : units) {
         if (!other.alive || other.id == unit.id || other.deploy_ticks != 0
             || !profile(other.kind).mobile) {
+            continue;
+        }
+        if ((whose == Whose::Friend && other.side != unit.side)
+            || (whose == Whose::Foe && other.side == unit.side)) {
             continue;
         }
         const std::int64_t ox = other.x.raw - unit.x.raw;
@@ -2165,20 +2351,22 @@ void steer(std::vector<Unit>& units, Unit& unit, const UnitProfile& prof, const 
     return ground.factor(fx.floor_int(), fy.floor_int()) != 0;
 }
 
-/// THE SHOVE. `step` is where `unit` is about to go. If that runs it into another vehicle, the
-/// unit goes at `kShoveSpeedNumerator/kShoveSpeedDenominator` of the step and the vehicle is
-/// carried the same distance, with half as much again to the side it already lies on so a head-on
-/// pair slides past instead of cancelling out. Never a wall, three ways over:
-///   * a vehicle that cannot be carried (the map's edge, a crater, a building) is simply driven
+/// THE SHOVE. `step` is where `unit` is about to go. If that runs it into a vehicle OF THE OTHER
+/// SIDE, the unit goes at `kShoveSpeedNumerator/kShoveSpeedDenominator` of the step and the vehicle
+/// is carried the same distance, with half as much again to the side it already lies on so a
+/// head-on pair slides past instead of cancelling out. A FRIEND is never shoved and never passed
+/// through: the mover steps aside for it before it gets here (`step_aside`, G13), so what is left
+/// of the shove is a unit and a foe. Never a wall, three ways over:
+///   * a foe that cannot be carried (the map's edge, a crater, a building) is simply driven
 ///     through, at the same reduced speed;
-///   * a unit that has shoved for `kShoveYieldTicks` in a row stops colliding until it has been
-///     clear of every vehicle for one tick;
+///   * a unit that has shoved for `kShoveYieldTicks` in a row stops colliding (with foes) until it
+///     has been clear of every foe for one tick;
 ///   * nothing is ever refused, so the step always lands.
 /// `step` is rewritten to the step to take. Only the pusher moves a vehicle -- a shoved vehicle
 /// does not shove in turn, so a convoy is not a chain reaction.
 void shove_step(std::vector<Unit>& units, const WorldGround& ground, Unit& unit,
                 Step& step) noexcept {
-    Unit* other = vehicle_in_the_way(units, unit, step.dx, step.dy);
+    Unit* other = vehicle_in_the_way(units, unit, step.dx, step.dy, Whose::Foe);
     if (other == nullptr) {
         unit.shove_ticks = 0;
         return;
@@ -2211,12 +2399,75 @@ void shove_step(std::vector<Unit>& units, const WorldGround& ground, Unit& unit,
     }
 }
 
+/// A FRIEND IN THE WAY JOINS TERRAIN AND BUILDINGS IN THE LIST OF THINGS A ROUTE IS PLANNED AROUND
+/// (G13, "the mover would step aside"). Every plan a unit drives on already goes round the friends
+/// standing near it when it is made (`plan_drive`); this is the plan made AGAIN when the unit's
+/// step runs into `in_the_way`, a STANDING friend (a moving one will be gone; the step aside is
+/// enough for it) -- the friend may have stopped there since, or stood beyond `kFriendPlanTiles`
+/// when the route was laid. The unit plans to its route's goal over `AroundFriends`
+/// (`friend_tiles`: that friend, and every other standing friend within `kFriendPlanTiles`),
+/// searching no more than `kFriendPlanBudget` tiles (`plan_round_friends`, the way out included),
+/// and follows the route it finds. No sooner than `kReplanMinTicks` after its last plan, so a unit
+/// pressed against a friend does not plan every tick. A plan that finds no way round changes
+/// nothing: the unit keeps its route and WAITS (`move`), and the no-progress rule (`kStallTicks`)
+/// is what gives the order up if the friend never moves -- so the plan keeps the route's stall
+/// count, and a unit that keeps re-planning in one place is still seen to be making no headway. A
+/// unit with no route (the helm, a unit in the air) plans nothing: it only steps aside.
+void plan_around_friends(const WorldGround& ground, Unit& unit, const Unit& in_the_way,
+                         std::uint32_t& plans) noexcept {
+    Route& route = unit.route;
+    if (!route.has_goal || airborne(unit) || route.age < kReplanMinTicks || !standing(in_the_way)) {
+        return;
+    }
+    const std::vector<TileXY> friends = friend_tiles(ground.units, unit, &in_the_way);
+    route.age = 0; // tried now, whatever it finds: the next try is kReplanMinTicks away
+    if (friends.empty()) {
+        return; // the friend's body covers only the unit's own tile: no tile grid goes round that
+    }
+    ++plans;
+    Route around = route;
+    if (!plan_round_friends(ground, unit, friends, route.goal, around)) {
+        return; // no way round, and no way out: keep the route, and wait
+    }
+    around.anchor_x = route.anchor_x;
+    around.anchor_y = route.anchor_y;
+    around.stall_ticks = route.stall_ticks;
+    around.strays = route.strays;
+    route = around;
+}
+
+/// THE STEP ASIDE (G13): `want` would run `unit` into the friend `other`, so it goes ROUND it
+/// instead -- the same length of step, along the tangent of the friend's body, on the side `want`
+/// already leans to. A step along the tangent takes the unit no closer, so it is never "in the
+/// way" (`vehicle_in_the_way`), and the unit steered at a goal behind the friend circles it and
+/// leaves it behind. Dead ahead (no lean either way) both of a head-on pair turn the same hand --
+/// the offset's left, each from its own side -- so they part rather than mirror each other.
+[[nodiscard]] Step step_aside(const Unit& unit, const Unit& other, Step want) noexcept {
+    const std::int64_t ox = static_cast<std::int64_t>(other.x.raw) - unit.x.raw;
+    const std::int64_t oy = static_cast<std::int64_t>(other.y.raw) - unit.y.raw;
+    const std::int64_t gap = isqrt((ox * ox) + (oy * oy));
+    const std::int64_t length = isqrt((want.dx * want.dx) + (want.dy * want.dy));
+    if (gap == 0 || length == 0) {
+        return Step{}; // on top of it, or not moving: no tangent to take
+    }
+    const std::int64_t px = -oy; // the offset's left
+    const std::int64_t py = ox;
+    const std::int64_t lean = (want.dx * px) + (want.dy * py);
+    const std::int64_t hand = lean < 0 ? -1 : 1;
+    return Step{hand * px * length / gap, hand * py * length / gap};
+}
+
 // Moves a unit by the step `plan_step` chose: straight on where it can, along a rim where it must,
 // and around an obstacle it cannot pass. The choice itself lives in sim/steering.hpp, which is the
-// seam a planned route will plug into. Another vehicle in the way is shoved, not walked through
-// (`shove_step`).
-void move(std::vector<Unit>& units, const WorldGround& ground, const UnitProfile& prof,
-          Unit& unit) noexcept {
+// seam a planned route will plug into.
+//
+// THE MOVER STEPS ASIDE (G13, Harri: "I think the mover would step aside"): the unit that is MOVING
+// yields to the one in its way when that one is a FRIEND. It plans round it (`plan_around_friends`)
+// and, this tick, steps round it (`step_aside`); if even that runs into a friend it WAITS (stands,
+// no velocity) -- it never shoves a friend and never passes through one. A FOE in the way is still
+// shoved, not walked through (`shove_step`).
+void move(std::vector<Unit>& units, const WorldGround& ground, const UnitProfile& prof, Unit& unit,
+          std::uint32_t& plans) noexcept {
     if (unit.vx.raw == 0 && unit.vy.raw == 0) {
         return;
     }
@@ -2228,13 +2479,41 @@ void move(std::vector<Unit>& units, const WorldGround& ground, const UnitProfile
     request.speed = prof.max_speed.raw;
     request.detour = unit.detour;
 
-    const StepPlan plan = plan_step(request, ground);
-    unit.detour = plan.detour;
+    const auto wait = [&unit] {
+        unit.vx = Fixed::zero();
+        unit.vy = Fixed::zero();
+        unit.shove_ticks = 0;
+    };
+    StepPlan plan = plan_step(request, ground);
     if (!plan.moved) {
+        unit.detour = plan.detour;
         unit.vx = Fixed::zero();
         unit.vy = Fixed::zero();
         return;
     }
+    // The friend is asked about the step the ground actually gives (scaled by the terrain, bent
+    // round a rim), not the one wanted: beside a body, a shorter step can come nearer where the
+    // longer one would end further off.
+    if (const Unit* ahead
+        = vehicle_in_the_way(units, unit, plan.step.dx, plan.step.dy, Whose::Friend);
+        ahead != nullptr) {
+        plan_around_friends(ground, unit, *ahead, plans);
+        const Step aside = step_aside(unit, *ahead, Step{unit.vx.raw, unit.vy.raw});
+        if (aside.dx == 0 && aside.dy == 0) {
+            wait();
+            return;
+        }
+        request.want_dx = aside.dx;
+        request.want_dy = aside.dy;
+        plan = plan_step(request, ground);
+        if (!plan.moved
+            || vehicle_in_the_way(units, unit, plan.step.dx, plan.step.dy, Whose::Friend)
+                   != nullptr) {
+            wait(); // round it is no way either (ground, or another friend): wait
+            return;
+        }
+    }
+    unit.detour = plan.detour;
     Step step = plan.step;
     shove_step(units, ground, unit, step);
     unit.x = Fixed::from_raw(
@@ -2932,7 +3211,7 @@ void Sim::step(StepTimings* timings) {
         const Fixed from_x = Fixed::from_raw(static_cast<std::int32_t>(unit.x.raw - strafe.dx));
         const Fixed from_y = Fixed::from_raw(static_cast<std::int32_t>(unit.y.raw - strafe.dy));
         if (!(unit.kind == UnitKind::Turret && !turret_may_move(unit))) {
-            move(units_, flight, prof, unit);
+            move(units_, flight, prof, unit, route_plans_);
         }
         if (aloft) {
             settle(plain, unit, own_height); // a jump, steered in the air as M5 made it

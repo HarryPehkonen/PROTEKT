@@ -30,7 +30,12 @@ using sim::EventKind;
 /// hundred bolts and loses two units (first shot at tick 472). A fight's outcome is chaotic in its
 /// timing: no seed is a property of the game, and the one that trades is picked again whenever the
 /// timing moves. Restoring `kThinkBeatTicks` = 1 puts 777 back as it was.
-constexpr unsigned kSeed = 10;
+/// RE-PICKED, G13 (the mover steps aside: friends are gone round, not shoved): 10 -> 4. On 10 the
+/// fight now goes one way (147 shots, the player loses 3 and the enemy none, first shot at tick
+/// 566 -- by the id-range reading of a probe, not this file's); on 4 each side loses units (the
+/// player 3, the enemy 2, 155 shots, first at 527). Not a drift in the game: over seeds 1-20, 9
+/// battles trade both before and after this slice (84 kills before, 89 after).
+constexpr unsigned kSeed = 4;
 constexpr sim::Tick kTicks = 2400;
 
 struct Fight {

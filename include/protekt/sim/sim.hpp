@@ -162,8 +162,9 @@ struct ScootSpot {
 /// stands. Which of the four hops is the first tried comes from a hash of (seed, the bike's id,
 /// `tick`) -- no runtime randomness, so the same battle scoots the same way and two bikes do not
 /// choose alike. A hop onto ground nobody can stand on is skipped for the next; empty only when
-/// all four are, and then the bike stays. Never another unit's tile: two bikes that pick one spot
-/// shove each other apart, like every other pair of vehicles.
+/// all four are, and then the bike stays. Not kept off another unit's tile: two bikes of one side
+/// that pick one spot step aside for each other (G13; they used to shove each other apart), as
+/// every pair of friends does.
 [[nodiscard]] std::optional<ScootSpot> scoot_spot(std::uint64_t seed, std::span<const Unit> units,
                                                   const Unit& bike, const Unit& target,
                                                   Tick tick) noexcept;

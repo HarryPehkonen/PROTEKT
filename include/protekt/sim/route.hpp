@@ -223,8 +223,15 @@ template <class Ground, class Cliff, class Avoid>
 /// goal last) and true is returned. On failure `route` is left with no waypoints, `failure` is
 /// `NoRoute`, and false is returned. The plan takes no speed: which edge is a wall (`drivable`)
 /// and which tile the press holds a unit on (`slide_way_of`) are the same for every unit.
+///
+/// `max_expanded` bounds the search: a plan that has closed that many tiles without reaching the
+/// goal set gives up as `NoRoute`. Unbounded by default -- every plan a unit makes for an order
+/// searches the whole grid, as it always has; the bound is for a plan made in passing (G13's way
+/// round a friend, `kFriendPlanBudget`), whose failure only means "wait", and which must not cost
+/// a search of the whole map each time a crowd hems a unit in.
 template <class Ground>
-[[nodiscard]] bool plan_route(const Ground& ground, TileXY start, TileXY goal, Route& route) {
+[[nodiscard]] bool plan_route(const Ground& ground, TileXY start, TileXY goal, Route& route,
+                              int max_expanded = 0x7FFFFFFF) {
     using route_detail::in_map;
     constexpr int kCells = kRouteTiles * kRouteTiles;
     constexpr int kStraight = 10;
@@ -405,7 +412,8 @@ template <class Ground>
 
     bool found = false;
     TileXY goal_reached = goal;
-    while (!open.empty()) {
+    int expanded = 0;
+    while (!open.empty() && expanded < max_expanded) {
         const auto [f, h, x, y] = open.top();
         open.pop();
         (void)f;
@@ -415,6 +423,7 @@ template <class Ground>
             continue;
         }
         closed[here] = 1;
+        ++expanded;
         if (in_goal_set(x, y)) {
             found = true;
             goal_reached = TileXY{static_cast<std::uint8_t>(x), static_cast<std::uint8_t>(y)};

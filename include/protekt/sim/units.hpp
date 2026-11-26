@@ -365,9 +365,10 @@ struct Unit {
     /// `kDeployTicks`; zero whenever it is not standing there under one. Hashed only when non-zero,
     /// so a battle in which nothing deploys hashes exactly as it did before.
     std::uint16_t deploy_ticks{};
-    /// Consecutive ticks this unit has spent shoving another vehicle (`kShoveYieldTicks`); zero
-    /// whenever it is clear of every vehicle. Hashed only when non-zero, so a battle in which
-    /// nothing is ever shoved hashes as it did before.
+    /// Consecutive ticks this unit has spent shoving a FOE's vehicle (`kShoveYieldTicks`); zero
+    /// whenever it is clear of every foe, and while it steps aside for or waits on a friend (G13:
+    /// a friend is never shoved). Hashed only when non-zero, so a battle in which nothing is ever
+    /// shoved hashes as it did before.
     std::uint16_t shove_ticks{};
     /// A SCAVENGER'S TRIP IN HAND: how many beats (`kScavengeIntervalTicks`) it has spent under
     /// `Fetch` for the pile in `guard_x/y`; `kFetchGiveUpBeats` of them and the pile is given up.
@@ -592,8 +593,10 @@ inline constexpr std::int32_t kTankRangeRaw = 12 << 16; ///< 12 tiles
 inline constexpr std::int32_t kTurretRangeRaw = 16 << 16;
 inline constexpr std::int32_t kArriveRadiusRaw = 1 << 16; ///< 1 tile
 
-// VEHICLES AND EACH OTHER. A vehicle cannot be driven through another, but it can be SHOVED: the
-// mover pushes what is in its way along with it, and pays for it. No wall -- see `shove_step`.
+// VEHICLES AND EACH OTHER. A vehicle cannot be driven through another. A FRIEND in the way is
+// stepped round (G13, "the mover would step aside"): the mover plans round it and slides past it,
+// or waits -- see `move`. A FOE in the way can be SHOVED: the mover pushes it along with it, and
+// pays for it. No wall -- see `shove_step`.
 /// How close two vehicle centres may come before one is "in" the other: three quarters of a tile.
 /// Spawn placement keeps units a whole tile apart, so a fresh battle starts with nobody touching.
 inline constexpr std::int32_t kBodyRadiusRaw = (3 << 16) / 4;
@@ -603,8 +606,10 @@ inline constexpr std::int32_t kBodyRadiusRaw = (3 << 16) / 4;
 inline constexpr std::int64_t kShoveSpeedNumerator = 2;
 inline constexpr std::int64_t kShoveSpeedDenominator = 3;
 /// The deadlock breaker: after this many consecutive ticks of shoving (1.5 s) a unit stops
-/// colliding until it has been clear of every vehicle for a tick. Two vehicles each shoving the
-/// other cancel out; without this they could hold one another for ever.
+/// colliding WITH FOES until it has been clear of every foe for a tick. Two vehicles each shoving
+/// the other cancel out; without this they could hold one another for ever. It never lets a unit
+/// through a FRIEND (G13): two friends that cannot get past each other wait, and the no-progress
+/// rule (`kStallTicks`) ends the order of one that waits too long.
 inline constexpr std::uint16_t kShoveYieldTicks = 45;
 
 // THE MORTAR BIKE'S SHOOT-AND-SCOOT (Harri, 2026-11-03: "they go to a spot, fire their mortar, and

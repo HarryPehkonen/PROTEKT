@@ -257,6 +257,9 @@ TEST(MortarBikeScoot, TheSpotIsTheSameForTheSameSeedAndIdAndVariesWithTheId) {
 }
 
 TEST(MortarBikeScoot, TwoBikesAtOnceBothKeepFiringTheShoveSortsOutTheirSpots) {
+    // G13: the two bikes are one side, so it is no longer the shove that sorts out their spots --
+    // each steps aside for the other (see test_step_aside.cpp). The name is the old mechanism's;
+    // what it pins, that neither bike is trapped, is unchanged.
     const Field f = open_field();
     ASSERT_NE(f.seed, 0U);
     Scenario s;

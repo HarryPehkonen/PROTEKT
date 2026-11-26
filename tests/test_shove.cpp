@@ -10,8 +10,13 @@
 #include <utility>
 #include <vector>
 
-/// Vehicles and each other: a unit cannot be driven through, but it can be SHOVED -- the pair
+/// Vehicles and each other: a unit cannot be driven through, but a FOE can be SHOVED -- the pair
 /// moves, at a cost to the pusher -- and no arrangement of vehicles can hold a unit for good.
+///
+/// G13 (THE MOVER STEPS ASIDE): a FRIEND is no longer shoved. The mover goes round it (see
+/// test_step_aside.cpp), so the tests here that pin the SHOVE itself drive a player vehicle into an
+/// ENEMY one -- two unarmed constructors, so nothing is shot -- and the crowd tests, which are all
+/// one side, now pin that stepping aside leaves nobody stuck where shoving used to.
 ///
 /// The ground is asserted open rather than described, so a world change cannot quietly turn these
 /// into a record of different terrain. The enemy base is unarmed and far away: nothing here is
@@ -51,6 +56,23 @@ constexpr int kLastX = 142;
     base.tile_x = 200;
     base.tile_y = 200;
     scenario.spawns.push_back(base);
+    return scenario;
+}
+
+/// A player constructor at `pusher` and an ENEMY constructor at `foe`, with the far-off base:
+/// what is left of the shove is a unit and a foe (G13), and constructors carry no gun.
+[[nodiscard]] Scenario foes_at(std::pair<int, int> pusher, std::pair<int, int> foe) {
+    Scenario scenario = scenario_of({});
+    Spawn mine{};
+    mine.side = Side::Player;
+    mine.kind = UnitKind::Constructor;
+    mine.tile_x = pusher.first;
+    mine.tile_y = pusher.second;
+    Spawn theirs = mine;
+    theirs.side = Side::Enemy;
+    theirs.tile_x = foe.first;
+    theirs.tile_y = foe.second;
+    scenario.spawns.insert(scenario.spawns.begin(), {mine, theirs});
     return scenario;
 }
 
@@ -97,9 +119,10 @@ TEST(Shove, AVehicleCannotBeDrivenThroughAnother) {
 }
 
 TEST(Shove, AVehicleDrivenIntoIsPushedAside) {
+    // G13: a FOE (an enemy constructor; it was a friendly tank, which is now stepped round).
     ASSERT_TRUE(open_row());
-    Sim sim = Sim::create(scenario_of({{105, kRowY}, {108, kRowY}}));
-    const auto ids = player_ids(sim);
+    Sim sim = Sim::create(foes_at({105, kRowY}, {108, kRowY}));
+    const std::vector<UnitId> ids{UnitId{1}, UnitId{2}};
     const Unit start = *sim.find(ids[1]);
     go(sim, ids[0], 130, kRowY);
     for (int tick = 0; tick < 60; ++tick) {
@@ -129,11 +152,15 @@ TEST(Shove, ShovingCostsThePusherAThirdOfItsSpeed) {
     // in a tile is one number). The slack is the same hundredth of a tile it always was.
     // RESTATED, G6: the slope is no longer a scale on the step but a press added to it, so what
     // the shove takes is a third of the engine's step, and the comparison below says so.
+    // RESTATED, G13: a friend is no longer shoved, so the pusher is a player constructor and the
+    // pushed an ENEMY constructor (unarmed both); the reference is a constructor driving alone, and
+    // the engine's step is the constructor's (`max_speed`), not a tank's. The rule measured is the
+    // same one -- two thirds of the engine's step while shoving.
     ASSERT_TRUE(open_row());
-    Sim reference = Sim::create(scenario_of({{105, kRowY}}));
-    Sim shoving = Sim::create(scenario_of({{105, kRowY}, {106, kRowY}}));
-    const auto reference_ids = player_ids(reference);
-    const auto shove_ids = player_ids(shoving);
+    Sim reference = Sim::create(foes_at({105, kRowY}, {105, kRowY + 3}));
+    Sim shoving = Sim::create(foes_at({105, kRowY}, {106, kRowY}));
+    const std::vector<UnitId> reference_ids{UnitId{1}};
+    const std::vector<UnitId> shove_ids{UnitId{1}, UnitId{2}};
     go(reference, reference_ids[0], 130, kRowY);
     go(shoving, shove_ids[0], 130, kRowY);
 
@@ -162,7 +189,7 @@ TEST(Shove, ShovingCostsThePusherAThirdOfItsSpeed) {
             // step) and leaves the slope's push as it is: the free step less a third of the
             // engine's.
             const std::int64_t engine
-                = (static_cast<std::int64_t>(kTankSpeedRaw)
+                = (static_cast<std::int64_t>(profile(UnitKind::Constructor).max_speed.raw)
                    * terrain_speed_factor(
                          world::sample(42, before.x.floor_int(), before.y.floor_int()).terrain)
                          .raw)
@@ -215,6 +242,8 @@ TEST(Shove, TwoVehiclesDrivenHeadOnPassEachOther) {
 TEST(Shove, AVehiclePinnedInTheMapCornerDoesNotHoldItsPusherForever) {
     // B sits in the corner of the map: it can be shoved nowhere. A drives into it. A shove that
     // became a wall here would be a permanent trap; the pusher must get through.
+    // RESTATED, G13: B is A's FRIEND, so A no longer shoves it or passes through: it comes up
+    // beside B -- within the two tiles asserted -- and is not trapped further out.
     Sim sim = Sim::create(scenario_of({{4, 4}, {0, 0}}));
     const auto ids = player_ids(sim);
     go(sim, ids[0], 0, 0);
@@ -228,7 +257,8 @@ TEST(Shove, AVehiclePinnedInTheMapCornerDoesNotHoldItsPusherForever) {
 
 TEST(Shove, NoCrowdOfVehiclesCanHoldAnyOfThemForever) {
     // A block of six, each ordered to the spot another one occupies: every one of them must
-    // arrive. This is the property the design exists for; the sim has no pathfinding to rescue it.
+    // arrive. This is the property the design exists for. G13: they are all one side, so nobody
+    // is shoved -- each steps aside for the others -- and they must still all arrive.
     ASSERT_TRUE(open_row());
     const std::vector<std::pair<int, int>> tiles{{105, kRowY},     {106, kRowY},
                                                  {107, kRowY},     {105, kRowY + 1},
@@ -252,7 +282,9 @@ TEST(Shove, NoCrowdOfVehiclesCanHoldAnyOfThemForever) {
 
 TEST(Shove, ADenseBlockSentToShuffledGoalsLeavesNobodyStuck) {
     // Twenty-four vehicles packed a tile apart, each sent to the post of another, by a fixed
-    // shuffle. Crossing streams in a crush is the nearest thing to a trap a battle makes.
+    // shuffle. Crossing streams in a crush is the nearest thing to a trap a battle makes. G13: one
+    // side, so the crush is sorted out by stepping aside (and planning round standing friends),
+    // not by shoving.
     ASSERT_TRUE(open_row());
     std::vector<std::pair<int, int>> tiles;
     for (int row = 0; row < 4; ++row) {

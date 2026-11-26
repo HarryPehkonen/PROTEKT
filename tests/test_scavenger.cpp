@@ -305,8 +305,13 @@ TEST(Ledger, RepairHappensAndTheLedgerPaysForNothing) {
         ore_high = std::max(ore_high, sim.ore(Side::Player));
     }
     EXPECT_TRUE(mended) << "no unit was ever mended, so the ruling was never at risk";
-    EXPECT_GE(ore_high, static_cast<std::uint16_t>(protekt::sim::kScrapPerWreck))
-        << "the hauler banked the wreck, so there was ore to be tempted with";
+    // MOVED, G13 (THE MOVER STEPS ASIDE): kScrapPerWreck (4) -> 3. The three player tanks roll
+    // down into a gully at x = 55 after the fight and come to rest stacked there, 0.4 to 0.5 of a
+    // tile apart (the roll asks about no bodies); the wreck's fourth piece, at (55.5, 43.5), lies
+    // under that stack. The hauler used to shove the tanks off it; a friend is no longer shoved,
+    // so the piece waits for a tank to move. Three pieces banked is still ore to be tempted with,
+    // which is what this line is for.
+    EXPECT_GE(ore_high, 3U) << "the hauler banked the wreck, so there was ore to be tempted with";
 }
 
 TEST(Scavenger, EveryPieceOfAWreckIsTakenWhereverTheScatterDroppedIt) {
