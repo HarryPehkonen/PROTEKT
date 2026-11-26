@@ -24,7 +24,7 @@
 #include "protekt/world/world.hpp"
 
 /// M5: an honest trigger (sound and message follow what the SIM did), the reload on the reticle,
-/// and the landing marker.
+/// and the shell's burst where the landing marker was (G11).
 namespace protekt::game {
 namespace {
 
@@ -34,7 +34,7 @@ using input::MouseButton;
 using sim::Side;
 using sim::UnitKind;
 
-/// The flattest and the steepest pitch the landing marker is tested at (radians, up positive): a
+/// The flattest and the steepest pitch the shell's burst is tested at (radians, up positive): a
 /// level aim, and 1.28 rad, just under `kLookPitchLimit`.
 constexpr float kLevelPitch = 0.0F;
 constexpr float kSteepPitch = 1.28F;
@@ -93,7 +93,7 @@ struct Rig {
     HitFlash flash;
     HitMark mark;
     RadarActivity radar;
-    LandingMarks marks;
+    ShellBursts bursts;
     int shots{0};
     int landings{0};
     sim::Tick last_landing_tick{};
@@ -164,7 +164,7 @@ void frame(Rig& rig, bool pull) {
         rig.player.trigger_refused(rig.sim);
     }
     for (const app::AdvanceResult::Touchdown& down : result.touchdowns) {
-        rig.marks.land(down.tick, down.landing.tile_x, down.landing.tile_y);
+        rig.bursts.land(down.tick, down.landing.tile_x, down.landing.tile_y);
         ++rig.landings;
         rig.last_landing_tick = down.tick;
         rig.last_landing = down.landing;
@@ -301,48 +301,66 @@ TEST(ReloadReticle, TheWholeTickedReticleIsDimmedNotJustTheDot) {
     }
 }
 
-// --- (c) the landing marker --------------------------------------------------------------------
+// --- (c) G11: THE SHELL'S BURST, in the place of the deleted landing marker -------------------
 
-struct Marked {
-    std::vector<SceneVertex> marker;
+struct Drawn {
+    std::vector<SceneVertex> burst;
     bool tail_untouched{false};
 };
 
-/// The marker's vertices: what appears in the scene when the marks are attached.
-[[nodiscard]] Marked marker_vertices(Rig& rig) {
-    rig.options.landing_marks = nullptr;
+/// The burst's vertices: what appears in the scene when the touchdowns are attached.
+[[nodiscard]] Drawn burst_vertices(Rig& rig) {
+    rig.options.shell_bursts = nullptr;
     const Scene bare = build_scene(rig.sim, rig.options);
-    rig.options.landing_marks = &rig.marks;
-    const Scene marked = build_scene(rig.sim, rig.options);
-    rig.options.landing_marks = nullptr;
-    Marked out;
-    if (marked.vertices.size() < bare.vertices.size()) {
+    rig.options.shell_bursts = &rig.bursts;
+    const Scene burst = build_scene(rig.sim, rig.options);
+    rig.options.shell_bursts = nullptr;
+    Drawn out;
+    if (burst.vertices.size() < bare.vertices.size()) {
         return out;
     }
     std::size_t first = 0;
-    while (first < bare.vertices.size() && first < marked.vertices.size()
-           && bare.vertices[first].position == marked.vertices[first].position
-           && bare.vertices[first].colour == marked.vertices[first].colour) {
+    while (first < bare.vertices.size() && first < burst.vertices.size()
+           && bare.vertices[first].position == burst.vertices[first].position
+           && bare.vertices[first].colour == burst.vertices[first].colour) {
         ++first;
     }
-    const std::size_t extra = marked.vertices.size() - bare.vertices.size();
-    out.marker.assign(marked.vertices.begin() + static_cast<std::ptrdiff_t>(first),
-                      marked.vertices.begin() + static_cast<std::ptrdiff_t>(first + extra));
+    const std::size_t extra = burst.vertices.size() - bare.vertices.size();
+    out.burst.assign(burst.vertices.begin() + static_cast<std::ptrdiff_t>(first),
+                     burst.vertices.begin() + static_cast<std::ptrdiff_t>(first + extra));
     out.tail_untouched = true;
     for (std::size_t i = first; i < bare.vertices.size(); ++i) {
-        out.tail_untouched = out.tail_untouched
-                             && bare.vertices[i].position == marked.vertices[i + extra].position;
+        out.tail_untouched
+            = out.tail_untouched && bare.vertices[i].position == burst.vertices[i + extra].position;
     }
     return out;
 }
 
-void expect_marker_at(Rig& rig, float expected_tiles) {
-    const float start = as_float(rig.sim.find(rig.tank)->x);
-    const int tank_row = rig.sim.find(rig.tank)->y.floor_int();
+/// Fires, and steps until the sim's own touchdown: the sim is left on the tick it came down.
+void fire_until_landed(Rig& rig) {
     frame(rig, true);
     for (int tick = 0; tick < 300 && rig.landings == 0; ++tick) {
         frame(rig, false);
     }
+}
+
+/// The landing tile's centre, in metres, and the ground there.
+struct Spot {
+    float x{};
+    float z{};
+    float ground{};
+};
+
+[[nodiscard]] Spot landing_spot(const Rig& rig) {
+    const float tx = static_cast<float>(rig.last_landing.tile_x) + 0.5F;
+    const float ty = static_cast<float>(rig.last_landing.tile_y) + 0.5F;
+    return Spot{tx * kMetresPerTile, ty * kMetresPerTile, ground_metres(kSeed, tx, ty)};
+}
+
+void expect_burst_at(Rig& rig, float expected_tiles) {
+    const float start = as_float(rig.sim.find(rig.tank)->x);
+    const int tank_row = rig.sim.find(rig.tank)->y.floor_int();
+    fire_until_landed(rig);
     ASSERT_EQ(rig.landings, 1) << "the sim reported the touchdown";
     EXPECT_FALSE(rig.last_landing.hit);
     EXPECT_EQ(rig.last_landing.tile_y, tank_row);
@@ -350,35 +368,33 @@ void expect_marker_at(Rig& rig, float expected_tiles) {
 
     const sim::Tick landed = rig.last_landing_tick;
     ASSERT_EQ(rig.sim.tick(), landed) << "read the tick it came down on";
-    const std::vector<LandingMarks::Mark> showing = rig.marks.active(landed);
+    const std::vector<ShellBursts::Burst> showing = rig.bursts.active(landed);
     ASSERT_EQ(showing.size(), 1U);
     EXPECT_EQ(showing[0].tile_x, rig.last_landing.tile_x);
     EXPECT_EQ(showing[0].tile_y, rig.last_landing.tile_y);
-    EXPECT_EQ(showing[0].level, 1.0F);
+    EXPECT_EQ(showing[0].age, 0);
 
-    // In the scene: one marker's worth of vertices, standing on the touchdown tile.
-    const Marked drawn = marker_vertices(rig);
-    ASSERT_EQ(drawn.marker.size(), kLandingMarkVertexCount);
+    // In the scene, on the touchdown tile.
+    const Drawn drawn = burst_vertices(rig);
+    ASSERT_FALSE(drawn.burst.empty());
     EXPECT_TRUE(drawn.tail_untouched) << "the reticle is still the tail";
-    const float centre_x = (static_cast<float>(rig.last_landing.tile_x) + 0.5F) * kMetresPerTile;
-    const float centre_z = (static_cast<float>(rig.last_landing.tile_y) + 0.5F) * kMetresPerTile;
-    const float ground = ground_metres(kSeed, static_cast<float>(rig.last_landing.tile_x) + 0.5F,
-                                       static_cast<float>(rig.last_landing.tile_y) + 0.5F);
-    for (const SceneVertex& v : drawn.marker) {
-        EXPECT_LE(std::abs(v.position[0] - centre_x), 3.0F);
-        EXPECT_LE(std::abs(v.position[2] - centre_z), 3.0F);
-        EXPECT_GE(v.position[1], ground - 0.5F);
-        EXPECT_LE(v.position[1], ground + 6.0F);
+    const Spot spot = landing_spot(rig);
+    for (const SceneVertex& v : drawn.burst) {
+        EXPECT_LE(std::abs(v.position[0] - spot.x), 3.0F);
+        EXPECT_LE(std::abs(v.position[2] - spot.z), 3.0F);
+        EXPECT_GE(v.position[1], spot.ground - 0.5F);
+        EXPECT_LE(v.position[1], spot.ground + 3.0F);
     }
 
-    // Seen from the level view the shot was fired from: the shell can land close enough that the
-    // foot of the marker is below the bottom of the frame, but it stands 4 m tall, so its middle is
-    // in the frame, a good part of it is on screen, and what is on screen is big.
+    // Seen from the level view a third of a second on, the cloud climbing: what the marker's 4 m
+    // height was for -- a shell that lands close is still in the frame.
+    for (int tick = 0; tick < 10; ++tick) {
+        frame(rig, false);
+    }
     look(rig, 0.0F);
-    float top = 1e9F;
-    float bottom = -1e9F;
     std::size_t inside = 0;
-    for (const SceneVertex& v : drawn.marker) {
+    const Drawn rising = burst_vertices(rig);
+    for (const SceneVertex& v : rising.burst) {
         const Projected p
             = project(rig.options.camera, kExtent, v.position[0], v.position[1], v.position[2]);
         ASSERT_GT(p.depth, 0.0F);
@@ -386,100 +402,41 @@ void expect_marker_at(Rig& rig, float expected_tiles) {
             && p.y < static_cast<float>(kExtent.height)) {
             ++inside;
         }
-        top = std::min(top, p.y);
-        bottom = std::max(bottom, p.y);
     }
-    EXPECT_GE(inside * 3, drawn.marker.size()) << "at least a third of the marker is in the frame";
-    const Projected middle = project(rig.options.camera, kExtent, centre_x,
-                                     ground + (kLandingMarkHeight / 2.0F), centre_z);
-    EXPECT_GE(middle.y, 0.0F);
-    EXPECT_LT(middle.y, static_cast<float>(kExtent.height));
-    EXPECT_GT(std::min(bottom, static_cast<float>(kExtent.height)) - std::max(top, 0.0F), 40.0F)
-        << "not tiny: at least 40 px of it on screen at 720";
+    EXPECT_GE(inside * 3, rising.burst.size()) << "at least a third of it is in the frame";
 
-    // Gone after its lifetime.
-    EXPECT_EQ(rig.marks.active(landed + kLandingMarkHoldTicks - 1).front().level, 1.0F);
-    const float fading = rig.marks.active(landed + kLandingMarkHoldTicks + 5).front().level;
-    EXPECT_GT(fading, 0.0F);
-    EXPECT_LT(fading, 1.0F);
-    EXPECT_TRUE(rig.marks.active(landed + kLandingMarkHoldTicks + kLandingMarkFadeTicks).empty());
-    for (sim::Tick tick = 0; tick < kLandingMarkHoldTicks + kLandingMarkFadeTicks; ++tick) {
+    // Gone after its lifetime, from the record and from the scene.
+    EXPECT_EQ(rig.bursts.active(landed + kShellBurstTicks - 1).size(), 1U);
+    EXPECT_TRUE(rig.bursts.active(landed + kShellBurstTicks).empty());
+    while (rig.sim.tick() < landed + kShellBurstTicks) {
         frame(rig, false);
     }
-    EXPECT_TRUE(marker_vertices(rig).marker.empty()) << "and out of the scene";
+    EXPECT_TRUE(burst_vertices(rig).burst.empty()) << "and out of the scene";
 }
 
-TEST(LandingMarker, TheLowestPitchLandsAMarkerThatIsClearlyVisibleInFront) {
+TEST(ShellBurst, TheLowestPitchBurstsInFrontAndClearsItself) {
     Rig rig;
     make_rig(rig, Weapon::Mortar, kLevelPitch);
-    expect_marker_at(rig, mortar_landing_tiles(kLevelPitch));
+    expect_burst_at(rig, mortar_landing_tiles(kLevelPitch));
 }
 
-TEST(LandingMarker, TheClosestPitchIsATallNarrowCrossAndNotAWall) {
-    // M5c, measured: the first version drew a 1.9 m-wide cross at the closest pitch, which covered
-    // 34% of the frame's width and 80% of its height -- a magenta wall in the player's face at
-    // exactly the range the mark exists for. The HEIGHT stays 4 m (the eye is above a close
-    // landing, so the height is what carries the mark into the frame); the WIDTH follows the
-    // range, so what stands at your feet is a tall narrow cross.
-    //
-    // M6 (the mortar's lift) raised the closest pitch from about 1.6 tiles to 3.30, so the "at your
-    // feet" landing this defect was MEASURED at is no longer reachable at all. The
-    // fixed muzzle speed (2026-10-31) made a level aim a flat gun: the closest pitch is 4.37 tiles
-    // (the shell falls the muzzle's 0.57 tiles at 21 tiles a second), 0.795 m of cross
-    // became 1.019. The guard and the width bound below are re-derived for the pitch that does
-    // exist: the mark's half-width is `clamp(camera_distance * kLandingMarkWidthPerMetre, min,
-    // max)`, so a pitch further out gives a slightly wider cross -- still a cross. Half a metre was
-    // right at 1.6 tiles; it is not the right figure at 3.3, and pretending otherwise would mean
-    // asserting a bound the feature is not built to hold.
-    Rig rig;
-    make_rig(rig, Weapon::Mortar, kLevelPitch);
-    const float tiles = mortar_landing_tiles(kLevelPitch);
-    ASSERT_LT(tiles, 5.0F) << "the closest of the flight pitches";
-    // Fire and read the marker the moment it lands: `expect_marker_at` runs out the whole lifetime.
-    frame(rig, true);
-    for (int tick = 0; tick < 300 && rig.landings == 0; ++tick) {
-        frame(rig, false);
-    }
-    ASSERT_EQ(rig.landings, 1) << "the sim reported the touchdown";
-    const Marked drawn = marker_vertices(rig);
-    ASSERT_EQ(drawn.marker.size(), kLandingMarkVertexCount);
-    const float centre_x = (static_cast<float>(rig.last_landing.tile_x) + 0.5F) * kMetresPerTile;
-    const float centre_z = (static_cast<float>(rig.last_landing.tile_y) + 0.5F) * kMetresPerTile;
-    const float ground = ground_metres(kSeed, static_cast<float>(rig.last_landing.tile_x) + 0.5F,
-                                       static_cast<float>(rig.last_landing.tile_y) + 0.5F);
-    float wide = 0.0F;
-    float tall = 0.0F;
-    for (const SceneVertex& v : drawn.marker) {
-        wide = std::max(wide,
-                        std::sqrt(((v.position[0] - centre_x) * (v.position[0] - centre_x))
-                                  + ((v.position[2] - centre_z) * (v.position[2] - centre_z))));
-        tall = std::max(tall, v.position[1] - ground);
-    }
-    // Measured at this pitch: 1.019 m across (0.795 m at the old 3.3 tiles: the width follows the
-    // range, linearly until the clamp). 1.2 m is a figure a human chose, and it has teeth in both
-    // directions -- the old 1.9 m wall breaks it, and so does a runaway width (the
-    // kLandingMarkMaxHalfWidth clamp would draw 1.8 m here).
-    EXPECT_LE(wide, 1.2F) << "just over a metre at 4.4 tiles: a cross, not a wall";
-    EXPECT_GE(tall, 3.5F) << "and still 4 m tall, so it reaches into the frame from a level view";
-}
-
-TEST(LandingMarker, TheHoldIsTwoSecondsSoAShotAtTheSkyCanBeLookedDownAt) {
-    // A lob at the steepest pitch is 52 ticks in the air; 60 ticks of hold left nothing to see
-    // by the time the player brought his view back down.
-    EXPECT_EQ(kLandingMarkHoldTicks, 120);
-}
-
-TEST(LandingMarker, TheHighestPitchLandsAMarkerEightPointOneTilesOut) {
-    // The fixed muzzle speed (2026-10-31): the steepest pitch is the HIGH, SHORT lob, 8.06 tiles
-    // (it was the furthest, 14.33, when the horizontal speed was constant). It lands rather than
-    // fizzling, as do all the flight pitches (`kBoltTravel` is 16 tiles).
+TEST(ShellBurst, TheHighestPitchBurstsEightPointOneTilesOut) {
+    // The fixed muzzle speed (2026-10-31): the steepest pitch is the HIGH, SHORT lob, 8.06 tiles.
     Rig rig;
     make_rig(rig, Weapon::Mortar, kSteepPitch);
-    expect_marker_at(rig, mortar_landing_tiles(kSteepPitch));
+    expect_burst_at(rig, mortar_landing_tiles(kSteepPitch));
     EXPECT_NEAR(mortar_landing_tiles(kSteepPitch), 8.1F, 0.1F);
 }
 
-TEST(LandingMarker, OnlyThePlayersOwnLobMakesOne) {
+TEST(ShellBurst, ItLastsASecondAndAHalf) {
+    // G11: a puff, not an object. The marker held for 120 + 20 ticks; the burst is 45, and every
+    // layer of it is over by then.
+    EXPECT_EQ(kShellBurstTicks, 45);
+    EXPECT_LE(kShellFlashTicks, kShellBurstTicks);
+    EXPECT_LE(kShellSparkTicks, kShellBurstTicks);
+}
+
+TEST(ShellBurst, OnlyThePlayersOwnLobMakesOne) {
     Rig rig;
     make_rig(rig, Weapon::Gun, 0.0F);
     frame(rig, true); // a straight bolt into the ground, not a lob
@@ -487,7 +444,76 @@ TEST(LandingMarker, OnlyThePlayersOwnLobMakesOne) {
         frame(rig, false);
     }
     EXPECT_EQ(rig.landings, 0);
-    EXPECT_TRUE(rig.marks.active(rig.sim.tick()).empty());
+    EXPECT_TRUE(rig.bursts.active(rig.sim.tick()).empty());
+}
+
+/// Magenta-dominant: red and blue both well over green. The mark was {1.0, 0.1, 0.85}; the fog
+/// only pulls a colour toward the sky, so a fogged mark still reads this way. Sparks are warm
+/// (blue under green) and the cloud is grey-brown (the three close), so neither does. The WORLD's
+/// vertices only: the HUD's shotgun label is a lilac {0.90, 0.45, 0.80} that reads this way too.
+[[nodiscard]] std::size_t world_magenta(const Scene& scene) {
+    std::size_t count = 0;
+    for (std::size_t i = 0; i < scene.world_vertex_count && i < scene.vertices.size(); ++i) {
+        const SceneVertex& v = scene.vertices[i];
+        count += v.colour[0] > v.colour[1] + 0.3F && v.colour[2] > v.colour[1] + 0.3F ? 1U : 0U;
+    }
+    return count;
+}
+
+TEST(ShellBurst, ALandingDrawsNoMarkButABurstOfSparksAndACloudThatClearsItself) {
+    Rig rig;
+    make_rig(rig, Weapon::Mortar, kLevelPitch);
+    fire_until_landed(rig);
+    ASSERT_EQ(rig.landings, 1) << "the sim's own landing list reported the touchdown";
+    const sim::Tick landed = rig.last_landing_tick;
+    ASSERT_EQ(rig.sim.tick(), landed);
+    const Spot spot = landing_spot(rig);
+
+    // The frame of the hit: no mark anywhere in the world, and a burst at the touchdown tile.
+    rig.options.shell_bursts = &rig.bursts;
+    EXPECT_EQ(world_magenta(build_scene(rig.sim, rig.options)), 0U) << "no X, not even fogged";
+    const Drawn burst = burst_vertices(rig);
+    ASSERT_FALSE(burst.burst.empty()) << "a landing draws something";
+    EXPECT_TRUE(burst.tail_untouched);
+    std::size_t sparks = 0;
+    for (const SceneVertex& v : burst.burst) {
+        EXPECT_LE(std::abs(v.position[0] - spot.x), 4.0F) << "at the touchdown tile";
+        EXPECT_LE(std::abs(v.position[2] - spot.z), 4.0F);
+        EXPECT_GE(v.position[1], spot.ground - 0.5F);
+        EXPECT_LE(v.position[1], spot.ground + 8.0F);
+        sparks += v.colour == kSparkHotColour ? 1U : 0U; // a spark is unfogged and white-hot at 0
+    }
+    EXPECT_GE(sparks, 8U * kSparkVertices) << "the sparks are the wreck's and the weld's own";
+
+    // Later: the cloud rises. Its top is read after the flash (gone at `kShellFlashTicks`, and at
+    // the hit it stands taller than the young cloud) and without the sparks (green 0.8 and over;
+    // the dust is under 0.5), at +10 and again at +30.
+    const auto cloud_top = [&] {
+        float top = -1e9F;
+        for (const SceneVertex& v : burst_vertices(rig).burst) {
+            if (v.colour[1] < 0.7F) {
+                top = std::max(top, v.position[1]);
+            }
+        }
+        return top;
+    };
+    while (rig.sim.tick() < landed + 10) {
+        frame(rig, false);
+    }
+    const float top_early = cloud_top();
+    EXPECT_GT(top_early, spot.ground) << "the cloud is drawn";
+    while (rig.sim.tick() < landed + 30) {
+        frame(rig, false);
+    }
+    EXPECT_GT(cloud_top(), top_early + 0.5F) << "the cloud rises";
+
+    // It clears itself up: still there on its last tick, gone the tick after.
+    while (rig.sim.tick() < landed + kShellBurstTicks - 1) {
+        frame(rig, false);
+    }
+    EXPECT_FALSE(burst_vertices(rig).burst.empty()) << "its last tick";
+    frame(rig, false);
+    EXPECT_TRUE(burst_vertices(rig).burst.empty()) << "a puff, not an object";
 }
 
 // --- (d) the shell's trail ---------------------------------------------------------------------
@@ -520,7 +546,7 @@ TEST(M5, TwoSameSeedRunsAreByteIdentical) {
             frame(rig, false);
         }
         rig.options.reloading = weapon_reloading(rig.sim, rig.tank);
-        rig.options.landing_marks = &rig.marks;
+        rig.options.shell_bursts = &rig.bursts;
         const Scene scene = build_scene(rig.sim, rig.options);
         return std::pair{rig.sim.state_hash(), scene.vertices};
     };

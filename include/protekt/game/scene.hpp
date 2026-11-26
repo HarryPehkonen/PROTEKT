@@ -799,37 +799,70 @@ private:
     bool armed_{false};
 };
 
-/// THE LANDING MARKER (M5). Where the player's own lob touched down, drawn for
-/// `kLandingMarkHoldTicks` at full strength and then shrinking away over `kLandingMarkFadeTicks`
-/// more, so a shell that lands on empty ground still tells the player where. Fed from the sim's own
-/// `Landing` record, never re-derived. The app owns it, like `HitMark`.
-/// The hold is 2 s (M5c): a lob at the highest elevation is in the air for 52 ticks, so a player
-/// who fires at the sky and looks back down still has a second to read where it came down.
-inline constexpr sim::Tick kLandingMarkHoldTicks = 120;
-inline constexpr sim::Tick kLandingMarkFadeTicks = 20;
+/// G11, THE SHELL'S BURST -- in the place of the M5 landing marker, which is DELETED (Harri,
+/// 2026-11-26: "One thing we really need to get rid of is the Xs that mortar leaves.  Can those be
+/// removed?  There should be an explosion instead.  A nice one with sparks and a cloud."). Where
+/// the player's own lob touched down, a burst: a flash, a dust cloud that rises, grows and thins
+/// away, and sparks thrown outward that fall. Fed from the sim's own `Landing` record (through the
+/// pipeline's touchdowns), never re-derived; drawing only, and the app owns the record, like
+/// `HitMark`.
+///
+/// A PUFF, NOT AN OBJECT: `kShellBurstTicks` = 45, a second and a half at 30 Hz, and then there is
+/// nothing on that tile. Long enough to read in a fight (the cloud is still standing a second after
+/// the hit, when a player who fired at the sky has looked back down), short enough that a mortar
+/// duel does not litter the field. Every layer of the burst is over by then; the cloud is the one
+/// that lasts the whole of it.
+inline constexpr sim::Tick kShellBurstTicks = 45;
 
-/// Vertices in one marker: a bracketed cross standing upright at the touchdown tile -- the X's two
-/// bars and four corner brackets of two bars each, ten quads of six vertices.
-inline constexpr std::size_t kLandingMarkVertexCount = 60;
-/// It stands 4 m tall -- more than the eye's height over the ground -- so the middle of it is in
-/// the frame at any view pitch a shell can be fired from, however close it lands.
-inline constexpr float kLandingMarkHeight = 4.0F;
+/// The FLASH: `kShellFlashPuffs` hot puffs at the point of impact for the first `kShellFlashTicks`,
+/// shrinking and dimming, the wreck blast's colours at a shell's size.
+inline constexpr std::size_t kShellFlashPuffs = 5;
+inline constexpr sim::Tick kShellFlashTicks = 8;
+inline constexpr float kShellFlashHalfMetres = 0.8F;
+inline constexpr float kShellFlashLastHalfMetres = 0.35F;
+inline constexpr float kShellFlashAlpha = 0.95F;
+
+/// The CLOUD: `kShellCloudPuffs` puffs of thrown-up dirt, opening small at the ground and carried
+/// up to `kShellCloudRiseMetres` and out to `kShellCloudSpreadMetres` while each grows from
+/// `kShellCloudHalfMetres` to `kShellCloudLastHalfMetres`, fading to nothing at `kShellBurstTicks`.
+/// It reaches about 4 m -- the height the marker stood -- so it is in the frame from a level view
+/// however close the shell came down.
+inline constexpr std::size_t kShellCloudPuffs = 10;
+inline constexpr float kShellCloudHalfMetres = 0.35F;
+inline constexpr float kShellCloudLastHalfMetres = 1.1F;
+inline constexpr float kShellCloudRiseMetres = 3.0F;
+inline constexpr float kShellCloudSpreadMetres = 2.8F;
+inline constexpr float kShellCloudAlpha = 0.8F;
+inline constexpr std::array<float, 3> kShellCloudColour{0.56F, 0.48F, 0.40F};     ///< lit dust
+inline constexpr std::array<float, 3> kShellCloudLastColour{0.42F, 0.40F, 0.38F}; ///< thin grey
+
+/// The SPARKS: `kShellSparks` of the very same spark the wreck blast and the repair weld throw
+/// (`kSparkHotColour`, `kSparkGravity`, opaque, never fogged), out of the impact at up to
+/// `kShellSparkSpeedMetres` a tick and `kShellSparkLiftMetres` up, so the fastest climb about 2 m
+/// and are FALLING by the end of their `kShellSparkTicks`.
+inline constexpr std::size_t kShellSparks = 16;
+inline constexpr sim::Tick kShellSparkTicks = 30;
+inline constexpr float kShellSparkHalfMetres = 0.08F;
+inline constexpr float kShellSparkSpeedMetres = 0.20F;
+inline constexpr float kShellSparkLiftMetres = 0.18F;
 
 class NavMarks;
 class RadarActivity;
 struct RowState;
 
-class LandingMarks {
+/// The touchdowns still bursting: `land` records one (the tick it came down on and its tile, both
+/// the sim's), `active` gives the ones younger than `kShellBurstTicks` at `now`, oldest first.
+class ShellBursts {
 public:
-    struct Mark {
+    struct Burst {
+        sim::Tick at{}; ///< the tick it came down on: with the tile, the burst's own seed
         std::int32_t tile_x{};
         std::int32_t tile_y{};
-        float level{}; ///< 1 while held, falling linearly to 0 across the fade
+        sim::Tick age{}; ///< ticks since `at`, in [0, kShellBurstTicks)
     };
 
     void land(sim::Tick landed_at, std::int32_t tile_x, std::int32_t tile_y);
-    /// The marks still showing at `now`, oldest first; exactly the ones with `level` > 0.
-    [[nodiscard]] std::vector<Mark> active(sim::Tick now) const;
+    [[nodiscard]] std::vector<Burst> active(sim::Tick now) const;
 
 private:
     struct Entry {
@@ -1507,9 +1540,8 @@ struct SceneOptions {
     /// The driven weapon is reloading: the reticle is drawn spent (a dim ghost of itself) until it
     /// is ready again. False draws it as it always was.
     bool reloading{false};
-    /// The player's landing markers, drawn standing at their touchdown tiles. Null draws none.
-    /// Not owned.
-    const LandingMarks* landing_marks{nullptr};
+    /// G11: the player's shells bursting at their touchdown tiles. Null draws none. Not owned.
+    const ShellBursts* shell_bursts{nullptr};
     /// The player's navigational marks (N1), drawn as a slim beacon at each tile. Null draws none.
     /// Not owned.
     const NavMarks* nav_marks{nullptr};

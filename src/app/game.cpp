@@ -563,7 +563,7 @@ public:
             session_.trigger_refused(sim_);
         }
         for (const AdvanceResult::Touchdown& down : result.touchdowns) {
-            landing_marks_.land(down.tick, down.landing.tile_x, down.landing.tile_y);
+            shell_bursts_.land(down.tick, down.landing.tile_x, down.landing.tile_y);
         }
         // A3: the driven gun's kick, by its weapon's class, from the cue the shot carried. A later
         // shot re-arms it, so the frame's last shot is the one the view shows.
@@ -622,7 +622,7 @@ public:
         scene_options.assist_target = session_.assist_target();
         scene_options.readout_lock = session_.readout_lock();
         scene_options.reloading = game::weapon_reloading(sim_, driven);
-        scene_options.landing_marks = &landing_marks_;
+        scene_options.shell_bursts = &shell_bursts_;
         scene_options.nav_marks = &nav_marks_;
         scene_options.radar_activity = &radar_activity_;
         scene_options.row = &row_;
@@ -694,7 +694,7 @@ private:
     game::HitMark hit_mark_;
     game::ViewKick view_kick_; ///< A3: the view's heave and the muzzle's flash; never the sim's
     game::RadarActivity radar_activity_; ///< who moved or fired lately: the radar's tail
-    game::LandingMarks landing_marks_;
+    game::ShellBursts shell_bursts_;     ///< G11: where the player's shells are bursting
     game::NavMarks nav_marks_;
     game::NavMenu nav_menu_; ///< `top menu -> n` and `top menu -> ~`: app-side, like the marks
     game::Headings headings_;

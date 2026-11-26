@@ -25,7 +25,7 @@
 /// Every slot carries a HIGHLIGHT, a per-slot toggle and nothing else. A freshly placed mark is
 /// always plain, whatever its slot held before; several slots may be highlighted at once.
 ///
-/// The marks are the player's annotation, held by the app like `HitMark` and `LandingMarks`:
+/// The marks are the player's annotation, held by the app like `HitMark` and `ShellBursts`:
 /// nothing here enters the sim, so a mark changes no tick and no hash.
 namespace protekt::game {
 

@@ -3087,80 +3087,6 @@ void append_projectiles(std::vector<SceneVertex>& out, const SceneOptions& optio
     }
 }
 
-/// THE LANDING MARKER: a bracketed cross standing upright on the touchdown tile, turned to face the
-/// camera, 4 m tall and up to 3.2 m across in hot magenta (nothing in the terrain or sky is that
-/// colour), so a shell that comes down on empty ground at a low view pitch -- where flat paint on
-/// the ground would be edge-on and invisible -- still shows exactly where. The X is two diagonal
-/// bars; the four corner brackets are an L of two bars each. It shrinks away across the fade.
-/// Always `kLandingMarkVertexCount` vertices per mark.
-constexpr Vec3 kLandingMarkColour{1.0F, 0.1F, 0.85F};
-/// The mark is 4 m tall whatever the range (the eye is higher than a shell's close landings, so the
-/// height is what keeps it in the frame), but its width follows the range -- 0.10 of it, from 0.3
-/// to 1.6 m either side -- so a shell that lands at your feet is a tall narrow cross, not a wall.
-/// Measured (M5c): the old 0.3-per-metre with a 0.7 m floor gave a 1.9 m-wide cross at 1.6 tiles,
-/// which covered a third of the frame's width and eighty percent of its height -- a magenta wall in
-/// the player's face at exactly the range the mark exists for.
-constexpr float kLandingMarkWidthPerMetre = 0.10F;
-constexpr float kLandingMarkMinHalfWidth = 0.3F;
-constexpr float kLandingMarkMaxHalfWidth = 1.6F;
-constexpr float kLandingMarkBarFraction = 0.125F; ///< half-thickness of a bar, of the half-width
-/// A floor on a bar's half-thickness, so the narrowest mark still draws strokes instead of threads.
-constexpr float kLandingMarkMinBarMetres = 0.06F;
-constexpr float kLandingMarkArmFraction = 0.55F; ///< how far a bracket reaches, of the half-width
-
-void append_landing_marks(std::vector<SceneVertex>& out, const SceneOptions& options,
-                          sim::Tick now) {
-    if (options.landing_marks == nullptr) {
-        return;
-    }
-    for (const LandingMarks::Mark& mark : options.landing_marks->active(now)) {
-        const float tile_x = static_cast<float>(mark.tile_x) + 0.5F;
-        const float tile_y = static_cast<float>(mark.tile_y) + 0.5F;
-        const float cx = tile_x * kMetresPerTile;
-        const float cz = tile_y * kMetresPerTile;
-        const float ground = ground_metres(options.seed, tile_x, tile_y);
-        // Face the camera: `right` is the horizontal direction across the line from it to the mark.
-        float to_x = options.camera.x - cx;
-        float to_z = options.camera.z - cz;
-        const float length = std::sqrt((to_x * to_x) + (to_z * to_z));
-        if (length < 1e-4F) {
-            continue; // standing on it: nothing sensible to face
-        }
-        to_x /= length;
-        to_z /= length;
-        const float right_x = to_z;
-        const float right_z = -to_x;
-        const float full = std::clamp(length * kLandingMarkWidthPerMetre, kLandingMarkMinHalfWidth,
-                                      kLandingMarkMaxHalfWidth);
-        const float half = full * mark.level;
-        const float height = kLandingMarkHeight * mark.level;
-        const float bar
-            = std::max(half * kLandingMarkBarFraction, kLandingMarkMinBarMetres * mark.level);
-        const float arm = half * kLandingMarkArmFraction;
-        const auto at = [&](float u, float v) {
-            return Vec3{cx + (right_x * u), ground + v, cz + (right_z * u)};
-        };
-        // A bar of half-thickness `bar` from (u0, v0) to (u1, v1), in the mark's own plane.
-        const auto stroke = [&](float u0, float v0, float u1, float v1) {
-            const float du = u1 - u0;
-            const float dv = v1 - v0;
-            const float run = std::sqrt((du * du) + (dv * dv));
-            const float nu = -dv / run * bar;
-            const float nv = du / run * bar;
-            emit_quad(out, at(u0 + nu, v0 + nv), at(u1 + nu, v1 + nv), at(u1 - nu, v1 - nv),
-                      at(u0 - nu, v0 - nv), kLandingMarkColour);
-        };
-        stroke(-half, 0.0F, half, height);
-        stroke(-half, height, half, 0.0F);
-        for (const float side : {-1.0F, 1.0F}) {
-            stroke(side * half, 0.0F, side * (half - arm), 0.0F);
-            stroke(side * half, 0.0F, side * half, arm);
-            stroke(side * half, height, side * (half - arm), height);
-            stroke(side * half, height, side * half, height - arm);
-        }
-    }
-}
-
 /// THE WRECKAGE ON THE GROUND (C5). C1 scatters four pieces of a dead unit's hull around it and
 /// settles each onto ground a vehicle can stand on; until this layer existed nothing drew them, so
 /// the litter the sim has been keeping was invisible to the player. Each piece is a small dark
@@ -3351,6 +3277,35 @@ Particle spark_spawn(const Vec3& origin, const Vec3& velocity, sim::Tick lifetim
     return spark;
 }
 
+/// A BURST OF SPARKS (AI; G11): `count` sparks out of `origin`, each on its own heading hashed from
+/// (`seed`, `owner`), at up to `speed` metres a tick outward and `lift` up, drawn `age` ticks after
+/// the burst, and ONE emissive run of the list (the fog leaves it alone). THE ONE SPARK BURST: a
+/// wreck's blast and a mortar shell's touchdown both call this -- the same sparks, fired at
+/// different places (and the repair weld throws the same `spark_spawn` spark one at a time). There
+/// are no muzzle sparks yet (A3 deferred them on the muzzle's position); when they come, they are
+/// a third caller, not a second particle path.
+void emit_spark_burst(std::vector<SceneVertex>& out, std::vector<VertexRun>& emissive,
+                      std::uint64_t seed, std::uint32_t owner, const Vec3& origin,
+                      std::size_t count, float speed, float lift, sim::Tick lifetime, float half,
+                      sim::Tick age, const Vec3& eye) {
+    constexpr float kTau = 6.2831853F;
+    const std::size_t sparks_first = out.size();
+    for (std::uint32_t spark = 0; spark < count; ++spark) {
+        const float heading = wake_fraction(seed, owner, spark + 400U) * kTau;
+        const float out_speed = speed * (0.4F + (0.6F * wake_fraction(seed, owner, spark + 440U)));
+        const float up_speed = lift * (0.3F + (0.7F * wake_fraction(seed, owner, spark + 480U)));
+        emit_particle(
+            out,
+            spark_spawn(origin,
+                        {std::cos(heading) * out_speed, up_speed, std::sin(heading) * out_speed},
+                        lifetime, half),
+            age, eye);
+    }
+    if (out.size() > sparks_first) {
+        emissive.push_back({sparks_first, out.size()});
+    }
+}
+
 /// THE WAKE A WRECK LEAVES (D4): a burnt-out unit throws a burst of hot puffs for `kBlastTicks`,
 /// and then smokes for `kSmokeTicks`. Both are DERIVED from what the sim already knows -- the death
 /// is a `Killed` event, the tile is the dead unit's own (the table keeps the dead), and every
@@ -3431,25 +3386,9 @@ void append_effects(std::vector<SceneVertex>& out, std::vector<VertexRun>& emiss
             // The sparks, after the puffs: small, bright and OPAQUE, thrown out of the fireball's
             // centre on their own seeded headings and falling as they go (AI). They are one run
             // of the list, and the fog leaves it alone.
-            const std::size_t sparks_first = out.size();
-            for (std::uint32_t spark = 0; spark < kBlastSparks; ++spark) {
-                const float heading = wake_fraction(options.seed, id, spark + 400U) * kTau;
-                const float speed
-                    = kBlastSparkSpeedMetres
-                      * (0.4F + (0.6F * wake_fraction(options.seed, id, spark + 440U)));
-                const float lift
-                    = kBlastSparkLiftMetres
-                      * (0.3F + (0.7F * wake_fraction(options.seed, id, spark + 480U)));
-                emit_particle(
-                    out,
-                    spark_spawn({cx, ground + kBlastHalfMetres, cz},
-                                {std::cos(heading) * speed, lift, std::sin(heading) * speed},
-                                kBlastSparkTicks, kBlastSparkHalfMetres),
-                    age, eye);
-            }
-            if (out.size() > sparks_first) {
-                emissive.push_back({sparks_first, out.size()});
-            }
+            emit_spark_burst(out, emissive, options.seed, id, {cx, ground + kBlastHalfMetres, cz},
+                             kBlastSparks, kBlastSparkSpeedMetres, kBlastSparkLiftMetres,
+                             kBlastSparkTicks, kBlastSparkHalfMetres, age, eye);
             continue;
         }
         // The column: a slow grey stack, drifting on a wind that comes off the frame's own seed, so
@@ -3477,6 +3416,84 @@ void append_effects(std::vector<SceneVertex>& out, std::vector<VertexRun>& emiss
             smoke.roll_rate = puff_roll_rate(options.seed, id, puff + 384U);
             emit_particle(out, smoke, since, eye);
         }
+    }
+}
+
+/// G11, THE SHELL'S BURST (see `kShellBurstTicks`), one per touchdown still in `shell_bursts`, at
+/// the centre of the tile the sim says it came down on: the flash first, then the cloud blended
+/// over it, then the sparks (`emit_spark_burst`, the wreck blast's own). Every number is hashed
+/// from the frame's seed and the burst's own (tick, tile), so a burst is the same picture every
+/// frame of its life and two bursts are not copies. Skipped beyond the meshed radius, as a wreck
+/// is. Null or empty draws nothing, so a frame with no shell down is byte-identical to before.
+void append_shell_bursts(std::vector<SceneVertex>& out, std::vector<VertexRun>& emissive,
+                         const SceneOptions& options, sim::Tick now) {
+    if (options.shell_bursts == nullptr) {
+        return;
+    }
+    constexpr float kTau = 6.2831853F;
+    const Vec3 eye{options.camera.x, options.camera.y, options.camera.z};
+    for (const ShellBursts::Burst& burst : options.shell_bursts->active(now)) {
+        const int dx
+            = burst.tile_x - static_cast<int>(std::floor(options.camera.x / kMetresPerTile));
+        const int dy
+            = burst.tile_y - static_cast<int>(std::floor(options.camera.z / kMetresPerTile));
+        if (std::abs(dx) > options.radius_tiles || std::abs(dy) > options.radius_tiles) {
+            continue;
+        }
+        const float tile_x = static_cast<float>(burst.tile_x) + 0.5F;
+        const float tile_y = static_cast<float>(burst.tile_y) + 0.5F;
+        const float cx = tile_x * kMetresPerTile;
+        const float cz = tile_y * kMetresPerTile;
+        const float ground = ground_metres(options.seed, tile_x, tile_y);
+        const std::uint32_t owner = (static_cast<std::uint32_t>(burst.at) * 0x9E3779B1U)
+                                    ^ (static_cast<std::uint32_t>(burst.tile_x) * 0x85EBCA77U)
+                                    ^ (static_cast<std::uint32_t>(burst.tile_y) * 0xC2B2AE3DU);
+        // The flash: hot, close in, and gone in a quarter of a second.
+        for (std::uint32_t puff = 0; puff < kShellFlashPuffs; ++puff) {
+            const float heading = wake_fraction(options.seed, owner, puff) * kTau;
+            const float reach = 0.5F * wake_fraction(options.seed, owner, puff + 32U);
+            Particle flash;
+            flash.origin = {cx + (std::cos(heading) * reach), ground + kShellFlashHalfMetres,
+                            cz + (std::sin(heading) * reach)};
+            flash.lifetime = kShellFlashTicks;
+            flash.half_from = kShellFlashHalfMetres;
+            flash.half_to = kShellFlashLastHalfMetres;
+            flash.colour_from = kBlastHotColour;
+            flash.colour_to = kBlastCoolColour;
+            flash.alpha_from = kShellFlashAlpha;
+            flash.alpha_to = 0.3F;
+            flash.roll = wake_fraction(options.seed, owner, puff + 96U) * kTau;
+            emit_particle(out, flash, burst.age, eye);
+        }
+        // The cloud: thrown out and up from the crater, growing and thinning for the whole burst.
+        const float ticks = static_cast<float>(kShellBurstTicks);
+        for (std::uint32_t puff = 0; puff < kShellCloudPuffs; ++puff) {
+            const float heading = wake_fraction(options.seed, owner, puff + 128U) * kTau;
+            const float out_at = 0.3F + (0.7F * wake_fraction(options.seed, owner, puff + 160U));
+            const float up_at = 0.5F + (0.5F * wake_fraction(options.seed, owner, puff + 192U));
+            const float reach = kShellCloudSpreadMetres * out_at;
+            Particle cloud;
+            cloud.origin
+                = {cx + (std::cos(heading) * reach * 0.25F), ground + kShellCloudHalfMetres,
+                   cz + (std::sin(heading) * reach * 0.25F)};
+            cloud.velocity
+                = {std::cos(heading) * reach * 0.75F / ticks, kShellCloudRiseMetres * up_at / ticks,
+                   std::sin(heading) * reach * 0.75F / ticks};
+            cloud.lifetime = kShellBurstTicks;
+            cloud.half_from = kShellCloudHalfMetres;
+            cloud.half_to = kShellCloudLastHalfMetres;
+            cloud.colour_from = kShellCloudColour;
+            cloud.colour_to = kShellCloudLastColour;
+            cloud.alpha_from = kShellCloudAlpha;
+            cloud.alpha_to = 0.0F;
+            cloud.roll = wake_fraction(options.seed, owner, puff + 224U) * kTau;
+            cloud.roll_rate = puff_roll_rate(options.seed, owner, puff + 256U);
+            emit_particle(out, cloud, burst.age, eye);
+        }
+        // The sparks: the wreck blast's, fired from the crater.
+        emit_spark_burst(out, emissive, options.seed, owner, {cx, ground + 0.3F, cz}, kShellSparks,
+                         kShellSparkSpeedMetres, kShellSparkLiftMetres, kShellSparkTicks,
+                         kShellSparkHalfMetres, burst.age, eye);
     }
 }
 
@@ -7132,30 +7149,20 @@ void WakeLog::after_frame(const sim::UnitSnapshot& before, const sim::Sim& sim, 
     }
 }
 
-void LandingMarks::land(sim::Tick landed_at, std::int32_t tile_x, std::int32_t tile_y) {
+void ShellBursts::land(sim::Tick landed_at, std::int32_t tile_x, std::int32_t tile_y) {
     // What has run out by now is gone for good: the list never grows past what is showing.
-    std::erase_if(entries_, [&](const Entry& entry) {
-        return landed_at - entry.at >= kLandingMarkHoldTicks + kLandingMarkFadeTicks;
-    });
+    std::erase_if(entries_,
+                  [&](const Entry& entry) { return landed_at - entry.at >= kShellBurstTicks; });
     entries_.push_back(Entry{landed_at, tile_x, tile_y});
 }
 
-std::vector<LandingMarks::Mark> LandingMarks::active(sim::Tick now) const {
-    std::vector<Mark> showing;
+std::vector<ShellBursts::Burst> ShellBursts::active(sim::Tick now) const {
+    std::vector<Burst> showing;
     for (const Entry& entry : entries_) {
-        if (now < entry.at) {
+        if (now < entry.at || now - entry.at >= kShellBurstTicks) {
             continue;
         }
-        const sim::Tick age = now - entry.at;
-        if (age >= kLandingMarkHoldTicks + kLandingMarkFadeTicks) {
-            continue;
-        }
-        const float level = age < kLandingMarkHoldTicks
-                                ? 1.0F
-                                : 1.0F
-                                      - (static_cast<float>(age - kLandingMarkHoldTicks)
-                                         / static_cast<float>(kLandingMarkFadeTicks));
-        showing.push_back(Mark{entry.tile_x, entry.tile_y, level});
+        showing.push_back(Burst{entry.at, entry.tile_x, entry.tile_y, now - entry.at});
     }
     return showing;
 }
@@ -7992,18 +7999,18 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
     }
     lap(&FrameTimings::units_ms);
     append_projectiles(scene.vertices, options, sim);
-    append_landing_marks(scene.vertices, options, sim.tick());
     append_scrap(scene.vertices, options, sim);
     append_pools(scene.vertices, options, sim);
     std::vector<VertexRun> emissive; // the sparks: the fog leaves these runs alone
     append_repair_beams(scene.vertices, emissive, options, sim);
     append_build_beams(scene.vertices, options, sim, site_cuts);
     append_effects(scene.vertices, emissive, options, sim);
+    append_shell_bursts(scene.vertices, emissive, options, sim.tick());
     append_motes(scene.vertices, options, sim);
     append_nav_beacons(scene.vertices, options);
     append_deploy_preview(scene.vertices, options);
     // THE LINE BETWEEN WORLD AND HUD, DRAWN HERE: everything above is the world -- the terrain,
-    // the units and their shadows, bolts, landing marks, scrap, wrecks and smoke, nav beacons and
+    // the units and their shadows, bolts, scrap, wrecks and smoke, shell bursts, nav beacons and
     // the deploy wireframe -- and goes through the fog, by its distance from the eye. The sky is
     // what the fog fades TO and is skipped. Everything below is the HUD, which is laid out in
     // screen space on the near-plane layers: a bar over a unit 50 m away is a label, and it must
