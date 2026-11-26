@@ -7,11 +7,13 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <string>
 #include <vector>
 
 #include "protekt/game/attack_aim.hpp"
 #include "protekt/game/menu.hpp"
 #include "protekt/game/pick.hpp"
+#include "protekt/game/row.hpp"
 #include "protekt/game/scene.hpp"
 #include "protekt/game/targets.hpp"
 #include "protekt/sim/sim.hpp"
@@ -66,15 +68,50 @@ TEST(NearestWounded, OrdersByDistanceAndNotBySpawnOrOrIdAndTiesGoToTheLowerId) {
     EXPECT_EQ(rows.at(3).key, 4);
 }
 
-TEST(NearestWounded, AWholeUnitAnEnemyAndTheCentreAreNeverListed) {
+TEST(NearestWounded, AWholeUnitAndAnEnemyAreNeverListedButAHurtCentreIs) {
+    // G12 moved this pin: the centre -- the driven hull -- was "never listed" (AC); Harri wants his
+    // own tank serviced, so a HURT centre is the nearest patient, 0 m away.
     const sim::Sim sim = make({{UnitKind::Tank, Side::Player, 60, 60, kHurt}, // the centre, hurt
                                {UnitKind::ServiceTruck, Side::Player, 60, 61},
                                {UnitKind::Tank, Side::Player, 61, 60},          // whole
                                {UnitKind::Tank, Side::Enemy, 62, 60, kHurt},    // hostile
                                {UnitKind::Tank, Side::Player, 63, 60, kHurt}}); // the one
     const std::vector<UnitId> trucks{nth(sim, 1)};
-    EXPECT_EQ(ids_of(nearest_wounded(sim, Side::Player, nth(sim, 0), kReach, trucks)),
-              (std::vector<UnitId>{nth(sim, 4)}));
+    const std::vector<TargetRow> rows
+        = nearest_wounded(sim, Side::Player, nth(sim, 0), kReach, trucks);
+    EXPECT_EQ(ids_of(rows), (std::vector<UnitId>{nth(sim, 0), nth(sim, 4)}));
+    ASSERT_FALSE(rows.empty());
+    EXPECT_EQ(rows.front().metres, 0);
+}
+
+TEST(RepairListRows, OnlyTheDrivenHullsRowReadsMyVehicle) {
+    const std::vector<TargetRow> list{TargetRow{1, UnitKind::Tank, UnitId{7}, 0},
+                                      TargetRow{2, UnitKind::Tank, UnitId{9}, 40}};
+    MenuInput in;
+    in.subject = MenuSubject::ServiceTruck;
+    in.repair_list = &list;
+    in.driven = UnitId{7};
+    const std::vector<MenuRow> rows = menu_rows(in);
+    ASSERT_EQ(rows.size(), 3U);
+    EXPECT_EQ(rows.at(1).verb, kVerbMyVehicle);
+    EXPECT_FALSE(rows.at(1).leads) << "no green line to the hull the camera sits in";
+    EXPECT_EQ(rows.at(1).unit, UnitId{7}) << "still the unit the digit sends the truck to";
+    EXPECT_EQ(rows.at(2).verb, std::string{kind_label(UnitKind::Tank, Faction::Human)});
+    EXPECT_TRUE(rows.at(2).leads) << "every other patient keeps its line";
+}
+
+TEST(RepairListRows, TheAttackAndUnitListsNeverReadMyVehicle) {
+    // The label is the repair list's: the same id on the other lists keeps its kind's name.
+    const std::vector<TargetRow> list{TargetRow{1, UnitKind::Tank, UnitId{7}, 0}};
+    for (int which = 0; which < 2; ++which) {
+        MenuInput in;
+        in.subject = MenuSubject::Vehicle;
+        in.driven = UnitId{7};
+        (which == 0 ? in.attack_list : in.unit_list) = &list;
+        const std::vector<MenuRow> rows = menu_rows(in);
+        ASSERT_EQ(rows.size(), 2U);
+        EXPECT_NE(rows.at(1).verb, kVerbMyVehicle) << (which == 0 ? "attack list" : "unit list");
+    }
 }
 
 TEST(NearestWounded, ALoneTruckIsNotItsOwnPatientButOneOfTwoIs) {

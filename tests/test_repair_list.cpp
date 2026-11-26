@@ -52,8 +52,8 @@ struct Yard {
 /// order given -- spawn order is deliberately NOT distance order in the tests below, so a list that
 /// is merely in the sim's order cannot pass for one that is sorted.
 [[nodiscard]] Yard make_yard(const std::vector<sim::Spawn>& others,
-                             UnitKind driven_kind = UnitKind::Tank) {
-    std::vector<sim::Spawn> spawns{{driven_kind, Side::Player, kHomeX, kHomeY},
+                             UnitKind driven_kind = UnitKind::Tank, std::uint16_t driven_hp = 0) {
+    std::vector<sim::Spawn> spawns{{driven_kind, Side::Player, kHomeX, kHomeY, driven_hp},
                                    {UnitKind::ServiceTruck, Side::Player, kHomeX + 1, kHomeY}};
     spawns.insert(spawns.end(), others.begin(), others.end());
     Yard y{};
@@ -304,6 +304,95 @@ TEST(RepairList, WithNothingToMendTheListDoesNotOpen) {
     ASSERT_NE(three, nullptr);
     EXPECT_EQ(three->verb, "Repair");
     EXPECT_FALSE(session.selection().empty()) << "and the truck is still selected";
+}
+
+// ------------------------------------------------------------------------------ my vehicle (G12)
+
+// Harri: "I should be able to call a service truck to service my tank if my health is not 100%."
+// And: "When I selected a service truck and did 3 to service, my tank was still not listed." The
+// tank he is DRIVING is a patient like any other -- a truck mends whatever friend is near it, and
+// the sim takes the order -- so it is on the list, named as his own.
+
+TEST(RepairList, MyOwnDamagedVehicleIsOnTheListAndNamedAsMine) {
+    Yard y = make_yard({hurt_tank(6)}, UnitKind::Tank, kHurt);
+    Session session{y.driven};
+    std::vector<sim::Order> orders;
+    open_list(y, session, orders);
+
+    const std::vector<MenuRow> list = list_of(rows_now(y, session));
+    ASSERT_EQ(list.size(), 2U) << "the other wounded tank AND the one I am sitting in";
+    EXPECT_EQ(list.at(0).unit, y.driven) << "nearest first: my own hull is 0 m away";
+    EXPECT_EQ(list.at(0).key, "1");
+    EXPECT_EQ(list.at(0).verb, kVerbMyVehicle) << "named as mine, not as just another tank";
+    EXPECT_TRUE(list.at(0).enabled);
+    EXPECT_EQ(list.at(1).verb, std::string{kind_label(UnitKind::Tank, Faction::Human)})
+        << "every other patient keeps its kind's name";
+}
+
+TEST(RepairList, MyOwnDamagedVehicleAloneIsEnoughToOpenTheList) {
+    Yard y = make_yard({}, UnitKind::Tank, kHurt);
+    Session session{y.driven};
+    std::vector<sim::Order> orders;
+    open_list(y, session, orders);
+
+    const std::vector<MenuRow> rows = rows_now(y, session);
+    EXPECT_EQ(first_key(rows), "TAB") << "not 'nothing within radar range needs repair'";
+    const std::vector<MenuRow> list = list_of(rows);
+    ASSERT_EQ(list.size(), 1U);
+    EXPECT_EQ(list.at(0).unit, y.driven);
+}
+
+TEST(RepairList, ChoosingMyVehicleSendsTheTruckToMe) {
+    const Yard y = make_yard({}, UnitKind::Tank, kHurt);
+    Session session{y.driven};
+    std::vector<sim::Order> orders;
+    open_list(y, session, orders);
+    orders.clear();
+    session.frame(key_frame(input::kKey1), y.sim, y.options, orders);
+    const std::vector<sim::Order> mine = trucks_orders(y, orders);
+    ASSERT_EQ(mine.size(), 1U);
+    ASSERT_EQ(mine.front().kind(), sim::OrderKind::Repair);
+    EXPECT_EQ(std::get<sim::orders::Repair>(mine.front().payload).target, y.driven);
+}
+
+TEST(RepairList, MyWholeVehicleIsNotListed) {
+    Yard y = make_yard({hurt_tank(6)});
+    Session session{y.driven};
+    std::vector<sim::Order> orders;
+    open_list(y, session, orders);
+    const std::vector<MenuRow> list = list_of(rows_now(y, session));
+    ASSERT_EQ(list.size(), 1U) << "whole is whole, mine or not";
+    EXPECT_NE(list.at(0).unit, y.driven);
+}
+
+TEST(RepairList, MyDamagedVehicleIsStillNeverOnTheAttackList) {
+    // The guard row: the fix is the REPAIR list's alone. With my tank hurt and an enemy in reach,
+    // a tank's `3 Attack` lists the enemy and only the enemy.
+    Yard y = make_yard({{UnitKind::Tank, Side::Player, kHomeX + 2, kHomeY},
+                        {UnitKind::Tank, Side::Enemy, kHomeX + 8, kHomeY}},
+                       UnitKind::Tank, kHurt);
+    const UnitId gunner = y.sim.units().at(2).id;
+    const UnitId enemy = y.sim.units().at(3).id;
+    Session session{y.driven};
+    std::vector<sim::Order> orders;
+    for (int slot = 0; slot < 10; ++slot) {
+        if (session.selection().size() == 1U && session.selection().units().front() == gunner) {
+            break;
+        }
+        session.frame(key_frame(input::kKeyF1 + slot), y.sim, y.options, orders);
+    }
+    ASSERT_EQ(session.selection().size(), 1U);
+    ASSERT_EQ(session.selection().units().front(), gunner);
+    session.frame(key_frame(input::kKey1 + 2), y.sim, y.options, orders); // the menu's `3`
+    ASSERT_TRUE(session.attack_armed()) << "the attack list is open";
+
+    const std::vector<MenuRow> list = list_of(rows_now(y, session));
+    ASSERT_EQ(list.size(), 1U);
+    EXPECT_EQ(list.at(0).unit, enemy);
+    for (const MenuRow& row : list) {
+        EXPECT_NE(row.unit, y.driven);
+        EXPECT_NE(row.verb, kVerbMyVehicle);
+    }
 }
 
 // ------------------------------------------------------------------------------ the choice

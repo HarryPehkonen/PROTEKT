@@ -284,6 +284,10 @@ struct MenuInput {
     /// the menu IS the list -- `TAB Close Menu`, then one row per entry -- and nothing else: the
     /// list replaces the menu rather than sitting beside it. Not owned. Null is the ordinary menu.
     const std::vector<TargetRow>* repair_list{nullptr};
+    /// The hull the player is DRIVING (G12). Read by the repair list ALONE: its row for this unit
+    /// reads `My Vehicle` (`kVerbMyVehicle`) instead of the kind's name. No other list or row looks
+    /// at it. Invalid by default: nothing is named as his.
+    sim::UnitId driven{};
     /// THE UNIT LIST (AV), once `~` on a function key has opened it: that key's units, in the
     /// health bars' order, keyed 1-9 then 0. Handled exactly as `repair_list` is -- while non-null
     /// and not empty the menu IS the list -- but its rows read no distance. Not owned.
@@ -461,6 +465,9 @@ inline constexpr std::string_view kVerbNav{"NAV"};
 inline constexpr std::string_view kVerbAttack{"Attack"};
 /// The state row's verb when SPACE would send a service truck to a damaged friendly.
 inline constexpr std::string_view kVerbRepair{"Repair"};
+/// The repair list's row for the hull the player is DRIVING (G12, Harri: "'My Vehicle' does not
+/// show up in the list"): named as his, not as one more tank among the patients.
+inline constexpr std::string_view kVerbMyVehicle{"My Vehicle"};
 inline constexpr std::string_view kVerbRecycle{"Recycle"};
 /// Drawn on a vehicle's menu; `Pick Me Up` and `Bailout` are inert in this slice: the row is the
 /// reference's, the behaviour is not built. (`Scavenge` acts: see `Interaction`.) Written here so

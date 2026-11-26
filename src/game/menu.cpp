@@ -349,18 +349,25 @@ constexpr std::array<std::string_view, kAttackListRows> kListKeys{"1", "2", "3",
 /// own), reads its distance in the right column when `with_distance`, and carries the unit it is
 /// about. The repair list and the function key's unit list are drawn by this one function.
 void append_unit_rows(std::vector<MenuRow>& rows, const MenuInput& in,
-                      const std::vector<TargetRow>& list, bool with_distance, bool leads) {
+                      const std::vector<TargetRow>& list, bool with_distance, bool leads,
+                      sim::UnitId mine = sim::UnitId{}) {
     rows.reserve(rows.size() + list.size());
     for (const TargetRow& entry : list) {
         // `TargetRow::key` is the digit (1-9, 0 for the tenth); its position is the digit less one.
+        // The row naming `mine` (the driven hull, given by the repair list alone) reads as his.
+        const bool his = mine.valid() && entry.id == mine;
         MenuRow row{kListKeys.at(static_cast<std::size_t>((entry.key + kAttackListRows - 1)
                                                           % kAttackListRows)),
-                    std::string{kind_label(entry.kind, in.faction)}, true, MenuDim::None};
+                    his ? std::string{kVerbMyVehicle}
+                        : std::string{kind_label(entry.kind, in.faction)},
+                    true, MenuDim::None};
         if (with_distance) {
             row.right = metres_text(entry.metres);
         }
         row.unit = entry.id;
-        row.leads = leads;
+        // His own hull is the one the camera sits in: a leader to it would dive off the bottom of
+        // the screen and point at nothing he can see, so his row draws none.
+        row.leads = leads && !his;
         rows.push_back(std::move(row));
     }
 }
@@ -799,7 +806,7 @@ std::vector<MenuRow> menu_rows(const MenuInput& in) {
     // An open repair list IS the menu: no state row, no verbs, only the way out and the patients.
     if (in.repair_list != nullptr && !in.repair_list->empty()) {
         rows.push_back(MenuRow{kRowKeyTab, std::string{kVerbCloseMenu}, true, MenuDim::None});
-        append_unit_rows(rows, in, *in.repair_list, true, true);
+        append_unit_rows(rows, in, *in.repair_list, true, true, in.driven);
         return rows;
     }
     // ... and so is an open unit list: `~` on a function key.

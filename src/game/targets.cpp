@@ -85,9 +85,11 @@ std::vector<TargetRow> nearest_wounded(const sim::Sim& sim, sim::Side side, sim:
         });
     };
     std::vector<Candidate> found;
+    // The centre -- the hull the player is driving -- is a patient like any other (G12): a truck
+    // mends whatever friend is near it, and the sim takes the order.
     for (const sim::Unit& unit : sim.units()) {
-        if (!unit.alive || unit.side != side || unit.id == centre
-            || unit.hp >= sim::spec_of(unit.kind).hp || !sendable_to(unit.id)) {
+        if (!unit.alive || unit.side != side || unit.hp >= sim::spec_of(unit.kind).hp
+            || !sendable_to(unit.id)) {
             continue;
         }
         const std::int64_t d2 = squared_distance(*origin, unit);

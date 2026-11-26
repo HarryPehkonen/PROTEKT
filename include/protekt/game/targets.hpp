@@ -39,8 +39,10 @@ struct TargetRow {
 /// often fewer than ten.
 ///
 /// `trucks` are the service trucks that would be sent. A patient is listed only if one of them is
-/// NOT the patient (a truck cannot mend itself, and the sim refuses the order), and `centre` --
-/// the driven hull -- is never a patient either, as `repair_target` already rules. EMPTY when
+/// NOT the patient (a truck cannot mend itself, and the sim refuses the order). `centre` -- the
+/// driven hull -- IS a patient when hurt (G12, Harri: "I should be able to call a service truck to
+/// service my tank"), 0 m away, so first; the crosshair's `repair_target` still never offers it,
+/// because a player cannot point at the hull he sits in. EMPTY when
 /// `centre` is not a living unit of `side`. Pure: same sim, same list. The reach is the caller's:
 /// the driven craft's radar (`viewer_radar_radius`).
 [[nodiscard]] std::vector<TargetRow> nearest_wounded(const sim::Sim& sim, sim::Side side,

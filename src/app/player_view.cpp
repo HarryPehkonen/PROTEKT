@@ -213,6 +213,7 @@ std::vector<game::MenuRow> menu_for(const sim::Sim& sim, const game::Session& se
     if (session.repair_armed()) {
         // `service truck menu -> 3 Repair`: the list is the menu.
         in.repair_list = &session.repair_targets();
+        in.driven = session.driven(); // his own hull's row reads `My Vehicle` (G12)
         return game::menu_rows(in);
     }
     if (session.nav_list_armed()) {
