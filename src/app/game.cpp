@@ -26,6 +26,7 @@
 #include "protekt/app/time_accumulator.hpp"
 #include "protekt/game/aim.hpp"
 #include "protekt/game/deploy_aim.hpp"
+#include "protekt/game/kick.hpp"
 #include "protekt/game/menu.hpp"
 #include "protekt/game/nav_marks.hpp"
 #include "protekt/game/player.hpp"
@@ -564,6 +565,11 @@ public:
         for (const AdvanceResult::Touchdown& down : result.touchdowns) {
             landing_marks_.land(down.tick, down.landing.tile_x, down.landing.tile_y);
         }
+        // A3: the driven gun's kick, by its weapon's class, from the cue the shot carried. A later
+        // shot re-arms it, so the frame's last shot is the one the view shows.
+        for (const game::FireCue& cue : result.fired) {
+            view_kick_.kick(cue.kick, sim_.tick());
+        }
         if (steps > 0 && !paused_) {
             wakes_.after_frame(before, sim_, stamp);
             strides_.after_frame(before, sim_); // the legs walk by the ground the frame covered
@@ -587,8 +593,14 @@ public:
                 break;
             }
         }
-        scene_options.camera = camera_yawed(camera_for(sim_, session_, options_.seed, hover_.z()),
-                                            options_.look_yaw_centirad);
+        // A3: the view heaves up for an instant when the driven gun fires (`game::ViewKick`). The
+        // DRAWN camera only: the aim, the turret and the sim never see it.
+        const float heave = paused_ ? 0.0F : view_kick_.heave(sim_.tick());
+        scene_options.camera = game::kicked_camera(
+            camera_yawed(camera_for(sim_, session_, options_.seed, hover_.z()),
+                         options_.look_yaw_centirad),
+            heave);
+        scene_options.muzzle_flash = paused_ ? 0.0F : view_kick_.flash(sim_.tick());
         // The turret's angle relative to the hull: `Session` exposes the hull's heading and the
         // turret's world yaw (`view_yaw`), but not `PlayerCommander::turret_yaw` itself, so it is
         // their wrapped difference -- the same number, without adding an accessor.
@@ -680,6 +692,7 @@ private:
     game::WakeLog wakes_;
     game::HitFlash hit_flash_;
     game::HitMark hit_mark_;
+    game::ViewKick view_kick_; ///< A3: the view's heave and the muzzle's flash; never the sim's
     game::RadarActivity radar_activity_; ///< who moved or fired lately: the radar's tail
     game::LandingMarks landing_marks_;
     game::NavMarks nav_marks_;

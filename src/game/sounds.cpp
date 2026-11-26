@@ -3,8 +3,11 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <optional>
 
+#include "protekt/game/kick.hpp"
 #include "protekt/game/scene.hpp"
+#include "protekt/sim/spec.hpp"
 
 namespace protekt::game {
 
@@ -91,12 +94,18 @@ std::vector<Voice> sounds_for(std::span<const sim::BattleEvent> events, const Li
             if (actor == nullptr) {
                 break;
             }
+            // A3: the gun's own sound, from its weapon's row (`kFireSounds`). A gun the sim fires
+            // on its own fires the hull's weapon, so the actor's kind names it.
+            const std::optional<SoundKind> report = fire_sound(sim::spec_of(actor->kind).weapon);
+            if (!report.has_value()) {
+                break;
+            }
             if (actor->side == listener.side) {
                 // Your own gun is the loudest thing you hear and needs no panning: it is your gun.
                 // A friend out past earshot is silent like any other source -- the promise has no
                 // exception for the right colour.
                 if (bearing_of(listener, *actor).tiles < kEarshotTiles) {
-                    voices.push_back(Voice{SoundKind::YourShot, 1.0F, 0.0F});
+                    voices.push_back(Voice{*report, 1.0F, 0.0F});
                 }
                 break;
             }
@@ -109,7 +118,7 @@ std::vector<Voice> sounds_for(std::span<const sim::BattleEvent> events, const Li
                 break;
             }
             // A hostile shot that hurt nobody of yours: heard as a distant gun, from its direction.
-            (void)positioned(SoundKind::YourShot, listener, *actor, kEarshotTiles, voices);
+            (void)positioned(*report, listener, *actor, kEarshotTiles, voices);
             break;
         }
         case sim::EventKind::HitTaken: {

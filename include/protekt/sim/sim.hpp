@@ -13,6 +13,7 @@
 #include "protekt/sim/pool.hpp"
 #include "protekt/sim/projectile.hpp"
 #include "protekt/sim/scrap.hpp"
+#include "protekt/sim/spec.hpp"
 #include "protekt/sim/steering.hpp"
 #include "protekt/sim/timings.hpp"
 #include "protekt/sim/units.hpp"
@@ -235,6 +236,10 @@ struct ScootSpot {
 ///      target's position NOW plus the gun's learned aim estimate (see `launch`); the damage
 ///      arrives when the projectile does. Damage is exact:
 ///      there is no spread, so the sim needs no RNG;
+///   4a. THE KICK (A3): every shot this tick made -- the orders' in step 1 and the guns' in step 4,
+///      in the order they were made -- kicks its shooter by its weapon's class (`kick_step`): a
+///      HEAVY weapon's hull is carried `KickSpec::hull_back` straight back from the line it fired
+///      along, where a shove could carry it, and a LIGHT weapon's is not touched at all;
 ///   5. every living unit near a living friendly factory mends 1 hp on the global repair beat
 ///      (`tick % kRepairTickInterval`), after the shooting, so repair never undoes a kill;
 ///   5b. every friendly SERVICE TRUCK mends the hurt units within `kServiceRepairRadiusTiles`, each
@@ -305,9 +310,19 @@ public:
     /// The shots this step made: the firing unit and the unit it was aimed at, or an invalid target
     /// for a shot fired at nothing. Cleared at the start of every step, like `impacts()`, and NOT
     /// part of `state_hash()`: it describes a step, not a state.
+    ///
+    /// A3 (RECOIL): a shot also says WHICH WEAPON fired it -- the hull's own, or the carried one a
+    /// trigger order names (the mortar's lob, the shotgun's fan, the rocket) -- and the line it
+    /// left along in the map plane. The sim's heavy kick reads both (`Sim::step` 4a), and the
+    /// presentation reads the same record for the shot's sound and its look (`game/kick.hpp`), so
+    /// the two cannot disagree about what fired. The line need not be normalised; zero is "no
+    /// line" and kicks nothing.
     struct Shot {
         UnitId shooter{};
         UnitId target{}; ///< invalid for a shot at nothing (`orders::FireTowards`)
+        WeaponId weapon{};
+        std::int32_t line_x{}; ///< raw: the map-plane direction the shot left along
+        std::int32_t line_y{};
     };
     [[nodiscard]] const std::vector<Shot>& shots() const noexcept;
 

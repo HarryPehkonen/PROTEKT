@@ -459,7 +459,8 @@ void apply_order(std::vector<Unit>& units, std::vector<Projectile>& projectiles,
                 const UnitId aimed_at = o->aimed_at == unit.id ? UnitId{} : o->aimed_at;
                 projectiles.push_back(launch_lob(unit, o->dir_x, o->dir_y, o->dir_z, aimed_at,
                                                  shell.damage, seed, o->round));
-                shots.push_back(Sim::Shot{unit.id, UnitId{}});
+                shots.push_back(
+                    Sim::Shot{unit.id, UnitId{}, WeaponId::Mortar, o->dir_x.raw, o->dir_y.raw});
                 unit.cooldown = shell.cooldown_ticks;
             }
         }
@@ -482,7 +483,8 @@ void apply_order(std::vector<Unit>& units, std::vector<Projectile>& projectiles,
                 // player's manual shot is the app's to announce, with its own sound. So the Shot is
                 // recorded with NO target whatever `aimed_at` says -- a valid target here is what
                 // the observer turns into a Fired event, and the player would hear it twice.
-                shots.push_back(Sim::Shot{unit.id, UnitId{}});
+                shots.push_back(Sim::Shot{unit.id, UnitId{}, spec_of(unit.kind).weapon,
+                                          o->dir_x.raw, o->dir_y.raw});
                 unit.cooldown = prof.cooldown_ticks;
             }
         }
@@ -501,7 +503,8 @@ void apply_order(std::vector<Unit>& units, std::vector<Projectile>& projectiles,
                 fan_out(launch_towards(unit, o->dir_x, o->dir_y, o->dir_z, aimed_at, gun.damage,
                                        seed, gun),
                         gun.pellets, gun.cone_half_tan, projectiles);
-                shots.push_back(Sim::Shot{unit.id, UnitId{}});
+                shots.push_back(
+                    Sim::Shot{unit.id, UnitId{}, gun.weapon, o->dir_x.raw, o->dir_y.raw});
                 unit.cooldown = gun.cooldown;
             }
         }
@@ -518,7 +521,8 @@ void apply_order(std::vector<Unit>& units, std::vector<Projectile>& projectiles,
                 const UnitId aimed_at = o->aimed_at == unit.id ? UnitId{} : o->aimed_at;
                 projectiles.push_back(launch_towards(unit, o->dir_x, o->dir_y, o->dir_z, aimed_at,
                                                      gun.damage, seed, gun));
-                shots.push_back(Sim::Shot{unit.id, UnitId{}});
+                shots.push_back(
+                    Sim::Shot{unit.id, UnitId{}, gun.weapon, o->dir_x.raw, o->dir_y.raw});
                 unit.cooldown = gun.cooldown;
             }
         }
@@ -2248,6 +2252,42 @@ void move(std::vector<Unit>& units, const WorldGround& ground, const UnitProfile
            && unit.still_ticks >= kMountTicks;
 }
 
+/// THE KICK (A3, RECOIL), the shove's kind of rule for the recoil of a shot. A weapon whose class
+/// carries the hull (`KickSpec::hull_back`, HEAVY) drives `unit` that far straight back from the
+/// line `shot` left along; a LIGHT weapon's row carries it nowhere, so this moves nothing for it.
+/// The shove's own tests decide where the hull may go, and the kick is never a wall either:
+///   * a hull that cannot move -- a building (`UnitProfile::mobile`) or a planted turret -- takes
+///     the kick into its mount and stands;
+///   * ground the shove could not carry a vehicle onto (`can_stand`: the map's edge, a crater, a
+///     building) stops it, all of it: the hull stands this tick;
+///   * a vehicle at its back stops it too: a kick is not a drive, so it SHOVES NOBODY (only a
+///     driven step does, at its two-thirds cost) -- the hull takes the kick into its tracks.
+/// What it costs is the distance itself: ground the hull gives back for every shot it fires (the
+/// figures, against the shove's third of a step, are at `kHeavyKickRaw`). A kicked turret is
+/// unmounted, as a carried one is.
+void kick_step(std::vector<Unit>& units, const WorldGround& ground, Unit& unit,
+               const Sim::Shot& shot) noexcept {
+    const std::int64_t back = kick_spec(weapon_spec(shot.weapon).kick).hull_back.raw;
+    if (back == 0 || !profile(unit.kind).mobile || planted(unit)) {
+        return;
+    }
+    const std::int64_t lx = shot.line_x;
+    const std::int64_t ly = shot.line_y;
+    const std::int64_t length = isqrt((lx * lx) + (ly * ly));
+    if (length == 0) {
+        return; // straight up or down: no line in the map plane to be driven back along
+    }
+    const std::int64_t dx = -(lx * back) / length;
+    const std::int64_t dy = -(ly * back) / length;
+    if (vehicle_in_the_way(units, unit, dx, dy) != nullptr
+        || !can_stand(ground, unit.x.raw + dx, unit.y.raw + dy)) {
+        return;
+    }
+    unit.x = Fixed::from_raw(static_cast<std::int32_t>(unit.x.raw + dx));
+    unit.y = Fixed::from_raw(static_cast<std::int32_t>(unit.y.raw + dy));
+    unit.still_ticks = 0;
+}
+
 /// Moves `unit` by `push` where it can go: all of it, else each axis of it alone, as the mover
 /// tries a step; else nothing. The velocity carrying it (`vel_x`, `vel_y`: the roll, or in the air
 /// the flight) is lost on an axis it is stopped on.
@@ -3067,7 +3107,8 @@ void Sim::step(StepTimings* timings) {
         retarget_aim(unit, best->id);
         fan_out(launch(unit, *best, prof.damage, seed), spec_of(unit.kind).pellets,
                 spec_of(unit.kind).cone_half_tan, projectiles_);
-        shots_.push_back(Shot{unit.id, best->id});
+        shots_.push_back(Shot{unit.id, best->id, spec_of(unit.kind).weapon,
+                              best->x.raw - unit.x.raw, best->y.raw - unit.y.raw});
         unit.cooldown = prof.cooldown_ticks;
         // The bike scoots the moment it has fired: the spot it will reload at, for `steer`. Only
         // an engaging bike (an Attack stance) does; one on a guard post fires from it.
@@ -3086,6 +3127,19 @@ void Sim::step(StepTimings* timings) {
     }
 
     lap(&StepTimings::fire_ns);
+
+    // 4a. THE KICK (A3): every shot of this tick, the orders' and the guns', in the order made.
+    //     Only a weapon whose class carries the hull asks for the ground, so a battle with no
+    //     heavy gun in it costs nothing here.
+    for (const Shot& shot : shots_) {
+        if (kick_spec(weapon_spec(shot.weapon).kick).hull_back.raw == 0) {
+            continue;
+        }
+        Unit* shooter = find_mut(units_, shot.shooter);
+        if (shooter != nullptr && shooter->alive) {
+            kick_step(units_, ground_of(seed, units_, scenario_.volumes), *shooter, shot);
+        }
+    }
 
     // 4b. THE LUNGS (N3): one whose structure is gone goes with it; a dead one beside a Constructor
     //     is restored. After the guns, so a Lung killed this tick has already silenced its gun.

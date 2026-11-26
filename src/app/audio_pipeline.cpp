@@ -1,9 +1,11 @@
 #include "protekt/app/audio_pipeline.hpp"
 
+#include <optional>
 #include <vector>
 
 #include "protekt/audio/mixer.hpp"
 #include "protekt/game/interaction.hpp"
+#include "protekt/game/kick.hpp"
 #include "protekt/game/radar.hpp"
 #include "protekt/game/sounds.hpp"
 #include "protekt/sim/observer.hpp"
@@ -55,16 +57,25 @@ AdvanceResult AudioPipeline::advance(sim::Sim& sim, std::uint32_t steps, const A
         radar_activity.observe(sim.units(), sim.shots(), sim.tick());
         // The sim's own word on it: a shot of the driven unit's, aimed at nothing, is the trigger.
         // No such shot means the sim declined it, and nothing is heard.
+        // A3: every shot of the driven unit's goes back to the app as its cue, for the view's kick.
+        // The trigger's own shot is heard by the sound ITS cue carries -- the weapon's, from
+        // `game::kFireSounds` -- so what is heard and what fired cannot be told apart.
+        std::optional<game::FireCue> trigger_shot;
+        for (const sim::Sim::Shot& shot : sim.shots()) {
+            if (shot.shooter != frame.player) {
+                continue;
+            }
+            result.fired.push_back(game::cue_of(shot));
+            if (!shot.target.valid() && !trigger_shot.has_value()) {
+                trigger_shot = result.fired.back();
+            }
+        }
         if (!judged) {
             judged = true;
-            bool launched = false;
-            for (const sim::Sim::Shot& shot : sim.shots()) {
-                launched = launched || (shot.shooter == frame.player && !shot.target.valid());
-            }
-            if (launched) {
-                voices.push_back(game::shot_voice());
-            } else {
+            if (!trigger_shot.has_value()) {
                 result.trigger_refused = true;
+            } else if (trigger_shot->sound.has_value()) {
+                voices.push_back(audio::Voice{*trigger_shot->sound, 1.0F, 0.0F});
             }
         }
         for (const sim::Landing& landing : sim.landings()) {

@@ -58,21 +58,76 @@ inline constexpr std::int32_t kTowerGunTravelRaw = 20 << 16;
 inline constexpr std::uint16_t kTowerGunDamage = 36;        // PROVISIONAL
 inline constexpr std::uint16_t kTowerGunCooldownTicks = 40; // PROVISIONAL
 
-/// One weapon's reach. Indexed by the value of `WeaponId`.
+/// THE KICKBACK CLASSES (A3, RECOIL). Harri, 2026-11-25: "two or more 'classes' of kickback. In
+/// the heaviest one, the hull actually moves! In a lighter weapon, it's only a stationary visual
+/// effect where the hull stays in place -- the x and y coordinates don't change -- but the view
+/// moves up for an instant." The class is the WEAPON's, a column of `kWeaponSpecs`, the way its
+/// range is: two hulls carrying one weapon kick alike.
+///   * LIGHT is render-only. Its row below carries no hull distance, and the sim's kick
+///   (`Sim::step`
+///     4a, `kick_step`) moves a hull by that distance and nothing else, so a light weapon cannot
+///     move a hull without this table saying so. Its look -- the view's heave and the flash -- is
+///     the presentation's (`game/kick.hpp`) and never reaches the sim.
+///   * HEAVY is a SIM RULE: on the tick the shot leaves, the hull is carried `hull_back` straight
+///     back from the line it fired along.
+/// Appended values only: the class is not hashed (its EFFECT, the hull's position, is).
+enum class Kick : std::uint8_t {
+    Light, ///< the hull stays put; the view heaves and the muzzle flashes
+    Heavy, ///< the hull is driven back along the line of fire
+};
+inline constexpr std::size_t kKickCount = 2;
+
+/// THE HEAVY KICK: a quarter tile (0.5 m) back per shot. PROVISIONAL -- Harri gave the rule, not
+/// the number. What it COSTS, against the shove's precedent (`kShoveSpeedNumerator`, which takes a
+/// third of the pusher's step for every tick it pushes -- 1/15 tile a tick for a tank): the walker,
+/// the one heavy gun today, walks 0.1 tiles a tick and fires once in 30, so firing on the move it
+/// gives back 0.25 of every 3 tiles it covers (a twelfth of its advance), and firing from a
+/// standstill it is driven back a quarter tile a second, 15 tiles a minute of sustained fire.
+inline constexpr std::int32_t kHeavyKickRaw = Fixed::kOne / 4;
+
+/// One kickback class: what it does to the HULL, and only that. Indexed by the value of `Kick`.
+struct KickSpec {
+    const char* name{};
+    Fixed hull_back{}; ///< tiles the hull is carried back per shot; zero is "the hull stays put"
+};
+inline constexpr std::array<KickSpec, kKickCount> kKickSpecs{{
+    {"light", Fixed::zero()},
+    {"heavy", Fixed::from_raw(kHeavyKickRaw)},
+}};
+
+[[nodiscard]] constexpr const KickSpec& kick_spec(Kick kick) noexcept {
+    return kKickSpecs.at(static_cast<std::size_t>(kick));
+}
+
+/// One weapon's reach, and how it kicks. Indexed by the value of `WeaponId`.
+///
+/// WHICH WEAPON KICKS HOW (PROVISIONAL: Harri gave the rule, these are the proposal). HEAVY is the
+/// WALKER'S GUN alone: "a very powerful and far-reaching weapon" (2026-11-10), the heaviest cannon
+/// any vehicle carries, on a hull that is slow enough for a shove back to matter and big enough for
+/// it to be seen. Everything else is LIGHT, each for a reason of its own:
+///   * the tank's gun, the minigun and the shotgun: the common guns, on hulls whose shove back
+///   would
+///     read as a stutter, not a blow -- and the tank's gun is in nearly every recorded battle;
+///   * the rocket: a rocket is recoilless -- the motor pushes the rocket, not the launcher;
+///   * the mortar: its bike shoots and scoots (`scoots`), and a shove back would only fight the
+///     relocation it makes after every shot; the bomber's bomb falls, it is not fired;
+///   * the turret's gun and the Gun Tower's: a mounted turret is planted (`planted`) and a tower is
+///     a building -- neither hull can move, so light is the honest name for what they do.
 struct WeaponSpec {
     const char* name{};
     Fixed range{}; ///< tiles; zero means unarmed
+    Kick kick{};   ///< how a shot kicks the hull that fires it (`kKickSpecs`)
 };
 inline constexpr std::array<WeaponSpec, kWeaponCount> kWeaponSpecs{{
-    {"none", Fixed::zero()},
-    {"tankgun", Fixed::from_raw(kTankRangeRaw)},
-    {"turretgun", Fixed::from_raw(kTurretRangeRaw)},
-    {"minigun", Fixed::from_raw(kMinigunRangeRaw)},
-    {"mortar", Fixed::from_raw(kMortarRangeRaw)},
-    {"rocket", Fixed::from_raw(kRocketRangeRaw)},
-    {"shotgun", Fixed::from_raw(kShotgunRangeRaw)},
-    {"walkergun", Fixed::from_raw(kWalkerGunRangeRaw)},
-    {"towergun", Fixed::from_raw(kTowerGunRangeRaw)},
+    {"none", Fixed::zero(), Kick::Light},
+    {"tankgun", Fixed::from_raw(kTankRangeRaw), Kick::Light},
+    {"turretgun", Fixed::from_raw(kTurretRangeRaw), Kick::Light},
+    {"minigun", Fixed::from_raw(kMinigunRangeRaw), Kick::Light},
+    {"mortar", Fixed::from_raw(kMortarRangeRaw), Kick::Light},
+    {"rocket", Fixed::from_raw(kRocketRangeRaw), Kick::Light},
+    {"shotgun", Fixed::from_raw(kShotgunRangeRaw), Kick::Light},
+    {"walkergun", Fixed::from_raw(kWalkerGunRangeRaw), Kick::Heavy},
+    {"towergun", Fixed::from_raw(kTowerGunRangeRaw), Kick::Light},
 }};
 
 [[nodiscard]] constexpr const WeaponSpec& weapon_spec(WeaponId weapon) noexcept {

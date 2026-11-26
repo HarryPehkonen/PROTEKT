@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "protekt/app/audio.hpp"
+#include "protekt/game/kick.hpp"
 #include "protekt/game/radar.hpp"
 #include "protekt/game/scene.hpp"
 #include "protekt/game/sounds.hpp"
@@ -75,6 +76,10 @@ struct AdvanceResult {
         sim::Landing landing{};
     };
     std::vector<Touchdown> touchdowns{};
+    /// A3: every shot the DRIVEN unit made during the call, as the cue it carries -- its weapon,
+    /// its kickback class and its sound (`game::cue_of`). The app kicks the view with these; the
+    /// trigger's own shot is heard by the sound its cue names.
+    std::vector<game::FireCue> fired{};
 };
 
 /// Advances the sim and derives sound from it.

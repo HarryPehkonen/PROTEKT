@@ -1484,6 +1484,11 @@ struct SceneOptions {
     /// 0 draws nothing at all, so a frame that is not flashing is byte-identical to one that never
     /// heard of it.
     float hit_flash{0.0F};
+    /// A3: THE MUZZLE FLASH, 0 (none) to 1: how far the WORLD goes toward the muzzle's light
+    /// (`kMuzzleFlashColour`) on the frame the driven gun fires, as `ViewKick::flash` gives it. The
+    /// world only -- the HUD is not lit by a gun -- and 0 draws nothing at all, so a frame that is
+    /// not flashing is byte-identical to one that never heard of it.
+    float muzzle_flash{0.0F};
     /// The battle events the scene draws from: the `Killed` ones of the last `kSmokeTicks`, kept by
     /// `WakeLog` (a one-frame event could never drive a fourteen-second column). D4 reads the
     /// `Killed` ones and nothing else: each is a wreck, and a

@@ -4,6 +4,7 @@
 #include "protekt/game/atlas.hpp"
 #include "protekt/game/attack_aim.hpp"
 #include "protekt/game/blocked_ground.hpp"
+#include "protekt/game/kick.hpp"
 #include "protekt/game/kind_icon.hpp"
 #include "protekt/game/nav_marks.hpp"
 #include "protekt/game/pick.hpp"
@@ -8048,6 +8049,20 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
     append_reticle(scene.vertices, options, sim, aimed);
     append_world_map(scene.vertices, options, sim);
     append_statistics(scene.vertices, options, sim);
+
+    // A3: the muzzle's light on the world, before the red wash so a hit still reads over a shot.
+    // The world's vertices only (they come first); the vertex format has no alpha, so it is each
+    // colour taken a fraction of the way to the warm white of the flash.
+    if (options.muzzle_flash > 0.0F) {
+        const float amount = std::clamp(options.muzzle_flash, 0.0F, 1.0F);
+        const std::size_t world_end = std::min(scene.world_vertex_count, scene.vertices.size());
+        for (std::size_t i = 0; i < world_end; ++i) {
+            for (std::size_t channel = 0; channel < 3; ++channel) {
+                float& value = scene.vertices.at(i).colour.at(channel);
+                value += (kMuzzleFlashColour.at(channel) - value) * amount;
+            }
+        }
+    }
 
     // LAST, so it tints everything under it. The vertex format has no alpha, so the wash is each
     // colour taken a fraction of the way to deep red; zero returns before touching anything.

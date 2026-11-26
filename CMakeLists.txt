@@ -127,6 +127,7 @@ add_library(protekt_game STATIC
     src/game/targets.cpp
     src/game/world_map.cpp
     src/game/sounds.cpp
+    src/game/kick.cpp
     src/game/weapon.cpp
 )
 target_include_directories(protekt_game PUBLIC
@@ -292,6 +293,7 @@ if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
         tests/test_focus_fire.cpp
         tests/test_follow.cpp
         tests/test_shove.cpp
+        tests/test_kick.cpp
         tests/test_slope.cpp
         tests/test_slope_drive.cpp
         tests/test_press.cpp
