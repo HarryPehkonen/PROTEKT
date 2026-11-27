@@ -284,11 +284,15 @@ TEST(SolidMask, AKindWithNoMaskIsAsSolidAsItsDrawnBoxAsBefore) {
     }
 }
 
-TEST(SolidMask, OnlyTheGunSpireDeclaresAMaskAndItIsTheSizeOfItsFootprint) {
+// PIN MOVED, G14: this read "OnlyTheGunSpireDeclaresAMask...". The deployed recycler declares one
+// now, the plan of the hull it is drawn as (`kDeployedRecyclerMask`; test_recycler_solid.cpp), and
+// the rest of the table is unchanged.
+TEST(SolidMask, OnlyTheGunSpireAndTheDeployedRecyclerDeclareAMaskEachTheSizeOfItsFootprint) {
     for (int k = 0; k < kUnitKindCount; ++k) {
         const UnitKind kind = static_cast<UnitKind>(k);
         const SolidMask mask = solid_mask_of(kind);
-        EXPECT_EQ(!mask.empty(), kind == UnitKind::GunSpire) << k;
+        EXPECT_EQ(!mask.empty(), kind == UnitKind::GunSpire || kind == UnitKind::DeployedRecycler)
+            << k;
         if (!mask.empty()) {
             EXPECT_EQ(mask.width, footprint_of(kind).width) << k;
             EXPECT_EQ(mask.height, footprint_of(kind).height) << k;

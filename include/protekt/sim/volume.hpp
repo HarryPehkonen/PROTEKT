@@ -62,6 +62,15 @@ struct PlacedVolume {
 
 /// THE VOLUME OF A BUILDING `kind`: its extent (the kind's mask, empty for the drawn box), from the
 /// ground to its ROOF -- the very height a shell must clear (`roof_top`, which reads this).
+///
+/// THIS IS THE ONE FACT THAT MAKES A BUILDING SOLID (G14). The mover asks it
+/// (`building_stops_units`, through `building_solid_at` and `volume_stops`), so a driven move, a
+/// strafe, a shove's carry, a jump's landing and the route planner all read it, because they all
+/// ask `WorldGround::factor`. The bolt asks it too (`for_each_solid_rect`). G14 gave the recycler
+/// its own extent (`kDeployedRecyclerMask`), the plan of the hull it is drawn as. Before that it
+/// had the generic box, so the drawing was a second shape that nothing in the sim read. Its ROOF is
+/// still the generic one (7.4 m against a 10 m drawn cab). Raising it would put a recycler out of
+/// a mortar's reach to lob over, against the owner's lob ruling, so that is reported, not done.
 [[nodiscard]] constexpr Volume volume_of(UnitKind kind) noexcept {
     const Fixed body = kind == UnitKind::Factory ? kFactoryBodyHeight : kBodyHeight;
     return Volume{solid_mask_of(kind), Fixed::zero(),

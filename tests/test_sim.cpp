@@ -1100,22 +1100,29 @@ TEST(Deploy, TheFootprintIsImpassableToMovementAndTheTilesJustOutsideAreNot) {
         }
     }
 
-    // Straight through the building's row, then into the building itself: never inside its DRAWN
-    // BOX (N5: it may use the one-tile ring of the footprint around it, which it could not before).
-    const Footprint body = drawn_box(site);
+    // Straight through the building's row, then into the building itself: never inside its SOLID
+    // SHAPE. N5 read that as the drawn box. G14 made it the recycler's volume
+    // (`kDeployedRecyclerMask`: every row of the footprint, the six middle columns), the hull it is
+    // drawn as, so this asks `building_solid_at`, the one geometry.
+    const Unit recycled = *sim.find(recycler);
     const auto drive = [&](int goal_x, int goal_y, int ticks) {
         sim.enqueue(Order{tank, orders::MoveTo{Fixed::from_int(goal_x), Fixed::from_int(goal_y)}});
         for (int t = 0; t < ticks; ++t) {
             sim.step();
             const Unit* u = sim.find(tank);
-            ASSERT_FALSE(body.covers(u->x.floor_int(), u->y.floor_int()))
+            ASSERT_FALSE(building_solid_at(recycled, u->x.floor_int(), u->y.floor_int()))
                 << "tick " << sim.tick() << " at " << u->x.floor_int() << "," << u->y.floor_int();
         }
     };
     drive(site.x + 5, site.y, 200);
     const Unit* past = sim.find(tank);
-    EXPECT_LE(std::abs(past->x.floor_int() - (site.x + 5)), 1) << "it went round, and arrived";
-    EXPECT_LE(std::abs(past->y.floor_int() - site.y), 1);
+    // PIN MOVED, G14. The goal, column 5 of the footprint's first row, is the hull's end now, not
+    // open ground. This pinned "within one tile of the goal" (it arrived ON the hull's end row).
+    // The goal is solid, so the tank stops against the hull's north face: on the row just outside
+    // the footprint (measured: column 2 of it, three short of the goal), beside the hull.
+    EXPECT_EQ(past->y.floor_int(), site.y - 1) << "it stopped against the hull's end, outside it";
+    EXPECT_GE(past->x.floor_int(), site.x) << "and beside the hull, not off past its corner";
+    EXPECT_LT(past->x.floor_int(), site.x + kSide);
     drive(site.centre_x(), site.centre_y(), 200);
 }
 

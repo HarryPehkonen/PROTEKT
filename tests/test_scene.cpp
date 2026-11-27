@@ -38,6 +38,7 @@
 #include "protekt/sim/scenario.hpp"
 #include "protekt/sim/sim.hpp"
 #include "protekt/sim/spec.hpp"
+#include "protekt/sim/volume.hpp"
 #include "protekt/world/world.hpp"
 #include "untilt.hpp"
 
@@ -5268,6 +5269,61 @@ TEST(RecyclerScale, ADeployedOneStandsSquareOnItsFootprintAndAVehicleTurnsWithIt
         moved = moved || vehicle_turned.at(i).position != vehicle_square.at(i).position;
     }
     EXPECT_TRUE(moved) << "a recycler that is still a vehicle keeps its own heading";
+}
+
+// SLICE G14, "you can still drive through a recycler, and shoot right through one": THE DRAWN HULL
+// IS INSIDE THE SIM'S VOLUME. Two descriptions of one recycler: what this file draws, and the
+// volume (`sim::volume_of`) the mover and the bolt are stopped by. This test ties them. Every
+// vertex of the deployed recycler that stands over its footprint is on a tile the volume makes
+// solid. Before G14 the volume's extent was the generic 6 x 6 drawn box, so the nose and the tail
+// rows were drawn hull with no sim body under them.
+//
+// TWO GAPS ARE DISCLOSED, NOT HIDDEN, and each is pinned so a change to it is noticed:
+//   * THE OVERHANG: along its length the hull runs 10.4 m either side of the centre, past the 8 m
+//     half-side of its footprint. A volume is solid only on its own footprint, so the 2.4 m past
+//     each end has no body. The ruling it needs is on the footprint or the drawing.
+//   * THE CAB'S TOP: the drawn cab stands 10 m, and the volume's top is the generic building
+//     roof, 7.4 m (238 units). Raising it to the cab would put a recycler out of a mortar's arc
+//     (its apex is some 340 units), against the owner's "I should still be able to lob a mortar
+//     over a recycler". That is his call, so the roof is unchanged.
+TEST(RecyclerSolid, TheDrawnDeployedHullIsInsideTheSimsVolume) {
+    const auto hull = recycler_facing(UnitKind::DeployedRecycler, 0.0F);
+    ASSERT_EQ(hull.size(), protekt::game::kRecyclerVertices);
+    // footprint_around a deployed recycler at 100, 100: x 96..103, y 96..103.
+    const auto sim = sim_of({{Side::Player, UnitKind::DeployedRecycler, 96, 96}});
+    const protekt::sim::Unit& unit = sim.units().at(0);
+    const protekt::sim::Footprint whole = protekt::sim::footprint_around(unit);
+    ASSERT_EQ(whole.x, 96);
+    ASSERT_EQ(whole.y, 96);
+    float ground = std::numeric_limits<float>::max();
+    for (const SceneVertex& v : hull) {
+        ground = std::min(ground, v.position.at(1));
+    }
+    const float top_metres
+        = static_cast<float>(protekt::sim::volume_of(UnitKind::DeployedRecycler).top.raw)
+          / static_cast<float>(protekt::sim::Fixed::kOne) * kMetresPerHeightUnit;
+    int open = 0;
+    int too_tall = 0;
+    int past_the_ends = 0;
+    for (const SceneVertex& v : hull) {
+        // A vertex on a tile edge belongs to the tile it bounds from inside the hull: nudge it a
+        // hair toward the centre before reading its tile.
+        const float wx = v.position.at(0) / kMetresPerTile;
+        const float wz = v.position.at(2) / kMetresPerTile;
+        const int tx = static_cast<int>(std::floor(wx + (wx < 100.0F ? 1e-3F : -1e-3F)));
+        const int ty = static_cast<int>(std::floor(wz + (wz < 100.0F ? 1e-3F : -1e-3F)));
+        too_tall += v.position.at(1) - ground > top_metres + kTolerance ? 1 : 0;
+        if (!whole.covers(tx, ty)) {
+            past_the_ends += (whole.x <= tx && tx < whole.x + whole.width) ? 1 : 0;
+            continue;
+        }
+        open += protekt::sim::building_solid_at(unit, tx, ty) ? 0 : 1;
+    }
+    EXPECT_EQ(open, 0) << "vertices of the drawn hull over open ground inside the footprint";
+    EXPECT_GT(too_tall, 0) << "the cab above the roof exists: if this goes to zero the roof or "
+                              "the drawing changed, and the comment above must too";
+    EXPECT_GT(past_the_ends, 0) << "the overhang past the ends exists: if this goes to zero the "
+                                   "drawing or the footprint changed, and this comment must too";
 }
 
 TEST(RecyclerShape, ItRunsOnTwoSeparateTrackAssemblies) {

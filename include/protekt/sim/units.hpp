@@ -1092,6 +1092,22 @@ template <std::size_t N>
 /// model (drawn turned a half turn further) and a player's are one shape.
 inline constexpr SolidMask kGunSpireMask = mask_of_rows<4>(4, {0b1001U, 0b1001U, 0b1001U, 0b1001U});
 
+/// THE DEPLOYED RECYCLER'S MASK (G14, "I can still drive through a recycler, and you can still
+/// shoot right through a recycler"): the ground plan of the hull it is DRAWN as. It is the wheeled
+/// recycler parked square on its site, 4.72 tiles across (x) and 10.4 tiles long (y)
+/// (test_scene.cpp, RecyclerScale). Across, it sits in the six middle columns of the 8 x 8
+/// footprint. Along, it runs past both ends, so every row is solid. The outer columns carry no
+/// hull, so they stay the ring N5 gave every eight-wide building.
+///
+/// Before G14 the recycler declared no mask, so it was solid on the generic drawn box (6 x 6). The
+/// footprint's first and last rows, the plow and the tail, were drawn hull on open ground: a tank
+/// drove into either end and a bolt crossing one flew through. The 2.4 m of hull past each end of
+/// the footprint still has no body. A mask is never larger than its footprint, and making that
+/// overhang solid needs a ruling on the footprint or the drawing (`TheDrawnDeployedHullIsInsideThe
+/// SimsVolume` pins that the overhang is the only part left open).
+inline constexpr SolidMask kDeployedRecyclerMask
+    = mask_of_rows<8>(8, {0x7EU, 0x7EU, 0x7EU, 0x7EU, 0x7EU, 0x7EU, 0x7EU, 0x7EU});
+
 /// The solid mask of `kind`, in the building's own frame; EMPTY for a kind that declares none,
 /// which is then as solid as its drawn box (`drawn_box`), exactly as before M4. A declared mask is
 /// the size of the kind's footprint (a test pins it).
@@ -1099,6 +1115,8 @@ inline constexpr SolidMask kGunSpireMask = mask_of_rows<4>(4, {0b1001U, 0b1001U,
     switch (kind) {
     case UnitKind::GunSpire:
         return kGunSpireMask;
+    case UnitKind::DeployedRecycler:
+        return kDeployedRecyclerMask;
     default:
         return SolidMask{};
     }
@@ -1136,6 +1154,32 @@ constexpr void for_each_solid_rect(const Unit& unit, const Visitor& visit) {
             }
         }
     }
+}
+
+/// The smallest rectangle holding every tile `building_solid_at` makes solid: the drawn box for a
+/// kind with no mask, the mask's solid tiles' bounds for one with. What a "distance from the wall"
+/// is measured to (`within_recycle_reach`), so it moves with the shape and is not a copy of it.
+[[nodiscard]] constexpr Footprint solid_bounds(const Unit& unit) noexcept {
+    if (solid_mask_of(unit.kind).empty()) {
+        return drawn_box(unit);
+    }
+    const Footprint whole = footprint_around(unit);
+    int x0 = whole.x + whole.width;
+    int y0 = whole.y + whole.height;
+    int x1 = whole.x - 1;
+    int y1 = whole.y - 1;
+    for (int ty = whole.y; ty < whole.y + whole.height; ++ty) {
+        for (int tx = whole.x; tx < whole.x + whole.width; ++tx) {
+            if (building_solid_at(unit, tx, ty)) {
+                x0 = tx < x0 ? tx : x0;
+                y0 = ty < y0 ? ty : y0;
+                x1 = tx > x1 ? tx : x1;
+                y1 = ty > y1 ? ty : y1;
+            }
+        }
+    }
+    return x1 < x0 ? Footprint{whole.centre_x(), whole.centre_y(), 0, 0}
+                   : Footprint{x0, y0, x1 - x0 + 1, y1 - y0 + 1};
 }
 
 /// Per-kind constants, exposed so that the tests (and later the balance pass) can assert on

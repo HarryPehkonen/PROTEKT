@@ -348,6 +348,7 @@ if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
         tests/test_building_cover.cpp
         tests/test_drawn_shape.cpp
         tests/test_deploy_clear.cpp
+        tests/test_recycler_solid.cpp
         tests/test_recycle_trickle.cpp
         tests/test_solid_mask.cpp
         tests/test_volume.cpp

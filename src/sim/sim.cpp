@@ -1946,9 +1946,12 @@ bool turret_deploy_step(const std::vector<Unit>& units, std::vector<Scrap>& scra
 /// leaves, with a little to spare. A dial; the unit is never nearer than the wall itself.
 inline constexpr int kRecycleReachTiles = 2;
 
-/// Whether `unit` stands within `kRecycleReachTiles` of the nearest point of `base`'s drawn box.
+/// Whether `unit` stands within `kRecycleReachTiles` of the nearest point of `base`'s solid shape
+/// (`solid_bounds`: the wall a unit is stopped at). G14 MOVED this from the drawn box. The
+/// recycler's volume is now solid on every row of its footprint, so a unit arriving at either end
+/// stops a tile further from the old box than the reach was measured from.
 [[nodiscard]] bool within_recycle_reach(const Unit& unit, const Unit& base) noexcept {
-    const Footprint box = drawn_box(base);
+    const Footprint box = solid_bounds(base);
     const auto nearest = [](std::int64_t at, int low, int size) {
         const std::int64_t lo = static_cast<std::int64_t>(low) * Fixed::kOne;
         const std::int64_t hi = static_cast<std::int64_t>(low + size) * Fixed::kOne;
