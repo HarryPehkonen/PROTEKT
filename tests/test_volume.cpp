@@ -32,7 +32,7 @@
 /// on row kWallY, set down as terrain volumes (`Scenario::volumes`); a tank 1.5 tiles south of it
 /// on column 69, ordered to a goal on the far side. Heights are in height units
 /// (`kHeightUnitsPerTile` to a tile): a LOW wall's top is 40, a TALL one's 120; a tank's ride
-/// height is 8 and its body 57.6.
+/// height is 8 and its body 41.6 (`body_height_of`, G16: its drawn 1.3 m).
 namespace protekt::sim {
 namespace {
 
@@ -156,24 +156,28 @@ TEST(Volume, AUnitAtHeightPassesOverALowVolumeAndNotOverATallOne) {
     const Volume tall{SolidMask{1, 1, 1}, units_of(0), units_of(120)};
     // The body's feet are at ride height (8) plus the lift: the wall stops a unit whose feet are
     // below its top. A lip of 40 is cleared from a lift of 32; the jump's whole peak is 55.
-    EXPECT_TRUE(volume_stops(low, units_of(0))) << "on the ground, a wall is a wall";
-    EXPECT_TRUE(volume_stops(low, units_of(31)));
-    EXPECT_FALSE(volume_stops(low, units_of(32))) << "feet exactly on the top: over";
-    EXPECT_FALSE(volume_stops(low, units_of(55)));
-    EXPECT_TRUE(volume_stops(tall, units_of(55))) << "the jump's own peak does not clear 120";
-    EXPECT_TRUE(volume_stops(tall, units_of(111)));
-    EXPECT_FALSE(volume_stops(tall, units_of(112)));
+    const Fixed tank = body_height_of(UnitKind::Tank);
+    EXPECT_TRUE(volume_stops(low, units_of(0), tank)) << "on the ground, a wall is a wall";
+    EXPECT_TRUE(volume_stops(low, units_of(31), tank));
+    EXPECT_FALSE(volume_stops(low, units_of(32), tank)) << "feet exactly on the top: over";
+    EXPECT_FALSE(volume_stops(low, units_of(55), tank));
+    EXPECT_TRUE(volume_stops(tall, units_of(55), tank)) << "the jump's own peak does not clear 120";
+    EXPECT_TRUE(volume_stops(tall, units_of(111), tank));
+    EXPECT_FALSE(volume_stops(tall, units_of(112), tank));
 }
 
 TEST(Volume, ABridgeLetsAUnderPassAndAUnitOnTopDriveOver) {
-    // A deck from 70 to 78 above the ground: a tank's head is at 8 + 57.6 = 65.6, so it drives
-    // UNDER; lifted to the deck it drives ON TOP; in between it is inside it.
+    // A deck from 70 to 78 above the ground: a tank's head is at 8 + 41.6 = 49.6 (G16, its drawn
+    // 1.3 m; it was 8 + 57.6 = 65.6 for every kind), so it drives UNDER; lifted to the deck it
+    // drives ON TOP; in between it is inside it. RE-PINNED, G16: the first lift inside the deck
+    // was 5 (65.6 + 5 > 70) and is 21 now (49.6 + 21 = 70.6 > 70; 49.6 + 20 = 69.6 is not).
+    const Fixed tank = body_height_of(UnitKind::Tank);
     const Volume deck{SolidMask{1, 1, 1}, units_of(70), units_of(78)};
-    EXPECT_FALSE(volume_stops(deck, units_of(0)));
-    EXPECT_FALSE(volume_stops(deck, units_of(4)));
-    EXPECT_TRUE(volume_stops(deck, units_of(5)));
-    EXPECT_TRUE(volume_stops(deck, units_of(69)));
-    EXPECT_FALSE(volume_stops(deck, units_of(70)));
+    EXPECT_FALSE(volume_stops(deck, units_of(0), tank));
+    EXPECT_FALSE(volume_stops(deck, units_of(20), tank));
+    EXPECT_TRUE(volume_stops(deck, units_of(21), tank));
+    EXPECT_TRUE(volume_stops(deck, units_of(69), tank));
+    EXPECT_FALSE(volume_stops(deck, units_of(70), tank));
 }
 
 TEST(Volume, ABuildingIsAVolumeAndItsRoofIsFarAboveAJump) {

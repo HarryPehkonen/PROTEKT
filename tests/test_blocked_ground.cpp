@@ -99,9 +99,10 @@ using Tiles = std::set<std::pair<int, int>>;
         for (int x = 0; x < map.width; ++x) {
             bool stopped = world::ground_solid(x, y);
             for (const sim::PlacedVolume& v : sim.volumes()) {
-                stopped = stopped
-                          || (sim::placed_solid_at(v, x, y)
-                              && sim::volume_stops(v.volume, sim::Fixed::zero()));
+                stopped
+                    = stopped
+                      || (sim::placed_solid_at(v, x, y)
+                          && sim::volume_stops(v.volume, sim::Fixed::zero(), sim::tallest_body()));
             }
             if (stopped) {
                 stops.insert({x, y});

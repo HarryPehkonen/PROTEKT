@@ -100,7 +100,8 @@ struct TileTop {
 }
 
 /// The tiles a GROUNDED unit is refused by a volume, the mover's own question (`placed_solid_at`
-/// and `volume_stops` at lift zero, `WorldGround::factor`).
+/// and `volume_stops` at lift zero, `WorldGround::factor`), asked for the tallest vehicle
+/// (`tallest_body`, G16) as the hatch is.
 [[nodiscard]] Tiles stops_a_grounded_unit(const std::vector<sim::PlacedVolume>& volumes, int w,
                                           int h) {
     Tiles out;
@@ -108,7 +109,7 @@ struct TileTop {
         for (int x = 0; x < w; ++x) {
             for (const sim::PlacedVolume& v : volumes) {
                 if (sim::placed_solid_at(v, x, y)
-                    && sim::volume_stops(v.volume, sim::Fixed::zero())) {
+                    && sim::volume_stops(v.volume, sim::Fixed::zero(), sim::tallest_body())) {
                     out.insert({x, y});
                 }
             }
@@ -352,7 +353,8 @@ void expect_drawn_covers_blocked(const app::MapDoc& map, int cx, int cy, int rad
                 if (!sim::placed_solid_at(v, x, y)) {
                     continue;
                 }
-                const bool stops = sim::volume_stops(v.volume, sim::Fixed::zero());
+                const bool stops
+                    = sim::volume_stops(v.volume, sim::Fixed::zero(), sim::tallest_body());
                 EXPECT_EQ(game::ground_blocked(sim.volumes(), x, y),
                           stops || world::ground_solid(x, y))
                     << x << "," << y;
@@ -384,7 +386,9 @@ TEST(MapShapes, AFloatingSlabIsDrawnFloating) {
     // His word: a slab he can drive under must READ as one. Its underside is in the air (at its
     // base), and the ground under it is not the wall hatch.
     std::string text = app::write_map(app::generate_map(3, 24));
-    text += volume_text(6, 6, 80, 120, {"####", "####"});
+    // G16: the base was 80, "a tank fits under"; the tallest vehicle (the recycler, 2.5 m, its head
+    // at 8 + 80 = 88) does not, and the hatch is asked for the tallest. 96 (3 m) clears every one.
+    text += volume_text(6, 6, 96, 120, {"####", "####"});
     const app::MapDoc map = parsed(text);
     const world::ScopedGround guard(app::map_ground(map));
     const sim::Sim sim = battle_on(map);
@@ -393,11 +397,12 @@ TEST(MapShapes, AFloatingSlabIsDrawnFloating) {
     const auto it = drawn.find({7, 7});
     ASSERT_NE(it, drawn.end());
     const float datum = datum_metres(map.seed, 7, 7);
-    EXPECT_NEAR(it->second.bottom - datum, 80.0F * game::kMetresPerHeightUnit, 1e-3F)
-        << "the underside is 2.5 m up";
+    EXPECT_NEAR(it->second.bottom - datum, 96.0F * game::kMetresPerHeightUnit, 1e-3F)
+        << "the underside is 3 m up";
     EXPECT_NEAR(it->second.top - datum, 120.0F * game::kMetresPerHeightUnit, 1e-3F);
-    EXPECT_FALSE(sim::volume_stops(sim.volumes().at(0).volume, sim::Fixed::zero()))
-        << "a tank fits under 80 units (its head is at 65.6)";
+    EXPECT_FALSE(
+        sim::volume_stops(sim.volumes().at(0).volume, sim::Fixed::zero(), sim::tallest_body()))
+        << "every vehicle fits under 96 units (the tallest's head is at 88)";
     EXPECT_FALSE(game::ground_blocked(sim.volumes(), 7, 7));
     EXPECT_TRUE(game::ground_overhead(sim.volumes(), 7, 7));
 }
@@ -406,7 +411,7 @@ TEST(MapShapes, TheMapToolShadesASlabYouDriveUnderAndHatchesOneYouCannot) {
     // `protekt-map draw` follows the game's ground rule: hatched where a grounded unit is refused,
     // shaded with a thin red line where a volume is over (or under) a unit that passes.
     std::string text = app::write_map(app::generate_map(3, 24));
-    text += volume_text(6, 6, 80, 120, {"#"}); // a tank fits under
+    text += volume_text(6, 6, 96, 120, {"#"}); // every vehicle fits under (G16: was 80)
     text += volume_text(10, 6, 30, 60, {"#"}); // too low to
     const app::MapDoc map = parsed(text);
     const std::filesystem::path png = std::filesystem::temp_directory_path()

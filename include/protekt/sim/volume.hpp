@@ -42,11 +42,12 @@ struct Volume {
 inline constexpr std::int64_t kJumpSpeedRaw = kTankSpeedRaw * 3 / 4;
 /// THE LAUNCH: 10 height units a tick up, against `kJumpGravity` of 1 a tick lost to gravity. The
 /// body then rises 10, 19, 27, 34 ... to a peak of 55 units (about 1.7 m at 32 units to the metre:
-/// roughly its own body's height again) on ticks 10 and 11, and lands on the 21st tick (0.7 s). A
-/// volume with its top within 55 of the unit's ride height (`kRideHeight`) -- so up to 63 above the
-/// ground -- can be cleared, and for 14 of those ticks a 40-unit lip can: at a tank's full speed
-/// that is about 2.8 tiles of clear flight, at the threshold about 2.1. Every building is far above
-/// it (a roof of 238 units or more), so a jump clears walls, lips and kerbs and never a building.
+/// more than a tank's whole 1.3 m body, `body_height_of`) on ticks 10 and 11, and lands on the
+/// 21st tick (0.7 s). A volume with its top within 55 of the unit's ride height (`kRideHeight`) --
+/// so up to 63 above the ground -- can be cleared, and for 14 of those ticks a 40-unit lip can: at
+/// a tank's full speed that is about 2.8 tiles of clear flight, at the threshold about 2.1. Every
+/// building is far above it (a roof of 238 units or more), so a jump clears walls, lips and kerbs
+/// and never a building.
 inline constexpr Fixed kJumpLaunch = Fixed::from_raw(10 * Fixed::kOne);
 inline constexpr Fixed kJumpGravity = Fixed::from_raw(Fixed::kOne);
 
@@ -77,22 +78,21 @@ struct PlacedVolume {
                   Fixed::from_raw(kRideHeight.raw + body.raw * kBuildingFootprintScale)};
 }
 
-/// THE ONE HEIGHT RULE. A vehicle whose body is lifted `lift` above the ground occupies the heights
-/// from its ride height to its ride height plus its body (`kRideHeight`, `kBodyHeight`); a volume
-/// STOPS it when the two ranges overlap. A grounded unit (`lift` zero) is stopped by every volume
-/// that starts below its roof (65.6 units) and ends above its ride height (8), which is every
-/// building there is -- so a unit on the ground behaves as it always did.
-///
-/// THE HONEST LIMIT (G15). A grounded unit is a BAND of heights, 8 to 65.6, and the band is the
-/// SAME for every kind: this rule reads `kBodyHeight`, never the unit's own body. So a map's
-/// shaped volume (a digit mask, `app::digit_top`) changes a grounded unit's answer only where a
-/// tile's top falls to 8 or below (driven over) or the base rises to 65.6 or above (driven under);
-/// between those, every tapered tile stops a tank and a bike alike. "A tall vehicle can't go
-/// through, but a shorter one can" needs per-kind heights, which are a separate slice; nothing here
-/// fakes them.
-[[nodiscard]] constexpr bool volume_stops(const Volume& volume, Fixed lift) noexcept {
+/// THE ONE HEIGHT RULE: SPAN OVERLAP (G16). A vehicle lifted `lift` above the ground, of body
+/// height `body` (`body_height_of(kind)`, its drawn height), occupies the heights
+/// [kRideHeight + lift, kRideHeight + lift + body); a volume occupies [base, top). The volume STOPS
+/// the vehicle iff the two spans OVERLAP. That is the whole rule, and every shape follows from it:
+///   * a wall or a kerb (base zero) stops whatever's feet are below its top, a jumped unit clearing
+///     it once its feet rise to the top;
+///   * a FLOATING slab (base above zero) lets a vehicle whose head is at or below its base pass
+///     UNDER, and stops a taller one -- a bike under, a tank stopped, at the same base;
+///   * a V, a pyramid, an upside-down pyramid, the prongs: each tile is one span, asked the same.
+/// Nothing in it names a kind: a taller kind is stopped by more because its `body` is larger, and
+/// for no other reason. A building (base zero, a roof of 238 or more) stops every grounded unit, as
+/// it always did.
+[[nodiscard]] constexpr bool volume_stops(const Volume& volume, Fixed lift, Fixed body) noexcept {
     const std::int64_t feet = static_cast<std::int64_t>(kRideHeight.raw) + lift.raw;
-    const std::int64_t head = feet + kBodyHeight.raw;
+    const std::int64_t head = feet + body.raw;
     return feet < volume.top.raw && head > volume.base.raw;
 }
 

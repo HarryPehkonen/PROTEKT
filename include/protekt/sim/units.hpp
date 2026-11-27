@@ -1032,11 +1032,89 @@ inline constexpr std::int32_t kGravityHeightRaw = static_cast<std::int32_t>(
     ((kGravity.num * kHeightUnitsPerTile * 2) + kGravity.den) / (2 * kGravity.den));
 static_assert(kGravityHeightRaw == 22859, "g in height units moved: restate it");
 /// How high above the ground under it a unit's body starts (its hover) and how tall it is, in
-/// height units: 0.25 m and 1.8 m (4.5 m for a factory) at 32 units to the metre, which is how the
-/// scene draws them. A bolt hurts a unit only while it is between the two.
+/// height units: 0.25 m and 1.8 m (4.5 m for a factory) at 32 units to the metre. A bolt hurts a
+/// unit only while it is between the two (`body_top`). G16: what a VOLUME stops is asked of the
+/// kind's own drawn height instead (`body_height_of`, below); the bolt's band is still this one for
+/// every kind, which is taller than every vehicle drawn but the walker -- reported, not changed.
 inline constexpr Fixed kRideHeight = Fixed::from_raw(8 * Fixed::kOne);
 inline constexpr Fixed kBodyHeight = Fixed::from_raw(576 * Fixed::kOne / 10); ///< 57.6 units
 inline constexpr Fixed kFactoryBodyHeight = Fixed::from_raw(144 * Fixed::kOne);
+
+/// A height given in MILLIMETRES, in height units (Q16.16): 32 units to the metre
+/// (`kHeightUnitsPerTile` over `kTileMetres`), so a millimetre is 32/1000 of a unit. Truncated to
+/// the raw unit, a 1/65536 of a height unit -- far below a millimetre.
+[[nodiscard]] constexpr Fixed height_of_mm(std::int64_t mm) noexcept {
+    return Fixed::from_raw(
+        static_cast<std::int32_t>(mm * (kHeightUnitsPerTile / kTileMetres) * Fixed::kOne / 1000));
+}
+
+/// HOW TALL A VEHICLE IS (G16): the height of `kind`'s body, from its ride height (`kRideHeight`,
+/// the hover gap under every hull, the same for every kind) to the top of the machine, in height
+/// units. A unit with `lift` above the ground occupies [kRideHeight + lift, kRideHeight + lift +
+/// body_height_of(kind)); a volume stops it where that span overlaps the volume's (`volume_stops`).
+///
+/// WHERE EVERY NUMBER COMES FROM: THE DRAWING. Each vehicle's is the top of the machine it is
+/// drawn as (`game::shape_extent(kind).up_max`, metres above the hull's base, which the driven
+/// hull stands at the ride height), in millimetres, rounded to the nearest one. The elevating
+/// barrels and the walker's gun arm are not in the shape and are not counted: a barrel raised
+/// high can reach above its kind's height (reported in G16, not modelled). The game layer checks
+/// every authored kind against its shape (test_vehicle_height.cpp), so a model redrawn taller than
+/// this table fails a test, not a player. THE RECYCLER is not an authored shape: its drawn height
+/// is its cab roof, 1.25 m at the tank's scale (`kCabRoof` in `build_recycler`), drawn at
+/// `kRecyclerScale` (2): 2.5 m.
+///
+/// A kind that NEVER MOVES (every building, the deployed recycler and scavenger, the deployed
+/// turret aside, the Power Lung) never asks the height rule as a mover: it keeps the body it had,
+/// `kBodyHeight` (`kFactoryBodyHeight` for the Factory). Its OWN solid is its `volume_of`, not
+/// this.
+[[nodiscard]] constexpr Fixed body_height_of(UnitKind kind) noexcept {
+    switch (kind) {
+    case UnitKind::Tank:
+        return height_of_mm(1300); // the turret's roof
+    case UnitKind::Turret:
+    case UnitKind::DeployedTurret:
+        return height_of_mm(1800); // one shape for both
+    case UnitKind::HoverTank:
+        return height_of_mm(1100); // the dorsal fin
+    case UnitKind::MortarBike:
+        return height_of_mm(1101); // the mortar's collar, on its 45 degree tube (1.10104 m)
+    case UnitKind::RocketTank:
+        return height_of_mm(1150);
+    case UnitKind::Scavenger:
+        return height_of_mm(1786); // the boom (1.7856 m); the alien harvester is drawn otherwise
+    case UnitKind::Recycler:
+        return height_of_mm(2500); // the cab roof, 1.25 m drawn at twice the tank's scale
+    case UnitKind::Scout:
+        return height_of_mm(1300);
+    case UnitKind::AssaultTank:
+        return height_of_mm(1580);
+    case UnitKind::Walker:
+        return height_of_mm(2410); // the roof panel over the hips
+    case UnitKind::Apc:            // the turret's roof
+    case UnitKind::Bomber:         // both 1.1 m, each its own drawn top
+        return height_of_mm(1100);
+    case UnitKind::MslScout:
+        return height_of_mm(1240); // the rack's noses
+    case UnitKind::Tug:
+        return height_of_mm(1100);
+    case UnitKind::Constructor:
+        return height_of_mm(1400);
+    case UnitKind::ServiceTruck:
+        return height_of_mm(1200);
+    case UnitKind::ServicePod:
+        return height_of_mm(850);
+    case UnitKind::Factory:
+        return kFactoryBodyHeight;
+    default:
+        return kBodyHeight;
+    }
+}
+
+/// The TALLEST body of any kind that MOVES (`body_height_of`, over the kinds `profile` calls
+/// mobile): what a question with no unit in it asks -- "does this volume refuse SOME vehicle on the
+/// ground here", the map's hatch (`game::volume_stops_grounded`). Computed from the table, so it
+/// follows it. Defined in sim.cpp, beside `profile`.
+[[nodiscard]] Fixed tallest_body() noexcept;
 /// THE SOLID MASK (M4): a bitmap of IMPASSABLE tiles in the frame of whatever carries it -- one
 /// concept, two frames. A BUILDING carries one in its OWN frame (`solid_mask_of`: tile (0, 0) is
 /// the mask's north-west corner, whichever way the building is turned), so the shape travels with

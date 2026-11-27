@@ -40,11 +40,12 @@ namespace protekt::app {
 /// Every tile shares the volume's `base`; to make a shape wider at the top than at the bottom (his
 /// upside-down pyramid), stack several `[[volume]]`s, each with its own base. A map may have any
 /// number of them. Heights are height units above the ground under the tile's middle, 32 to a
-/// metre. A unit on the ground occupies the heights from its ride height (8) to its head (65.6):
-/// a volume stops it where the two overlap (`sim::volume_stops`), so a tile whose top is 8 or less
-/// is driven over, and a volume whose base is above 65.6 is driven under. Every grounded vehicle
-/// has the SAME body height today, so a taper cannot yet let a short vehicle through where a tall
-/// one is stopped: per-kind heights are a separate slice.
+/// metre. A unit on the ground occupies the heights from its ride height (8) to its head, 8 plus
+/// ITS OWN body height (`sim::body_height_of`, G16: its drawn height -- 35.2 for a bike or an APC,
+/// 41.6 for a tank, 80 for the recycler): a volume stops it where the two overlap
+/// (`sim::volume_stops`), so a tile whose top is 8 or less is driven over by everything, and a
+/// volume whose base is at or above a vehicle's head is driven under by that vehicle. A slab with
+/// its base at 46 lets a bike under and stops a tank; one at 88 or more lets every vehicle under.
 ///
 /// Rasters are plain text so a diff of two maps shows exactly which tiles moved. `seed` records
 /// where a generated map came from, and survives hand edits, which never touch it.

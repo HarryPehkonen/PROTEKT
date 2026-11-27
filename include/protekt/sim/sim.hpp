@@ -123,9 +123,13 @@ protected:
 /// M5: asked AT A HEIGHT. `lift` is how far above the ground the asking unit's body is raised
 /// (`Unit::lift`); the building's volume (`volume_of`) stops it only if their heights overlap
 /// (`volume_stops`). The default, zero, is the unit on the ground: the answer every caller had
-/// before there was a jump.
+/// before there was a jump. G16: and OF A HEIGHT, `body` (`body_height_of` the asker's kind; the
+/// mover always passes its own). The default is the tallest vehicle's (`tallest_body`): with no
+/// unit named, the question is whether the building refuses SOME vehicle there. Every building's
+/// volume stands on the ground, so for a grounded unit the answer is the same at any body height.
 [[nodiscard]] bool building_stops_units(std::span<const Unit> units, int tile_x, int tile_y,
-                                        Fixed lift = Fixed::zero()) noexcept;
+                                        Fixed lift = Fixed::zero(),
+                                        Fixed body = tallest_body()) noexcept;
 
 /// The living Constructor of `site`'s own side that is within `kBuildReachTiles` of its footprint
 /// (the nearest point of the rectangle), lowest id first; null when there is none. THE one answer

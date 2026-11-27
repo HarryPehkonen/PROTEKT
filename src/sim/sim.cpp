@@ -25,6 +25,17 @@ UnitProfile profile(UnitKind kind) noexcept {
                        spec.cooldown, spec.max_speed.raw > 0, spec.turn_decidegrees};
 }
 
+Fixed tallest_body() noexcept {
+    std::int32_t tallest = 0;
+    for (int k = 0; k < kUnitKindCount; ++k) {
+        const auto kind = static_cast<UnitKind>(k);
+        if (profile(kind).mobile) {
+            tallest = std::max(tallest, body_height_of(kind).raw);
+        }
+    }
+    return Fixed::from_raw(tallest);
+}
+
 Fixed terrain_speed_factor(world::Terrain terrain) noexcept {
     switch (terrain) {
     case world::Terrain::Flat:
@@ -230,12 +241,17 @@ struct WorldGround {
     /// How high above the ground the unit asking is (`Unit::lift`): zero for the route planner and
     /// every caller that is not a unit in the air, so a grounded unit's answer is unchanged.
     Fixed lift{};
+    /// HOW TALL the unit asking is (G16, `body_height_of` its kind): a volume stops it where its
+    /// span overlaps the unit's (`volume_stops`). Only a ground with volumes or buildings on it
+    /// reads it, and `ground_of` -- the one way such a ground is made -- takes it from the asker.
+    Fixed body{};
     [[nodiscard]] std::int64_t factor(int tile_x, int tile_y) const noexcept {
-        if (buildings && building_stops_units(units, tile_x, tile_y, lift)) {
+        if (buildings && building_stops_units(units, tile_x, tile_y, lift, body)) {
             return 0;
         }
         for (const PlacedVolume& placed : terrain) {
-            if (placed_solid_at(placed, tile_x, tile_y) && volume_stops(placed.volume, lift)) {
+            if (placed_solid_at(placed, tile_x, tile_y)
+                && volume_stops(placed.volume, lift, body)) {
                 return 0;
             }
         }
@@ -253,14 +269,17 @@ struct WorldGround {
     }
 };
 
-/// The ground as the mover sees it now, with `WorldGround::buildings` read off the units.
+/// The ground as `asker` sees it now, with `WorldGround::buildings` read off the units: at the
+/// height `lift` (its own `Unit::lift` in the air, zero for what it plans over) and at ITS OWN body
+/// height (G16, `body_height_of`), so a volume a short vehicle passes under is open to it and shut
+/// to a tall one. No default for either: every ground a unit is judged on names whose it is.
 [[nodiscard]] WorldGround ground_of(std::uint64_t seed, std::span<const Unit> units,
-                                    std::span<const PlacedVolume> terrain = {},
-                                    Fixed lift = Fixed::zero()) noexcept {
+                                    std::span<const PlacedVolume> terrain, const Unit& asker,
+                                    Fixed lift) noexcept {
     const bool buildings = std::any_of(units.begin(), units.end(), [](const Unit& unit) {
         return unit.alive && has_footprint(unit.kind);
     });
-    return WorldGround{seed, units, buildings, terrain, lift};
+    return WorldGround{seed, units, buildings, terrain, lift, body_height_of(asker.kind)};
 }
 
 /// Where a position-bearing order sends the unit; unused points are the origin, as they always
@@ -403,7 +422,7 @@ void apply_order(std::vector<Unit>& units, std::vector<Projectile>& projectiles,
         break;
     case OrderKind::Strafe:
         if (const auto* o = std::get_if<orders::Strafe>(&order.payload)) {
-            apply_strafe(unit, *o, ground_of(seed, units, terrain, unit.lift));
+            apply_strafe(unit, *o, ground_of(seed, units, terrain, unit, unit.lift));
         }
         break;
     case OrderKind::Recycle:
@@ -2393,8 +2412,13 @@ void shove_step(std::vector<Unit>& units, const WorldGround& ground, Unit& unit,
     const std::int64_t lx = -step.dy * side / 2;
     const std::int64_t ly = step.dx * side / 2;
     const std::array<Step, 3> carry{Step{step.dx + lx, step.dy + ly}, step, Step{lx, ly}};
+    // Where the CARRIED vehicle may go is asked at ITS height and ITS body (G16), not the
+    // pusher's: a bike pushing a tank must not carry the tank under a slab only the bike clears.
+    WorldGround carried = ground;
+    carried.lift = other->lift;
+    carried.body = body_height_of(other->kind);
     for (const Step& c : carry) {
-        if (can_stand(ground, other->x.raw + c.dx, other->y.raw + c.dy)) {
+        if (can_stand(carried, other->x.raw + c.dx, other->y.raw + c.dy)) {
             other->x = Fixed::from_raw(static_cast<std::int32_t>(other->x.raw + c.dx));
             other->y = Fixed::from_raw(static_cast<std::int32_t>(other->y.raw + c.dy));
             other->still_ticks = 0; // carried: a turret is unmounted
@@ -3207,14 +3231,14 @@ void Sim::step(StepTimings* timings) {
         // IN THE AIR (M5, G8) -- a jump or a fall (`rise`): its height is its own. A fall goes on
         // at the speed it left the ground with (`glide`), a jump is steered as M5 made it, and
         // neither is pressed; the tick it lands is still a tick of the flight.
-        const WorldGround plain = ground_of(seed, units_, scenario_.volumes);
+        const WorldGround plain = ground_of(seed, units_, scenario_.volumes, unit, Fixed::zero());
         const std::int64_t own_height = airborne(unit) ? rise(plain, unit) : 0;
         const bool aloft = airborne(unit); // still in the air after the rise: moves as a flight
         // The ground the unit MOVES over answers at its height; the one it PLANS over (a route)
         // is the ground at height zero, so a unit on the ground plans round a wall it would
         // otherwise try to jump, and one in the air plans nothing (`steer`).
         const WorldGround& ground = plain;
-        const WorldGround flight = ground_of(seed, units_, scenario_.volumes, unit.lift);
+        const WorldGround flight = ground_of(seed, units_, scenario_.volumes, unit, unit.lift);
         const UnitProfile prof = profile(unit.kind);
         // Scavenging, before the mover: it takes from where the unit stands and sets no goal (C2).
         if (unit.kind == UnitKind::Scavenger) {
@@ -3452,7 +3476,8 @@ void Sim::step(StepTimings* timings) {
         }
         Unit* shooter = find_mut(units_, shot.shooter);
         if (shooter != nullptr && shooter->alive) {
-            kick_step(units_, ground_of(seed, units_, scenario_.volumes), *shooter, shot);
+            kick_step(units_, ground_of(seed, units_, scenario_.volumes, *shooter, Fixed::zero()),
+                      *shooter, shot);
         }
     }
 
@@ -3604,13 +3629,13 @@ bool building_blocks(std::span<const Unit> units, int tile_x, int tile_y) noexce
     });
 }
 
-bool building_stops_units(std::span<const Unit> units, int tile_x, int tile_y,
-                          Fixed lift) noexcept {
-    return std::any_of(units.begin(), units.end(), [tile_x, tile_y, lift](const Unit& unit) {
+bool building_stops_units(std::span<const Unit> units, int tile_x, int tile_y, Fixed lift,
+                          Fixed body) noexcept {
+    return std::any_of(units.begin(), units.end(), [tile_x, tile_y, lift, body](const Unit& unit) {
         return unit.alive && has_footprint(unit.kind)
                && !(has_drivable_footprint(unit.kind) && !under_construction(unit))
                && building_solid_at(unit, tile_x, tile_y)
-               && volume_stops(volume_of(unit.kind), lift);
+               && volume_stops(volume_of(unit.kind), lift, body);
     });
 }
 

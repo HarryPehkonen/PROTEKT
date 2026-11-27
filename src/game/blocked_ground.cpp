@@ -8,7 +8,7 @@ bool volume_stops_grounded(std::span<const sim::PlacedVolume> volumes, int tile_
                            int tile_y) noexcept {
     for (const sim::PlacedVolume& placed : volumes) {
         if (sim::placed_solid_at(placed, tile_x, tile_y)
-            && sim::volume_stops(placed.volume, sim::Fixed::zero())) {
+            && sim::volume_stops(placed.volume, sim::Fixed::zero(), sim::tallest_body())) {
             return true;
         }
     }

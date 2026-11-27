@@ -37,8 +37,11 @@ inline constexpr std::array<std::uint8_t, 3> kBlockedHatchDark{64, 14, 14};
 inline constexpr std::string_view kBlockedGroundTile = "ground_blocked";
 
 /// Whether a volume of `volumes` is solid on world tile (`tile_x`, `tile_y`) AND refuses a unit on
-/// the ground there (`sim::volume_stops` at lift zero, the mover's own question). Pure in its
-/// arguments: the map tool asks it without a world installed.
+/// the ground there (`sim::volume_stops` at lift zero, the mover's own question). G16: asked for
+/// the TALLEST vehicle (`sim::tallest_body`), so the hatch means "some vehicle cannot drive here":
+/// a slab a bike passes under and a tank does not is hatched, because a hatch left off it would be
+/// an invisible wall to the tank. Pure in its arguments: the map tool asks it without a world
+/// installed.
 [[nodiscard]] bool volume_stops_grounded(std::span<const sim::PlacedVolume> volumes, int tile_x,
                                          int tile_y) noexcept;
 
