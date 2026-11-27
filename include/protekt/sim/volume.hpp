@@ -80,8 +80,16 @@ struct PlacedVolume {
 /// THE ONE HEIGHT RULE. A vehicle whose body is lifted `lift` above the ground occupies the heights
 /// from its ride height to its ride height plus its body (`kRideHeight`, `kBodyHeight`); a volume
 /// STOPS it when the two ranges overlap. A grounded unit (`lift` zero) is stopped by every volume
-/// that starts below its roof, which is every building there is -- so a unit on the ground behaves
-/// as it always did.
+/// that starts below its roof (65.6 units) and ends above its ride height (8), which is every
+/// building there is -- so a unit on the ground behaves as it always did.
+///
+/// THE HONEST LIMIT (G15). A grounded unit is a BAND of heights, 8 to 65.6, and the band is the
+/// SAME for every kind: this rule reads `kBodyHeight`, never the unit's own body. So a map's
+/// shaped volume (a digit mask, `app::digit_top`) changes a grounded unit's answer only where a
+/// tile's top falls to 8 or below (driven over) or the base rises to 65.6 or above (driven under);
+/// between those, every tapered tile stops a tank and a bike alike. "A tall vehicle can't go
+/// through, but a shorter one can" needs per-kind heights, which are a separate slice; nothing here
+/// fakes them.
 [[nodiscard]] constexpr bool volume_stops(const Volume& volume, Fixed lift) noexcept {
     const std::int64_t feet = static_cast<std::int64_t>(kRideHeight.raw) + lift.raw;
     const std::int64_t head = feet + kBodyHeight.raw;

@@ -65,15 +65,21 @@ bool draw_map(const MapDoc& map, const std::filesystem::path& path) {
     const int span = std::max(*highest - *lowest, sim::kHeightUnitsPerTile);
     const auto height_at = [&](int x, int y) { return map.heights[map.index(x, y)]; };
 
-    // Which tiles a volume covers.
+    // Which tiles a volume covers: 2 where it refuses a unit on the ground (hatched, the game's
+    // `ground_blocked` rule), 1 where a unit on the ground passes it -- a slab overhead, a lip
+    // under the hull -- which is drawn as the game shades it, darker, with a thin red line every
+    // other band so it is never mistaken for open ground nor for a wall (G15).
     std::vector<std::uint8_t> covered(map.solid.size(), 0);
     const auto volumes = placed_volumes(map);
     for (int y = 0; y < map.height; ++y) {
         for (int x = 0; x < map.width; ++x) {
             for (const sim::PlacedVolume& v : volumes) {
                 if (sim::placed_solid_at(v, x, y)) {
-                    covered[map.index(x, y)] = 1;
+                    covered[map.index(x, y)] = std::max<std::uint8_t>(covered[map.index(x, y)], 1);
                 }
+            }
+            if (game::volume_stops_grounded(volumes, x, y)) {
+                covered[map.index(x, y)] = 2;
             }
         }
     }
@@ -82,7 +88,8 @@ bool draw_map(const MapDoc& map, const std::filesystem::path& path) {
         for (int tx = 0; tx < map.width; ++tx) {
             const std::size_t i = map.index(tx, ty);
             const bool crater = map.terrain[i] == world::Terrain::Crater;
-            const bool wall = map.solid[i] != 0 || covered[i] != 0;
+            const bool wall = map.solid[i] != 0 || covered[i] == 2;
+            const bool overhead = !wall && covered[i] == 1;
             for (int py = 0; py < kS; ++py) {
                 for (int pxl = 0; pxl < kS; ++pxl) {
                     Rgb c = ground_colour(map.heights[i], low, span, map.terrain[i]);
@@ -92,6 +99,14 @@ bool draw_map(const MapDoc& map, const std::filesystem::path& path) {
                                                                     : rgb(game::kBlockedHatchDark);
                     } else if (crater) {
                         c = {18, 22, 52};
+                    }
+                    if (overhead) {
+                        for (int& v : c) {
+                            v = static_cast<int>(static_cast<float>(v) * game::kOverheadShade);
+                        }
+                        if ((pxl + py) % kS == 0) {
+                            c = rgb(game::kBlockedHatchBright);
+                        }
                     }
                     put(tx * kS + pxl, ty * kS + py, c);
                 }

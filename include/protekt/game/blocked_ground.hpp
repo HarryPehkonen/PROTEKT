@@ -36,10 +36,39 @@ inline constexpr std::array<std::uint8_t, 3> kBlockedHatchDark{64, 14, 14};
 /// The atlas tile the scene paints a blocked world tile with.
 inline constexpr std::string_view kBlockedGroundTile = "ground_blocked";
 
-/// Whether world tile (`tile_x`, `tile_y`) is drawn blocked: solid ground, or inside the footprint
-/// of any of `volumes`. Every volume is drawn, as the map tool draws every one: a volume is set
-/// down to stop something, and a volume a hover could clear still stops the tanks beside it.
+/// Whether a volume of `volumes` is solid on world tile (`tile_x`, `tile_y`) AND refuses a unit on
+/// the ground there (`sim::volume_stops` at lift zero, the mover's own question). Pure in its
+/// arguments: the map tool asks it without a world installed.
+[[nodiscard]] bool volume_stops_grounded(std::span<const sim::PlacedVolume> volumes, int tile_x,
+                                         int tile_y) noexcept;
+
+/// Whether world tile (`tile_x`, `tile_y`)'s GROUND is drawn blocked: solid ground, or a volume
+/// that refuses a unit on the ground there (`volume_stops_grounded`). The hatch on the ground means
+/// "you cannot drive here". A volume that does NOT refuse a grounded unit -- a slab whose base is
+/// above a tank's head, a lip lower than its hull -- is not hatched on the ground: it is drawn as
+/// its own shape (`kVolumeColour`, every volume is), and a slab overhead shades the ground under it
+/// (`ground_overhead`) instead. (Before G15 every footprint was hatched, so a slab a tank drove
+/// under was painted as a wall under it.)
 [[nodiscard]] bool ground_blocked(std::span<const sim::PlacedVolume> volumes, int tile_x,
                                   int tile_y) noexcept;
+
+/// THE SHAPE ITSELF (G15): every tile of every terrain volume is drawn as a lit column, from the
+/// volume's base to its top there (`append_volumes` in scene.cpp), so a digit mask's V is seen as a
+/// V and a floating volume floats, with air under it. Its faces wear the SAME red hatch as blocked
+/// ground (`kBlockedGroundTile`) -- one look for "this stops something" -- and the stripes and the
+/// light on each face show its edges, which a flat colour did not (a 6-tile wall read as one red
+/// card from the driver's seat). This is the vertex colour the hatch is multiplied by: a hair off
+/// white, so the hatch keeps its tones, and an exact value nothing else in a frame carries, which
+/// is how a test tells a volume's faces from the hatched GROUND quads.
+inline constexpr std::array<float, 3> kVolumeColour{1.0F, 0.97F, 0.97F};
+
+/// How much of its colour the ground keeps under a volume it can be driven under: the SHADE that
+/// tells a driver "something is over this tile, and it is not a wall".
+inline constexpr float kOverheadShade = 0.55F;
+
+/// Whether world tile (`tile_x`, `tile_y`) is under a volume that a unit on the ground passes:
+/// some volume is solid there, and the ground is not blocked (`ground_blocked`).
+[[nodiscard]] bool ground_overhead(std::span<const sim::PlacedVolume> volumes, int tile_x,
+                                   int tile_y) noexcept;
 
 } // namespace protekt::game

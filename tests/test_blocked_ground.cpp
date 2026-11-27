@@ -63,11 +63,15 @@ using Tiles = std::set<std::pair<int, int>>;
 }
 
 /// The world tiles whose ground quad is painted from atlas tile `name` (`test_site_ground.cpp`'s
-/// reading): a triangle whose three vertices all sample inside that tile, by its centroid.
+/// reading): a triangle whose three vertices all sample inside that tile, by its centroid. A
+/// terrain VOLUME's own faces wear the blocked hatch too since G15; they are the shape standing on
+/// the ground, not the ground, and carry `kVolumeColour`, so they are not counted here
+/// (`test_map_shapes.cpp` pins them).
 [[nodiscard]] Tiles painted_with(const game::Scene& scene, std::string_view name) {
     const game::UvRect rect = game::atlas_manifest().rect(name);
     const auto inside = [&](const game::SceneVertex& v) {
-        return v.u >= rect.u0 && v.u <= rect.u1 && v.v >= rect.v0 && v.v <= rect.v1;
+        return v.u >= rect.u0 && v.u <= rect.u1 && v.v >= rect.v0 && v.v <= rect.v1
+               && v.colour != game::kVolumeColour;
     };
     Tiles found;
     for (std::size_t i = 0; i + 2 < scene.vertices.size(); i += 3) {

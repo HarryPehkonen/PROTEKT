@@ -403,7 +403,7 @@ if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
                                         tests/test_synth.cpp tests/test_mixer.cpp
                                         tests/test_sounds.cpp tests/test_audio_out.cpp
                                         tests/test_pixels.cpp tests/test_atlas.cpp
-                                        tests/test_atlas_files.cpp tests/test_ground_look.cpp tests/test_ground_variants.cpp tests/test_site_ground.cpp tests/test_blocked_ground.cpp
+                                        tests/test_atlas_files.cpp tests/test_ground_look.cpp tests/test_ground_variants.cpp tests/test_site_ground.cpp tests/test_blocked_ground.cpp tests/test_map_shapes.cpp
                                         tests/test_map_cli.cpp tests/test_map_file.cpp tests/test_world_ground.cpp
                                         tests/test_fog.cpp tests/test_climate.cpp)
     target_link_libraries(protekt_tests PRIVATE protekt_app)

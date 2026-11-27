@@ -433,6 +433,8 @@ private:
     volume.mask_width = static_cast<int>(width);
     volume.mask_height = static_cast<int>(entry->rows.size());
     volume.mask_bits = 0;
+    volume.levels.clear();
+    bool digits = false;
     for (std::size_t ly = 0; ly < entry->rows.size(); ++ly) {
         const std::string& row = entry->rows[ly];
         if (row.size() != width) {
@@ -440,14 +442,24 @@ private:
             return false;
         }
         for (std::size_t lx = 0; lx < width; ++lx) {
-            if (row[lx] != '#' && row[lx] != '.') {
-                failure = {entry->line + 1 + static_cast<int>(ly), "a mask is # and . only"};
+            const char c = row[lx];
+            const bool digit = c >= '0' && c <= '9';
+            if (c != '#' && c != '.' && !digit) {
+                failure = {entry->line + 1 + static_cast<int>(ly),
+                           "a mask is # (full height), . (open) and 0-9 (a tile's height) only"};
                 return false;
             }
-            if (row[lx] == '#') {
+            digits = digits || digit;
+            volume.levels.push_back(static_cast<std::uint8_t>(c == '#' ? kMaskFullLevel
+                                                              : digit  ? c - '0'
+                                                                       : 0));
+            if (c == '#' || (digit && c != '0')) {
                 volume.mask_bits |= std::uint64_t{1} << (ly * width + lx);
             }
         }
+    }
+    if (!digits) {
+        volume.levels.clear(); // the old form: every solid tile is the whole volume
     }
     return true;
 }
@@ -552,11 +564,20 @@ std::string write_map(const MapDoc& map) {
                + "\nturned = " + (v.turned ? "true" : "false")
                + "\nbase = " + std::to_string(v.base) + "\ntop = " + std::to_string(v.top) + "\n";
         rows.clear();
+        // A digit mask is written in digits, an open tile as '.', except that a digit mask with
+        // no solid tile at all writes its first as '0', so it reads back as a digit mask.
+        bool first_open = v.mask_bits == 0;
         for (int ly = 0; ly < v.mask_height; ++ly) {
             std::string row;
             for (int lx = 0; lx < v.mask_width; ++lx) {
                 const auto bit = static_cast<unsigned>(ly * v.mask_width + lx);
-                row += ((v.mask_bits >> bit) & 1U) != 0 ? '#' : '.';
+                if (v.levels.empty()) {
+                    row += ((v.mask_bits >> bit) & 1U) != 0 ? '#' : '.';
+                    continue;
+                }
+                const int level = v.levels.at(bit);
+                row += level > 0 ? static_cast<char>('0' + level) : first_open ? '0' : '.';
+                first_open = false;
             }
             rows.push_back(row);
         }
@@ -719,10 +740,31 @@ std::vector<sim::PlacedVolume> placed_volumes(const MapDoc& map) {
         placed.x = v.x;
         placed.y = v.y;
         placed.turned = v.turned;
-        placed.volume.extent = sim::SolidMask{v.mask_width, v.mask_height, v.mask_bits};
         placed.volume.base = sim::Fixed::from_raw(v.base * sim::Fixed::kOne);
-        placed.volume.top = sim::Fixed::from_raw(v.top * sim::Fixed::kOne);
-        out.push_back(placed);
+        if (v.levels.empty()) {
+            // The old form, exactly as before G15: one volume, every solid tile the whole height.
+            placed.volume.extent = sim::SolidMask{v.mask_width, v.mask_height, v.mask_bits};
+            placed.volume.top = sim::Fixed::from_raw(v.top * sim::Fixed::kOne);
+            out.push_back(placed);
+            continue;
+        }
+        // A DIGIT MASK is laid down as one volume per digit it uses, lowest first: the tiles of
+        // that digit, from the base to `digit_top`. Every tile is in at most one of them, so the
+        // sim -- which already reads any number of volumes -- needs nothing new.
+        for (int level = 1; level <= kMaskFullLevel; ++level) {
+            std::uint64_t bits = 0;
+            for (std::size_t i = 0; i < v.levels.size(); ++i) {
+                if (v.levels[i] == level) {
+                    bits |= std::uint64_t{1} << i;
+                }
+            }
+            if (bits == 0) {
+                continue;
+            }
+            placed.volume.extent = sim::SolidMask{v.mask_width, v.mask_height, bits};
+            placed.volume.top = digit_top(v.base, v.top, level);
+            out.push_back(placed);
+        }
     }
     return out;
 }

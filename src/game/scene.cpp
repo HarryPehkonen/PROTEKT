@@ -187,6 +187,10 @@ void build_terrain(std::vector<SceneVertex>& out, const TerrainCache* cache, std
             const Vec3 p10{x1, cached_height_metres(cache, seed, tx + 1, ty), z0};
             const Vec3 p11{x1, cached_height_metres(cache, seed, tx + 1, ty + 1), z1};
             const Vec3 p01{x0, cached_height_metres(cache, seed, tx, ty + 1), z1};
+            // A slab overhead that a unit on the ground passes under SHADES the ground there
+            // (`ground_overhead`): open ground, darker, so the slab reads as up in the air.
+            const float shade
+                = !blocked && ground_overhead(volumes, tx, ty) ? kOverheadShade : 1.0F;
             const bool painted = blocked || site.has_value();
             const int orientation = painted ? 0 : orientation_index(terrain, tx, ty);
             const Vec3 normal = terrain_normal(p00, p10, p11, p01);
@@ -200,8 +204,9 @@ void build_terrain(std::vector<SceneVertex>& out, const TerrainCache* cache, std
                 // deployed site's own plating is not repainted by the weather.
                 const Vec3& gain = painted ? kNoGroundGain
                                            : look.ground_gain.at(static_cast<std::size_t>(terrain));
-                const Vec3 colour{base[0] * tint[0] * gain[0], base[1] * tint[1] * gain[1],
-                                  base[2] * tint[2] * gain[2]};
+                const Vec3 colour{base[0] * tint[0] * gain[0] * shade,
+                                  base[1] * tint[1] * gain[1] * shade,
+                                  base[2] * tint[2] * gain[2] * shade};
                 const auto uv = oriented_corner_uv(tile, orientation, static_cast<int>(k));
                 v.at(k)
                     = SceneVertex{corners.at(k), colour, 1.0F, uv.at(0), uv.at(1), 0.0F, normal};
@@ -438,6 +443,66 @@ void emit_turned_box(std::vector<SceneVertex>& out, float x, float z, float angl
                      const UvRect& tile) {
     emit_turned_prism(out, x, z, angle,
                       Prism{-across, across, back, back, front, front, y0, y1, y1}, colour, tile);
+}
+
+/// EVERY VOLUME, DRAWN AS ITS SHAPE (G15; G9's rule, an impassable thing with nothing drawn is a
+/// bug). Each solid tile of each terrain volume (`Scenario::volumes`) inside the meshed square is a
+/// lit box in `kVolumeColour`, one tile across, from the volume's BASE to its TOP above the ground
+/// under the tile's middle -- the very datum the bolt measures a volume from (`projectile.cpp`) --
+/// with the blocked hatch on every face, so the drawing is the shape the sim stops things by:
+///   * a `#`/`.` volume on the ground (the Proving Ground's kerb) is a block of its height;
+///   * a DIGIT mask (`app::digit_top`) is one volume per digit, so each tile stands to its own
+///     height and his V, or a taper, is seen as one;
+///   * a FLOATING volume (base above zero) has its underside at its base, with open air beneath:
+///     it floats, and the ground under a slab a tank fits under is shaded, not hatched
+///     (`ground_overhead`).
+/// A volume on the ground (base zero or below) is drawn down to the LOWEST corner of its tile, so a
+/// block on a slope meets the ground all round rather than hanging over its downhill side.
+void append_volumes(std::vector<SceneVertex>& out, const TerrainCache* cache, std::uint64_t seed,
+                    int centre_x, int centre_y, int radius,
+                    std::span<const sim::PlacedVolume> volumes) {
+    const auto units_metres = [](std::int64_t raw) {
+        return static_cast<float>(raw) / static_cast<float>(sim::Fixed::kOne)
+               * kMetresPerHeightUnit;
+    };
+    const auto middle = [](int tile) {
+        return sim::Fixed::from_raw(
+            static_cast<std::int32_t>((tile * sim::Fixed::kOne) + (sim::Fixed::kOne / 2)));
+    };
+    const Vec3 colour{kVolumeColour[0], kVolumeColour[1], kVolumeColour[2]};
+    const UvRect hatch = atlas_manifest().rect(kBlockedGroundTile);
+    for (const sim::PlacedVolume& placed : volumes) {
+        const sim::SolidMask& extent = placed.volume.extent;
+        const int wide = placed.turned ? extent.height : extent.width;
+        const int deep = placed.turned ? extent.width : extent.height;
+        for (int ty = std::max(placed.y, centre_y - radius - 1);
+             ty < std::min(placed.y + deep, centre_y + radius + 1); ++ty) {
+            for (int tx = std::max(placed.x, centre_x - radius - 1);
+                 tx < std::min(placed.x + wide, centre_x + radius + 1); ++tx) {
+                if (!sim::placed_solid_at(placed, tx, ty)) {
+                    continue;
+                }
+                const float datum
+                    = units_metres(sim::ground_height(seed, middle(tx), middle(ty)).raw);
+                const float lowest = std::min({cached_height_metres(cache, seed, tx, ty),
+                                               cached_height_metres(cache, seed, tx + 1, ty),
+                                               cached_height_metres(cache, seed, tx, ty + 1),
+                                               cached_height_metres(cache, seed, tx + 1, ty + 1)});
+                const float base = units_metres(placed.volume.base.raw);
+                const float y0
+                    = placed.volume.base.raw > 0 ? datum + base : std::min(datum, lowest) + base;
+                const float y1 = datum + units_metres(placed.volume.top.raw);
+                // A box in the world frame (angle 0): x across from the tile's west edge, z along
+                // from its north edge.
+                const float x = static_cast<float>(tx) * kMetresPerTile;
+                const float z = static_cast<float>(ty) * kMetresPerTile;
+                emit_turned_prism(out, x, z, 0.0F,
+                                  Prism{0.0F, kMetresPerTile, 0.0F, 0.0F, kMetresPerTile,
+                                        kMetresPerTile, y0, y1, y1},
+                                  colour, hatch);
+            }
+        }
+    }
 }
 
 /// One ring of a `emit_loft`: where it is in the unit's frame (`x` across, `y` over the ground, `z`
@@ -7851,6 +7916,8 @@ Scene build_scene(const sim::Sim& sim, const SceneOptions& options,
     }
 
     append_unit_shadows(scene.vertices, options, sim);
+    append_volumes(scene.vertices, options.terrain, options.seed, centre_x, centre_y,
+                   options.radius_tiles, sim.volumes());
     lap(&FrameTimings::sky_and_shadows_ms);
 
     std::vector<SiteCut> site_cuts; // the sites drawn this frame, and the height each was cut at
