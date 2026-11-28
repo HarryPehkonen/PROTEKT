@@ -582,6 +582,11 @@ std::vector<ShapePart> author_assault_tank() {
 /// and a SHORT STUBBY TUBE slanted up and forward at 45 degrees -- it lobs -- with a thicker collar
 /// at its mouth and the mouth's bore cut in it. Nothing stands outside the handlebars' 0.7 m, and
 /// the mortar's top stays under the 1.2 m the health bar is anchored at.
+///
+/// G17: Harri, "the mortar bike should be shorter than the APC". The collar's top WAS the bike's
+/// height, 1.101 m against the APC's 1.1 -- a millimetre. The tube and collar were redrawn
+/// shorter (0.5 + 0.2 m to 0.35 + 0.15 m along the same 45 degree line from the same breech), so
+/// the collar's top is 0.5 + (0.35 + 0.15 + 0.15) sin 45 = 0.9596 m: 140 mm under the APC.
 std::vector<ShapePart> author_mortar_bike() {
     std::vector<ShapePart> parts;
 
@@ -612,13 +617,13 @@ std::vector<ShapePart> author_mortar_bike() {
              false, 0.02F, ShapeRole::Metal);
 
     // THE TURRET GROUP. The mount, 0.5 m long and 0.44 m across, sunk into the frame; the tube,
-    // 0.2 m across and 0.5 m long, and the collar, 0.3 m across and 0.2 m long, both on the line
-    // from the breech (-0.2, 0.5) at 45 degrees.
+    // 0.2 m across and 0.35 m long, and the collar, 0.3 m across and 0.15 m long, both on the line
+    // from the breech (-0.2, 0.5) at 45 degrees (G17: were 0.5 and 0.2 long).
     constexpr float kElevation = 0.785398F;
     constexpr float kBreechAlong = -0.2F;
     constexpr float kBreechUp = 0.5F;
-    constexpr float kTubeLength = 0.5F;
-    constexpr float kCollarLength = 0.2F;
+    constexpr float kTubeLength = 0.35F;
+    constexpr float kCollarLength = 0.15F;
     constexpr float kTubeHalf = 0.1F;
     constexpr float kCollarHalf = 0.15F;
     const auto along_axis = [&](float from, float to, float half) {
@@ -646,18 +651,22 @@ std::vector<ShapePart> author_mortar_bike() {
 
 /// THE WALKER'S SHAPE, BODY ONLY. The machine seen from its right-hand side, front at the right.
 /// Its two legs -- the left the rear one and the right the front one, each a thigh and a shin
-/// ending in a broad flat foot -- are `walker_legs`, below, because they walk. Over the hips (1.7 m
+/// ending in a broad flat foot -- are `walker_legs`, below, because they walk. Over the hips (2.0 m
 /// up) a body 1.0 m long with sloped shoulders and a cockpit glass wrapped through both flanks, and
 /// a thin team-colour panel on its roof. The GUN ARM is not here: it elevates, so the mesh and the
 /// plate add it from the numbers in scene.hpp (`kWalkerGunFront`, `kWalkerGunTip`, ...). Legs are
 /// what says walker.
 std::vector<ShapePart> author_walker() {
     std::vector<ShapePart> parts;
-    // Slice H1: the hips stand at 1.7 m (were 1.0).
+    // Slice H1: the hips stand at 1.7 m (were 1.0). G17: at 2.0 m -- Harri, "the Walker should be
+    // taller" -- on legs 0.3 m longer (in the shin, `walker_legs`), so the roof panel's top, the
+    // machine's height, is 2.71 m: 0.91 m over the tallest other authored shape (the turret's
+    // 1.8) and 210 mm over the recycler's 2.5 in the sim's table (drawn, it is 10 m: reported).
+    //
     // The legs are NOT here (slice G): a leg that walks is different every frame, and this list is
     // written once. `walker_legs` makes them, and the mesh emits them before these parts.
-    constexpr float kHips = 1.7F;
-    // The body, 1.0 m by 0.76 m by 0.68 m, standing on the hips at 1.7 m; its front face is the gun
+    constexpr float kHips = 2.0F;
+    // The body, 1.0 m by 0.76 m by 0.68 m, standing on the hips at 2.0 m; its front face is the gun
     // arm's root (scene.hpp's kWalkerGunBottom/Top ride 0.2/0.36 m above the hips).
     constexpr float kBodyTop = kHips + 0.68F;
     add_part(parts,
@@ -992,10 +1001,12 @@ std::vector<ShapePart> walker_legs(const LegPose& front, const LegPose& rear) {
     constexpr float kLegHi = 0.4F;
     constexpr float kFootLo = 0.2F;
     constexpr float kFootHi = 0.44F;
-    constexpr float kHipTop = 1.75F; // the thigh's top, inside the body: it does not move
+    // G17: the hips rose 0.3 m (1.7 to 2.0), and the knee and the thigh's foot with them; the ankle
+    // and the foot stay on the ground, so the shin is 0.3 m longer.
+    constexpr float kHipTop = 2.05F; // the thigh's top, inside the body: it does not move
     constexpr float kAnkle = 0.2F;   // from here down the foot is one rigid sole
-    constexpr float kThighFoot = 1.0F;
-    constexpr float kKnee = 1.05F;
+    constexpr float kThighFoot = 1.3F;
+    constexpr float kKnee = 1.35F;
     // Between the hip and the ankle a point moves with its share of the foot's travel.
     const auto moved = [&](const Profile& authored, const LegPose& pose, float authored_along) {
         Profile out;

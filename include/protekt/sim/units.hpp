@@ -1059,9 +1059,13 @@ inline constexpr Fixed kFactoryBodyHeight = Fixed::from_raw(144 * Fixed::kOne);
 /// barrels and the walker's gun arm are not in the shape and are not counted: a barrel raised
 /// high can reach above its kind's height (reported in G16, not modelled). The game layer checks
 /// every authored kind against its shape (test_vehicle_height.cpp), so a model redrawn taller than
-/// this table fails a test, not a player. THE RECYCLER is not an authored shape: its drawn height
-/// is its cab roof, 1.25 m at the tank's scale (`kCabRoof` in `build_recycler`), drawn at
-/// `kRecyclerScale` (2): 2.5 m.
+/// this table fails a test, not a player. G17: the mortar bike's collar and the walker's legs were
+/// REDRAWN (the bike 140 mm under the APC, the walker 210 mm over this table's recycler), and these
+/// two numbers followed the drawing. THE RECYCLER is not an authored shape: its number is its cab
+/// roof, 1.25 m at the tank's scale (`kCabRoof` in `build_recycler`), at `kRecyclerScale` (2):
+/// 2.5 m. G17 MEASURED ITS MESH: the mobile recycler is ALSO drawn at `kBuildingModelScale` (4,
+/// `is_scaled_model`), so its drawn top is 10.03 m. This 2.5 m is therefore NOT its drawing --
+/// reported, not changed (raising it changes what a recycler fits under, and the map's hatch).
 ///
 /// A kind that NEVER MOVES (every building, the deployed recycler and scavenger, the deployed
 /// turret aside, the Power Lung) never asks the height rule as a mover: it keeps the body it had,
@@ -1077,7 +1081,7 @@ inline constexpr Fixed kFactoryBodyHeight = Fixed::from_raw(144 * Fixed::kOne);
     case UnitKind::HoverTank:
         return height_of_mm(1100); // the dorsal fin
     case UnitKind::MortarBike:
-        return height_of_mm(1101); // the mortar's collar, on its 45 degree tube (1.10104 m)
+        return height_of_mm(960); // the collar, on its 45 degree tube (0.95962 m; G17, was 1101)
     case UnitKind::RocketTank:
         return height_of_mm(1150);
     case UnitKind::Scavenger:
@@ -1089,7 +1093,7 @@ inline constexpr Fixed kFactoryBodyHeight = Fixed::from_raw(144 * Fixed::kOne);
     case UnitKind::AssaultTank:
         return height_of_mm(1580);
     case UnitKind::Walker:
-        return height_of_mm(2410); // the roof panel over the hips
+        return height_of_mm(2710); // the roof panel over the hips (G17: hips 2.0 m, was 2410)
     case UnitKind::Apc:            // the turret's roof
     case UnitKind::Bomber:         // both 1.1 m, each its own drawn top
         return height_of_mm(1100);

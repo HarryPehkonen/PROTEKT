@@ -89,7 +89,7 @@ constexpr float kAssaultWasTopMetres = 1.543F; ///< and what it was
 // (the box was as wide as a tank), and 1.10 m to the top of the collar.
 constexpr float kMortarLengthMetres = 1.96F;
 constexpr float kMortarWidthMetres = 0.7F;
-constexpr float kMortarHeightMetres = 1.1F;
+constexpr float kMortarHeightMetres = 0.96F; // G17: the collar redrawn lower (was 1.1)
 constexpr float kMortarWasLongMetres = 1.4F;
 constexpr float kMortarWasWideMetres = 1.2F;
 constexpr float kMortarWasHighMetres = 1.14F;
@@ -99,7 +99,7 @@ constexpr float kMortarWasHighMetres = 1.14F;
 // 1.71 m to the top of the roof panel; the gun arm (to 1.8 m) is not a part.
 constexpr float kWalkerBodyMetres = 2.0F;
 constexpr float kWalkerWidthMetres = 0.88F;
-constexpr float kWalkerHeightMetres = 2.41F; // was 1.71 before slice H1 (taller, 1.85x a tank)
+constexpr float kWalkerHeightMetres = 2.71F; // G17 (was 2.41; 1.71 before slice H1)
 constexpr float kWalkerGunTipMetres = 1.8F;
 constexpr float kWalkerWasHighMetres = 1.739F;
 constexpr float kWalkerWasWideMetres = 0.78F;
@@ -1178,7 +1178,8 @@ TEST(MortarBikeFromShape, ThePlateIsTheShapeSeenSideOn) {
     EXPECT_EQ(box.width(), 70) << "cells, fitted by length: the 1.96 m from tyre to tyre";
     EXPECT_EQ(box.first_col, 1);
     EXPECT_EQ(box.last_col, 70);
-    EXPECT_NEAR(static_cast<float>(box.height()), 39.0F, 1.0F) << "cells, 1.1 m at 34.7 per metre";
+    EXPECT_NEAR(static_cast<float>(box.height()), 34.0F, 1.0F)
+        << "cells, 0.96 m at 34.7 per metre (G17: was 39, 1.1 m)";
     EXPECT_EQ(box.last_row, static_cast<int>(kIconGround)) << "the wheels stand on the ground line";
 }
 
@@ -1193,9 +1194,12 @@ TEST(MortarBikeFromShape, TheMeshIsTheShapeInMetres) {
 
 TEST(MortarBikeFromShape, ItIsABikeAndNoLongerTheBoxItWas) {
     // Measured before it had a shape: 1.400 m long, 1.200 m across, 1.140 m high, a low wide box.
-    // The height is kept; the plate's two wheels in line make it longer and a good deal narrower.
+    // The plate's two wheels in line make it longer and a good deal narrower. G17: and no longer
+    // as tall as the box -- Harri, "the mortar bike should be shorter than the APC" -- the collar
+    // was redrawn lower, and the mesh's top is a decimetre or more under the APC's 1.1 m.
     const MeshBox mesh = mesh_of(UnitKind::MortarBike);
-    EXPECT_NEAR(mesh.high.at(1), kMortarWasHighMetres, 0.06F) << "metres, as tall as it was";
+    EXPECT_LT(mesh.high.at(1), kMortarWasHighMetres - 0.15F) << "metres, shorter than it was";
+    EXPECT_LT(mesh.high.at(1), kApcHeightMetres - 0.1F) << "metres, a decimetre under the APC";
     EXPECT_GT(mesh.along(), kMortarWasLongMetres + 0.4F) << "metres, longer than the box";
     EXPECT_LT(mesh.across(), kMortarWasWideMetres - 0.4F) << "metres, narrower than the box";
 }
@@ -1281,8 +1285,8 @@ TEST(WalkerFromShape, ThePlateIsTheShapeSeenSideOnPlusItsGunArm) {
     EXPECT_EQ(box.width(), 70) << "cells, rear foot to the gun's tip (2.8 m)";
     EXPECT_EQ(box.first_col, 1);
     EXPECT_EQ(box.last_col, 70);
-    EXPECT_NEAR(static_cast<float>(box.height()), 60.0F, 1.0F)
-        << "cells, 2.41 m at 25 per metre (was 43)";
+    EXPECT_NEAR(static_cast<float>(box.height()), 68.0F, 1.0F)
+        << "cells, 2.71 m at 25 per metre (G17: was 60, 2.41 m; 43 before H1)";
     EXPECT_EQ(box.last_row, static_cast<int>(kIconGround)) << "the feet stand on the ground line";
 }
 
@@ -1307,17 +1311,17 @@ TEST(WalkerFromShape, ItIsTallerThanItWasAndStandsOverATankTheGunIsAsLongAndNoWi
 }
 
 TEST(WalkerFromShape, TheHipsAreRaisedAndTheGunArmRidesTheBodyAtItsOwnHeightAboveTheHull) {
-    // Hips at 1.7 m (were 1.0); the arm's axis is 0.2..0.36 m above the hips' height... that is,
-    // the same 0.2 / 0.36 above the body's floor as before.
-    EXPECT_NEAR(kWalkerGunBottom, 1.9F, 0.001F);
-    EXPECT_NEAR(kWalkerGunTop, 2.06F, 0.001F);
+    // Hips at 2.0 m (G17; 1.7 in H1, 1.0 before); the arm's axis is 0.2..0.36 m above the hips'
+    // height... that is, the same 0.2 / 0.36 above the body's floor as before.
+    EXPECT_NEAR(kWalkerGunBottom, 2.2F, 0.001F);
+    EXPECT_NEAR(kWalkerGunTop, 2.36F, 0.001F);
     float hull_floor = 99.0F;
     for (const ShapePart& part : shape_of(UnitKind::Walker)) {
         if (part.role == ShapeRole::Hull) {
             hull_floor = std::min(hull_floor, up_span(part).at(0));
         }
     }
-    EXPECT_NEAR(hull_floor, 1.7F, 0.001F) << "the body stands on its hips at 1.7 m";
+    EXPECT_NEAR(hull_floor, 2.0F, 0.001F) << "the body stands on its hips at 2.0 m";
     EXPECT_NEAR(kWalkerGunBottom - hull_floor, 0.2F, 0.001F);
     EXPECT_NEAR(kWalkerGunTop - hull_floor, 0.36F, 0.001F);
 }
@@ -1358,17 +1362,19 @@ TEST(WalkerFromShape, LegsAreWhatSaysWalkerTwoFeetOnOppositeSidesWithAGapBetween
     EXPECT_TRUE(shape_covers(UnitKind::Walker, -0.65F, 0.1F)) << "the rear foot";
     EXPECT_TRUE(shape_covers(UnitKind::Walker, 0.65F, 0.1F)) << "the front foot";
     EXPECT_FALSE(shape_covers(UnitKind::Walker, 0.0F, 0.5F)) << "daylight between the legs";
-    EXPECT_TRUE(shape_covers(UnitKind::Walker, 0.0F, 2.0F) == false) << "the cockpit glass is cut";
+    EXPECT_TRUE(shape_covers(UnitKind::Walker, 0.0F, 2.3F) == false)
+        << "the cockpit glass is cut (G17: 0.3 m higher with the hips)";
 }
 
 TEST(WalkerFromShape, TheGunArmIsOnThePlateAndNotInTheShape) {
+    // G17: the arm rode up 0.3 m with the hips (its axis 1.98 to 2.28 m).
     const IconMask& mask = kind_icon(UnitKind::Walker);
-    EXPECT_FALSE(shape_covers(UnitKind::Walker, 1.4F, 1.98F));
-    EXPECT_EQ(mask.at(plate_row(1.98F, kWalkerReach)).at(plate_col(1.4F, -1.0F, kWalkerReach)), '#')
+    EXPECT_FALSE(shape_covers(UnitKind::Walker, 1.4F, 2.28F));
+    EXPECT_EQ(mask.at(plate_row(2.28F, kWalkerReach)).at(plate_col(1.4F, -1.0F, kWalkerReach)), '#')
         << "the arm, level, 0.9 m out from the body's front face";
-    EXPECT_EQ(mask.at(plate_row(1.98F, kWalkerReach)).at(plate_col(1.7F, -1.0F, kWalkerReach)), '#')
+    EXPECT_EQ(mask.at(plate_row(2.28F, kWalkerReach)).at(plate_col(1.7F, -1.0F, kWalkerReach)), '#')
         << "and near its tip";
-    EXPECT_EQ(mask.at(plate_row(2.3F, kWalkerReach)).at(plate_col(1.4F, -1.0F, kWalkerReach)), '.')
+    EXPECT_EQ(mask.at(plate_row(2.6F, kWalkerReach)).at(plate_col(1.4F, -1.0F, kWalkerReach)), '.')
         << "the sky over the arm";
 }
 
@@ -1387,8 +1393,9 @@ TEST(WalkerFromShape, TheGunArmTurnsAndElevatesAndTheShapeDoesNeither) {
         const BodyVertex& v = level.at(i);
         // The arm's root sits on the body's front face (0.5 m, and the first rings sit up to 0.04 m
         // ahead of it): a vertex there is either's.
-        if (std::abs(v.along - 0.5F) < 0.04F && std::abs(v.across) < 0.1F && v.up > 1.85F
-            && v.up < 2.1F) {
+        // G17: the arm's window rose 0.3 m with the hips (was 1.85 .. 2.1).
+        if (std::abs(v.along - 0.5F) < 0.04F && std::abs(v.across) < 0.1F && v.up > 2.15F
+            && v.up < 2.4F) {
             continue;
         }
         bool in_shape = false;

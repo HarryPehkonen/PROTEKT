@@ -387,7 +387,8 @@ TEST(MapShapes, AFloatingSlabIsDrawnFloating) {
     // base), and the ground under it is not the wall hatch.
     std::string text = app::write_map(app::generate_map(3, 24));
     // G16: the base was 80, "a tank fits under"; the tallest vehicle (the recycler, 2.5 m, its head
-    // at 8 + 80 = 88) does not, and the hatch is asked for the tallest. 96 (3 m) clears every one.
+    // at 8 + 80 = 88) does not, and the hatch is asked for the tallest. 96 (3 m) clears every one
+    // -- G17: the tallest is now the walker, 2.71 m, its head at 8 + 86.72 = 94.72, still under.
     text += volume_text(6, 6, 96, 120, {"####", "####"});
     const app::MapDoc map = parsed(text);
     const world::ScopedGround guard(app::map_ground(map));
@@ -402,7 +403,7 @@ TEST(MapShapes, AFloatingSlabIsDrawnFloating) {
     EXPECT_NEAR(it->second.top - datum, 120.0F * game::kMetresPerHeightUnit, 1e-3F);
     EXPECT_FALSE(
         sim::volume_stops(sim.volumes().at(0).volume, sim::Fixed::zero(), sim::tallest_body()))
-        << "every vehicle fits under 96 units (the tallest's head is at 88)";
+        << "every vehicle fits under 96 units (the tallest's head is at 94.72, G16 88)";
     EXPECT_FALSE(game::ground_blocked(sim.volumes(), 7, 7));
     EXPECT_TRUE(game::ground_overhead(sim.volumes(), 7, 7));
 }
