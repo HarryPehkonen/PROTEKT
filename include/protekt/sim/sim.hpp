@@ -127,9 +127,12 @@ protected:
 /// mover always passes its own). The default is the tallest vehicle's (`tallest_body`): with no
 /// unit named, the question is whether the building refuses SOME vehicle there. Every building's
 /// volume stands on the ground, so for a grounded unit the answer is the same at any body height.
+/// G18: and FROM A FLOOR, `floor` (`span_floor_of` the asker's kind): the ride height by default,
+/// an aircraft's flight altitude for an aircraft -- which is above every roof, so no building
+/// stops one.
 [[nodiscard]] bool building_stops_units(std::span<const Unit> units, int tile_x, int tile_y,
-                                        Fixed lift = Fixed::zero(),
-                                        Fixed body = tallest_body()) noexcept;
+                                        Fixed lift = Fixed::zero(), Fixed body = tallest_body(),
+                                        Fixed floor = kRideHeight) noexcept;
 
 /// The living Constructor of `site`'s own side that is within `kBuildReachTiles` of its footprint
 /// (the nearest point of the rectangle), lowest id first; null when there is none. THE one answer

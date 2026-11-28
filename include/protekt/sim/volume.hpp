@@ -90,11 +90,32 @@ struct PlacedVolume {
 /// Nothing in it names a kind: a taller kind is stopped by more because its `body` is larger, and
 /// for no other reason. A building (base zero, a roof of 238 or more) stops every grounded unit, as
 /// it always did.
-[[nodiscard]] constexpr bool volume_stops(const Volume& volume, Fixed lift, Fixed body) noexcept {
-    const std::int64_t feet = static_cast<std::int64_t>(kRideHeight.raw) + lift.raw;
+///
+/// G18: and FROM A FLOOR, `floor` (`span_floor_of(kind)`): where the span starts before any lift.
+/// The ride height for every ground kind -- the default, every caller before G18 -- and the flight
+/// ALTITUDE for an aircraft. The same rule; an aircraft's span just starts higher.
+[[nodiscard]] constexpr bool volume_stops(const Volume& volume, Fixed lift, Fixed body,
+                                          Fixed floor = kRideHeight) noexcept {
+    const std::int64_t feet = static_cast<std::int64_t>(floor.raw) + lift.raw;
     const std::int64_t head = feet + body.raw;
     return feet < volume.top.raw && head > volume.base.raw;
 }
+
+/// THE MAP'S SOLID GROUND AS A SPAN (G18). A `[solid]` tile (`world::ground_solid`; the Proving
+/// Ground's rockfall) was the one thing that stopped a unit with NO height at all: whatever the
+/// unit's lift or body, it was a wall. That cannot be asked by the one height rule, and an aircraft
+/// must cross it ("the rockfall"), so it is given a span: from the ground to the TALLEST ROOF IN
+/// THE GAME, the Factory's (`volume_of(Factory).top`, 584 units, 18.25 m). It is drawn as no taller
+/// than its terrain, so the number is not a drawing: it is "as solid as the tallest building",
+/// which still stops every ground unit at every lift it reaches on an authored map (a jump peaks 55
+/// above the ride height; the Proving Ground's steepest step between neighbouring corners is 170
+/// units). Its extent is unused: the raster says which tiles.
+inline constexpr Volume kSolidGround{SolidMask{}, Fixed::zero(), volume_of(UnitKind::Factory).top};
+
+/// THE ALTITUDE CLEARS THE TALLEST THING (G18): every aircraft's span starts above the Factory's
+/// roof, which is the solid ground's top too. Raise a roof past it and this fails, not a player.
+static_assert(span_floor_of(UnitKind::Bomber).raw > kSolidGround.top.raw,
+              "the bomber must fly above the tallest authored thing: restate the altitude");
 
 /// Whether the TERRAIN volume `placed` is solid on world tile (`tx`, `ty`): its extent, laid on the
 /// world.

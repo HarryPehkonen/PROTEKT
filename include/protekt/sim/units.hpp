@@ -1036,6 +1036,9 @@ static_assert(kGravityHeightRaw == 22859, "g in height units moved: restate it")
 /// unit only while it is between the two (`body_top`). G16: what a VOLUME stops is asked of the
 /// kind's own drawn height instead (`body_height_of`, below); the bolt's band is still this one for
 /// every kind, which is taller than every vehicle drawn but the walker -- reported, not changed.
+/// G18: the ride height is where a GROUND unit's span starts; an aircraft's starts at its flight
+/// altitude instead (`span_floor_of`, below). The bolt's band does not know that yet: a bolt still
+/// hits a bomber between 8 and 65.6, as if it were on the ground -- reported, not changed.
 inline constexpr Fixed kRideHeight = Fixed::from_raw(8 * Fixed::kOne);
 inline constexpr Fixed kBodyHeight = Fixed::from_raw(576 * Fixed::kOne / 10); ///< 57.6 units
 inline constexpr Fixed kFactoryBodyHeight = Fixed::from_raw(144 * Fixed::kOne);
@@ -1112,6 +1115,48 @@ inline constexpr Fixed kFactoryBodyHeight = Fixed::from_raw(144 * Fixed::kOne);
     default:
         return kBodyHeight;
     }
+}
+
+/// THE FLIGHT ALTITUDE (G18). Harri: "the Bomber should fly over pretty much everything. I can't
+/// think of anything that could be blocking a bomber." An aircraft is not a tall tank: it CROSSES
+/// the terrain rather than driving on it, so what it has is an ALTITUDE, not a taller body.
+///
+/// WHAT IT IS: how far above THE GROUND UNDER IT an aircraft's body starts, in height units (32 to
+/// the metre) -- the same frame every volume's base and top and every unit's ride height are
+/// measured in (volume.hpp), so it follows the terrain the way a ground unit's ride height does.
+/// ZERO for every kind that is not an aircraft: those drive on the ground, at `kRideHeight`.
+///
+/// THE ONE AIRCRAFT TODAY IS THE BOMBER: 20 m (640 units). WHAT IT CLEARS AND BY HOW MUCH: the
+/// tallest authored thing in the game is the Factory's roof (`volume_of(Factory).top`, 584 units,
+/// 18.25 m), and the map's heightless solid ground is given that same top (`kSolidGround`,
+/// volume.hpp): 640 - 584 = 56 units, 1.75 m, over both. Every other building's roof is 238.4
+/// (7.45 m), 401.6 under it; the Proving Ground's kerb is 40. The static_assert in volume.hpp
+/// keeps the altitude above the tallest roof, and test_bomber_flies.cpp prints the whole table.
+/// These are the SIM's roofs. The drawn buildings are taller than their roofs (four times their
+/// authored models): of the fourteen test_building_scale measures, the tallest, the Antenna, is
+/// drawn 18.18 m, under the altitude; the Factory's drawing has not been measured against it.
+[[nodiscard]] constexpr Fixed flight_altitude_of(UnitKind kind) noexcept {
+    switch (kind) {
+    case UnitKind::Bomber:
+        return height_of_mm(20000);
+    default:
+        return Fixed::zero();
+    }
+}
+
+/// Whether `kind` is an AIRCRAFT: it has a flight altitude (`flight_altitude_of`).
+[[nodiscard]] constexpr bool flies(UnitKind kind) noexcept {
+    return flight_altitude_of(kind).raw > 0;
+}
+
+/// WHERE A UNIT'S SPAN STARTS (G18), above the ground under it and before any `lift` (a jump): the
+/// ride height for every ground kind, the FLIGHT ALTITUDE for an aircraft. This is the whole of
+/// what flying changes. The height rule is still the one rule (`volume_stops`): a unit occupies
+/// [floor + lift, floor + lift + body) and a volume stops it where that overlaps the volume's
+/// span. An aircraft's span simply STARTS at its altitude instead of at the ground -- no second
+/// rule, and nothing in the mover names a kind.
+[[nodiscard]] constexpr Fixed span_floor_of(UnitKind kind) noexcept {
+    return flies(kind) ? flight_altitude_of(kind) : kRideHeight;
 }
 
 /// The TALLEST body of any kind that MOVES (`body_height_of`, over the kinds `profile` calls

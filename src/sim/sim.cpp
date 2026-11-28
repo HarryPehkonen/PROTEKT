@@ -245,18 +245,25 @@ struct WorldGround {
     /// span overlaps the unit's (`volume_stops`). Only a ground with volumes or buildings on it
     /// reads it, and `ground_of` -- the one way such a ground is made -- takes it from the asker.
     Fixed body{};
+    /// WHERE the asking unit's span STARTS (G18, `span_floor_of` its kind): the ride height for a
+    /// ground unit -- the default, so a ground nobody asks as a unit is a ground unit's -- and the
+    /// flight altitude for an aircraft. Every height question below passes it to the one rule
+    /// (`volume_stops`); nothing here names a kind.
+    Fixed floor{kRideHeight};
     [[nodiscard]] std::int64_t factor(int tile_x, int tile_y) const noexcept {
-        if (buildings && building_stops_units(units, tile_x, tile_y, lift, body)) {
+        if (buildings && building_stops_units(units, tile_x, tile_y, lift, body, floor)) {
             return 0;
         }
         for (const PlacedVolume& placed : terrain) {
             if (placed_solid_at(placed, tile_x, tile_y)
-                && volume_stops(placed.volume, lift, body)) {
+                && volume_stops(placed.volume, lift, body, floor)) {
                 return 0;
             }
         }
-        if (world::ground_solid(tile_x, tile_y)) {
-            return 0; // a map's solid mask stops a unit whatever its terrain says
+        // A map's solid mask stops a unit whatever its terrain says -- at the heights G18 gives it
+        // (`kSolidGround`, ground to the tallest roof), asked by the same rule as every volume.
+        if (world::ground_solid(tile_x, tile_y) && volume_stops(kSolidGround, lift, body, floor)) {
+            return 0;
         }
         const world::Tile tile = world::sample(seed, tile_x, tile_y);
         return terrain_speed_factor(tile.terrain).raw;
@@ -279,7 +286,13 @@ struct WorldGround {
     const bool buildings = std::any_of(units.begin(), units.end(), [](const Unit& unit) {
         return unit.alive && has_footprint(unit.kind);
     });
-    return WorldGround{seed, units, buildings, terrain, lift, body_height_of(asker.kind)};
+    return WorldGround{seed,
+                       units,
+                       buildings,
+                       terrain,
+                       lift,
+                       body_height_of(asker.kind),
+                       span_floor_of(asker.kind)};
 }
 
 /// Where a position-bearing order sends the unit; unused points are the origin, as they always
@@ -2417,6 +2430,7 @@ void shove_step(std::vector<Unit>& units, const WorldGround& ground, Unit& unit,
     WorldGround carried = ground;
     carried.lift = other->lift;
     carried.body = body_height_of(other->kind);
+    carried.floor = span_floor_of(other->kind);
     for (const Step& c : carry) {
         if (can_stand(carried, other->x.raw + c.dx, other->y.raw + c.dy)) {
             other->x = Fixed::from_raw(static_cast<std::int32_t>(other->x.raw + c.dx));
@@ -3630,13 +3644,14 @@ bool building_blocks(std::span<const Unit> units, int tile_x, int tile_y) noexce
 }
 
 bool building_stops_units(std::span<const Unit> units, int tile_x, int tile_y, Fixed lift,
-                          Fixed body) noexcept {
-    return std::any_of(units.begin(), units.end(), [tile_x, tile_y, lift, body](const Unit& unit) {
-        return unit.alive && has_footprint(unit.kind)
-               && !(has_drivable_footprint(unit.kind) && !under_construction(unit))
-               && building_solid_at(unit, tile_x, tile_y)
-               && volume_stops(volume_of(unit.kind), lift, body);
-    });
+                          Fixed body, Fixed floor) noexcept {
+    return std::any_of(
+        units.begin(), units.end(), [tile_x, tile_y, lift, body, floor](const Unit& unit) {
+            return unit.alive && has_footprint(unit.kind)
+                   && !(has_drivable_footprint(unit.kind) && !under_construction(unit))
+                   && building_solid_at(unit, tile_x, tile_y)
+                   && volume_stops(volume_of(unit.kind), lift, body, floor);
+        });
 }
 
 const Unit* lung_of(std::span<const Unit> units, const Unit& host) noexcept {

@@ -353,6 +353,7 @@ if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
         tests/test_solid_mask.cpp
         tests/test_volume.cpp
         tests/test_vehicle_height.cpp
+        tests/test_bomber_flies.cpp
         tests/test_sim.cpp
         tests/test_footprint.cpp
         tests/test_driven.cpp
